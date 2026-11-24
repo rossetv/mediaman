@@ -290,21 +290,23 @@ def _load_recommendations(
 
 
 def load_own_picks(
-    conn: sqlite3.Connection, emails: Iterable[str]
+    conn: sqlite3.Connection, emails: Iterable[str], now: datetime
 ) -> dict[str, list[NewsletterRecItem]]:
-    """The latest own picks of each address that is exactly one person's, by address.
+    """The latest own picks, not over 28 days old, of each address that is exactly one
+    person's, by address.
 
     An address of nobody, or of more than one person, has none. A card holds neither the
     pick's id nor the titles that led to it: the email and its links can be passed on.
     """
     found: dict[str, list[NewsletterRecItem]] = {}
+    oldest = (now - timedelta(days=28)).strftime("%Y-%m-%d")
     for email in emails:
         people = conn.execute(
             "SELECT username FROM admin_users WHERE email = ? COLLATE NOCASE", (email.strip(),)
         ).fetchall()
         if len(people) == 1:
             picks = fetch_picks(conn, people[0]["username"], latest_only=True)
-            found[email] = [_rec_item(p, None) for p in picks]
+            found[email] = [_rec_item(p, None) for p in picks if str(p["batch_id"]) >= oldest]
     return found
 
 

@@ -13,6 +13,7 @@ from requests.exceptions import RequestException
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 from mediaman.services.infra import SafeHTTPError
+from mediaman.services.watch_catalog import SeenTitles
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
 from .render import _build_subject
@@ -261,9 +262,15 @@ def _send_to_subscribers(
         # A subscriber already sent some items in an earlier attempt gets only the rest.
         items = [i for i in scheduled_items if i.get("_action_id") not in delivered.get(email, ())]
         own = (own_picks or {}).get(email, [])
-        own_titles = {(p["media_type"], p["tmdb_id"]) for p in own if p["tmdb_id"]}
+        seen = SeenTitles()
+        for i in own:
+            seen.add(i["media_type"], i["tmdb_id"], i["title"], None)
         recs = [
-            *(i for i in this_week_items if (i["media_type"], i["tmdb_id"]) not in own_titles),
+            *(
+                i
+                for i in this_week_items
+                if seen.add(i["media_type"], i["tmdb_id"], i["title"], None)
+            ),
             *own,
         ]
         if (scheduled_items or own_picks) and not items and not recs:

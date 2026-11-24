@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -189,6 +189,10 @@ def test_a_recommendations_only_newsletter_has_a_plain_subject(conn):
     assert outbox.subject["alice@example.com"] == "Mediaman Weekly Report"
 
 
+def _days_ago(days: int) -> str:
+    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+
 def _person(conn, username: str, email: str | None) -> None:
     conn.execute(
         "INSERT INTO admin_users (username, password_hash, created_at, email)"
@@ -203,9 +207,11 @@ def test_each_subscriber_gets_their_own_picks_and_the_shared_ones_and_no_one_els
     _person(conn, "bo", "bob@example.com")
     insert_suggestion(conn, title="SharedPick", batch_id="b1")
     insert_suggestion(conn, title="HouseholdPick", category="personal", batch_id="b1")
-    insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5, because_of='["AlsFilm"]')
-    insert_user_pick(conn, "al", title="AlsOldPick", batch_id="2025-01-01")
-    insert_user_pick(conn, "bo", title="BosPick", batch_id="2026-02-01")
+    insert_user_pick(
+        conn, "al", title="AlsPick", batch_id=_days_ago(3), tmdb_id=5, because_of='["AlsFilm"]'
+    )
+    insert_user_pick(conn, "al", title="AlsOldPick", batch_id=_days_ago(9))
+    insert_user_pick(conn, "bo", title="BosPick", batch_id=_days_ago(1))
     outbox = _Outbox()
 
     outbox.scan(conn)
@@ -252,6 +258,19 @@ def test_picks_of_one_person_send_no_empty_email_to_the_others(conn):
     assert outbox.sent == {"alice@example.com": 1}
 
 
+def test_own_picks_over_28_days_old_are_neither_mailed_nor_worth_an_email(conn):
+    _person(conn, "al", "alice@example.com")
+    _person(conn, "bo", "bob@example.com")
+    insert_user_pick(conn, "al", title="AlsPick", batch_id=_days_ago(29))
+    insert_user_pick(conn, "bo", title="BosPick", batch_id=_days_ago(27))
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    assert outbox.sent == {"bob@example.com": 1}
+    assert "BosPick" in outbox.html["bob@example.com"]
+
+
 def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
     _person(conn, "al", "alice@example.com")
     insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5)
@@ -264,10 +283,11 @@ def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
     assert (payload["title"], payload["tmdb"], payload["sid"]) == ("AlsPick", 5, None)
 
 
-def test_a_title_among_both_the_own_and_the_shared_picks_is_shown_once(conn):
+@pytest.mark.parametrize("tmdb_id", [5, None])
+def test_a_title_among_an_own_batch_and_a_later_shared_one_is_shown_once(conn, tmdb_id):
     _person(conn, "al", "alice@example.com")
-    insert_suggestion(conn, title="BothPick", tmdb_id=5, batch_id="b1")
-    insert_user_pick(conn, "al", title="BothPick", tmdb_id=5)
+    insert_suggestion(conn, title="BothPick", tmdb_id=5, batch_id=_days_ago(0))
+    insert_user_pick(conn, "al", title="BothPick", tmdb_id=tmdb_id, batch_id=_days_ago(8))
     outbox = _Outbox()
 
     outbox.scan(conn)
