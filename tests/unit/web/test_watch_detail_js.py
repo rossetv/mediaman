@@ -533,8 +533,11 @@ def test_a_library_title_shows_the_banners_picture_then_the_backdrop_then_the_po
     assert out["poster"]["end"] == stand_in
 
 
-def test_art_that_is_no_wide_picture_gives_way_to_the_poster_as_on_the_banner() -> None:
-    assert _run("pictures")["narrow"]["end"] == {
+def test_art_that_is_no_wide_picture_gives_way_to_the_backdrop_before_the_poster() -> None:
+    out = _run("pictures")
+
+    assert out["unfit"]["end"] == {"art": BACKDROP, "fill": None, "poster": None, "loaded": True}
+    assert out["unfitBoth"]["end"] == {
         "art": None,
         "fill": POSTER,
         "poster": POSTER,

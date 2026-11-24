@@ -1073,7 +1073,8 @@ const scenarios = {
     const film = Object.assign({}, LIB_MOVIE, { poster_url: '/api/poster/120' });
     const out = {};
     for (const [name, steps] of Object.entries({
-      plex: ['wide'], tmdb: ['failed', 'wide'], poster: ['failed', 'failed'], narrow: ['narrow'],
+      plex: ['wide'], tmdb: ['failed', 'wide'], poster: ['failed', 'failed'],
+      unfit: ['narrow', 'wide'], unfitBoth: ['narrow', 'narrow'],
     })) {
       const p = load({ routes: { '/api/watch/title/movie-120': film } });
       p.run();

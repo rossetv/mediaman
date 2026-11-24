@@ -538,7 +538,7 @@
     return [key && '/api/poster/' + key[1] + '?kind=art', safePath(d.backdrop_url)].filter(Boolean);
   }
 
-  /* The first wide picture that loads, else the poster as a poster. */
+  /* The first picture that loads and is wide, else the poster as a poster. */
   function showPictures(d) {
     var wide = widePictures(d);
     var last = safePath(d.poster_url);
@@ -555,7 +555,7 @@
       art.removeAttribute('data-broken');
       art.onload = function () {
         // Loaded but marked: no wide picture (broken-poster.js).
-        if (art.hasAttribute('data-broken')) { showPoster(last); return; }
+        if (art.hasAttribute('data-broken')) { tryNext(); return; }
         hide(heroSkel, true);
         art.classList.add('is-loaded');
       };
