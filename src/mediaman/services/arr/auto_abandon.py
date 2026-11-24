@@ -25,6 +25,7 @@ from mediaman.core.audit import security_event
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_sonarr_from_db
 from mediaman.services.arr.fetcher._searching_since import forget_searching_since
+from mediaman.services.arr.state import missing_episodes
 from mediaman.services.infra import SafeHTTPError, get_bool_setting
 
 logger = logging.getLogger(__name__)
@@ -172,13 +173,15 @@ def _abandon_movie_with_audit(
         forget_searching_since(conn, "radarr", decision.arr_id)
 
 
-def _monitored_seasons(
+def _stuck_seasons(
     conn: sqlite3.Connection, secret_key: str, decision: _AbandonDecision
 ) -> list[int]:
-    """Return the season numbers Sonarr has monitored for the series, sorted.
+    """Return the monitored season numbers with an aired episode missing, sorted.
 
-    Returns ``[]`` when Sonarr is not configured, the series cannot be
-    read or does not show zero episode files, so the caller skips the abandon rather than guessing seasons.
+    A season still to air is not stuck, and Specials are monitored on purpose: both stay
+    monitored, as the Abandon dialog leaves them by default. Returns ``[]`` when Sonarr is
+    not configured, the series cannot be read or does not show zero episode files, so the
+    caller skips the abandon rather than guessing seasons.
     """
     client = build_sonarr_from_db(conn, secret_key)
     if client is None:
@@ -209,6 +212,8 @@ def _monitored_seasons(
         and s.get("monitored")
         and isinstance(s.get("seasonNumber"), int)
         and not isinstance(s.get("seasonNumber"), bool)
+        and s["seasonNumber"] > 0
+        and missing_episodes(s) > 0
     )
 
 
@@ -218,12 +223,11 @@ def _abandon_series_with_audit(
     decision: _AbandonDecision,
     item: Mapping[str, object],
 ) -> None:
-    """Emit the audit row, then abandon the series' positive-numbered seasons.
+    """Emit the audit row, then abandon the series' stuck seasons.
 
-    Series with no positive-numbered seasons in the queue are skipped
-    (Sonarr only knows about specials there). SECURITY: ``security_event``
-    is called *strictly before* the destructive ``abandon_seasons`` —
-    see the module docstring.
+    A series with none (only specials, or nothing aired missing) is skipped.
+    SECURITY: ``security_event`` is called *strictly before* the destructive
+    ``abandon_seasons`` — see the module docstring.
     """
     # Late import breaks the otherwise-circular dependency between
     # auto_abandon and the abandon service (which itself imports
@@ -240,7 +244,7 @@ def _abandon_series_with_audit(
         seasons = sorted({n for n in (_parse_season_number(ep) for ep in _episodes) if n > 0})
     else:
         # A series still searching has no queue rows to read seasons from.
-        seasons = [n for n in _monitored_seasons(conn, secret_key, decision) if n > 0]
+        seasons = _stuck_seasons(conn, secret_key, decision)
     if not seasons:
         return
     security_event(
@@ -279,9 +283,8 @@ def maybe_auto_abandon(
 
     Driven by the boolean ``auto_abandon_enabled`` setting (default off).
     Time clock is ``item["searching_since"]``, matching the manual Abandon button's
-    visibility threshold. Series with no positive-numbered seasons in the
-    queue are skipped — Sonarr only knows about specials there, and we
-    never want to auto-unmonitor specials.
+    visibility threshold. A series with only specials to fetch, or with no aired
+    episode missing, is skipped; a season still to air stays monitored.
 
     Release-date guard: items the user can see in the "Coming soon" section
     (``is_upcoming``) and items whose release is too recent to plausibly

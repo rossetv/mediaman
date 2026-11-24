@@ -47,7 +47,10 @@ def _show(*monitored):
         "monitored": True,
         "added": "2023-01-01T00:00:00Z",
         "statistics": {"episodeFileCount": 0},
-        "seasons": [{"seasonNumber": n, "monitored": n in monitored} for n in (1, 2)],
+        "seasons": [
+            {"seasonNumber": n, "monitored": n in monitored, "statistics": {"episodeCount": 8}}
+            for n in (1, 2)
+        ],
     }
 
 

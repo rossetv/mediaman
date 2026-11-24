@@ -15,7 +15,11 @@ from mediaman.services.arr.fetcher._base import (
     clamp_progress,
     make_arr_card,
 )
-from mediaman.services.arr.state import _season_has_aired, _sonarr_will_fetch
+from mediaman.services.arr.state import (
+    _season_has_aired,
+    _sonarr_will_fetch,
+    missing_episodes,
+)
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
@@ -225,7 +229,7 @@ def _monitored_seasons(
     return [
         {
             "number": season["seasonNumber"],
-            "missing_episodes": (season.get("statistics") or {}).get("episodeCount", 0),
+            "missing_episodes": missing_episodes(season),
             "aired": _season_has_aired(season) or season["seasonNumber"] in aired,
         }
         for season in series.get("seasons") or []

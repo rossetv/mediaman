@@ -94,6 +94,15 @@ def _season_stats(season: ArrSeason) -> ArrSeasonStatistics:
     return stats if isinstance(stats, dict) else ArrSeasonStatistics()
 
 
+def missing_episodes(season: ArrSeason) -> int:
+    """Return how many aired, monitored episodes a season without files misses.
+
+    Sonarr's ``episodeCount`` leaves out those still to air. Abandon stops chasing a season
+    only when this is above zero; Specials it leaves alone.
+    """
+    return _season_stats(season).get("episodeCount", 0)
+
+
 def _season_has_aired(season: ArrSeason) -> bool:
     """Return True if Sonarr signals at least one episode of *season* has aired.
 

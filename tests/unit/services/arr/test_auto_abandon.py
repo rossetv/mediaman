@@ -12,6 +12,14 @@ from mediaman.services.downloads.abandon import AbandonResult
 _DONE = AbandonResult(kind="movie")
 
 
+def _season(number, *, missing, monitored=True):
+    return {
+        "seasonNumber": number,
+        "monitored": monitored,
+        "statistics": {"episodeCount": missing, "episodeFileCount": 0},
+    }
+
+
 def test_abandon_button_threshold_is_ten_hours():
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
 
@@ -458,10 +466,10 @@ class TestMaybeAutoAbandon:
         client = self._fake_sonarr(
             monkeypatch,
             [
-                {"seasonNumber": 0, "monitored": True},
-                {"seasonNumber": 1, "monitored": True},
-                {"seasonNumber": 2, "monitored": False},
-                {"seasonNumber": 3, "monitored": True},
+                _season(0, missing=2),
+                _season(1, missing=8),
+                _season(2, missing=1, monitored=False),
+                _season(3, missing=1),
             ],
             log,
         )
@@ -472,6 +480,34 @@ class TestMaybeAutoAbandon:
         assert log == [("audit", [1, 3]), ("unmonitor", 42, 1), ("unmonitor", 42, 3)]
         client.delete_series.assert_not_called()
         client.delete_episode_files.assert_not_called()
+
+    def test_a_season_with_no_aired_episode_missing_is_left_monitored(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        log: list = []
+        seasons = [
+            _season(1, missing=8),
+            _season(2, missing=0),
+            {"seasonNumber": 3, "monitored": True},
+            {"seasonNumber": 4, "monitored": True, "statistics": None},
+        ]
+        self._fake_sonarr(monkeypatch, seasons, log)
+
+        now = _time_mod.time()
+        maybe_auto_abandon(MagicMock(), "secret", item=self._still_searching_series(now), now=now)
+
+        assert log == [("audit", [1]), ("unmonitor", 42, 1)]
+
+    def test_a_show_with_no_aired_episode_missing_is_not_abandoned(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        log: list = []
+        self._fake_sonarr(monkeypatch, [_season(0, missing=2), _season(1, missing=0)], log)
+
+        now = _time_mod.time()
+        maybe_auto_abandon(MagicMock(), "secret", item=self._still_searching_series(now), now=now)
+
+        assert log == []
 
     @pytest.mark.parametrize(
         "statistics",
@@ -491,7 +527,7 @@ class TestMaybeAutoAbandon:
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 
         log: list = []
-        self._fake_sonarr(monkeypatch, [{"seasonNumber": 1, "monitored": True}], log, statistics)
+        self._fake_sonarr(monkeypatch, [_season(1, missing=8)], log, statistics)
 
         now = _time_mod.time()
         maybe_auto_abandon(MagicMock(), "secret", item=self._still_searching_series(now), now=now)
@@ -502,7 +538,7 @@ class TestMaybeAutoAbandon:
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 
         log: list = []
-        self._fake_sonarr(monkeypatch, [{"seasonNumber": 0, "monitored": True}], log)
+        self._fake_sonarr(monkeypatch, [_season(0, missing=2)], log)
 
         now = _time_mod.time()
         maybe_auto_abandon(MagicMock(), "secret", item=self._still_searching_series(now), now=now)
