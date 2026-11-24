@@ -374,6 +374,27 @@ class TestWatchRows:
 
         assert "Continue watching" not in _rows(get("/watch").json())
 
+    def test_a_season_gone_from_plex_is_passed_over(self, get, conn, plex, monkeypatch):
+        plex.add_show(
+            "500",
+            "The Long Coast",
+            {1: ("501", ["511", "512"]), 2: ("502", ["521"]), 3: ("503", ["531"])},
+        )
+        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
+        _mark(conn, "521", season="502", show="500")
+        real = plex.get_season_episodes
+
+        def gone(key):
+            if key == "502":
+                raise PlexItemNotFound("Item not found in Plex")
+            return real(key)
+
+        monkeypatch.setattr(plex, "get_season_episodes", gone)
+
+        for _ in range(2):  # the second time from the cache
+            cw = _rows(get("/watch").json())["Continue watching"]
+            assert [c["mark_key"] for c in cw] == ["531"]
+
     def test_a_long_history_of_finished_shows_makes_a_bounded_number_of_plex_calls(
         self, get, conn, plex, monkeypatch
     ):

@@ -427,8 +427,15 @@ class _OptionalPlex:
         )
 
     def season_episodes(self, season_key: str) -> list[PlexEpisode] | None:
-        """None when they cannot be read now."""
-        return self._cached(f"season:{season_key}", 1, lambda p: p.get_season_episodes(season_key))
+        """Empty when the season is gone from Plex; None when they cannot be read now."""
+
+        def fetch(plex: PlexWatch) -> list[PlexEpisode]:
+            try:
+                return plex.get_season_episodes(season_key)
+            except PlexItemNotFound:
+                return []
+
+        return self._cached(f"season:{season_key}", 1, fetch)
 
     def check_reachable(self) -> None:
         """When the page made no Plex call, ping Plex so one that is down is still reported.
