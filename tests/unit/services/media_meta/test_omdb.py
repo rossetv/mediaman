@@ -107,3 +107,19 @@ class TestFetchRatings:
         _set_key(conn, "plain-key")
         fake_http.queue("GET", fake_response(json_data=["not", "a", "dict"]))
         assert fetch_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key) == {}
+
+    @pytest.mark.parametrize(
+        "ratings",
+        [None, "83%", ["junk", 5, None], [{"Source": "Rotten Tomatoes"}]],
+        ids=["null", "string", "non-dict entries", "no value"],
+    )
+    def test_a_malformed_ratings_list_keeps_what_else_the_reply_holds(
+        self, conn, secret_key, fake_http, fake_response, ratings
+    ):
+        _set_key(conn, "plain-key")
+        reply = {"Response": "True", "imdbRating": "8.0", "Metascore": 74, "Ratings": ratings}
+        fake_http.queue("GET", fake_response(json_data=reply))
+
+        assert fetch_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key) == {
+            "imdb": "8.0"
+        }

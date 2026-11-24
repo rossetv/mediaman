@@ -104,13 +104,16 @@ def fetch_ratings(
 
     out: dict[str, str] = {}
     imdb = data.get("imdbRating")
-    if imdb and imdb != "N/A":
+    if isinstance(imdb, str) and imdb and imdb != "N/A":
         out["imdb"] = imdb
     meta = data.get("Metascore")
-    if meta and meta != "N/A":
+    if isinstance(meta, str) and meta and meta != "N/A":
         out["metascore"] = meta
-    for r in data.get("Ratings", []):
-        if r.get("Source") == "Rotten Tomatoes":
-            out["rt"] = r["Value"]
+    entries = data.get("Ratings")
+    for r in entries if isinstance(entries, list) else []:
+        if isinstance(r, dict) and r.get("Source") == "Rotten Tomatoes":
+            value = r.get("Value")
+            if isinstance(value, str) and value:
+                out["rt"] = value
             break
     return out
