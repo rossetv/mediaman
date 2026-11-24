@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 #: Callers elsewhere that use w300 keep their own URL deliberately distinct.
 _TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 
-# Outer wall-clock budget for the parallel poster fan-out. 5s timeout × 10
-# misses serially would be a 50s page render in the worst case. We fan out to a
+# Outer wall-clock budget for the parallel poster fan-out. 3s timeout × 10
+# misses serially would be a 30s page render in the worst case. We fan out to a
 # small thread pool and bound the whole batch to 6s; anything slower drops to ""
 # so the page still renders promptly.
 _POSTER_FANOUT_BUDGET_SECONDS = 6.0
@@ -49,12 +49,9 @@ def _fill_tmdb_posters(
     """
     from mediaman.services.media_meta.tmdb import TmdbClient
 
-    # timeout=5.0 overrides TmdbClient's default (10s read) so each per-title
-    # lookup cannot eat more than 5s — keeping the total wall-clock budget
-    # (_POSTER_FANOUT_BUDGET_SECONDS = 6s) meaningful across the worker pool.
-    # TmdbClient routes through SafeHTTPClient, so SSRF allowlist and retry
-    # behaviour are still governed by services/infra/http/client.py.
-    client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
+    # Short and never retried, so that a TMDB that hangs holds each worker for 3 s and no
+    # more, and what is still waiting when the budget ends can be dropped.
+    client = TmdbClient.from_db(conn, secret_key, timeout=3.0, retry=False)
     if client is None:
         return
 
@@ -91,6 +88,8 @@ def _fill_tmdb_posters(
             for idx in unique_titles.get(title, []):
                 items[idx]["poster_url"] = url
     except TimeoutError:
+        for fut in futures:
+            fut.cancel()
         logger.debug(
             "dashboard.poster_fanout_timeout budget=%.1fs (%d/%d done)",
             _POSTER_FANOUT_BUDGET_SECONDS,
