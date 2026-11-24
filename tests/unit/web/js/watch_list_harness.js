@@ -62,7 +62,9 @@ function row(r) {
     'data-has-rk': String(!!r.showRk), 'data-show-title': r.title, 'data-title': JSON.stringify(r.title),
     'data-kept': String(!!r.kept), 'data-deletion': String(!!r.deletion),
   },
-  ['button', { class: 'keep-trigger' + (r.kept ? ' keep-trigger--kept' : '') }, r.kept ? 'Kept' : 'Keep'],
+  ['button', { class: 'keep-trigger' + (r.kept ? ' keep-trigger--kept' : ''), 'aria-label': (r.kept ? 'Manage keep on ' : 'Keep ') + r.title },
+    ...(r.kept ? [['i', { class: 'fa-solid fa-check keep-trigger__tick', 'aria-hidden': 'true' }]] : []),
+    ['span', {}, r.kept ? 'Kept' : 'Keep']],
   ['div', { class: 'snooze-dropdown' },
     ['button', { class: 'snooze-option', 'data-keep-dur': '30 days' }, '30 days'],
     ['button', { class: 'snooze-option', 'data-keep-dur': 'forever' }, 'Forever'],
@@ -72,6 +74,8 @@ function row(r) {
     : [['button', { class: 'btn btn--danger btn--sm', 'data-action': 'confirm-delete', 'data-id': r.id, 'data-title': JSON.stringify(r.title), 'data-size': '22.1 GB', 'data-kind': 'movie' }, 'Delete']];
   return ['tr', { class: 'wl-row' + (r.kept ? ' wl-row--kept' : ''), 'data-row-key': key, 'data-id': r.id },
     ['td', { class: 'title-cell' }, r.title],
+    ['td', {}, r.kept ? ['span', { class: 'wl-del wl-del--kept' }, 'Kept']
+      : r.deletion ? ['span', { class: 'wl-del' }, 'In 3 days'] : ['span', { class: 'wl-del wl-del--none' }, '—']],
     ['td', { class: 'wl-act' }, ['div', { class: 'wl-actions' }, wrapper, ...del]]];
 }
 
@@ -543,18 +547,24 @@ const scenarios = {
     return { whileReading, busy: now.classList.contains('is-busy'), kept: now.classList.contains('wl-row--kept'), focus: p.doc.activeElement === now.querySelector('.keep-trigger') };
   },
 
-  // The keep is saved but reading the list again fails: the row is let go, not left busy for ever.
+  // The keep is saved but reading the list again fails: the row is let go, not left busy for ever,
+  // shows the keep, and focus is back on its Keep.
   async keepThenRefreshFails() {
     const p = load({ list: true });
     p.fail('/watch/list');
-    click(p.doc, keepOption(p, 'id:m1', '30 days'));
-    await settle();
     const row = p.row('id:m1');
     const trigger = row.querySelector('.keep-trigger');
-    const del = row.querySelector('[data-action="confirm-delete"]');
+    trigger.focus();
+    p.doc.addEventListener('mm:watch-admin', (e) => { if (e.detail.phase === 'busy') p.dropFocusIfDisabled(); });
+    click(p.doc, keepOption(p, 'id:m1', '30 days'));
+    await settle();
     return {
       errors: p.errors, busy: row.classList.contains('is-busy'), label: trigger.textContent,
-      triggerDisabled: !!trigger.disabled, deleteDisabled: !!del.disabled,
+      triggerDisabled: !!trigger.disabled, triggerKept: trigger.classList.contains('keep-trigger--kept'),
+      ariaLabel: trigger.getAttribute('aria-label'), rowKept: row.classList.contains('wl-row--kept'),
+      wrapperKept: row.querySelector('.keep-wrapper').getAttribute('data-kept'),
+      deletion: row.querySelector('.wl-del').textContent, hasDelete: !!row.querySelector('[data-action="confirm-delete"]'),
+      focus: p.doc.activeElement === trigger,
     };
   },
 

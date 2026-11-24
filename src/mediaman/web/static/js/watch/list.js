@@ -440,19 +440,53 @@
         rowElsewhere(row).then(function (found) {
           if (!current() || !row.parentNode) return;
           if (found) replaceRow(row, found, action);
-          else setBusy(row, false, action);
+          else letGo(row, action);
         });
       });
       /* A page the server moved back (its last row went) is loaded whole once the row has left. */
       if (action === 'delete' && same(state, stateOf(fresh))) refill(now, fresh);
     }, function () {
-      /* The change is saved but the rows were not read again: let go of them. */
       keys.forEach(function (key) {
         var row = rowByKey(key);
-        if (row) setBusy(row, false, action);
+        if (row) letGo(row, action);
       });
       window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
     });
+  }
+
+  /* The change is saved but the row as it now is could not be read: let go
+     of it, showing a saved keep as kept, and give focus back to the control. */
+  function letGo(row, action) {
+    var refocus = focusBelongsTo(row);
+    setBusy(row, false, action);
+    if (action === 'keep') markKept(row);
+    var btn = actionButton(row, action);
+    if (refocus && btn) btn.focus({ preventScroll: true });
+  }
+
+  /* The row as the server draws a kept one: a Kept pill, Kept for its
+     deletion and no Delete. */
+  function markKept(row) {
+    row.classList.add('wl-row--kept');
+    var w = row.querySelector('.keep-wrapper');
+    if (w) w.setAttribute('data-kept', 'true');
+    var trigger = row.querySelector('.keep-trigger');
+    if (trigger) {
+      var label = trigger.querySelector('span');
+      if (label) label.textContent = 'Kept';
+      if (!trigger.querySelector('.keep-trigger__tick')) {
+        var tick = el('i', 'fa-solid fa-check keep-trigger__tick');
+        tick.setAttribute('aria-hidden', 'true');
+        trigger.insertBefore(tick, trigger.firstChild);
+      }
+      trigger.classList.add('keep-trigger--kept', 'is-just-kept');
+      var title = w ? parseJson(w.getAttribute('data-title')) : '';
+      if (title) trigger.setAttribute('aria-label', 'Manage keep on ' + title);
+    }
+    var del = deleteButton(row);
+    if (del) del.remove();
+    var when = row.querySelector('.wl-del');
+    if (when) when.parentNode.replaceChildren(el('span', 'wl-del wl-del--kept', 'Kept'));
   }
 
   var _labels = new WeakMap();

@@ -269,9 +269,12 @@ def test_remove_all_keeps_says_removing_on_its_own_button_with_no_note() -> None
 def test_a_saved_keep_whose_list_refresh_fails_frees_the_row() -> None:
     out = _run("keepThenRefreshFails")
     assert out["errors"] == ["Couldn't refresh the list. Reload to see the change."]
-    assert out["busy"] is False
-    assert out["label"] == "Keep"
-    assert (out["triggerDisabled"], out["deleteDisabled"]) == (False, False)
+    assert (out["busy"], out["triggerDisabled"]) == (False, False)
+    # The keep was saved, so the row shows it as the server would: kept, with no Delete.
+    assert (out["label"].strip(), out["triggerKept"], out["rowKept"]) == ("Kept", True, True)
+    assert out["ariaLabel"] == "Manage keep on Copperline"
+    assert (out["wrapperKept"], out["deletion"], out["hasDelete"]) == ("true", "Kept", False)
+    assert out["focus"] is True
 
 
 def test_quick_filter_clicks_with_motion_end_with_one_table_for_the_last_choice() -> None:
