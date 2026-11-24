@@ -1118,11 +1118,16 @@
     say(o.title + (typeof o.total === 'number' ? ', ' + plural(o.total) : '') + ', as a grid. Press Escape to go back.');
   }
 
+  /* The open grid is asked for in another order. A sort that jumps has none. */
+  function resorted(opts) {
+    return !!now.opts.sort && !!opts.sort && !opts.sort.jump && opts.sort.value !== now.value;
+  }
+
   function open(opts) {
     if (!dom) build();
     if (watch.preview && watch.preview.close) watch.preview.close();
     dom.sortMenu.close(false);
-    if (move && now && now.opts.id === opts.id) {
+    if (move && now && now.opts.id === opts.id && !resorted(opts)) {
       if (move.to === 'grid') return;
       ghost(swapLayers('grid', move.gridY));
       play('grid');
@@ -1130,7 +1135,10 @@
       return;
     }
     settle();
-    if (now && now.opts.id === opts.id) return;
+    if (now && now.opts.id === opts.id) {
+      if (resorted(opts)) choose(opts.sort.value);
+      return;
+    }
     var fromRows = !browse.hidden && !now;
     if (fromRows && !opts.instant) savePlace();
     else if (!now && !opts.again) place = null;

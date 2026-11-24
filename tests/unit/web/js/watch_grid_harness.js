@@ -438,6 +438,31 @@ const scenarios = {
     return { sort: !!p.doc.querySelector('#watch-all-sort'), text: p.doc.querySelector('.grid-empty').textContent, count: p.doc.querySelector('.watch-all__count').textContent };
   },
 
+  /* The grid already open is asked for again: as it is, in another order, and mid-way back to its rows in another. */
+  async opensAgain() {
+    const orders = { added: range(1, 13), az: [2, 1, 3] };
+    const sort = (value) => ({ ...sortOf((id) => ({ cards: orders[id].map(p.card), next: null, total: orders[id].length })), value });
+    let p = load();
+    p.grid.open(p.opts({ sort: sort('az') }));
+    p.scroll(700);
+    const card = p.doc.querySelectorAll('.watch-all .watch-card')[3];
+    p.grid.open(p.opts({ sort: sort('az') }));
+    const same = [p.doc.querySelectorAll('.watch-all .watch-card')[3] === card, win.y];
+    p.grid.open(p.opts({ sort: sort('added') }));
+    await settle();
+    const other = [label(p), p.refs()];
+    p.grid.open(p.opts({ sort: { ...sort('added'), jump: true, value: 'az' } }));
+    await settle();
+    const jump = label(p);
+    p = load({ motion: true });
+    p.grid.open(p.opts({ sort: sort('az'), cards: orders.az.map(p.card) }));
+    p.finish();
+    p.grid.close();
+    p.grid.open(p.opts({ sort: sort('added') }));
+    p.finish();
+    return { same, other, jump, midway: [label(p), p.refs(), p.state().all, p.leftovers()] };
+  },
+
   // Nothing loads while it moves; once it has landed it does, and once it is closed no more.
   async loadsOnlyWhenStill() {
     const p = load({ motion: true });

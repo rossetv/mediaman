@@ -295,3 +295,12 @@ def test_a_card_comes_back_to_a_grid_that_is_opening_and_not_to_one_that_closes(
 
 def test_closing_to_a_row_that_went_with_its_last_card_gives_the_search_the_focus() -> None:
     assert _run("closesWithNoRow") == "watch-search"
+
+
+def test_the_open_grid_asked_for_again_stays_as_it_is_or_takes_the_order_asked_for() -> None:
+    out = _run("opensAgain")
+    assert out["same"] == [True, 700]
+    assert out["other"] == ["Sort: Recently added", list(range(1, 13))]
+    # A line to jump to says where the screen stands: nothing to follow.
+    assert out["jump"] == "Sort: Recently added"
+    assert out["midway"] == ["Sort: Recently added", list(range(1, 13)), True, 0]
