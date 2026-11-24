@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import sqlite3
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
@@ -24,20 +26,27 @@ from mediaman.core.time import now_utc
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 
-from ._discover import TitleNotFound, TmdbUnavailable, details
+from ._discover import TitleNotFound, TmdbBusy, TmdbDown, _failure, details
 from ._explore import _AS_THEMSELVES, _TOP_RATED_VOTES, _mixed
 from ._genres import GENRES, Genre
-from ._shape import tmdb_image_url
+from ._shape import tmdb_id_of, tmdb_image_url
+
+logger = logging.getLogger(__name__)
 
 ASKS_PER_RUN = 6
 _TITLES_PER_RUN = 200
 _PAUSE_S = 15 * 60.0
 _TIMEOUT_S = 5.0
+_TRIES = 3
 _REFRESH = timedelta(days=30)
 # TMDB may have a new show days after the library does.
 _REFRESH_ABSENT = timedelta(days=7)
 # A title just added must not take what the rest of the library gives off the page.
 _READY_SHARE = 0.9
+# A share of a small library is less than one title.
+_READY_MISSING = 2
+
+_HELD_S = 60.0
 
 LIBRARY_PAGE = 40
 PEOPLE_IN_LIBRARY = 6
@@ -47,8 +56,17 @@ _OFTEN = 2
 
 _clock = time.monotonic
 _resume_at = 0.0
-# Titles TMDB failed on, left for last so that one it cannot answer holds up no other.
-_failed: set[tuple[str, int]] = set()
+# Titles TMDB failed on: how many asks, and when the next may come.
+_failed: dict[tuple[str, int], tuple[int, float]] = {}
+_unreadable_token: str | None = None
+
+_lock = threading.Lock()
+# Held while building, so callers that find nothing held build it once.
+_build_lock = threading.Lock()
+# Bumped when cleared, so what was built before is not held after.
+_generation = 0
+# (database file, libraries) -> (held until, the library); one entry at most.
+_library: dict[tuple[str, str], tuple[float, _Library]] = {}
 
 
 def _titles_sql(where: str) -> str:
@@ -71,40 +89,102 @@ def fill_title_meta(
     conn: sqlite3.Connection, secret_key: str, *, stopped: Callable[[], bool]
 ) -> None:
     """One run of the job: drop what the library no longer holds, then fill or refresh what
-    is due. The run ends when its asks of TMDB are spent or *stopped* says so, and after a
-    failure TMDB is left alone for a while."""
-    global _resume_at
+    is due. The run ends when its asks of TMDB are spent or *stopped* says so; when TMDB is
+    down, busy or refuses the token it is left alone for a while."""
     with conn:
-        conn.execute(
+        dropped = conn.execute(
             "DELETE FROM title_meta WHERE (id_type, id) NOT IN"
             f" (SELECT id_type, id FROM ({_ALL_TITLES}))"
-        )
+        ).rowcount
+    if dropped:
+        clear_held()
     if _clock() < _resume_at:
         return
+    client = _client(conn, secret_key)
+    if client is not None and _fill_due(conn, client, stopped):
+        clear_held()
+
+
+def _client(conn: sqlite3.Connection, secret_key: str) -> TmdbClient | None:
+    """None without a token, or with one that cannot be decrypted: asked once for each
+    stored value, since every try logs a warning."""
+    global _unreadable_token
+    row = conn.execute("SELECT value FROM settings WHERE key = 'tmdb_read_token'").fetchone()
+    token = row["value"] if row else None
+    if token is not None and token == _unreadable_token:
+        return None
     client = TmdbClient.from_db(conn, secret_key, timeout=_TIMEOUT_S, retry=False)
-    if client is None:
-        return
-    asks = iter(range(ASKS_PER_RUN))
+    _unreadable_token = token if client is None else None
+    return client
+
+
+def _fill_due(conn: sqlite3.Connection, client: TmdbClient, stopped: Callable[[], bool]) -> int:
+    """How many titles were settled."""
+    global _resume_at
+    asked = settled = failures = 0
 
     def allow_fetch() -> bool:
-        return next(asks, None) is not None
+        nonlocal asked
+        if asked == ASKS_PER_RUN:
+            return False
+        asked += 1
+        return True
 
     for key in _due(conn)[:_TITLES_PER_RUN]:
         if stopped():
-            return
+            break
+        before = asked
         try:
             _fill_one(conn, client, key, allow_fetch)
         except disk_cache.Refused:
-            return
-        except (TmdbUnavailable, SafeHTTPError, requests.RequestException, ValueError):
-            _failed.add(key)
-            _resume_at = _clock() + _PAUSE_S
-            return
-        _failed.discard(key)
+            break
+        except sqlite3.Error:
+            raise
+        # rationale: whatever one title brings up must not end every later run on it.
+        except Exception as exc:
+            if asked > before and _is_outage(exc):
+                _resume_at = _clock() + _PAUSE_S
+                # Last from now on, should it be this title alone TMDB fails on.
+                _failed[key] = (_failed.get(key, (0, 0.0))[0], _resume_at)
+                break
+            logger.info("watch: a library title's details could not be read", exc_info=True)
+            failures += 1
+            settled += _note_failure(conn, key, asked > before)
+        else:
+            _failed.pop(key, None)
+            settled += 1
+    if failures >= ASKS_PER_RUN and not settled:
+        # Every title alike is not the titles' fault.
+        _resume_at = _clock() + _PAUSE_S
+    return settled
+
+
+def _is_outage(exc: Exception) -> bool:
+    if isinstance(exc, TmdbBusy | TmdbDown):
+        return True
+    cause = exc.__cause__
+    return isinstance(cause, SafeHTTPError) and cause.status_code in (401, 403)
+
+
+def _note_failure(conn: sqlite3.Connection, key: tuple[str, int], asked: bool) -> bool:
+    """Leave the title for a while, and after a few asks of its own as long as one TMDB
+    has not; what is held of it stays. Whether it is settled so."""
+    tries = _failed.get(key, (0, 0.0))[0] + asked
+    if tries < _TRIES:
+        _failed[key] = (tries, _clock() + _PAUSE_S)
+        return False
+    _failed.pop(key, None)
+    with conn:
+        conn.execute(
+            "INSERT INTO title_meta (id_type, id, fetched_at) VALUES (?, ?, ?)"
+            " ON CONFLICT(id_type, id) DO UPDATE SET fetched_at = excluded.fetched_at",
+            (*key, now_utc().isoformat()),
+        )
+    return True
 
 
 def _due(conn: sqlite3.Connection) -> list[tuple[str, int]]:
-    """The titles to ask for: those that failed last, those never filled first, then the
+    """The titles to ask for, without those that just failed: those that failed before last, those never filled first, then the
     oldest."""
     now = now_utc()
     rows = conn.execute(
@@ -118,8 +198,10 @@ def _due(conn: sqlite3.Connection) -> list[tuple[str, int]]:
         or now - datetime.fromisoformat(r["fetched_at"])
         >= (_REFRESH_ABSENT if r["absent"] else _REFRESH)
     ]
+    now_s = _clock()
+    waiting = {key for key, (_, again) in _failed.items() if again > now_s}
     due.sort(key=lambda title: (title[0] in _failed, title[1], title[0]))
-    return [key for key, _ in due]
+    return [key for key, _ in due if key not in waiting]
 
 
 def _fill_one(
@@ -134,7 +216,11 @@ def _fill_one(
     if id_type == "tvdb":
         if not allow_fetch():
             raise disk_cache.Refused(str(title_id))
-        tmdb_id = client.find_by_tvdb(title_id)
+        try:
+            found = client.find_by_tvdb(title_id)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            raise _failure(exc, "find") from exc
+        tmdb_id = tmdb_id_of({"id": found})
     fields = None
     if tmdb_id is not None:
         with contextlib.suppress(TitleNotFound):
@@ -155,7 +241,9 @@ def _fill_one(
 
 
 def _kept(fields: Mapping[str, Any], kind: str) -> dict[str, Any]:
-    ids = {GENRES[g["genre"]].tmdb_id(kind) for g in fields["genre_refs"]}
+    # The cached answer may be older than the list of genres.
+    named = [GENRES[g["genre"]] for g in fields["genre_refs"] if g["genre"] in GENRES]
+    ids = {g.tmdb_id(kind) for g in named}
     return {
         "title": fields["title"],
         "released": fields["release_date"] or "",
@@ -164,7 +252,7 @@ def _kept(fields: Mapping[str, Any], kind: str) -> dict[str, Any]:
         "votes": fields["vote_count"],
         "popularity": fields["popularity"],
         # A wide TV genre is several of those here.
-        "genres": [g.id for g in GENRES.values() if g.tmdb_id(kind) in ids - {None}],
+        "genres": [g.id for g in GENRES.values() if g.tmdb_id(kind) in ids],
     }
 
 
@@ -192,7 +280,10 @@ class Coverage:
 
     @property
     def ready(self) -> bool:
-        return self.known > 0 and self.known >= self.total * _READY_SHARE
+        missing = self.total - self.known
+        return self.known > 0 and (
+            missing <= _READY_MISSING or self.known >= self.total * _READY_SHARE
+        )
 
 
 def coverage(conn: sqlite3.Connection) -> Coverage:
@@ -204,35 +295,49 @@ def coverage(conn: sqlite3.Connection) -> Coverage:
     return Coverage(row["known"], row["total"])
 
 
-def _held(conn: sqlite3.Connection, column: str = "NULL") -> list[sqlite3.Row]:
+def _held(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """The filled titles of the selected libraries, each TMDB title once."""
     return conn.execute(
         "SELECT MIN(t.ref) AS ref, CASE t.id_type WHEN 'movie' THEN 'movie' ELSE 'tv' END AS kind,"
-        f" m.tmdb_id AS tmdb_id, m.details AS details, {column} AS cast_json"
+        " m.tmdb_id AS tmdb_id, m.details AS details, m.cast_json AS cast_json"
         f" FROM ({_SELECTED_TITLES}) t JOIN title_meta m USING (id_type, id)"
         " WHERE m.details IS NOT NULL GROUP BY kind, m.tmdb_id"
     ).fetchall()
 
 
-def library_titles(
-    conn: sqlite3.Connection,
-    genre: Genre,
-    *,
-    media_type: str = "all",
-    sort: str = "popular",
-    decade: str | None = None,
-) -> tuple[list[dict[str, Any]], Coverage]:
-    """The library's titles of *genre* in order, as the arguments of a card's ``id``,
-    ``media_type``, ``library_ref`` and TMDB fields, and how far the table is filled."""
+def clear_held() -> None:
+    global _generation
+    with _lock:
+        _library.clear()
+        _generation += 1
+
+
+def _current(conn: sqlite3.Connection) -> _Library:
+    """What is read of the table, held a while: parsing it takes too long for each request."""
+    row = conn.execute("SELECT value FROM settings WHERE key = 'plex_libraries'").fetchone()
+    key = (
+        str(conn.execute("PRAGMA database_list").fetchone()[2]),
+        str(row["value"] if row else ""),
+    )
+    with _build_lock:
+        with _lock:
+            held = _library.get(key)
+            generation = _generation
+        if held is not None and held[0] > _clock():
+            return held[1]
+        built = _build(conn)
+        with _lock:
+            if generation == _generation:
+                _library.clear()
+                _library[key] = (_clock() + _HELD_S, built)
+        return built
+
+
+def _build(conn: sqlite3.Connection) -> _Library:
     items = []
+    casts = []
     for row in _held(conn):
         kept = json.loads(row["details"])
-        if (
-            genre.id not in kept["genres"]
-            or media_type not in ("all", row["kind"])
-            or (decade is not None and kept["released"][:3] != decade[:3])
-        ):
-            continue
         items.append(
             {
                 "id": row["tmdb_id"],
@@ -244,9 +349,32 @@ def library_titles(
                 "vote_average": kept["rating"],
                 "votes": kept["votes"],
                 "popularity": kept["popularity"],
+                "genres": kept["genres"],
             }
         )
-    return _ordered(items, sort), coverage(conn)
+        casts.append((kept["genres"], json.loads(row["cast_json"])))
+    return _Library(items, _people(coverage(conn), casts))
+
+
+def library_titles(
+    conn: sqlite3.Connection,
+    genre: Genre,
+    *,
+    media_type: str = "all",
+    sort: str = "popular",
+    decade: str | None = None,
+) -> tuple[list[dict[str, Any]], Coverage]:
+    """The library's titles of *genre* in order, with the fields ``tmdb_card`` reads and
+    their ``library_ref``, and how far the table is filled."""
+    library = _current(conn)
+    items = [
+        i
+        for i in library.titles
+        if genre.id in i["genres"]
+        and media_type in ("all", i["media_type"])
+        and (decade is None or i["release_date"][:3] == decade[:3])
+    ]
+    return _ordered(items, sort), library.people.coverage
 
 
 def _ordered(items: list[dict[str, Any]], sort: str) -> list[dict[str, Any]]:
@@ -283,16 +411,25 @@ class LibraryPeople:
     actors: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class _Library:
+    titles: list[dict[str, Any]]
+    people: LibraryPeople
+
+
 def library_people(conn: sqlite3.Connection) -> LibraryPeople:
     """Nobody while the table is not filled: the counts would be wrong."""
-    covered = coverage(conn)
+    return _current(conn).people
+
+
+def _people(covered: Coverage, casts: Iterable[tuple[list[str], list[Any]]]) -> LibraryPeople:
     if not covered.ready:
         return LibraryPeople(covered)
     everyone: dict[int, _Part] = {}
     by_genre: dict[str, dict[int, _Part]] = defaultdict(dict)
-    for row in _held(conn, "m.cast_json"):
-        lists = [everyone, *(by_genre[g] for g in json.loads(row["details"])["genres"])]
-        for place, (person_id, name, path) in enumerate(json.loads(row["cast_json"])):
+    for genres, cast in casts:
+        lists = [everyone, *(by_genre[g] for g in genres)]
+        for place, (person_id, name, path) in enumerate(cast):
             for found in lists:
                 part = found.setdefault(person_id, _Part(name, path))
                 part.titles += 1

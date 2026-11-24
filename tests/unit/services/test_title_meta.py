@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -37,7 +38,9 @@ def stub(monkeypatch, tmp_path):
     monkeypatch.setattr(TmdbClient, "_get", lambda _self, p, params=None: stub.get(p, params))
     monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: TmdbClient("token"))
     monkeypatch.setattr(disk_cache, "_failed", {})
-    monkeypatch.setattr(_title_meta, "_failed", set())
+    monkeypatch.setattr(_title_meta, "_failed", {})
+    monkeypatch.setattr(_title_meta, "_unreadable_token", None)
+    monkeypatch.setattr(_title_meta, "_library", {})
     monkeypatch.setattr(_title_meta, "_resume_at", 0.0)
     monkeypatch.setattr(_title_meta, "_clock", lambda: stub.seconds)
     monkeypatch.setattr(_title_meta, "now_utc", lambda: stub.now)
@@ -204,6 +207,7 @@ class TestFill:
         library(1, cast=[7])
         _run(conn)
         conn.execute("DELETE FROM media_items")
+        catalog.clear_library_index()
 
         assert _ids(conn) == []
         _run(conn)
@@ -215,6 +219,7 @@ class TestFill:
         _run(conn)
         conn.execute("UPDATE media_items SET plex_library_id = 2 WHERE id = '1'")
         library(3, section=2)
+        catalog.clear_library_index()
 
         _run(conn)
 
@@ -230,6 +235,257 @@ class TestFill:
         _run(conn, stopped=lambda: len(stub.asked) == 1)
 
         assert stub.asked == ["/movie/1"]
+
+    @pytest.mark.parametrize("bad", [400, "gone-genre", "huge-find"])
+    def test_a_title_that_cannot_be_read_neither_pauses_nor_ends_the_run(
+        self, conn, stub, library, monkeypatch, bad
+    ):
+        library(1, genres=(28,))
+        library(2, genres=(35,))
+        if bad == 400:
+            stub.pages["/movie/1"] = 400
+        elif bad == "gone-genre":
+            monkeypatch.setattr(
+                _title_meta, "GENRES", {k: g for k, g in catalog.GENRES.items() if k != "action"}
+            )
+        else:
+            library(None, show=True, tvdb_id=77)
+            stub.pages["/find/77"] = {"tv_results": [{"id": 2**70}]}
+
+        _run(conn)
+
+        assert _ids(conn, "comedy") == [2]
+        # What can be read of the answer settles the title; a failure does not.
+        assert _coverage(conn)[:2] == {400: (1, 2), "gone-genre": (2, 2), "huge-find": (3, 3)}[bad]
+
+    def test_a_title_that_failed_is_left_alone_a_while(self, conn, stub, library):
+        library(1)
+        stub.pages["/movie/1"] = 400
+
+        for minute in (0, 1, 14):
+            stub.seconds = minute * 60
+            _run(conn)
+
+        assert stub.asked == ["/movie/1"]
+
+    def test_a_title_failing_in_a_way_nobody_thought_of_ends_no_run(
+        self, conn, stub, library, monkeypatch
+    ):
+        library(1)
+        library(2)
+        real = _title_meta._kept
+
+        def kept(fields, kind):
+            if fields["title"] == "Title 1":
+                raise OverflowError
+            return real(fields, kind)
+
+        monkeypatch.setattr(_title_meta, "_kept", kept)
+
+        _run(conn)
+
+        assert _ids(conn) == [2]
+
+    def test_a_failure_of_the_database_is_not_taken_for_the_titles(
+        self, conn, stub, library, monkeypatch
+    ):
+        library(1)
+
+        def locked(*_args):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(_title_meta, "_kept", locked)
+
+        with pytest.raises(sqlite3.OperationalError):
+            _run(conn)
+
+    def test_a_failure_held_for_someone_else_pauses_nothing(self, conn, stub, library):
+        library(1)
+        library(2)
+        stub.pages["/movie/1"] = 500
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(TmdbClient("token"), "movie", 1)
+
+        _run(conn)
+
+        assert _ids(conn) == [2]
+
+    def test_a_title_that_keeps_failing_counts_as_settled_after_three_asks(
+        self, conn, stub, library
+    ):
+        for n in range(1, 7):
+            library(n)
+            if n < 6:
+                stub.pages[f"/movie/{n}"] = 400
+
+        for minute in (0, 1, 16, 32, 48):
+            stub.seconds = minute * 60
+            _run(conn)
+
+        assert [stub.asked.count(f"/movie/{n}") for n in (1, 5, 6)] == [3, 3, 1]
+        assert _coverage(conn) == (6, 6, True)
+
+    def test_what_is_held_of_a_title_stays_when_its_refresh_keeps_failing(
+        self, conn, stub, library, monkeypatch
+    ):
+        library(1)
+        _run(conn)
+        stub.now += timedelta(days=31)
+        later = disk_cache.time.time() + 31 * 86400
+        monkeypatch.setattr(disk_cache.time, "time", lambda: later)
+        stub.pages["/movie/1"] = 400
+
+        for quarter in range(5):
+            stub.seconds = quarter * 1000
+            _run(conn)
+
+        assert (_ids(conn), stub.asked.count("/movie/1")) == ([1], 4)
+
+    def test_every_title_failing_alike_is_taken_for_an_outage(self, conn, stub, library):
+        for n in range(1, 9):
+            library(n)
+        stub.pages = {f"/movie/{n}": 400 for n in range(1, 9)}
+
+        _run(conn)
+        _run(conn)
+
+        assert len(stub.asked) == 6
+
+    def test_asking_for_a_tvdb_id_counts_as_an_ask(self, conn, stub, library):
+        for n in range(1, 9):
+            library(None, show=True, tvdb_id=n)
+            stub.pages[f"/find/{n}"] = {"tv_results": []}
+
+        _run(conn)
+
+        assert len(stub.asked) == 6
+
+    def test_a_show_with_both_ids_is_asked_for_by_its_tmdb_id(self, conn, stub, library):
+        library(5, show=True, tvdb_id=77)
+
+        _run(conn)
+
+        assert stub.asked == ["/tv/5"]
+
+    def test_a_failed_ask_is_not_held_against_who_opens_the_title(self, conn, stub, library):
+        library(1)
+        stub.pages["/movie/1"] = 500
+        _run(conn)
+        stub.pages["/movie/1"] = _page(1)
+
+        assert catalog.details(TmdbClient("token"), "movie", 1)["title"] == "Title 1"
+
+    def test_without_tmdb_it_only_drops_what_is_gone(self, conn, stub, library, monkeypatch):
+        library(1)
+        _run(conn)
+        conn.execute("DELETE FROM media_items")
+        library(2)
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
+
+        for quarter in range(4):
+            stub.seconds = quarter * 1000
+            _run(conn)
+
+        assert conn.execute("SELECT COUNT(*) FROM title_meta").fetchone()[0] == 0
+
+    def test_a_token_that_cannot_be_read_is_tried_once_until_it_changes(
+        self, conn, stub, library, monkeypatch
+    ):
+        tried = []
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: tried.append(1))
+        insert_settings(conn, tmdb_read_token="garbled", encrypted=1)
+
+        _run(conn)
+        _run(conn)
+        first = len(tried)
+        conn.execute("UPDATE settings SET value = 'other' WHERE key = 'tmdb_read_token'")
+        _run(conn)
+
+        assert (first, len(tried)) == (1, 2)
+
+    def test_details_cached_without_what_the_fill_reads_are_not_used(
+        self, conn, stub, library, tmp_path
+    ):
+        library(1)
+        disk_cache.meta().get_or_fetch(
+            "tmdb:details:v4:movie:1", 1e9, 1e9, lambda: {"title": "Old"}
+        )
+
+        _run(conn)
+
+        assert _ids(conn) == [1]
+
+
+class TestHeld:
+    def test_the_table_is_read_once_a_minute(self, conn, stub, library, monkeypatch):
+        library(1)
+        _run(conn)
+        built = []
+        real = _title_meta._build
+        monkeypatch.setattr(_title_meta, "_build", lambda c: built.append(1) or real(c))
+
+        for seconds in (0, 59, 61):
+            stub.seconds = seconds
+            _ids(conn)
+            catalog.library_people(conn)
+
+        assert len(built) == 2
+
+    def test_a_run_that_fills_a_title_shows_it_at_once(self, conn, stub, library):
+        library(1)
+        _run(conn)
+        _ids(conn)
+        library(2)
+
+        _run(conn)
+
+        assert sorted(_ids(conn)) == [1, 2]
+
+    def test_a_run_that_drops_a_title_takes_it_off_at_once(self, conn, stub, library):
+        library(1)
+        _run(conn)
+        _ids(conn)
+        conn.execute("DELETE FROM media_items")
+
+        _run(conn)
+
+        assert _ids(conn) == []
+
+    def test_ticking_other_libraries_shows_at_once(self, conn, stub, library):
+        library(1)
+        _run(conn)
+        _ids(conn)
+
+        conn.execute("UPDATE settings SET value = '[]' WHERE key = 'plex_libraries'")
+
+        assert _ids(conn) == []
+
+    def test_what_was_read_before_a_clear_is_not_held_after_it(
+        self, conn, stub, library, monkeypatch
+    ):
+        library(1)
+        _run(conn)
+        real = _title_meta._build
+
+        def deleted_meanwhile(c):
+            built = real(c)
+            conn.execute("DELETE FROM media_items")
+            catalog.clear_library_index()
+            return built
+
+        monkeypatch.setattr(_title_meta, "_build", deleted_meanwhile)
+        _ids(conn)
+        monkeypatch.setattr(_title_meta, "_build", real)
+
+        assert _ids(conn) == []
+
+
+@pytest.mark.parametrize(
+    ("known", "total", "ready"),
+    [(90, 100, True), (89, 100, False), (3, 5, True), (2, 5, False), (0, 1, False), (0, 0, False)],
+)
+def test_ready_allows_a_tenth_missing_or_two_titles(known, total, ready):
+    assert catalog.Coverage(known, total).ready is ready
 
 
 class TestLibraryTitles:
@@ -313,15 +569,26 @@ class TestPeople:
             "comedy": [(8, 2)],
         }
 
+    def test_who_is_billed_higher_comes_first_and_only_a_few_are_listed(self, conn, stub, library):
+        cast = [20, 19, 18, 17, 16, 15, 14, 13]
+        library(1, cast=cast)
+        library(2, cast=cast)
+        _run(conn)
+
+        found = catalog.library_people(conn)
+
+        assert [p["person_id"] for p in found.people] == [20, 19, 18, 17, 16, 15]
+        assert [p["person_id"] for p in found.actors["action"]] == [20, 19, 18]
+
     def test_nobody_is_listed_before_the_library_is_filled(self, conn, stub, library):
-        for n in range(1, 9):
+        for n in range(1, 10):
             library(n, cast=[7])
         _run(conn)
         half = catalog.library_people(conn)
         _run(conn)
 
         assert (half.coverage.ready, half.people, half.actors) == (False, [], {})
-        assert catalog.library_people(conn).people[0]["titles"] == 8
+        assert catalog.library_people(conn).people[0]["titles"] == 9
 
     def test_a_library_without_titles_is_not_ready(self, conn, stub):
         assert _coverage(conn) == (0, 0, False)

@@ -29,6 +29,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 from ._dedupe import LibraryIndex, library_ids
+from ._title_meta import clear_held
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +118,13 @@ def library_index(
 
 
 def clear_library_index() -> None:
-    """Drop the held index, so the next caller builds it afresh. For a library scan that
+    """Drop the held index, and the titles and people read of the library, so the next
+    caller builds them afresh. For a library scan that
     has finished and a library title that was deleted."""
     with _lock:
         _held.clear()
         _generation[0] += 1
+    clear_held()
 
 
 def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
