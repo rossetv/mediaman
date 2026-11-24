@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from mediaman.web.repository import watch_library as lib
-from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched, save_progress
 from tests.helpers.factories import insert_admin_user, insert_media_item
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
@@ -74,6 +74,26 @@ def test_a_season_with_no_episode_list_counts_every_row(conn):
     _see(conn, "100", "101")
 
     assert _seen(conn).watched is True
+
+
+def test_an_episode_only_begun_is_not_seen(conn):
+    _season(conn, ["200", "201"], 2)
+    for key in ("200", "201"):
+        save_progress(
+            conn,
+            username="aoife",
+            rating_key=key,
+            media_item_id="501",
+            show_rating_key="500",
+            position_s=60,
+            duration_s=3000,
+            played_s=60,
+            now=NOW,
+        )
+
+    season = _seen(conn)
+
+    assert (season.seen, season.watched) == (0, False)
 
 
 def test_every_listed_episode_seen_is_watched(conn):

@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import threading
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import pytest
@@ -26,7 +27,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexUnavailable,
     PlexWatch,
 )
-from mediaman.web.repository.watch_progress import unmark_watched
+from mediaman.web.repository.watch_progress import save_progress, unmark_watched
 from mediaman.web.routes.watch import stream_api
 
 PLEX_HOST = "plex-lan.example.test"
@@ -424,6 +425,28 @@ def test_leaving_a_paused_player_does_not_count_as_playing(alice, conn, clock, e
 
     [row] = _progress_rows(conn)
     assert row["updated_at"] == _EARLIER
+
+
+def test_a_viewing_that_saved_nothing_leaves_the_place_held_from_before_as_it_was(
+    alice, conn, clock
+):
+    save_progress(
+        conn,
+        username="alice",
+        rating_key="201",
+        media_item_id=None,
+        show_rating_key=None,
+        position_s=900.5,
+        duration_s=1500,
+        played_s=100,
+        now=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    stream_id = _stream(alice, "201")
+
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 900.5, "played_s": 0})
+
+    [row] = _progress_rows(conn)
+    assert row["updated_at"].startswith("2020-01-01")
 
 
 def test_leaving_a_paused_player_keeps_a_mark_made_meanwhile(alice, conn, clock):
