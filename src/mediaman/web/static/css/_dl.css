@@ -474,6 +474,8 @@ html:has(#abandon-modal[aria-hidden="false"]) { overflow: hidden; scrollbar-gutt
   .dl-row--has-abandon:not(.dl-upcoming-row) { padding-right: 60px; }
   .dl-upcoming-row.dl-row--has-abandon { padding-right: 60px; }
   .dl-row--has-abandon .dl-compact-right { padding-right: 0; }
+  /* The dash would take the room the search state needs to stay on one line. */
+  .dl-row--has-abandon .dl-compact-pct--muted { display: none; }
   .dl-row--has-abandon .dl-row-abandon { top: 50%; right: 8px; margin-top: -22px; }
 }
 
