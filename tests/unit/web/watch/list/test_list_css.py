@@ -14,17 +14,17 @@ CSS = (CSS_DIR / "_watch_list.css").read_text()
 MODAL_CSS = (CSS_DIR / "_modal.css").read_text()
 
 
-def _block(query: str) -> str:
+def _block(query: str, css: str = CSS) -> str:
     """The body of the first @media block whose query is *query*."""
-    start = CSS.index("@media " + query + " {")
+    start = css.index("@media " + query + " {")
     depth = 0
-    for i in range(start, len(CSS)):
-        if CSS[i] == "{":
+    for i in range(start, len(css)):
+        if css[i] == "{":
             depth += 1
-        elif CSS[i] == "}":
+        elif css[i] == "}":
             depth -= 1
             if depth == 0:
-                return CSS[start:i]
+                return css[start:i]
     raise AssertionError(query)
 
 
@@ -78,12 +78,24 @@ def test_the_skeleton_has_the_sort_s_own_bar_on_a_phone():
     assert re.search(r"\.wl-skel__bar--sort \{ display: block;", _block("(max-width: 699.98px)"))
 
 
-def test_the_season_deletes_are_apart_on_a_phone():
-    phone = MODAL_CSS.split("@media (max-width: 699.98px) {", 1)[1]
-    assert ".keep-season-list { gap: 8px; }" in phone.split("@media", 1)[0]
+def test_the_dialogs_controls_are_44px_by_touch_and_the_season_deletes_stand_apart():
+    block = _block("(pointer: coarse), (max-width: 699.98px)", MODAL_CSS)
+    assert re.search(r"\.keep-dur-btn,[^}]*\.keep-dialog \.btn--sm \{ min-height: 44px; \}", block)
+    assert ".keep-season-list { gap: 8px; }" in block
+    assert re.search(r"#season-delete-list > \.keep-season-item--skel \{ height: 44px; \}", block)
 
 
 def test_a_season_to_delete_is_waited_for_at_its_button_s_height_from_700_up():
-    wide = MODAL_CSS.split("@media (min-width: 700px) {", 1)[1]
     rule = "#season-delete-list > .keep-season-item--skel { height: 52px; }"
-    assert rule in wide.split("@media", 1)[0]
+    assert rule in _block("(min-width: 700px)", MODAL_CSS)
+
+
+def test_the_durations_stay_on_one_line_on_the_narrowest_phones():
+    block = _block("(max-width: 389.98px)", MODAL_CSS)
+    assert re.search(r"\.keep-duration-bar \{[^}]*flex-wrap: nowrap;", block)
+    assert re.search(r"\.keep-dur-btn \{[^}]*white-space: nowrap;", block)
+
+
+def test_the_filter_pills_reach_44px_by_touch_on_a_tablet():
+    block = _block("(pointer: coarse) and (min-width: 700px)")
+    assert re.search(r"\.fpill::after \{[^}]*inset: calc\(\(100% - 44px\) / 2\)", block)
