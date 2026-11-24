@@ -902,8 +902,8 @@ class TestTmdbTitle:
     ):
         insert_admin_user(conn, username="other", role="viewer")
         pick = conn.execute(
-            "INSERT INTO user_picks (username, title, media_type, tmdb_id, created_at)"
-            " VALUES ('other', 'Glass Onion', 'movie', 12, ?)",
+            "INSERT INTO user_picks (username, title, media_type, tmdb_id, batch_id, created_at)"
+            " VALUES ('other', 'Glass Onion', 'movie', 12, '2026-11-20', ?)",
             (now_utc().isoformat(),),
         ).lastrowid
         conn.commit()
