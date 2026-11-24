@@ -1,0 +1,48 @@
+{# The storage meter and its panel on the Watch page, for admins: every include
+   stands behind is_admin, so a viewer's page holds none of it. Import with:
+       {% import "_watch_space.html" as space %}
+   watch/space.js fills both once the page has loaded. #}
+{% from "_components.html" import icon %}
+
+{# Opens the panel. It stands twice on the page, in the Watch header and in the
+   phone's top bar (phone=true); CSS shows one of them. #}
+{% macro meter(phone=false) -%}
+<button type="button" class="space-meter{% if phone %} space-meter--phone{% endif %}" data-space-open="storage" aria-haspopup="dialog" aria-expanded="false" aria-controls="space" aria-busy="true" aria-label="Storage, loading"><span class="skel space-meter__skel"></span></button>
+{%- endmacro %}
+
+{% macro tab(id, label, name="") -%}
+<button type="button" role="tab" class="space-tab" id="space-tab-{{ id }}" data-space-tab="{{ id }}" aria-controls="space-{{ id }}" aria-selected="false" tabindex="-1"{% if name %} aria-label="{{ name }}"{% endif %}>{{ label }}{% if name %}<span class="space-tab__count" aria-hidden="true"></span>{% endif %}</button>
+{%- endmacro %}
+
+{% macro pane(id) -%}
+<div class="space-pane" id="space-{{ id }}" role="tabpanel" aria-labelledby="space-tab-{{ id }}" inert></div>
+{%- endmacro %}
+
+{# A direct child of <body>, so the page can be made inert under it. #}
+{% macro panel() -%}
+<div class="space" id="space" hidden>
+  <div class="space__veil" data-space-close></div>
+  <section class="space__panel" role="dialog" aria-modal="true" aria-label="Storage" tabindex="-1">
+    <div class="space__grab" aria-hidden="true"></div>
+    <div class="space__head">
+      <div class="space__tabs" role="tablist" aria-label="Storage">
+        <span class="space__ink" aria-hidden="true"></span>
+        {{ tab("storage", "Storage") }}
+        {{ tab("scheduled", "Scheduled", "Scheduled for deletion") }}
+        {{ tab("deleted", "Deleted", "Recently deleted") }}
+      </div>
+      <button type="button" class="space__close" data-space-close aria-label="Close storage">{{ icon("i-xmark") }}</button>
+    </div>
+    <div class="space__panes">
+      {{ pane("storage") }}
+      {{ pane("scheduled") }}
+      {{ pane("deleted") }}
+    </div>
+    <footer class="space__foot">
+      <p class="space__scan-status" id="space-scan-status">A scan looks for titles to clear</p>
+      <button type="button" class="btn btn--ghost space__scan" id="space-scan">{{ icon("i-rotate-right") }}<span class="space__scan-label">Scan now</span></button>
+    </footer>
+  </section>
+  <p class="sr-only" id="space-live" role="status"></p>
+</div>
+{%- endmacro %}
