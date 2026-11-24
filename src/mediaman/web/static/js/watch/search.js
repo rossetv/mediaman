@@ -1370,6 +1370,11 @@
         e.preventDefault();
         return;
       }
+      if (e.key === 'Tab') {
+        // At once: the browser looks for the next stop as soon as this is over.
+        openSheet(false);
+        return;
+      }
       if (e.key === 'Backspace' && !input.value && tokened) {
         e.preventDefault();
         clearSearch();

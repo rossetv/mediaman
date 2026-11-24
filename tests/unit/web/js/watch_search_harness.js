@@ -1308,6 +1308,20 @@ const scenarios = {
     out.bare = bare.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
     return out;
   },
+
+  // Tab out of the field: the rows take it, though the sheet had put them out of reach.
+  async tabOut() {
+    const out = [];
+    for (const shift of [false, true]) {
+      const p = await ready({ ...VIEWER, tmdb_configured: true });
+      p.press();
+      p.input.focus();
+      const before = p.browse.inert;
+      const held = p.key('Tab', { shiftKey: shift });
+      out.push([before, held, p.browse.inert, p.sheet.classList.contains('is-on')]);
+    }
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

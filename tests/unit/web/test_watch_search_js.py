@@ -561,3 +561,8 @@ def test_a_category_s_page_shows_nothing_that_would_move_before_it_is_known() ->
     assert out["failed"] == [False, True]
     assert out["late"] == [True, True]
     assert out["room"] == ["Popular movies and TV", "Popular movies and TV · 10,000 titles"]
+
+
+def test_tab_goes_on_from_the_field_into_the_rows_behind_the_sheet() -> None:
+    # In reach before the key is let through, which is when the browser looks for the next stop.
+    assert _run("tabOut") == [[True, False, False, False]] * 2
