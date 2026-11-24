@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from xml.etree.ElementTree import Element
@@ -38,6 +39,13 @@ def _key_id(value: str | None) -> str | None:
     return key if key.isascii() and key.isdigit() and len(key) <= 18 else None
 
 
+@dataclass(frozen=True, slots=True)
+class Plays:
+    found: list[PlexPlay]
+    # False when the pages ran out before all the plays asked for were seen.
+    complete: bool
+
+
 class PlexHistory(PlexWatch):
     def _xml(self, path: str) -> Element:
         try:
@@ -62,7 +70,7 @@ class PlexHistory(PlexWatch):
         libraries: set[str],
         limit: int,
         deadline: float,
-    ) -> list[PlexPlay]:
+    ) -> Plays:
         """The newest *limit* plays of *account_id* in *libraries* from *since* on.
 
         What a play does not say counts against it: without the account, the library or the
@@ -105,8 +113,10 @@ class PlexHistory(PlexWatch):
                 if play is not None:
                     found[play.history_key] = play
                     if len(found) >= limit:
-                        return list(found.values())
-        return list(found.values())
+                        return Plays(list(found.values()), complete=True)
+        else:
+            return Plays(list(found.values()), complete=False)
+        return Plays(list(found.values()), complete=True)
 
 
 def _viewed_at(row: Element) -> datetime | None:

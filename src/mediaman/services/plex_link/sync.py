@@ -95,8 +95,17 @@ def _read_link(
         )
     except TookTooLong:
         raise PlexUnavailable("Plex took too long to send the plays") from None
+    if not plays.complete:
+        # Read from the same time again, or the plays further back would never be asked for.
+        logger.warning("plex_link.read_incomplete user=%s", log_snippet(link.username, 64))
     repository.save_plays(
-        conn, link, plays, libraries=libraries, read_at=now, oldest=oldest, keep=KEEP_PLAYS
+        conn,
+        link,
+        plays.found,
+        libraries=libraries,
+        read_at=now if plays.complete else None,
+        oldest=oldest,
+        keep=KEEP_PLAYS,
     )
 
 

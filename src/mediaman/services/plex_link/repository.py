@@ -215,6 +215,12 @@ def keep_libraries(conn: sqlite3.Connection, libraries: Collection[str]) -> None
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         for link in list_links(conn):
+            # An unfinished read leaves plays of libraries the link does not say it covers.
+            conn.execute(
+                "DELETE FROM plex_plays WHERE username = ?"
+                " AND library_id NOT IN (SELECT value FROM json_each(?))",
+                (link.username, json.dumps(sorted(libraries))),
+            )
             if link.libraries is None or link.libraries <= set(libraries):
                 continue
             kept = json.dumps(sorted(link.libraries & set(libraries)))
@@ -234,13 +240,14 @@ def save_plays(
     plays: Sequence[PlexPlay],
     *,
     libraries: Collection[str],
-    read_at: datetime,
+    read_at: datetime | None,
     oldest: datetime,
     keep: int,
 ) -> bool:
     """Store *plays* if *link* is still the person's link; False when it is not.
 
-    Plays from before *oldest*, and all but the newest *keep*, are dropped.
+    Plays from before *oldest*, and all but the newest *keep*, are dropped. *read_at* is None
+    for a read that did not reach back far enough to count as one.
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -278,8 +285,9 @@ def save_plays(
             " ORDER BY viewed_at DESC, history_key DESC LIMIT ?))",
             (link.username, oldest.isoformat(), link.username, keep),
         )
-        conn.execute(
-            "UPDATE plex_links SET last_read_at = ?, libraries = ? WHERE username = ?",
-            (read_at.isoformat(), json.dumps(sorted(libraries)), link.username),
-        )
+        if read_at is not None:
+            conn.execute(
+                "UPDATE plex_links SET last_read_at = ?, libraries = ? WHERE username = ?",
+                (read_at.isoformat(), json.dumps(sorted(libraries)), link.username),
+            )
     return True

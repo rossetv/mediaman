@@ -319,6 +319,39 @@ def test_any_error_in_one_persons_read_is_undone_and_the_next_is_read(
     assert repository.get_link(conn, "amy").plex_name == "amy"
 
 
+def test_a_read_that_ran_out_of_pages_is_read_from_the_same_time_again(
+    plex, conn, secret_key, monkeypatch
+):
+    """As when the server sends everyone's plays whoever is asked about."""
+    monkeypatch.setattr(history, "MAX_PAGES", 2)
+    monkeypatch.setattr(history, "PAGE_SIZE", 2)
+    link(conn, "amy", 4242)
+    plex.history_rows = [row(n, account=99, ago=timedelta(minutes=n)) for n in range(1, 4)]
+    plex.history_rows += [row(4, ago=timedelta(hours=1)), row(5, ago=timedelta(days=30))]
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 4"]
+    assert repository.get_link(conn, "amy").last_read_at is None
+
+    monkeypatch.setattr(history, "MAX_PAGES", 5)
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 4", "Film 5"]
+    assert repository.get_link(conn, "amy").last_read_at == NOW.isoformat()
+
+
+def test_the_plays_of_an_unfinished_read_go_with_their_library(plex, conn, secret_key, monkeypatch):
+    monkeypatch.setattr(history, "MAX_PAGES", 1)
+    monkeypatch.setattr(history, "PAGE_SIZE", 1)
+    link(conn, "amy", 4242)
+    plex.history_rows = [row(1), row(2)]
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1"]
+
+    conn.execute("UPDATE settings SET value = '[]' WHERE key = 'plex_libraries'")
+    conn.commit()
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == []
+
+
 def test_reading_never_raises(plex, conn, secret_key, monkeypatch):
     link(conn, "amy", 4242)
     monkeypatch.setattr(sync, "open_history", lambda *_: 1 / 0)
