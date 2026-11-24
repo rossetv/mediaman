@@ -59,11 +59,14 @@ class TestPanel:
             "focused": "space-tab-storage",
             "held": ["nav", "main"],
             "menuFree": True,
+            "modal": True,
             "expanded": "true",
             "pushed": [["push", "#storage"]],
         }
         assert out["closed"]["held"] == ["space"]
         assert out["closed"]["inert"] is True
+        # closed, it must not count as the dialog that owns the keyboard
+        assert (out["before"], out["closed"]["modal"]) == (False, False)
         assert out["closed"]["focused"].startswith("Storage: ")
 
     def test_goes_under_what_opens_over_it_and_leaves_the_focus_to_that(self):

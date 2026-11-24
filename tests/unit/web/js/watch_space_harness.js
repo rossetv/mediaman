@@ -250,11 +250,12 @@ const scenarios = {
   },
   async openAndClose() {
     const p = await page();
+    const before = p.one('.space__panel').hasAttribute('aria-modal');
     p.$('meter').focus();
     await p.click(p.$('meter'));
-    const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').inert, expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
+    const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
     await p.key('Escape');
-    return { open, closed: { inert: p.$('space').inert, focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
+    return { before, open, closed: { inert: p.$('space').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
   },
   async otherOpensOver() {
     const p = await page();

@@ -64,6 +64,7 @@ def test_the_panel_s_tabs_and_panes_name_each_other_and_its_figures_come_later(
         assert f'id="space-tab-{name}"' in panel
         assert f'aria-controls="space-{name}"' in panel
         assert f'aria-labelledby="space-tab-{name}"' in panel
+    assert "aria-modal" not in panel
     assert not re.search(r"\d+(\.\d+)? (KB|MB|GB|TB)", panel)
 
 

@@ -396,6 +396,7 @@
     isOpen = true;
     root.hidden = false;
     root.inert = false;
+    panel.setAttribute('aria-modal', 'true');
     root.classList.remove('is-under');
     panel.style.transform = '';
     releasePage();
@@ -429,6 +430,7 @@
     clearTimeout(leaveTimer);
     watch.keep.closeMenu(false);
     root.inert = true;
+    panel.removeAttribute('aria-modal');
     root.classList.remove('is-open');
     root.classList.toggle('is-under', !!under);
     panel.style.transform = '';
