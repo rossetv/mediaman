@@ -933,6 +933,17 @@ const scenarios = {
     }
     return out;
   },
+  /* Cards at the window's left and right edges. */
+  async edges() {
+    const out = {};
+    for (const [name, left] of Object.entries({ left: 10, middle: 500, right: 1120 })) {
+      const h = load();
+      h.link('film').querySelector('.watch-card__poster').getBoundingClientRect = () => ({ left, top: 300, width: 150, height: 225, right: left + 150, bottom: 525 });
+      await h.rest('film');
+      out[name] = /translate\((-?\d+)px/.exec(h.pv().style['--pv-to'])[1];
+    }
+    return out;
+  },
   /* What opens over the cards from the keyboard, with a trailer playing in a preview. */
   async keyboardCovers() {
     const out = {};
@@ -980,6 +991,29 @@ const scenarios = {
     await h.pass(50);
     out.open = says(h);
     return out;
+  },
+  /* An admin action that has started or failed has changed nothing. */
+  async adminNotDone() {
+    const h = load();
+    await h.rest('film');
+    for (const phase of ['busy', 'failed']) h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-admin', { detail: { phase, id: '', showRk: '1' } }));
+    await h.pass(50);
+    const asked = h.gets.length;
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', id: '', showRk: '1' } }));
+    await h.pass(50);
+    return [asked, h.gets.length];
+  },
+  /* A Keep, with a preview open and the mouse already resting on the next card. */
+  async keptWhileArmed() {
+    const h = load();
+    await h.rest('film');
+    h.over(h.link('other'));
+    h.over(h.link('other'), { clientX: h.x - 6 });
+    await h.pass(50);
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-kept', { detail: { id: '9' } }));
+    const open = [h.title(), h.gets.slice()];
+    await h.pass(1000);
+    return { open, then: [h.title(), h.gets] };
   },
   /* A mark while its title's preview is open, while its reply is on the way, and one that cannot be asked about. */
   async marked() {

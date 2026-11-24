@@ -444,6 +444,10 @@ def test_a_preview_stays_under_the_header_of_an_open_grid() -> None:
     assert out["mostlyUnder"] is None
 
 
+def test_a_preview_of_a_card_at_the_windows_edge_stays_inside_it() -> None:
+    assert _run("edges") == {"left": "12", "middle": "375", "right": "868"}
+
+
 def test_what_the_keyboard_opens_over_the_cards_closes_a_preview_and_its_trailer() -> None:
     assert _run("keyboardCovers") == {
         "details": [None, False],
@@ -463,6 +467,17 @@ def test_what_the_storage_panel_schedules_or_clears_is_in_the_next_preview_and_t
 ):
     leaving = ["Season 3 leaves in 3 days", True]
     assert _run("scheduled") == {"before": leaving, "cleared": [None, False], "open": leaving}
+
+
+def test_an_admin_action_asks_the_open_previews_title_again_only_once_done() -> None:
+    assert _run("adminNotDone") == [1, 2]
+
+
+def test_a_keep_leaves_the_one_request_to_the_card_the_mouse_has_moved_on_to() -> None:
+    assert _run("keptWhileArmed") == {
+        "open": [None, ["movie-1"]],
+        "then": ["Orbit", ["movie-1", "movie-2"]],
+    }
 
 
 def test_a_mark_is_in_the_open_preview_and_in_a_reply_on_its_way() -> None:

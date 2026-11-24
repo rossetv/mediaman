@@ -269,6 +269,19 @@ const scenarios = {
     return { at: p.at(), index: p.tab.index, log: p.took() };
   },
 
+  async twoBacksInARow() {
+    const tab = makeTab('/downloads');
+    tab.entries.push({ url: '/watch', state: null });
+    tab.index = 1;
+    const p = open(tab);
+    grid(p, 'movies');
+    p.address.back('grid');
+    p.address.back('grid');
+    await settle();
+    await settle();
+    return { at: p.at(), calls: tab.calls.filter((c) => /^go/.test(c)) };
+  },
+
   async aFollowedLink() {
     const p = open(makeTab('/watch'));
     grid(p, 'movies');

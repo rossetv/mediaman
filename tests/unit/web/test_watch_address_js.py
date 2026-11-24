@@ -185,3 +185,7 @@ def test_pages_gone_for_good_do_not_push_out_the_scroll_of_those_under_them() ->
 
 def test_the_focus_comes_back_from_under_a_link_the_browser_followed() -> None:
     assert _run("focusUnderAFollowedLink") == {"at": "/watch?all=movies", "focus": "card"}
+
+
+def test_a_second_back_while_the_first_is_on_its_way_steps_no_further() -> None:
+    assert _run("twoBacksInARow") == {"at": "/watch", "calls": ["go -1"]}
