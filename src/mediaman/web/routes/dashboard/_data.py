@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     import sqlite3
 
+from mediaman.core.delete_root_state import STATE_KEY
 from mediaman.core.deleted_media import (
     DeletedMedia,
     fetch_deleted_media,
@@ -74,11 +75,28 @@ def _days_until(execute_at: datetime | None, now: datetime) -> str:
     )
 
 
+def _waiting_folders(conn: sqlite3.Connection) -> dict[int, str]:
+    """Return the folder the last deletion pass found missing or empty, by the row it holds back."""
+    state = get_setting(conn, STATE_KEY)
+    items = state.get("items") if isinstance(state, dict) else None
+    if not isinstance(items, dict):
+        return {}
+    return {
+        row_id: folder
+        for folder, ids in items.items()
+        if isinstance(ids, list)
+        for row_id in ids
+        if type(row_id) is int
+    }
+
+
 def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
     now = now_utc()
     # Watch's own rule, so the count of these is always the length of its Leaving soon row.
     leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn), now)}
+
+    waiting = _waiting_folders(conn)
 
     items = []
     for row in rows:
@@ -108,6 +126,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
                 "countdown": _days_until(execute_at, now),
                 "days_left": days_left(execute_at, now) if execute_at else None,
                 "state": state,
+                "waiting_folder": waiting.get(row.sa_id),
                 "added_ago": days_ago(row.added_at),
                 "file_size": format_bytes(row.file_size_bytes),
                 "file_size_bytes": row.file_size_bytes,

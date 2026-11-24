@@ -196,6 +196,13 @@ class TestScheduled:
         assert out["links"] == ["movie-1", "movie-2", "movie-3", None]
         assert out["name"] == "Keep Show, Season 2"
 
+    def test_an_overdue_row_says_what_holds_it_and_no_other_row_s_reason(self):
+        assert _run("overdue") == {
+            "missing": ["Due, but a folder is missing", "Due, goes with the next scan"],
+            "dry": ["Due, but dry run is on"] * 2,
+            "off": ["Due, but deletions are off"] * 2,
+        }
+
     def test_a_keep_takes_the_row_off_everywhere_moves_to_the_next_and_undo_puts_it_back(self):
         out = _run("keepAndUndo")
         assert out["kept"] == {

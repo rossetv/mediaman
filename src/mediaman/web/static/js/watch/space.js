@@ -1160,7 +1160,8 @@
     if (item.state === 'deleting') return 'Being deleted now';
     if (item.state !== 'overdue') return item.countdown;
     return stats.deletions_off ? 'Due, but deletions are off'
-      : stats.unavailable_roots.length ? 'Due, but a folder is missing' : 'Due, goes with the next scan';
+      : stats.dry_run ? 'Due, but dry run is on'
+      : item.waiting_folder ? 'Due, but a folder is missing' : 'Due, goes with the next scan';
   }
 
   function scheduledRow(item) {

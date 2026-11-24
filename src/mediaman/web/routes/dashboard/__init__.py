@@ -15,7 +15,7 @@ from starlette.responses import Response
 from mediaman.core.delete_root_state import read_delete_root_waiting
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
-from mediaman.scanner.repository import read_delete_allowed_roots_setting
+from mediaman.scanner.repository import read_delete_allowed_roots_setting, read_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import (
     LANDING_PATH,
@@ -73,6 +73,8 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
                 for path, waiting in sorted(read_delete_root_waiting(conn).items())
             ],
             "deletions_off": not read_delete_allowed_roots_setting(conn, quiet=True),
+            # As the scanner reads it: scans then delete nothing.
+            "dry_run": read_setting(conn, "dry_run") == "true",
             "plex_configured": plex_configured,
             "show_storage": _show_storage(storage, plex_configured),
         }

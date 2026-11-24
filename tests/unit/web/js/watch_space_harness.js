@@ -404,6 +404,15 @@ const scenarios = {
       rows: li.map((n) => n.textContent), late: li.map((n) => n.querySelector('.watch-keep').hasAttribute('data-keep-late')),
       links: li.map((n) => (n.querySelector('a') ? n.querySelector('a').getAttribute('data-title-ref') : null)), name: li[2].querySelector('.watch-keep').getAttribute('aria-label') };
   },
+  async overdue() {
+    const of = async (extra) => {
+      const p = await page([row('1', { state: 'overdue', waiting_folder: '/media/tv' }), row('2', { state: 'overdue', waiting_folder: null })], (s) => { s.extra = extra; });
+      await p.open();
+      return p.all('#space-scheduled .space-item__when').map((n) => n.textContent);
+    };
+    const missing = { unavailable_roots: [{ path: '/media/tv', waiting: 1 }] };
+    return { missing: await of(missing), dry: await of({ ...missing, dry_run: true }), off: await of({ ...missing, dry_run: true, deletions_off: true }) };
+  },
   async keepAndUndo() {
     const p = await page();
     await p.open();

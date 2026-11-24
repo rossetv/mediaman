@@ -414,6 +414,13 @@ class TestNotices:
 
         assert get("/api/dashboard/stats")["deletions_off"] is (not roots)
 
+    @pytest.mark.parametrize(("value", "on"), [("true", True), ("false", False), (None, False)])
+    def test_a_dry_run_is_told_as_the_scanner_reads_it(self, get, conn, disks, value, on):
+        if value:
+            insert_settings(conn, dry_run=value)
+
+        assert get("/api/dashboard/stats")["dry_run"] is on
+
     def test_plex_not_set_up_hides_an_empty_bar_only(self, get, conn, disks):
         body = get("/api/dashboard/stats")
         assert (body["plex_configured"], body["show_storage"]) == (False, False)
@@ -486,3 +493,31 @@ class TestScheduled:
             (None, 3, 6),
             (None, None, 7),
         ]
+
+    def test_a_row_names_the_missing_folder_that_holds_it_back_and_no_other_row_does(
+        self, get, conn
+    ):
+        insert_settings(conn, plex_libraries='["1"]')
+        held = _schedule(conn, "20", days=-2)
+        _schedule(conn, "21", days=-1)
+        write_delete_root_state(conn, {"/media/tv": 1}, {"/media/tv": [held]})
+        conn.commit()
+
+        items = get("/api/dashboard/scheduled")["items"]
+
+        assert {i["media_item_id"]: i["waiting_folder"] for i in items} == {
+            "20": "/media/tv",
+            "21": None,
+        }
+
+    @pytest.mark.parametrize(
+        "state",
+        ["not json", "[]", '{"roots": {"/m": 1}}', '{"items": {"/m": 3, "/n": ["x", null]}}'],
+    )
+    def test_a_malformed_record_of_missing_folders_holds_no_row_back(self, get, conn, state):
+        insert_settings(conn, plex_libraries='["1"]', delete_root_unavailable=state)
+        _schedule(conn, "20", days=-2)
+
+        [item] = get("/api/dashboard/scheduled")["items"]
+
+        assert item["waiting_folder"] is None
