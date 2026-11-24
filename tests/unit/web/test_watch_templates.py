@@ -677,6 +677,26 @@ def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
     assert "--title-lines: 4" in phone
 
 
+def test_a_very_long_banner_title_gets_the_smallest_text_and_lines_enough_to_fit() -> None:
+    banner = {
+        "title": "Dr. Aldermoor's Improbable Chronicle of the Winter Orchard, the Ferryman, "
+        "and Everything That Happened After the Lanterns Went Out: Part Two",
+        "line": "Movie",
+        "progress_pct": None,
+        "primary": {"label": "Play", "href": "/watch/play/1"},
+        "episodes_href": None,
+    }
+    very_long = ".watch-banner__title--longest"
+
+    assert f"watch-banner__title {very_long[1:]}" in _watch(banner=banner)
+    sideways = _in_media("_watch.css", "(max-height: 500px)")
+    assert "--title-lines: 8" in _declarations_of("_watch.css", very_long)
+    assert "--title-lines: 8" in _declarations_in(
+        _in_media("_watch.css", "(max-width: 599.98px)"), very_long
+    )
+    assert "--title-lines: 5" in _declarations_in(sideways, very_long)
+
+
 def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
 
