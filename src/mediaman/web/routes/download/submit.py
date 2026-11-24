@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import math
 import sqlite3
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import requests
 from fastapi import APIRouter, Request
@@ -36,7 +36,10 @@ from mediaman.services.arr.state import (
     sonarr_fetches_series,
     sonarr_tracks_series,
 )
-from mediaman.services.downloads.notifications import record_download_notification
+from mediaman.services.downloads.notifications import (
+    record_download_notification,
+    record_notification_on_its_way,
+)
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.responses import respond_failure
@@ -56,7 +59,7 @@ from ._tokens import (
     add_went_unanswered,
     note_unanswered_add,
 )
-from .confirm import _resolve_download_state, drop_arr_cache
+from .confirm import drop_arr_cache, read_download_state
 
 logger = logging.getLogger(__name__)
 
@@ -157,11 +160,13 @@ class _SeasonOnDisk(SafeHTTPError):
 
 
 class _AlreadyThere(SafeHTTPError):
-    """A refused add of a title the Arr holds, with the state the emailed page names it by."""
+    """A refused add of a title the Arr holds, with the state the emailed page names it by and
+    whether an email about it is to come."""
 
-    def __init__(self, exc: SafeHTTPError, state: str | None) -> None:
+    def __init__(self, exc: SafeHTTPError, state: str | None, *, mail_to_come: bool) -> None:
         super().__init__(exc.status_code, exc.body_snippet, exc.url)
         self.state = state
+        self.mail_to_come = mail_to_come
         self.releases_link = isinstance(exc, _HeldNotFetched)
 
 
@@ -213,29 +218,41 @@ def _already_there_error(
     tvdb_id: int | None = None,
 ) -> SafeHTTPError:
     """*exc*, or what the title it was refused for is doing: one on its way is mailed to the
-    person when it is ready, as if their request had gone through.
+    person when it is ready, as if their request had gone through. Raises ArrError when that
+    cannot be read, so the link can be tried again.
     """
-    if exc.status_code not in (409, 422):
+    tmdb_id = payload["tmdb_id"]
+    if exc.status_code not in (409, 422) or not tmdb_id:
         return exc
     season = payload["season"]
     season_number = season.season_number if season else None
-    item: dict[str, object] = {"season_number": season_number}
     drop_arr_cache()
-    _resolve_download_state(item, conn, payload["tmdb_id"], payload["secret_key"], media_type)
-    state = cast("str | None", item["download_state"])
-    if state == ACTION_QUEUED and payload["email"]:
+    try:
+        state, held = read_download_state(
+            conn,
+            payload["secret_key"],
+            media_type,
+            tmdb_id=tmdb_id,
+            season_number=season_number,
+            tvdb_id=tvdb_id,
+        )
+    except SafeHTTPError as unread:
+        raise ArrError(f"{service} state read failed: HTTP {unread.status_code}") from unread
+    mail_to_come = False
+    if state == ACTION_QUEUED and held is not None and payload["email"]:
         with conn:
-            record_download_notification(
+            mail_to_come = record_notification_on_its_way(
                 conn,
+                held,
                 email=payload["email"],
                 title=payload["title"],
                 media_type=media_type,
-                tmdb_id=payload["tmdb_id"],
-                tvdb_id=tvdb_id,
                 service=service,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
                 season_number=season_number,
             )
-    return _AlreadyThere(exc, state)
+    return _AlreadyThere(exc, state, mail_to_come=mail_to_come)
 
 
 def _landed_late(payload: DownloadPayload, conn: sqlite3.Connection, exc: SafeHTTPError) -> bool:
@@ -585,6 +602,7 @@ def _handle_already_exists_error(
         extra: dict[str, object] = {"poll_token": poll_token} if poll_token else {}
         if isinstance(exc, _AlreadyThere) and exc.state:
             extra["download_state"] = exc.state
+            extra["notify_by_email"] = exc.mail_to_come
         said = f"'{title}' already exists"
         if season_number is not None:
             said = already_there(season_number, title)

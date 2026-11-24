@@ -37,8 +37,18 @@ class _SonarrEpEntry(TypedDict):
     download_id: str
 
 
+def _is_series(series: SonarrSeries, tmdb_id: int, tvdb_id: int | None) -> bool:
+    """Whether *series* is the one asked for: by its TVDB id when Sonarr has no TMDB id for it."""
+    if series.get("tmdbId"):
+        return series.get("tmdbId") == tmdb_id
+    return tvdb_id is not None and series.get("tvdbId") == tvdb_id
+
+
 def _sonarr_queue_entries(
-    queue: list[ArrQueueItem], tmdb_id: int, season_number: int | None = None
+    queue: list[ArrQueueItem],
+    tmdb_id: int,
+    season_number: int | None = None,
+    tvdb_id: int | None = None,
 ) -> tuple[str, str, list[_SonarrEpEntry]]:
     """Return (series_title, series_poster, ep_entries) from the first matching queue item;
     ep_entries has one accumulator per matching episode, of one season when given.
@@ -51,7 +61,9 @@ def _sonarr_queue_entries(
         item_series = item.get("series") or {}
         episode = item.get("episode") or {}
         season_num = episode.get("seasonNumber")
-        if item_series.get("tmdbId") != tmdb_id or season_number not in (None, season_num):
+        if not _is_series(item_series, tmdb_id, tvdb_id):
+            continue
+        if season_number not in (None, season_num):
             continue
 
         if not series_title:
@@ -137,11 +149,14 @@ def _episode_files(series: SonarrSeries, season_number: int | None) -> int:
 
 
 def _sonarr_series_fallback(
-    client: ArrClient, tmdb_id: int, season_number: int | None = None
+    client: ArrClient,
+    tmdb_id: int,
+    season_number: int | None = None,
+    tvdb_id: int | None = None,
 ) -> DownloadItem:
     all_series = client.get_series()
     matched = next(
-        (s for s in all_series if s.get("tmdbId") == tmdb_id),
+        (s for s in all_series if _is_series(s, tmdb_id, tvdb_id)),
         None,
     )
     if matched:

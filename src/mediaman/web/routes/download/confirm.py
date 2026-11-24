@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
-from mediaman.services.arr._types import SonarrSeries
+from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ACTION_DOWNLOADING,
@@ -33,7 +33,7 @@ from mediaman.services.arr.state import (
     series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
-from mediaman.services.downloads.notifications import has_unsent_notification
+from mediaman.services.downloads.notifications import has_unsent_notification, requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import (
     enrich_redownload_item,
@@ -325,63 +325,93 @@ def _aired_missing(series: SonarrSeries) -> bool:
     return not reported
 
 
+def read_download_state(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    mt: str,
+    *,
+    tmdb_id: int,
+    season_number: int | None,
+    tvdb_id: int | None,
+) -> tuple[str | None, RadarrMovie | SonarrSeries | None]:
+    """Name what the page shows for a title, or the one season asked for, with the entry the
+    Arr holds for it. Raises when the Arr cannot be read.
+    """
+    # Only build the cache for the matching service — the other
+    # half is dead work and doubles the outbound load otherwise.
+    # Use ``.get`` with empty defaults so a malformed upstream
+    # cache (e.g. a unit test that patches ``build_radarr_cache``
+    # to return ``{}``) doesn't crash the page render.
+    caches: ArrCaches = {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "sonarr_series": {},
+        "sonarr_queue_tmdb_ids": set(),
+    }
+    if mt == "movie":
+        radarr_cache = _get_radarr_cache_cached(conn, secret_key)
+        caches["radarr_movies"] = radarr_cache.get("radarr_movies", {}) or {}
+        caches["radarr_queue_tmdb_ids"] = radarr_cache.get("radarr_queue_tmdb_ids") or set()
+        return _shown_state(mt, tmdb_id, caches), caches["radarr_movies"].get(tmdb_id)
+    sonarr_cache = _get_sonarr_cache_cached(conn, secret_key)
+    caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
+    caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
+    series = caches["sonarr_series"].get(tmdb_id)
+    if series is None and tvdb_id:
+        # Sonarr knows a show by its TVDB id, and may have no TMDB id for it.
+        client = build_sonarr_from_db(conn, secret_key)
+        series = client.get_series_by_tvdb(tvdb_id) if client else None
+        if series is not None:
+            caches["sonarr_series"] = {**caches["sonarr_series"], tmdb_id: series}
+    if season_number is not None:
+        return (_season_state(series, season_number) if series else None), series
+    return _shown_state(mt, tmdb_id, caches), series
+
+
+def _shown_state(mt: str, tmdb_id: int, caches: ArrCaches) -> str | None:
+    state = compute_download_state(mt, tmdb_id, caches)
+    series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
+    if (
+        series is not None
+        and state in (ACTION_PARTIAL, ACTION_QUEUED)
+        and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
+    ):
+        # What is not downloading is on its way only if Sonarr has something to look for.
+        if not series.get("monitored", True):
+            state = None
+        elif _aired_missing(series):
+            state = ACTION_QUEUED
+        else:
+            state = ACTION_IN_LIBRARY if series_has_files(series) else None
+    # The page shows one "on its way" view, whose progress polling fills in.
+    if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
+        state = ACTION_QUEUED
+    # A show Sonarr holds but has nothing to fetch for has no state: say it is tracked, not queued.
+    if state is None and series is not None:
+        state = "tracked"
+    return state
+
+
 def _resolve_download_state(
     item: dict[str, object],
     conn: sqlite3.Connection,
     tmdb_id: int | None,
     secret_key: str,
     mt: str,
+    tvdb_id: int | None,
 ) -> None:
     item["download_state"] = None
     if not tmdb_id:
         return
     try:
-        # Only build the cache for the matching service — the other
-        # half is dead work and doubles the outbound load otherwise.
-        # Use ``.get`` with empty defaults so a malformed upstream
-        # cache (e.g. a unit test that patches ``build_radarr_cache``
-        # to return ``{}``) doesn't crash the page render.
-        caches: ArrCaches = {
-            "radarr_movies": {},
-            "radarr_queue_tmdb_ids": set(),
-            "sonarr_series": {},
-            "sonarr_queue_tmdb_ids": set(),
-        }
-        if mt == "movie":
-            radarr_cache = _get_radarr_cache_cached(conn, secret_key)
-            caches["radarr_movies"] = radarr_cache.get("radarr_movies", {}) or {}
-            caches["radarr_queue_tmdb_ids"] = radarr_cache.get("radarr_queue_tmdb_ids") or set()
-        else:
-            sonarr_cache = _get_sonarr_cache_cached(conn, secret_key)
-            caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
-            caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
-        season_number = item["season_number"]
-        if isinstance(season_number, int):
-            held = caches["sonarr_series"].get(tmdb_id)
-            item["download_state"] = _season_state(held, season_number) if held else None
-            return
-        state = compute_download_state(mt, tmdb_id, caches)
-        series = caches["sonarr_series"].get(tmdb_id) if mt != "movie" else None
-        if (
-            series is not None
-            and state in (ACTION_PARTIAL, ACTION_QUEUED)
-            and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
-        ):
-            # What is not downloading is on its way only if Sonarr has something to look for.
-            if not series.get("monitored", True):
-                state = None
-            elif _aired_missing(series):
-                state = ACTION_QUEUED
-            else:
-                state = ACTION_IN_LIBRARY if series_has_files(series) else None
-        # The page shows one "on its way" view, whose progress polling fills in.
-        if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
-            state = ACTION_QUEUED
-        # A show Sonarr holds but has nothing to fetch for has no state: say it is tracked, not queued.
-        if state is None and series is not None:
-            state = "tracked"
-        if state is not None:
-            item["download_state"] = state
+        item["download_state"], _held = read_download_state(
+            conn,
+            secret_key,
+            mt,
+            tmdb_id=tmdb_id,
+            season_number=cast("int | None", item["season_number"]),
+            tvdb_id=tvdb_id,
+        )
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
@@ -464,7 +494,10 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     mt = "movie" if payload.get("mt") == "movie" else "tv"
     tmdb_id_raw = payload.get("tmdb")
     tmdb_id: int | None = int(tmdb_id_raw) if isinstance(tmdb_id_raw, int) else None
-    _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt)
+    tvdb_id = season.tvdb_id if season else None
+    if tvdb_id is None and mt == "tv" and tmdb_id:
+        tvdb_id = requested_tvdb_id(conn, tmdb_id)
+    _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt, tvdb_id)
 
     item["notify_by_email"] = bool(item["email"])
     if item["download_state"] == ACTION_QUEUED and item["email"] and tmdb_id:
@@ -474,7 +507,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             email=str(item["email"]),
             service="radarr" if mt == "movie" else "sonarr",
             tmdb_id=tmdb_id,
-            tvdb_id=season.tvdb_id if season else None,
+            tvdb_id=tvdb_id,
             season_number=season.season_number if season else None,
         )
 
