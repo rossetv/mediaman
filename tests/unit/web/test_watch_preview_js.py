@@ -435,3 +435,10 @@ def test_a_keep_or_undo_made_anywhere_is_in_the_next_preview_and_the_open_one() 
         "other": ["Fieldwork", 2, "true"],
         "admin": nothing,
     }
+
+
+def test_a_preview_stays_under_the_header_of_an_open_grid() -> None:
+    out = _run("underGridHead")
+    assert out["clear"] == "translate(275px,124px)"
+    assert out["justOver"] == "translate(275px,124px)"
+    assert out["mostlyUnder"] is None

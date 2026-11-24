@@ -261,10 +261,12 @@
 
   function width() { return window.innerWidth >= 1600 ? 480 : window.innerWidth >= 1000 ? 400 : 360; }
 
-  /* Where a preview may be: clear of the window's edges and the bars. */
+  /* Where a preview may be: clear of the window's edges, the bars and an open grid's header. */
   function room() {
     var area = core.clearArea();
-    return { top: area.top + 8, bottom: area.bottom - 8, left: 12, right: document.documentElement.clientWidth - 12 };
+    var head = document.querySelector('.watch-all__head');
+    var top = head ? Math.max(area.top, head.getBoundingClientRect().bottom) : area.top;
+    return { top: top + 8, bottom: area.bottom - 8, left: 12, right: document.documentElement.clientWidth - 12 };
   }
 
   function halfShown(r, box) {

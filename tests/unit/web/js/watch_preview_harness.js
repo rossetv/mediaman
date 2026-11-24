@@ -67,7 +67,7 @@ const CARDS = [
 /* A page at rest. *opts*: api (ref to its answer: data, a status or nothing yet), reduced, coarse, saveData. */
 function load(opts = {}) {
   const doc = makeDocument();
-  doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = () => {}; return n; })(doc.createElement);
+  doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = (name, value) => { n.style[name] = value; }; return n; })(doc.createElement);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { id: 'watch-keep-menu', class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']], ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
   // A listener of the capture phase is kept apart: it has the event first.
   doc.addEventListener = ((on) => (type, fn, how) => on(how === true ? type + ' capture' : type, fn))(doc.addEventListener);
@@ -578,6 +578,7 @@ const scenarios = {
       search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cleared++; e.preventDefault(); } });
       h.ctx.scrollTo = h.ctx.scrollBy = () => {};
       h.ctx.MMWatch.grid.open({ id: 'movies', title: 'Movies', cards: [build(h.doc, card('ingrid', 'In grid', { ref: 'movie-1' }))], next: null, instant: true, back: () => { backs++; } });
+      h.doc.querySelector('.watch-all__head').getBoundingClientRect = () => ({ bottom: 0 });
       await h.rest('ingrid');
       if (from === 'menu') h.pv().querySelector('[data-preview-more]').click();
       const seen = [h.title()];
@@ -912,6 +913,24 @@ const scenarios = {
     h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', id: '', showRk: '2' } }));
     await h.pass(50);
     out.admin = says(h);
+    return out;
+  },
+  /* Over a grid, whose header stands under the nav: cards clear of it, half under it, and over the rows again. */
+  async underGridHead() {
+    const at = (top) => ({ left: 400, top, width: 150, height: 225, right: 550, bottom: top + 225 });
+    const out = {};
+    for (const [name, top] of Object.entries({ clear: 130, justOver: 60, mostlyUnder: -10 })) {
+      const h = load({ grid: true });
+      h.ctx.scrollTo = h.ctx.scrollBy = () => {};
+      h.ctx.MMWatch.grid.open({ id: 'movies', title: 'Movies', cards: [build(h.doc, card('ingrid', 'In grid', { ref: 'movie-1' }))], next: null, instant: true, back: () => {} });
+      h.doc.querySelector('.watch-all__head').getBoundingClientRect = () => ({ left: 0, top: 52, width: 1280, height: 64, right: 1280, bottom: 116 });
+      h.link('ingrid').querySelector('.watch-card__poster').getBoundingClientRect = () => at(top);
+      const size = Object.getOwnPropertyDescriptor(Node.prototype, 'offsetHeight');
+      Object.defineProperty(Node.prototype, 'offsetHeight', { configurable: true, get: () => 400 });
+      await h.rest('ingrid', 900);
+      out[name] = h.pv() ? h.pv().style['--pv-to'] : null;
+      Object.defineProperty(Node.prototype, 'offsetHeight', size);
+    }
     return out;
   },
 };
