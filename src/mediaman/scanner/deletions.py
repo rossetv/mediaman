@@ -22,7 +22,7 @@ import os
 import re
 import sqlite3
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from pathlib import Path
 from time import monotonic
@@ -43,7 +43,9 @@ from mediaman.scanner.repository.scheduled_actions import (
     book_removed_files,
     claim_due_deletion,
     claim_due_deletions_under,
+    clear_removal_intent,
     fetch_deletion,
+    fetch_due_deletions_under,
     fetch_media_held_outside_pass,
     fetch_old_marks,
     fetch_pending_rescans,
@@ -54,6 +56,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_fully_removed,
     is_latest_audit,
     mark_unanswered,
+    record_removal_intent,
     record_removed_files,
     tracked_paths,
     was_audited_since,
@@ -129,8 +132,87 @@ def _first_unavailable(paths: list[str], allowed_roots: list[str]) -> str | None
     return None
 
 
+def _stamp(path: str) -> list[int] | None:
+    """Return what tells the file at *path* from any put there after it, or None when there is none.
+
+    A new file may reuse the inode, the size and a set modification time; its
+    change time cannot be set. The last number tells its folder.
+    """
+    try:
+        found = os.lstat(path)
+        folder = os.stat(os.path.dirname(path))
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return [found.st_ino, found.st_ctime_ns, folder.st_ino]
+
+
+def _in_same_folder(path: str, stamp: list[int]) -> bool:
+    """Return True when the folder *path* was stamped in is there, so not a bare mount point."""
+    try:
+        return os.stat(os.path.dirname(path)).st_ino == stamp[-1]
+    except OSError:
+        return False
+
+
+def _stamps(rows: list[DeletionRow]) -> dict[str, list[int] | None]:
+    """Return the stamp of each tracked file of *rows*; one that cannot be read counts as not there."""
+    stamps: dict[str, list[int] | None] = {}
+    for row in rows:
+        for path in tracked_paths(row) or []:
+            try:
+                stamps[str(Path(path))] = _stamp(path)
+            except (OSError, ValueError):
+                stamps[str(Path(path))] = None
+    return stamps
+
+
+def _settle_intent(
+    conn: sqlite3.Connection, row: DeletionRow, allowed_roots: list[str]
+) -> DeletionRow:
+    """Return *row* with the files its cut-off removal took recorded as removed.
+
+    Those are the files it was about to remove that are gone, or that another
+    file took the place of since. Their bytes are not credited: nobody counted
+    them. Nothing is recorded while the disk cannot say, so the row still
+    has its intent and is held.
+    """
+    if not row.removal_intent:
+        return row
+    try:
+        taken = {
+            path: stamp
+            for path, stamp in row.removal_intent.items()
+            if stamp and _stamp(path) != stamp
+        }
+    except OSError:
+        return row
+    absent = [
+        path
+        for path, stamp in taken.items()
+        if not os.path.lexists(path) and not _in_same_folder(path, stamp)
+    ]
+    if not all(path_within_delete_roots(path, allowed_roots) for path in taken) or (
+        _first_unavailable(absent, allowed_roots) is not None
+    ):
+        return row
+    if not taken:
+        clear_removal_intent(conn, row.id)
+        return replace(row, removal_intent={})
+    removed = row.removed_paths.union(taken)
+    left = (row.left_paths or frozenset()).union(row.removal_intent) - removed
+    sizes = {**row.removed_sizes, **_tracked_sizes(row)}
+    record_removed_files(conn, row.id, removed, row.removed_bytes, sizes, left)
+    return replace(
+        row, removed_paths=removed, removed_sizes=sizes, left_paths=left, removal_intent={}
+    )
+
+
 def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> list[DeletionRow]:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
+
+    A row whose removal has no recorded outcome is reconciled too: the files it
+    was about to remove that are gone, or replaced since, count as removed by
+    it (_settle_intent).
 
     Called at the start of a *live* DeletionExecutor.execute pass
     (never under dry-run — a preview mutates nothing) and by the
@@ -183,6 +265,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
     allowed_roots = repository.read_delete_allowed_roots_setting(conn)
 
     for row in rows:
+        row = _settle_intent(conn, row, allowed_roots)
         paths = tracked_paths(row)
         # A file this deletion removed is expected to be gone, whatever became of its
         # root since, and the folder walk after it may have emptied the folder above.
@@ -283,8 +366,9 @@ def _delete_files_on_disk(
     allowed_roots: list[str],
     protected_paths: set[str],
     removed_paths: set[str],
+    closing: list[DeletionRow],
 ) -> TrackedFilesResult | None:
-    """Remove *tracked_files* with their sidecars.
+    """Remove *tracked_files*, those of the *closing* rows, with their sidecars.
 
     A tracked file in *removed_paths*, already removed by an earlier pass,
     still has its sidecars swept, so one that failed to go then goes now.
@@ -309,6 +393,8 @@ def _delete_files_on_disk(
         # action row is still valid — reset to pending so a later
         # run (e.g. once the operator fixes the path) can retry.
         logger.error("Refusing to delete '%s': %s", row.file_path, exc)
+        for done in closing:
+            clear_removal_intent(conn, done.id)
         repository.mark_delete_status(conn, row.id, "pending")
         detail = f"Not deleted: {row.title} — {exc}"
         # The refusal repeats every pass until something changes; audit it once.
@@ -1274,6 +1360,9 @@ class DeletionExecutor:
         row with a tracked file missing (moved since the scan) stays pending:
         it is never booked deleted while its media may still be elsewhere.
 
+        The claim's own commit also names the files about to go, so a removal
+        whose outcome is never recorded is told from a new copy put there since.
+
         Due rows of other items stored at or under the path are claimed in
         the same transaction and their tracked files removed with this row's;
         each closes once all its own files are gone. They go back to pending
@@ -1282,6 +1371,13 @@ class DeletionExecutor:
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
         unavailable = _unavailable_for(row, allowed_roots)
+        path = row.file_path or ""
+        with_it = (
+            fetch_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+            if path.strip()
+            else []
+        )
+        stamps = _stamps([row, *with_it])
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
             logger.info(
@@ -1322,6 +1418,19 @@ class DeletionExecutor:
             self._conn.commit()
             return [], 0
 
+        if row.removal_intent:
+            logger.warning(
+                "engine.delete.unsettled id=%s media_id=%s — what its last removal took "
+                "is not known yet; leaving the row pending",
+                row.id,
+                row.media_item_id,
+            )
+            repository.mark_delete_status(self._conn, row.id, "pending")
+            if unavailable is not None:
+                self._waiting[row.id] = unavailable
+            self._conn.commit()
+            return [], 0
+
         if tracked_paths(row) is None:
             logger.warning(
                 "engine.delete.unrecorded id=%s media_id=%s — the item's files are not "
@@ -1347,6 +1456,16 @@ class DeletionExecutor:
             for other in claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
             if not self._cancel_if_kept(other, now_iso)
         ]
+        # A co-located row whose files are not recorded stays claimed through
+        # the removal, so a keep on it is still refused, but it cannot close.
+        closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
+        unsettled = any(other.removal_intent for other in co_located)
+        for done in closing if not unsettled else []:
+            intent = {
+                str(Path(file)): stamps.get(str(Path(file))) for file in tracked_paths(done) or []
+            }
+            if any(intent.values()):
+                record_removal_intent(self._conn, done, intent)
         self._conn.commit()
         logger.info(
             "engine.delete.intent id=%s media_id=%s path=%r also_closes=%s",
@@ -1369,16 +1488,19 @@ class DeletionExecutor:
             )
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if replaced or not self._still_removable(
-            row, co_located, path, now_iso, unavailable=unavailable
+        if (
+            unsettled
+            or replaced
+            # A file put there since the claim read the disk is not in its intent.
+            or any(stamp != stamps.get(file) for file, stamp in _stamps(closing).items())
+            or not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable)
         ):
             for claimed in (row, *co_located):
+                if not unsettled:
+                    clear_removal_intent(self._conn, claimed.id)
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
             return [], 0
-        # A co-located row whose files are not recorded stays claimed through
-        # the removal, so a keep on it is still refused, but it cannot close.
-        closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
         tracked = [entry for done in closing for entry in done.tracked_files or []]
         owned = [(done, file) for done in closing for file in tracked_paths(done) or []]
         protected = fetch_tracked_paths_in_folders(
@@ -1394,7 +1516,7 @@ class DeletionExecutor:
                 limits[folder] = limit
         already_removed = {path for done in closing for path in done.removed_paths}
         result = _delete_files_on_disk(
-            self._conn, row, tracked, allowed_roots, protected, already_removed
+            self._conn, row, tracked, allowed_roots, protected, already_removed, closing
         )
         if result is None:
             for other in co_located:
@@ -1452,7 +1574,9 @@ class DeletionExecutor:
         for done in closing:
             gone = _own_removed(done, result)
             freed = result.bytes_freed if done is row else 0
-            if (gone or freed) and not record_removed_files(
+            if not gone and not freed:
+                clear_removal_intent(self._conn, done.id)
+            elif not record_removed_files(
                 self._conn,
                 done.id,
                 done.removed_paths | gone,

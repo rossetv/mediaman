@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
@@ -14,6 +15,7 @@ from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.scanner.engine import ScanEngine
 from mediaman.scanner.repository import clear_pending_deletions, delete_show_scheduled_deletions
+from mediaman.services.infra import DeletionRefused
 from mediaman.services.infra.storage import deletion as storage
 from mediaman.web.repository.kept import delete_protections, set_protected_state
 from mediaman.web.repository.library_api import apply_keep_in_tx
@@ -238,6 +240,158 @@ class TestRecordWriteFails:
             real(*args)
 
         monkeypatch.setattr(deletions, "record_removed_files", flaky)
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+
+
+def _lose_the_record(conn, monkeypatch):
+    """Run a pass that removes files and can record none of it, then let the process die."""
+    with monkeypatch.context() as m:
+        m.setattr(
+            deletions,
+            "record_removed_files",
+            MagicMock(side_effect=sqlite3.OperationalError("disk I/O error")),
+        )
+        with pytest.raises(sqlite3.OperationalError):
+            DeletionExecutor(conn=conn).execute()
+    conn.rollback()
+
+
+def _die_at_the_removal(conn, monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(deletions, "delete_tracked_files", MagicMock(side_effect=_Died))
+        with pytest.raises(_Died):
+            DeletionExecutor(conn=conn).execute()
+    conn.rollback()
+
+
+class TestRemovalWithNoRecordedOutcome:
+    @pytest.mark.parametrize("recovered_at_startup", [True, False])
+    @pytest.mark.parametrize("name", ["film.mkv", "Film 2160p.mkv"])
+    def test_a_new_copy_is_not_deleted_under_the_old_row(
+        self, conn, film, monkeypatch, name, recovered_at_startup
+    ):
+        _lose_the_record(conn, monkeypatch)
+        assert not film.exists()
+        new_copy = film.with_name(name)
+        if recovered_at_startup:
+            recover_stuck_deletions(conn, book=False)
+        new_copy.parent.mkdir(exist_ok=True)
+        new_copy.write_bytes(b"data")
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(new_copy), "size": 4}]),),
+        )
+        conn.commit()
+        radarr = MagicMock()
+
+        for _ in range(2):
+            DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert new_copy.exists()
+        assert _action(conn) is None
+        assert _booked(conn) == [None]
+        assert radarr.mock_calls == []
+
+    def test_a_new_copy_put_there_with_the_old_times_is_told_apart(self, conn, film, monkeypatch):
+        old = film.stat()
+        _lose_the_record(conn, monkeypatch)
+        film.parent.mkdir(exist_ok=True)
+        film.write_bytes(b"data")
+        os.utime(film, ns=(old.st_atime_ns, old.st_mtime_ns))
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert film.exists()
+
+    def test_a_removal_is_booked_and_unmonitored(self, conn, film, monkeypatch):
+        _lose_the_record(conn, monkeypatch)
+        radarr = MagicMock()
+        radarr.get_movies.return_value = []
+        radarr.get_movie_by_tmdb.return_value = {
+            "id": 5,
+            "tmdbId": 10,
+            "path": str(film.parent),
+            "hasFile": False,
+        }
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert _booked(conn) == [None]
+        assert _action(conn) is None
+        radarr.unmonitor_movie.assert_called_once_with(5)
+
+    def test_a_removal_that_never_ran_is_carried_out_by_the_next_pass(
+        self, conn, film, monkeypatch
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        assert film.exists()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert not film.exists()
+        assert _booked(conn) == [4]
+
+    def test_the_rest_of_a_removal_cut_off_half_way_is_removed(self, conn, two_parts, monkeypatch):
+        cd1, cd2 = two_parts
+        _die_at_the_removal(conn, monkeypatch)
+        cd1.unlink()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert not cd2.exists()
+        assert _booked(conn) == [4]
+        assert _action(conn) is None
+
+    def test_a_row_is_held_while_its_mount_is_down_and_spares_what_comes_back(
+        self, conn, root, film, monkeypatch
+    ):
+        _lose_the_record(conn, monkeypatch)
+        away = root.rename(root.with_name("away"))
+
+        recover_stuck_deletions(conn)
+        assert _booked(conn) == []
+        # The mount returns after recovery looked, with a new copy on it.
+        away.rename(root)
+        film.parent.mkdir(exist_ok=True)
+        film.write_bytes(b"data")
+        with monkeypatch.context() as m:
+            m.setattr(deletions, "recover_stuck_deletions", lambda conn: [])
+            DeletionExecutor(conn=conn).execute()
+        assert film.exists()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert film.exists()
+        assert _action(conn) is None
+
+    def test_a_row_claimed_with_another_is_told_apart_too(self, conn, root, film, monkeypatch):
+        inner = film.with_name("extra.mkv")
+        _due(conn, "m2", str(inner), inner)
+        conn.execute("UPDATE media_items SET file_path = ? WHERE id = 'm1'", (str(film.parent),))
+        conn.commit()
+        _lose_the_record(conn, monkeypatch)
+        assert not inner.exists()
+        inner.parent.mkdir(exist_ok=True)
+        inner.write_bytes(b"data")
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert inner.exists()
+        assert _action(conn, "m2") is None
+
+    def test_a_refused_removal_leaves_nothing_to_take_a_later_upgrade_for(
+        self, conn, film, monkeypatch
+    ):
+        with monkeypatch.context() as m:
+            m.setattr(
+                deletions, "delete_tracked_files", MagicMock(side_effect=DeletionRefused("no"))
+            )
+            DeletionExecutor(conn=conn).execute()
+        film.unlink()
+        film.write_bytes(b"more")
+
         DeletionExecutor(conn=conn).execute()
 
         assert _booked(conn) == [4]

@@ -65,12 +65,14 @@ __all__ = [
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
+    "clear_removal_intent",
     "count_pending_deletions",
     "delete_actions_for_media_items",
     "delete_scheduled_action",
     "delete_show_scheduled_deletions",
     "fetch_already_scheduled_media_ids",
     "fetch_deletion",
+    "fetch_due_deletions_under",
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_old_marks",
@@ -94,6 +96,7 @@ __all__ = [
     "is_show_kept_pure",
     "mark_delete_status",
     "mark_unanswered",
+    "record_removal_intent",
     "record_removed_files",
     "restore_keeps",
     "save_pruned_keeps",
@@ -139,6 +142,9 @@ class DeletionRow:
     removed_sizes: dict[str, int] = field(default_factory=dict)
     # Tracked paths the last pass left to remove; None when its record does not say.
     left_paths: frozenset[str] | None = None
+    # Each tracked path of a removal whose outcome is not recorded, with what told its file
+    # apart when the removal began; None for a file that was not there.
+    removal_intent: dict[str, list[int] | None] = field(default_factory=dict)
     # Whether the item's Plex library is ticked in Settings.
     library_selected: bool = True
 
@@ -174,6 +180,14 @@ _DELETION_COLUMNS = (
 )
 
 
+# A removal that began, with no outcome recorded.
+_HAS_INTENT = (
+    "(sa.removed_files LIKE '%\"intent\"%' "
+    "AND CASE WHEN json_valid(sa.removed_files) "
+    "THEN json_type(sa.removed_files, '$.intent') IS NOT NULL ELSE 0 END)"
+)
+
+
 def _parse_tracked_files(raw: str | None) -> list[dict[str, Any]] | None:
     """Return the stored file list, or None when it is missing or not a JSON list."""
     if raw is None:
@@ -192,6 +206,7 @@ class _RemovedFiles:
     removed_bytes: int = 0
     sizes: dict[str, int] = field(default_factory=dict)
     left: frozenset[str] | None = None
+    intent: dict[str, list[int] | None] = field(default_factory=dict)
 
 
 def _parse_removed_files(raw: str | None) -> _RemovedFiles:
@@ -212,6 +227,7 @@ def _parse_removed_files(raw: str | None) -> _RemovedFiles:
     if not isinstance(sizes, dict):
         sizes = {}
     left = value.get("left")
+    intent = value.get("intent")
     return _RemovedFiles(
         removed,
         removed_bytes,
@@ -221,19 +237,57 @@ def _parse_removed_files(raw: str | None) -> _RemovedFiles:
             if path in removed and isinstance(size, int) and not isinstance(size, bool)
         },
         frozenset(p for p in left if isinstance(p, str)) if isinstance(left, list) else None,
+        intent if isinstance(intent, dict) else {},
     )
 
 
 def _removed_json(
-    paths: Collection[str], removed_bytes: int, sizes: Mapping[str, int], left: Collection[str]
+    paths: Collection[str],
+    removed_bytes: int,
+    sizes: Mapping[str, int],
+    left: Collection[str] | None,
+    intent: Mapping[str, list[int] | None] | None = None,
 ) -> str:
-    return json.dumps(
-        {
-            "paths": sorted(paths),
-            "bytes": removed_bytes,
-            "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
-            "left": sorted(left),
-        }
+    record: dict[str, object] = {
+        "paths": sorted(paths),
+        "bytes": removed_bytes,
+        "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+        "left": None if left is None else sorted(left),
+    }
+    if intent:
+        record["intent"] = intent
+    return json.dumps(record)
+
+
+def record_removal_intent(
+    conn: sqlite3.Connection, row: DeletionRow, intent: Mapping[str, list[int] | None]
+) -> None:
+    """Store the files the claimed *row* is about to remove, beside what it removed before.
+
+    Write it in the claim's own transaction: should the outcome never be
+    recorded, this is all that tells the files it removed from a new copy.
+    record_removed_files replaces it with the outcome.
+    """
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
+        (
+            _removed_json(
+                row.removed_paths, row.removed_bytes, row.removed_sizes, row.left_paths, intent
+            ),
+            row.id,
+        ),
+    )
+
+
+def clear_removal_intent(conn: sqlite3.Connection, action_id: int) -> None:
+    """Drop the row's removal intent, for a removal that took no file."""
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = CASE "
+        "  WHEN json_array_length(removed_files, '$.paths') > 0 "
+        "  THEN json_remove(removed_files, '$.intent') END "
+        "WHERE id = ? AND json_valid(removed_files) "
+        "  AND json_type(removed_files, '$.intent') IS NOT NULL",
+        (action_id,),
     )
 
 
@@ -278,12 +332,13 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         removed_bytes=removed.removed_bytes,
         removed_sizes=removed.sizes,
         left_paths=removed.left,
+        removal_intent=removed.intent,
         library_selected=bool(row["library_selected"]),
     )
 
 
 def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
-    """Return rows in ``scheduled_actions`` still marked ``deleting``.
+    """Return rows still marked ``deleting``, or whose removal has no recorded outcome.
 
     Returns an empty list if the ``delete_status`` column has not been
     migrated yet (older DB schemas).
@@ -294,7 +349,7 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
             f"SELECT {_DELETION_COLUMNS} "
             "FROM scheduled_actions sa "
             "LEFT JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.delete_status = 'deleting'"
+            f"WHERE sa.delete_status = 'deleting' OR {_HAS_INTENT}"
         ).fetchall()
     except sqlite3.OperationalError:
         # delete_status column not yet migrated — nothing to do.
@@ -361,8 +416,10 @@ def fetch_unbooked_media_ids(conn: sqlite3.Connection) -> set[str]:
     Includes those deleted through Radarr/Sonarr whose delete intent is open:
     the reconcile books them from their rows.
     """
-    begun = conn.execute(
-        "SELECT media_item_id FROM scheduled_actions WHERE delete_status = 'deleting' "
+    # rationale: the interpolated condition is a fixed string
+    begun = conn.execute(  # nosec B608
+        "SELECT sa.media_item_id FROM scheduled_actions sa "
+        f"WHERE sa.delete_status = 'deleting' OR {_HAS_INTENT} "
         "UNION SELECT media_item_id FROM delete_intents WHERE completed_at IS NULL"
     )
     return {row["media_item_id"] for row in begun} | {
@@ -489,6 +546,24 @@ def fetch_media_held_outside_pass(
     )
 
 
+def fetch_due_deletions_under(
+    conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
+) -> list[DeletionRow]:
+    """Return the rows claim_due_deletions_under may claim."""
+    where, params = _at_or_under_candidates(path)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
+        f"AND sa.execute_at <= ? AND {LIBRARY_SELECTED} ORDER BY sa.id",
+        (media_item_id, *params, now_iso),
+    ).fetchall()
+    candidates = [_row_to_deletion_row(row) for row in rows]
+    return [row for row in candidates if _at_or_under(row.file_path, path)]
+
+
 def claim_due_deletions_under(
     conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
 ) -> list[DeletionRow]:
@@ -498,21 +573,10 @@ def claim_due_deletions_under(
     same pass: a keep guarded on the delete state then fails on them.
     Returns the rows claimed.
     """
-    where, params = _at_or_under_candidates(path)
-    # rationale: the interpolated condition is a fixed string; every value is bound
-    rows = conn.execute(  # nosec B608
-        f"SELECT {_DELETION_COLUMNS} "
-        "FROM scheduled_actions sa "
-        "JOIN media_items mi ON sa.media_item_id = mi.id "
-        f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
-        f"AND {LIBRARY_SELECTED} ORDER BY sa.id",
-        (media_item_id, *params),
-    ).fetchall()
-    candidates = [_row_to_deletion_row(row) for row in rows]
     return [
         row
-        for row in candidates
-        if _at_or_under(row.file_path, path) and claim_due_deletion(conn, row.id, now_iso)
+        for row in fetch_due_deletions_under(conn, media_item_id, path, now_iso)
+        if claim_due_deletion(conn, row.id, now_iso)
     ]
 
 
