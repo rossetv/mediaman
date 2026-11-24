@@ -275,14 +275,15 @@ function boot(html, reduced, saved, serverPlays) {
   const starts = () => calls.filter((c) => /\/api\/watch\/stream$/.test(c.url)).map((c) => c.body.quality);
   /* The page starts its first stream as soon as it loads; a scenario may still change the reply. */
   const replies = [{ ok: { stream_id: 's1', playlist: '/p1', quality: 'best' } }];
-  const held = { stop: null };   // set to [] to leave stops unanswered
+  /* `stop` set to [] leaves stops unanswered; `answer` answers the starts no reply is set for. */
+  const held = { stop: null, answer: null };
   const api = {
     post(url, body) {
       calls.push({ url: url, body: body });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       return Promise.resolve().then(() => {
-        const reply = replies.shift();
+        const reply = replies.shift() || (held.answer && held.answer(body));
         if (!reply) return new Promise(() => {});
         return reply.ok ? reply.ok : Promise.reject(reply.err);
       });
@@ -677,6 +678,58 @@ const scenarios = {
     slow();
     await settle();
     return { once: once, twice: p.starts() };
+  },
+
+  /* Every stream starts and none of them can be loaded. */
+  async never_loads(p) {
+    p.replies.length = 0;
+    p.held.answer = (body) => {
+      if (p.win.serverPlays === 'refused' && body.quality !== 'auto') return { err: { status: 503 } };
+      return answer(body.quality === 'auto' ? '1080p-8000' : body.quality);
+    };
+    while (p.starts().length < 40 && p.q('[data-message]').hidden) {
+      await settle();
+      const h = p.hlsList[p.hlsList.length - 1];
+      if (h.destroyed) continue;
+      h.emit('hlsManifestParsed');
+      const error = { type: 'networkError', details: 'fragLoadTimeOut' };
+      h.emit('hlsError', Object.assign({ fatal: false }, error));
+      h.emit('hlsError', Object.assign({ fatal: false }, error));
+      h.emit('hlsError', Object.assign({ fatal: true }, error));
+      await settle();
+    }
+    return { starts: p.starts(), message: !p.q('[data-message]').hidden, retry: !p.q('[data-retry]').hidden };
+  },
+
+  /* Automatic plays a little and is slow; each step down from it fails at once. */
+  async step_fails(p) {
+    p.replies.length = 0;
+    p.held.answer = (body) => answer(body.quality === 'auto' ? '1080p-8000' : body.quality);
+    const error = { type: 'networkError', details: 'fragLoadTimeOut' };
+    await streamPlays(p, 0);
+    playOn(p, 100);
+    while (p.starts().length < 40 && p.q('[data-message]').hidden) {
+      if (p.starts().pop() === 'auto') {
+        await streamPlays(p, 100);
+        playOn(p, 3);
+        for (let i = 0; i < 2; i++) p.hlsList[p.hlsList.length - 1].emit('hlsError', Object.assign({ fatal: false }, error));
+      } else {
+        p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError', details: 'fragLoadError' });
+      }
+      await settle();
+    }
+    return { starts: p.starts(), message: !p.q('[data-message]').hidden };
+  },
+
+  /* The person tries one quality after another and all are refused. */
+  async picks_refused(p) {
+    await streamPlays(p, 0);
+    for (const id of ['medium', 'low', 'medium']) {
+      p.replies.push({ err: { status: 503 } }, answer('1080p-8000'));
+      click(p.q('[data-quality="' + (p.q('[data-quality="' + id + '"]') ? id : '480p-1500') + '"]'));
+      await streamPlays(p, 0);
+    }
+    return { message: !p.q('[data-message]').hidden, starts: p.starts().length };
   },
 
   /* A quality the person picked stays, however it stalls. */

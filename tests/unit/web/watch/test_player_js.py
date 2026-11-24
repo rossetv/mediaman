@@ -223,6 +223,31 @@ def test_automatic_steps_down_when_the_video_cannot_even_start(markup):
     assert out["twice"] == ["1080p-8000"]
 
 
+def test_automatic_gives_up_with_a_message_when_nothing_can_be_loaded(markup):
+    out = run(markup, "never_loads")
+    assert (out["message"], out["retry"]) == (True, True)
+    assert "480p-1500" in out["starts"]
+    assert len(out["starts"]) < 8
+
+
+def test_automatic_gives_up_with_a_message_when_its_steps_are_refused(markup):
+    out = run(markup, "never_loads", plays="refused")
+    assert (out["message"], out["retry"]) == (True, True)
+    assert "720p-4000" in out["starts"]
+    assert len(out["starts"]) < 8
+
+
+def test_automatic_gives_up_with_a_message_when_each_step_down_fails(markup):
+    out = run(markup, "step_fails")
+    assert out["message"] is True
+    assert "720p-4000" in out["starts"]
+    assert len(out["starts"]) < 12
+
+
+def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
+    assert run(markup, "picks_refused") == {"message": False, "starts": 7}
+
+
 def test_a_picked_quality_never_changes_by_itself(markup):
     saved = {"mediaman.watch.quality": "1080p-8000"}
     assert run(markup, "fixed_stalls", saved=saved) == ["1080p-8000"]

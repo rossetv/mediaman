@@ -58,6 +58,7 @@
   /* Restarts that playback must outlast before more are allowed. */
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
+  var MAX_REVERTS = 2;
   /* Automatic steps down when playback stalls twice within this much of the
      video, or once for this long. */
   var STALL_WINDOW_S = 60;
@@ -209,6 +210,7 @@
   var mediaRecoverUsed;
   var fatalRestartUsed;
   var goneRestarts;
+  var reverts;
 
   function resetVideo(at) {
     pendingStart = at;
@@ -247,6 +249,7 @@
     mediaRecoverUsed = false;
     fatalRestartUsed = false;
     goneRestarts = 0;
+    reverts = 0;
   }
 
   resetVideo(startS);
@@ -288,6 +291,7 @@
   function choice() { return { quality: quality, override: override }; }
   function asked() { return override || quality; }
   function isNew() { return good.quality !== quality || good.override !== override; }
+  function mayRevert() { return isNew() && reverts < MAX_REVERTS; }
 
   function convertRows() {
     return rows.filter(function (r) { return r.kind === 'convert'; });
@@ -389,6 +393,7 @@
 
   function chooseQuality(value) {
     if (value === quality && !override) return;
+    reverts = 0;
     swapNotice = null;
     override = null;
     stalls = 0;
@@ -405,6 +410,8 @@
 
   /* A new quality cannot play: go back to the one that did. */
   function revertQuality() {
+    reverts++;
+    noteTrouble();
     if (quality !== good.quality) {
       var row = findRow(good.quality) || rowFor(good.override || good.quality);
       swapNotice = "Couldn't change the quality." + (row ? ' Staying on ' + rowText(row) + '.' : '');
@@ -470,12 +477,17 @@
     restartStream(true);
   }
 
+  /* What is left below what plays. */
+  function lowerRows() {
+    var converts = convertRows();
+    return converts.slice(converts.indexOf(rowFor(playing)) + 1);
+  }
+
   /* One step, or further where the connection measured slower than that. One
      that has played nothing has measured nothing: half of what is left. */
   function stepDown() {
     if (starting || !streamId) return false;
-    var converts = convertRows();
-    var lower = converts.slice(converts.indexOf(rowFor(playing)) + 1);
+    var lower = lowerRows();
     if (!lower.length) return false;
     if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
     var last = lower[lower.length - 1];
@@ -602,7 +614,7 @@
             return attempt(tries);
           }
           var known = err && START_ERRORS[err.error];
-          if (isNew() && (!known || known.retry)) {
+          if (mayRevert() && (!known || known.retry)) {
             /* The old stream is already stopped. */
             revertQuality();
             return startStream(position());
@@ -671,7 +683,9 @@
     if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
     if (!data.fatal) return;
     if (playing === 'original' && !streamPlayed) { leaveOriginal(); return; }
-    if (isNew()) {
+    /* Nothing above can play where the lowest step of Automatic's could not. */
+    var lost = quality === 'auto' && !streamPlayed && !lowerRows().length;
+    if (mayRevert() && !lost) {
       revertQuality();
       restartStream(true);
       return;
