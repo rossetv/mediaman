@@ -25,11 +25,22 @@ from mediaman.web.routes.dashboard._data import (
     _fetch_recently_deleted,
     _fetch_scheduled,
     _fetch_storage_stats,
+    _scheduled_summary,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _show_storage(storage: dict[str, object], plex_configured: bool) -> bool:
+    """Without Plex the storage card is hidden only when it has nothing to show."""
+    return plex_configured or bool(
+        storage["total_bytes"]
+        or storage["movies_bytes"]
+        or storage["tv_bytes"]
+        or storage["anime_bytes"]
+    )
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -45,14 +56,6 @@ def dashboard_page(request: Request) -> Response:
     storage = _fetch_storage_stats(conn)
 
     plex_configured = plex_is_configured(conn)
-    # Without Plex the card is hidden only when it has nothing to show.
-    show_storage = plex_configured or bool(
-        storage["total_bytes"]
-        or storage["movies_bytes"]
-        or storage["tv_bytes"]
-        or storage["anime_bytes"]
-    )
-
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
     scheduled_size = format_bytes(
@@ -75,7 +78,7 @@ def dashboard_page(request: Request) -> Response:
             "nav_active": "dashboard",
             "storage": storage,
             "plex_configured": plex_configured,
-            "show_storage": show_storage,
+            "show_storage": _show_storage(storage, plex_configured),
             "scheduled_items": scheduled_items,
             "scheduled_count": scheduled_count,
             "scheduled_size": scheduled_size,
@@ -92,6 +95,7 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
     conn = get_db()
     storage = _fetch_storage_stats(conn)
 
+    plex_configured = plex_is_configured(conn)
     reclaimed_bytes = sum_reclaimed_bytes(conn)
 
     return JSONResponse(
@@ -99,6 +103,15 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
             "storage": storage,
             "reclaimed_total_bytes": reclaimed_bytes,
             "reclaimed_total": format_bytes(reclaimed_bytes),
+            "scheduled": _scheduled_summary(_fetch_scheduled(conn)),
+            # From the settings row only, as on the page: a mount is never probed for it.
+            "unavailable_roots": [
+                {"path": path, "waiting": waiting}
+                for path, waiting in sorted(read_delete_root_waiting(conn).items())
+            ],
+            "deletions_off": not read_delete_allowed_roots_setting(conn, quiet=True),
+            "plex_configured": plex_configured,
+            "show_storage": _show_storage(storage, plex_configured),
         }
     )
 
