@@ -342,6 +342,10 @@ class TestSonarrSeriesMatching:
             )
             assert sent == []
 
+        abandoned = self._season(2, 3, 3, monitored=False)
+        self._run_with_seasons(conn, monkeypatch, self._season(0, 0, 2), whole, abandoned)
+        assert sent == []
+
         self._run_with_seasons(
             conn, monkeypatch, self._season(0, 0, 2), whole, self._season(2, 10, 10)
         )
@@ -395,22 +399,28 @@ class TestSonarrSeriesMatching:
         ("seasons", "ready"),
         [
             ([_season(1, 0, 1, monitored=False)], False),
-            ([_season(1, 1, 1, monitored=False)], True),
+            ([_season(1, 1, 1, monitored=False)], False),
+            ([_season(1, 3, 3, monitored=False)], False),
+            ([_season(1, 3, 3, monitored=False), _season(2, 10, 10, monitored=False)], True),
             ([_season(1, 10, 10, monitored=False), _season(2, 10, 10, monitored=False)], True),
             ([_season(1, 0, 0, monitored=False)], False),
-            ([_season(0, 2, 2, monitored=False)], True),
-            ([_season(0, 2, 2, monitored=False), _season(1, 0, 0, aired=False)], False),
+            ([_season(1, 10, 10, aired=False)], True),
+            ([_season(1, 1, 1, aired=False)], False),
+            ([_season(0, 2, 2, monitored=False)], False),
         ],
         ids=[
             "one episode wanted",
             "one episode there",
+            "abandoned in part",
+            "one season whole, one in part",
             "all there",
             "nothing there",
+            "all there and undated",
+            "one file before it airs",
             "specials alone",
-            "specials before the show airs",
         ],
     )
-    def test_a_show_with_no_aired_season_monitored_is_announced_once_nothing_more_is_wanted(
+    def test_a_show_with_no_aired_season_monitored_is_announced_only_by_a_whole_season(
         self, tmp_path, monkeypatch, seasons, ready
     ):
         conn, sent = self._setup(tmp_path, monkeypatch)
