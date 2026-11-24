@@ -86,10 +86,14 @@ def _audits(conn, media_id):
     ]
 
 
-@pytest.mark.parametrize("selected", ['["2"]', "[]", "not json", '{"1": "1"}'])
+@pytest.mark.parametrize("selected", [None, "", '["2"]', "[]", "not json", '{"1": "1"}'])
 def test_a_due_deletion_of_an_unselected_library_is_cancelled(conn, root, selected):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
-    _select(conn, selected)
+    if selected is None:
+        conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+        conn.commit()
+    else:
+        _select(conn, selected)
 
     for _ in range(2):
         DeletionExecutor(conn=conn).execute()
@@ -99,7 +103,7 @@ def test_a_due_deletion_of_an_unselected_library_is_cancelled(conn, root, select
     assert _audits(conn, "m1") == ["delete_refused"]
 
 
-@pytest.mark.parametrize("selected", ['["1"]', "[1]"])
+@pytest.mark.parametrize("selected", ['["1"]', "[1]", '["2", "1"]'])
 def test_a_due_deletion_of_a_selected_library_goes_ahead(conn, root, selected):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
     _select(conn, selected)

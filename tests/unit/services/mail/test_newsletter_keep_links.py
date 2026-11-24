@@ -32,6 +32,7 @@ def conn(db_path):
         ("mailgun_api_key", "key-testvalue"),
         ("mailgun_from_address", "media@example.com"),
         ("base_url", _BASE_URL),
+        ("plex_libraries", '["1"]'),
     ):
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
