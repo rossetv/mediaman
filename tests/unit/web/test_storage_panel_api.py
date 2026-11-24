@@ -473,6 +473,7 @@ class TestScheduled:
             "leaving": len(row),
             "leaving_bytes": 110,
             "leaving_size": "110 B",
+            "unsized_count": 0,
             "overdue": 1,
             "deleting": 1,
         }
