@@ -690,8 +690,8 @@
       if (view === to) return;
       var was = view;
       view = to;
-      clearTimeout(hiding);
       if (to === 'browse') {
+        clearTimeout(hiding);
         leave();
         results.hidden = true;
         if (listView) return;

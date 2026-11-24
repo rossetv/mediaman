@@ -575,3 +575,7 @@ def test_a_category_s_page_shows_nothing_that_would_move_before_it_is_known() ->
 def test_tab_goes_on_from_the_field_into_the_rows_behind_the_sheet() -> None:
     # In reach before the key is let through, which is when the browser looks for the next stop.
     assert _run("tabOut") == [[True, False, False, False]] * 2
+
+
+def test_the_rows_are_gone_though_a_category_opens_while_they_fade() -> None:
+    assert _run("pageDuringFade") == ["results", False]

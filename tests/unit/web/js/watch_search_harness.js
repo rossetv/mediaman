@@ -1335,6 +1335,22 @@ const scenarios = {
     }
     return out;
   },
+
+  // A category opened while the rows are still fading behind what was typed: they go all the same.
+  async pageDuringFade() {
+    const p = await ready(ADMIN);
+    const finish = withMotion(p);
+    try {
+      p.type('action');
+      click(p.doc, p.doc.querySelector('.watch-suggestion--category'));
+      p.timers.filter((t) => t.on && t.ms === 150).forEach((t) => { t.on = false; t.fn(); });
+      const out = [p.shown(), p.browse.classList.contains('is-off')];
+      finish();
+      return out;
+    } finally {
+      delete Node.prototype.animate;
+    }
+  },
 };
 
 // Motion on: every move runs until finish() ends it.
