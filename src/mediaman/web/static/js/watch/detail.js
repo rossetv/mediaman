@@ -262,6 +262,7 @@
       checkedAt: 0,
       openedAs: ref,     // a title scanned meanwhile goes on under its library ref
       marksAsked: 0,
+      ratings: null,     // those that come after the title: { early, came, asked }; early came with it
       keepComes: null,   // where the focus waits for a Keep button
       ctrl: null,
       seq: ++seq
@@ -937,6 +938,7 @@
     hide(under, !under.children.length);
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
+    askRatings(cur);
     if (cur.pickRef) main.appendChild(pickBox(cur.pick));
     if (d.overview) main.appendChild(el('p', 'ttl__overview', d.overview));
     if (d.director && d.kind === 'movie') {
@@ -988,27 +990,104 @@
       (leaves.days <= 0 ? 'today' : 'in ' + plural(leaves.days, 'day', 'days')) + '.';
   }
 
+  var RATINGS = ['imdb', 'rt', 'tmdb', 'metascore'];
+  var WIDEST = { imdb: '10.0', rt: '100%', metascore: '100' };
+
+  function ratingPill(key, value) {
+    var glyph = { imdb: '★', rt: '🍅', tmdb: '★' }[key];
+    var text = key === 'imdb' ? 'IMDb ' + value : key === 'rt' ? 'RT ' + value
+      : key === 'tmdb' ? 'TMDB ' + value.toFixed(1) : 'Metascore ' + String(value).replace(/\/100$/, '');
+    var p = el('span', 'ttl-rating ttl-rating--' + (key === 'metascore' ? 'meta' : key));
+    p.setAttribute('data-rating', key);
+    if (glyph) {
+      var g = el('span', 'ttl-rating__icon', glyph);
+      g.setAttribute('aria-hidden', 'true');
+      p.appendChild(g);
+    }
+    p.appendChild(document.createTextNode(text));
+    return p;
+  }
+
+  /* Those *r* has. */
+  function ratingKeys(r) {
+    return RATINGS.filter(function (key) { return key === 'tmdb' ? typeof r.tmdb === 'number' && r.tmdb > 0 : !!r[key]; });
+  }
+
+  function pillsRow(keys, r) {
+    var row = el('div', 'ttl__ratings');
+    keys.forEach(function (key) { row.appendChild(ratingPill(key, r[key])); });
+    return row;
+  }
+
+  /* What is not here yet, its room held; *hidden*: the room alone. */
+  function pillsToCome(row, keys, hidden) {
+    Object.keys(WIDEST).forEach(function (key) {
+      if (keys.indexOf(key) > -1) return;
+      var p = row.appendChild(ratingPill(key, WIDEST[key]));
+      p.className = 'ttl-rating' + (hidden ? '' : ' skel');
+      p.removeAttribute('data-rating');
+      p.setAttribute('aria-hidden', 'true');
+      p.style.color = 'transparent';
+      toArray(p.children).forEach(function (g) { g.style.visibility = 'hidden'; });
+    });
+    return row;
+  }
+
   function ratingsRow(d) {
     var r = d.ratings || {};
-    var pills = [];
-    function pill(cls, glyph, text) {
-      var p = el('span', 'ttl-rating ' + cls);
-      if (glyph) {
-        var g = el('span', 'ttl-rating__icon', glyph);
-        g.setAttribute('aria-hidden', 'true');
-        p.appendChild(g);
+    if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: false };
+    if (!cur.ratings) return ratingKeys(r).length ? pillsRow(ratingKeys(r), r) : null;
+    // Over the room for all of them, so that none that comes, or does not, moves the page.
+    var box = el('div');
+    box.setAttribute('data-ttl-part', 'ratings');
+    box.style.display = 'grid';
+    var early = ratingKeys(cur.ratings.early);
+    var room = pillsToCome(pillsRow(early, cur.ratings.early), early, true);
+    room.setAttribute('aria-hidden', 'true');
+    room.style.visibility = 'hidden';
+    var row = lateRow(r);
+    [room, row].forEach(function (layer) {
+      layer.style.gridArea = '1 / 1';
+      box.appendChild(layer);
+    });
+    return box;
+  }
+
+  /* What was here first keeps its place. */
+  function lateRow(r) {
+    var w = cur.ratings;
+    var early = ratingKeys(w.early);
+    var all = Object.assign({}, w.early);
+    [r, w.came || {}].forEach(function (more) {
+      ratingKeys(more).forEach(function (key) { all[key] = more[key]; });
+    });
+    var keys = early.concat(ratingKeys(all).filter(function (key) { return early.indexOf(key) === -1; }));
+    var row = pillsRow(keys, all);
+    return w.came ? row : pillsToCome(row, keys, false);
+  }
+
+  /* Ratings that take their time are asked for once the title is on show. */
+  function askRatings(c) {
+    var w = c.ratings;
+    if (!w || w.asked) return;
+    w.asked = true;
+    function take(ratings) {
+      if (c !== cur || !isOpen) {
+        w.asked = false; // for when the title is come back to
+        return;
       }
-      p.appendChild(document.createTextNode(text));
-      pills.push(p);
+      w.came = ratings;
+      var box = part('ratings');
+      if (!box) return;
+      var was = box.children[1];
+      var row = lateRow(c.data.ratings || {});
+      row.style.gridArea = '1 / 1';
+      toArray(row.children).forEach(function (p) {
+        if (!was.querySelector('[data-rating="' + p.getAttribute('data-rating') + '"]')) core.fadeIn(p);
+      });
+      was.replaceWith(row);
     }
-    if (r.imdb) pill('ttl-rating--imdb', '★', 'IMDb ' + r.imdb);
-    if (r.rt) pill('ttl-rating--rt', '🍅', 'RT ' + r.rt);
-    if (typeof r.tmdb === 'number' && r.tmdb > 0) pill('ttl-rating--tmdb', '★', 'TMDB ' + r.tmdb.toFixed(1));
-    if (r.metascore) pill('ttl-rating--meta', '', 'Metascore ' + String(r.metascore).replace(/\/100$/, ''));
-    if (!pills.length) return null;
-    var row = el('div', 'ttl__ratings');
-    pills.forEach(function (p) { row.appendChild(p); });
-    return row;
+    get(apiUrl(c.ref) + '/ratings').then(function (reply) { take((reply && reply.ratings) || {}); }, function () { take({}); });
   }
 
   /* ── Focus ── */

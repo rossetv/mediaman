@@ -1078,3 +1078,16 @@ def test_the_director_leads_to_their_titles_and_back() -> None:
         "focus": "director",
         "plain": ["DirectorAda Rimmington", False],
     }
+
+
+def test_ratings_that_come_late_move_nothing_and_reach_no_other_title() -> None:
+    out = _run("lateRatings")
+    room = ["★TMDB 7.4", "★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
+    assert out["before"] == {"room": room, "shown": ["★TMDB 7.4"], "waiting": 3}
+    assert out["asked"] == 1
+    shown = ["★TMDB 7.4", "★IMDb 8.3", "🍅RT 91%"]
+    assert out["after"] == {"room": room, "shown": shown, "waiting": 0}
+    assert out["failed"] == {"room": room, "shown": ["★TMDB 7.4"], "waiting": 0}
+    assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
+    assert out["moved"] == "★IMDb 5.0"
+    assert out["others"] == ["/api/watch/title/movie-120/ratings"]

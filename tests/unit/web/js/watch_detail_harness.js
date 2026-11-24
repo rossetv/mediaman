@@ -1758,6 +1758,46 @@ const scenarios = {
       ratings: p.text('.ttl__ratings') };
   },
 
+  /* Ratings that are still to come: their room is held, what came with the title keeps its place, and another title's page is let be. */
+  async lateRatings() {
+    const asked = '/api/watch/title/movie-120/ratings';
+    const page = async (ratings) => {
+      let answer = null;
+      const p = load({ routes: { '/api/watch/title/movie-120': { ...LIB_MOVIE, ratings, ratings_pending: true },
+        '/api/watch/title/tmdb-movie-77': { ...MOVIE_DL, ratings: { imdb: '5.0', rt: null, tmdb: null, metascore: null }, ratings_pending: false },
+        [asked]: () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const box = p.q('[data-ttl-part="ratings"]');
+      const texts = (row) => row.children.map((n) => n.textContent);
+      return { p, answer: () => answer, look: () => ({ room: texts(box.children[0]), shown: box.children[1].children.filter((n) => !n.classList.contains('skel')).map((n) => n.textContent),
+        waiting: box.children[1].querySelectorAll('.skel').length }) };
+    };
+    const early = { imdb: null, rt: null, tmdb: 7.4, metascore: null };
+    const came = await page(early);
+    const out = { before: came.look(), asked: came.p.gets.filter((g) => g === asked).length };
+    came.answer().resolve({ ok: true, ratings: { imdb: '8.3', rt: '91%', tmdb: 7.4, metascore: null } });
+    await settle();
+    out.after = came.look();
+    const none = await page(early);
+    none.answer().reject(new APIError(502, 'x'));
+    await settle();
+    out.failed = none.look();
+    const old = await page({ ...early, imdb: '8.1' });
+    old.answer().resolve({ ok: true, ratings: { imdb: '8.2', rt: null, tmdb: 7.4, metascore: '70' } });
+    await settle();
+    out.renewed = old.look().shown;
+    const moved = await page(early);
+    moved.p.ctx.MMWatch.detail.open('tmdb-movie-77', {});
+    await settle();
+    moved.answer().resolve({ ok: true, ratings: { imdb: '8.3', rt: null, tmdb: 7.4, metascore: null } });
+    await settle();
+    out.moved = moved.p.text('.ttl__ratings');
+    out.others = moved.p.gets.filter((g) => /ratings$/.test(g));
+    return out;
+  },
+
   /* An admin deletes the title from the overlay opened from its list row; the list
      takes the row away (*how*: 'animate' leaves it fading, 'remove' drops it at once)
      before the browser's popstate closes the overlay. */
