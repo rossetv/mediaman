@@ -309,7 +309,25 @@ const scenarios = {
     const last = open(p.tab, { unstarted: true });
     const theirs = rowOf(last, 'recommended', 2000);
     last.address.start();
-    return { held, snap, alone: again.scrollLeft, theirs: theirs.scrollLeft };
+    // An arrow's press, and the focus a key has just moved into the row.
+    const taken = [['click', 0], ['focusin', 0], ['focusin', 9000]].map(([type, after]) => {
+      const tab = makeTab('/watch');
+      const x = open(tab, { unstarted: true });
+      const r = rowOf(x, 'recommended', 2000);
+      const arrow = r.parentNode.appendChild(build(x.doc, ['button', { class: 'watch-row__arrow' }]));
+      x.address.start();
+      const tell = (t, target) => (x.doc.listeners[t] || []).forEach((fn) => fn({ type: t, target }));
+      if (type === 'focusin') tell('keydown', x.doc.body);
+      x.ctx.Date.now = () => after;
+      tell(type, type === 'click' ? arrow : r);
+      r.scrollTo({ left: 300 });
+      x.fire('pagehide');
+      const y = open(tab, { unstarted: true });
+      const kept = rowOf(y, 'recommended', 2000);
+      y.address.start();
+      return kept.scrollLeft;
+    });
+    return { held, snap, taken, alone: again.scrollLeft, theirs: theirs.scrollLeft };
   },
 
   async aRowTheyScrollWithoutAnEvent() {
