@@ -71,8 +71,10 @@ class TestPanel:
         assert out["under"] is True
         assert not out["focused"].startswith("Storage: ")
 
-    def test_opens_at_the_tab_its_address_names(self):
-        assert _run("address") == {
+    def test_opens_at_the_tab_its_address_names_and_closes_to_the_meter(self):
+        out = _run("address")
+        assert out.pop("closed").startswith("Storage: ")
+        assert out == {
             "values": ["storage", "scheduled", "deleted", None, None, None],
             "on": ["space-deleted"],
             "tabs": "space-tab-deleted",

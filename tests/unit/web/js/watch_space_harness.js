@@ -268,7 +268,9 @@ const scenarios = {
     const values = ['storage', 'storage-scheduled', 'storage-deleted', 'storage-other', 'title=movie-1', ''].map(read);
     p.layer().open('deleted', 'start');
     await settle();
-    return { values, on: p.all('.space-pane').filter((x) => x.classList.contains('is-on')).map((x) => x.id), tabs: p.focused() };
+    const tabs = p.focused();
+    p.layer().close('replace'); // how a shared link's own Close comes
+    return { closed: p.focused(), values, on: p.all('.space-pane').filter((x) => x.classList.contains('is-on')).map((x) => x.id), tabs };
   },
   async tabs() {
     const p = await page();

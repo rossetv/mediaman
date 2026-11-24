@@ -459,7 +459,7 @@
         }, 0);
       }
     },
-    close: function (how) { hide(how === 'push' || how === 'replace'); }
+    close: function (how) { hide(how === 'push'); }
   });
 
   document.addEventListener('click', function (e) {
