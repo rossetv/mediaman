@@ -63,6 +63,7 @@ class TestPanel:
             "expanded": "true",
             "pushed": [["push", "#storage"]],
         }
+        assert out["byPointer"] == "Storage"
         assert out["closed"]["held"] == ["space"]
         assert out["closed"]["inert"] is True
         # closed, it must not count as the dialog that owns the keyboard

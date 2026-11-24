@@ -351,9 +351,9 @@
 
   function hashOf(name) { return name === 'storage' ? 'storage' : 'storage-' + name; }
 
-  function openPanel(name, from) {
+  function openPanel(name, from, byKey) {
     opener = from;
-    show(name, true);
+    show(name, true, byKey);
     watch.address.push('storage', watch.address.url({}, hashOf(name)));
   }
 
@@ -389,8 +389,9 @@
     });
   }
 
-  /* *fresh*: as a first opening; not Back, which finds the panel as it was left. */
-  function show(name, fresh) {
+  /* *fresh*: as a first opening; not Back, which finds the panel as it was left.
+     *byKey*: a key opened it, so the focus goes on to the tabs. */
+  function show(name, fresh, byKey) {
     clearTimeout(hideTimer);
     watch.keep.closeMenu(false);
     isOpen = true;
@@ -413,8 +414,8 @@
     void panel.offsetWidth; // start the entrance from the closed look
     root.classList.add('is-open');
     placeInk(false);
-    // From a link nobody pressed anything here: no ring on a tab.
-    if (fresh) (opener ? tabButton(tab) : panel).focus({ preventScroll: true });
+    // Safari rings whatever a script focuses after a press it gave no focus to.
+    if (fresh) (byKey ? tabButton(tab) : panel).focus({ preventScroll: true });
     if (name === 'storage' && !act) {
       toArray(panes.storage.querySelectorAll('.space-seg')).forEach(function (s, i) {
         anim(s, [{ opacity: 0, transform: 'scaleX(.6)' }, { opacity: 1, transform: 'none' }], dur() + i * 20);
@@ -469,7 +470,7 @@
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var from = e.target.closest('[data-space-open]');
-    if (from) openPanel(from.getAttribute('data-space-open'), from);
+    if (from) openPanel(from.getAttribute('data-space-open'), from, !e.detail);
     else if (isOpen && e.target.closest('[data-space-close]')) closePanel();
   });
 

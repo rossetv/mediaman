@@ -255,7 +255,10 @@ const scenarios = {
     await p.click(p.$('meter'));
     const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
     await p.key('Escape');
-    return { before, open, closed: { inert: p.$('space').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
+    (p.doc.listeners.click || []).forEach((fn) => fn({ target: p.$('meter'), detail: 1 }));
+    const byPointer = p.focused();
+    await p.key('Escape');
+    return { byPointer, before, open, closed: { inert: p.$('space').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
   },
   async otherOpensOver() {
     const p = await page();
