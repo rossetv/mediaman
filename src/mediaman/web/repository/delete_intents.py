@@ -2,7 +2,7 @@
 
 The intent log opens before the external Arr call and closes after the
 local DB cleanup so a crash between those two events can be reconciled
-at startup.  The internal helpers here
+at startup and before each scan.  The internal helpers here
 (`_record_delete_intent`, `_complete_delete_intent`,
 `_fail_delete_intent`) are used directly by the route layer in
 `mediaman.web.routes.library_api`; the startup reconciler and its
@@ -15,15 +15,20 @@ import logging
 import os
 import sqlite3
 from collections.abc import Callable
+from datetime import timedelta
 
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
+from mediaman.scanner.repository import read_delete_allowed_roots_setting
 from mediaman.services import watch_catalog
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.infra.storage.deletion import unavailable_folder
 from mediaman.web.repository.library_api import _parse_tracked_files
 
 logger = logging.getLogger(__name__)
+
+# Far longer than any delete takes: every Radarr/Sonarr call it makes has a timeout.
+_IN_FLIGHT = timedelta(hours=1)
 
 
 def _record_delete_intent(
@@ -92,11 +97,14 @@ def _fail_delete_intent(
     from mediaman.core.audit import log_audit
 
     with conn:
-        log_audit(conn, media_item_id, "delete_failed", detail, actor=actor)
-        conn.execute(
-            "UPDATE delete_intents SET completed_at = ?, last_error = ? WHERE id = ?",
+        closed = conn.execute(
+            "UPDATE delete_intents SET completed_at = ?, last_error = ? "
+            "WHERE id = ? AND completed_at IS NULL",
             (now_utc().isoformat(), str(error)[:2000], intent_id),
         )
+        # Another run may have closed it, or booked the delete, first.
+        if closed.rowcount:
+            log_audit(conn, media_item_id, "delete_failed", detail, actor=actor)
 
 
 _INTERRUPTED_DETAIL = "Delete interrupted; not confirmed by Radarr/Sonarr — press Delete again"
@@ -220,7 +228,7 @@ def _reconcile_one_intent(
             conn,
             intent_id,
             media_item_id,
-            "Delete not confirmed by Radarr/Sonarr; closed by startup cleanup",
+            "Delete not confirmed by Radarr/Sonarr; closed by cleanup",
             last_error,
         )
         logger.info(
@@ -247,6 +255,14 @@ def _reconcile_one_intent(
             return True
         if arr_gone:
             with conn:
+                closed = conn.execute(
+                    "UPDATE delete_intents SET completed_at = ? "
+                    "WHERE id = ? AND completed_at IS NULL",
+                    (now_utc().isoformat(), intent_id),
+                )
+                if not closed.rowcount:
+                    # Another run closed it first.
+                    return False
                 audit_id = log_audit(
                     conn,
                     media_item_id,
@@ -279,10 +295,6 @@ def _reconcile_one_intent(
                         "DELETE FROM watch_progress WHERE media_item_id = ?", (media_item_id,)
                     )
                     conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
-                conn.execute(
-                    "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
-                    (now_utc().isoformat(), intent_id),
-                )
             watch_catalog.clear_library_index()
             logger.info(
                 "delete_intent.reconciled intent_id=%s media_id=%s reason=verified_gone",
@@ -351,3 +363,24 @@ def reconcile_pending_delete_intents(
         if _reconcile_one_intent(conn, row, verify_gone, delete_roots):
             resolved += 1
     return resolved
+
+
+def reconcile_before_scan(conn: sqlite3.Connection, secret_key: str) -> None:
+    """Close the delete intents a failed cleanup or a crash left open, before a scan runs.
+
+    An open intent holds its item through the scan. A delete that may still be
+    in flight is left to its request. A failure is logged: it must not stop
+    the scan.
+    """
+    # rationale: housekeeping before a scan; a scan must run even when it fails.
+    try:
+        reconcile_pending_delete_intents(
+            conn,
+            verify_gone=build_verify_gone(conn, secret_key),
+            started_before=(now_utc() - _IN_FLIGHT).isoformat(),
+            delete_roots=read_delete_allowed_roots_setting(conn),
+        )
+    except Exception:
+        logger.exception("delete-intent reconciliation failed before a scan; continuing")
+        if conn.in_transaction:
+            conn.rollback()

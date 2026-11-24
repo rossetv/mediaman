@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
+from mediaman.bootstrap import scan_jobs
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION
 from mediaman.core.time import now_utc
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.services.infra import SafeHTTPError
-from mediaman.web.repository.delete_intents import build_verify_gone
+from mediaman.web.repository.delete_intents import build_verify_gone, reconcile_before_scan
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -21,6 +24,7 @@ from mediaman.web.routes.library_api import (
 )
 from mediaman.web.routes.library_api import delete as delete_route
 from mediaman.web.routes.library_api import router as library_api_router
+from mediaman.web.routes.scan import router as scan_router
 from tests.helpers.factories import insert_scheduled_action
 from tests.helpers.library_index import library_movies
 from tests.unit.web.test_library_mutations import (
@@ -753,6 +757,84 @@ def _add_progress(conn, rating_key: str, media_item_id: str) -> None:
 
 def _progress_keys(conn) -> list[str]:
     return [r["rating_key"] for r in conn.execute("SELECT rating_key FROM watch_progress")]
+
+
+class TestReconcileBeforeAScan:
+    """Every scan closes the intents left open since the app started, none in flight."""
+
+    def _leave_open(self, conn, *, hours):
+        intent_id = _record_delete_intent(conn, "gone", "radarr", "42")
+        conn.execute(
+            "UPDATE delete_intents SET started_at = ? WHERE id = ?",
+            ((now_utc() - timedelta(hours=hours)).isoformat(), intent_id),
+        )
+        conn.commit()
+
+    @staticmethod
+    def _open(conn):
+        return conn.execute(
+            "SELECT COUNT(*) FROM delete_intents WHERE completed_at IS NULL"
+        ).fetchone()[0]
+
+    def test_a_scheduled_scan_starts_with_it(self, conn, monkeypatch):
+        self._leave_open(conn, hours=2)
+        open_at_scan = []
+        monkeypatch.setattr("mediaman.db.get_db", lambda: conn)
+        monkeypatch.setattr(
+            "mediaman.scanner.runner.run_scan_from_db",
+            lambda c, *a, **k: open_at_scan.append(self._open(c)),
+        )
+
+        scan_jobs._run_scheduled_scan(None, "0123456789abcdef" * 4)
+
+        assert open_at_scan == [0]
+
+    def test_a_manual_scan_starts_with_it(
+        self, app_factory, authed_client, conn, db_path, monkeypatch
+    ):
+        self._leave_open(conn, hours=2)
+        open_at_scan, scanned = [], threading.Event()
+
+        def scan(c, *args, **kwargs):
+            open_at_scan.append(self._open(c))
+            scanned.set()
+            return {}
+
+        monkeypatch.setattr("mediaman.scanner.runner.run_scan_from_db", scan)
+        app = app_factory(scan_router, conn=conn, state_extras={"db_path": str(db_path)})
+
+        assert authed_client(app, conn).post("/api/scan/trigger").status_code == 200
+
+        assert scanned.wait(timeout=5)
+        assert open_at_scan == [0]
+
+    def test_a_delete_still_in_flight_is_left_to_its_request(self, conn):
+        self._leave_open(conn, hours=0)
+
+        reconcile_before_scan(conn, "0123456789abcdef" * 4)
+
+        assert self._open(conn) == 1
+
+    def test_a_failure_does_not_stop_the_scan(self, conn):
+        self._leave_open(conn, hours=2)
+        conn.execute("DROP TABLE delete_intents")
+
+        reconcile_before_scan(conn, "0123456789abcdef" * 4)
+
+        assert not conn.in_transaction
+
+    @pytest.mark.parametrize("gone", [True, False])
+    def test_two_reconciles_at_once_close_an_intent_once(self, conn, gone):
+        _insert_movie(conn)
+        _record_delete_intent(conn, "m1", "radarr", "42")
+
+        def verify(_intent):
+            reconcile_pending_delete_intents(conn, verify_gone=lambda _i: gone)
+            return gone
+
+        reconcile_pending_delete_intents(conn, verify_gone=verify)
+
+        assert _audit_actions(conn, "m1") == ["deleted" if gone else "delete_failed"]
 
 
 def test_reconciling_a_verified_gone_season_drops_its_episodes_progress(conn):

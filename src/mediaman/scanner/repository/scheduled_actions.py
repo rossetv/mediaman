@@ -354,7 +354,7 @@ def fetch_unbooked_media_ids(conn: sqlite3.Connection) -> set[str]:
     """Return the media items whose deletion removed files, or may have, and is not booked yet.
 
     Includes those deleted through Radarr/Sonarr whose delete intent is open:
-    the startup reconcile books them from their rows.
+    the reconcile books them from their rows.
     """
     begun = conn.execute(
         "SELECT media_item_id FROM scheduled_actions WHERE delete_status = 'deleting' "
