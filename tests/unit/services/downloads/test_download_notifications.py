@@ -267,6 +267,32 @@ class TestSonarrSeriesMatching:
         assert row["notified"] == 1
         assert sent, "Mailgun send should have been invoked"
 
+    def test_an_email_that_went_out_is_not_sent_again_when_writing_so_failed(
+        self, tmp_path, monkeypatch
+    ):
+        conn, sent = self._setup(tmp_path, monkeypatch)
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Severance",
+            media_type="tv",
+            tvdb_id=370524,
+            service="sonarr",
+        )
+        conn.execute(
+            "CREATE TRIGGER no_write BEFORE UPDATE OF notified ON download_notifications "
+            "WHEN NEW.notified = 1 BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END"
+        )
+        whole = self._season(1, 10, 10)
+        for _tick in range(2):
+            self._run_with_seasons(conn, monkeypatch, whole)
+        conn.execute("DROP TRIGGER no_write")
+        self._run_with_seasons(conn, monkeypatch, whole)
+
+        assert len(sent) == 1
+        row = conn.execute("SELECT notified FROM download_notifications").fetchone()
+        assert row["notified"] == 1
+
     @staticmethod
     def _season(number, files, wanted, *, monitored=True, aired=True):
         stats = {"episodeFileCount": files, "episodeCount": wanted, "totalEpisodeCount": 10}

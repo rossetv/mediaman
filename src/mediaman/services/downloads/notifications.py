@@ -47,7 +47,9 @@ from mediaman.services.downloads._notification_claims import (
     _claim_pending_notifications,
     _release_claim,
     _release_claims_bulk,
+    note_sent,
     reconcile_stranded_notifications,
+    record_sent,
     restamp_claim,
 )
 from mediaman.services.downloads._notification_email import (
@@ -556,9 +558,9 @@ def _process_one_notification(
             return
         row = restamped
         mailgun.send(to=email, subject=subject, html=html)
-
-        with conn:
-            conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
+        # A failed write must not release the claim, or the email would go out again.
+        note_sent(row)
+        record_sent(conn)
         # Successful send — drop any backoff/poll-throttle state we may
         # have built up for this row during a previous outage or wait.
         _clear_backoff(int(row_id))
@@ -581,13 +583,15 @@ def _process_one_notification(
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:
     """Send completion emails for downloads now available in Plex.
 
-    Per tick: reset stranded notified=2 rows, atomically claim un-notified rows, check
+    Per tick: record what an earlier tick sent but could not, reset stranded notified=2 rows, atomically claim un-notified rows, check
     Radarr/Sonarr for a file and send via Mailgun, then mark notified=1, or release the
     claim back to notified=0 if the item is not ready or the send fails. Called from the
     library sync job.
     """
     from mediaman.services.arr.state import LazyArrClients
 
+    if not record_sent(conn):
+        return
     pending = _claim_pending_notifications(conn)
     if not pending:
         return
