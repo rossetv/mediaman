@@ -20,6 +20,7 @@ from mediaman.services.openai.recommendations.prompts import (
     strip_season_suffix,
 )
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.plex_link.repository import get_link
 from mediaman.services.watch_catalog import SeenTitles
 
 if TYPE_CHECKING:
@@ -147,14 +148,16 @@ def store_batch(
     *,
     username: str | None = None,
     uses_plex: bool = False,
+    linked_at: str | None = None,
     prune: bool = False,
 ) -> int:
     """Replace today's batch, *username*'s own or the shared one, with *items* in one
     transaction; returns how many were stored. A pick of today already downloaded keeps its
     mark. Rolls back on any exception, so the caller must not wrap it in another.
 
-    Picks made from plays in Plex's apps (*uses_plex*) are not stored once their owner has
-    unlinked their Plex account.
+    Picks made from plays in Plex's apps (*uses_plex*) are stored only while the person's Plex
+    link is the one made at *linked_at*, when the plays were read: not once they unlinked, nor
+    when they linked another account since.
     """
     table, owned = _table_of(username)
     today = now.strftime("%Y-%m-%d")
@@ -163,13 +166,10 @@ def store_batch(
         # Take the write lock before reading the marks so a download click cannot
         # commit between that read and the DELETE and be lost.
         conn.execute("BEGIN IMMEDIATE")
-        if (
-            uses_plex
-            and not conn.execute(
-                "SELECT 1 FROM plex_links WHERE username = ?", (username,)
-            ).fetchone()
-        ):
-            return 0
+        if uses_plex and username is not None:
+            link = get_link(conn, username)
+            if link is None or link.linked_at != linked_at:
+                return 0
         # rationale: only the fixed fragments of _table_of are interpolated; every value is bound
         downloaded = conn.execute(  # nosec B608
             f"SELECT id, title, year, media_type, tmdb_id, downloaded_at FROM {table} "

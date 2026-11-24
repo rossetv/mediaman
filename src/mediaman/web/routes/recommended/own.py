@@ -18,6 +18,7 @@ from mediaman.services.openai.client import get_openai_key
 from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations.personal import has_enough_plays, make_picks
 from mediaman.services.openai.recommendations.user_picks import RefreshState
+from mediaman.services.plex_link.sync import read_plays
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -61,6 +62,10 @@ def _refused(state: RefreshState) -> JSONResponse:
 def _run(db_path: str, secret_key: str, username: str, run_id: int) -> None:
     conn = open_thread_connection(db_path)
     try:
+        try:
+            read_plays(conn, secret_key, username=username)
+        except Exception:  # rationale: without new plays from Plex the picks can still be made
+            logger.exception("Own picks: reading Plex plays failed")
         plex = None
         try:
             plex = build_plex_from_db(conn, secret_key)

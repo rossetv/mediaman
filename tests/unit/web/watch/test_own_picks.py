@@ -279,6 +279,25 @@ class TestRefresh:
         assert (again.status_code, again.json()["error"]) == (429, "wait")
         assert len(openai) == 1
 
+    @pytest.mark.parametrize("error", [None, RuntimeError("plex")])
+    def test_the_persons_new_plex_plays_are_read_first_and_their_trouble_costs_nothing(
+        self, people, conn, openai, monkeypatch, error
+    ):
+        self._play(conn, "amy", 5)
+        asked = []
+
+        def read(_conn, _key, *, username=None):
+            asked.append((username, len(openai)))
+            if error:
+                raise error
+
+        monkeypatch.setattr(own, "read_plays", read)
+
+        people["amy"].post("/api/watch/picks/refresh")
+
+        assert asked == [("amy", 0)]
+        assert len(user_picks.fetch_picks(conn, "amy")) == 1
+
     def test_one_that_gives_nothing_says_failed_and_may_be_tried_again(
         self, people, conn, openai, monkeypatch
     ):

@@ -320,6 +320,32 @@ class TestMaking:
         assert _make(conn, "amy") == 0
         assert _titles(conn, "amy") == []
 
+    def test_picks_from_a_link_replaced_while_they_were_made_are_dropped(
+        self, conn, openai, monkeypatch
+    ):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta")
+        _link(conn, "amy")
+        _plex_play(conn, "amy", "Epsilon", _ago(days=1))
+        openai.items = [_pick("New")]
+        real = personal.enrich_recommendations
+
+        def relink_then_enrich(*args, **kwargs):
+            conn.execute("DELETE FROM plex_links")
+            _link(conn, "amy", 9)
+            conn.execute("UPDATE plex_links SET linked_at = ?", (_ago(hours=0),))
+            conn.commit()
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(personal, "enrich_recommendations", relink_then_enrich)
+        assert _make(conn, "amy") == 0
+        assert _titles(conn, "amy") == []
+
+    def test_picks_with_no_plex_play_behind_them_are_not_marked_as_plexs(self, conn, openai):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        openai.items = [_pick("New")]
+        assert _make(conn, "amy") == 1
+        assert conn.execute("SELECT uses_plex FROM user_picks").fetchone()[0] == 0
+
     def test_batches_over_90_days_old_go_with_the_next(self, conn, openai):
         _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
         insert_user_pick(conn, "amy", title="Ancient", batch_id="2026-02-01")

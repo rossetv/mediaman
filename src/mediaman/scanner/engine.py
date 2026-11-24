@@ -72,6 +72,7 @@ from mediaman.services.openai.recommendations.persist import (
 from mediaman.services.openai.recommendations.personal import (
     refresh_people as _refresh_people,
 )
+from mediaman.services.plex_link.sync import read_plays as _read_plays
 
 logger = logging.getLogger(__name__)
 
@@ -449,8 +450,8 @@ class ScanEngine:
         Recommendations refresh runs FIRST so the newsletter reflects
         this week's picks rather than last week's stale batch — the
         cards are loaded from the ``suggestions`` and ``user_picks``
-        tables that _refresh_recommendations and _refresh_people
-        rewrite. Each call is wrapped in narrow exception handlers because
+        tables that _refresh_recommendations and _refresh_people, which
+        needs the plays _read_plays brings, rewrite. Each call is wrapped in narrow exception handlers because
         none failing may abort a successful scan. Skipped entirely in dry-run
         mode.
         """
@@ -468,6 +469,10 @@ class ScanEngine:
             ):
                 # best-effort post-scan followup — must not abort scan summary
                 logger.exception("Recommendation generation failed — scan results unaffected")
+            try:
+                _read_plays(self._conn, self._secret_key)
+            except Exception:  # rationale: what Plex holds for a person must not cost a scan
+                logger.exception("Reading Plex plays failed — scan results unaffected")
             try:
                 _refresh_people(self._conn, self._plex, secret_key=self._secret_key)
             except sqlite3.Error:

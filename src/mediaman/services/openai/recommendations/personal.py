@@ -27,6 +27,8 @@ from mediaman.services.openai.recommendations.persist import (
 from mediaman.services.openai.recommendations.plays import person_plays
 from mediaman.services.openai.recommendations.prompts import generate_personal
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.plex_link.plex_tv import OWNER_ACCOUNT_ID
+from mediaman.services.plex_link.repository import PlexLink, get_link
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient, PlexRatedItem
@@ -39,8 +41,6 @@ _PEOPLE_PER_SCAN = 10
 _SCAN_SECONDS = 300.0
 _PRESENT_WITHIN = timedelta(days=30)
 _PICKS_LAST = timedelta(days=28)
-# The Plex server's own account; the server token's stars are its owner's.
-_OWNER_ACCOUNT_ID = 1
 
 
 def has_enough_plays(conn: sqlite3.Connection, username: str) -> bool:
@@ -66,10 +66,8 @@ def eligible_people(conn: sqlite3.Connection, now: datetime) -> list[str]:
         if len(plays) < MIN_TITLES:
             continue
         made = user_picks.last_started(conn, name, done_only=True)
-        linked = conn.execute(
-            "SELECT linked_at FROM plex_links WHERE username = ?", (name,)
-        ).fetchone()
-        newest = max(plays[0].last_played, linked["linked_at"] if linked else "")
+        link = get_link(conn, name)
+        newest = max(plays[0].last_played, link.linked_at if link else "")
         if newest > made or made < (now - _PICKS_LAST).isoformat():
             due.append((user_picks.last_started(conn, name, done_only=False), name))
     return [name for _, name in sorted(due)]
@@ -126,10 +124,12 @@ def _make(
     conn: sqlite3.Connection, username: str, plex_client: PlexClient | None, secret_key: str
 ) -> int:
     now = now_utc()
+    # Before the plays, so plays of a link made after it cannot pass for its.
+    link = get_link(conn, username)
     plays = person_plays(conn, username)
     if len(plays) < MIN_TITLES:
         return 0
-    ratings = _own_ratings(conn, username, plex_client)
+    ratings = _own_ratings(link, plex_client)
     own = recent_rows(conn, now, username=username)
     shared = conn.execute(  # nosec B608 - SHARED_ONLY is a fixed string
         f"SELECT title, year, media_type, tmdb_id FROM suggestions WHERE {SHARED_ONLY} AND"
@@ -153,20 +153,20 @@ def _make(
     if not items:
         return 0
     uses_plex = bool(ratings) or any(p.in_plex for p in plays)
-    return store_batch(conn, items, now, username=username, uses_plex=uses_plex, prune=True)
+    return store_batch(
+        conn,
+        items,
+        now,
+        username=username,
+        uses_plex=uses_plex,
+        linked_at=link.linked_at if link else None,
+        prune=True,
+    )
 
 
-def _own_ratings(
-    conn: sqlite3.Connection, username: str, plex_client: PlexClient | None
-) -> list[PlexRatedItem]:
-    """The stars *username* gave: the server token's, so only for the server's owner."""
-    if plex_client is None:
-        return []
-    owner = conn.execute(
-        "SELECT 1 FROM plex_links WHERE username = ? AND server_account_id = ?",
-        (username, _OWNER_ACCOUNT_ID),
-    ).fetchone()
-    if owner is None:
+def _own_ratings(link: PlexLink | None, plex_client: PlexClient | None) -> list[PlexRatedItem]:
+    """The stars of the person of *link*: the server token's, so only for the server's owner."""
+    if plex_client is None or link is None or link.server_account_id != OWNER_ACCOUNT_ID:
         return []
     try:
         return plex_client.get_user_ratings()

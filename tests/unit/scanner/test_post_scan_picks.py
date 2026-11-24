@@ -20,7 +20,7 @@ def scan(db_path, monkeypatch):
     called: list[str] = []
 
     def run(dry_run=False, **errors):
-        for name in ("_refresh_recommendations", "_refresh_people", "_send_newsletter"):
+        for name in _ALL:
             monkeypatch.setattr(
                 engine_mod,
                 name,
@@ -49,7 +49,7 @@ def scan(db_path, monkeypatch):
     conn.close()
 
 
-_ALL = ["_refresh_recommendations", "_refresh_people", "_send_newsletter"]
+_ALL = ["_refresh_recommendations", "_read_plays", "_refresh_people", "_send_newsletter"]
 
 
 def test_each_persons_picks_are_made_before_the_newsletter(scan):
@@ -58,6 +58,10 @@ def test_each_persons_picks_are_made_before_the_newsletter(scan):
 
 def test_a_failure_of_the_shared_picks_does_not_cost_people_theirs(scan):
     assert scan(_refresh_recommendations=SafeHTTPError(500, "boom", "u")) == _ALL
+
+
+def test_plex_plays_that_cannot_be_read_do_not_cost_people_their_picks(scan):
+    assert scan(_read_plays=RuntimeError("plex")) == _ALL
 
 
 def test_a_failure_of_the_own_picks_does_not_cost_the_newsletter(scan):
