@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from xml.etree.ElementTree import Element
@@ -14,14 +15,17 @@ PAGE_SIZE = 200
 MAX_PAGES = 50
 _TEXT_MAX = 300
 _KEY_MAX = 120
+_NUMBER_MAX = 99_999
 _CLOCK_SLACK = timedelta(days=1)
 
 
-def _int(value: str | None) -> int | None:
+def _number(value: str | None) -> int | None:
+    """A season or episode number, or None for one that cannot be real."""
     try:
-        return int(value) if value else None
+        number = int(value) if value else None
     except ValueError:
         return None
+    return number if number is not None and 0 <= number <= _NUMBER_MAX else None
 
 
 def _text(value: str | None) -> str | None:
@@ -35,6 +39,13 @@ def _key_id(value: str | None) -> str | None:
 
 
 class PlexHistory(PlexWatch):
+    def _xml(self, path: str) -> Element:
+        try:
+            return super()._xml(path)
+        except (ValueError, LookupError):
+            # Entities and the like, which the hardened parser refuses, or an unknown encoding.
+            raise PlexUnavailable("Plex sent an unreadable response") from None
+
     def server_id(self) -> str:
         """The server's machine identifier; raises PlexUnavailable when it sends none."""
         server_id = self._xml("/identity").get("machineIdentifier")
@@ -43,18 +54,28 @@ class PlexHistory(PlexWatch):
         return server_id
 
     def plays(
-        self, account_id: int, *, since: datetime, now: datetime, libraries: set[str], limit: int
+        self,
+        account_id: int,
+        *,
+        since: datetime,
+        now: datetime,
+        libraries: set[str],
+        limit: int,
+        deadline: float,
     ) -> list[PlexPlay]:
         """The newest *limit* plays of *account_id* in *libraries* from *since* on.
 
         What a play does not say counts against it: without the account, the library or the
         time, it is left out. The server's own filters are asked for and then applied again
-        here, since a server that ignored them would send other people's plays.
+        here, since a server that ignored them would send other people's plays. Raises
+        PlexUnavailable once the monotonic clock passes *deadline*, whatever was found.
         """
         found: dict[str, PlexPlay] = {}
         seen: set[str] = set()
         start = 0
         for _ in range(MAX_PAGES):
+            if time.monotonic() > deadline:
+                raise PlexUnavailable("Plex took too long to send the plays")
             query = urlencode(
                 {
                     "accountID": account_id,
@@ -89,11 +110,8 @@ class PlexHistory(PlexWatch):
 
 
 def _viewed_at(row: Element) -> datetime | None:
-    stamp = _int(row.get("viewedAt"))
-    if stamp is None:
-        return None
     try:
-        return datetime.fromtimestamp(stamp, tz=UTC)
+        return datetime.fromtimestamp(int(row.get("viewedAt", "")), tz=UTC)
     except (OSError, OverflowError, ValueError):
         return None
 
@@ -112,9 +130,10 @@ def _play(row: Element, viewed: datetime) -> PlexPlay | None:
         media_type=kind,
         title=title,
         viewed_at=viewed.isoformat(),
+        library_id=row.get("librarySectionID"),
         rating_key=_key_id(row.get("ratingKey")),
         show_title=show_title,
         show_rating_key=_key_id(row.get("grandparentRatingKey") or row.get("grandparentKey")),
-        season_number=_int(row.get("parentIndex")) if kind == "episode" else None,
-        episode_number=_int(row.get("index")) if kind == "episode" else None,
+        season_number=_number(row.get("parentIndex")) if kind == "episode" else None,
+        episode_number=_number(row.get("index")) if kind == "episode" else None,
     )

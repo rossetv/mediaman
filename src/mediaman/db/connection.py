@@ -105,6 +105,8 @@ _ADDED_COLUMNS = (
     ("download_notifications", "season_number", "INTEGER"),
     ("delete_intents", "confirmed_at", "TEXT"),
     ("arr_searching_since", "last_seen", "TEXT"),
+    ("plex_links", "libraries", "TEXT"),
+    ("plex_plays", "library_id", "TEXT"),
 )
 
 

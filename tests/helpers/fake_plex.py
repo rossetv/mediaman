@@ -38,6 +38,8 @@ class FakePlex:
         }
         self.answers: dict[tuple[str, str], tuple[int, object] | Exception] = {}
         self.server_id = SERVER_ID
+        # Runs before each answer, to take its time or to wait.
+        self.on_call = lambda method, where, query: None
 
     def install(self, monkeypatch) -> FakePlex:
         monkeypatch.setattr("mediaman.services.infra.http.client._dispatch", self.dispatch)
@@ -54,6 +56,7 @@ class FakePlex:
         where = f"{parts.scheme}://{parts.netloc}{parts.path}"
         query = parse_qs(parts.query)
         self.calls.append((method, where, dict(headers or {}), query))
+        self.on_call(method, where, query)
         answer = self.answers.get((method, where)) or self._default(method, where, query)
         if isinstance(answer, Exception):
             raise answer

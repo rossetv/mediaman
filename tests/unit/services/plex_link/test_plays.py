@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from mediaman.crypto import encrypt_value
-from mediaman.services.plex_link import repository, sync
+from mediaman.db.connection import _add_missing_columns
+from mediaman.services.plex_link import history, repository, sync
+from mediaman.services.plex_link.bounded import TookTooLong, TooManyLeft, within
 from mediaman.services.plex_link.plex_tv import PlexIdentity
 from tests.helpers.fake_plex import SERVER, SERVER_ID, FakePlex
 
@@ -233,7 +236,13 @@ def test_unlinking_takes_the_plays_and_the_picks_made_from_them_and_nobody_elses
         current = repository.get_link(conn, name)
         play = repository.PlexPlay("h1", "movie", "Film", NOW.isoformat())
         repository.save_plays(
-            conn, current, [play], read_at=NOW, oldest=NOW - timedelta(days=9), keep=9
+            conn,
+            current,
+            [play],
+            libraries=["1"],
+            read_at=NOW,
+            oldest=NOW - timedelta(days=9),
+            keep=9,
         )
         for uses_plex in (0, 1):
             conn.execute(
@@ -256,9 +265,218 @@ def test_a_read_that_ends_after_an_unlink_and_relink_stores_nothing(conn, freeze
     old = repository.get_link(conn, "amy")
     repository.unlink(conn, "amy", actor="amy", reason="self")
     play = repository.PlexPlay("h1", "movie", "Film", NOW.isoformat())
-    args = {"read_at": NOW, "oldest": NOW - timedelta(days=9), "keep": 9}
+    args = {"libraries": ["1"], "read_at": NOW, "oldest": NOW - timedelta(days=9), "keep": 9}
     assert repository.save_plays(conn, old, [play], **args) is False
     freezer.tick(1)
     repository.save_link(conn, "amy", PlexIdentity(account, account, "other"), SERVER_ID, ip="")
     assert repository.save_plays(conn, old, [play], **args) is False
     assert titles(conn, "amy") == []
+
+
+@pytest.mark.parametrize("number", [str(2**63), "-1", "100000", "9" * 5000, "two"])
+def test_a_number_that_cannot_be_real_is_left_out_and_stops_nobody(plex, conn, secret_key, number):
+    link(conn, "amy", 4242)
+    link(conn, "bob", 99)
+    plex.history_rows = [
+        row(1, type="episode", grandparentTitle="Show", parentIndex=number, index=number),
+        row(2, account=99),
+    ]
+    sync.read_plays(conn, secret_key)
+    saved = conn.execute("SELECT * FROM plex_plays WHERE username = 'amy'").fetchone()
+    assert (saved["season_number"], saved["episode_number"]) == (None, None)
+    assert titles(conn, "bob") == ["Film 2"]
+
+
+ENTITY = '<!DOCTYPE m [<!ENTITY a "b">]><MediaContainer machineIdentifier="&a;"/>'
+
+
+@pytest.mark.parametrize("where", [("GET", f"{SERVER}/identity"), HISTORY], ids=["server", "plays"])
+@pytest.mark.parametrize("body", [ENTITY, '<?xml version="1.0" encoding="nope"?><a/>'])
+def test_xml_the_parser_refuses_is_plex_being_unreadable(plex, conn, secret_key, where, body):
+    link(conn, "amy", 4242)
+    plex.answers[where] = (200, body)
+    sync.read_plays(conn, secret_key)
+    assert repository.get_link(conn, "amy").last_read_at is None
+
+
+def test_any_error_in_one_persons_read_is_undone_and_the_next_is_read(
+    plex, conn, secret_key, monkeypatch
+):
+    link(conn, "amy", 4242)
+    link(conn, "bob", 99)
+    plex.history_rows = [row(1), row(2, account=99)]
+    real = repository.save_plays
+
+    def save(conn, link, plays, **options):
+        if link.username == "amy":
+            conn.execute("UPDATE plex_links SET plex_name = 'half done'")
+            raise RuntimeError("bug")
+        return real(conn, link, plays, **options)
+
+    monkeypatch.setattr(repository, "save_plays", save)
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "bob") == ["Film 2"]
+    assert repository.get_link(conn, "amy").plex_name == "amy"
+
+
+def test_reading_never_raises(plex, conn, secret_key, monkeypatch):
+    link(conn, "amy", 4242)
+    monkeypatch.setattr(sync, "open_history", lambda *_: 1 / 0)
+    sync.read_plays(conn, secret_key)
+
+
+class Clock:
+    now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    clock = Clock()
+    monkeypatch.setattr(sync, "time", clock)
+    monkeypatch.setattr(history, "time", clock)
+    return clock
+
+
+def test_a_person_whose_pages_take_too_long_gets_nothing_and_the_next_is_read(
+    plex, conn, secret_key, clock
+):
+    link(conn, "amy", 4242)
+    link(conn, "bob", 99)
+    plex.history_rows = [row(n, ago=timedelta(minutes=n)) for n in range(1, 900)]
+    plex.history_rows.insert(0, row(901, account=99))
+
+    def slow_for_amy(method, where, query):
+        if query.get("accountID") == ["4242"]:
+            clock.now += 40
+
+    plex.on_call = slow_for_amy
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == []
+    assert repository.get_link(conn, "amy").last_read_at is None
+    assert titles(conn, "bob") == ["Film 901"]
+
+
+def test_a_run_out_of_time_takes_up_next_time_where_it_stopped(
+    plex, conn, secret_key, clock, freezer
+):
+    for name, number in (("amy", 1), ("bob", 2), ("cat", 3)):
+        link(conn, name, number)
+    seen: list[str] = []
+
+    def slow(method, where, query):
+        if where.endswith("/history/all"):
+            seen.append(query["accountID"][0])
+            clock.now += sync._RUN_SECONDS / 2 + 1
+
+    plex.on_call = slow
+    plex.history_rows = []
+    sync._PERSON_SECONDS, kept = 1000.0, sync._PERSON_SECONDS
+    try:
+        sync.read_plays(conn, secret_key)
+        assert seen == ["1", "2"]
+        freezer.tick(60)
+        sync.read_plays(conn, secret_key)
+    finally:
+        sync._PERSON_SECONDS = kept
+    assert seen[2] == "3"
+
+
+def test_an_answer_that_never_ends_is_left_behind(plex, conn, secret_key, monkeypatch):
+    monkeypatch.setattr(sync, "_PERSON_SECONDS", 0.05)
+    link(conn, "amy", 4242)
+    link(conn, "bob", 99)
+    plex.history_rows = [row(1), row(2, account=99)]
+    over = threading.Event()
+
+    def hang_for_amy(method, where, query):
+        if query.get("accountID") == ["4242"]:
+            over.wait(2)
+
+    plex.on_call = hang_for_amy
+    try:
+        sync.read_plays(conn, secret_key)
+        assert titles(conn, "amy") == []
+        assert titles(conn, "bob") == ["Film 2"]
+    finally:
+        over.set()
+
+
+def test_left_behind_work_is_not_piled_up_without_end():
+    over = threading.Event()
+    try:
+        for _ in range(4):
+            with pytest.raises(TookTooLong):
+                within(0.01, lambda: over.wait(10))
+        with pytest.raises(TooManyLeft):
+            within(1, lambda: 1)
+    finally:
+        over.set()
+
+
+def set_libraries(conn, value: str) -> None:
+    conn.execute("UPDATE settings SET value = ? WHERE key = 'plex_libraries'", (value,))
+    conn.commit()
+
+
+def test_a_library_added_later_gets_its_older_plays(plex, conn, secret_key, freezer):
+    link(conn, "amy", 4242)
+    plex.history_rows = [row(1), row(2, ago=timedelta(days=90), librarySectionID="7")]
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1"]
+    freezer.tick(timedelta(days=5))
+    set_libraries(conn, '["1", "7"]')
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1", "Film 2"]
+
+
+def test_a_library_taken_away_loses_its_plays_even_while_plex_is_down(plex, conn, secret_key):
+    link(conn, "amy", 4242)
+    plex.history_rows = [row(1), row(2, librarySectionID="2", ago=timedelta(days=9))]
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1", "Film 2"]
+    set_libraries(conn, '["1"]')
+    plex.answers["GET", f"{SERVER}/identity"] = (503, "")
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1"]
+
+    set_libraries(conn, '["1", "2"]')
+    plex.answers.clear()
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1", "Film 2"]
+
+
+def test_with_no_library_ticked_nothing_is_kept_or_counted_as_read(plex, conn, secret_key):
+    link(conn, "amy", 4242)
+    set_libraries(conn, "[]")
+    sync.read_plays(conn, secret_key)
+    assert repository.get_link(conn, "amy").last_read_at is None
+    assert plex.calls == []
+    set_libraries(conn, '["1"]')
+    plex.history_rows = [row(1, ago=timedelta(days=300))]
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1"]
+    read_at = repository.get_link(conn, "amy").last_read_at
+    set_libraries(conn, "[]")
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == []
+    assert repository.get_link(conn, "amy").last_read_at == read_at
+
+
+def test_plays_held_before_their_library_was_recorded_are_read_again(plex, conn, secret_key):
+    link(conn, "amy", 4242)
+    plex.history_rows = [row(1, ago=timedelta(days=90))]
+    sync.read_plays(conn, secret_key)
+    conn.execute("ALTER TABLE plex_links DROP COLUMN libraries")
+    conn.execute("ALTER TABLE plex_plays DROP COLUMN library_id")
+    conn.commit()
+    _add_missing_columns(conn)
+    plex.history_rows.append(row(2, ago=timedelta(days=99)))
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1", "Film 2"]
+    set_libraries(conn, '["1"]')
+    plex.answers["GET", f"{SERVER}/identity"] = (503, "")
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "amy") == ["Film 1", "Film 2"]

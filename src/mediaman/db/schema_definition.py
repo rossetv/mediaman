@@ -304,7 +304,9 @@ CREATE TABLE IF NOT EXISTS plex_links (
     plex_name TEXT NOT NULL,
     server_id TEXT NOT NULL,
     linked_at TEXT NOT NULL,
-    last_read_at TEXT
+    last_read_at TEXT,
+    -- JSON list of the Plex libraries the plays held here cover.
+    libraries TEXT
 );
 
 CREATE TABLE IF NOT EXISTS plex_plays (
@@ -318,6 +320,7 @@ CREATE TABLE IF NOT EXISTS plex_plays (
     episode_number INTEGER,
     rating_key TEXT,
     viewed_at TEXT NOT NULL,
+    library_id TEXT,
     PRIMARY KEY (username, history_key)
 );
 CREATE INDEX IF NOT EXISTS idx_plex_plays_user_viewed ON plex_plays(username, viewed_at);

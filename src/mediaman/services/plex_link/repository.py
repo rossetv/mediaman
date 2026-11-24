@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -32,6 +33,8 @@ class PlexLink:
     server_id: str
     linked_at: str
     last_read_at: str | None
+    # The libraries the plays held cover; None before the first read.
+    libraries: frozenset[str] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,9 +50,11 @@ class PlexPlay:
     show_rating_key: str | None = None
     season_number: int | None = None
     episode_number: int | None = None
+    library_id: str | None = None
 
 
 def _link(row: sqlite3.Row) -> PlexLink:
+    covered = row["libraries"]
     return PlexLink(
         username=row["username"],
         server_account_id=row["server_account_id"],
@@ -57,6 +62,7 @@ def _link(row: sqlite3.Row) -> PlexLink:
         server_id=row["server_id"],
         linked_at=row["linked_at"],
         last_read_at=row["last_read_at"],
+        libraries=None if covered is None else frozenset(json.loads(covered)),
     )
 
 
@@ -76,7 +82,8 @@ def get_link(conn: sqlite3.Connection, username: str) -> PlexLink | None:
 
 
 def list_links(conn: sqlite3.Connection) -> list[PlexLink]:
-    rows = conn.execute("SELECT * FROM plex_links ORDER BY username")
+    """Every link, the one read longest ago first and one never read before that."""
+    rows = conn.execute("SELECT * FROM plex_links ORDER BY last_read_at, username")
     return [_link(r) for r in rows]
 
 
@@ -105,29 +112,51 @@ def save_link(
     server_id: str,
     *,
     ip: str,
+    move: bool = False,
 ) -> None:
-    """Link *identity* to *username* with its audit row, or raise and change nothing."""
-    try:
-        with conn:
-            conn.execute(
-                "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
-                " server_id, linked_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    username,
-                    identity.plex_account_id,
-                    identity.server_account_id,
-                    identity.name,
-                    server_id,
-                    now_iso(),
-                ),
-            )
-            security_event_or_raise(conn, event="plex.linked", actor=username, ip=ip)
-    except sqlite3.IntegrityError:
+    """Link *identity* to *username* with its audit row, or raise and change nothing.
+
+    With *move*, whoever holds the account loses their link to it: the last to prove it is
+    theirs has it, so nobody is locked out of an account they were tricked into approving.
+    """
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         if get_link(conn, username) is not None:
-            raise AlreadyLinked from None
-        if is_claimed_by_other(conn, identity, username):
-            raise AccountClaimed from None
-        raise
+            raise AlreadyLinked
+        holders = conn.execute(
+            "SELECT username FROM plex_links WHERE plex_account_id = ? OR server_account_id = ?",
+            (identity.plex_account_id, identity.server_account_id),
+        ).fetchall()
+        if holders and not move:
+            raise AccountClaimed
+        for holder in holders:
+            _forget(conn, holder["username"], actor=username, ip=ip, reason="moved")
+        conn.execute(
+            "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
+            " server_id, linked_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                username,
+                identity.plex_account_id,
+                identity.server_account_id,
+                identity.name,
+                server_id,
+                now_iso(),
+            ),
+        )
+        security_event_or_raise(conn, event="plex.linked", actor=username, ip=ip)
+
+
+def _forget(conn: sqlite3.Connection, username: str, *, actor: str, ip: str, reason: str) -> None:
+    conn.execute("DELETE FROM user_picks WHERE username = ? AND uses_plex = 1", (username,))
+    conn.execute("DELETE FROM plex_plays WHERE username = ?", (username,))
+    conn.execute("DELETE FROM plex_links WHERE username = ?", (username,))
+    security_event_or_raise(
+        conn,
+        event="plex.unlinked",
+        actor=actor,
+        ip=ip,
+        detail={"user": username, "reason": reason},
+    )
 
 
 def unlink(
@@ -148,17 +177,26 @@ def unlink(
         link = get_link(conn, username)
         if link is None or (server_id is not None and link.server_id != server_id):
             return False
-        conn.execute("DELETE FROM user_picks WHERE username = ? AND uses_plex = 1", (username,))
-        conn.execute("DELETE FROM plex_plays WHERE username = ?", (username,))
-        conn.execute("DELETE FROM plex_links WHERE username = ?", (username,))
-        security_event_or_raise(
-            conn,
-            event="plex.unlinked",
-            actor=actor,
-            ip=ip,
-            detail={"user": username, "reason": reason},
-        )
+        _forget(conn, username, actor=actor, ip=ip, reason=reason)
     return True
+
+
+def keep_libraries(conn: sqlite3.Connection, libraries: Collection[str]) -> None:
+    """Drop the plays of libraries no longer read, and what the links say they cover."""
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        for link in list_links(conn):
+            if link.libraries is None or link.libraries <= set(libraries):
+                continue
+            kept = json.dumps(sorted(link.libraries & set(libraries)))
+            conn.execute(
+                "DELETE FROM plex_plays WHERE username = ?"
+                " AND (library_id IS NULL OR library_id NOT IN (SELECT value FROM json_each(?)))",
+                (link.username, kept),
+            )
+            conn.execute(
+                "UPDATE plex_links SET libraries = ? WHERE username = ?", (kept, link.username)
+            )
 
 
 def save_plays(
@@ -166,6 +204,7 @@ def save_plays(
     link: PlexLink,
     plays: Sequence[PlexPlay],
     *,
+    libraries: Collection[str],
     read_at: datetime,
     oldest: datetime,
     keep: int,
@@ -183,9 +222,10 @@ def save_plays(
         ):
             return False
         conn.executemany(
-            "INSERT OR IGNORE INTO plex_plays (username, history_key, media_type, title,"
-            " show_title, show_rating_key, season_number, episode_number, rating_key, viewed_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO plex_plays (username, history_key, media_type, title,"
+            " show_title, show_rating_key, season_number, episode_number, rating_key, viewed_at,"
+            " library_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT DO UPDATE SET library_id = excluded.library_id",
             [
                 (
                     link.username,
@@ -198,6 +238,7 @@ def save_plays(
                     p.episode_number,
                     p.rating_key,
                     p.viewed_at,
+                    p.library_id,
                 )
                 for p in plays
             ],
@@ -209,7 +250,7 @@ def save_plays(
             (link.username, oldest.isoformat(), link.username, keep),
         )
         conn.execute(
-            "UPDATE plex_links SET last_read_at = ? WHERE username = ?",
-            (read_at.isoformat(), link.username),
+            "UPDATE plex_links SET last_read_at = ?, libraries = ? WHERE username = ?",
+            (read_at.isoformat(), json.dumps(sorted(libraries)), link.username),
         )
     return True

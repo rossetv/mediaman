@@ -8,8 +8,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-import requests
-
 from mediaman.core.format import log_snippet
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import open_thread_connection
@@ -18,8 +16,9 @@ from mediaman.services.infra import (
     get_setting,
     get_string_setting,
 )
-from mediaman.services.media_meta.plex_watch import PlexError
+from mediaman.services.media_meta.plex_watch import PlexError, PlexUnavailable
 from mediaman.services.plex_link import repository
+from mediaman.services.plex_link.bounded import TookTooLong, TooManyLeft, within
 from mediaman.services.plex_link.history import PlexHistory
 
 logger = logging.getLogger(__name__)
@@ -28,6 +27,8 @@ KEEP_FOR = timedelta(days=730)
 KEEP_PLAYS = 2000
 _OVERLAP = timedelta(hours=24)
 _RUN_SECONDS = 300.0
+_PERSON_SECONDS = 60.0
+_SERVER_ID_SECONDS = 20.0
 
 _reading: set[str] = set()
 _reading_lock = threading.Lock()
@@ -47,8 +48,21 @@ def _libraries(conn: sqlite3.Connection) -> set[str]:
     return {str(v) for v in libs} if isinstance(libs, list) else set()
 
 
+def read_server_id(plex: PlexHistory) -> str:
+    """Which server *plex* is; raises PlexUnavailable when it does not say in time."""
+    try:
+        return within(_SERVER_ID_SECONDS, plex.server_id)
+    except (TookTooLong, TooManyLeft):
+        raise PlexUnavailable("Plex took too long to answer") from None
+
+
 def _read_link(
-    conn: sqlite3.Connection, plex: PlexHistory, server_id: str, link: repository.PlexLink
+    conn: sqlite3.Connection,
+    plex: PlexHistory,
+    server_id: str,
+    link: repository.PlexLink,
+    libraries: set[str],
+    deadline: float,
 ) -> None:
     if link.server_id != server_id:
         # Account numbers mean nothing on another server.
@@ -63,47 +77,75 @@ def _read_link(
     now = now_utc()
     oldest = now - KEEP_FOR
     last: datetime | None = parse_iso_strict_utc(link.last_read_at)
-    plays = plex.plays(
-        link.server_account_id,
-        since=oldest if last is None else max(oldest, last - _OVERLAP),
-        now=now,
-        libraries=_libraries(conn),
-        limit=KEEP_PLAYS,
+    since = oldest if last is None else max(oldest, last - _OVERLAP)
+    if link.libraries is None or not libraries <= link.libraries:
+        # A library added since has older plays that were passed over.
+        since = oldest
+    try:
+        plays = within(
+            deadline - time.monotonic(),
+            lambda: plex.plays(
+                link.server_account_id,
+                since=since,
+                now=now,
+                libraries=libraries,
+                limit=KEEP_PLAYS,
+                deadline=deadline,
+            ),
+        )
+    except (TookTooLong, TooManyLeft):
+        raise PlexUnavailable("Plex took too long to send the plays") from None
+    repository.save_plays(
+        conn, link, plays, libraries=libraries, read_at=now, oldest=oldest, keep=KEEP_PLAYS
     )
-    repository.save_plays(conn, link, plays, read_at=now, oldest=oldest, keep=KEEP_PLAYS)
 
 
 def read_plays(conn: sqlite3.Connection, secret_key: str, *, username: str | None = None) -> None:
     """Read new plays of every linked person, or of *username* alone.
 
-    Never raises for Plex or one person's trouble: their plays stay as they were.
+    Never raises: what cannot be read stays as it was. No transaction may be open on *conn*.
     """
+    try:
+        _read_all(conn, secret_key, username)
+    except Exception as exc:  # rationale: a caller's own work must not fail for this.
+        _give_up(conn, "plex_link.read_skipped", "", exc)
+
+
+def _give_up(conn: sqlite3.Connection, event: str, username: str, exc: Exception) -> None:
+    if conn.in_transaction:
+        conn.rollback()
+    if isinstance(exc, PlexError | sqlite3.Error):
+        logger.warning("%s user=%s reason=%s", event, log_snippet(username, 64), type(exc).__name__)
+    else:
+        logger.exception("%s user=%s", event, log_snippet(username, 64))
+
+
+def _read_all(conn: sqlite3.Connection, secret_key: str, username: str | None) -> None:
+    if not repository.list_links(conn):
+        return
+    libraries = _libraries(conn)
+    repository.keep_libraries(conn, libraries)
     links = [
         link
         for link in repository.list_links(conn)
         if username is None or link.username == username
     ]
-    if not links:
-        return
-    try:
-        plex = open_history(conn, secret_key)
-        server_id = plex.server_id()
-    except PlexError as exc:
-        logger.warning("plex_link.read_skipped reason=%s", type(exc).__name__)
+    if not libraries or not links:
         return
     deadline = time.monotonic() + _RUN_SECONDS
+    server_id = read_server_id(open_history(conn, secret_key))
     for link in links:
-        if time.monotonic() > deadline:
+        now = time.monotonic()
+        if now > deadline:
             logger.warning("plex_link.read_stopped reason=time")
             return
         try:
-            _read_link(conn, plex, server_id, link)
-        except (PlexError, requests.RequestException, sqlite3.Error) as exc:
-            logger.warning(
-                "plex_link.read_failed user=%s reason=%s",
-                log_snippet(link.username, 64),
-                type(exc).__name__,
-            )
+            # A reader of its own: one left behind may still be using the last person's.
+            plex = open_history(conn, secret_key)
+            person_deadline = min(deadline, now + _PERSON_SECONDS)
+            _read_link(conn, plex, server_id, link, libraries, person_deadline)
+        except Exception as exc:  # rationale: one person's trouble must not stop the next.
+            _give_up(conn, "plex_link.read_failed", link.username, exc)
 
 
 def is_reading(username: str) -> bool:
