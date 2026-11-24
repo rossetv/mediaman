@@ -382,6 +382,22 @@ def run_scan_from_db(
     return cast(ScanSummary, engine.run_scan())
 
 
+def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
+    """Tell Radarr/Sonarr of the deletions a run that died did not get to tell them of."""
+    if not repository.fetch_pending_unmonitors(conn):
+        return
+    from mediaman.scanner.deletions import unmonitor_deleted
+
+    try:
+        unmonitor_deleted(
+            conn,
+            radarr_client=_build_radarr(conn, secret_key),
+            sonarr_client=_build_sonarr(conn, secret_key),
+        )
+    except (sqlite3.Error, requests.RequestException, SafeHTTPError, ArrError, ValueError):
+        logger.exception("Unmonitoring deleted titles failed — sync unaffected")
+
+
 def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     """Sync library from Plex without running deletion evaluation.
 
@@ -391,6 +407,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     """
     from mediaman.scanner.engine import ScanEngine
 
+    _unmonitor_deleted(conn, secret_key)
     bundle = _build_plex_client(conn, secret_key)
     if bundle is None:
         logger.debug("Library sync skipped — Plex not configured")

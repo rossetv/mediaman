@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from mediaman.core.audit import log_audit
-from mediaman.core.deleted_media import record_deleted_media
+from mediaman.core.deleted_media import DeletedMedia, record_deleted_media, redownload_tokens
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
@@ -68,10 +68,12 @@ __all__ = [
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_pending_deletions",
+    "fetch_pending_unmonitors",
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
     "fetch_tracked_paths_in_folders",
     "fetch_unbooked_media_ids",
+    "finish_unmonitor",
     "forget_unremoved_files",
     "has_expired_snooze",
     "is_already_scheduled",
@@ -88,6 +90,7 @@ __all__ = [
     "save_pruned_keeps",
     "take_pruned_keeps",
     "tracked_paths",
+    "was_requested_since",
 ]
 
 
@@ -223,6 +226,19 @@ def _parse_removed_files(raw: str | None) -> _RemovedFiles:
     )
 
 
+def _removed_json(
+    paths: Collection[str], removed_bytes: int, sizes: Mapping[str, int], left: Collection[str]
+) -> str:
+    return json.dumps(
+        {
+            "paths": sorted(paths),
+            "bytes": removed_bytes,
+            "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+            "left": sorted(left),
+        }
+    )
+
+
 def record_removed_files(
     conn: sqlite3.Connection,
     action_id: int,
@@ -236,15 +252,9 @@ def record_removed_files(
     *sizes* gives the tracked size of each removed path that has one; *left*
     holds the tracked paths still to remove. Returns False when the row is gone.
     """
-    record = {
-        "paths": sorted(paths),
-        "bytes": removed_bytes,
-        "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
-        "left": sorted(left),
-    }
     cursor = conn.execute(
         "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
-        (json.dumps(record), action_id),
+        (_removed_json(paths, removed_bytes, sizes, left), action_id),
     )
     return cursor.rowcount == 1
 
@@ -595,7 +605,7 @@ def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
 
 def _audit_removal(
     conn: sqlite3.Connection, row: DeletionRow, label: str, space_bytes: int | None
-) -> None:
+) -> int:
     rk = row.plex_rating_key
     detail = f"{label}: {row.title}" + (f" [rk:{rk}]" if rk else "")
     audit_id = log_audit(conn, row.media_item_id, "deleted", detail, space_bytes=space_bytes)
@@ -608,17 +618,85 @@ def _audit_removal(
         season_number=row.season_number,
         title=row.title or "",
     )
+    return audit_id
 
 
 def book_deletion(
-    conn: sqlite3.Connection, row: DeletionRow, label: str, space_bytes: int | None
+    conn: sqlite3.Connection,
+    row: DeletionRow,
+    label: str,
+    space_bytes: int | None,
+    *,
+    unmonitor: bool = False,
 ) -> None:
     """Write the ``deleted`` audit entry with its identity row and drop the action row.
 
-    Does not commit: the caller's commit covers all three writes.
+    With *unmonitor*, also leave a mark that Radarr/Sonarr is still to be told,
+    which outlives the process. Does not commit: the caller's commit covers
+    every write.
     """
-    _audit_removal(conn, row, label, space_bytes)
+    audit_id = _audit_removal(conn, row, label, space_bytes)
+    if unmonitor:
+        conn.execute(
+            "INSERT INTO pending_unmonitors "
+            "(audit_id, radarr_id, sonarr_id, tracked_files, removed_files) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                audit_id,
+                row.radarr_id,
+                row.sonarr_id,
+                None if row.tracked_files is None else json.dumps(row.tracked_files),
+                _removed_json(row.removed_paths, row.removed_bytes, row.removed_sizes, ()),
+            ),
+        )
     delete_scheduled_action(conn, row.id)
+
+
+def fetch_pending_unmonitors(conn: sqlite3.Connection) -> list[DeletionRow]:
+    """Return each booked deletion Radarr/Sonarr is still to be told of; its ``id`` is its audit's."""
+    rows = conn.execute(
+        "SELECT p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
+        "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
+        "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
+        "1 AS library_selected "
+        "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
+        "JOIN deleted_media d ON d.audit_id = p.audit_id ORDER BY p.audit_id"
+    ).fetchall()
+    return [_row_to_deletion_row(row) for row in rows]
+
+
+def finish_unmonitor(conn: sqlite3.Connection, audit_id: int) -> bool:
+    """Drop the mark of the deletion booked as *audit_id*; return False if it is already gone."""
+    cursor = conn.execute("DELETE FROM pending_unmonitors WHERE audit_id = ?", (audit_id,))
+    return cursor.rowcount == 1
+
+
+def was_requested_since(conn: sqlite3.Connection, row: DeletionRow) -> bool:
+    """Return True if the title was downloaded again after *row*'s deletion was booked.
+
+    *row* is as fetch_pending_unmonitors returns it. A download is audited
+    under the title, or under its TMDB/TVDB id.
+    """
+    keys = [
+        row.title,
+        *redownload_tokens(
+            DeletedMedia(
+                row.id,
+                row.media_type or "",
+                row.tmdb_id,
+                row.tvdb_id,
+                row.season_number,
+                row.title or "",
+            )
+        ),
+    ]
+    # rationale: only "?" placeholders are interpolated; every value is bound
+    found = conn.execute(  # nosec B608
+        "SELECT 1 FROM audit_log WHERE id > ? AND action IN ('downloaded', 're_downloaded') "
+        f"AND media_item_id IN ({','.join('?' * len(keys))}) LIMIT 1",
+        (row.id, *keys),
+    ).fetchone()
+    return found is not None
 
 
 def book_removed_files(

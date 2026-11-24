@@ -42,13 +42,16 @@ from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletions_under,
     fetch_deletion,
     fetch_media_held_outside_pass,
+    fetch_pending_unmonitors,
     fetch_tracked_paths_in_folders,
+    finish_unmonitor,
     is_claimed_deletion,
     is_fully_removed,
     is_kept_deletion,
     is_latest_audit,
     record_removed_files,
     tracked_paths,
+    was_requested_since,
 )
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.match import build_arr_index, index_match_movie, index_match_season
@@ -269,7 +272,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
             )
-            book_deletion(conn, row, "Deleted (recovered)", row.removed_bytes or None)
+            book_deletion(
+                conn, row, "Deleted (recovered)", row.removed_bytes or None, unmonitor=True
+            )
             booked.append(row)
         conn.commit()
     return booked
@@ -562,52 +567,68 @@ def _unmonitor_season(row: DeletionRow, client: ArrClient) -> str | None:
     return None
 
 
-def _unmonitor_deleted(
-    conn: sqlite3.Connection,
-    row: DeletionRow,
-    *,
-    radarr_client: ArrClient | None,
-    sonarr_client: ArrClient | None,
-) -> None:
-    """Stop Radarr/Sonarr re-downloading a deleted item, after checking it is the same item.
+def _unmonitor(
+    row: DeletionRow, *, radarr_client: ArrClient | None, sonarr_client: ArrClient | None
+) -> str | None:
+    """Stop Radarr/Sonarr re-downloading a deleted item; return why not, when that must be told.
 
-    Only ever unmonitors: the files are already gone, so a wrong match could
-    at worst stop a download, never delete anything. With no client for the
-    item's kind, or no entry for the item in it, there is nothing to unmonitor;
-    any other skip is audited as ``unmonitor_skipped``. The deletion stays booked either way. Runs after the deletion
-    committed, so a slow response never holds the write lock; does not commit.
+    Only ever unmonitors, after checking it is the same item: the files are
+    already gone, so a wrong match could at worst stop a download, never delete
+    anything. With no client for the item's kind, or no entry for the item in
+    it, there is nothing to unmonitor.
     """
     is_movie = row.media_type == "movie"
     service = "Radarr" if is_movie else "Sonarr"
     client = radarr_client if is_movie else sonarr_client
     if client is None:
-        return
+        return None
     try:
         reason = _unmonitor_movie(row, client) if is_movie else _unmonitor_season(row, client)
     except _ARR_ERRORS:
         logger.warning("Unmonitor in %s failed for %r", service, row.title, exc_info=True)
         reason = f"{service} could not be reached or returned an error"
     if reason is None:
-        return
+        return None
     if reason == _no_entry(is_movie):
         # Nothing to unmonitor, and nothing it could download again.
-        logger.info(
-            "engine.delete.unmonitor_none id=%s media_id=%s — %s",
-            row.id,
-            row.media_item_id,
-            reason,
-        )
-        return
-    logger.warning(
-        "engine.delete.unmonitor_skipped id=%s media_id=%s — %s", row.id, row.media_item_id, reason
-    )
-    log_audit(
-        conn,
-        row.media_item_id,
-        "unmonitor_skipped",
+        logger.info("engine.delete.unmonitor_none media_id=%s — %s", row.media_item_id, reason)
+        return None
+    logger.warning("engine.delete.unmonitor_skipped media_id=%s — %s", row.media_item_id, reason)
+    return (
         f"Not unmonitored in {service}: {row.title} — {reason}; it was deleted, but "
-        f"{service} may download it again",
+        f"{service} may download it again"
     )
+
+
+def _came_back(conn: sqlite3.Connection, row: DeletionRow) -> bool:
+    """Return True if a booked deletion's title was asked for again, or is on disk again."""
+    paths = row.removed_paths.union(tracked_paths(row) or [])
+    return was_requested_since(conn, row) or any(os.path.lexists(path) for path in paths)
+
+
+def unmonitor_deleted(
+    conn: sqlite3.Connection,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+) -> None:
+    """Unmonitor in Radarr/Sonarr every booked deletion still marked for it.
+
+    Runs after the deletion committed, so a slow response never holds the write
+    lock, and commits each item's outcome as it goes: one a dead process left
+    marked is done by the next call. It is tried once; a skip is audited as
+    ``unmonitor_skipped`` and the deletion stays booked either way. A title
+    that came back meanwhile is left monitored.
+    """
+    for row in fetch_pending_unmonitors(conn):
+        if _came_back(conn, row):
+            logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
+            detail = None
+        else:
+            detail = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+        with conn:
+            if finish_unmonitor(conn, row.id) and detail is not None:
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", detail)
 
 
 def _unavailable(path: str, allowed_roots: list[str]) -> str | None:
@@ -881,14 +902,12 @@ class DeletionExecutor:
         documented "dry-run mutates nothing" contract honest.
         """
         if not self._dry_run:
-            for row in recover_stuck_deletions(self._conn):
-                self._unmonitor(row)
+            recover_stuck_deletions(self._conn)
+            self._unmonitor()
         return repository.fetch_pending_deletions(self._conn, now.isoformat())
 
-    def _unmonitor(self, row: DeletionRow) -> None:
-        _unmonitor_deleted(self._conn, row, radarr_client=self._radarr, sonarr_client=self._sonarr)
-        # Its audit write must not hold the write lock through the next row's calls.
-        self._conn.commit()
+    def _unmonitor(self) -> None:
+        unmonitor_deleted(self._conn, radarr_client=self._radarr, sonarr_client=self._sonarr)
 
     def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
         """Delete each eligible row from disk, fail-closed on an empty allowlist."""
@@ -959,10 +978,16 @@ class DeletionExecutor:
                         f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
                         "of the old one is recorded",
                     )
-                book_deletion(self._conn, row, "Deleted (recovered)", row.removed_bytes or None)
+                book_deletion(
+                    self._conn,
+                    row,
+                    "Deleted (recovered)",
+                    row.removed_bytes or None,
+                    unmonitor=not replaced,
+                )
             self._conn.commit()
-            if booked and not replaced:
-                self._unmonitor(row)
+            if booked:
+                self._unmonitor()
         return others
 
     def _cannot_close(self, row: DeletionRow, now_iso: str) -> bool:
@@ -1148,8 +1173,8 @@ class DeletionExecutor:
         # Commit *before* the Radarr/Sonarr unmonitor HTTP calls: the unmonitor
         # is best-effort and a slow response must not hold the write lock.
         self._conn.commit()
-        for done in closed:
-            self._unmonitor(done)
+        if closed:
+            self._unmonitor()
         return closed, result.bytes_freed
 
     def _commit_record(
@@ -1248,7 +1273,7 @@ class DeletionExecutor:
                 if cleared and _own_removed(done, result):
                     book_deletion(self._conn, done, "Deleted", space or None)
             else:
-                book_deletion(self._conn, done, "Deleted", space or None)
+                book_deletion(self._conn, done, "Deleted", space or None, unmonitor=True)
                 closed.append(done)
         for other in co_located:
             if other not in closing:

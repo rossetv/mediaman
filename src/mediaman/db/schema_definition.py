@@ -112,6 +112,15 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     removed_files TEXT
 );
 
+-- Booked deletions Radarr/Sonarr still has to be told of, by their audit entry.
+CREATE TABLE IF NOT EXISTS pending_unmonitors (
+    audit_id INTEGER PRIMARY KEY,
+    radarr_id INTEGER,
+    sonarr_id INTEGER,
+    tracked_files TEXT,
+    removed_files TEXT
+);
+
 -- Keeps of items Plex stopped listing, given back if Plex lists them again.
 CREATE TABLE IF NOT EXISTS pruned_keeps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
