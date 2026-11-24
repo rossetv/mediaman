@@ -478,7 +478,7 @@
 /* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red. */
 .watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--scrim) 72%, transparent); font-weight: 600; }
 .watch-badge--leaving-now { background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
-/* Already watched: an eye, never the tick that says In library. Under another badge, which can be as wide as the poster. */
+/* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched {
   right: 8px;
   display: grid;
@@ -560,6 +560,15 @@
 .watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
 .watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
 
+/* The eye of the Watched marks: an outline until it is seen, then solid with a check in it. The
+   symbol's two drawings show by variables, which reach into what <use> draws. */
+.eye-open { display: var(--eye-open, inline); }
+.eye-seen { display: var(--eye-seen, none); }
+.watch-badge--watched,
+.watch-pill__mark,
+.watch-mark[aria-pressed="true"],
+.watch-mark-btn[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; }
+
 /* A toggle of the person's own mark: an empty ring, filled once watched, with the word beside it
    where there is room. */
 .watch-mark {
@@ -587,10 +596,11 @@
 }
 .watch-mark__word { font-size: 12px; font-weight: 600; }
 .watch-mark:not([aria-pressed="true"]) .watch-mark__word { display: none; }
-.watch-mark[aria-pressed="true"] { padding-inline: 18px; color: var(--t1); }
-.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 16%, transparent); border-color: transparent; }
 .watch-mark:hover { color: var(--t1); }
 .watch-mark:hover::before { border-color: var(--hair-hover); }
+.watch-mark[aria-pressed="true"] { padding-inline: 18px; color: var(--bg); }
+.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 86%, transparent); border-color: transparent; }
+.watch-mark[aria-pressed="true"]:hover::before { background: var(--t1); }
 .watch-mark:active::before { transform: scale(.94); }
 .watch-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-pill); }
 .watch-mark[aria-busy="true"],
@@ -603,7 +613,7 @@
 .watch-mark-btn__faces > * { grid-area: 1 / 1; transition: opacity var(--dur-fast) var(--ease-out); }
 .watch-mark-btn[aria-pressed="true"] .watch-mark-btn__off,
 .watch-mark-btn:not([aria-pressed="true"]) .watch-mark-btn__on { opacity: 0; visibility: hidden; }
-.watch-mark-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--t1) 24%, transparent); }
+.watch-mark-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--t1) 34%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t1) 60%, transparent); }
 
 /* Keep trigger. The pill is drawn by ::before so the button itself can be a
    44px touch target on a phone without the pill looking bulky. */
