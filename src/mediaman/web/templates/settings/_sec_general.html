@@ -68,7 +68,7 @@
 
   {% call c.setg_card(title="AI features", sub="GPT-powered recommendations surfaced in newsletters and on Watch.") %}
     {% set sugg_on = settings.get('suggestions_enabled', True) not in (False, 'false', 'False', 0, '0') %}
-    {% call c.setg_row("AI recommendations", "Picks for each person from the titles they played, and new and popular ones for everyone, using your OpenAI key. Titles are sent to OpenAI, names are not. Disabling hides them entirely.") %}
+    {% call c.setg_row("AI recommendations", "Picks for each person from the titles they played, and new and popular ones for everyone, using your OpenAI key. Titles, and the Plex ratings of the server’s owner, are sent to OpenAI; names are not. Disabling hides them entirely.") %}
       <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0" aria-label="AI recommendations"
             data-toggle data-target="suggestions_enabled"
             aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
