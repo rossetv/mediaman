@@ -984,9 +984,7 @@ def test_a_question_the_browser_closes_leaves_the_card_as_a_way_on(markup, seaso
 
 
 @pytest.mark.parametrize(("way", "button"), [("off", [1, 0]), ("question", [0, 1])])
-def test_space_at_a_waiting_card_does_not_play_the_episode_again_but_play_does(
-    markup, way, button
-):
+def test_space_at_a_waiting_card_does_not_play_the_episode_again_but_play_does(markup, way, button):
     out = run(markup, "upnext_waits", plays=way)
     assert (out["card"], out["space"]) == (True, [0, 0])
     assert out["button"] == button

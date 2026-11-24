@@ -135,5 +135,7 @@ def test_the_spinner_over_a_held_frame_waits_for_a_new_quality_alone() -> None:
         for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
         if ".player-spinner" in selectors and ".is-held" in selectors
     ]
-    assert [s for s, _ in rules] == [".player.is-held.is-loading:not(.is-switching) .player-spinner"]
+    assert [s for s, _ in rules] == [
+        ".player.is-held.is-loading:not(.is-switching) .player-spinner"
+    ]
     assert re.fullmatch(r"\s*transition-delay:\s*\.6s;\s*", rules[0][1])

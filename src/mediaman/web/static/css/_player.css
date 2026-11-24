@@ -534,8 +534,8 @@
 .player-ask:not([open])::backdrop { opacity: 0; }
 /* As it closes it stays, and stays on top, until it has sunk away. */
 @supports (transition-behavior: allow-discrete) {
-  .player-ask { transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out), overlay var(--dur-fast) allow-discrete, display var(--dur-fast) allow-discrete; }
-  .player-ask::backdrop { transition: opacity var(--dur-fast) var(--ease-out), overlay var(--dur-fast) allow-discrete, display var(--dur-fast) allow-discrete; }
+  .player-ask { transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
+  .player-ask::backdrop { transition: opacity var(--dur-fast) var(--ease-out), overlay var(--dur-fast) var(--ease-out) allow-discrete, display var(--dur-fast) var(--ease-out) allow-discrete; }
 }
 .player-ask::backdrop { background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: player-dim var(--dur) var(--ease-out); }
 .player-ask .player-card-title { font-size: 20px; }
