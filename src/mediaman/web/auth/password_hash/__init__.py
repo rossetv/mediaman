@@ -57,6 +57,7 @@ from mediaman.web.auth.password_hash._authenticate import authenticate, verify_p
 from mediaman.web.auth.password_hash._change_password import change_password
 from mediaman.web.auth.password_hash._user_crud import (
     ROLES,
+    EmailTakenError,
     LastAdminError,
     UserExistsError,
     UserRecord,
@@ -75,6 +76,7 @@ from mediaman.web.auth.password_hash._user_crud import (
 __all__ = [
     "BCRYPT_ROUNDS",
     "ROLES",
+    "EmailTakenError",
     "LastAdminError",
     "UserExistsError",
     "UserRecord",

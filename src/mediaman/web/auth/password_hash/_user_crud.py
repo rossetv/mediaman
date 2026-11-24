@@ -46,6 +46,10 @@ class LastAdminError(Exception):
     """Raised by `set_user_role` when it would leave the instance with no admin."""
 
 
+class EmailTakenError(Exception):
+    """Raised by `set_user_email` when the address is someone else's."""
+
+
 ROLES = ("admin", "viewer")
 
 
@@ -286,6 +290,12 @@ def set_user_email(
     ``BEGIN IMMEDIATE`` that updates the email column. If the audit
     insert fails, the entire UPDATE rolls back — we never have a "the
     email changed but no audit trail exists" outcome.
+
+    Raises:
+        ValueError: the address is malformed.
+        EmailTakenError: another user has the address, or *username* is not an
+            admin and the newsletter goes to it. An address kept as it is
+            always passes.
     """
     from mediaman.core.email_validation import validate_email_address
 
@@ -296,33 +306,41 @@ def set_user_email(
         normalised = email.strip()
         validate_email_address(normalised)
 
-    cleared = normalised is None
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        previous = get_user_email(conn, username)
+        if normalised is not None and _address_is_taken(conn, username, normalised, previous):
+            raise EmailTakenError
+        conn.execute(
+            "UPDATE admin_users SET email = ? WHERE username = ?",
+            (normalised, username),
+        )
+        if audit_actor is not None:
+            from mediaman.core.audit import security_event_or_raise
 
-    if audit_actor is not None:
-        from mediaman.core.audit import security_event_or_raise
-
-        # ``with conn:`` commits on normal exit and rolls back on exception;
-        # BEGIN IMMEDIATE here serialises the UPDATE and the audit INSERT so
-        # an audit failure rolls back the email change — fail-closed.
-        with conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                "UPDATE admin_users SET email = ? WHERE username = ?",
-                (normalised, username),
-            )
             security_event_or_raise(
                 conn,
                 event="user.email_updated",
                 actor=audit_actor,
                 ip=audit_ip,
-                detail={"cleared": cleared},
+                detail={"cleared": normalised is None, "email": normalised, "previous": previous},
             )
-    else:
-        with conn:
-            conn.execute(
-                "UPDATE admin_users SET email = ? WHERE username = ?",
-                (normalised, username),
-            )
+
+
+def _address_is_taken(
+    conn: sqlite3.Connection, username: str, email: str, previous: str | None
+) -> bool:
+    # Nobody proves an address is theirs, and one person's picks and notices follow it.
+    if previous is not None and previous.lower() == email.lower():
+        return False
+    row = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM admin_users WHERE email = ? COLLATE NOCASE"
+        " AND username != ?)"
+        " OR EXISTS (SELECT 1 FROM subscribers WHERE email = ? COLLATE NOCASE"
+        " AND EXISTS (SELECT 1 FROM admin_users WHERE username = ? AND role != 'admin'))",
+        (email, username, email, username),
+    ).fetchone()
+    return bool(row[0])
 
 
 def delete_user(
@@ -361,8 +379,12 @@ def delete_user(
             conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
             keep_credited_plays(conn, target_username)
             # A user created later under this name must not inherit this
-            # one's failure count or lock.
+            # one's failure count, lock or requests.
             admin_unlock(conn, target_username)
+            conn.execute(
+                "UPDATE download_notifications SET username = NULL WHERE username = ?",
+                (target_username,),
+            )
             cursor = conn.execute(
                 "DELETE FROM admin_users WHERE id = ? AND (role != 'admin' "
                 "OR (SELECT COUNT(*) FROM admin_users WHERE role = 'admin') > 1)",

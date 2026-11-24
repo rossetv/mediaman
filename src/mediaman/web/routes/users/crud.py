@@ -15,6 +15,7 @@ from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import (
+    EmailTakenError,
     LastAdminError,
     UserExistsError,
     create_user,
@@ -279,6 +280,13 @@ def api_set_my_email(
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
         return respond_err("invalid_email", status=400, message=str(exc))
+    except EmailTakenError:
+        logger.warning("user.email_update_rejected actor=%s", _sanitise_log_field(admin))
+        return respond_err(
+            "invalid_email",
+            status=400,
+            message="This address cannot be used here. Use another, or ask an admin.",
+        )
     except sqlite3.Error:
         logger.exception("user.email_update failed actor=%s", _sanitise_log_field(admin))
         return respond_err("internal_error", status=500, message="Internal error updating email")

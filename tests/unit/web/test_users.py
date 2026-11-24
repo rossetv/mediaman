@@ -16,6 +16,7 @@ from mediaman.web.routes.users import (
     _USER_MGMT_LIMITER,
 )
 from mediaman.web.routes.users import router as users_router
+from tests.helpers.factories import insert_download_notification
 
 
 def _app(app_factory, conn):
@@ -174,6 +175,19 @@ class TestDeleteUser:
         assert resp.json()["ok"] is True
         row = conn.execute("SELECT id FROM admin_users WHERE id=?", (other_id,)).fetchone()
         assert row is None
+
+    def test_a_later_user_of_the_same_name_does_not_get_the_old_ones_requests(
+        self, app_factory, authed_client, conn
+    ):
+        client = authed_client(_app(app_factory, conn), conn, with_reauth=True)
+        other_id = _make_second_user(conn)
+        name = conn.execute("SELECT username FROM admin_users WHERE id=?", (other_id,)).fetchone()
+        insert_download_notification(conn, username=name["username"], tmdb_id=12)
+
+        client.delete(f"/api/users/{other_id}")
+
+        row = conn.execute("SELECT username FROM download_notifications").fetchone()
+        assert row["username"] is None
 
     def test_successful_delete_writes_exactly_one_audit_row(self, app_factory, authed_client, conn):
         app = _app(app_factory, conn)

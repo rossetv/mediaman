@@ -164,3 +164,61 @@ class TestPatchOwnEmail:
         long_email = "a" * 321 + "@example.com"
         resp = client.patch("/api/users/me/email", json={"email": long_email})
         assert resp.status_code == 422
+
+
+class TestAnAddressOfSomeoneElse:
+    @pytest.fixture
+    def viewer(self, app_factory, authed_client, conn):
+        client = _ticketed_client(app_factory, authed_client, conn)
+        conn.execute("UPDATE admin_users SET role = 'viewer' WHERE username = 'admin'")
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, role, created_at, email)"
+            " VALUES ('casey', 'unused', 'admin', '2026', 'casey@example.com')"
+        )
+        conn.execute(
+            "INSERT INTO subscribers (email, active, created_at)"
+            " VALUES ('reader@example.com', 0, '2026')"
+        )
+        conn.commit()
+        return client
+
+    def _set(self, client, email):
+        return client.patch("/api/users/me/email", json={"email": email})
+
+    def test_another_users_and_a_subscribers_are_refused_alike(self, viewer, conn):
+        user = self._set(viewer, " Casey@Example.com")
+        reader = self._set(viewer, "READER@example.com")
+
+        assert user.status_code == reader.status_code == 400
+        assert user.json() == reader.json()
+        assert "casey" not in user.text.lower()
+        assert get_user_email(conn, "admin") is None
+
+    def test_an_admin_may_take_their_own_newsletter_address_but_no_other_users(self, viewer, conn):
+        conn.execute("UPDATE admin_users SET role = 'admin' WHERE username = 'admin'")
+        conn.commit()
+
+        assert self._set(viewer, "reader@example.com").status_code == 200
+        assert self._set(viewer, "casey@example.com").status_code == 400
+        assert get_user_email(conn, "admin") == "reader@example.com"
+
+    def test_an_address_already_held_can_be_saved_again_and_given_up(self, viewer, conn):
+        conn.execute("UPDATE admin_users SET email = 'casey@example.com' WHERE username = 'admin'")
+        conn.commit()
+
+        assert self._set(viewer, "Casey@example.com").status_code == 200
+        assert self._set(viewer, "").status_code == 200
+        assert self._set(viewer, "casey@example.com").status_code == 400
+
+    def test_the_record_says_which_address_was_set_and_which_it_replaced(self, viewer, conn):
+        self._set(viewer, "one@example.com")
+        self._set(viewer, "two@example.com")
+
+        details = [
+            row["detail"]
+            for row in conn.execute(
+                "SELECT detail FROM audit_log WHERE action = 'sec:user.email_updated' ORDER BY id"
+            )
+        ]
+        assert "one@example.com" in details[0]
+        assert "one@example.com" in details[1] and "two@example.com" in details[1]
