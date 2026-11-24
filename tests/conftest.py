@@ -100,6 +100,7 @@ def _clear_scanner_runner_caches():
     try:
         from mediaman.scanner.runner import _reset_plex_client_cache
     except Exception:
+        yield
         return
     _reset_plex_client_cache()
     yield
