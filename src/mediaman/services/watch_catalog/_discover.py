@@ -8,18 +8,21 @@ run them on a worker thread.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
 import requests
 
 from mediaman.services.infra import SafeHTTPError, disk_cache
-from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.media_meta.tmdb import TmdbClient, year_of
 
 from ._arr import ArrView
 from ._dedupe import LibraryIndex
-from ._shape import discover_card, tmdb_id_of, tmdb_image_url, tmdb_kind, tmdb_rating, year_of
+from ._shape import discover_card, tmdb_id_of, tmdb_image_url, tmdb_kind, tmdb_rating
 from ._title import tmdb_fields
+
+logger = logging.getLogger(__name__)
 
 # TMDB answers no page of a list past this one.
 MAX_PAGE = 500
@@ -86,7 +89,20 @@ def _cached(
     fetch: Callable[[], Any],
     allow_fetch: Callable[[], bool] | None = None,
 ) -> Any:
-    return _cache().get_or_fetch(key, fresh_s, stale_s, fetch, allow_fetch=allow_fetch)
+    return _cache().get_or_fetch(key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch)
+
+
+def _shaped(fetch: Callable[[], Any]) -> Callable[[], Any]:
+    """*fetch*, whose answer TMDB shaped in a way that cannot be read is a failure too."""
+
+    def shaped() -> Any:
+        try:
+            return fetch()
+        except (TypeError, ValueError, AttributeError, LookupError, ArithmeticError) as exc:
+            logger.warning("watch: an answer of TMDB could not be read", exc_info=True)
+            raise TmdbUnavailable("malformed") from exc
+
+    return shaped
 
 
 def _shelf_fetch(

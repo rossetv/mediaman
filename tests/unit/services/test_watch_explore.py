@@ -168,6 +168,21 @@ class TestExplorePage:
 
         assert (items, next_page) == ([], 2)
 
+    def test_a_genre_with_one_number_for_films_and_tv_keeps_their_lists_apart(self, tmdb):
+        tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list({"id": 2})}
+        assert catalog.GENRES["comedy"].movie == catalog.GENRES["comedy"].tv
+
+        for _ in range(2):
+            assert _explore_ids(tmdb, "comedy") == [("movie", 1), ("tv", 2)]
+        assert len(tmdb.asked) == 2
+
+    @pytest.mark.parametrize("vote", [float("nan"), float("inf"), pytest.param(10**400, id="huge")])
+    def test_an_odd_rating_is_sorted_as_none(self, tmdb, vote):
+        rows = [{"id": 1, "vote_average": vote}, {"id": 2, "vote_average": 5}]
+        tmdb.pages = {"/discover/movie": _list(*rows), "/discover/tv": _list()}
+
+        assert _explore_ids(tmdb, sort="top_rated") == [("movie", 2), ("movie", 1)]
+
     @pytest.mark.parametrize("which", [{"sort": "newest"}, {"decade": "1990s"}, {"page": 2}])
     def test_another_list_is_not_answered_from_the_cache_of_this_one(self, tmdb, which):
         tmdb.pages = {"/discover/movie": _list({"id": 1})}
@@ -378,6 +393,19 @@ class TestPerson:
             catalog.person(tmdb.client, 7)
 
         assert caught.type is raised
+
+    def test_odd_votes_and_genres_do_not_lose_the_person(self, tmdb):
+        credits = _credits(
+            tmdb,
+            [
+                _movie(1, float("nan")),
+                _movie(2, 10**400),
+                _movie(3, 5),
+                _movie(4, 4) | {"media_type": "tv", "genre_ids": [[10767], {}]},
+            ],
+        )
+
+        assert [c["id"] for c in credits] == [3, 4, 1, 2]
 
     def test_a_long_biography_ends_at_a_sentence_and_a_short_one_is_whole(self, tmdb):
         tmdb.pages = {"/person/7": _person(biography="A sentence of words. " * 60)}

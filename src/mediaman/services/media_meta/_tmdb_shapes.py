@@ -7,10 +7,40 @@ TmdbClient.shape_card(...) works.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from typing import Any, Literal, TypedDict
 
+_YEAR_RE = re.compile(r"[0-9]{4}")
+
 _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
+
+
+def vote_of(value: object) -> float | None:
+    """A TMDB vote average to one decimal; None for anything that is none."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 10:
+        return None
+    return round(float(value), 1)
+
+
+def year_of(date: object) -> int | None:
+    """The year of a TMDB date ("2019-03-01")."""
+    found = _YEAR_RE.match(date) if isinstance(date, str) else None
+    return int(found.group()) if found else None
+
+
+def dicts(value: object) -> list[Mapping[str, Any]]:
+    """The objects of a JSON list; none when *value* is no list."""
+    return [v for v in value if isinstance(v, Mapping)] if isinstance(value, list) else []
+
+
+def dicts_in(value: object, name: str) -> list[Mapping[str, Any]]:
+    """The objects of the list *name* of a JSON object; none when there is no such list."""
+    return dicts(value.get(name)) if isinstance(value, Mapping) else []
+
+
+def _minutes(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 class TmdbSearchResult(TypedDict, total=False):
@@ -95,32 +125,18 @@ def shape_card(data: Mapping[str, Any]) -> TmdbCard:
     The poster is w300 and the rating is rounded to 1dp, matching the other TMDB card
     paths.
     """
-    date = data.get("release_date") or data.get("first_air_date") or ""
-    year: int | None = None
-    if date[:4].isdigit():
-        try:
-            year = int(date[:4])
-        except ValueError:
-            year = None
-
     poster_path = data.get("poster_path")
     poster_url = (
-        f"{_POSTER_BASE_W300}{poster_path}" if poster_path and poster_path.startswith("/") else None
+        f"{_POSTER_BASE_W300}{poster_path}"
+        if isinstance(poster_path, str) and poster_path.startswith("/")
+        else None
     )
-
-    rating: float | None = None
-    vote = data.get("vote_average")
-    if vote is not None:
-        try:
-            rating = round(float(vote), 1)
-        except (TypeError, ValueError):
-            rating = None
 
     return {
         "tmdb_id": data.get("id"),
-        "year": year,
+        "year": year_of(data.get("release_date") or data.get("first_air_date")),
         "poster_url": poster_url,
-        "rating": rating,
+        "rating": vote_of(data.get("vote_average")),
         "description": data.get("overview") or "",
     }
 
@@ -143,29 +159,25 @@ def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
 
     endpoint = "movie" if media_type == "movie" else "tv"
     if endpoint == "movie":
-        out["runtime"] = data.get("runtime")
+        out["runtime"] = _minutes(data.get("runtime"))
     else:
-        ert = data.get("episode_run_time") or []
-        out["runtime"] = ert[0] if ert else None
+        ert = data.get("episode_run_time")
+        out["runtime"] = _minutes(ert[0]) if isinstance(ert, list) and ert else None
 
-    genres = [g["name"] for g in data.get("genres") or []]
+    genres = [g["name"] for g in dicts(data.get("genres")) if isinstance(g.get("name"), str)]
     out["genres"] = json.dumps(genres) if genres else None
 
     director: str | None = None
     if endpoint == "movie":
-        credits = data.get("credits") or {}
-        director = next(
-            (c.get("name") for c in credits.get("crew") or [] if c.get("job") == "Director"),
-            None,
-        )
+        crew = dicts_in(data.get("credits"), "crew")
+        director = next((c.get("name") for c in crew if c.get("job") == "Director"), None)
     else:
-        creators = data.get("created_by") or []
+        creators = dicts(data.get("created_by"))
         if creators:
             director = creators[0].get("name")
     out["director"] = director
 
-    credits = data.get("credits") or {}
-    cast = (credits.get("cast") or [])[:8]
+    cast = dicts_in(data.get("credits"), "cast")[:8]
     if cast:
         out["cast_json"] = json.dumps(
             [{"name": c.get("name"), "character": c.get("character", "")} for c in cast]
@@ -174,7 +186,7 @@ def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
         out["cast_json"] = None
 
     trailer_key: str | None = None
-    for v in (data.get("videos") or {}).get("results") or []:
+    for v in dicts_in(data.get("videos"), "results"):
         if v.get("site") == "YouTube" and v.get("type") == "Trailer" and v.get("key"):
             trailer_key = v["key"]
             break
@@ -189,15 +201,16 @@ def certificate(details: Mapping[str, Any], kind: Literal["movie", "tv"]) -> str
     Needs ``release_dates`` (movie) or ``content_ratings`` (tv) appended to the request.
     """
     if kind == "movie":
-        for country in (details.get("release_dates") or {}).get("results") or []:
+        for country in dicts_in(details.get("release_dates"), "results"):
             if country.get("iso_3166_1") != "US":
                 continue
-            for rel in country.get("release_dates") or []:
-                cert = (rel.get("certification") or "").strip()
-                if cert:
-                    return cert
+            for rel in dicts(country.get("release_dates")):
+                cert = rel.get("certification")
+                if isinstance(cert, str) and cert.strip():
+                    return cert.strip()
         return None
-    for entry in (details.get("content_ratings") or {}).get("results") or []:
+    for entry in dicts_in(details.get("content_ratings"), "results"):
         if entry.get("iso_3166_1") == "US":
-            return (entry.get("rating") or "").strip() or None
+            rating = entry.get("rating")
+            return (rating.strip() or None) if isinstance(rating, str) else None
     return None

@@ -3,6 +3,7 @@ fetches through the cache, and the card and image shapes."""
 
 from __future__ import annotations
 
+import json
 import threading
 from types import SimpleNamespace
 
@@ -323,6 +324,17 @@ class TestDetails:
         assert caught.type is raised
         assert cache.store == {}
 
+    def test_a_fault_in_reading_an_answer_is_a_failure_and_not_cached(self, cache, monkeypatch):
+        def fault(*_):
+            raise TypeError("unhashable")
+
+        monkeypatch.setattr(_discover, "tmdb_fields", fault)
+        client = SimpleNamespace(details_or_raise=lambda *_: self.RAW)
+
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(client, "movie", 5)
+        assert cache.store == {}
+
 
 class TestDiscoverShelves:
     def _client(self, trending, movies, tv):
@@ -588,6 +600,64 @@ class TestShapes:
         assert card["in_library"] is True
         assert card["href"] == "/watch/show/500"
         assert card["download_pct"] is None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("vote_average", float("nan")),
+            ("vote_average", float("inf")),
+            pytest.param("vote_average", 10**400, id="huge"),
+            ("release_date", "²⁰¹⁹-01-01"),
+            ("release_date", 2019),
+            ("release_date", "20-1-1"),
+            ("id", 10**30),
+        ],
+    )
+    def test_a_card_is_made_without_a_value_no_title_has(self, field, value):
+        item = {"id": 5, "media_type": "movie", "title": "T"} | {field: value}
+
+        card = catalog.tmdb_card(item, catalog.LibraryIndex(), _view())
+
+        assert card is None or (card["rating"], card["year"]) == (None, None)
+        assert field != "id" or card is None
+
+    @pytest.mark.parametrize(
+        "odd", [float("nan"), "text", 7, ["x"], [None], {"results": "x"}, {"results": [None, 7]}]
+    )
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    def test_the_fields_are_made_of_wrong_shaped_parts_and_can_be_sent(self, kind, odd):
+        names = [
+            "release_dates",
+            "content_ratings",
+            "release_date",
+            "last_air_date",
+            "genres",
+            "credits",
+            "created_by",
+            "videos",
+            "seasons",
+            "number_of_seasons",
+            "external_ids",
+            "tagline",
+            "runtime",
+            "episode_run_time",
+            "vote_average",
+            "poster_path",
+        ]
+        details = {"title": "T", **dict.fromkeys(names, odd)}
+        nested = {"iso_3166_1": "US", "release_dates": odd, "rating": odd}
+
+        for payload in (
+            details,
+            {
+                "title": "T",
+                "release_dates": {"results": [nested]},
+                "content_ratings": {"results": [nested]},
+            },
+        ):
+            fields = catalog.tmdb_fields(payload, kind)
+            assert fields["title"] == "T"
+            json.dumps(fields, allow_nan=False)
 
     def test_tmdb_fields_prefer_a_trailer_and_cap_the_cast(self):
         details = {

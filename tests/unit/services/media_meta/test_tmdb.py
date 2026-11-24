@@ -282,6 +282,37 @@ class TestFindByTvdb:
             TmdbClient("token").find_by_tvdb(1)
 
 
+class TestOddShapes:
+    @pytest.mark.parametrize(
+        "odd",
+        [float("nan"), float("inf"), pytest.param(10**400, id="huge"), "text", [None], {"a": 1}],
+    )
+    def test_a_card_and_a_detail_are_made_without_what_is_odd(self, odd):
+        names = [
+            "release_date",
+            "poster_path",
+            "vote_average",
+            "genres",
+            "credits",
+            "created_by",
+            "videos",
+        ]
+        payload = {"id": 5, **dict.fromkeys([*names, "episode_run_time"], odd), "runtime": [odd]}
+
+        card = TmdbClient.shape_card(payload)
+        detail = [TmdbClient.shape_detail(payload, media_type=m) for m in ("movie", "tv")]
+
+        assert (card["tmdb_id"], card["year"], card["poster_url"], card["rating"]) == (
+            5,
+            None,
+            None,
+            None,
+        )
+        assert [(d["runtime"], d["cast_json"], d["trailer_key"]) for d in detail] == [
+            (None, None, None)
+        ] * 2
+
+
 class TestCertificate:
     def test_movie_prefers_us_and_skips_blank(self):
         details = {

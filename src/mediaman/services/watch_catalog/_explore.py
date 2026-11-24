@@ -13,13 +13,21 @@ import requests
 
 from mediaman.core.time import now_utc
 from mediaman.services.infra import SafeHTTPError
-from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.media_meta.tmdb import TmdbClient, dicts, vote_of
 
 from . import _discover
-from ._discover import _CARD_FIELDS, _DAY, _HOUR, MAX_PAGE, TmdbUnavailable, _cached, _failure
+from ._discover import (
+    _CARD_FIELDS,
+    _DAY,
+    _HOUR,
+    MAX_PAGE,
+    TmdbUnavailable,
+    _cached,
+    _failure,
+    _shaped,
+)
 from ._genres import GENRES, Genre
 from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
-from ._title import _dicts
 
 TYPES = ("all", "movie", "tv")
 SORTS = ("popular", "top_rated", "newest")
@@ -106,7 +114,7 @@ def _page_entry(
         return {
             "items": [
                 {**{f: r[f] for f in _CARD_FIELDS if f in r}, "media_type": media_type}
-                for r in _dicts(payload["results"])
+                for r in dicts(payload["results"])
                 if not r.get("adult")
             ],
             "pages": pages if isinstance(pages, int) else MAX_PAGE,
@@ -154,12 +162,12 @@ def _mixed(lists: Sequence[list[dict[str, Any]]], sort: str) -> list[dict[str, A
     if sort == "popular" or len(lists) < 2:
         return turns
     if sort == "top_rated":
-        return sorted(turns, key=lambda i: -_number(i.get("vote_average")))
+        return sorted(turns, key=lambda i: -(vote_of(i.get("vote_average")) or 0))
     return sorted(turns, key=_released, reverse=True)
 
 
-def _number(value: object) -> float:
-    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
+def _votes(value: object) -> int:
+    return value if isinstance(value, int) and 0 <= value < 10**12 else 0
 
 
 def _released(item: Mapping[str, Any]) -> str:
@@ -176,7 +184,7 @@ def genre_posters(client: TmdbClient) -> dict[str, list[str]]:
         genre_id = genre.tmdb_id(media_type)
         assert genre_id is not None
         key, fetch = _page_entry(client, media_type, genre_id, "popular", None, 1)
-        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, fetch)
+        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, _shaped(fetch))
         urls = [tmdb_image_url(i.get("poster_path"), "w185") for i in page["items"]] if page else []
         picked = [u for u in dict.fromkeys(urls) if u and u not in used][:_TILE_POSTERS]
         used.update(picked)
@@ -193,7 +201,7 @@ def people(found: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             continue
         titles = [
             t.get("title") or t.get("name")
-            for t in _dicts(item.get("known_for"))
+            for t in dicts(item.get("known_for"))
             if not t.get("adult")
         ]
         listed.append(
@@ -285,11 +293,11 @@ def _credits(combined: object, department: object) -> list[dict[str, Any]]:
     """Each title once, with all the parts and jobs they had in it."""
     credits = combined if isinstance(combined, Mapping) else {}
     titles: dict[tuple[str, int], dict[str, Any]] = {}
-    ranks: dict[tuple[str, int], tuple[bool, float]] = {}
+    ranks: dict[tuple[str, int], tuple[bool, int]] = {}
     rows: list[tuple[Mapping[str, Any], object, object]] = [
-        (c, "Acting", c.get("character")) for c in _dicts(credits.get("cast"))
+        (c, "Acting", c.get("character")) for c in dicts(credits.get("cast"))
     ]
-    rows += [(c, c.get("department"), c.get("job")) for c in _dicts(credits.get("crew"))]
+    rows += [(c, c.get("department"), c.get("job")) for c in dicts(credits.get("crew"))]
     for row, row_department, part in rows:
         kind, tmdb_id = tmdb_kind(row), tmdb_id_of(row)
         if kind is None or tmdb_id is None or row.get("adult"):
@@ -305,7 +313,7 @@ def _credits(combined: object, department: object) -> list[dict[str, Any]]:
         if role and role not in entry["roles"]:
             entry["roles"].append(role)
         entry["minor"] = entry["minor"] and minor
-        ranks[kind, tmdb_id] = (entry["minor"], -_number(row.get("vote_count")))
+        ranks[kind, tmdb_id] = (entry["minor"], -_votes(row.get("vote_count")))
     ranked = sorted(titles, key=lambda title: ranks[title])[:_CREDITS_MAX]
     return [
         {
@@ -322,7 +330,9 @@ def _appears_only(row: Mapping[str, Any], kind: str, role: str) -> bool:
     if kind != "tv":
         return False
     genres = row.get("genre_ids")
-    if isinstance(genres, list) and any(g in _AS_THEMSELVES_GENRES for g in genres):
+    if isinstance(genres, list) and any(
+        isinstance(g, int) and g in _AS_THEMSELVES_GENRES for g in genres
+    ):
         return True
     episodes = row.get("episode_count")
     return isinstance(episodes, int) and episodes < 3

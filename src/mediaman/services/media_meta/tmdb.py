@@ -23,8 +23,12 @@ from ._tmdb_shapes import (
     TmdbDetailsPayload,
     TmdbSearchResult,
     certificate,
+    dicts,
+    dicts_in,
     shape_card,
     shape_detail,
+    vote_of,
+    year_of,
 )
 
 __all__ = [
@@ -33,6 +37,10 @@ __all__ = [
     "TmdbDetail",
     "TmdbDetailsPayload",
     "TmdbSearchResult",
+    "dicts",
+    "dicts_in",
+    "vote_of",
+    "year_of",
 ]
 
 logger = logging.getLogger(__name__)
