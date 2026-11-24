@@ -105,7 +105,7 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   dispatchEvent(e) {
-    for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f(e));
+    for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f.call(n, e));
     (this.doc.listeners[e.type] || []).forEach((f) => f(e));
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
@@ -961,6 +961,96 @@ const scenarios = {
     edit('c');
     discard.fire('click'); await h.flush();
     out.discarded = labels();
+    return out;
+  },
+
+  // A library's path and threshold outlive every redraw of the rows, and only what the person cleared is sent as cleared.
+  async diskRows() {
+    const libs = () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) });
+    const open = async (answer, thresholds) => {
+      const h = build();
+      const page = h.add('div', { className: 'setg-pg' });
+      h.add('div', { id: 'plex-library-pills' }, page);
+      const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+      const bar = h.add('div', { id: 'setg-savebar' });
+      const save = h.add('button', { id: 'btn-save' }, bar);
+      const discard = h.add('button', { id: 'btn-discard' }, bar);
+      h.add('span', { id: 'lib-pill-count' });
+      const sent = [];
+      let reply = () => Promise.resolve({ status: 'saved' });
+      h.ctx.MM.api = {
+        get: (u) => (u === '/api/plex/libraries' ? answer() : Promise.reject({})),
+        put: (u, b) => { sent.push(b.disk_thresholds === undefined ? null : JSON.parse(JSON.stringify(b.disk_thresholds))); return reply(); },
+        messageOf: () => 'x',
+      };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+      ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+      const m = h.ctx.MM.settings;
+      m.diskThresholds.init({ selectedLibs: ['1'], diskThresholds: thresholds || {} });
+      m.savebar.init({ getPayload: m.general.collectSettings });
+      const field = (id, f) => rows.querySelector('[data-lib-id="' + id + '"]').querySelector('[data-field="' + f + '"]');
+      return {
+        h, sent, rows, reply: (f) => { reply = f; },
+        type: (id, path, threshold) => {
+          field(id, 'path').value = path; field(id, 'threshold').value = threshold;
+          field(id, 'path').fire('input');
+        },
+        shows: (id) => [field(id, 'path').value, String(field(id, 'threshold').value)],
+        pill: (id) => h.doc.getElementById('plex-library-pills').querySelector('[data-lib-id="' + id + '"]').fire('click'),
+        save: async () => { save.fire('click'); await h.flush(); h.drain(); return sent[sent.length - 1]; },
+        discard: async () => { discard.fire('click'); await h.flush(); },
+      };
+    };
+    const out = {};
+    let p = await open(libs, { 3: { path: '/c', threshold: 70 } });
+    await p.h.flush();
+    p.type(1, '/a', '80');
+    out.firstSave = await p.save();
+    p.pill(2);
+    out.afterAnotherPill = p.shows(1);
+    out.afterAnotherPillSave = await p.save();
+    p.type(2, '/b', '60');
+    p.pill(3);
+    out.typedBeforeSaving = p.shows(2);
+    p.pill(2);
+    p.pill(2);
+    out.selectedAgain = p.shows(2);
+    p.pill(1);
+    out.deselectedSave = await p.save();
+    p.pill(1);
+    out.restored = p.shows(1);
+    p.type(1, '', '0');
+    out.clearedSave = await p.save();
+    // Discard goes back to what was last saved, a library that was typed over included
+    p.type(2, '/typed', '10');
+    p.pill(1);
+    await p.discard();
+    out.discarded = [p.shows(1), p.shows(2)];
+    out.discardedSave = await p.save();
+    // a refused save loses nothing, and the next one sends it
+    p.type(2, '/new', '50');
+    p.reply(() => Promise.reject({ status: 500, data: {} }));
+    await p.save();
+    p.pill(1);
+    out.afterFailure = p.shows(2);
+    p.reply(() => Promise.resolve({ status: 'saved' }));
+    out.afterFailureSave = await p.save();
+
+    // Plex's list arrives late, and what cannot be read is left alone
+    let arrive;
+    p = await open(() => new Promise((r) => { arrive = r; }), { 1: { path: '/a', threshold: 80 }, 2: 'odd' });
+    out.beforeListSave = await p.save();
+    arrive(await libs());
+    await p.h.flush();
+    out.late = p.shows(1);
+    p.pill(2);
+    out.unreadableSave = await p.save();
+
+    // Plex cannot be reached
+    p = await open(() => Promise.reject({}), { 1: { path: '/a', threshold: 80 } });
+    await p.h.flush();
+    out.unreachableSave = await p.save();
     return out;
   },
 

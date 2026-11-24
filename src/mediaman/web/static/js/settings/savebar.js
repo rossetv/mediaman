@@ -247,7 +247,7 @@
     // payload without duplicating response-bookkeeping. Routes through
     // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
     // flow are applied consistently.
-    function runSave(payload, fromKeyboard) {
+    function runSave(fromKeyboard) {
       if (!saveBtn) return;
       // Disabling the button blurs it, so note now whether focus was in the bar.
       var hadFocus = savebar && savebar.contains(document.activeElement);
@@ -256,6 +256,7 @@
       if (discardBtn) discardBtn.disabled = true;
       clearSaveError();
       var sent = snapshot();
+      var payload = getPayload(sent, saved);
       var editsSent = edits;
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
@@ -331,7 +332,7 @@
 
     if (saveBtn) saveBtn.addEventListener('click', function (e) {
       // A click from Enter or Space on the button has detail 0; a pointer click has 1 or more.
-      runSave(getPayload(), e.detail === 0);
+      runSave(e.detail === 0);
     });
 
     saved = snapshot();

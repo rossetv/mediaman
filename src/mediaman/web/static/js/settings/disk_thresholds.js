@@ -6,7 +6,9 @@
  *   - Maintain the selected-library set
  *   - Build the per-library "lp-card" (path + threshold + live usage bar)
  *   - Live-poll /api/settings/disk-usage as the user edits paths
- *   - Collect the disk-threshold map for the save payload
+ *   - Keep each library's path and threshold, as saved and as typed, through
+ *     every redraw, whether or not the library is selected
+ *   - Work out which libraries' thresholds a save has to send
  *
  * Cross-module dependencies:
  *   MM.api                    (core/api.js)
@@ -14,9 +16,9 @@
  *
  * Exposes:
  *   MM.settings.diskThresholds.init({ selectedLibs, diskThresholds })
- *   MM.settings.diskThresholds.collect()                — for collectSettings
- *   MM.settings.diskThresholds.getSelectedLibs()        — for collectSettings
- *   MM.settings.diskThresholds.state() / restore(state) — for Discard
+ *   MM.settings.diskThresholds.getSelectedLibs()
+ *   MM.settings.diskThresholds.state() / restore(state) — for save and Discard
+ *   MM.settings.diskThresholds.changes(from, to)        — for collectSettings
  */
 (function () {
   'use strict';
@@ -27,6 +29,7 @@
   var PLEX_LIBRARIES = [];
   var LOADED = false;
   var SELECTED_LIBS = [];
+  // Every library's entry: what was saved, with what is typed kept over it.
   var DISK_THRESHOLDS = {};
 
   function markDirty() {
@@ -53,9 +56,10 @@
       pill.textContent = lib.title;
       pill.dataset.libId = String(lib.id);
       pill.addEventListener('click', function () {
-        var idx = SELECTED_LIBS.indexOf(this.dataset.libId);
-        if (idx === -1) { SELECTED_LIBS.push(this.dataset.libId); this.classList.add('on'); }
-        else { SELECTED_LIBS.splice(idx, 1); this.classList.remove('on'); }
+        var idx = SELECTED_LIBS.indexOf(pill.dataset.libId);
+        if (idx === -1) { SELECTED_LIBS.push(pill.dataset.libId); pill.classList.add('on'); }
+        else { SELECTED_LIBS.splice(idx, 1); pill.classList.remove('on'); }
+        keepTyped();
         renderDiskRows();
         updateLibPillCount();
         markDirty();
@@ -271,16 +275,38 @@
     }
   }
 
-  // Returns null until the library load has succeeded (still running, or failed):
-  // the rows are not drawn, so an empty result would read as "clear every threshold".
-  function collect() {
-    if (!LOADED) return null;
-    var out = {};
+  // One library's entry as the page shows it; an entry that cannot be read shows as blank.
+  function shown(cfg) {
+    cfg = cfg || {};
+    return { path: String(cfg.path || '').trim(), threshold: parseInt(cfg.threshold, 10) || 0 };
+  }
+
+  function same(a, b) {
+    return a.path === b.path && a.threshold === b.threshold;
+  }
+
+  // An entry whose fields were not touched stays exactly as it was saved.
+  function keepTyped() {
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
-      var libId = card.dataset.libId;
-      var path = card.querySelector('[data-field="path"]').value.trim();
-      var threshold = parseInt(card.querySelector('[data-field="threshold"]').value, 10) || 0;
-      if (path || threshold) { out[libId] = { path: path, threshold: threshold }; }
+      var typed = shown({
+        path: card.querySelector('[data-field="path"]').value,
+        threshold: card.querySelector('[data-field="threshold"]').value,
+      });
+      if (!same(typed, shown(DISK_THRESHOLDS[card.dataset.libId]))) {
+        DISK_THRESHOLDS[card.dataset.libId] = typed;
+      }
+    });
+  }
+
+  // The entries that differ, or null. A cleared one is blank, not left out: the
+  // server keeps the threshold of a library it is not sent.
+  function changes(from, to) {
+    var out = null;
+    Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
+      var now = shown(to[libId]);
+      if (same(shown(from[libId]), now)) return;
+      out = out || {};
+      out[libId] = now;
     });
     return out;
   }
@@ -309,19 +335,21 @@
 
   function init(opts) {
     SELECTED_LIBS = ((opts && opts.selectedLibs) || []).map(String);
-    DISK_THRESHOLDS = (opts && opts.diskThresholds) || {};
+    DISK_THRESHOLDS = copy((opts && opts.diskThresholds) || {});
     loadPlexLibraries();
   }
 
-  // The library selection and thresholds as they stand, for Discard to go back to.
+  function copy(value) { return JSON.parse(JSON.stringify(value)); }
+
+  // The library selection and thresholds as they stand, for a save to send and Discard to go back to.
   function state() {
-    var disk = collect();
-    return { libs: SELECTED_LIBS.slice(), disk: disk === null ? DISK_THRESHOLDS : disk };
+    keepTyped();
+    return copy({ libs: SELECTED_LIBS, disk: DISK_THRESHOLDS });
   }
 
   function restore(saved) {
-    SELECTED_LIBS = saved.libs.slice();
-    DISK_THRESHOLDS = saved.disk;
+    SELECTED_LIBS = copy(saved.libs);
+    DISK_THRESHOLDS = copy(saved.disk);
     if (!LOADED) return;
     renderLibraryPills();
     renderDiskRows();
@@ -331,7 +359,7 @@
     init: init,
     state: state,
     restore: restore,
-    collect: collect,
+    changes: changes,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };
 })();

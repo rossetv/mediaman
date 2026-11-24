@@ -268,6 +268,30 @@ def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> No
     assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
 
 
+def test_a_library_loses_its_threshold_only_when_the_person_clears_it() -> None:
+    out = _run("diskRows")
+    a, b = ["/a", "80"], ["/b", "60"]
+    assert out["firstSave"] == {"1": {"path": "/a", "threshold": 80}}
+    assert out["afterAnotherPill"] == a
+    assert out["typedBeforeSaving"] == out["selectedAgain"] == b
+    assert out["restored"] == a
+    assert out["discarded"] == [["", "0"], b]
+    assert out["afterFailure"] == ["/new", "50"]
+    assert out["late"] == a
+    # nothing is sent of a library whose fields were not changed
+    assert out["deselectedSave"] == {"2": {"path": "/b", "threshold": 60}}
+    assert out["clearedSave"] == {"1": {"path": "", "threshold": 0}}
+    assert out["afterFailureSave"] == {"2": {"path": "/new", "threshold": 50}}
+    for untouched in (
+        "afterAnotherPillSave",
+        "discardedSave",
+        "beforeListSave",
+        "unreadableSave",
+        "unreachableSave",
+    ):
+        assert out[untouched] is None
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"
