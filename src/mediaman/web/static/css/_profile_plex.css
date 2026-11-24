@@ -1,1 +1,20 @@
 /* Plex account card of the Profile page. */
+.plex-link p,
+.plex-link li { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
+.plex-link-terms { margin: 12px 0; padding-left: 18px; list-style: disc; }
+.plex-link-terms li + li { margin-top: 4px; }
+.plex-link .plex-link-fine { font-size: 12px; color: var(--t3); margin-top: 8px; }
+.plex-link-name { color: var(--t1); font-weight: 600; overflow-wrap: anywhere; }
+.plex-link-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.plex-link .plex-link-wait { margin-top: 16px; font-size: 13px; color: var(--t3); }
+.plex-link .plex-link-msg { margin-top: 12px; font-size: 13px; color: var(--danger-text); }
+.plex-link .plex-link-msg:empty { margin-top: 0; }
+.plex-link [data-plex-panel] { animation: plex-panel-in var(--dur) var(--ease-out); }
+@keyframes plex-panel-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .plex-link [data-plex-panel] { animation: none; }
+}
+@media (max-width: 519.98px) {
+  .plex-link-actions { flex-direction: column; }
+  .plex-link-actions .btn { width: 100%; }
+}
