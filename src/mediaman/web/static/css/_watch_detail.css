@@ -394,8 +394,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions .btn,
   .ttl__actions .dl-state { width: 100%; padding-inline: 12px; }
   .ttl__actions .skel--pill { width: auto !important; }
-  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); margin-inline: -8px; padding: 10px 8px; }
-  .ttl .watch-ep__state { display: none; }
+  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; margin-inline: -8px; padding: 10px 8px; }
+  .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
+  .ttl .watch-ep__state { justify-self: start; align-self: end; }
   .ttl-cast { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .ttl-cast__avatar { width: 56px; height: 56px; }
   /* Two to a line: the episode count drops under the name. */
