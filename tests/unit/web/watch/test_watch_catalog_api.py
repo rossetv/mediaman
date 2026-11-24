@@ -154,6 +154,7 @@ def _fresh_memo(monkeypatch):
     monkeypatch.setattr(_library, "_held", {})
     monkeypatch.setattr(_library, "sync", True)
     monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+    monkeypatch.setattr(catalog_api, "_title_paused", {})
     yield
     catalog.invalidate()
 
@@ -669,6 +670,21 @@ class TestTmdbTitle:
 
         assert len(asked) == 1
         assert limiter.check.call_count == 1
+
+    def test_one_title_without_an_answer_does_not_pause_the_ratings_of_another(
+        self, viewer, tmdb, arr, monkeypatch
+    ):
+        monkeypatch.setattr(
+            catalog_api,
+            "lookup_ratings",
+            lambda title, *_a, **_k: None if title == "The Glasshouse" else {"imdb": "6.5"},
+        )
+
+        viewer.get("/api/watch/title/tmdb-movie-11")
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["ratings"]["imdb"] == "6.5"
+        assert _enrichment._paused_until == 0.0
 
     def test_a_title_is_not_asked_of_omdb_while_search_has_paused_it(
         self, viewer, tmdb, arr, conn, monkeypatch

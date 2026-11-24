@@ -72,6 +72,12 @@ _RATINGS_TTL = timedelta(days=30)
 # next day, not on every open.
 _NO_RATINGS_TTL = timedelta(days=1)
 
+# Titles OMDb gave no answer for, and when each may be asked again: one title it cannot
+# answer for must not leave the other titles' ratings empty.
+_TITLE_PAUSE_SECONDS = 900.0
+_TITLE_PAUSE_MAX = 512
+_title_paused: dict[tuple[int, str], float] = {}
+
 
 class _OutsideLibraries(Exception):
     """Plex places a title the sync listed outside the scanned libraries."""
@@ -147,6 +153,17 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
 
 
+def _pause_title(pause_key: tuple[int, str]) -> None:
+    now = time.monotonic()
+    if len(_title_paused) >= _TITLE_PAUSE_MAX:
+        for k in [k for k, until in _title_paused.items() if until <= now]:
+            del _title_paused[k]
+        while len(_title_paused) >= _TITLE_PAUSE_MAX:
+            del _title_paused[next(iter(_title_paused))]
+    _title_paused.pop(pause_key, None)
+    _title_paused[pause_key] = now + _TITLE_PAUSE_SECONDS
+
+
 def _ratings(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -157,8 +174,9 @@ def _ratings(
     allow_fetch: Callable[[], bool],
 ) -> dict[str, str]:
     """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
-    none when OMDb has no key, is paused, or would be asked and *allow_fetch* says no. The
-    pause after OMDb gives no answer is search's own, so either one spares the other. An answer with
+    none when OMDb has no key, is paused, or would be asked and *allow_fetch* says no. A title
+    OMDb gave no answer for is not asked again for 15 minutes; search's whole-round pause is
+    obeyed here but never set. An answer with
     nothing in it is cached too, for a shorter time, but only when OMDb answered: a timeout
     or a spent quota caches nothing and leaves the ratings already held (old ones are shown
     in its place)."""
@@ -174,11 +192,14 @@ def _ratings(
     omdb_key = get_omdb_key(conn, secret_key)
     if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
         return stale
+    pause_key = (tmdb_id, media_type)
+    if time.monotonic() < _title_paused.get(pause_key, 0.0):
+        return stale
     if not allow_fetch():
         return stale
     data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
     if data is None:
-        _enrichment._paused_until = time.monotonic() + _enrichment._NO_ANSWER_PAUSE_SECONDS
+        _pause_title(pause_key)
         return stale
     try:
         upsert_ratings_cache(
