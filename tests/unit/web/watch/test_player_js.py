@@ -1078,6 +1078,18 @@ def test_autoplay_turned_on_and_off_over_the_card_starts_and_stops_the_countdown
     assert out["offAgain"] == {"hidden": False, "counts": False, "play": "Play"}
 
 
+def test_autoplay_stays_in_reach_under_qualities_that_scroll(markup):
+    out = run(markup, "menu_parts")
+    assert (out["heading"], out["group"]) == ("Quality", "Quality")
+    assert (out["scrolls"], out["autoplayScrolls"]) == (3, False)
+
+
+def test_a_menu_fades_at_the_ends_that_have_more(markup):
+    out = run(markup, "menu_parts")
+    assert (out["fits"], out["top"]) == ([], ["below"])
+    assert (out["middle"], out["end"]) == (["above", "below"], ["above"])
+
+
 def test_the_autoplay_choice_is_kept_and_a_film_has_none(markup, tmp_path_factory):
     out = run(markup, "autoplay_saved", saved={"mediaman.watch.autoplay": "false"})
     assert out == {"checked": "false"}

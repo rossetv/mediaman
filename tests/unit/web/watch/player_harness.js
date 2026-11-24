@@ -2389,6 +2389,30 @@ const scenarios = {
     return out;
   },
 
+  /* What of the quality menu scrolls, and which of its ends have more. */
+  async menu_parts(p) {
+    const menu = p.q('[data-quality-menu]');
+    const list = menu.querySelector('.player-menu-list');
+    const more = () => ['above', 'below'].filter((end) => list.classList.contains('has-more-' + end));
+    const out = {
+      heading: menu.querySelector('.player-menu-title').textContent,
+      group: list.getAttribute('aria-label'),
+      scrolls: list.querySelectorAll('.player-menu-item').length,
+      autoplayScrolls: list.contains(p.q('[data-autoplay]')),
+      fits: more(),
+    };
+    Object.assign(list, { scrollTop: 0, clientHeight: 100, scrollHeight: 260 });
+    press(p.q('[data-quality-btn]'));
+    out.top = more();
+    list.scrollTop = 80;
+    fire(list, 'scroll');
+    out.middle = more();
+    list.scrollTop = 160;
+    fire(list, 'scroll');
+    out.end = more();
+    return out;
+  },
+
   async autoplay_saved(p) {
     return { checked: p.q('[data-autoplay]').getAttribute('aria-checked') };
   },

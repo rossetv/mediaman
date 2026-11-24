@@ -437,6 +437,20 @@
 }
 .player-menu-item:hover,
 .player-menu-item:focus-visible { background: var(--hair-strong); }
+.player-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-sm); }
+/* The list scrolls between what stays of its menu, fading at an end that has more. */
+.player-menu-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--above, 0px), #000 calc(100% - var(--below, 0px)), transparent);
+}
+.player-menu-list.has-more-above { --above: 28px; }
+.player-menu-list.has-more-below { --below: 28px; }
+.player-menu-title { flex: none; padding: 8px 12px 6px; font-size: 12px; font-weight: 600; color: var(--t2); }
 /* What the row is on the left, the detail of it on the right, then the tick. */
 .player-menu-item--split { display: flex; align-items: center; gap: 12px; }
 .player-menu-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

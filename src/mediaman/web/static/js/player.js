@@ -371,14 +371,37 @@
   function buildQualityMenu() {
     var hadFocus = els.qualityMenu.contains(document.activeElement);
     els.qualityMenu.textContent = '';
+    var title = document.createElement('p');
+    title.className = 'player-menu-title';
+    title.setAttribute('aria-hidden', 'true');
+    title.textContent = 'Quality';
+    els.qualityMenu.appendChild(title);
+    var list = addList(els.qualityMenu);
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', 'Quality');
     rows.forEach(function (row) {
       var btn = menuRow(row.label, row.detail);
       btn.setAttribute('data-quality', row.id);
-      els.qualityMenu.appendChild(btn);
+      list.appendChild(btn);
     });
     if (showHref) addAutoplayRow();
     showQuality();
+    fadeEnds(list);
     if (hadFocus) focusMenu(els.qualityMenu);
+  }
+
+  /* The part of a menu that scrolls. */
+  function addList(menu) {
+    var list = document.createElement('div');
+    list.className = 'player-menu-list';
+    list.addEventListener('scroll', function () { fadeEnds(list); });
+    menu.appendChild(list);
+    return list;
+  }
+
+  function fadeEnds(list) {
+    list.classList.toggle('has-more-above', list.scrollTop > 1);
+    list.classList.toggle('has-more-below', list.scrollTop + list.clientHeight < list.scrollHeight - 1);
   }
 
   function addAutoplayRow() {
@@ -1188,10 +1211,11 @@
     chapterShown = null;
     els.chapters.hidden = !chapters.length;
     els.chapterMenu.textContent = '';
+    var list = addList(els.chapterMenu);
     chapters.forEach(function (c, i) {
       var btn = menuRow(c.title, fmt(c.start_s));
       btn.setAttribute('data-chapter', String(i));
-      els.chapterMenu.appendChild(btn);
+      list.appendChild(btn);
     });
   }
 
@@ -1546,6 +1570,8 @@
     var menu = trigger.parentNode.querySelector('.player-menu');
     show(menu);
     focusMenu(menu);
+    var list = menu.querySelector('.player-menu-list');
+    if (list) fadeEnds(list);
     showControls();
   });
   document.addEventListener('click', function (e) {
