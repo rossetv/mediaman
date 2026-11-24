@@ -20,9 +20,9 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 from xml.etree.ElementTree import ParseError
 
@@ -82,6 +82,15 @@ MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
 _POOL_MAXSIZE = 32
 
+# A segment is read whole on a worker thread, and the pages share those (40 by default), so reads
+# are few per stream and per user, and far fewer than the threads in all. A player reads one or
+# two ahead.
+MAX_READS_PER_STREAM = 2
+MAX_READS_PER_USER = MAX_READS_PER_STREAM * MAX_STREAMS_PER_USER
+MAX_READS_TOTAL = 16
+# The whole of a segment read; the read timeout alone would let a trickling body hold its slot.
+SEGMENT_DEADLINE_SECONDS = 60.0
+
 _SEGMENT_NAME_RE = re.compile(r"[0-9]{1,6}\.(ts|m4s|mp4|vtt|aac)")
 _VARIANT_RE = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/index\.m3u8")
 _EXTINF_RE = re.compile(r"#EXTINF:([0-9]{1,6}(?:\.[0-9]{1,9})?)(?:,.*)?")
@@ -124,6 +133,10 @@ class TooManyStreams(Exception):
     """The user, or mediaman as a whole, already has as many live streams as allowed."""
 
 
+class TooManyReads(Exception):
+    """The stream, its user or mediaman as a whole reads as many segments as allowed right now."""
+
+
 #: Returns ``(plex_url, plex_token)``, or ``None`` when Plex is not set up.
 CredentialsProvider = Callable[[], tuple[str, str] | None]
 
@@ -142,6 +155,16 @@ class StreamInfo:
     saved_played_s: float = 0.0
     #: The viewing's place as last saved, or None before its first save.
     saved_position_s: float | None = None
+
+
+@dataclass(frozen=True, eq=False)
+class SegmentRead:
+    """One slot for reading a segment, from ``claim_read`` until ``release_read``."""
+
+    stream_id: str
+    user: str
+    #: Set once nobody waits for the segment any more.
+    unwanted: threading.Event
 
 
 @dataclass
@@ -173,6 +196,20 @@ class _Stream:
     last_access: float
     viewing_started: float
     info: dict[str, Any] = field(default_factory=dict)
+
+
+class _CheckedBody:
+    """A Plex response that runs *check*, which may raise, before handing on each chunk."""
+
+    def __init__(self, response: requests.Response, check: Callable[[], None]) -> None:
+        self.headers = response.headers
+        self._response = response
+        self._check = check
+
+    def iter_content(self, chunk_size: int) -> Iterator[bytes]:
+        for chunk in self._response.iter_content(chunk_size=chunk_size):
+            self._check()
+            yield chunk
 
 
 class StreamManager:
@@ -209,6 +246,9 @@ class StreamManager:
         self._reaped: dict[str, tuple[float, _Stream]] = {}
         # (rating_key, file) -> Plex's word on copying its video.
         self._copies: dict[tuple[str, str], _CopyVerdict] = {}
+        # An ended stream's reads stay here until Plex lets go of them, so starting anew is no
+        # way around the limits.
+        self._reads: set[SegmentRead] = set()
 
     def start(
         self,
@@ -339,17 +379,57 @@ class StreamManager:
             raise PlexUnavailable("Plex sent a playlist that is not text") from None
         return _rewrite_playlist(text, stream_id)
 
-    def segment(self, stream_id: str, user: str, name: str) -> tuple[bytes, str]:
+    def claim_read(
+        self, stream_id: str, user: str, unwanted: threading.Event | None = None
+    ) -> SegmentRead:
+        """Take a slot for reading one segment; give it back with ``release_read``.
+
+        Never waits: raises ``TooManyReads`` when the stream, the user or mediaman as a whole is
+        at the limit. Setting *unwanted* ends the read early.
+        """
+        self._touch(stream_id, user)
+        with self._lock:
+            if (
+                len(self._reads) >= MAX_READS_TOTAL
+                or sum(r.user == user for r in self._reads) >= MAX_READS_PER_USER
+                or sum(r.stream_id == stream_id for r in self._reads) >= MAX_READS_PER_STREAM
+            ):
+                raise TooManyReads("too many segments are being read")
+            read = SegmentRead(stream_id, user, unwanted or threading.Event())
+            self._reads.add(read)
+            return read
+
+    def release_read(self, read: SegmentRead) -> None:
+        with self._lock:
+            self._reads.discard(read)
+
+    def segment(self, read: SegmentRead, name: str) -> tuple[bytes, str]:
         """Fetch one segment whole and return ``(body, content_type)``.
 
-        Raises ``ValueError`` for a name that is not a plain segment file name.
+        Raises ``ValueError`` for a name that is not a plain segment file name, and
+        ``StreamGone`` as soon as the stream ends or the read is unwanted.
         """
         if not _SEGMENT_NAME_RE.fullmatch(name):
             raise ValueError("not a segment name")
-        stream = self._touch(stream_id, user)
+        stream = self._touch(read.stream_id, read.user)
         base, token = self._creds()
         path = f"{posixpath.dirname(stream.child_path)}/{name}"
-        body = self._get(base, token, path, op="segment", max_bytes=_SEGMENT_MAX_BYTES)
+
+        def still_wanted() -> None:
+            self.peek(read.stream_id, read.user)
+            if read.unwanted.is_set():
+                raise StreamGone("the segment is no longer wanted")
+
+        still_wanted()
+        body = self._get(
+            base,
+            token,
+            path,
+            op="segment",
+            max_bytes=_SEGMENT_MAX_BYTES,
+            deadline=self._clock() + SEGMENT_DEADLINE_SECONDS,
+            check=still_wanted,
+        )
         return body, _CONTENT_TYPES[name.rsplit(".", 1)[1]]
 
     def get(self, stream_id: str, user: str) -> StreamInfo:
@@ -641,16 +721,18 @@ class StreamManager:
         extra_headers: Mapping[str, str] | None = None,
         timeout: tuple[float, float] = _TIMEOUT,
         deadline: float | None = None,
+        check: Callable[[], None] = lambda: None,
     ) -> bytes:
         """GET *path* on Plex with the token in a header only, inside a DNS pin, body capped.
 
         With a *deadline* (on the manager's clock) the call is refused once it has passed, and
-        its timeouts never run beyond it.
+        its timeouts never run beyond it, nor the reading of the body. *check* runs before each
+        chunk of the body and may raise to end the call.
         """
         if deadline is not None:
             remaining = deadline - self._clock()
             if remaining <= 0:
-                raise PlexUnavailable("Plex took too long to start the stream")
+                raise PlexUnavailable("Plex took too long")
             timeout = (min(timeout[0], remaining), min(timeout[1], remaining))
         url = base + path
         allowed = self._allowed_hosts() if callable(self._allowed_hosts) else self._allowed_hosts
@@ -667,6 +749,12 @@ class StreamManager:
             "Accept-Encoding": "identity",
             **(extra_headers or {}),
         }
+
+        def go_on() -> None:
+            check()
+            if deadline is not None and self._clock() > deadline:
+                raise PlexUnavailable("Plex took too long")
+
         ensure_hook_installed()
         pinned = pin(hostname, pinned_ips) if hostname and pinned_ips else contextlib.nullcontext()
         # Errors are raised "from None": a requests exception names the URL, which holds the
@@ -686,7 +774,8 @@ class StreamManager:
                     if response.status_code != 200:
                         logger.warning("plex_stream: %s answered HTTP %s", op, response.status_code)
                         raise PlexUnavailable(f"Plex answered HTTP {response.status_code}")
-                    return _read_capped(response, max_bytes)
+                    body = cast(requests.Response, _CheckedBody(response, go_on))
+                    return _read_capped(body, max_bytes)
                 finally:
                     response.close()
         except requests.RequestException as exc:

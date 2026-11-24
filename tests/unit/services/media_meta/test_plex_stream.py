@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
 import time
 from urllib.parse import urlsplit
 
+import anyio
+import anyio.to_thread
 import pytest
 import requests
 
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_stream import (
+    MAX_READS_PER_STREAM,
+    MAX_READS_PER_USER,
+    MAX_READS_TOTAL,
     MAX_STREAMS_PER_USER,
     MAX_STREAMS_TOTAL,
     StreamGone,
     StreamManager,
+    TooManyReads,
     TooManyStreams,
     init_stream_manager,
 )
@@ -167,6 +174,14 @@ def _start(manager: StreamManager, user: str = "alice", **kwargs) -> str:
     return manager.start(user, **args)
 
 
+def _segment(manager: StreamManager, stream_id: str, user: str, name: str) -> tuple[bytes, str]:
+    read = manager.claim_read(stream_id, user)
+    try:
+        return manager.segment(read, name)
+    finally:
+        manager.release_read(read)
+
+
 def test_decision_comes_before_start_with_the_same_session(manager, plex):
     _start(manager)
 
@@ -182,7 +197,7 @@ def test_decision_comes_before_start_with_the_same_session(manager, plex):
 def test_child_playlist_is_read_before_any_segment(manager, plex):
     stream_id = _start(manager)
 
-    body, content_type = manager.segment(stream_id, "alice", "00001.ts")
+    body, content_type = _segment(manager, stream_id, "alice", "00001.ts")
 
     assert body == b"segment 00001.ts"
     assert content_type == "video/mp2t"
@@ -242,7 +257,7 @@ def test_segment_name_that_is_not_a_plain_segment_is_refused_before_plex(manager
     calls_before = len(plex.calls)
 
     with pytest.raises(ValueError):
-        manager.segment(stream_id, "alice", name)
+        _segment(manager, stream_id, "alice", name)
 
     assert len(plex.calls) == calls_before
 
@@ -254,7 +269,7 @@ def test_another_users_stream_is_indistinguishable_from_an_unknown_one(manager):
         manager.playlist("no-such-stream", "bob")
     for attempt in (
         lambda: manager.playlist(stream_id, "bob"),
-        lambda: manager.segment(stream_id, "bob", "00000.ts"),
+        lambda: _segment(manager, stream_id, "bob", "00000.ts"),
         lambda: manager.get(stream_id, "bob"),
         lambda: manager.stop(stream_id, "bob"),
     ):
@@ -305,7 +320,7 @@ def test_reap_stops_idle_streams_on_plex_and_keeps_active_ones(manager, plex, cl
 def test_access_keeps_a_stream_from_being_reaped(manager, clock):
     stream_id = _start(manager)
     clock.now += 170
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
     clock.now += 170
 
     assert manager.reap(clock.now) == 0
@@ -320,7 +335,7 @@ def test_a_failed_start_is_retried_once_with_a_fresh_session(manager, plex):
     assert len(sessions) == 2
     assert sessions[0] != sessions[1]
     assert [c["params"]["session"] for c in plex.calls_to("stop")] == [sessions[0]]
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
 
 
 def test_start_gives_up_after_the_retry(manager, plex):
@@ -418,7 +433,7 @@ def test_whole_lifecycle_writes_nothing_and_sends_the_token_only_in_a_header(man
     plex.sessions = [{"key": "mediaman-old"}]
     stream_id = _start(manager)
     manager.playlist(stream_id, "alice")
-    manager.segment(stream_id, "alice", "00001.ts")
+    _segment(manager, stream_id, "alice", "00001.ts")
     manager.get(stream_id, "alice")
     manager.reap(clock.now)
     manager.tidy_orphans()
@@ -575,7 +590,7 @@ def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
 
     stream_id = _start(manager)
     manager.playlist(stream_id, "alice")
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
     manager.stop(stream_id, "alice")
 
     assert plex.calls
@@ -966,3 +981,103 @@ def test_someone_elses_stream_cannot_be_peeked_at(manager):
 
     with pytest.raises(StreamGone):
         manager.peek(stream_id, "bob")
+
+
+def _fill(manager: StreamManager, stream_id: str, user: str) -> list:
+    reads = []
+    with contextlib.suppress(TooManyReads):
+        while len(reads) < 100:
+            reads.append(manager.claim_read(stream_id, user))
+    return reads
+
+
+def test_a_stream_reads_two_segments_at_once_and_goes_on_once_one_is_given_back(manager):
+    stream_id = _start(manager)
+    reads = _fill(manager, stream_id, "alice")
+    assert len(reads) == MAX_READS_PER_STREAM == 2
+
+    manager.release_read(reads[0])
+    manager.release_read(reads[0])
+
+    assert len(_fill(manager, stream_id, "alice")) == 1
+
+
+def test_a_full_stream_leaves_the_same_persons_other_titles_and_other_people_alone(manager):
+    for key in range(MAX_STREAMS_PER_USER):
+        assert len(_fill(manager, _start(manager, rating_key=str(key)), "alice")) == 2
+    assert len(_fill(manager, _start(manager, user="bob"), "bob")) == 2
+
+
+def test_starting_anew_does_not_lift_the_limit_while_the_old_reads_are_held(manager):
+    held = 0
+    for _ in range(MAX_READS_PER_USER):
+        held += len(_fill(manager, _start(manager), "alice"))
+    assert held == MAX_READS_PER_USER
+
+    assert len(_fill(manager, _start(manager, user="bob"), "bob")) == 2
+
+
+def test_reads_in_all_stay_well_below_the_threads_the_pages_share(manager):
+    held = sum(
+        len(_fill(manager, _start(manager, user=f"user{n}"), f"user{n}"))
+        for n in range(MAX_STREAMS_TOTAL)
+    )
+    assert held == MAX_READS_TOTAL <= anyio.run(_default_threads) // 2
+
+
+async def _default_threads() -> float:
+    return anyio.to_thread.current_default_thread_limiter().total_tokens
+
+
+def _body_of(plex, chunks):
+    """Make the fake Plex answer every later call with *chunks*, read one by one."""
+    response = FakeResponse(200)
+    response.iter_content = lambda chunk_size: chunks
+    plex.request = lambda *args, **kwargs: response
+
+
+@pytest.mark.parametrize("why", ["stopped", "unwanted"])
+def test_a_read_ends_midway_once_its_stream_is_stopped_or_nobody_wants_it(manager, plex, why):
+    stream_id = _start(manager)
+    read = manager.claim_read(stream_id, "alice")
+
+    def chunks():
+        yield b"one"
+        if why == "stopped":
+            manager.stop(stream_id, "alice")
+        else:
+            read.unwanted.set()
+        yield b"two"
+        pytest.fail("read on")
+
+    _body_of(plex, chunks())
+
+    with pytest.raises(StreamGone):
+        manager.segment(read, "00001.ts")
+
+
+def test_an_unwanted_read_never_asks_plex(manager, plex):
+    stream_id = _start(manager)
+    read = manager.claim_read(stream_id, "alice")
+    read.unwanted.set()
+    asked = len(plex.calls)
+
+    with pytest.raises(StreamGone):
+        manager.segment(read, "00001.ts")
+    assert len(plex.calls) == asked
+
+
+def test_a_segment_that_trickles_in_is_given_up(manager, plex, clock):
+    stream_id = _start(manager)
+    read = manager.claim_read(stream_id, "alice")
+
+    def chunks():
+        for _ in range(10):
+            clock.now += 20
+            yield b"drop"
+        pytest.fail("read on")
+
+    _body_of(plex, chunks())
+
+    with pytest.raises(PlexUnavailable):
+        manager.segment(read, "00001.ts")

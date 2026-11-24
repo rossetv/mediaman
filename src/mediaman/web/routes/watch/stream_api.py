@@ -8,9 +8,12 @@ session or token reaches a response or a log line.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import sqlite3
+import threading
+from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
 from typing import Annotated, Any
@@ -18,6 +21,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from mediaman.core.scrub_filter import register_secret
@@ -34,9 +38,11 @@ from mediaman.services.media_meta.plex_quality import (
     without_original,
 )
 from mediaman.services.media_meta.plex_stream import (
+    SegmentRead,
     StreamGone,
     StreamInfo,
     StreamManager,
+    TooManyReads,
     TooManyStreams,
     get_stream_manager,
 )
@@ -65,6 +71,17 @@ _PLAYED_SLACK_SECONDS = 30.0
 
 # A place this close to the saved one is the same place; a save is rounded and the video may snap.
 _SAME_PLACE_SECONDS = 0.5
+
+# A segment request past the limits waits this long for a slot, so a player that fetches a little
+# ahead, or a seek whose old requests Plex still holds, is not refused. Well under the 10 s the
+# player allows before the first byte.
+_SLOT_WAIT_SECONDS = 4.0
+_SLOT_POLL_SECONDS = 0.1
+_MAX_WAITING_PER_STREAM = 4
+_RETRY_AFTER_SECONDS = 2
+
+#: stream id -> segment requests waiting for a slot; only touched on the event loop.
+_waiting: Counter[str] = Counter()
 
 _START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
@@ -229,18 +246,65 @@ def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -
     return Response(text, media_type="application/vnd.apple.mpegurl")
 
 
-@router.get("/api/watch/stream/{stream_id}/seg/{name}")
-def stream_segment(
-    stream_id: str, name: str, username: str = Depends(get_current_user)
-) -> Response:
+async def _note_disconnect(request: Request, gone: threading.Event) -> None:
+    while (await request.receive())["type"] != "http.disconnect":
+        pass
+    gone.set()
+
+
+async def _claim_read(
+    manager: StreamManager, stream_id: str, username: str, gone: threading.Event
+) -> SegmentRead:
+    """A slot for one segment read, waiting a little for one to come free.
+
+    Waits on the event loop, so a request that waits holds none of the threads the pages use.
+    """
     try:
-        body, content_type = get_stream_manager().segment(stream_id, username, name)
+        return manager.claim_read(stream_id, username, gone)
+    except TooManyReads:
+        if _waiting[stream_id] >= _MAX_WAITING_PER_STREAM:
+            raise
+    _waiting[stream_id] += 1
+    try:
+        end = asyncio.get_running_loop().time() + _SLOT_WAIT_SECONDS
+        while True:
+            await asyncio.sleep(_SLOT_POLL_SECONDS)
+            try:
+                return manager.claim_read(stream_id, username, gone)
+            except TooManyReads:
+                if gone.is_set() or asyncio.get_running_loop().time() >= end:
+                    raise
+    finally:
+        _waiting[stream_id] -= 1
+        if not _waiting[stream_id]:
+            del _waiting[stream_id]
+
+
+@router.get("/api/watch/stream/{stream_id}/seg/{name}")
+async def stream_segment(
+    request: Request, stream_id: str, name: str, username: str = Depends(get_current_user)
+) -> Response:
+    manager = get_stream_manager()
+    gone = threading.Event()
+    watch = asyncio.create_task(_note_disconnect(request, gone))
+    try:
+        read = await _claim_read(manager, stream_id, username, gone)
+        try:
+            body, content_type = await run_in_threadpool(manager.segment, read, name)
+        finally:
+            manager.release_read(read)
     except ValueError:
         return respond_err("not_found", status=404)
+    except TooManyReads:
+        refused = respond_err("rate_limited", status=429)
+        refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
+        return refused
     except StreamGone:
         return stream_gone()
     except PlexError as exc:
         return plex_failure(exc)
+    finally:
+        watch.cancel()
     return Response(body, media_type=content_type)
 
 
