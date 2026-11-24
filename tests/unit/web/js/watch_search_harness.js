@@ -957,6 +957,43 @@ const scenarios = {
     out.without = r.line();
     return out;
   },
+
+  // Links to what is not there, to a decade that is not listed, and to a person who cannot be had just now.
+  async badLinks() {
+    const error = (status) => Object.assign(new Error(String(status)), { status });
+    const open = async (at, status, categories) => {
+      const p = await ready(ADMIN, '', at, categories);
+      if (status) {
+        p.calls.filter((c) => /explore\?|person/.test(c.url)).forEach((c) => c.reject(error(status)));
+        await settle();
+      }
+      return p;
+    };
+    const look = (p) => ({ title: p.doc.querySelector('.explore-title').textContent, pill: p.$('watch-search-token').textContent,
+      stopped: p.grids[0].stopped, filters: p.doc.querySelectorAll('.explore-filters').length, outline: p.doc.querySelector('.explore').classList.contains('is-unknown'),
+      back: p.doc.querySelectorAll('.explore .grid-empty__link').length, status: p.status.textContent });
+    const nope = await open('/watch?genre=nope', 404);
+    const out = { genre: look(nope) };
+    click(nope.doc, nope.doc.querySelector('.grid-empty__link'));
+    await settle();
+    out.away = [nope.url(), nope.shown()];
+    out.person = look(await open('/watch?person=999999', 404));
+    out.failed = look(await open('/watch?person=9001', 502));
+    const broken = await open('/watch?genre=action', 502);
+    out.broken = look(broken);
+    const decade = await open('/watch?genre=action&decade=1910s');
+    out.decade = [decade.url(), decade.calls.map((c) => c.url)];
+    const late = load(ADMIN, '', '/watch?genre=action&decade=1910s', null);
+    await settle();
+    late.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.reject(error(502)));
+    await settle();
+    late.calls.filter((c) => c.url.includes('explore?'))[0].reject(error(400));
+    await settle();
+    out.late = [late.url(), late.calls.map((c) => c.url)];
+    const listed = await open('/watch?genre=action&decade=1990s');
+    out.listed = [listed.url(), listed.calls.length];
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

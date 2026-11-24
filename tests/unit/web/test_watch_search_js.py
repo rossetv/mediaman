@@ -405,3 +405,34 @@ def test_categories_that_come_late_are_suggested_for_what_was_typed_meanwhile() 
 
 def test_a_search_ends_without_the_categories_when_they_cannot_be_had() -> None:
     assert _run("lateCategories")["without"] == "No matches for “action”"
+
+
+def test_a_category_that_is_not_there_says_so_with_a_way_back_and_nothing_to_try_again() -> None:
+    out = _run("badLinks")
+    genre = out["genre"]
+    assert (genre["title"], genre["pill"]) == ("Category not found", "Category")
+    assert (genre["stopped"], genre["filters"], genre["back"]) == (True, 0, 1)
+    assert "not found" in genre["status"]
+    assert out["away"] == ["/watch", "browse"]
+
+
+def test_a_person_who_is_not_there_is_said_to_be_so() -> None:
+    person = _run("badLinks")["person"]
+    assert (person["title"], person["stopped"], person["back"]) == ("Person not found", True, 1)
+    assert person["outline"] is False
+
+
+def test_a_person_who_cannot_be_had_just_now_has_a_heading_and_may_be_tried_again() -> None:
+    failed = _run("badLinks")["failed"]
+    assert failed["title"] != ""
+    assert (failed["stopped"], failed["back"], failed["outline"]) == (False, 0, False)
+    assert _run("badLinks")["broken"]["title"] == "Action"
+
+
+def test_a_decade_that_is_not_listed_is_dropped_from_the_link() -> None:
+    out = _run("badLinks")
+    first = "/api/watch/explore?genre=action"
+    assert out["decade"] == ["/watch?genre=action", [first]]
+    assert out["late"][0] == "/watch?genre=action"
+    assert out["late"][1][-1] == first
+    assert out["listed"][0] == "/watch?genre=action&decade=1990s"

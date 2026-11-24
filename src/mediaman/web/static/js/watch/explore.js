@@ -71,7 +71,7 @@
   /* ── The categories ── */
 
   var held = { genres: [], decades: [] };
-  var known = false; // whether they are in
+  var arrived = false; // whether they are in
   var asking = null;
 
   /* Asked for once a page; a failure is asked again by whoever needs them next. */
@@ -79,7 +79,7 @@
     if (!asking) {
       asking = window.MM.api.get(EXPLORE_URL).then(function (reply) {
         held = { genres: (reply && reply.genres) || [], decades: (reply && reply.decades) || [] };
-        known = true;
+        arrived = true;
         return held;
       }, function () {
         asking = null;
@@ -254,6 +254,31 @@
     f.host.replaceWith(line);
   }
 
+  /* There is no such category or person: no other try can find it. */
+  function gone(f, list, title, text) {
+    list.stop();
+    f.node.classList.remove('is-unknown');
+    f.title.textContent = title;
+    f.facts.textContent = '';
+    var filters = f.node.querySelector('.explore-filters');
+    if (filters) filters.remove();
+    var box = el('div', 'grid-empty');
+    box.appendChild(window.MM.dom.icon('i-film'));
+    box.appendChild(el('p', 'grid-empty__title', text));
+    var link = el('a', 'grid-empty__link', 'Back to all rows');
+    link.href = '/watch';
+    link.addEventListener('click', function (e) {
+      if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      address.push(null, address.url(OWN));
+      core.byId('watch-search').focus({ preventScroll: true });
+    });
+    box.appendChild(link);
+    f.host.replaceWith(box);
+    stage().rise(box);
+    stage().say(title);
+  }
+
   /* ── A category ── */
 
   function showGenre(want, from) {
@@ -275,12 +300,37 @@
 
     /* One order's pages; a filter changed meanwhile has its own. */
     function pages(of) {
-      return function (page) {
+      function ask(page) {
+        if (arrived && of.decade && held.decades.indexOf(of.decade) === -1) dropDecade(of);
         return window.MM.api.get(url(want.id, of, page)).then(function (reply) {
           if (open === mine && page === 1 && url(want.id, of) === url(want.id, filter)) learn(reply);
           return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && reply.next_page) || null };
+        }, function (err) {
+          if (err && err.status === 400 && of.decade) {
+            dropDecade(of);
+            return ask(page);
+          }
+          if (err && err.status === 404 && open === mine) {
+            gone(f, mine.list, 'Category not found', 'There is no such category.');
+            stage().token({ icon: icon(want.id), name: 'Category' });
+          }
+          throw err;
         });
+      }
+      return function (page) {
+        // A link may ask for years that are not listed.
+        return of.decade && !arrived ? categories().then(function () { return ask(page); }) : ask(page);
       };
+    }
+
+    function dropDecade(of) {
+      if (filter.decade === of.decade && (!open || open === mine)) {
+        filter.decade = '';
+        years.choose('');
+        address.replace('explore', address.url(query(filter)));
+        f.facts.textContent = words();
+      }
+      of.decade = '';
     }
 
     function learn(reply) {
@@ -405,7 +455,7 @@
     }
     fill(held.decades);
     select.addEventListener('change', function () { choose(select.value); });
-    return { node: node, fill: fill };
+    return { node: node, fill: fill, choose: function (to) { value = select.value = to; } };
   }
 
   /* ── A person ── */
@@ -488,6 +538,15 @@
         });
         var next = reply.next_page || null;
         return cards.length || !next ? { cards: cards, next: next } : fetchPage(next);
+      }, function (err) {
+        if (open === mine && page === 1) {
+          if (err && err.status === 404) gone(f, mine.list, 'Person not found', 'There is nobody to show here.');
+          else if (!f.title.textContent) {
+            f.node.classList.remove('is-unknown');
+            f.title.textContent = 'Couldn’t load this person';
+          }
+        }
+        throw err;
       });
     }
 
@@ -558,7 +617,7 @@
   watch.explore = {
     categories: categories,
     genres: function () { return held.genres; },
-    known: function () { return known; },
+    known: function () { return arrived; },
     parse: parse,
     url: url,
     icon: icon,
