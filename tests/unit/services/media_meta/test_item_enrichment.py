@@ -360,6 +360,19 @@ class TestFillBackdrop:
 
         assert item["backdrop_url"] == WIDE
 
+    @pytest.mark.parametrize(("category", "shown"), [("trending", "A heist."), ("personal", None)])
+    def test_a_reason_made_from_everyones_viewing_is_not_shown_on_a_redownload(
+        self, conn, category, shown
+    ):
+        insert_suggestion(
+            conn, tmdb_id=42, poster_url="https://x/p.jpg", category=category, reason="A heist."
+        )
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 42}
+
+        enrich_redownload_item(item, conn, SECRET)
+
+        assert (item["reason"], item["poster_url"]) == (shown, "https://x/p.jpg")
+
 
 class TestTidySummary:
     CUT = (

@@ -851,6 +851,31 @@ class TestDownloadPageCast:
         assert re.findall(r'class="cast-char">([^<]*)<', page) == ["Lead"]
 
 
+class TestDownloadPageReason:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    @pytest.mark.parametrize(("category", "shown"), [("trending", True), ("personal", False)])
+    def test_a_reason_made_from_everyones_viewing_is_not_shown(
+        self, app_factory, conn, secret_key, category, shown
+    ):
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            category=category,
+            tmdb_id=42,
+            reason="A quiet heist.",
+            director="D. V.",
+        )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        assert ("A quiet heist." in page) is shown
+        assert "D. V." in page
+
+
 class TestRateLimitedPage:
     def test_it_is_a_styled_429_that_offers_the_same_link_again(self, app_factory, conn):
         client = TestClient(_app_with_real_templates(app_factory, conn))

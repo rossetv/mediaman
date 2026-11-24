@@ -76,7 +76,9 @@ def fetch_suggestion_enrichment(
     conn: sqlite3.Connection, suggestion_id: int
 ) -> SuggestionEnrichment | None:
     row = conn.execute(
-        "SELECT poster_url, year, description, reason, rating, rt_rating, "
+        # An older "personal" reason was made from what everyone here watched.
+        "SELECT poster_url, year, description, "
+        "CASE WHEN category = 'trending' THEN reason END AS reason, rating, rt_rating, "
         "tagline, runtime, genres, cast_json, director, trailer_key, "
         "imdb_rating, metascore "
         "FROM suggestions WHERE id = ?",

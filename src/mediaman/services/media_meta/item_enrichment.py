@@ -200,7 +200,9 @@ def enrich_redownload_item(
     # 1. Try the recommendations cache — item was likely a recommendation originally.
     # A title alone can be a namesake's, so it is matched only when there is no id.
     row = conn.execute(
-        "SELECT poster_url, year, description, reason, rating, rt_rating, "
+        # An older "personal" reason was made from what everyone here watched.
+        "SELECT poster_url, year, description, "
+        "CASE WHEN category = 'trending' THEN reason END AS reason, rating, rt_rating, "
         "tagline, runtime, genres, cast_json, director, trailer_key, "
         "imdb_rating, metascore, tmdb_id, backdrop_url "
         "FROM suggestions WHERE media_type = ? AND (tmdb_id = ? OR (? IS NULL AND title = ?)) "
