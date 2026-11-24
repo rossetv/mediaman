@@ -75,7 +75,8 @@ _INJECTION_PATTERNS = re.compile(
 
 
 def _safe_previous_titles(titles: list[str] | None) -> list[str]:
-    """Return *titles* minus any entry containing the untrusted-block delimiter substring.
+    """Return *titles* sanitised, minus any entry containing the untrusted-block delimiter
+    substring.
 
     Titles are JSON-encoded inside an <UNTRUSTED_PREVIOUS_TITLES> block, so a quoted
     </UNTRUSTED_ would only be an escaped literal. Entries are dropped anyway so a
@@ -83,7 +84,8 @@ def _safe_previous_titles(titles: list[str] | None) -> list[str]:
     """
     if not titles:
         return []
-    return [t for t in titles if "</UNTRUSTED_" not in t and "<UNTRUSTED_" not in t]
+    kept = [t for t in titles if "</UNTRUSTED_" not in t and "<UNTRUSTED_" not in t]
+    return [clean for t in kept if (clean := sanitise_plex_string(t).strip())]
 
 
 # TV suggestions sometimes arrive with a season suffix (e.g. "The Boys:
@@ -165,7 +167,8 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
             max_len,
         )
         value = value[:max_len]
-    if _CTRL_CHAR_STRICT_RE.search(value):
+    # A lone surrogate (category Cs) cannot be encoded, neither for TMDB nor the database.
+    if _CTRL_CHAR_STRICT_RE.search(value) or any(unicodedata.category(c) == "Cs" for c in value):
         logger.warning(
             "recommendations.llm_output_control_chars field=%s — rejecting item",
             field,
@@ -217,7 +220,7 @@ def parse_recommendations(
     """
     sent = list(sent_titles)
     results: list[RecommendationItem] = []
-    for item in items:
+    for item in items[:_ASK_FOR]:
         raw_title = str(item.get("title") or "")
         title = _validate_llm_string(raw_title, _LLM_TITLE_MAX_LEN, "title")
         if not title:
@@ -325,7 +328,9 @@ def generate_trending(
     )
 
     items = call_openai(prompt, conn, use_web_search=True, secret_key=secret_key)
-    return parse_recommendations(items, "trending", sent_titles=previous)
+    return parse_recommendations(
+        items, "trending", sent_titles=[*previous, *(previous_titles or [])[:100]]
+    )
 
 
 def _take(lines: Iterable[str], budget: int) -> list[str]:
@@ -415,6 +420,13 @@ def generate_personal(
     return parse_recommendations(
         items,
         "personal",
-        sent_titles=[*titles_by_id.values(), *(str(r["title"]) for r in rated), *previous],
+        # Those sent, and as they were before sanitising: a reason can spell either.
+        sent_titles={
+            *titles_by_id.values(),
+            *(str(h["title"]) for h in watch_history[: len(history)]),
+            *(str(r["title"]) for r in rated),
+            *previous,
+            *(previous_titles or [])[:100],
+        },
         titles_by_id=titles_by_id,
     )

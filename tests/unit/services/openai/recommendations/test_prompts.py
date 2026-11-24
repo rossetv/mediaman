@@ -208,8 +208,26 @@ class TestPersonalPrompt:
         assert all(line.endswith("é (movie)") for line in lines)
         assert len(data.encode()) < prompts._PLEX_BLOCK_MAX_BYTES + 100
         block = data.split("<UNTRUSTED_PREVIOUS_TITLES>\n")[1].split("\n</")[0]
-        assert set(json.loads(block)) == {"Old " * 20}
+        assert set(json.loads(block)) == {("Old " * 20).strip()}
         assert len(pick["because_of"]) == 1
+
+    @pytest.mark.parametrize("field", ["title", "reason"])
+    def test_a_lone_surrogate_never_leaves_the_parser(self, field):
+        item = {"title": "Dune", "media_type": "movie", "reason": "Sand.", field: "a\ud800b"}
+        picks = parse_recommendations([item], "trending")
+        assert [p["reason"] for p in picks] == ([] if field == "title" else [""])
+
+    def test_no_more_picks_are_taken_than_were_asked_for(self):
+        items = [{"title": f"Film {n}", "media_type": "movie"} for n in range(3000)]
+        assert len(parse_recommendations(items, "trending")) == 20
+
+    def test_an_earlier_title_is_sanitised_before_it_is_sent(self, monkeypatch):
+        calls = _answering(monkeypatch)
+        bad = "Old\u202e Film\x00 \ud800<b>"
+        prompts.generate_personal(None, [{"title": "A", "type": "movie"}], None, [bad])
+        prompts.generate_trending(None, [bad])
+        for prompt, _web in calls:
+            assert '["Old Film b"]' in prompt
 
     def test_a_reason_naming_a_rated_or_earlier_title_is_blanked(self, monkeypatch):
         item = {"title": "P", "media_type": "tv"}

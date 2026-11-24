@@ -6,8 +6,10 @@ import json
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
+from mediaman.services.openai import client as client_mod
 from mediaman.services.openai.client import (
     _DEFAULT_MODEL,
     call_openai,
@@ -145,6 +147,35 @@ class TestCallOpenAi:
         with patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"):
             result = call_openai("some prompt", conn, use_web_search=False)
         assert result == []
+
+    def test_a_call_waits_two_minutes_and_is_sent_once(self, conn, monkeypatch):
+        sent = []
+
+        def time_out(path, **kwargs):
+            sent.append((kwargs["timeout"], kwargs.get("retry", False)))
+            raise requests.Timeout("slow")
+
+        insert_settings(conn, openai_api_key="sk-test")
+        monkeypatch.setattr(client_mod._OPENAI_CLIENT, "post", time_out)
+        assert call_openai("p", conn) == []
+        assert sent == [((5.0, 120.0), False)]
+
+    @pytest.mark.parametrize(
+        "payload", [{"output": None}, [], {"output": [None]}, "text", {"output": "[" * 5}]
+    )
+    def test_returns_empty_on_an_answer_of_another_shape(
+        self, conn, fake_http, fake_response, payload
+    ):
+        insert_settings(conn, openai_api_key="sk-test")
+        fake_http.queue("POST", fake_response(json_data=payload))
+        assert call_openai("p", conn) == []
+
+    def test_returns_empty_on_json_nested_too_deep(self, conn, fake_http, fake_response):
+        insert_settings(conn, openai_api_key="sk-test")
+        text = "[" * 200_000
+        output = [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        fake_http.queue("POST", fake_response(json_data={"output": output}))
+        assert call_openai("p", conn) == []
 
     def test_returns_empty_on_http_error(self, conn, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=401, text="Unauthorised"))

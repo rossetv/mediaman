@@ -23,8 +23,7 @@ import requests
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 # Module-level client so the connection pool is shared across calls.
-# Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking
-# the scan path for too long on a slow or unreachable OpenAI endpoint.
+# Connect timeout: 5 s.  Read timeout: 30 s unless a call sets its own.
 # Callers that are ``async def`` should wrap calls in ``asyncio.to_thread``
 # so this synchronous HTTP call does not stall the event loop.
 # A global is required: per-request instantiation would rebuild
@@ -37,6 +36,10 @@ _OPENAI_CLIENT = SafeHTTPClient(
     "https://api.openai.com",
     default_timeout=(5.0, 30.0),
 )
+
+# Twenty reasoned picks, some after a web search, take a model longer than a plain answer.
+# A call that times out may be billed, so it is never sent again (POST does not retry).
+_CALL_TIMEOUT = (5.0, 120.0)
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +208,7 @@ def _handle_error(exc: Exception) -> list[dict[str, object]]:
         else:
             logger.exception("OpenAI API returned HTTP error: %s", exc)
     elif isinstance(exc, requests.Timeout):
-        logger.warning("OpenAI API call timed out after 30 s", exc_info=True)
+        logger.warning("OpenAI API call timed out", exc_info=True)
     elif isinstance(exc, requests.RequestException):
         logger.exception("OpenAI API network error: %s", exc)
     else:
@@ -241,7 +244,9 @@ def call_openai(
 
     try:
         body, headers = _build_request(prompt, model, api_key, web_search_active)
-        resp = _OPENAI_CLIENT.post("/v1/responses", headers=headers, json=body)
+        resp = _OPENAI_CLIENT.post(
+            "/v1/responses", headers=headers, json=body, timeout=_CALL_TIMEOUT
+        )
         items = _parse_response(resp.json())
         if items is None:
             return []
@@ -272,5 +277,8 @@ def call_openai(
         requests.RequestException,
         ValueError,
         KeyError,
+        TypeError,
+        AttributeError,
+        RecursionError,
     ) as exc:
         return _handle_error(exc)
