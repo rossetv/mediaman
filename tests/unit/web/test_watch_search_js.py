@@ -388,3 +388,20 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
 
 def test_a_result_that_leaves_today_or_tomorrow_is_marked_urgent_and_a_later_one_is_not() -> None:
     assert _run("leaving") == [True, True, False]
+
+
+def test_a_search_before_the_categories_are_in_waits_for_them_and_lists_its_own() -> None:
+    out = _run("lateCategories")
+    assert out["waiting"] == [None, True]
+    assert out["asked"] == ["/api/watch/explore?genre=action&type=movie"]
+    assert out["suggested"] == "Action movies | Category · Popular"
+    assert out["titles"] == ["Held"]
+
+
+def test_categories_that_come_late_are_suggested_for_what_was_typed_meanwhile() -> None:
+    out = _run("lateCategories")
+    assert (out["early"], out["typed"] > 0) == ([], True)
+
+
+def test_a_search_ends_without_the_categories_when_they_cannot_be_had() -> None:
+    assert _run("lateCategories")["without"] == "No matches for “action”"

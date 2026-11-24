@@ -71,6 +71,7 @@
   /* ── The categories ── */
 
   var held = { genres: [], decades: [] };
+  var known = false; // whether they are in
   var asking = null;
 
   /* Asked for once a page; a failure is asked again by whoever needs them next. */
@@ -78,6 +79,7 @@
     if (!asking) {
       asking = window.MM.api.get(EXPLORE_URL).then(function (reply) {
         held = { genres: (reply && reply.genres) || [], decades: (reply && reply.decades) || [] };
+        known = true;
         return held;
       }, function () {
         asking = null;
@@ -556,6 +558,7 @@
   watch.explore = {
     categories: categories,
     genres: function () { return held.genres; },
+    known: function () { return known; },
     parse: parse,
     url: url,
     icon: icon,

@@ -21,8 +21,8 @@ const DECADES = ['2020s', '2010s', '1990s'];
 
 Node.prototype.scrollIntoView = function () {};
 
-/* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once. */
-function load(data, opened = '', at = null) {
+/* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -50,6 +50,7 @@ function load(data, opened = '', at = null) {
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
     matchMedia: () => ({ matches: true }),
     innerHeight: 800,
+    categories,
     scrollY: 0,
     scrollTo: (o) => { ctx.scrollY = o.top; },
     sessionStorage: { getItem: () => null, setItem() {} },
@@ -71,7 +72,7 @@ function load(data, opened = '', at = null) {
     removeEventListener() {},
     MM: {
       api: {
-        get: (url) => (url === '/api/watch/explore' ? Promise.resolve({ tmdb_configured: true, genres: GENRES, decades: DECADES })
+        get: (url) => (url === '/api/watch/explore' && ctx.categories ? Promise.resolve(ctx.categories)
           : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
         messageOf: (_e, fallback) => fallback,
       },
@@ -922,6 +923,38 @@ const scenarios = {
     r.fire('mm:watch-view', { detail: { view: 'rows' } });
     await r.search('lantern');
     out.afterSwitch = { events: r.events.length, calls: r.calls.length, placeholder: r.input.placeholder };
+    return out;
+  },
+
+  // A search that runs before the categories are in does not say there is nothing, and lists the category once they are.
+  async lateCategories() {
+    const p = load(ADMIN, 'popular action movies', null, null);
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const out = { waiting: [p.line(), p.doc.querySelector('.watch-search').classList.contains('is-pending')] };
+    const all = { tmdb_configured: true, genres: GENRES, decades: DECADES };
+    const asked = p.calls.filter((c) => c.url === '/api/watch/explore')[0];
+    asked.done = true;
+    asked.resolve(all);
+    await settle();
+    out.asked = p.calls.filter((c) => c.url.includes('explore?')).map((c) => c.url);
+    out.suggested = p.suggested()[0];
+    await p.answer('/api/watch/explore?', { items: [{ ...TM, title: 'Held' }] });
+    out.titles = p.titles('.watch-card');
+    // Typed and not yet searched for: suggested as they come in.
+    const q = load(ADMIN, '', null, null);
+    q.type('act');
+    out.early = q.suggested();
+    q.calls.filter((c) => c.url === '/api/watch/explore')[0].resolve(all);
+    await settle();
+    out.typed = q.suggested().length;
+    // They cannot be had: the search ends without them.
+    const r = load(ADMIN, 'action', null, null);
+    await r.answer('/api/watch/search?', { items: [] });
+    await r.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    r.calls.filter((c) => c.url === '/api/watch/explore').forEach((c) => c.reject(new Error('502')));
+    await settle();
+    out.without = r.line();
     return out;
   },
 };

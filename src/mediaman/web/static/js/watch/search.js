@@ -1158,7 +1158,25 @@
       }, function () { return { state: 'failed' }; });
     }
 
-    /* "popular action movies" is also the category's own list. */
+    /* "popular action movies" is also the category's own list. Until the
+       categories are in, it may name one. */
+    function askCategory(c, before) {
+      if (!explore.known()) {
+        c.cat = { state: 'loading' };
+        explore.categories().then(function () {
+          if (current !== c) return;
+          c.cat = null;
+          if (explore.known()) askCategory(c, before);
+          paint(c);
+        });
+        return;
+      }
+      var asked = explore.parse(c.q);
+      if (!asked.exact) return;
+      c.cat = before && { items: before.items };
+      fetchCategory(c, asked);
+    }
+
     function fetchCategory(c, asked) {
       ask(c, 'cat', explore.url(asked.exact, asked, 1), function (reply) {
         return { state: 'ok', items: reply.items || [] };
@@ -1200,15 +1218,11 @@
       setPending(true);
       // Emptied now, so the same answer is read out again when it comes.
       status.textContent = '';
-      var asked = canExplore() ? explore.parse(q) : null;
       fetchLibrary(c);
       if (data.tmdb_configured !== true) c.tmdb = { state: 'unconfigured' };
       else if (q.length < TMDB_MIN_CHARS) c.tmdb = { state: 'short' };
       else fetchTmdb(c);
-      if (asked && asked.exact) {
-        c.cat = known && known.cat && { items: known.cat.items };
-        fetchCategory(c, asked);
-      }
+      if (canExplore()) askCategory(c, known && known.cat);
       paint(c);
       if (live && live.grid && live.drawn && !c.lib.items) live.grid.setAttribute('aria-busy', 'true');
     }
@@ -1253,6 +1267,11 @@
       if (address.value('explore') !== null || address.value('grid') !== null) syncUrl(q);
       holdResults();
       draw(q, null, live.rows, false);
+      if (canExplore() && !explore.known()) {
+        explore.categories().then(function () {
+          if (!current && live && live.kind === 'results' && input.value.trim() === q) draw(q, null, live.rows, false);
+        });
+      }
       setPending(true);
       timer = setTimeout(change, SEARCH_DELAY_MS);
     }
