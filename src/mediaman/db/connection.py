@@ -100,7 +100,6 @@ _ADDED_COLUMNS = (
     ("media_items", "episode_keys", "TEXT"),
     ("watch_progress", "seen_at", "TEXT"),
     ("suggestions", "backdrop_url", "TEXT"),
-    ("suggestions", "because_of", "TEXT"),
     ("scheduled_actions", "removed_files", "TEXT"),
     ("admin_users", "role", "TEXT NOT NULL DEFAULT 'admin'"),
     ("download_notifications", "season_number", "INTEGER"),

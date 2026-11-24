@@ -246,8 +246,7 @@ CREATE TABLE IF NOT EXISTS suggestions (
     batch_id TEXT,
     downloaded_at TEXT,
     created_at TEXT NOT NULL,
-    backdrop_url TEXT,
-    because_of TEXT
+    backdrop_url TEXT
 );
 
 -- One person's own AI picks. Apart from suggestions, whose rows everyone sees.
