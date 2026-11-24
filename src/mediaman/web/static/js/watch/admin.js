@@ -356,6 +356,7 @@
     actions.appendChild(button('btn btn--ghost btn--sm', 'Cancel', { 'data-action': 'close-keep-dialog' }));
     actions.appendChild(confirm);
     d.card.appendChild(bar);
+    d.card.appendChild(statusLine(list));
     d.card.appendChild(list);
     d.card.appendChild(actions);
     document.body.appendChild(d.root);
@@ -376,6 +377,7 @@
     var actions = el('div', 'keep-dialog-actions');
     actions.appendChild(el('div', 'u-flex-1'));
     actions.appendChild(button('btn btn--ghost btn--sm', 'Close', { 'data-action': 'close-season-delete' }));
+    d.card.appendChild(statusLine(list));
     d.card.appendChild(list);
     d.card.appendChild(actions);
     document.body.appendChild(d.root);
@@ -399,16 +401,23 @@
     if (modal.held) { modal.held(); modal.held = null; }
   }
 
-  /* A dialog's own line for a screen reader, outside its list, which is busy while it loads. */
+  /* A dialog's own line for a screen reader, outside its list, which is busy while it loads.
+     Many hear only what changes in a line that was there, so it is filled a moment after. */
+  var SAY_MS = 100;
+  var _saying = {};
+
+  function statusLine(list) {
+    var line = el('p', 'sr-only');
+    line.id = list.id + '-status';
+    line.setAttribute('role', 'status');
+    return line;
+  }
+
   function saySeasons(list, text) {
     var line = byId(list.id + '-status');
-    if (!line) {
-      line = el('p', 'sr-only');
-      line.id = list.id + '-status';
-      line.setAttribute('role', 'status');
-      list.parentNode.insertBefore(line, list);
-    }
-    line.textContent = text;
+    clearTimeout(_saying[list.id]);
+    line.textContent = '';
+    if (text) _saying[list.id] = setTimeout(function () { line.textContent = text; }, SAY_MS);
   }
 
   /* Rows where the seasons will be, as many as are expected; the list then keeps their
