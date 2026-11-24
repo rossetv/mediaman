@@ -100,7 +100,7 @@ def keep_changed() -> JSONResponse:
     return respond_err(
         "keep_changed",
         status=409,
-        message="This keep was changed after you opened it, so it was left as it is.",
+        message="This keep was changed meanwhile, so it was left as it is.",
     )
 
 

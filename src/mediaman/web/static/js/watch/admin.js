@@ -762,7 +762,8 @@
   var SHOW_CHANGED = 'The seasons or keeps of this show changed while this was open, so nothing was saved.';
 
   function changedMessage(names) {
-    return listNames(names) + ' changed while this was open, so nothing there was saved.';
+    return listNames(names) + ' changed while this was open, so ' +
+      (names.length > 1 ? 'they were left as they are now.' : 'it was left as it is now.');
   }
 
   function confirmKeepDialog() {
