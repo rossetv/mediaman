@@ -47,6 +47,11 @@ def test_rows_added_after_load_get_the_row_arrows_once() -> None:
     assert _run("loaded")["arrows"] == [2, 2, 2, 2]
 
 
+def test_a_row_the_server_has_more_of_opens_as_a_grid_that_loads_the_rest() -> None:
+    out = _run("libraryGrids")
+    assert out == {kind: [9, "z"] for kind in ("movies", "tv", "anime", "recent")}
+
+
 def test_a_card_of_a_held_title_that_is_leaving_says_when() -> None:
     assert _run("leavingCards") == [[["11", "2 days left", 1], [None, None, 0]]] * 2
 
