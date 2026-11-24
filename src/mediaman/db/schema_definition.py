@@ -241,7 +241,8 @@ CREATE TABLE IF NOT EXISTS arr_search_throttle (
 
 CREATE TABLE IF NOT EXISTS arr_searching_since (
     key TEXT PRIMARY KEY,
-    since TEXT NOT NULL
+    since TEXT NOT NULL,
+    last_seen TEXT
 );
 
 CREATE TABLE IF NOT EXISTS keep_tokens_used (

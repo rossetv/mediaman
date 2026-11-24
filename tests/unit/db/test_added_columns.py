@@ -121,3 +121,20 @@ def test_an_open_delete_intent_of_an_old_database_can_still_be_closed(tmp_path):
 
     assert reconcile_pending_delete_intents(conn) == 1
     conn.close()
+
+
+def test_an_old_database_records_when_a_search_was_last_seen_and_keeps_its_start(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE arr_searching_since (key TEXT PRIMARY KEY, since TEXT NOT NULL);"
+        "INSERT INTO arr_searching_since VALUES ('radarr:1', '2020');"
+    )
+    old.close()
+
+    init_db(path).close()
+    conn = init_db(path)
+
+    row = conn.execute("SELECT since, last_seen FROM arr_searching_since").fetchone()
+    assert tuple(row) == ("2020", None)
+    conn.close()
