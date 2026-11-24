@@ -1,7 +1,7 @@
 """Download-queue sub-functions: NZBGet parsing and unmatched-NZB accumulation.
 
 Stateless helpers used by the orchestrator in __init__.py. They live here to keep
-__init__.py small while the monkeypatched names (fetch_arr_queue, build_nzbget_from_db,
+__init__.py small while the monkeypatched names (fetch_arr_queue_result, build_nzbget_from_db,
 maybe_trigger_search, record_verified_completions) stay in the package root, where the
 tests patch them.
 """

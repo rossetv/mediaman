@@ -12,6 +12,9 @@
 {%- set dl_empty_icon %}
 <i class="fa-solid fa-download" aria-hidden="true"></i>
 {%- endset %}
+{%- set dl_outage_icon %}
+<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+{%- endset %}
 <div class="container" id="dl-root" data-can-abandon="{{ 'true' if can_abandon else 'false' }}">
 
   <div class="ph">
@@ -41,8 +44,10 @@
   {#- Empty state sits where active downloads go — above "Coming soon".
       The container is always present so the poll loop just fills or
       clears it; #dl-root child order stays fixed. -#}
-  <div id="dl-empty-container">
-    {% if not hero and not queue %}
+  <div id="dl-empty-container" role="status">
+    {% if outage and not hero and not queue %}
+    {{ c.empty("Downloads can't be checked right now", "This page keeps trying.", icon_svg=dl_outage_icon) }}
+    {% elif not hero and not queue %}
     {{ c.empty("All caught up", "Nothing downloading right now.", icon_svg=dl_empty_icon) }}
     {% endif %}
   </div>

@@ -388,6 +388,37 @@ scenarios.emptyState = async function () {
   };
 };
 
+// a service that does not answer never reads as "All caught up" or empties a section
+scenarios.outage = async function () {
+  const down = { hero: null, queue: [], unreachable: ['Radarr'], outage: "Can't reach Radarr" };
+  const card = (p) => p.byId('dl-empty-container').querySelectorAll('h3').map((e) => e.textContent);
+  const live = pageRig(true);
+  const upcoming = [item('radarr:u1')];
+  live.upd({ hero: item('radarr:h1'), queue: [item('radarr:q1'), item('sonarr:q2')], upcoming });
+  live.upd(down);
+  const count = (id, cls) => { const b = live.byId(id); return b ? b.querySelectorAll(cls).length : 0; };
+  const held = {
+    hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'),
+    upcoming: count('dl-upcoming-container', '.dl-upcoming-row'), cards: card(live),
+  };
+  live.upd({ hero: null, queue: [] });
+  const back = { hero: count('dl-hero-container', '.dl-hero'), queue: count('dl-queue-container', '.dl-compact'), upcoming: count('dl-upcoming-container', '.dl-upcoming-row') };
+
+  const other = pageRig(true);
+  other.upd({ hero: item('sonarr:h1'), queue: [] });
+  other.upd(down);
+
+  const idle = pageRig(true);
+  idle.upd({ hero: null, queue: [] });
+  const cards = [card(idle)];
+  idle.upd(down);
+  cards.push(card(idle));
+  idle.upd(down);
+  idle.upd({ hero: null, queue: [] });
+  cards.push(card(idle));
+  return { held, back, finishedElsewhere: other.byId('dl-hero-container').querySelectorAll('.dl-hero').length, cards };
+};
+
 // an episode list opens, and on close stays shown until it has folded away
 scenarios.episodes = async function () {
   const p = pageRig();

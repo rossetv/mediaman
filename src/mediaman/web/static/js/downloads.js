@@ -49,6 +49,7 @@
     var emptyContainer = document.getElementById('dl-empty-container');
     var recentContainer = document.getElementById('dl-recent-container');
     var header = root.querySelector('.ph');
+    var held = false;  // an active section stays as it was during an outage
 
     /* Subtitle — the server computes the line (data.subtitle, the single
        source of truth for the count copy); the page just syncs the <p>,
@@ -86,6 +87,8 @@
         if (dom.isCollapsing(heroContainer)) dom.reveal(heroContainer);
         renderHero().updateHero(heroContainer, data.hero);
       }
+    } else if (dom.holdsUnreachable(heroContainer, data.unreachable)) {
+      held = true;
     } else {
       closeSection(dom, heroContainer);
     }
@@ -133,22 +136,29 @@
         }
       }
       if (opening) dom.reveal(queueContainer);
+    } else if (dom.holdsUnreachable(queueContainer, data.unreachable)) {
+      held = true;
     } else {
       closeSection(dom, queueContainer);
     }
 
     /* Empty state — #dl-empty-container is always in the DOM at a fixed
-       position (above "Coming soon"); fill it with the empty card when
-       nothing is downloading, clear it otherwise. */
+       position (above "Coming soon"); fill it when nothing is downloading,
+       with the outage card if a service did not answer, clear it otherwise. */
     if (emptyContainer) {
-      var nothingActive = !data.hero && (!data.queue || data.queue.length === 0);
-      var hasCard = emptyContainer.firstElementChild !== null;
-      if (nothingActive && !hasCard) {
-        emptyContainer.appendChild(dom.buildEmptyState());
-        dom.reveal(emptyContainer);
-      } else if (nothingActive && dom.isCollapsing(emptyContainer)) {
-        dom.reveal(emptyContainer);
-      } else if (!nothingActive) {
+      var nothingActive = !data.hero && (!data.queue || data.queue.length === 0) && !held;
+      var shown = emptyContainer.firstElementChild;
+      if (nothingActive) {
+        var wanted = dom.buildEmptyState(data.outage);
+        if (shown && dom.q('h3', shown).textContent !== dom.q('h3', wanted).textContent) {
+          clear(emptyContainer);
+          emptyContainer.appendChild(wanted);
+        } else if (!shown) {
+          emptyContainer.appendChild(wanted);
+          dom.reveal(emptyContainer);
+        }
+        if (dom.isCollapsing(emptyContainer)) dom.reveal(emptyContainer);
+      } else {
         closeSection(dom, emptyContainer);
       }
     }

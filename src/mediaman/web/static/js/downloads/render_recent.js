@@ -87,7 +87,7 @@
     var upcoming = data.upcoming || [];
 
     if (upcoming.length === 0) {
-      if (container && !d.isCollapsing(container)) {
+      if (container && !d.isCollapsing(container) && !d.holdsUnreachable(container, data.unreachable)) {
         d.collapseAway(container);
       }
       return;

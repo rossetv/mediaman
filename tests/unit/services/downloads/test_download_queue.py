@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import requests
 
+from mediaman.services.arr.fetcher import FetchResult
 from mediaman.services.downloads.download_queue import build_episode_dicts, nzb_matches_arr
 
 
@@ -218,7 +219,7 @@ class TestFailedNzbgetPollKeepsSnapshot:
             dq._previous_initialised = True
         recorded: list = []
         with (
-            patch.object(dq, "fetch_arr_queue", return_value=[]),
+            patch.object(dq, "fetch_arr_queue_result", return_value=FetchResult()),
             patch.object(dq, "_arr_base_urls", return_value={}),
             patch.object(dq, "build_nzbget_from_db", return_value=nzb_client),
             patch.object(dq, "_enrich_with_tmdb_ids"),
@@ -317,7 +318,9 @@ class TestFailedNzbgetPollStillDiffsArrEntries:
         )
         recorded: list = []
         with (
-            patch.object(dq, "fetch_arr_queue", return_value=arr_cards or []),
+            patch.object(
+                dq, "fetch_arr_queue_result", return_value=FetchResult(cards=arr_cards or [])
+            ),
             patch.object(dq, "_arr_base_urls", return_value={}),
             patch.object(dq, "build_nzbget_from_db", return_value=client),
             patch.object(dq, "_build_arr_items", build_arr_items),

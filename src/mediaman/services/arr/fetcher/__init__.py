@@ -4,7 +4,7 @@ Public entry points:
 
 - ``fetch_arr_queue`` -- returns a plain list of cards.
 - ``fetch_arr_queue_result`` -- returns a ``FetchResult`` that also
-  carries any fetch errors so the UI can display a banner.
+  carries any fetch errors and the names of the services that failed.
 
 All public symbols are re-exported here so imports such as
 ``from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue``
@@ -54,7 +54,7 @@ def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchRe
     in DB settings.
 
     Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
-    callers can show a UI banner when a service is unreachable.
+    callers can show when a service is unreachable.
     """
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
@@ -88,7 +88,9 @@ def _fetch_service(
     ) as exc:
         logger.warning("Failed to fetch %s queue: %s", name, exc, exc_info=True)
         result.errors.append(f"{name} fetch failed: {exc}")
+        result.unreachable.append(name)
         return
+    result.unreachable.extend(failures)
     stamp_searching_since(conn, name.lower(), cards, complete=not failures)
     result.cards.extend(cards)
 

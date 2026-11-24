@@ -32,7 +32,7 @@ def _lookup_dl_item(
     conn: sqlite3.Connection, secret_key: str, dl_id: str
 ) -> dict[str, object] | None:
     """Find the queue item with the given dl_id in a freshly built response, never trusting
-    stale client-side state.
+    stale client-side state. Raises 503 when it is missing while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
     for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
@@ -42,6 +42,8 @@ def _lookup_dl_item(
     hero = payload.get("hero")
     if hero and hero.get("id") == dl_id:
         return hero
+    if outage := payload.get("outage"):
+        raise HTTPException(status_code=503, detail=f"{outage} right now. Try again later.")
     return None
 
 
@@ -78,6 +80,7 @@ def downloads_page(request: Request) -> Response:
             "upcoming": data["upcoming"],
             "recent": data["recent"],
             "subtitle": data["subtitle"],
+            "outage": data["outage"],
             "can_abandon": can_abandon,
         },
     )

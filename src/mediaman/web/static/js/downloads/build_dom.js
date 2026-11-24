@@ -16,7 +16,8 @@
  *   MM.downloads.buildDom.buildHero(item)          shared hero card builder
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
- *   MM.downloads.buildDom.buildEmptyState()
+ *   MM.downloads.buildDom.buildEmptyState(outage)
+ *   MM.downloads.buildDom.holdsUnreachable(box, unreachable)  a service that does not answer owns a row in box
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
@@ -148,24 +149,26 @@
      the download-tray glyph defined in downloads.html, so the poll-built
      card is identical to the server-rendered one. The #dl-empty-container
      owns the id — this builder returns only the inner card. */
-  function buildEmptyState() {
+  /* Mirrors the two cards in downloads.html: nothing downloading, or a service
+     that cannot be reached, which the subtitle names. */
+  function buildEmptyState(outage) {
     var el = document.createElement('div');
     el.className = 'empty';
 
     var icon = document.createElement('div');
     icon.className = 'empty-ico';
     var iconEl = document.createElement('i');
-    iconEl.className = 'fa-solid fa-download';
+    iconEl.className = 'fa-solid ' + (outage ? 'fa-triangle-exclamation' : 'fa-download');
     iconEl.setAttribute('aria-hidden', 'true');
     icon.appendChild(iconEl);
     el.appendChild(icon);
 
     var h3 = document.createElement('h3');
-    h3.textContent = 'All caught up';
+    h3.textContent = outage ? 'Downloads can\'t be checked right now' : 'All caught up';
     el.appendChild(h3);
 
     var p = document.createElement('p');
-    p.textContent = 'Nothing downloading right now.';
+    p.textContent = outage ? 'This page keeps trying.' : 'Nothing downloading right now.';
     el.appendChild(p);
 
     return el;
@@ -492,6 +495,20 @@
     if (hero && hero.updateSearchHint) hero.updateSearchHint(card, item);
   }
 
+  /* A service that cannot be reached leaves its items out of the payload, which
+     says nothing about them: a section they are in is not over. */
+  function holdsUnreachable(box, unreachable) {
+    if (!box || !unreachable || !unreachable.length) return false;
+    var rows = box.querySelectorAll('[data-dl-id]');
+    for (var i = 0; i < rows.length; i++) {
+      var id = rows[i].getAttribute('data-dl-id') || '';
+      var service = id.indexOf('radarr:') === 0 ? 'Radarr'
+        : id.indexOf('sonarr:') === 0 ? 'Sonarr' : 'NZBGet';
+      if (unreachable.indexOf(service) !== -1) return true;
+    }
+    return false;
+  }
+
   /* Build upcoming row element. */
   function buildUpcomingRow(item) {
     /* The server marks the page root; viewers get no stop-tracking button. */
@@ -572,6 +589,7 @@
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem:      buildRecentItem,
     buildEmptyState:      buildEmptyState,
+    holdsUnreachable:     holdsUnreachable,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
     syncAbandon:          syncAbandon,

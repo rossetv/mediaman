@@ -29,6 +29,8 @@ class DownloadsResponse(TypedDict):
     upcoming: list[dict[str, object]]
     recent: list[dict[str, object]]
     subtitle: str
+    unreachable: list[str]
+    outage: str
 
 
 def _contains_word_run(haystack: list[str], needle: list[str]) -> bool:

@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.services.arr.fetcher import FetchResult
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
@@ -206,7 +207,7 @@ class TestAbandonEndpoint:
 
         monkeypatch.setattr("mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie)
 
-        # A searching movie item — matches what fetch_arr_queue returns for a
+        # A searching movie item — matches what fetch_arr_queue_result returns for a
         # monitored Radarr title that has no NZBGet match.
         searching_item = {
             "kind": "movie",
@@ -228,8 +229,8 @@ class TestAbandonEndpoint:
         }
 
         monkeypatch.setattr(
-            "mediaman.services.downloads.download_queue.fetch_arr_queue",
-            lambda c, _sk: [searching_item],
+            "mediaman.services.downloads.download_queue.fetch_arr_queue_result",
+            lambda c, _sk: FetchResult(cards=[searching_item]),
         )
         monkeypatch.setattr(
             "mediaman.services.downloads.download_queue.build_nzbget_from_db",

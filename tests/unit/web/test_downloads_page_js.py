@@ -71,6 +71,17 @@ def test_hero_and_queue_close_in_place_while_the_empty_state_opens() -> None:
     }
 
 
+def test_an_outage_keeps_live_sections_and_never_reads_as_all_caught_up() -> None:
+    out = _run("outage")
+    assert out["held"] == {"hero": 1, "queue": 2, "upcoming": 1, "cards": []}
+    assert out["back"] == {"hero": 0, "queue": 0, "upcoming": 0}
+    # a download of a service that does answer is really over
+    assert out["finishedElsewhere"] == 0
+    assert [len(c) for c in out["cards"]] == [1, 1, 1]
+    assert out["cards"][0] == out["cards"][2] == ["All caught up"]
+    assert out["cards"][1] != ["All caught up"]
+
+
 def test_a_poll_update_keeps_the_size_of_the_state_pill() -> None:
     out = _run("pillSize")
     assert "dl-state-pill--xs" in out["before"]

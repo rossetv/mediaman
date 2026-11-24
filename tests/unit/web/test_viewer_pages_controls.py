@@ -47,6 +47,8 @@ def _payload(*_args):
         "upcoming": [dict(_UPCOMING)],
         "recent": [],
         "subtitle": "",
+        "unreachable": [],
+        "outage": "",
     }
 
 
@@ -93,3 +95,14 @@ def test_downloads_page_still_lists_the_items_for_a_viewer(make_client):
     assert "Stuck Movie" in html
     assert "Queued Movie" in html
     assert "Soon Show" in html
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client, role):
+    line = "Can't reach Radarr and Sonarr"
+    down = dict(_payload(), hero=None, queue=[], outage=line, subtitle=line)
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=down):
+        html = make_client(downloads_router, role).get("/downloads").text
+
+    assert "All caught up" not in html
+    assert "reach Radarr and Sonarr" in html
