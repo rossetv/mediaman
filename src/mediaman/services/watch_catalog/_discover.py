@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -278,7 +279,7 @@ def details(
             found = client.details_or_raise(media_type, tmdb_id)
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             if _is_gone(exc):
-                return {"gone": True}
+                return {"gone": True, "at": time.time()}
             raise _failure(exc, "details") from exc
         # Stored, so that a title held before TMDB marked or dropped it is not served from
         # then on.
@@ -287,9 +288,10 @@ def details(
         return tmdb_fields(found, media_type)
 
     # "v5": entries before it lack the director's id, the date and the popularity.
+    key = f"tmdb:details:v5:{media_type}:{tmdb_id}"
     result: dict[str, Any] = _cached(
         client,
-        f"tmdb:details:v5:{media_type}:{tmdb_id}",
+        key,
         7 * _DAY,
         7 * _DAY if fresh else 90 * _DAY,
         fetch,
@@ -297,6 +299,10 @@ def details(
         brief,
         background,
     )
+    # A title TMDB lacks may be added to it, so that is held for a day and no longer.
+    if result.get("gone") and time.time() - result.get("at", 0) >= _DAY:
+        with contextlib.suppress(TmdbUnavailable):
+            result = _cached(client, key, 0, 0, fetch, allow_fetch, brief, background)
     if result.get("adult") or result.get("gone"):
         raise TitleNotFound("details")
     return result

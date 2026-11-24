@@ -332,6 +332,31 @@ class TestDetails:
         with pytest.raises(catalog.TitleNotFound):
             catalog.details(client, "movie", 5)
 
+    def test_a_title_tmdb_does_not_have_is_asked_for_again_after_a_day(self, tmp_path, monkeypatch):
+        disk_cache.init(tmp_path)
+        monkeypatch.setattr(disk_cache, "sync", True)
+        asked, has_it = [], [False]
+
+        def answer(*_):
+            asked.append(1)
+            if not has_it[0]:
+                raise SafeHTTPError(status_code=404, body_snippet="", url="https://tmdb.invalid")
+            return dict(self.RAW)
+
+        client = SimpleNamespace(token="t", details_or_raise=answer)
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+
+        now = disk_cache.time.time()
+        has_it[0] = True
+        monkeypatch.setattr(disk_cache.time, "time", lambda: now + 3600)
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+        assert len(asked) == 1
+
+        monkeypatch.setattr(disk_cache.time, "time", lambda: now + 86400 + 60)
+        assert catalog.details(client, "movie", 5)["title"] == "Glasshouse"
+
     def test_waiting_too_long_on_another_call_is_a_failure(self, monkeypatch):
         def wait(*_args, **_kwargs):
             raise TimeoutError
