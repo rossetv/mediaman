@@ -214,14 +214,17 @@ const scenarios = {
     const p = await load();
     await p.open('movies');
     const seen = [];
-    for (const sort of ['year', 'unwatched', 'added']) {
+    for (const sort of ['unwatched', 'added', 'year']) {
       await p.choose(sort);
       await p.settle();
       seen.push({ at: p.at(), sort: p.grid().sort, things: p.grid().things });
     }
     const link = await load({ url: '/watch?all=movies&sort=unwatched' });
+    await p.step(-1);
+    await p.step(1);
+    const forward = p.grid().things;
     const plain = await load({ url: '/watch?all=continue&sort=unwatched' });
-    return { seen, link: link.grid().sort, other: plain.grid().sort };
+    return { seen, forward, link: link.grid().sort, other: plain.grid().sort };
   },
 
   // A row that is all on the page is put in order there.

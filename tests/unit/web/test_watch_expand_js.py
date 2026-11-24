@@ -46,17 +46,18 @@ def test_newest_release_and_not_watched_first_are_the_library_s_own_orders() -> 
     out = _run("ordered")
     assert out["seen"] == [
         {
-            "at": "/watch?all=movies&sort=year",
-            "sort": "Newest release",
-            "things": ["Film 5", "Film 3", "Film 7"],
-        },
-        {
             "at": "/watch?all=movies&sort=unwatched",
             "sort": "Not watched first",
             "things": ["Film 4", "Film 6"],
         },
         {"at": "/watch?all=movies", "sort": "Recently added", "things": ["Film 1", "Film 2"]},
+        {
+            "at": "/watch?all=movies&sort=year",
+            "sort": "Newest release",
+            "things": ["Film 5", "Film 3", "Film 7"],
+        },
     ]
+    assert out["forward"][:2] == ["Film 5", "Film 3"]
     assert out["link"] == "Not watched first"
     assert out["other"] == "Last watched"
 
