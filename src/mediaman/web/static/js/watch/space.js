@@ -277,7 +277,9 @@
       if (!stats || !stats.storage.readable) {
         var text = !stats || !stats.show_storage ? 'Storage' : 'Can’t read storage';
         if (text !== 'Storage' || !stats) b.classList.add('space-meter--off');
-        add(b, MM.dom.icon('i-hard-drive'), el('span', 'space-meter__free', text));
+        var words = el('span', 'space-meter__free', text === 'Storage' ? text : 'Can’t read');
+        if (text !== 'Storage') words.append(el('span', 'space-meter__word', ' storage'));
+        add(b, MM.dom.icon('i-hard-drive'), words);
         b.setAttribute('aria-label', !stats ? 'Storage, could not be loaded'
           : (text === 'Storage' ? text : 'Storage: the disks can’t be read') + marks(b) + leavingLabel());
         return;

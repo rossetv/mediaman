@@ -397,7 +397,7 @@ const scenarios = {
   async unread() {
     const p = await page(undefined, (s) => { s.storage = storage({ readable: false }); });
     await p.click(p.$('meter'));
-    const was = { text: p.text('storage'), segs: p.all('.space-seg').map((b) => b.getAttribute('data-k')) };
+    const was = { meter: [p.meter(), p.one('#meter .space-meter__word').textContent], text: p.text('storage'), segs: p.all('.space-seg').map((b) => b.getAttribute('data-k')) };
     p.server.storage = storage();
     const again = p.one('#space-storage .space-say .btn');
     again.focus();

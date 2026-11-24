@@ -64,15 +64,24 @@
   .space-meter--phone .space-meter__skel { width: 80px; }
 }
 /* The profile button beside it must keep its place: the marks stand before the bar and the words. */
-@media (max-width: 399.98px) {
-  .space-meter--off:has(> .space-meter__warn):has(> .space-meter__info) > .ico:first-child { display: none; }
+@media (max-width: 409.98px) {
+  .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) > .ico:first-child { display: none; }
 }
 @media (max-width: 389.98px) {
+  .space-meter--off:has(> :is(.space-meter__warn, .space-meter__info)) > .ico:first-child { display: none; }
   .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) > .space-meter__bar { display: none; }
+  .space-meter--off:has(> .space-meter__warn):has(> .space-meter__info) .space-meter__word { display: none; }
+}
+@media (max-width: 374.98px) {
+  .space-meter--phone:has(> :is(.space-meter__warn, .space-meter__info)) > .space-meter__bar { display: none; }
 }
 @media (max-width: 359.98px) {
-  .space-meter--phone > .space-meter__bar { display: none; }
+  .space-meter--phone > .space-meter__bar,
+  .space-meter--off .space-meter__word,
   .space-meter--phone:has(> .space-meter__warn):has(> .space-meter__info) .space-meter__word { display: none; }
+}
+@media (max-width: 339.98px) {
+  .space-meter--off > .space-meter__warn ~ .space-meter__info { display: none; }
 }
 
 /* Beside Leaving soon's heading: how much, and the way to Scheduled. */

@@ -119,5 +119,17 @@ def test_the_phone_s_meter_gives_way_to_the_profile_button_beside_it():
     assert "text-overflow: ellipsis" in words
 
 
+def test_a_narrow_phone_drops_the_bar_and_the_drive_for_the_marks_before_it_cuts_the_words():
+    any_mark = ":has(> :is(.space-meter__warn, .space-meter__info))"
+    both = ":has(> .space-meter__warn):has(> .space-meter__info)"
+
+    for gone in (
+        f".space-meter--phone{any_mark} > .space-meter__bar",
+        f".space-meter--off{any_mark} > .ico:first-child",
+        f".space-meter--phone{both} > .ico:first-child",
+    ):
+        assert "display: none" in _rules(gone), gone
+
+
 def test_a_figure_too_long_for_a_phone_wraps():
     assert "flex-wrap: wrap" in _rules(".space-fig__n")

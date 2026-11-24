@@ -181,6 +181,7 @@ class TestStorage:
 
     def test_unreadable_disks_leave_the_library_sizes_and_can_be_tried_again(self):
         out = _run("unread")
+        assert out["was"]["meter"] == ["Can’t read storage", " storage"]  # a phone drops the word
         assert "Can’t read the disks right now." in out["was"]["text"]
         assert out["was"]["segs"] == ["movies", "tv"]
         assert "Free" not in out["was"]["text"].replace("Free space is unknown", "")
