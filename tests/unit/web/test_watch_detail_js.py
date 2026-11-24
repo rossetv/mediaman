@@ -431,6 +431,19 @@ def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
     assert out["keep"] == "3010"
 
 
+def test_loading_a_title_again_keeps_the_season_the_person_picked_until_it_is_gone() -> None:
+    out = _run("seasonPickedThenRefreshed")
+    first = {"on": ["Season 1"], "eps": ["One One"], "label": "Season 1 episodes"}
+    assert out["loaded"] == {"during": first, "kept": first, "deleted": ["Two One"]}
+    # Still loading: the pill says what is coming, over the season that was on show.
+    assert out["loading"]["during"] == {
+        "on": ["Season 1"],
+        "eps": ["Two One"],
+        "label": "Season 2 episodes",
+    }
+    assert (out["loading"]["kept"], out["loading"]["deleted"]) == (first, ["Two One"])
+
+
 def test_a_viewer_never_asks_for_admin_facts() -> None:
     out = _run("viewerNoAdmin")
     assert not any("/admin/" in g for g in out["gets"])

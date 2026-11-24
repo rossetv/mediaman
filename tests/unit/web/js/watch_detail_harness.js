@@ -956,6 +956,40 @@ const scenarios = {
       resume: primary(p), progress: !!p.q('.ttl__progress progress'), keep: p.q('[data-watch-keep]') && p.q('[data-watch-keep]').getAttribute('data-watch-keep') };
   },
 
+  // The title is loaded again after a Keep while another season than the server's own is on
+  // show, or is still loading; then the season on show is deleted.
+  async seasonPickedThenRefreshed() {
+    const eps = (title) => ({ ok: true, episodes: [{ number: 1, title, minutes: 45, thumb_url: null, state: 'none', href: '/watch/play/11' }] });
+    const look = (p) => ({ on: p.ttl().querySelectorAll('.watch-pill').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
+      eps: p.ttl().querySelectorAll('.watch-ep__title').map((n) => n.textContent), label: p.q('.watch-episodes').getAttribute('aria-label') });
+    async function run(slow) {
+      let show = LIB_SHOW;
+      let answer = null;
+      const facts = Object.assign({}, FACTS, { actions: { keep_wrapper: { id: '3010', is_tv: true, show_rk: '300' }, delete: null } });
+      const p = load({ admin: true, adminApi: {}, routes: {
+        '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))),
+        '/api/watch/admin/title/show-300': facts,
+        '/api/watch/title/show-300/season/1': () => (slow ? new Promise((resolve) => { answer = () => resolve(eps('One One')); }) : Promise.resolve(eps('One One'))),
+      } });
+      p.run();
+      await openCard(p, 'show-300');
+      const announce = async () => {
+        p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: '3010', showRk: '300' } }));
+        await settle();
+      };
+      click(p.doc, p.q('.watch-pill[data-season="1"]'));
+      await settle();
+      await announce();
+      const during = look(p);
+      if (answer) { answer(); await settle(); }
+      const kept = look(p);
+      show = Object.assign({}, LIB_SHOW, { seasons: LIB_SHOW.seasons.slice(1) });
+      await announce();
+      return { during, kept, deleted: look(p).eps };
+    }
+    return { loaded: await run(false), loading: await run(true) };
+  },
+
   async viewerNoAdmin() {
     const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
     p.run();

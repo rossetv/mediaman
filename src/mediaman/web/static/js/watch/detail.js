@@ -217,6 +217,8 @@
       reason: null,
       picks: null,
       season: null,
+      picked: null,         // the episodes of the season the person picked
+      seasonLoading: null,  // the season being loaded: { number }
       shareUrl: null,
       shareMsg: null,
       shareState: null,  // null, 'busy' or 'copied'
@@ -680,6 +682,7 @@
     }
     body.appendChild(lead);
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
+    else cur.seasonLoading = null;
     if (d.cast && d.cast.length) body.appendChild(castSection(d.cast));
     if (cur.facts) renderFacts(false);
     if (fresh) {
@@ -1484,25 +1487,34 @@
   function episodesSection(d) {
     var sec = el('section', 'ttl__seasonsec');
     sec.appendChild(el('h3', 'ttl__sec-title', 'Episodes'));
-    var selected = d.seasons.filter(function (s) { return s.selected; })[0] || d.seasons[0];
-    if (cur.season === null && selected) cur.season = selected.number;
+    function numbered(n) { return d.seasons.filter(function (s) { return s.number === n; })[0]; }
+    var shown = cur.picked && numbered(cur.season);
+    if (!shown) {
+      shown = d.seasons.filter(function (s) { return s.selected; })[0] || d.seasons[0];
+      cur.season = shown ? shown.number : null;
+      cur.picked = null;
+    }
+    if (cur.seasonLoading && !numbered(cur.seasonLoading.number)) cur.seasonLoading = null;
+    var pressed = cur.seasonLoading ? cur.seasonLoading.number : cur.season;
     if (d.seasons.length > 1) {
       var nav = el('div', 'watch-seasons');
       nav.setAttribute('role', 'group');
       nav.setAttribute('aria-label', 'Seasons');
       d.seasons.forEach(function (s) {
         var pill = button('watch-pill', seasonName(s));
-        var on = s.number === cur.season;
+        var on = s.number === pressed;
         pill.classList.toggle('on', on);
         pill.setAttribute('aria-pressed', on ? 'true' : 'false');
         pill.setAttribute('data-season', String(s.number));
         pill.setAttribute('data-ttl-act', 'pill-' + s.number);
-        pill.addEventListener('click', function () { pickSeason(s, sec); });
+        pill.addEventListener('click', function () { pickSeason(s); });
         nav.appendChild(pill);
       });
       sec.appendChild(nav);
     }
-    sec.appendChild(episodeList(d.episodes, (selected ? seasonName(selected) : 'Season') + ' episodes'));
+    var list = episodeList(cur.picked || d.episodes, (shown ? seasonName(shown) : 'Season') + ' episodes');
+    if (cur.seasonLoading) list.setAttribute('aria-busy', 'true');
+    sec.appendChild(list);
     return sec;
   }
 
@@ -1515,13 +1527,14 @@
   }
 
   /* A season pill swaps the list in place; focus stays on the pill. When the
-     season will not load, the one on show stays and offers a retry. */
-  function pickSeason(s, sec) {
+     season will not load, the one on show stays and offers a retry. The section
+     may be drawn again meanwhile, so it is looked up when the reply comes. */
+  function pickSeason(s) {
     var c = cur;
     if (!c || (s.number === c.season && !c.seasonLoading)) return;
-    var shown = c.season;
-    var token = {};
+    var token = { number: s.number };
     c.seasonLoading = token;
+    var sec = body.querySelector('.ttl__seasonsec');
     markSeason(sec, s.number);
     var list = sec.querySelector('.watch-episodes');
     var oldErr = sec.querySelector('.ttl__error');
@@ -1531,21 +1544,24 @@
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
       c.season = s.number;
-      var fresh = episodeList(data.episodes || [], seasonName(s) + ' episodes');
-      list.replaceWith(fresh);
+      c.picked = data.episodes || [];
+      var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
+      body.querySelector('.ttl__seasonsec .watch-episodes').replaceWith(fresh);
       core.fadeIn(fresh);
     }).catch(function () {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
-      markSeason(sec, shown);
+      var sec = body.querySelector('.ttl__seasonsec');
+      var list = sec.querySelector('.watch-episodes');
+      markSeason(sec, c.season);
       list.setAttribute('aria-busy', 'false');
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
       err.appendChild(el('span', '', 'Could not load ' + seasonName(s) + '.'));
       var again = button('ttl__retry', 'Try again');
       again.addEventListener('click', function () {
-        var pill = sec.querySelector('.watch-pill[data-season="' + s.number + '"]');
-        pickSeason(s, sec);
+        var pill = body.querySelector('.ttl__seasonsec .watch-pill[data-season="' + s.number + '"]');
+        pickSeason(s);
         if (pill) pill.focus({ preventScroll: true });
       });
       err.appendChild(again);
