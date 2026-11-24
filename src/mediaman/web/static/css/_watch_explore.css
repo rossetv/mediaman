@@ -29,6 +29,8 @@
 .explore-bio.is-whole,
 .explore-bio:has(> .skel) { display: block; }
 .explore-bio > .skel--line { height: 11px; margin: 6px 0; }
+/* Their margins collapse: three lines of text are 69px. */
+.explore-bio > .skel--line + .skel--line { margin-top: 12px; }
 .explore-born > .skel--line { height: 10px; margin: 5px 0; }
 .explore-more { min-width: 44px; min-height: 44px; margin: -8px 0 -14px -8px; padding: 0 8px; border-radius: var(--r-pill); color: var(--accent); font-size: 14px; font-weight: 500; text-align: left; }
 .explore-more.is-unknown { visibility: hidden; }
