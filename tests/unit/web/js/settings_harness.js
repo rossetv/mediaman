@@ -432,7 +432,7 @@ const scenarios = {
     msg.textContent = 'Working';
     form.fire('submit');
     oldPw.fire('input');
-    const whileSending = { text: msg.textContent, disabled: submit.disabled };
+    const whileSending = { text: msg.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };
     finish({});
     await h.flush();
     return { shown, afterInput, whileSending };

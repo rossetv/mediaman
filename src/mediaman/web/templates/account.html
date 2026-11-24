@@ -68,7 +68,7 @@
     {% endcall %}
 
     {% call c.setg_card(title="Where you're signed in", pad=True) %}
-      <ul class="profile-sessions" id="account-sessions" aria-busy="true"><li>Loading…</li></ul>
+      <ul class="profile-sessions" id="account-sessions" role="list" aria-label="Your sign-ins" tabindex="-1" aria-busy="true"><li>Loading…</li></ul>
       <div class="inline-form-actions">
         <button class="btn btn--secondary btn--sm" type="button" id="account-revoke-others" disabled>Sign out other devices</button>
         <span class="inline-form-msg" id="account-revoke-result" role="status"></span>

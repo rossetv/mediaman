@@ -29,7 +29,14 @@
     }
   }
 
-  function init() {
+  // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
+  function setBusy(button, busy) {
+    if (busy) button.setAttribute('aria-disabled', 'true');
+    else button.removeAttribute('aria-disabled');
+  }
+  function isBusy(button) { return button.getAttribute('aria-disabled') === 'true'; }
+
+  function initPassword(reloadSessions) {
     var form = document.getElementById('account-password-form');
     var result = document.getElementById('account-password-result');
     var submit = document.getElementById('account-submit-password');
@@ -44,13 +51,14 @@
 
     // A message about what was typed goes once the person types again; a send keeps its message.
     form.addEventListener('input', function () {
-      if (submit.disabled || !result.textContent) return;
+      if (isBusy(submit) || !result.textContent) return;
       result.className = 'inline-form-msg';
       result.textContent = '';
     });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      if (isBusy(submit)) return;
       var oldPw = document.getElementById('account-old-password').value;
       var newPw = document.getElementById('account-new-password').value;
       var conf = document.getElementById('account-confirm-password').value;
@@ -58,19 +66,21 @@
       if (newPw.length < 12) { fail('New password must be at least 12 characters.', 'account-new-password'); return; }
       if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
 
-      submit.disabled = true;
+      setBusy(submit, true);
       MM.reauth.run(function () {
         return MM.api.post('/api/users/change-password', {
           old_password: oldPw,
           new_password: newPw,
         });
       }).then(function () {
-        submit.disabled = false;
+        setBusy(submit, false);
         form.reset();
         result.className = 'inline-form-msg ok';
         result.textContent = 'Password updated.';
+        // A new password ends every sign-in but this one.
+        reloadSessions();
       }).catch(function (err) {
-        submit.disabled = false;
+        setBusy(submit, false);
         if (err && err.error === 'reauth_cancelled') {
           result.className = 'inline-form-msg';
           result.textContent = '';
@@ -98,22 +108,22 @@
     }
 
     form.addEventListener('input', function () {
-      if (!submit.disabled) say('');
+      if (!isBusy(submit)) say('');
     });
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      if (submit.disabled) return;
+      if (isBusy(submit)) return;
       var email = input.value.trim();
-      submit.disabled = true;
+      setBusy(submit, true);
       say('Saving…');
       MM.reauth.run(function () {
         return MM.api.patch('/api/users/me/email', { email: email });
       }).then(function () {
-        submit.disabled = false;
+        setBusy(submit, false);
         say(email ? 'Email saved.' : 'Email removed. Alerts are off.', 'ok');
       }).catch(function (err) {
-        submit.disabled = false;
+        setBusy(submit, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
         say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
         input.focus();
@@ -127,11 +137,12 @@
     });
   }
 
+  /* Returns the function that loads the list afresh. */
   function initSessions() {
     var list = document.getElementById('account-sessions');
     var revoke = document.getElementById('account-revoke-others');
     var result = document.getElementById('account-revoke-result');
-    if (!list || !revoke || !result) return;
+    if (!list || !revoke || !result) return function () {};
 
     function line(cls, text) {
       var el = document.createElement('div');
@@ -151,7 +162,9 @@
           li.appendChild(line('profile-session-used', 'Last active ' + when(s.last_used_at || s.created_at)));
           list.appendChild(li);
         });
-        revoke.disabled = live.length < 2;
+        var alone = live.length < 2;
+        if (alone && document.activeElement === revoke) list.focus();
+        revoke.disabled = alone;
       }).catch(function () {
         list.textContent = '';
         list.appendChild(document.createElement('li')).textContent = 'Could not load your sign-ins. Reload the page to try again.';
@@ -166,27 +179,30 @@
     }
 
     revoke.addEventListener('click', function () {
-      revoke.disabled = true;
+      if (isBusy(revoke)) return;
+      setBusy(revoke, true);
       say('Signing out…');
       MM.reauth.run(function () {
         return MM.api.post('/api/users/sessions/revoke-others');
       }).then(function () {
         say('Signed out everywhere else.', 'ok');
         return load();
-      }).catch(function (err) {
-        revoke.disabled = false;
+      }).then(function () {
+        setBusy(revoke, false);
+      }, function (err) {
+        setBusy(revoke, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
         say(MM.api.messageOf(err, 'Could not sign the others out. Try again.'), 'err');
       });
     });
 
     load();
+    return load;
   }
 
   function start() {
-    init();
+    initPassword(initSessions());
     initEmail();
-    initSessions();
   }
 
   if (document.readyState === 'loading') {

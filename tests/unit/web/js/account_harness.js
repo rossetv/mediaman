@@ -4,22 +4,35 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const { makeDocument, build, settle } = require('./fake_dom.js');
+const { makeDocument, build, settle, Node } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const NOW = Date.UTC(2026, 5, 1, 12);
 const at = (hours) => new Date(NOW + hours * 3600e3).toISOString();
 const session = (expires) => ({ created_at: at(-48), last_used_at: at(-1), expires_at: at(expires) });
 
+// A focused control that is disabled loses the focus, as in a browser.
+Object.defineProperty(Node.prototype, 'disabled', {
+  get() { return Boolean(this._disabled); },
+  set(on) {
+    this._disabled = on;
+    if (on && this.ownerDocument.activeElement === this) this.blur();
+  },
+});
+
 function page(api) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.body.appendChild(build(doc, ['main', {},
+    ['form', { id: 'account-password-form' },
+      ['input', { id: 'account-old-password' }], ['input', { id: 'account-new-password' }], ['input', { id: 'account-confirm-password' }],
+      ['button', { id: 'account-submit-password' }], ['span', { id: 'account-password-result' }]],
     ['form', { id: 'account-email-form' },
       ['input', { id: 'account-email' }], ['button', { id: 'account-submit-email' }], ['span', { id: 'account-email-result' }]],
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
     ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-result' }]]));
   const $ = (id) => doc.getElementById(id);
+  $('account-password-form').reset = () => {};
   const MM = { api: { messageOf: (e, d) => e.message || d, ...api }, reauth: { run: (f) => f() } };
   class FixedDate extends Date { static now() { return NOW; } }
   const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate });
@@ -27,6 +40,12 @@ function page(api) {
   return {
     $,
     fire: (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} })),
+    focused: () => doc.activeElement.id || 'body',
+    press: (id) => {
+      const button = $(id);
+      button.focus();
+      (button.disabled ? [] : button.listeners.click || []).forEach((fn) => fn({ preventDefault() {} }));
+    },
     rows: () => $('account-sessions').children.map((li) => li.textContent),
     say: (id) => [$(id).className, $(id).textContent],
   };
@@ -35,23 +54,42 @@ function page(api) {
 const scenarios = {
   async sessions() {
     let list = [session(5), session(9), session(-1)];
+    let posts = 0;
     const p = page({
       get: () => Promise.resolve({ sessions: list }),
-      post: () => { list = [session(9)]; return Promise.resolve({ ok: true }); },
+      post: () => { posts += 1; list = [session(9)]; return Promise.resolve({ ok: true }); },
     });
     await settle();
     const first = { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, text: p.rows()[0] };
-    p.fire('account-revoke-others', 'click');
+    p.press('account-revoke-others');
+    p.press('account-revoke-others');
+    const whileSending = p.focused();
     await settle();
-    return { first, after: { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, say: p.say('account-revoke-result') } };
+    return { first, posts, whileSending, after: { rows: p.rows().length, disabled: p.$('account-revoke-others').disabled, focused: p.focused(), say: p.say('account-revoke-result') } };
   },
   async sessionsFail() {
     const p = page({ get: () => Promise.reject(new Error('x')), post: () => Promise.reject(new Error('No luck')) });
     await settle();
     const first = { rows: p.rows(), disabled: p.$('account-revoke-others').disabled };
-    p.fire('account-revoke-others', 'click');
+    p.press('account-revoke-others');
     await settle();
-    return { first, after: { disabled: p.$('account-revoke-others').disabled, say: p.say('account-revoke-result') } };
+    return { first, after: { focused: p.focused(), disabled: p.$('account-revoke-others').disabled, say: p.say('account-revoke-result') } };
+  },
+  async password() {
+    let list = [session(5), session(9)];
+    let posts = 0;
+    const p = page({
+      get: () => Promise.resolve({ sessions: list }),
+      post: () => { posts += 1; list = [session(9)]; return Promise.resolve({ ok: true }); },
+    });
+    await settle();
+    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.$('account-submit-password').focus();
+    p.fire('account-password-form', 'submit');
+    p.fire('account-password-form', 'submit');
+    const whileSending = p.focused();
+    await settle();
+    return { posts, whileSending, focused: p.focused(), rows: p.rows().length, say: p.say('account-password-result') };
   },
   async email() {
     const sent = [];
@@ -60,11 +98,15 @@ const scenarios = {
       get: () => Promise.resolve({ sessions: [] }),
       patch: (url, body) => { sent.push([url, body]); return answer(); },
     });
+    const focus = [];
     const save = async (value) => {
       p.$('account-email').value = value;
+      p.$('account-submit-email').focus();
       p.fire('account-email-form', 'submit');
       p.fire('account-email-form', 'submit');
+      focus.push(p.focused());
       await settle();
+      focus.push(p.focused());
       return p.say('account-email-result');
     };
     const saved = await save(' vic@example.com ');
@@ -75,7 +117,7 @@ const scenarios = {
     const refused = await save('nope');
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     const cancelled = await save('vic@example.com');
-    return { sent, saved, typed, removed, refused, cancelled };
+    return { sent, focus, saved, typed, removed, refused, cancelled };
   },
 };
 
