@@ -828,7 +828,7 @@ const scenarios = {
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: [
         { id: 1, username: 'ann', role: 'admin', email: 'ann@x.example' },
-        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T12:00:00+00:00' },
+        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T12:00:00' },
       ] }),
       patch: (u, b) => { sent.push([u, b.email]); return answer(); },
       messageOf: (e) => e.message,
