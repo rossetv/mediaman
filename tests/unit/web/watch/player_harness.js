@@ -858,6 +858,34 @@ const scenarios = {
     return out;
   },
 
+  /* A browser that leaves the page cancels its requests first, and only then says so. */
+  async cancelled(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const cancel = () => p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError', response: { code: 0 } });
+    cancel();
+    p.tick(500);
+    await settle();
+    const starts = p.starts().length;
+    p.leave();
+    p.tick(5000);
+    await settle();
+    const out = { starts: starts, after: p.starts().length, left: p.beacons.slice() };
+    p.beacons.length = 0;
+    /* A page that stays: the connection really failed. */
+    p.replies.push(answer('1080p-8000'));
+    p.comeBack();
+    await streamPlays(p, 105);
+    playOn(p, 5);
+    cancel();
+    p.replies.push(answer('1080p-8000'));
+    p.tick(1000);
+    await settle();
+    out.restarted = p.starts().length - out.after;
+    out.stopped = p.beacons;
+    return out;
+  },
+
   /* The person tries one quality after another and all are refused. */
   async picks_refused(p) {
     await streamPlays(p, 0);

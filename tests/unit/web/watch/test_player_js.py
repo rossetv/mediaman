@@ -308,6 +308,20 @@ def test_a_frame_that_cannot_be_shown_turns_the_previews_off(markup):
     assert (out["shown"], out["afterError"]) == (True, False)
 
 
+def test_a_page_left_while_it_loads_saves_and_stops_its_stream(markup):
+    out = run(markup, "cancelled")
+    assert (out["starts"], out["after"]) == (1, 1)
+    assert [b["url"] for b in out["left"]] == ["/api/watch/stream/s1/stop"]
+    assert out["left"][0]["body"]["position_s"] == 105
+
+
+def test_a_connection_that_failed_starts_anew_with_the_place_saved(markup):
+    out = run(markup, "cancelled")
+    assert out["restarted"] == 2
+    # A page on its way out sends nothing else that is sure to arrive.
+    assert [b["body"]["position_s"] for b in out["stopped"]] == [110]
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 

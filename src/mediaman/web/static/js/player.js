@@ -12,7 +12,8 @@
  *   GET  <playlist> and its segments  (made by hls.js)
  *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
- *   POST /api/watch/stream/<id>/stop  (sendBeacon on leave; fetch on quality change)
+ *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
+ *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
  *
  * A 410 from any stream URL means the server has dropped the stream (a
@@ -59,6 +60,8 @@
   var CALM_PLAYED_S = 30;
   var MAX_GONE_RESTARTS = 2;
   var MAX_REVERTS = 2;
+  /* How long a request cancelled, or with no answer, waits for the page to be left. */
+  var LEAVE_WAIT_MS = 1000;
   /* Automatic steps down when playback stalls twice within this much of the
      video, or once for this long. */
   var STALL_WINDOW_S = 60;
@@ -657,12 +660,12 @@
   function restartStream(force) {
     if (switching || (starting && !force)) return;
     var pos = position();
-    var old = streamId;
+    /* A beacon, since the page may be on its way out. */
+    if (streamId) beacon(stopUrl(streamId), unsaved());
     streamId = null;
     swapping = true;
     hideUpnext();
     holdFrame();
-    if (old) stopOnServer(old);
     destroyHls();
     startStream(pos);
   }
@@ -679,7 +682,7 @@
     restartStream(false);
   }
 
-  function onHlsError(data) {
+  function onHlsError(data, stays) {
     if (data.response && data.response.code === 410) {
       streamGone();
       return;
@@ -687,6 +690,13 @@
     /* Also how a connection too slow to start at all shows. */
     if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
     if (!data.fatal) return;
+    if (data.response && data.response.code === 0 && !stays) {
+      /* Leaving the page cancels its requests before it says that it is left:
+         starting anew now would only hide the stream from the goodbye. */
+      var h = hls;
+      setTimeout(function () { if (h === hls) onHlsError(data, true); }, LEAVE_WAIT_MS);
+      return;
+    }
     /* An original that has played is one this browser can play: only the picture
        itself failing says otherwise. */
     var unplayable = data.type === Hls.ErrorTypes.MEDIA_ERROR || !originalPlayed;
@@ -762,19 +772,20 @@
   }
 
   function beacon(url, body) {
-    return navigator.sendBeacon(url, body && new Blob([JSON.stringify(body)], { type: 'application/json' }));
+    if (!navigator.sendBeacon) return;
+    navigator.sendBeacon(url, body && new Blob([JSON.stringify(body)], { type: 'application/json' }));
   }
 
   function beaconProgress() {
     var body = unsaved();
-    if (!body || !navigator.sendBeacon) return;
+    if (!body) return;
     beacon('/api/watch/progress', withStream(body));
   }
 
   /* On leave one beacon both saves the last position and stops the stream,
      so the stop cannot arrive first and leave the save with a 410. */
   function beaconStop() {
-    if (!streamId || !navigator.sendBeacon) return;
+    if (!streamId) return;
     beacon(stopUrl(streamId), unsaved());
   }
 
