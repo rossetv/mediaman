@@ -81,9 +81,16 @@ def test_a_drop_or_a_newer_swap_during_a_fade_wins_over_the_older_fades_end() ->
     out = _run("swapInterrupted")
     assert out["dropped"] == []
     for ending in (out["olderEndsFirst"], out["newerEndsFirst"]):
-        assert ending["newerCell"] == "1 / 1"
+        assert (ending["newerCell"], ending["oneStack"]) == ("1 / 1", True)
         assert "v2" in ending["between"]
         assert (ending["after"], ending["direct"], ending["cell"]) == (["v2"], True, "")
+
+
+def test_a_swap_given_the_node_fading_out_still_ends_with_only_the_newest_view() -> None:
+    out = _run("swapLeaving")
+    for ending in (out["oldestEndsFirst"], out["newestEndsFirst"]):
+        assert ending["during"]["shown"] == ["v3"]
+        assert (ending["after"], ending["direct"], ending["inert"]) == (["v3"], True, False)
 
 
 def test_a_swap_with_reduced_motion_is_immediate() -> None:

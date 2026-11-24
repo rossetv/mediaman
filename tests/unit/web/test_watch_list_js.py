@@ -274,6 +274,34 @@ def test_a_saved_keep_whose_list_refresh_fails_frees_the_row() -> None:
     assert (out["triggerDisabled"], out["deleteDisabled"]) == (False, False)
 
 
+def test_quick_filter_clicks_with_motion_end_with_one_table_for_the_last_choice() -> None:
+    out = _run("rapidFilters")
+    assert out["during"] == [1, 1, 1, 1, 1]
+    assert (out["blocks"], out["stacks"], out["inert"]) == (1, 0, 0)
+    assert out["keys"] == ["show:77"]
+    assert (out["on"], out["type"]) == (["tv"], "tv")
+    assert out["address"] == ["push", "/watch?view=list&type=tv"]
+
+
+def test_a_search_or_sort_asked_while_a_fetch_runs_builds_on_what_was_asked() -> None:
+    out = _run("askedWhileLoading")
+    # Typed then cleared before the reply: the reply for the typed text is dropped.
+    assert out["searchBack"]["summary"] == "summary all"
+    assert len(out["searchBack"]["keys"]) == 4
+    assert out["searchBack"]["address"] == ["replace", "/watch?view=list"]
+    # A sort picked while a filter loads keeps that filter.
+    assert out["sortAfterPill"]["fetches"][-1] == "/watch/list?type=kept&sort=deletion_asc"
+    assert out["sortAfterPill"]["summary"] == "summary kept by date"
+    assert out["sortAfterPill"]["address"] == [
+        "push",
+        "/watch?view=list&type=kept&sort=deletion_asc",
+    ]
+
+
+def test_focus_after_a_sort_header_lands_on_the_rows_coming_in() -> None:
+    assert _run("sortHeaderFocus") == {"header": True, "inert": False, "old": False}
+
+
 def test_removing_a_keep_takes_away_the_undo_of_the_keep_it_removes() -> None:
     out = _run("removeKeepRetiresUndo")
     assert (out["before"], out["after"]) == (False, True)

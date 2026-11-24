@@ -201,7 +201,7 @@ const scenarios = {
     const page = load({ motion: true });
     const anims = [];
     Node.prototype.animate = function (frames, timing) {
-      const anim = { node: this, frames, timing };
+      const anim = { node: this, frames, timing, cancel() {} };
       anims.push(anim);
       return anim;
     };
@@ -226,7 +226,7 @@ const scenarios = {
     const page = load({ motion: true });
     const anims = [];
     Node.prototype.animate = function (frames) {
-      const anim = { node: this, frames };
+      const anim = { node: this, frames, cancel() {} };
       anims.push(anim);
       return anim;
     };
@@ -253,18 +253,52 @@ const scenarios = {
       t = stage();
       swap(t.v0, t.v1);
       swap(t.v1, t.v2);
-      const newerCell = t.v2.parentNode.style.gridArea;
+      const newerCell = t.v2.style.gridArea;
+      const oneStack = t.v2.parentNode === t.v0.parentNode && t.v1.parentNode === t.v0.parentNode;
       const [a, b] = firstEnds === 'older' ? [t.v0, t.v1] : [t.v1, t.v0];
       fadeOut(a);
       await settle();
       const between = ids(t.host);
       fadeOut(b);
       await settle();
-      const out = { newerCell, between, after: ids(t.host), direct: t.v2.parentNode === t.host, cell: t.v2.style.gridArea || '' };
+      const out = { newerCell, oneStack, between, after: ids(t.host), direct: t.v2.parentNode === t.host, cell: t.v2.style.gridArea || '' };
       t.host.remove();
       return out;
     };
     return { dropped, olderEndsFirst: await order('older'), newerEndsFirst: await order('newer') };
+  },
+
+  // A swap given the node still fading out (a caller that found it first) ends with one view, the
+  // newest, in any order of fade ends; while it runs only the newest is not inert.
+  async swapLeaving() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const anim = { node: this, frames, cancel() { this.cancelled = true; } };
+      anims.push(anim);
+      return anim;
+    };
+    page.run();
+    const doc = page.doc;
+    const swap = page.ctx.MMWatch.core.swap;
+    const ids = (host) => host.descendants().filter((n) => /^v/.test(n.id)).map((n) => n.id);
+    const run = async (endFirst) => {
+      anims.length = 0;
+      const host = build(doc, ['div', { id: 'host' }, ['p', { id: 'v0' }, 'v0']]);
+      doc.body.appendChild(host);
+      const v = [doc.getElementById('v0'), build(doc, ['p', { id: 'v1' }, 'v1']), build(doc, ['p', { id: 'v2' }, 'v2']), build(doc, ['p', { id: 'v3' }, 'v3'])];
+      let done = swap(v[0], v[1]);
+      done = swap(v[0], v[2]);
+      swap(v[0], v[3]);
+      const during = { shown: v.filter((n) => !n.hasAttribute('inert') && host.contains(n)).map((n) => n.id), all: ids(host) };
+      const outs = anims.filter((a) => a.frames[1].opacity === 0 && !a.cancelled);
+      (endFirst === 'oldest' ? outs : outs.slice().reverse()).forEach((a) => a.onfinish && a.onfinish());
+      await done;
+      const out = { during, after: ids(host), direct: v[3].parentNode === host, inert: v.some((n) => n.hasAttribute('inert')) };
+      host.remove();
+      return out;
+    };
+    return { oldestEndsFirst: await run('oldest'), newestEndsFirst: await run('newest') };
   },
 
   // With reduced motion the swap is immediate and runs no animation.

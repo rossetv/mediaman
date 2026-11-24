@@ -89,42 +89,79 @@
     }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
+  /* The cross-fades still running, by the stack that holds them: the node
+     fading in, the fade-outs, and who waits for the end. */
+  var _fades = new WeakMap();
+
+  /* End the cross-fade *stack* holds at once: every other node goes and
+     *keep* (by default the node fading in, unless it was dropped) stands
+     alone where the stack was. */
+  function endFade(stack, keep) {
+    var fade = _fades.get(stack);
+    if (!fade) return;
+    _fades.delete(stack);
+    if (keep === undefined) keep = fade.live.parentNode === stack ? fade.live : null;
+    toArray(stack.children).forEach(function (n) {
+      if (n === keep) return;
+      n.remove();
+      n.removeAttribute('inert');
+    });
+    fade.anims.forEach(function (a) { a.cancel(); });
+    if (keep) keep.style.gridArea = stack.style.gridArea;
+    if (stack.parentNode) {
+      if (keep) stack.replaceWith(keep);
+      else stack.remove();
+    }
+    fade.waiting.forEach(function (resolve) { resolve(); });
+  }
+
+  /* End at once the cross-fade *node* stands in, if any. */
+  function endSwap(node) {
+    if (node && node.parentNode) endFade(node.parentNode);
+  }
+
   /* Swap *oldNode* for *newNode* in place: both sit in one grid cell while
      the old fades out and the new fades in, so nothing around them moves.
-     A newer swap or a drop of the new node while it runs wins: the fade's end
-     puts back only what then stands in the stack. Returns a promise that
-     settles once the old node is gone. */
+     The node fading out is inert, so nothing that looks for the view finds
+     it. A swap of any node of a cross-fade still running joins it: all but
+     the newest node fade out from where they are, and the end leaves the
+     newest alone (or nothing, if it was dropped meanwhile). Returns a promise
+     that settles once the old node is gone. */
   function swap(oldNode, newNode) {
-    var parent = oldNode.parentNode;
-    if (reduceMotion() || !oldNode.animate || !parent) {
-      oldNode.replaceWith(newNode);
+    var stack = oldNode.parentNode;
+    if (!stack) return Promise.resolve();
+    var fade = _fades.get(stack);
+    newNode.removeAttribute('inert');
+    if (reduceMotion() || !oldNode.animate) {
+      if (fade) endFade(stack, newNode);
+      else oldNode.replaceWith(newNode);
       return Promise.resolve();
     }
-    var stack = el('div');
-    stack.style.display = 'grid';
-    // In the cell the old node held, so a swap of a node still fading in stays on top of it.
-    stack.style.gridArea = oldNode.style.gridArea;
-    oldNode.replaceWith(stack);
-    stack.appendChild(oldNode);
+    if (!fade) {
+      stack = el('div');
+      stack.style.display = 'grid';
+      stack.style.gridArea = oldNode.style.gridArea;
+      oldNode.replaceWith(stack);
+      stack.appendChild(oldNode);
+      oldNode.style.gridArea = '1 / 1';
+      fade = { gen: 0, live: null, anims: [], waiting: [] };
+      _fades.set(stack, fade);
+    }
     stack.appendChild(newNode);
-    oldNode.style.gridArea = newNode.style.gridArea = '1 / 1';
+    newNode.style.gridArea = '1 / 1';
+    var gen = ++fade.gen;
+    fade.live = newNode;
     var opts = { duration: tokenMs('--dur', 200), easing: token('--ease-out', 'ease-out') };
-    var out = oldNode.animate([{ opacity: 1 }, { opacity: 0 }], Object.assign({ fill: 'forwards' }, opts));
-    newNode.animate([{ opacity: 0 }, { opacity: 1 }], opts);
-    return new Promise(function (resolve) {
-      out.onfinish = function () {
-        oldNode.remove();
-        var host = stack.parentNode;
-        if (host) {
-          toArray(stack.children).forEach(function (n) {
-            n.style.gridArea = stack.style.gridArea;
-            host.insertBefore(n, stack);
-          });
-          stack.remove();
-        }
-        resolve();
-      };
+    toArray(stack.children).forEach(function (n) {
+      if (n === newNode) return;
+      n.setAttribute('inert', '');
+      var from = parseFloat(getComputedStyle(n).opacity);
+      var out = n.animate([{ opacity: isNaN(from) ? 1 : from }, { opacity: 0 }], Object.assign({ fill: 'forwards' }, opts));
+      fade.anims.push(out);
+      out.onfinish = function () { if (fade.gen === gen) endFade(stack); };
     });
+    newNode.animate([{ opacity: 0 }, { opacity: 1 }], opts);
+    return new Promise(function (resolve) { fade.waiting.push(resolve); });
   }
 
   /* Take the places of *nodes* now; the function returned, called after the
@@ -165,6 +202,7 @@
     clearArea: clearArea,
     focusSoftly: focusSoftly,
     swap: swap,
+    endSwap: endSwap,
     flip: flip
   };
 })();

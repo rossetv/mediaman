@@ -88,11 +88,14 @@ function fragment(doc, state, rows) {
     ['div', { 'data-list-part': 'stats' }, 'stats ' + (s.label || '')],
     ['p', { 'data-list-part': 'summary' }, 'summary ' + (s.label || '')],
     ['form', { 'data-list-part': 'toolbar' },
-      ['a', { class: 'fpill on', href: '/watch?view=list', 'data-list-nav': '', 'data-type': '' }, 'All'],
-      ['a', { class: 'fpill', href: '/watch?view=list&type=kept', 'data-list-nav': '', 'data-type': 'kept' }, 'Kept'],
+      ...[['', 'All'], ['kept', 'Kept'], ['movie', 'Movies'], ['tv', 'TV'], ['anime', 'Anime']].map(([type, label]) => ['a', {
+        class: 'fpill' + (type === s.type ? ' on' : ''), href: '/watch?view=list' + (type ? '&type=' + type : ''), 'data-list-nav': '', 'data-type': type,
+      }, label]),
       ['select', { id: 'watch-list-sort', 'data-list-sort': '' }]],
     ['div', { 'data-list-part': 'results' },
-      ['table', {}, ['tbody', {}, ...rows.map(row)]],
+      ['table', {},
+        ['thead', {}, ['tr', {}, ['th', {}, ['a', { class: 'th-sort', href: '/watch?view=list&sort=name_asc', 'data-list-nav': '', 'data-sort-col': 'name' }, 'Title']]]],
+        ['tbody', {}, ...rows.map(row)]],
       ['nav', { class: 'pagination' },
         ['a', { class: 'page-btn', href: '/watch?view=list&page=2', 'data-list-nav': '' }, '2'],
         ['span', { class: 'page-info' }, 'range ' + (s.label || '')]]]]);
@@ -150,7 +153,7 @@ function load(opts = {}) {
     setTimeout: (fn) => { fn(); return 1; },
     clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: !opts.motion }),
     innerHeight: 900,
     innerWidth: 1280,
     scrollBy() {},
@@ -727,6 +730,100 @@ const scenarios = {
     reply.resolve({ ok: true });
     await settle();
     return { busy, after: remove.textContent };
+  },
+
+  // Quick filter clicks with motion on, replies landing while the rows still cross-fade and one
+  // late: one table is left, the last choice's, with its pill and address.
+  async rapidFilters() {
+    const p = load({ list: true, motion: true });
+    const anims = [];
+    Node.prototype.animate = function (frames) {
+      const anim = { node: this, frames, cancel() { this.cancelled = true; } };
+      anims.push(anim);
+      return anim;
+    };
+    const rowsFor = {
+      movie: ROWS.slice(0, 2), tv: ROWS.slice(2, 3), anime: [{ id: 'a1', title: 'Paper Lanterns' }], kept: ROWS.slice(3),
+    };
+    const waits = {};
+    Object.keys(rowsFor).forEach((type) => {
+      waits[type] = deferred();
+      p.serve('/watch/list?type=' + type, { type, label: type }, rowsFor[type], waits[type]);
+    });
+    const list = p.doc.getElementById('watch-list');
+    const blocks = () => list.querySelectorAll('[data-list-part="results"]');
+    const onView = () => blocks().filter((b) => !b.closest('[inert]')).length;
+    const pill = (type) => list.querySelectorAll('.fpill').find((a) => a.getAttribute('data-type') === type);
+    const during = [];
+    const pick = async (type, answer) => {
+      click(p.doc, pill(type));
+      if (answer) answer.forEach((t) => waits[t].resolve());
+      await settle();
+      during.push(onView());
+    };
+    await pick('movie', ['movie']);
+    await pick('tv', ['tv']);
+    await pick('anime', []);
+    await pick('kept', ['anime', 'kept']);
+    await pick('tv', []);
+    anims.filter((a) => a.frames[1].opacity === 0).reverse().forEach((a) => a.onfinish && a.onfinish());
+    await settle();
+    const root = list.querySelector('[data-list-root]');
+    return {
+      during,
+      blocks: blocks().length,
+      stacks: list.descendants().filter((n) => n.style.display === 'grid').length,
+      inert: list.querySelectorAll('[inert]').length,
+      keys: p.rowKeys(),
+      on: list.querySelectorAll('.fpill.on').map((a) => a.getAttribute('data-type')),
+      type: root.getAttribute('data-type'),
+      address: p.history[p.history.length - 1],
+    };
+  },
+
+  // A search or a sort asked for while another fetch is in flight builds on what was asked, and the
+  // reply to the older ask is dropped.
+  async askedWhileLoading() {
+    const out = {};
+    let p = load({ list: true });
+    const fire = (q) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-list-search', { detail: { q } }));
+    const slow = deferred();
+    p.serve('/watch/list?q=har', { q: 'har', label: 'har' }, ROWS.slice(0, 1), slow);
+    p.serve('/watch/list', { label: 'all' }, ROWS);
+    fire('har');
+    fire('');
+    await settle();
+    slow.resolve();
+    await settle();
+    out.searchBack = { keys: p.rowKeys(), summary: p.part('summary'), address: p.history[p.history.length - 1] };
+
+    p = load({ list: true });
+    const kept = deferred();
+    p.serve('/watch/list?type=kept', { type: 'kept', label: 'kept' }, ROWS.slice(3), kept);
+    p.serve('/watch/list?type=kept&sort=deletion_asc', { type: 'kept', sort: 'deletion_asc', label: 'kept by date' }, ROWS.slice(3));
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[1]);
+    const select = p.doc.getElementById('watch-list-sort');
+    select.value = 'deletion_asc';
+    (p.doc.listeners.change || []).forEach((fn) => fn({ target: select }));
+    await settle();
+    kept.resolve();
+    await settle();
+    out.sortAfterPill = { fetches: p.fetches, summary: p.part('summary'), address: p.history[p.history.length - 1] };
+    return out;
+  },
+
+  // A sort header pressed with motion on: focus lands on the header in the rows coming in, not the
+  // one fading out.
+  async sortHeaderFocus() {
+    const p = load({ list: true, motion: true });
+    Node.prototype.animate = function () { return { cancel() {} }; };
+    p.serve('/watch/list?sort=name_asc', { sort: 'name_asc' }, ROWS);
+    const header = p.doc.querySelector('#watch-list .th-sort');
+    header.focus();
+    click(p.doc, header);
+    await settle();
+    const a = p.doc.activeElement;
+    return { header: a.classList.contains('th-sort'), inert: !!a.closest('[inert]'), old: a === header };
   },
 
   // The sort select reorders in place, from page 1.

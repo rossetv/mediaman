@@ -26,6 +26,7 @@
 
   var _view = list.hidden ? 'rows' : 'list';
   var _request = 0;   // the newest list fetch; older replies are dropped
+  var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _switch = 0;    // the newest view switch; an older one's fade stops short
   var _stale = false; // an admin action changed the library while the list was hidden
 
@@ -69,6 +70,9 @@
 
   function same(a, b) { return query(a) === query(b); }
 
+  /* What the list will show once the fetch in flight is in: the base for the next change. */
+  function wanted() { return norm(_asked || stateOf(root())); }
+
   /* ── Fetching and swapping the fragment ── */
 
   function fetchList(state) {
@@ -93,7 +97,13 @@
     });
   }
 
-  function part(r, name) { return r ? r.querySelector('[data-list-part="' + name + '"]') : null; }
+  /* A part of the list on view: results still fading out of a swap are inert, and passed over. */
+  function part(r, name) {
+    if (!r) return null;
+    return toArray(r.querySelectorAll('[data-list-part="' + name + '"]')).filter(function (n) {
+      return !n.hasAttribute('inert');
+    })[0] || null;
+  }
 
   /* A selector that finds the same control in the new fragment. */
   function focusKey(node) {
@@ -114,21 +124,18 @@
     return null;
   }
 
-  function placeFocus(find, fresh) {
-    var target = find && find(fresh);
-    if (target) target.focus({ preventScroll: true });
-  }
-
   /* Put *fresh* in place of the list now showing: the stats, summary and
      toolbar change where they are, and the rows cross-fade. */
   function apply(fresh, find) {
+    // Found before the parts move, so never in the rows fading out.
+    var target = find && find(fresh);
     var r = root();
     if (!r) {
       var skeleton = list.firstElementChild;
       if (skeleton) core.swap(skeleton, fresh);
       else list.appendChild(fresh);
       list.removeAttribute('aria-busy');
-      placeFocus(find, fresh);
+      if (target) target.focus({ preventScroll: true });
       return;
     }
     ['q', 'type', 'sort', 'page', 'perPage'].forEach(function (k) { r.dataset[k] = fresh.dataset[k] || ''; });
@@ -141,7 +148,7 @@
     var newResults = part(fresh, 'results');
     if (oldResults && newResults) core.swap(oldResults, newResults);
     r.removeAttribute('aria-busy');
-    placeFocus(find, r);
+    if (target) target.focus({ preventScroll: true });
   }
 
   function skeleton() {
@@ -189,6 +196,7 @@
      it was; opts.focus: what to focus once it is in. */
   function load(state, opts) {
     var request = ++_request;
+    _asked = state;
     var r = root();
     if (r) {
       r.setAttribute('aria-busy', 'true');
@@ -198,13 +206,16 @@
     }
     return fetchList(state).then(function (fresh) {
       if (request !== _request) return;
+      _asked = null;
       _stale = false;
       if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(state));
       else if (opts.history === 'replace') window.history.replaceState({ view: 'list' }, '', pageUrl(state));
       apply(fresh, opts.focus);
       if (opts.toTop) toTop();
     }, function () {
-      if (request === _request) showFailure(state);
+      if (request !== _request) return;
+      _asked = null;
+      showFailure(state);
     });
   }
 
@@ -260,7 +271,7 @@
   function setView(view, opts) {
     var state = opts.state;
     if (view === _view) {
-      if (view === 'list' && state && !same(state, stateOf(root()))) load(state, { history: opts.history });
+      if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history });
       return;
     }
     _view = view;
@@ -269,7 +280,7 @@
       var current = state || norm({ q: search ? search.value : '' });
       if (opts.history === 'push') window.history.pushState({ view: 'list' }, '', pageUrl(current));
       fadeOut([browse, results], function () { reveal(list); });
-      if (!root() || _stale || !same(current, stateOf(root()))) load(current, {});
+      if (!root() || _stale || !same(current, wanted())) load(current, {});
     } else {
       if (opts.history === 'push') window.history.pushState({ view: 'rows' }, '', '/watch');
       /* With text in the field the search shows its results instead. */
@@ -285,8 +296,8 @@
   /* ── Rows ── */
 
   function rows() {
-    var r = root();
-    return r ? toArray(r.querySelectorAll('tr[data-row-key]')) : [];
+    var block = part(root(), 'results');
+    return block ? toArray(block.querySelectorAll('tr[data-row-key]')) : [];
   }
 
   function rowByKey(key, within) {
@@ -379,7 +390,8 @@
   /* After a delete the page is one row short: the server's page brings in
      the rows from the next page that now belong on this one. */
   function refill(now, fresh) {
-    var tbody = now.querySelector('tbody');
+    var block = part(now, 'results');
+    var tbody = block && block.querySelector('tbody');
     if (!tbody) return;
     toArray(fresh.querySelectorAll('tr[data-row-key]')).forEach(function (row) {
       if (rowByKey(row.getAttribute('data-row-key'))) return;
@@ -389,11 +401,13 @@
   }
 
   function replacePager(now, fresh) {
-    var oldPager = now.querySelector('.pagination');
+    var block = part(now, 'results');
+    if (!block) return;
+    var oldPager = block.querySelector('.pagination');
     var newPager = fresh.querySelector('.pagination');
     if (oldPager && newPager) oldPager.replaceWith(newPager);
     else if (oldPager) oldPager.remove();
-    else if (newPager && part(now, 'results')) part(now, 'results').appendChild(newPager);
+    else if (newPager) block.appendChild(newPager);
   }
 
   /* Read the list again as it stands and bring the rows named by *keys*
@@ -589,7 +603,7 @@
   document.addEventListener('change', function (e) {
     var select = e.target;
     if (!select || !select.hasAttribute || !select.hasAttribute('data-list-sort') || !list.contains(select)) return;
-    var state = stateOf(root());
+    var state = wanted();
     state.sort = select.value;
     state.page = '1';
     load(norm(state), { history: 'push', focus: function (fresh) { return fresh.querySelector('#watch-list-sort'); } });
@@ -598,7 +612,7 @@
   /* The one search field at the top filters the list while it is showing. */
   document.addEventListener('mm:watch-list-search', function (e) {
     if (_view !== 'list') return;
-    var state = stateOf(root());
+    var state = wanted();
     var q = String((e.detail && e.detail.q) || '').trim();
     if (q === state.q) return;
     state.q = q;

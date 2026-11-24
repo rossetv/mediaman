@@ -273,21 +273,9 @@
       msg.removeAttribute('role');
     }
 
-    /* A cross-fade that is still running holds the old and the new view in a
-       stack; end it at once so the new view stands on its own. Left to run, it
-       puts back a view dropped meanwhile, or loses one swapped in on top of it. */
-    function endCrossFade() {
-      var stack = shown && shown.parentNode;
-      if (!stack || stack === results) return;
-      core.toArray(stack.children).forEach(function (child) {
-        if (child !== shown) child.remove();
-      });
-      shown.style.gridArea = '';
-      stack.replaceWith(shown);
-    }
-
+    /* The view goes at once, with whatever was still fading out behind it. */
     function dropGroups() {
-      endCrossFade();
+      core.endSwap(shown);
       if (shown && shown.parentNode) shown.remove();
       shown = null;
     }
@@ -355,7 +343,6 @@
       var first = reveal();
       var hadMsg = msg.textContent !== '';
       clearMsg();
-      endCrossFade();
       if (shown && shown.parentNode) {
         core.swap(shown, node);
       } else {
