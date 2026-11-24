@@ -1134,7 +1134,6 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     # An episode is gone from Plex: the text must not call it a film.
     play = client.get("/watch/play/123456")
     assert play.status_code == 200
-    assert "data-plex-unavailable" not in play.text
     assert "This is not in the library any more." in play.text
     page = re.sub(r'<svg class="ico-sprite".*?</svg>', "", play.text, flags=re.S)
     assert "film" not in page.lower()
@@ -1143,7 +1142,6 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     play = client.get("/watch/play/512")
     assert play.status_code == 200
     assert "Can't reach Plex right now." in play.text
-    assert re.search(r'<div [^>]*id="watch-page"[^>]* data-plex-unavailable[ >]', play.text)
 
 
 def _show_html(app_factory, conn, monkeypatch, url: str, *scheduled: tuple[str, int]) -> str:

@@ -503,7 +503,7 @@ def _continue_watching(
         show = shows.get(progress.show_rating_key)
         if show is None:
             continue
-        if entry.find_next:
+        if entry.find_next or (progress.seen and not resumable(progress)):
             watched = show_progress(conn, username, show.key)
             episode = _next_unwatched(plex, show.key, key, watched)
             if episode is not None:
@@ -838,7 +838,7 @@ def _primary_episode(
     if last is not None:
         try:
             item = plex.get_item(last.rating_key)
-            if not last.watched:
+            if resumable(last) or not last.seen:
                 label = episode_label(item.parent_index, item.index)
                 if resumable(last):
                     href = play_href(last.rating_key, resume=True, origin=origin)
