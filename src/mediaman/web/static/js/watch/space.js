@@ -1167,7 +1167,7 @@
     if (item.state !== 'overdue') return item.countdown;
     return stats.deletions_off ? 'Due, but deletions are off'
       : stats.dry_run ? 'Due, but dry run is on'
-      : item.waiting_folder ? 'Due, but a folder is missing' : 'Due, goes with the next scan';
+      : item.waiting_folder ? 'Due, but a folder was missing' : 'Due, the next scan will try';
   }
 
   function scheduledRow(item) {

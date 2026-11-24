@@ -215,7 +215,7 @@ class TestScheduled:
         assert out["tab"] == "2"
         assert "2 leaving" in out["meter"]
         assert out["rows"] == [
-            "Film 1Due, goes with the next scanMovie · 10 GB · Added 11 months agoKeep",
+            "Film 1Due, the next scan will tryMovie · 10 GB · Added 11 months agoKeep",
             "Film 2Being deleted nowMovie · 10 GB · Added 11 months agoKeep",
             "Show · Season 2Deletes tomorrowTV · 10 GB · Added 11 months agoKeep",
             '<b>"Hi"</b>Deletes in 3 daysMovie · 10 GB · Added 11 months agoKeep',
@@ -225,7 +225,7 @@ class TestScheduled:
 
     def test_an_overdue_row_says_what_holds_it_and_no_other_row_s_reason(self):
         assert _run("overdue") == {
-            "missing": ["Due, but a folder is missing", "Due, goes with the next scan"],
+            "missing": ["Due, but a folder was missing", "Due, the next scan will try"],
             "dry": ["Due, but dry run is on"] * 2,
             "off": ["Due, but deletions are off"] * 2,
         }
@@ -389,7 +389,7 @@ class TestRefresh:
             "storage": 0,
         }
         assert out["now"] == {
-            "rows": ["Due, but a folder is missing", "Deletes tomorrow"],
+            "rows": ["Due, but a folder was missing", "Deletes tomorrow"],
             "late": [True, False],
             "head": "1 title, 1 overdue · 20 GB to reclaim",
             "notices": [wait + "2 scheduled deletions are waiting"],
