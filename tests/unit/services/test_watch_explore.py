@@ -423,7 +423,7 @@ class TestPerson:
             (_failed(404), catalog.PersonNotFound),
             (_person(adult=True), catalog.PersonNotFound),
             (_failed(429), catalog.TmdbBusy),
-            (_failed(500), catalog.TmdbUnavailable),
+            (_failed(500), catalog.TmdbDown),
             ({}, catalog.TmdbUnavailable),
         ],
     )

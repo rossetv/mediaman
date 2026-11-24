@@ -77,6 +77,7 @@ def _fresh_state(monkeypatch, tmp_path):
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: None)
     monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(60, 60))
     monkeypatch.setattr(title_preview_api, "_paused_until", 0.0)
+    monkeypatch.setattr(title_preview_api, "_failures", 0)
 
     def spent(*_a):
         raise AssertionError("a search or OMDb look-up was spent")
@@ -322,6 +323,28 @@ class TestLibraryShow:
 
         assert (body["leaving"]["keep_id"], body["keep_allowed"]) == ("502", True)
 
+    def test_another_shows_season_leaving_is_not_its_own(self, viewer, library, tmdb, plex):
+        insert_media_item(
+            library,
+            id="601",
+            plex_rating_key="601",
+            title="Season 1",
+            show_title="Far Shore",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="600",
+        )
+        insert_scheduled_action(
+            library,
+            media_item_id="601",
+            action="scheduled_deletion",
+            execute_at=(now_utc() + timedelta(days=3)).isoformat(),
+        )
+
+        body = _preview(viewer, "show-500").json()
+
+        assert (body["leaving"], body["keep_allowed"]) == (None, False)
+
     @pytest.mark.parametrize("through", ["sonarr", "library index"])
     def test_one_known_by_its_tvdb_id_has_tmdbs_words(
         self, viewer, library, tmdb, plex, monkeypatch, through
@@ -482,13 +505,14 @@ class TestTmdbPause:
         monkeypatch.setattr(title_preview_api, "_clock", lambda: now[0])
         return now
 
-    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (429, 429)])
-    def test_after_a_failure_no_preview_asks_tmdb_for_a_while(
+    @pytest.mark.parametrize(("failure", "status"), [(0, 502), (500, 502), (429, 429)])
+    def test_after_two_failures_in_a_row_no_preview_asks_tmdb_for_a_while(
         self, viewer, tmdb, plex, clock, failure, status
     ):
         _preview(viewer, "tmdb-movie-13")
-        tmdb["/movie/12"] = failure
+        tmdb["/movie/12"] = tmdb["/movie/14"] = failure
         _preview(viewer, "tmdb-movie-12")
+        _preview(viewer, "tmdb-movie-14")
 
         assert _preview(viewer, "tmdb-movie-11").status_code == status
         assert _preview(viewer, "tmdb-movie-13").status_code == 200  # cached
@@ -497,12 +521,34 @@ class TestTmdbPause:
         clock[0] += title_preview_api._TMDB_PAUSE_S
         assert _preview(viewer, "tmdb-movie-11").status_code == 200
 
-    def test_a_failure_the_cache_repeats_does_not_lengthen_it(self, viewer, tmdb, plex, clock):
+    @pytest.mark.parametrize(
+        "answered", [FILM, 404, 400, ["no title"]], ids=["title", "none", "refused", "unreadable"]
+    )
+    def test_an_answer_between_two_failures_starts_the_count_again(
+        self, viewer, tmdb, plex, clock, answered
+    ):
+        tmdb["/movie/12"] = tmdb["/movie/14"] = 500
+        tmdb["/movie/15"] = answered
+        for n in (12, 15, 14):
+            _preview(viewer, f"tmdb-movie-{n}")
+
+        assert _preview(viewer, "tmdb-movie-13").status_code == 200
+
+    @pytest.mark.parametrize("answered", [404, 400, ["no title"]])
+    def test_what_is_wrong_with_one_title_starts_none(self, viewer, tmdb, plex, clock, answered):
+        tmdb["/movie/12"] = tmdb["/movie/14"] = answered
+        for n in (12, 14):
+            _preview(viewer, f"tmdb-movie-{n}")
+
+        assert _preview(viewer, "tmdb-movie-13").status_code == 200
+
+    def test_a_failure_the_cache_repeats_starts_none(self, viewer, tmdb, plex, clock):
         tmdb["/movie/12"] = 500
         with pytest.raises(catalog.TmdbUnavailable):
             catalog.details(TmdbClient("token"), "movie", 12)
 
-        assert _preview(viewer, "tmdb-movie-12").status_code == 502
+        for _ in range(2):
+            assert _preview(viewer, "tmdb-movie-12").status_code == 502
         assert _preview(viewer, "tmdb-movie-13").status_code == 200
 
     def test_a_preview_that_failed_does_not_hold_back_the_title_page(
@@ -515,11 +561,6 @@ class TestTmdbPause:
         found = catalog.details(TmdbClient("token"), "movie", 12)
 
         assert found["title"] == "Glass Onion"
-
-    def test_a_title_tmdb_has_not_starts_none(self, viewer, tmdb, plex, clock):
-        _preview(viewer, "tmdb-movie-404")
-
-        assert _preview(viewer, "tmdb-movie-13").status_code == 200
 
 
 def test_the_wait_for_tmdb_and_plex_is_short_and_not_repeated(

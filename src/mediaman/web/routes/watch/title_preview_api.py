@@ -97,10 +97,13 @@ _LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60, max_per_day=20
 _PLEX_TIMEOUT = (1.0, 2.0)
 _TMDB_TIMEOUT_S = 3.0
 
-# After TMDB failed, how long no preview asks it: each would wait a thread out in turn.
+# After TMDB gave no answer this often in a row, how long no preview asks it: each would
+# wait a thread out in turn.
+_FAILURES_MAX = 2
 _TMDB_PAUSE_S = 15.0
 _clock = time.monotonic
 _pause_lock = threading.Lock()
+_failures = 0
 _paused_until = 0.0
 _pause_error: type[catalog.TmdbUnavailable] = catalog.TmdbUnavailable
 
@@ -137,8 +140,7 @@ def _tmdb_client(request: Request, conn: sqlite3.Connection) -> TmdbClient | Non
 
 def _details(client: TmdbClient, kind: str, tmdb_id: int, ask: _Ask) -> dict[str, Any]:
     """``catalog.details``, which raises at once for a title not cached while TMDB is
-    paused for every preview, and pauses it when it fails."""
-    global _paused_until, _pause_error
+    paused for every preview, and pauses it when it gives no answer."""
     asked = False
 
     def may_ask() -> bool:
@@ -151,15 +153,27 @@ def _details(client: TmdbClient, kind: str, tmdb_id: int, ask: _Ask) -> dict[str
         return asked
 
     try:
-        return catalog.details(client, kind, tmdb_id, allow_fetch=may_ask, brief=True)
-    except catalog.TitleNotFound:
-        raise
+        found = catalog.details(client, kind, tmdb_id, allow_fetch=may_ask, brief=True)
     except catalog.TmdbUnavailable as exc:
         # A failure the cache repeats is an old one.
         if asked:
-            with _pause_lock:
-                _paused_until, _pause_error = _clock() + _TMDB_PAUSE_S, type(exc)
+            _note(exc)
         raise
+    if asked:
+        _note(None)
+    return found
+
+
+def _note(error: catalog.TmdbUnavailable | None) -> None:
+    global _failures, _paused_until, _pause_error
+    with _pause_lock:
+        if not isinstance(error, catalog.TmdbDown | catalog.TmdbBusy):
+            _failures = 0
+            return
+        _failures += 1
+        if _failures >= _FAILURES_MAX:
+            _failures = 0
+            _paused_until, _pause_error = _clock() + _TMDB_PAUSE_S, type(error)
 
 
 def _open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:

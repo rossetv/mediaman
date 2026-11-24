@@ -69,13 +69,24 @@ class TmdbBusy(TmdbUnavailable):
     """TMDB answered 429 and nothing usable was cached."""
 
 
+class TmdbDown(TmdbUnavailable):
+    """TMDB could not be reached, did not answer in time, or answered with a 5xx."""
+
+
 class TitleNotFound(TmdbUnavailable):
     """TMDB has no such title, or marks it adult."""
 
 
 def _failure(exc: Exception, what: str) -> TmdbUnavailable:
-    busy = isinstance(exc, SafeHTTPError) and exc.status_code == 429
-    return (TmdbBusy if busy else TmdbUnavailable)(what)
+    if isinstance(exc, SafeHTTPError):
+        if exc.status_code == 429:
+            return TmdbBusy(what)
+        # 0 is no answer at all.
+        if exc.status_code == 0 or exc.status_code >= 500:
+            return TmdbDown(what)
+    elif not isinstance(exc, ValueError):
+        return TmdbDown(what)
+    return TmdbUnavailable(what)
 
 
 def _cache() -> disk_cache.Store[Any]:
@@ -90,9 +101,12 @@ def _cached(
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
 ) -> Any:
-    return _cache().get_or_fetch(
-        key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch, brief=brief
-    )
+    try:
+        return _cache().get_or_fetch(
+            key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch, brief=brief
+        )
+    except TimeoutError as exc:
+        raise TmdbUnavailable("still being asked") from exc
 
 
 def _shaped(fetch: Callable[[], Any]) -> Callable[[], Any]:
@@ -219,12 +233,14 @@ def details(
     *,
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
+    fresh: bool = False,
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
     TMDB's own payload, with its full crew and every country's release dates, is many
     times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
     asked as in ``search``, and *brief* says that *client* gives up early, so that its
-    failure is not held against the next caller."""
+    failure is not held against the next caller. *fresh* takes nothing TMDB answered more
+    than a week ago."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
@@ -235,15 +251,20 @@ def details(
                 raise TitleNotFound("details") from exc
             raise _failure(exc, "details") from exc
         except (requests.RequestException, ValueError) as exc:
-            raise TmdbUnavailable("details") from exc
+            raise _failure(exc, "details") from exc
         # Stored, so that a title held before TMDB marked it is not served from then on.
         if found.get("adult"):
             return {"adult": True}
         return tmdb_fields(found, media_type)
 
-    # "v4": entries before it may be an adult title's.
+    # "v5": entries before it lack the director's id, the date and the popularity.
     result: dict[str, Any] = _cached(
-        f"tmdb:details:v4:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch, brief
+        f"tmdb:details:v5:{media_type}:{tmdb_id}",
+        7 * _DAY,
+        7 * _DAY if fresh else 90 * _DAY,
+        fetch,
+        allow_fetch,
+        brief,
     )
     if result.get("adult"):
         raise TitleNotFound("details")

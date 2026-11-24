@@ -306,12 +306,38 @@ class TestDetails:
             with pytest.raises(catalog.TitleNotFound):
                 catalog.details(client, "movie", 5)
 
+    def test_one_cached_before_tmdb_marked_it_adult_is_not_served_once_refreshed(
+        self, tmp_path, monkeypatch
+    ):
+        disk_cache.init(tmp_path)
+        monkeypatch.setattr(disk_cache, "sync", True)
+        raw = dict(self.RAW)
+        client = SimpleNamespace(details_or_raise=lambda *_: raw)
+        assert catalog.details(client, "movie", 5)["title"] == "Glasshouse"
+        raw["adult"] = True
+
+        later = disk_cache.time.time() + 8 * 86400
+        monkeypatch.setattr(disk_cache.time, "time", lambda: later)
+        catalog.details(client, "movie", 5)  # old: served, and refreshed behind it
+
+        with pytest.raises(catalog.TitleNotFound):
+            catalog.details(client, "movie", 5)
+
+    def test_waiting_too_long_on_another_call_is_a_failure(self, monkeypatch):
+        def wait(*_args, **_kwargs):
+            raise TimeoutError
+
+        monkeypatch.setattr(_discover, "_cache", lambda: SimpleNamespace(get_or_fetch=wait))
+
+        with pytest.raises(catalog.TmdbUnavailable):
+            catalog.details(SimpleNamespace(), "movie", 5, brief=True)
+
     @pytest.mark.parametrize(
         ("status", "raised"),
         [
             (404, catalog.TitleNotFound),
             (429, catalog.TmdbBusy),
-            (500, catalog.TmdbUnavailable),
+            (500, catalog.TmdbDown),
         ],
     )
     def test_no_such_title_and_a_failure_are_told_apart(self, cache, status, raised):
