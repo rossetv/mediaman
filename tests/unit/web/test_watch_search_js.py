@@ -274,6 +274,7 @@ def test_slash_goes_to_the_field_but_not_from_a_field_or_behind_a_dialog() -> No
     out = _run("slash")
     assert (out["plain"], out["sheet"]) == (True, True)
     assert (out["modified"], out["field"], out["dialog"]) == (False, False, False)
+    assert out["inert"] is False
 
 
 def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:

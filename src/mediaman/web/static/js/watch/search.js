@@ -1529,7 +1529,8 @@
       if (e.key !== '/' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
       var a = document.activeElement;
       if (a && (/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) || a.isContentEditable || (a.closest && a.closest('[role="menu"]')))) return;
-      if (modalOpen()) return;
+      // Inert: under the storage panel, which is no aria-modal.
+      if (modalOpen() || input.closest('[inert]')) return;
       e.preventDefault();
       toTop();
       input.focus({ preventScroll: true });

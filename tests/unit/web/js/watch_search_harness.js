@@ -743,7 +743,7 @@ const scenarios = {
     return out;
   },
 
-  // "/" goes to the field, but not from another field, with a modifier or behind a dialog.
+  // "/" goes to the field, but not from another field, with a modifier, behind a dialog or while the page is out of reach.
   async slash() {
     const p = await ready(ADMIN);
     const press = (more, from) => {
@@ -758,6 +758,9 @@ const scenarios = {
     const dialog = p.doc.body.appendChild(p.doc.createElement('div'));
     dialog.setAttribute('aria-modal', 'true');
     out.dialog = press({});
+    dialog.remove();
+    p.$('watch-page').setAttribute('inert', '');
+    out.inert = press({});
     return out;
   },
 
