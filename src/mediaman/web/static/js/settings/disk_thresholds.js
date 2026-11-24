@@ -5,7 +5,7 @@
  *   - Fetch /api/plex/libraries and paint the picker, a toggle button for each
  *   - Maintain the selected-library set
  *   - Build the per-library "lp-card" (path + threshold + live usage bar)
- *   - Live-poll /api/settings/disk-usage as the user edits paths
+ *   - Read /api/settings/disk-usage as the user edits, and say what the scanner will do
  *   - Keep each library's path and threshold, as saved and as typed, through
  *     every redraw, whether or not the library is selected
  *   - Work out which libraries' thresholds a save has to send
@@ -24,6 +24,7 @@
  *   MM.settings.diskThresholds.things(state)            — each library's selection and limit by its own key
  *   MM.settings.diskThresholds.rebase(mine, stored, keep) — `stored` with the kept things of `mine`
  *   MM.settings.diskThresholds.titleOf(id)
+ *   MM.settings.diskThresholds.stored()                 — the thresholds as the server has them
  */
 (function () {
   'use strict';
@@ -36,6 +37,8 @@
   var SELECTED_LIBS = [];
   // Every library's entry: what was saved, with what is typed kept over it.
   var DISK_THRESHOLDS = {};
+  // The thresholds as the server has them, readable or not.
+  var STORED = {};
   // What is stored is no object of entries, which keeps every library from being scanned.
   var UNREADABLE = false;
   var NO_LIBRARIES = 'No libraries found — check Plex URL and token, then reload.';
@@ -116,7 +119,7 @@
     var next = container.firstChild;
     selected.forEach(function (lib) {
       var id = String(lib.id);
-      if (kept[id]) { next = kept[id].nextSibling; return; }
+      if (kept[id]) { kept[id].refreshState(); next = kept[id].nextSibling; return; }
       container.insertBefore(buildLibPathCard(lib, DISK_THRESHOLDS[id] || {}), next);
     });
   }
@@ -221,84 +224,108 @@
     var foot = document.createElement('div');
     foot.className = 'lp-foot';
     var state = document.createElement('span');
-    state.className = 'untested';
     state.dataset.role = 'state';
-    state.textContent = cfg.threshold ? 'Checking…' : 'No threshold set — always scans';
     foot.appendChild(state);
     card.appendChild(foot);
 
-    function refresh() {
-      var path = pathInput.value.trim();
-      var threshold = parseInt(thrInput.value, 10) || 0;
-      if (!path || threshold <= 0) {
-        paintState(card, null, threshold);
-        return;
-      }
-      MM.api.get('/api/settings/disk-usage?path=' + encodeURIComponent(path))
-        .then(function (data) {
-          if (data.error) { paintState(card, 'err', threshold, data.error); return; }
-          paintState(card, null, threshold, null, data.usage_pct);
-        })
-        .catch(function (err) { paintState(card, 'err', threshold, MM.api.messageOf(err, 'Couldn’t check this folder. Try again.')); });
+    var asked = null;
+    function refresh(again) {
+      var typed = typedIn(card);
+      var scan = scanOf(card.dataset.libId, typed);
+      var what = scan.limit ? typed.threshold + ' ' + scan.limit.path : scan.text;
+      var known = !!asked && asked.what === what;
+      if (known && !again) return;
+      var mine = asked = { what: what };
+      if (!scan.limit) { paintState(card, scan, typed.threshold); return; }
+      // What was read stays in view while it is read again.
+      if (!known) paintState(card, { tone: 'untested', text: 'Checking…' }, typed.threshold);
+      MM.api.get('/api/settings/disk-usage?path=' + encodeURIComponent(scan.limit.path))
+        .then(function (data) { return usageState(data.usage_pct, scan.limit.percent); }, unreadState)
+        .then(function (found) { if (mine === asked) paintState(card, found, typed.threshold); });
     }
-    pathInput.addEventListener('blur', refresh);
-    thrInput.addEventListener('change', refresh);
-    if (cfg.path && cfg.threshold) refresh();
+    function check() { refresh(true); }
+    pathInput.addEventListener('blur', check);
+    thrInput.addEventListener('change', check);
+    card.refreshState = refresh;
+    refresh();
 
     return card;
   }
 
-  function paintState(card, force, threshold, errMsg, usagePct) {
+  function isObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
+
+  // Empty as the scanner takes it, which counts an empty list or object.
+  function isEmpty(value) { return !value || (typeof value === 'object' && !Object.keys(value).length); }
+
+  // A percentage as the scanner reads it, or null where it cannot.
+  function percentOf(value) {
+    if (typeof value === 'string') return /^\s*[+-]?\d+\s*$/.test(value) ? parseInt(value, 10) : null;
+    if (typeof value !== 'number' && typeof value !== 'boolean') return null;
+    return isFinite(value) ? Math.trunc(Number(value)) : null;
+  }
+
+  // A library's limit as the scanner reads it: null where it is always scanned, 'unreadable' where it never is.
+  function limitOf(cfg) {
+    if (isEmpty(cfg)) return null;
+    if (!isObject(cfg)) return 'unreadable';
+    if (isEmpty(cfg.path) || isEmpty(cfg.threshold)) return null;
+    var percent = percentOf(cfg.threshold);
+    if (percent === null) return 'unreadable';
+    if (percent <= 0) return null;
+    if (typeof cfg.path !== 'string' || cfg.path.indexOf('\0') !== -1) return 'unreadable';
+    return { path: cfg.path, percent: percent };
+  }
+
+  // Whether the scanner takes a library, from what is stored or, once changed, what is typed over it:
+  // its limit, which the disk then decides, or else what to say.
+  function scanOf(id, typed) {
+    var stored = isObject(STORED) ? STORED[id] : undefined;
+    var limit = limitOf(same(typed, shown(stored)) ? stored : typed);
+    if (limit === 'unreadable') {
+      return { tone: 'crit', text: 'Saved limit can’t be read — not scanned. Enter a path and a limit, then save.' };
+    }
+    if (limit) return { limit: limit };
+    if (UNREADABLE) {
+      return { tone: 'crit', text: 'Saved limits can’t be read — nothing is scanned. Give every selected library a path and a limit, then save.' };
+    }
+    if (typed.threshold > 0 && !typed.path) {
+      return { tone: 'warn', text: 'No path, so the limit is ignored — always scans' };
+    }
+    return { tone: 'untested', text: 'No threshold set — always scans' };
+  }
+
+  function usageState(usage, percent) {
+    if (usage >= percent) return { tone: 'crit', text: 'Above threshold — will scan', usage: usage };
+    if (usage >= percent - 10) return { tone: 'warn', text: 'Approaching threshold — will skip', usage: usage };
+    return { tone: 'ok', text: 'Below threshold — will skip', usage: usage };
+  }
+
+  function unreadState(err) {
+    var text = MM.api.messageOf(err, 'Couldn’t check this folder. Try again.');
+    if (err && (err.error === 'not_found' || err.error === 'fetch_failed')) {
+      text += ' While its disk can’t be read, this library is always scanned.';
+    }
+    return { tone: 'crit', text: text };
+  }
+
+  function paintState(card, what, threshold) {
     var pct   = card.querySelector('[data-role="pct"]');
     var bytes = card.querySelector('[data-role="bytes"]');
     var fill  = card.querySelector('[data-role="fill"]');
     var mark  = card.querySelector('[data-role="mark"]');
     var state = card.querySelector('[data-role="state"]');
+    var read = what.usage !== undefined;
+    // Only a disk near or over its limit colours its figure.
+    var tone = read && what.tone !== 'ok' ? ' ' + what.tone : '';
 
     mark.style.left = threshold ? threshold + '%' : '-10px';
-
-    if (force === 'err') {
-      state.className = 'crit';
-      state.textContent = errMsg || 'Path error';
-      pct.textContent = '—';
-      bytes.textContent = ' ';
-      fill.style.width = '0%';
-      return;
-    }
-    if (!threshold || threshold <= 0) {
-      state.className = 'untested';
-      state.textContent = 'No threshold set — always scans';
-      pct.textContent = '—';
-      bytes.textContent = ' ';
-      fill.style.width = '0%';
-      return;
-    }
-    if (usagePct === null || usagePct === undefined) {
-      state.className = 'untested';
-      state.textContent = 'Enter a path to check usage';
-      pct.textContent = '—';
-      bytes.textContent = ' ';
-      fill.style.width = '0%';
-      return;
-    }
-    pct.textContent = usagePct.toFixed(1) + '%';
-    fill.style.width = Math.min(100, usagePct) + '%';
-    if (usagePct >= threshold) {
-      pct.className = 'pct crit';
-      fill.className = 'fill crit';
-      state.className = 'crit';
-      state.textContent = 'Above threshold — will scan';
-    } else if (usagePct >= threshold - 10) {
-      pct.className = 'pct warn';
-      fill.className = 'fill warn';
-      state.className = 'warn';
-      state.textContent = 'Approaching threshold';
-    } else {
-      pct.className = 'pct';
-      fill.className = 'fill';
-      state.className = 'ok';
-      state.textContent = 'Below threshold — will skip';
-    }
+    state.className = what.tone;
+    state.textContent = what.text;
+    pct.className = 'pct' + tone;
+    pct.textContent = read ? what.usage.toFixed(1) + '%' : '—';
+    bytes.textContent = ' ';
+    fill.className = 'fill' + tone;
+    fill.style.width = read ? Math.min(100, what.usage) + '%' : '0%';
   }
 
   // One library's entry as the page shows it; an entry that cannot be read shows as blank.
@@ -393,8 +420,6 @@
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
-  function isObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
-
   // The library selection and thresholds as they stand, for a save to send and Discard to go back to.
   function state() {
     keepTyped();
@@ -412,8 +437,9 @@
   }
 
   function fromServer(data) {
-    var thresholds = data.disk_thresholds || {};
+    var thresholds = isEmpty(data.disk_thresholds) ? {} : data.disk_thresholds;
     UNREADABLE = !isObject(thresholds);
+    STORED = copy(thresholds);
     return {
       libs: Array.isArray(data.plex_libraries) ? data.plex_libraries.map(String) : [],
       disk: UNREADABLE ? {} : copy(thresholds),
@@ -468,5 +494,6 @@
     fromServer: fromServer,
     titleOf: titleOf,
     getSelectedLibs: function () { return SELECTED_LIBS; },
+    stored: function () { return STORED; },
   };
 })();
