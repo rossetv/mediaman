@@ -628,6 +628,7 @@ def _tmdb_title(
             and has_unsent_notification(
                 conn,
                 email=email,
+                username=username,
                 service=service,
                 tmdb_id=tmdb_id,
                 tvdb_id=(fields["tvdb_id"] or arr.tvdb_id(tmdb_id)) if kind == "tv" else None,

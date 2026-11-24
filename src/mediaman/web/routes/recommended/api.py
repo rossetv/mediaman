@@ -212,6 +212,7 @@ def _add_rec_to_radarr(
                 media_type="movie",
                 tmdb_id=tmdb_id,
                 service="radarr",
+                username=actor,
             )
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Radarr"})
 
@@ -291,6 +292,7 @@ def _add_rec_to_sonarr(
                 tmdb_id=tmdb_id,
                 tvdb_id=tvdb_id,
                 service="sonarr",
+                username=actor,
             )
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Sonarr"})
 

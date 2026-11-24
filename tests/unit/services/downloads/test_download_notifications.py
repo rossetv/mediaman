@@ -1212,6 +1212,17 @@ class TestOneUnsentNoticePerRequest:
         self._record(conn)
         assert self._count(conn) == 2
 
+    def test_two_people_sharing_an_address_each_get_their_own_notice(self, conn):
+        self._record(conn, username="casey")
+        self._record(conn, username="robin")
+        assert self._count(conn) == 2
+
+    def test_a_person_the_emailed_link_already_asked_for_gets_no_second(self, conn):
+        self._record(conn)
+        self._record(conn, username="casey")
+        self._record(conn)
+        assert self._count(conn) == 1
+
     def test_another_person_title_service_or_season_gets_its_own_notice(self, conn):
         self._record(conn)
         self._record(conn, email="b@example.com")

@@ -1391,7 +1391,9 @@ class TestMediaRedownload:
 
     @staticmethod
     def _queued_emails(conn) -> list[str]:
-        return [r[0] for r in conn.execute("SELECT email FROM download_notifications")]
+        rows = conn.execute("SELECT email, username FROM download_notifications").fetchall()
+        assert {r["username"] for r in rows} <= {"admin"}
+        return [r["email"] for r in rows]
 
     def test_a_movie_ready_notice_goes_to_the_admins_email(self, post, conn):
         set_user_email(conn, "admin", "admin@example.com")

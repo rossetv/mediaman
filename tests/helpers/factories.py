@@ -428,6 +428,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
         "tvdb_id": None,
         "claimed_at": None,
         "season_number": None,
+        "username": None,
         **fields,
     }
     if isinstance(row.get("created_at"), datetime):
@@ -435,8 +436,8 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
     cursor = conn.execute(
         "INSERT INTO download_notifications"
         " (email, title, media_type, tmdb_id, service, notified, created_at, tvdb_id, claimed_at,"
-        " season_number)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " season_number, username)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row["email"],
             row["title"],
@@ -448,6 +449,7 @@ def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
             row["tvdb_id"],
             row["claimed_at"],
             row["season_number"],
+            row["username"],
         ),
     )
     conn.commit()

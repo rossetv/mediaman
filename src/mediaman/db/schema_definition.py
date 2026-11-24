@@ -367,7 +367,8 @@ CREATE TABLE IF NOT EXISTS download_notifications (
     created_at TEXT NOT NULL,
     tvdb_id INTEGER,
     claimed_at TEXT,
-    season_number INTEGER
+    season_number INTEGER,
+    username TEXT
 );
 
 CREATE TABLE IF NOT EXISTS recent_downloads (

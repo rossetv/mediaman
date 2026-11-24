@@ -92,6 +92,8 @@ def test_a_pending_notification_of_an_old_database_can_still_be_claimed(tmp_path
     init_db(path).close()
     conn = init_db(path)
 
+    row = conn.execute("SELECT username FROM download_notifications").fetchone()
+    assert row["username"] is None
     claimed = _claim_pending_notifications(conn)
     assert [(r.tvdb_id, r.season_number) for r in claimed] == [(9, None)]
     conn.close()

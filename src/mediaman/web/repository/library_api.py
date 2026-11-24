@@ -410,4 +410,5 @@ def record_redownload(
                 tvdb_id=tvdb_id,
                 service=service,
                 season_number=season_number,
+                username=actor,
             )

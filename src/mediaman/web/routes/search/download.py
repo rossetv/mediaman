@@ -198,6 +198,7 @@ def _submit_movie(
                 media_type="movie",
                 tmdb_id=body.tmdb_id,
                 service="radarr",
+                username=actor,
             )
         else:
             logger.info(
@@ -294,6 +295,7 @@ def _submit_tv(
                 tmdb_id=body.tmdb_id,
                 tvdb_id=tvdb_id,
                 service="sonarr",
+                username=actor,
             )
         else:
             logger.info(
