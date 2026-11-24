@@ -113,9 +113,10 @@ const held = () => ({
   plain: underPointer((ui) => ui.toast('Saved'), true),
 });
 
-/* What a confirm answers to one click: on its main button, its Cancel or its backdrop, *ms* after
-   it opened, as click number *detail* of a run of clicks. null where the click did nothing. */
-async function clicked(on, ms, detail) {
+/* What a confirm answers to clicks, each [on, ms, detail]: on its main button, its Cancel, its title or its backdrop,
+   *ms* after it opened, as click number *detail* of a run of clicks. null where they did nothing. */
+const clicked = (on, ms, detail) => clicks([[on, ms, detail]]);
+async function clicks(list) {
   const doc = makeDocument();
   let now = 1000;
   const ctx = {
@@ -130,9 +131,12 @@ async function clicked(on, ms, detail) {
   ctx.UIFeedback.confirm({ title: 'Delete it?' }).then((yes) => { answer = yes; });
   const overlay = doc.querySelector('.ui-confirm-overlay');
   const [cancel, main] = overlay.querySelectorAll('button');
-  const target = { main, cancel, backdrop: overlay }[on];
-  now += ms;
-  target.listeners.click.forEach((fn) => fn({ target, detail }));
+  const opened = now;
+  list.forEach(([on, ms, detail]) => {
+    const target = { main, cancel, backdrop: overlay, title: overlay.querySelector('.ui-confirm-title') }[on];
+    now = opened + ms;
+    for (let el = target; el; el = el.parentNode) (el.listeners.click || []).forEach((fn) => fn({ target, detail }));
+  });
   await Promise.resolve();
   await Promise.resolve();
   return answer;
@@ -143,6 +147,11 @@ const stray = async () => ({
   // a slow second click, before the dialog could be read
   early: [await clicked('main', 250, 1), await clicked('backdrop', 250, 1), await clicked('cancel', 250, 1)],
   meant: [await clicked('main', 400, 1), await clicked('backdrop', 400, 1), await clicked('cancel', 400, 1)],
+  // quick clicks of which the first came too soon, or was on the words, and only the last could be meant
+  run: [await clicks([['main', 200, 1], ['main', 350, 2]]), await clicks([['main', 150, 1], ['main', 250, 2], ['main', 400, 3]]), await clicks([['title', 100, 1], ['backdrop', 350, 2]])],
+  soon: [await clicks([['main', 100, 1], ['main', 250, 2]]), await clicks([['backdrop', 100, 1], ['backdrop', 250, 2]])],
+  // a double or triple click on what asked, slow enough to outlast the first moments
+  strayRun: [await clicks([['main', 200, 2], ['main', 400, 3]]), await clicks([['backdrop', 200, 2], ['backdrop', 400, 3]]), await clicks([['cancel', 200, 2], ['cancel', 400, 3]])],
   // Enter or Space on a button is a click numbered 0
   byKey: [await clicked('main', 400, 0), await clicked('cancel', 400, 0)],
 });
