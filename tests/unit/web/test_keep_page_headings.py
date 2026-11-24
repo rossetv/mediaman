@@ -43,7 +43,7 @@ class TestKeepPageHeadings:
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="", file_path="/f")
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+            conn, media_item_id="mi1", token="placeholder", action="snoozed", execute_at=execute_at
         )
         token = _make_keep_token(conn, "mi1", action_id)
 
@@ -66,7 +66,7 @@ class TestKeepPageHeadings:
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="rk1", file_path="/f")
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+            conn, media_item_id="mi1", token="placeholder", action="snoozed", execute_at=execute_at
         )
         token = _make_keep_token(conn, "mi1", action_id)
 
@@ -90,7 +90,7 @@ class TestKeepPageMessages:
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="rk1", file_path="/f")
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+            conn, media_item_id="mi1", token="placeholder", action="snoozed", execute_at=execute_at
         )
         token = _make_keep_token(conn, "mi1", action_id)
 

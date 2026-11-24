@@ -4,8 +4,8 @@ The "forever" keep lives on a separate authenticated, CSRF-protected endpoint (P
 /api/keep/{token}/forever) so the privileged action needs an admin session rather than the
 CSRF-exempt public route.
 
-The guarded UPDATE requires action='scheduled_deletion', delete_status='pending',
-token_used=0 and execute_at >= now(), so expired or processed rows cannot be snoozed. Only
+The guarded UPDATE requires action='scheduled_deletion', delete_status='pending' and
+token_used=0, so a processed row, or one the deletion pass has claimed, cannot be snoozed. Only
 the SHA-256 token hash is stored, and lookups use token_hash, so the plaintext never touches
 the database. Verification, parsing and the guarded UPDATE live in
 mediaman.services.scheduled_actions.
@@ -36,7 +36,7 @@ from mediaman.services.scheduled_actions import (
     apply_keep_snooze,
     format_added_display,
     is_keep_token_consumed,
-    is_pending_unexpired,
+    is_pending,
     lookup_verified_action,
     mark_token_consumed,
     parse_execute_at,
@@ -45,7 +45,7 @@ from mediaman.services.scheduled_actions import (
 from mediaman.services.scheduled_actions.days_left import days_left as _days_left
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
-from mediaman.web.models import VALID_KEEP_DURATIONS
+from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download._season import season_name
 
@@ -97,8 +97,8 @@ def _consume_keep_token_and_apply(
         # Token hash was already in keep_tokens_used — concurrent replay.
         return respond_err("already_processed", status=409)
     if applied_rowcount == 0:
-        # The scheduled_actions row was already token_used=1, delete_status
-        # has advanced, or the deadline passed between our check and here.
+        # The scheduled_actions row was already token_used=1, or delete_status
+        # has advanced between our check and here.
         return respond_err("already_processed", status=409)
     return None
 
@@ -130,18 +130,21 @@ def _submit_failure(
     """Answer a failed keep post: a readable page for a browser form, JSON otherwise.
 
     A reused token whose item is now protected shows the protected page, since pressing
-    Keep twice (or going back and pressing it again) leaves the item kept.
+    Keep twice (or going back and pressing it again) leaves the item kept. A keep the
+    deletion pass came before shows the page that says so.
     """
     if not _wants_html_form(request):
         return respond_err(error, status=status)
     templates = cast(Jinja2Templates, request.app.state.templates)
-    if error == "already_processed":
+    if error in ("already_processed", "invalid_or_expired"):
         secret_key = request.app.state.config.secret_key
         # Re-read the row: the one checked before the post may predate the keep.
         row = lookup_verified_action(get_db(), token, secret_key)
         if row is not None:
             context = _keep_context(request, token, row, secret_key)
-            if context["state"] == "already_kept":
+            if context["state"] == "deleting" or (
+                context["state"] == "already_kept" and error == "already_processed"
+            ):
                 return templates.TemplateResponse(request, "keep.html", context, status_code=status)
     return templates.TemplateResponse(
         request,
@@ -158,18 +161,19 @@ def _submit_failure(
 
 def _keep_state(row: VerifiedKeepAction, now: datetime) -> str:
     """Name the state the keep page shows for a verified action."""
-    execute_at = parse_execute_at(row.execute_at, default=now)
-
     if row.delete_status == "deleting":
         # Files may already be gone, so neither Keep nor "already kept" is true.
         return "deleting"
-    if execute_at < now:
+    if is_pending(row) and not row.token_used:
+        # Even past its date: until the deletion pass claims it, it can be kept.
+        return "active"
+    # A forever keep leaves the deletion date it replaced on the row.
+    ended = parse_execute_at(row.execute_at, default=now) < now
+    if ended and row.action != ACTION_PROTECTED_FOREVER:
         return "expired"
-    if row.token_used or row.action != "scheduled_deletion":
-        # A keep made elsewhere (Library, whole-show) converts the row and clears
-        # token_used, so the row's action says it is kept, not the flag.
-        return "already_kept"
-    return "active"
+    # A keep made elsewhere (Library, whole-show) converts the row and clears
+    # token_used, so the row's action says it is kept, not the flag.
+    return "already_kept"
 
 
 def _keep_context(
@@ -318,14 +322,13 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if is_keep_token_consumed(conn, token_hash(token)):
         return _submit_failure(request, "already_processed", 409, token)
 
-    # Pre-flight: confirm the action is pending and the deadline has not
-    # passed before entering the write transaction — avoids an empty write
-    # on the "obviously expired" path. An item kept another way since the email went
+    # Pre-flight: confirm the action is pending before entering the write
+    # transaction — avoids an empty write. An item kept another way since the email went
     # out is answered like a repeat keep, not as a dead link.
-    if not is_pending_unexpired(verified, now):
+    if not is_pending(verified):
         if _keep_state(verified, now) == "already_kept":
             return _submit_failure(request, "already_processed", 409, token)
-        return _submit_failure(request, "invalid_or_expired", 400)
+        return _submit_failure(request, "invalid_or_expired", 400, token)
 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
@@ -379,12 +382,12 @@ def keep_forever(
     now = now_utc()
 
     # Pre-flight replay check: if the token hash is already in keep_tokens_used,
-    # reject immediately with 409 before the is_pending_unexpired check.
+    # reject immediately with 409 before the is_pending check.
     if is_keep_token_consumed(conn, token_hash(token)):
         return respond_err("already_processed", status=409)
 
-    # Pre-flight expiry check before entering the write transaction.
-    if not is_pending_unexpired(verified, now):
+    # Pre-flight check before entering the write transaction.
+    if not is_pending(verified):
         if _keep_state(verified, now) == "already_kept":
             return respond_err("already_processed", status=409)
         return respond_err("invalid_or_expired", status=400)

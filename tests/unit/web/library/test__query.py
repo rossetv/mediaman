@@ -745,11 +745,22 @@ class TestPendingDeletion:
         assert by_id["m2"]["deletion_at"] is None
         assert by_id["m2"]["deletion_days"] is None
 
-    def test_used_lapsed_and_deleting_actions_do_not_count(self, db_path):
+    def test_a_deletion_past_its_date_is_still_to_come(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _schedule_deletion(conn, "m1", -2)
+
+        items, _ = fetch_library(conn)
+
+        assert items[0]["deletion_at"] is not None
+        assert items[0]["deletion_days"] == 0
+
+    def test_used_and_deleting_actions_do_not_count(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
         for i, (days, kw) in enumerate(
-            [(3, {"token_used": True}), (-2, {}), (3, {"delete_status": "deleting"})]
+            [(3, {"token_used": True}), (-2, {"delete_status": "deleting"})]
         ):
             _insert_movie(conn, f"m{i}")
             _schedule_deletion(conn, f"m{i}", days, **kw)
@@ -810,12 +821,16 @@ class TestStatsSizesAndDue:
         _insert_movie(conn, "later")
         _insert_season(conn, "s1", "Show", "k1")
         _insert_season(conn, "s2", "Show", "k1")
+        _insert_movie(conn, "past")
+        _insert_movie(conn, "begun")
+        _schedule_deletion(conn, "past", -1)
+        _schedule_deletion(conn, "begun", -1, delete_status="deleting")
         _schedule_deletion(conn, "soon", 3)
         _schedule_deletion(conn, "later", 20)
         _schedule_deletion(conn, "s1", 2)
         _schedule_deletion(conn, "s2", 4)
         stats = fetch_stats(conn)
-        assert stats["due_soon"] == 2
+        assert stats["due_soon"] == 3
         assert stats["due_soon_days"] == 14
 
     def test_due_soon_leaves_out_items_whose_library_is_not_selected(self, db_path):

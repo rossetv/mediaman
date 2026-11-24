@@ -19,6 +19,7 @@ import mediaman.web
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token, validate_poster_token
 from mediaman.db import set_connection
+from mediaman.scanner.repository.scheduled_actions import claim_due_deletion
 from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
     lookup_verified_action,
@@ -275,7 +276,11 @@ class TestKeepPageRoute:
         freezer.move_to("2026-05-10T12:00:00+00:00")
         _insert_media_item(conn)
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action="snoozed",
+            execute_at="2026-05-01T12:00:00+00:00",
         )
         token = _make_keep_token(conn, "mi1", action_id)
         app = self._make_app(conn)
@@ -578,20 +583,20 @@ class TestAdminForeverAudit:
 
 
 class TestKeepDeadlineCheck:
-    """Keep_submit must reject rows that have expired or are not pending."""
+    """Keep_submit must reject rows that are not pending."""
 
-    def test_expired_action_returns_400(self, app_factory, conn):
-        """A keep POST where execute_at is in the past must return 400."""
+    def test_a_deletion_past_its_date_can_be_kept_until_the_pass_claims_it(self, app_factory, conn):
         _insert_media_item(conn)
         action_id = _insert_scheduled_action_at_offset(conn, execute_at_offset_days=-1)
         token = _make_keep_token(conn, "mi1", action_id)
 
         _, client = _make_keep_app_with_test_secret(app_factory, conn)
-        resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
+        resp = client.post(f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False)
 
-        assert resp.status_code == 400
-        body = json.loads(resp.text)
-        assert body["error"] == "invalid_or_expired"
+        assert resp.status_code == 302
+        row = conn.execute("SELECT action, execute_at FROM scheduled_actions").fetchone()
+        assert row["action"] == "snoozed"
+        assert row["execute_at"] > datetime.now(UTC).isoformat()
 
     def test_non_pending_delete_status_returns_400(self, app_factory, conn):
         """A row with delete_status='deleting' must be refused."""
@@ -899,11 +904,15 @@ class TestItemKeptMeanwhile:
         assert resp.json()["error"] == "already_processed"
         assert self._action_row(conn) == before
 
-    def test_expired_token_on_an_item_not_kept_is_still_refused(self, conn):
+    def test_a_lapsed_keep_is_still_refused(self, conn):
         _insert_media_item(conn)
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action="snoozed",
+            execute_at=execute_at,
         )
         token = _make_keep_token(conn, "mi1", action_id)
 
@@ -916,6 +925,42 @@ class TestItemKeptMeanwhile:
         assert "no longer valid" in form.text
         assert api.status_code == 400
         assert api.json()["error"] == "invalid_or_expired"
+
+    def test_a_keep_after_the_deletion_began_says_it_is_being_deleted(self, conn):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        assert claim_due_deletion(conn, action_id, datetime.now(UTC).isoformat())
+        conn.commit()
+        before = self._action_row(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 400
+        assert "This is being deleted now." in resp.text
+        assert self._action_row(conn) == before
+
+    def test_a_forever_keep_made_past_the_date_reads_protected(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        client = authed_client(self._client(conn).app, conn)
+
+        assert client.post(f"/api/keep/{token}/forever").status_code == 200
+
+        html = client.get(f"/keep/{token}").text
+        assert "This link has expired" not in html
+        assert "Protected" in html
 
     def test_a_token_that_fails_verification_never_shows_the_protected_page(self, conn):
         token = self._kept_by_admin(conn)

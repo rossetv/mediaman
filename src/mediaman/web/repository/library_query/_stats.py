@@ -146,8 +146,8 @@ def sum_size_bytes_by_type(conn: sqlite3.Connection) -> dict[str, int]:
     return result
 
 
-def count_deletions_due(conn: sqlite3.Connection, *, now: str, until: str) -> int:
-    """Return the display items (movies, and shows once each) with a deletion due in the window.
+def count_deletions_due(conn: sqlite3.Connection, *, until: str) -> int:
+    """Return the display items (movies, and shows once each) with a deletion due by *until*.
 
     An item whose library is not selected is not due: the deletion pass leaves it.
     """
@@ -161,18 +161,18 @@ def count_deletions_due(conn: sqlite3.Connection, *, now: str, until: str) -> in
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
-                AND sa.execute_at >= ? AND sa.execute_at <= ?)
+                AND sa.execute_at <= ?)
             UNION ALL
             SELECT MIN(mi.id) FROM media_items mi
             WHERE mi.media_type IN ({season_placeholders}) AND {LIBRARY_SELECTED} AND EXISTS (
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
-                AND sa.execute_at >= ? AND sa.execute_at <= ?)
+                AND sa.execute_at <= ?)
             GROUP BY COALESCE(mi.show_rating_key, mi.show_title)
         )
         """,
-        (now, until, *ALL_SEASON_TYPES, now, until),
+        (until, *ALL_SEASON_TYPES, until),
     ).fetchone()
     return int(row["n"])
 
@@ -195,9 +195,7 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
 
     stale = count_stale(conn, age_cutoff=age_cutoff, watch_cutoff=watch_cutoff)
-    due_soon = count_deletions_due(
-        conn, now=now.isoformat(), until=(now + timedelta(days=DUE_SOON_DAYS)).isoformat()
-    )
+    due_soon = count_deletions_due(conn, until=(now + timedelta(days=DUE_SOON_DAYS)).isoformat())
 
     sizes = sum_size_bytes_by_type(conn)
     total = sum(titles.values())

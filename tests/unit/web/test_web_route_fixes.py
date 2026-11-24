@@ -289,8 +289,8 @@ class TestKeepSubmitTokenAtomicity:
         body = json.loads(resp.text)
         assert body["error"] == "already_processed"
 
-    def test_expired_action_returns_400(self, conn):
-        """An action whose execute_at is in the past must return 400 before any write."""
+    def test_lapsed_keep_returns_400(self, conn):
+        """A keep that has lapsed must return 400 before any write."""
         insert_media_item(
             conn,
             id="mi_exp",
@@ -306,7 +306,7 @@ class TestKeepSubmitTokenAtomicity:
             media_item_id="mi_exp",
             token="placeholder",
             execute_at=past,
-            action="scheduled_deletion",
+            action="snoozed",
             delete_status="pending",
         )
         token = _make_keep_token(conn, "mi_exp", action_id)

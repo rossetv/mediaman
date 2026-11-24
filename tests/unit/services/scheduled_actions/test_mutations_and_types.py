@@ -3,7 +3,7 @@
 Covers:
 - resolve_keep_decision raises ValueError (not AssertionError) when days is None
   for a non-forever duration.
-- is_pending_unexpired uses simplified membership check — both None and 'pending'
+- is_pending uses simplified membership check — both None and 'pending'
   are actionable; 'deleting' is not.
 - find_active_keep_action_by_id_and_token is absent from the public API.
 """
@@ -56,7 +56,7 @@ class TestResolveKeepDecisionValidation:
             pytest.fail("resolve_keep_decision raised AssertionError; must raise ValueError")
 
 
-class TestIsPendingUnexpired:
+class TestIsPending:
     """Both None and 'pending' are actionable; 'deleting' is not."""
 
     def _make_action(self, *, delete_status, execute_at_offset_days=1):
@@ -66,56 +66,58 @@ class TestIsPendingUnexpired:
 
         now = datetime.now(UTC)
         execute_at = (now + timedelta(days=execute_at_offset_days)).isoformat()
-        return (
-            VerifiedKeepAction(
-                id=1,
-                media_item_id="m1",
-                action="scheduled_deletion",
-                scheduled_at=now.isoformat(),
-                execute_at=execute_at,
-                token=None,
-                token_used=0,
-                snoozed_at=None,
-                snooze_duration=None,
-                notified=0,
-                is_reentry=0,
-                delete_status=delete_status,
-                token_hash=None,
-                title="T",
-                media_type="movie",
-                poster_path=None,
-                file_size_bytes=0,
-                plex_rating_key="rk",
-                added_at=now.isoformat(),
-                show_title=None,
-                season_number=None,
-            ),
-            now,
+        return VerifiedKeepAction(
+            id=1,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            scheduled_at=now.isoformat(),
+            execute_at=execute_at,
+            token=None,
+            token_used=0,
+            snoozed_at=None,
+            snooze_duration=None,
+            notified=0,
+            is_reentry=0,
+            delete_status=delete_status,
+            token_hash=None,
+            title="T",
+            media_type="movie",
+            poster_path=None,
+            file_size_bytes=0,
+            plex_rating_key="rk",
+            added_at=now.isoformat(),
+            show_title=None,
+            season_number=None,
         )
 
     def test_none_delete_status_is_actionable(self):
-        from mediaman.services.scheduled_actions._mutations import is_pending_unexpired
+        from mediaman.services.scheduled_actions._mutations import is_pending
 
-        action, now = self._make_action(delete_status=None)
-        assert is_pending_unexpired(action, now) is True
+        action = self._make_action(delete_status=None)
+        assert is_pending(action) is True
 
     def test_pending_delete_status_is_actionable(self):
-        from mediaman.services.scheduled_actions._mutations import is_pending_unexpired
+        from mediaman.services.scheduled_actions._mutations import is_pending
 
-        action, now = self._make_action(delete_status="pending")
-        assert is_pending_unexpired(action, now) is True
+        action = self._make_action(delete_status="pending")
+        assert is_pending(action) is True
+
+    def test_a_date_that_has_passed_is_still_actionable(self):
+        from mediaman.services.scheduled_actions._mutations import is_pending
+
+        assert is_pending(self._make_action(delete_status="pending", execute_at_offset_days=-1))
 
     def test_deleting_status_is_not_actionable(self):
-        from mediaman.services.scheduled_actions._mutations import is_pending_unexpired
+        from mediaman.services.scheduled_actions._mutations import is_pending
 
-        action, now = self._make_action(delete_status="deleting")
-        assert is_pending_unexpired(action, now) is False
+        action = self._make_action(delete_status="deleting")
+        assert is_pending(action) is False
 
     def test_deleted_status_is_not_actionable(self):
-        from mediaman.services.scheduled_actions._mutations import is_pending_unexpired
+        from mediaman.services.scheduled_actions._mutations import is_pending
 
-        action, now = self._make_action(delete_status="deleted")
-        assert is_pending_unexpired(action, now) is False
+        action = self._make_action(delete_status="deleted")
+        assert is_pending(action) is False
 
 
 class TestDeadFunctionRemoved:

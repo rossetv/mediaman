@@ -129,7 +129,6 @@ _ITEM_DELETION_SQL = f"""(
                 AND da.action = 'scheduled_deletion'
                 AND da.token_used = 0
                 AND (da.delete_status IS NULL OR da.delete_status = 'pending')
-                AND da.execute_at >= (SELECT now FROM clock)
                 AND {LIBRARY_SELECTED}
             )"""
 
