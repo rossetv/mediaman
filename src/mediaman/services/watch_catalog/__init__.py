@@ -1,6 +1,6 @@
-"""What Watch shows beyond the library: TMDB's discover rows and search, the TMDB side
-of a title's detail, which TMDB titles the library already holds, and their Radarr and
-Sonarr download state."""
+"""What Watch shows beyond the library: TMDB's discover rows, genres, people and search,
+the TMDB side of a title's detail, which TMDB titles the library already holds, and their
+Radarr and Sonarr download state."""
 
 from __future__ import annotations
 
@@ -19,31 +19,56 @@ from ._discover import (
     search,
     tmdb_card,
 )
+from ._explore import (
+    KNOWN_FOR_LIMIT,
+    SORTS,
+    TYPES,
+    PersonNotFound,
+    age,
+    decades,
+    explore_page,
+    genre_posters,
+    people,
+    person,
+)
+from ._genres import GENRES, Genre
 from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
 
 __all__ = [
+    "GENRES",
+    "KNOWN_FOR_LIMIT",
     "MAX_PAGE",
     "MAX_QUERY_LEN",
     "MIN_QUERY_LEN",
     "SHELVES",
+    "SORTS",
+    "TYPES",
     "ArrView",
+    "Genre",
     "LibraryIndex",
+    "PersonNotFound",
     "SeenTitles",
     "TmdbBusy",
     "TmdbUnavailable",
+    "age",
     "arr_view",
     "clear_library_index",
+    "decades",
     "details",
     "discover_card",
     "discover_page",
     "discover_shelves",
+    "explore_page",
+    "genre_posters",
     "invalidate",
     "library_href",
     "library_ids",
     "library_index",
     "normalise_title",
+    "people",
+    "person",
     "search",
     "tmdb_card",
     "tmdb_fields",

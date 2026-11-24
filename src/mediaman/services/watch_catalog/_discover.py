@@ -150,7 +150,7 @@ def discover_page(
 def search(
     client: TmdbClient, query: str, *, allow_fetch: Callable[[], bool] | None = None
 ) -> list[dict[str, object]]:
-    """The first page of TMDB's multi search for *query*. *allow_fetch* is asked before
+    """The first page of TMDB's multi search for *query*, adult titles and people left out. *allow_fetch* is asked before
     TMDB is called for an answer not cached; when it says no this raises
     ``disk_cache.Refused``."""
     q = query[:MAX_QUERY_LEN]
@@ -159,7 +159,9 @@ def search(
         try:
             # The client's paged search answers [] on a failure too; asked directly so a
             # failure is not cached, or shown, as "no results".
-            payload = client._get("/search/multi", {"query": q, "include_adult": False, "page": 1})
+            payload = client._get(
+                "/search/multi", {"query": q, "include_adult": "false", "page": 1}
+            )
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             raise TmdbUnavailable("search") from exc
         results = payload.get("results") if isinstance(payload, dict) else None
@@ -170,7 +172,7 @@ def search(
     result: list[dict[str, object]] = _cached(
         f"tmdb:search:{q.casefold()}:1", 15 * _MINUTE, _HOUR, fetch, allow_fetch
     )
-    return result
+    return [r for r in result if not r.get("adult")]
 
 
 def details(
@@ -187,9 +189,9 @@ def details(
             raise TmdbUnavailable("details")
         return tmdb_fields(found, media_type)
 
-    # "v2": entries before it hold TMDB's whole payload, not these fields.
+    # "v3": entries before it lack the cast's person ids and the genre ids.
     result: dict[str, Any] = _cached(
-        f"tmdb:details:v2:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
+        f"tmdb:details:v3:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
     return result
 

@@ -7,7 +7,8 @@ from typing import Any
 
 from mediaman.services.media_meta.tmdb import TmdbClient
 
-from ._shape import tmdb_image_url, tmdb_rating, year_of
+from ._genres import genre_refs
+from ._shape import tmdb_id_of, tmdb_image_url, tmdb_rating, year_of
 
 CAST_LIMIT = 12
 
@@ -87,6 +88,7 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
         "genres": [
             g["name"] for g in _dicts(details.get("genres")) if isinstance(g.get("name"), str)
         ],
+        "genre_refs": genre_refs(details.get("genres"), kind),
         "certificate": TmdbClient.certificate(details, "movie" if kind == "movie" else "tv"),
         "tagline": details.get("tagline") or None,
         "overview": str(details.get("overview") or ""),
@@ -96,6 +98,8 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
         "director": _director(details, kind),
         "cast": [
             {
+                # TMDB marks some people adult; those have no page here to link to.
+                "person_id": None if c.get("adult") else tmdb_id_of(c),
                 "name": str(c.get("name") or ""),
                 "character": str(c.get("character") or ""),
                 "profile_url": tmdb_image_url(c.get("profile_path"), "w185"),

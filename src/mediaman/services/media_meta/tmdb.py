@@ -309,6 +309,26 @@ class TmdbClient:
             return tmdb_id if isinstance(tmdb_id, int) else None
         return None
 
+    def discover(self, media_type: str, params: dict[str, object]) -> dict[str, Any]:
+        """Return one page of /discover/{movie|tv}, adult titles not asked for. Raises as
+        find_by_tvdb does, and ValueError for a payload without a results list."""
+        # requests would send a bool as "False".
+        payload = self._get(
+            f"/discover/{'movie' if media_type == 'movie' else 'tv'}",
+            {**params, "include_adult": "false"},
+        )
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise ValueError("discover answered without results")
+        return payload
+
+    def person(self, person_id: int) -> dict[str, Any]:
+        """Return a person's raw payload with every film and TV credit appended. Raises as
+        find_by_tvdb does, and ValueError for a payload that is no person's."""
+        payload = self._get(f"/person/{person_id}", {"append_to_response": "combined_credits"})
+        if not isinstance(payload, dict) or not payload.get("name"):
+            raise ValueError("person answered without a name")
+        return payload
+
     # The implementations live in _tmdb_shapes; they are re-bound
     # here as static methods so ``TmdbClient.shape_card`` /
     # ``TmdbClient.shape_detail`` call sites (and test monkeypatches
