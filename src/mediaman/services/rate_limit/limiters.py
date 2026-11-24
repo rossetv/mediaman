@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import collections
 import ipaddress
+import math
 import threading
 import time
 import weakref
@@ -91,6 +92,10 @@ class ActionRateLimiter:
     _DAILY_PRUNE_EVERY = 512
 
     def check(self, actor: str) -> bool:
+        return self.reserve(actor) is not None
+
+    def reserve(self, actor: str) -> float | None:
+        """Count one try by *actor*; the time it is counted at, or None over a limit."""
         now = time.monotonic()
         with self._lock:
             if self._max_per_day > 0:
@@ -105,12 +110,12 @@ class ActionRateLimiter:
                         day_log = None
                 count = len(day_log) if day_log is not None else 0
                 if count >= self._max_per_day:
-                    return False
+                    return None
 
             attempts = [t for t in self._attempts.get(actor, []) if now - t < self._window]
             if len(attempts) >= self._max_in_window:
                 self._attempts[actor] = attempts
-                return False
+                return None
 
             if self._max_per_day > 0:
                 day_log = self._daily.get(actor)
@@ -125,7 +130,27 @@ class ActionRateLimiter:
 
             attempts.append(now)
             self._attempts[actor] = attempts
-            return True
+            return now
+
+    def release(self, actor: str, reserved_at: float) -> None:
+        """Take back the one try counted by `reserve`, and no other."""
+        with self._lock:
+            for log in (self._attempts.get(actor), self._daily.get(actor)):
+                if log and reserved_at in log:
+                    log.remove(reserved_at)
+
+    def retry_after(self, actor: str) -> int:
+        """Whole seconds until *actor* may try again, at least 1."""
+        with self._lock:
+            now = time.monotonic()
+            free_at = now
+            attempts = self._attempts.get(actor, [])
+            if len(attempts) >= self._max_in_window:
+                free_at = attempts[-self._max_in_window] + self._window
+            day_log = self._daily.get(actor)
+            if day_log and len(day_log) >= self._max_per_day:
+                free_at = max(free_at, day_log[0] + _ONE_DAY_SECONDS)
+            return max(1, math.ceil(free_at - now))
 
     def _prune_daily(self, now: float) -> None:
         cutoff = now - _ONE_DAY_SECONDS
@@ -183,6 +208,10 @@ class RateLimiter:
         _LIMITER_REGISTRY.add(self)
 
     def check(self, ip: str) -> bool:
+        return self.reserve(ip) is not None
+
+    def reserve(self, ip: str) -> float | None:
+        """Count one attempt from *ip*; the time it is counted at, or None over the limit."""
         key = _bucket_key(ip)
         now = time.monotonic()
         with self._lock:
@@ -191,7 +220,7 @@ class RateLimiter:
                 self._attempts[key] = attempts
                 self._attempts.move_to_end(key)
                 self._maybe_prune(now)
-                return False
+                return None
             # Evict before inserting so ``_attempts`` never exceeds
             # ``_MAX_BUCKETS`` — the cap is inclusive, not a soft limit.
             if key not in self._attempts and len(self._attempts) >= _MAX_BUCKETS:
@@ -200,7 +229,21 @@ class RateLimiter:
             self._attempts[key] = attempts
             self._attempts.move_to_end(key)
             self._maybe_prune(now)
-            return True
+            return now
+
+    def release(self, ip: str, reserved_at: float) -> None:
+        """Take back the one attempt counted by `reserve`, and no other."""
+        with self._lock:
+            attempts = self._attempts.get(_bucket_key(ip), [])
+            if reserved_at in attempts:
+                attempts.remove(reserved_at)
+
+    def retry_after(self, ip: str) -> int:
+        """Whole seconds until *ip* may try again, at least 1."""
+        with self._lock:
+            attempts = self._attempts.get(_bucket_key(ip))
+            oldest = attempts[0] if attempts else 0.0
+            return max(1, math.ceil(oldest + self._window - time.monotonic()))
 
     def _maybe_prune(self, now: float) -> None:
         self._calls_since_prune += 1

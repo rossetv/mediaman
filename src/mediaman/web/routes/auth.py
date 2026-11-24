@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import sqlite3
 from typing import cast
 
@@ -36,7 +37,7 @@ from mediaman.web.responses import respond_err
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-# Login bucket: 5 attempts per 5 minutes per /24 IPv4 block (or /64 IPv6).
+# Login bucket: 5 failures per 5 minutes per /24 IPv4 block (or /64 IPv6).
 # CGNAT lumps ~250 customers behind a single /24, so a 60-second window
 # would cap legitimate concurrent attempts at one per 12 seconds across
 # the whole pool.  A 300-second window keeps the bucket large enough that
@@ -73,20 +74,23 @@ def login_page(request: Request) -> HTMLResponse:
 
 
 def _render_rate_limited(request: Request, username: str) -> Response:
-    """Re-render the login form with the throttle message and a Retry-After hint. The value is
-    an upper bound: the actual unblock is sliding-window.
-    """
+    """Re-render the login form with how long to wait, said in a Retry-After header too."""
+    wait = _limiter.retry_after(get_client_ip(request))
+    minutes = math.ceil(wait / 60)
     templates = cast(Jinja2Templates, request.app.state.templates)
     response: Response = templates.TemplateResponse(
         request,
         "login.html",
         {
-            "error": "Too many attempts. Try again later.",
+            "error": (
+                f"Too many attempts. Try again in {minutes} minute{'' if minutes == 1 else 's'}."
+            ),
             # Only the posted username comes back (the template escapes it); never the password.
             "username": username,
         },
     )
-    response.headers["Retry-After"] = str(_LOGIN_RATE_WINDOW_SECONDS)
+    response.status_code = 429
+    response.headers["Retry-After"] = str(wait)
     return response
 
 
@@ -156,12 +160,16 @@ def login_submit(
     password: str = Form(default=""),
 ) -> Response:
     client_ip = get_client_ip(request)
-    if not _limiter.check(client_ip):
+    # Counted before the check, so that guesses sent at once cannot all slip under the limit;
+    # a success takes back its own count only.
+    attempt = _limiter.reserve(client_ip)
+    if attempt is None:
         return _render_rate_limited(request, username)
 
     conn = get_db()
     if not authenticate(conn, username, password, client_ip=client_ip):
         return _handle_failed_login(conn, username, client_ip, request)
+    _limiter.release(client_ip, attempt)
 
     user_agent = request.headers.get("user-agent", "")
     weak_password = _flag_weak_password(conn, username, password, client_ip)
