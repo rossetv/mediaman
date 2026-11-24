@@ -7,7 +7,7 @@ mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatc
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/screens-still.png">
-  <img src="docs/images/screens.webp" alt="mediaman's pages in turn: the Dashboard with disk use by type and five movies scheduled for deletion; the Library with sizes and last-watched dates; Downloads with a movie 62% downloaded; the History log of scans, keeps and downloads; Settings with Plex, Sonarr, Radarr, NZBGet, Mailgun, OpenAI, TMDB and OMDb connected; and the weekly newsletter email with a Keep button on each item due for deletion.">
+  <img src="docs/images/screens.webp" alt="Watch in turn: the rows with a storage meter at the top and titles leaving soon; the storage panel with the heaviest movies first; the titles scheduled for deletion, each with Keep; and the library list with sizes and last-watched dates.">
 </picture>
 
 ![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
@@ -51,10 +51,10 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 ## On a phone
 
 <p>
-  <img src="docs/images/phone-dashboard.png" width="140" alt="The Dashboard on a phone: disk use by type above the scheduled deletions, with a tab bar at the bottom.">
-  <img src="docs/images/phone-library.png" width="140" alt="The Library on a phone: counts of movies, TV shows, anime and stale items above the searchable list.">
-  <img src="docs/images/phone-downloads.png" width="140" alt="Downloads on a phone: a movie 62% downloaded, with another download below it.">
-  <img src="docs/images/phone-settings.png" width="140" alt="Settings on a phone: section tabs across the top and the storage overview.">
+  <img src="docs/images/phone-watch.png" width="140" alt="Watch on a phone: the storage meter in the top bar, a featured film and the Leaving soon row.">
+  <img src="docs/images/phone-storage.png" width="140" alt="Storage on a phone: free space, a bar by type, and movies, TV shows and anime with their sizes.">
+  <img src="docs/images/phone-scheduled.png" width="140" alt="Scheduled for deletion on a phone: each title with its day, its size and Keep.">
+  <img src="docs/images/phone-list.png" width="140" alt="The library list on a phone: counts of movies, TV shows, anime and stale titles above each title with Keep and Delete.">
 </p>
 
 ## Watch
