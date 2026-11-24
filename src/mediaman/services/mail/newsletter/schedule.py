@@ -18,17 +18,14 @@ from ._types import ScheduledNewsletterItem
 logger = logging.getLogger(__name__)
 
 
-def _keep_url(row: sqlite3.Row, now: datetime, base_url: str, secret_key: str) -> str:
+def _keep_url(row: sqlite3.Row, base_url: str, secret_key: str) -> str:
     """Return the row's /keep link, or "" (no Keep button) when the keep page would refuse it.
 
-    That is a row past its deadline or already being deleted, or one whose token cannot be
-    rebuilt or has expired.
+    That is a row already being deleted, or one whose token cannot be rebuilt or has expired.
     """
-    # Same rule as is_pending_unexpired (the action is already scheduled_deletion here).
-    if parse_execute_at(row["execute_at"], default=now) < now or row["delete_status"] not in (
-        None,
-        "pending",
-    ):
+    # Same rule as is_pending (the action is already scheduled_deletion here): a row past its
+    # date can be kept until the deletion pass claims it.
+    if row["delete_status"] not in (None, "pending"):
         return ""
     try:
         token = rebuild_keep_token(
@@ -102,7 +99,7 @@ def _build_scheduled_card(
         "added_days_ago": added_days_ago,
         "days_left": _days_left(row, now),
         "last_watched_info": last_watched_info,
-        "keep_url": _keep_url(row, now, base_url, secret_key),
+        "keep_url": _keep_url(row, base_url, secret_key),
         "is_reentry": bool(row["is_reentry"]),
         "_action_id": row["id"],
     }

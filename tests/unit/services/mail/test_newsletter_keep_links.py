@@ -13,8 +13,9 @@ import pytest
 from mediaman.crypto import generate_keep_token, validate_keep_token
 from mediaman.db import init_db
 from mediaman.scanner.phases.upsert import schedule_deletion
+from mediaman.scanner.repository.scheduled_actions import claim_due_deletion
 from mediaman.services.mail.newsletter import send_newsletter
-from mediaman.services.scheduled_actions import lookup_verified_action
+from mediaman.services.scheduled_actions import is_pending, lookup_verified_action
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_subscriber
 
 _SECRET_KEY = "0123456789abcdef" * 4
@@ -200,24 +201,32 @@ def test_row_whose_keep_link_has_expired_hides_the_button_and_logs_the_row(conn,
     assert not any(legacy in m for m in warnings)
 
 
-@pytest.mark.parametrize(
-    ("column", "value"),
-    [
-        ("delete_status", "deleting"),
-        ("execute_at", (datetime.now(UTC) - timedelta(hours=2)).isoformat()),
-    ],
-    ids=["being_deleted", "overdue"],
-)
-def test_row_the_keep_page_would_refuse_is_listed_without_a_keep_button(conn, column, value):
+def test_row_being_deleted_is_listed_without_a_keep_button(conn):
     _schedule(conn, grace_days=14)
     assert len(_KEEP_HREF.findall(_send(conn, manual=True))) == 1
-    conn.execute(f"UPDATE scheduled_actions SET {column} = ?", (value,))
+    conn.execute("UPDATE scheduled_actions SET delete_status = 'deleting'")
     conn.commit()
 
     html = _send(conn, manual=True)
 
     assert "Test Movie" in html
     assert "/keep/" not in html
+
+
+def test_row_past_its_date_keeps_its_keep_button_until_the_pass_claims_it(conn, freezer):
+    freezer.move_to("2026-05-01T12:00:00+00:00")
+    action_id = _schedule(conn, grace_days=14)
+    (before,) = _KEEP_HREF.findall(_send(conn, manual=True))
+
+    freezer.move_to("2026-05-16T12:00:00+00:00")
+
+    assert _KEEP_HREF.findall(_send(conn, manual=True)) == [before]
+    row = lookup_verified_action(conn, before, _SECRET_KEY)
+    assert row is not None and is_pending(row)
+
+    assert claim_due_deletion(conn, action_id, datetime.now(UTC).isoformat())
+    conn.commit()
+    assert "/keep/" not in _send(conn, manual=True)
 
 
 def test_unsubscribe_header_is_the_link_in_the_footer(conn):
