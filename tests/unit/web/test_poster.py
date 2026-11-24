@@ -1256,3 +1256,35 @@ class TestPosterBackdrop:
 
         assert r.content == b"portrait-poster"
         assert not any("%2Fart" in u for u in urls)
+
+    def test_the_poster_stood_in_for_a_backdrop_is_not_kept_by_the_browser_for_a_week(
+        self, tmp_path
+    ):
+        stub, _ = self._plex(has_art=False)
+        client = self._client(tmp_path)
+
+        fallback = self._get(client, stub)
+        plain = self._get(client, stub, query="")
+
+        assert fallback.content == b"portrait-poster"
+        assert fallback.headers["cache-control"] == "public, max-age=300"
+        assert plain.headers["cache-control"] == "public, max-age=604800"
+
+    def test_a_backdrop_served_from_plex_is_kept_for_the_week(self, tmp_path):
+        stub, _ = self._plex(has_art=True)
+
+        r = self._get(self._client(tmp_path), stub)
+
+        assert r.headers["cache-control"] == "public, max-age=604800"
+
+    def test_without_plex_credentials_the_backdrop_request_gets_the_cached_poster(self, tmp_path):
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = TestPosterEndpointAuth._build_test_app(self, tmp_path, self._KEY)
+        conn.execute("DELETE FROM settings WHERE key IN ('plex_url', 'plex_token')")
+        conn.commit()
+
+        r = client.get(sign_poster_url("12345", self._KEY) + "&kind=art")
+
+        assert r.status_code == 200
+        assert r.content == b"fake-jpg"

@@ -65,6 +65,8 @@ from mediaman.web.routes.poster.fetch import load_plex_credentials as _load_plex
 from mediaman.web.routes.poster.fetch import resolve_poster_content as _resolve_poster_content
 from mediaman.web.routes.poster.fetch import safe_mime as _safe_mime  # noqa: F401
 
+_ART_FALLBACK_MAX_AGE_SECONDS = 300
+
 __all__ = [
     # Public names this barrel re-exports for callers.
     # Private names (_POSTER_HTTP, _fetch_arr_poster, etc.) are patched by
@@ -141,6 +143,12 @@ def proxy_poster(
         art = _serve_art(config, rating_key)
         if art is not None:
             return art
+        poster = _serve_poster(config, rating_key)
+        # The backdrop may only be missing for now (Plex down, or it has none yet), so the
+        # browser must not keep this stand-in for the week a real poster gets.
+        if poster.status_code == 200:
+            poster.headers["Cache-Control"] = f"public, max-age={_ART_FALLBACK_MAX_AGE_SECONDS}"
+        return poster
     return _serve_poster(config, rating_key)
 
 
@@ -165,7 +173,7 @@ def _serve_art(config: Config, rating_key: str) -> Response | None:
     conn = get_db()
     plex_base, plex_token, cred_err = _load_plex_credentials(conn, config.secret_key)
     if cred_err is not None:
-        return cred_err
+        return None
     art = _fetch_plex_art(conn, rating_key, cast(str, plex_base), cast(str, plex_token))
     if art is None:
         return None
