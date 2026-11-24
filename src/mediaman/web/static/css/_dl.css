@@ -421,6 +421,13 @@
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
 .dl-abandon-list .tog[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+/* The switch is drawn with backgrounds alone, which forced colours take away. */
+@media (forced-colors: active) {
+  .dl-abandon-list .tog { border: 1px solid CanvasText; }
+  .dl-abandon-list .tog::after { top: 1px; left: 1px; forced-color-adjust: none; background: CanvasText; }
+  .dl-abandon-list .tog.on { border-color: Highlight; }
+  .dl-abandon-list .tog.on::after { background: Highlight; }
+}
 
 /* The confirm sits in the middle of the screen like the app's other
    confirms; a long season list still scrolls from the top. */
