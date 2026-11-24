@@ -158,7 +158,13 @@ class Canvas extends Element {
 class Dialog extends Element {
   get open() { return 'open' in this.attrs; }
   showModal() { this.before = doc.activeElement; this.attrs.open = ''; this.querySelector('button').focus(); }
-  close() { delete this.attrs.open; doc.activeElement = this.before || doc.body; }
+  /* Like the browser: the close event comes after what closed it. */
+  close(value) {
+    delete this.attrs.open;
+    doc.activeElement = this.before || doc.body;
+    if (value !== undefined) this.returnValue = value;
+    Promise.resolve().then(() => fire(this, 'close'));
+  }
 }
 
 function make(tag, attrs) {
@@ -1689,6 +1695,7 @@ const scenarios = {
     press(p.q('[data-ask-continue]'));
     await settle();
     out.open = ask.open;
+    out.cardBehind = !p.q('[data-upnext]').hidden && !p.q('[data-upnext]').classList.contains('is-leaving');
     out.urlsAfter = p.win.history.urls.length;
     await auto();
     return out;
@@ -1739,6 +1746,39 @@ const scenarios = {
     fire(p.video, 'seeking');
     fire(p.video, 'playing');
     return { at: at, asked: asks() };
+  },
+
+  /* The question closed by the browser, as a second Escape does, with the details never opening. */
+  async ask_closed(p) {
+    const ask = p.q('[data-ask]');
+    const card = () => ({ shown: !p.q('[data-upnext]').hidden, counts: !p.q('[data-upnext-in]').hidden });
+    const out = {};
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 0);
+    p.sleep(7200000);
+    endsNow(p);
+    p.sleep(11000);
+    p.tick(250);
+    p.video.ended = false;
+    fire(ask, 'cancel');
+    out.staysOpen = ask.open;
+    ask.close();
+    await settle();
+    out.card = card();
+    out.skip = !p.q('[data-skip]').hidden;
+    p.tick(30000);
+    await settle();
+    out.wentByItself = p.calls.some((c) => c.page);
+    key('Escape');
+    const starts = p.starts().length;
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-play]'));
+    await settle();
+    out.replays = p.starts().length - starts;
+    click(p.q('[data-next-btn]'));
+    await settle();
+    out.went = p.win.history.urls;
+    return out;
   },
 
   /* The second press of a double one, or the repeats of a held key, land on what the first left there. */

@@ -805,6 +805,7 @@ def test_a_page_come_back_to_with_the_question_open_starts_nothing(markup, seaso
 def test_continue_watching_goes_on_in_place(markup, season):
     out = run(markup, "ask", pages=season)
     assert (out["open"], out["urlsAfter"] - out["urls"]) == (False, 1)
+    assert out["cardBehind"] is False
 
 
 def test_it_asks_when_nobody_was_there_for_two_hours_and_escape_goes_to_the_details(markup):
@@ -821,6 +822,15 @@ def test_a_stream_that_drops_and_comes_back_is_no_sign_of_somebody(markup):
 @pytest.mark.parametrize(("seconds", "asked"), [("1.5", True), ("2.5", False), ("-2.5", False)])
 def test_a_jump_is_a_sign_of_somebody_and_a_nudge_is_not(markup, seconds, asked):
     assert run(markup, "ask_restarted", plays=seconds) == {"asked": asked}
+
+
+def test_a_question_the_browser_closes_leaves_the_card_as_a_way_on(markup, season):
+    out = run(markup, "ask_closed", pages=season)
+    assert out["staysOpen"] is True
+    # Escape said to stop: nothing begins by itself after it.
+    assert out["card"] == {"shown": True, "counts": False}
+    assert (out["skip"], out["wentByItself"]) == (False, False)
+    assert (out["replays"], out["went"]) == (1, ["/watch/play/502"])
 
 
 def test_the_second_press_of_a_double_one_on_the_card_does_nothing_to_the_next_episode(

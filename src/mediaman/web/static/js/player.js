@@ -1117,7 +1117,7 @@
   var skipTimer;
 
   function showSkip() {
-    var over = video.ended || switching || (els.ask && els.ask.open);
+    var over = video.ended || switching || (els.ask && els.ask.open) || (els.upnext && !els.upnext.hidden);
     var m = els.message.hidden && !over ? markerAt(position()) : null;
     if (m !== skipMarker) offerSkip(m);
   }
@@ -1783,19 +1783,20 @@
     showPlayState();
   }
 
-  /* The card, counting down where the next episode begins by itself. */
-  function showUpnext() {
+  /* The card, counting down where the next episode begins by itself: not where it is to `wait`. */
+  function showUpnext(wait) {
+    var counts = autoplay && !wait;
     stopCountdown();
-    els.upnextIn.hidden = !autoplay;
+    els.upnextIn.hidden = !counts;
     els.upnext.classList.remove('is-leaving');
     els.upnextFill.style.animationDuration = COUNTDOWN_S + 's';
-    els.upnext.classList.toggle('is-counting', autoplay);
+    els.upnext.classList.toggle('is-counting', counts);
     els.upnext.hidden = false;
-    els.upnextStatus.textContent = autoplay
+    els.upnextStatus.textContent = counts
       ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Escape cancels.'
       : 'Next episode: ' + next.label;
     showControls();
-    if (!autoplay) return;
+    if (!counts) return;
     var until = Date.now() + COUNTDOWN_S * 1000;
     var count = function () {
       var left = Math.max(0, Math.ceil((until - Date.now()) / 1000));
@@ -1888,6 +1889,7 @@
     setLoading(false);
     q('[data-ask-line]').textContent = 'Next: ' + next.label;
     q('[data-ask-back]').setAttribute('href', showHref);
+    els.ask.returnValue = '';
     els.ask.showModal();
     showSkip();
   }
@@ -1903,12 +1905,19 @@
 
   if (els.ask) {
     q('[data-ask-continue]').addEventListener('click', function () {
-      els.ask.close();
+      els.ask.close('continue');
       goNext(false);
     });
     els.ask.addEventListener('cancel', function (e) {
       e.preventDefault();
       window.location.href = showHref;
+    });
+    /* The browser closes it at a second Escape, even where the details do not open. */
+    els.ask.addEventListener('close', function () {
+      if (els.ask.returnValue === 'continue') return;
+      swapping = false;
+      showUpnext(true);
+      showPlayState();
     });
   }
 
