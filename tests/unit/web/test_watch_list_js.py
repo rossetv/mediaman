@@ -321,6 +321,16 @@ def test_a_list_left_while_a_filter_loads_leaves_the_address_to_the_rows() -> No
     assert (out["back"], out["keys"]) == ({"list": True, "browse": False}, 4)
 
 
+def test_the_view_that_comes_is_there_while_the_one_that_goes_fades_out() -> None:
+    listed = ["hidden false ", "shown false "]
+    assert _run("overlappingViews") == {
+        "during": ["shown true absolute", "shown false "],
+        "after": listed,
+        "back": ["shown true absolute", "shown false "],
+        "end": listed,
+    }
+
+
 def test_back_from_the_list_to_a_grid_leaves_the_rows_hidden() -> None:
     assert _run("backToGrid") == {"opened": ["movies"], "browse": False, "list": False}
 

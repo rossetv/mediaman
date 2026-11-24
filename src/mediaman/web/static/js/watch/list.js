@@ -28,7 +28,6 @@
   var _view = list.hidden ? 'rows' : 'list';
   var _request = 0;   // the newest list fetch; older replies are dropped
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
-  var _switch = 0;    // the newest view switch; an older one's fade stops short
   var _again = false; // what is scheduled changed while a list was loading
   var _stale = false; // an admin action changed the library while the list was hidden
 
@@ -235,22 +234,47 @@
 
   /* ── Browse / List ── */
 
-  function fadeOut(nodes, then) {
-    var token = ++_switch;
-    var shown = nodes.filter(function (n) { return n && !n.hidden; });
-    if (core.reduceMotion() || !shown.length || !shown[0].animate) {
-      shown.forEach(function (n) { n.hidden = true; });
-      then();
-      return;
-    }
-    var opts = { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' };
-    var anims = shown.map(function (n) { return n.animate([{ opacity: 1 }, { opacity: 0 }], opts); });
-    anims[0].onfinish = function () {
-      if (token !== _switch) return;
-      shown.forEach(function (n) { n.hidden = true; });
-      anims.forEach(function (a) { a.cancel(); });
-      then();
-    };
+  var _leaving = []; // what ends the fade of each view on its way out
+
+  function endLeaving() {
+    _leaving.splice(0).forEach(function (end) { end(); });
+  }
+
+  /* Take *node* out of the flow where it stands. Its margins no longer collapse into the page's,
+     so its content is measured, not itself. */
+  function lift(node) {
+    var first = node.firstElementChild || node;
+    function at() { return first.getBoundingClientRect().top - node.parentNode.getBoundingClientRect().top; }
+    var was = at();
+    Object.assign(node.style, { position: 'absolute', top: '0px', left: '0px', right: '0px' });
+    node.style.top = was - at() + 'px';
+  }
+
+  /* Give way to what *then* shows: *nodes* fade out over it while it fades in, so the page is
+     never empty between them. */
+  function giveWay(nodes, then) {
+    endLeaving();
+    nodes.forEach(function (n) {
+      if (!n || n.hidden) return;
+      if (core.reduceMotion() || !n.animate) { n.hidden = true; return; }
+      lift(n);
+      n.setAttribute('inert', '');
+      var fade = n.animate([{ opacity: 1 }, { opacity: 0 }],
+        { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' });
+      function end() {
+        fade.onfinish = null;
+        n.hidden = true;
+        n.removeAttribute('inert');
+        Object.assign(n.style, { position: '', top: '', left: '', right: '' });
+        fade.cancel();
+      }
+      fade.onfinish = function () {
+        _leaving.splice(_leaving.indexOf(end), 1);
+        end();
+      };
+      _leaving.push(end);
+    });
+    then();
   }
 
   function reveal(node) {
@@ -279,17 +303,21 @@
     }
     _view = view;
     markToggle(view);
-    if (view === 'list') {
-      var current = state || norm({ q: search ? search.value : '' });
-      if (opts.history === 'push') address.push('list', pageUrl(current));
-      fadeOut([browse, results], function () { reveal(list); });
-      if (!root() || _stale || !same(current, wanted())) load(current, {});
-    } else {
-      if (opts.history === 'push') address.push(null, '/watch');
-      /* With text in the field the search shows its results instead; Back may lead to a row's grid. */
-      fadeOut([list], function () { if ((!results || results.hidden) && address.value('grid') === null) reveal(browse); });
-    }
+    var current = state || norm({ q: search ? search.value : '' });
+    if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
+    if (view === 'list' && (!root() || _stale || !same(current, wanted()))) load(current, {});
+    // The search puts its results away or shows them first.
     document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
+    if (view === 'list') giveWay([browse, results], function () { reveal(list); });
+    else giveWay([list], showRows);
+  }
+
+  /* With text in the field the search shows its results instead. Back may lead to a row's grid,
+     which opens once the list has closed. */
+  function showRows() {
+    Promise.resolve().then(function () {
+      if (_view === 'rows' && (!results || results.hidden) && address.value('grid') === null) reveal(browse);
+    });
   }
 
   function plainClick(e) {

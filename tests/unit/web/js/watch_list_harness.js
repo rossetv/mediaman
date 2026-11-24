@@ -883,6 +883,7 @@ const scenarios = {
       events: p.events.slice(),
     };
     p.popstate('');
+    await settle();
     out.back = { listHidden: list.hidden === true, browseShown: !p.doc.getElementById('watch-browse').hidden, events: p.events.slice(1) };
     p.popstate('?view=list&q=harbour');
     out.forward = { listShown: !list.hidden, fetches: p.fetches.length };
@@ -1275,6 +1276,32 @@ const scenarios = {
     p.popstate('?view=list');
     await settle();
     return { ...out, back: shown(), keys: p.rowKeys().length };
+  },
+
+  // With motion the view that comes is there while the one that goes fades out over it, and a
+  // quick change of mind leaves the last one chosen alone.
+  async overlappingViews() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: false, motion: true });
+    p.serve('/watch/list', {}, ROWS);
+    const go = (view) => click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="' + view + '"]'));
+    const look = () => ['watch-browse', 'watch-list'].map((id) => {
+      const n = p.doc.getElementById(id);
+      return [n.hidden ? 'hidden' : 'shown', n.hasAttribute('inert'), n.style.position || ''].join(' ');
+    });
+    const finish = () => anims.splice(0).forEach((a) => a.onfinish && a.onfinish());
+    go('list');
+    await settle();
+    const during = look();
+    finish();
+    const after = look();
+    go('rows');
+    await settle();
+    go('list');
+    const back = look();
+    finish();
+    return { during, after, back, end: look() };
   },
 
   // Back from the list to a row opened as a grid: the rows stay behind it.
