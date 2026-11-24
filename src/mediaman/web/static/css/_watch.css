@@ -518,10 +518,15 @@
 @media (max-width: 599.98px) {
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { --card-pad: 8px; }
-  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
+  .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); max-width: calc(100% - 12px); }
   .watch-badge--leaving { left: 6px; }
   .watch-badge--watched { right: 6px; gap: 4px; }
   .watch-badge--watched > .ico { font-size: 12px; }
+}
+/* Three columns here have no room for the word. */
+@media (max-width: 359.98px) {
+  .watch-badge--watched { gap: 0; }
+  .watch-badge__word { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
 }
 
 /* What an AI chose: the icon and the words. */

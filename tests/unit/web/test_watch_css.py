@@ -123,3 +123,12 @@ def test_a_caption_with_no_room_for_both_parts_shows_the_tail_and_in_search_the_
     caption = ".watch-card__sub:has(> .watch-card__lead)"
     assert "flex-wrap: wrap-reverse" in _of(caption) and "height: 1lh" in _of(caption)
     assert "flex-wrap: wrap;" in _of(f".results-grid {caption}")
+
+
+def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_says_the_word() -> (
+    None
+):
+    word = _of(".watch-badge__word", "max-width: 359.98px")
+    assert "clip-path: inset(50%)" in word
+    # Out of the reading, the badge would say nothing.
+    assert "display: none" not in word
