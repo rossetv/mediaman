@@ -11,7 +11,7 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, cast
 
 import requests
@@ -56,12 +56,31 @@ _clock = time.monotonic
 # One lookup per title at a time: the ones that wait for it find its answer held.
 _flights: dict[tuple[object, object, object], threading.Lock] = {}
 _flights_lock = threading.Lock()
+# How long a view waits for the lookup of its title that another view is making.
+_FLIGHT_WAIT_S = 10.0
 # Short, and not retried: the emailed page is public and holds a thread while TMDB is asked.
 _PAGE_TMDB_TIMEOUT_S = 3.0
 
 # A stored summary cut by a limit of this many characters ends mid-sentence.
 _OLD_SUMMARY_CUT = 250
 _SENTENCE_END = (".", "!", "?", "…", '"', "”", "'", "’", ")")
+
+
+@contextlib.contextmanager
+def _one_lookup(key: tuple[object, object, object]) -> Iterator[bool]:
+    """Held while *key*'s title is looked up; False when the wait for another view's lookup of
+    it ran out, and the page then goes without.
+    """
+    with _flights_lock:
+        flight = _flights.setdefault(key, threading.Lock())
+    got = flight.acquire(timeout=_FLIGHT_WAIT_S)
+    try:
+        yield got
+    finally:
+        if got:
+            flight.release()
+            with _flights_lock:
+                _flights.pop(key, None)
 
 
 def tidy_summary(text: str | None) -> str | None:
@@ -122,20 +141,39 @@ def fill_backdrop(item: dict[str, object], conn: sqlite3.Connection, secret_key:
     if hit and now < hit[0]:
         item["backdrop_url"] = hit[1]
         return
+    with _one_lookup(("backdrop", media_type, tmdb_id)) as got:
+        if not got:
+            return
+        hit = _backdrop_cache.get(key)
+        if hit and _clock() < hit[0]:
+            item["backdrop_url"] = hit[1]
+            return
+        _ask_backdrop(item, conn, secret_key, key)
+
+
+def _ask_backdrop(
+    item: dict[str, object], conn: sqlite3.Connection, secret_key: str, key: tuple[str, int]
+) -> None:
     from mediaman.services.media_meta.tmdb import TmdbClient
     from mediaman.services.watch_catalog import TmdbUnavailable, gate
 
     details: object = None
-    with contextlib.suppress(requests.RequestException, SafeHTTPError, ValueError, TmdbUnavailable):
-        client = TmdbClient.from_db(conn, secret_key, timeout=_BACKDROP_TMDB_TIMEOUT_S, retry=False)
-        if client is not None:
-            with gate.asking(client.token):
-                details = client.details(media_type, tmdb_id)
+    try:
+        with contextlib.suppress(requests.RequestException, SafeHTTPError, ValueError):
+            client = TmdbClient.from_db(
+                conn, secret_key, timeout=_BACKDROP_TMDB_TIMEOUT_S, retry=False
+            )
+            if client is not None:
+                with gate.asking(client.token):
+                    details = client.details(key[0], key[1])
+    except TmdbUnavailable:
+        # The gate holds its own pause; a refusal says nothing of this title.
+        return
     backdrop = tmdb_backdrop(details)
     if len(_backdrop_cache) >= _BACKDROP_CACHE_MAX:
         _backdrop_cache.clear()
     held_s = _FAILURE_TTL_S if details is None else _BACKDROP_TTL_S
-    _backdrop_cache[key] = (now + held_s, backdrop)
+    _backdrop_cache[key] = (_clock() + held_s, backdrop)
     item["backdrop_url"] = backdrop
 
 
@@ -287,19 +325,15 @@ def enrich_redownload_item(
     if hit and now < hit[0]:
         item.update(hit[1])
         return
-    with _flights_lock:
-        flight = _flights.setdefault(key, threading.Lock())
-    try:
-        with flight:
-            hit = _facts_cache.get(key)
-            if hit and _clock() < hit[0]:
-                item.update(hit[1])
-                return
-            found = enrich_item_with_tmdb(item, conn, secret_key)
-            if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
-                _facts_cache.clear()
-            held_s = _BACKDROP_TTL_S if found else _FAILURE_TTL_S
-            _facts_cache[key] = (_clock() + held_s, {k: item[k] for k in _FACTS if k in item})
-    finally:
-        with _flights_lock:
-            _flights.pop(key, None)
+    with _one_lookup(key) as got:
+        if not got:
+            return
+        hit = _facts_cache.get(key)
+        if hit and _clock() < hit[0]:
+            item.update(hit[1])
+            return
+        found = enrich_item_with_tmdb(item, conn, secret_key)
+        if len(_facts_cache) >= _BACKDROP_CACHE_MAX:
+            _facts_cache.clear()
+        held_s = _BACKDROP_TTL_S if found else _FAILURE_TTL_S
+        _facts_cache[key] = (_clock() + held_s, {k: item[k] for k in _FACTS if k in item})

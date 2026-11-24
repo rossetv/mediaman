@@ -534,3 +534,70 @@ class TestAHungTmdbOnAPublicPage:
                 t.join(10)
 
         assert tmdb.search.call_count == 1
+
+    def test_a_paused_tmdb_is_not_asked_for_a_backdrop_and_the_refusal_is_not_held(self, conn):
+        from mediaman.services.watch_catalog import TmdbDown, gate
+
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        with gate.asking("t"):
+            pass
+        gate.note("t", TmdbDown("x"))
+        gate.note("t", TmdbDown("x"))
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            paused: dict = {"media_type": "movie", "tmdb_id": 5}
+            fill_backdrop(paused, conn, SECRET)
+            tmdb.details.assert_not_called()
+            gate.reset()
+            later: dict = {"media_type": "movie", "tmdb_id": 5}
+            fill_backdrop(later, conn, SECRET)
+
+        assert paused["backdrop_url"] is None
+        assert later["backdrop_url"] == WIDE
+
+    def test_a_view_waits_for_the_lookup_of_its_title_in_hand_and_takes_its_answer(self, conn):
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        key = ("backdrop", "movie", 5)
+        item: dict = {"media_type": "movie", "tmdb_id": 5}
+        lock = threading.Lock()
+        item_enrichment._flights[key] = lock
+        lock.acquire()
+        with patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb):
+            db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+
+            def visit_page():
+                own = sqlite3.connect(db_path)
+                own.row_factory = sqlite3.Row
+                fill_backdrop(item, own, SECRET)
+                own.close()
+
+            visit = threading.Thread(target=visit_page)
+            visit.start()
+            item_enrichment._backdrop_cache[("movie", 5)] = (time.monotonic() + 60, WIDE)
+            lock.release()
+            visit.join(10)
+
+        tmdb.details.assert_not_called()
+        assert item["backdrop_url"] == WIDE
+
+    @pytest.mark.parametrize("page", ["backdrop", "facts"])
+    def test_a_view_that_waits_too_long_for_a_lookup_in_hand_goes_without(
+        self, conn, monkeypatch, page
+    ):
+        monkeypatch.setattr(item_enrichment, "_FLIGHT_WAIT_S", 0.05)
+        tmdb = MagicMock(token="t", **{"details.return_value": {"backdrop_path": "/wide.jpg"}})
+        key = ("backdrop", "movie", 5) if page == "backdrop" else ("movie", 5, "Dune")
+        item_enrichment._flights[key] = threading.Lock()
+        item_enrichment._flights[key].acquire()
+        item: dict = {"title": "Dune", "media_type": "movie", "tmdb_id": 5}
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient.from_db", return_value=tmdb),
+            patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
+        ):
+            if page == "backdrop":
+                fill_backdrop(item, conn, SECRET)
+            else:
+                enrich_redownload_item(item, conn, SECRET)
+
+        tmdb.details.assert_not_called()
+        assert not item.get("backdrop_url")
+        item_enrichment._flights.pop(key).release()
