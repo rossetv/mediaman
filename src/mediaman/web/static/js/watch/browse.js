@@ -620,10 +620,10 @@
   function ownText(payload, state) {
     var mine = payload.my_refresh;
     if (state === 'busy') return 'Making yours. It can take a minute or two.';
-    if (ownFailed) return 'Couldn’t make new ones. Try again.';
     if (mine.reason === 'daily_limit') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return 'New ones need an OpenAI key, set in Settings.';
+    if (ownFailed) return 'Couldn’t make new ones.' + (state === 'ready' ? ' Try again.' : '');
     var items = payload.items || [];
     if (ownOf(payload)) {
       return items.every(function (i) { return i.own; }) ? 'From your plays.' : 'From your plays, then new and popular.';
@@ -714,7 +714,7 @@
           drawOwn();
         }
         if (fresh) core.toast('Your new picks are in.', { variant: 'success' });
-        else if (ownFailed) core.toast('Couldn’t make new picks for you. Try again.', { variant: 'error' });
+        else if (ownFailed) core.toast('Couldn’t make new picks for you.' + (payload.my_refresh.available ? ' Try again.' : ''), { variant: 'error' });
       }).catch(function (err) {
         if (!loggedOut(err)) ownError('Your picks may have changed, but they didn’t load. Reload the page to see them.');
       });

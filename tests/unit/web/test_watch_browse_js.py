@@ -252,6 +252,17 @@ def test_a_newer_shared_batch_is_not_told_as_new_own_picks_but_still_shown() -> 
         assert at["toasts"] == ["Couldn’t make new picks for you. Try again."]
 
 
+def test_a_failure_that_cannot_be_tried_again_does_not_say_to() -> None:
+    out = _run("ownFailedLast")
+    assert out["limit"]["text"] == "That’s all the refreshes for now."
+    assert out["limit"]["off"] is True
+    assert out["few"]["text"] == "Play five titles and these become yours."
+    assert out["noKey"]["text"] == "Couldn’t make new ones."
+    assert {t for at in out.values() for t in at["toasts"]} == {
+        "Couldn’t make new picks for you."
+    }
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True

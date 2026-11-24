@@ -824,6 +824,29 @@ const scenarios = {
     return { hadOwn: await at([pick('rec-50')]), hadNone: await at([pick('rec-51')]) };
   },
 
+  // It made none, and that was the day's last try; or the plays it needs are gone.
+  async ownFailedLast() {
+    const at = async (mine) => {
+      let done = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => Promise.resolve(recommended({ mine: done ? mine : MINE.ready, items: OWN_ITEMS })),
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'failed' }),
+      } });
+      await settle();
+      click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+      await settle();
+      done = true;
+      await tick(p);
+      return { ...lineOf(p), toasts: p.toasts.map((t) => t.message) };
+    };
+    return {
+      limit: await at({ ...MINE.wait, reason: 'daily_limit' }),
+      few: await at(MINE.few),
+      noKey: await at(MINE.noKey),
+    };
+  },
+
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
   async loggedOutOnLoad() {
     const p = load({ routes: {
