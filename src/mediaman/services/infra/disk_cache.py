@@ -50,6 +50,8 @@ logger = logging.getLogger(__name__)
 Image = tuple[bytes, dict[str, str]]
 
 BACKOFF_S = 60.0
+#: How long a brief caller waits on a fetch someone else began, before TimeoutError.
+BRIEF_WAIT_S = 6.0
 _BACKOFF_MAX_KEYS = 1024
 _TMP_MAX_AGE_S = 600.0
 _META_MAX_BYTES = 64 * 1024 * 1024
@@ -113,7 +115,7 @@ class Store[T]:
         if directory is None:
             return fetch()
         path = self._path(directory, key)
-        hit = self._hit(key, path, fresh_s, stale_s, fetch)
+        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief)
         if hit is not None:
             return hit[0]
         error = _backoff((self.name, key))
@@ -146,7 +148,13 @@ class Store[T]:
         return directory / hashlib.sha256(key.encode()).hexdigest()
 
     def _hit(
-        self, key: str, path: Path, fresh_s: float, stale_s: float, fetch: Callable[[], T]
+        self,
+        key: str,
+        path: Path,
+        fresh_s: float,
+        stale_s: float,
+        fetch: Callable[[], T],
+        brief: bool = False,
     ) -> tuple[T] | None:
         """(value,) of an entry younger than *stale_s*, refreshed in the background once
         older than *fresh_s*; None when there is none."""
@@ -157,7 +165,7 @@ class Store[T]:
         with contextlib.suppress(OSError):
             os.utime(path)
         if age >= fresh_s and _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch)
+            self._refresh(key, path, fetch, brief)
         return (value,)
 
     def _read(self, path: Path) -> tuple[float, T] | None:
@@ -182,7 +190,7 @@ class Store[T]:
             if owner:
                 return self._fill(flight, future, path, fetch, brief)
             try:
-                result: T = future.result()
+                result: T = future.result(BRIEF_WAIT_S if brief else None)
             except _BriefFailure as exc:
                 if not brief:
                     continue
@@ -229,7 +237,7 @@ class Store[T]:
                 if _inflight.get(flight) is future:
                     del _inflight[flight]
 
-    def _refresh(self, key: str, path: Path, fetch: Callable[[], T]) -> None:
+    def _refresh(self, key: str, path: Path, fetch: Callable[[], T], brief: bool = False) -> None:
         flight = (self.name, key)
         # Claimed now, not when the pool gets to it, so stale hits while the refresh
         # waits in the queue do not queue more of them.
@@ -239,7 +247,7 @@ class Store[T]:
 
         def run() -> None:
             try:
-                self._fill(flight, future, path, fetch)
+                self._fill(flight, future, path, fetch, brief)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 

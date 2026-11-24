@@ -516,3 +516,38 @@ def test_those_waiting_on_a_brief_fetch_that_fails_share_one_of_their_own(monkey
 
     assert (answers, errors) == (["v", "v"], ["slow", "slow"])
     assert len(full_calls) == 1
+
+
+def test_a_brief_caller_waits_only_a_little_on_one_that_is_not(monkeypatch):
+    monkeypatch.setattr(disk_cache, "BRIEF_WAIT_S", 0.01)
+    started, release = threading.Event(), threading.Event()
+
+    def slow():
+        started.set()
+        release.wait(5)
+        return "v"
+
+    store = disk_cache.meta()
+    answers = []
+    full = threading.Thread(
+        target=lambda: answers.append(store.get_or_fetch("k", DAY, DAY, slow)), daemon=True
+    )
+    full.start()
+    assert started.wait(5)
+
+    with pytest.raises(TimeoutError):
+        store.get_or_fetch("k", DAY, DAY, slow, brief=True)
+    assert not release.is_set()
+
+    release.set()
+    full.join(5)
+    assert answers == ["v"]
+
+
+def test_a_refresh_begun_briefly_fails_as_brief():
+    store = disk_cache.meta()
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    store.get_or_fetch("k", 0, DAY, Fetcher(OSError("slow")), brief=True)
+
+    # Past its stale limit it must be fetched now, with no hold in the way.
+    assert store.get_or_fetch("k", 0, 0, Fetcher("new")) == "new"
