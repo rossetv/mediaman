@@ -140,10 +140,10 @@ def test_the_card_comes_in_and_its_parts_open_and_close() -> None:
     ]
     assert out["goesOn"] == []
     assert sorted(out["ends"]) == [
+        "collapse ep-toggle",
         "collapse progress-wrap",
         "collapseAway dl-hero-ep-summary",
         "collapseAway dl-hint",
-        "collapseAway ep-toggle",
         "reveal dl-result",
     ]
 
@@ -153,6 +153,31 @@ def test_what_closes_keeps_its_figures_and_gives_its_focus_to_the_heading() -> N
 
     assert "3 GB of 9 GB" in out["figures"]
     assert out["left"] == 0 and out["focus"] == "H1"
+
+
+@pytest.fixture(scope="module")
+def late() -> dict:
+    return _run("late")
+
+
+def test_a_ready_title_takes_no_more_answers(late: dict) -> None:
+    assert late["ready"] == {"closing": 1, "after": 1, "pill": "Ready", "bar": False, "said": 0}
+
+
+def test_an_answer_that_a_newer_one_overtook_is_not_drawn(late: dict) -> None:
+    assert late["overtaken"] == {"pct": "60%", "hint": "On its way"}
+
+
+def test_episodes_that_come_back_while_their_button_closes_stay(late: dict) -> None:
+    there = {"toggle": True, "rows": 1, "summary": True}
+
+    assert late["backClosed"] == {**there, "open": False}
+    assert late["backOpen"] == {**there, "open": True}
+
+
+def test_a_missing_episode_list_does_not_lose_the_rest_of_the_answer(late: dict) -> None:
+    assert late["noList"] == {"summary": "1 of 1 ready", "rows": 1}
+    assert late["noListReady"] == {"results": 1, "toggle": False}
 
 
 def test_the_links_are_a_finger_s_reach_on_any_touch_screen() -> None:

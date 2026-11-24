@@ -65,7 +65,8 @@ class El {
 const settle = () => new Promise((r) => setImmediate(r));
 
 // The page with its scripts not yet run. `boot` overrides what the server says of the title.
-function page(boot) {
+// `moving`: without reduced motion, parts close when endFolds() is called.
+function page(boot, moving) {
   El.focused = null;
   const root = new El('div');
   const doc = {
@@ -99,8 +100,11 @@ function page(boot) {
     setInterval: (fn) => { ctx.tick = fn; return 1; }, clearInterval() {}, MM: {},
   };
   ctx.window = ctx;
-  ctx.setTimeout = (fn) => fn();
-  ctx.matchMedia = () => ({ matches: true });
+  let folds = [];
+  p.endFolds = () => { const due = folds; folds = []; due.forEach((fn) => fn()); };
+  ctx.setTimeout = (fn) => (moving ? folds.push(fn) : fn());
+  ctx.matchMedia = () => ({ matches: !moving });
+  ctx.getComputedStyle = () => ({});
   ctx.MM.api = {
     get: () => Promise.resolve(p.payload),
     post: () => { p.posted += 1; return p.answer(); },
@@ -201,6 +205,80 @@ const SCENARIOS = {
     const ends = await poll({ state: 'ready', state_label: 'Ready', progress: 100, size_done: '', size_total: '' });
     return { enters, starts, goesOn, ends, left: p.wrapper.querySelectorAll('[data-v="ep-toggle"]').length,
       figures: p.wrapper.querySelector('.dl-hero-details').textContent, focus: El.focused.tagName };
+  },
+  // Answers that come while parts close, or after a newer one.
+  async late() {
+    const out = {};
+    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
+      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
+    const ready = { state: 'ready', state_label: 'Ready', progress: 100 };
+    const start = async () => {
+      const p = page({ media_type: 'tv', service: 'sonarr' }, true);
+      p.ctx.MM.api.APIError = class extends Error { constructor(status) { super(); this.status = status; } };
+      const hint = new El('div');
+      hint.className = 'dl-hint'; hint._text = 'On its way';
+      p.wrapper.appendChild(p.ctx.MM.downloads.buildDom.buildHero({ id: 'x', title: 'Show', media_type: 'tv', state: 'searching' }));
+      p.wrapper.appendChild(hint);
+      p.payload = running;
+      p.load('download.js');
+      await settle();
+      p.endFolds();
+      const asked = [];
+      p.ctx.MM.api.get = () => new Promise((resolve, reject) => asked.push({ resolve, reject }));
+      p.ask = () => { p.ctx.tick(); return asked[asked.length - 1]; };
+      p.answer = async (q, payload) => { q.resolve(payload); await settle(); };
+      p.pill = () => p.wrapper.querySelector('[data-v="pill"]').textContent;
+      p.results = () => p.wrapper.querySelectorAll('.dl-result').length;
+      p.part = (v) => p.wrapper.querySelector(`[data-v="${v}"]`);
+      return p;
+    };
+
+    let p = await start();
+    let first = p.ask(), second = p.ask(), third = p.ask(), fourth = p.ask();
+    await p.answer(first, ready);
+    await p.answer(second, ready);
+    const closing = p.results();
+    await p.answer(third, running);
+    fourth.reject(new p.ctx.MM.api.APIError(401));
+    await settle();
+    p.endFolds();
+    out.ready = { closing, after: p.results(), pill: p.pill(), bar: !p.part('progress-wrap').hidden,
+      said: p.wrapper.querySelectorAll('.dl-hint').length };
+
+    p = await start();
+    first = p.ask(); second = p.ask(); third = p.ask();
+    await p.answer(third, { ...running, progress: 60 });
+    await p.answer(first, running);
+    second.reject(new p.ctx.MM.api.APIError(401));
+    await settle();
+    out.overtaken = { pct: p.part('pct').textContent, hint: p.wrapper.querySelector('.dl-hint').textContent };
+
+    p = await start();
+    const press = () => { const target = p.part('ep-toggle'); if (target) p.wrapper.listeners.click.forEach((fn) => fn({ target })); };
+    const loseList = () => { const list = p.part('ep-list'); if (list) list.parentNode.removeChild(list); };
+    const back = async () => {
+      await p.answer(p.ask(), { state: 'searching', state_label: 'Searching', progress: 0 });
+      await p.answer(p.ask(), running);
+      p.endFolds();
+      const list = p.part('ep-list');
+      return { toggle: !!p.part('ep-toggle'), open: !!list && !list.hidden,
+        rows: list ? list.querySelectorAll('.dl-ep-row').length : 0, summary: !!p.wrapper.querySelector('.dl-hero-ep-summary') };
+    };
+    out.backClosed = await back();
+    p = await start();
+    press();
+    p.endFolds();
+    out.backOpen = await back();
+
+    p = await start();
+    loseList();
+    await p.answer(p.ask(), { ...running, episode_summary: '1 of 1 ready' });
+    out.noList = { summary: (p.wrapper.querySelector('.dl-hero-ep-summary') || {}).textContent, rows: p.wrapper.querySelectorAll('.dl-ep-row').length };
+    loseList();
+    await p.answer(p.ask(), ready);
+    p.endFolds();
+    out.noListReady = { results: p.results(), toggle: !!p.part('ep-toggle') };
+    return out;
   },
   async hint() {
     const p = page({ download_state: '', poll_token: '', notify_by_email: true });

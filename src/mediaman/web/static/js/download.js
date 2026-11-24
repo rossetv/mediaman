@@ -29,6 +29,8 @@
   var _notifyByEmail = boot.notify_by_email === true;
   var _pollInterval = null;
   var _pollStopped = false;
+  var _pollsSent = 0;
+  var _pollDrawn = 0;
 
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
@@ -170,12 +172,17 @@
     /* Use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
       + '&poll_token=' + encodeURIComponent(_pollToken);
+    var poll = ++_pollsSent;
+    /* One that a newer answer has overtaken, or that comes once the title is ready. */
+    function late() { return poll < _pollDrawn || _downloadState === 'ready'; }
     MM.api.get(url)
       .then(function(data) {
+        if (late()) return;
         /* The server hands out a replacement before the current poll token expires. */
         if (data.poll_token) _pollToken = data.poll_token;
         /* The service did not answer: what is drawn is the last it said. */
         if (data.state === 'unknown') return;
+        _pollDrawn = poll;
 
         /* Update the hero card in-place */
         var wrapper = document.getElementById('dl-hero-wrapper');
@@ -204,7 +211,7 @@
       })
       .catch(function(err) {
         /* Other failures are transient; the next tick retries. */
-        if (err instanceof MM.api.APIError && err.status === 401) {
+        if (err instanceof MM.api.APIError && err.status === 401 && !late()) {
           _pollStopped = true;
           _stopPolling();
           showReloadNotice();
@@ -232,25 +239,41 @@
     buildDom.updateEtaStat(wrapper, data.eta);
   }
 
-  /* The episodes button opens and closes like the card's other parts. */
+  /* The episodes button opens and closes like the card's other parts. Episodes that come
+     back while it closes open it again, with the list as the person left it. */
   function drawEpisodes(wrapper, data) {
     var buildDom = MM.downloads.buildDom;
     var toggle = wrapper.querySelector('[data-v="ep-toggle"]');
+    var list = wrapper.querySelector('[data-v="ep-list"]');
     if (toggle && !(data.episodes && data.episodes.length)) {
       var heading = wrapper.querySelector('h1');
       if (heading && document.activeElement === toggle) {
         heading.tabIndex = -1;
         heading.focus();
       }
-      buildDom.collapseAway(toggle);
-      var list = wrapper.querySelector('[data-v="ep-list"]');
-      if (list.hidden) list.parentNode.removeChild(list);
-      else buildDom.collapseAway(list);
+      if (list && !list.hidden) buildDom.collapseAway(list);
+      buildDom.collapse(toggle, function() {
+        removeNode(toggle);
+        removeNode(list);
+      });
       return;
     }
+    if (toggle && !list) {
+      removeNode(toggle);
+      toggle = null;
+    }
     buildDom.syncEpisodes(wrapper, data);
-    var drawn = wrapper.querySelector('[data-v="ep-toggle"]');
-    if (drawn && !toggle) buildDom.reveal(drawn);
+    if (!toggle) {
+      var drawn = wrapper.querySelector('[data-v="ep-toggle"]');
+      if (drawn) buildDom.reveal(drawn);
+    } else if (buildDom.isCollapsing(toggle)) {
+      buildDom.reveal(toggle);
+      if (toggle.getAttribute('aria-expanded') === 'true') buildDom.reveal(list);
+    }
+  }
+
+  function removeNode(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
   function showPart(el, shown) {
@@ -283,6 +306,7 @@
     }
     if (line) {
       MM.dom.setText(line, summary);
+      if (buildDom.isCollapsing(line)) buildDom.reveal(line);
       return;
     }
     line = document.createElement('div');
