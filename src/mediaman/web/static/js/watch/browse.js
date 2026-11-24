@@ -1,7 +1,7 @@
 /* Watch page: the Discover rows (Recommended for you, Trending this week,
  * Popular movies, Popular TV) that load after the page in place of their
  * skeleton, the badges on their posters, the menu of earlier picks and, for
- * admins, Refresh. Needs watch/core.js and watch/keep.js.
+ * admins, Refresh. Needs watch/core.js, watch/keep.js and watch/rows-load.js.
  */
 (function () {
   'use strict';
@@ -139,9 +139,13 @@
     return section;
   }
 
+  function cardsOf(items) {
+    return (items || []).map(card).filter(Boolean);
+  }
+
   /* The scrolling strip of cards, or null when none of *items* can be shown. */
   function strip(title, items) {
-    var cards = (items || []).map(card).filter(Boolean);
+    var cards = cardsOf(items);
     if (!cards.length) return null;
     var viewport = el('div', 'watch-row__viewport');
     var scroller = el('div', 'watch-row__scroll');
@@ -185,9 +189,19 @@
 
   /* ── Discover rows ── */
 
-  function discoverRow(id, title, items) {
+  /* The later pages of one TMDB row. */
+  function discoverPages(id) {
+    return function (page) {
+      return MM.api.get(DISCOVER_URL + '?row=' + id + '&page=' + page).then(function (data) {
+        return { cards: cardsOf(data.items), next: data.next_page };
+      });
+    };
+  }
+
+  function discoverRow(id, title, items, next) {
     var body = strip(title, items);
     if (!body) return null;
+    watch.rowsLoad.start(body, { title: title, next: next, fetchPage: discoverPages(id) });
     var section = rowSection(id, title);
     section.appendChild(body);
     return section;
@@ -208,7 +222,7 @@
       var titles = {};
       DISCOVER_ROWS.forEach(function (r) { titles[r[0]] = r[1]; });
       return (data.rows || []).map(function (row) {
-        return titles[row.id] ? discoverRow(row.id, titles[row.id], row.items) : null;
+        return titles[row.id] ? discoverRow(row.id, titles[row.id], row.items, row.next_page) : null;
       }).filter(Boolean);
     }, discoverFailed);
   }
@@ -247,6 +261,7 @@
 
   var isAdmin = false;
   var rec = null; // { section, tools, body, payload }
+  var recLoader = null;
   var picksMenu = null;
   var picksMenuNode = null;
   var cooldownTimer = null;
@@ -352,9 +367,29 @@
     return !refresh.available && refresh.next_available_at ? 'cooldown' : 'ready';
   }
 
+  /* The batches older than the one the row starts at. */
+  function olderPicks(start) {
+    return function (batch) {
+      return MM.api.get(RECOMMENDED_URL + '?batch=' + encodeURIComponent(batch) + '&start=' + encodeURIComponent(start))
+        .then(function (payload) {
+          return { cards: cardsOf(payload.items), next: payload.next_batch };
+        }, function (err) {
+          if (err && err.status === 404) return { cards: [], next: null }; // deleted meanwhile
+          throw err;
+        });
+    };
+  }
+
   function recBody(payload) {
+    if (recLoader) recLoader.stop();
+    recLoader = null;
     var body = payload.enabled ? strip(REC_TITLE, payload.items) : null;
-    if (body) return body;
+    if (body) {
+      recLoader = watch.rowsLoad.start(body, {
+        title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload.batch)
+      });
+      return body;
+    }
     if (!payload.enabled) {
       var link = el('a', 'watch-row__link', 'Turn them on in Settings');
       link.setAttribute('href', SETTINGS_HREF);

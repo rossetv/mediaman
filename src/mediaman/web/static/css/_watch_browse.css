@@ -157,3 +157,30 @@
 .watch-badge--queued { background: color-mix(in srgb, var(--warning) 90%, transparent); color: #2a2400; }
 .watch-badge--downloading { background: color-mix(in srgb, var(--accent) 92%, transparent); color: var(--color-on-accent); }
 @media (max-width: 599.98px) { .watch-badge--state { right: 6px; } }
+
+/* More of a row on its way: placeholders past its last card, each the size of a
+   card; or, when they did not come, a tile with Try again. */
+.watch-row__scroll > .watch-card--skel,
+.watch-row__more { scroll-snap-align: start; }
+.watch-row__scroll > .watch-card--skel .skel--line { font-size: 12px; margin-block: calc((1lh - 10px) / 2); }
+.watch-row__more {
+  flex: 0 0 var(--watch-card-w);
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  aspect-ratio: 2 / 3;
+  padding: 8px;
+  border: 1px dashed var(--hair-strong);
+  border-radius: var(--r-md);
+  color: var(--t2);
+  font-size: 13px;
+  text-align: center;
+}
+.watch-card.is-arriving { animation: card-arriving var(--dur) var(--ease-out) backwards; }
+@keyframes card-arriving { from { opacity: 0; } }
+
+/* A card far off the screen is not drawn until it comes near. */
+.watch-card[data-far] { content-visibility: auto; contain-intrinsic-height: calc(var(--watch-card-w) * 1.5); }

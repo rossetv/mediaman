@@ -37,24 +37,24 @@
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
   }
 
-  /* The cards of a poster row, or the pills of a season line. */
-  function cards(scroller) {
-    return scroller.querySelectorAll('.watch-card, .watch-pill');
+  /* The first card of a poster row, or pill of a season line. */
+  function firstCard(scroller) {
+    return scroller.querySelector('.watch-card, .watch-pill');
   }
 
   /* Distance from one card's start to the next. */
   function cardStep(scroller) {
-    var list = cards(scroller);
-    if (!list.length) return 0;
-    if (list.length > 1) return list[1].offsetLeft - list[0].offsetLeft;
-    return list[0].offsetWidth;
+    var first = firstCard(scroller);
+    if (!first) return 0;
+    var second = first.nextElementSibling;
+    return second ? second.offsetLeft - first.offsetLeft : first.offsetWidth;
   }
 
   /* How many whole cards fit side by side. */
   function cardsInView(scroller, step) {
     var style = getComputedStyle(scroller);
     var inner = scroller.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    var gap = step - cards(scroller)[0].offsetWidth;
+    var gap = step - firstCard(scroller).offsetWidth;
     return Math.max(1, Math.floor((inner + gap) / step));
   }
 
@@ -93,7 +93,14 @@
     var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
     var index = Math.round(from / step) + by;
     var max = scroller.scrollWidth - scroller.clientWidth;
+    if (by > 0 && scroller.scrollLeft >= max - EDGE_SLACK) askForMore(scroller);
     goTo(scroller, Math.max(0, Math.min(max, index * step)));
+  }
+
+  /* Forward from the very end: the row's loader (watch/rows-load.js) may have more. */
+  function askForMore(scroller) {
+    var loader = window.MMWatch && window.MMWatch.rowsLoad;
+    if (loader) loader.forward(scroller.parentNode);
   }
 
   function moveTo(scroller, left) {
@@ -110,7 +117,8 @@
   function refresh(viewport, scroller) {
     var max = scroller.scrollWidth - scroller.clientWidth;
     viewport.classList.toggle('has-prev', scroller.scrollLeft > EDGE_SLACK);
-    viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK);
+    // data-row-more: more cards will load past the last one.
+    viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK || viewport.hasAttribute('data-row-more'));
   }
 
   function arrow(direction, label) {
@@ -171,8 +179,9 @@
     });
     if ('ResizeObserver' in window) new ResizeObserver(schedule).observe(scroller);
     else window.addEventListener('resize', schedule);
-    // Keep takes cards out of a row.
+    // Keep takes cards out of a row, the loader adds them.
     new MutationObserver(schedule).observe(scroller, { childList: true });
+    new MutationObserver(schedule).observe(viewport, { attributes: true, attributeFilter: ['data-row-more'] });
     refresh(viewport, scroller);
   }
 

@@ -141,7 +141,205 @@ function badgeOf(doc, ref) {
   return text(link && link.querySelector('.watch-badge--state'));
 }
 
+const CARD_PX = 160;
+const VIEW_PX = 800;
+
+/* Give every row a layout: things 160px apart in an 800px view. */
+function layout() {
+  const define = (name, get) => Object.defineProperty(Node.prototype, name, { configurable: true, get });
+  define('clientWidth', () => VIEW_PX);
+  define('scrollWidth', function () { return Math.max(VIEW_PX, this.children.length * CARD_PX); });
+  define('offsetLeft', function () { return this.parentNode.children.indexOf(this) * CARD_PX; });
+  Node.prototype.scrollLeft = 0;
+  Node.prototype.scrollTo = function (o) { this.scrollLeft = o.left; };
+}
+
+function scrollerOf(p, id) { return p.doc.querySelector('[data-discover-row="' + id + '"] .watch-row__scroll'); }
+
+async function scroll(scroller, left) {
+  scroller.scrollLeft = left;
+  scroller.listeners.scroll.forEach((fn) => fn());
+  await settle();
+}
+
+function refsOf(scroller) { return scroller.querySelectorAll('.watch-card__link').map((a) => a.getAttribute('data-title-ref')); }
+
+function range(from, to) { return Array.from({ length: to - from }, (_, i) => from + i); }
+
+/* The page with one TMDB row, Popular movies, of *first* and the later *pages* by number: each
+   {items, next_page}, or a function returning a promise. */
+function loadPages(first, pages, extra = {}) {
+  layout();
+  const routes = { 'GET /api/watch/discover': () => Promise.resolve({ rows: [
+    { id: 'popular_movies', title: 'Popular movies', items: first, next_page: 2 }] }) };
+  Object.keys(pages).forEach((n) => {
+    const page = pages[n];
+    routes['GET /api/watch/discover?row=popular_movies&page=' + n] = () => (typeof page === 'function' ? page() : Promise.resolve(page));
+  });
+  return load({ ...extra, routes: { ...routes, ...extra.routes } });
+}
+
+function pageCalls(p) { return p.calls.filter((c) => /page=/.test(c)).map((c) => Number(/page=([0-9]+)/.exec(c)[1])); }
+
+const movies = (...ids) => ids.map((id) => card('tmdb-movie-' + id));
+
 const scenarios = {
+  // Pages shift (a title again), one is all repeats, one title is scanned meanwhile: none twice.
+  async pagesToTheEnd() {
+    const p = loadPages([...movies(1, 2), card('tmdb-movie-2')], {
+      2: { items: movies(2, 3), next_page: 3 },
+      3: { items: movies(1, 3), next_page: 4 },
+      4: { items: [card('movie-70', { title: 'Title tmdb-movie-3', in_library: true }), ...movies(4),
+        card('tmdb-movie-5', { title: 'Title tmdb-movie-4' })], next_page: null },
+    });
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    await scroll(scroller, 0);
+    await scroll(scroller, 0);
+    return { refs: refsOf(scroller), calls: pageCalls(p), things: scroller.children.length,
+      next: scroller.parentNode.classList.contains('has-next'), more: scroller.parentNode.hasAttribute('data-row-more') };
+  },
+
+  // While a page is on its way: one request, placeholders, and Next stays at the very end.
+  async pageOnItsWay() {
+    let answer;
+    const p = loadPages(movies(...range(0, 10)), { 2: () => new Promise((resolve) => { answer = resolve; }) });
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    const far = { calls: pageCalls(p).length };
+    for (const left of [100, 700, 800, 1760]) await scroll(scroller, left);
+    const waiting = { calls: pageCalls(p), things: scroller.children.length, busy: scroller.getAttribute('aria-busy'),
+      hidden: scroller.querySelectorAll('.watch-card--skel').every((n) => n.getAttribute('aria-hidden') === 'true'),
+      next: scroller.parentNode.classList.contains('has-next') };
+    const left = scroller.scrollLeft;
+    answer({ items: movies(...range(10, 30)), next_page: 3 });
+    await settle();
+    return { far, waiting, kept: scroller.scrollLeft === left, cards: refsOf(scroller).length, things: scroller.children.length,
+      busy: scroller.getAttribute('aria-busy') };
+  },
+
+  // A row with plenty left to scroll asks for nothing.
+  async pageNotNear() {
+    const p = loadPages(movies(...range(0, 40)), { 2: { items: [], next_page: null } });
+    await settle();
+    await scroll(scrollerOf(p, 'popular_movies'), 0);
+    return pageCalls(p);
+  },
+
+  // Repeats for ever: the row gives up and is finished.
+  async pagesOfRepeats() {
+    const pages = {};
+    range(2, 40).forEach((n) => { pages[n] = { items: movies(1), next_page: n + 1 }; });
+    const p = loadPages(movies(1), pages);
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    await scroll(scroller, 0);
+    for (let i = 0; i < 10; i++) await settle();
+    return { calls: pageCalls(p).length, things: scroller.children.length, more: scroller.parentNode.hasAttribute('data-row-more') };
+  },
+
+  // A page that fails: Try again at the end of the row, by its button and by Next.
+  async pageFailed() {
+    let fail = true;
+    const p = loadPages(movies(1), {
+      2: () => (fail ? Promise.reject(apiError(502, {})) : Promise.resolve({ items: movies(1, 2, 3), next_page: 3 })),
+      3: () => Promise.reject(apiError(502, {})),
+    });
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    await scroll(scroller, 0);
+    await scroll(scroller, 10);
+    const tile = () => scroller.querySelector('.watch-row__more');
+    const failed = { calls: pageCalls(p), things: scroller.children.length, text: text(tile()), toasts: p.toasts.length,
+      next: scroller.parentNode.classList.contains('has-next') };
+    const button = tile().querySelector('button');
+    button.focus();
+    button.listeners.click.forEach((fn) => { fn(); fn(); }); // pressed twice
+    await settle();
+    const still = { calls: pageCalls(p), toasts: p.toasts.map((t) => t.message), busy: button.getAttribute('aria-busy'),
+      focus: p.doc.activeElement === button };
+    fail = false;
+    scroller.scrollLeft = scroller.scrollWidth - VIEW_PX;
+    scroller.parentNode.querySelector('.watch-row__arrow--next').listeners.click.forEach((fn) => fn());
+    await settle();
+    return { failed, still, refs: refsOf(scroller), calls: pageCalls(p),
+      focus: p.doc.activeElement.getAttribute('data-title-ref'), tiles: scroller.querySelectorAll('.watch-row__more').length };
+  },
+
+  // Asked too often: it waits longer each time, says nothing, and after a while offers Try again.
+  async pageTooMany() {
+    const p = loadPages(movies(1), { 2: () => Promise.reject(apiError(429, {})) });
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    await scroll(scroller, 0);
+    const quiet = { tile: !!scroller.querySelector('.watch-row__more'), skel: scroller.querySelectorAll('.watch-card--skel').length };
+    await scroll(scroller, 5);
+    const calls = pageCalls(p).length;
+    const waits = [];
+    while (p.timers.length) {
+      waits.push(p.timers[0].ms);
+      await tick(p);
+    }
+    return { quiet, calls, waits, total: pageCalls(p).length, tile: !!scroller.querySelector('.watch-row__more'), toasts: p.toasts.length };
+  },
+
+  // Posters far off lose their picture and get it back near; the cards stay.
+  async farPosters() {
+    const p = loadPages(movies(...range(0, 100)), { 2: { items: [], next_page: null } });
+    await settle();
+    const scroller = scrollerOf(p, 'popular_movies');
+    const src = (i) => scroller.querySelectorAll('.watch-card')[i].querySelector('img').getAttribute('src');
+    await scroll(scroller, 0);
+    const atStart = [src(0), src(99)];
+    await scroll(scroller, 99 * CARD_PX - VIEW_PX);
+    const atEnd = [src(0), src(98)];
+    await scroll(scroller, 0);
+    return { atStart, atEnd, back: src(0), cards: scroller.querySelectorAll('.watch-card').length };
+  },
+
+  // The picks go on to older batches from the one the row starts at, then from the one chosen.
+  async olderPicks() {
+    layout();
+    const older = (batch, start) => 'GET /api/watch/recommended?batch=' + batch + '&start=' + start;
+    const p = load({ batches: [...BATCHES, { id: '2026-11-07', label: 'Two weeks ago', date_label: '7 Nov' }], routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
+      [older('2026-11-14', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9'), card('rec-10', { title: 'Title rec-7' })] }), next_batch: '2026-11-07' }),
+      [older('2026-11-07', '2026-11-21')]: () => Promise.reject(apiError(404, {})),
+      [older('2026-11-07', '2026-11-14')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-11')] }), next_batch: null }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    const first = { refs: refsOf(scrollerOf(p, 'recommended')), more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
+    click(p.doc, rec(p.doc).querySelector('[data-picks-menu]'));
+    click(p.doc, p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item')[1]);
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return { first, chosen: refsOf(scrollerOf(p, 'recommended')), pill: text(rec(p.doc).querySelector('[data-picks-menu]')) };
+  },
+
+  // New picks arrive while an older batch is on its way: the row starts again without it.
+  async refreshedWhileLoading() {
+    layout();
+    let answer;
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-30')] }), next_batch: null }),
+      'GET /api/watch/recommended?batch=2026-11-14&start=2026-11-21': () => new Promise((resolve) => { answer = resolve; }),
+    } });
+    await settle();
+    const old = scrollerOf(p, 'recommended');
+    await scroll(old, 0);
+    click(p.doc, rec(p.doc).querySelector('[data-picks-menu]'));
+    click(p.doc, p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item')[1]);
+    await settle();
+    answer({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: null });
+    await settle();
+    return { old: refsOf(old), now: refsOf(scrollerOf(p, 'recommended')) };
+  },
+
   // Try again, pressed with the keyboard, works: the focus goes to the row it was pressed in. The
   // row it replaces fades out inert, which takes the focus from the button in it.
   async focusAfterRetry() {

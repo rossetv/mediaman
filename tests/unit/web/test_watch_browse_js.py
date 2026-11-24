@@ -180,5 +180,84 @@ def test_a_season_line_of_pills_pages_by_the_keys_and_the_arrow() -> None:
     assert _run("seasonLine") == {"hasNext": True, "afterKey": 100, "afterArrow": 500}
 
 
+def test_a_row_loads_page_after_page_to_the_last_and_never_shows_a_title_twice() -> None:
+    out = _run("pagesToTheEnd")
+    assert out["calls"] == [2, 3, 4]
+    # Two titles of one name are two titles when their TMDB ids differ.
+    assert out["refs"] == [f"tmdb-movie-{n}" for n in range(1, 6)]
+    assert (out["things"], out["more"], out["next"]) == (5, False, False)
+
+
+def test_one_page_is_asked_for_at_a_time_with_placeholders_and_next_still_shown() -> None:
+    out = _run("pageOnItsWay")
+    assert out["far"] == {"calls": 0}
+    assert out["waiting"] == {
+        "calls": [2],
+        "things": 16,
+        "busy": "true",
+        "hidden": True,
+        "next": True,
+    }
+    assert (out["kept"], out["cards"], out["things"], out["busy"]) == (True, 30, 30, None)
+
+
+def test_a_row_with_plenty_left_to_scroll_asks_for_nothing() -> None:
+    assert _run("pageNotNear") == []
+
+
+def test_pages_of_nothing_but_repeats_end_the_row_instead_of_looping() -> None:
+    assert _run("pagesOfRepeats") == {"calls": 8, "things": 1, "more": False}
+
+
+def test_a_page_that_fails_offers_try_again_and_waits_for_it() -> None:
+    out = _run("pageFailed")
+    assert out["failed"] == {
+        "calls": [2],
+        "things": 2,
+        "text": "Couldn\u2019t load more.Try again",
+        "toasts": 0,
+        "next": True,
+    }
+    assert out["still"]["calls"] == [2, 2]
+    assert len(out["still"]["toasts"]) == 1
+    assert (out["still"]["busy"], out["still"]["focus"]) == ("false", True)
+
+
+def test_next_at_the_end_tries_a_failed_page_again_and_focus_goes_on_to_the_new_cards() -> None:
+    out = _run("pageFailed")
+    assert out["refs"] == ["tmdb-movie-1", "tmdb-movie-2", "tmdb-movie-3"]
+    assert out["calls"] == [2, 2, 2, 3]
+    assert out["focus"] == "tmdb-movie-2"
+    assert out["tiles"] == 1
+
+
+def test_a_row_asked_too_often_waits_longer_each_time_then_offers_try_again() -> None:
+    out = _run("pageTooMany")
+    assert out["quiet"] == {"tile": False, "skel": 6}
+    assert out["calls"] == 1
+    assert out["waits"] == sorted(out["waits"]) and len(out["waits"]) == 5
+    assert (out["total"], out["tile"], out["toasts"]) == (6, True, 0)
+
+
+def test_posters_far_off_the_screen_are_unloaded_and_come_back() -> None:
+    out = _run("farPosters")
+    poster = "/api/watch/img/tmdb/w342/a.jpg"
+    assert out["atStart"] == [poster, None]
+    assert out["atEnd"] == [None, poster]
+    assert (out["back"], out["cards"]) == (poster, 100)
+
+
+def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> None:
+    out = _run("olderPicks")
+    # rec-10 is rec-7 again; the batch after it is gone, so the row ends.
+    assert out["first"] == {"refs": ["rec-7", "rec-8", "rec-9"], "more": False}
+    assert out["chosen"] == ["rec-9", "rec-11"]
+    assert "14 Nov" in out["pill"]
+
+
+def test_an_older_batch_on_its_way_when_the_row_starts_again_is_not_added() -> None:
+    assert _run("refreshedWhileLoading") == {"old": ["rec-7", "rec-8"], "now": ["rec-30"]}
+
+
 def test_focus_moves_into_the_row_that_try_again_brought_back() -> None:
     assert _run("focusAfterRetry") == {"discover": "popular_tv", "recommended": "recommended"}
