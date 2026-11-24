@@ -281,3 +281,7 @@ def test_a_preview_past_the_windows_edge_gives_the_page_no_sideways_scroll() -> 
     assert _run("layer") == ["pv-layer", True]
     assert "position: absolute" in _rule(".pv-layer")
     assert "overflow-x: clip" in _rule(".pv-layer")
+
+
+def test_the_trailers_frame_takes_no_press_so_the_focus_and_the_mouse_stay_the_pages() -> None:
+    assert "pointer-events: none" in _rule(".pv__frame")

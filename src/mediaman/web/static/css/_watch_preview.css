@@ -73,7 +73,7 @@
 .pv__standin { overflow: hidden; background: var(--s1); }
 .pv__blur { filter: blur(24px) brightness(.6); transform: scale(1.2); }
 .pv__whole { inset: 14px 0; height: calc(100% - 28px); object-fit: contain; }
-.pv__frame { opacity: 0; background: var(--scrim); transition: opacity .1s linear; }
+.pv__frame { opacity: 0; pointer-events: none; background: var(--scrim); transition: opacity .1s linear; }
 .pv.is-playing .pv__frame { opacity: 1; transition: opacity var(--dur-slow) var(--ease-out); }
 
 /* Words */
