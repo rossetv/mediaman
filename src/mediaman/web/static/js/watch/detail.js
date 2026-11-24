@@ -234,7 +234,8 @@
       data: null,
       facts: null,
       factsError: null,  // 'failed', or 'unknown' for a title no scan has seen
-      keepId: null,
+      keepIds: {},         // what has been offered to keep while it is open
+      cardKeep: keepOnCard(opts.origin), // the season its card is of, by what keeps it
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
       pick: null,          // why it is a pick, once known: { reason, because }
       onPick: null,
@@ -503,7 +504,6 @@
   function arrive(c, data) {
     c.data = data;
     c.title = data.title || c.title;
-    if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
     learn(c.ref, data);
     takeDownload(c.ref, data.download, true);
     settleHero();
@@ -573,7 +573,6 @@
       }
       var same = quiet && JSON.stringify(data) === JSON.stringify(c.data);
       c.data = data;
-      if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
       if (!same) renderContent(false);
       if (hasFacts(c)) loadFacts(c);
     }).catch(function () {});
@@ -879,9 +878,31 @@
     restoreFocus(key);
   }
 
-  function leavingText(days) {
-    if (days <= 0) return 'Leaving today.';
-    return 'Leaving in ' + plural(days, 'day', 'days') + '.';
+  function keepOnCard(origin) {
+    var card = origin && origin.closest && origin.closest('.watch-card');
+    return (card && card.getAttribute('data-keep-id')) || '';
+  }
+
+  /* What of the title leaves, and a Keep here keeps: of a show the season the person
+     picked, else the one on the card it was opened from, else the first that goes.
+     Never another season than the one asked about. */
+  function leavingNow() {
+    var d = cur.data;
+    var found = d.leaving;
+    if (d.kind !== 'movie') {
+      found = (d.leaving_seasons || []).filter(function (s) {
+        if (cur.picked) return s.season === cur.season;
+        return !cur.cardKeep || String(s.keep_id) === cur.cardKeep;
+      })[0];
+    }
+    if (!found || !found.keep_id) return null;
+    cur.keepIds[found.keep_id] = true;
+    return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
+  }
+
+  function leavingText(leaves) {
+    return (leaves.season === null ? 'Leaving ' : 'Season ' + leaves.season + ' leaves ') +
+      (leaves.days <= 0 ? 'today' : 'in ' + plural(leaves.days, 'day', 'days')) + '.';
   }
 
   function ratingsRow(d) {
@@ -944,10 +965,11 @@
     } else if (!d.in_library || cur.justAdded) {
       downloadPart(actions, under);
     }
-    if (d.leaving && cur.keepId) {
+    var leaves = leavingNow();
+    if (leaves) {
       var line = el('p', 'ttl__leaving');
       line.appendChild(icon('i-clock'));
-      line.appendChild(document.createTextNode(leavingText(d.leaving.days) + ' Keep it to stop the deletion.'));
+      line.appendChild(document.createTextNode(leavingText(leaves) + ' Keep it to stop the deletion.'));
       under.appendChild(line);
     }
     var trailer = trailerButton(d);
@@ -1031,14 +1053,15 @@
      an admin keeps from the facts panel. */
   function keepButton(d) {
     var api = window.MMWatch.admin;
-    if (!d.keep_allowed || !cur.keepId || (isAdmin && api && api.keep)) return null;
+    var leaves = leavingNow();
+    if (!d.keep_allowed || !leaves || (isAdmin && api && api.keep)) return null;
     var b = el('button', 'btn watch-btn--keep');
     b.type = 'button';
-    b.setAttribute('data-watch-keep', cur.keepId);
+    b.setAttribute('data-watch-keep', leaves.id);
     b.setAttribute('data-ttl-act', 'keep');
     b.setAttribute('aria-haspopup', 'menu');
     b.setAttribute('aria-expanded', 'false');
-    b.setAttribute('aria-label', 'Keep ' + (d.title || cur.title));
+    b.setAttribute('aria-label', 'Keep ' + (d.title || cur.title) + (leaves.season === null ? '' : ', Season ' + leaves.season));
     b.appendChild(el('span', '', 'Keep'));
     b.appendChild(icon('i-chevron-down', 'watch-keep__chev'));
     return b;
@@ -1843,14 +1866,17 @@
     get(apiUrl(c.ref) + '/season/' + encodeURIComponent(s.number)).then(function (data) {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
+      var leftOn = leavingNow();
       c.season = s.number;
       c.picked = data.episodes || [];
+      var leaves = leavingNow();
       s.key = data.key;
       s.watched = data.watched;
       var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
       var sec = body.querySelector('.ttl__seasonsec');
       holdStill(sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec, function () {
         sec.querySelector('.watch-episodes').replaceWith(fresh);
+        if ((leftOn && leftOn.id) !== (leaves && leaves.id)) redrawActions(c.ref);
         var oldMark = sec.querySelector('.ttl__season-mark');
         var mark = seasonMark(s);
         if (oldMark && mark) oldMark.replaceWith(mark);
@@ -2076,10 +2102,10 @@
 
   if (typeof MutationObserver === 'function') {
     new MutationObserver(function (records) {
-      if (!isOpen || !cur || !cur.keepId) return;
+      if (!isOpen || !cur) return;
       var settled = records.some(function (r) {
         var t = r.target;
-        return t.getAttribute('data-watch-keep') === cur.keepId &&
+        return cur.keepIds[t.getAttribute('data-watch-keep')] &&
           r.oldValue === 'true' && t.getAttribute('aria-busy') === 'false';
       });
       if (settled) refresh();

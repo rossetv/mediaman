@@ -62,7 +62,7 @@ function base(over) {
     tagline: null, overview: 'A survey crew maps a drifting station.', backdrop_url: '/api/watch/img/tmdb/w1280/a.jpg',
     poster_url: null, director: null, ratings: { imdb: '7.9', rt: '88%', tmdb: 7.7, metascore: null },
     cast: [{ name: 'Mara Ellison', character: 'Ines', profile_url: null }], trailer_key: null, reason: null,
-    play: null, leaving: null, keep_allowed: false, seasons: [], episodes: [], download: null, tmdb_configured: true,
+    play: null, leaving: null, keep_allowed: false, leaving_seasons: [], seasons: [], episodes: [], download: null, tmdb_configured: true,
   }, over);
 }
 
@@ -98,7 +98,7 @@ const LIB_SHOW = base({
   seasons: [{ number: 1, name: 'Season 1', episode_count: 2, in_library: true, selected: false },
     { number: 2, name: 'Season 2', episode_count: 2, in_library: true, selected: true }],
   episodes: [{ number: 1, title: 'Two One', minutes: 50, thumb_url: '/api/watch/thumb/21', state: 'watched', progress_pct: null, minutes_left: null, href: '/watch/play/21' }],
-  keep_allowed: true, leaving: { days: 3, keep_id: '3010' },
+  keep_allowed: true, leaving: { days: 3, keep_id: '3010', season: 1 }, leaving_seasons: [{ days: 3, keep_id: '3010', season: 1 }],
 });
 
 const LIB_MOVIE = base({
@@ -1870,6 +1870,44 @@ const scenarios = {
       await settle();
       out[how] = [was, look()];
     }
+    return out;
+  },
+
+  // Two seasons of a show leave: what Details offers to keep, opened from each one's card, from
+  // neither, from a card of one that no longer leaves, and once a season is picked.
+  async leavingSeasons() {
+    const leaving = [{ days: 2, keep_id: '3030', season: 3 }, { days: 9, keep_id: '3020', season: 2 }];
+    const seasons = [1, 2, 3].map((n) => ({ number: n, name: 'Season ' + n, episode_count: 2, in_library: true, selected: n === 1 }));
+    const show = Object.assign({}, LIB_SHOW, { leaving: leaving[0], leaving_seasons: leaving, seasons });
+    const eps = (n) => ({ ok: true, episodes: [{ number: 1, title: 'E' + n, minutes: 45, thumb_url: null, state: 'none', href: '/watch/play/1' + n }] });
+    const open = async (keepId) => {
+      const p = load({ routes: { '/api/watch/title/show-300': show, '/api/watch/title/show-300/season/2': eps(2), '/api/watch/title/show-300/season/1': eps(1) } });
+      p.run();
+      p.doc.querySelectorAll('.watch-card')[1].setAttribute('data-keep-id', keepId);
+      await openCard(p, 'show-300');
+      return p;
+    };
+    const look = (p) => {
+      const b = p.q('.watch-btn--keep');
+      return [b && b.getAttribute('data-watch-keep'), b && b.getAttribute('aria-label'), p.text('.ttl__leaving')];
+    };
+    const out = { second: look(await open('3020')), third: look(await open('3030')), plain: look(await open('')), gone: look(await open('3010')) };
+    const p = await open('3030');
+    const pick = async (n) => {
+      p.q('.watch-pill[data-season="' + n + '"]').focus();
+      click(p.doc, p.q('.watch-pill[data-season="' + n + '"]'));
+      await settle();
+    };
+    await pick(2);
+    out.picked = look(p);
+    out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+    await pick(1);
+    out.pickedOther = look(p);
+    const film = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE } });
+    film.run();
+    film.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    out.film = look(film);
     return out;
   },
 };

@@ -858,3 +858,34 @@ def test_a_persons_card_goes_with_the_title_it_stands_on() -> None:
     out = _run("cardOfAPersonGoes")
     assert out["title"] == [True, False]
     assert out["closed"] == [True, False]
+
+
+SECOND = ["3020", "Keep Brightwater, Season 2", "Season 2 leaves in 9 days."]
+THIRD = ["3030", "Keep Brightwater, Season 3", "Season 3 leaves in 2 days."]
+
+
+def _keeps(shown: list) -> list:
+    return shown[:2] + [shown[2] and shown[2].split(" Keep")[0]]
+
+
+def test_a_title_opened_from_a_leaving_season_keeps_that_season_and_no_other() -> None:
+    out = _run("leavingSeasons")
+    assert _keeps(out["second"]) == SECOND
+    assert _keeps(out["third"]) == THIRD
+    assert out["gone"] == [None, None, None]
+
+
+def test_a_title_opened_otherwise_names_the_season_it_keeps() -> None:
+    assert _keeps(_run("leavingSeasons")["plain"]) == THIRD
+
+
+def test_the_season_picked_in_the_list_is_the_one_kept() -> None:
+    out = _run("leavingSeasons")
+    assert _keeps(out["picked"]) == SECOND
+    assert out["focus"] == "pill-2"
+    assert out["pickedOther"] == [None, None, None]
+
+
+def test_a_films_keep_names_no_season() -> None:
+    out = _run("leavingSeasons")
+    assert _keeps(out["film"]) == ["120", "Keep Glass Harbour", "Leaving in 3 days."]
