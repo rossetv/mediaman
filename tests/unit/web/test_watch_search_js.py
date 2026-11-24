@@ -307,7 +307,7 @@ def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins()
     assert out["set"][0] == [1, 2, True]
     assert out["said"] == "Top rated movies · 7 titles"  # not the late answer's 9
     assert out["pressed"] == ["Movies", "Top rated", "Anywhere"]
-    # After a failure the grid asks for that page itself, and says what is wrong.
+    # After a failure the grid says what is wrong, without asking once more.
     assert out["failed"] == [0, 1, False]
     assert out["again"] == 4
 
@@ -643,3 +643,24 @@ def test_only_words_that_fit_stand_in_the_empty_field() -> None:
         label,
         label,
     ]
+
+
+def test_a_category_or_person_refused_for_now_says_so_and_is_asked_for_again() -> None:
+    out = _run("tooMany")
+    soon = "Too many requests, trying again shortly."
+    for page in (out["genre=action"], out["person=9001"]):
+        assert page["first"] == [soon, [5000], 1]
+        assert page["second"] == [soon, [10000], 2, 1]
+        assert page["pressed"] == [[], 3]
+        assert page["done"] == [None, [], 1, 0]
+        assert page["focus"] == "watch-card__link"  # the button that had it is gone
+        assert page["left"] == []
+    assert out["ended"] == ["Too many requests. Try again in a while.", []]
+    assert out["times"] == 6
+
+
+def test_a_filter_whose_titles_could_not_be_had_is_asked_for_once() -> None:
+    out = _run("tooMany")
+    assert out["filter"] == ["Too many requests, trying again shortly.", 2, [5000]]
+    assert out["changed"] == []
+    assert out["broken"] == ["Couldn’t load the titles.", 3, []]

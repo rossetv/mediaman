@@ -22,6 +22,10 @@
   var OWN = { q: null, view: null, all: null, page: null, per_page: null, genre: null, type: null, sort: null, where: null, decade: null, person: null };
   var NO_FIT = { title: 'Nothing fits these choices', text: 'Widen one of them to see more.' };
   var ALIAS_CHARS = 4;
+  var FAILED = 'Couldn’t load the titles.';
+  var TOO_MANY = 'Too many requests, trying again shortly.';
+  var TOO_MANY_STILL = 'Too many requests. Try again in a while.';
+  var WAITS_MS = [5000, 10000, 20000, 40000, 60000];
   var SVG = 'http://www.w3.org/2000/svg';
 
   /* Lines on a 24 by 24 square, by category. */
@@ -183,7 +187,7 @@
 
   /* ── The page ── */
 
-  var open = null; // what is open: { kind, id, list }
+  var open = null; // what is open: { kind, id, host, list, turn, timer }
 
   function stage() { return watch.search.stage; }
 
@@ -235,8 +239,67 @@
   }
 
   function drop() {
-    if (open) open.list.stop();
+    if (open) {
+      clearTimeout(open.timer);
+      open.list.stop();
+    }
     open = null;
+  }
+
+  /* A grid's *fetchPage*, for a first page that may be refused for now: the grid
+     alone would show placeholders for minutes. Its failure line says why instead,
+     and the page is asked for again by itself. *err*: what came of asking. */
+  function patient(mine, fetchPage, err) {
+    var waits = 0;
+
+    function first() {
+      clearTimeout(mine.timer);
+      mine.turn++;
+      var got = err ? Promise.reject(err) : fetchPage(1);
+      err = null;
+      return got;
+    }
+
+    function now(turn) { return open === mine && mine.turn === turn; }
+
+    function say(text) {
+      var line = mine.list.tail.querySelector('.grid-fail span');
+      if (line) line.textContent = text;
+    }
+
+    function wait() {
+      var ms = WAITS_MS[waits++];
+      say(ms ? TOO_MANY : TOO_MANY_STILL);
+      if (ms) mine.timer = setTimeout(again, ms);
+    }
+
+    function again() {
+      var got = first();
+      var turn = mine.turn;
+      got.then(function (page) {
+        if (!now(turn)) return;
+        var held = mine.list.tail.contains(document.activeElement);
+        mine.list.set({ cards: page.cards, next: page.next, fetchPage: fetchPage }, { move: false });
+        var card = held && mine.host.querySelector('.watch-card__link');
+        if (card) card.focus({ preventScroll: true });
+      }, function (e) {
+        if (!now(turn)) return;
+        if (e && e.status === 429) wait();
+        else say(FAILED);
+      });
+    }
+
+    return function (page) {
+      if (page !== 1) return fetchPage(page);
+      var got = first();
+      var turn = mine.turn;
+      return got.catch(function (e) {
+        if (!e || e.status !== 429) throw e;
+        // Once the grid has its line up.
+        setTimeout(function () { if (now(turn)) wait(); });
+        throw new Error(TOO_MANY);
+      });
+    };
   }
 
   function frame() {
@@ -308,13 +371,12 @@
     var f = frame();
     var known = genre(want.id);
     var name = nameOf(want.id);
-    var mine = { kind: 'genre', id: want.id };
+    var mine = { kind: 'genre', id: want.id, host: f.host, turn: 0, timer: null };
     var filter = { id: want.id, type: want.type, sort: want.sort, where: want.where, decade: want.decade };
     var bars = {};
     var say = speaker();
     var gathering = null; // the line that says so
     var drawn = false; // whether what may move is on the page
-    var asked = 0;
     f.title.textContent = name;
 
     function facts(total) {
@@ -437,18 +499,20 @@
     }
 
     function load() {
-      var turn = ++asked;
+      clearTimeout(mine.timer);
+      var turn = ++mine.turn;
       var of = Object.assign({}, filter);
       var fetchPage = pages(of);
       mine.list.busy(true);
       fetchPage(1).then(function (got) {
-        if (open !== mine || turn !== asked) return;
+        if (open !== mine || turn !== mine.turn) return;
         heldOnly(of);
         mine.list.set({ cards: got.cards, next: got.next, fetchPage: fetchPage }, { move: true });
-      }, function () {
-        if (open !== mine || turn !== asked) return;
-        // The grid asks again, and says what is wrong and how to go on.
-        mine.list.set({ cards: [], next: 1, fetchPage: fetchPage }, { move: false });
+      }, function (err) {
+        if (open !== mine || turn !== mine.turn) return;
+        heldOnly(of);
+        // The grid is told when it asks, and says how to go on.
+        mine.list.set({ cards: [], next: 1, fetchPage: patient(mine, fetchPage, err) }, { move: false });
       });
     }
 
@@ -474,7 +538,7 @@
     stage().rise(filters, 80);
     open = mine;
     mine.list = watch.grid.list(f.host, {
-      title: name, cards: [], next: 1, fetchPage: pages(Object.assign({}, filter)), empty: NO_FIT, say: say.grid
+      title: name, cards: [], next: 1, fetchPage: patient(mine, pages(Object.assign({}, filter))), empty: NO_FIT, say: say.grid
     });
     f.title.focus({ preventScroll: true });
     if (arrived) settleWhere(held.library || { ready: false });
@@ -554,7 +618,7 @@
     drop();
     var f = frame();
     var id = String(who.person_id);
-    var mine = { kind: 'person', id: id };
+    var mine = { kind: 'person', id: id, host: f.host, turn: 0, timer: null };
     var photo = stage().face(who.profile_url, who.name);
     var heads = {};
     var say = speaker();
@@ -619,6 +683,10 @@
       say.next();
       return personPage(id, page).then(function (reply) {
         if (open === mine && page === 1) learn(reply);
+        if (page === 1) {
+          heads = {};
+          shown.clear();
+        }
         var cards = [];
         (reply.items || []).forEach(function (item) {
           if (shown.has(item.ref)) return;
@@ -647,7 +715,7 @@
     stage().rise(f.text, 60);
     open = mine;
     mine.list = watch.grid.list(f.host, {
-      title: who.name || 'Person', cards: [], next: 1, fetchPage: fetchPage,
+      title: who.name || 'Person', cards: [], next: 1, fetchPage: patient(mine, fetchPage),
       empty: { title: 'Nothing to show yet' }, say: say.grid
     });
     f.title.focus({ preventScroll: true });

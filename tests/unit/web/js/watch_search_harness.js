@@ -116,12 +116,35 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
   ctx.MMWatch.grid = {
     list(host, opts) {
-      const g = { opts, set: [], stopped: false, busy: 0, titles: [] };
-      const add = (got) => { g.titles = got.cards.map((c) => c.textContent); g.next = got.next; };
-      opts.fetchPage(opts.next).then(add, () => { g.failed = true; });
+      const g = { opts, set: [], stopped: false, busy: 0, titles: [], tail: doc.createElement('div') };
+      const cards = host.appendChild(doc.createElement('div'));
+      const add = (got) => {
+        g.titles = got.cards.map((c) => c.textContent);
+        g.next = got.next;
+        g.tail.textContent = cards.textContent = '';
+        got.cards.forEach((c) => cards.appendChild(c));
+      };
+      // As the grid's loader does: it shows a failure and its Try again, but one for being asked too much only a placeholder.
+      const load = () => opts.fetchPage(1).then(add, (err) => {
+        g.failed = err.status || true;
+        if (err.status === 429 || g.tail.children.length) return;
+        const again = doc.createElement('button');
+        again.className = 'grid-fail__retry';
+        again.addEventListener('click', load);
+        g.tail.appendChild(build(doc, ['div', { class: 'grid-fail' }, ['span', {}, 'Couldn’t load the titles.']])).appendChild(again);
+      });
+      host.appendChild(g.tail);
+      load();
       grids.push(g);
       return {
-        set: (content, how) => { g.set.push([content.cards.length, content.next, how.move]); if (content.cards.length) add(content); },
+        tail: g.tail,
+        set: (content, how) => {
+          g.set.push([content.cards.length, content.next, how.move]);
+          if (content.cards.length) { add(content); return; }
+          g.tail.textContent = '';
+          opts = { ...opts, fetchPage: content.fetchPage };
+          load();
+        },
         busy: () => { g.busy++; },
         stop: () => { g.stopped = true; },
       };
@@ -803,7 +826,7 @@ const scenarios = {
     out.set = p.grids[0].set;
     out.said = said();
     out.pressed = p.doc.querySelectorAll('.explore-seg__item').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
-    // A failure leaves the asking to the grid, which says so and offers to try again.
+    // A failure is the grid's to show, with its way to try again.
     choose('newest');
     p.calls[3].reject(new Error('502'));
     await settle();
@@ -1466,6 +1489,55 @@ const scenarios = {
       delete Node.prototype.clientWidth;
       delete Node.prototype.scrollWidth;
     }
+    return out;
+  },
+
+  // TMDB is asked too much: said at once, asked again by itself or by a press, and never twice for one answer.
+  async tooMany() {
+    const busy = () => Object.assign(new Error('429'), { status: 429 });
+    const out = {};
+    const says = (p) => { const n = p.doc.querySelector('.grid-fail span'); return n && n.textContent; };
+    const waits = (p) => p.timers.filter((t) => t.on).map((t) => t.ms);
+    const last = async (p, err) => { p.calls[p.calls.length - 1].reject(err); await settle(); };
+    const reply = { tmdb_configured: true, genre: GENRES[0], person: MARA, items: [TM, { ...TM, ref: 'tmdb-movie-10' }], total: 2, in_library: 0, next_page: null };
+    for (const at of ['genre=action', 'person=9001']) {
+      const p = await ready(ADMIN, '', '/watch?' + at);
+      await last(p, busy());
+      const got = out[at] = { first: [says(p), waits(p), p.calls.length] };
+      p.wait();
+      await last(p, busy());
+      got.second = [says(p), waits(p), p.calls.length, p.grids.length];
+      // Pressed while it waits: asked once.
+      const again = p.doc.querySelector('.grid-fail__retry');
+      again.focus();
+      click(p.doc, again);
+      got.pressed = [waits(p), p.calls.length];
+      await last(p, busy());
+      p.wait();
+      p.calls[p.calls.length - 1].resolve(reply);
+      await settle();
+      got.done = [says(p), waits(p), p.grids[0].set.length, p.doc.querySelectorAll('.is-unknown').length];
+      got.focus = p.doc.activeElement.className;
+      // Left while it waits: not asked for any more.
+      const left = await ready(ADMIN, '', '/watch?' + at);
+      await last(left, busy());
+      left.type('o');
+      got.left = waits(left).filter((ms) => ms !== 200);
+    }
+    const f = await ready(ADMIN, '', '/watch?genre=action');
+    await f.answer('explore?genre=action', reply);
+    const choose = (v) => click(f.doc, f.doc.querySelectorAll('.explore-seg__item').filter((b) => b.getAttribute('data-value') === v)[0]);
+    choose('movie');
+    await last(f, busy());
+    out.filter = [says(f), f.calls.length, waits(f)];
+    choose('tv');
+    out.changed = waits(f);
+    await last(f, new Error('502'));
+    out.broken = [says(f), f.calls.length, waits(f)];
+    // It ends some time.
+    const e = await ready(ADMIN, '', '/watch?genre=action');
+    for (let i = 0; i < 6; i++) { await last(e, busy()); out.ended = [says(e), waits(e)]; e.wait(); await settle(); }
+    out.times = e.calls.length;
     return out;
   },
 };
