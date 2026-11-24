@@ -2,6 +2,7 @@
    control is a link or a form, so it works without the page script, which
    swaps the parts marked data-list-part in place instead. #}
 {% import "_components.html" as c %}
+{% import "_watch_card.html" as w %}
 {% set type_nouns = {"": "titles", "movie": "movies", "tv": "TV shows", "anime": "anime", "kept": "kept titles", "stale": "stale titles"} %}
 <div class="wl" data-list-root data-q="{{ q }}" data-type="{{ current_type }}" data-sort="{{ current_sort }}" data-page="{{ page }}" data-per-page="{{ per_page }}">
 
@@ -81,7 +82,11 @@
               </div>
             </td>
             <td class="title-cell">
-              {% if item.ref %}<a class="wl-title" href="/watch#title={{ item.ref }}" data-title-ref="{{ item.ref }}">{{ item.title }}</a>{% else %}<span class="wl-title">{{ item.title }}</span>{% endif %}
+              <div class="wl-titleline">
+                {% if item.ref %}<a class="wl-title" href="/watch#title={{ item.ref }}" data-title-ref="{{ item.ref }}">{{ item.title }}</a>{% else %}<span class="wl-title">{{ item.title }}</span>{% endif %}
+                {# The admin's own mark; Last watched counts everybody's plays. #}
+                {% if item.ref %}{% set kind, key = item.ref.split("-") %}{{ w.mark_toggle(kind, key, item.watched, item.title) }}{% endif %}
+              </div>
               <div class="sub">
                 {{ item.subtitle }}
                 {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}

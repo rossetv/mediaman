@@ -1,4 +1,4 @@
-// Runs the Watch page's browse scripts (core, keep, rows-load, browse, watch-rows) against the fake DOM and
+// Runs the Watch page's browse scripts (core, keep, search, rows-load, browse, watch-rows) against the fake DOM and
 // prints the outcome of one scenario as JSON. Usage: node watch_browse_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -114,7 +114,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/rows-load.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
   return { ctx, doc, toasts, timers, calls, routes, replaced, scrolls };
 }
@@ -692,6 +692,17 @@ const scenarios = {
     const press = (dir) => { viewport.querySelector('.watch-row__arrow--' + dir).listeners.click.forEach((fn) => fn()); return scroller.scrollLeft; };
     const key = (k) => { scroller.listeners.keydown.forEach((fn) => fn({ key: k, target: scroller, preventDefault() {} })); return scroller.scrollLeft; };
     return { arrows: [press('next'), press('next'), press('next'), press('prev'), press('prev')], keys: [key('ArrowRight'), key('ArrowRight'), key('ArrowLeft')] };
+  },
+
+  // Discover cards carry a mark and More only for a title the library holds, whatever the server sends.
+  async discoverMarks() {
+    const p = load({ routes: { 'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [
+      card('movie-11', { in_library: true, mark_kind: 'movie', mark_key: '11', watched: true }),
+      card('tmdb-movie-2', { mark_kind: null, mark_key: null, watched: false }),
+      card('tmdb-movie-3', { mark_kind: 'movie', mark_key: '1/../x', watched: true })] }] }) } });
+    await settle();
+    return scrollerOf(p, 'trending').querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
+      c.querySelectorAll('[data-watch-more]').length, !!c.querySelector('.watch-card__link [data-watch-more]')]);
   },
 
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.

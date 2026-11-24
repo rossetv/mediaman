@@ -99,6 +99,7 @@
     var kind = item.kind === 'movie' ? 'Movie' : 'TV';
     link.appendChild(el('span', 'watch-card__sub', typeof item.year === 'number' ? kind + ' · ' + item.year : kind));
     article.appendChild(link);
+    core.addMarks(article, poster, item);
     return article;
   }
 

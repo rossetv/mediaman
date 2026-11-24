@@ -508,8 +508,20 @@
 .watch-badge__short { display: none; }
 /* Opaque and darkened so white text holds 4.5:1 over any poster. */
 .watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); font-weight: 600; }
-.watch-badge--watched { right: 8px; background: color-mix(in srgb, var(--scrim) 65%, transparent); color: color-mix(in srgb, var(--t1) 85%, transparent); }
-.watch-badge--leaving ~ .watch-badge--watched { top: 32px; }
+/* Already watched: an eye, never the tick that says In library. Under another badge, which can be as wide as the poster. */
+.watch-badge--watched {
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--scrim) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--t1) 28%, transparent);
+  font-size: 13px;
+}
+.watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
 @media (max-width: 1279.98px) {
   .watch-badge__long { display: none; }
   .watch-badge__short { display: inline; }
@@ -519,8 +531,93 @@
   .watch-card__poster { --card-pad: 8px; }
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); }
   .watch-badge--leaving { left: 6px; }
-  .watch-badge--watched { right: 6px; }
+  .watch-badge--watched { right: 6px; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; }
 }
+
+/* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
+   percentage is of the card's width, so it finds the poster's foot at every size. */
+.watch-card { position: relative; }
+.watch-card[data-mark] .watch-card__sub { padding-right: 26px; min-height: 1lh; }
+.watch-more {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -8px;
+  margin-top: calc(150% - 8px);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--t3);
+  font-size: 14px;
+  transition: color var(--dur-fast) var(--ease-out);
+  isolation: isolate;
+}
+.watch-more::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--s4);
+  opacity: 0;
+  transform: scale(.85);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-more:hover,
+.watch-more[aria-expanded="true"] { color: var(--t1); }
+.watch-more:hover::before,
+.watch-more[aria-expanded="true"]::before { opacity: 1; transform: none; }
+.watch-more:active::before { opacity: 1; transform: scale(.92); }
+.watch-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; color: var(--t1); }
+.watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
+.watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
+.watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
+
+/* A toggle of the person's own mark: an empty ring, filled once watched, with the word beside it
+   where there is room. */
+.watch-mark {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 44px;
+  height: 44px;
+  color: var(--t3);
+  font-size: 15px;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.watch-mark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hair-strong);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-mark__word { font-size: 12px; font-weight: 600; }
+.watch-mark:not([aria-pressed="true"]) .watch-mark__word { display: none; }
+.watch-mark[aria-pressed="true"] { padding-inline: 18px; color: var(--t1); }
+.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 16%, transparent); border-color: transparent; }
+.watch-mark:hover { color: var(--t1); }
+.watch-mark:hover::before { border-color: var(--hair-hover); }
+.watch-mark:active::before { transform: scale(.94); }
+.watch-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-pill); }
+.watch-mark[aria-busy="true"],
+.watch-mark-btn[aria-busy="true"] { opacity: .55; cursor: progress; }
+
+/* A button toggle: both its labels share one cell, so its width never changes. */
+.watch-mark-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
+.watch-mark-btn > .ico { flex: none; font-size: 16px; }
+.watch-mark-btn__faces { display: grid; }
+.watch-mark-btn__faces > * { grid-area: 1 / 1; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-mark-btn[aria-pressed="true"] .watch-mark-btn__off,
+.watch-mark-btn:not([aria-pressed="true"]) .watch-mark-btn__on { opacity: 0; visibility: hidden; }
+.watch-mark-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--t1) 24%, transparent); }
 
 /* Keep trigger. The pill is drawn by ::before so the button itself can be a
    44px touch target on a phone without the pill looking bulky. */
@@ -710,8 +807,17 @@
 .watch-pill:hover { background: color-mix(in srgb, var(--t1) 20%, transparent); }
 .watch-pill.on { background: var(--t1); color: var(--bg); font-weight: 600; }
 
-.watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 8px var(--pad) 0; max-width: 1100px; }
+.watch-episodes { padding: 8px var(--pad) 0; max-width: 1100px; }
 @media (min-width: 900px) { .watch-episodes { margin-left: 260px; } }
+.watch-episodes__list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.watch-episodes__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; padding-inline: 16px; }
+.watch-episodes__title { font-size: 19px; font-weight: 600; margin-right: auto; }
+.watch-episodes__head .btn { min-height: 44px; padding-inline: 18px; font-size: 14px; }
+/* The toggle stands beside the link, in a column that has room for it either way. */
+.watch-eprow { display: grid; grid-template-columns: minmax(0, 1fr) 116px; align-items: center; border-radius: var(--r-md); transition: background-color var(--dur-fast) var(--ease-out); }
+.watch-eprow > .watch-mark { justify-self: end; }
+.watch-eprow:has(> .watch-ep:hover),
+.watch-eprow:has(> .watch-ep--in-progress) { background: var(--s1); }
 .watch-ep {
   display: grid;
   grid-template-columns: 24px 176px minmax(0, 1fr) auto;
@@ -722,8 +828,6 @@
   border-radius: var(--r-md);
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.watch-ep:hover { background: var(--s1); }
-.watch-ep--in-progress { background: var(--s1); }
 .watch-ep__num { grid-area: num; font-size: 18px; color: var(--t3); text-align: right; }
 .watch-ep__thumb {
   grid-area: thumb;
@@ -795,6 +899,12 @@
   }
   .watch-ep__num { font-size: 14px; padding-top: 2px; }
   .watch-ep__state { justify-self: start; align-self: end; }
+  /* The eye alone beside an episode: its filled ring says it. */
+  .watch-episodes__head { padding-inline: 8px; }
+  .watch-eprow { grid-template-columns: minmax(0, 1fr) 44px; gap: 0; }
+  .watch-eprow .watch-mark__word { display: none; }
+  .watch-eprow .watch-mark[aria-pressed="true"] { padding: 0; }
+  .watch-eprow .watch-mark::before { inset: 4px; }
 }
 
 /* A phone held sideways: a shorter banner that leaves its buttons on screen. */
@@ -829,6 +939,10 @@
 /* The system's colours: no picture behind the text, and a bar whose value still shows. */
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
+  .watch-badge--watched { background: Canvas; border-color: CanvasText; }
+  .watch-mark[aria-pressed="true"]::before { content: none; }
+  .watch-mark[aria-pressed="true"],
+  .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border-radius: var(--r-pill); }
   progress.watch-bar,
   .watch-card__poster > .watch-bar,
   .watch-ep__thumb > .watch-bar { forced-color-adjust: none; height: 6px; border: 1px solid CanvasText; background: Canvas; }
@@ -873,6 +987,8 @@
   .watch-ep:active,
   .watch-search__clear:active,
   .watch-keep:active,
+  .watch-more::before,
+  .watch-mark:active::before,
   .watch-btn--play:active,
   .watch-btn--grey:active { transform: none; }
 }

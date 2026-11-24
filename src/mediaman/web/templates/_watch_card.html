@@ -1,6 +1,7 @@
 {# Shared pieces of the Watch pages. Import with:
        {% import "_watch_card.html" as w %}
-   watch/browse.js and watch/search.js build the same card markup; keep them in step. #}
+   watch/browse.js and watch/search.js build the same card markup, and watch/core.js
+   the same marks; keep them in step. #}
 {% from "_components.html" import icon %}
 
 {% macro dur(minutes) -%}
@@ -61,12 +62,27 @@
   {%- endif -%}
 {%- endmacro %}
 
+{# The person's own Watched mark, on a poster. Its toggle is in the card's More menu. #}
+{% macro watched_badge() -%}
+<span class="watch-badge watch-badge--watched">{{ icon("i-eye") }}<span class="sr-only">Watched</span></span>
+{%- endmacro %}
+
+{# An episode's or List row's toggle: the eye, and the word once watched. #}
+{% macro mark_toggle(kind, key, watched, name) -%}
+<button type="button" class="watch-mark" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="Mark {{ name }} as watched" title="Mark as {{ 'not ' if watched else '' }}watched">{{ icon("i-eye") }}<span class="watch-mark__word">Watched</span></button>
+{%- endmacro %}
+
+{# A button toggle: both its labels are laid out, so its width never changes. #}
+{% macro mark_button(kind, key, watched, name, label="Mark as watched", class="btn btn--lg watch-btn--grey") -%}
+<button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}">{{ icon("i-eye") }}<span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ label }}</span><span class="watch-mark-btn__on">Watched</span></span></button>
+{%- endmacro %}
+
 {# One poster card; *keep* adds the Keep button (the Leaving soon row only, so
    the other rows' cards keep one height). A successful Keep removes the card
    from the Leaving soon row and the badge from any other card with the same
    keep id. #}
 {% macro card(item, keep=false) -%}
-<article class="watch-card" data-keep-id="{{ item.keep_id or '' }}">
+<article class="watch-card" data-keep-id="{{ item.keep_id or '' }}"{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}>
   {% set ref = title_ref(item) %}
   <a class="watch-card__link" href="{{ item.href }}"{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">
@@ -74,11 +90,12 @@
       <span class="watch-card__title">{{ item.title }}</span>
       {% if item.leaving_days is not none %}{{ leaving_badge(item.leaving_days) }}{% endif %}
       {{ state_badge(item) }}
-      {% if item.watched %}<span class="watch-badge watch-badge--watched">Watched</span>{% endif %}
+      {% if item.watched %}{{ watched_badge() }}{% endif %}
       {% if item.progress_pct %}<progress class="watch-bar" max="100" value="{{ item.progress_pct }}" aria-hidden="true"></progress>{% endif %}
     </span>
     <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and not (item.subtitle or '').endswith(' left') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
   </a>
+  {% if item.mark_key %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
   {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title) }}{% endif %}
 </article>
 {%- endmacro %}

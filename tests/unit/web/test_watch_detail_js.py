@@ -719,3 +719,37 @@ def test_a_title_scanned_while_its_trailer_plays_is_not_opened_again_by_back() -
         "again": 0,
     }
     assert (out["closed"], out["end"]) == (True, "")
+
+
+def test_a_library_show_has_a_toggle_for_itself_its_season_and_each_episode() -> None:
+    out = _run("marks")
+    assert out["opened"] == [
+        ["show/300", "false", None],
+        ["season/302", "false", "show-300"],
+        ["episode/21", "false", "show-300"],
+    ]
+    assert out["picked"][1:] == [
+        ["season/301", "false", "show-300"],
+        ["episode/11", "false", "show-300"],
+    ]
+    # A button inside a link is neither.
+    assert out["inLink"] == 0
+
+
+def test_a_title_outside_the_library_has_no_toggle() -> None:
+    assert _run("marks")["outside"] == 0
+
+
+def test_a_mark_loads_the_title_again_with_the_season_on_show_and_keeps_the_focus() -> None:
+    out = _run("marks")
+    assert out["otherTitle"] == 0
+    after = out["after"]
+    assert [t[:2] for t in after["toggles"]] == [
+        ["show/300", "false"],
+        ["season/301", "true"],
+        ["episode/11", "true"],
+    ]
+    assert (after["play"], after["episode"]) == ("Play S1 · E2", "Ep 11, watched")
+    assert after["tab"] == "Season 1, watched"
+    assert after["focus"] == "episode/11"
+    assert after["painted"] == [["show/300", False]]

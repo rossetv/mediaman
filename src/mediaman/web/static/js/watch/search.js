@@ -45,13 +45,16 @@
     return days === 1 ? '1 day left' : days + ' days left';
   }
 
-  function buildCard(item) {
+  /* A library title's card; its link carries the ref: it is what takes focus
+     back when the detail closes. */
+  function libraryCard(item) {
     var card = el('article', 'watch-card');
     card.setAttribute('data-keep-id', item.keep_id || '');
 
-    // The link carries the ref: it is what takes focus back when the detail closes.
     var link = el('a', 'watch-card__link');
-    if (item.ref) link.setAttribute('data-title-ref', item.ref);
+    var at = /^\/watch\/(movie|show)\/([0-9]+)(\?|$)/.exec(item.href || '');
+    var ref = item.ref || (at ? at[1] + '-' + at[2] : '');
+    if (ref) link.setAttribute('data-title-ref', ref);
     link.href = safePath(item.href) || '/watch';
     var poster = el('span', 'watch-card__poster');
     var posterUrl = safePath(item.poster_url);
@@ -70,7 +73,6 @@
       badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
       poster.appendChild(badge);
     }
-    if (item.watched) poster.appendChild(el('span', 'watch-badge watch-badge--watched', 'Watched'));
     if (item.progress_pct) {
       var bar = el('progress', 'watch-bar');
       bar.max = 100;
@@ -86,7 +88,13 @@
     }
     link.appendChild(el('span', 'watch-card__sub', sub));
     card.appendChild(link);
+    core.addMarks(card, poster, item);
+    return card;
+  }
 
+  /* A search result also has its Keep. */
+  function buildCard(item) {
+    var card = libraryCard(item);
     // Only a title that is leaving comes with a keep id, and the server checks it again.
     if (item.keep_id) {
       var btn = el('button', 'watch-keep');
@@ -623,5 +631,5 @@
     }
   }
 
-  window.MMWatch.search = { init: initSearch };
+  window.MMWatch.search = { init: initSearch, card: libraryCard };
 })();

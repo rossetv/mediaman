@@ -55,6 +55,13 @@
 .wl-table td.wl-act { white-space: nowrap; }
 .wl-title { color: inherit; text-decoration: none; }
 .wl-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+/* The admin's own mark, beside the title: the eye alone. */
+.wl-titleline { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.wl-titleline > .wl-title { min-width: 0; overflow-wrap: anywhere; }
+.wl-titleline > .watch-mark { margin-block: -10px; font-size: 13px; }
+.wl-titleline .watch-mark__word { display: none; }
+.wl-titleline .watch-mark[aria-pressed="true"] { padding: 0; }
+.wl-titleline > .watch-mark::before { inset: 8px; }
 .wl-sub-watched { display: none; }
 .wl-row--kept { background: rgba(48,209,88,.04); }
 

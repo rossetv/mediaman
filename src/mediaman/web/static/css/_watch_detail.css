@@ -399,10 +399,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 /* ── Episodes and cast ── */
 
-.ttl .watch-episodes { padding: 0; margin-left: 0; max-width: none; }
-.ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; margin-inline: -12px; }
-.ttl .watch-ep:hover { background: var(--s2); }
-.ttl .watch-ep--in-progress { background: var(--s2); }
+.ttl .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0; margin-left: 0; max-width: none; }
+.ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; }
+.ttl .watch-eprow { margin-inline: -12px; }
+.ttl .watch-eprow:has(> .watch-ep:hover),
+.ttl .watch-eprow:has(> .watch-ep--in-progress) { background: var(--s2); }
 /* The seasons stand on one line that scrolls to the sheet's edges, as the rows do to the screen's. */
 .ttl-seasons { --pad: 32px; margin: 0 calc(-1 * var(--pad)) 8px; }
 .ttl .watch-seasons { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
@@ -411,7 +412,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl-seasons > .watch-row__arrow { top: 12px; width: 32px; height: 32px; font-size: 13px; }
 .ttl-seasons > .watch-row__arrow--prev { left: 2px; }
 .ttl-seasons > .watch-row__arrow--next { right: 2px; }
-.ttl__seasonsec .ttl__sec-title { margin-bottom: 12px; }
+.ttl__sec-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
+.ttl__sec-head > .ttl__sec-title { margin: 0 auto 0 0; }
+.ttl__season-mark { min-height: 44px; padding-inline: 18px; font-size: 14px; }
+.ttl__season-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ttl__error + .watch-episodes { margin-top: 10px; }
 
 .ttl-cast { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 12px; }
@@ -459,7 +463,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions .btn,
   .ttl__actions .dl-state { width: 100%; padding-inline: 12px; }
   .ttl__actions .skel--pill { width: auto !important; }
-  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; margin-inline: -8px; padding: 10px 8px; }
+  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; padding: 10px 8px; }
+  .ttl .watch-eprow { margin-inline: -8px; }
   .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
   .ttl .watch-ep__state { justify-self: start; align-self: end; }
   .ttl-seasons { --pad: 20px; }

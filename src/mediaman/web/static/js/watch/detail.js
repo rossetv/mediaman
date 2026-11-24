@@ -235,6 +235,7 @@
       movedAt: 0,
       checkedAt: 0,
       openedAs: ref,     // a title scanned meanwhile goes on under its library ref
+      marksAsked: 0,
       ctrl: null,
       seq: ++seq
     };
@@ -263,10 +264,10 @@
     return kind === 'movie' || kind === 'show' ? kind : '';
   }
 
-  /* Where focus goes from a title the address opened, which no card did. */
+  /* Where focus goes from a title no card opened, or whose card has gone. */
   function cardOf(ref) {
     return toArray(document.querySelectorAll('[data-title-ref]')).filter(function (n) {
-      return n.getAttribute('data-title-ref') === ref && n.getClientRects().length;
+      return n.getAttribute('data-title-ref') === ref && n.getClientRects().length && !n.closest('.is-leaving');
     })[0];
   }
 
@@ -313,7 +314,7 @@
       lockPage(false);
     });
     var to = origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
-      : cur && (cur.fallback || (!origin && cardOf(cur.ref)));
+      : cur && (cur.fallback || cardOf(cur.ref));
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }
@@ -830,6 +831,8 @@
     }
     var trailer = trailerButton(d);
     if (trailer) actions.appendChild(trailer);
+    var mark = titleMark(d);
+    if (mark) actions.appendChild(mark);
     var keep = keepButton(d);
     if (keep) actions.appendChild(keep);
     var share = shareButton();
@@ -846,6 +849,56 @@
     a.appendChild(document.createTextNode(play.label || 'Play'));
     return a;
   }
+
+  /* ── Watched marks: watch/marks.js works them, then says so. ── */
+
+  function markRef() { return cur.data.library_ref || cur.ref; }
+
+  function titleMark(d) {
+    var mark = core.markOf(d);
+    if (!mark) return null;
+    var b = core.markButton('btn btn--lg watch-btn--grey', mark, d.watched, d.title || cur.title,
+      d.kind === 'movie' ? 'Mark as watched' : 'Mark show as watched');
+    b.setAttribute('data-ttl-act', 'mark');
+    return b;
+  }
+
+  function seasonMark(s) {
+    var mark = s && core.markOf({ mark_kind: 'season', mark_key: s.key });
+    if (!mark) return null;
+    var b = core.markButton('btn watch-btn--grey ttl__season-mark', mark, s.watched, seasonName(s), 'Mark season as watched');
+    b.setAttribute('data-mark-ref', markRef());
+    b.setAttribute('data-ttl-act', 'mark-season');
+    return b;
+  }
+
+  function episodeMark(e) {
+    var mark = core.markOf({ mark_kind: 'episode', mark_key: e.key });
+    if (!mark) return null;
+    var b = core.markToggle(mark, e.watched, e.title || 'Episode ' + e.number);
+    b.setAttribute('data-mark-ref', markRef());
+    b.setAttribute('data-ttl-act', 'mark-' + e.key);
+    return b;
+  }
+
+  /* A mark changes what Play plays and what the seasons and episodes say. */
+  function reloadMarks(c) {
+    var asked = ++c.marksAsked;
+    var season = c.picked ? c.season : null;
+    Promise.all([get(apiUrl(c.ref)), season === null ? null : get(apiUrl(c.ref) + '/season/' + encodeURIComponent(season))])
+      .then(function (got) {
+        if (c !== cur || !isOpen || asked !== c.marksAsked) return;
+        if (!got[0].reason && c.reason) got[0].reason = c.reason;
+        c.data = got[0];
+        if (got[1] && c.picked && c.season === season) c.picked = got[1].episodes || [];
+        renderContent(false);
+        if (core.markOf(c.data)) window.MMWatch.marks.paint(core.markOf(c.data), c.data.watched);
+      }).catch(function () {});
+  }
+
+  document.addEventListener('mm:watch-marked', function (e) {
+    if (isOpen && cur && cur.data && e.detail.ref === markRef()) reloadMarks(cur);
+  });
 
   function note(text, iconName, iconClass) {
     var p = el('p', 'ttl__note');
@@ -1526,7 +1579,7 @@
   /* ── Seasons and episodes (library shows) ── */
 
   function episodeRow(e) {
-    var li = el('li');
+    var li = el('li', 'watch-eprow');
     var a = el('a', 'watch-ep' + (e.state === 'in_progress' ? ' watch-ep--in-progress' : ''));
     a.setAttribute('href', safePath(e.href) || '#');
     a.appendChild(el('span', 'watch-ep__num', String(e.number)));
@@ -1549,15 +1602,18 @@
     }
     a.appendChild(thumb);
     var text = el('span', 'watch-ep__text');
-    text.appendChild(el('span', 'watch-ep__title', e.title || 'Episode ' + e.number));
+    var title = el('span', 'watch-ep__title', e.title || 'Episode ' + e.number);
+    if (e.watched) title.appendChild(el('span', 'sr-only', ', watched'));
+    text.appendChild(title);
     var meta = [];
     if (e.minutes) meta.push(dur(e.minutes));
     if (e.state === 'in_progress' && e.minutes_left) meta.push(dur(e.minutes_left) + ' left');
     text.appendChild(el('span', 'watch-ep__meta', meta.join(' · ')));
     a.appendChild(text);
-    if (e.state === 'watched') a.appendChild(el('span', 'watch-ep__state', 'Watched'));
-    else if (e.state === 'in_progress') a.appendChild(el('span', 'watch-ep__state watch-ep__state--active', 'In progress'));
+    if (e.state === 'in_progress') a.appendChild(el('span', 'watch-ep__state watch-ep__state--active', 'In progress'));
     li.appendChild(a);
+    var mark = episodeMark(e);
+    if (mark) li.appendChild(mark);
     return li;
   }
 
@@ -1572,7 +1628,9 @@
 
   function episodesSection(d) {
     var sec = el('section', 'ttl__seasonsec');
-    sec.appendChild(el('h3', 'ttl__sec-title', 'Episodes'));
+    var head = el('div', 'ttl__sec-head');
+    head.appendChild(el('h3', 'ttl__sec-title', 'Episodes'));
+    sec.appendChild(head);
     function numbered(n) { return d.seasons.filter(function (s) { return s.number === n; })[0]; }
     var shown = cur.picked && numbered(cur.season);
     if (!shown) {
@@ -1581,6 +1639,8 @@
       cur.picked = null;
     }
     if (cur.seasonLoading && !numbered(cur.seasonLoading.number)) cur.seasonLoading = null;
+    var mark = seasonMark(shown);
+    if (mark) head.appendChild(mark);
     var pressed = cur.seasonLoading ? cur.seasonLoading.number : cur.season;
     if (d.seasons.length > 1) {
       var nav = el('div', 'watch-seasons');
@@ -1593,6 +1653,10 @@
         pill.classList.toggle('on', on);
         pill.setAttribute('aria-pressed', on ? 'true' : 'false');
         pill.setAttribute('data-season', String(s.number));
+        if (s.watched) {
+          pill.setAttribute('aria-label', seasonName(s) + ', watched');
+          pill.appendChild(icon('i-eye', 'watch-pill__mark'));
+        }
         pill.setAttribute('data-ttl-act', 'pill-' + s.number);
         pill.addEventListener('click', function () { pickSeason(s); });
         nav.appendChild(pill);
@@ -1666,10 +1730,15 @@
       c.seasonLoading = null;
       c.season = s.number;
       c.picked = data.episodes || [];
+      s.key = data.key;
+      s.watched = data.watched;
       var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
       var sec = body.querySelector('.ttl__seasonsec');
       holdStill(sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec, function () {
         sec.querySelector('.watch-episodes').replaceWith(fresh);
+        var oldMark = sec.querySelector('.ttl__season-mark');
+        var mark = seasonMark(s);
+        if (oldMark && mark) oldMark.replaceWith(mark);
       });
       core.fadeIn(fresh);
     }).catch(function () {
@@ -1986,6 +2055,7 @@
   /* A toast goes with the press of its button, and would take the focus too. */
   document.addEventListener('click', function (e) {
     if (!isOpen || !e.target.closest || !e.target.closest('.ui-toast__action')) return;
+    if (root.contains(document.activeElement)) return; // the action has moved it already
     var to = root.querySelector('[data-ttl-act="admin-keep"]') || root.querySelector('[data-ttl-act="keep"]') ||
       root.querySelector('[data-ttl-part="actions"] > *') || titleEl;
     to.focus({ preventScroll: true });

@@ -68,11 +68,26 @@ def _show_ctx(**over: object) -> dict:
             "meta_line": "TV · 2021",
             "summary": "A town.",
             "poster_url": "",
+            "watched": False,
+            "mark_kind": "show",
+            "mark_key": "300",
         },
         "primary": {"label": "Resume S2 · E4", "href": "/watch/play/9?resume=1"},
         "seasons": [
-            {"number": 1, "href": "/watch/show/s?season=1", "selected": False},
-            {"number": 2, "href": "/watch/show/s?season=2", "selected": True},
+            {
+                "number": 1,
+                "key": "301",
+                "watched": True,
+                "href": "/watch/show/s?season=1",
+                "selected": False,
+            },
+            {
+                "number": 2,
+                "key": "302",
+                "watched": False,
+                "href": "/watch/show/s?season=2",
+                "selected": True,
+            },
         ],
         "leaving": None,
         "episodes": [
@@ -81,7 +96,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Spring Tide",
                 "minutes": 52,
                 "thumb_url": "/api/watch/thumb/1",
+                "key": "1",
                 "state": "watched",
+                "watched": True,
                 "progress_pct": None,
                 "minutes_left": None,
                 "href": "/watch/play/1",
@@ -91,7 +108,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Low Water",
                 "minutes": 50,
                 "thumb_url": None,
+                "key": "2",
                 "state": "in_progress",
+                "watched": False,
                 "progress_pct": 38,
                 "minutes_left": 31,
                 "href": "/watch/play/2",
@@ -101,7 +120,9 @@ def _show_ctx(**over: object) -> dict:
                 "title": "Maydays",
                 "minutes": 47,
                 "thumb_url": None,
+                "key": "3",
                 "state": "none",
+                "watched": False,
                 "progress_pct": None,
                 "minutes_left": None,
                 "href": "/watch/play/3",
@@ -122,6 +143,9 @@ def _movie_ctx(**over: object) -> dict:
             "minutes": 89,
             "summary": "A film.",
             "poster_url": "",
+            "watched": True,
+            "mark_kind": "movie",
+            "mark_key": "5",
         },
         "primary": {"label": "Resume (31 min left)", "href": "/watch/play/5?resume=1"},
         "leaving": None,
@@ -868,3 +892,126 @@ def test_the_hint_under_an_empty_search_is_centred_though_the_spare_grid_sits_be
     body = _declarations_of("_watch_search.css", ".watch-results__msg--empty ~ .results-hint")
 
     assert "margin: 12px auto 0" in body and "justify-content: center" in body
+
+
+class _Tree(HTMLParser):
+    """Every element's tag and attributes, each with the tags it stands in."""
+
+    def __init__(self, html: str) -> None:
+        super().__init__()
+        self.found: list[tuple[str, dict, list[str]]] = []
+        self._open: list[str] = []
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        self.found.append((tag, dict(attrs), list(self._open)))
+        if tag not in ("img", "input", "br", "hr", "meta", "link", "use", "path"):
+            self._open.append(tag)
+
+    def handle_endtag(self, tag):
+        if tag in self._open:
+            while self._open.pop() != tag:
+                pass
+
+    def having(self, attr: str) -> list[dict]:
+        return [a for _tag, a, _in in self.found if attr in a]
+
+
+def _marked(**over: object) -> dict:
+    return _card(mark_kind="movie", mark_key="1", dismiss_ref=None, **over)
+
+
+_BANNER = {
+    "kicker": "Continue watching",
+    "title": "Salt & Iron",
+    "ref": "movie-1",
+    "line": "31 min left",
+    "progress_pct": 40,
+    "primary": {"label": "Resume", "href": "/watch/play/1"},
+    "episodes_href": None,
+    "backdrop_url": None,
+    "dismiss_ref": "movie-1",
+}
+
+
+def test_a_card_has_one_more_button_named_after_it_only_when_it_can_be_marked() -> None:
+    tree = _Tree(_watch(rows=[{"title": "Movies", "items": [_marked(), _card()]}]))
+    [more] = tree.having("data-watch-more")
+    assert (more["aria-label"], more["aria-haspopup"]) == ("More for Brightwater", "menu")
+    assert [c.get("data-mark") for c in tree.having("data-keep-id")] == ["movie/1", None]
+
+
+def test_a_watched_poster_says_so_in_words_and_not_with_the_tick_of_in_library() -> None:
+    html = _watch(rows=[{"title": "Movies", "items": [_marked(watched=True)]}])
+    badge = re.search(r'<span class="watch-badge watch-badge--watched">(.*?)</span></span>', html)
+    assert badge
+    assert '<span class="sr-only">Watched' in badge.group(1)
+    assert "#i-eye" in badge.group(1) and "#i-check" not in badge.group(1)
+
+
+def test_dismiss_is_offered_by_a_continue_watching_card_and_its_banner_alone() -> None:
+    item = {**_marked(), "dismiss_ref": "movie-1"}
+    rows = [{"title": "Continue watching", "items": [item]}]
+    tree = _Tree(_watch(banner=_BANNER, rows=rows))
+    assert [a["data-dismiss-ref"] for a in tree.having("data-dismiss-ref")] == ["movie-1"] * 2
+    [button] = tree.having("data-watch-dismiss")
+    assert button["aria-label"] == "Dismiss Salt & Iron from Continue watching"
+
+    other = _Tree(
+        _watch(
+            banner={**_BANNER, "dismiss_ref": None},
+            rows=[{"title": "Movies", "items": [_marked()]}],
+        )
+    )
+    assert not other.having("data-dismiss-ref") and not other.having("data-watch-dismiss")
+
+
+def test_the_pages_toggles_say_what_is_watched_and_what_a_press_does() -> None:
+    def toggles(html: str) -> list[tuple]:
+        return [
+            (a["data-mark-toggle"], a["aria-pressed"], a["aria-label"])
+            for a in _Tree(html).having("data-mark-toggle")
+        ]
+
+    assert toggles(_render("watch_movie.html", **_movie_ctx())) == [
+        ("movie/5", "true", "Mark as watched")
+    ]
+    assert toggles(_render("watch_show.html", **_show_ctx())) == [
+        ("show/300", "false", "Mark show as watched"),
+        ("season/302", "false", "Mark season as watched"),
+        ("episode/1", "true", "Mark Spring Tide as watched"),
+        ("episode/2", "false", "Mark Low Water as watched"),
+        ("episode/3", "false", "Mark Maydays as watched"),
+    ]
+
+
+def test_a_watched_season_s_tab_says_so_without_changing_its_words() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    tabs = re.findall(r'<a class="watch-pill[^>]*>.*?</a>', html)
+    assert 'aria-label="Season 1, watched"' in tabs[0] and "#i-eye" in tabs[0]
+    assert "aria-label" not in tabs[1] and "#i-eye" not in tabs[1]
+    # seasons.js reads the tab's text as the season's name.
+    assert re.sub(r"<[^>]+>", "", tabs[0]) == "Season 1"
+
+
+def test_an_episode_seen_before_says_so_while_it_is_played_again() -> None:
+    ctx = _show_ctx()
+    ctx["episodes"][1]["watched"] = True
+    html = _render("watch_show.html", **ctx)
+    assert 'Low Water<span class="sr-only">, watched</span>' in html
+    assert ">In progress<" in html
+
+
+def test_no_button_stands_in_a_link() -> None:
+    pages = [
+        _watch(
+            banner=_BANNER,
+            rows=[{"title": "Leaving soon", "items": [_marked(leaving_days=2, keep_id="m1")]}],
+        ),
+        _render("watch_show.html", **_show_ctx()),
+        _render("watch_movie.html", **_movie_ctx()),
+    ]
+    for html in pages:
+        tree = _Tree(html)
+        assert any(tag == "button" for tag, _a, _in in tree.found)
+        assert not [a for tag, a, around in tree.found if tag == "button" and "a" in around]

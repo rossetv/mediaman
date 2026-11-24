@@ -206,8 +206,81 @@
     };
   }
 
+  /* ── Watched marks ──
+     The markup of _watch_card.html's mark macros; watch/marks.js works them.
+     A mark is "<kind>/<key>": movie, episode, season or show, and its key. */
+
+  var MARK_RE = /^(movie|episode|season|show)\/[0-9]{1,18}$/;
+
+  function markOf(item) {
+    var mark = item && item.mark_kind + '/' + item.mark_key;
+    return mark && MARK_RE.test(mark) ? mark : '';
+  }
+
+  /* The mark on a poster. */
+  function watchedBadge() {
+    var badge = el('span', 'watch-badge watch-badge--watched');
+    badge.appendChild(window.MM.dom.icon('i-eye'));
+    badge.appendChild(el('span', 'sr-only', 'Watched'));
+    return badge;
+  }
+
+  /* Give a card its mark and its More button; a title the library does not
+     hold has neither. */
+  function addMarks(card, poster, item) {
+    var mark = markOf(item);
+    if (!mark) return;
+    card.setAttribute('data-mark', mark);
+    if (item.watched) poster.appendChild(watchedBadge());
+    var more = el('button', 'watch-more');
+    more.type = 'button';
+    more.setAttribute('data-watch-more', '');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    more.setAttribute('aria-label', 'More for ' + item.title);
+    more.appendChild(window.MM.dom.icon('i-ellipsis'));
+    card.appendChild(more);
+  }
+
+  function markAction(watched) { return watched ? 'Mark as not watched' : 'Mark as watched'; }
+
+  function toggle(className, mark, watched, label, name) {
+    var b = el('button', className);
+    b.type = 'button';
+    b.setAttribute('data-mark-toggle', mark);
+    b.setAttribute('data-mark-name', name);
+    b.setAttribute('aria-pressed', watched ? 'true' : 'false');
+    b.setAttribute('aria-label', label);
+    b.appendChild(window.MM.dom.icon('i-eye'));
+    return b;
+  }
+
+  /* An episode's toggle: the eye, and the word once watched. */
+  function markToggle(mark, watched, name) {
+    var b = toggle('watch-mark', mark, watched, 'Mark ' + name + ' as watched', name);
+    b.setAttribute('title', markAction(watched));
+    b.appendChild(el('span', 'watch-mark__word', 'Watched'));
+    return b;
+  }
+
+  /* A button toggle: both its labels are laid out, so its width never changes. */
+  function markButton(className, mark, watched, name, label) {
+    var b = toggle(className + ' watch-mark-btn', mark, watched, label, name);
+    var faces = el('span', 'watch-mark-btn__faces');
+    faces.appendChild(el('span', 'watch-mark-btn__off', label));
+    faces.appendChild(el('span', 'watch-mark-btn__on', 'Watched'));
+    b.appendChild(faces);
+    return b;
+  }
+
   window.MMWatch = window.MMWatch || {};
   window.MMWatch.core = {
+    markOf: markOf,
+    watchedBadge: watchedBadge,
+    addMarks: addMarks,
+    markAction: markAction,
+    markToggle: markToggle,
+    markButton: markButton,
     byId: byId,
     el: el,
     toArray: toArray,

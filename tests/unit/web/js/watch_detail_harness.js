@@ -556,6 +556,44 @@ const scenarios = {
     return { loaded: loaded.hash, afterBack, closed: p.ttl().classList.contains('is-leaving'), end: p.loc.hash };
   },
 
+  // A library show's own toggles, then what a mark made elsewhere or here brings back.
+  async marks() {
+    const eps = (n, watched) => [{ number: 1, key: String(n), title: 'Ep ' + n, minutes: 45, state: watched ? 'watched' : 'none', watched, href: '/watch/play/' + n }];
+    let seen = false;
+    const show = () => Object.assign({}, LIB_SHOW, { watched: false, mark_kind: 'show', mark_key: '300',
+      play: { label: seen ? 'Play S1 · E2' : 'Play S1 · E1', href: '/watch/play/1' },
+      seasons: LIB_SHOW.seasons.map((s) => Object.assign({}, s, { key: '30' + s.number, watched: seen && s.number === 1 })), episodes: eps(21, false) });
+    const p = load({ routes: {
+      '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show()))),
+      '/api/watch/title/show-300/season/1': () => Promise.resolve({ ok: true, key: '301', watched: seen, episodes: eps(11, seen) }),
+      '/api/watch/title/tmdb-movie-77': MOVIE_DL,
+    } });
+    p.run();
+    const painted = [];
+    p.ctx.MMWatch.marks = { paint: (mark, watched) => painted.push([mark, watched]) };
+    await openCard(p, 'show-300');
+    const toggles = () => p.ttl().querySelectorAll('[data-mark-toggle]').map((b) => [b.getAttribute('data-mark-toggle'), b.getAttribute('aria-pressed'), b.getAttribute('data-mark-ref')]);
+    const opened = toggles();
+    const inLink = p.ttl().querySelectorAll('[data-mark-toggle]').filter((b) => b.closest('a')).length;
+    click(p.doc, p.q('[data-season="1"]'));
+    await settle();
+    const picked = toggles();
+    p.q('[data-mark-toggle="episode/11"]').focus();
+    seen = true;
+    const gets = p.gets.length;
+    const say = (ref) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref } });
+    say('show-9');
+    const otherTitle = p.gets.length - gets;
+    say('show-300');
+    await settle();
+    const after = { toggles: toggles(), play: primary(p).text, episode: p.text('.watch-ep__title'), tab: p.q('[data-season="1"]').getAttribute('aria-label'),
+      focus: p.doc.activeElement.getAttribute('data-mark-toggle'), painted };
+    const q = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    q.run();
+    await openCard(q, 'tmdb-movie-77');
+    return { opened, inLink, picked, otherTitle, after, outside: q.ttl().querySelectorAll('[data-mark-toggle]').length };
+  },
+
   async noTrailerKey() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { trailer_key: null }) } });
     p.run();

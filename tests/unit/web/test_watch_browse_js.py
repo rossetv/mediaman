@@ -268,3 +268,11 @@ def test_a_season_line_goes_by_where_each_pill_stands_however_wide() -> None:
     # The fourth pill (500-760) is cut off at 700; the seventh (960-1360) at 1200; the line ends at 1460.
     assert out["arrows"] == [500, 760, 760, 60, 0]
     assert out["keys"] == [100, 400, 100]
+
+
+def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -> None:
+    assert _run("discoverMarks") == [
+        ["movie/11", True, 1, False],
+        [None, False, 0, False],
+        [None, False, 0, False],
+    ]

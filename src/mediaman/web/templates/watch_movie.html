@@ -31,6 +31,7 @@
       {% if leaving %}{{ w.leaving_line(leaving, movie.title) }}{% endif %}
       <div class="watch-actions">
         <a class="btn btn--lg watch-btn--play" href="{{ primary.href }}">{{ icon("i-play") }}{{ primary.label }}</a>
+        {% if movie.mark_key %}{{ w.mark_button(movie.mark_kind, movie.mark_key, movie.watched, movie.title) }}{% endif %}
       </div>
     </div>
   </section>
@@ -42,6 +43,7 @@
 
 <script src="/static/js/watch/core.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/keep.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/marks.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}

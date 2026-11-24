@@ -15,7 +15,13 @@ from urllib.parse import quote
 
 import pytest
 
-from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
+from tests.helpers.factories import (
+    insert_kept_show,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 _AWKWARD_TEXT = """He said "Hi" & it's <b>bold</b>"""
 _SEASON_IDS = {"s10", "s2", "s3"}
@@ -347,3 +353,21 @@ def test_a_title_opens_the_detail_only_with_a_key_the_detail_accepts(client, con
     refs = {e["data-title-ref"] for e in _elements_with(html, "data-title-ref")}
     assert refs == {"movie-42", "show-77"}
     assert 'href="/watch#title=movie-42"' in html
+
+
+def test_each_title_of_the_library_has_the_admin_s_own_mark_to_toggle(client, conn):
+    insert_settings(conn, plex_libraries='["1"]')
+    for key in ("42", "43"):
+        _insert_movie(conn, key, f"Film {key}")
+    _insert_show(conn, "77")
+    _insert_movie(conn, "not-a-key", "Arrival")
+    admin = conn.execute("SELECT username FROM admin_users").fetchone()[0]
+    mark_watched(conn, admin, [MarkTarget("42", "42", None, 0)], datetime(2026, 11, 23, tzinfo=UTC))
+
+    toggles = _elements_with(client.get("/watch/list").text, "data-mark-toggle")
+
+    assert {t["data-mark-toggle"]: t["aria-pressed"] for t in toggles} == {
+        "movie/42": "true",
+        "movie/43": "false",
+        "show/77": "false",
+    }

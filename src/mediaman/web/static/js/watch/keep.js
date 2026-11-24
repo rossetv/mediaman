@@ -145,7 +145,7 @@
   }
 
   /* *opts*: trigger (selector), choose(trigger, item), canOpen(trigger),
-     spare() (where focus goes when the trigger has left the page). */
+     fill(trigger) (what the menu holds for it), spare() (where focus goes when the trigger has left the page). */
   function makeMenu(node, opts) {
     var openTrigger = null;
     var hideTimer = null;
@@ -214,6 +214,7 @@
       close(false);
       clearTimeout(hideTimer);
       openTrigger = trigger;
+      if (opts.fill) opts.fill(trigger);
       node.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
       place(trigger);
@@ -315,15 +316,16 @@
 
   /* Where focus goes when a kept card leaves its row: the next card's Keep,
      else the one before's, so a run of Keeps needs no Tab between them; when
-     the row goes, the next row, else the search box. */
-  function focusAfterCard(card) {
+     the row goes, the next row, else the search box. *control*: the button
+     that was pressed, as the other cards have it. */
+  function focusAfterCard(card, control) {
     var sibling = card.nextElementSibling;
     while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.nextElementSibling;
     if (!sibling) {
       sibling = card.previousElementSibling;
       while (sibling && sibling.classList.contains('is-kept')) sibling = sibling.previousElementSibling;
     }
-    return sibling ? sibling.querySelector('[data-watch-keep]') || sibling.querySelector('.watch-card__link') : null;
+    return sibling ? sibling.querySelector(control) || sibling.querySelector('.watch-card__link') : null;
   }
 
   function focusAfterRow(row) {
@@ -343,15 +345,15 @@
     return noop;
   }
 
-  /* Shrink a kept card out of its Leaving soon row, or the row out of the
+  /* Shrink a kept (or dismissed) card out of its row, or the row out of the
      page when it was the last. Behind search results the row is hidden: it
      just goes. Returns { undo, focus } as applyKept does. */
-  function keepFromRow(card, row, shown) {
+  function keepFromRow(card, row, shown, control) {
     var scroller = card.parentNode;
     var left = toArray(scroller.children).filter(function (c) {
       return c !== card && !c.classList.contains('is-kept');
     });
-    var focus = left.length ? focusAfterCard(card) : focusAfterRow(row);
+    var focus = left.length ? focusAfterCard(card, control) : focusAfterRow(row);
     var spot = spotOf(card);
     var state = { cancel: noop, holdsRow: !left.length };
     card.classList.add('is-kept');
@@ -392,8 +394,20 @@
         } else if (cardBack && card.getClientRects().length) {
           growIn(card, true);
         }
-        return card.querySelector('[data-watch-keep]');
+        return card.querySelector(control);
       }
+    };
+  }
+
+  /* Shrink *node* out of the page. Returns what puts it back. */
+  function foldAway(node) {
+    var spot = spotOf(node);
+    var cancel = away(node, false, node.getClientRects().length > 0);
+    return function () {
+      cancel();
+      if (node.parentNode) return;
+      putBack(spot);
+      growIn(node, false);
     };
   }
 
@@ -449,7 +463,7 @@
       var shown = card.getClientRects().length > 0;
       var row = card.closest('[data-watch-leaving-row]');
       if (row) {
-        var taken = keepFromRow(card, row, shown);
+        var taken = keepFromRow(card, row, shown, '[data-watch-keep]');
         undos.push(taken.undo);
         if (!focus && shown) focus = taken.focus;
         return;
@@ -560,6 +574,8 @@
 
   window.MMWatch.keep = {
     menu: makeMenu,
+    fromRow: keepFromRow,
+    foldAway: foldAway,
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; }
   };
