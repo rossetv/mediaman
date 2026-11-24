@@ -79,6 +79,12 @@ function row(r) {
     ['td', { class: 'wl-act' }, ['div', { class: 'wl-actions' }, wrapper, ...del]]];
 }
 
+/* The keep a save answers it made. */
+const MADE = { action: 'snoozed', execute_at: '2026-12-24T12:00:00+00:00', kept_at: '2026-11-24T12:00:00+00:00' };
+/* The refusal of a change to a keep that is not the one read. */
+const keepChanged = () => Promise.reject(Object.assign(new Error('changed'), { error: 'keep_changed', status: 409 }));
+const serverError = () => Promise.reject(Object.assign(new Error('no'), { status: 500 }));
+
 const ROWS = [
   { id: 'm1', title: 'Copperline', deletion: true },
   { id: 'm2', title: 'Saltmarsh' },
@@ -151,7 +157,7 @@ function load(opts = {}) {
   const api = (method) => (url, body) => {
     calls.push([method, url, body === undefined ? null : body]);
     const reply = replies[method + ' ' + url];
-    return reply ? reply() : Promise.resolve({ ok: true });
+    return reply ? reply() : Promise.resolve(method === 'postForm' ? { ok: true, keep: MADE } : { ok: true });
   };
 
   const ctx = {
@@ -236,7 +242,10 @@ function keepOption(p, key, dur) {
 
 /* ── The Keep dialog of a show ── */
 
-const FOREVER = { action: 'protected_forever', execute_at: null, days: null, label: 'Kept forever' };
+const FOREVER = { action: 'protected_forever', execute_at: null, kept_at: '2026-11-20T12:00:00+00:00', days: null, label: 'Kept forever' };
+/* Kept forever, at another time. */
+const OWN_FOREVER = Object.assign({}, FOREVER, { kept_at: '2026-11-01T12:00:00+00:00' });
+const readOf = (k) => k && { action: k.action, execute_at: k.execute_at, kept_at: k.kept_at || null };
 const until = (days) => ({ action: 'snoozed', execute_at: new Date(Date.UTC(2026, 10, 24 + days)).toISOString(), days, label: 'Kept for ' + days + ' more days' });
 const leaves = (days) => ({ execute_at: until(days).execute_at, days });
 /* Seasons numbered from 1: each a keep, what is left of it, or nothing. */
@@ -259,13 +268,21 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
   }
   await settle();
   const list = p.doc.getElementById('keep-season-list');
+  const phases = [];
+  p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
   const box = (id) => list.querySelectorAll('input').find((n) => n.id === 'keep-' + (id === 'all' ? 'all-seasons' : 'season-' + id));
   const set = (id) => list.querySelectorAll('[data-keep-set]').find((n) => n.getAttribute('data-keep-set') === id);
   return Object.assign(p, {
     ticked: () => list.querySelectorAll('input').filter((n) => n.checked).map((n) => n.id.replace(/^keep-(season-)?/, '')),
     tick(id, on) { const n = box(id); n.checked = on; (n.listeners.change || []).forEach((fn) => fn({ target: n })); },
     set,
+    phases,
     reload(fresh) { now = fresh; },
+    async reopen() { click(p.doc, keepOption(p, 'show:77', '30 days')); await settle(); },
+    posts: () => p.calls.filter((c) => c[0] !== 'get').map((c) => [c[1], c[2]]),
+    button: (id) => p.doc.getElementById(id),
+    state: () => ({ ticked: p.ticked(), focus: p.doc.activeElement.id, gets: p.calls.filter((c) => c[0] === 'get').length,
+      open: p.doc.getElementById('keep-dialog-overlay').classList.contains('active') }),
     async confirm() { const b = p.doc.getElementById('keep-dialog-confirm'); b.focus(); click(p.doc, b); await settle(); },
     sent: () => p.calls.filter((c) => c[0] !== 'get').map((c) => [c[1], c[2] && (c[2].duration || c[2].days || ''), c[2] && (c[2].season_ids || c[2].media_item_id || '')]),
     told: () => p.toasts.map((t) => t.message),
@@ -590,6 +607,248 @@ const scenarios = {
     plain.toasts[0].action.onClick();
     await settle();
     return { dismissed: p.toasts[0].dismissed, sent: p.sent(), forever: [always.sent(), always.toasts[0].undo], unscheduled: plain.sent() };
+  },
+
+  // Every change says which keep it read.
+  async keepSaysWhatItRead() {
+    const out = {};
+    const one = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(5) }, null), seasonId: '' });
+    one.tick('s3', true);
+    click(one.doc, one.set('s1'));
+    one.tick('s2', false);
+    await one.confirm();
+    out.seasons = one.posts();
+    const all = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, null), seasonId: '' });
+    all.tick('all', true);
+    await all.confirm();
+    out.all = all.posts();
+    const end = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(12) }, null), seasonId: '' });
+    end.tick('s2', false);
+    await end.confirm();
+    out.end = end.posts();
+    const none = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(12) }, null), seasonId: '' });
+    click(none.doc, none.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = none.posts();
+    const own = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: '' });
+    click(own.doc, own.button('keep-dialog-remove'));
+    await settle();
+    out.removeOwn = own.posts();
+    out.expected = { forever: readOf(FOREVER), five: readOf(until(5)), twelve: readOf(until(12)) };
+    return out;
+  },
+
+  // A keep changed since the dialog opened: the dialog shows what there is now, and nothing more is sent.
+  async keepChangedMeanwhile() {
+    const now = seasonsOf({ keep: FOREVER }, null, { leaving: leaves(5) });
+    const run = async (opts, url, act) => {
+      const p = await keepDialog(opts);
+      act(p);
+      p.replies[url] = keepChanged;
+      p.reload(now);
+      await p.confirm();
+      return { sent: p.posts().length, errors: p.errors, phases: p.phases, told: p.told(), ...p.state() };
+    };
+    const out = {
+      season: await run({ seasons: seasonsOf({ keep: until(5) }, null, { leaving: leaves(5) }), seasonId: 's2' }, 'postForm /api/media/s2/keep', (p) => p.tick('s1', false)),
+      all: await run({ seasons: seasonsOf(null, null, null), seasonId: '' }, 'post /api/show/77/keep', (p) => p.tick('all', true)),
+      end: await run({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' }, 'post /api/show/77/remove', (p) => p.tick('s3', false)),
+      drop: await run({ seasons: seasonsOf({ keep: until(5) }, { keep: until(5) }, null), seasonId: '' }, 'post /api/media/s1/unprotect', (p) => p.tick('s1', false)),
+    };
+    for (const status of [404, 409]) {
+      const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+      p.replies['post /api/watch/keep'] = () => Promise.reject(Object.assign(new Error('gone'), { status }));
+      p.reload(now);
+      await p.confirm();
+      out['watch' + status] = { errors: p.errors, phases: p.phases, ticked: p.ticked() };
+    }
+    const rm = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' });
+    rm.replies['post /api/show/77/remove'] = keepChanged;
+    rm.reload(now);
+    click(rm.doc, rm.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = { errors: rm.errors, phases: rm.phases, told: rm.told(), ...rm.state() };
+    return out;
+  },
+
+  // A film kept, or a keep undone, after another admin changed its keep.
+  async filmKeepChangedMeanwhile() {
+    const p = load({ list: true });
+    const phases = [];
+    p.doc.addEventListener('mm:watch-admin', (e) => phases.push(e.detail.phase));
+    p.serve('/watch/list', {}, ROWS);
+    p.replies['postForm /api/media/m2/keep'] = keepChanged;
+    click(p.doc, keepOption(p, 'id:m2', '30 days'));
+    await settle();
+    delete p.replies['postForm /api/media/m2/keep'];
+    click(p.doc, keepOption(p, 'id:m2', '30 days'));
+    await settle();
+    p.replies['post /api/media/m2/unprotect'] = keepChanged;
+    p.toasts[0].action.onClick();
+    await settle();
+    return { phases, errors: p.errors.length, toasts: p.toasts.length, undo: p.calls[p.calls.length - 1] };
+  },
+
+  // The Undo of seasons kept in the dialog takes back only the keeps that save made.
+  async seasonUndoChangedMeanwhile() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '' });
+    p.tick('s2', true);
+    await p.confirm();
+    p.replies['post /api/media/s2/unprotect'] = keepChanged;
+    p.toasts[0].action.onClick();
+    await settle();
+    const unsaid = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '' });
+    unsaid.tick('s2', true);
+    unsaid.replies['postForm /api/media/s2/keep'] = () => Promise.resolve({ ok: true });
+    await unsaid.confirm();
+    return { undo: p.posts()[1], reads: p.state().gets, made: MADE, errors: p.errors, phases: p.phases, told: p.told(), unsaid: unsaid.toasts[0].undo };
+  },
+
+  // A save takes away the Undo of what it changes as it starts, not once it is saved.
+  async undoRetiredAsASaveStarts() {
+    const out = {};
+    const kept = seasonsOf({ keep: until(30) }, null, null);
+    for (const [name, showKept, act] of [
+      ['same', null, (p) => { p.tick('s1', false); p.tick('s2', true); }],
+      ['other', null, (p) => p.tick('s2', true)],
+      ['all', null, (p) => p.tick('all', true)],
+      ['show', FOREVER, (p) => p.tick('s3', false)],
+    ]) {
+      const p = await keepDialog({ seasons: seasonsOf(null, null, null), seasonId: 's1' });
+      await p.confirm();
+      p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: showKept, seasons: kept });
+      const reply = deferred();
+      ['post /api/media/s1/unprotect', 'postForm /api/media/s2/keep', 'post /api/show/77/keep', 'post /api/show/77/remove']
+        .forEach((url) => { p.replies[url] = () => reply.promise; });
+      await p.reopen();
+      act(p);
+      await p.confirm();
+      out[name] = p.toasts[0].dismissed;
+    }
+    const removeAll = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await removeAll.confirm();
+    removeAll.reload(seasonsOf({ keep: until(30) }, null));
+    await removeAll.reopen();
+    removeAll.replies['post /api/media/s1/unprotect'] = () => deferred().promise;
+    click(removeAll.doc, removeAll.button('keep-dialog-remove'));
+    await settle();
+    out.removeAll = removeAll.toasts[0].dismissed;
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r)));
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    film.replies['post /api/media/m1/unprotect'] = () => deferred().promise;
+    click(film.doc, film.row('id:m1').querySelector('[data-remove-keep-id]'));
+    out.film = film.toasts[0].dismissed;
+    return out;
+  },
+
+  // An Undo pressed while the dialog is open holds its buttons until it settles, then the seasons are read again.
+  async undoWithTheDialogOpen() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, null));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['post /api/media/s1/unprotect'] = () => reply.promise;
+    const buttons = () => [!!p.button('keep-dialog-confirm').disabled, !!p.button('keep-dialog-remove').disabled];
+    const out = { before: buttons(), ticked: p.ticked() };
+    p.toasts[0].action.onClick();
+    await settle();
+    out.during = buttons();
+    p.reload(seasonsOf(null, null));
+    const gets = p.state().gets;
+    reply.resolve({ ok: true });
+    await settle();
+    out.after = buttons();
+    out.reads = p.state().gets - gets;
+    out.tickedAfter = p.ticked();
+    return out;
+  },
+
+  // An Undo pressed while a save of another season runs waits for it.
+  async undoWaitsForASave() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, null));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['postForm /api/media/s2/keep'] = () => reply.promise;
+    p.tick('s2', true);
+    await p.confirm();
+    p.toasts[0].action.onClick();
+    await settle();
+    const during = p.posts().map((c) => c[0]);
+    reply.resolve({ ok: true, keep: MADE });
+    await settle();
+    return { during, after: p.posts().map((c) => c[0]).slice(during.length) };
+  },
+
+  // Remove all, confirmed while an Undo of the show runs, waits for it.
+  async removeAllWaitsForAnUndo() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: until(30) }, { keep: until(30) }));
+    await p.reopen();
+    const reply = deferred();
+    p.replies['post /api/media/s1/unprotect'] = () => reply.promise;
+    const asked = deferred();
+    p.ctx.UIFeedback.confirm = () => asked.promise;
+    click(p.doc, p.button('keep-dialog-remove'));
+    p.toasts[0].action.onClick();
+    asked.resolve(true);
+    await settle();
+    const during = p.posts().length;
+    reply.resolve({ ok: true });
+    await settle();
+    return { during, after: p.posts().length };
+  },
+
+  // A save that fails removes no keep.
+  async failedKeepDropsNothing() {
+    const p = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: 's2' });
+    p.tick('s1', false);
+    p.replies['postForm /api/media/s2/keep'] = serverError;
+    await p.confirm();
+    const show = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, null, null), seasonId: '' });
+    show.tick('s3', false);
+    show.replies['post /api/show/77/remove'] = serverError;
+    await show.confirm();
+    const label = show.button('keep-dialog-confirm').textContent;
+    return { sent: p.posts().map((c) => c[0]), phases: p.phases,
+      show: show.posts().map((c) => c[0]), showPhases: show.phases, label, ticked: show.ticked(), disabled: !!show.button('keep-dialog-confirm').disabled };
+  },
+
+  // What a save did keep, or an Undo took back, is announced though the rest failed.
+  async partSavedIsAnnounced() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    p.tick('s2', true);
+    p.replies['postForm /api/media/s2/keep'] = serverError;
+    await p.confirm();
+    const rm = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, { keep: until(5) }), seasonId: '' });
+    rm.replies['post /api/media/s2/unprotect'] = serverError;
+    click(rm.doc, rm.button('keep-dialog-remove'));
+    await settle();
+    const no = await keepDialog({ seasons: seasonsOf({ keep: until(5) }, null), seasonId: '' });
+    no.replies['post /api/media/s1/unprotect'] = serverError;
+    click(no.doc, no.button('keep-dialog-remove'));
+    await settle();
+    return { kept: p.phases, removed: rm.phases, nothing: no.phases };
+  },
+
+  // All seasons set to 7 days: a keep that lasts longer and is the season's own stays.
+  async keepShowShortened() {
+    const seasons = seasonsOf({ keep: FOREVER }, { keep: until(90) }, { keep: OWN_FOREVER }, { keep: until(3) }, null);
+    const p = await keepDialog({ showKept: FOREVER, seasons, seasonId: '', duration: '7 days' });
+    click(p.doc, p.set('all'));
+    await p.confirm();
+    const days = await keepDialog({ showKept: until(60), seasons: seasonsOf({ keep: until(60) }, { keep: until(40) }, { keep: until(7) }), seasonId: '', duration: '7 days' });
+    click(days.doc, days.set('all'));
+    await days.confirm();
+    const own = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: OWN_FOREVER }), seasonId: '', duration: '7 days' });
+    click(own.doc, own.set('all'));
+    await own.confirm();
+    return { forever: p.sent(), told: p.told(), days: days.sent(), own: [own.sent(), own.errors] };
   },
 
   // The detail calls the same actions with a plain object, list or no list.

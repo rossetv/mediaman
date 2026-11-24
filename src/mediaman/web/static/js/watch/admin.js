@@ -125,6 +125,29 @@
     return duration === 'forever' ? 'Kept ' + name + ' forever.' : 'Kept ' + name + ' for ' + duration + '.';
   }
 
+  /* A keep as it was read, sent with a change to it: the server refuses the
+     change (keep_changed) when the keep is no longer that one. */
+  function readOf(keep) {
+    return keep ? { action: keep.action, execute_at: keep.execute_at || null, kept_at: keep.kept_at || null } : null;
+  }
+
+  function keepUrl(id) { return '/api/media/' + encodeURIComponent(id) + '/keep'; }
+
+  function keepAsRead(id, duration, keep) {
+    var form = { duration: duration, read_action: keep ? keep.action : 'none' };
+    if (keep) {
+      form.read_execute_at = keep.execute_at || '';
+      form.read_kept_at = keep.kept_at || '';
+    }
+    return MM.api.postForm(keepUrl(id), form);
+  }
+
+  function unprotect(id, keep) {
+    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', keep ? { read: readOf(keep) } : undefined);
+  }
+
+  function changedMeanwhile(err) { return !!err && err.error === 'keep_changed'; }
+
   /* The Undo toast of each title's last keep, so a later change to that keep
      can take it away: its Undo would then undo the wrong thing. */
   var _undoToasts = {};
@@ -175,37 +198,36 @@
     _busy[w.id] = 'keep';
     backToTrigger(w);
     var id = w.id;
+    retireUndo(id);
     var detail = { action: 'keep', id: id, showRk: '' };
     emit('busy', detail);
     var days = KEEP_DAYS[duration];
     var viaWatch = !w.kept && w.deletion && !!days;
     var request = viaWatch
       ? MM.api.post('/api/watch/keep', { media_item_id: id, days: days })
-      : MM.api.postForm('/api/media/' + encodeURIComponent(id) + '/keep', { duration: duration });
+      : !w.kept && !w.deletion
+        ? keepAsRead(id, duration, null)
+        : MM.api.postForm(keepUrl(id), { duration: duration });
     return request.then(function (data) {
       delete _busy[id];
       emit('done', detail);
       if (data && data.deletion_running && data.message) {
         /* Saved, but its files may already be gone: say so, with no undo. */
-        retireUndo(id);
         window.UIFeedback.toast(data.message, { duration: 8000 });
         return true;
       }
       var undo = null;
       if (viaWatch) {
         undo = function () { return MM.api.post('/api/watch/unkeep', { media_item_id: id }); };
-      } else if (!w.kept && !w.deletion) {
-        undo = function () { return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect'); };
+      } else if (!w.kept && !w.deletion && data && data.keep) {
+        undo = function () { return unprotect(id, data.keep); };
       }
       if (undo) offerUndo([id], keptMessage(w.title, duration), function () { undoKeep(id, undo); });
-      else {
-        retireUndo(id);
-        window.UIFeedback.toast(keptMessage(w.title, duration), { variant: 'success' });
-      }
+      else window.UIFeedback.toast(keptMessage(w.title, duration), { variant: 'success' });
       return true;
     }, function (err) {
       delete _busy[id];
-      emit('failed', detail);
+      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
       window.UIFeedback.error("Couldn't save keep. " + MM.api.messageOf(err, 'Try again.'));
       backToTrigger(w);
       return false;
@@ -223,7 +245,7 @@
       window.UIFeedback.toast('Keep undone.');
     }, function (err) {
       delete _busy[id];
-      emit('failed', detail);
+      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
       window.UIFeedback.error("Couldn't undo the keep. " + MM.api.messageOf(err, 'Try again.'));
     });
   }
@@ -240,13 +262,13 @@
       return Promise.resolve(false);
     }
     _busy[id] = 'unkeep';
+    retireUndo(id);
     backToTrigger(w);
     var detail = { action: 'unkeep', id: id, showRk: w.isTv ? w.showRk : '' };
     emit('busy', detail);
-    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect')
+    return unprotect(id)
       .then(function () {
         delete _busy[id];
-        retireUndo(id);
         emit('done', detail);
         window.UIFeedback.toast('Removed the keep on ' + (w.title || 'it') + '.');
         return true;
@@ -373,6 +395,12 @@
     });
   }
 
+  /* An Undo that starts while the dialog is open for its show. */
+  function holdOpenDialog() {
+    if (!byId('keep-dialog-overlay').classList.contains('active')) return;
+    holdKeepWhileSaving(_keepDialogRequest, function () { return byId('keep-season-list').querySelector('input'); });
+  }
+
   function openKeepDialog(w, duration) {
     if (!_keepDialogModal) buildKeepDialog();
     _keepDialogState.showRk = w.showRk;
@@ -488,10 +516,16 @@
     return keep.action === 'protected_forever' ? Infinity : Date.parse(keep.execute_at);
   }
 
-  /* The shortest keep that lasts at least as long as *keep*. */
-  function atLeast(keep) {
-    if (keep.action === 'protected_forever') return 'forever';
-    return Object.keys(KEEP_DAYS).filter(function (dur) { return KEEP_DAYS[dur] >= keep.days; })[0] || 'forever';
+  function lastsLonger(keep, duration) {
+    if (!KEEP_DAYS[duration]) return false;
+    return keep.action === 'protected_forever' || keep.days > KEEP_DAYS[duration];
+  }
+
+  /* Whether a season's keep was written by its show's keep. Two that are
+     forever end alike, so they must have been made together too. */
+  function isOfShow(keep, showKept) {
+    return keep.action === showKept.action &&
+      (keep.action === 'protected_forever' ? keep.kept_at === showKept.kept_at : keep.execute_at === showKept.execute_at);
   }
 
   /* The seasons the dialog opens for. */
@@ -613,9 +647,8 @@
 
   /* What the ticks and the pressed buttons change of the keeps there are:
      all: the whole show is kept; keeps: the seasons kept for the duration
-     chosen; endsShow: the show's own keep goes, and held are the seasons kept
-     at least as long as it lasted; drops: the seasons no longer kept; fresh:
-     nothing but seasons that had no keep. */
+     chosen; endsShow: the show's own keep goes; drops: the seasons no longer
+     kept; fresh: nothing but seasons that had no keep. */
   function chosenChanges() {
     var showKept = _keepDialogState.showKept;
     var list = byId('keep-season-list');
@@ -629,8 +662,8 @@
     var ticked = {};
     list.querySelectorAll('input[data-season-id]').forEach(function (cb) { ticked[cb.dataset.seasonId] = cb.checked; });
     var showSet = isSet('all');
-    var endsShow = !!showKept && !all;
-    var c = { all: all && (!showKept || showSet), keeps: [], endsShow: endsShow, held: [], drops: [], fresh: !showKept && !all, ticked: 0 };
+    var duration = _keepDialogState.duration;
+    var c = { all: all && (!showKept || showSet), keeps: [], endsShow: !!showKept && !all, drops: [], fresh: !showKept && !all, ticked: 0 };
     _keepDialogState.seasons.forEach(function (s) {
       if (!ticked[s.id]) {
         if (s.kept || showKept) c.drops.push(s);
@@ -638,9 +671,10 @@
       }
       c.ticked++;
       if (showKept) {
-        /* A season's own keep that outlasts the show's is no part of it. */
-        if (showSet && endOf(s.keep) <= endOf(showKept)) c.keeps.push(s);
-        else if (endsShow && endOf(s.keep) < endOf(showKept)) c.held.push(s);
+        /* A season's own keep that outlasts the show's is no part of it, nor
+           is one that would be shortened. */
+        if (showSet && (!s.keep || isOfShow(s.keep, showKept) ||
+            (endOf(s.keep) <= endOf(showKept) && !lastsLonger(s.keep, duration)))) c.keeps.push(s);
       } else if (!s.kept || isSet(s.id)) {
         c.keeps.push(s);
         if (s.kept) c.fresh = false;
@@ -652,7 +686,11 @@
 
   function nothingChosen(c) {
     if (!c.ticked) return 'Select at least one season to continue.';
-    if (c.all && !c.keeps.length) return 'Every season has a keep of its own. Press “Set to” on one to change it.';
+    if (c.all && !c.keeps.length) {
+      return _keepDialogState.showKept
+        ? 'Every season has a longer keep of its own.'
+        : 'Every season has a keep of its own. Press “Set to” on one to change it.';
+    }
     if (!c.keeps.length && !c.drops.length && !c.endsShow) {
       return 'Nothing to change yet. Tick a season, or press “Set to” on a kept one.';
     }
@@ -671,35 +709,60 @@
     return 'Removed the keep on ' + title + (dropped.length ? ', ' + listNames(dropped) : ' for new seasons') + '.';
   }
 
+  function viaWatch(s, duration) { return !!s.leaving && !s.kept && !!KEEP_DAYS[duration]; }
+
   /* A season that leaves is kept for 7, 30 or 90 days through the Watch keep,
      whose undo brings its date back; see keep(). */
   function keepSeason(s, duration) {
-    var days = KEEP_DAYS[duration];
-    if (s.leaving && !s.kept && days) return MM.api.post('/api/watch/keep', { media_item_id: s.id, days: days });
-    return MM.api.postForm('/api/media/' + encodeURIComponent(s.id) + '/keep', { duration: duration });
+    if (viaWatch(s, duration)) return MM.api.post('/api/watch/keep', { media_item_id: s.id, days: KEEP_DAYS[duration] });
+    return keepAsRead(s.id, duration, s.keep);
   }
 
   /* Undo for seasons that had no keep before; null when one had its deletion
-     replaced for good. */
-  function seasonsUndo(c, duration, state, chainKey) {
-    if (!c.fresh || (!KEEP_DAYS[duration] && c.keeps.some(function (s) { return s.leaving; }))) return null;
+     replaced for good. made: the keeps this save wrote, by season. */
+  function seasonsUndo(c, duration, state, chainKey, made) {
+    if (!c.fresh) return null;
+    if (!c.keeps.every(function (s) { return viaWatch(s, duration) || (!s.leaving && made[s.id]); })) return null;
     var detail = { action: 'unkeep', id: state.seasonId, showRk: state.showRk };
+    function undoOne(s) {
+      return s.leaving ? MM.api.post('/api/watch/unkeep', { media_item_id: s.id }) : unprotect(s.id, made[s.id]);
+    }
+    /* One at a time with every other change to this show. */
     function run() {
       var failed = [];
-      emit('busy', detail);
-      trackKeepChain(chainKey, c.keeps.reduce(function (chain, s) {
-        return chain.then(function () {
-          return s.leaving
-            ? MM.api.post('/api/watch/unkeep', { media_item_id: s.id })
-            : MM.api.post('/api/media/' + encodeURIComponent(s.id) + '/unprotect');
-        }).catch(function (err) { failed.push(seasonName(s) + ': ' + MM.api.messageOf(err, 'Try again.')); });
-      }, Promise.resolve()).then(function () {
-        emit(failed.length < c.keeps.length ? 'done' : 'failed', detail);
+      var changed = false;
+      var before = _keepChains[chainKey] || Promise.resolve();
+      trackKeepChain(chainKey, before.then(function () {
+        emit('busy', detail);
+        return c.keeps.reduce(function (chain, s) {
+          return chain.then(function () { return undoOne(s); }).catch(function (err) {
+            changed = changed || changedMeanwhile(err);
+            failed.push(seasonName(s) + ': ' + MM.api.messageOf(err, 'Try again.'));
+          });
+        }, Promise.resolve());
+      }).then(function () {
+        emit(changed || failed.length < c.keeps.length ? 'done' : 'failed', detail);
         if (failed.length) window.UIFeedback.error("Couldn't undo the keep. " + failed.join(' '));
         else window.UIFeedback.toast('Keep undone.');
       }));
+      holdOpenDialog();
     }
     return { ids: c.keeps.map(function (s) { return s.id; }), run: run };
+  }
+
+  function idsOf(seasons) { return seasons.map(function (s) { return s.id; }); }
+
+  /* Every keep of the show as the dialog read it. */
+  function showAsRead() {
+    var seasons = {};
+    _keepDialogState.seasons.forEach(function (s) { seasons[s.id] = readOf(s.keep); });
+    return { show: readOf(_keepDialogState.showKept), seasons: seasons };
+  }
+
+  var SHOW_CHANGED = 'The seasons or keeps of this show changed while this was open, so nothing was saved.';
+
+  function changedMessage(names) {
+    return listNames(names) + ' changed while this was open, so nothing there was saved.';
   }
 
   function confirmKeepDialog() {
@@ -729,9 +792,8 @@
        now, and the dialog's buttons are touched only while it is still the
        one that was open. */
     var rk = _keepDialogState.showRk;
-    var showKept = _keepDialogState.showKept;
+    var read = showAsRead();
     var dur = _keepDialogState.duration || '30 days';
-    var seasonsRequestUrl = seasonsUrl();
     var request = _keepDialogRequest;
     var chainKey = keepChainKey();
     var showTitle = _keepDialogState.showTitle;
@@ -744,103 +806,102 @@
     };
     var say = state.say;
     var rowDetail = { action: 'show', id: state.seasonId, showRk: rk };
+    /* The Undo of an earlier keep this changes would undo the wrong thing. */
+    (c.all || c.endsShow ? _keepDialogState.seasons : c.keeps.concat(c.drops)).forEach(function (s) { retireUndo(s.id); });
     emit('busy', rowDetail);
-    /* The Undo of an earlier keep of these seasons would undo the wrong thing. */
     function done(data, undo) {
-      c.keeps.concat(c.held, c.drops).forEach(function (s) { retireUndo(s.id); });
       showKeepSaved(state, data, savedMessage(showTitle, c, dur), undo);
     }
+    /* Read the seasons again, with the seasons *picked* ticked. */
+    function readAgain(picked) {
+      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
+      _keepDialogState.picked = picked;
+      if (refocus) {
+        list.tabIndex = -1;
+        list.focus();
+      }
+      loadKeepSeasons(refocus ? function () { return btn; } : undefined);
+    }
 
-    if (c.all) {
-      trackKeepChain(chainKey, MM.api.post(
-        '/api/show/' + encodeURIComponent(rk) + '/keep',
-        { duration: dur, season_ids: c.keeps.map(function (s) { return s.id; }) }
-      )
-        .then(done)
-        .catch(function (err) {
-          var msg = MM.api.messageOf(err, 'Try again.');
-          window.UIFeedback.error(say("Couldn't save keep. " + msg));
-          emit('failed', rowDetail);
-          if (!state.isOpen()) return;
-          var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
-          btn.disabled = false;
-          btn.textContent = btnLabel;
-          if (removeAllBtn) removeAllBtn.disabled = false;
-          if (refocus) btn.focus();
-        }));
+    /* What touches the show's own keep is one change on the server: all of it
+       or none. Ending it, the server keeps the seasons left ticked at least
+       as long as it lasted. */
+    if (c.all || c.endsShow) {
+      var failure = null;
+      trackKeepChain(chainKey, (c.all
+        ? MM.api.post('/api/show/' + encodeURIComponent(rk) + '/keep', { duration: dur, season_ids: idsOf(c.keeps), read: read })
+        : MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove', { read: read, drops: idsOf(c.drops) })
+      ).then(done).catch(function (err) {
+        failure = err;
+        window.UIFeedback.error(say(changedMeanwhile(err)
+          ? SHOW_CHANGED
+          : "Couldn't save keep. " + MM.api.messageOf(err, 'Try again.')));
+        emit(changedMeanwhile(err) ? 'done' : 'failed', rowDetail);
+      })).then(function () {
+        if (!failure || !state.isOpen()) return;
+        if (changedMeanwhile(failure)) {
+          readAgain([]);
+          return;
+        }
+        var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
+        btn.disabled = false;
+        btn.textContent = btnLabel;
+        if (removeAllBtn) removeAllBtn.disabled = false;
+        if (refocus) btn.focus();
+      });
       return;
     }
 
     /* Sequential loop — accumulates failures, continues after each one. */
     var keepChain = Promise.resolve();
     var failed = [];
+    var changed = [];
     var unsaved = [];
+    var made = {};
+    var saved = 0;
     var running = null;
-    function save(s, duration) {
+    c.keeps.forEach(function (s) {
       keepChain = keepChain.then(function () {
-        return keepSeason(s, duration)
-          .then(function (data) { if (data && data.deletion_running) running = data; })
-          .catch(function () { failed.push(seasonName(s)); unsaved.push(s.id); });
-      });
-    }
-    c.keeps.forEach(function (s) { save(s, dur); });
-    c.held.forEach(function (s) { save(s, atLeast(showKept)); });
-    /* Once every ticked season is kept, an unticked season loses its keep.
-       A show keep covers every season, so it goes first: unticking one
-       season ends it. The seasons are read again because ending the show
-       keep leaves some with no keep of their own to remove. */
-    keepChain = keepChain.then(function () {
-      if (failed.length) return;
-      var ended = Promise.resolve(true);
-      if (c.endsShow) {
-        ended = MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove')
-          .catch(function (err) {
-            /* 404: no show keep any more (removed in another tab, or the
-               reply to an earlier try was lost), which is what was asked. */
-            if (err && err.status === 404) return;
-            throw err;
-          })
-          .then(function () { return true; })
-          .catch(function () { failed.push('the show keep'); return false; });
-      }
-      return ended.then(function (ok) {
-        if (!ok || !c.drops.length) return;
-        return MM.api.get(seasonsRequestUrl).then(function (data) {
-          var keptNow = {};
-          data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
-          var chain = Promise.resolve();
-          c.drops.forEach(function (s) {
-            if (!keptNow[s.id]) return;
-            chain = chain.then(function () {
-              return MM.api.post('/api/media/' + encodeURIComponent(s.id) + '/unprotect')
-                .catch(function () { failed.push(seasonName(s)); });
-            });
-          });
-          return chain;
-        }, function () { failed.push('the seasons to remove keeps from'); });
+        return keepSeason(s, dur).then(function (data) {
+          saved++;
+          made[s.id] = data && data.keep;
+          if (data && data.deletion_running) running = data;
+        }).catch(function (err) {
+          /* The Watch keep refuses a season that no longer leaves as read. */
+          if (changedMeanwhile(err) || (viaWatch(s, dur) && err && (err.status === 404 || err.status === 409))) {
+            changed.push(seasonName(s));
+            return;
+          }
+          failed.push(seasonName(s));
+          unsaved.push(s.id);
+        });
       });
     });
+    /* Once every ticked season is kept, an unticked season loses its keep. */
+    keepChain = keepChain.then(function () {
+      if (failed.length || changed.length) return null;
+      return c.drops.reduce(function (chain, s) {
+        return chain.then(function () { return unprotect(s.id, s.keep); }).then(function () { saved++; }, function (err) {
+          (changedMeanwhile(err) ? changed : failed).push(seasonName(s));
+        });
+      }, Promise.resolve());
+    });
     var chain = keepChain.then(function () {
-      if (!failed.length) {
-        done(running, seasonsUndo(c, dur, state, chainKey));
+      if (!failed.length && !changed.length) {
+        done(running, seasonsUndo(c, dur, state, chainKey, made));
         return;
       }
-      window.UIFeedback.error(say('Keep failed for: ' + failed.join(', ')));
+      var said = failed.length ? ['Keep failed for: ' + failed.join(', ') + '.'] : [];
+      if (changed.length) said.push(changedMessage(changed));
+      window.UIFeedback.error(say(said.join(' ')));
       if (running && running.message) {
         window.UIFeedback.toast(say(running.message), { duration: 8000 });
       }
-      emit('failed', rowDetail);
+      emit(saved || changed.length ? 'done' : 'failed', rowDetail);
     });
     trackKeepChain(chainKey, chain).then(function () {
-      if (!failed.length || !state.isOpen()) return;
       /* Some of it may be saved: show what is, with the rest still ticked. */
-      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
-      _keepDialogState.picked = unsaved;
-      if (refocus) {
-        list.tabIndex = -1;
-        list.focus();
-      }
-      loadKeepSeasons(refocus ? function () { return btn; } : undefined);
+      if ((failed.length || changed.length) && state.isOpen()) readAgain(unsaved);
     });
   }
 
@@ -854,11 +915,12 @@
       confirmLabel: 'Remove all',
       confirmVariant: 'danger'
     }).then(function (ok) {
-      if (!ok) { removeBtn.disabled = false; return; }
       /* Like a keep, the requests outlive the dialog, so what they need is
          read now and the dialog is touched only while it is the same one. */
       var request = _keepDialogRequest;
       var chainKey = keepChainKey();
+      var before = _keepChains[chainKey];
+      if (!ok) { removeBtn.disabled = !!before; return; }
       var showTitle = _keepDialogState.showTitle;
       var rk = _keepDialogState.showRk;
       var state = {
@@ -868,38 +930,37 @@
         say: function (msg) { return state.isOpen() || !showTitle ? msg : showTitle + ': ' + msg; }
       };
       var rowDetail = { action: 'unkeep', id: state.seasonId, showRk: rk };
+      var seasons = _keepDialogState.seasons;
+      seasons.forEach(function (s) { retireUndo(s.id); });
       emit('busy', rowDetail);
       var allRequests = [];
-      if (rk && _keepDialogState.showKept) {
+      var whole = !!rk && !!_keepDialogState.showKept;
+      if (whole) {
+        var body = { read: showAsRead(), drops: idsOf(seasons) };
         allRequests.push({
-          url: '/api/show/' + encodeURIComponent(rk) + '/remove',
-          name: 'the show keep',
-          /* 404: no show keep any more, which is what was asked. */
-          goneIsDone: true
+          send: function () { return MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove', body); },
+          name: 'the show keep'
+        });
+      } else {
+        seasons.forEach(function (s) {
+          if (s.kept) allRequests.push({ send: function () { return unprotect(s.id, s.keep); }, name: seasonName(s) });
         });
       }
-      _keepDialogState.seasons.forEach(function (s) {
-        if (!s.kept) return;
-        retireUndo(s.id);
-        allRequests.push({ url: '/api/media/' + encodeURIComponent(s.id) + '/unprotect', name: seasonName(s) });
-      });
 
-      var removeChain = Promise.resolve();
+      var removeChain = before || Promise.resolve();
       var failed = [];
+      var changed = [];
       allRequests.forEach(function (req) {
-        removeChain = removeChain.then(function () {
-          return MM.api.post(req.url)
-            .catch(function (err) {
-              if (req.goneIsDone && err && err.status === 404) return;
-              throw err;
-            })
-            .catch(function () { failed.push(req.name); });
-        });
+        removeChain = removeChain.then(req.send)
+          .catch(function (err) { (changedMeanwhile(err) ? changed : failed).push(req.name); });
       });
       var chain = removeChain.then(function () {
-        if (failed.length) {
-          emit('failed', rowDetail);
-          window.UIFeedback.error(state.say('Remove failed for: ' + failed.join(', ')));
+        var missed = failed.length + changed.length;
+        if (missed) {
+          emit(changed.length || missed < allRequests.length ? 'done' : 'failed', rowDetail);
+          var said = failed.length ? ['Remove failed for: ' + failed.join(', ') + '.'] : [];
+          if (changed.length) said.push(whole ? SHOW_CHANGED : changedMessage(changed));
+          window.UIFeedback.error(state.say(said.join(' ')));
         } else {
           showKeepSaved(state, null, 'Removed the keeps on ' + (showTitle || 'the show') + '.');
         }
@@ -909,7 +970,7 @@
          sends only what is still kept. Remove all was disabled through the
          requests, so focus fell to the page: after a failure it goes back. */
       holdKeepWhileSaving(request, function () {
-        return failed.length ? removeBtn : null;
+        return failed.length || changed.length ? removeBtn : null;
       }, true);
     });
   }
@@ -937,11 +998,11 @@
     }).then(function (ok) {
       if (!ok || _busy[id]) return false;
       _busy[id] = 'delete';
+      retireUndo(id);
       emit('busy', detail);
       return MM.api.post('/api/media/' + encodeURIComponent(id) + '/delete')
         .then(function () {
           delete _busy[id];
-          retireUndo(id);
           emit('done', detail);
           window.UIFeedback.toast('Deleted ' + (title || 'the item') + '.', { variant: 'success' });
           return true;
