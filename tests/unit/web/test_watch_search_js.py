@@ -381,6 +381,10 @@ def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
         assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
 
 
+def test_no_titles_are_counted_of_a_person_who_has_none() -> None:
+    assert _run("personBare") == "Actor"
+
+
 def test_people_lead_where_no_title_matches() -> None:
     out = _run("peopleLead")
     assert out["person"] == {

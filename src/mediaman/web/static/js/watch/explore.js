@@ -761,7 +761,7 @@
       about.draw(persons.get(id), function () {
         f.node.classList.remove('is-unknown');
         f.title.textContent = p.name;
-        f.facts.textContent = [p.job, reply.in_library + ' in your library, ' + more + ' more'].filter(Boolean).join(' · ');
+        f.facts.textContent = [p.job, reply.total && reply.in_library + ' in your library, ' + more + ' more'].filter(Boolean).join(' · ');
       });
       sharpen(p.photo_url || p.profile_url);
       if (!who.name) {

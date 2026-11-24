@@ -935,6 +935,13 @@ const scenarios = {
     return out;
   },
 
+  // Nobody's titles are counted where there are none.
+  async personBare() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: MARA, known_for: [], items: [], total: 0, in_library: 0, next_page: null });
+    return p.doc.querySelector('.explore-facts').textContent;
+  },
+
   // People and no titles: they lead, and that no title matches is a line of text.
   async peopleLead() {
     const find = async (p, q, people, items) => {
