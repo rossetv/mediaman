@@ -469,7 +469,10 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     assert 'id="watch-search-clear"' in html
     top, results = html.split('id="watch-results"')
     assert 'id="watch-search-status" role="status"' in top
+    # The title overlay, after the results, has a status line of its own.
+    results, overlay = results.split('id="ttl"')
     assert 'role="status"' not in results
+    assert "watch-search-status" not in overlay
 
 
 @pytest.mark.parametrize(
