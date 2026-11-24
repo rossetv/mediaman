@@ -319,17 +319,10 @@
 }
 
 .setg-pg .usr-self-head { display: flex; align-items: center; gap: 16px; }
-.setg-pg .usr-self-head .av {
-  width: 44px; height: 44px; border-radius: 50%;
-  display: grid; place-items: center;
-  font-size: 15px; font-weight: 600; color: var(--t1);
-  flex-shrink: 0;
-  background: var(--s3);
-}
 .setg-pg .usr-self-head .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-self-head .usr-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .setg-pg .usr-self-head .usr-sub { font-size: 12px; color: var(--t3); margin-top: 3px; }
-.setg-pg .usr-self-head .usr-self-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setg-pg .usr-profile-link { margin: 0 0 14px; }
 
 .setg-pg .usr-row {
   display: flex; align-items: center; gap: 14px;
@@ -468,8 +461,6 @@
   .setg-pg .intg-card-hd { flex-wrap: wrap; padding: 16px 18px; }
   .setg-pg .intg-card-hd .hd-actions { flex-basis: 100%; padding-left: 50px; }
   .setg-pg .intg-card-hd .intg-chev { margin-left: auto; }
-  .setg-pg .usr-self-head { flex-wrap: wrap; }
-  .setg-pg .usr-self-head .usr-self-actions { flex-basis: 100%; }
 }
 
 @media (max-width: 699.98px) {

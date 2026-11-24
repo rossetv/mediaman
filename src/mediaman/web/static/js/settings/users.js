@@ -7,10 +7,7 @@
  *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
- *   - Self password-change form (#self-password-form)
- *   - Revoke other sessions (#btn-revoke-others)
- *   - Password strength meters (data-strength attribute)
- *   - Password-match indicator (#self-match-label)
+ *   - Password strength meter on the add user form (data-strength attribute)
  *
  * Cross-module dependencies:
  *   MM.api     (core/api.js)
@@ -260,14 +257,6 @@
         });
       }
 
-      // Only one of the account and team forms is open at a time. A form whose
-      // request is in flight stays open, so its result lands where it can be
-      // seen; it closes itself when it finishes.
-      var closers = [];
-      function closeOthers(keep) {
-        closers.forEach(function (close) { if (close !== keep) close(); });
-      }
-
       var rows = MM.settings.rows;
 
       function clearMsg(target) {
@@ -322,7 +311,6 @@
         if (!addUserForm) return;
         var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(addUserForm);
         if (wantOpen) {
-          closeOthers(closeAddUser);
           rows.open(addUserForm);
           document.getElementById('new-username').focus();
           return;
@@ -338,8 +326,6 @@
           if (closed) closed();
         });
       }
-      function closeAddUser() { if (addUserForm && rows.isOpen(addUserForm)) toggleAddUser(false); }
-      closers.push(function () { if (!(btnSubmitAddUser && btnSubmitAddUser.disabled)) closeAddUser(); });
       // A form that is sending cannot be closed or reset from its own buttons.
       if (btnAddUser)       btnAddUser.addEventListener('click', function () {
         if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
@@ -410,106 +396,6 @@
         });
       });
 
-      var pwForm       = document.getElementById('self-password-form');
-      var btnChangePw  = document.getElementById('btn-change-password');
-      var btnCancelPw  = document.getElementById('btn-cancel-password');
-      var btnSubmitPw  = document.getElementById('btn-submit-password');
-      var pwResult     = document.getElementById('password-result');
-
-      function togglePwForm(open, closed) {
-        if (!pwForm) return;
-        var wantOpen = (typeof open === 'boolean') ? open : !rows.isOpen(pwForm);
-        if (wantOpen) {
-          closeOthers(closePwForm);
-          rows.open(pwForm);
-          document.getElementById('self-old-password').focus();
-          return;
-        }
-        rows.close(pwForm, function () {
-          pwForm.reset();
-          ['self-old-password', 'self-new-password', 'self-confirm-password'].forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.dispatchEvent(new Event('input'));
-          });
-          clearMsg(pwResult);
-          if (closed) closed();
-        });
-      }
-      function closePwForm() { if (pwForm && rows.isOpen(pwForm)) togglePwForm(false); }
-      closers.push(function () { if (!(btnSubmitPw && btnSubmitPw.disabled)) closePwForm(); });
-      if (btnChangePw) btnChangePw.addEventListener('click', function () {
-        if (btnSubmitPw && btnSubmitPw.disabled) return;
-        togglePwForm();
-      });
-      if (btnCancelPw) btnCancelPw.addEventListener('click', function () {
-        if (btnSubmitPw && btnSubmitPw.disabled) return;
-        togglePwForm(false);
-        if (btnChangePw) btnChangePw.focus();
-      });
-
-      clearOnInput(pwForm, pwResult, btnSubmitPw);
-      if (pwForm) pwForm.addEventListener('submit', function (e) {
-        e.preventDefault();
-        if (btnSubmitPw.disabled) return;
-        var oldInput = document.getElementById('self-old-password');
-        var newInput = document.getElementById('self-new-password');
-        var confInput = document.getElementById('self-confirm-password');
-        var oldPw = oldInput.value;
-        var newPw = newInput.value;
-        var conf  = confInput.value;
-        if (!oldPw) { failOn(pwResult, 'Enter your current password.', oldInput); return; }
-        if (newPw.length < 12) { failOn(pwResult, 'New password must be at least 12 characters.', newInput); return; }
-        if (newPw !== conf) { failOn(pwResult, "Passwords don't match.", confInput); return; }
-        btnSubmitPw.disabled = true;
-        pwResult.className = 'inline-form-msg';
-        pwResult.textContent = 'Updating…';
-        MM.reauth.run(function () {
-          return MM.api.post('/api/users/change-password', {
-            old_password: oldPw,
-            new_password: newPw,
-          });
-        }).then(function () {
-          pwResult.className = 'inline-form-msg ok';
-          pwResult.textContent = 'Password updated.';
-          setTimeout(function () {
-            var hadFocus = MM.dom.focusStillIn(pwForm);
-            togglePwForm(false, function () { btnSubmitPw.disabled = false; });
-            if (hadFocus && btnChangePw) btnChangePw.focus({ preventScroll: true });
-          }, 900);
-        }).catch(function (err) {
-          btnSubmitPw.disabled = false;
-          if (err && err.error === 'reauth_cancelled') {
-            pwResult.className = 'inline-form-msg';
-            pwResult.textContent = '';
-            return;
-          }
-          pwResult.className = 'inline-form-msg err';
-          renderApiError(pwResult, err);
-          (err && err.error === 'wrong_password' ? oldInput : newInput).focus();
-        });
-      });
-
-      var btnRevokeOthers = document.getElementById('btn-revoke-others');
-      if (btnRevokeOthers) btnRevokeOthers.addEventListener('click', function () {
-        var orig = btnRevokeOthers.textContent;
-        btnRevokeOthers.disabled = true;
-        btnRevokeOthers.textContent = 'Signing out…';
-        MM.reauth.run(function () {
-          return MM.api.post('/api/users/sessions/revoke-others');
-        }).then(function (data) {
-          btnRevokeOthers.disabled = false;
-          btnRevokeOthers.textContent = data && data.ok
-            ? 'Signed out ' + (data.revoked || 0)
-            : orig;
-          setTimeout(function () { btnRevokeOthers.textContent = orig; }, 2400);
-        }).catch(function (err) {
-          btnRevokeOthers.disabled = false;
-          btnRevokeOthers.textContent = orig;
-          if (err && err.error === 'reauth_cancelled') return;
-          // Existing UX: silent failure here; no toast wired up.
-        });
-      });
-
       function uniqueCount(s) { return new Set(s).size; }
       function classCount(s) {
         var n = 0;
@@ -558,110 +444,9 @@
         }
         input.addEventListener('input', render);
       }
-      wireStrength('self-new-password');
       wireStrength('new-user-password');
 
-      // Password-match indicator
-      (function () {
-        var pw  = document.getElementById('self-new-password');
-        var cp  = document.getElementById('self-confirm-password');
-        var lab = document.getElementById('self-match-label');
-        if (!pw || !cp || !lab) return;
-        function render() {
-          if (!cp.value || !pw.value) { lab.textContent = ' '; lab.className = 'fpc-caption'; return; }
-          if (cp.value === pw.value) {
-            lab.textContent = 'Passwords match';
-            lab.className = 'fpc-caption fpc-caption-strong';
-          } else {
-            lab.textContent = "Passwords don't match yet";
-            lab.className = 'fpc-caption fpc-caption-weak';
-          }
-        }
-        cp.addEventListener('input', render);
-        pw.addEventListener('input', render);
-      })();
-
-      // Edit-email drawer (self card).
-      // The reauth prompt is provided by MM.reauth.run — no inline
-      // password field on this form.
-      function initEmailEditor() {
-        var btn = document.getElementById('btn-edit-email');
-        var form = document.getElementById('self-email-form');
-        var cancel = document.getElementById('btn-cancel-email');
-        var submit = document.getElementById('btn-submit-email');
-        var emailInp = document.getElementById('self-email-input');
-        var msg = document.getElementById('email-result');
-        var display = document.getElementById('self-email-display');
-        if (!btn || !form) return;
-
-        function show() {
-          closeOthers(hide);
-          rows.open(form);
-          clearMsg(msg);
-          emailInp.focus();
-        }
-        function hide(closed) {
-          rows.close(form, function () {
-            form.reset();
-            clearMsg(msg);
-            if (closed) closed();
-          });
-        }
-        closers.push(function () { if (!submit.disabled) hide(); });
-        clearOnInput(form, msg, submit);
-
-        btn.addEventListener('click', function () {
-          if (submit.disabled) return;
-          if (rows.isOpen(form)) hide(); else show();
-        });
-        cancel.addEventListener('click', function () {
-          if (submit.disabled) return;
-          hide();
-          btn.focus();
-        });
-
-        form.addEventListener('submit', function (e) {
-          e.preventDefault();
-          if (submit.disabled) return;
-          submit.disabled = true;
-          msg.textContent = 'Saving…';
-          msg.className = 'inline-form-msg';
-          MM.reauth.run(function () {
-            return MM.api.patch('/api/users/me/email', { email: emailInp.value });
-          }).then(function () {
-            // Keep submit disabled through the 800 ms close delay so a
-            // fast second click during the "Saved" confirmation does
-            // not re-issue the PATCH.
-            msg.textContent = 'Saved';
-            msg.className = 'inline-form-msg ok';
-            var newVal = emailInp.value.trim();
-            // Closing resets the form, so what was saved becomes its starting value.
-            emailInp.defaultValue = newVal;
-            if (display) {
-              display.textContent = newVal || 'Not set · download alerts disabled';
-            }
-            btn.textContent = newVal ? 'Edit email' : 'Add email';
-            setTimeout(function () {
-              var hadFocus = MM.dom.focusStillIn(form);
-              hide(function () { submit.disabled = false; });
-              if (hadFocus) btn.focus({ preventScroll: true });
-            }, 800);
-          }).catch(function (err) {
-            submit.disabled = false;
-            if (err && err.error === 'reauth_cancelled') {
-              msg.textContent = '';
-              msg.className = 'inline-form-msg';
-              return;
-            }
-            msg.textContent = MM.api.messageOf(err, 'Could not save');
-            msg.className = 'inline-form-msg err';
-            emailInp.focus();
-          });
-        });
-      }
-
       showUsers();
-      initEmailEditor();
     },
   };
 

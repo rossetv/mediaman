@@ -63,13 +63,9 @@ def test_new_rows_land_where_the_server_lists_them() -> None:
     assert out["roleName"] == {"text": "Make admin", "aria": "Make admin: bob"}
 
 
-def test_form_that_is_sending_stays_open_when_another_opens() -> None:
-    out = _run("busyForm")
-    assert out["whileBusy"] == {"pwHidden": False, "emailHidden": False}
-    # its own toggle and Cancel leave it open with what was typed
-    assert out["ownButtons"] == {"hidden": False, "value": "typed"}
-    # once idle, opening another closes it and puts typed values back to their start
-    assert out["afterIdle"] == {"emailHidden": True, "emailValue": "me@x", "submitDisabled": False}
+def test_add_user_form_that_is_sending_stays_open_with_what_was_typed() -> None:
+    out = _run("busyAddForm")
+    assert out == {"hidden": False, "value": "typed"}
 
 
 def test_rate_limited_service_is_not_counted_as_not_connected() -> None:

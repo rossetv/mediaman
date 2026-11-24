@@ -292,49 +292,31 @@ const scenarios = {
     return { roleName, subs: names(subList, 'sub-row').map((r) => r.dataset.id), userRows: names(userList, 'usr-row').map((r) => String(r.dataset.userId)) };
   },
 
-  // Opening another form leaves one that is still sending where it is.
-  async busyForm() {
+  // The add user form that is sending ignores its own toggle and Cancel.
+  async busyAddForm() {
     const h = build();
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
-    const $ = (tag, id, parent, props) => h.add(tag, Object.assign({ id }, props), parent);
-    $('div', 'user-list');
-    const pwForm = $('form', 'self-password-form', null, { hidden: true });
-    $('input', 'self-old-password', pwForm, { value: 'old' });
-    $('input', 'self-new-password', pwForm, { value: 'a-long-new-password' });
-    $('input', 'self-confirm-password', pwForm, { value: 'a-long-new-password' });
-    const btnPw = $('button', 'btn-change-password');
-    const submitPw = $('button', 'btn-submit-password', pwForm);
-    $('span', 'password-result', pwForm);
-    const cancelPw = $('button', 'btn-cancel-password', pwForm);
-    const emailForm = $('form', 'self-email-form', null, { hidden: true });
-    const emailInput = $('input', 'self-email-input', emailForm, { value: 'me@x', defaultValue: 'me@x' });
-    $('span', 'email-result', emailForm);
-    $('button', 'btn-cancel-email', emailForm);
-    $('button', 'btn-submit-email', emailForm);
-    const btnEmail = $('button', 'btn-edit-email');
-    let finish;
-    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'me', users: [] }), post: () => new Promise((r) => { finish = r; }), messageOf: () => 'x' };
+    h.add('div', { id: 'user-list' });
+    const btnAdd = h.add('button', { id: 'btn-add-user' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    const name = h.add('input', { id: 'new-username', value: '', defaultValue: '' }, form);
+    const pw = h.add('input', { id: 'new-user-password', value: '' }, form);
+    h.add('button', { id: 'btn-submit-add-user' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
+    const cancel = h.add('button', { id: 'btn-cancel-add-user' }, form);
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'me', users: [] }), post: () => new Promise(() => {}), messageOf: () => 'x' };
     h.ctx.MM.reauth = { run: (f) => f() };
     h.ctx.MM.settings.users.init();
     await h.flush();
-    btnPw.fire('click');
-    pwForm.fire('submit');
-    btnEmail.fire('click');
-    const whileBusy = { pwHidden: pwForm.hidden, emailHidden: emailForm.hidden };
-    // its own toggle and Cancel do not close or reset it mid-request
-    h.doc.getElementById('self-old-password').value = 'typed';
-    btnPw.fire('click');
-    cancelPw.fire('click');
-    const ownButtons = { hidden: pwForm.hidden, value: h.doc.getElementById('self-old-password').value };
-    finish({});
-    await h.flush();
-    // a form that is idle closes, and closing puts the typed values back to their start
-    emailInput.value = 'typed@x';
+    btnAdd.fire('click');
+    name.value = 'casey';
+    pw.value = 'a-long-new-password';
+    form.fire('submit');
+    name.value = 'typed';
+    btnAdd.fire('click');
+    cancel.fire('click');
     h.drain();
-    btnPw.fire('click');
-    h.drain();
-    const afterIdle = { emailHidden: emailForm.hidden, emailValue: emailInput.value, submitDisabled: submitPw.disabled };
-    return { whileBusy, ownButtons, afterIdle };
+    return { hidden: form.hidden, value: name.value };
   },
 
   // A new user's row comes in only once the add form has folded away.
