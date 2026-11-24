@@ -10,7 +10,7 @@ mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatc
   <img src="docs/images/screens.webp" alt="mediaman's pages in turn: the Dashboard with disk use by type and five movies scheduled for deletion; the Library with sizes and last-watched dates; Downloads with a movie 62% downloaded; the History log of scans, keeps and downloads; Settings with Plex, Sonarr, Radarr, NZBGet, Mailgun, OpenAI, TMDB and OMDb connected; and the weekly newsletter email with a Keep button on each item due for deletion.">
 </picture>
 
-![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on the Library page goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
+![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
 
 ## Run it
 
@@ -36,7 +36,7 @@ Open `http://<host>:8282`, log in and add your services under Settings:
 
 ![mediaman needs Plex to scan; Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and OpenAI are optional. It keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
 
-Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press Scan now and check Scheduled for deletion on the Dashboard. Then `docker rm -f mediaman` and rerun your own `docker run` with this line above the image name, naming your library folders separated by `:`. The next scan deletes everything past its grace period, with no newsletter or Keep link unless Mailgun, a Base URL readers can reach and a subscriber are set.
+Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press the storage meter at the top of Watch, then Scan now, and check its Scheduled tab. Then `docker rm -f mediaman` and rerun your own `docker run` with this line above the image name, naming your library folders separated by `:`. The next scan deletes everything past its grace period, with no newsletter or Keep link unless Mailgun, a Base URL readers can reach and a subscriber are set.
 
 ```bash
   -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
@@ -61,7 +61,9 @@ To upgrade, `docker pull rossetv/mediaman` and recreate the container the same w
 
 Watch is a Netflix-style player for the Plex libraries mediaman scans. Plex converts the video and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
 
-An admin can do everything. A viewer can watch, search and request films and series, see Downloads and Recommended, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password and sign out their other devices. A viewer has no settings, library tools, history or way to cancel downloads.
+Rest the pointer on a card and it grows into a preview that plays its trailer from youtube-nocookie.com. Play trailers on hover, in the preview's More menu, turns trailers off in that browser.
+
+An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see Downloads and Recommended, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password and sign out their other devices. A viewer has no settings, library tools, history or way to cancel downloads.
 
 Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 

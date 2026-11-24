@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="830" height="730" viewBox="0 0 830 730" role="img" aria-labelledby="t d">
 <title id="t">How a stale item is handled</title>
-<desc id="d">The weekly scan reads Plex and finds a stale movie. It is queued for deletion with a grace period, set in Settings. If Mailgun, a Base URL readers can reach and at least one subscriber are set, the newsletter shows it with a signed Keep link; without them no email is sent and there is no Keep link. If a reader keeps it, it stays. If not, the first scan after the grace period deletes the file from disk, and only inside MEDIAMAN_DELETE_ROOTS; with no roots set nothing is deleted. Separately, Delete on the Library page asks Radarr or Sonarr to delete the item with its files and does not check the roots.</desc>
+<desc id="d">The weekly scan reads Plex and finds a stale movie. It is queued for deletion with a grace period, set in Settings. If Mailgun, a Base URL readers can reach and at least one subscriber are set, the newsletter shows it with a signed Keep link; without them no email is sent and there is no Keep link. If a reader keeps it, it stays. If not, the first scan after the grace period deletes the file from disk, and only inside MEDIAMAN_DELETE_ROOTS; with no roots set nothing is deleted. Separately, Delete on Watch asks Radarr or Sonarr to delete the item with its files and does not check the roots.</desc>
 <style>
   .bg { fill: #fbfbfd; }
   .card { fill: #ffffff; stroke: #d2d2d7; stroke-width: 1; }
@@ -55,7 +55,7 @@
 <rect class="card" x="32" y="180" width="766" height="72" rx="10"/>
 <circle class="num" cx="62" cy="216" r="13"/><text class="numt" x="62" y="221" text-anchor="middle">2</text>
 <text class="n" x="90" y="209">It is queued with a grace period, set in Settings</text>
-<text class="s" x="90" y="232">The Dashboard lists it under Scheduled for deletion. Nothing on disk is touched yet.</text>
+<text class="s" x="90" y="232">Watch shows it under Leaving soon. Nothing on disk is touched yet.</text>
 
 <path class="line" d="M415 252 V274"/><path class="head" d="M410 268 L415 274 L420 268"/>
 
@@ -86,7 +86,7 @@
 
 <!-- separate path -->
 <rect class="panel" x="32" y="554" width="766" height="152" rx="12"/>
-<text class="n" x="52" y="582">Separately: Delete on the Library page</text>
+<text class="n" x="52" y="582">Separately: Delete on Watch</text>
 
 <rect class="card" x="52" y="600" width="250" height="86" rx="10"/>
 <text class="n" x="72" y="636">You click Delete</text>
