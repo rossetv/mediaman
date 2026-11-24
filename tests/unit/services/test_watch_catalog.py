@@ -284,7 +284,7 @@ class TestDetails:
     }
 
     def test_only_the_fields_the_title_view_uses_are_cached(self, cache):
-        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+        client = SimpleNamespace(details_or_raise=lambda media_type, tmdb_id: self.RAW)
 
         answered = catalog.details(client, "movie", 5)
 
@@ -294,9 +294,34 @@ class TestDetails:
 
     def test_a_whole_payload_cached_before_is_not_read_as_the_fields(self, cache):
         cache.store["tmdb:details:movie:5"] = self.RAW
-        client = SimpleNamespace(details=lambda media_type, tmdb_id: self.RAW)
+        client = SimpleNamespace(details_or_raise=lambda media_type, tmdb_id: self.RAW)
 
         assert catalog.details(client, "movie", 5) == catalog.tmdb_fields(self.RAW, "movie")
+
+    def test_one_tmdb_marks_adult_is_never_answered_not_even_once_cached(self, cache):
+        client = SimpleNamespace(details_or_raise=lambda *_: {**self.RAW, "adult": True})
+
+        for _ in range(2):
+            with pytest.raises(catalog.TitleNotFound):
+                catalog.details(client, "movie", 5)
+
+    @pytest.mark.parametrize(
+        ("status", "raised"),
+        [
+            (404, catalog.TitleNotFound),
+            (429, catalog.TmdbBusy),
+            (500, catalog.TmdbUnavailable),
+        ],
+    )
+    def test_no_such_title_and_a_failure_are_told_apart(self, cache, status, raised):
+        def fail(*_):
+            raise SafeHTTPError(status_code=status, body_snippet="", url="https://tmdb.invalid")
+
+        with pytest.raises(catalog.TmdbUnavailable) as caught:
+            catalog.details(SimpleNamespace(details_or_raise=fail), "movie", 5)
+
+        assert caught.type is raised
+        assert cache.store == {}
 
 
 class TestDiscoverShelves:
@@ -322,6 +347,18 @@ class TestDiscoverShelves:
         assert [r[0] for r in rows] == ["popular_movies", "popular_tv"]
         assert rows[0][2] == [{"id": 1, "media_type": "movie"}]
         assert len(calls) == 2
+
+    def test_an_adult_title_already_cached_is_left_out(self, cache):
+        cache.store["tmdb:discover:trending:1"] = [{"id": 1, "adult": True}, {"id": 2}]
+        client = self._client(list, list, list)
+
+        assert catalog.discover_shelves(client)[0][2] == [{"id": 2}]
+
+    def test_an_adult_title_of_a_later_page_is_left_out_and_does_not_end_the_row(self, cache):
+        payload = {"results": [{"id": 1, "adult": True}], "total_pages": 9}
+        client = SimpleNamespace(_get=lambda path, params: payload)
+
+        assert catalog.discover_page(client, "trending", 2) == ([], 3)
 
     def test_no_row_answered_is_tmdb_unavailable(self, cache):
         client = self._client(list, list, list)

@@ -111,8 +111,14 @@ class FakeTmdb:
             raise SafeHTTPError(status_code=500, body_snippet="", url="https://tmdb.invalid")
         return {"results": self.search_results}
 
-    def details(self, media_type, tmdb_id):
-        return None if self.failing else self.detail.get(tmdb_id)
+    def details_or_raise(self, media_type, tmdb_id):
+        if self.failing or tmdb_id not in self.detail:
+            raise SafeHTTPError(
+                status_code=500 if self.failing else 404,
+                body_snippet="",
+                url="https://tmdb.invalid",
+            )
+        return self.detail[tmdb_id]
 
     def find_by_tvdb(self, tvdb_id):
         return self.tvdb_to_tmdb.get(tvdb_id)
@@ -723,6 +729,14 @@ class TestTmdbTitle:
 
         assert resp.status_code == 200
         assert resp.json()["download"]["state"] is None
+
+    def test_an_adult_title_and_one_tmdb_has_not_are_not_found(self, viewer, conn, tmdb, arr):
+        tmdb.detail[12]["adult"] = True
+        rec = insert_suggestion(conn, title="Glass Onion", tmdb_id=12)
+
+        refs = ("tmdb-movie-12", "tmdb-movie-404", f"rec-{rec}")
+
+        assert [viewer.get(f"/api/watch/title/{r}").status_code for r in refs] == [404] * 3
 
     def test_a_tmdb_failure_is_502(self, viewer, tmdb, arr):
         tmdb.failing = True

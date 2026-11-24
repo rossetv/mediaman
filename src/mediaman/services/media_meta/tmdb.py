@@ -223,8 +223,8 @@ class TmdbClient:
     def _get_results(
         self, path: str, *, params: dict[str, object], label: str
     ) -> list[dict[str, object]]:
-        """Fetch *path* and return its results list; [] on any failure (transport, HTTP,
-        JSON decode or a non-dict payload). Never raises.
+        """Fetch *path* and return its results list, adult titles and people left out; []
+        on any failure (transport, HTTP, JSON decode or a non-dict payload). Never raises.
         """
         try:
             payload = self._get(path, params)
@@ -232,7 +232,9 @@ class TmdbClient:
             self._log_request_failure(label, exc)
             return []
         results = payload.get("results") if isinstance(payload, dict) else None
-        return results if isinstance(results, list) else []
+        if not isinstance(results, list):
+            return []
+        return [r for r in results if isinstance(r, dict) and not r.get("adult")]
 
     def search_multi_paged(self, query: str, page: int = 1) -> list[dict[str, object]]:
         """Return one page of /search/multi results; [] on error. Unlike search_multi it
@@ -240,7 +242,8 @@ class TmdbClient:
         """
         return self._get_results(
             "/search/multi",
-            params={"query": query, "include_adult": False, "page": page},
+            # requests would send a bool as "False".
+            params={"query": query, "include_adult": "false", "page": page},
             label=f"search/multi paged({query!r}, page={page})",
         )
 
@@ -277,9 +280,16 @@ class TmdbClient:
         )
 
     def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
+        """Return the raw details payload as ``details_or_raise``, or None on error."""
+        try:
+            return self.details_or_raise(media_type, tmdb_id)
+        except (SafeHTTPError, requests.RequestException, ValueError):
+            return None
+
+    def details_or_raise(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload:
         """Return the raw details payload with videos, credits and the age-rating data
-        (release_dates for movies, content_ratings and external_ids for TV) appended, or
-        None on error.
+        (release_dates for movies, content_ratings and external_ids for TV) appended.
+        Raises as find_by_tvdb does, and ValueError for a payload that is no title's.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
@@ -290,10 +300,12 @@ class TmdbClient:
                     + ("release_dates" if endpoint == "movie" else "content_ratings,external_ids")
                 },
             )
-            return result if isinstance(result, dict) else None  # type: ignore[return-value]
+            if not isinstance(result, dict):
+                raise ValueError("details answered without a title")
+            return result  # type: ignore[return-value]
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
-            return None
+            raise
 
     def find_by_tvdb(self, tvdb_id: int) -> int | None:
         """Return the TMDB TV id for a TVDB id via /find, or None when TMDB has no match.

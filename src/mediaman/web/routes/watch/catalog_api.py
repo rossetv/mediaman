@@ -710,6 +710,8 @@ def api_watch_title(
             out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)
     except disk_cache.Refused:
         return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        return _not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))

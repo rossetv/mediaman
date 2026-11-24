@@ -16,7 +16,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 from . import _discover
-from ._discover import _CARD_FIELDS, _DAY, _HOUR, MAX_PAGE, TmdbBusy, TmdbUnavailable, _cached
+from ._discover import _CARD_FIELDS, _DAY, _HOUR, MAX_PAGE, TmdbUnavailable, _cached, _failure
 from ._genres import GENRES, Genre
 from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
 from ._title import _dicts
@@ -58,11 +58,6 @@ _JOBS = {
 
 class PersonNotFound(TmdbUnavailable):
     """TMDB has no such person, or marks them adult."""
-
-
-def _failure(exc: Exception, what: str) -> TmdbUnavailable:
-    busy = isinstance(exc, SafeHTTPError) and exc.status_code == 429
-    return (TmdbBusy if busy else TmdbUnavailable)(what)
 
 
 def decades() -> list[str]:

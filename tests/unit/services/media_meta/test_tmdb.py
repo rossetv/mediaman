@@ -200,6 +200,19 @@ class TestSearchMulti:
         assert client.search_multi("x") is None
 
 
+class TestLists:
+    def test_adult_titles_and_people_are_neither_asked_for_nor_listed(
+        self, fake_http, fake_response
+    ):
+        results = [{"id": 1, "adult": True}, {"id": 2, "adult": False}, {"id": 3}]
+        fake_http.queue("GET", fake_response(json_data={"results": results}))
+
+        found = TmdbClient("token").search_multi_paged("x")
+
+        assert [r["id"] for r in found] == [2, 3]
+        assert fake_http.calls[0][2]["params"]["include_adult"] == "false"
+
+
 class TestDetails:
     def test_movie_details_appends_videos_credits_and_release_dates(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data=_movie_details_payload()))

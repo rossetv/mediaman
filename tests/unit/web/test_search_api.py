@@ -127,7 +127,7 @@ class TestSearchEndpoint:
         pages_requested = sorted(c[2]["params"]["page"] for c in search_calls)
         assert pages_requested == [1, 2]
         assert search_calls[0][2]["params"]["query"] == "dune"
-        assert search_calls[0][2]["params"]["include_adult"] is False
+        assert search_calls[0][2]["params"]["include_adult"] == "false"
 
     def test_survives_single_page_failure(self, authed_client, fake_http, fake_response):
         page1 = {

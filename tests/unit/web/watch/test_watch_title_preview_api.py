@@ -332,7 +332,7 @@ class TestOutside:
         assert not {"cast", "episodes", "director", "poster_url"} & body.keys()
         assert body["download"].keys() == {"state", "pct", "request"}
 
-    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (404, 502)])
+    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (429, 429), (404, 404)])
     def test_tmdb_failing_is_an_error(self, viewer, tmdb, plex, failure, status):
         tmdb["/movie/12"] = failure
 
@@ -394,6 +394,22 @@ class TestPicks:
             ("Stored.", "Because."),
             ("Stored.", "Shared."),
         ]
+
+
+class TestAdult:
+    def test_an_adult_title_is_not_found_by_any_name(self, viewer, library, tmdb, plex):
+        tmdb["/movie/12"] = {**FILM, "id": 12, "adult": True}
+        pick = insert_user_pick(
+            library, "viewer", title="T", media_type="movie", tmdb_id=12, reason="R"
+        )
+        rec = insert_suggestion(library, title="T", tmdb_id=12)
+
+        codes = [
+            _preview(viewer, ref).status_code
+            for ref in ("tmdb-movie-12", f"pick-{pick}", f"rec-{rec}")
+        ]
+
+        assert codes == [404, 404, 404]
 
 
 class TestLimit:

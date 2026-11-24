@@ -66,6 +66,15 @@ class TmdbBusy(TmdbUnavailable):
     """TMDB answered 429 and nothing usable was cached."""
 
 
+class TitleNotFound(TmdbUnavailable):
+    """TMDB has no such title, or marks it adult."""
+
+
+def _failure(exc: Exception, what: str) -> TmdbUnavailable:
+    busy = isinstance(exc, SafeHTTPError) and exc.status_code == 429
+    return (TmdbBusy if busy else TmdbUnavailable)(what)
+
+
 def _cache() -> disk_cache.Store[Any]:
     return disk_cache.meta()
 
@@ -107,7 +116,7 @@ def discover_shelves(client: TmdbClient) -> list[tuple[str, str, list[dict[str, 
             )
         except TmdbUnavailable:
             continue
-        shelves.append((shelf_id, title, items))
+        shelves.append((shelf_id, title, [i for i in items if not i.get("adult")]))
     if not shelves:
         raise TmdbUnavailable("discover")
     return shelves
@@ -134,16 +143,25 @@ def discover_page(
         results = payload.get("results") if isinstance(payload, dict) else None
         if not isinstance(results, list):
             raise TmdbUnavailable(row_id)
-        items = [{f: r[f] for f in _CARD_FIELDS if f in r} for r in results if isinstance(r, dict)]
+        items = [
+            {f: r[f] for f in _CARD_FIELDS if f in r}
+            for r in results
+            if isinstance(r, dict) and not r.get("adult")
+        ]
         if media_type:
             items = [{**i, "media_type": media_type} for i in items]
         total = payload.get("total_pages")
-        return {"items": items, "pages": total if isinstance(total, int) else MAX_PAGE}
+        return {
+            "items": items,
+            "pages": total if isinstance(total, int) else MAX_PAGE,
+            "empty": not results,
+        }
 
+    # "v2": entries before it hold adult titles.
     found: dict[str, Any] = _cached(
-        f"tmdb:discover-page:{row_id}:{page}", 6 * _HOUR, 7 * _DAY, fetch, allow_fetch
+        f"tmdb:discover-page:v2:{row_id}:{page}", 6 * _HOUR, 7 * _DAY, fetch, allow_fetch
     )
-    more = bool(found["items"]) and page < min(found["pages"], MAX_PAGE)
+    more = not found["empty"] and page < min(found["pages"], MAX_PAGE)
     return found["items"], page + 1 if more else None
 
 
@@ -180,19 +198,30 @@ def details(
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
     TMDB's own payload, with its full crew and every country's release dates, is many
-    times larger. *allow_fetch* is asked as in ``search``."""
+    times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
+    asked as in ``search``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
-        found = client.details(media_type, tmdb_id)
-        if found is None:
-            raise TmdbUnavailable("details")
+        try:
+            found = client.details_or_raise(media_type, tmdb_id)
+        except SafeHTTPError as exc:
+            if exc.status_code == 404:
+                raise TitleNotFound("details") from exc
+            raise _failure(exc, "details") from exc
+        except (requests.RequestException, ValueError) as exc:
+            raise TmdbUnavailable("details") from exc
+        # Stored, so that a title held before TMDB marked it is not served from then on.
+        if found.get("adult"):
+            return {"adult": True}
         return tmdb_fields(found, media_type)
 
-    # "v3": entries before it lack the cast's person ids and the genre ids.
+    # "v4": entries before it may be an adult title's.
     result: dict[str, Any] = _cached(
-        f"tmdb:details:v3:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
+        f"tmdb:details:v4:{media_type}:{tmdb_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
+    if result.get("adult"):
+        raise TitleNotFound("details")
     return result
 
 

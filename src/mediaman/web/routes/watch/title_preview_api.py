@@ -384,6 +384,8 @@ def api_watch_preview(
         return respond_err("tmdb_not_configured", status=503)
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        return _not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     except _OutsideLibraries:
@@ -421,8 +423,7 @@ def _other_title(
         return None
     out = _stored_pick(ref, rec)
     if client is not None and rec.tmdb_id:
-        # The pick's own text is better than none.
-        with contextlib.suppress(catalog.TmdbUnavailable):
+        try:
             out = _outside_title(
                 request,
                 conn,
@@ -435,6 +436,10 @@ def _other_title(
                 ask,
             )
             out = _as_held(out, request, conn, username, ask)
+        except catalog.TitleNotFound:
+            raise
+        except catalog.TmdbUnavailable:
+            pass  # The pick's own text is better than none.
     out["reason"] = rec.reason or None
     return out
 
