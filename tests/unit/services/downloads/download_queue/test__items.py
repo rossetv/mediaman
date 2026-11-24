@@ -128,6 +128,20 @@ class TestBuildUnmatchedArrItem:
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_movie_radarr_is_downloading_is_downloading_without_nzbget(self, _mock_search):
+        arr = make_arr_card(
+            "movie",
+            "Dune",
+            source="Radarr",
+            progress=40,
+            size=100,
+            sizeleft=60,
+            status="downloading",
+        )
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["state"] == "downloading"
+
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):
         arr = make_arr_card("series", "Breaking Bad", source="Sonarr", episodes=[])
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)

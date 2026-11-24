@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.downloads.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
@@ -133,6 +135,25 @@ class TestMapState:
 
     def test_unpacking_returns_almost_ready(self):
         assert map_state("UNPACKING", has_nzbget_match=True) == "almost_ready"
+
+    def test_fetching_returns_downloading(self):
+        assert map_state("FETCHING", has_nzbget_match=True) == "downloading"
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            "LOADING_PARS",
+            "VERIFYING_SOURCES",
+            "REPAIRING",
+            "VERIFYING_REPAIRED",
+            "RENAMING",
+            "MOVING",
+            "POST_UNPACK_RENAMING",
+            "EXECUTING_SCRIPT",
+        ],
+    )
+    def test_post_processing_returns_almost_ready(self, status):
+        assert map_state(status, has_nzbget_match=True) == "almost_ready"
 
     def test_pp_state_returns_almost_ready(self):
         assert map_state("PP_PROCESS", has_nzbget_match=True) == "almost_ready"

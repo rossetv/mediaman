@@ -137,7 +137,7 @@ def build_matched_item(
     )
 
 
-def _derive_series_state(episodes: list[dict[str, object]]) -> str:
+def _derive_state(episodes: list[dict[str, object]]) -> str:
     if episodes and all(e["state"] == "ready" for e in episodes):
         return "almost_ready"
     if any(e["state"] in ("downloading", "queued") for e in episodes):
@@ -156,7 +156,7 @@ def _build_unmatched_series_item(
     abandon_visible_now: bool,
 ) -> DownloadItem:
     episodes = build_episode_dicts(arr.get("episodes", []))
-    state = _derive_series_state(episodes)
+    state = _derive_state(episodes)
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
@@ -207,11 +207,7 @@ def _build_unmatched_movie_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    state = (
-        "almost_ready"
-        if (arr.get("progress") or 0) >= 100
-        else map_state(None, has_nzbget_match=False)
-    )
+    state = _derive_state([{"state": map_episode_state(arr)}])
     search_hint = (
         build_search_hint(
             search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")

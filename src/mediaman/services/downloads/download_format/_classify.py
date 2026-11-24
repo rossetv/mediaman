@@ -164,13 +164,25 @@ def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> 
     return False, ""
 
 
+_NZBGET_POST_PROCESSING = (
+    "PP_",
+    "LOADING_PARS",
+    "VERIFYING",
+    "REPAIRING",
+    "RENAMING",
+    "UNPACKING",
+    "MOVING",
+    "EXECUTING_SCRIPT",
+)
+
+
 def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     if not has_nzbget_match or nzbget_status is None:
         return "searching"
     upper = nzbget_status.upper()
-    if "UNPACKING" in upper or "PP_" in upper:
+    if any(stage in upper for stage in _NZBGET_POST_PROCESSING):
         return "almost_ready"
-    if "DOWNLOADING" in upper or "PAUSED" in upper:
+    if any(stage in upper for stage in ("DOWNLOADING", "PAUSED", "FETCHING")):
         return "downloading"
     return "searching"
 
