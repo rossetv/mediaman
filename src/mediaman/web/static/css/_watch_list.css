@@ -81,6 +81,12 @@
   .wl-table .btn--sm { height: 44px; min-height: 44px; }
 }
 
+/* By touch a pill reaches past its look, which below 700px is 44px itself. */
+@media (pointer: coarse) and (min-width: 700px) {
+  .wl-toolbar .fpill { position: relative; }
+  .wl-toolbar .fpill::after { content: ""; position: absolute; inset: calc((100% - 44px) / 2) -1px; }
+}
+
 /* ── Row motion: busy, kept in place, leaving ── */
 .wl-table tbody tr {
   transition: background var(--dur-fast) var(--ease-out),
