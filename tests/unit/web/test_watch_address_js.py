@@ -165,3 +165,7 @@ def test_back_works_where_the_browser_refuses_storage() -> None:
 
 def test_typing_a_search_writes_the_address_once_for_each_change() -> None:
     assert _run("typing") == {"writes": 3, "at": "/watch?all=movies&q=amb"}
+
+
+def test_whatever_opens_closes_a_preview_but_the_details_that_grow_out_of_it() -> None:
+    assert _run("closesThePreview") == [1, 1, 2]

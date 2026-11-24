@@ -116,7 +116,7 @@ function load(opts = {}) {
   ['watch/core.js', 'watch/keep.js', 'watch/rows-load.js', 'watch/grid.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const grid = ctx.MMWatch.grid;
   const backs = [];
-  const p = { doc, ctx, grid, rows, toasts, anims, timers, fire, scroll, backs, card: (n) => posterCard(doc, n) };
+  const p = { doc, ctx, grid, rows, toasts, anims, timers, fire, scroll, backs, card: (n) => posterCard(doc, n), heard: (t) => (listeners[t] || []).length };
   p.opts = (more) => ({ id: 'movies', title: 'Movies', total: 12, row: () => rows[0], next: null, back: () => backs.push('back'), ...more });
   p.refs = () => doc.querySelectorAll('.watch-all [data-title-ref]').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
   p.all = () => doc.querySelector('.watch-all');
@@ -436,6 +436,133 @@ const scenarios = {
     const p = load();
     p.grid.open(p.opts({ cards: [], total: 0, sort: sortOf(() => {}) }));
     return { sort: !!p.doc.querySelector('#watch-all-sort'), text: p.doc.querySelector('.grid-empty').textContent, count: p.doc.querySelector('.watch-all__count').textContent };
+  },
+
+  // Nothing loads while it moves; once it has landed it does, and once it is closed no more.
+  async loadsOnlyWhenStill() {
+    const p = load({ motion: true });
+    const asked = [];
+    p.grid.open(p.opts({ next: 'a', fetchPage: (n) => { asked.push(n); return new Promise(() => {}); } }));
+    p.fire('scroll');
+    const moving = asked.length;
+    p.finish();
+    const landed = asked.length;
+    p.grid.close();
+    p.finish();
+    p.fire('scroll');
+    const closed = asked.length;
+    p.grid.open(p.opts({ next: 'b', fetchPage: (n) => { asked.push(n); return Promise.resolve({ cards: [], next: 'c' + asked.length }); } }));
+    p.grid.close();
+    p.finish();
+    const count = asked.length;
+    p.fire('scroll');
+    await settle();
+    return { moving, landed, closed, late: asked.length - count };
+  },
+
+  // A grid that is stopped listens to nothing more.
+  async stopped() {
+    const p = load();
+    p.listeners = () => ['scroll', 'wheel', 'touchmove', 'keydown', 'resize'].map((t) => p.heard(t));
+    const before = p.listeners();
+    const host = p.doc.querySelector('#watch-page').appendChild(build(p.doc, ['div', {}]));
+    const list = p.grid.list(host, { title: 'x', cards: [1].map(p.card), next: null });
+    const during = p.listeners();
+    list.stop();
+    return { grew: during.map((n, i) => n > before[i]), after: p.listeners().map((n, i) => n - before[i]) };
+  },
+
+  // The page scrolled while it closes: the grid on its way out goes with it.
+  async scrollsWhileClosing() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    p.finish();
+    p.grid.close();
+    const top = parseFloat(p.all().style.top);
+    p.scroll(win.y + 70);
+    return { by: parseFloat(p.all().style.top) - top };
+  },
+
+  // Opened while the rows are hidden (over results): it closes to no place of an earlier one.
+  async placeIsForgotten() {
+    const p = load();
+    p.scroll(90);
+    p.rows[0].querySelectorAll('.watch-card__link')[3].focus();
+    p.grid.open(p.opts());
+    p.grid.close();
+    p.doc.activeElement.blur();
+    p.browse.hidden = true;
+    p.scroll(0);
+    p.grid.open(p.opts({ row: () => p.rows[1] }));
+    p.grid.close();
+    return { y: win.y, focus: p.focus() };
+  },
+
+  // Left for another view and opened again by Back: it still closes to where the rows were.
+  async openedAgain() {
+    const p = load();
+    p.scroll(90);
+    p.rows[0].querySelectorAll('.watch-card__link')[3].focus();
+    p.grid.open(p.opts());
+    p.grid.leave();
+    const left = win.y;
+    p.grid.open(p.opts({ instant: true, again: true }));
+    p.grid.close();
+    return { left, y: win.y, focus: p.focus() };
+  },
+
+  // A jump gives up when its page fails, when it takes too long, and for a key that scrolls.
+  async jumpGivesUp() {
+    const run = async (page, meanwhile) => {
+      const p = lone({ cards: ['a', 1] }, [page, { cards: ['c', 4], next: 'p9' }, { cards: ['d', 5], next: 'p10' }, { cards: ['z', 9], next: null }]);
+      const add = Node.prototype.getBoundingClientRect;
+      Node.prototype.getBoundingClientRect = function () { return this.classList.contains('watch-card') ? rect([0, 5000, 190, 280]) : add.call(this); };
+      p.list.jump('z');
+      if (meanwhile) meanwhile(p);
+      for (let i = 0; i < 4; i++) { await settle(); p.timers.splice(0).forEach((t) => t.fn()); }
+      const button = p.host.querySelector('.grid-fail__retry');
+      if (button) button.listeners.click.forEach((fn) => fn({}));
+      for (let i = 0; i < 6; i++) { await settle(); p.timers.splice(0).forEach((t) => t.fn()); }
+      Node.prototype.getBoundingClientRect = add;
+      return p.asked.length;
+    };
+    let give;
+    const slow = new Promise((ok) => { give = ok; });
+    return {
+      there: await run({ cards: ['b', 2], next: 'p1' }),
+      failed: await run({ status: 500 }),
+      key: await run({ cards: ['b', 2], next: 'p1' }, (p) => p.key('PageDown')),
+      typed: await run({ cards: ['b', 2], next: 'p1' }, (p) => p.key('x')),
+      slow: await run(slow, (p) => { vm.runInContext('Date.now = function () { return 1e15; };', p.ctx); give({ cards: [p.make(2)], next: 'p1' }); }),
+    };
+  },
+
+  // A copy is of the card at rest, and opening closes a preview over it.
+  async previewGoes() {
+    const p = load();
+    let closed = 0;
+    p.ctx.MMWatch.preview = { close() { closed++; } };
+    p.rows[0].querySelectorAll('.watch-card__link')[0].classList.add('is-previewed');
+    p.grid.open(p.opts());
+    return { closed, copies: p.doc.querySelectorAll('.watch-all .is-previewed').length };
+  },
+
+  // A card taken out: the rest close up from where they were, and it comes back to its place.
+  async takesOut() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts());
+    p.finish();
+    p.anims.length = 0;
+    const card = p.doc.querySelectorAll('.watch-all .watch-card')[1];
+    const row = p.rows[0].querySelectorAll('.watch-card')[1];
+    const notHere = p.grid.take(row, '.x');
+    const took = p.grid.take(card, '.watch-card__link');
+    const moved = p.anims.filter((a) => /translate/.test(a.frames[0].transform)).length;
+    const ghost = card.classList.contains('is-gone');
+    const gone = { inert: card.hasAttribute('inert'), count: p.doc.querySelector('.watch-all__count').textContent, focus: took.focus.getAttribute('data-title-ref') };
+    const back = took.undo();
+    p.finish();
+    return { notHere, moved, ghost, gone, refs: p.refs().slice(0, 3), count: p.doc.querySelector('.watch-all__count').textContent, back: back.getAttribute('data-title-ref'), left: p.leftovers() + (card.classList.contains('is-gone') ? 1 : 0) };
   },
 
   async rowThatIsGone() {

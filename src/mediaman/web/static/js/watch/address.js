@@ -135,6 +135,9 @@
   function push(name, to) {
     var was = mark();
     if (was && was.entry === name && name !== null && to === currentUrl()) return;
+    // A title's grows out of the card's preview, which closes itself then.
+    var preview = window.MMWatch.preview;
+    if (name !== 'title' && preview && preview.close) preview.close();
     keepPlace();
     var at = (was ? was.at : 0) + 1;
     var stack = was ? was.stack : [];

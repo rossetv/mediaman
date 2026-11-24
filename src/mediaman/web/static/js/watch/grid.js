@@ -2,6 +2,7 @@
  *
  *   list(host, opts)   a grid that loads as it is scrolled (watch/rows-load.js)
  *   open(opts), close(opts), leave()   the layer a row grows into, which holds one
+ *   take(card, control)   a card kept or dismissed in it leaves
  *
  * Opening, each poster on the screen travels from the row to its place in the
  * grid; closing takes it back. Both layers are laid out while something moves:
@@ -22,6 +23,8 @@
 
   var AHEAD_PX = 700; // the next page is asked for this near the last card
   var AWAKE_SCREENS = 3; // cards further off than this have their posters unloaded
+  var JUMP_MS = 4000; // a jump whose next page takes longer is not awaited any more
+  var SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
 
   /* ── Cards ── */
 
@@ -34,6 +37,9 @@
   }
 
   function isCard(node) { return node.classList.contains('watch-card'); }
+
+  /* Not on its way out (kept, or dismissed). */
+  function stays(card) { return !card.classList.contains('is-kept'); }
 
   /* A card as it is near the screen: its poster loaded, whatever a loader has done. */
   function wake(card) {
@@ -49,6 +55,7 @@
 
   function copy(card) {
     var twin = wake(card.cloneNode(true));
+    toArray(twin.querySelectorAll('.is-previewed')).forEach(function (n) { n.classList.remove('is-previewed'); });
     toArray(twin.querySelectorAll('[aria-expanded]')).forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
     return twin;
   }
@@ -89,6 +96,7 @@
     var empty = opts.empty || { title: 'Nothing here yet' };
     var held = false; // nothing loads while the layer moves
     var wanted = null; // the group a jump is on its way to
+    var wantedAt = 0; // when its next page was asked for
     var lead = null; // the card that leads the screen, kept there over a resize
     var width = window.innerWidth;
     var loader = null;
@@ -163,6 +171,7 @@
         return grid.getClientRects().length ? [from, to] : null;
       },
       failed: function (button) {
+        wanted = null;
         grid.classList.add('is-static');
         var line = el('div', 'grid-fail');
         line.setAttribute('role', 'alert');
@@ -179,6 +188,7 @@
         arrive(added);
         var more = added.length < cards().length ? ' more loaded.' : ' loaded.';
         if (added.length || done) say(added.length + more + (done ? ' That is everything.' : ''));
+        if (Date.now() - wantedAt > JUMP_MS) wanted = null;
         // The loader settles after this; a jump goes on from there.
         if (wanted !== null) setTimeout(function () { if (wanted !== null) jump(wanted, done); });
       }
@@ -272,7 +282,7 @@
         host.appendChild(card);
         animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.96)' }], {
           duration: core.tokenMs('--dur', 200), fill: 'forwards'
-        }).onfinish = function () { card.remove(); };
+        }).onfinish = function () { if (card.classList.contains('is-gone')) card.remove(); };
       });
       var n = 0;
       onScreen().forEach(function (card) {
@@ -293,6 +303,34 @@
       });
     }
 
+    /* Take *card* out, the others closing up. Returns what puts it back. */
+    function take(card) {
+      var after = [];
+      for (var n = card.nextElementSibling; n; n = n.nextElementSibling) after.push(n);
+      closeUp(function () { card.remove(); }, card);
+      if (loader.next() === null) ending();
+      return function () {
+        (card.getAnimations ? card.getAnimations() : []).forEach(function (a) { a.cancel(); });
+        card.classList.remove('is-gone', 'is-flyer');
+        card.removeAttribute('inert');
+        ['left', 'top', 'width'].forEach(function (name) { card.style[name] = ''; });
+        closeUp(function () {
+          grid.insertBefore(wake(card), after.filter(function (node) { return node.parentNode === grid; })[0] || null);
+        }, null);
+        if (loader.next() === null) ending();
+      };
+    }
+
+    function closeUp(change, leaving) {
+      var gone = new Map();
+      var before = new Map();
+      if (held || core.reduceMotion() || !grid.animate) { change(); return; }
+      if (leaving) gone.set(keyOf(leaving), leaving);
+      onScreen().forEach(function (card) { before.set(keyOf(card), card.getBoundingClientRect()); });
+      change();
+      travel(before, gone);
+    }
+
     function busy(on) {
       if (on) host.setAttribute('aria-busy', 'true');
       else host.removeAttribute('aria-busy');
@@ -306,6 +344,7 @@
     function jump(id, done) {
       var line = groups().filter(function (g) { return g.getAttribute('data-group') === id; })[0];
       wanted = line || done ? null : id;
+      wantedAt = Date.now();
       if (line) {
         window.scrollBy({ top: line.getBoundingClientRect().top - clearTop() - 4, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
       } else if (!done) {
@@ -401,10 +440,12 @@
 
     /* A jump still on its way gives in to the person's own scroll. */
     function onTake() { wanted = null; }
+    function onKey(e) { if (SCROLL_KEYS.test(e.key)) wanted = null; }
 
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('wheel', onTake, { passive: true });
     window.addEventListener('touchmove', onTake, { passive: true });
+    window.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
 
     (opts.cards || []).forEach(function (node) { grid.appendChild(node); });
@@ -417,6 +458,7 @@
       count: function () { return cards().length; },
       onScreen: onScreen,
       set: set,
+      take: take,
       busy: busy,
       jump: function (id) { jump(id, false); },
       groupNow: groupNow,
@@ -430,6 +472,7 @@
         window.removeEventListener('scroll', onScroll);
         window.removeEventListener('wheel', onTake);
         window.removeEventListener('touchmove', onTake);
+        window.removeEventListener('keydown', onKey);
         window.removeEventListener('resize', onResize);
       }
     };
@@ -561,6 +604,13 @@
     labelSort();
   }
 
+  /* What to choose from, once it is known. */
+  function setSort(sort) {
+    now.opts.sort = sort;
+    now.value = sort.value;
+    drawHead();
+  }
+
   function labelSort() {
     var button = dom.tools.querySelector('#watch-all-sort');
     if (!button) return;
@@ -627,6 +677,31 @@
       undo();
       core.toast('Couldn’t change the order. Try again in a moment.', { variant: 'error' });
     });
+  }
+
+  /* Take *card* out of the open grid, as out of its row (watch/keep.js). Null: it is not in
+     there. *control*: the button that was pressed, as the other cards have it. */
+  function take(card, control) {
+    var mine = now;
+    if (!mine || !mine.list.node.contains(card)) return null;
+    var all = mine.list.cards();
+    var i = all.indexOf(card);
+    var next = all[i + 1] || all[i - 1];
+    function count(by) {
+      if (now !== mine || typeof mine.opts.total !== 'number') return;
+      mine.opts.total += by;
+      setTotal(mine.opts.total);
+    }
+    var back = mine.list.take(card);
+    count(-1);
+    return {
+      focus: next ? next.querySelector(control) || linkOf(next) : dom.title,
+      undo: function () {
+        back();
+        count(1);
+        return card.querySelector(control);
+      }
+    };
   }
 
   /* ── The two layers ── */
@@ -847,7 +922,7 @@
         { transform: 'translate(0px, ' + (r.top < mid ? -28 : 36) + 'px) scale(1)', opacity: 0 }, { closeAfter: 40 });
     });
     if (!row) return out;
-    toArray(row.querySelectorAll('.watch-row__tools, [data-grid-fade]')).forEach(function (node) {
+    toArray(row.querySelectorAll('.watch-row__head > :not(.watch-row__title), .rec-line, [data-grid-fade]')).forEach(function (node) {
       if (shownNow(node)) fade(node, { transform: NONE, opacity: 1 }, { transform: NONE, opacity: 0 }, { open: 150, closeAfter: 120 });
     });
     toArray(row.querySelectorAll('.watch-row__arrow')).forEach(function (node) {
@@ -950,6 +1025,7 @@
       now.list.hold(false);
     } else {
       empty();
+      place = null;
     }
   }
 
@@ -998,7 +1074,7 @@
     var drawn = dom.body.querySelector('.watch-grid');
     if (!cards && !drawn) {
       var row = rowOf(opts);
-      cards = row ? toArray(row.querySelectorAll('.watch-row__scroll .watch-card')).map(copy) : [];
+      cards = row ? toArray(row.querySelectorAll('.watch-row__scroll .watch-card')).filter(stays).map(copy) : [];
     }
     // The server draws the first page of a shared link; anything later replaces it.
     if (cards) dom.body.replaceChildren();
@@ -1019,6 +1095,7 @@
 
   function open(opts) {
     if (!dom) build();
+    if (watch.preview && watch.preview.close) watch.preview.close();
     dom.sortMenu.close(false);
     if (move && now && now.opts.id === opts.id) {
       if (move.to === 'grid') return;
@@ -1031,7 +1108,7 @@
     if (now && now.opts.id === opts.id) return;
     var fromRows = !browse.hidden && !now;
     if (fromRows && !opts.instant) savePlace();
-    else if (opts.instant) place = null;
+    else if (!now && !opts.again) place = null;
     var first = fromRows && !opts.instant ? firstSeen(rowOf(opts)) : null;
     var y = window.scrollY;
     fill(opts);
@@ -1082,6 +1159,7 @@
       scrollPage(place.y);
       empty();
       focusRows(opts, key);
+      place = null;
       return;
     }
     pin(browse, 0); // laid out, and out of the way of the grid, while they are put back
@@ -1110,16 +1188,21 @@
         return true;
       });
     }
-    if (!to && row) to = row.querySelector('.watch-row__title a[href], a.row-open') || row.querySelector('.watch-row__scroll');
+    if (to && !shownNow(to)) to = null;
+    if (!to && row) to = row.querySelector('.watch-row__title a[href]') || row.querySelector('.watch-row__scroll');
     if (to) to.focus({ preventScroll: true });
   }
 
-  /* Gone at once, the rows not shown: something else takes the page. */
+  /* Gone at once, the rows not shown: something else takes the page. Where the rows
+     were is kept for a grid opened again (opts.again). */
   function leave() {
     if (!now) return;
+    var rows = place;
     if (move) { move.to = 'rows'; settle(); } else empty();
+    place = rows;
     browse.hidden = true;
-    place = null;
+    scrollPage(0);
+    lastY = window.scrollY;
   }
 
   /* ── Scroll, resize, Esc ── */
@@ -1179,7 +1262,9 @@
     open: open,
     close: close,
     leave: leave,
+    take: take,
     setTotal: function (n) { if (now) setTotal(n); },
+    setSort: function (sort) { if (now) setSort(sort); },
     isOpen: function () { return !!now && !(move && move.to === 'rows'); },
     moving: function () { return !!move; }
   };

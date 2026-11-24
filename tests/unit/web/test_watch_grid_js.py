@@ -211,3 +211,45 @@ def test_an_empty_category_has_no_sort_and_no_count() -> None:
 
 def test_closing_to_a_row_that_has_gone_still_lands() -> None:
     assert _run("rowThatIsGone") == {**ROWS, "left": 0, "focusInPage": True}
+
+
+def test_nothing_loads_while_it_moves_nor_once_it_is_closed() -> None:
+    assert _run("loadsOnlyWhenStill") == {"moving": 0, "landed": 1, "closed": 1, "late": 0}
+
+
+def test_a_stopped_grid_listens_to_nothing_more() -> None:
+    out = _run("stopped")
+    assert out["grew"] == [True] * 5
+    assert out["after"][:4] == [0] * 4
+    assert out["after"][4] <= 1  # the loader's own
+
+
+def test_a_grid_on_its_way_out_goes_with_the_page_as_it_is_scrolled() -> None:
+    assert _run("scrollsWhileClosing") == {"by": -70}
+
+
+def test_a_grid_opened_over_hidden_rows_does_not_close_to_an_earlier_place() -> None:
+    assert _run("placeIsForgotten") == {"y": 140, "focus": "A"}
+
+
+def test_a_grid_left_for_another_view_and_opened_again_closes_to_where_the_rows_were() -> None:
+    assert _run("openedAgain") == {"left": 0, "y": 90, "focus": "movie-4"}
+
+
+def test_a_jump_gives_up_when_its_page_fails_or_is_late_and_for_a_key_that_scrolls() -> None:
+    out = _run("jumpGivesUp")
+    assert (out["there"], out["typed"]) == (4, 4)
+    # The page it was waiting for, once more after Try again where it failed.
+    assert (out["failed"], out["key"], out["slow"]) == (2, 1, 1)
+
+
+def test_opening_closes_a_preview_and_copies_no_card_as_previewed() -> None:
+    assert _run("previewGoes") == {"closed": 1, "copies": 0}
+
+
+def test_a_card_taken_out_lets_the_rest_close_up_and_comes_back_to_its_place() -> None:
+    out = _run("takesOut")
+    assert (out["notHere"], out["ghost"], out["moved"]) == (None, True, 11)
+    assert out["gone"] == {"inert": True, "count": "11 titles", "focus": "movie-3"}
+    assert (out["refs"], out["count"], out["back"]) == ([1, 2, 3], "12 titles", "movie-2")
+    assert out["left"] == 0

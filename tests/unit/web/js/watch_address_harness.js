@@ -94,6 +94,15 @@ const trailer = (p) => p.address.push('trailer', p.address.url({}));
 const grid = (p, id) => p.address.push('grid', p.address.url({ all: id, sort: null }));
 
 const scenarios = {
+  // Whatever opens closes a card's preview; a title's details grow out of it.
+  async closesThePreview() {
+    const p = open(makeTab('/watch'));
+    let closed = 0;
+    p.ctx.MMWatch.preview = { close() { closed++; } };
+    const after = (name, url) => { p.address.push(name, url); return closed; };
+    return [after('grid', '/watch?all=movies'), after('title', '/watch?all=movies#title=movie-1'), after(null, '/watch')];
+  },
+
   async nestedBackAndForward() {
     const p = open(makeTab('/watch'));
     grid(p, 'movies'); title(p, 'movie-1'); trailer(p);
