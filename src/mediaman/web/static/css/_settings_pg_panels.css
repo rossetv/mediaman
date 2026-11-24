@@ -320,8 +320,8 @@
 
 .setg-pg .usr-self-head { display: flex; align-items: center; gap: 16px; }
 .setg-pg .usr-self-head .usr-meta { flex: 1; min-width: 0; }
-.setg-pg .usr-self-head .usr-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
-.setg-pg .usr-self-head .usr-sub { font-size: 12px; color: var(--t3); margin-top: 3px; }
+.setg-pg .usr-self-head .usr-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.setg-pg .usr-self-head .usr-sub { font-size: 12px; color: var(--t3); margin-top: 3px; overflow-wrap: anywhere; }
 .setg-pg .usr-profile-link { margin: 0 0 14px; }
 
 .setg-pg .usr-row {
@@ -332,8 +332,8 @@
 .setg-pg .usr-row:last-child { border-bottom: 0; }
 .setg-pg .usr-row .avatar { width: 38px; height: 38px; font-size: 14px; }
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
-.setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
-.setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; }
+.setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; overflow-wrap: anywhere; }
 .setg-pg .usr-row .usr-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
 /* Wide enough for the longest label each button shows, so a pending label never moves what sits beside it. */
 .setg-pg .usr-row [data-user-action="role"] { min-width: 8.2em; }
