@@ -334,7 +334,14 @@ def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading
         "T4Queued",
         "T5Queued",
     ]
-    assert out["calls"] == 2
+
+
+def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
+    out = _run("person")
+    assert out["kept"] == [2, ["known_for", "person"]]
+    assert out["again"] == ["/api/watch/person/9001"]
+    assert [t.split("Movie")[0] for t in out["now"]] == ["In your library1 title", "T1"]
+    assert out["back"] == "Mara Ellison"
 
 
 def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_next() -> None:

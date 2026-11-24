@@ -47,6 +47,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     setInterval: () => 0,
     clearInterval: () => {},
     AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
+    Image: class {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
     matchMedia: () => ({ matches: true }),
@@ -839,9 +840,19 @@ const scenarios = {
     const more = p.grids[0].opts.fetchPage(2);
     await p.answer('person/9001?page=2', { tmdb_configured: true, person: MARA, items: [item(3, true), item(4, false), item(5, false)], total: 5, in_library: 3, next_page: null });
     out.second = (await more).cards.map((c) => c.textContent);
-    // Asked for again, it is in memory.
-    p.ctx.MMWatch.explore.person('9001', 1);
-    out.calls = p.calls.length;
+    // Who they are is in memory; what they are in is not, for its cards say what is so now.
+    const known = await p.ctx.MMWatch.explore.person('9001');
+    out.kept = [p.calls.length, Object.keys(known).sort()];
+    p.ctx.MMWatch.address.push(null, '/watch');
+    p.ctx.MMWatch.explore.openPerson(MARA, null);
+    out.again = p.calls.slice(2).map((c) => c.url);
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: MARA, items: [{ ...item(1, true), download_state: null }], total: 1, in_library: 1, next_page: null });
+    out.now = p.grids[1].titles;
+    // Come back to by the address alone, it says who from the start.
+    await p.back();
+    await p.ctx.history.go(1);
+    await settle();
+    out.back = p.doc.querySelector('.explore-title').textContent;
     return out;
   },
 

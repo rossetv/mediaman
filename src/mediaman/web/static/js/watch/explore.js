@@ -166,17 +166,19 @@
 
   /* ── People ── */
 
-  var persons = new Map();
+  var persons = new Map(); // who they are and what they are known for, by id
 
-  /* A page of a person's titles, kept for the life of the page; a failure is not. */
-  function person(id, page) {
-    var key = id + '/' + (page || 1);
-    if (!persons.has(key)) {
-      var got = window.MM.api.get(PERSON_URL + encodeURIComponent(id) + (page > 1 ? '?page=' + page : ''));
-      persons.set(key, got);
-      got.catch(function () { persons.delete(key); });
-    }
-    return persons.get(key);
+  /* Who somebody is: { person, known_for }. Their titles are never kept, whose
+     cards say what is so now. */
+  function person(id) {
+    return persons.has(id) ? Promise.resolve(persons.get(id)) : personPage(id, 1);
+  }
+
+  function personPage(id, page) {
+    return window.MM.api.get(PERSON_URL + encodeURIComponent(id) + (page > 1 ? '?page=' + page : '')).then(function (reply) {
+      if (reply && reply.person) persons.set(id, { person: reply.person, known_for: reply.known_for });
+      return reply;
+    });
   }
 
   /* ── The page ── */
@@ -610,7 +612,7 @@
        first; a title of it found later stands where it comes, with its badge. */
     function fetchPage(page) {
       say.next();
-      return person(id, page).then(function (reply) {
+      return personPage(id, page).then(function (reply) {
         if (open === mine && page === 1) learn(reply);
         var cards = [];
         (reply.items || []).forEach(function (item) {
@@ -676,7 +678,7 @@
     open: function () {
       var at = readAddress(new URLSearchParams(window.location.search));
       if (at.kind === 'genre') showGenre(at, null);
-      else showPerson({ person_id: at.id }, null);
+      else showPerson(persons.has(at.id) ? persons.get(at.id).person : { person_id: at.id }, null);
     },
     close: function () {
       drop();
