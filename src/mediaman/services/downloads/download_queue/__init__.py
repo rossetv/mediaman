@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Collection
 from typing import TYPE_CHECKING, cast
 
@@ -30,6 +31,7 @@ from mediaman.services.arr.completion import (
 )
 from mediaman.services.arr.fetcher import fetch_arr_queue_result
 from mediaman.services.arr.search_trigger import maybe_trigger_search
+from mediaman.services.arr.state import series_ready
 from mediaman.services.downloads.download_queue.classify import (
     arr_base_urls as _arr_base_urls,
 )
@@ -79,15 +81,23 @@ _previous_initialised: bool = False
 # The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
 _last_cards: list[ArrCard] = []
 
+# The titles of the shows that lack an aired episode they should have, as Sonarr last told, and
+# when that was: an open page polls every two seconds, and need not read them each time.
+_UNREADY_KEPT_SECONDS = 30.0
+_unready_shows: frozenset[str] = frozenset()
+_unready_read_at: float | None = None
+
 _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    global _previous_queue, _previous_initialised, _last_cards
+    global _previous_queue, _previous_initialised, _last_cards, _unready_shows, _unready_read_at
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
         _last_cards = []
+        _unready_shows = frozenset()
+        _unready_read_at = None
 
 
 def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
@@ -226,6 +236,45 @@ def _maybe_record_completions(
         record_verified_completions(conn, completed, secret_key)
 
 
+def _read_unready_shows(
+    conn: sqlite3.Connection, secret_key: str, unreachable: Collection[str]
+) -> frozenset[str]:
+    """Return the titles of the shows that are not all there; those last known while Sonarr
+    does not answer.
+    """
+    from mediaman.services.arr.build import build_sonarr_from_db
+
+    global _unready_shows, _unready_read_at
+    now = time.monotonic()
+    with _state_lock:
+        known, read_at = _unready_shows, _unready_read_at
+    if "Sonarr" in unreachable or (read_at is not None and now - read_at < _UNREADY_KEPT_SECONDS):
+        return known
+    try:
+        client = build_sonarr_from_db(conn, secret_key)
+        series = client.get_series() if client else []
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        logger.warning("Failed to read which shows are complete", exc_info=True)
+        return known
+    unready = frozenset(s.get("title") or "" for s in series if not series_ready(s))
+    with _state_lock:
+        _unready_shows, _unready_read_at = unready, now
+    return unready
+
+
+def _mark_partial(
+    conn: sqlite3.Connection,
+    recent: list[dict[str, object]],
+    secret_key: str,
+    unreachable: Collection[str],
+) -> None:
+    """Say of each recent show whether it is there only in part, so it is not called ready."""
+    shows = [item for item in recent if item["media_type"] == "series"]
+    unready = _read_unready_shows(conn, secret_key, unreachable) if shows else frozenset()
+    for item in recent:
+        item["partial"] = item["media_type"] == "series" and item["title"] in unready
+
+
 def _downloads_subtitle(
     hero: dict[str, object] | None,
     queue: list[dict[str, object]],
@@ -336,7 +385,11 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     active_ids = {cast(str, item["id"]) for item in items_as_dicts}
     active_titles = {cast(str, item["title"]) for item in items_as_dicts}
-    recent = fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key)
+    recent = cast(
+        list[dict[str, object]],
+        fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key),
+    )
+    _mark_partial(conn, recent, secret_key, unreachable)
 
     upcoming = cast(list[dict[str, object]], upcoming_items)
     outage = _outage_line(unreachable)
@@ -344,7 +397,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         "hero": hero,
         "queue": queue,
         "upcoming": upcoming,
-        "recent": cast(list[dict[str, object]], recent),
+        "recent": recent,
         "subtitle": _downloads_subtitle(hero, queue, upcoming, outage),
         "unreachable": unreachable,
         "outage": outage,

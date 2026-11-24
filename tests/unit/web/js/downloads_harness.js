@@ -183,7 +183,12 @@ const scenarios = {
     r.updateRecent(box, recent.map((x) => ({ ...x })));
     const kept = box.querySelector('.dl-recent-item') === first;
     r.updateRecent(box, [{ title: 'C', poster_url: '/c.jpg' }].concat(recent));
-    return { kept, count: box.querySelectorAll('.dl-recent-item').length };
+    const count = box.querySelectorAll('.dl-recent-item').length;
+    const look = () => box.querySelectorAll('.dl-recent-item').map((i) => [i.querySelector('.dl-recent-sub').textContent, !!i.querySelector('.dl-recent-badge')]);
+    r.updateRecent(box, [{ title: 'A', poster_url: '/a.jpg', partial: true }, recent[1]]);
+    const partial = look();
+    r.updateRecent(box, recent);
+    return { kept, count, partial, whole: look() };
   },
 };
 

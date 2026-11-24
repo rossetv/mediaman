@@ -65,3 +65,19 @@ def test_tmdb_posters_are_loaded_through_mediaman_and_the_items_keep_their_own(a
     assert page.count(f'src="{proxy}/') == 4
     # what completion detection goes on to store is untouched
     assert built == _PAYLOAD
+
+
+def test_the_server_draws_a_recent_show_there_in_part_as_the_polls_do(app_factory, conn):
+    insert_admin_user(conn, username="person")
+    app = app_factory(downloads_router, conn=conn)
+    templates = Path(mediaman.__file__).parent / "web/templates"
+    app.state.templates = Jinja2Templates(directory=str(templates))
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "person"))
+    recent = [{**_item(""), "partial": partial} for partial in (True, False)]
+    built = {**deepcopy(_PAYLOAD), "recent": recent}
+    with patch("mediaman.web.routes.downloads.build_downloads_response", return_value=built):
+        grid = client.get("/downloads").text.split('id="dl-recent"')[1]
+
+    assert grid.count("Some episodes ready") == grid.count("dl-recent-sub--partial") == 1
+    assert grid.count("Ready to watch") == grid.count("dl-recent-badge") == 1

@@ -1,5 +1,5 @@
-{# Recently added grid — poster tiles with a "ready" check badge.
-   Context: recent (list of dicts with id, title, media_type, poster_url, completed_at). #}
+{# Recently added grid — poster tiles with a "ready" check badge, but for a show there in part.
+   Context: recent (list of dicts with id, title, media_type, poster_url, completed_at, partial). #}
 {% from "_components.html" import icon %}
 {% if recent %}
 <div class="dl-recent-section" id="dl-recent">
@@ -9,12 +9,14 @@
     <div class="dl-recent-item">
       <div class="dl-recent-poster">
         {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" data-broken-on-error>{% endif %}
+        {% if not item.partial %}
         <div class="dl-recent-badge">
           {{ icon("i-check") }}
         </div>
+        {% endif %}
       </div>
       <div class="dl-recent-title">{{ item.title }}</div>
-      <div class="dl-recent-sub">Ready to watch</div>
+      <div class="dl-recent-sub{% if item.partial %} dl-recent-sub--partial{% endif %}">{{ 'Some episodes ready' if item.partial else 'Ready to watch' }}</div>
     </div>
     {% endfor %}
   </div>

@@ -188,10 +188,12 @@
     var poster = document.createElement('div');
     poster.className = 'dl-recent-poster';
     if (r.poster_url) poster.appendChild(buildPoster(r.poster_url));
-    var badge = document.createElement('div');
-    badge.className = 'dl-recent-badge';
-    badge.appendChild(MM.dom.icon('i-check'));
-    poster.appendChild(badge);
+    if (!r.partial) {
+      var badge = document.createElement('div');
+      badge.className = 'dl-recent-badge';
+      badge.appendChild(MM.dom.icon('i-check'));
+      poster.appendChild(badge);
+    }
     item.appendChild(poster);
 
     var title = document.createElement('div');
@@ -200,8 +202,8 @@
     item.appendChild(title);
 
     var sub = document.createElement('div');
-    sub.className = 'dl-recent-sub';
-    sub.textContent = 'Ready to watch';
+    sub.className = 'dl-recent-sub' + (r.partial ? ' dl-recent-sub--partial' : '');
+    sub.textContent = r.partial ? 'Some episodes ready' : 'Ready to watch';
     item.appendChild(sub);
 
     return item;

@@ -245,6 +245,13 @@ def test_recent_grid_is_rebuilt_only_when_it_changes() -> None:
     assert out["count"] == 3
 
 
+def test_a_show_there_in_part_is_not_called_ready_until_it_is() -> None:
+    out = _run("recent")
+    ready = ["Ready to watch", True]
+    assert out["partial"] == [["Some episodes ready", False], ready]
+    assert out["whole"] == [ready, ready]
+
+
 def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     out = _run("abandon")
     assert out["idle"] == "Abandon"
