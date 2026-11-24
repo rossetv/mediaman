@@ -1201,7 +1201,10 @@
     function syncUrl(q) {
       var away = q && (address.value('explore') !== null || address.value('grid') !== null);
       if (away) {
+        var over = address.value('grid') !== null;
         address.push('search', address.url(Object.assign({}, PAGE_PARAMS, { q: q })));
+        // Outlives a reload: emptied, the search gives way to the grid it was typed over.
+        if (over) window.history.replaceState(Object.assign({}, window.history.state, { mmOverGrid: true }), '');
         return;
       }
       var to = address.url({ q: q || null });
@@ -1267,6 +1270,13 @@
         return;
       }
       stop();
+      if (!q && address.value('search') !== null && (window.history.state || {}).mmOverGrid) {
+        openSheet(false);
+        // The grid takes the focus as it opens.
+        window.addEventListener('popstate', function () { input.focus({ preventScroll: true }); }, { once: true });
+        address.back('search');
+        return;
+      }
       if (!q || now) {
         openSheet(false);
         change();

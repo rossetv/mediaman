@@ -65,7 +65,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
         tab.entries = tab.entries.slice(0, tab.index + 1).concat({ url, state });
         tab.index++;
       },
-      replaceState(state, _t, url) { tab.entries[tab.index] = { url, state }; urls.push(url); },
+      replaceState(state, _t, url = tab.entries[tab.index].url) { tab.entries[tab.index] = { url, state }; urls.push(url); },
       go: (by) => setImmediate(() => go(by)),
     },
     addEventListener: (t, fn) => { (on[t] = on[t] || []).push(fn); },
@@ -1085,6 +1085,30 @@ const scenarios = {
     await q.answer('person/9001', { tmdb_configured: true, person: MARA, items: [TM], total: 1, in_library: 0, next_page: null });
     q.grids[0].opts.say('1 loaded.');
     out.push(q.status.textContent);
+    return out;
+  },
+
+  // A search typed over an open grid, then emptied: back in the grid's own entry, the bar still in use.
+  async emptiedOverGrid() {
+    const out = [];
+    for (const how of ['cross', 'typed', 'escape']) {
+      const p = await ready(ADMIN, '', '/watch?all=movies&sort=az');
+      const { address } = p.ctx.MMWatch;
+      let shown = 0;
+      const title = p.doc.body.appendChild(p.doc.createElement('h1'));
+      address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') || h.params.get('genre') ? null : h.params.get('all')),
+        open: () => { shown++; p.browse.hidden = true; title.focus(); }, close: () => {} });
+      p.ctx.scrollY = 120;
+      p.input.focus();
+      await p.search('orchard');
+      p.ctx.scrollY = 0;
+      p.input.focus();
+      if (how === 'typed') p.type('');
+      else if (how === 'cross') click(p.doc, p.$('watch-search-clear'));
+      else p.key('Escape');
+      await settle();
+      out.push([p.url(), p.tab.index, shown, p.input.value, p.doc.activeElement === p.input, p.ctx.scrollY, p.sheet.classList.contains('is-on')]);
+    }
     return out;
   },
 };
