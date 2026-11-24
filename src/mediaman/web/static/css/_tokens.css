@@ -29,6 +29,8 @@
   --accent:     #2997ff;
   --accent-cta: #0071e3;
   --accent-hi:  #54aaff;
+  --accent-cta-hover: #0066cc;   /* the CTA fill under the pointer: darker, so white text keeps 4.5:1 */
+  --accent-text: #5eb0ff;        /* blue text on the blue tints: keeps 4.5:1 up to --s4 */
 
   /* Semantic (chips only) */
   --success: #30d158;
@@ -42,6 +44,7 @@
   --danger-solid-active: #a8001a;
   --orange:  #ff9f0a;
   --purple:  #bf5af2;
+  --purple-text: #d18bf7;   /* purple text on the purple tint: keeps 4.5:1 up to --s4 */
 
   /* Overlay ink for scrims and shadows (mix with transparent), the raised
      surface above --s4, and the Watch banner's backdrop gradient stops. */
