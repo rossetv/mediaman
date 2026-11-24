@@ -236,6 +236,8 @@ def cancel_deletions_kept_under_another_key(conn: sqlite3.Connection) -> None:
 
     The deletion pass would when it is due; until then the title would read as leaving.
     """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     rows = conn.execute(
         "SELECT sa.id, sa.media_item_id, mi.title FROM scheduled_actions sa "
         "JOIN media_items mi ON mi.id = sa.media_item_id "
@@ -245,21 +247,28 @@ def cancel_deletions_kept_under_another_key(conn: sqlite3.Connection) -> None:
     for row in rows:
         if not is_kept_under_another_key(conn, row["media_item_id"]):
             continue
-        _delete_unclaimed(conn, "id = ?", (row["id"],))
-        log_audit(
-            conn,
-            row["media_item_id"],
-            "delete_refused",
-            f"Not deleted: {row['title']} — it is kept, so its scheduled deletion is cancelled",
-        )
+        # A Keep turns the row into the keep itself.
+        if _delete_unclaimed(
+            conn, "id = ? AND action = 'scheduled_deletion' AND token_used = 0", (row["id"],)
+        ):
+            log_audit(
+                conn,
+                row["media_item_id"],
+                "delete_refused",
+                f"Not deleted: {row['title']} — it is kept, so its scheduled deletion is cancelled",
+            )
 
 
-def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> None:
-    """Delete the rows matching the fixed condition *where*, but for one being carried out."""
+def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> int:
+    """Delete the rows matching the fixed condition *where*, but for one being carried out.
+
+    Return how many were deleted.
+    """
     where = f"{where} AND delete_status IS NOT 'deleting'"
     book_removed_files_where(conn, where, params)
     # rationale: the interpolated condition is a fixed string; every value is bound
-    conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", params)  # nosec B608
+    deleted = conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", params)  # nosec B608
+    return deleted.rowcount
 
 
 def _keep_removed_since(conn: sqlite3.Connection, keep: sqlite3.Row, media_id: str) -> bool:
@@ -336,6 +345,8 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
     its keep; no other does once a film has it. Run it once the items set aside
     are removed, and once a run has stored all Plex lists.
     """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
         "SELECT sa.*, mi.id AS film_id FROM pruned_keeps sa CROSS JOIN media_items mi "

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -11,6 +13,7 @@ import requests
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.scanner.repository import rekeyed
 from mediaman.web.repository.library_api import apply_keep_in_tx
 from mediaman.web.routes import kept as kept_routes
 from tests.helpers.factories import insert_kept_show, insert_scheduled_action
@@ -1092,3 +1095,48 @@ def test_another_season_of_the_show_of_a_kept_one_is_not_kept(conn, freezer, lib
     library.scan("new")
 
     assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
+class TestWhileSomeoneElseWrites:
+    """Between the deletions being read and cancelled."""
+
+    @pytest.fixture
+    def meanwhile(self, conn, library, monkeypatch):
+        library.sync("old", "new")
+        _schedule(conn, "new")
+        _keep(conn, "old")
+        is_kept = rekeyed.is_kept_under_another_key
+
+        def run(write):
+            def asked(*args):
+                kept = is_kept(*args)
+                write()
+                return kept
+
+            monkeypatch.setattr(rekeyed, "is_kept_under_another_key", asked)
+            library.sync("old", "new")
+
+        return run
+
+    def test_a_deletion_is_still_cancelled(self, conn, db_path, meanwhile):
+        other = sqlite3.connect(db_path, timeout=0)
+
+        def write():
+            with contextlib.suppress(sqlite3.OperationalError), other:
+                other.execute("INSERT INTO settings VALUES ('k', 'v', 0, '2026')")
+
+        meanwhile(write)
+
+        assert _actions(conn, "new") == []
+
+    @pytest.mark.parametrize("change", ["action = 'protected_forever'", "token_used = 1"])
+    def test_a_row_that_is_no_open_deletion_any_more_is_left(self, conn, meanwhile, change):
+        meanwhile(
+            lambda: conn.execute(
+                f"UPDATE scheduled_actions SET {change} WHERE media_item_id = 'new'"
+            )
+        )
+
+        assert len(_actions(conn, "new")) == 1
+        refused = conn.execute("SELECT 1 FROM audit_log WHERE action = 'delete_refused'")
+        assert refused.fetchall() == []
