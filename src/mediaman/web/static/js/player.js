@@ -76,6 +76,8 @@
   /* While the pointer moves a frame preview is asked for this often, and this many are kept. */
   var FRAME_EVERY_MS = 300;
   var FRAMES_KEPT = 60;
+  /* A video may be a little longer than its frames. */
+  var LAST_FRAMES = 4;
   var FRAME_BACKOFF_MS = 2000;
   var FRAME_BACKOFF_MAX_MS = 30000;
   /* How close the preview may come to the edge of the window. */
@@ -208,6 +210,8 @@
   var previews;              // {interval_s, count} of this stream's frames, or null
   var frames;                // object URLs of the frames kept, by number
   var frameOrder;            // their numbers, the one shown last at the end
+  var missing;               // the numbers this stream has none for
+  var missingInRow;
   var markers;               // the intro and the credits, as {kind, start_s, end_s, final}
   var chapters;              // {title, start_s}, in order
   var chapterShown;          // the one the chapters button names
@@ -239,7 +243,7 @@
     steppedAt = 0;
     steppedUpAt = -Infinity;
     upAfter = UP_AFTER_S;
-    previews = null;
+    takePreviews(null);
     dropFrames();
     markers = [];
     chapters = [];
@@ -609,7 +613,7 @@
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
-          previews = data.previews && data.previews.interval_s > 0 ? data.previews : null;
+          takePreviews(data.previews);
           takeMarks(data);
           attach(data.playlist, pendingStart);
         })
@@ -1152,6 +1156,12 @@
 
   /* ---- frame preview -------------------------------------------------- */
 
+  function takePreviews(data) {
+    previews = data && data.interval_s > 0 ? data : null;
+    missing = {};
+    missingInRow = 0;
+  }
+
   var bubbleX = 0;
   var frameWanted = null;
   var frameShown = null;
@@ -1210,7 +1220,7 @@
     var near = frameOrder.slice().sort(function (a, b) {
       return Math.abs(a - frameWanted) - Math.abs(b - frameWanted);
     })[0];
-    els.frame.classList.toggle('is-stale', near !== frameWanted);
+    els.frame.classList.toggle('is-stale', near !== frameWanted && !missing[frameWanted]);
     if (near === undefined) return;
     frameOrder.splice(frameOrder.indexOf(near), 1);
     frameOrder.push(near);
@@ -1222,15 +1232,17 @@
 
   /* The first at once, then one now and again while the pointer moves, and where it rests. */
   function askFrame() {
-    if (frameTimer !== null || frameBusy || frames[frameWanted]) return;
+    if (frameTimer !== null || frameBusy || haveFrame()) return;
     var wait = frameAskedAt + FRAME_EVERY_MS - Date.now();
     if (wait <= 0) loadFrame();
     else frameTimer = setTimeout(function () { frameTimer = null; loadFrame(); }, wait);
   }
 
+  function haveFrame() { return frames[frameWanted] || missing[frameWanted]; }
+
   /* One request at a time, for the frame wanted by then. */
   function loadFrame() {
-    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId || frames[frameWanted]) return;
+    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId || haveFrame()) return;
     var n = frameWanted;
     var id = streamId;
     var mine = frames;
@@ -1240,8 +1252,10 @@
       .then(function (resp) {
         if (resp.ok) return resp.blob().then(function (blob) { if (mine === frames) keepFrame(n, blob); });
         if (resp.status !== 404 && resp.status !== 410) throw new Error(String(resp.status));
-        /* None for this stream, or the stream is gone: the next one may have them. */
-        if (id === streamId) noPreviews();
+        if (id !== streamId || !previews) return;
+        /* The stream is gone, or has none: the next one may have them. */
+        if (resp.status === 410) noPreviews();
+        else missFrame(n);
       })
       .catch(function () {
         frameBlocked = true;
@@ -1258,12 +1272,21 @@
     frames[n] = URL.createObjectURL(blob);
     frameOrder.push(n);
     frameBackoff = FRAME_BACKOFF_MS;
+    missingInRow = 0;
     paintFrame();
     if (frameOrder.length > FRAMES_KEPT) {
       var old = frameOrder.shift();
       URL.revokeObjectURL(frames[old]);
       delete frames[old];
     }
+  }
+
+  /* One that is missing says nothing of the others. */
+  function missFrame(n) {
+    missing[n] = true;
+    if (n < previews.count - LAST_FRAMES) missingInRow++;
+    if (missingInRow > 1) noPreviews();
+    else paintFrame();
   }
 
   function dropFrames() {

@@ -1077,6 +1077,28 @@ const scenarios = {
     return out;
   },
 
+  /* Frames that are not there: by `serverPlays`, one, two, two with one that came between, or the
+     last of the video. Which were asked for, and whether previews are still on. */
+  async frame_missing(p) {
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 30);
+    p.video.paused = true;
+    /* Each place, and what is answered for it. */
+    const places = {
+      one: [[100, 404], [100, 200], [200, 200]],
+      two: [[100, 404], [200, 404], [300, 200]],
+      between: [[100, 404], [200, 200], [300, 404], [400, 200]],
+      last: [[999, 404], [997, 404], [994, 404], [400, 200]],
+    }[p.win.serverPlays];
+    for (const [x, status] of places) {
+      point(p, 'pointermove', x);
+      p.tick(300);
+      if (p.frames.answer) p.frames.answer(status);
+      await settle();
+    }
+    return { asked: p.frames.asked, on: !p.q('[data-frame]').hidden, shown: (await bubbleState(p)).frame };
+  },
+
   /* A stream without previews. */
   async frame_none(p) {
     p.replies[0] = answer('1080p-8000', { previews: null });

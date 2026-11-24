@@ -519,9 +519,28 @@ def test_only_the_newest_frames_are_kept(markup):
     assert run(markup, "frame_many") == {"kept": 60}
 
 
-@pytest.mark.parametrize("status", ["404", "410"])
-def test_a_stream_without_frames_shows_the_time_alone_until_the_next_stream(markup, status):
-    out = run(markup, "frame_refused", plays=status)
+@pytest.mark.parametrize(
+    ("missing", "asked", "shown"),
+    [
+        # A frame that is not there is not asked for again.
+        ("one", [60, 120], 120),
+        ("between", [60, 120, 180, 240], 240),
+        # A video may be a little longer than its frames.
+        ("last", [599, 598, 596, 240], 240),
+    ],
+)
+def test_a_frame_that_is_missing_leaves_the_others(markup, missing, asked, shown):
+    out = run(markup, "frame_missing", plays=missing)
+    assert out == {"asked": asked, "on": True, "shown": shown}
+
+
+def test_two_frames_that_are_missing_turn_the_previews_off(markup):
+    out = run(markup, "frame_missing", plays="two")
+    assert out == {"asked": [60, 120], "on": False, "shown": None}
+
+
+def test_a_stream_that_is_gone_shows_the_time_alone_until_the_next_stream(markup):
+    out = run(markup, "frame_refused", plays="410")
     assert out["first"] == {"shown": True, "time": "5:00", "frame": None, "stale": True}
     assert out["atOnce"] == out["longerAfter"] == 1
     # It is no reason to start the stream again.

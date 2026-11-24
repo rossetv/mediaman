@@ -241,6 +241,14 @@ class TestDownload:
 
         assert user_picks.fetch_pick(conn, "amy", pick).downloaded_at is None
 
+    @pytest.mark.parametrize(
+        "url", ["/api/watch/picks/{}/download", "/api/recommended/{}/download"]
+    )
+    @pytest.mark.parametrize("number", [2**63, 10**30])
+    def test_a_number_too_large_for_any_pick_is_refused(self, people, arr, url, number):
+        assert people["amy"].post(url.format(number)).status_code == 422
+        assert arr.movies == []
+
 
 class TestOldHouseholdPicks:
     @pytest.mark.parametrize("who", ["amy", "admin"])
