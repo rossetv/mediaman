@@ -140,16 +140,15 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       earlier pass of this deletion -> nothing proves mediaman removed it
       (it may only have moved). Reset to ``pending`` and audit once that it
       waits for a scan, as the live pass does.
-    * Every tracked file absent and recorded as removed, **and** each stored
-      path was within the configured delete roots -> the removal completed
+    * Every tracked file absent and recorded as removed -> the removal completed
       but the follow-up bookkeeping was never committed. Convert to a normal
       ``deleted`` cleanup: write the audit entry (crediting the recorded
       bytes) and drop the row. Folders left holding only artwork do not
       count as files. If a keep or snooze was written over the row during
       the removal, the keep stands: audit that the media is gone and reset
       to ``pending``; the live pass then books what was removed.
-    * Files absent **but** a stored path was NOT within the configured
-      delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
+    * Files absent **but** one not recorded as removed was NOT within the
+      configured delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
       the crash and restart, or the path was always bogus) -> mediaman
       could never have deleted it, so we must NOT fabricate a "deleted N
       bytes" audit row (that would corrupt the audit trail and the
@@ -182,6 +181,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
 
     for row in rows:
         paths = tracked_paths(row)
+        # A file this deletion removed is expected to be gone, whatever became of its
+        # root since, and the folder walk after it may have emptied the folder above.
+        unrecorded = [p for p in paths or () if str(Path(p)) not in row.removed_paths]
         if paths is None:
             logger.warning(
                 "engine.delete.recover id=%s — no tracked files recorded, reverting "
@@ -197,8 +199,8 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not all(path_within_delete_roots(path, allowed_roots) for path in paths):
-            # Files are gone but a path was never inside an allowed root —
+        elif not all(path_within_delete_roots(path, allowed_roots) for path in unrecorded):
+            # Files are gone but an unrecorded path was never inside an allowed root —
             # mediaman did not (and could not) delete it. Do NOT write a
             # phantom "deleted" audit row. Reset to pending and shout.
             logger.error(
@@ -210,14 +212,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.file_path,
             )
             repository.mark_delete_status(conn, row.id, "pending")
-        elif (
-            unavailable := _first_unavailable(
-                # A file this deletion removed is expected to be gone, and the
-                # folder walk after it may have emptied the folder above.
-                [path for path in paths if str(Path(path)) not in row.removed_paths],
-                allowed_roots,
-            )
-        ) is not None:
+        elif (unavailable := _first_unavailable(unrecorded, allowed_roots)) is not None:
             logger.error(
                 "engine.delete.recover id=%s path=%r — files absent but their delete "
                 "root is missing or empty (media mount down?); reverting status "
@@ -227,7 +222,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
             )
             _audit_root_unavailable(conn, row, unavailable)
             repository.mark_delete_status(conn, row.id, "pending")
-        elif not {str(Path(path)) for path in paths} <= row.removed_paths:
+        elif unrecorded:
             logger.warning(
                 "engine.delete.recover id=%s path=%r — files gone, but this deletion did not "
                 "record removing them all; reverting status to 'pending' until a scan "
@@ -1047,6 +1042,8 @@ class DeletionExecutor:
         book_removed_files(self._conn)
         self._conn.commit()
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
+        # Booking what was removed deletes nothing, so it does not wait for roots.
+        rows = self._book_over(rows, allowed_roots, now.isoformat())
         # Fail closed once, before the loop: deletion must refuse when
         # MEDIAMAN_DELETE_ROOTS is unset. Checked outside the per-row
         # loop so the refusal is logged a single time, not once per pending
@@ -1060,7 +1057,7 @@ class DeletionExecutor:
                     len(rows),
                 )
         else:
-            for row in self._book_over(rows, now.isoformat()):
+            for row in rows:
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
@@ -1073,7 +1070,9 @@ class DeletionExecutor:
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
 
-    def _book_over(self, rows: list[DeletionRow], now_iso: str) -> list[DeletionRow]:
+    def _book_over(
+        self, rows: list[DeletionRow], allowed_roots: list[str], now_iso: str
+    ) -> list[DeletionRow]:
         """Book each row with nothing to remove any more; return the other rows.
 
         That is an item with a new copy on disk: the notice was for the copy
@@ -1085,7 +1084,7 @@ class DeletionExecutor:
         others = []
         for row in rows:
             replaced = _new_copy(row)
-            if not replaced and not self._cannot_close(row, now_iso):
+            if not replaced and not self._cannot_close(row, allowed_roots, now_iso):
                 others.append(row)
                 continue
             booked = claim_due_deletion(self._conn, row.id, now_iso) and not self._cancel_if_kept(
@@ -1120,12 +1119,14 @@ class DeletionExecutor:
                 self._unmonitor()
         return others
 
-    def _cannot_close(self, row: DeletionRow, now_iso: str) -> bool:
-        """Return True for a fully removed row the removal would hold back or drop."""
+    def _cannot_close(self, row: DeletionRow, allowed_roots: list[str], now_iso: str) -> bool:
+        """Return True for a fully removed row the removal would hold back, refuse or drop."""
         path = row.file_path or ""
+        files = tracked_paths(row)
         return is_fully_removed(row) and (
             not row.library_selected
-            or tracked_paths(row) is None
+            or files is None
+            or not all(path_within_delete_roots(file, allowed_roots) for file in files)
             or not path.strip()
             or bool(fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso))
         )

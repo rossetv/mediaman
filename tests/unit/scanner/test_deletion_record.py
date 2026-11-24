@@ -275,6 +275,43 @@ class TestNothingLeftToRemove:
         assert _booked(conn) == [4]
         assert _action(conn) is None
 
+    @pytest.mark.parametrize("roots_left", [True, False])
+    def test_a_removed_item_is_booked_though_its_root_is_no_longer_one(
+        self, conn, root, film, tmp_path, monkeypatch, roots_left
+    ):
+        _die_before_booking(conn, monkeypatch)
+        recover_stuck_deletions(conn, book=False)
+        (other := tmp_path / "tv").mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(other) if roots_left else "")
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _action(conn) is None
+
+    def test_a_removal_the_process_died_in_is_recovered_though_its_root_is_no_longer_one(
+        self, conn, film, tmp_path, monkeypatch
+    ):
+        _die_before_booking(conn, monkeypatch)
+        (other := tmp_path / "tv").mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(other))
+
+        recover_stuck_deletions(conn)
+
+        assert _booked(conn) == [4]
+
+    def test_a_part_removed_item_whose_root_is_no_longer_one_is_not_booked(
+        self, conn, two_parts, tmp_path, monkeypatch
+    ):
+        _remove_all_but(conn, monkeypatch, "cd2.mkv")
+        (other := tmp_path / "tv").mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(other))
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == []
+        assert two_parts[1].exists()
+
 
 class TestKeptBeforeBooked:
     def test_a_show_kept_after_the_files_went_still_books_their_removal(
