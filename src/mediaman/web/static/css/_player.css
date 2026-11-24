@@ -164,6 +164,7 @@
   font-size: 20px;
   transition: transform var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
 }
+.player-btn:disabled { opacity: .4; cursor: default; }
 .player-btn--text { font-size: 14px; padding: 0 6px; }
 
 /* The play button while a stream loads to play. */
@@ -272,7 +273,7 @@
 
 /* Pressed: a quick shrink and a tint, since the tap highlight is off. */
 .player-back:active { transform: scale(.94); background: var(--player-glass-hover); }
-.player-btn:active { transform: scale(.9); opacity: .7; }
+.player-btn:active:not(:disabled) { transform: scale(.9); opacity: .7; }
 .player-pill:active { transform: scale(.96); }
 .player-pill:active::before { background: var(--player-glass-hover); }
 .player-pill--primary:active::before { background: color-mix(in srgb, var(--t1) 80%, transparent); }

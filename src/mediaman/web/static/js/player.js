@@ -217,13 +217,18 @@
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !canRetry;
+    els.play.disabled = !canRetry;
     els.message.hidden = false;
     revertNotice = null;
     showControls();
-    if (canRetry) els.retry.focus();
+    (canRetry ? els.retry : els.message.querySelector('a')).focus();
   }
 
-  function hideMessage() { els.message.hidden = true; }
+  function hideMessage() {
+    els.play.disabled = false;
+    if (els.message.contains(document.activeElement)) els.play.focus();
+    els.message.hidden = true;
+  }
 
   /* ---- streams -------------------------------------------------------- */
 
@@ -425,8 +430,18 @@
     }
   }
 
+  /* Try again after an error. */
+  function retry() {
+    clearTrouble();
+    wantPlaying = true;
+    restartStream(true);
+  }
+
   function togglePlay() {
-    if (!els.message.hidden) return;
+    if (!els.message.hidden) {
+      if (!els.retry.hidden) retry();
+      return;
+    }
     if (countdownTimer !== null) {
       /* The video is over and the countdown is what runs: stop that. */
       hideUpnext();
@@ -627,6 +642,7 @@
   /* ---- buttons -------------------------------------------------------- */
 
   els.play.addEventListener('click', togglePlay);
+  els.retry.addEventListener('click', retry);
   els.back10.addEventListener('click', function () { skip(-SKIP_S); });
   els.fwd10.addEventListener('click', function () { skip(SKIP_S); });
 
@@ -961,12 +977,6 @@
     if (!e.persisted) return;
     wantPlaying = false;
     startStream(pendingStart || 0);
-  });
-
-  els.retry.addEventListener('click', function () {
-    clearTrouble();
-    wantPlaying = true;
-    restartStream(true);
   });
 
   /* ---- start ---------------------------------------------------------- */

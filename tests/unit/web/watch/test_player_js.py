@@ -159,3 +159,23 @@ def test_a_press_away_from_an_open_menu_only_closes_it(markup, pointer):
     out = run(markup, "click_away")
     assert out[pointer] == {"wasOpen": True, "open": False, "paused": False, "idle": False}
     assert out["next"] == {"paused": True}
+
+
+def test_play_under_an_error_tries_again(markup):
+    out = run(markup, "error_retry")
+    assert out["shown"] is True
+    assert out["afterPlay"] == {"started": 1, "shown": False, "busy": "true"}
+
+
+def test_try_again_hands_its_focus_to_play(markup):
+    out = run(markup, "error_retry")
+    assert (out["retryFocused"], out["focusOnPlay"]) == (True, True)
+
+
+def test_play_is_off_under_an_error_no_new_try_can_mend(markup):
+    assert run(markup, "error_final") == {
+        "text": "No longer available.",
+        "retry": False,
+        "playDisabled": True,
+        "focusOnBack": True,
+    }

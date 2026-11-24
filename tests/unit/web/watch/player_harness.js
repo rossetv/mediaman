@@ -571,7 +571,7 @@ const scenarios = {
     await streamPlays(p, 30);
     p.hlsList[0].emit('hlsError', { response: { code: 410 } });
     await settle();
-    return { text: p.q('[data-message-text]').textContent, retry: !p.q('[data-retry]').hidden, playDisabled: p.q('[data-play]').disabled === true };
+    return { text: p.q('[data-message-text]').textContent, retry: !p.q('[data-retry]').hidden, playDisabled: p.q('[data-play]').disabled === true, focusOnBack: doc.activeElement === p.q('[data-message]').querySelector('a') };
   },
 
   /* The volume the page starts with, and what is kept when it changes. */
