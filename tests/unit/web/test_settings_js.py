@@ -268,6 +268,15 @@ def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> No
     assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
 
 
+def test_an_edit_that_is_put_back_leaves_nothing_unsaved() -> None:
+    out = _run("putBack")
+    assert out["start"] is False
+    for edited in ("text", "path", "pill"):
+        assert out[edited] == [True, False], edited
+    assert out["failed"] == [True, False, False]
+    assert (out["whileSaving"], out["saved"], out["after"]) == (True, "Saved ✓", False)
+
+
 def test_a_retry_after_the_password_sends_what_was_first_sent() -> None:
     out = _run("retryAfterPassword")
     assert out["sent"] == [["1", "2"], ["1", "2"]]

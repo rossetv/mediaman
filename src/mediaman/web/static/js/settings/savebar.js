@@ -34,13 +34,9 @@
 
   var savebar = null;
 
-  // Counts the edits, so a save can tell whether any came after it was sent.
-  var edits = 0;
   var onEdit = function () {};
 
   function markDirty() {
-    edits += 1;
-    if (savebar) savebar.classList.add('on');
     onEdit();
     paintTests();
   }
@@ -111,6 +107,15 @@
     settingsControls().forEach(function (el) { values[el.id] = valueOf(el); });
     var disk = MM.settings.diskThresholds ? MM.settings.diskThresholds.state() : null;
     return { values: values, disk: disk };
+  }
+
+  // The settings that differ between two snapshots, by the key each is saved under.
+  function changedKeys(from, to) {
+    var keys = Object.keys(to.values).filter(function (id) { return to.values[id] !== from.values[id]; });
+    if (!from.disk || !to.disk) return keys;
+    if (from.disk.libs.slice().sort().join() !== to.disk.libs.slice().sort().join()) keys.push('plex_libraries');
+    if (MM.settings.diskThresholds.changes(from.disk.disk, to.disk.disk)) keys.push('disk_thresholds');
+    return keys;
   }
 
   function restoreSaved() {
@@ -235,12 +240,19 @@
       saveBtn.textContent = SAVE_LABEL;
       saveBtn.disabled = false;
     }
-    // An edit puts the bar back to unsaved, after a save or a failed one. A save under way keeps its words.
+    // The bar shows while anything differs from what was saved. A save under way keeps it and its words.
+    var saving = false;
     onEdit = function () {
-      if (savebar && savebar.classList.contains('is-error')) clearSaveError();
-      if (!successTimers.length) return;
-      endSuccess();
-      if (statusEl) statusEl.textContent = STANDING_TEXT;
+      if (!savebar || saving) return;
+      if (savebar.classList.contains('is-error')) clearSaveError();
+      var clean = !changedKeys(saved, snapshot()).length;
+      // After a save the bar goes by itself.
+      if (clean && successTimers.length) return;
+      if (successTimers.length || clean) {
+        endSuccess();
+        if (statusEl) statusEl.textContent = STANDING_TEXT;
+      }
+      savebar.classList.toggle('on', !clean);
     };
 
     // runSave is a named function so the reauth retry path can re-fire the same
@@ -251,13 +263,13 @@
       if (!saveBtn) return;
       // Disabling the button blurs it, so note now whether focus was in the bar.
       var hadFocus = savebar && savebar.contains(document.activeElement);
+      saving = true;
       saveBtn.disabled = true;
       // Discard would put back values the server no longer holds.
       if (discardBtn) discardBtn.disabled = true;
       clearSaveError();
       var sent = snapshot();
       var payload = getPayload(sent, saved);
-      var editsSent = edits;
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
 
@@ -272,6 +284,7 @@
         return MM.api.put('/api/settings', payload);
       })
         .then(function (data) {
+          saving = false;
           var ignored = (data.ignored || []).filter(function (k) { return k !== 'status'; });
 
           // MM.api rejects on non-2xx, so reaching here guarantees the save
@@ -281,7 +294,7 @@
             saved = sent;
             paintTests();
             refreshOverviewHero();
-            if (edits !== editsSent) {
+            if (changedKeys(sent, snapshot()).length) {
               saveBtn.textContent = SAVE_LABEL;
               if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';
               reenable();
@@ -309,6 +322,7 @@
           reenable();
         })
         .catch(function (err) {
+          saving = false;
           // MM.reauth.run() rejects with 'reauth_cancelled' when the user
           // dismisses the modal — show a polite message rather than a server
           // error. All other rejections are APIError instances from MM.api.

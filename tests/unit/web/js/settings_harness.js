@@ -291,13 +291,60 @@ const scenarios = {
     h.ctx.MM.settings.savebar.init({});
     const now = () => ({ button: save.textContent, primary: save.classList.contains('btn--primary'), error: bar.classList.contains('is-error'), status: status.textContent });
     const fail = async () => { save.fire('click'); await h.flush(); return now(); };
-    input.fire('input');
+    const edit = (v) => { input.value = v; input.fire('input'); };
+    edit('b');
     const failed = await fail();
-    input.fire('input');
+    edit('c');
     const typed = now();
     await fail();
     h.ctx.MM.settings.savebar.markDirty();
     return { failed, typed, switched: now() };
+  },
+
+  // The bar shows only while something differs from what was saved.
+  async putBack() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const pills = h.add('div', { id: 'plex-library-pills' }, page);
+    const rows = h.add('div', { id: 'disk-threshold-rows' }, page);
+    const input = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    let reply = () => Promise.resolve({ status: 'saved' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ libraries: [{ id: 1, title: 'L1' }, { id: 2, title: 'L2' }] }), put: () => reply(), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+    const m = h.ctx.MM.settings;
+    m.diskThresholds.init({ selectedLibs: ['1', '2'], diskThresholds: { 1: { path: '/a', threshold: 80 } } });
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    await h.flush();
+    const on = () => bar.classList.contains('on');
+    const out = { start: on() };
+    const type = (el, v) => { el.value = v; el.fire('input'); return on(); };
+    const pill = () => { pills.querySelector('[data-lib-id="1"]').fire('click'); return on(); };
+    out.text = [type(input, 'ab'), type(input, 'a')];
+    const path = rows.querySelector('[data-lib-id="1"]').querySelector('[data-field="path"]');
+    out.path = [type(path, '/ab'), type(path, '/a')];
+    out.pill = [pill(), pill()];
+    // a failed save whose edit is put back
+    reply = () => Promise.reject({ status: 500, data: {} });
+    type(input, 'b');
+    save.fire('click');
+    await h.flush();
+    out.failed = [on(), type(input, 'a'), bar.classList.contains('is-error')];
+    // an edit made and unmade while a save is under way was saved as it stands
+    let finish;
+    reply = () => new Promise((r) => { finish = r; });
+    type(input, 'b');
+    save.fire('click');
+    type(input, 'bc'); type(input, 'a'); type(input, 'b');
+    out.whileSaving = on();
+    finish({ status: 'saved' });
+    await h.flush();
+    out.saved = save.textContent;
+    h.drain();
+    out.after = on();
+    return out;
   },
 
   // A subscriber is removed only after the dialog is confirmed.
