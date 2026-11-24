@@ -190,7 +190,6 @@ def held_fields(
     leaving = {
         f"movie-{p.media_item_id}": leaving_info(p, now)
         for p in lib.pending_deletions(conn, libraries, now)
-        if p.season_number is None
     }
 
     def fields(ref: str | None) -> dict[str, object]:
