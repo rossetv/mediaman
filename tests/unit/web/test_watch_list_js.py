@@ -645,6 +645,18 @@ def test_a_list_read_before_a_change_is_read_again_though_it_lands_out_of_sight(
     assert _run("lateListOutOfSight") == {"mm:watch-admin": 2, "mm:watch-scheduled": 2}
 
 
+def test_a_list_that_could_not_be_read_out_of_sight_is_read_when_it_is_shown() -> None:
+    out = _run("lateListFailsOutOfSight")
+    assert out["whileRows"] == [2, []]
+    assert out["back"] == 3
+    assert (out["row"], out["rowBack"]) == ([], 1)
+
+
+def test_a_dialog_s_status_line_is_there_empty_before_it_says_anything() -> None:
+    loading = ["status", "", "Loading the seasons…"]
+    assert _run("dialogsSayAfter") == [loading, loading, ""]
+
+
 def test_a_row_that_could_not_be_read_again_holds_the_keep_that_was_saved() -> None:
     out = _run("unreadRowHoldsItsKeep")
     assert (out["kept"], out["removed"], out["undone"], out["scheduled"]) == (

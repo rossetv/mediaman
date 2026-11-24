@@ -863,6 +863,67 @@ const scenarios = {
     return out;
   },
 
+  // That second read fails while the rows show: List reads it once more. So does a row's own.
+  async lateListFailsOutOfSight() {
+    const p = load({ list: true });
+    const wait = deferred();
+    p.serve('/watch/list', {}, ROWS, wait);
+    const toggle = (i) => click(p.doc, p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
+    toggle(0);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+    const fetch = p.ctx.fetch;
+    p.ctx.fetch = (url) => { p.fail(url); return fetch(url); };
+    wait.resolve();
+    await settle();
+    await settle();
+    const out = { whileRows: [p.fetches.length, p.errors.slice()] };
+    toggle(1);
+    await settle();
+    out.back = p.fetches.length;
+
+    const row = load({ list: true });
+    const reading = deferred();
+    row.ctx.fetch = () => reading.promise;
+    row.doc.dispatchEvent(new row.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
+    click(row.doc, row.doc.querySelectorAll('#watch-viewtoggle a')[0]);
+    reading.reject(new Error('no'));
+    await settle();
+    out.row = row.errors.slice();
+    let reads = 0;
+    row.ctx.fetch = () => { reads++; return Promise.reject(new Error('no')); };
+    click(row.doc, row.doc.querySelectorAll('#watch-viewtoggle a')[1]);
+    await settle();
+    out.rowBack = reads;
+    return out;
+  },
+
+  // Each dialog's line for a screen reader is there, empty, before it is filled.
+  async dialogsSayAfter() {
+    const p = load({ list: true });
+    p.replies['get /api/show/77/seasons'] = () => deferred().promise;
+    let timers = [];
+    p.ctx.setTimeout = (fn) => timers.push(fn);
+    p.ctx.clearTimeout = (id) => { if (id) timers[id - 1] = () => {}; };
+    const run = () => { const due = timers; timers = []; due.forEach((fn) => fn()); };
+    const out = [];
+    for (const [press, id] of [[() => keepOption(p, 'show:77', '30 days'), 'keep-season-list-status'],
+      [() => p.row('show:77').querySelector('[data-action="pick-season-delete"]'), 'season-delete-list-status']]) {
+      click(p.doc, press());
+      const line = p.doc.getElementById(id);
+      const before = line.textContent;
+      run();
+      out.push([line.getAttribute('role'), before, line.textContent]);
+    }
+    // In before it was said: it is not said after.
+    p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [] });
+    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    await settle();
+    run();
+    out.push(p.doc.getElementById('season-delete-list-status').textContent);
+    return out;
+  },
+
   // Saved, but the list could not be read: the row holds the keep there is now, so the next press goes through.
   async unreadRowHoldsItsKeep() {
     const p = load({ list: true });

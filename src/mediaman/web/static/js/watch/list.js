@@ -193,7 +193,7 @@
       /* The list, the pills and the address still show the old state; so must the select. */
       var select = r.querySelector('[data-list-sort]');
       if (select) select.value = stateOf(r).sort;
-      window.UIFeedback.error("Couldn't load the list. Try again.");
+      if (_view === 'list') window.UIFeedback.error("Couldn't load the list. Try again.");
       return;
     }
     var note = el('p', 'watch-notice');
@@ -538,7 +538,8 @@
         var row = rowByKey(key);
         if (row) letGo(row, d);
       });
-      window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
+      if (_view === 'list') window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
+      else _stale = true;
     });
   }
 
@@ -669,6 +670,7 @@
   /* The list as it is now, its totals and dates too. */
   function reload() {
     _again = false;
+    _stale = true; // until it is in, or the next one that is
     load(stateOf(root()), { focus: sameControl, quiet: true });
   }
 
