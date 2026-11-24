@@ -523,7 +523,15 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-tab { padding: 0 10px; }
   .space-pane { padding: 4px 16px 16px; }
   .space__foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .space-fig { min-height: 82px; } /* room for a warning of two lines, so one that comes moves nothing */
   .space-fig__n { font-size: 34px; }
+  .space-fig__line:is(.space-fig__line--warn, .space-fig__line--bad) {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .space-item { gap: 12px; }
   .space-item__title { font-size: 14px; }
   .space-item__text:has(> a) { position: relative; }

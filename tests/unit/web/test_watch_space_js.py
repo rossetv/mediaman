@@ -188,7 +188,7 @@ class TestStorage:
                 "/media/<b>Can’t be read",
             ],
             "tick": False,
-            "line": "81% full overall, 1 disk can’t be read, above your 90% limit on /media/movies",
+            "line": "81% full overall, above your 90% limit on /media/movies, 1 disk can’t be read",
             "mixedTick": False,
         }
 

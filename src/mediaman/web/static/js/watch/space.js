@@ -260,8 +260,7 @@
     return s.total_bytes ? s.used_bytes / s.total_bytes * 100 : 0;
   }
 
-  /* 'bad', 'warn' or '', and what to say of it. One disk among several is named,
-     last, as a long path is cut at its end. */
+  /* 'bad', 'warn' or '', and what to say of it. One disk among several is named. */
   function pressure() {
     var pct = usedPct();
     var disks = stats.storage.disks;
@@ -872,8 +871,9 @@
     var text = p.level ? p.pct + '% full' + (readable > 1 ? ' overall' : '')
       : trim(s.used) + ' used, ' + p.pct + '%' + (readable > 1 ? ' across ' + readable + ' disks' : '');
     var unread = s.disks.length - readable;
-    if (unread) text += ', ' + plural(unread, 'disk') + ' can’t be read';
+    // The warning first: what the line has no room for is cut at its end.
     if (p.limit) text += ', ' + p.limit;
+    if (unread) text += ', ' + plural(unread, 'disk') + ' can’t be read';
     return add(box, n, el('p', 'space-fig__line' + (p.level ? ' space-fig__line--' + p.level : ''), text));
   }
 
