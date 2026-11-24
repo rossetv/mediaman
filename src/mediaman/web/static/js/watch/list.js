@@ -251,13 +251,15 @@
   }
 
   /* Give way to what *then* shows: *nodes* fade out over it while it fades in, so the page is
-     never empty between them. */
+     never empty between them. Out of the flow first, they neither move nor push what comes. */
   function giveWay(nodes, then) {
     endLeaving();
+    var lifted = [];
     nodes.forEach(function (n) {
       if (!n || n.hidden) return;
       if (core.reduceMotion() || !n.animate) { n.hidden = true; return; }
       lift(n);
+      lifted.push(n);
       n.setAttribute('inert', '');
       var fade = n.animate([{ opacity: 1 }, { opacity: 0 }],
         { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' });
@@ -274,7 +276,10 @@
       };
       _leaving.push(end);
     });
+    var y = window.scrollY;
     then();
+    // Where the page went to its top, they stay where they were on the screen.
+    if (window.scrollY !== y) lifted.forEach(function (n) { n.style.top = parseFloat(n.style.top) + window.scrollY - y + 'px'; });
   }
 
   function reveal(node) {
@@ -304,17 +309,23 @@
     _view = view;
     markToggle(view);
     var current = state || norm({ q: search ? search.value : '' });
+    var rowsOff = browse.hidden;
     if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
     if (view === 'list' && (!root() || _stale || !same(current, wanted()))) load(current, {});
-    // The search puts its results away or shows them first.
-    document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
-    if (view === 'list') giveWay([browse, results], function () { reveal(list); });
-    else giveWay([list], showRows);
+    // Leaving a category's page brings the rows back: they were not on view, so they do not fade.
+    if (view === 'list' && rowsOff) browse.hidden = true;
+    giveWay([view === 'list' ? browse : list], function () {
+      // The search puts its results away or shows them first.
+      document.dispatchEvent(new CustomEvent('mm:watch-view', { detail: { view: view }, bubbles: true }));
+      if (view === 'list') reveal(list);
+      else showRows();
+    });
   }
 
   /* With text in the field the search shows its results instead. Back may lead to a row's grid,
      which opens once the list has closed. */
   function showRows() {
+    if (results && !results.hidden) reveal(results);
     Promise.resolve().then(function () {
       if (_view === 'rows' && (!results || results.hidden) && address.value('grid') === null) reveal(browse);
     });

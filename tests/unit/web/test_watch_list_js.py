@@ -331,6 +331,19 @@ def test_the_view_that_comes_is_there_while_the_one_that_goes_fades_out() -> Non
     }
 
 
+def test_the_list_is_out_of_the_way_before_the_search_shows_its_results() -> None:
+    out = _run("listToResults")
+    # It neither pushes the results down nor is moved by the page going to its top.
+    assert out["asResultsCame"] == "shown true absolute"
+    assert out["top"] == "-300px"
+    assert out["results"] == {"shown": True, "fadesIn": True}
+    assert (out["end"], out["browse"]) == ("hidden false ", False)
+
+
+def test_rows_a_category_page_s_end_brings_back_do_not_flash_under_the_list() -> None:
+    assert _run("categoryToList") == {"browse": False, "list": True, "faded": 0}
+
+
 def test_back_from_the_list_to_a_grid_leaves_the_rows_hidden() -> None:
     assert _run("backToGrid") == {"opened": ["movies"], "browse": False, "list": False}
 

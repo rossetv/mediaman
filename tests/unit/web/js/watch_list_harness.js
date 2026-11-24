@@ -1324,6 +1324,38 @@ const scenarios = {
     return { during, after, back, end: look() };
   },
 
+  // With text in the field the rows half of the switch leads to the results, shown at the page's top.
+  async listToResults() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: true, motion: true });
+    const list = p.doc.getElementById('watch-list');
+    const results = p.doc.getElementById('watch-results');
+    const look = () => [list.hidden ? 'hidden' : 'shown', list.hasAttribute('inert'), list.style.position || ''].join(' ');
+    let asResultsCame;
+    p.ctx.scrollY = 300;
+    p.doc.addEventListener('mm:watch-view', () => { asResultsCame = look(); results.hidden = false; p.ctx.scrollY = 0; });
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    await settle();
+    const out = { asResultsCame, top: list.style.top, results: { shown: !results.hidden, fadesIn: results.classList.contains('fade-in') } };
+    anims.forEach((a) => a.onfinish && a.onfinish());
+    return { ...out, end: look(), browse: !p.doc.getElementById('watch-browse').hidden };
+  },
+
+  // A category's page closes as its address is left, which puts the rows back.
+  async categoryToList() {
+    let faded = 0;
+    Node.prototype.animate = function () { if (this.id === 'watch-browse') faded += 1; return { cancel() {} }; };
+    const p = load({ list: false, motion: true });
+    p.serve('/watch/list', {}, ROWS);
+    const browse = p.doc.getElementById('watch-browse');
+    browse.hidden = true;
+    p.ctx.MMWatch.address.push = () => { browse.hidden = false; };
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="list"]'));
+    await settle();
+    return { browse: !browse.hidden, list: !p.doc.getElementById('watch-list').hidden, faded };
+  },
+
   // Back from the list to a row opened as a grid: the rows stay behind it.
   async backToGrid() {
     Node.prototype.animate = () => { const a = { cancel() {} }; setImmediate(() => a.onfinish && a.onfinish()); return a; };
