@@ -86,6 +86,12 @@ const scenarios = {
     closers[closers.length - 1]();
     return { had, kept: doc.activeElement === input };
   },
+  // the text of what names the dialog and of what describes it
+  async named() {
+    const { sheet } = open({ ok: true });
+    const text = (attr) => (sheet.all().find((e) => e.id && e.id === sheet.attrs[attr]) || {}).textContent || null;
+    return { name: text('aria-labelledby'), about: text('aria-describedby') };
+  },
   // what the dialog of run() says, with the caller's words and without
   async words() {
     const says = async (words) => {

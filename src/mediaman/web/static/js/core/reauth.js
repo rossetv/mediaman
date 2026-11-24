@@ -64,6 +64,8 @@
 
     var desc = document.createElement('p');
     desc.className = 'reauth-desc';
+    desc.id = 'reauth-desc';
+    sheet.setAttribute('aria-describedby', 'reauth-desc');
     desc.textContent = opts.descText ||
       'mediaman requires a recent password confirmation before changing credentials or other sensitive options.';
     sheet.appendChild(desc);
