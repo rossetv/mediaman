@@ -181,7 +181,7 @@ def _build_mailgun_client(
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
         # to issue one fsync each.
-        _release_claims_bulk(conn, [r.id for r in pending])
+        _release_claims_bulk(conn, pending)
         return None
     return MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
 
@@ -198,7 +198,7 @@ def _partition_runnable(
     # not turn into N claim/release cycles per tick. Released back to
     # ``notified=0`` in bulk so the next tick can pick them up if their
     # backoff has elapsed.
-    deferred_ids: list[int] = []
+    deferred: list[ClaimedNotificationRow] = []
     runnable: list[ClaimedNotificationRow] = []
     for row in pending:
         if "@" not in row.email:
@@ -209,11 +209,10 @@ def _partition_runnable(
             with conn:
                 conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row.id,))
         elif _is_backed_off(row.id, now_dt):
-            deferred_ids.append(row.id)
+            deferred.append(row)
         else:
             runnable.append(row)
-    if deferred_ids:
-        _release_claims_bulk(conn, deferred_ids)
+    _release_claims_bulk(conn, deferred)
     return runnable
 
 
@@ -408,7 +407,7 @@ def _check_arr_availability(
 
     if arr_unreachable:
         _record_arr_failure(row_id, now_dt)
-        _release_claim(conn, row_id)
+        _release_claim(conn, row)
         return False, _ARR_UNREACHABLE
 
     return ready, movie
@@ -462,7 +461,7 @@ def _process_one_notification(
             # connection.  The backoff counter is deliberately NOT bumped
             # here; it is reserved for genuine *arr reachability failures.
             _record_poll_attempt(int(row_id), now_dt)
-            _release_claim(conn, row_id)
+            _release_claim(conn, row)
             return
 
         # Sentinels are exhausted above; cast narrows the union for mypy
@@ -471,7 +470,11 @@ def _process_one_notification(
         subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
         # The claim may be old by now (a long batch, slow Arr lookups): refresh it so
         # reconcile does not free a row whose email is going out.
-        restamp_claim(conn, row_id)
+        restamped = restamp_claim(conn, row)
+        if restamped is None:
+            logger.info("Download notification id=%s was claimed by another tick", row_id)
+            return
+        row = restamped
         mailgun.send(to=email, subject=subject, html=html)
 
         with conn:
@@ -492,7 +495,7 @@ def _process_one_notification(
         # Release the claim so a later scheduler tick can retry —
         # otherwise a transient Mailgun outage strands the row at
         # ``notified=2`` forever.
-        _release_claim(conn, row_id)
+        _release_claim(conn, row)
 
 
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:

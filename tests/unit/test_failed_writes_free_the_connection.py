@@ -23,6 +23,7 @@ from mediaman.services.arr.completion._sync import (
 )
 from mediaman.services.arr.completion._verification import _batch_insert_completions
 from mediaman.services.downloads._notification_claims import (
+    ClaimedNotificationRow,
     _claim_pending_notifications,
     _release_claim,
     _release_claims_bulk,
@@ -64,6 +65,19 @@ def _seed_token(conn):
 
 def _seed_notification(conn, notified=2):
     return insert_download_notification(conn, notified=notified, claimed_at=_OLD)
+
+
+def _claimed_notice():
+    return ClaimedNotificationRow(
+        id=1,
+        email="user@example.com",
+        title="Test Movie",
+        media_type="movie",
+        tmdb_id=None,
+        tvdb_id=None,
+        service="radarr",
+        claimed_at=_OLD,
+    )
 
 
 def _seed_throttle(conn):
@@ -222,14 +236,14 @@ _CASES = [
         "release_claim",
         _seed_notification,
         _refuse("BEFORE UPDATE", "download_notifications"),
-        lambda c: _release_claim(c, 1),
+        lambda c: _release_claim(c, _claimed_notice()),
         False,
     ),
     (
         "release_claims_bulk",
         _seed_notification,
         _refuse("BEFORE UPDATE", "download_notifications"),
-        lambda c: _release_claims_bulk(c, [1]),
+        lambda c: _release_claims_bulk(c, [_claimed_notice()]),
         False,
     ),
     (

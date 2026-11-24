@@ -381,7 +381,7 @@ class TestSonarrSeriesMatching:
 
         rows = _claim_pending_notifications(conn)
         assert len(rows) == 1
-        _release_claim(conn, rows[0].id)
+        _release_claim(conn, rows[0])
 
         # Visible to a follow-up claim again.
         rows2 = _claim_pending_notifications(conn)
@@ -1278,6 +1278,7 @@ class TestClaimIsRestampedBeforeTheSend:
             tmdb_id=1,
             tvdb_id=None,
             service="radarr",
+            claimed_at=stale,
         )
 
         notifications._process_one_notification(
@@ -1291,6 +1292,109 @@ class TestClaimIsRestampedBeforeTheSend:
             ).fetchone()[0]
             == 1
         )
+
+
+class TestAnOverlappingBatchOwnsWhatItClaimedAgain:
+    """A batch over the grace period old has its waiting rows claimed by the next one."""
+
+    def _two_claims(self, conn):
+        from dataclasses import replace
+        from datetime import datetime, timedelta
+
+        from mediaman.services.downloads._notification_claims import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            _claim_pending_notifications,
+        )
+
+        insert_download_notification(conn, email="u@example.com", title="T", tmdb_id=1)
+        [first] = _claim_pending_notifications(conn)
+        old = (datetime.now(UTC) - timedelta(seconds=2 * STRANDED_CLAIM_GRACE_SECONDS)).isoformat()
+        with conn:
+            conn.execute("UPDATE download_notifications SET claimed_at = ?", (old,))
+        [second] = _claim_pending_notifications(conn)
+        return replace(first, claimed_at=old), second
+
+    def _process(self, conn, row, mailgun, *, radarr_index=None):
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads import notifications
+
+        index = {1: {"hasFile": True}} if radarr_index is None else radarr_index
+        notifications._process_one_notification(
+            conn,
+            row,
+            MagicMock(),
+            mailgun,
+            _load_template(),
+            {},
+            datetime.now(UTC),
+            radarr_index=index,
+        )
+
+    def _state(self, conn):
+        return tuple(
+            conn.execute("SELECT notified, claimed_at FROM download_notifications").fetchone()
+        )
+
+    def test_the_email_goes_out_once(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+        mailgun = MagicMock()
+
+        self._process(conn, first, mailgun)
+        assert mailgun.send.call_count == 0
+        assert self._state(conn) == (2, second.claimed_at)
+        self._process(conn, second, mailgun)
+
+        assert mailgun.send.call_count == 1
+        assert self._state(conn)[0] == 1
+
+    def test_the_older_batch_does_not_send_what_the_newer_one_sent(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+        mailgun = MagicMock()
+
+        self._process(conn, second, mailgun)
+        self._process(conn, first, mailgun)
+
+        assert mailgun.send.call_count == 1
+        assert self._state(conn)[0] == 1
+
+    def test_the_older_batch_finding_no_file_leaves_the_newer_claim(self, conn):
+        from unittest.mock import MagicMock
+
+        first, second = self._two_claims(conn)
+
+        self._process(conn, first, MagicMock(), radarr_index={1: {"hasFile": False}})
+
+        assert self._state(conn) == (2, second.claimed_at)
+
+    def test_the_older_batch_releasing_all_it_claimed_leaves_the_newer_claim(self, conn):
+        from mediaman.services.downloads._notification_claims import _release_claims_bulk
+
+        first, second = self._two_claims(conn)
+
+        _release_claims_bulk(conn, [first])
+        assert self._state(conn) == (2, second.claimed_at)
+        _release_claims_bulk(conn, [second])
+
+        assert self._state(conn) == (0, None)
+
+    def test_a_failed_send_frees_the_row_for_a_retry(self, conn):
+        from unittest.mock import MagicMock
+
+        from mediaman.services.infra import SafeHTTPError
+
+        _, second = self._two_claims(conn)
+        mailgun = MagicMock()
+        mailgun.send.side_effect = SafeHTTPError(503, "", "mailgun")
+
+        self._process(conn, second, mailgun)
+
+        assert self._state(conn) == (0, None)
 
 
 class TestUnsentNoticeIsAskedPerSeason:
@@ -1330,6 +1434,7 @@ class TestAvailableEmailNamesTheSeason:
             tmdb_id=None,
             tvdb_id=7,
             service="sonarr",
+            claimed_at="",
             season_number=season_number,
         )
         return build_email_payload(row, None, {}, _load_template())

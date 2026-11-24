@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from mediaman.core.time import now_iso, now_utc
@@ -26,7 +26,8 @@ STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 @dataclass(frozen=True, slots=True)
 class ClaimedNotificationRow:
-    """A row returned by the atomic claim; fields mirror the claim's SELECT columns."""
+    """A row returned by the atomic claim; fields mirror the claim's SELECT columns,
+    and claimed_at is the stamp that says whose claim it is."""
 
     id: int
     email: str
@@ -35,10 +36,11 @@ class ClaimedNotificationRow:
     tmdb_id: int | None
     tvdb_id: int | None
     service: str
+    claimed_at: str
     season_number: int | None = None
 
 
-def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
+def _row_to_claimed(row: sqlite3.Row, claimed_at: str) -> ClaimedNotificationRow:
     return ClaimedNotificationRow(
         id=int(row["id"]),
         email=str(row["email"]),
@@ -47,6 +49,7 @@ def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
         tmdb_id=int(row["tmdb_id"]) if row["tmdb_id"] is not None else None,
         tvdb_id=int(row["tvdb_id"]) if row["tvdb_id"] is not None else None,
         service=str(row["service"]),
+        claimed_at=claimed_at,
         season_number=int(row["season_number"]) if row["season_number"] is not None else None,
     )
 
@@ -73,7 +76,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
             # Build the return value before the commit so the rows are safely in a
             # local variable — a Python exception between commit and return would
             # otherwise strand them at notified=2.
-            claimed = [_row_to_claimed(r) for r in rows]
+            claimed = [_row_to_claimed(r, claim_iso) for r in rows]
         return claimed
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
@@ -108,55 +111,50 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
             # A deferred commit failure in the ``with`` block would otherwise
             # cause emails to be sent for rows that were never marked notified
             # → duplicate emails on the next tick.
-            claimed = [_row_to_claimed(r) for r in rows]
+            claimed = [_row_to_claimed(r, claim_iso) for r in rows]
         return claimed
 
 
-def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
+def _release_claim(conn: sqlite3.Connection, row: ClaimedNotificationRow) -> None:
     """Roll a claimed row back to notified=0 so a later tick can retry. Clears claimed_at
     so a reconcile sweep does not see a phantom in-flight stamp.
     """
-    try:
-        with conn:
-            conn.execute(
-                "UPDATE download_notifications SET notified=0, claimed_at=NULL WHERE id=?",
-                (row_id,),
-            )
-    except sqlite3.Error:
-        logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
+    _release_claims_bulk(conn, [row])
 
 
-def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
-    """Roll many claimed rows back to notified=0 with one UPDATE and one commit; a no-op
-    for empty *row_ids*. Per-row release cost an fsync per row on every tick while
-    Mailgun is unconfigured.
+def _release_claims_bulk(conn: sqlite3.Connection, rows: list[ClaimedNotificationRow]) -> None:
+    """Roll claimed rows back to notified=0 in one transaction; a no-op for empty *rows*.
+    Per-row release cost an fsync per row on every tick while Mailgun is unconfigured. A
+    row another tick has claimed since is left to it.
     """
-    if not row_ids:
+    if not rows:
         return
     try:
-        # rationale: placeholder list built from integer row IDs only; no user input reaches the SQL string
-        placeholders = ",".join("?" * len(row_ids))
         with conn:
-            conn.execute(
-                f"UPDATE download_notifications SET notified=0, claimed_at=NULL "
-                f"WHERE id IN ({placeholders})",
-                row_ids,
+            conn.executemany(
+                "UPDATE download_notifications SET notified=0, claimed_at=NULL "
+                "WHERE id=? AND notified=2 AND claimed_at=?",
+                [(row.id, row.claimed_at) for row in rows],
             )
     except sqlite3.Error:
-        logger.warning(
-            "failed to bulk-release notification claims (n=%d)", len(row_ids), exc_info=True
-        )
+        logger.warning("failed to release notification claims (n=%d)", len(rows), exc_info=True)
 
 
-def restamp_claim(conn: sqlite3.Connection, row_id: int) -> None:
+def restamp_claim(
+    conn: sqlite3.Connection, row: ClaimedNotificationRow
+) -> ClaimedNotificationRow | None:
     """Refresh a claimed row's claimed_at, so a slow batch does not age a row past the
-    stranded-claim grace before its turn to send comes up.
+    stranded-claim grace before its turn to send comes up. Returns the row with its new
+    stamp, or None when the claim is no longer this one: another tick has the row.
     """
+    claimed_at = now_iso()
     with conn:
-        conn.execute(
-            "UPDATE download_notifications SET claimed_at=? WHERE id=? AND notified=2",
-            (now_iso(), row_id),
+        cur = conn.execute(
+            "UPDATE download_notifications SET claimed_at=? "
+            "WHERE id=? AND notified=2 AND claimed_at=?",
+            (claimed_at, row.id, row.claimed_at),
         )
+    return replace(row, claimed_at=claimed_at) if cur.rowcount else None
 
 
 def reconcile_stranded_notifications(
