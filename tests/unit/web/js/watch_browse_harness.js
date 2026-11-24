@@ -635,7 +635,9 @@ const scenarios = {
     await settle();
     const pill = rec(p.doc).querySelector('[data-picks-menu]');
     click(p.doc, pill);
-    return { pill: text(pill), label: pill.getAttribute('aria-label'), items: p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item').map(text) };
+    const long = pill.querySelector('.row-tool__long');
+    const out = { pill: pill.textContent, phone: pill.textContent.replace(long.textContent, '') };
+    return { ...out, label: pill.getAttribute('aria-label'), items: p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item').map(text) };
   },
 
   // Refresh while cooling down: the server's 429 shows the time left, not an error.

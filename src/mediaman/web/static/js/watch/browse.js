@@ -409,8 +409,15 @@
     button.setAttribute('aria-expanded', 'false');
     button.setAttribute('aria-controls', 'watch-picks-menu');
     button.setAttribute('aria-label', 'Picks: ' + chosen.label + (chosen.date_label ? ', ' + chosen.date_label : '') + '. Choose another batch');
-    button.appendChild(el('span', 'row-tool__long', chosen.label + (chosen.date_label ? ' · ' : '')));
-    button.appendChild(document.createTextNode(chosen.date_label));
+    if (chosen.date_label) {
+      button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
+      button.appendChild(document.createTextNode(chosen.date_label));
+    } else {
+      // One box: the space between its two parts would be lost between flex items.
+      var name = el('span', '', chosen.label.replace(/ picks$/, ''));
+      name.appendChild(el('span', 'row-tool__long', chosen.label.slice(name.textContent.length)));
+      button.appendChild(name);
+    }
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
   }
