@@ -253,7 +253,12 @@ const scenarios = {
     const out = { marks: p.marks(), focus: p.focus(), events: p.events };
     p.doc.activeElement = p.doc.body;
     await p.undo();
-    return { ...out, afterUndo: p.focus() };
+    const afterUndo = p.focus();
+    // Pressed by touch, where a button may not take the focus: the rows beneath do not take it either.
+    click(p.doc, b);
+    p.doc.activeElement = p.doc.body;
+    await settle();
+    return { ...out, afterUndo, touched: p.focus() };
   },
 
   // The show's own page follows an episode's mark: Play, the tabs and every toggle.

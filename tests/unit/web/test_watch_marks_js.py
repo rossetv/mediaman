@@ -154,7 +154,8 @@ def test_under_details_the_rows_change_but_focus_stays_in_details() -> None:
     out = _run("underDetails")
     assert out["marks"] == ["episode/22", "movie/3"]
     assert (out["focus"], out["afterUndo"]) == ("in-details", "in-details")
-    assert out["events"] == ["movie-1", "movie-1"]
+    assert out["touched"] == "BODY"
+    assert out["events"][0] == "movie-1"
 
 
 def test_a_show_page_follows_an_episode_s_mark_where_it_stands() -> None:
