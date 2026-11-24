@@ -259,6 +259,25 @@ def test_a_film_seen_through_an_outage_is_still_told_from_another_of_its_title(s
     assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
 
 
+def test_a_film_that_takes_the_place_of_another_of_its_title_is_not_taken_for_it(services, client):
+    radarr = services[0]
+    old = {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": True, "isAvailable": True}
+    new = {**old, "id": 2, "tmdbId": 20}
+    radarr.get_movies.return_value = [old]
+    _get(client)
+
+    # the queue is read, then the ids are not
+    radarr.get_movies.side_effect = [[new], _DOWN]
+    assert _get(client)["hero"]["arr_id"] == 2
+
+    radarr.get_movies.side_effect = None
+    radarr.get_movies.return_value = [
+        {"id": 1, "tmdbId": 10, "title": "Dune", "monitored": False},
+        {**new, "hasFile": True, "movieFile": _NEW_FILE},
+    ]
+    assert [r["id"] for r in _get(client)["recent"]] == ["radarr:Dune"]
+
+
 def _show(title: str, *files: int, monitored: bool = True) -> dict[str, object]:
     """A show of eight-episode seasons, all aired, with *files* of each."""
     seasons = [

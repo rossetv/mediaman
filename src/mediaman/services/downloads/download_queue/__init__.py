@@ -237,9 +237,11 @@ def _maybe_record_completions(
         stored = {**carried, **current_map}
         carry_queued_since(previous_snapshot, stored, now_utc() - _DATED_BEFORE_SEEN)
         for dl_id, item in stored.items():
-            tmdb_id = previous_snapshot.get(dl_id, {}).get("tmdb_id")
-            if tmdb_id and "tmdb_id" not in item:
-                item["tmdb_id"] = tmdb_id
+            before = previous_snapshot.get(dl_id, {})
+            # The dl_id is made of the title, which another film may have taken over.
+            same = item.get("arr_id") and item.get("arr_id") == before.get("arr_id")
+            if same and before.get("tmdb_id") and "tmdb_id" not in item:
+                item["tmdb_id"] = before["tmdb_id"]
         _previous_queue = stored
         _previous_initialised = True
 
