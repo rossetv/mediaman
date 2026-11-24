@@ -80,6 +80,11 @@
     return trim((i && n < 100 ? n.toFixed(1) : Math.round(n)) + ' ' + units[i]);
   }
 
+  /* What no scan has given a size yet takes some room all the same. */
+  function known(bytes, label) { return bytes ? trim(label) : 'Size not known'; }
+
+  function reclaimable(bytes, label) { return bytes ? trim(label) + ' to reclaim' : 'size not known'; }
+
   /* The server's "330 days ago" as "11 months ago". */
   function ago(label) {
     var m = /^(\d+) days ago$/.exec(label || '');
@@ -349,9 +354,9 @@
       title.after(link);
     }
     link.textContent = '';
-    var freed = trim(stats.scheduled.leaving_size);
-    add(link, document.createTextNode(leaving() + ' · ' + freed + ' to reclaim'), MM.dom.icon('i-chevron-right'));
-    link.setAttribute('aria-label', 'Manage scheduled deletions: ' + plural(leaving(), 'title') + ', ' + freed + ' to reclaim');
+    var freed = reclaimable(stats.scheduled.leaving_bytes, stats.scheduled.leaving_size);
+    add(link, document.createTextNode(leaving() + ' · ' + freed), MM.dom.icon('i-chevron-right'));
+    link.setAttribute('aria-label', 'Manage scheduled deletions: ' + plural(leaving(), 'title') + ', ' + freed);
   }
 
   function renderCount() {
@@ -986,7 +991,9 @@
     l.append(box);
     if (s.readable && s.disks.length > 1) disks(l);
     if (leaving() && s.readable) {
-      var more = button('space-after', plural(leaving(), 'scheduled title') + (deletes() ? ' will' : ' would') + ' free ' + trim(stats.scheduled.leaving_size),
+      var more = button('space-after', plural(leaving(), 'scheduled title') + 
+        (!stats.scheduled.leaving_bytes ? ', size not known'
+          : (deletes() ? ' will' : ' would') + ' free ' + trim(stats.scheduled.leaving_size)),
         function () { chooseTab('scheduled', true); });
       more.prepend(MM.dom.icon('i-clock-regular'));
       more.append(MM.dom.icon('i-chevron-right'));
@@ -1129,9 +1136,10 @@
       add(s, el('b', '', 'Nothing to list here'),
         el('span', '', 'Space the disk uses that no title accounts for: unfinished downloads, extra versions, extras, and anything else stored on it.'));
     } else if (leaving()) {
-      add(s, el('b', '', size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) +
+      var sized = stats.scheduled.leaving_bytes;
+      add(s, el('b', '', !sized ? 'Scheduled titles have no size yet' : size(stats.storage.free_bytes + stats.scheduled.leaving_bytes) +
           (deletes() ? ' once the scheduled titles go' : ' if the scheduled titles went')),
-        el('span', '', plural(leaving(), 'title') + ', ' + trim(stats.scheduled.leaving_size) + '. Keep any you want to stay.'),
+        el('span', '', plural(leaving(), 'title') + ', ' + (sized ? trim(stats.scheduled.leaving_size) : 'size not known') + '. Keep any you want to stay.'),
         button('btn btn--secondary', 'See what is scheduled', function () { chooseTab('scheduled', true); }));
     } else {
       add(s, el('b', '', 'Nothing scheduled, so this stays as it is'), el('span', '', 'The next scan will look again.'));
@@ -1174,7 +1182,7 @@
     if (s.overdue) more.push(s.overdue + ' overdue');
     if (s.deleting) more.push(s.deleting + ' being deleted');
     return (s.leaving || !more.length ? [plural(s.leaving, 'title')] : []).concat(more).join(', ') +
-      ' · ' + trim(s.total_size) + ' to reclaim';
+      ' · ' + reclaimable(s.total_bytes, s.total_size);
   }
 
   var KINDS = { movie: 'Movie', anime: 'Anime', anime_season: 'Anime' };
@@ -1194,7 +1202,7 @@
     var text = el('div', 'space-item__text');
     var when = el('small', 'space-item__when' + (item.state !== 'leaving' || (item.days_left !== null && item.days_left <= 1) ? ' space-item__when--soon' : ''));
     add(when, MM.dom.icon('i-clock-regular'), el('span', '', whenOf(item)));
-    var meta = [KINDS[item.media_type] || 'TV', trim(item.file_size)];
+    var meta = [KINDS[item.media_type] || 'TV', known(item.file_size_bytes, item.file_size)];
     if (item.added_ago) meta.push('Added ' + ago(item.added_ago));
     add(text, titleLink(el(item.ref ? 'a' : 'span', 'space-item__title', name), item.ref, item.title),
       whenOf(item) ? when : null, el('small', '', meta.join(' · ')));
@@ -1553,7 +1561,7 @@
       var li = el('li', 'space-item space-item--deleted');
       var text = el('div', 'space-item__text');
       add(text, el('span', 'space-item__title', name), el('small', '', ('Deleted ' + ago(item.deleted_ago)).trim()),
-        el('small', '', 'Freed ' + trim(item.reclaimed)));
+        el('small', '', item.reclaimed === '0 B' ? 'Size not known' : 'Freed ' + trim(item.reclaimed)));
       add(li, poster(item.poster_url), text);
       // Only a stored identity with the id the route needs can be had again.
       if (item.redownload) li.append(redoButton(item, name));
