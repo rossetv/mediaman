@@ -131,6 +131,7 @@
 /* ── Tablet: last watched folds into the title's sub-line, and the
    actions column gives the title what Keep and Delete do not need ── */
 @media (max-width: 1023.98px) {
+  .wl-sub-watched { display: inline; }
   .wl-table thead th,
   .wl-table tbody td { padding-left: 8px; padding-right: 8px; }
 }
@@ -139,7 +140,6 @@
   .wl-table .col-act { width: auto; }
   .wl-table thead th:nth-child(5),
   .wl-table tbody td:nth-child(5) { display: none; }
-  .wl-sub-watched { display: inline; }
 }
 
 /* Two tiles to a line before the cards. */

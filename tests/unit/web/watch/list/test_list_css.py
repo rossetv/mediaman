@@ -54,3 +54,7 @@ def test_the_sort_select_the_pills_and_the_title_are_44px_targets_below_700():
 def test_the_tablet_actions_column_takes_only_the_width_it_needs():
     block = _block("(min-width: 700px) and (max-width: 1023.98px)")
     assert ".wl-table .col-act { width: auto; }" in block
+
+
+def test_a_phone_says_when_a_title_was_last_watched_as_a_tablet_does():
+    assert ".wl-sub-watched { display: inline; }" in _block("(max-width: 1023.98px)")
