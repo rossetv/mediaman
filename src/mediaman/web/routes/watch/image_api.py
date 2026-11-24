@@ -8,11 +8,14 @@ browse page shows a hundred posters or more from the cache.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from fastapi import APIRouter, Depends
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError, disk_cache
@@ -39,6 +42,10 @@ _TMDB_HTTP = SafeHTTPClient(
     allowed_hosts=frozenset({"image.tmdb.org"}),
 )
 
+# Apart from the server's worker threads, which an image host that hangs must not hold.
+_FETCHES = ThreadPoolExecutor(max_workers=8, thread_name_prefix="tmdb-image")
+_FETCH_WAIT_S = 10.0
+
 _IMG_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
 
 
@@ -53,7 +60,7 @@ def _fetch_tmdb_image(size: str, name: str) -> tuple[bytes, str]:
 
 
 @router.get("/api/watch/img/tmdb/{size}/{name}")
-def api_watch_tmdb_image(
+async def api_watch_tmdb_image(
     size: str, name: str, username: str = Depends(get_current_user)
 ) -> Response:
     if size not in _SIZES or not _NAME_RE.fullmatch(name):
@@ -63,16 +70,24 @@ def api_watch_tmdb_image(
         content, mime = _fetch_tmdb_image(size, name)
         return content, {"mime": mime}
 
-    try:
-        content, info = disk_cache.img().get_or_fetch(
-            f"img:tmdb:{size}:{name}",
-            _FRESH_S,
-            _STALE_S,
-            fetch,
-            allow_fetch=lambda: _IMG_LIMITER.check(username),
+    def load(may_fetch: bool) -> disk_cache.Image:
+        return disk_cache.img().get_or_fetch(
+            f"img:tmdb:{size}:{name}", _FRESH_S, _STALE_S, fetch, allow_fetch=lambda: may_fetch
         )
+
+    try:
+        try:
+            content, info = await run_in_threadpool(load, False)
+        except disk_cache.Refused:
+            if not _IMG_LIMITER.check(username):
+                raise
+            fetched = asyncio.wrap_future(_FETCHES.submit(load, True))
+            content, info = await asyncio.wait_for(fetched, _FETCH_WAIT_S)
     except disk_cache.Refused:
         return Response(status_code=429)
+    except TimeoutError:
+        logger.warning("TMDB image fetch takes too long")
+        return Response(status_code=503)
     except SafeHTTPError as exc:
         if exc.status_code == 404:
             return Response(status_code=404)

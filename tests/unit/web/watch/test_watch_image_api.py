@@ -3,6 +3,7 @@ only known sizes and plain file names."""
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -108,6 +109,30 @@ def test_cache_hits_are_not_rate_limited_but_fetches_are(client, upstream, monke
     assert hits == [200, 200, 200]
     assert other == 429
     assert len(upstream.calls) == 1
+
+
+def test_an_image_host_that_hangs_holds_no_worker_thread_and_nobody_for_long(
+    client, upstream, monkeypatch
+):
+    client.get("/api/watch/img/tmdb/w342/held.jpg")
+    release, threads = threading.Event(), set()
+
+    def hang(size, name):
+        threads.add(threading.current_thread().name)
+        release.wait(10)
+        return PNG, "image/png"
+
+    monkeypatch.setattr(image_api, "_fetch_tmdb_image", hang)
+    monkeypatch.setattr(image_api, "_FETCH_WAIT_S", 0.05)
+    try:
+        codes = [client.get(f"/api/watch/img/tmdb/w342/{n}.jpg").status_code for n in range(10)]
+        held = client.get("/api/watch/img/tmdb/w342/held.jpg").status_code
+    finally:
+        release.set()
+
+    assert codes == [503] * 10
+    assert held == 200
+    assert all(name.startswith("tmdb-image") for name in threads)
 
 
 def test_needs_a_session(client, upstream):
