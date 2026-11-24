@@ -1377,6 +1377,37 @@ const scenarios = {
     }
     return out;
   },
+
+  // Letters on their way to a word are waited for; the word itself is searched for as any other.
+  async composition() {
+    const step = (p, value, isComposing) => { p.input.value = value; p.input.listeners.input.forEach((fn) => fn({ isComposing })); };
+    const waits = (p) => p.timers.filter((t) => t.on).map((t) => t.ms);
+    const p = await ready(ADMIN);
+    step(p, 'n', true);
+    step(p, '日', true);
+    const out = { during: waits(p), calls: p.calls.length };
+    p.input.listeners.compositionend.forEach((fn) => fn({}));
+    out.ended = waits(p);
+    p.wait();
+    await settle();
+    out.asked = p.calls.map((c) => c.url);
+    // A phone composes every word: a pause in one searches.
+    const q = await ready(ADMIN);
+    step(q, 'orch', true);
+    q.wait();
+    await settle();
+    out.paused = q.calls.length;
+    // Over once it was searched for, and once a category has taken its place: nothing more.
+    q.input.listeners.compositionend.forEach((fn) => fn({}));
+    out.searched = waits(q).length;
+    step(q, 'action', true);
+    click(q.doc, q.doc.querySelector('.watch-suggestion--category'));
+    await settle();
+    q.input.listeners.compositionend.forEach((fn) => fn({}));
+    await settle();
+    out.page = [q.url(), q.$('watch-search-token').hidden];
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

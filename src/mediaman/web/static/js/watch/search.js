@@ -20,6 +20,7 @@
   var TMDB_URL = '/api/watch/search/tmdb?q=';
   var SEARCH_DELAY_MS = 200;
   var LIST_DELAY_MS = 350;
+  var COMPOSING_MS = 700;
   var EXAMPLE_MS = 3200;
   var SKELETONS = 6;
   // TMDB answers nothing for less; do not ask.
@@ -504,6 +505,7 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // the categories and people the sheet was drawn from
+    var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
 
@@ -1310,15 +1312,17 @@
     }
 
     /* Every key: the bar and the suggestions answer at once, the server is asked
-       when the person pauses. */
-    function typed(now) {
+       when the person pauses, for longer inside a word that an input method is
+       still composing. */
+    function typed(now, inWord) {
       var q = input.value.trim();
       clearTimeout(timer);
+      composed = inWord ? input.value : '';
       if (tokened) setToken(null);
       sync();
       if (listView) {
         if (!q) change();
-        else timer = setTimeout(change, LIST_DELAY_MS);
+        else timer = setTimeout(change, inWord ? COMPOSING_MS : LIST_DELAY_MS);
         return;
       }
       stop();
@@ -1345,7 +1349,7 @@
         });
       }
       setPending(true);
-      timer = setTimeout(change, SEARCH_DELAY_MS);
+      timer = setTimeout(change, inWord ? COMPOSING_MS : SEARCH_DELAY_MS);
     }
 
     function fill(text) {
@@ -1366,7 +1370,11 @@
       sync();
     }
 
-    input.addEventListener('input', function () { typed(false); });
+    input.addEventListener('input', function (e) { typed(false, e.isComposing === true); });
+    // Not for a word that was searched for, nor one that a page has taken out of the field.
+    input.addEventListener('compositionend', function () {
+      if (composed && composed === input.value && !(current && current.q === composed.trim())) typed(false);
+    });
     input.addEventListener('keydown', function (e) {
       if (composing(e)) return;
       if (/^Arrow/.test(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {

@@ -607,3 +607,13 @@ def test_the_field_is_a_plain_search_box_in_the_list_view() -> None:
         [None, None, None, None],
         ["combobox", "list", "false", "watch-sheet"],
     ]
+
+
+def test_a_word_being_composed_is_searched_for_when_it_is_done_or_rested_on() -> None:
+    out = _run("composition")
+    assert (out["during"], out["calls"]) == ([700], 0)
+    assert out["ended"] == [200]
+    assert out["asked"][0].endswith("q=%E6%97%A5")
+    assert out["paused"] == 2
+    assert out["searched"] == 0
+    assert out["page"] == ["/watch?genre=action", False]
