@@ -4,13 +4,13 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     import sqlite3
 
 import requests
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.audit import log_audit
@@ -47,6 +47,9 @@ from mediaman.web.routes.download.confirm import drop_arr_cache
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# The largest whole number SQLite takes.
+_RowId = Annotated[int, Path(ge=1, le=2**63 - 1)]
 
 _DOWNLOAD_ACTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 _SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
@@ -88,7 +91,7 @@ def api_recommended(
 
 @router.post("/api/recommended/{recommendation_id}/share-token")
 def api_share_token(
-    recommendation_id: int,
+    recommendation_id: _RowId,
     request: Request,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
@@ -299,7 +302,7 @@ def _add_rec_to_sonarr(
 
 @router.post("/api/recommended/{recommendation_id}/download")
 def api_download_recommendation(
-    recommendation_id: int, request: Request, admin: str = Depends(get_current_user)
+    recommendation_id: _RowId, request: Request, admin: str = Depends(get_current_user)
 ) -> JSONResponse:
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return respond_failure("Too many requests", status=429)
@@ -312,7 +315,7 @@ def api_download_recommendation(
 
 @router.post("/api/watch/picks/{pick_id}/download")
 def api_download_pick(
-    pick_id: int, request: Request, username: str = Depends(get_current_user)
+    pick_id: _RowId, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     """Download one of the person's own picks; anyone else's is not found."""
     if not _DOWNLOAD_ACTION_LIMITER.check(username):
