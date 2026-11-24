@@ -260,7 +260,12 @@ def _send_to_subscribers(
     for email in recipient_emails:
         # A subscriber already sent some items in an earlier attempt gets only the rest.
         items = [i for i in scheduled_items if i.get("_action_id") not in delivered.get(email, ())]
-        recs = [*this_week_items, *(own_picks or {}).get(email, ())]
+        own = (own_picks or {}).get(email, [])
+        own_titles = {(p["media_type"], p["tmdb_id"]) for p in own if p["tmdb_id"]}
+        recs = [
+            *(i for i in this_week_items if (i["media_type"], i["tmdb_id"]) not in own_titles),
+            *own,
+        ]
         if (scheduled_items or own_picks) and not items and not recs:
             continue  # all was delivered, or only others have picks: nothing is worth an email
         scheduled_action_ids = _action_ids(items)

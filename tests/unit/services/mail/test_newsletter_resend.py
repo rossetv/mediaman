@@ -262,3 +262,15 @@ def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
     [token] = re.findall(r"/download/([^\"?]+)", outbox.html["alice@example.com"])
     payload = validate_download_token(token, _SECRET_KEY)
     assert (payload["title"], payload["tmdb"], payload["sid"]) == ("AlsPick", 5, None)
+
+
+def test_a_title_among_both_the_own_and_the_shared_picks_is_shown_once(conn):
+    _person(conn, "al", "alice@example.com")
+    insert_suggestion(conn, title="BothPick", tmdb_id=5, batch_id="b1")
+    insert_user_pick(conn, "al", title="BothPick", tmdb_id=5)
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    counts = {to: html.count(">BothPick<") for to, html in outbox.html.items()}
+    assert counts["alice@example.com"] == counts["bob@example.com"] == 1
