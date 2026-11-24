@@ -54,7 +54,9 @@ _DEFAULT_MISFIRE_GRACE_SECONDS = 3600
 
 def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     with _scheduler_connections_lock:
-        _scheduler_connections.append(conn)
+        # A worker thread has one connection for all the jobs it runs.
+        if conn not in _scheduler_connections:
+            _scheduler_connections.append(conn)
     return conn
 
 
@@ -212,6 +214,7 @@ def _register_maintenance_jobs(
     from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
     from mediaman.services.arr.completion import cleanup_recent_downloads
     from mediaman.services.arr.search_trigger import trigger_pending_searches
+    from mediaman.services.watch_catalog import fill_title_meta
 
     scheduler.add_job(
         lambda: cleanup_recent_downloads(_open_db_for_job()),
@@ -226,6 +229,17 @@ def _register_maintenance_jobs(
         lambda: trigger_pending_searches(_open_db_for_job(), secret_key),
         IntervalTrigger(hours=1),
         id="trigger_pending_searches",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+    scheduler.add_job(
+        lambda: fill_title_meta(
+            _open_db_for_job(), secret_key, stopped=lambda: _scheduler is not scheduler
+        ),
+        IntervalTrigger(minutes=1),
+        id="fill_title_meta",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

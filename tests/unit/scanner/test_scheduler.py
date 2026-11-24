@@ -57,6 +57,7 @@ def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
     job_ids = [c.kwargs.get("id") for c in mock_instance.add_job.call_args_list]
     assert "cleanup_recent_downloads" in job_ids
     assert "trigger_pending_searches" in job_ids
+    assert "fill_title_meta" in job_ids
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")

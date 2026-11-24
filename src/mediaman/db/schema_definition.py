@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS watch_dismissed (
     PRIMARY KEY (username, title_key)
 );
 
+-- What TMDB says of each library title: media_items has only its ids. id_type is "movie" or
+-- "tv" (TMDB ids) or "tvdb" (a show known by that id alone); details is NULL when TMDB has no
+-- such title or marks it adult.
+CREATE TABLE IF NOT EXISTS title_meta (
+    id_type TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    tmdb_id INTEGER,
+    details TEXT,
+    cast_json TEXT,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (id_type, id)
+);
+
 -- === Scanner (media items, scheduled actions, kept shows, audit log) ===
 CREATE TABLE IF NOT EXISTS media_items (
     id TEXT PRIMARY KEY,
