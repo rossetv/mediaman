@@ -162,14 +162,16 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 /* Each part carries its dot in front; the dot that starts a line falls in the clipped margin. */
 .ttl__meta { --dot: 17px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-height: 22px; margin-left: calc(-1 * var(--dot)); clip-path: inset(0 -20px 0 var(--dot)); font-size: 15px; color: var(--t2); }
-.ttl__meta > span::before { content: "·"; display: inline-block; width: var(--dot); text-align: center; color: var(--t3); }
+.ttl__meta > span { position: relative; padding-left: var(--dot); }
+.ttl__meta > span::before { content: "·"; position: absolute; left: 0; width: var(--dot); text-align: center; color: var(--t3); }
 .ttl__meta > .ttl__cert,
-.ttl__meta > .ttl__meta-skel { margin-left: var(--dot); }
+.ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
 .ttl__meta > .ttl__meta-skel { width: min(300px, 70%); height: 14px; }
 .ttl__meta > .ttl__meta-skel::before { content: none; }
 .ttl__cert { display: inline-flex; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--t1) 40%, transparent); border-radius: var(--r-xxs); font-size: 12px; line-height: 18px; font-weight: 600; }
+.ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
 /* The trailer takes the hero's box, so nothing below it moves. */

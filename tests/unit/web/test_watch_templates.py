@@ -722,6 +722,13 @@ def test_the_certificate_sits_8px_after_the_text_before_it() -> None:
     assert "margin-right: calc(8px - var(--dot))" in body
 
 
+def test_a_detail_that_wraps_stays_clear_of_the_clipped_dot_margin() -> None:
+    sheet = "_watch_detail.css"
+
+    assert "padding-left: var(--dot)" in _declarations_of(sheet, ".ttl__meta > span")
+    assert "position: absolute" in _declarations_of(sheet, ".ttl__meta > span::before")
+
+
 def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
 
