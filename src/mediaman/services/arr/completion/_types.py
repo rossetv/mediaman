@@ -33,3 +33,5 @@ class CompletedItem(TypedDict):
     #: it to ``record_verified_completions``.  Not set by
     #: ``detect_completed`` itself.
     tmdb_id: NotRequired[int | None]
+    #: Labels (``S01E02``) of the episodes that were in the queue; absent when it named none.
+    episodes: NotRequired[list[str]]

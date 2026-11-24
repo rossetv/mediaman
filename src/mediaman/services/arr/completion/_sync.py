@@ -38,8 +38,8 @@ def detect_completed(
     """Find items that disappeared from the queue (i.e. completed).
 
     Returns a list of dicts with dl_id, title, media_type, poster_url,
-    and (when present on the previous-snapshot entry) tmdb_id, ready
-    for insertion into recent_downloads.
+    and (when present on the previous-snapshot entry) tmdb_id and the
+    labels of its episodes, ready for insertion into recent_downloads.
 
     The ``tmdb_id`` field on each ``CompletedItem`` is what
     ``record_verified_completions`` uses to disambiguate two
@@ -65,6 +65,11 @@ def detect_completed(
             tmdb_id = item.get("tmdb_id")
             if isinstance(tmdb_id, int) and tmdb_id:
                 entry["tmdb_id"] = tmdb_id
+            episodes = item.get("episodes")
+            if isinstance(episodes, list) and (
+                labels := [ep["label"] for ep in episodes if ep.get("label")]
+            ):
+                entry["episodes"] = labels
             completed.append(entry)
     return completed
 

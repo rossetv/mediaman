@@ -29,7 +29,7 @@ from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 
-from ._radarr import _radarr_fallback_item, _radarr_queue_item, _radarr_ready_item
+from ._radarr import _radarr_queue_item, _radarr_ready_item, _radarr_searching_item
 
 # ``_format_timeleft`` is re-exported from ``._shared`` because the status
 # unit tests import it from this module path; the ``as`` form marks the
@@ -119,7 +119,7 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     if queued is not None:
         return queued
 
-    return _radarr_fallback_item(conn, movie)
+    return _radarr_searching_item(movie)
 
 
 def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
@@ -133,7 +133,7 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     if ep_entries:
         return _sonarr_aggregate(series_title, series_poster, ep_entries)
 
-    return _sonarr_series_fallback(client, conn, tmdb_id)
+    return _sonarr_series_fallback(client, tmdb_id)
 
 
 def _cached_status(

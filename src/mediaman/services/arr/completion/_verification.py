@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -21,7 +22,11 @@ from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.completion._types import CompletedItem
 from mediaman.services.arr.state import series_has_files
+from mediaman.services.downloads.download_format import format_episode_label
 from mediaman.services.infra import SafeHTTPError
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,7 @@ class _ArrLibraryIndex:
         self._radarr_by_title: dict[str, RadarrMovie] | None = None
         self._sonarr_by_id: dict[int, SonarrSeries] | None = None
         self._sonarr_by_title: dict[str, SonarrSeries] | None = None
+        self._sonarr_client: ArrClient | None = None
 
     def ensure_radarr(self) -> None:
         if self._radarr_by_id is not None:
@@ -70,7 +76,7 @@ class _ArrLibraryIndex:
 
         by_id: dict[int, SonarrSeries] = {}
         by_title: dict[str, SonarrSeries] = {}
-        client = build_sonarr_from_db(self._conn, self._secret_key)
+        client = self._sonarr_client = build_sonarr_from_db(self._conn, self._secret_key)
         for s in client.get_series() if client else []:
             if tid := s.get("tmdbId"):
                 by_id[int(tid)] = s
@@ -104,6 +110,15 @@ class _ArrLibraryIndex:
         if self._sonarr_by_title is None:
             raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_title
+
+    def has_episode_file(self, series: SonarrSeries, labels: set[str]) -> bool:
+        if self._sonarr_client is None:
+            return False
+        return any(
+            ep.get("hasFile")
+            and format_episode_label(ep.get("seasonNumber"), ep.get("episodeNumber")) in labels
+            for ep in self._sonarr_client.get_episodes(series["id"])
+        )
 
 
 def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
@@ -142,7 +157,11 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     title,
                 )
             series = idx.sonarr_index_by_title().get(title)
-        return series is not None and series_has_files(series)
+        if series is None or not series_has_files(series):
+            return False
+        # Other episodes' files say nothing about a grab that failed.
+        labels = c.get("episodes")
+        return not labels or idx.has_episode_file(series, set(labels))
     # NZBGet-only items — no Arr verification possible
     return True
 

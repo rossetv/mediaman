@@ -26,6 +26,7 @@ from mediaman.web.routes.download.status import (
 from mediaman.web.routes.download.status import (
     router as status_router,
 )
+from tests.helpers.factories import insert_recent_download
 
 
 def _download_token(secret_key: str, media_type: str = "movie", tmdb_id: int = 42) -> str:
@@ -428,6 +429,20 @@ class TestStatusTellsWhatTheArrHolds:
             f"mediaman.web.routes.download.status.build_{service}_from_db", return_value=arr
         ):
             return client.get(f"/api/download/status?service={service}&tmdb_id=42").json()
+
+    @pytest.mark.parametrize("service", ["radarr", "sonarr"])
+    def test_a_title_with_no_file_is_not_ready_for_a_download_of_its_name_days_ago(
+        self, app_factory, authed_client, conn, service
+    ):
+        insert_recent_download(conn, dl_id=f"{service}:Dune", title="Dune")
+        arr = MagicMock()
+        arr.get_queue.return_value = []
+        arr.get_movie_by_tmdb.return_value = {"tmdbId": 42, "title": "Dune", "hasFile": False}
+        arr.get_series.return_value = [{"tmdbId": 42, "title": "Dune", "statistics": {}}]
+
+        data = self._status(app_factory, authed_client, conn, service, arr)
+
+        assert data["state"] == "searching"
 
     def test_a_season_pack_is_counted_once_and_single_episodes_each(
         self, app_factory, authed_client, conn

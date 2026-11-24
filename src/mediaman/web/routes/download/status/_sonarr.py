@@ -5,7 +5,6 @@ build_sonarr_from_db stays patchable.
 
 from __future__ import annotations
 
-import sqlite3
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from mediaman.core.format import format_bytes
@@ -19,7 +18,6 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
-from mediaman.web.repository.download import fetch_recent_download
 
 from ._shared import _format_timeleft, _safe_int, _safe_progress
 
@@ -128,9 +126,7 @@ def _sonarr_aggregate(
     )
 
 
-def _sonarr_series_fallback(
-    client: ArrClient, conn: sqlite3.Connection, tmdb_id: int
-) -> DownloadItem:
+def _sonarr_series_fallback(client: ArrClient, tmdb_id: int) -> DownloadItem:
     all_series = client.get_series()
     matched = next(
         (s for s in all_series if s.get("tmdbId") == tmdb_id),
@@ -145,20 +141,6 @@ def _sonarr_series_fallback(
                 title=s_title,
                 media_type="series",
                 poster_url="",
-                state="ready",
-                progress=100,
-                eta="",
-                size_done="",
-                size_total="",
-            )
-
-        recent = fetch_recent_download(conn, f"sonarr:{s_title}")
-        if recent is not None:
-            return build_item(
-                dl_id=recent.dl_id,
-                title=recent.title,
-                media_type="series",
-                poster_url=recent.poster_url,
                 state="ready",
                 progress=100,
                 eta="",

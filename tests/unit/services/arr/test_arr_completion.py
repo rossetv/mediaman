@@ -443,6 +443,40 @@ class TestDetectCompletedTmdbId:
         assert "tmdb_id" not in result[0]
 
 
+class TestSeriesWithOtherEpisodesAlreadyOnDisk:
+    """A grab that failed also leaves the queue; files of other episodes do not make it done."""
+
+    def _vanish(self, conn, monkeypatch, *, second_episode_has_file):
+        sonarr = MagicMock()
+        sonarr.get_series.return_value = [
+            {"id": 3, "tmdbId": 5, "title": "Show", "statistics": {"episodeFileCount": 10}}
+        ]
+        sonarr.get_episodes.return_value = [
+            {"seasonNumber": 1, "episodeNumber": 1, "hasFile": True},
+            {"seasonNumber": 1, "episodeNumber": 2, "hasFile": second_episode_has_file},
+        ]
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db", lambda *a, **kw: sonarr
+        )
+        previous = {
+            "sonarr:Show": {
+                "title": "Show",
+                "kind": "series",
+                "poster_url": "",
+                "tmdb_id": 5,
+                "episodes": [{"label": "S01E02", "title": "Two"}],
+            }
+        }
+        record_verified_completions(conn, detect_completed(previous, {}), SECRET_KEY)
+        return [r[0] for r in conn.execute("SELECT dl_id FROM recent_downloads")]
+
+    def test_a_failed_grab_is_not_recorded(self, conn, monkeypatch):
+        assert self._vanish(conn, monkeypatch, second_episode_has_file=False) == []
+
+    def test_an_imported_episode_is_recorded(self, conn, monkeypatch):
+        assert self._vanish(conn, monkeypatch, second_episode_has_file=True) == ["sonarr:Show"]
+
+
 class TestBatchInsertCompletionsExceptNarrowing:
     """_batch_insert_completions catches only sqlite3.Error, not broad Exception."""
 
