@@ -634,6 +634,8 @@
       if (on === sheetOn) return;
       sheetOn = on;
       if (on) {
+        var preview = window.MMWatch.preview;
+        if (preview && preview.close) preview.close();
         drawSheet(explore.genres());
         sheet.scrollTop = 0;
         setHint('Try “' + EXAMPLES[0] + '”');

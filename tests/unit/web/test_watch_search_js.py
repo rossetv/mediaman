@@ -436,3 +436,7 @@ def test_a_decade_that_is_not_listed_is_dropped_from_the_link() -> None:
     assert out["late"][0] == "/watch?genre=action"
     assert out["late"][1][-1] == first
     assert out["listed"][0] == "/watch?genre=action&decade=1990s"
+
+
+def test_the_sheet_closes_an_open_preview() -> None:
+    assert _run("sheetOverPreview") == [1, True]

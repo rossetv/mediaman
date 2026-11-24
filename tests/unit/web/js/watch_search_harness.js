@@ -994,6 +994,15 @@ const scenarios = {
     out.listed = [listed.url(), listed.calls.length];
     return out;
   },
+
+  // A card's preview does not stay over the sheet.
+  async sheetOverPreview() {
+    const p = await ready(ADMIN);
+    let closed = 0;
+    p.ctx.MMWatch.preview = { close() { closed++; } };
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: '/', preventDefault() {} }));
+    return [closed, p.sheet.classList.contains('is-on')];
+  },
 };
 
 // Motion on: every move runs until finish() ends it.
