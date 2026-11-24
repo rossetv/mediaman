@@ -83,10 +83,13 @@ def _build_scheduled_card(
 
     media_type = row["media_type"] or "movie"
     season_num = row["season_number"]
+    season_label = ""
+    if season_num is not None:
+        season_label = f" · Season {season_num}" if season_num else " · Specials"
     if media_type in ("tv_season", "season", "tv"):
-        type_label = f"TV · Season {season_num}" if season_num else "TV"
+        type_label = f"TV{season_label}"
     elif media_type in ("anime_season", "anime"):
-        type_label = f"Anime · Season {season_num}" if season_num else "Anime"
+        type_label = f"Anime{season_label}"
     else:
         type_label = "Movie"
 

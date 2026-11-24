@@ -172,8 +172,11 @@ def build_email_payload(
 
     # A season row names its season so two seasons of one show do not send the same text.
     season_label = f"Season {row.season_number}" if row.season_number is not None else ""
+    if row.season_number == 0:
+        season_label = "Specials"
     what = f"'{title}' {season_label.lower()}" if season_label else f"'{title}'"
-    subject = f"{what} is now available to watch"
+    verb = "are" if row.season_number == 0 else "is"
+    subject = f"{what} {verb} now available to watch"
     html = template.render(
         title=title,
         season_label=season_label,

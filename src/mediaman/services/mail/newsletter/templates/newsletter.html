@@ -200,7 +200,7 @@
               {{ poster(item, 100, 150, true) }}
               <div class="clamp2" style="font-size:12px;font-weight:600;line-height:1.3;color:#ffffff;margin-top:6px;">{{ item.title }}</div>
               {% if item.season_number is number %}
-              <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">Season {{ item.season_number }}</div>
+              <div style="font-size:11px;color:#8e8e8e;margin-top:2px;">{{ "Specials" if item.season_number == 0 else "Season %d" % item.season_number }}</div>
               {% endif %}
               <div style="font-size:10px;color:#8e8e8e;margin-top:2px;">Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}</div>
               {% if item.redownload_url %}

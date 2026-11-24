@@ -162,6 +162,16 @@ def test_a_deleted_season_is_named_on_its_card_and_a_movie_has_none(env: Environ
     assert re.findall(r"Season \d+|Season None", template.render(**ctx)) == ["Season 2"]
 
 
+def test_a_deleted_season_zero_is_called_specials(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["deleted_items"] = [{**ctx["deleted_items"][0], "media_type": "tv", "season_number": 0}]
+
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert ">Specials</div>" in html
+    assert "Season 0" not in html
+
+
 def test_empty_scheduled_and_deleted(env: Environment) -> None:
     ctx = _full_context()
     ctx["scheduled_items"] = []

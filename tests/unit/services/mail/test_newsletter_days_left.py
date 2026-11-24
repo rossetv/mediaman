@@ -100,6 +100,19 @@ def test_an_item_of_a_library_not_selected_is_not_listed_as_leaving(conn, manual
     assert list(_cards(conn, manual=manual)) == ["Leaving"]
 
 
+def test_a_season_zero_about_to_leave_is_called_specials(conn):
+    _queue(conn, "Extras", days_into_grace=1)
+    _queue(conn, "Second", days_into_grace=1)
+    with conn:
+        conn.execute("UPDATE media_items SET media_type = 'tv_season', season_number = 0")
+        conn.execute("UPDATE media_items SET season_number = 2 WHERE id = 'Second'")
+
+    cards = _cards(conn, manual=True)
+
+    assert "TV · Specials" in cards["Extras"]
+    assert "TV · Season 2" in cards["Second"]
+
+
 def test_the_last_day_reads_singular(conn):
     _queue(conn, "Last Day", days_into_grace=6)
 

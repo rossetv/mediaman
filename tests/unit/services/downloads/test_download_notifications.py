@@ -1447,6 +1447,13 @@ class TestAvailableEmailNamesTheSeason:
         assert "Season 2" in html_two and "Season 3" not in html_two
         assert "Season 3" in html_three
 
+    def test_season_zero_is_called_the_specials(self):
+        subject, html = self._payload(0)
+
+        assert subject == "'Severance' specials are now available to watch"
+        assert "Specials" in html
+        assert "Season 0" not in html
+
     def test_a_row_with_no_season_reads_as_before(self):
         subject, html = self._payload(None)
 
