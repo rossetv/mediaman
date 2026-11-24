@@ -89,6 +89,12 @@ def test_overview_dots_take_the_colour_of_their_service() -> None:
         assert f"background: var(--{token})" in coloured[f".setg-pg .conn-dot.{tone}"]
 
 
+def test_the_browsers_own_field_parts_are_drawn_for_a_dark_page() -> None:
+    css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
+    page = re.search(r"\.setg-pg\s*\{([^{}]*)\}", css)
+    assert page and "color-scheme: dark" in page.group(1)
+
+
 def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
     css = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg.css").read_text(), flags=re.S)
     rules = re.findall(r"html:has\(\.setg-pg\)\s*\{([^{}]*)\}", css)

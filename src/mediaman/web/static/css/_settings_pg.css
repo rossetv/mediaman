@@ -10,7 +10,8 @@
 
 /* SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
    Scoped under .setg-pg so the primitives do not leak elsewhere. */
-.setg-pg { --rail-w: 236px; }
+/* The scheme turns the browser's own parts (clock icon, time picker, spinners, list scrollbars) light on dark. */
+.setg-pg { --rail-w: 236px; color-scheme: dark; }
 .setg-pg .container { max-width: 1180px; }
 
 .setg-pg .setg-shell {
