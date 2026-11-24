@@ -19,7 +19,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _library
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.search import upsert_ratings_cache
-from mediaman.web.repository.watch_progress import save_progress
+from mediaman.web.repository.watch_progress import NEVER_PLAYED, save_progress
 from mediaman.web.routes.watch import catalog_api, title_preview_api
 from tests.helpers.factories import (
     insert_admin_user,
@@ -297,6 +297,74 @@ class TestLibraryShow:
         assert (body["overview"], body["year"], body["genres"]) == ("A town.", 2021, ["Drama"])
         assert "/watch/play/512" in body["play"]["href"]
         assert plex.calls == 1
+
+    def test_what_leaves_first_is_what_it_says_is_leaving(self, viewer, library, tmdb, plex):
+        insert_media_item(
+            library,
+            id="502",
+            plex_rating_key="502",
+            title="Season 2",
+            show_title="Glass Coast",
+            media_type="tv_season",
+            season_number=2,
+            show_rating_key="500",
+        )
+        for item, days in (("501", 9), ("502", 3)):
+            insert_scheduled_action(
+                library,
+                media_item_id=item,
+                action="scheduled_deletion",
+                token=f"token-{item}",
+                execute_at=(now_utc() + timedelta(days=days)).isoformat(),
+            )
+
+        body = _preview(viewer, "show-500").json()
+
+        assert (body["leaving"]["keep_id"], body["keep_allowed"]) == ("502", True)
+
+    @pytest.mark.parametrize("through", ["sonarr", "library index"])
+    def test_one_known_by_its_tvdb_id_has_tmdbs_words(
+        self, viewer, library, tmdb, plex, monkeypatch, through
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = NULL, tvdb_id = 5500 WHERE id = '501'")
+        library.commit()
+        if through == "sonarr":
+            sonarr = SimpleNamespace(
+                get_series=lambda: [{"tmdbId": 77, "tvdbId": 5500}], get_queue=list
+            )
+            monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: sonarr)
+        else:
+            tmdb["/find/5500"] = {"tv_results": [{"id": 77}]}
+            # Learnt in the background by the first look at the library's titles.
+            _preview(viewer, "tmdb-movie-12")
+
+        assert _preview(viewer, "show-500").json()["overview"] == "A coast."
+
+    @pytest.mark.parametrize("case", ["hardly begun", "never played"])
+    def test_one_not_really_in_progress_is_not_resumed(self, viewer, library, tmdb, plex, case):
+        _play(
+            library,
+            "512",
+            item="501",
+            show="500",
+            position=2.0 if case == "hardly begun" else 1200.0,
+        )
+        if case == "never played":
+            library.execute("UPDATE watch_progress SET updated_at = ?", (NEVER_PLAYED,))
+            library.commit()
+
+        assert _preview(viewer, "show-500").json()["play"]["label"].startswith("Play")
+
+    def test_the_one_played_last_is_resumed(self, viewer, library, tmdb, plex):
+        _play(library, "512", item="501", show="500", duration=3000.0)
+        _play(library, "511", item="501", show="500", duration=3000.0)
+        library.execute(
+            "UPDATE watch_progress SET updated_at = '2020-01-01T00:00:00+00:00'"
+            " WHERE rating_key = '511'"
+        )
+        library.commit()
+
+        assert "/watch/play/512" in _preview(viewer, "show-500").json()["play"]["href"]
 
     def test_a_show_plex_places_outside_the_libraries_is_not_found(self, viewer, no_tmdb, plex):
         plex.add_show("500", "Glass Coast", {1: ("501", ["511"])}, section="9")

@@ -651,7 +651,9 @@ class TestShapes:
             details,
             {
                 "title": "T",
-                "release_dates": {"results": [nested]},
+                "release_dates": {
+                    "results": [nested, nested | {"release_dates": [{"certification": odd}]}]
+                },
                 "content_ratings": {"results": [nested]},
             },
         ):
