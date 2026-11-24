@@ -154,6 +154,13 @@ class TestExplorePage:
         assert catalog.explore_page(tmdb.client, genre, page=499)[2] == 500
         assert catalog.explore_page(tmdb.client, genre, page=500)[2] is None
 
+    def test_only_what_a_card_shows_is_kept(self, tmdb):
+        tmdb.pages = {"/discover/movie": _list({"id": 1, "title": "T", "overview": "x" * 900})}
+
+        [item], _, _ = catalog.explore_page(tmdb.client, catalog.GENRES["horror"])
+
+        assert item == {"id": 1, "title": "T", "media_type": "movie"}
+
     def test_a_page_of_adult_titles_alone_does_not_end_the_list(self, tmdb):
         tmdb.pages = {"/discover/movie": _list({"id": 1, "adult": True}, pages=3)}
 
