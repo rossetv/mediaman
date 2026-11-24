@@ -101,6 +101,7 @@ def titled(client, conn):
     conn.execute("DELETE FROM media_items WHERE media_type = 'movie'")
     for n, title in enumerate(_TITLES):
         _movie(conn, f"20{n}", title, NOW - timedelta(days=n))
+    conn.execute("UPDATE media_items SET file_path = '/m/film.mkv'")
     conn.commit()
     return client
 
@@ -258,15 +259,16 @@ def test_not_watched_first_goes_by_the_asking_persons_own_marks(titled, conn):
         "Amber Island",
     ]
     # Another person's place in the list says nothing of what that person has seen.
-    _seen(conn, "202", "203")
+    _seen(conn, "202")
     mine = _page(titled, "movies", sort="unwatched", limit=3)
     rest = _page(theirs, "movies", sort="unwatched", after=mine["next"])
-    assert _names(rest["items"]) == ["The", "Zed", "Amber Island"]
+    assert _names(rest["items"]) == ["Éclair", "eden", "The", "Zed", "Amber Island"]
 
 
 def test_not_watched_first_puts_a_show_seen_in_full_last(client, conn):
     _season(conn, "511", "510", "Moor", "tv")
     conn.execute("UPDATE media_items SET episode_count = 1 WHERE id IN ('501', '511')")
+    conn.commit()
     mark_watched(conn, "aoife", [MarkTarget("5011", "501", "500", 0.0)], NOW)
     assert _names(_all(client, "tv", 1, sort="unwatched")) == ["Moor", "Coast"]
 
@@ -309,8 +311,9 @@ def test_a_place_whose_marks_are_no_longer_held_goes_on_by_the_marks_of_now(titl
 
 def test_places_held_for_paging_stay_few(titled, conn):
     for _ in range(library_order.HELD_MAX + 5):
-        _page(titled, "movies", sort="unwatched", limit=1)
+        page = _page(titled, "movies", sort="unwatched", limit=1)
     assert len(library_order._held) == library_order.HELD_MAX
+    assert page["next"].partition(".")[2] in library_order._held
 
 
 @pytest.mark.parametrize("sort", ["az", "added", "year", "unwatched"])
@@ -339,3 +342,13 @@ def test_a_place_that_is_none_is_refused_in_every_order(client, sort):
     for after in ("nonsense", "bm9uZQ", ".token"):
         resp = client.get("/api/watch/library/movies/row", params={"after": after, "sort": sort})
         assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("sort", ["az", "added", "year", "unwatched"])
+def test_films_alike_in_everything_are_each_there_once_in_every_order(client, conn, sort):
+    conn.execute("DELETE FROM media_items WHERE media_type = 'movie'")
+    for n in (3, 1, 2):
+        _movie(conn, f"30{n}", "The Same", NOW)
+    _seen(conn, "302")
+    hrefs = [i["href"][-1] for i in _all(client, "movies", 1, sort=sort)]
+    assert hrefs == (["1", "3", "2"] if sort == "unwatched" else ["1", "2", "3"])

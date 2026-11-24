@@ -348,7 +348,7 @@
 
   /* A library row's grid: newest first, as the row, it goes on from where that stands. */
   function libraryGrid(at) {
-    function pages(sort) { return libraryPages(at.id, '&limit=' + GRID_PAGE + (sort === 'az' ? '&sort=az' : '')); }
+    function pages(sort) { return libraryPages(at.id, '&limit=' + GRID_PAGE + (sort === 'added' ? '' : '&sort=' + sort)); }
     var made = {
       fetchPage: pages(at.sort),
       total: at.drawn ? at.drawn.total : at.row ? Number(at.row.getAttribute('data-row-total')) : 0,
@@ -360,7 +360,7 @@
       }
     };
     if (at.drawn) made.next = at.drawn.next;
-    else if (at.sort === 'az') Object.assign(made, { cards: [], next: '' });
+    else if (at.sort !== 'added') Object.assign(made, { cards: [], next: '' });
     else Object.assign(made, { cards: at.cards(), next: loaders[at.id] ? loaders[at.id].next() : null });
     return made;
   }

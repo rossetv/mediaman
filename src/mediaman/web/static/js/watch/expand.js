@@ -23,10 +23,11 @@
   var browse = core.byId('watch-browse');
   if (!browse || !grid.open) return;
 
-  var LATEST = [['added', 'Recently added'], ['az', 'A to Z']];
+  var LIBRARY = [['az', 'A to Z'], ['added', 'Recently added'], ['year', 'Newest release'], ['unwatched', 'Not watched first']];
   var SORTS = {
     'continue': [['added', 'Last watched'], ['az', 'A to Z']],
-    recent: LATEST, movies: LATEST, tv: LATEST, anime: LATEST,
+    recent: [['added', 'Recently added'], ['az', 'A to Z']],
+    movies: LIBRARY, tv: LIBRARY, anime: LIBRARY,
     trending: [['all', 'All'], ['movie', 'Films'], ['tv', 'TV']]
   };
   var EMPTY = {
@@ -223,16 +224,18 @@
     return made;
   }
 
+  /* *given*, or the order the row itself has. */
   function sortOf(id, given) {
     var list = own(SORTS, id) ? SORTS[id] : [];
-    var known = list.filter(function (s) { return s[0] === given; })[0] || list[0];
+    function named(sort) { return list.filter(function (s) { return s[0] === sort; })[0]; }
+    var known = named(given) || named('added') || list[0];
     return known ? known[0] : '';
   }
 
   function withSort(id, sort, value) {
     if (!sort || sort.jump) return sort;
     if (!own(SORTS, id)) return undefined;
-    var first = SORTS[id][0][0];
+    var first = sortOf(id, null);
     return Object.assign({
       value: value,
       options: SORTS[id].map(function (s) { return { id: s[0], label: s[1] }; }),

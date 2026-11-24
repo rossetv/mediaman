@@ -30,7 +30,7 @@ def test_a_row_s_heading_opens_its_grid_which_goes_on_from_the_row_and_back_retu
 
 def test_the_order_chosen_comes_from_the_server_and_stays_in_the_address() -> None:
     out = _run("sorted")
-    assert out["labels"] == ["Recently added", "A to Z"]
+    assert out["labels"] == ["A to Z", "Recently added", "Newest release", "Not watched first"]
     assert out["sorted"]["at"] == "/watch?all=movies&sort=az"
     assert out["sorted"]["grid"]["things"] == ["Film 9", "Film 1"]
     assert out["back"] == {"at": "/watch", "grid": None}
@@ -40,6 +40,25 @@ def test_the_order_chosen_comes_from_the_server_and_stays_in_the_address() -> No
         "sort": "A to Z",
     }
     assert out["again"] == {"at": "/watch?all=movies", "n": 2, "first": "Film 1"}
+
+
+def test_newest_release_and_not_watched_first_are_the_library_s_own_orders() -> None:
+    out = _run("ordered")
+    assert out["seen"] == [
+        {
+            "at": "/watch?all=movies&sort=year",
+            "sort": "Newest release",
+            "things": ["Film 5", "Film 3", "Film 7"],
+        },
+        {
+            "at": "/watch?all=movies&sort=unwatched",
+            "sort": "Not watched first",
+            "things": ["Film 4", "Film 6"],
+        },
+        {"at": "/watch?all=movies", "sort": "Recently added", "things": ["Film 1", "Film 2"]},
+    ]
+    assert out["link"] == "Not watched first"
+    assert out["other"] == "Last watched"
 
 
 def test_a_row_all_on_the_page_is_put_in_order_there_as_the_server_would() -> None:

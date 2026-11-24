@@ -13,7 +13,7 @@ import json
 import re
 import sqlite3
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
@@ -48,12 +48,15 @@ class LibraryShow:
     year: int | None = None
 
 
-# The order of a library row: newest added first, or A to Z.
-RowOrder = Literal["added", "az"]
+# The order of a library row: A to Z, newest added, newest released, or (A to Z) the titles a
+# person has not seen before those they have.
+RowOrder = Literal["az", "added", "year", "unwatched"]
 
-# Where a page of titles ended: what its last title is ordered by (the added date, or the title
-# as A to Z reads it), its title folded for comparing, and its key.
+# Where a page of titles ended: what its last title is ordered by, its title folded for
+# comparing, and its key.
 RowCursor = tuple[str, str, str]
+
+_NEWEST_FIRST = ("added", "year")
 
 _ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
 
@@ -240,9 +243,21 @@ def sort_title(title: str) -> str:
     return _ARTICLE.sub("", plain.casefold().strip())
 
 
-def row_cursor(item: LibraryMovie | LibraryShow, order: RowOrder = "added") -> RowCursor:
-    first = sort_title(item.title) if order == "az" else item.added_at or ""
-    return first, item.title.casefold(), item.key
+def row_cursor(
+    item: LibraryMovie | LibraryShow,
+    order: RowOrder = "added",
+    seen: Set[str] = frozenset(),
+) -> RowCursor:
+    """Where *item* stands in *order*; *seen* is seen_refs' answer, for Not watched first."""
+    if order == "added":
+        return item.added_at or "", item.title.casefold(), item.key
+    name = sort_title(item.title)
+    if order == "year":
+        return f"{item.year:04d}" if item.year else "", name, item.key
+    if order == "unwatched":
+        kind = "movie" if isinstance(item, LibraryMovie) else "show"
+        name = ("1" if f"{kind}-{item.key}" in seen else "0") + name
+    return name, item.title.casefold(), item.key
 
 
 def cursor_text(cursor: RowCursor) -> str:
@@ -266,32 +281,39 @@ def parse_cursor(text: str) -> RowCursor | None:
 
 
 def newest_first[T: LibraryMovie | LibraryShow](items: Sequence[T]) -> list[T]:
-    """*items* newest added first, by the date List's Recently added sort compares; ties by
-    title, and an item with no date last."""
-    by_title = sorted(items, key=lambda item: row_cursor(item)[1:])
-    return sorted(by_title, key=lambda item: row_cursor(item)[0], reverse=True)
+    """*items* newest added first, by the date List's Recently added sort compares."""
+    return in_order(items, "added")
 
 
-def in_order[T: LibraryMovie | LibraryShow](items: Sequence[T], order: RowOrder) -> list[T]:
-    if order == "added":
-        return newest_first(items)
-    return sorted(items, key=lambda item: row_cursor(item, order))
+def in_order[T: LibraryMovie | LibraryShow](
+    items: Sequence[T], order: RowOrder, seen: Set[str] = frozenset()
+) -> list[T]:
+    """*items* in *order*; ties by title, and an item with no date or year last."""
+    at = {item.key: row_cursor(item, order, seen) for item in items}
+    ordered = sorted(items, key=lambda item: at[item.key][1:])
+    return sorted(ordered, key=lambda item: at[item.key][0], reverse=order in _NEWEST_FIRST)
 
 
 def row_page[T: LibraryMovie | LibraryShow](
-    ordered: Sequence[T], after: RowCursor | None, limit: int, order: RowOrder = "added"
+    ordered: Sequence[T],
+    after: RowCursor | None,
+    limit: int,
+    order: RowOrder = "added",
+    seen: Set[str] = frozenset(),
 ) -> tuple[list[T], RowCursor | None]:
     """The next *limit* of the items, which are in *order*, past *after*, and where they end (None
     at the end). Found by value, so a title that comes or goes meanwhile moves no other."""
     rest = [
-        item for item in ordered if after is None or _is_past(row_cursor(item, order), after, order)
+        item
+        for item in ordered
+        if after is None or _is_past(row_cursor(item, order, seen), after, order)
     ]
     page = rest[:limit]
-    return page, row_cursor(page[-1], order) if len(rest) > limit else None
+    return page, row_cursor(page[-1], order, seen) if len(rest) > limit else None
 
 
 def _is_past(cursor: RowCursor, after: RowCursor, order: RowOrder) -> bool:
-    if order == "az":
+    if order not in _NEWEST_FIRST:
         return cursor > after
     return cursor[0] < after[0] or (cursor[0] == after[0] and cursor[1:] > after[1:])
 
@@ -545,6 +567,7 @@ __all__ = [
     "cursor_text",
     "find_movie",
     "find_show",
+    "in_order",
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",

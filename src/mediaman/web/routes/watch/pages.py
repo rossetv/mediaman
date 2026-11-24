@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast
+from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast, get_args
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -55,6 +55,7 @@ from mediaman.web.repository.watch_progress import (
 )
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import list_page
+from mediaman.web.routes.watch.library_order import library_page
 
 router = APIRouter()
 
@@ -652,18 +653,22 @@ def _library_row(
 
 
 def _row_grid(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
     row: dict[str, Any],
     entries: Sequence[lib.LibraryMovie | lib.LibraryShow] | None,
     sort: str | None,
 ) -> dict[str, Any]:
-    """The row *row* opened as a grid, A to Z when *sort* says so: its first cards, and for a
-    library row (with *entries*) where they end."""
+    """The row *row* opened as a grid, in the order *sort* asks for if it has that one: its first
+    cards, and for a library row (with *entries*) where they end."""
     items: list[dict[str, Any]] = row["items"]
-    order: lib.RowOrder = "az" if sort == "az" and row["id"] != "leaving" else "added"
-    next_cursor = None
+    own = get_args(lib.RowOrder) if entries is not None else ("az",)
+    order = cast(lib.RowOrder, sort if sort in own and row["id"] != "leaving" else "added")
+    end = None
     if entries is not None:
         by_key = {e.key: c for e, c in zip(entries, items, strict=True)}
-        page, next_cursor = lib.row_page(lib.in_order(entries, order), None, GRID_PAGE_SIZE, order)
+        page, end = library_page(conn, username, libraries, entries, order, GRID_PAGE_SIZE)
         items = [by_key[e.key] for e in page]
     elif order == "az":
         items = sorted(items, key=lambda c: (lib.sort_title(c["title"]), c["title"].casefold()))
@@ -673,7 +678,7 @@ def _row_grid(
         "items": items,
         "sort": order,
         "total": len(row["items"]),
-        "next": lib.cursor_text(next_cursor) if next_cursor else None,
+        "next": end,
         "loads_later": False,
     }
 
@@ -774,7 +779,9 @@ def watch_page(
             grid |= {"sort": None, "next": None, "loads_later": True}
         elif row_id in grid_titles:
             opened = next(r for r in rows if r["id"] == row_id)
-            grid = _row_grid(opened, entries.get(row_id), asked.get("sort"))
+            grid = _row_grid(
+                conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
+            )
     # The list view's own context, included by watch.html; its q is the trimmed search term.
     list_ctx = (
         list_page.list_context(conn, username, request.query_params) if view == "list" else {}

@@ -76,6 +76,9 @@ async function load(opts = {}) {
     '/api/watch/library/movies/row?after=c30': () => ({ items: [film(31)], next: null, total: 32 }),
     '/api/watch/library/movies/row?after=c30&limit=60': () => ({ items: [film(31), film(32)], next: null, total: 32 }),
     '/api/watch/library/movies/row?after=&limit=60&sort=az': () => ({ items: [film(9), film(1)], next: 'z', total: 32 }),
+    '/api/watch/library/movies/row?after=&limit=60&sort=year': () => ({ items: [film(5), film(3)], next: 'y', total: 32 }),
+    '/api/watch/library/movies/row?after=y&limit=60&sort=year': () => ({ items: [film(7)], next: null, total: 32 }),
+    '/api/watch/library/movies/row?after=&limit=60&sort=unwatched': () => ({ items: [film(4), film(6)], next: null, total: 32 }),
     '/api/watch/library/movies/row?after=&limit=60': () => ({ items: [film(1), film(2)], next: null, total: 32 }),
     '/api/watch/library/movies/row?after=z&limit=60&sort=az': () => ({ items: [], next: null, total: 32 }),
     ...opts.routes,
@@ -204,6 +207,21 @@ const scenarios = {
     const forward = { at: p.at(), things: p.grid().things, sort: p.grid().sort };
     await p.choose('added');
     return { labels, sorted, back, forward, again: { at: p.at(), n: p.grid().things.length, first: p.grid().things[0] } };
+  },
+
+  // The other orders go on in their own, from the menu and from a link.
+  async ordered() {
+    const p = await load();
+    await p.open('movies');
+    const seen = [];
+    for (const sort of ['year', 'unwatched', 'added']) {
+      await p.choose(sort);
+      await p.settle();
+      seen.push({ at: p.at(), sort: p.grid().sort, things: p.grid().things });
+    }
+    const link = await load({ url: '/watch?all=movies&sort=unwatched' });
+    const plain = await load({ url: '/watch?all=continue&sort=unwatched' });
+    return { seen, link: link.grid().sort, other: plain.grid().sort };
   },
 
   // A row that is all on the page is put in order there.
