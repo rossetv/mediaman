@@ -197,6 +197,28 @@ class TestDisks:
 
         assert (disk["threshold_pct"], disk["threshold_shared"]) == (90, False), why
 
+    @pytest.mark.parametrize(
+        "unreadable",
+        [{"path": "movies", "threshold": "x"}, {"path": 7, "threshold": 80}, 5],
+        ids=str,
+    )
+    def test_a_library_the_scanner_cannot_place_by_its_threshold_takes_no_part(
+        self, get, conn, disks, tmp_path, unreadable
+    ):
+        disks(movies=(8 * TB, TB))
+        limit = {"path": str(tmp_path / "movies"), "threshold": 90}
+        if isinstance(unreadable, dict) and unreadable["path"] == "movies":
+            unreadable = {**unreadable, "path": limit["path"]}
+        insert_settings(
+            conn,
+            plex_libraries='["1", "2"]',
+            disk_thresholds=json.dumps({"1": limit, "2": unreadable}),
+        )
+
+        disk = get("/api/dashboard/stats")["storage"]["disks"][0]
+
+        assert (disk["threshold_pct"], disk["threshold_shared"]) == (90, True)
+
     def test_a_disk_that_cannot_be_read_says_so_and_the_totals_leave_it_out(
         self, get, conn, disks, tmp_path
     ):

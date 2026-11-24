@@ -28,6 +28,7 @@ from mediaman.core.format import (
 )
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.scanner.repository import read_delete_allowed_roots_setting, read_setting
+from mediaman.scanner.runner import read_disk_threshold
 from mediaman.services.infra import (
     get_aggregate_disk_usage,
     get_disk_usage_for_paths,
@@ -283,33 +284,37 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
     return items
 
 
-def _library_folders(conn: sqlite3.Connection) -> list[tuple[str, str, int | None]]:
+def _library_folders(
+    conn: sqlite3.Connection,
+) -> tuple[list[tuple[str, str, int | None]], set[str]]:
     """Return ``(library id, folder, threshold)`` of each library with a folder in Settings.
+
+    With them, the ids of the libraries the scanner leaves out, as it cannot
+    read their threshold.
 
     ``disk_thresholds`` is a JSON dict keyed by Plex library id, each value
     an object with a ``path`` (e.g. ``{"1": {"path": "/media/movies", ...}}``).
     These paths are the authoritative set of mount points the libraries live
     on — a movies drive and a TV drive may be entirely separate disks not
     reachable from a single base directory.  The threshold is ``None`` where the
-    scanner would read none.  Returns ``[]`` when the setting
+    scanner would read none.  Returns no folder when the setting
     is missing or malformed so the caller can fall back to the media root.
     """
     thresholds = get_setting(conn, "disk_thresholds")
     if not isinstance(thresholds, dict):
-        return []
+        return [], set()
     folders: list[tuple[str, str, int | None]] = []
+    left_out: set[str] = set()
     for library, cfg in thresholds.items():
-        if not isinstance(cfg, dict):
-            continue
-        path = cfg.get("path")
-        if not isinstance(path, str) or not path:
-            continue
+        limit = None
         try:
-            threshold = int(cfg.get("threshold") or 0)
-        except (ValueError, TypeError, OverflowError):
-            threshold = 0
-        folders.append((str(library), path, threshold if threshold > 0 else None))
-    return folders
+            limit = read_disk_threshold(cfg)
+        except ValueError:
+            left_out.add(library)
+        path = cfg.get("path") if isinstance(cfg, dict) else None
+        if isinstance(path, str) and path:
+            folders.append((library, path, limit.percent if limit else None))
+    return folders, left_out
 
 
 def _some_disk(usage: dict[str, int]) -> dict[str, int]:
@@ -396,10 +401,11 @@ def _cached_disks(paths: list[str]) -> list[_Disk]:
 def _fetch_disks(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return the devices the library folders set in Settings are on, with their thresholds.
 
-    Only a library ticked in Settings is scanned, so only its threshold counts.
+    Only a library ticked in Settings whose threshold can be read is scanned, so only its
+    threshold counts.
     """
-    folders = _library_folders(conn)
-    ticked = set(scanned_library_ids(conn))
+    folders, left_out = _library_folders(conn)
+    ticked = set(scanned_library_ids(conn)) - left_out
     # A ticked library with no folder is scanned whatever its disk, which nothing here knows.
     all_placed = ticked <= {library for library, _, _ in folders}
     result: list[dict[str, object]] = []
