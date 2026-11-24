@@ -77,7 +77,7 @@ class El {
 function build(pollGet) {
   const listeners = {};
   const doc = {
-    hidden: false,
+    hidden: false, documentElement: { clientWidth: 1280 },
     createElement: (t) => new El(t, doc),
     createElementNS: (ns, t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
