@@ -501,7 +501,7 @@
 
   function reason(text) {
     var box = el('div', 'pv__reason');
-    box.appendChild(el('b', '', 'AI pick'));
+    box.appendChild(core.aiLabel('AI pick'));
     if (text) box.appendChild(el('p', '', text));
     return box;
   }
