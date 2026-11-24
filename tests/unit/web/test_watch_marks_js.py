@@ -97,6 +97,16 @@ def test_marking_a_season_updates_how_much_of_its_show_is_left() -> None:
     assert out["undone"][0][2] == "TV · 2 seasons · 9 left"
 
 
+def test_a_show_card_past_the_page_s_cards_says_how_much_is_left_by_its_search_result() -> None:
+    out = _run("markSeasonPastThePage")
+    assert out["found"]["marked"][0] == ["show/2", False, "TV · 2 seasons · 4 left", False]
+    assert out["found"]["marked"][1][2] == "TV · 2016"
+    assert out["found"]["undone"][0][2] == "TV · 2 seasons · 9 left"
+    assert out["finished"]["marked"][0][1:3] == [True, "TV · 2 seasons"]
+    # Not known any more: nothing is said rather than something wrong.
+    assert out["failed"]["marked"][0][1:3] == [False, "TV · 2 seasons"]
+
+
 def test_a_dismissed_card_leaves_focus_goes_on_and_undo_brings_it_back_in_its_place() -> None:
     out = _run("dismiss")
     assert out["gone"] == {

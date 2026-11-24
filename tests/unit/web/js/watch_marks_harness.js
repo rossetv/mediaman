@@ -81,7 +81,7 @@ function load(page, opts = {}) {
       return opts.next ? Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve('') }) : Promise.reject(new Error('down'));
     },
     UIFeedback: { toast: (message, o) => toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick }) },
-    MM: { api: { post: call('POST'), delete: call('DELETE'), messageOf: (_e, f) => f } },
+    MM: { api: { get: call('GET'), post: call('POST'), delete: call('DELETE'), messageOf: (_e, f) => f } },
     addEventListener() {},
     scrollBy() {},
   };
@@ -178,6 +178,25 @@ const scenarios = {
     const marked = { look: p.look(), toast: p.toasts[0].message };
     await p.undo();
     return { marked, undone: p.look() };
+  },
+
+  // A season marked whose show's card stands past the cards the server's page has.
+  async markSeasonPastThePage() {
+    const go = async (search) => {
+      const p = load(watchPage([row('lib', [card('show/2', 'Brightwater & Co', 'TV · 2 seasons · 9 left')]), row('disc', [card('show/2', 'Brightwater & Co', 'TV · 2016')]),
+        row('leave', [card('season/21', 'Brightwater & Co', 'Season 1', { ref: 'show-2' })])]),
+        { next: watchPage([row('lib', [card('show/9', 'Other', 'TV')])]), api: { 'GET /api/watch/search?q=Brightwater%20%26%20Co': search } });
+      await p.pick(p.cards('leave')[0], 'mark');
+      const marked = p.look();
+      await p.undo();
+      return { marked, undone: p.look() };
+    };
+    const item = (ref, subtitle, watched) => ({ ref, title: 'Brightwater & Co', subtitle, watched });
+    return {
+      found: await go({ items: [item('show-7', 'TV · 1 season · 2 left', false), item('show-2', 'TV · 2 seasons · 4 left', false)] }),
+      finished: await go({ items: [item('show-2', 'TV · 2 seasons', true)] }),
+      failed: await go(500),
+    };
   },
 
   // Dismissed from its card, in the middle of the row: focus goes on, Undo puts it back.

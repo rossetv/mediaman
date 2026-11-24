@@ -15,6 +15,7 @@
 
   var WATCHED_URL = '/api/watch/watched/';
   var DISMISSED_URL = '/api/watch/dismissed/';
+  var SEARCH_URL = '/api/watch/search?q=';
   var LEFT_RE = / · [^·]* left$/;
 
   var page = byId('watch-page');
@@ -226,21 +227,36 @@
     });
   }
 
-  /* A season or an episode changes what its show's and seasons' cards say; the
-     Watch page has some of them, the rest say no more how much is left. */
+  /* Bring one card up to date with what the server now says of its title. */
+  function bringUp(card, watched, now, done) {
+    var said = card.querySelector('.watch-card__sub').textContent.replace(LEFT_RE, '');
+    done.undos.push(snapshot(card));
+    // A Discover card's caption is its year: only the same caption is brought up to date.
+    draw(card, watched ? card.querySelector('.watch-badge--watched') || core.watchedBadge() : null,
+      card.querySelector('.watch-bar'), now.replace(LEFT_RE, '') === said ? now : said);
+    withAttr(document, 'data-mark-toggle', card.getAttribute('data-mark')).forEach(function (b) { setToggle(b, watched); });
+  }
+
+  /* A season or an episode changes what its show's and seasons' cards say. The
+     Watch page has the first cards of each row; the show's search result has
+     what one further on says, and without it that card says no more how much is left. */
   function followShow(ref, doc, done) {
-    cardsOf(function (card) { return refOf(card) === ref; }).forEach(function (card) {
-      var mark = card.getAttribute('data-mark');
-      var fresh = withAttr(doc, 'data-mark', mark).filter(function (n) { return !isContinue(n); })[0];
-      var watched = fresh ? hasBadge(fresh) : hasBadge(card);
-      var said = card.querySelector('.watch-card__sub').textContent.replace(LEFT_RE, '');
-      var now = fresh ? fresh.querySelector('.watch-card__sub').textContent : said;
-      done.undos.push(snapshot(card));
-      // A Discover card's caption is its year: only the same caption is brought up to date.
-      draw(card, watched ? card.querySelector('.watch-badge--watched') || core.watchedBadge() : null,
-        card.querySelector('.watch-bar'), now.replace(LEFT_RE, '') === said ? now : said);
-      withAttr(document, 'data-mark-toggle', mark).forEach(function (b) { setToggle(b, watched); });
+    var past = cardsOf(function (card) { return refOf(card) === ref; }).filter(function (card) {
+      var fresh = withAttr(doc, 'data-mark', card.getAttribute('data-mark')).filter(function (n) { return !isContinue(n); })[0];
+      if (fresh) bringUp(card, hasBadge(fresh), fresh.querySelector('.watch-card__sub').textContent, done);
+      return !fresh;
     });
+    function rest(found) {
+      if (done.off) return;
+      past.forEach(function (card) {
+        if (found && /^show\//.test(card.getAttribute('data-mark'))) bringUp(card, !!found.watched, found.subtitle || '', done);
+        else bringUp(card, hasBadge(card), '', done);
+      });
+    }
+    if (!past.length) return;
+    MM.api.get(SEARCH_URL + encodeURIComponent(titleOf(past[0]))).then(function (data) {
+      rest((data.items || []).filter(function (item) { return item.ref === ref; })[0]);
+    }).catch(function () { rest(null); });
   }
 
   function replacePart(old, fresh, selector) {
