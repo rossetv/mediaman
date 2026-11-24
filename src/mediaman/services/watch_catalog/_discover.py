@@ -21,6 +21,9 @@ from ._dedupe import LibraryIndex
 from ._shape import discover_card, tmdb_id_of, tmdb_image_url, tmdb_kind, tmdb_rating, year_of
 from ._title import tmdb_fields
 
+# TMDB answers no page of a list past this one.
+MAX_PAGE = 500
+
 _MINUTE = 60
 _HOUR = 60 * _MINUTE
 _DAY = 24 * _HOUR
@@ -35,9 +38,32 @@ SHELVES: tuple[tuple[str, str, str, str | None], ...] = (
     ("popular_tv", "Popular TV", "popular_tv", "tv"),
 )
 
+# The TMDB list behind each row, by row id, and the media_type to stamp on its items.
+_LISTS: dict[str, tuple[str, str | None]] = {
+    "trending": ("/trending/all/week", None),
+    "popular_movies": ("/movie/popular", "movie"),
+    "popular_tv": ("/tv/popular", "tv"),
+}
+
+# What ``tmdb_card`` reads of a list item.
+_CARD_FIELDS = (
+    "id",
+    "media_type",
+    "title",
+    "name",
+    "release_date",
+    "first_air_date",
+    "poster_path",
+    "vote_average",
+)
+
 
 class TmdbUnavailable(Exception):
     """TMDB failed and nothing usable was cached."""
+
+
+class TmdbBusy(TmdbUnavailable):
+    """TMDB answered 429 and nothing usable was cached."""
 
 
 def _cache() -> disk_cache.Store[Any]:
@@ -85,6 +111,40 @@ def discover_shelves(client: TmdbClient) -> list[tuple[str, str, list[dict[str, 
     if not shelves:
         raise TmdbUnavailable("discover")
     return shelves
+
+
+def discover_page(
+    client: TmdbClient, row_id: str, page: int, *, allow_fetch: Callable[[], bool] | None = None
+) -> tuple[list[dict[str, object]], int | None]:
+    """The TMDB items of a later page (2 to ``MAX_PAGE``) of a discover row, and the page
+    after it or None at the end of the list; KeyError for an unknown row. Only the fields
+    a card shows are cached, so hundreds of pages stay small. Raises TmdbUnavailable, and
+    TmdbBusy when TMDB answered 429. *allow_fetch* is asked as in ``search``."""
+    path, media_type = _LISTS[row_id]
+
+    def fetch() -> dict[str, Any]:
+        try:
+            # The client's list methods answer [] on a failure too; asked directly so a
+            # failure is not taken for the end of the list.
+            payload = client._get(path, {"page": page})
+        except SafeHTTPError as exc:
+            raise (TmdbBusy if exc.status_code == 429 else TmdbUnavailable)(row_id) from exc
+        except (requests.RequestException, ValueError) as exc:
+            raise TmdbUnavailable(row_id) from exc
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if not isinstance(results, list):
+            raise TmdbUnavailable(row_id)
+        items = [{f: r[f] for f in _CARD_FIELDS if f in r} for r in results if isinstance(r, dict)]
+        if media_type:
+            items = [{**i, "media_type": media_type} for i in items]
+        total = payload.get("total_pages")
+        return {"items": items, "pages": total if isinstance(total, int) else MAX_PAGE}
+
+    found: dict[str, Any] = _cached(
+        f"tmdb:discover-page:{row_id}:{page}", 6 * _HOUR, 7 * _DAY, fetch, allow_fetch
+    )
+    more = bool(found["items"]) and page < min(found["pages"], MAX_PAGE)
+    return found["items"], page + 1 if more else None
 
 
 def search(

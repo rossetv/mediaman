@@ -346,6 +346,112 @@ class TestDiscover:
         assert viewer.get("/api/watch/discover").status_code == 502
 
 
+class TestDiscoverPages:
+    @pytest.fixture(autouse=True)
+    def _limiter(self, monkeypatch):
+        monkeypatch.setattr(catalog_api, "_PAGE_LIMITER", ActionRateLimiter(60, 60))
+
+    @pytest.fixture
+    def pages(self, tmdb, monkeypatch):
+        """TMDB's answer to a list page, by path; a status code fails."""
+        answers: dict[str, object] = {}
+        asked: list[tuple[str, int]] = []
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+
+        def get(path, params):
+            asked.append((path, params["page"]))
+            answer = answers[path]
+            if isinstance(answer, int):
+                raise SafeHTTPError(status_code=answer, body_snippet="", url="https://tmdb.invalid")
+            return answer
+
+        tmdb._get = get
+        tmdb.asked = asked
+        return answers
+
+    def _page(self, client, row="popular_movies", page=2):
+        return client.get("/api/watch/discover", params={"row": row, "page": page})
+
+    @pytest.mark.parametrize(
+        ("row", "path", "item", "ref"),
+        [
+            ("trending", "/trending/all/week", {"id": 5, "media_type": "tv"}, "tmdb-tv-5"),
+            ("popular_movies", "/movie/popular", {"id": 5}, "tmdb-movie-5"),
+            ("popular_tv", "/tv/popular", {"id": 5}, "tmdb-tv-5"),
+        ],
+    )
+    def test_a_later_page_of_each_row_has_its_cards_and_the_page_after_it(
+        self, viewer, tmdb, pages, arr, row, path, item, ref
+    ):
+        pages[path] = {"results": [item, {"id": 3, "media_type": "person"}], "total_pages": 9}
+
+        body = self._page(viewer, row).json()
+
+        assert body["items"][0]["ref"] == ref
+        assert body["next_page"] == 3
+        assert tmdb.asked == [(path, 2)]
+
+    def test_a_first_load_names_the_page_to_go_on_with(self, viewer, tmdb, arr):
+        rows = viewer.get("/api/watch/discover").json()["rows"]
+
+        assert [r["next_page"] for r in rows] == [2, 2, 2]
+
+    @pytest.mark.parametrize(
+        ("page", "answer"),
+        [
+            (9, {"results": [{"id": 5}], "total_pages": 9}),
+            (500, {"results": [{"id": 5}], "total_pages": 40000}),
+            (2, {"results": [], "total_pages": 9}),
+        ],
+    )
+    def test_the_last_page_tmdb_gives_is_the_end(self, viewer, pages, arr, page, answer):
+        pages["/movie/popular"] = answer
+
+        assert self._page(viewer, page=page).json()["next_page"] is None
+
+    def test_a_page_held_by_the_library_is_marked(self, viewer, pages, arr):
+        pages["/movie/popular"] = {"results": [{"id": 11, "title": "The Glasshouse"}]}
+
+        assert self._page(viewer).json()["items"][0]["library_ref"] == "movie-100"
+
+    @pytest.mark.parametrize(("row", "page", "status"), [("x", 2, 404), ("trending", 501, 422)])
+    def test_an_unknown_row_or_a_page_past_tmdbs_last_is_refused(
+        self, viewer, pages, arr, row, page, status
+    ):
+        assert self._page(viewer, row, page).status_code == status
+
+    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (429, 429)])
+    def test_a_tmdb_failure_is_an_error_not_the_end_of_the_row(
+        self, viewer, pages, arr, failure, status
+    ):
+        pages["/movie/popular"] = failure
+
+        assert self._page(viewer).status_code == status
+
+    def test_past_the_limit_only_a_page_tmdb_must_answer_is_refused_and_search_is_not(
+        self, viewer, pages, arr, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_PAGE_LIMITER", ActionRateLimiter(1, 60))
+        pages["/movie/popular"] = {"results": [{"id": 5}], "total_pages": 9}
+        pages["/search/multi"] = {"results": []}
+
+        codes = [self._page(viewer, page=n).status_code for n in (2, 2, 3)]
+        search = viewer.get("/api/watch/search/tmdb", params={"q": "glass"})
+
+        assert (codes, search.status_code) == ([200, 200, 429], 200)
+
+    def test_only_what_a_card_shows_is_cached(self, viewer, pages, arr):
+        pages["/movie/popular"] = {
+            "results": [{"id": 5, "title": "T", "overview": "x" * 900}],
+            "total_pages": 9,
+        }
+        self._page(viewer)
+
+        (held,) = _discover._cache().store.values()
+        assert held["items"] == [{"id": 5, "title": "T", "media_type": "movie"}]
+
+
 class TestTitleRefs:
     @pytest.mark.parametrize(
         "ref",

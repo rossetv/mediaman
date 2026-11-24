@@ -53,6 +53,32 @@ def library_ids(conn: sqlite3.Connection) -> dict[str, tuple[int | None, int | N
     return found
 
 
+class SeenTitles:
+    """The titles a row already shows. Two are the same title on one media type and TMDB
+    id; when either lacks the id, on one title, the years at most one apart where both
+    are known."""
+
+    def __init__(self) -> None:
+        self._ids: set[tuple[str, int]] = set()
+        self._named: dict[tuple[str, str], list[tuple[bool, int | None]]] = {}
+
+    def add(self, kind: str, tmdb_id: int | None, title: str, year: int | None) -> bool:
+        """Take in a title of *kind* "movie" or "tv"; False when the row shows it already."""
+        if tmdb_id and (kind, tmdb_id) in self._ids:
+            return False
+        name = normalise_title(title)
+        named = self._named.setdefault((kind, name), [])
+        if name and any(
+            not (tmdb_id and has_id) and (not year or not other or abs(year - other) <= 1)
+            for has_id, other in named
+        ):
+            return False
+        if tmdb_id:
+            self._ids.add((kind, tmdb_id))
+        named.append((bool(tmdb_id), year))
+        return True
+
+
 @dataclass(frozen=True, slots=True)
 class LibraryIndex:
     """Library refs ("movie-<key>", "show-<key>") by TMDB id, TVDB id, title and year."""

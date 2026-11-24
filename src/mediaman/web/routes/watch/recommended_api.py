@@ -82,6 +82,34 @@ def _card(
     return {**card, "rec_id": rec_id, "reason": row.get("reason") or None}
 
 
+def _unseen(
+    batches: list[dict[str, object]], start: int, chosen: int
+) -> tuple[list[dict[str, object]], str | None]:
+    """The picks of batch *chosen* that a row starting at batch *start* does not show yet,
+    and the id of the next older batch that adds a title, or None when none does. Batches
+    are named by their place in *batches*, newest first."""
+    seen = catalog.SeenTitles()
+    items: list[dict[str, object]] = []
+    for place in range(min(start, chosen), len(batches)):
+        picks: list[dict[str, object]] = batches[place]["items"]  # type: ignore[assignment]
+        fresh = [pick for pick in picks if _add_pick(seen, pick)]
+        if place == chosen:
+            items = fresh
+        elif place > chosen and fresh:
+            return items, str(batches[place]["id"])
+    return items, None
+
+
+def _add_pick(seen: catalog.SeenTitles, pick: dict[str, object]) -> bool:
+    tmdb_id, year = pick.get("tmdb_id"), pick.get("year")
+    return seen.add(
+        "movie" if pick.get("media_type") == "movie" else "tv",
+        tmdb_id if isinstance(tmdb_id, int) and tmdb_id > 0 else None,
+        str(pick.get("title") or ""),
+        year if isinstance(year, int) else None,
+    )
+
+
 def _refresh_block(conn: sqlite3.Connection) -> dict[str, object]:
     cooldown = refresh_cooldown_remaining(conn)
     return {
@@ -93,31 +121,38 @@ def _refresh_block(conn: sqlite3.Connection) -> dict[str, object]:
 
 @router.get("/api/watch/recommended")
 def api_watch_recommended(
-    request: Request, batch: str | None = None, username: str = Depends(get_current_user)
+    request: Request,
+    batch: str | None = None,
+    start: str | None = None,
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
     """The picks of one batch (the latest unless *batch* names another), the list of
-    batches, and for an admin the refresh cooldown."""
+    batches, and for an admin the refresh cooldown. No title comes twice: *start* names
+    the batch the row began with, and what the batches from it to this one hold is left
+    out. ``next_batch`` is the older batch to go on with, or None when the picks are
+    finished."""
     conn = get_db()
     is_admin = get_user_role(conn, username) == "admin"
     enabled = get_bool_setting(conn, "suggestions_enabled", default=True)
     payload: dict[str, object] = {"enabled": enabled, "batch": None, "batches": [], "items": []}
+    payload["next_batch"] = None
     if is_admin:
         payload["refresh"] = _refresh_block(conn)
     if not enabled:
         return respond_ok(payload)
 
     batches = group_into_batches(fetch_recommendations(conn), date.today())
-    if batch is None:
-        chosen = batches[0] if batches else None
-    else:
-        chosen = next((b for b in batches if b["id"] == batch), None)
-        if chosen is None:
-            return respond_err("not_found", status=404)
+    places = {b["id"]: place for place, b in enumerate(batches)}
+    if any(b is not None and b not in places for b in (batch, start)):
+        return respond_err("not_found", status=404)
     payload["batches"] = [{k: b[k] for k in ("id", "label", "date_label")} for b in batches]
-    if chosen is None:
+    if not batches:
         return respond_ok(payload)
 
-    rows: list[dict[str, object]] = chosen["items"]  # type: ignore[assignment]
+    chosen = places[batch] if batch is not None else 0
+    rows, payload["next_batch"] = _unseen(
+        batches, places[start] if start is not None else chosen, chosen
+    )
     arr = catalog.arr_view(conn, request.app.state.config.secret_key)
     _attach_states(conn, rows, arr)
     index = catalog.library_index(
@@ -127,6 +162,6 @@ def api_watch_recommended(
         lib.library_movies,
         lib.library_shows,
     )
-    payload["batch"] = chosen["id"]
+    payload["batch"] = batches[chosen]["id"]
     payload["items"] = [_card(row, index, arr) for row in rows]
     return respond_ok(payload)

@@ -21,7 +21,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.format import format_bytes
@@ -39,6 +39,7 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations.repository import fetch_suggestion_by_id
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
@@ -68,6 +69,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 REF_RE = re.compile(r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$")
+_SHELF_IDS = frozenset(shelf[0] for shelf in catalog.SHELVES)
+# Pages of discover rows TMDB is asked for, apart from the query limit so a long scroll does
+# not use up the day's searches. The day's cap is each of the three lists to its end.
+_PAGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1500)
 _RATINGS_TTL = timedelta(days=30)
 # OMDb with nothing to give (no rating yet, or the day's quota spent) is asked again the
 # next day, not on every open.
@@ -136,13 +141,23 @@ def api_watch_search_tmdb(
 
 
 @router.get("/api/watch/discover")
-def api_watch_discover(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_watch_discover(
+    request: Request,
+    row: str | None = None,
+    page: int = Query(2, ge=2, le=catalog.MAX_PAGE),
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
     """Trending this week, Popular movies and Popular TV, each card marked when the
-    library holds it."""
+    library holds it; with *row*, a later page of that one row instead. ``next_page`` is
+    the page to go on with, or None at the end of the list."""
+    if row is not None and row not in _SHELF_IDS:
+        return _not_found()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
         return respond_ok({"tmdb_configured": False, "stale": False, "rows": []})
+    if row is not None:
+        return _discover_page(request, conn, client, row, page, username)
     try:
         shelves = catalog.discover_shelves(client)
     except catalog.TmdbUnavailable:
@@ -156,10 +171,36 @@ def api_watch_discover(request: Request, username: str = Depends(get_current_use
             "id": shelf_id,
             "title": title,
             "items": [c for i in items if (c := catalog.tmdb_card(i, index, arr)) is not None],
+            "next_page": 2,
         }
         for shelf_id, title, items in shelves
     ]
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
+
+
+def _discover_page(
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    row: str,
+    page: int,
+    username: str,
+) -> JSONResponse:
+    try:
+        # Only a page TMDB is asked for counts against the limit; a cached one is free.
+        found, next_page = catalog.discover_page(
+            client, row, page, allow_fetch=lambda: _PAGE_LIMITER.check(username)
+        )
+    except (disk_cache.Refused, catalog.TmdbBusy):
+        return respond_err("too_many_requests", status=429)
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
+    index = catalog.library_index(
+        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
+    )
+    arr = _arr(request, conn)
+    items = [c for i in found if (c := catalog.tmdb_card(i, index, arr)) is not None]
+    return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
 def _title_is_paused(pause_key: tuple[int, str]) -> bool:

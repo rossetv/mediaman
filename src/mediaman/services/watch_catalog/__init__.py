@@ -5,12 +5,16 @@ Sonarr download state."""
 from __future__ import annotations
 
 from ._arr import ArrView, arr_view, invalidate
-from ._dedupe import LibraryIndex, library_ids, normalise_title
+from ._dedupe import LibraryIndex, SeenTitles, library_ids, normalise_title
 from ._discover import (
+    MAX_PAGE,
     MAX_QUERY_LEN,
     MIN_QUERY_LEN,
+    SHELVES,
+    TmdbBusy,
     TmdbUnavailable,
     details,
+    discover_page,
     discover_shelves,
     search,
     tmdb_card,
@@ -20,15 +24,20 @@ from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
 
 __all__ = [
+    "MAX_PAGE",
     "MAX_QUERY_LEN",
     "MIN_QUERY_LEN",
+    "SHELVES",
     "ArrView",
     "LibraryIndex",
+    "SeenTitles",
+    "TmdbBusy",
     "TmdbUnavailable",
     "arr_view",
     "clear_library_index",
     "details",
     "discover_card",
+    "discover_page",
     "discover_shelves",
     "invalidate",
     "library_href",

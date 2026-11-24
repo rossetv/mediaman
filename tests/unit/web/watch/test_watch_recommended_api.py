@@ -125,6 +125,60 @@ class TestBatches:
         assert body["batches"] == []
 
 
+class TestOlderBatches:
+    """Walking from a batch to the older ones, as the row does on scrolling."""
+
+    def _walk(self, client, start: str) -> list[list[str]]:
+        body = _get(client, batch=start)
+        shown = [[i["title"] for i in body["items"]]]
+        while body["next_batch"]:
+            body = _get(client, batch=body["next_batch"], start=start)
+            shown.append([i["title"] for i in body["items"]])
+        return shown
+
+    @pytest.fixture
+    def picks(self, conn):
+        def add(batch, *picks):
+            for tmdb_id, title, extra in picks:
+                insert_suggestion(
+                    conn, batch_id=batch, tmdb_id=tmdb_id, title=title, **{"year": 2020, **extra}
+                )
+
+        add("2099-01-05", (1, "A", {}), (2, "B", {}), (2, "B", {"category": "trending"}))
+        add("2099-01-04", (1, "A renamed", {}), (2, "B", {"media_type": "tv"}), (3, "C", {}))
+        add("2099-01-03", (1, "A", {}), (3, "C", {}))
+        add("2099-01-02", (None, "c", {"year": 2021}), (None, "D", {}), (4, "B", {}))
+        add("2099-01-01", (9, "D", {}), (1, "A", {}))
+        conn.commit()
+
+    def test_no_title_comes_twice_and_a_batch_of_repeats_is_passed_over(self, viewer, picks):
+        # A title with no id is the one of its name (years at most one apart); two ids, or a
+        # film and a show, are two titles.
+        assert self._walk(viewer, "2099-01-05") == [["A", "B"], ["B", "C"], ["D", "B"]]
+
+    def test_the_walk_starts_at_the_batch_chosen_and_leaves_newer_ones_out_of_it(
+        self, viewer, picks
+    ):
+        assert self._walk(viewer, "2099-01-03") == [["A", "C"], ["D", "B"]]
+
+    def test_the_oldest_batch_has_none_to_go_on_with(self, viewer, picks):
+        assert _get(viewer, batch="2099-01-01")["next_batch"] is None
+
+    def test_an_unknown_start_is_a_404(self, viewer, picks):
+        resp = viewer.get("/api/watch/recommended", params={"batch": "2099-01-01", "start": "nope"})
+
+        assert resp.status_code == 404
+
+    def test_a_viewer_learns_no_more_of_an_older_pick_than_of_one_in_its_own_batch(
+        self, viewer, picks
+    ):
+        older = _get(viewer, batch="2099-01-04", start="2099-01-05")
+
+        assert set(older) == set(_get(viewer))
+        assert set(older["items"][0]) == set(_get(viewer)["items"][0])
+        assert "refresh" not in older
+
+
 class TestCards:
     def test_a_pick_carries_its_ref_reason_and_proxied_poster(self, viewer, conn):
         rec_id = insert_suggestion(
