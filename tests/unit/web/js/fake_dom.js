@@ -127,6 +127,7 @@ class Node {
   querySelectorAll(sel) { return this.descendants().filter((e) => e.matches(sel)); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   focus() { this.ownerDocument.activeElement = this; }
   blur() { this.ownerDocument.activeElement = this.ownerDocument.body; }
   getBoundingClientRect() { return { top: 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 }; }

@@ -307,6 +307,8 @@
         stopped = true;
         clearTimeout(timer);
         observers.forEach(function (o) { o.disconnect(); });
+        window.removeEventListener('resize', schedule);
+        scroller.removeEventListener('scroll', schedule);
       },
       forward: function () {
         if (state === 'failed') load();

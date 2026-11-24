@@ -47,3 +47,7 @@ def test_pages_come_only_near_the_end_or_when_asked_and_far_posters_are_unloaded
     assert (out["first"], out["still"], out["asked"]) == ([1, 2], [1, 2], [1, 2, 3])
     assert out["next"] == "p2"
     assert out["loaded"] == [False, False, True]
+
+
+def test_a_stopped_loader_takes_no_page_and_listens_to_nothing() -> None:
+    assert _run("stopped") == {"before": [1, 1], "after": [0, 0], "refs": [1]}

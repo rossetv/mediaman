@@ -18,6 +18,7 @@ function load(first, pages) {
   const timers = [];
   const toasts = [];
   const asked = [];
+  const resizes = new Set();
   const seen = { near: true, failed: 0, range: null, took: [] };
   const ctx = {
     document: doc, console, Array, Object, String, Math, Promise, WeakMap, Set, Map,
@@ -26,7 +27,8 @@ function load(first, pages) {
     matchMedia: () => ({ matches: true }),
     requestAnimationFrame: (fn) => fn(),
     UIFeedback: { toast: (m) => toasts.push(m) },
-    addEventListener() {},
+    addEventListener: (t, fn) => resizes.add(fn),
+    removeEventListener: (t, fn) => resizes.delete(fn),
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -55,7 +57,7 @@ function load(first, pages) {
       took: (fresh, done) => { seen.took.push([fresh.length, done]); failedAt.textContent = ''; if (seen.stopAfter) seen.near = false; },
     },
   });
-  return { doc, grid, row, timers, toasts, asked, seen, failedAt };
+  return { doc, grid, row, timers, toasts, asked, seen, failedAt, resizes };
 }
 
 const refs = (p) => p.grid.querySelectorAll('[data-title-ref]').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
@@ -108,6 +110,15 @@ const scenarios = {
     p.row.check();
     const loaded = p.grid.querySelectorAll('img').map((i) => i.hasAttribute('src'));
     return { first, still, asked, next: p.row.next(), loaded };
+  },
+
+  async stopped() {
+    const p = load([1], [{ cards: [2], next: null }]);
+    const listens = () => [p.grid.listeners.scroll.length, p.resizes.size];
+    const before = listens();
+    p.row.stop();
+    await settle();
+    return { before, after: listens(), refs: refs(p) };
   },
 };
 
