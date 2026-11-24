@@ -40,8 +40,12 @@ router = APIRouter()
 _START_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=3600, max_per_day=20)
 _CHECK_LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60)
 _CHANGE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60)
-# Shared by everyone: what this install may ask of plex.tv.
-_PLEX_TV_LIMITER = ActionRateLimiter(max_in_window=120, window_seconds=60)
+# One person's presses, so that nobody alone can use up what everyone shares.
+_PRESS_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60)
+# Shared by everyone: what this install may ask of plex.tv. Waiting sign-ins ask often, so
+# starting one has a share of its own that they cannot use up.
+_SHARED_START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
+_SHARED_POLL_LIMITER = ActionRateLimiter(max_in_window=150, window_seconds=60)
 _EVERYONE = "everyone"
 
 _attempts = AttemptStore()
@@ -52,13 +56,18 @@ _MESSAGES = {
     "plex_not_set_up": "Plex is not set up on this Mediaman yet.",
     "plex_unavailable": "Plex is not answering. Try again in a few minutes.",
     "already_linked": "You already have a linked Plex account. Unlink it first.",
-    "claimed": "This Plex account is already linked to another person here.",
+    "claimed": (
+        "This Plex account was linked to another person here in the meantime. Start again."
+    ),
     "not_on_server": "This Plex account has no access to this Plex server.",
     "unsupported_account": (
         "This Plex account cannot be linked: Mediaman cannot be sure which plays here are its own."
     ),
     "signin_rejected": "Plex did not accept the sign-in. Start again.",
-    "expired": "The sign-in ran out. Start again.",
+    "expired": (
+        "The sign-in ran out. Start again. If you approved it only now, remove Mediaman under"
+        " Authorized Devices in your Plex account."
+    ),
     "too_many_requests": "Too many tries. Wait a while and try again.",
 }
 _STATUS = {
@@ -72,10 +81,14 @@ _STATUS = {
 
 
 class _PlexLinkBody(BaseModel):
-    """Empty to start signing in; the id of an attempt to say yes, that account is mine."""
+    """Empty to start signing in; the id of an attempt to say yes, that account is mine.
+
+    ``move`` says the person was told the account is linked to someone else and moves to them.
+    """
 
     model_config = ConfigDict(extra="forbid")
     attempt: str | None = Field(default=None, min_length=1, max_length=64)
+    move: bool = False
 
 
 def _refuse(reason: str) -> JSONResponse:
@@ -101,18 +114,22 @@ def _product(conn: sqlite3.Connection) -> str:
     return f"mediaman ({host})" if _HOST_RE.fullmatch(host) else "mediaman"
 
 
-def _attempt_view(attempt: Attempt) -> dict[str, object]:
+def _attempt_view(
+    conn: sqlite3.Connection, attempt: Attempt, *, signed_out: bool = True
+) -> dict[str, object]:
+    """*signed_out* is whether the sign-in before this one, if any, was signed out."""
     view: dict[str, object] = {
         "id": attempt.id,
         "state": attempt.state,
         "expires_in": attempt.expires_in(),
-        "signed_out": attempt.signed_out,
+        "signed_out": attempt.signed_out and signed_out,
     }
     if attempt.state == "waiting":
         view["url"] = attempt.url
         view["app"] = attempt.plex_tv.product
     if attempt.identity is not None:
         view["name"] = attempt.identity.name
+        view["moves"] = repository.is_claimed_by_other(conn, attempt.identity, attempt.username)
     if attempt.reason is not None:
         view["reason"] = attempt.reason
         view["message"] = _MESSAGES.get(attempt.reason, _MESSAGES["plex_unavailable"])
@@ -139,7 +156,7 @@ def api_plex_link(
                 "last_read_at": link.last_read_at,
                 "reading": sync.is_reading(username),
             },
-            "attempt": None if link or attempt is None else _attempt_view(attempt),
+            "attempt": None if link or attempt is None else _attempt_view(conn, attempt),
         }
     )
 
@@ -159,7 +176,7 @@ def api_start_or_confirm(
     conn = get_db()
     session = hash_token(session_token or "")
     if body is not None and body.attempt is not None:
-        return _confirm(conn, request, username, session, body.attempt)
+        return _confirm(conn, request, username, session, body.attempt, move=body.move)
 
     if not has_recent_reauth(conn, session_token, username):
         return respond_err(
@@ -170,17 +187,25 @@ def api_start_or_confirm(
         )
     if repository.get_link(conn, username) is not None:
         return _refuse("already_linked")
-    if not _START_LIMITER.check(username) or not _PLEX_TV_LIMITER.check(_EVERYONE):
+    # Last what costs the person one of their few starts.
+    if not (
+        _PRESS_LIMITER.check(username)
+        and _SHARED_START_LIMITER.check(_EVERYONE)
+        and _START_LIMITER.check(username)
+    ):
         return _refuse("too_many_requests")
     return _start(conn, request, username, session)
 
 
 def _start(conn: sqlite3.Connection, request: Request, username: str, session: str) -> JSONResponse:
     previous = _attempts.get(session, username)
+    signed_out = True
     if previous is not None and _attempts.drop(session, previous):
-        discard(previous)
+        signed_out = discard(previous)
     try:
-        server_id = sync.open_history(conn, request.app.state.config.secret_key).server_id()
+        server_id = sync.read_server_id(
+            sync.open_history(conn, request.app.state.config.secret_key)
+        )
         plex_tv = PlexTv(repository.client_id(conn), _product(conn))
         pin = plex_tv.create_pin()
         attempt = Attempt(
@@ -199,11 +224,17 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
         _audit_failure(conn, request, username, "plex_unavailable")
         return _refuse("plex_unavailable")
     security_event(conn, event="plex.link_started", actor=username, ip=get_client_ip(request))
-    return respond_ok({"attempt": _attempt_view(attempt)})
+    return respond_ok({"attempt": _attempt_view(conn, attempt, signed_out=signed_out)})
 
 
 def _confirm(
-    conn: sqlite3.Connection, request: Request, username: str, session: str, attempt_id: str
+    conn: sqlite3.Connection,
+    request: Request,
+    username: str,
+    session: str,
+    attempt_id: str,
+    *,
+    move: bool,
 ) -> JSONResponse:
     attempt = _attempts.get(session, username)
     if (
@@ -211,12 +242,21 @@ def _confirm(
         or attempt.id != attempt_id
         or attempt.identity is None
         or attempt.expires_in() == 0
-        or not _attempts.drop(session, attempt)
     ):
+        return _refuse("expired")
+    if not move and repository.is_claimed_by_other(conn, attempt.identity, username):
+        # They have not been told what linking would do; the page asks again, saying so.
+        return respond_ok({"attempt": _attempt_view(conn, attempt)})
+    if not _attempts.drop(session, attempt):
         return _refuse("expired")
     try:
         repository.save_link(
-            conn, username, attempt.identity, attempt.server_id, ip=get_client_ip(request)
+            conn,
+            username,
+            attempt.identity,
+            attempt.server_id,
+            ip=get_client_ip(request),
+            move=move,
         )
     except repository.AlreadyLinked:
         return _refuse("already_linked")
@@ -242,13 +282,9 @@ def api_check(
     attempt = _attempts.get(session, username)
     if attempt is None:
         return respond_ok({"attempt": None})
-    advance(attempt, may_poll=lambda: _PLEX_TV_LIMITER.check(_EVERYONE))
+    advance(attempt, may_poll=lambda: _SHARED_POLL_LIMITER.check(_EVERYONE))
     conn = get_db()
-    if attempt.identity is not None and repository.is_claimed_by_other(
-        conn, attempt.identity, username
-    ):
-        attempt.fail("claimed")
-    view = _attempt_view(attempt)
+    view = _attempt_view(conn, attempt)
     if attempt.state == "failed":
         if not _attempts.drop(session, attempt):
             return respond_ok({"attempt": None})
@@ -264,9 +300,10 @@ def api_cancel(
 ) -> JSONResponse:
     session = hash_token(session_token or "")
     attempt = _attempts.get(session, username)
+    signed_out = True
     if attempt is not None and _attempts.drop(session, attempt):
-        discard(attempt)
-    return respond_ok()
+        signed_out = discard(attempt)
+    return respond_ok({"signed_out": signed_out})
 
 
 @router.delete("/api/account/plex")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -44,7 +46,14 @@ def reads(monkeypatch):
 
 
 @pytest.fixture
-def app(app_factory, conn, secret_key, plex, clock, reads):
+def later(monkeypatch):
+    waiting: list[tuple[float, object]] = []
+    monkeypatch.setattr(attempts, "_call_later", lambda s, work: waiting.append((s, work)))
+    return waiting
+
+
+@pytest.fixture
+def app(app_factory, conn, secret_key, plex, clock, reads, later):
     token = encrypt_value("admin-token", secret_key, conn=conn, aad=b"plex_token")
     for key, value, encrypted in (("plex_url", SERVER, 0), ("plex_token", token, 1)):
         conn.execute(
@@ -89,8 +98,8 @@ def check(client) -> dict | None:
     return resp.json()["attempt"]
 
 
-def confirm(client, attempt: dict):
-    return client.post("/api/account/plex", json={"attempt": attempt["id"]})
+def confirm(client, attempt: dict, *, move: bool = False):
+    return client.post("/api/account/plex", json={"attempt": attempt["id"], "move": move})
 
 
 def audit(conn) -> list[str]:
@@ -159,34 +168,103 @@ def test_signed_out_gets_nothing(app, method, path):
     assert TestClient(app).request(method, path).status_code == 401
 
 
-def test_the_second_to_claim_an_account_is_refused_without_the_firsts_name(
-    client_for, plex, clock, conn
-):
-    amy, bob = client_for("amy"), client_for("bob")
+def linked(conn, name: str, plex_id: int = 4242, server_id: int = 4242) -> None:
+    repository.save_link(conn, name, PlexIdentity(plex_id, server_id, "amyplex"), SERVER_ID, ip="")
+
+
+def test_whoever_proves_an_account_last_has_it_and_is_told_so_first(client_for, plex, conn):
+    bob, amy = client_for("bob"), client_for("amy")
+    linked(conn, "bob")
+    conn.execute(
+        "INSERT INTO plex_plays (username, history_key, media_type, title, viewed_at)"
+        " VALUES ('bob', 'h', 'movie', 'T', '2026')"
+    )
+    for uses_plex in (0, 1):
+        conn.execute(
+            "INSERT INTO user_picks (username, title, media_type, batch_id, created_at, uses_plex,"
+            " tmdb_id) VALUES ('bob', 'T', 'movie', 'b', '2026', ?, ?)",
+            (uses_plex, uses_plex),
+        )
+    conn.commit()
     start(amy)
-    start(bob)
     plex.approved = True
-    for_amy, for_bob = check(amy), check(bob)
-    assert confirm(amy, for_amy).status_code == 200
-    resp = confirm(bob, for_bob)
-    assert (resp.status_code, resp.json()["error"]) == (409, "claimed")
-    assert "amy" not in resp.json()["message"]
-    assert repository.get_link(conn, "bob") is None
+    attempt = check(amy)
+    assert (attempt["state"], attempt["moves"]) == ("confirm", True)
+    assert "bob" not in str(attempt)
 
-    start(bob)
-    late = check(bob)
-    assert (late["state"], late["reason"]) == ("failed", "claimed")
-    assert "name" not in late
+    untold = confirm(amy, attempt).json()
+    assert untold["attempt"]["moves"] is True
+    assert repository.get_link(conn, "bob") is not None
+
+    resp = confirm(amy, attempt, move=True)
+    assert resp.status_code == 200
+    assert "bob" not in resp.text
+    assert [link.username for link in repository.list_links(conn)] == ["amy"]
+    assert conn.execute("SELECT count(*) FROM plex_plays").fetchone()[0] == 0
+    picks = conn.execute("SELECT uses_plex FROM user_picks").fetchall()
+    assert [r["uses_plex"] for r in picks] == [0]
+    assert bob.get("/api/account/plex").json()["link"] is None
+    assert any("moved" in line and "bob" in line for line in audit(conn))
+    assert "amyplex" not in "".join(audit(conn))
 
 
-def test_two_owner_accounts_cannot_both_be_account_one(client_for, plex, conn):
+def test_an_account_claimed_after_the_person_was_asked_is_asked_about_again(client_for, plex, conn):
+    amy = client_for("amy")
     client_for("bob")
-    repository.save_link(conn, "bob", PlexIdentity(9, 1, "owner"), SERVER_ID, ip="")
+    start(amy)
+    plex.approved = True
+    attempt = check(amy)
+    assert attempt["moves"] is False
+    linked(conn, "bob")
+    assert confirm(amy, attempt).json()["attempt"]["moves"] is True
+    assert repository.get_link(conn, "amy") is None
+
+
+def test_a_claim_made_at_the_last_moment_is_refused_without_the_holders_name(
+    client_for, plex, conn, monkeypatch
+):
+    amy = client_for("amy")
+    client_for("bob")
+    start(amy)
+    plex.approved = True
+    attempt = check(amy)
+    linked(conn, "bob")
+    monkeypatch.setattr(repository, "is_claimed_by_other", lambda *_: False)
+    resp = confirm(amy, attempt)
+    assert (resp.status_code, resp.json()["error"]) == (409, "claimed")
+    assert "bob" not in resp.text
+    assert [link.username for link in repository.list_links(conn)] == ["bob"]
+
+
+def test_only_one_person_is_the_servers_owner(client_for, plex, conn):
+    client_for("bob")
+    linked(conn, "bob", plex_id=9, server_id=1)
     plex.resource["owned"] = True
     plex.approved = True
     amy = client_for("amy")
     start(amy)
-    assert check(amy)["reason"] == "claimed"
+    attempt = check(amy)
+    assert attempt["moves"] is True
+    assert confirm(amy, attempt, move=True).status_code == 200
+    assert [link.username for link in repository.list_links(conn)] == ["amy"]
+
+
+def test_a_move_that_fails_halfway_changes_nothing(client_for, plex, conn, monkeypatch):
+    client_for("bob")
+    client_for("amy")
+    linked(conn, "bob")
+    real = repository.security_event_or_raise
+
+    def fail_on_linked(conn, *, event, **rest):
+        if event == "plex.linked":
+            raise RuntimeError("audit failed")
+        real(conn, event=event, **rest)
+
+    monkeypatch.setattr(repository, "security_event_or_raise", fail_on_linked)
+    identity = PlexIdentity(4242, 4242, "n")
+    with pytest.raises(RuntimeError):
+        repository.save_link(conn, "amy", identity, SERVER_ID, ip="", move=True)
+    assert [link.username for link in repository.list_links(conn)] == ["bob"]
 
 
 def test_a_person_already_linked_must_unlink_first(client_for, plex, conn):
@@ -211,7 +289,7 @@ def test_an_attempt_belongs_to_the_session_that_started_it(client_for, plex, con
     assert confirm(amy, attempt).status_code == 200
 
 
-def test_an_attempt_is_not_handed_to_another_user_of_the_same_session():
+def test_an_attempt_is_not_handed_to_another_user_of_the_same_session(later):
     store = attempts.AttemptStore()
     pin = Pin(id=1, code="c", expires_in_s=60)
     amys = attempts.Attempt("amy", SERVER_ID, PlexTv("c", "p"), pin, expires_at=2.0)
@@ -260,15 +338,155 @@ def test_plex_is_asked_once_in_two_seconds(client_for, plex, clock):
     assert plex.paths().count(PIN) == 2
 
 
-def test_a_sign_in_runs_out(client_for, plex, clock, conn):
+def test_a_sign_in_runs_out_and_one_approved_too_late_is_signed_out_unused(
+    client_for, plex, clock, conn
+):
     amy = client_for("amy")
     start(amy)
     plex.approved = True
     clock.now += 600
-    assert check(amy)["reason"] == "expired"
+    failed = check(amy)
+    assert (failed["reason"], failed["signed_out"]) == ("expired", True)
     assert check(amy) is None
-    assert PIN not in plex.paths()
+    assert plex.signed_out() == 1
+    assert repository.get_link(conn, "amy") is None
     assert any("link_failed" in line and "expired" in line for line in audit(conn))
+
+
+def test_a_sign_in_nobody_comes_back_to_is_signed_out_when_it_runs_out(
+    client_for, plex, clock, later
+):
+    start(client_for("amy"))
+    plex.approved = True
+    ((seconds, at_expiry),) = later
+    assert seconds == 600
+    at_expiry()
+    assert plex.signed_out() == 1
+    assert PIN in plex.paths()
+
+
+def test_one_cancelled_and_then_approved_is_signed_out_when_it_runs_out(client_for, plex, later):
+    amy = client_for("amy")
+    start(amy)
+    amy.post("/api/account/plex/cancel")
+    assert plex.signed_out() == 0
+    plex.approved = True
+    later[0][1]()
+    assert plex.signed_out() == 1
+
+
+def test_one_already_signed_out_is_not_asked_about_again(client_for, plex, later):
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    check(amy)
+    asked = len(plex.calls)
+    later[0][1]()
+    assert len(plex.calls) == asked
+
+
+def test_cancelling_during_a_poll_waits_for_what_it_gets(client_for, plex):
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    (attempt,) = routes._attempts._attempts.values()
+    polled, go = threading.Event(), threading.Event()
+
+    def hold(method, where, query):
+        if (method, where) == PIN:
+            polled.set()
+            go.wait(5)
+
+    plex.on_call = hold
+    poll = threading.Thread(target=lambda: attempts.advance(attempt, may_poll=lambda: True))
+    poll.start()
+    assert polled.wait(5)
+    answers: list[bool] = []
+    cancel = threading.Thread(target=lambda: answers.append(attempts.discard(attempt)))
+    cancel.start()
+    go.set()
+    cancel.join(5)
+    poll.join(5)
+    assert answers == [True]
+    assert plex.paths().count(PIN) == 1
+
+
+def test_cancelling_says_when_plex_did_not_confirm_the_sign_out(client_for, plex):
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    plex.answers["DELETE", f"{TV}/users/signout"] = (500, "{}")
+    assert amy.post("/api/account/plex/cancel").json()["signed_out"] is False
+
+
+def test_starting_again_says_when_the_one_before_was_not_signed_out(client_for, plex):
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    plex.answers["DELETE", f"{TV}/users/signout"] = (500, "{}")
+    assert start(amy)["signed_out"] is False
+
+
+def test_an_approval_that_takes_too_long_is_given_up_and_still_signed_out(
+    client_for, plex, monkeypatch
+):
+    monkeypatch.setattr(attempts, "_CHAIN_SECONDS", 0.05)
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    over, out = threading.Event(), threading.Event()
+
+    def hang(method, where, query):
+        if where.endswith("/user"):
+            over.wait(10)
+        if method == "DELETE":
+            out.set()
+
+    plex.on_call = hang
+    failed = check(amy)
+    assert (failed["reason"], failed["signed_out"]) == ("plex_unavailable", False)
+    over.set()
+    assert out.wait(5)
+
+
+def test_a_full_house_does_not_cost_a_person_one_of_their_starts(client_for):
+    amy = client_for("amy")
+    for _ in range(30):
+        assert routes._SHARED_START_LIMITER.check("everyone")
+    for _ in range(6):
+        assert amy.post("/api/account/plex").status_code == 429
+    routes._SHARED_START_LIMITER.reset()
+    routes._PRESS_LIMITER.reset()
+    for _ in range(5):
+        start(amy)
+
+
+def test_waiting_sign_ins_cannot_use_up_what_starting_one_needs(client_for, plex):
+    amy = client_for("amy")
+    while routes._SHARED_POLL_LIMITER.check("everyone"):
+        pass
+    start(amy)
+    assert check(amy)["state"] == "waiting"
+    assert PIN not in plex.paths()
+
+
+def test_one_person_cannot_use_up_everyones_starts(client_for):
+    amy, bob = client_for("amy"), client_for("bob")
+    for _ in range(40):
+        amy.post("/api/account/plex")
+    start(bob)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '<!DOCTYPE m [<!ENTITY a "b">]><MediaContainer machineIdentifier="&a;"/>',
+        '<?xml version="1.0" encoding="nope"?><MediaContainer machineIdentifier="a"/>',
+    ],
+)
+def test_a_server_sending_refused_xml_is_said_to_be_unreachable(client_for, plex, body):
+    plex.answers["GET", f"{SERVER}/identity"] = (200, body)
+    assert client_for("amy").post("/api/account/plex").status_code == 503
 
 
 def test_a_confirmation_runs_out_too(client_for, plex, clock, conn):
