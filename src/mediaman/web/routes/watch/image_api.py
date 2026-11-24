@@ -43,7 +43,7 @@ _TMDB_HTTP = SafeHTTPClient(
 )
 
 # Apart from the server's worker threads, which an image host that hangs must not hold.
-_FETCHES = ThreadPoolExecutor(max_workers=8, thread_name_prefix="tmdb-image")
+_FETCHES = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tmdb-image")
 _FETCH_WAIT_S = 10.0
 
 _IMG_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
