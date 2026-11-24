@@ -44,6 +44,12 @@ class TestMeter:
         assert said == {
             "over": ("space-meter--warn", f"{free}, above your 80% limit"),
             "full": ("space-meter--bad", f"{free}, nearly full"),
+            "oneOfTwo": ("space-meter--warn", f"{free}, above your 90% limit on /b"),
+            "twoOfTwo": ("space-meter--warn", f"{free}, above your limits on /a and /b"),
+            "fullAndOver": (
+                "space-meter--bad",
+                f"{free}, nearly full, above your 90% limit on /b",
+            ),
             "unread": ("space-meter--off", "Storage: the disks can’t be read"),
             "missing": ("", f"{free}, a folder is missing"),
             "off": ("", f"{free}, deletions are off"),
@@ -59,15 +65,14 @@ class TestPanel:
             "focused": "space-tab-storage",
             "held": ["nav", "main"],
             "menuFree": True,
-            "modal": True,
+            # a screen reader would hide the toasts, and their Undo, from an aria-modal panel
+            "modal": False,
             "expanded": "true",
             "pushed": [["push", "#storage"]],
         }
         assert out["byPointer"] == "Storage"
         assert out["closed"]["held"] == ["space"]
         assert out["closed"]["inert"] is True
-        # closed, it must not count as the dialog that owns the keyboard
-        assert (out["before"], out["closed"]["modal"]) == (False, False)
         assert out["closed"]["focused"].startswith("Storage: ")
 
     def test_goes_under_what_opens_over_it_and_leaves_the_focus_to_that(self):
@@ -175,7 +180,7 @@ class TestStorage:
                 "/media/<b>Can’t be read",
             ],
             "tick": False,
-            "line": "6.5 TB used, 81%, 1 disk can’t be read",
+            "line": "81% full, 1 disk can’t be read, above your 90% limit on /media/movies",
             "mixedTick": False,
         }
 
@@ -198,6 +203,47 @@ class TestStorage:
             "delete from.",
         }
         assert _run("notices") == [pane, pane]
+
+    def test_what_a_scan_would_not_delete_is_not_promised(self):
+        out = _run("wouldFree")
+        assert out["on"] == {
+            "after": "3 scheduled titles will free 30 GB",
+            "said": "1.4 TB once the scheduled titles go",
+            "notices": [],
+        }
+        for k in ("off", "dry"):
+            assert out[k]["after"] == "3 scheduled titles would free 30 GB"
+            assert out[k]["said"] == "1.4 TB if the scheduled titles went"
+        assert out["dry"]["notices"] == [
+            "Dry run is on: scans delete nothing until it is turned off."
+        ]
+
+    def test_a_dry_run_is_told_on_an_empty_list_too(self):
+        assert _run("dryRunOnEmpty") == [
+            "Dry run is on: scans delete nothing until it is turned off."
+        ]
+
+    def test_an_unknown_size_is_never_called_nothing(self):
+        assert _run("noSize") == {
+            "link": "1 · size not known",
+            "linkName": "Manage scheduled deletions: 1 title, size not known",
+            "after": "1 scheduled title, size not known",
+            "said": "Scheduled titles have no size yet1 title, size not known. Keep any you want to stay."
+            "See what is scheduled",
+            "head": "1 title · size not known",
+            "row": "Film 1Deletes in 3 daysMovie · Size not known · Added 11 months agoKeep",
+            "deleted": "OldDeleted yesterdaySize not known",
+        }
+
+    def test_types_scaled_to_fit_what_is_used_claim_no_share_of_the_disk(self):
+        out = _run("scaled")
+        assert out["fits"]["rows"] == ["47.6%", "23.2%", "0%", "3.4%", "17.5%"]
+        assert out["scaled"]["rows"] == ["17.5%"]
+        assert out["scaled"]["names"] == [
+            "Movies, 3.8 TB, 312 films",
+            "TV Shows, 1.9 TB, 64 shows",
+            "Free, 1.4 TB, 18 per cent",
+        ]
 
     def test_without_plex_and_nothing_to_show_it_says_connect_and_has_no_bar(self):
         out = _run("noPlex")
@@ -528,6 +574,25 @@ class TestScan:
         assert out["said"].startswith(said)
         assert out["live"] == said
         assert (out["toasts"], out["enabled"], out["focused"]) == (0, True, True)
+
+    @pytest.mark.parametrize(
+        ("end", "said", "look"),
+        [
+            ("done", "Scan finished in Ns", "success"),
+            ("stale", "Scan finished in Ns. Refresh the page to see the results.", "success"),
+            ("skipped", "Scan skipped: Plex is not configured", ""),
+            ("error", "Scan failed: see the server log", "error"),
+            ("notStarted", "Couldn't start the scan. Too many scan triggers", "error"),
+            ("lost", "Lost track of the scan. Refresh to check its status.", "error"),
+        ],
+    )
+    def test_an_end_with_the_panel_closed_is_told_in_a_toast_and_the_meter_was_busy_till_then(
+        self, end, said, look
+    ):
+        out = _run("scanEndsClosed")[end]
+        assert out["during"] == {"busy": ["true", "true"], "says": True}
+        assert out["toasts"] == [[said, look]]
+        assert (out["busy"], out["says"]) == ([None, None], False)
 
 
 class TestDeleted:

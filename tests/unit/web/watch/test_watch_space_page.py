@@ -133,3 +133,8 @@ def test_a_narrow_phone_drops_the_bar_and_the_drive_for_the_marks_before_it_cuts
 
 def test_a_figure_too_long_for_a_phone_wraps():
     assert "flex-wrap: wrap" in _rules(".space-fig__n")
+
+
+def test_a_scheduled_title_s_tap_area_is_its_whole_text_on_a_phone():
+    assert "inset: -6px 0" in _rules("a.space-item__title::after")
+    assert "position: relative" in _rules(".space-item__text:has(> a)")

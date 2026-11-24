@@ -272,6 +272,9 @@ const scenarios = {
     return {
       over: await of((s) => { s.storage = storage({ disks: [disk({ over_threshold: true, threshold_pct: 80 })] }); }),
       full: await of((s) => { s.storage = storage({ used_bytes: 8000 * GB }); }),
+      oneOfTwo: await of((s) => { s.storage = storage({ disks: [disk({ path: '/a' }), disk({ path: '/b', over_threshold: true })] }); }),
+      twoOfTwo: await of((s) => { s.storage = storage({ disks: [disk({ path: '/a', over_threshold: true }), disk({ path: '/b', over_threshold: true })] }); }),
+      fullAndOver: await of((s) => { s.storage = storage({ used_bytes: 8000 * GB, disks: [disk({ path: '/a' }), disk({ path: '/b', over_threshold: true })] }); }),
       unread: await of((s) => { s.storage = storage({ readable: false }); }),
       missing: await of((s) => { s.extra = { unavailable_roots: [{ path: '/media/tv', waiting: 4 }] }; }),
       off: await of((s) => { s.extra = { deletions_off: true }; }),
@@ -280,7 +283,6 @@ const scenarios = {
   },
   async openAndClose() {
     const p = await page();
-    const before = p.one('.space__panel').hasAttribute('aria-modal');
     p.$('meter').focus();
     await p.click(p.$('meter'));
     const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').closest('[inert]'), modal: p.one('.space__panel').hasAttribute('aria-modal'), expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
@@ -288,7 +290,7 @@ const scenarios = {
     (p.doc.listeners.click || []).forEach((fn) => fn({ target: p.$('meter'), detail: 1 }));
     const byPointer = p.focused();
     await p.key('Escape');
-    return { byPointer, before, open, closed: { inert: p.$('space').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
+    return { byPointer, open, closed: { inert: p.$('space').inert, focused: p.focused(), held: p.held(), expanded: p.$('meter').getAttribute('aria-expanded') } };
   },
   async otherOpensOver() {
     const p = await page();
@@ -419,6 +421,44 @@ const scenarios = {
     const p = await page([], (s) => { s.extra = { unavailable_roots: [{ path: '/m/<b>x</b>', waiting: 1 }, { path: '/media/tv', waiting: 3 }], deletions_off: true }; });
     await p.click(p.$('meter'));
     return ['storage', 'scheduled'].map((k) => ({ roots: p.all('#space-' + k + ' [role="alert"] li').map((li) => li.textContent), off: p.one('#space-' + k + ' [role="status"]').textContent }));
+  },
+  async wouldFree() {
+    const of = async (extra) => {
+      const p = await page(undefined, (s) => { s.extra = extra; });
+      await p.click(p.$('meter'));
+      const after = p.one('.space-after').textContent;
+      const notices = p.all('#space-storage .space-notice').map((n) => n.textContent);
+      await p.click(p.seg('free'));
+      return { after, said: p.one('.space-layer:not([inert]) .space-say b').textContent, notices };
+    };
+    return { on: await of({}), off: await of({ deletions_off: true }), dry: await of({ dry_run: true }) };
+  },
+  // Turned on while nothing is scheduled, and the pane is on show.
+  async dryRunOnEmpty() {
+    const p = await page([]);
+    await p.open();
+    p.server.extra = { dry_run: true };
+    await p.refresh();
+    return p.all('#space-scheduled .space-notice').map((n) => n.textContent);
+  },
+  async noSize() {
+    const p = await page([row('1', { file_size: '0 B', file_size_bytes: 0 })], (s) => {
+      s.deleted = [{ id: 1, title: 'Old', deleted_ago: 'yesterday', reclaimed: '0 B', poster_url: '', redownload: null }];
+    });
+    await p.click(p.$('meter'));
+    const out = { link: p.one('.space-row-link').textContent, linkName: p.one('.space-row-link').getAttribute('aria-label'), after: p.one('.space-after').textContent };
+    await p.click(p.seg('free'));
+    out.said = p.one('.space-layer:not([inert]) .space-say').textContent;
+    await p.click(p.$('space-tab-scheduled'));
+    return { ...out, head: p.one('#space-scheduled .space-list-head small').textContent, row: p.one('#space-scheduled .space-item').textContent, deleted: p.one('#space-deleted .space-item').textContent };
+  },
+  async scaled() {
+    const of = async (over) => {
+      const p = await page(undefined, (s) => { s.storage = storage(over); });
+      await p.click(p.$('meter'));
+      return { rows: p.all('.space-cat__size small').map((n) => n.textContent), names: p.all('.space-seg').map((b) => b.getAttribute('aria-label')) };
+    };
+    return { fits: await of({}), scaled: await of({ movies_bytes: 6000 * GB, other_bytes: 0 }) };
   },
   async noPlex() {
     const p = await page([], (s) => { s.extra = { plex_configured: false, show_storage: false }; s.storage = storage({ readable: false, counts: { movies: 0, tv: 0, anime: 0 } }); });
@@ -1015,6 +1055,35 @@ const scenarios = {
     const during = { focused: p.focused(), rows: p.rows(), live: p.$('space-live').textContent.replace(/\d+s/, 'Ns') };
     await p.run(2000); await p.run(5000); states.push(look());
     return { states, during, toasts: p.toasts.length };
+  },
+  // The panel is closed before the scan ends.
+  async scanEndsClosed() {
+    const of = async (scan, fail, late) => {
+      const p = await page();
+      await p.open('storage');
+      p.server.scan = { running: true };
+      if (fail) p.server.fail = fail;
+      if (fail && fail['scan/trigger']) p.server.holding = 'scan/trigger';
+      await p.click(p.$('space-scan'));
+      await p.key('Escape');
+      const label = () => p.$('meter').getAttribute('aria-label');
+      const busy = () => ['meter', 'phone-meter'].map((id) => p.$(id).getAttribute('aria-busy'));
+      await p.refresh(); // drawn again meanwhile
+      const during = { busy: busy(), says: label().includes('scanning') };
+      if (late) p.server.fail = late;
+      await p.let_go('scan/trigger');
+      p.server.scan = scan;
+      for (const ms of [3000, 2000, 4000, 8000, 10000]) await p.run(ms);
+      return { during, toasts: p.toasts.map((t) => [t.message.replace(/\d+s/, 'Ns'), (t.opts && t.opts.variant) || '']), busy: busy(), says: label().includes('scanning') };
+    };
+    return {
+      done: await of({ running: false }),
+      stale: await of({ running: false }, null, { '/api/dashboard': 'down' }),
+      skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
+      error: await of({ running: false, status: 'error', reason: 'see the server log' }),
+      notStarted: await of({}, { 'scan/trigger': 'Too many scan triggers' }),
+      lost: await of({}, { 'scan/status': 'down' }),
+    };
   },
   async scanEnds() {
     const of = async (scan, fail) => {
