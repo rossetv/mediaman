@@ -76,6 +76,10 @@ def _unmonitored(radarr):
     return [call.args[0] for call in radarr.unmonitor_movie.call_args_list]
 
 
+def _rescanned(radarr):
+    return [call.args[0] for call in radarr.rescan_movie.call_args_list]
+
+
 def _die_unmonitoring(conn, root):
     radarr = _radarr(root)
     radarr.get_movie_by_id.side_effect = _Died
@@ -199,7 +203,46 @@ def test_a_title_asked_for_again_stays_monitored(conn, root, monkeypatch, key, a
 
     _sync(conn, monkeypatch, radarr)
 
-    assert radarr.mock_calls == []
+    assert _unmonitored(radarr) == []
+    assert _rescanned(radarr) == [1]
+    assert _skips(conn) == ["m1"]
+
+
+def test_a_season_asked_for_again_has_its_show_rescanned_and_stays_monitored(conn, root):
+    _due(conn, root, 1)
+    conn.execute(
+        "UPDATE media_items SET media_type = 'tv_season', season_number = 1, sonarr_id = 7, "
+        "tvdb_id = 9, tmdb_id = NULL"
+    )
+    conn.commit()
+    dying = MagicMock()
+    dying.get_series_by_id.side_effect = _Died
+    with pytest.raises(_Died):
+        DeletionExecutor(conn=conn, sonarr_client=dying).execute()
+    log_audit(conn, "tvdb:9:s1", "re_downloaded", "again")
+    conn.commit()
+    sonarr = MagicMock()
+    sonarr.get_series_by_id.return_value = {"id": 7, "tvdbId": 9}
+
+    DeletionExecutor(conn=conn, sonarr_client=sonarr).execute()
+
+    sonarr.rescan_series.assert_called_once_with(7)
+    assert not sonarr.unmonitor_season.called
+
+
+def test_a_title_asked_for_again_is_rescanned_once_radarr_answers(conn, root, monkeypatch):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    log_audit(conn, "tmdb:601", "re_downloaded", "again")
+    conn.commit()
+    down = _radarr(root)
+    down.get_movie_by_id.side_effect = requests.ConnectionError("down")
+    _sync(conn, monkeypatch, down)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _rescanned(radarr) == [1]
     assert _skips(conn) == ["m1"]
 
 
@@ -323,10 +366,6 @@ def test_an_older_database_without_the_table_gets_it(conn, db_path, root):
     DeletionExecutor(conn=init_db(str(db_path)), radarr_client=radarr).execute()
 
     assert _unmonitored(radarr) == [1]
-
-
-def _rescanned(radarr):
-    return [call.args[0] for call in radarr.rescan_movie.call_args_list]
 
 
 def test_radarr_is_asked_to_rescan_every_deleted_title_once_the_deletions_are_done(conn, root):

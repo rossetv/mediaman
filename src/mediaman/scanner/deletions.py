@@ -24,7 +24,7 @@ import sqlite3
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 import requests
 
@@ -612,14 +612,60 @@ def _not_unmonitored(row: DeletionRow, reason: str) -> str:
     )
 
 
-def _came_back(conn: sqlite3.Connection, row: DeletionRow) -> str | None:
-    """Say how a booked deletion's title came back, or return None when it did not."""
-    if was_requested_since(conn, row):
-        return "it was asked for again after its deletion"
+def _on_disk_again(row: DeletionRow) -> bool:
     paths = row.removed_paths.union(tracked_paths(row) or [])
-    if any(os.path.lexists(path) for path in paths):
-        return "a copy of it is on disk again"
-    return None
+    return any(os.path.lexists(path) for path in paths)
+
+
+def _entry_to_rescan(row: DeletionRow, client: ArrClient) -> int | None:
+    """Return the id of the Radarr/Sonarr entry with *row*'s TMDB/TVDB id, or None."""
+    if row.media_type == "movie":
+        own_id, key, stored_id = row.tmdb_id, "tmdbId", row.radarr_id
+        lookups: tuple[Callable[[int], Any], Callable[[int], Any]] = (
+            client.get_movie_by_id,
+            client.get_movie_by_tmdb,
+        )
+    else:
+        own_id, key, stored_id = row.tvdb_id, "tvdbId", row.sonarr_id
+        lookups = client.get_series_by_id, client.get_series_by_tvdb
+    if not own_id:
+        return None
+    entry = _lookup_entry(stored_id, *lookups, own_id)
+    if not entry or entry.get(key) != own_id or not isinstance(entry.get("id"), int):
+        return None
+    return int(entry["id"])
+
+
+class _Told(NamedTuple):
+    """What became of a booked deletion's mark: the entry left to rescan, and what to audit."""
+
+    rescan_id: int | None = None
+    note: str | None = None
+
+
+def _tell(
+    conn: sqlite3.Connection,
+    row: DeletionRow,
+    *,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+) -> _Told | None:
+    """Unmonitor a booked deletion, or find why not; None when the next call must try again."""
+    left = f"Left monitored in {_service(row)}: {row.title}"
+    if _on_disk_again(row):
+        return _Told(note=f"{left} — a copy of it is on disk again")
+    client = radarr_client if row.media_type == "movie" else sonarr_client
+    if was_requested_since(conn, row):
+        note = f"{left} — it was asked for again after its deletion"
+        if client is None:
+            return _Told(note=note)
+        try:
+            return _Told(_entry_to_rescan(row, client), note)
+        except _ARR_ERRORS:
+            logger.warning("Lookup for a rescan failed for %r", row.title, exc_info=True)
+            return None
+    outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+    return _Told(rescan_id=outcome) if isinstance(outcome, int) else _Told(note=outcome)
 
 
 def unmonitor_deleted(
@@ -636,29 +682,33 @@ def unmonitor_deleted(
     lock, and commits each item's outcome as it goes: one a dead process left
     marked is done by the next call. It is tried once; a skip is audited as
     ``unmonitor_skipped`` and the deletion stays booked either way. A title
-    that came back meanwhile is left monitored.
+    that came back meanwhile is left monitored; one asked for again is only
+    rescanned, as Radarr/Sonarr would not fetch files it still lists.
     """
     for row in fetch_pending_unmonitors(conn):
-        outcome: int | str | None = None
+        told: _Told | None
         try:
-            if (came_back := _came_back(conn, row)) is not None:
-                outcome = f"Left monitored in {_service(row)}: {row.title} — {came_back}"
-                logger.info("engine.delete.unmonitor_over media_id=%s", row.media_item_id)
-            else:
-                outcome = _unmonitor(row, radarr_client=radarr_client, sonarr_client=sonarr_client)
+            told = _tell(conn, row, radarr_client=radarr_client, sonarr_client=sonarr_client)
         except sqlite3.Error:
             raise
         # rationale: the mark of a row that always fails would stop every later pass and sync.
         except Exception as exc:
             logger.exception("engine.delete.unmonitor_failed media_id=%s", row.media_item_id)
-            outcome = _not_unmonitored(
-                row, f"an unexpected error stopped it ({exc.__class__.__name__})"
+            told = _Told(
+                note=_not_unmonitored(
+                    row, f"an unexpected error stopped it ({exc.__class__.__name__})"
+                )
             )
+        if told is None:
+            continue
         with conn:
-            if isinstance(outcome, int):
-                await_rescan(conn, row.id, outcome)
-            elif finish_unmonitor(conn, row.id) and outcome is not None:
-                log_audit(conn, row.media_item_id, "unmonitor_skipped", outcome)
+            taken = (
+                finish_unmonitor(conn, row.id)
+                if told.rescan_id is None
+                else await_rescan(conn, row.id, told.rescan_id)
+            )
+            if taken and told.note is not None:
+                log_audit(conn, row.media_item_id, "unmonitor_skipped", told.note)
 
 
 def rescan_deleted(
