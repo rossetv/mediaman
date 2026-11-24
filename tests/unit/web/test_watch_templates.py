@@ -709,6 +709,7 @@ def test_a_narrow_phone_held_sideways_puts_the_shade_beside_the_text_and_the_but
     sideways = _in_media("_watch.css", "(max-width: 599.98px) and (max-height: 500px)")
 
     assert "var(--banner-side)" in _declarations_in(sideways, ".watch-banner::after")
+    assert "min-height: 0" in _declarations_in(sideways, ".watch-banner")
     assert "var(--banner-text-side)" in _declarations_in(sideways, ".watch-banner__body::before")
     assert "flex: none" in _declarations_in(
         sideways, ".watch-banner .watch-actions .watch-btn--play"

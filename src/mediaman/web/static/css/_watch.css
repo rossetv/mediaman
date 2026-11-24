@@ -308,7 +308,7 @@
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
-.watch-banner__title--long { font-size: 36px; line-height: 1.1; }
+.watch-banner__title--long { font-size: 36px; line-height: 1.1; text-wrap: balance; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
 .watch-banner__line--short { display: none; }
 @media (max-width: 599.98px) {
@@ -778,6 +778,9 @@
 }
 /* One narrower than 600px too: the dark beside the text, not above it, and the buttons in a row. */
 @media (max-width: 599.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  /* Its tab bar leaves little height: no taller than the text and its buttons need. */
+  .watch-banner { --banner-poster-w: 92px; min-height: 0; margin-top: 0; padding-block: 12px 14px; }
+  .watch-banner__poster { --banner-poster-w: 92px; max-height: calc(100% - 24px); }
   .watch-banner::after { background: var(--banner-foot), var(--banner-side); }
   .watch-banner__body::before { inset: -100vh -160px -100px calc(-1 * var(--pad)); background: var(--banner-text-side); }
   .watch-banner .watch-actions .btn,
