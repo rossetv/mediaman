@@ -553,6 +553,25 @@ const scenarios = {
     };
   },
 
+  // A row scrolled while the skeleton fades out is moved to its place and stays where it was.
+  async rowsMovedIn() {
+    const append = Node.prototype.appendChild;
+    const p = load({ motion: true });
+    await settle();
+    const scroller = scrollerOf(p, 'trending');
+    let left = 300;
+    Object.defineProperty(scroller, 'scrollLeft', { get: () => left, set: (v) => { left = v; } });
+    scroller.scrollTo = (o) => { left = o.left; };
+    Node.prototype.appendChild = function (n) {
+      if (n.contains && n.contains(scroller)) left = 0;
+      return append.call(this, n);
+    };
+    const before = p.doc.querySelector('.watch-discover-layer') !== null;
+    await tick(p);
+    Node.prototype.appendChild = append;
+    return { before, after: p.doc.querySelector('.watch-discover-layer') !== null, left };
+  },
+
   // A batch with no picks.
   async noPicks() {
     const viewer = load({ items: [] });

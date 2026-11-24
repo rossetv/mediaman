@@ -202,6 +202,7 @@
     if (watch.rows) toArray(root.querySelectorAll('.watch-row__viewport')).forEach(watch.rows.init);
     var own = root.closest('[data-row-id]');
     (own ? [own] : toArray(root.querySelectorAll('[data-row-id]'))).forEach(watch.expand.row);
+    address.putRowsBack(root);
   }
 
   /* Swap a row's body (its strip or note) for another in place. */
@@ -936,10 +937,15 @@
     slot.removeAttribute('aria-busy');
     var skel = slot.querySelector('.watch-discover-skel');
     function settle() {
+      var lefts = content ? toArray(content.querySelectorAll('.watch-row__scroll')).map(function (n) {
+        return { node: n, left: n.scrollLeft };
+      }) : [];
       slot.textContent = '';
       if (content) {
         slot.appendChild(content);
         content.classList.remove('is-swapping-in');
+        // Moved, they stand at their start.
+        lefts.forEach(function (l) { if (l.left) l.node.scrollTo({ left: l.left, behavior: 'instant' }); });
       }
     }
     if (!content || !skel || core.reduceMotion()) {

@@ -447,3 +447,7 @@ def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -
         [None, False, 0, False],
         [None, False, 0, False],
     ]
+
+
+def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:
+    assert _run("rowsMovedIn") == {"before": True, "after": False, "left": 300}

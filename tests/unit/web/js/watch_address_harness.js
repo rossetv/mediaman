@@ -94,7 +94,69 @@ const title = (p, ref) => p.address.push('title', p.address.url({}, 'title=' + r
 const trailer = (p) => p.address.push('trailer', p.address.url({}));
 const grid = (p, id) => p.address.push('grid', p.address.url({ all: id, sort: null }));
 
+/* A row of *id* with *width* px of cards, seen through 100. */
+function rowOf(p, id, width) {
+  const row = p.doc.body.appendChild(build(p.doc, ['section', { 'data-row-id': id }, ['div', { class: 'watch-row__scroll' }]]));
+  const s = row.children[0];
+  let left = 0;
+  s.width = width;
+  s.style = {};
+  Object.defineProperty(s, 'clientWidth', { get: () => (s.away ? 0 : 100) });
+  Object.defineProperty(s, 'scrollLeft', { get: () => left });
+  s.scrollTo = (o) => {
+    left = Math.max(0, Math.min(s.width - 100, o.left));
+    (p.doc.listeners.scroll || []).forEach((fn) => fn({ target: s }));
+  };
+  return s;
+}
+
+/* A page of three rows left for the player, and loaded again at the same entry. */
+function comeBack() {
+  const tab = makeTab('/watch');
+  let p = open(tab);
+  ['movies', 'recent', 'later'].forEach((id) => rowOf(p, id, 2000).scrollTo({ left: 1148 }));
+  p.fire('pagehide');
+  return open(tab, { unstarted: true });
+}
+
 const scenarios = {
+  async rowsComeBack() {
+    const p = comeBack();
+    const movies = rowOf(p, 'movies', 2000);
+    const recent = rowOf(p, 'recent', 600);
+    const hidden = rowOf(p, 'later', 2000);
+    hidden.away = true;
+    p.address.start();
+    const first = [movies, recent, hidden].map((s) => s.scrollLeft);
+    recent.width = 2000; // its next pages are in
+    hidden.away = false;
+    p.observers.forEach((o) => { if (!o.off) o.fn(); });
+    const then = [movies, recent, hidden].map((s) => s.scrollLeft);
+    movies.scrollTo({ left: 700 }); // Safari's own doing
+    p.late();
+    const held = movies.scrollLeft;
+    p.late();
+    movies.scrollTo({ left: 10 });
+    p.observers.forEach((o) => { if (!o.off) o.fn(); });
+    const other = open(makeTab('/watch'), { unstarted: true });
+    const fresh = rowOf(other, 'movies', 2000);
+    other.address.start();
+    return { first, then, held, own: movies.scrollLeft, fresh: fresh.scrollLeft };
+  },
+
+  // A row that loads after the page is put back once it is there; one the person scrolls is theirs.
+  async rowsThatComeLate() {
+    const p = comeBack();
+    p.address.start();
+    const movies = rowOf(p, 'movies', 600);
+    const recent = rowOf(p, 'recent', 600);
+    p.address.putRowsBack(p.doc);
+    movies.parentNode.listeners.wheel.forEach((fn) => fn({}));
+    movies.width = recent.width = 2000;
+    p.observers.forEach((o) => { if (!o.off) o.fn(); });
+    return { movies: movies.scrollLeft, recent: recent.scrollLeft };
+  },
+
   async playLinks() {
     const follow = (url, href, type) => {
       const p = open(makeTab(url));

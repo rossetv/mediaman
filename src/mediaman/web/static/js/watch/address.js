@@ -22,7 +22,10 @@
   var KEY = 'mm:watch:places';
   var KEPT = 50; // entries whose scroll outlives the page
   var LATE_MS = 1000; // a step through the history this late is not coming
-  var GROW_MS = 3000; // how long a page may take to grow back to its scroll
+  var GROW_MS = 3000; // how long a page, or a row, may go without growing on its way back to its scroll
+  var ROWS_KEY = 'mm:watch:rows';
+  var HOLD_MS = 120; // how long a row stays where it was put before it is left there
+  var TAKES = ['wheel', 'touchstart', 'pointerdown', 'keydown']; // the person takes over
 
   var layers = []; // lowest first
   var values = {}; // what each open layer is open at, by name
@@ -32,6 +35,9 @@
   var focused = {}; // the node each entry had the focus on, by id, while it is on the page
   var ats = {}; // how far along each entry seen stands, by id
   var placing = null; // the scroll being put back
+  var rowsById = {}; // how far each entry's rows were scrolled when its page was left, by id
+  var rowsNow = {}; // how far each row is scrolled, by its id
+  var rowsBack = {}; // how far each row not put back yet was scrolled
 
   /* ── Entries ── */
 
@@ -282,7 +288,7 @@
       window.scrollTo({ left: 0, top: y, behavior: 'instant' });
       if (Math.abs(window.scrollY - y) < 2) stopPlacing();
     }
-    ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (type) {
+    TAKES.forEach(function (type) {
       window.addEventListener(type, stopPlacing, { passive: true, capture: true });
       mine.stop.push(function () { window.removeEventListener(type, stopPlacing, { capture: true }); });
     });
@@ -299,6 +305,64 @@
 
   function onScroll() {
     if (!placing && current) places[current] = window.scrollY;
+  }
+
+  /* ── The rows' scroll ── */
+
+  function onRowScroll(e) {
+    var row = e.target.closest && e.target.matches('.watch-row__scroll') && e.target.closest('[data-row-id]');
+    var id = row && row.getAttribute('data-row-id');
+    if (id && e.target.clientWidth && rowsBack[id] === undefined) rowsNow[id] = e.target.scrollLeft;
+  }
+
+  /* Put each row in *root* back to where it was when this entry's page was left. */
+  function putRowsBack(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-row-id] .watch-row__scroll'), function (scroller) {
+      var row = scroller.closest('[data-row-id]');
+      var id = row.getAttribute('data-row-id');
+      if (rowsBack[id] > 0) putRowBack(row, id, scroller);
+    });
+  }
+
+  /* A row that is hidden has no scroll yet, and one still filling is too short for it. */
+  function putRowBack(row, id, scroller) {
+    var left = rowsBack[id];
+    var timer = null;
+    var watching = [];
+    function done() {
+      if (!watching) return;
+      clearTimeout(timer);
+      watching.forEach(function (o) { o.disconnect(); });
+      watching = null;
+      TAKES.forEach(function (type) { row.removeEventListener(type, done, { capture: true }); });
+      delete rowsBack[id];
+      rowsNow[id] = scroller.scrollLeft;
+      scroller.style.scrollSnapType = '';
+    }
+    function there() { return Math.abs(scroller.scrollLeft - left) < 2; }
+    function held() {
+      if (there()) done();
+      else go();
+    }
+    function go() {
+      if (!watching || !scroller.clientWidth) return;
+      scroller.style.scrollSnapType = 'none';
+      if (!there()) scroller.scrollTo({ left: left, behavior: 'instant' });
+      clearTimeout(timer);
+      // Safari may take a scroll back a frame later while the row fills.
+      timer = there() ? setTimeout(held, HOLD_MS) : setTimeout(done, GROW_MS);
+    }
+    TAKES.forEach(function (type) { row.addEventListener(type, done, { passive: true, capture: true }); });
+    if ('ResizeObserver' in window) {
+      watching.push(new ResizeObserver(go));
+      watching[0].observe(scroller);
+    }
+    if ('MutationObserver' in window) {
+      var grows = new MutationObserver(go);
+      grows.observe(scroller, { childList: true });
+      watching.push(grows);
+    }
+    go();
   }
 
   function seen(node) {
@@ -325,13 +389,20 @@
     var ids = Object.keys(places).slice(-KEPT);
     var kept = {};
     ids.forEach(function (id) { kept[id] = places[id]; });
-    try { window.sessionStorage.setItem(KEY, JSON.stringify(kept)); } catch (e) { /* kept in memory only */ }
+    Object.keys(ats).forEach(function (id) { rowsById[id] = rowsNow; });
+    var rows = {};
+    Object.keys(rowsById).slice(-KEPT).forEach(function (id) { rows[id] = rowsById[id]; });
+    try {
+      window.sessionStorage.setItem(KEY, JSON.stringify(kept));
+      window.sessionStorage.setItem(ROWS_KEY, JSON.stringify(rows));
+    } catch (e) { /* kept in memory only */ }
   }
 
   function recall() {
     try {
       var kept = JSON.parse(window.sessionStorage.getItem(KEY)) || {};
       Object.keys(kept).forEach(function (id) { if (typeof kept[id] === 'number') places[id] = kept[id]; });
+      rowsById = JSON.parse(window.sessionStorage.getItem(ROWS_KEY)) || {};
     } catch (e) { /* nothing kept */ }
   }
 
@@ -362,13 +433,18 @@
     recall();
     stamp();
     current = mark().id;
+    Object.assign(rowsBack, rowsById[current]);
+    Object.assign(rowsNow, rowsBack);
+    Object.keys(rowsBack).forEach(function (id) { if (!(rowsBack[id] > 0)) delete rowsBack[id]; });
     window.addEventListener('popstate', onPop);
+    document.addEventListener('scroll', onRowScroll, { passive: true, capture: true });
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('pagehide', remember);
     var saved = places[current];
     startPlacing();
     if (route('start', null) || saved === undefined) stopPlacing();
     else putBack(saved);
+    putRowsBack(document);
   }
 
   window.MMWatch = window.MMWatch || {};
@@ -381,6 +457,7 @@
     back: back,
     close: close,
     top: top,
-    value: value
+    value: value,
+    putRowsBack: putRowsBack
   };
 })();

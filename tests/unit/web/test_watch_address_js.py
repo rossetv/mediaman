@@ -191,6 +191,18 @@ def test_a_second_back_while_the_first_is_on_its_way_steps_no_further() -> None:
     assert _run("twoBacksInARow") == {"at": "/watch", "calls": ["go -1"]}
 
 
+def test_each_row_is_put_back_to_where_it_was_scrolled_once_it_is_shown_and_long_enough() -> None:
+    out = _run("rowsComeBack")
+    assert out["first"] == [1148, 500, 0]
+    assert out["then"] == [1148, 1148, 1148]
+    assert (out["held"], out["own"], out["fresh"]) == (1148, 10, 0)
+
+
+def test_a_row_that_loads_late_is_put_back_unless_the_person_scrolls_it() -> None:
+    out = _run("rowsThatComeLate")
+    assert out == {"movies": 500, "recent": 1148}
+
+
 def test_a_link_to_the_player_carries_the_whole_address_it_was_followed_at() -> None:
     assert _run("playLinks") == [
         ["/watch/play/7", "1", "/watch?genre=action&decade=1990s#title=movie-7"],
