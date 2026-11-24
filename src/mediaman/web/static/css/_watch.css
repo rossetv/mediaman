@@ -534,6 +534,23 @@
   .watch-badge--watched { right: 6px; width: 24px; height: 24px; padding: 0; border-radius: 50%; font-size: 12px; }
 }
 
+/* What an AI chose: the icon and the words. */
+.ai-label {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 7px;
+  border-radius: var(--r-pill);
+  background: var(--rgba-purple-bg);
+  color: color-mix(in srgb, var(--purple) 55%, var(--t1));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.ai-label > .ico { font-size: 12px; }
+
 /* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
    percentage is of the card's width, so it finds the poster's foot at every size. */
 .watch-card { position: relative; }
@@ -939,6 +956,7 @@
 /* The system's colours: no picture behind the text, and a bar whose value still shows. */
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
+  .ai-label { border: 1px solid CanvasText; }
   .watch-badge--watched { background: Canvas; border-color: CanvasText; }
   .watch-mark[aria-pressed="true"]::before { content: none; }
   .watch-mark[aria-pressed="true"],

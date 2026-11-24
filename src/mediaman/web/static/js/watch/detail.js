@@ -15,7 +15,8 @@
   var toArray = core.toArray;
   var safePath = core.safePath;
 
-  var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$/;
+  var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^(rec|pick)-[0-9]{1,10}$/;
+  var PICK_RE = /^(rec|pick)-[0-9]{1,10}$/;
   var TRAILER_ORIGIN = 'https://www.youtube-nocookie.com';
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var POLL_MS = 5000;
@@ -29,7 +30,7 @@
      is the Arr catching up rather than the download being gone. */
   var DOWNLOAD_GRACE_MS = 30000;
   var COPIED_MS = 2000;
-  /* How long a title's buttons wait for its picture, which settles the hero's height. */
+  /* How long a title waits for its picture, which settles the hero's height, and for why it is a pick. */
   var PICTURE_WAIT_MS = 400;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
@@ -147,6 +148,11 @@
     return REF_RE.test(ref) ? ref : null;
   }
 
+  /* What the open title's history entry keeps: opened again from it, a pick is still one. */
+  function entryState(ref) {
+    return cur.pickRef ? { mmTitle: ref, mmPick: cur.pickRef } : { mmTitle: ref };
+  }
+
   /* ── Motion ── */
 
   function wide() { return window.matchMedia('(min-width: 700px)').matches; }
@@ -204,7 +210,8 @@
   }
 
   /* Open the title *ref*. opts: origin (the card), title (what the card
-     already knows), push (add a history entry). */
+     already knows), pick (the AI pick it was listed as, when *ref* is the
+     library's), push (add a history entry). */
   function open(ref, opts) {
     opts = opts || {};
     if (!REF_RE.test(ref)) return;
@@ -221,8 +228,10 @@
       facts: null,
       factsError: null,  // 'failed', or 'unknown' for a title no scan has seen
       keepId: null,
+      pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
+      pick: null,          // why it is a pick, once known: { reason, because }
+      onPick: null,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
-      reason: null,
       picks: null,
       season: null,
       picked: null,         // the episodes of the season the person picked
@@ -240,7 +249,7 @@
       seq: ++seq
     };
     if (opts.push) {
-      window.history.pushState({ mmTitle: ref }, '', base() + '#title=' + encodeURIComponent(ref));
+      window.history.pushState(entryState(ref), '', base() + '#title=' + encodeURIComponent(ref));
     }
     closeTrailer(false);
     renderLoading();
@@ -345,14 +354,18 @@
     // Asked for with the title, so that it is mostly known when the title arrives.
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
+    if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
     get(apiUrl(c.ref), ctrl).then(function (data) {
       if (c !== cur || !isOpen) return;
+      if (c.ref === c.pickRef) takePick(c, data);
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
         switchTo(c, data);
         return;
       }
       showPictures(data);
-      afterPictures(function () { if (c === cur && isOpen) arrive(c, data); });
+      afterPictures(function () {
+        afterPick(c, function () { if (c === cur && isOpen) arrive(c, data); });
+      });
     }).catch(function (err) {
       if (err && err.name === 'AbortError') return;
       if (c !== cur || !isOpen) return;
@@ -364,7 +377,6 @@
   function switchTo(c, data) {
     learn(c.ref, data);
     fire(c.ref, 'in_library', null);
-    c.reason = c.reason || data.reason;
     if (hashRef() === c.ref) readdress(data.library_ref);
     c.ref = data.library_ref;
     load(c);
@@ -372,12 +384,72 @@
 
   /* The entry the address is at is the same title's, under another ref. */
   function readdress(ref) {
-    var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, { mmTitle: ref }) : null;
+    var state = window.history.state && window.history.state.mmTitle ? Object.assign({}, window.history.state, entryState(ref)) : null;
     window.history.replaceState(state, '', base() + '#title=' + encodeURIComponent(ref));
   }
 
+  /* ── Why it is a pick ── */
+
+  function takePick(c, data) {
+    c.pick = { reason: data.reason || '', because: data.because_of || [] };
+  }
+
+  /* A title open under its library ref says nothing of the pick it was listed as. */
+  function askPick(c, ctrl) {
+    if (c.pick) return;
+    function known(data) {
+      takePick(c, data);
+      if (c !== cur || !isOpen) return;
+      if (c.onPick) c.onPick();
+      var box = c.data && body.querySelector('.ttl__reason');
+      if (box) box.replaceWith(pickBox(c.pick));
+    }
+    get(apiUrl(c.pickRef), ctrl).then(known, function (err) {
+      if (!(err && err.name === 'AbortError')) known({});
+    });
+  }
+
+  /* Run *fn* once why the title is a pick is known, or that takes too long: it
+     then comes into a box that waits for it. */
+  function afterPick(c, fn) {
+    if (!c.pickRef || c.pick) { fn(); return; }
+    function go() {
+      if (c.onPick !== go) return;
+      c.onPick = null;
+      clearTimeout(timer);
+      fn();
+    }
+    var timer = setTimeout(go, PICTURE_WAIT_MS);
+    c.onPick = go;
+  }
+
+  /* The AI label, the reason and the titles behind it; *pick* null: not known yet. */
+  function pickBox(pick) {
+    var box = el('section', 'ttl__reason');
+    box.setAttribute('aria-label', 'Why it’s here');
+    var head = el('p', 'ttl__reason-head');
+    head.appendChild(core.aiLabel('AI pick'));
+    box.appendChild(head);
+    if (!pick) {
+      box.setAttribute('aria-busy', 'true');
+      box.appendChild(skel('skel--line'));
+      box.appendChild(skel('skel--line', '62%'));
+      return box;
+    }
+    if (pick.reason || pick.because.length) head.appendChild(el('span', '', 'Why it’s here'));
+    if (pick.reason) box.appendChild(el('p', '', pick.reason));
+    if (pick.because.length) {
+      var because = el('p', 'ttl__because', 'Because you played ');
+      pick.because.forEach(function (title, i) {
+        if (i) because.appendChild(document.createTextNode(i === pick.because.length - 1 ? ' and ' : ', '));
+        because.appendChild(el('b', '', title));
+      });
+      box.appendChild(because);
+    }
+    return box;
+  }
+
   function arrive(c, data) {
-    if (!data.reason && c.reason) data.reason = c.reason;
     c.data = data;
     c.title = data.title || c.title;
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
@@ -424,10 +496,7 @@
       nowInLibrary(ref);
       return true;
     }
-    if (cur && cur.ref === ref && cur.data) {
-      data.reason = data.reason || cur.reason;
-      cur.data = data;
-    }
+    if (cur && cur.ref === ref && cur.data) cur.data = data;
     return takeDownload(ref, data.download);
   }
 
@@ -440,13 +509,11 @@
       if (c !== cur || !isOpen) return;
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
         c.justAdded = true;
-        c.reason = c.reason || data.reason;
         if (hashRef() === c.ref) readdress(data.library_ref);
         c.ref = data.library_ref;
         refresh();
         return;
       }
-      if (!data.reason && c.reason) data.reason = c.reason;
       c.data = data;
       if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
       renderContent(false);
@@ -703,18 +770,13 @@
     hide(under, !under.children.length);
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
+    if (cur.pickRef) main.appendChild(pickBox(cur.pick));
     if (d.overview) main.appendChild(el('p', 'ttl__overview', d.overview));
     if (d.director && d.kind === 'movie') {
       var credit = el('p', 'ttl__credit');
       credit.appendChild(el('span', 'ttl__credit-label', 'Director'));
       credit.appendChild(document.createTextNode(d.director));
       main.appendChild(credit);
-    }
-    if (d.reason) {
-      var reason = el('p', 'ttl__reason');
-      reason.appendChild(el('b', '', "Why it's here: "));
-      reason.appendChild(document.createTextNode(d.reason));
-      main.appendChild(reason);
     }
     body.appendChild(lead);
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
@@ -888,7 +950,6 @@
     Promise.all([get(apiUrl(c.ref)), season === null ? null : get(apiUrl(c.ref) + '/season/' + encodeURIComponent(season))])
       .then(function (got) {
         if (c !== cur || !isOpen || asked !== c.marksAsked) return;
-        if (!got[0].reason && c.reason) got[0].reason = c.reason;
         c.data = got[0];
         if (got[1] && c.picked && c.season === season) c.picked = got[1].episodes || [];
         renderContent(false);
@@ -973,7 +1034,7 @@
   function downloadPart(actions, under) {
     var d = cur.data;
     var k = stateOf(cur.ref);
-    var rec = /^rec-/.test(cur.ref) || !!cur.recId;
+    var rec = !!cur.pickRef;
     if (k.state === 'in_library' || cur.justAdded) {
       actions.appendChild(d.play && d.in_library ? playLink(d.play) : statePill('dl-state--done', 'In library', 'i-circle-check'));
       if (cur.addedNow) under.appendChild(note('In your library. Added just now.', 'i-circle-check', 'ttl__note-ok'));
@@ -1191,7 +1252,7 @@
       if (cur && cur.ref === ref && isOpen) {
         cur.movedAt = Date.now();
         schedulePoll(POLL_MS);
-        if (cur.recId) askNotify(cur);
+        if (cur.pickRef) askNotify(cur);
       }
     }).catch(function (err) {
       // 409: the Arr already has it, so trying again can only fail again. The
@@ -1421,7 +1482,7 @@
     var key = cur && trailerKey(cur.data);
     if (!key || trailerOn()) return;
     if (push) {
-      window.history.pushState({ mmTitle: cur.ref, mmTrailer: true }, '', base() + '#title=' + encodeURIComponent(cur.ref));
+      window.history.pushState(Object.assign(entryState(cur.ref), { mmTrailer: true }), '', base() + '#title=' + encodeURIComponent(cur.ref));
     }
     player.textContent = '';
     var frame = el('iframe', 'ttl__frame');
@@ -1790,7 +1851,7 @@
     if (pending) {
       aside.setAttribute('aria-busy', 'true');
       // The same rows as the facts have, so that nothing below moves when they come.
-      ['Size on disk', 'Added', 'Last watched', 'Deletion', 'Keep'].forEach(function (label) {
+      ['Size on disk', 'Added', 'Last watched by anyone', 'Deletion', 'Keep'].forEach(function (label) {
         var dd = row(label, '', 'is-pending');
         dd.appendChild(skel('skel--line ttl-facts__skel'));
         if (label === 'Deletion' && cur.data.leaving) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
@@ -1806,7 +1867,7 @@
     if (f) {
       row('Size on disk', f.size || '—');
       row('Added', f.added ? day(f.added) : '—');
-      row('Last watched', f.last_watched ? day(f.last_watched) : 'Never', f.last_watched ? '' : 'is-warning');
+      row('Last watched by anyone', f.last_watched ? day(f.last_watched) : 'Never', f.last_watched ? '' : 'is-warning');
       if (f.deletion) {
         var days = f.deletion.days;
         row('Deletion', day(f.deletion.execute_at), days <= 7 ? 'is-danger' : '',
@@ -2080,7 +2141,7 @@
     var ref = card.getAttribute('data-title-ref');
     if (!REF_RE.test(ref)) return;
     e.preventDefault();
-    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), push: true });
+    open(ref, { origin: card, title: cardTitle(card), kind: card.getAttribute('data-kind'), pick: card.getAttribute('data-pick-ref'), push: true });
   });
 
   /* ── The address ── */
@@ -2109,7 +2170,8 @@
   /* A title the address opens starts without its trailer, so an entry left by
      one steps back to the title's own. */
   function openAt(ref) {
-    open(ref, {});
+    var state = window.history.state;
+    open(ref, { pick: state && state.mmPick });
     if (onTrailerEntry()) window.history.back();
   }
 
@@ -2123,7 +2185,7 @@
   window.MMWatch.detail = {
     open: function (ref, opts) {
       opts = opts || {};
-      open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, push: opts.push !== false });
+      open(ref, { origin: opts.origin, title: opts.title, kind: opts.kind, pick: opts.pick, push: opts.push !== false });
     },
     close: requestClose
   };

@@ -26,6 +26,14 @@
     if (window.UIFeedback) window.UIFeedback.toast(message, opts);
   }
 
+  /* The mark of something an AI chose: the icon and the words. */
+  function aiLabel(text) {
+    var label = el('span', 'ai-label');
+    label.appendChild(window.MM.dom.icon('i-sparkles'));
+    label.appendChild(document.createTextNode(text));
+    return label;
+  }
+
   /* ── Motion ── */
 
   function reduceMotion() {
@@ -283,6 +291,7 @@
     markButton: markButton,
     byId: byId,
     el: el,
+    aiLabel: aiLabel,
     toArray: toArray,
     safePath: safePath,
     toast: toast,

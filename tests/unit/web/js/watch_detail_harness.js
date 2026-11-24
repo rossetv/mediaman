@@ -72,8 +72,13 @@ const MOVIE_DL = base({
 });
 
 const REC_DL = base({
-  ref: 'rec-5', reason: 'You watched two slow mysteries.',
+  ref: 'rec-5', ai_pick: true, reason: 'You watched two slow mysteries.',
   download: { state: null, service: 'radarr', tmdb_id: 78, request: { url: '/api/recommended/5/download' } },
+});
+
+const OWN_PICK = base({
+  ref: 'pick-9', ai_pick: true, reason: 'A slow mystery by the sea.', because_of: ['Salt', '<b>Harbour</b>'],
+  download: { state: null, service: 'radarr', tmdb_id: 79, notify: false, request: { url: '/api/watch/picks/9/download' } },
 });
 
 function tvSeasons(held) {
@@ -340,6 +345,70 @@ const scenarios = {
     const opened = { hidden: p.ttl().hidden, gets: p.gets.slice() };
     p.key('Escape');
     return { opened, history: p.history.slice(), hash: p.loc.hash };
+  },
+
+  // A person's own pick: what it says, its download, and what the admin is offered.
+  async ownPick() {
+    let asked = 0;
+    const emailed = Object.assign({}, OWN_PICK, { download: Object.assign({}, OWN_PICK.download, { state: 'queued', notify: true }) });
+    const p = load({ admin: true, hash: '#title=pick-9', routes: { '/api/watch/title/pick-9': () => Promise.resolve(asked++ ? emailed : OWN_PICK) } });
+    p.run();
+    await settle();
+    const out = { label: p.text('.ttl__reason .ai-label'), icon: !!p.q('.ttl__reason .ai-label .ico'), reason: p.text('.ttl__reason'), because: p.text('.ttl__because'),
+      share: !!p.q('[data-ttl-act="share"]') };
+    click(p.doc, p.q('.ttl__download'));
+    p.q('.ttl__download').listeners.click.forEach((fn) => fn({}));
+    await settle();
+    return Object.assign(out, { posts: p.posts.map((x) => x.url), under: p.text('[data-ttl-part="under"]') });
+  },
+
+  // What a pick's box says with less to say: no reason, and one title behind it.
+  async pickWithLess() {
+    const open = async (over) => {
+      const p = load({ hash: '#title=pick-9', routes: { '/api/watch/title/pick-9': Object.assign({}, OWN_PICK, over) } });
+      p.run();
+      await settle();
+      return p.text('.ttl__reason');
+    };
+    return { label: await open({ reason: null, because_of: [] }), one: await open({ reason: null, because_of: ['Salt'] }) };
+  },
+
+  // A pick the library holds, opened from its card under the library's ref: before why is known,
+  // once it is, opened again by Forward and by a reload, and when why cannot be had.
+  async pickInLibrary() {
+    let known;
+    const routes = { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/pick-9': () => new Promise((resolve, reject) => { known = { resolve, reject }; }) };
+    const p = load({ routes });
+    p.run();
+    const link = p.doc.querySelector('[data-title-ref="show-300"]');
+    link.setAttribute('data-title-ref', 'movie-120');
+    link.setAttribute('data-pick-ref', 'pick-9');
+    click(p.doc, link);
+    await settle();
+    const held = !!p.q('.ttl__actions .watch-btn--play');
+    p.tick();
+    await settle();
+    const late = { play: !!p.q('.ttl__actions .watch-btn--play'), box: p.text('.ttl__reason'), busy: p.q('.ttl__reason').getAttribute('aria-busy') };
+    known.resolve(OWN_PICK);
+    await settle();
+    const then = { box: p.text('.ttl__reason'), busy: p.q('.ttl__reason').getAttribute('aria-busy') };
+    p.key('Escape');
+    p.tick();
+    p.ctx.history.go(1);
+    await settle();
+    known.reject(new APIError(404, 'not_found'));
+    await settle();
+    const forward = p.text('.ttl__reason');
+    const q = load({ hash: '#title=movie-120', state: p.ctx.history.state, routes: Object.assign({}, routes, { '/api/watch/title/pick-9': OWN_PICK }) });
+    q.run();
+    await settle();
+    const r = load({ routes });
+    r.run();
+    const plain = r.doc.querySelector('[data-title-ref="show-300"]');
+    plain.setAttribute('data-title-ref', 'movie-120');
+    click(r.doc, plain);
+    await settle();
+    return { held, late, then, forward, reloaded: q.text('.ttl__because'), notAPick: r.text('.ttl__reason') };
   },
 
   async oldRecommendationLink() {

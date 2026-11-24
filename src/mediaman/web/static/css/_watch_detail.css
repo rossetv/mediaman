@@ -279,8 +279,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__overview { max-width: 68ch; font-size: 15px; line-height: 1.55; color: var(--t2); }
 .ttl__credit { display: flex; gap: 10px; font-size: 14px; color: var(--t1); }
 .ttl__credit-label { color: var(--t3); }
-.ttl__reason { max-width: 68ch; padding: 10px 12px; background: var(--s2); border-radius: var(--r-xs); font-size: 13px; line-height: 1.5; color: var(--t2); }
-.ttl__reason b { color: var(--t1); font-weight: 600; }
+.ttl__reason { display: flex; flex-direction: column; gap: 8px; max-width: 68ch; padding: 14px 16px; background: var(--s2); border-radius: var(--r-lg); font-size: 14px; line-height: 1.5; color: var(--t2); overflow-wrap: anywhere; }
+.ttl__reason-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; font-weight: 600; color: var(--t1); }
+.ttl__because { font-size: 13px; }
+.ttl__because b { color: var(--t1); font-weight: 600; }
 .ttl__note { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--t3); }
 .ttl__note a { position: relative; color: var(--accent); font-weight: 500; }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }

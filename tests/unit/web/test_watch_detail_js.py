@@ -67,6 +67,37 @@ def test_an_old_recommendation_link_opens_the_pick() -> None:
     assert "two slow mysteries" in out["reason"]
 
 
+def test_a_person_s_own_pick_is_labelled_and_names_what_they_played() -> None:
+    out = _run("ownPick")
+    assert (out["label"], out["icon"]) == ("AI pick", True)
+    assert "A slow mystery by the sea." in out["reason"]
+    assert out["because"] == "Because you played Salt and <b>Harbour</b>"
+
+
+def test_an_own_pick_downloads_at_its_own_address_is_emailed_about_and_has_no_share_link() -> None:
+    out = _run("ownPick")
+    assert out["posts"] == ["/api/watch/picks/9/download"]
+    assert "email" in out["under"]
+    assert out["share"] is False
+
+
+def test_a_pick_is_labelled_even_with_no_reason_to_give() -> None:
+    out = _run("pickWithLess")
+    assert out["label"] == "AI pick"
+    assert out["one"].endswith("Because you played Salt")
+
+
+def test_a_pick_the_library_holds_says_why_it_is_one_wherever_it_is_opened_from() -> None:
+    out = _run("pickInLibrary")
+    assert out["held"] is False
+    assert out["late"] == {"play": True, "box": "AI pick", "busy": "true"}
+    assert "Because you played Salt" in out["then"]["box"] and out["then"]["busy"] is None
+    assert out["forward"] == "AI pick"
+    assert out["reloaded"].startswith("Because you played Salt")
+    # The same title opened from a card that is not a pick.
+    assert out["notAPick"] is None
+
+
 def test_a_pick_opened_from_its_card_names_its_kind_while_loading() -> None:
     out = _run("recKind")
     assert out["fromCard"] == "TV series"
@@ -537,7 +568,7 @@ def test_an_admin_sees_the_facts_and_keeps_or_deletes_through_the_admin_actions(
     assert "/api/watch/admin/title/movie-120" in out["gets"]
     facts = out["facts"]
     assert facts[facts.index("Size on disk") + 1] == "16.2 GB"
-    assert facts[facts.index("Last watched") + 1] == "Never"
+    assert facts[facts.index("Last watched by anyone") + 1] == "Never"
     assert facts[facts.index("Deletion") + 1].startswith("27 Nov 2026")
     assert facts[facts.index("Keep") + 1] == "Not kept"
     assert out["rowKeep"] is False
@@ -554,7 +585,7 @@ def test_an_admin_sees_the_facts_and_keeps_or_deletes_through_the_admin_actions(
 
 def test_the_admin_s_facts_have_their_place_before_they_come_and_say_so_when_they_fail() -> None:
     out = _run("factsLate")
-    labels = ["Size on disk", "Added", "Last watched", "Deletion", "Keep"]
+    labels = ["Size on disk", "Added", "Last watched by anyone", "Deletion", "Keep"]
     known = {
         "columns": True,
         "labels": labels,
