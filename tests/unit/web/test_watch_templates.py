@@ -716,6 +716,12 @@ def test_a_title_with_no_picture_has_a_short_hero_until_its_trailer_plays() -> N
     assert "min-height: 0" in body and "var(--hero-hi)" in body
 
 
+def test_the_certificate_sits_8px_after_the_text_before_it() -> None:
+    body = _declarations_of("_watch_detail.css", ".ttl__meta > span:has(+ .ttl__cert)")
+
+    assert "margin-right: calc(8px - var(--dot))" in body
+
+
 def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
 
