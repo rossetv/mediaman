@@ -147,3 +147,13 @@ def test_a_kept_season_in_the_delete_list_is_as_tall_as_one_with_a_button():
 def test_details_of_several_lines_do_not_touch_their_row_s_edge_on_a_phone():
     block = _block("(max-width: 639.98px)", MODAL_CSS)
     assert re.search(r"\n  \.keep-season-details \{[^}]*padding-block: 4px;", block)
+
+
+def test_on_a_short_screen_the_dialog_scrolls_as_a_whole_and_not_a_list_squeezed_inside_it():
+    block = _block("(max-height: 400px)", MODAL_CSS)
+    (rule,) = re.findall(r"\.keep-season-list \{([^}]*)\}", block)
+    for said in ("flex-shrink: 0;", "max-height: none;", "overflow: visible;"):
+        assert said in rule
+    # What gets the focus is brought in with its ring.
+    assert re.search(r"\.keep-dialog \{[^}]*scroll-padding-block: 8px;", block)
+    assert re.search(r"\n\.keep-dialog \{[^}]*overflow-y: auto;", MODAL_CSS)

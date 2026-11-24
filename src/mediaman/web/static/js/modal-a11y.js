@@ -58,7 +58,8 @@
       if (target === modal && !modal.hasAttribute('tabindex')) {
         modal.setAttribute('tabindex', '-1');
       }
-      target.focus();
+      // The dialog opens at its top, its heading in sight, where it scrolls as a whole.
+      target.focus({ preventScroll: true });
     }
   }
 

@@ -128,6 +128,8 @@ def test_the_keep_dialog_opens_as_the_show_it_is_for_at_the_size_it_will_have() 
     out = _run("keepDialogOpens")
     assert out["title"] == "Keep Harbour Lights"
     assert (out["pressed"], out["focus"]) == (["Forever"], "Forever")
+    # The dialog opens at its top, though what has the focus is further down.
+    assert out["scrolls"] == [False]
     assert out["waiting"] == {"rows": 5, "busy": "true"}
     assert out["loaded"] == {"rows": 0, "busy": None}
     # The width the page's scrollbar leaves is held only while it is open.

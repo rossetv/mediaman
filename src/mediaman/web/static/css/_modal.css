@@ -207,6 +207,12 @@
 @media (pointer: coarse) and (min-width: 700px) {
   .keep-season-item--kept { padding-block: 4px; }
 }
+/* A short screen (one zoomed in far, or a phone on its side) has no room for a list that scrolls
+   between what stands above and below it: the dialog scrolls as a whole. */
+@media (max-height: 400px) {
+  .keep-dialog { overscroll-behavior: contain; scroll-padding-block: 8px; }
+  .keep-season-list { flex-shrink: 0; max-height: none; overflow: visible; }
+}
 .u-flex-1 { flex: 1; }
 
 #keep-dialog-remove { display: none; }

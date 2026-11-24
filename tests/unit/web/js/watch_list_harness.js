@@ -529,6 +529,9 @@ const scenarios = {
     click(p.doc, keepOption(p, 'show:88', 'forever'));
     await settle();
     vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
+    const chosen = p.doc.querySelectorAll('.keep-dur-btn').find((b) => b.getAttribute('aria-pressed') === 'true');
+    const scrolls = [];
+    chosen.focus = (o) => { scrolls.push(!(o && o.preventScroll)); p.doc.activeElement = chosen; };
     p.ctx.ModalA11y.onOpened('keep-dialog-overlay');
     const bar = [root.style['--page-bar']];
     const list = p.doc.getElementById('keep-season-list');
@@ -537,6 +540,7 @@ const scenarios = {
       title: p.doc.getElementById('keep-dialog-title').textContent,
       pressed: p.doc.querySelectorAll('.keep-dur-btn').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent),
       focus: p.doc.activeElement.textContent,
+      scrolls,
       waiting: look(),
     };
     reply.resolve({ show_title: 'Harbour Lights', show_kept: null, seasons: seasonsOf(null, null, null, null) });
