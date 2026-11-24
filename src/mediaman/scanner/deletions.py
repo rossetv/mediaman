@@ -855,7 +855,11 @@ class DeletionExecutor:
         from the last live pass however long the passes stay dry runs.
         """
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
-        due = [row for row in rows if not is_kept_deletion(self._conn, row.id, now.isoformat())]
+        due = [
+            row
+            for row in rows
+            if row.library_selected and not is_kept_deletion(self._conn, row.id, now.isoformat())
+        ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
         waiting: dict[str, list[int]] = {}
         for row in due:
@@ -962,7 +966,8 @@ class DeletionExecutor:
         """Return True for a fully removed row the removal would hold back or drop."""
         path = row.file_path or ""
         return is_fully_removed(row) and (
-            tracked_paths(row) is None
+            not row.library_selected
+            or tracked_paths(row) is None
             or not path.strip()
             or bool(fetch_media_held_outside_pass(self._conn, row.media_item_id, path, now_iso))
         )
@@ -1012,6 +1017,23 @@ class DeletionExecutor:
         # A row that closed with another's removal may hold a newer record.
         row = fetch_deletion(self._conn, row.id) or row
         if self._cancel_if_kept(row, now_iso):
+            self._conn.commit()
+            return [], 0
+
+        if not row.library_selected:
+            logger.info(
+                "engine.delete.library_unselected id=%s media_id=%s — its library is not "
+                "selected; leaving the row pending",
+                row.id,
+                row.media_item_id,
+            )
+            _audit_once(
+                self._conn,
+                row,
+                "delete_refused",
+                f"Not deleted yet: {row.title} — its library is not selected in Settings",
+            )
+            repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return [], 0
 
@@ -1262,15 +1284,15 @@ class DeletionExecutor:
     ) -> bool:
         """Return False, logging why, when a keep, clear or unmount since the claim stops the removal.
 
-        The row must still be a claimed ``scheduled_deletion``, no keep the scan
+        The row must still be a claimed ``scheduled_deletion`` of a selected library, no keep the scan
         honours may cover it or a co-located row, and _may_remove must still
         pass, so an item under *path* kept since the claim blocks it as it
         would have before.
         """
         if not is_claimed_deletion(self._conn, row.id):
             logger.warning(
-                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept or "
-                "cleared since the claim; leaving the files",
+                "engine.delete.kept_after_claim id=%s media_id=%s path=%r — kept, "
+                "cleared or its library unselected since the claim; leaving the files",
                 row.id,
                 row.media_item_id,
                 path,

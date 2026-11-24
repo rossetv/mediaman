@@ -119,6 +119,8 @@ class DeletionRow:
     removed_sizes: dict[str, int] = field(default_factory=dict)
     # Tracked paths the last pass left to remove; None when its record does not say.
     left_paths: frozenset[str] | None = None
+    # Whether the item's Plex library is ticked in Settings.
+    library_selected: bool = True
 
 
 def tracked_paths(row: DeletionRow) -> list[str] | None:
@@ -144,10 +146,23 @@ def is_fully_removed(row: DeletionRow) -> bool:
     return bool(row.removed_paths) and row.removed_paths.issuperset(remaining)
 
 
+# True while the Plex library of ``mi`` is ticked in Settings. Nothing is ticked
+# when the setting cannot be read; none saved yet puts no limit on deletions.
+_LIBRARY_SELECTED = (
+    "(NOT EXISTS (SELECT 1 FROM settings WHERE key = 'plex_libraries') "
+    "OR CAST(mi.plex_library_id AS TEXT) IN ("
+    "  SELECT CAST(lib.value AS TEXT) FROM settings s, json_each("
+    "    CASE WHEN json_valid(s.value) THEN "
+    "      CASE json_type(s.value) WHEN 'array' THEN s.value ELSE '[]' END "
+    "    ELSE '[]' END) lib "
+    "  WHERE s.key = 'plex_libraries'))"
+)
+
 _DELETION_COLUMNS = (
     "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
     "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
-    "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files"
+    "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files, "
+    f"{_LIBRARY_SELECTED} AS library_selected"
 )
 
 
@@ -247,6 +262,7 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         removed_bytes=removed.removed_bytes,
         removed_sizes=removed.sizes,
         left_paths=removed.left,
+        library_selected=bool(row["library_selected"]),
     )
 
 
@@ -406,11 +422,13 @@ def is_claimed_deletion(conn: sqlite3.Connection, action_id: int) -> bool:
     """Return True while the row is still an unused ``scheduled_deletion`` claimed as ``deleting``.
 
     A keep written onto a claimed row changes its action, and a clear drops it.
+    False too once the item's library is unticked in Settings.
     """
-    row = conn.execute(
-        "SELECT 1 FROM scheduled_actions "
-        "WHERE id = ? AND action = 'scheduled_deletion' AND token_used = 0 "
-        "  AND delete_status = 'deleting'",
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    row = conn.execute(  # nosec B608
+        "SELECT 1 FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
+        "WHERE sa.id = ? AND sa.action = 'scheduled_deletion' AND sa.token_used = 0 "
+        f"  AND sa.delete_status = 'deleting' AND {_LIBRARY_SELECTED}",
         (action_id,),
     ).fetchone()
     return row is not None
@@ -461,7 +479,8 @@ def fetch_media_held_outside_pass(
 
     Deleting *path* would remove their media too. An item counts as due when
     it has an unused ``scheduled_deletion`` row whose time has come, in any
-    delete state, since such rows are part of the same pass.
+    delete state, since such rows are part of the same pass; not while its
+    library is unticked, as the pass then holds it.
     """
     where, params = _at_or_under_candidates(path)
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -471,7 +490,7 @@ def fetch_media_held_outside_pass(
         "  AND NOT EXISTS ("
         "    SELECT 1 FROM scheduled_actions sa "
         "    WHERE sa.media_item_id = mi.id AND sa.action = 'scheduled_deletion' "
-        "      AND sa.token_used = 0 AND sa.execute_at <= ?"
+        f"      AND sa.token_used = 0 AND sa.execute_at <= ? AND {_LIBRARY_SELECTED}"
         "  )",
         (media_item_id, *params, now_iso),
     ).fetchall()
@@ -497,7 +516,7 @@ def claim_due_deletions_under(
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
-        "ORDER BY sa.id",
+        f"AND {_LIBRARY_SELECTED} ORDER BY sa.id",
         (media_item_id, *params),
     ).fetchall()
     candidates = [_row_to_deletion_row(row) for row in rows]
