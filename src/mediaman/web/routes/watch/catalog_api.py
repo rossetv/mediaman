@@ -119,14 +119,14 @@ def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
 def api_watch_search_tmdb(
     request: Request, q: str = "", username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """TMDB titles matching *q* that the library does not hold."""
+    """TMDB titles matching *q* that the library does not hold, and the people it names."""
     term = q.strip()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
-        return respond_ok({"tmdb_configured": False, "items": []})
+        return respond_ok({"tmdb_configured": False, "items": [], "people": []})
     if len(term) < catalog.MIN_QUERY_LEN:
-        return respond_ok({"tmdb_configured": True, "items": []})
+        return respond_ok({"tmdb_configured": True, "items": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
         found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
@@ -143,7 +143,7 @@ def api_watch_search_tmdb(
         for item in found
         if (card := catalog.tmdb_card(item, index, arr)) is not None and not card["in_library"]
     ]
-    return respond_ok({"tmdb_configured": True, "items": items})
+    return respond_ok({"tmdb_configured": True, "items": items, "people": catalog.people(found)})
 
 
 @router.get("/api/watch/discover")
@@ -317,6 +317,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "runtime_min": None,
         "season_count": None,
         "genres": [],
+        "genre_refs": [],
         "certificate": None,
         "tagline": None,
         "overview": "",
@@ -360,6 +361,7 @@ def _apply_tmdb(
         "runtime_min",
         "season_count",
         "genres",
+        "genre_refs",
         "certificate",
         "tagline",
         "backdrop_url",

@@ -248,7 +248,7 @@ class TestSearchTmdb:
         resp = viewer.get("/api/watch/search/tmdb", params={"q": "glass"})
 
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "tmdb_configured": False, "items": []}
+        assert resp.json() == {"ok": True, "tmdb_configured": False, "items": [], "people": []}
 
     def test_titles_the_library_holds_are_left_out(self, viewer, tmdb, arr):
         items = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"]
@@ -256,6 +256,14 @@ class TestSearchTmdb:
         assert [(i["ref"], i["title"], i["in_library"]) for i in items] == [
             ("tmdb-movie-12", "Glass Onion", False)
         ]
+
+    def test_the_people_a_search_names_come_beside_the_titles(self, viewer, tmdb, arr):
+        tmdb.search_results.append({"id": 4, "media_type": "person", "name": "Glass Marlowe"})
+
+        body = viewer.get("/api/watch/search/tmdb", params={"q": "glass"}).json()
+
+        assert [(p["person_id"], p["name"]) for p in body["people"]] == [(4, "Glass Marlowe")]
+        assert [i["ref"] for i in body["items"]] == ["tmdb-movie-12"]
 
     def test_a_one_letter_query_asks_tmdb_nothing(self, viewer, tmdb, arr):
         tmdb.failing = True
@@ -621,6 +629,15 @@ class TestLibraryTitle:
 
 
 class TestTmdbTitle:
+    def test_the_genres_and_cast_name_what_they_lead_to(self, viewer, tmdb, arr):
+        tmdb.detail[12]["genres"] = [{"id": 27, "name": "Horror"}]
+        tmdb.detail[12]["credits"] = {"cast": [{"id": 4, "name": "Glass Marlowe"}]}
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        assert body["genre_refs"] == [{"name": "Horror", "genre": "horror"}]
+        assert [c["person_id"] for c in body["cast"]] == [4]
+
     def test_detail_carries_director_ratings_and_a_checked_trailer(
         self, viewer, tmdb, arr, monkeypatch
     ):
