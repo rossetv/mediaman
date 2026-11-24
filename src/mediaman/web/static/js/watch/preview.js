@@ -18,6 +18,7 @@
   var safePath = core.safePath;
 
   var REF_RE = /^[a-z]+(-[a-z]+)?-[0-9]{1,18}$/;
+  var PICK_RE = /^(rec|pick)-[0-9]{1,10}$/;
   var LIBRARY_RE = /^(?:movie|show)-([0-9]+)$/;
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var TRAILER_ORIGIN = 'https://www.youtube-nocookie.com';
@@ -77,6 +78,15 @@
     return REF_RE.test(ref) ? ref : '';
   }
 
+  /* The pick a card shows, also where its title is the library's and opens by that. */
+  function pickOf(link) {
+    var given = link.getAttribute('data-pick-ref') || refOf(link);
+    return PICK_RE.test(given) ? given : '';
+  }
+
+  /* What a card's preview is asked by: the pick, which has why it is one. */
+  function askedOf(link) { return pickOf(link) || refOf(link); }
+
   function textOf(root, selector) {
     var node = root.querySelector(selector);
     return node ? node.textContent.trim() : '';
@@ -96,7 +106,7 @@
       pct: bar ? bar.value : 0,
       leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
-      pick: /^(rec|pick)-/.test(ref)
+      pick: pickOf(link)
     };
   }
 
@@ -194,7 +204,7 @@
       if (!open(link, data) && !data) forget();
     }
     waitTimer = setTimeout(function () { go(null); }, WAIT_MS);
-    ask(ref).then(function (data) {
+    ask(askedOf(link)).then(function (data) {
       if (armed === link) go(data);
       else if (live && live.link === link && !live.data) fillIn(live, data);
     }, function () {
@@ -383,7 +393,7 @@
       planTrailer(p);
       return;
     }
-    ask(p.card.ref).then(function (data) {
+    ask(askedOf(p.link)).then(function (data) {
       if (live === p && !p.data) fillIn(p, data);
     }, function () {
       if (live === p) close(p);
@@ -475,8 +485,8 @@
     p.actions = p.body.appendChild(el('div', 'pv__actions'));
     actions(p);
     if (!d && p.card.pick) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
-    else if (d && d.reason) p.body.appendChild(reason(d.reason));
-    p.n.classList.toggle('pv--reason', d ? !!d.reason : p.card.pick);
+    else if (d && (d.reason || p.card.pick)) p.body.appendChild(reason(d.reason || ''));
+    p.n.classList.toggle('pv--reason', !!p.card.pick || !!(d && d.reason));
     var words = d && (d.overview || d.tagline);
     if (words) p.body.appendChild(el('p', 'pv__text', words));
     else if (!d) p.body.appendChild(lines(p.card.pick ? ['96%', '70%'] : ['100%', '94%', '58%']));
@@ -677,6 +687,7 @@
       d.download.state = 'queued';
     }, function (err) {
       unkeep(p.card.ref);
+      if (p.card.pick) unkeep(p.card.pick);
       core.toast(MM.api.messageOf(err, 'Couldn’t add ' + d.title + '. Try again.'), { variant: err && err.status === 409 ? 'info' : 'error' });
       if (err && err.status === 409) d.download.state = 'queued';
     }).then(function () {
@@ -710,7 +721,7 @@
 
   function openDetail(p) {
     if (!watch.detail) return;
-    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title });
+    watch.detail.open(p.card.ref, { origin: p.link, title: p.card.title, pick: p.card.pick });
     if (detailOpen()) handOver(p);
   }
 
