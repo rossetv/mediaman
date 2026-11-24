@@ -530,6 +530,16 @@ def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None
     assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
 
 
+def test_the_highlight_is_dropped_when_the_sheet_under_it_is_drawn_anew() -> None:
+    out = _run("redrawnUnderTheHighlight")
+    assert out == {
+        "before": "watch-option-try-0",
+        "after": None,
+        "entered": "",
+        "next": "watch-option-genre-action",
+    }
+
+
 def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
     None
 ):

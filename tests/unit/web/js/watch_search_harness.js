@@ -1130,6 +1130,21 @@ const scenarios = {
     return { url: p.url(), other: p.doc.activeElement === other };
   },
 
+  // The categories come in while the arrows stand on one of the first sheet's options.
+  async redrawnUnderTheHighlight() {
+    const p = load(ADMIN, '', null, null);
+    p.press();
+    p.input.focus();
+    p.key('ArrowDown');
+    const before = p.input.getAttribute('aria-activedescendant');
+    await p.answer('/api/watch/explore', { tmdb_configured: true, genres: GENRES, decades: DECADES });
+    const after = p.input.getAttribute('aria-activedescendant');
+    p.key('Enter');
+    const entered = p.input.value;
+    p.key('ArrowDown');
+    return { before, after, entered, next: p.input.getAttribute('aria-activedescendant') };
+  },
+
   // The categories themselves could not be had: what was typed may name one, so it is not said to match nothing.
   async categoriesFailed() {
     const answerBoth = async (p, people) => {
