@@ -4,10 +4,12 @@ title's detail and a season's episodes, for viewers and admins alike."""
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
@@ -153,7 +155,8 @@ def _fresh_memo(monkeypatch):
 
 
 @pytest.fixture
-def tmdb(monkeypatch):
+def tmdb(monkeypatch, conn):
+    insert_settings(conn, omdb_api_key="omdb-key")
     fake = FakeTmdb()
     monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: fake)
     monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
@@ -547,19 +550,22 @@ class TestTmdbTitle:
 
         assert codes == [200, 200, 429]
 
-    def test_past_the_limit_omdb_is_not_asked_again_for_a_cached_title(
-        self, viewer, tmdb, arr, monkeypatch
+    def test_an_omdb_answer_with_no_ratings_is_remembered_for_a_day(
+        self, viewer, tmdb, arr, conn, monkeypatch
     ):
-        cache = DictCache()
-        monkeypatch.setattr(_discover, "_cache", lambda: cache)
-        monkeypatch.setattr(catalog_api, "_QUERY_LIMITER", ActionRateLimiter(1, 60))
         asked = []
         monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: asked.append(1) or {})
 
-        for _ in range(2):
+        for _ in range(3):
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
-
         assert len(asked) == 1
+
+        stale = (now_utc() - timedelta(days=1, minutes=1)).isoformat()
+        conn.execute("UPDATE ratings_cache SET fetched_at = ?", (stale,))
+        conn.commit()
+        viewer.get("/api/watch/title/tmdb-movie-12")
+
+        assert len(asked) == 2
 
 
 class TestShowsSonarrDoesNotTrack:

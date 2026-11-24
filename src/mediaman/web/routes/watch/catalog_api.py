@@ -28,7 +28,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
-from mediaman.services.media_meta.omdb import fetch_ratings
+from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -66,6 +66,9 @@ router = APIRouter()
 
 REF_RE = re.compile(r"^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^rec-[0-9]{1,10}$")
 _RATINGS_TTL = timedelta(days=30)
+# OMDb with nothing to give (no rating yet, or the day's quota spent) is asked again the
+# next day, not on every open.
+_NO_RATINGS_TTL = timedelta(days=1)
 
 
 class _OutsideLibraries(Exception):
@@ -149,36 +152,38 @@ def _ratings(
     tmdb_id: int,
     title: str,
     year: int | None,
-    allow_fetch: Callable[[], bool] | None = None,
+    allow_fetch: Callable[[], bool],
 ) -> dict[str, str]:
     """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
-    none when OMDb would be asked and *allow_fetch* says no."""
+    none when OMDb has no key or would be asked and *allow_fetch* says no. An answer with
+    nothing in it is cached too, for a shorter time."""
     media_type = "movie" if kind == "movie" else "tv"
-    cutoff = (now_utc() - _RATINGS_TTL).isoformat()
+    now = now_utc()
     for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
-        if row.fetched_at >= cutoff:
-            cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
-            return {k: v for k, v in cached.items() if v}
-    if allow_fetch is not None and not allow_fetch():
+        cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
+        found = {k: v for k, v in cached.items() if v}
+        if row.fetched_at >= (now - (_RATINGS_TTL if found else _NO_RATINGS_TTL)).isoformat():
+            return found
+    omdb_key = get_omdb_key(conn, secret_key)
+    if not omdb_key or not allow_fetch():
         return {}
-    data = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
-    if data:
-        try:
-            upsert_ratings_cache(
-                conn,
-                [
-                    (
-                        tmdb_id,
-                        media_type,
-                        data.get("imdb"),
-                        data.get("rt"),
-                        data.get("metascore"),
-                        now_iso(),
-                    )
-                ],
-            )
-        except sqlite3.Error:
-            logger.warning("watch: ratings_cache write failed", exc_info=True)
+    data = fetch_ratings(title, year, media_type, omdb_key=omdb_key)
+    try:
+        upsert_ratings_cache(
+            conn,
+            [
+                (
+                    tmdb_id,
+                    media_type,
+                    data.get("imdb"),
+                    data.get("rt"),
+                    data.get("metascore"),
+                    now_iso(),
+                )
+            ],
+        )
+    except sqlite3.Error:
+        logger.warning("watch: ratings_cache write failed", exc_info=True)
     return data
 
 
@@ -221,11 +226,13 @@ def _apply_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
+    username: str,
     allow_fetch: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
     from Plex; returns the TMDB fields. Raises TmdbUnavailable, and disk_cache.Refused
-    when TMDB would be asked and *allow_fetch* says no."""
+    when TMDB would be asked and *allow_fetch* says no. OMDb is asked only within the
+    query limit: *allow_fetch*, or *username*'s own when it is not given."""
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
     for name in (
         "year",
@@ -251,7 +258,7 @@ def _apply_tmdb(
         tmdb_id,
         out["title"],
         out["year"],
-        allow_fetch,
+        allow_fetch or (lambda: _QUERY_LIMITER.check(username)),
     )
     out["ratings"] = {
         "imdb": ratings.get("imdb"),
@@ -311,7 +318,7 @@ def _movie_title(
     out["keep_allowed"] = is_admin or out["leaving"] is not None
     if client is not None and movie.tmdb_id:
         with contextlib.suppress(catalog.TmdbUnavailable):
-            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
+            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id, username)
     return out
 
 
@@ -402,7 +409,7 @@ def _show_title(
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
-            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id)
+            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id, username)
         except catalog.TmdbUnavailable:
             pass
         else:
@@ -427,7 +434,7 @@ def _tmdb_title(
     """A TMDB title (*kind* "movie" or "tv"); raises TmdbUnavailable and, as
     ``_apply_tmdb``, disk_cache.Refused."""
     out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, allow_fetch)
+    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch)
     arr = _arr(request, conn)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
