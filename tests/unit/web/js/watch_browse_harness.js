@@ -343,7 +343,7 @@ const scenarios = {
       'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
       [older('2026-11-14', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9'), card('rec-10', { title: 'Title rec-7' })] }), next_batch: '2026-11-07' }),
       [older('2026-11-07', '2026-11-21')]: () => Promise.reject(apiError(404, {})),
-      'GET /api/watch/recommended?batch=2026-10-31': () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
+      [older('2026-10-31', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
       [older('2026-11-07', '2026-11-14')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-11')] }), next_batch: null }),
     } });
     await settle();
@@ -362,7 +362,8 @@ const scenarios = {
     const p = load({ batches: BATCHES, routes: {
       'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
       'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
-      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: null }),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
+      'GET /api/watch/recommended?batch=2026-11-07&start=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-10')] }), next_batch: null }),
     } });
     await settle();
     await scroll(scrollerOf(p, 'recommended'), 0);

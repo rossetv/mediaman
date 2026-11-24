@@ -255,6 +255,18 @@ const scenarios = {
     return { things: open.things, sort: open.sort, labels, pill: p.grid().sort, count: open.count };
   },
 
+  // The batch the row starts at is gone, so the older ones repeat what it held.
+  async picksRepeated() {
+    const p = await load({ routes: {
+      '/api/watch/recommended?batch=b2&start=b3': () => Promise.reject(Object.assign(new Error('404'), { status: 404 })),
+      '/api/watch/recommended?batch=b2': () => recommended('b2', [pick(2), pick(1)], 'b1'),
+      '/api/watch/recommended?batch=b1&start=b2': () => recommended('b1', [pick(1), pick(4)], null),
+    } });
+    await p.open('recommended');
+    await p.settle();
+    return p.grid().things;
+  },
+
   // The first batch holds picks of two days, so it has no date.
   async picksOfTwoDays() {
     BATCHES[0].date_label = '';

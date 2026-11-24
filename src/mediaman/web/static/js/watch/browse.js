@@ -523,18 +523,20 @@
   function olderPicks(payload) {
     var ids = payload.batches.map(function (b) { return b.id; });
     var start = payload.batch;
+    function gone(err) { if (!err || err.status !== 404) throw err; }
+    function page(older) { return { cards: pickCards(older), next: older.next_batch }; }
     return function load(batch) {
-      return fetchRec(batch, start).then(function (older) {
-        return { cards: pickCards(older), next: older.next_batch };
-      }, function (err) {
-        if (!err || err.status !== 404) throw err;
-        // Deleted meanwhile, the one the row starts at or the batch: on without the first, then without both.
-        if (start !== null) {
-          start = null;
-          return load(batch);
-        }
-        var after = ids.indexOf(batch) + 1;
-        return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+      return fetchRec(batch, start).then(page, function (err) {
+        gone(err);
+        // Deleted meanwhile: the one the row starts at, so it starts at this one now, or this one.
+        return fetchRec(batch).then(function (older) {
+          start = batch;
+          return page(older);
+        }, function (err) {
+          gone(err);
+          var after = ids.indexOf(batch) + 1;
+          return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
+        });
       });
     };
   }
@@ -563,10 +565,17 @@
   /* Recommended's grid: each batch under its date, from the one the row starts at. */
   function recGrid(at) {
     var shown = null; // the batch of the last card
+    var had = new Set();
+    /* A date stands over a title the grid does not have yet: the others are not added. */
+    function isNew(card) {
+      var link = card.querySelector('[data-title-ref]');
+      var title = link.getAttribute('data-kind') + (link.getAttribute('data-tmdb-id') || link.textContent);
+      return !had.has(title) && had.add(title);
+    }
     function lines(cards, payload) {
       return cards.reduce(function (out, c) {
         var id = c.getAttribute('data-batch');
-        if (id !== shown) {
+        if (isNew(c) && id !== shown) {
           out.push(batchLine(id, payload));
           shown = id;
         }

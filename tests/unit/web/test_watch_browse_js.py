@@ -409,8 +409,8 @@ def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> No
     assert "14 Nov" in out["pill"]
 
 
-def test_a_row_whose_first_batch_is_gone_still_shows_the_older_one() -> None:
-    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9"]
+def test_a_row_whose_first_batch_is_gone_starts_at_the_older_one_it_goes_on_to() -> None:
+    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9", "rec-10"]
 
 
 def test_the_date_on_the_picks_button_is_in_one_box_with_its_name() -> None:

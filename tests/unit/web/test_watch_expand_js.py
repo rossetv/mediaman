@@ -92,6 +92,16 @@ def test_picks_stand_under_the_date_of_their_batch_labelled_as_ai_picks() -> Non
     assert out["pill"] == "26 Oct"
 
 
+def test_a_batch_of_repeats_alone_leaves_no_date_with_nothing_under_it() -> None:
+    assert _run("picksRepeated") == [
+        "[AI picksLatest picks · 23 Nov]",
+        "P1",
+        "P2",
+        "[AI picksPicks of 26 Oct]",
+        "P4",
+    ]
+
+
 def test_a_first_batch_without_a_date_stands_under_latest_picks_alone() -> None:
     out = _run("picksOfTwoDays")
     assert out["lines"] == [
