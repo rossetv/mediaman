@@ -800,6 +800,9 @@ def test_starts_that_work_or_are_turned_away_count_for_no_failure(client_for, pl
     for _ in range(21):
         assert amy.post("/api/account/plex").status_code == 429
     routes._SHARED_START_LIMITER.reset()
+    for _ in range(21):
+        start(amy)
+        routes._START_LIMITER.reset()
     for _ in range(5):
         start(amy)
     for _ in range(21):
