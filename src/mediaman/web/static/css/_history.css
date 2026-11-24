@@ -61,9 +61,10 @@
 }
 
 /* Touch screens wider than a phone, where the pills and the button stay short: a 44px reach by an
-   invisible band, so they look the same. The bands of two rows of pills overlap by a few pixels,
-   which harms nothing. (Below 700px they are 44px tall already.) */
+   invisible band, so they look the same. Rows of pills are 9px apart so the bands of two rows
+   meet and neither covers the other's reach. (Below 700px they are 44px tall already.) */
 @media (pointer: coarse) and (min-width: 700px) {
+  .pill-row.hist-filters { row-gap: 9px; }
   .hist-filters .fpill,
   .hist-body .btn { position: relative; }
   .hist-filters .fpill::after { content: ""; position: absolute; inset: -4.5px 0; }

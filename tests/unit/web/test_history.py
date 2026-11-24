@@ -721,6 +721,17 @@ class TestHistoryPageMarkup:
             r"max-width: 699\.98px\)\s*\{[^@]*\.hist-pager \.page-btn--num \{ display: none", css
         )
 
+    def test_pills_by_touch_keep_rows_apart_by_twice_their_reach_band(self):
+        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
+        block = re.search(
+            r"@media \(pointer: coarse\) and \(min-width: 700px\) \{(.*?)\n\}", css, re.S
+        )[1]
+        band = float(
+            re.search(r"\.hist-filters \.fpill::after \{[^}]*inset: -([\d.]+)px", block)[1]
+        )
+        gap = float(re.search(r"\.pill-row\.hist-filters \{ row-gap: ([\d.]+)px", block)[1])
+        assert gap >= 2 * band
+
     def test_the_last_row_does_not_double_the_card_border(self):
         css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
         assert re.search(r"\.hist:last-child\s*\{\s*border-bottom:\s*0", css)
