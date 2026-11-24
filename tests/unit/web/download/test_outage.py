@@ -267,7 +267,8 @@ def _show(title: str, *files: int, monitored: bool = True) -> dict[str, object]:
             "monitored": monitored,
             "statistics": {
                 "episodeFileCount": have,
-                "episodeCount": 8,
+                # Sonarr leaves out of it an episode that is neither wanted nor there.
+                "episodeCount": 8 if monitored else have,
                 "previousAiring": "2020-01-01T00:00:00Z",
             },
         }
@@ -323,6 +324,20 @@ def test_a_recent_show_is_there_in_part_only_by_seasons_still_wanted(
     services[1].get_series.return_value = [_show("Half", 8, 0, monitored=monitored)]
     expected = "part" if monitored else "ready"
     assert [r["readiness"] for r in _get(client)["recent"]] == [expected]
+
+
+def test_a_recent_show_lacking_one_episode_wanted_of_a_skipped_season_is_there_in_part(
+    services, client, conn
+):
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type)"
+            " VALUES ('sonarr:Half', 'Half', 'series')"
+        )
+    show = _show("Half", 8, 0, monitored=False)
+    show["seasons"][1]["statistics"]["episodeCount"] = 1
+    services[1].get_series.return_value = [show]
+    assert [r["readiness"] for r in _get(client)["recent"]] == ["part"]
 
 
 def test_a_recent_show_is_not_called_ready_before_sonarr_has_told(
