@@ -96,7 +96,7 @@ def test_escape_and_tab_close_it_and_other_keys_do_not() -> None:
     assert _run("keys") == {"Escape": None, "Tab": None, "a": "Fieldwork"}
 
 
-def test_nothing_opens_under_an_open_menu_or_the_detail() -> None:
+def test_nothing_opens_under_an_open_menu_the_detail_or_a_grid_on_the_move() -> None:
     assert _run("covered") == [[], []]
 
 

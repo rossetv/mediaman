@@ -60,9 +60,9 @@
 
   function mouse() { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; }
 
-  /* Something is open over the cards: the detail, a dialog or a menu. */
+  /* Something is open over the cards (the detail, a dialog or a menu), or a grid carries them. */
   function covered() {
-    return document.documentElement.classList.contains('has-ttl') ||
+    return detailOpen() || document.documentElement.classList.contains('is-grid-moving') ||
       !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open');
   }
 

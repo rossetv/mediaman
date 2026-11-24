@@ -346,6 +346,8 @@ const scenarios = {
     const menuOpen = h.gets.slice();
     h.doc.documentElement.classList.add('has-ttl');
     await h.rest('film', 900);
+    h.doc.documentElement.className = 'is-grid-moving';
+    await h.rest('film', 900);
     return [menuOpen, h.gets];
   },
   async hidden() {
