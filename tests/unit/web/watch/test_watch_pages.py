@@ -574,25 +574,18 @@ class TestWatchRows:
             "//evil.example/x",
             "https://evil.example/",
             "/watch/../admin",
-            "/watch?x=1",
             "/watch/show/5/x",
             "/watch#title=",
             "/watch#title=movie-1/x",
             "/watch#title=tmdb-show-1",
             "/watch#title=rec-1&x=1",
             "/watch#x=movie-1",
-            "/watch?genre=action&x=1",
-            "/watch?genre=action&genre=drama",
-            "/watch?genre=../admin",
-            "/watch?person=abc",
-            "/watch?person=%D9%A1",
-            "/watch?all=//evil.example",
-            "/watch?view=grid",
-            "/watch?decade=1990",
             "/watch?q=a%0d%0ab",
-            "/watch?q=" + "a" * 201,
-            "/watch?",
-            "/watch?genre",
+            "/watch?q=a%C2%85b",
+            "/watch?q=a%E2%80%A8b",
+            "/watch?genre=action&x=%00",
+            "/watch?" + "x=1&" * 60,
+            "/watch?genre=action&x=1#title=movie-1&x=1",
             "/watch?genre=action#x=1",
             "/watch?genre=action#title=movie-1/x",
             "/watch?genre=action\n",
@@ -636,6 +629,31 @@ class TestWatchRows:
         origin = quote("/watch?genre=action", safe="")
         assert get(f"/watch/play/100?from={origin}").json()["back_href"] == "/watch?genre=action"
         assert get("/watch/play/100?from=//evil.example").json()["back_href"] == "/watch"
+
+    @pytest.mark.parametrize(
+        ("origin", "kept"),
+        [
+            ("/watch?x=1", "/watch"),
+            ("/watch?", "/watch"),
+            (
+                "/watch?genre=action&utm_source=mail#title=movie-1",
+                "/watch?genre=action#title=movie-1",
+            ),
+            ("/watch?genre=action&genre=drama", "/watch?genre=action"),
+            ("/watch?genre=../admin&sort=newest", "/watch?sort=newest"),
+            ("/watch?person=abc", "/watch"),
+            ("/watch?person=%D9%A1", "/watch"),
+            ("/watch?all=//evil.example", "/watch"),
+            ("/watch?view=grid", "/watch"),
+            ("/watch?decade=1990", "/watch"),
+            ("/watch?genre", "/watch"),
+            ("/watch?next=//evil.example&q=a", "/watch?q=a"),
+            ("/watch?q=" + "a" * 201, "/watch?q=" + "a" * 200),
+            ("/watch?q=a%C2%A0b%E2%80%8D%E2%80%8B", "/watch?q=a%C2%A0b%E2%80%8D%E2%80%8B"),
+        ],
+    )
+    def test_what_a_page_does_not_carry_is_left_out_of_the_way_back(self, origin, kept):
+        assert pages.safe_origin(origin) == kept
 
     def test_text_in_a_search_to_go_back_to_stays_text(self):
         assert pages.safe_origin("/watch?q=<b>//evil.example") == (

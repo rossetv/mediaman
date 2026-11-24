@@ -92,7 +92,7 @@ _reachable_until = [0.0]
 _KEY_RE = re.compile(r"[0-9]{1,18}")
 # The only places the player's Back may return to; anything else falls back to the item's own page.
 _ORIGIN_RE = re.compile(
-    r"/watch(\?(?P<query>[^#]+))?"
+    r"/watch(\?(?P<query>[^#]*))?"
     r"(?P<hash>#title=((movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}|(rec|pick)-[0-9]{1,10}))?"
     r"|/watch/show/[0-9]{1,18}(\?season=[0-9]{1,4})?|/watch/movie/[0-9]{1,18}"
 )
@@ -109,6 +109,8 @@ _ORIGIN_PARAMS = {
     "page": r"[0-9]{1,9}",
     "per_page": r"[0-9]{1,9}",
 }
+_ORIGIN_FIELDS_MAX = 50
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
 # A search typed into the page's field is never this long; a longer ?q= is cut.
 _QUERY_MAX = 200
 
@@ -136,28 +138,27 @@ def poster_url(key: str) -> str:
 
 
 def safe_origin(value: str | None) -> str | None:
-    """*value* when it is one of the Watch pages a person can come from, else None."""
+    """*value* when it is one of the Watch pages a person can come from, without what such a
+    page's address does not carry; else None."""
     match = _ORIGIN_RE.fullmatch(value) if value else None
     if match is None or match["query"] is None:
         return value if match else None
     try:
-        pairs = parse_qsl(
-            match["query"],
-            keep_blank_values=True,
-            strict_parsing=True,
-            max_num_fields=len(_ORIGIN_PARAMS) + 1,
-        )
+        pairs = parse_qsl(match["query"], max_num_fields=_ORIGIN_FIELDS_MAX)
     except ValueError:
         return None
-    if len({key for key, _ in pairs}) < len(pairs):
-        return None
+    kept: dict[str, str] = {}
     for key, given in pairs:
-        if key == "q":
-            if len(given) > _QUERY_MAX or not given.isprintable():
-                return None
-        elif not re.fullmatch(_ORIGIN_PARAMS.get(key, r"(?!)"), given):
+        if _CONTROL_RE.search(key + given):
             return None
-    return f"/watch?{urlencode(pairs)}{match['hash'] or ''}"
+        # Cut as the page cuts it; of two of a kind the page reads the first.
+        value = given[:_QUERY_MAX] if key == "q" else given
+        if key not in kept and (
+            key == "q" or re.fullmatch(_ORIGIN_PARAMS.get(key, r"(?!)"), value)
+        ):
+            kept[key] = value
+    query = f"?{urlencode(kept)}" if kept else ""
+    return f"/watch{query}{match['hash'] or ''}"
 
 
 def _banner_art(key: str) -> dict[str, str]:
