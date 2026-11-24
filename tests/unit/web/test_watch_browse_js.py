@@ -413,6 +413,11 @@ def test_a_row_whose_first_batch_is_gone_still_shows_the_older_one() -> None:
     assert _run("goneStart") == ["rec-7", "rec-8", "rec-9"]
 
 
+def test_the_date_on_the_picks_button_is_in_one_box_with_its_name() -> None:
+    # Two boxes would take the button's gap between them, after the dot alone.
+    assert _run("picksPill") == ["Latest picks · 21 Nov", ""]
+
+
 def test_a_row_whose_older_batches_are_gone_ends() -> None:
     out = _run("goneBatches")
     assert out == {"refs": ["rec-7", "rec-8"], "asked": 4, "more": False}

@@ -369,6 +369,12 @@ const scenarios = {
     return refsOf(scrollerOf(p, 'recommended'));
   },
 
+  async picksPill() {
+    const p = load({ batches: BATCHES });
+    await settle();
+    return rec(p.doc).querySelector('[data-picks-menu]').children.map((n) => n.textContent);
+  },
+
   // Every batch the row goes on to is gone, and the last is one the menu does not know.
   async goneBatches() {
     layout();
