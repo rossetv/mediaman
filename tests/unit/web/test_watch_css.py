@@ -148,7 +148,8 @@ def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> Non
     _, right, _, left = (int(v) for v in re.findall(r"(\d+)px", _of(".watch-more::before", phone)))
     dots = int(re.findall(r"font-size: (\d+)px", _of(".watch-more"))[0])
     edge = int(re.findall(r"padding-right: (\d+)px", more)[0])
-    assert edge + dots / 2 == right + (44 - right - left) / 2
+    # An icon is 1.25em wide.
+    assert abs(edge + dots * 1.25 / 2 - (right + (44 - right - left) / 2)) < 0.5
     assert "outline: none" in _of(".watch-more:focus-visible", phone)
     ring = _of(".watch-more:focus-visible::before", phone)
     assert "outline: 2px solid" in ring and "opacity: 1" in ring
