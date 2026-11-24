@@ -234,6 +234,44 @@ function keepOption(p, key, dur) {
   return p.row(key).querySelectorAll('[data-keep-dur]').find((b) => b.getAttribute('data-keep-dur') === dur);
 }
 
+/* ── The Keep dialog of a show ── */
+
+const FOREVER = { action: 'protected_forever', execute_at: null, days: null, label: 'Kept forever' };
+const until = (days) => ({ action: 'snoozed', execute_at: new Date(Date.UTC(2026, 10, 24 + days)).toISOString(), days, label: 'Kept for ' + days + ' more days' });
+const leaves = (days) => ({ execute_at: until(days).execute_at, days });
+/* Seasons numbered from 1: each a keep, what is left of it, or nothing. */
+const seasonsOf = (...each) => each.map((s, i) => Object.assign(
+  { id: 's' + (i + 1), season_number: i + 1, kept: !!(s && s.keep), keep: null, leaving: null }, s));
+/* Season 1 kept forever, Season 2 leaves in 3 days and Season 3 in 5. */
+const LEAVING = seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { leaving: leaves(5) });
+
+/* The dialog, opened as the title page does (*seasonId*: the season its line names, '' when
+   none; undefined opens it from the list). */
+async function keepDialog({ seasons, showKept, seasonId, duration }) {
+  const p = load({ list: true });
+  let now = seasons;
+  p.replies['get /api/show/77/seasons'] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: showKept || null, seasons: now });
+  p.serve('/watch/list', {}, ROWS);
+  if (seasonId === undefined) click(p.doc, keepOption(p, 'show:77', duration || '30 days'));
+  else {
+    p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift',
+      kept: false, deletion: true, season_id: seasonId }, duration || '30 days');
+  }
+  await settle();
+  const list = p.doc.getElementById('keep-season-list');
+  const box = (id) => list.querySelectorAll('input').find((n) => n.id === 'keep-' + (id === 'all' ? 'all-seasons' : 'season-' + id));
+  const set = (id) => list.querySelectorAll('[data-keep-set]').find((n) => n.getAttribute('data-keep-set') === id);
+  return Object.assign(p, {
+    ticked: () => list.querySelectorAll('input').filter((n) => n.checked).map((n) => n.id.replace(/^keep-(season-)?/, '')),
+    tick(id, on) { const n = box(id); n.checked = on; (n.listeners.change || []).forEach((fn) => fn({ target: n })); },
+    set,
+    reload(fresh) { now = fresh; },
+    async confirm() { const b = p.doc.getElementById('keep-dialog-confirm'); b.focus(); click(p.doc, b); await settle(); },
+    sent: () => p.calls.filter((c) => c[0] !== 'get').map((c) => [c[1], c[2] && (c[2].duration || c[2].days || ''), c[2] && (c[2].season_ids || c[2].media_item_id || '')]),
+    told: () => p.toasts.map((t) => t.message),
+  });
+}
+
 const scenarios = {
   // Keep a movie that was due for deletion: the Watch keep, so Undo restores the date.
   async keepScheduled() {
@@ -422,6 +460,136 @@ const scenarios = {
       kept: p.row('show:77').classList.contains('wl-row--kept'),
       history: p.history,
     };
+  },
+
+  // Opened from the card of a season that leaves: that season, and the keep there is.
+  async keepLeavingSeason() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    const ticked = p.ticked();
+    await p.confirm();
+    const out = { ticked, sent: p.sent(), told: p.told() };
+    p.toasts[0].action.onClick();
+    await settle();
+    out.undone = p.sent().slice(1);
+    return out;
+  },
+
+  async keepNothingPicked() {
+    const none = seasonsOf(null, null, { leaving: leaves(5) });
+    const out = {};
+    for (const [name, opts] of [['other', { seasonId: '', seasons: none }], ['kept', { seasonId: '', seasons: LEAVING }]]) {
+      const p = await keepDialog(opts);
+      out[name] = { ticked: p.ticked() };
+      await p.confirm();
+      Object.assign(out[name], { sent: p.sent(), errors: p.errors.length, busy: p.row('show:77').classList.contains('is-busy') });
+    }
+    return out;
+  },
+
+  async keepFromList() {
+    const p = await keepDialog({ seasons: LEAVING });
+    const leavingOnes = p.doc.getElementById('keep-season-list').querySelectorAll('.keep-season-details').map((n) => /leaves in (\d+) days/.exec(n.textContent)).map((m) => m && m[1]);
+    const ticked = p.ticked();
+    const several = await keepDialog({ seasons: seasonsOf(null, null) });
+    const movedOn = await keepDialog({ seasons: seasonsOf(null, { leaving: leaves(9) }, { leaving: leaves(4) }) });
+    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked() };
+  },
+
+  // A keep is changed only by its own button, which says to what.
+  async keepChanged() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s3', false);
+    const only = { s1: !!p.set('s1'), s2: !!p.set('s2'), all: !!p.set('all') };
+    click(p.doc, p.doc.querySelectorAll('.keep-dur-btn').find((b) => b.dataset.dur === '90 days'));
+    const label = p.set('s1').textContent;
+    click(p.doc, p.set('s1'));
+    const pressed = p.set('s1').getAttribute('aria-pressed');
+    await p.confirm();
+    const back = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    click(back.doc, back.set('s1'));
+    back.tick('s1', false);
+    back.tick('s1', true);
+    await back.confirm();
+    return { only, label, pressed, sent: p.sent(), told: p.told(), undo: p.toasts[0].undo, afterUntick: back.sent() };
+  },
+
+  async keepRemoved() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s1', false);
+    await p.confirm();
+    const only = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(5) }), seasonId: '' });
+    only.tick('s1', false);
+    await only.confirm();
+    return { sent: p.sent(), told: p.told(), undo: p.toasts[0].undo, only: [only.sent(), only.told()] };
+  },
+
+  // The whole show, ticked by hand: the seasons with a keep stay as they are.
+  async keepWholeShow() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('all', true);
+    const ticked = p.ticked();
+    await p.confirm();
+    const kept = await keepDialog({ seasons: seasonsOf({ keep: FOREVER }, { keep: until(60) }), seasonId: '' });
+    kept.tick('all', true);
+    await kept.confirm();
+    return { ticked, sent: p.sent(), told: p.told(), allKept: [kept.sent(), kept.errors.length] };
+  },
+
+  // A season unticked on a show kept as a whole ends that keep: the others are kept at least as long.
+  async keepShowUnticked() {
+    const forever = await keepDialog({ showKept: FOREVER, seasons: seasonsOf({ keep: FOREVER }, { keep: until(40) }, null), seasonId: '', duration: '7 days' });
+    const ticked = forever.ticked();
+    forever.tick('s3', false);
+    await forever.confirm();
+    const days = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: until(3) }, { keep: until(40) }, { keep: until(12) }, null), seasonId: '', duration: '7 days' });
+    days.tick('s4', false);
+    await days.confirm();
+    return { ticked, forever: [forever.sent(), forever.told()], days: days.sent() };
+  },
+
+  async keepShowChanged() {
+    const p = await keepDialog({ showKept: until(12), seasons: seasonsOf({ keep: FOREVER }, { keep: until(12) }, null), seasonId: '' });
+    await p.confirm();
+    const untouched = [p.sent(), p.errors.length];
+    const seasonSet = !!p.set('s1') || !!p.set('s2');
+    click(p.doc, p.set('all'));
+    await p.confirm();
+    return { untouched, seasonSet, sent: p.sent(), told: p.told() };
+  },
+
+  // One of two fails: the dialog reads the seasons again and offers only what is left.
+  async keepPartFails() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    p.tick('s2', true);
+    p.replies['post /api/watch/keep'] = () => (p.calls[p.calls.length - 1][2].media_item_id === 's2' ? Promise.reject(new Error('no')) : Promise.resolve({ ok: true }));
+    p.reload(seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { keep: until(30) }));
+    await p.confirm();
+    const out = { errors: p.errors, ticked: p.ticked(), focus: p.doc.activeElement.id, open: p.doc.getElementById('keep-dialog-overlay').classList.contains('active') };
+    const before = p.sent().length;
+    delete p.replies['post /api/watch/keep'];
+    await p.confirm();
+    out.again = p.sent().slice(before);
+    return out;
+  },
+
+  // The Undo of a season's keep goes once that keep is removed in the dialog; forever on one that leaves has none.
+  async keepUndoRetired() {
+    const p = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    await p.confirm();
+    p.reload(seasonsOf({ keep: FOREVER }, { leaving: leaves(3) }, { keep: until(30) }));
+    click(p.doc, keepOption(p, 'show:77', '30 days'));
+    await settle();
+    p.tick('s2', false);
+    p.tick('s3', false);
+    await p.confirm();
+    const always = await keepDialog({ seasons: LEAVING, seasonId: 's3', duration: 'forever' });
+    await always.confirm();
+    const plain = await keepDialog({ seasons: seasonsOf(null, null), seasonId: '', duration: 'forever' });
+    plain.tick('s2', true);
+    await plain.confirm();
+    plain.toasts[0].action.onClick();
+    await settle();
+    return { dismissed: p.toasts[0].dismissed, sent: p.sent(), forever: [always.sent(), always.toasts[0].undo], unscheduled: plain.sent() };
   },
 
   // The detail calls the same actions with a plain object, list or no list.

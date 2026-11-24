@@ -8,7 +8,9 @@ mounted here; _resolve_show_rating_key is re-exported so tests can import it fro
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -16,16 +18,19 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from mediaman.core.audit import log_audit
 from mediaman.core.format import days_ago, media_type_badge, normalise_media_type
 from mediaman.core.format import format_bytes as _format_bytes
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.scanner.repository import is_show_kept_pure
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import format_expiry
+from mediaman.services.scheduled_actions import format_expiry, parse_execute_at
+from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER
+from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import (
+    KeepRow,
     delete_protections,
     fetch_protected_items,
     fetch_seasons_for_show,
@@ -35,6 +40,7 @@ from mediaman.web.repository.kept import (
 from mediaman.web.repository.kept import (
     resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — re-exported so tests can import it
 )
+from mediaman.web.repository.library_query import protection_label
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.kept_show import router as _kept_show_router
 
@@ -136,6 +142,21 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     return respond_ok()
 
 
+def _keep_reply(keep: KeepRow | None, now: datetime) -> dict[str, object] | None:
+    """A keep as the Keep dialog reads it: ``days`` is rounded up, so a keep of that many
+    days never ends before this one does; None for one that is forever."""
+    if keep is None:
+        return None
+    forever = keep.action == ACTION_PROTECTED_FOREVER
+    ends = None if forever else parse_iso_strict_utc(keep.execute_at)
+    return {
+        "action": keep.action,
+        "execute_at": keep.execute_at,
+        "days": math.ceil((ends - now) / timedelta(days=1)) if ends else None,
+        "label": protection_label(keep.action, keep.execute_at),
+    }
+
+
 # The key may be a show title (shows with no rating key), and a "/" in it
 # arrives decoded, so the parameter must be allowed to span segments.
 @router.get("/api/show/{show_rating_key:path}/seasons")
@@ -150,8 +171,15 @@ def api_show_seasons(
         # A show with no rating key is grouped, and so looked up, by its title.
         show_title = fetch_show_title(conn, show_rating_key) or show_rating_key
 
+    now = now_utc()
+    leaving = {
+        p.media_item_id: p
+        for p in reversed(lib.pending_deletions(conn, lib.scanned_library_ids(conn), now))
+    }
     seasons = []
     for r in season_rows:
+        pending = leaving.get(r.id)
+        leaves_at = parse_execute_at(pending.execute_at, default=now) if pending else None
         lw = r.last_watched_at
         last_watched = days_ago(lw) or None
 
@@ -161,6 +189,10 @@ def api_show_seasons(
                 "season_number": r.season_number,
                 "title": r.title,
                 "kept": r.kept,
+                "keep": _keep_reply(r.keep, now),
+                "leaving": {"execute_at": leaves_at.isoformat(), "days": days_left(leaves_at, now)}
+                if leaves_at
+                else None,
                 "file_size": _format_bytes(r.file_size_bytes),
                 "file_size_bytes": r.file_size_bytes,
                 "last_watched": last_watched,
@@ -178,12 +210,7 @@ def api_show_seasons(
         {
             "show_title": show_title,
             "show_rating_key": show_rating_key,
-            "show_kept": {
-                "action": show_kept_row.action,
-                "execute_at": show_kept_row.execute_at,
-            }
-            if show_kept_row
-            else None,
+            "show_kept": _keep_reply(show_kept_row, now),
             "seasons": seasons,
         }
     )

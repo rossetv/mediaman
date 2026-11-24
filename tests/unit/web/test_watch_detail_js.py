@@ -891,6 +891,26 @@ def test_a_films_keep_names_no_season() -> None:
     assert _keeps(out["film"]) == ["120", "Keep Glass Harbour", "Leaving in 3 days."]
 
 
+def test_an_admins_keep_and_deletion_date_are_of_the_season_the_title_names() -> None:
+    out = _run("leavingSeasonsAdmin")
+    third, second, none = out["rows"]
+    assert third.startswith("9 Dec")
+    assert third.endswith("Season 3, in 9 days")
+    assert second.startswith("2 Dec")
+    assert second.endswith("Season 2, in 2 days")
+    assert none == second
+    assert out["calls"] == [
+        ["keep", "3030", "30 days"],
+        ["keep", "3020", "30 days"],
+        ["keep", "", "30 days"],
+    ]
+
+
+def test_an_admins_open_keep_menu_closes_when_another_season_comes_in() -> None:
+    out = _run("leavingSeasonsAdmin")
+    assert out["menuAfter"] == {"open": False, "focus": "admin-keep", "live": True}
+
+
 def test_the_director_leads_to_their_titles_and_back() -> None:
     assert _run("directorLink") == {
         "text": "DirectorAda Rimmington",

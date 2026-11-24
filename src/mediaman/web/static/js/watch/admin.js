@@ -9,13 +9,15 @@
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
  * detail's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
- * show_title}).
+ * show_title}) with `season_id`, the season the Keep dialog opens for ('' for
+ * none; without one it opens for the season that leaves first).
  */
 (function () {
   'use strict';
 
   var core = window.MMWatch.core;
   var el = core.el;
+  var toArray = core.toArray;
 
   var KEEP_DAYS = { '7 days': 7, '30 days': 30, '90 days': 90 };
   var REMOVE_ALL_LABEL = 'Remove all keeps';
@@ -24,7 +26,9 @@
      press on the same item sends nothing. */
   var _busy = {};
 
-  var _keepDialogState = { showRk: '', hasRk: false, showKept: false, keptSeasonIds: [], showTitle: '', seasonId: '', duration: '30 days' };
+  /* picked: the ids of the seasons to open with ticked beside the kept ones,
+     or null for the one that leaves first. */
+  var _keepDialogState = { showRk: '', hasRk: false, showKept: null, seasons: [], picked: null, showTitle: '', seasonId: '', duration: '30 days' };
   var _keepDialogModal = null;
   var _seasonDeleteModal = null;
 
@@ -58,7 +62,8 @@
         showTitle: d.showTitle || '',
         title: parseJson(d.title, '') || d.showTitle || '',
         kept: d.kept === 'true',
-        deletion: d.deletion === 'true'
+        deletion: d.deletion === 'true',
+        seasonId: null
       };
     }
     var w = wrapper || {};
@@ -71,7 +76,8 @@
       showTitle: w.show_title || '',
       title: w.title || w.show_title || '',
       kept: !!w.kept,
-      deletion: !!w.deletion
+      deletion: !!w.deletion,
+      seasonId: w.season_id === undefined ? null : w.season_id
     };
   }
 
@@ -111,7 +117,7 @@
   function trackKeepChain(key, chain) {
     var tracked = chain.then(function () {}, function () {});
     _keepChains[key] = tracked;
-    tracked.then(function () { if (_keepChains[key] === tracked) delete _keepChains[key]; });
+    return tracked.then(function () { if (_keepChains[key] === tracked) delete _keepChains[key]; });
   }
 
   function keptMessage(title, duration) {
@@ -123,17 +129,18 @@
      can take it away: its Undo would then undo the wrong thing. */
   var _undoToasts = {};
 
-  function offerUndo(id, message, undo) {
-    retireUndo(id);
+  /* *ids*: what the keep is of; *run* undoes it. */
+  function offerUndo(ids, message, run) {
+    ids.forEach(retireUndo);
     var entry = { spent: false };
     entry.node = window.UIFeedback.toast(message, {
       variant: 'success',
       action: { label: 'Undo', onClick: function () {
-        if (_undoToasts[id] === entry) delete _undoToasts[id];
-        if (!entry.spent) undoKeep(id, undo);
+        ids.forEach(function (id) { if (_undoToasts[id] === entry) delete _undoToasts[id]; });
+        if (!entry.spent) run();
       } }
     });
-    _undoToasts[id] = entry;
+    ids.forEach(function (id) { _undoToasts[id] = entry; });
   }
 
   /* Dismiss the toast the way its own button would, without running its Undo. */
@@ -190,7 +197,7 @@
       } else if (!w.kept && !w.deletion) {
         undo = function () { return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect'); };
       }
-      if (undo) offerUndo(id, keptMessage(w.title, duration), undo);
+      if (undo) offerUndo([id], keptMessage(w.title, duration), function () { undoKeep(id, undo); });
       else {
         retireUndo(id);
         window.UIFeedback.toast(keptMessage(w.title, duration), { variant: 'success' });
@@ -372,6 +379,7 @@
     _keepDialogState.hasRk = w.hasRk;
     _keepDialogState.showTitle = w.showTitle;
     _keepDialogState.seasonId = w.id;
+    _keepDialogState.picked = w.seasonId === null ? null : w.seasonId ? [w.seasonId] : [];
     _keepDialogState.duration = duration || '30 days';
     /* Close the menu this came from, and park focus on its trigger so
        closing the dialog returns there rather than to a hidden menu item. */
@@ -395,8 +403,8 @@
   /* focusAfter returns the element to focus once the seasons are shown; it
      is used only while focus is still in the list or nowhere. */
   function loadKeepSeasons(focusAfter) {
-    _keepDialogState.showKept = false;
-    _keepDialogState.keptSeasonIds = [];
+    _keepDialogState.showKept = null;
+    _keepDialogState.seasons = [];
     var list = byId('keep-season-list');
     list.textContent = 'Loading…';
     byId('keep-dialog-remove').classList.remove('is-visible');
@@ -409,12 +417,12 @@
       .then(function (data) {
         if (request !== _keepDialogRequest) return;
         byId('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
-        _keepDialogState.showKept = !!data.show_kept;
-        _keepDialogState.keptSeasonIds = data.seasons.filter(function (s) { return s.kept; }).map(function (s) { return s.id; });
+        _keepDialogState.showKept = data.show_kept || null;
+        _keepDialogState.seasons = data.seasons;
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         byId('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) confirmBtn.textContent = 'Update';
-        renderSeasonPicker(data.seasons, data.show_kept);
+        renderSeasonPicker(data.seasons, _keepDialogState.showKept);
         /* A keep still running for this show holds Keep until it settles. */
         confirmBtn.disabled = !!_keepChains[keepChainKey()];
         if (focusAfter && MM.dom.focusStillIn(list)) {
@@ -453,83 +461,252 @@
     document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
     btn.classList.add('active');
     _keepDialogState.duration = btn.dataset.dur;
+    document.querySelectorAll('#keep-season-list [data-keep-set]').forEach(labelSet);
   }
 
   function selectDurationByValue(dur) {
     document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.dur === dur); });
   }
 
+  function seasonName(s) { return s.season_number != null ? 'Season ' + s.season_number : s.title; }
+
+  function leavesText(days) {
+    return days <= 0 ? 'leaves today' : days === 1 ? 'leaves tomorrow' : 'leaves in ' + days + ' days';
+  }
+
   function seasonDetails(s) {
     var parts = [];
     if (s.file_size) parts.push(s.file_size);
     parts.push(s.last_watched ? 'watched ' + s.last_watched : 'never watched');
+    if (s.leaving) parts.push(leavesText(s.leaving.days));
     return el('span', 'keep-season-details', parts.join(' · '));
+  }
+
+  /* When a keep ends. */
+  function endOf(keep) {
+    if (!keep) return -Infinity;
+    return keep.action === 'protected_forever' ? Infinity : Date.parse(keep.execute_at);
+  }
+
+  /* The shortest keep that lasts at least as long as *keep*. */
+  function atLeast(keep) {
+    if (keep.action === 'protected_forever') return 'forever';
+    return Object.keys(KEEP_DAYS).filter(function (dur) { return KEEP_DAYS[dur] >= keep.days; })[0] || 'forever';
+  }
+
+  /* The seasons the dialog opens for. */
+  function pickedSeasons(seasons) {
+    if (_keepDialogState.picked) return _keepDialogState.picked;
+    var first = seasons.filter(function (s) { return s.leaving; })
+      .sort(function (a, b) { return Date.parse(a.leaving.execute_at) - Date.parse(b.leaving.execute_at); })[0];
+    return first ? [first.id] : [];
+  }
+
+  /* A keep there is changes only by this button, so that a tick alone never
+     shortens one. */
+  function setButton(id, name) {
+    var b = button('btn btn--ghost btn--sm', '', { 'data-keep-set': id, 'data-name': name, 'aria-pressed': 'false' });
+    labelSet(b);
+    b.addEventListener('click', function () { pressSet(b, b.getAttribute('aria-pressed') !== 'true'); });
+    return b;
+  }
+
+  function labelSet(b) {
+    var dur = _keepDialogState.duration;
+    b.textContent = 'Set to ' + dur;
+    b.setAttribute('aria-label', 'Set to ' + dur + ', ' + b.dataset.name);
+  }
+
+  function pressSet(b, on) {
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('btn--primary', on);
+    b.classList.toggle('btn--ghost', !on);
   }
 
   function renderSeasonPicker(seasons, showKept) {
     var list = byId('keep-season-list');
     list.replaceChildren();
+    var picked = pickedSeasons(seasons);
+
+    /* A tick that goes takes the change to its keep with it. */
+    function row(className, cb, labelText, set) {
+      var item = el('div', className);
+      var label = el('label', null, labelText);
+      cb.type = 'checkbox';
+      label.htmlFor = cb.id;
+      item.appendChild(cb);
+      item.appendChild(label);
+      if (set) {
+        cb.addEventListener('change', function () { holdSet(set, cb.checked); });
+      }
+      list.appendChild(item);
+      return item;
+    }
+    function holdSet(set, on) {
+      set.disabled = !on;
+      if (!on) pressSet(set, false);
+    }
+    function keptPart(item, keep, set) {
+      var part = el('span', 'keep-season-keep');
+      part.appendChild(el('span', 'pill pill--kept', (keep && keep.label) || 'Kept'));
+      if (set) part.appendChild(set);
+      item.classList.add('keep-season-item--kept');
+      item.appendChild(part);
+    }
 
     /* A show keyed by its title has no rating key to keep the whole show
        under, so only per-season keeps are offered. */
-    var allRow = el('div', 'keep-season-item keep-all-row');
     var allCb = el('input');
-    allCb.type = 'checkbox';
     allCb.id = 'keep-all-seasons';
-    var anyKept = showKept || seasons.some(function (s) { return s.kept; });
-    allCb.checked = !!showKept || !anyKept;
-    allCb.addEventListener('change', function () {
-      list.querySelectorAll('input[data-season-id]').forEach(function (cb) { cb.checked = allCb.checked; });
-    });
-    var allLabel = el('label', null, 'All seasons');
-    allLabel.htmlFor = 'keep-all-seasons';
-    allRow.appendChild(allCb);
-    allRow.appendChild(allLabel);
-    if (_keepDialogState.hasRk) list.appendChild(allRow);
+    allCb.checked = !!showKept;
+    var allSet = showKept ? setButton('all', 'All seasons') : null;
+    if (_keepDialogState.hasRk) {
+      var allRow = row('keep-season-item keep-all-row', allCb, 'All seasons', allSet);
+      if (showKept) keptPart(allRow, showKept, allSet);
+      allCb.addEventListener('change', function () {
+        list.querySelectorAll('input[data-season-id]').forEach(function (cb) {
+          cb.checked = allCb.checked;
+          var set = cb.parentNode.querySelector('[data-keep-set]');
+          if (set) holdSet(set, cb.checked);
+        });
+      });
+    }
+
+    /* A lone season is all a show row can mean. */
+    var lone = seasons.length === 1 && !_keepDialogState.picked && !picked.length && !showKept && !seasons[0].kept;
+    if (lone) allCb.checked = true;
 
     seasons.forEach(function (s) {
-      var row = el('div', 'keep-season-item');
       var cb = el('input');
-      cb.type = 'checkbox';
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
-      if (s.kept) cb.dataset.kept = '1';
-      cb.checked = !!showKept || s.kept || !anyKept;
+      cb.checked = !!showKept || s.kept || lone || picked.indexOf(s.id) >= 0;
+      var set = s.kept && !showKept ? setButton(s.id, seasonName(s)) : null;
+      var item = row('keep-season-item', cb, seasonName(s), set);
       cb.addEventListener('change', function () {
-        if (!cb.checked) allCb.checked = false;
+        if (cb.checked || !allCb.checked) return;
+        allCb.checked = false;
+        if (allSet) holdSet(allSet, false);
       });
-      var label = el('label', null, 'Season ' + s.season_number);
-      label.htmlFor = 'keep-season-' + s.id;
-      row.appendChild(cb);
-      row.appendChild(label);
-      row.appendChild(seasonDetails(s));
-      if (s.kept) row.appendChild(el('span', 'pill pill--kept', 'Kept'));
-      list.appendChild(row);
+      item.appendChild(seasonDetails(s));
+      if (s.kept) keptPart(item, s.keep, set);
     });
   }
 
   /* The dialog's keep is saved: the dialog closes, if it is still the one
      that was open, and the show's row updates where it is. */
-  function showKeepSaved(state, data, message) {
+  function showKeepSaved(state, data, message, undo) {
     if (state.isOpen()) closeKeepDialog();
     emit('done', { action: 'show', id: state.seasonId, showRk: state.showRk });
     if (data && data.deletion_running && data.message) {
       window.UIFeedback.toast(state.say(data.message), { duration: 8000 });
+    } else if (undo) {
+      offerUndo(undo.ids, message, undo.run);
     } else {
       window.UIFeedback.toast(message, { variant: 'success' });
     }
   }
 
-  function confirmKeepDialog() {
-    var allCb = byId('keep-all-seasons');
-    var allChecked = !!allCb && allCb.checked;
-    var selectedIds = [];
-    document.querySelectorAll('#keep-season-list input[data-season-id]:checked').forEach(function (cb) {
-      selectedIds.push(cb.dataset.seasonId);
-    });
+  function listNames(names) {
+    return names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+  }
 
-    if (selectedIds.length === 0 && !allChecked) {
-      window.UIFeedback.error('Select at least one season to continue.');
+  /* What the ticks and the pressed buttons change of the keeps there are:
+     all: the whole show is kept; keeps: the seasons kept for the duration
+     chosen; endsShow: the show's own keep goes, and held are the seasons kept
+     at least as long as it lasted; drops: the seasons no longer kept; fresh:
+     nothing but seasons that had no keep. */
+  function chosenChanges() {
+    var showKept = _keepDialogState.showKept;
+    var list = byId('keep-season-list');
+    var allCb = byId('keep-all-seasons');
+    var all = !!allCb && allCb.checked;
+    function isSet(id) {
+      return toArray(list.querySelectorAll('[data-keep-set]')).some(function (b) {
+        return b.getAttribute('data-keep-set') === id && b.getAttribute('aria-pressed') === 'true';
+      });
+    }
+    var ticked = {};
+    list.querySelectorAll('input[data-season-id]').forEach(function (cb) { ticked[cb.dataset.seasonId] = cb.checked; });
+    var showSet = isSet('all');
+    var endsShow = !!showKept && !all;
+    var c = { all: all && (!showKept || showSet), keeps: [], endsShow: endsShow, held: [], drops: [], fresh: !showKept && !all, ticked: 0 };
+    _keepDialogState.seasons.forEach(function (s) {
+      if (!ticked[s.id]) {
+        if (s.kept || showKept) c.drops.push(s);
+        return;
+      }
+      c.ticked++;
+      if (showKept) {
+        /* A season's own keep that outlasts the show's is no part of it. */
+        if (showSet && endOf(s.keep) <= endOf(showKept)) c.keeps.push(s);
+        else if (endsShow && endOf(s.keep) < endOf(showKept)) c.held.push(s);
+      } else if (!s.kept || isSet(s.id)) {
+        c.keeps.push(s);
+        if (s.kept) c.fresh = false;
+      }
+    });
+    if (c.drops.length) c.fresh = false;
+    return c;
+  }
+
+  function nothingChosen(c) {
+    if (!c.ticked) return 'Select at least one season to continue.';
+    if (c.all && !c.keeps.length) return 'Every season has a keep of its own. Press “Set to” on one to change it.';
+    if (!c.keeps.length && !c.drops.length && !c.endsShow) {
+      return 'Nothing to change yet. Tick a season, or press “Set to” on a kept one.';
+    }
+    return '';
+  }
+
+  /* Says which seasons a save kept and which it let go. */
+  function savedMessage(showTitle, c, duration) {
+    var title = showTitle || 'the show';
+    var names = c.keeps.map(seasonName).concat(c.all ? ['new seasons'] : []);
+    var dropped = c.drops.map(seasonName);
+    if (names.length) {
+      return keptMessage(title + ', ' + listNames(names), duration) +
+        (dropped.length ? ' Removed the keep on ' + listNames(dropped) + '.' : '');
+    }
+    return 'Removed the keep on ' + title + (dropped.length ? ', ' + listNames(dropped) : ' for new seasons') + '.';
+  }
+
+  /* A season that leaves is kept for 7, 30 or 90 days through the Watch keep,
+     whose undo brings its date back; see keep(). */
+  function keepSeason(s, duration) {
+    var days = KEEP_DAYS[duration];
+    if (s.leaving && !s.kept && days) return MM.api.post('/api/watch/keep', { media_item_id: s.id, days: days });
+    return MM.api.postForm('/api/media/' + encodeURIComponent(s.id) + '/keep', { duration: duration });
+  }
+
+  /* Undo for seasons that had no keep before; null when one had its deletion
+     replaced for good. */
+  function seasonsUndo(c, duration, state, chainKey) {
+    if (!c.fresh || (!KEEP_DAYS[duration] && c.keeps.some(function (s) { return s.leaving; }))) return null;
+    var detail = { action: 'unkeep', id: state.seasonId, showRk: state.showRk };
+    function run() {
+      var failed = [];
+      emit('busy', detail);
+      trackKeepChain(chainKey, c.keeps.reduce(function (chain, s) {
+        return chain.then(function () {
+          return s.leaving
+            ? MM.api.post('/api/watch/unkeep', { media_item_id: s.id })
+            : MM.api.post('/api/media/' + encodeURIComponent(s.id) + '/unprotect');
+        }).catch(function (err) { failed.push(seasonName(s) + ': ' + MM.api.messageOf(err, 'Try again.')); });
+      }, Promise.resolve()).then(function () {
+        emit(failed.length < c.keeps.length ? 'done' : 'failed', detail);
+        if (failed.length) window.UIFeedback.error("Couldn't undo the keep. " + failed.join(' '));
+        else window.UIFeedback.toast('Keep undone.');
+      }));
+    }
+    return { ids: c.keeps.map(function (s) { return s.id; }), run: run };
+  }
+
+  function confirmKeepDialog() {
+    var c = chosenChanges();
+    var refusal = nothingChosen(c);
+    if (refusal) {
+      window.UIFeedback.error(refusal);
       return;
     }
 
@@ -557,7 +734,6 @@
     var seasonsRequestUrl = seasonsUrl();
     var request = _keepDialogRequest;
     var chainKey = keepChainKey();
-    var chain;
     var showTitle = _keepDialogState.showTitle;
     var state = {
       showRk: rk,
@@ -569,105 +745,103 @@
     var say = state.say;
     var rowDetail = { action: 'show', id: state.seasonId, showRk: rk };
     emit('busy', rowDetail);
-    function restoreButton() {
-      emit('failed', rowDetail);
-      if (!state.isOpen()) return;
-      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
-      btn.disabled = false;
-      btn.textContent = btnLabel;
-      if (removeAllBtn) removeAllBtn.disabled = false;
-      if (refocus) btn.focus();
-    }
-    function done(data) {
-      showKeepSaved(state, data, keptMessage(showTitle, dur));
+    /* The Undo of an earlier keep of these seasons would undo the wrong thing. */
+    function done(data, undo) {
+      c.keeps.concat(c.held, c.drops).forEach(function (s) { retireUndo(s.id); });
+      showKeepSaved(state, data, savedMessage(showTitle, c, dur), undo);
     }
 
-    if (allChecked) {
-      if (selectedIds.length === 0) {
-        document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-          selectedIds.push(cb.dataset.seasonId);
-        });
-      }
-      chain = MM.api.post(
+    if (c.all) {
+      trackKeepChain(chainKey, MM.api.post(
         '/api/show/' + encodeURIComponent(rk) + '/keep',
-        { duration: dur, season_ids: selectedIds }
+        { duration: dur, season_ids: c.keeps.map(function (s) { return s.id; }) }
       )
         .then(done)
         .catch(function (err) {
           var msg = MM.api.messageOf(err, 'Try again.');
           window.UIFeedback.error(say("Couldn't save keep. " + msg));
-          restoreButton();
-        });
-    } else {
-      /* Failures are reported by the season names the dialog shows. */
-      var names = {};
-      var unticked = [];
-      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        names[cb.dataset.seasonId] = cb.labels[0].textContent;
-        if (!cb.checked) unticked.push(cb.dataset.seasonId);
-      });
-      /* Sequential loop — accumulates failures, continues after each one. */
-      var keepChain = Promise.resolve();
-      var failed = [];
-      var running = null;
-      selectedIds.forEach(function (sid) {
-        keepChain = keepChain.then(function () {
-          return MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
-            .then(function (data) { if (data && data.deletion_running) running = data; })
-            .catch(function () { failed.push(names[sid]); });
-        });
-      });
-      /* Once every ticked season is kept, an unticked season loses its keep.
-         A show keep covers every season, so it goes first: unticking one
-         season ends it. The seasons are read again because ending the show
-         keep leaves some with no keep of their own to remove. */
+          emit('failed', rowDetail);
+          if (!state.isOpen()) return;
+          var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
+          btn.disabled = false;
+          btn.textContent = btnLabel;
+          if (removeAllBtn) removeAllBtn.disabled = false;
+          if (refocus) btn.focus();
+        }));
+      return;
+    }
+
+    /* Sequential loop — accumulates failures, continues after each one. */
+    var keepChain = Promise.resolve();
+    var failed = [];
+    var unsaved = [];
+    var running = null;
+    function save(s, duration) {
       keepChain = keepChain.then(function () {
-        if (failed.length) return;
-        var ended = Promise.resolve(true);
-        if (showKept) {
-          ended = MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove')
-            .catch(function (err) {
-              /* 404: no show keep any more (removed in another tab, or the
-                 reply to an earlier try was lost), which is what was asked. */
-              if (err && err.status === 404) return;
-              throw err;
-            })
-            .then(function () {
-              if (state.isOpen()) _keepDialogState.showKept = false;
-              return true;
-            })
-            .catch(function () { failed.push('the show keep'); return false; });
-        }
-        return ended.then(function (ok) {
-          if (!ok || !unticked.length) return;
-          return MM.api.get(seasonsRequestUrl).then(function (data) {
-            var keptNow = {};
-            data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
-            var chain = Promise.resolve();
-            unticked.forEach(function (sid) {
-              if (!keptNow[sid]) return;
-              chain = chain.then(function () {
-                return MM.api.post('/api/media/' + encodeURIComponent(sid) + '/unprotect')
-                  .catch(function () { failed.push(names[sid]); });
-              });
-            });
-            return chain;
-          }, function () { failed.push('the seasons to remove keeps from'); });
-        });
-      });
-      chain = keepChain.then(function () {
-        if (failed.length) {
-          window.UIFeedback.error(say('Keep failed for: ' + failed.join(', ')));
-          if (running && running.message) {
-            window.UIFeedback.toast(say(running.message), { duration: 8000 });
-          }
-          restoreButton();
-        } else {
-          done(running);
-        }
+        return keepSeason(s, duration)
+          .then(function (data) { if (data && data.deletion_running) running = data; })
+          .catch(function () { failed.push(seasonName(s)); unsaved.push(s.id); });
       });
     }
-    trackKeepChain(chainKey, chain);
+    c.keeps.forEach(function (s) { save(s, dur); });
+    c.held.forEach(function (s) { save(s, atLeast(showKept)); });
+    /* Once every ticked season is kept, an unticked season loses its keep.
+       A show keep covers every season, so it goes first: unticking one
+       season ends it. The seasons are read again because ending the show
+       keep leaves some with no keep of their own to remove. */
+    keepChain = keepChain.then(function () {
+      if (failed.length) return;
+      var ended = Promise.resolve(true);
+      if (c.endsShow) {
+        ended = MM.api.post('/api/show/' + encodeURIComponent(rk) + '/remove')
+          .catch(function (err) {
+            /* 404: no show keep any more (removed in another tab, or the
+               reply to an earlier try was lost), which is what was asked. */
+            if (err && err.status === 404) return;
+            throw err;
+          })
+          .then(function () { return true; })
+          .catch(function () { failed.push('the show keep'); return false; });
+      }
+      return ended.then(function (ok) {
+        if (!ok || !c.drops.length) return;
+        return MM.api.get(seasonsRequestUrl).then(function (data) {
+          var keptNow = {};
+          data.seasons.forEach(function (s) { if (s.kept) keptNow[s.id] = true; });
+          var chain = Promise.resolve();
+          c.drops.forEach(function (s) {
+            if (!keptNow[s.id]) return;
+            chain = chain.then(function () {
+              return MM.api.post('/api/media/' + encodeURIComponent(s.id) + '/unprotect')
+                .catch(function () { failed.push(seasonName(s)); });
+            });
+          });
+          return chain;
+        }, function () { failed.push('the seasons to remove keeps from'); });
+      });
+    });
+    var chain = keepChain.then(function () {
+      if (!failed.length) {
+        done(running, seasonsUndo(c, dur, state, chainKey));
+        return;
+      }
+      window.UIFeedback.error(say('Keep failed for: ' + failed.join(', ')));
+      if (running && running.message) {
+        window.UIFeedback.toast(say(running.message), { duration: 8000 });
+      }
+      emit('failed', rowDetail);
+    });
+    trackKeepChain(chainKey, chain).then(function () {
+      if (!failed.length || !state.isOpen()) return;
+      /* Some of it may be saved: show what is, with the rest still ticked. */
+      var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
+      _keepDialogState.picked = unsaved;
+      if (refocus) {
+        list.tabIndex = -1;
+        list.focus();
+      }
+      loadKeepSeasons(refocus ? function () { return btn; } : undefined);
+    });
   }
 
   function removeAllKeeps() {
@@ -704,12 +878,10 @@
           goneIsDone: true
         });
       }
-      var names = {};
-      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        names[cb.dataset.seasonId] = cb.labels[0].textContent;
-      });
-      _keepDialogState.keptSeasonIds.forEach(function (sid) {
-        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', name: names[sid] || 'a season' });
+      _keepDialogState.seasons.forEach(function (s) {
+        if (!s.kept) return;
+        retireUndo(s.id);
+        allRequests.push({ url: '/api/media/' + encodeURIComponent(s.id) + '/unprotect', name: seasonName(s) });
       });
 
       var removeChain = Promise.resolve();
@@ -809,7 +981,7 @@
 
     data.seasons.forEach(function (s) {
       var row = el('div', 'keep-season-item');
-      var name = el('span', 'keep-season-name', s.season_number != null ? 'Season ' + s.season_number : s.title);
+      var name = el('span', 'keep-season-name', seasonName(s));
       row.appendChild(name);
       row.appendChild(seasonDetails(s));
       /* A kept season gets no Delete, as a kept row gets none in the list. */

@@ -368,3 +368,98 @@ def test_a_change_of_what_is_scheduled_waits_for_a_list_that_loads_or_is_hidden(
         "hidden": 1,
         "shown": 2,
     }
+
+
+WATCH_KEEP = "/api/watch/keep"
+
+
+def test_the_keep_dialog_opens_with_the_season_that_leaves_and_keeps_only_that_one() -> None:
+    out = _run("keepLeavingSeason")
+    assert out["ticked"] == ["s1", "s3"]
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"]]
+    assert out["told"] == ["Kept Night Shift, Season 3 for 30 days."]
+    assert out["undone"] == [["/api/watch/unkeep", "", "s3"]]
+
+
+def test_a_season_nobody_picked_is_never_ticked_or_sent() -> None:
+    out = _run("keepNothingPicked")
+    assert out["other"] == {"ticked": [], "sent": [], "errors": 1, "busy": False}
+    assert out["kept"] == {"ticked": ["s1"], "sent": [], "errors": 1, "busy": False}
+
+
+def test_the_keep_dialog_of_a_list_row_picks_the_season_whose_date_the_row_shows() -> None:
+    out = _run("keepFromList")
+    assert out["ticked"] == ["s1", "s2"]
+    assert out["leavingOnes"] == [None, "3", "5"]
+    assert out["nothingLeaves"] == []
+    assert out["soonest"] == ["s3"]
+
+
+def test_a_keep_changes_only_by_the_button_of_its_own_season() -> None:
+    out = _run("keepChanged")
+    assert out["only"] == {"s1": True, "s2": False, "all": False}
+    assert (out["label"], out["pressed"]) == ("Set to 90 days", "true")
+    assert out["sent"] == [["/api/media/s1/keep", "90 days", ""]]
+    assert out["told"] == ["Kept Night Shift, Season 1 for 90 days."]
+    assert out["undo"] is False
+    # Unticking takes the change back with it; ticking again keeps the keep there was.
+    assert out["afterUntick"] == [[WATCH_KEEP, 30, "s3"]]
+
+
+def test_an_unticked_season_loses_its_keep_and_the_toast_names_it() -> None:
+    out = _run("keepRemoved")
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"], ["/api/media/s1/unprotect", None, None]]
+    assert out["told"] == ["Kept Night Shift, Season 3 for 30 days. Removed the keep on Season 1."]
+    assert out["undo"] is False
+    assert out["only"] == [
+        [["/api/media/s1/unprotect", None, None]],
+        ["Removed the keep on Night Shift, Season 1."],
+    ]
+
+
+def test_keeping_the_whole_show_leaves_the_keeps_its_seasons_have() -> None:
+    out = _run("keepWholeShow")
+    assert out["ticked"] == ["all-seasons", "s1", "s2", "s3"]
+    assert out["sent"] == [["/api/show/77/keep", "30 days", ["s2", "s3"]]]
+    assert out["told"] == ["Kept Night Shift, Season 2, Season 3 and new seasons for 30 days."]
+    assert out["allKept"] == [[], 1]
+
+
+def test_unticking_a_season_of_a_kept_show_never_shortens_the_others() -> None:
+    out = _run("keepShowUnticked")
+    assert out["ticked"] == ["all-seasons", "s1", "s2", "s3"]
+    sent, told = out["forever"]
+    assert sent == [["/api/media/s2/keep", "forever", ""], ["/api/show/77/remove", None, None]]
+    assert told == ["Removed the keep on Night Shift, Season 3."]
+    assert out["days"] == [
+        ["/api/media/s1/keep", "30 days", ""],
+        ["/api/show/77/remove", None, None],
+    ]
+
+
+def test_a_show_keep_changes_only_by_its_own_button_and_spares_a_longer_season_keep() -> None:
+    out = _run("keepShowChanged")
+    assert out["untouched"] == [[], 1]
+    assert out["seasonSet"] is False
+    assert out["sent"] == [["/api/show/77/keep", "30 days", ["s2", "s3"]]]
+
+
+def test_after_a_failure_the_dialog_offers_only_what_was_not_saved() -> None:
+    out = _run("keepPartFails")
+    assert len(out["errors"]) == 1
+    assert "Season 2" in out["errors"][0]
+    assert "Season 3" not in out["errors"][0]
+    assert out["ticked"] == ["s1", "s2", "s3"]
+    assert (out["open"], out["focus"]) == (True, "keep-dialog-confirm")
+    assert out["again"] == [[WATCH_KEEP, 30, "s2"]]
+
+
+def test_a_season_keep_is_undone_by_what_made_it_and_not_once_it_was_removed() -> None:
+    out = _run("keepUndoRetired")
+    assert out["dismissed"] is True
+    assert out["sent"] == [[WATCH_KEEP, 30, "s3"], ["/api/media/s3/unprotect", None, None]]
+    assert out["forever"] == [[["/api/media/s3/keep", "forever", ""]], False]
+    assert out["unscheduled"] == [
+        ["/api/media/s2/keep", "forever", ""],
+        ["/api/media/s2/unprotect", None, None],
+    ]

@@ -781,17 +781,25 @@ def _keep(facts: lib.TitleFacts) -> dict[str, str]:
     return {"state": "none", "label": "Not kept"}
 
 
-def _deletion(
+def _deletions(
     conn: sqlite3.Connection, libraries: list[str], facts: lib.TitleFacts, now: datetime
-) -> dict[str, Any] | None:
+) -> list[dict[str, Any]]:
+    """What of the title is scheduled for deletion, soonest first."""
     ids = set(facts.item_ids)
-    soonest = next(
-        (p for p in lib.pending_deletions(conn, libraries, now) if p.media_item_id in ids), None
-    )
-    if soonest is None:
-        return None
-    execute_at = parse_execute_at(soonest.execute_at, default=now)
-    return {"execute_at": execute_at.isoformat(), "days": days_left(execute_at, now)}
+    out: list[dict[str, Any]] = []
+    for pending in lib.pending_deletions(conn, libraries, now):
+        if pending.media_item_id not in ids:
+            continue
+        execute_at = parse_execute_at(pending.execute_at, default=now)
+        out.append(
+            {
+                "keep_id": pending.media_item_id,
+                "season": pending.season_number,
+                "execute_at": execute_at.isoformat(),
+                "days": days_left(execute_at, now),
+            }
+        )
+    return out
 
 
 @router.get("/api/watch/admin/title/{ref}")
@@ -808,6 +816,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
     if facts is None:
         return _not_found()
     keep = _keep(facts)
+    deletions = _deletions(conn, libraries, facts, now)
     is_show = kind == "show"
     delete: dict[str, Any] | None
     if keep["state"] != "none":
@@ -822,7 +831,8 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
             "size_bytes": facts.size_bytes,
             "added": facts.added_at,
             "last_watched": facts.last_watched_at,
-            "deletion": _deletion(conn, libraries, facts, now),
+            "deletion": deletions[0] if deletions else None,
+            "deletions": deletions,
             "keep": keep,
             "actions": {
                 "keep_wrapper": {

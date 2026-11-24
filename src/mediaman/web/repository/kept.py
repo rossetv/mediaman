@@ -40,19 +40,20 @@ class ProtectedRow:
 
 
 @dataclass(frozen=True)
+class KeepRow:
+    action: str
+    execute_at: str | None
+
+
+@dataclass(frozen=True)
 class SeasonRow:
     id: str
     season_number: int | None
     title: str
     kept: bool
+    keep: KeepRow | None
     file_size_bytes: int
     last_watched_at: str | None
-
-
-@dataclass(frozen=True)
-class ShowKeptRow:
-    action: str
-    execute_at: str | None
 
 
 def resolve_show_rating_key(
@@ -152,7 +153,9 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
         (show_rating_key, *ALL_SEASON_TYPES),
     ).fetchall()
 
-    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now_iso())
+    now = now_iso()
+    kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now)
+    keeps = _longest_keeps(conn, sorted(kept_set), now)
 
     return [
         SeasonRow(
@@ -160,6 +163,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
             season_number=r["season_number"],
             title=r["title"],
             kept=r["id"] in kept_set,
+            keep=keeps.get(r["id"]),
             file_size_bytes=r["file_size_bytes"] or 0,
             last_watched_at=r["last_watched_at"],
         )
@@ -167,14 +171,30 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ]
 
 
-def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> ShowKeptRow | None:
+def _longest_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> dict[str, KeepRow]:
+    """The keep in force of each of *media_ids* that has one: of several, the longest."""
+    keeps: dict[str, KeepRow] = {}
+    # rationale: placeholders is purely "?" * len(media_ids); every value is bound
+    placeholders = ",".join("?" * len(media_ids))
+    for r in conn.execute(
+        "SELECT media_item_id, action, execute_at FROM scheduled_actions "
+        f"WHERE media_item_id IN ({placeholders}) AND (action = 'protected_forever' "
+        "OR (action = 'snoozed' AND execute_at >= ?)) "
+        "ORDER BY action = 'protected_forever', execute_at",
+        (*media_ids, now),
+    ).fetchall():
+        keeps[r["media_item_id"]] = KeepRow(action=r["action"], execute_at=r["execute_at"])
+    return keeps
+
+
+def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> KeepRow | None:
     row = conn.execute(
         "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
         (show_rating_key,),
     ).fetchone()
     if row is None:
         return None
-    return ShowKeptRow(action=row["action"], execute_at=row["execute_at"])
+    return KeepRow(action=row["action"], execute_at=row["execute_at"])
 
 
 def fetch_existing_actions_for_seasons(

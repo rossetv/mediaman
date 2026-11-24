@@ -1889,7 +1889,10 @@
       var sec = body.querySelector('.ttl__seasonsec');
       holdStill(sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec, function () {
         sec.querySelector('.watch-episodes').replaceWith(fresh);
-        if ((leftOn && leftOn.id) !== (leaves && leaves.id)) redrawActions(c.ref);
+        if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
+          redrawActions(c.ref);
+          if (hasFacts(c)) renderFacts(false);
+        }
         var oldMark = sec.querySelector('.ttl__season-mark');
         var mark = seasonMark(s);
         if (oldMark && mark) oldMark.replaceWith(mark);
@@ -1925,6 +1928,7 @@
     var pending = !f && !cur.factsError;
     var lead = body.querySelector('.ttl__lead');
     if (!lead) return;
+    if (adminMenu) closeAdminMenu(adminMenu.menu.contains(document.activeElement));
     var key = focusKey();
     var old = lead.querySelector('.ttl-facts');
     var aside = el('aside', 'ttl-facts');
@@ -1961,10 +1965,11 @@
       row('Size on disk', f.size || '—');
       row('Added', f.added ? day(f.added) : '—');
       row('Last watched by anyone', f.last_watched ? day(f.last_watched) : 'Never', f.last_watched ? '' : 'is-warning');
-      if (f.deletion) {
-        var days = f.deletion.days;
-        row('Deletion', day(f.deletion.execute_at), days <= 7 ? 'is-danger' : '',
-          days <= 0 ? 'today' : 'in ' + plural(days, 'day', 'days'));
+      var gone = deletionShown(f);
+      if (gone) {
+        row('Deletion', day(gone.execute_at), gone.days <= 7 ? 'is-danger' : '',
+          (gone.season == null ? '' : 'Season ' + gone.season + ', ') +
+          (gone.days <= 0 ? 'today' : 'in ' + plural(gone.days, 'day', 'days')));
       } else {
         row('Deletion', 'Not scheduled');
       }
@@ -1980,6 +1985,12 @@
     if (fresh) aside.classList.add('is-swapping-in');
     if (key === 'facts-retry' && !cur.factsError) key = 'admin-keep';
     restoreFocus(key);
+  }
+
+  /* The deletion of what the title says leaves, else the first there is. */
+  function deletionShown(f) {
+    var leaves = leavingNow();
+    return (leaves && toArray(f.deletions || []).filter(function (d) { return String(d.keep_id) === leaves.id; })[0]) || f.deletion;
   }
 
   /* What an admin sees in place of the facts, or under ones that may be old. */
@@ -2032,7 +2043,8 @@
           item.setAttribute('tabindex', '-1');
           item.addEventListener('click', function () {
             closeAdminMenu(true);
-            api.keep(wrapper, opt[0]);
+            var leaves = leavingNow();
+            api.keep(Object.assign({}, wrapper, { season_id: leaves ? leaves.id : '' }), opt[0]);
           });
           menu.appendChild(item);
         });

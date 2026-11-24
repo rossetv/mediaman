@@ -1911,6 +1911,54 @@ const scenarios = {
     return out;
   },
 
+  // What an admin sees and keeps of a show whose Seasons 3 and 2 leave, opened from a card.
+  async leavingSeasonsAdmin() {
+    const leaving = [{ days: 2, keep_id: '3020', season: 2 }, { days: 9, keep_id: '3030', season: 3 }];
+    const deletions = leaving.map((l) => Object.assign({ execute_at: '2026-12-0' + l.days + 'T10:00:00+00:00' }, l));
+    const seasons = [1, 2, 3].map((n) => ({ number: n, name: 'Season ' + n, episode_count: 2, in_library: true, selected: n === 1 }));
+    const show = Object.assign({}, LIB_SHOW, { leaving: leaving[0], leaving_seasons: leaving, seasons });
+    const facts = (keep) => Object.assign({}, FACTS, { deletion: deletions[0], deletions, keep,
+      actions: { keep_wrapper: { id: '3010', is_tv: true, show_rk: '300', has_rk: true, show_title: 'Brightwater' }, delete: null } });
+    const eps = { ok: true, episodes: [] };
+    const calls = [];
+    const open = async (keepId, keep) => {
+      const p = load({ admin: true, adminApi: { keep: (w, d) => calls.push(['keep', w.season_id, d]), removeKeep: (w) => calls.push(['removeKeep', w.id]) }, routes: {
+        '/api/watch/title/show-300': show, '/api/watch/admin/title/show-300': facts(keep),
+        '/api/watch/title/show-300/season/1': eps, '/api/watch/title/show-300/season/2': eps } });
+      p.run();
+      p.doc.querySelectorAll('.watch-card')[1].setAttribute('data-keep-id', keepId);
+      await openCard(p, 'show-300');
+      return p;
+    };
+    const row = (p) => {
+      const rows = p.ttl().querySelectorAll('.ttl-facts__list dt, .ttl-facts__list dd').map((n) => n.textContent);
+      return rows[rows.indexOf('Deletion') + 1];
+    };
+    const choose = (p, n) => { click(p.doc, p.q('[data-ttl-act="admin-keep"]')); click(p.doc, p.ttl().querySelectorAll('.ttl-facts__menu [role="menuitem"]')[n]); };
+    const pick = async (p, n) => { click(p.doc, p.q('.watch-pill[data-season="' + n + '"]')); await settle(); };
+    const p = await open('3030', { state: 'none', label: '1 of 3 seasons kept' });
+    const out = { rows: [row(p)] };
+    choose(p, 1);
+    await pick(p, 2);
+    out.rows.push(row(p));
+    choose(p, 1);
+    const trigger = p.q('[data-ttl-act="admin-keep"]');
+    click(p.doc, trigger);
+    const first = pick(p, 1);
+    click(p.doc, p.q('[data-ttl-act="admin-keep"]'));
+    p.ttl().querySelectorAll('.ttl-facts__menu [role="menuitem"]')[0].focus();
+    await first;
+    out.menuAfter = { open: p.ttl().querySelectorAll('.ttl-facts__menu').some((m) => !m.hidden), focus: p.doc.activeElement.getAttribute('data-ttl-act'),
+      live: p.ttl().contains(p.doc.activeElement) };
+    out.rows.push(row(p));
+    choose(p, 1);
+    out.calls = calls.splice(0);
+    const kept = await open('3030', { state: 'kept', label: 'Kept forever' });
+    choose(kept, 4);
+    out.removed = calls;
+    return out;
+  },
+
   // The director leads to the page of their titles, and Back finds the focus on them; one TMDB gives no id for is words.
   async directorLink() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { director: 'Ada Rimmington', director_id: 9008 }) } });
