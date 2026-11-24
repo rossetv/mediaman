@@ -117,7 +117,9 @@ def test_search_cards_put_the_title_ref_on_the_link_so_focus_can_return_to_it() 
 
 def test_after_a_retry_focus_goes_to_the_rebuilt_group() -> None:
     out = _run("retryFocus")
+    assert out["whileLoading"] is True  # nowhere to go until the answer is in
     assert out["tmdbOk"] == "results-group__title|Available to download"
+    assert out["tmdbOkInGroup"] is True
     assert out["headingFocusable"] == -1
     assert out["failedAgain"] is True
     assert out["library"] == "results-group__title|In your library"

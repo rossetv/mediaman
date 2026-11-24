@@ -327,8 +327,10 @@ const scenarios = {
     retry.focus();
     click(tmdb.doc, retry);
     await settle();
+    out.whileLoading = tmdb.doc.activeElement === retry;
     await tmdb.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
     out.tmdbOk = active(tmdb);
+    out.tmdbOkInGroup = tmdb.doc.querySelectorAll('.results-group__head')[1].contains(tmdb.doc.activeElement);
     out.headingFocusable = tmdb.doc.activeElement.tabIndex;
 
     const again = load(ADMIN);
