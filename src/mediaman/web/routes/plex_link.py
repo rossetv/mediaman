@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class _StartLimiter(ActionRateLimiter):
+class _RefundableLimiter(ActionRateLimiter):
     def give_back(self, actor: str) -> None:
         """Undo the last ``check`` that let *actor* through."""
         with self._lock:
@@ -48,7 +48,10 @@ class _StartLimiter(ActionRateLimiter):
                     log.pop()
 
 
-_START_LIMITER = _StartLimiter(max_in_window=5, window_seconds=3600, max_per_day=20)
+_START_LIMITER = _RefundableLimiter(max_in_window=5, window_seconds=3600, max_per_day=20)
+# Taken before a start and given back unless it fails, since a failed start costs no start.
+_FAILED_START_LIMITER = _RefundableLimiter(max_in_window=20, window_seconds=3600)
+_FAILED_START_AUDIT_LIMITER = ActionRateLimiter(max_in_window=1, window_seconds=3600)
 _CHECK_LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60)
 _CHANGE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60)
 # Shared by everyone: what this install may ask of plex.tv. Waiting sign-ins ask often, so
@@ -207,9 +210,13 @@ def api_start_or_confirm(
         )
     if repository.get_link(conn, username) is not None:
         return _refuse("already_linked")
+    if not _FAILED_START_LIMITER.check(username):
+        return _refuse("too_many_requests")
     if not _START_LIMITER.check(username):
+        _FAILED_START_LIMITER.give_back(username)
         return _refuse("too_many_requests")
     if not _SHARED_START_LIMITER.check(_EVERYONE):
+        _FAILED_START_LIMITER.give_back(username)
         _START_LIMITER.give_back(username)
         return _refuse("too_many_requests")
     return _start(conn, request, username, session)
@@ -238,11 +245,14 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
         _START_LIMITER.give_back(username)
         return _refuse("plex_not_set_up")
     except TooManyAttempts:
+        _FAILED_START_LIMITER.give_back(username)
         return _refuse("too_many_requests")
     except (PlexError, PlexTvUnavailable):
         _START_LIMITER.give_back(username)
-        _audit_failure(conn, request, username, "plex_unavailable")
+        if _FAILED_START_AUDIT_LIMITER.check(username):
+            _audit_failure(conn, request, username, "plex_unavailable")
         return _refuse("plex_unavailable")
+    _FAILED_START_LIMITER.give_back(username)
     security_event(conn, event="plex.link_started", actor=username, ip=get_client_ip(request))
     return respond_ok({"attempt": _attempt_view(conn, attempt, signed_out=signed_out)})
 

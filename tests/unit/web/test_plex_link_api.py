@@ -777,6 +777,49 @@ def test_plex_being_down_does_not_use_up_a_persons_starts(client_for, plex, down
     assert amy.post("/api/account/plex").status_code == 429
 
 
+def test_a_persons_failed_starts_have_a_cap_and_one_record(client_for, plex, conn):
+    plex.answers["POST", f"{TV}/pins"] = (503, "{}")
+    amy, bob = client_for("amy"), client_for("bob")
+    codes = []
+    for _ in range(25):
+        codes.append(amy.post("/api/account/plex").status_code)
+        routes._SHARED_START_LIMITER.reset()
+    assert codes == [503] * 20 + [429] * 5
+    asked = len(plex.calls)
+    assert amy.post("/api/account/plex").status_code == 429
+    assert len(plex.calls) == asked
+    assert bob.post("/api/account/plex").status_code == 503
+    failed = [line.split(" ip=")[0] for line in audit(conn) if "plex_unavailable" in line]
+    assert failed == ["sec:plex.link_failed actor=amy", "sec:plex.link_failed actor=bob"]
+
+
+def test_starts_that_work_or_are_turned_away_count_for_no_failure(client_for, plex, conn):
+    amy = client_for("amy")
+    while routes._SHARED_START_LIMITER.check("everyone"):
+        pass
+    for _ in range(21):
+        assert amy.post("/api/account/plex").status_code == 429
+    routes._SHARED_START_LIMITER.reset()
+    for _ in range(5):
+        start(amy)
+    for _ in range(21):
+        assert amy.post("/api/account/plex").status_code == 429
+    routes._START_LIMITER.reset()
+    plex.answers["POST", f"{TV}/pins"] = (503, "{}")
+    assert amy.post("/api/account/plex").status_code == 503
+
+
+def test_asking_without_plex_set_up_has_the_same_cap(client_for, conn):
+    conn.execute("DELETE FROM settings WHERE key = 'plex_token'")
+    conn.commit()
+    amy = client_for("amy")
+    codes = []
+    for _ in range(21):
+        codes.append(amy.post("/api/account/plex").status_code)
+        routes._SHARED_START_LIMITER.reset()
+    assert codes == [409] * 20 + [429]
+
+
 def test_without_plex_set_up_linking_is_refused(client_for, plex, conn):
     conn.execute("DELETE FROM settings WHERE key = 'plex_token'")
     conn.commit()
