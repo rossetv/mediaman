@@ -865,7 +865,7 @@ THIRD = ["3030", "Keep Brightwater, Season 3", "Season 3 leaves in 2 days."]
 
 
 def _keeps(shown: list) -> list:
-    return shown[:2] + [shown[2] and shown[2].split(" Keep")[0]]
+    return [*shown[:2], shown[2] and shown[2].split(" Keep")[0]]
 
 
 def test_a_title_opened_from_a_leaving_season_keeps_that_season_and_no_other() -> None:
