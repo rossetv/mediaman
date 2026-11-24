@@ -33,7 +33,7 @@
     'continue': { title: 'Nothing in Continue watching', text: 'What you start shows up here.' },
     leaving: { title: 'Nothing is leaving soon' }
   };
-  var OTHERS = { view: null, q: null, genre: null, type: null, decade: null, person: null, page: null, per_page: null, sort: null };
+  var OTHERS = { view: null, q: null, genre: null, type: null, where: null, decade: null, person: null, page: null, per_page: null, sort: null };
   var OFFER_SCREENS = 2.6; // of the same row, less OFFER_LESS px, before its grid is offered
   var OFFER_LESS = 300;
   var EDGE = 2; // px; a row this little too wide is all there

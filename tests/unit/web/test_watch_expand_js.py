@@ -129,6 +129,10 @@ def test_an_address_that_asks_for_something_else_or_for_nothing_known_opens_no_g
     }
 
 
+def test_a_row_s_grid_keeps_nothing_of_a_category_in_its_address() -> None:
+    assert _run("afterACategory") == "/watch?all=movies"
+
+
 def test_a_card_kept_or_dismissed_in_the_grid_leaves_it_and_its_row_and_comes_back_to_both() -> (
     None
 ):

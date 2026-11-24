@@ -321,6 +321,13 @@ const scenarios = {
       unknown: await at('/watch?all=films'), inherited: await at('/watch?all=constructor'), order: await at('/watch?all=continue&sort=newest') };
   },
 
+  // A row's grid keeps nothing of what a category was narrowed to.
+  async afterACategory() {
+    const p = await load({ url: '/watch?genre=action&type=movie&where=library&decade=1990s' });
+    await p.open('movies');
+    return p.at();
+  },
+
   // A row changes while the page is inert under a panel; one card is itself on its way out.
   async underAPanel() {
     const p = await load();
