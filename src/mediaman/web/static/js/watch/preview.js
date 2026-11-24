@@ -1057,8 +1057,18 @@
     if (live) close(live, 'cut');
   });
 
+  /* Esc is the preview's before the search box's, the grid's or the panel's under it, but not
+     before that of a menu or a dialog over it. */
   document.addEventListener('keydown', function (e) {
-    if (e.defaultPrevented || detailOpen()) return;
+    if (e.key !== 'Escape' || e.isComposing || !live || covered()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    disarm();
+    close(live);
+  }, true);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.defaultPrevented || e.isComposing || detailOpen()) return;
     if (e.key !== 'Escape' && e.key !== 'Tab') return;
     disarm();
     if (live) close(live);

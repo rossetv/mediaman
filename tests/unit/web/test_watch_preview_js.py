@@ -250,3 +250,22 @@ def test_a_pick_the_library_holds_keeps_its_reason_here_and_in_its_detail() -> N
         "pick": "rec-6",
         "kind": "movie",
     }
+
+
+def test_escape_closes_the_preview_alone_before_the_grid_or_the_search_under_it() -> None:
+    out = _run("escapeInGrid")
+    assert out["page"] == ["Fieldwork", [None, True, 0, 0], [None, True, 1, 0]]
+    assert out["search"] == ["Fieldwork", [None, True, 0, 0], [None, True, 0, 1]]
+
+
+def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> None:
+    assert _run("escapeInGrid")["menu"] == [
+        "Fieldwork",
+        ["Fieldwork", True, 0, 0],
+        [None, True, 0, 0],
+        [None, True, 1, 0],
+    ]
+
+
+def test_an_escape_that_ends_a_composition_leaves_the_preview() -> None:
+    assert _run("escapeComposing") == ["Fieldwork", False]

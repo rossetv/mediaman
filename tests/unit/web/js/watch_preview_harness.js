@@ -16,6 +16,7 @@ Object.defineProperty(Node.prototype, 'value', {
   get() { return Number(this.getAttribute('value')); },
   set(v) { this.setAttribute('value', v); },
 });
+Node.prototype.replaceChildren = function (...kids) { this.textContent = ''; kids.forEach((k) => this.appendChild(k)); };
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 Object.defineProperty(Node.prototype, 'naturalWidth', { get: () => 1280 });
 Object.defineProperty(Node.prototype, 'naturalHeight', { get: () => 720 });
@@ -61,7 +62,9 @@ const CARDS = [
 function load(opts = {}) {
   const doc = makeDocument();
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = () => {}; return n; })(doc.createElement);
-  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['input', { id: 'watch-search' }], ['div', { class: 'watch-row__scroll' }, ...CARDS]]));
+  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
+  // A listener of the capture phase is kept apart: it has the event first.
+  doc.addEventListener = ((on) => (type, fn, how) => on(how === true ? type + ' capture' : type, fn))(doc.addEventListener);
   doc.documentElement.clientWidth = 1280;
   doc.hidden = false;
   const fire = (target, type, e) => ((target.listeners || {})[type] || []).forEach((fn) => fn({ target, preventDefault() {}, ...e }));
@@ -102,7 +105,7 @@ function load(opts = {}) {
     messageOf: (_e, fallback) => fallback,
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, parseInt, AbortController, encodeURIComponent,
+    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Map, Set, Error, parseFloat, parseInt, AbortController, encodeURIComponent,
     Date: { now: () => clock },
     performance: { now: () => clock },
     setTimeout: (fn, ms) => at(ms || 0, fn),
@@ -124,7 +127,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/preview.js'].forEach((f) => {
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
   });
@@ -132,6 +135,14 @@ function load(opts = {}) {
   const h = {
     doc, ctx, gets, aborted, posts, waiting, toasts, details, origins, store, fire,
     winFire: (type, e) => (winListeners[type] || []).forEach((fn) => fn(e || {})),
+    /* Press *key*, from the document down to *target* and back up to the window. */
+    key(key, target, over) {
+      const e = { type: 'keydown', key, target, defaultPrevented: false, stopped: false, preventDefault() { e.defaultPrevented = true; }, stopPropagation() { e.stopped = true; }, ...over };
+      const up = [];
+      for (let a = target; a; a = a.parentNode) up.push(a.listeners.keydown);
+      [doc.listeners['keydown capture'], ...up, doc.listeners.keydown, winListeners.keydown].forEach((fns) => { if (!e.stopped) (fns || []).forEach((fn) => fn(e)); });
+      return e;
+    },
     /* Let *ms* pass, timers and replies in their order. */
     async pass(ms) {
       const end = clock + ms;
@@ -316,7 +327,7 @@ const scenarios = {
     for (const key of ['Escape', 'Tab', 'a']) {
       const h = load();
       await h.rest('film');
-      h.fire(h.doc, 'keydown', { key });
+      h.key(key, h.doc.body);
       out[key] = h.title();
     }
     return out;
@@ -541,6 +552,36 @@ const scenarios = {
     const reason = h.text('.pv__reason');
     h.pv().querySelectorAll('button').filter((b) => b.textContent === 'Details')[0].click();
     return { gets: h.gets, reason, opened: h.details, pick: h.origins[0].pick, kind: h.origins[0].kind };
+  },
+  /* Escape over a grid, from the page, from the search box and with a menu of the preview's open. */
+  async escapeInGrid() {
+    const out = {};
+    for (const from of ['page', 'search', 'menu']) {
+      const h = load({ grid: true });
+      let backs = 0;
+      let cleared = 0;
+      const search = h.doc.querySelector('#watch-search');
+      search.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cleared++; e.preventDefault(); } });
+      h.ctx.scrollTo = h.ctx.scrollBy = () => {};
+      h.ctx.MMWatch.grid.open({ id: 'movies', title: 'Movies', cards: [build(h.doc, card('ingrid', 'In grid', { ref: 'movie-1' }))], next: null, instant: true, back: () => { backs++; } });
+      await h.rest('ingrid');
+      if (from === 'menu') h.pv().querySelector('[data-preview-more]').click();
+      const seen = [h.title()];
+      const steps = from === 'menu' ? 3 : 2;
+      for (let i = 0; i < steps; i++) {
+        const e = h.key('Escape', from === 'search' ? search : h.doc.body);
+        seen.push([h.title(), e.defaultPrevented, backs, cleared]);
+        await h.pass(100);
+      }
+      out[from] = seen;
+    }
+    return out;
+  },
+  async escapeComposing() {
+    const h = load();
+    await h.rest('film');
+    const e = h.key('Escape', h.doc.body, { isComposing: true });
+    return [h.title(), e.defaultPrevented];
   },
 };
 
