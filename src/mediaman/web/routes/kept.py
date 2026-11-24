@@ -191,7 +191,7 @@ def api_show_seasons(
     now = now_utc()
     leaving = {
         p.media_item_id: p
-        for p in reversed(lib.pending_deletions(conn, lib.scanned_library_ids(conn), now))
+        for p in reversed(lib.pending_deletions(conn, lib.scanned_library_ids(conn)))
     }
     seasons = []
     for r in season_rows:

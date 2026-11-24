@@ -105,7 +105,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
     now = now_utc()
     # Watch's own rule, so the count of these is always the length of its Leaving soon row.
-    leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn), now)}
+    leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn))}
 
     waiting = _waiting_folders(conn)
     deletions_off = not read_delete_allowed_roots_setting(conn, quiet=True)

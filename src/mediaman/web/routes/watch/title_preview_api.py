@@ -202,7 +202,7 @@ def _leaving(
         fill_show_leaving(out, conn, libraries, key, is_admin)
         return
     now = now_utc()
-    pending = lib.pending_deletion(conn, libraries, key, now)
+    pending = lib.pending_deletion(conn, libraries, key)
     out["leaving"] = leaving_info(pending, now)
     out["keep_allowed"] = is_admin or pending is not None
 

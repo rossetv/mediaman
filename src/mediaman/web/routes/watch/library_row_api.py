@@ -70,7 +70,7 @@ def _cards(
     shows = [t for t in page if isinstance(t, lib.LibraryShow)]
     cards: dict[lib.LibraryMovie | lib.LibraryShow, dict[str, Any]] = {}
     if movies:
-        pending = lib.pending_deletions(conn, libraries, now)
+        pending = lib.pending_deletions(conn, libraries)
         films = movie_cards(conn, username, movies, pending, now)
         cards.update(zip(movies, films, strict=True))
     if shows:

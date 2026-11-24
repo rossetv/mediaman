@@ -217,7 +217,7 @@ def held_fields(
     now = now_utc()
     leaving = {
         f"movie-{p.media_item_id}": leaving_info(p, now)
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
     }
 
     def fields(ref: str | None) -> dict[str, object]:
@@ -521,7 +521,7 @@ def _movie_title(
                 "minutes_left": None,
             }
     now = now_utc()
-    out["leaving"] = leaving_info(lib.pending_deletion(conn, libraries, movie.key, now), now)
+    out["leaving"] = leaving_info(lib.pending_deletion(conn, libraries, movie.key), now)
     out["keep_allowed"] = is_admin or out["leaving"] is not None
     if client is not None and movie.tmdb_id:
         with contextlib.suppress(catalog.TmdbUnavailable):
@@ -637,7 +637,7 @@ def fill_show_leaving(
     now = now_utc()
     seasons = [
         {**(leaving_info(p, now) or {}), "season": p.season_number}
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
         if p.show_key == key and p.season_number is not None
     ]
     out["leaving"] = seasons[0] if seasons else None
@@ -1003,7 +1003,7 @@ def _deletions(
     """What of the title is scheduled for deletion, soonest first."""
     ids = set(facts.item_ids)
     out: list[dict[str, Any]] = []
-    for pending in lib.pending_deletions(conn, libraries, now):
+    for pending in lib.pending_deletions(conn, libraries):
         if pending.media_item_id not in ids:
             continue
         execute_at = parse_execute_at(pending.execute_at, default=now)

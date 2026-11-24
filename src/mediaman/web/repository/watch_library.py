@@ -418,7 +418,6 @@ def season_item_id(
 def pending_deletions(
     conn: sqlite3.Connection,
     libraries: list[str],
-    now: datetime,
     *,
     media_item_id: str | None = None,
 ) -> list[PendingDeletion]:
@@ -464,9 +463,9 @@ def pending_deletions(
 
 
 def pending_deletion(
-    conn: sqlite3.Connection, libraries: list[str], media_item_id: str, now: datetime
+    conn: sqlite3.Connection, libraries: list[str], media_item_id: str
 ) -> PendingDeletion | None:
-    found = pending_deletions(conn, libraries, now, media_item_id=media_item_id)
+    found = pending_deletions(conn, libraries, media_item_id=media_item_id)
     return found[0] if found else None
 
 

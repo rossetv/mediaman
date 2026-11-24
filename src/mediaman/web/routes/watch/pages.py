@@ -773,7 +773,7 @@ def watch_page(
 
     movies = lib.newest_first(lib.library_movies(conn, libraries))
     shows = lib.newest_first(lib.library_shows(conn, libraries))
-    pending = lib.pending_deletions(conn, libraries, now)
+    pending = lib.pending_deletions(conn, libraries)
     movie_row = movie_cards(conn, username, movies, pending, now)
     seen_shows = lib.show_seen(conn, username, libraries)
     show_row = [show_card(s, seen_shows.get(s.key)) for s in shows]
@@ -1043,13 +1043,13 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
     # Any leaving season reserves the line's slot, so a switch to one never moves the controls.
     seasons_leaving = [
         p
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
         if p.show_key == show_key and p.season_number is not None
     ]
     if selected is not None:
         season_id = lib.season_item_id(conn, libraries, show_key, selected.index)
         if season_id is not None:
-            leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id, now), now)
+            leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id), now)
     # On a season that is not leaving, the slot names the soonest one that is.
     other_leaving = None
     if leaving is None:
@@ -1152,7 +1152,7 @@ def movie_page(request: Request, key: str) -> Response:
                 "mark_key": key,
             },
             "primary": primary,
-            "leaving": leaving_info(lib.pending_deletion(conn, libraries, key, now), now),
+            "leaving": leaving_info(lib.pending_deletion(conn, libraries, key), now),
         }
     )
     return _render(request, "watch_movie.html", ctx)
@@ -1195,7 +1195,7 @@ def play_page(
     if item.type == "movie":
         if lib.find_movie(conn, libraries, rating_key) is None:
             raise HTTPException(status_code=404)
-        pending = lib.pending_deletion(conn, libraries, rating_key, now)
+        pending = lib.pending_deletion(conn, libraries, rating_key)
         title, subtitle = item.title, (str(item.year) if item.year else None)
         back_href = f"/watch/movie/{rating_key}"
     else:
@@ -1208,7 +1208,7 @@ def play_page(
             if item.parent_index is not None
             else None
         )
-        pending = lib.pending_deletion(conn, libraries, season_id, now) if season_id else None
+        pending = lib.pending_deletion(conn, libraries, season_id) if season_id else None
         title = item.grandparent_title or listed.title
         subtitle = f"{episode_label(item.parent_index, item.index)} — {item.title}"
         show_href = f"/watch/show/{show_key}"

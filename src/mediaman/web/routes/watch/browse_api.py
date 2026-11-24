@@ -117,7 +117,7 @@ def library_items(
     """The cards of library *titles*, in their order, each with its title ref."""
     now = now_utc()
     movies = [t for t in titles if isinstance(t, lib.LibraryMovie)]
-    pending = lib.pending_deletions(conn, libraries, now)
+    pending = lib.pending_deletions(conn, libraries)
     by_ref = {
         f"movie-{m.key}": c
         for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
@@ -159,7 +159,7 @@ def api_watch_keep(
 
     conn = get_db()
     now = now_utc()
-    pending = lib.pending_deletion(conn, lib.scanned_library_ids(conn), media_item_id, now)
+    pending = lib.pending_deletion(conn, lib.scanned_library_ids(conn), media_item_id)
     if pending is None:
         return respond_err("not_found", status=404)
 

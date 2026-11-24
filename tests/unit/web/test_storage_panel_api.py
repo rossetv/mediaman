@@ -495,7 +495,7 @@ class TestScheduled:
             "4": "deleting",
             "6": "overdue",
         }
-        row = pending_deletions(conn, scanned_library_ids(conn), now_utc())
+        row = pending_deletions(conn, scanned_library_ids(conn))
         assert summary == {
             "total": 5,
             "total_bytes": 23110,
