@@ -1071,6 +1071,22 @@ const scenarios = {
     }
     return out;
   },
+
+  // What loads on a category's and a person's page is said, after what the page is.
+  async spoken() {
+    const p = await ready(ADMIN, '', '/watch?genre=action');
+    await p.answer('explore?genre=action', { tmdb_configured: true, genre: GENRES[0], items: [TM], total: 5, next_page: 2 });
+    p.grids[0].opts.say('1 loaded.');
+    const out = [p.status.textContent];
+    p.grids[0].opts.fetchPage(2);
+    p.grids[0].opts.say('1 more loaded.');
+    out.push(p.status.textContent);
+    const q = await ready(ADMIN, '', '/watch?person=9001');
+    await q.answer('person/9001', { tmdb_configured: true, person: MARA, items: [TM], total: 1, in_library: 0, next_page: null });
+    q.grids[0].opts.say('1 loaded.');
+    out.push(q.status.textContent);
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

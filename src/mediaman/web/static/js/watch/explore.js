@@ -182,6 +182,22 @@
 
   function stage() { return watch.search.stage; }
 
+  /* Says what the page is, and what a grid says in the same breath after it. */
+  function speaker() {
+    var said = '';
+    return {
+      page: function (text) {
+        said = text + '. ';
+        stage().say(text);
+      },
+      grid: function (text) {
+        stage().say(said + text);
+        said = '';
+      },
+      next: function () { said = ''; }
+    };
+  }
+
   function choice(value, list) {
     return list.some(function (o) { return o[0] === value; }) ? value : list[0][0];
   }
@@ -289,6 +305,7 @@
     var mine = { kind: 'genre', id: want.id };
     var filter = { id: want.id, type: want.type, sort: want.sort, decade: want.decade };
     var bars = {};
+    var say = speaker();
     var asked = 0;
     f.title.textContent = name;
 
@@ -301,6 +318,7 @@
     /* One order's pages; a filter changed meanwhile has its own. */
     function pages(of) {
       function ask(page) {
+        say.next();
         if (arrived && of.decade && held.decades.indexOf(of.decade) === -1) dropDecade(of);
         return window.MM.api.get(url(want.id, of, page)).then(function (reply) {
           if (open === mine && page === 1 && url(want.id, of) === url(want.id, filter)) learn(reply);
@@ -342,7 +360,7 @@
       }
       if (reply.genre) settleTypes(reply.genre);
       f.facts.textContent = words(reply.total);
-      stage().say(f.title.textContent + ', ' + f.facts.textContent);
+      say.page(f.title.textContent + ', ' + f.facts.textContent);
     }
 
     /* Only films or only TV: there is no kind to choose. */
@@ -391,7 +409,7 @@
     stage().rise(filters, 80);
     open = mine;
     mine.list = watch.grid.list(f.host, {
-      title: name, cards: [], next: 1, fetchPage: pages(Object.assign({}, filter)), empty: NO_FIT, say: function () {}
+      title: name, cards: [], next: 1, fetchPage: pages(Object.assign({}, filter)), empty: NO_FIT, say: say.grid
     });
     f.title.focus({ preventScroll: true });
     if (known) settleTypes(known);
@@ -469,6 +487,7 @@
     var mine = { kind: 'person', id: id };
     var photo = stage().face(who.profile_url, who.name);
     var heads = {};
+    var say = speaker();
     var shown = new Set(); // the titles listed so far
     photo.classList.add('explore-photo');
     f.head.insertBefore(photo, f.text);
@@ -490,7 +509,7 @@
         stage().token({ face: p.profile_url, name: p.name, person: p.name });
         name(p.name);
       }
-      stage().say(p.name + ', ' + plural(reply.total));
+      say.page(p.name + ', ' + plural(reply.total));
     }
 
     /* Who it is, said where the outline of a person stood. */
@@ -527,6 +546,7 @@
     /* One page, or the next that has something new. What the library holds comes
        first; a title of it found later stands where it comes, with its badge. */
     function fetchPage(page) {
+      say.next();
       return person(id, page).then(function (reply) {
         if (open === mine && page === 1) learn(reply);
         var cards = [];
@@ -558,7 +578,7 @@
     open = mine;
     mine.list = watch.grid.list(f.host, {
       title: who.name || 'Person', cards: [], next: 1, fetchPage: fetchPage,
-      empty: { title: 'Nothing to show yet' }, say: function () {}
+      empty: { title: 'Nothing to show yet' }, say: say.grid
     });
     f.title.focus({ preventScroll: true });
   }

@@ -461,3 +461,11 @@ def test_the_field_names_a_list_only_while_it_can_be_seen() -> None:
     assert out["nothing"] == shut
     assert out["titles"] == ["false", "watch-sheet"]
     assert out["wide"] == ["true", "watch-suggestions"]
+
+
+def test_what_loads_on_a_category_or_person_is_said_after_what_the_page_is() -> None:
+    assert _run("spoken") == [
+        "Action, Popular movies and TV · 5 titles. 1 loaded.",
+        "1 more loaded.",
+        "Mara Ellison, 1 title. 1 loaded.",
+    ]
