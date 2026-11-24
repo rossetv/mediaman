@@ -451,7 +451,7 @@ class ScanEngine:
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
 
     def _run_post_scan_followups(self) -> None:
-        """Refresh AI recommendations and send the deletion-warning newsletter.
+        """Read people's Plex plays, refresh AI recommendations and send the newsletter.
 
         Recommendations refresh runs FIRST so the newsletter reflects
         this week's picks rather than last week's stale batch — the
@@ -459,8 +459,13 @@ class ScanEngine:
         tables that _refresh_recommendations and _refresh_people, which
         needs the plays _read_plays brings, rewrite. A failure of any step
         is logged and the next one still runs: none may abort a successful
-        scan. Skipped entirely in dry-run mode.
+        scan. Dry-run mode only reads the plays: that also drops those of
+        libraries no longer read, whatever else is switched off.
         """
+        try:
+            _read_plays(self._conn, self._secret_key)
+        except Exception:  # rationale: what Plex holds for a person must not cost a scan
+            logger.exception("Reading Plex plays failed — scan results unaffected")
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
             return
@@ -473,10 +478,6 @@ class ScanEngine:
                 _refresh_recommendations(self._conn, secret_key=self._secret_key)
             except Exception:  # rationale: what a model answers must never cost a scan
                 logger.exception("Recommendation generation failed — scan results unaffected")
-            try:
-                _read_plays(self._conn, self._secret_key)
-            except Exception:  # rationale: what Plex holds for a person must not cost a scan
-                logger.exception("Reading Plex plays failed — scan results unaffected")
             try:
                 _refresh_people(self._conn, self._plex, secret_key=self._secret_key)
             except Exception:  # rationale: what a model answers must never cost a scan

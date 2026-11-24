@@ -49,7 +49,7 @@ def scan(db_path, monkeypatch):
     conn.close()
 
 
-_ALL = ["_refresh_recommendations", "_read_plays", "_refresh_people", "_send_newsletter"]
+_ALL = ["_read_plays", "_refresh_recommendations", "_refresh_people", "_send_newsletter"]
 
 
 def test_each_persons_picks_are_made_before_the_newsletter(scan):
@@ -106,10 +106,10 @@ def test_old_picks_that_cannot_be_removed_do_not_cost_the_scan(scan, monkeypatch
     assert scan() == _ALL
 
 
-def test_a_dry_run_makes_no_picks(scan):
-    assert scan(dry_run=True) == []
+def test_a_dry_run_makes_no_picks_but_still_reads_the_plays(scan):
+    assert scan(dry_run=True) == ["_read_plays"]
 
 
-def test_with_recommendations_off_no_one_has_picks_made(scan):
+def test_with_recommendations_off_no_one_has_picks_made_but_the_plays_are_read(scan):
     insert_settings(scan.conn, suggestions_enabled="false")
-    assert scan() == ["_send_newsletter"]
+    assert scan() == ["_read_plays", "_send_newsletter"]
