@@ -97,7 +97,7 @@ class TestApiDashboardStats:
 
         assert (scheduled["total"], scheduled["unsized_count"]) == (3, 2)
 
-    def test_an_unsized_overdue_title_is_not_counted_among_those_leaving(
+    def test_an_unsized_title_past_its_date_is_counted_among_those_leaving(
         self, app_factory, authed_client, conn
     ):
         client = authed_client(app_factory(dashboard_router, conn=conn), conn)
@@ -114,7 +114,7 @@ class TestApiDashboardStats:
 
         scheduled = client.get("/api/dashboard/stats").json()["scheduled"]
 
-        assert (scheduled["leaving"], scheduled["overdue"], scheduled["unsized_count"]) == (1, 1, 0)
+        assert (scheduled["leaving"], scheduled["overdue"], scheduled["unsized_count"]) == (2, 0, 1)
 
     def test_storage_spans_the_library_folders_saved_in_settings(
         self, app_factory, authed_client, conn, monkeypatch, tmp_path

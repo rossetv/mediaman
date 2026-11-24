@@ -455,6 +455,13 @@ class TestScheduled:
         _schedule(conn, "3", days=-1, size=1000)
         _schedule(conn, "4", days=-1, delete_status="deleting", size=2000)
         _schedule(conn, "5", days=5, plex_library_id=9)
+        # Its files are gone; only the booking is left, so no keep can save it.
+        gone = _schedule(conn, "6", days=-1, size=20000)
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
+            (json.dumps({"paths": ["/m/6.mkv"], "bytes": 20000, "left": []}), gone),
+        )
+        conn.commit()
 
         items = get("/api/dashboard/scheduled")["items"]
         summary = get("/api/dashboard/stats")["scheduled"]
@@ -462,17 +469,18 @@ class TestScheduled:
         assert {i["media_item_id"]: i["state"] for i in items} == {
             "1": "leaving",
             "2": "leaving",
-            "3": "overdue",
+            "3": "leaving",
             "4": "deleting",
+            "6": "overdue",
         }
         row = pending_deletions(conn, scanned_library_ids(conn), now_utc())
         assert summary == {
-            "total": 4,
-            "total_bytes": 3110,
-            "total_size": "3.0 KB",
+            "total": 5,
+            "total_bytes": 23110,
+            "total_size": "22.6 KB",
             "leaving": len(row),
-            "leaving_bytes": 110,
-            "leaving_size": "110 B",
+            "leaving_bytes": 1110,
+            "leaving_size": "1.1 KB",
             "unsized_count": 0,
             "overdue": 1,
             "deleting": 1,
@@ -510,6 +518,32 @@ class TestScheduled:
             "20": "/media/tv",
             "21": None,
         }
+
+    @pytest.mark.parametrize(
+        ("settings", "roots", "countdowns"),
+        [
+            ({}, "", {"Due, but deletions are off"}),
+            ({"dry_run": "true"}, "/media", {"Due, but dry run is on"}),
+            ({}, "/media", {"Due, but a folder was missing", "Due, the next scan will try"}),
+        ],
+    )
+    def test_a_title_past_its_date_says_what_holds_it(
+        self, get, conn, monkeypatch, settings, roots, countdowns
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", roots)
+        insert_settings(conn, plex_libraries='["1"]', **settings)
+        held = _schedule(conn, "20", days=-2)
+        _schedule(conn, "21", days=-0.001)
+        _schedule(conn, "22", days=5)
+        write_delete_root_state(conn, {"/media/tv": 1}, {"/media/tv": [held]})
+        conn.commit()
+
+        items = {
+            i["media_item_id"]: i["countdown"] for i in get("/api/dashboard/scheduled")["items"]
+        }
+
+        assert items.pop("22") == "Deletes in 5 days"
+        assert set(items.values()) == countdowns
 
     @pytest.mark.parametrize(
         "state",
