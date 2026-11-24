@@ -113,6 +113,23 @@ class TestFromDb:
         _set_token(conn, "garbage-that-cant-be-decrypted", encrypted=1)
         assert TmdbClient.from_db(conn, secret_key) is None
 
+    def test_a_client_that_does_not_retry_is_not_the_one_that_does(
+        self, conn, secret_key, fake_http, fake_response, monkeypatch
+    ):
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        _set_token(conn, "token")
+        fake_http.default(fake_response(status=503))
+
+        tries = []
+        for retry in (True, False):
+            client = TmdbClient.from_db(conn, secret_key, timeout=3.0, retry=retry)
+            fake_http.calls.clear()
+            client.details("movie", 1)
+            tries.append(len(fake_http.calls))
+
+        assert tries == [3, 1]
+        assert fake_http.calls[0][2]["timeout"] == (3.0, 3.0)
+
 
 class TestSearch:
     def test_movie_search_returns_first_result(self, fake_http, fake_response):

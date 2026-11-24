@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import threading
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -50,7 +52,6 @@ from mediaman.web.routes.watch.catalog_api import (
     _arr,
     _OutsideLibraries,
     _payload,
-    _tmdb_client,
     _tmdb_title,
 )
 from mediaman.web.routes.watch.pages import (
@@ -94,6 +95,14 @@ _LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60, max_per_day=20
 
 # The card waits for the answer, and a worker thread with it.
 _PLEX_TIMEOUT = (1.0, 2.0)
+_TMDB_TIMEOUT_S = 3.0
+
+# After TMDB failed, how long no preview asks it: each would wait a thread out in turn.
+_TMDB_PAUSE_S = 15.0
+_clock = time.monotonic
+_pause_lock = threading.Lock()
+_paused_until = 0.0
+_pause_error: type[catalog.TmdbUnavailable] = catalog.TmdbUnavailable
 
 
 class _NoTmdb(Exception):
@@ -120,6 +129,39 @@ def _not_found() -> JSONResponse:
     return respond_err("not_found", status=404)
 
 
+def _tmdb_client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
+    return TmdbClient.from_db(
+        conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
+    )
+
+
+def _details(client: TmdbClient, kind: str, tmdb_id: int, ask: _Ask) -> dict[str, Any]:
+    """``catalog.details``, which raises at once for a title not cached while TMDB is
+    paused for every preview, and pauses it when it fails."""
+    global _paused_until, _pause_error
+    asked = False
+
+    def may_ask() -> bool:
+        nonlocal asked
+        with _pause_lock:
+            paused, error = _clock() < _paused_until, _pause_error
+        if paused:
+            raise error("paused")
+        asked = ask()
+        return asked
+
+    try:
+        return catalog.details(client, kind, tmdb_id, allow_fetch=may_ask)
+    except catalog.TitleNotFound:
+        raise
+    except catalog.TmdbUnavailable as exc:
+        # A failure the cache repeats is an old one.
+        if asked:
+            with _pause_lock:
+                _paused_until, _pause_error = _clock() + _TMDB_PAUSE_S, type(exc)
+        raise
+
+
 def _open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
     allowed_hosts = allowed_outbound_hosts(conn)
     return PlexWatch(
@@ -144,7 +186,7 @@ def _fill_from_tmdb(
     ask: _Ask,
 ) -> None:
     """Fill *out* from TMDB and the ratings held; raises as ``catalog.details``."""
-    fields = catalog.details(client, kind, tmdb_id, allow_fetch=ask)
+    fields = _details(client, kind, tmdb_id, ask)
     # Refusing every further ask leaves OMDb unasked.
     _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, lambda: False, fields)
 
@@ -337,7 +379,7 @@ def _outside_title(
     ask: _Ask,
 ) -> dict[str, Any]:
     """The preview of a TMDB title; raises as ``catalog.details``."""
-    fields = catalog.details(client, media_type, tmdb_id, allow_fetch=ask)
+    fields = _details(client, media_type, tmdb_id, ask)
     return _tmdb_title(
         request,
         conn,

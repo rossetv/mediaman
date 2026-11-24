@@ -76,6 +76,7 @@ def _fresh_state(monkeypatch, tmp_path):
     monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
     monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: None)
     monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(60, 60))
+    monkeypatch.setattr(title_preview_api, "_paused_until", 0.0)
 
     def spent(*_a):
         raise AssertionError("a search or OMDb look-up was spent")
@@ -404,6 +405,58 @@ def test_a_cache_that_cannot_be_written_takes_nothing_from_it(viewer, tmdb, plex
     body = _preview(viewer, ref).json()
 
     assert (body["overview"], plex.calls) == ("From TMDB.", 0)
+
+
+class TestTmdbPause:
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        now = [1000.0]
+        monkeypatch.setattr(title_preview_api, "_clock", lambda: now[0])
+        return now
+
+    @pytest.mark.parametrize(("failure", "status"), [(500, 502), (429, 429)])
+    def test_after_a_failure_no_preview_asks_tmdb_for_a_while(
+        self, viewer, tmdb, plex, clock, failure, status
+    ):
+        _preview(viewer, "tmdb-movie-13")
+        tmdb["/movie/12"] = failure
+        _preview(viewer, "tmdb-movie-12")
+
+        assert _preview(viewer, "tmdb-movie-11").status_code == status
+        assert _preview(viewer, "tmdb-movie-13").status_code == 200  # cached
+        assert _preview(viewer, "movie-100").json()["overview"] == "A film."  # Plex's
+
+        clock[0] += title_preview_api._TMDB_PAUSE_S
+        assert _preview(viewer, "tmdb-movie-11").status_code == 200
+
+    def test_a_failure_the_cache_repeats_does_not_lengthen_it(self, viewer, tmdb, plex, clock):
+        tmdb["/movie/12"] = 500
+        _preview(viewer, "tmdb-movie-12")
+        clock[0] += title_preview_api._TMDB_PAUSE_S
+        _preview(viewer, "tmdb-movie-12")
+
+        assert _preview(viewer, "tmdb-movie-13").status_code == 200
+
+    def test_a_title_tmdb_has_not_starts_none(self, viewer, tmdb, plex, clock):
+        _preview(viewer, "tmdb-movie-404")
+
+        assert _preview(viewer, "tmdb-movie-13").status_code == 200
+
+
+def test_the_wait_for_tmdb_and_plex_is_short_and_not_repeated(
+    viewer, library, plex, monkeypatch, fake_http, fake_response
+):
+    insert_settings(library, tmdb_read_token="token")
+    monkeypatch.setattr("time.sleep", lambda s: pytest.fail("waited to try again"))
+    opened = []
+    monkeypatch.setattr(title_preview_api, "SafeHTTPClient", lambda **kwargs: opened.append(kwargs))
+    fake_http.default(fake_response(status=503))
+
+    _preview(viewer, "movie-100")
+
+    [(_, _, sent)] = fake_http.calls
+    assert sum(sent["timeout"]) <= 6
+    assert sum(opened[0]["default_timeout"]) <= 3
 
 
 class TestAdult:

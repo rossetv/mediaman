@@ -44,15 +44,15 @@ _BASE = "https://api.themoviedb.org/3"
 # Building a ``TmdbClient`` per request would create a brand-new
 # ``requests.Session`` each time, paying DNS + TLS handshake costs against
 # ``api.themoviedb.org`` instead of reusing the connection pool.  We cache one
-# client per (token, timeout) pair so multiple callers share the same session.
+# client per (token, timeout, retry) so multiple callers share the same session.
 #
-# Max size: 4 entries — one per timeout variant with headroom for token
+# Max size: 8 entries — one per variant with headroom for token
 # rotation (the old token's entry ages out as soon as the new one is used).
-# Beyond 4 entries the oldest is evicted so the cache cannot grow without
+# Beyond 8 entries the oldest is evicted so the cache cannot grow without
 # bound if callers vary ``timeout`` unexpectedly.  Rebuilt on process restart.
-_CLIENT_CACHE: dict[tuple[str, float], TmdbClient] = {}
+_CLIENT_CACHE: dict[tuple[str, float, bool], TmdbClient] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
-_CLIENT_CACHE_MAXSIZE = 4
+_CLIENT_CACHE_MAXSIZE = 8
 
 
 # TMDB attribution notice
@@ -72,9 +72,10 @@ class TmdbClient:
     from_db returns None when no token is configured or decryption fails.
     """
 
-    def __init__(self, read_token: str, *, timeout: float = 10.0) -> None:
+    def __init__(self, read_token: str, *, timeout: float = 10.0, retry: bool = True) -> None:
         self._token = read_token
         self._timeout = timeout
+        self._retry = retry
         self._headers = {
             "Authorization": f"Bearer {read_token}",
             "Accept": "application/json",
@@ -85,7 +86,7 @@ class TmdbClient:
         self._http = SafeHTTPClient(
             _BASE,
             session=self._session,
-            default_timeout=(5.0, float(timeout)),
+            default_timeout=(min(5.0, float(timeout)), float(timeout)),
         )
 
     @classmethod
@@ -95,27 +96,28 @@ class TmdbClient:
         secret_key: str,
         *,
         timeout: float = 10.0,
+        retry: bool = True,
     ) -> TmdbClient | None:
         """Build a client from the settings table, or None when the token is missing or
         cannot be decrypted; callers must handle None.
 
-        Clients are cached per (token, timeout) so the requests.Session and its TLS pool
+        Clients are cached per (token, timeout, retry) so the requests.Session and its TLS pool
         are shared; rotating the token builds a fresh client.
         """
         token = get_string_setting(conn, "tmdb_read_token", secret_key=secret_key, default="")
         if not token:
             return None
-        cache_key = (token, float(timeout))
+        cache_key = (token, float(timeout), retry)
         with _CLIENT_CACHE_LOCK:
             cached = _CLIENT_CACHE.get(cache_key)
             if cached is not None:
                 return cached
-            client = cls(token, timeout=timeout)
+            client = cls(token, timeout=timeout, retry=retry)
             # Evict the insertion-order-oldest entry when the cache is full
             # so it cannot grow without bound if callers vary ``timeout``.
             # This is FIFO, not true LRU — cache hits do not reorder the
             # dict, so the entry evicted is the one inserted longest ago,
-            # not the least-recently accessed. With _CLIENT_CACHE_MAXSIZE=4
+            # not the least-recently accessed. With _CLIENT_CACHE_MAXSIZE=8
             # and a single token in practice, this is indistinguishable
             # from LRU; the comment is correct about the mechanism used.
             if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAXSIZE:
@@ -137,7 +139,9 @@ class TmdbClient:
         Raises ValueError on a non-JSON body (e.g. an HTML error page during an outage).
         It is not a RequestException, so callers must catch it explicitly.
         """
-        return self._http.get(path, headers=self._headers, params=params or {}).json()
+        return self._http.get(
+            path, retry=self._retry, headers=self._headers, params=params or {}
+        ).json()
 
     @staticmethod
     def _log_request_failure(label: str, exc: Exception) -> None:
