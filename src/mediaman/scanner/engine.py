@@ -202,12 +202,12 @@ class ScanEngine:
         return summary
 
     def _roll_back_failed_run(self) -> None:
-        """Drop the half-written library a failed run leaves open on the connection.
+        """Drop the half-written library a failed sync phase leaves open on the connection.
 
         Callers that do not roll back (the manual scan, the sync route) would
-        otherwise commit it with their next write. Everything a run must keep
-        is committed as it goes, so only the in-flight step is lost. A failing
-        rollback is logged: it must not hide the error being raised.
+        otherwise commit it with their next write. Each library is committed
+        as it goes, so only the in-flight one is lost. A failing rollback is
+        logged: it must not hide the error being raised.
         """
         try:
             if self._conn.in_transaction:
@@ -332,14 +332,17 @@ class ScanEngine:
             "removed": 0,
         }
         try:
-            # Radarr/Sonarr reads happen here, never inside a write transaction.
-            self._arr_cache.ensure_loaded()
-            seen_by_lib = self._scan_all_libraries(summary)
-            self._cleanup_orphans_per_library(seen_by_lib, summary)
+            try:
+                # Radarr/Sonarr reads happen here, never inside a write transaction.
+                self._arr_cache.ensure_loaded()
+                seen_by_lib = self._scan_all_libraries(summary)
+                self._cleanup_orphans_per_library(seen_by_lib, summary)
+            except BaseException:
+                self._roll_back_failed_run()
+                raise
+            # Not rolled back: a deletion may have removed files whose record is
+            # still open, and recovery books it from that record.
             self._record_deletion_outcome(summary)
-        except BaseException:
-            self._roll_back_failed_run()
-            raise
         finally:
             # Libraries committed before a failure are already in the DB.
             watch_catalog.clear_library_index()
