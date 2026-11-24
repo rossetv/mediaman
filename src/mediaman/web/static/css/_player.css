@@ -31,7 +31,7 @@
   object-fit: contain;
   background: var(--bg);
 }
-.player-hold { pointer-events: none; }
+.player-hold { pointer-events: none; --pop-y: 0; }
 
 /* Controls fade out while playing and nobody touches anything. */
 .player-chrome { transition: opacity var(--dur-slow) var(--ease-out); }
@@ -445,6 +445,7 @@
   animation: player-drop var(--dur-fast) var(--ease-out) forwards;
   pointer-events: none;
 }
+.player .player-hold.is-leaving { animation-duration: var(--dur); }
 @media (prefers-reduced-motion: reduce) {
   .player-menu,
   .player-card,

@@ -97,6 +97,17 @@ def test_a_quality_switch_holds_the_last_frame_until_the_new_stream_plays(markup
     assert out["afterPlaying"]["hold"]["shown"] is False
 
 
+@pytest.mark.parametrize("way", ["told", "untold", "never"])
+def test_the_last_frame_stays_until_the_new_one_is_on_screen_and_then_fades(markup, way):
+    out = run(markup, "hold_released", plays=way)
+    assert (out["seeking"], out["seeked"]) == (True, True)
+    assert (out["seen"], out["fading"], out["after"]) == (False, True, True)
+
+
+def test_the_last_frame_stays_when_another_quality_is_picked_before_it_is_seen(markup):
+    assert run(markup, "hold_released", plays="told")["again"] is True
+
+
 def test_a_quality_switch_shows_loading_rather_than_pause(markup):
     out = run(markup, "quality_switch")
     loading = out["whileLoading"]

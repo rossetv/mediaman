@@ -76,6 +76,8 @@
   /* While the pointer moves a frame preview is asked for this often, and this many are kept. */
   var FRAME_EVERY_MS = 300;
   var FRAMES_KEPT = 60;
+  /* The longest the last frame stays for the first one of the new stream. */
+  var SEEN_WAIT_MS = 1000;
   /* A video may be a little longer than its frames. */
   var LAST_FRAMES = 4;
   var FRAME_BACKOFF_MS = 2000;
@@ -572,20 +574,42 @@
     showPlayState();
   }
 
+  var heldFor = 0;           // bumps as a frame is held or let go; what waits for an older one is dropped
+
   /* Draw the frame on screen over the video, so tearing the stream down
      does not leave the picture black. */
   function holdFrame() {
-    if (video.readyState < 2 || !video.videoWidth) return;
-    hold.width = video.videoWidth;
-    hold.height = video.videoHeight;
-    try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
-    hold.hidden = false;
+    heldFor++;
+    if (!shown(hold) && video.readyState >= 2 && video.videoWidth) {
+      hold.width = video.videoWidth;
+      hold.height = video.videoHeight;
+      try { hold.getContext('2d').drawImage(video, 0, 0); } catch (e) { return; }
+    } else if (hold.hidden) {
+      return;
+    }
+    show(hold);
     root.classList.add('is-held');
   }
 
   function releaseFrame() {
-    hold.hidden = true;
+    heldFor++;
+    leave(hold);
     root.classList.remove('is-held');
+  }
+
+  /* The browser says it plays before it shows any of it, and before it has come to its place:
+     once a frame from there is on screen the held one fades. */
+  function releaseOnceSeen() {
+    var mine = ++heldFor;
+    var seen = function () { if (mine === heldFor) releaseFrame(); };
+    var there = function () {
+      video.removeEventListener('seeked', there);
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(seen);
+      else requestAnimationFrame(function () { requestAnimationFrame(seen); });
+    };
+    setTimeout(seen, SEEN_WAIT_MS);
+    if (video.seeking) video.addEventListener('seeked', there);
+    else there();
   }
 
   /* `again` is what Try again does; without it there is no such button. */
@@ -995,7 +1019,7 @@
     }
     swapping = false;
     pendingStart = null;
-    releaseFrame();
+    releaseOnceSeen();
     setLoading(false);
   });
   video.addEventListener('play', function () {
@@ -1019,7 +1043,7 @@
   });
   video.addEventListener('canplay', function () {
     if (!video.paused) return;
-    if (!wantPlaying && !swapping) releaseFrame();
+    if (!wantPlaying && !swapping) releaseOnceSeen();
     setLoading(false);
   });
   video.addEventListener('seeking', function () {

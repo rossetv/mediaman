@@ -134,7 +134,9 @@ class Video extends Element {
     this.muted = false; this.volume = 1;
     this.buffered = { length: 0 };
     this.plays = 0;
+    this.frameCallbacks = [];
   }
+  requestVideoFrameCallback(fn) { this.frameCallbacks.push(fn); }
   play() {
     this.plays++;
     this.paused = false;
@@ -459,7 +461,11 @@ async function streamPlays(p, pos) {
   v.ended = false;
   v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720; v.currentTime = pos || 0;
   fire(v, 'playing');
+  present(v);
 }
+
+/* A frame of the video reaches the screen. */
+function present(v) { v.frameCallbacks.splice(0).forEach((fn) => fn()); }
 
 /* Away for the person: hidden, or only its exit left to play. */
 function gone(el) { return el.hidden || el.classList.contains('is-leaving'); }
@@ -477,7 +483,7 @@ function playState(p) {
 
 function holdState(p) {
   return {
-    shown: !!p.hold && !p.hold.hidden,
+    shown: !gone(p.hold),
     drewVideo: !!p.hold && p.hold.drawn.some((d) => d.src === p.video && d.w === 1280 && d.h === 720),
   };
 }
@@ -582,7 +588,48 @@ const scenarios = {
     const v = p.video;
     v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
     fire(v, 'playing');
+    present(v);
     return { whileLoading: whileLoading, afterManifest: afterManifest, afterPlaying: { hold: holdState(p), play: playState(p), held: p.root.classList.contains('is-held') } };
+  },
+
+  /* The new stream says it plays, while it still seeks to its place, before any frame of it is
+     on screen. By `serverPlays` the browser tells of frames, does not, or never shows one. */
+  async hold_released(p) {
+    const v = p.video;
+    const held = () => holdState(p).shown;
+    if (p.win.serverPlays === 'untold') v.requestVideoFrameCallback = undefined;
+    await streamPlays(p, 30);
+    p.tick(100);
+    p.replies.push(answer('720p-4000'));
+    click(p.q('[data-quality="medium"]'));
+    await settle();
+    p.hlsList[1].emit('hlsManifestParsed');
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
+    v.seeking = true;
+    fire(v, 'playing');
+    present(v);
+    p.tick(100);
+    const out = { seeking: held() };
+    v.seeking = false;
+    fire(v, 'seeked');
+    out.seeked = held();
+    if (p.win.serverPlays === 'told') present(v);
+    else p.tick(p.win.serverPlays === 'untold' ? 40 : 1000);
+    out.seen = held();
+    out.fading = p.hold.classList.contains('is-leaving');
+    fire(p.hold, 'animationend', { bubbles: true, animationName: 'player-drop' });
+    out.after = p.hold.hidden;
+    /* Another quality before the frame of this one is seen: what was held stays. */
+    p.replies.push(answer('480p-1500'));
+    click(p.q('[data-quality="low"], [data-quality="480p-1500"]'));
+    await settle();
+    fire(v, 'playing');
+    p.replies.push(answer('720p-4000'));
+    click(p.q('[data-quality="720p-4000"]'));
+    present(v);
+    p.tick(1500);
+    out.again = held();
+    return out;
   },
 
   /* The menu follows each answer, whatever the saved choice is. */
@@ -1699,6 +1746,7 @@ const scenarios = {
     out.paused = v.paused;
     v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
     fire(v, v.paused ? 'canplay' : 'playing');
+    present(v);
     out.heldAfter = holdState(p).shown;
     out.starts = p.starts().length;
     p.leave();
