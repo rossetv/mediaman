@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
+from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
@@ -695,7 +696,7 @@ def _render_queued_page(
 
 
 class TestDownloadPageEmailPromise:
-    """The page only promises an email when the link carries an address to send it to."""
+    """The page only promises an email that will come."""
 
     @pytest.fixture(autouse=True)
     def _clear_state(self):
@@ -708,11 +709,37 @@ class TestDownloadPageEmailPromise:
         assert "notified by email" not in page
         assert '"notify_by_email": false' in page
 
-    def test_link_with_email_still_promises_one(self, app_factory, conn, secret_key):
+    def test_a_queued_title_the_person_asked_for_promises_one(self, app_factory, conn, secret_key):
+        with conn:
+            record_download_notification(
+                conn,
+                email="a@example.com",
+                title="Dune",
+                media_type="movie",
+                tmdb_id=42,
+                service="radarr",
+            )
+
         page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
         assert "notified by email" in page
         assert '"notify_by_email": true' in page
+
+    def test_a_queued_title_they_did_not_ask_for_promises_none(self, app_factory, conn, secret_key):
+        with conn:
+            record_download_notification(
+                conn,
+                email="other@example.com",
+                title="Dune",
+                media_type="movie",
+                tmdb_id=42,
+                service="radarr",
+            )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
+
+        assert "notified by email" not in page
+        assert '"notify_by_email": false' in page
 
 
 class TestDownloadPageTrailer:

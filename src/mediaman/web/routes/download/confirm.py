@@ -33,6 +33,7 @@ from mediaman.services.arr.state import (
     series_has_files,
 )
 from mediaman.services.downloads.download_format import build_item
+from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -447,6 +448,18 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     tmdb_id_raw = payload.get("tmdb")
     tmdb_id: int | None = int(tmdb_id_raw) if isinstance(tmdb_id_raw, int) else None
     _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt)
+
+    item["notify_by_email"] = bool(item["email"])
+    if item["download_state"] == ACTION_QUEUED and item["email"] and tmdb_id:
+        # The button is gone, so nobody can ask for the email any more: promise it only if asked for.
+        item["notify_by_email"] = has_unsent_notification(
+            conn,
+            email=str(item["email"]),
+            service="radarr" if mt == "movie" else "sonarr",
+            tmdb_id=tmdb_id,
+            tvdb_id=season.tvdb_id if season else None,
+            season_number=season.season_number if season else None,
+        )
 
     hero_item, poll_token = _build_hero_context(item, tmdb_id, config.secret_key)
 

@@ -456,6 +456,24 @@ class TestRetryOfAnAddThatLandedLate:
         assert arr.add_movie.call_count + arr.add_series.call_count == 1
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_the_reopened_page_promises_no_email_and_asks_for_none(
+        self, client, secret_key, media_type
+    ):
+        arr, token = self._arr(media_type), _token(secret_key, media_type)
+        assert self._post(client, token, media_type, arr).status_code == 502
+        landed = {500: {"tmdbId": 500, "monitored": True}}
+        cache = {"radarr_movies": landed, "sonarr_series": landed}
+        with (
+            patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache),
+            patch(f"{_CONFIRM}._get_radarr_cache_cached", return_value=cache),
+        ):
+            page = client.get(f"/download/{token}").text
+
+        assert '"download_state": "queued"' in page
+        assert "notified by email" not in page
+        assert self._mails(client) == []
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
     def test_a_refused_retry_of_the_add_that_landed_meanwhile_is_a_success_too(
         self, client, secret_key, media_type
     ):

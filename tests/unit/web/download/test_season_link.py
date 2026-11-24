@@ -18,6 +18,7 @@ from mediaman.main import create_app
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.upsert import upsert_item
+from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter.subscribers import _mint_deleted_tokens
 from mediaman.services.mail.newsletter.summary import _load_deleted_items
@@ -337,7 +338,42 @@ class TestPage:
             page = client.get(link).text
 
         assert f'"download_state": "{state}"' in page
+        assert ('"notify_by_email": true' in page) == (state != "queued")
         assert ("Re-Download Season 2" in page) == (state == "")
+
+    def test_a_reopened_link_still_promises_the_season_s_email(self, client, secret_key):
+        _delete_season(client.app.state.db, 2)
+        link = _cards(client.app.state.db, secret_key)[2]
+        _post(client, link, _sonarr(_series(UNMONITORED)))
+        with patch(
+            f"{_ROUTES}.confirm.build_sonarr_from_db", return_value=_sonarr(_series(MONITORED))
+        ):
+            page = client.get(link).text
+
+        assert "notified by email" in page
+
+    def test_a_season_the_person_asked_for_in_the_library_promises_its_email(
+        self, client, secret_key
+    ):
+        conn = client.app.state.db
+        _delete_season(conn, 2)
+        link = _cards(conn, secret_key)[2]
+        with conn:
+            record_download_notification(  # the library knows the show by its TVDB id alone
+                conn,
+                email="a@example.com",
+                title="Fargo",
+                media_type="tv",
+                service="sonarr",
+                tvdb_id=_TVDB,
+                season_number=2,
+            )
+        with patch(
+            f"{_ROUTES}.confirm.build_sonarr_from_db", return_value=_sonarr(_series(MONITORED))
+        ):
+            page = client.get(link).text
+
+        assert "notified by email" in page
 
 
 class TestProgress:
