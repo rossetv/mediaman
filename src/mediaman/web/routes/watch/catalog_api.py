@@ -19,6 +19,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -48,6 +49,7 @@ from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email, get_user_role
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.kept import fetch_keep
 from mediaman.web.repository.library_query import protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 from mediaman.web.repository.watch_progress import get_progress, show_progress
@@ -838,6 +840,8 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
+    # Read before what the page shows, so a keep made between the two is never taken for the one shown.
+    read = fetch_keep(conn, key) if kind == "movie" else None
     facts = lib.title_facts(conn, libraries, kind, key, now)
     if facts is None:
         return _not_found()
@@ -867,6 +871,7 @@ def api_watch_admin_title(ref: str, admin: str = Depends(get_current_admin)) -> 
                     "show_rk": key if is_show else "",
                     "has_rk": is_show,
                     "show_title": facts.title,
+                    "keep": asdict(read) if read else None,
                 },
                 "delete": delete,
             },

@@ -14,14 +14,18 @@ from html.parser import HTMLParser
 from urllib.parse import quote
 
 import pytest
+from fastapi.templating import Jinja2Templates
 
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
+from mediaman.web.routes import kept, library_api
+from mediaman.web.routes.watch import list_page
 from tests.helpers.factories import (
     insert_kept_show,
     insert_media_item,
     insert_scheduled_action,
     insert_settings,
 )
+from tests.unit.web.watch.list.conftest import TEMPLATE_DIR
 
 _AWKWARD_TEXT = """He said "Hi" & it's <b>bold</b>"""
 _SEASON_IDS = {"s10", "s2", "s3"}
@@ -341,6 +345,41 @@ def _keep_wrappers_of(html: str) -> list[dict[str, str | None]]:
     return [
         e for e in _elements_with(html, "data-kept") if "keep-wrapper" in (e.get("class") or "")
     ]
+
+
+@pytest.mark.parametrize("remove", [False, True])
+def test_a_row_shown_before_another_admin_kept_its_film_forever_cannot_change_that_keep(
+    app_factory, authed_client, conn, remove
+):
+    client = authed_client(
+        app_factory(
+            list_page.router,
+            kept.router,
+            library_api.router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(TEMPLATE_DIR))},
+        ),
+        conn,
+    )
+    until = datetime.now(UTC) + timedelta(days=20)
+    _insert_movie(conn, "42", "Dune")
+    insert_scheduled_action(
+        conn, media_item_id="42", action="snoozed", execute_at=until.isoformat()
+    )
+    conn.commit()
+    (wrapper,) = _keep_wrappers_of(client.get("/watch/list").text)
+    read = json.loads(wrapper["data-keep"] or "null")
+    client.post("/api/media/42/keep", data={"duration": "forever"})
+
+    if remove:
+        resp = client.post("/api/media/42/unprotect", json={"read": read})
+    else:
+        form = {f"read_{key}": value or "" for key, value in read.items()}
+        resp = client.post("/api/media/42/keep", data={"duration": "7 days", **form})
+
+    assert (resp.status_code, resp.json()["error"]) == (409, "keep_changed")
+    (row,) = conn.execute("SELECT action FROM scheduled_actions").fetchall()
+    assert row["action"] == "protected_forever"
 
 
 def test_a_title_opens_the_detail_only_with_a_key_the_detail_accepts(client, conn):

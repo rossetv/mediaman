@@ -61,6 +61,7 @@ function row(r) {
     class: 'keep-wrapper', 'data-id': r.id, 'data-tv': String(!!r.showRk), 'data-show-rk': r.showRk || '',
     'data-has-rk': String(!!r.showRk), 'data-show-title': r.title, 'data-title': JSON.stringify(r.title),
     'data-kept': String(!!r.kept), 'data-deletion': String(!!r.deletion),
+    'data-keep': JSON.stringify(r.keep || null), ...(r.seasons ? { 'data-seasons': String(r.seasons) } : {}),
   },
   ['button', { class: 'keep-trigger' + (r.kept ? ' keep-trigger--kept' : ''), 'aria-label': (r.kept ? 'Manage keep on ' : 'Keep ') + r.title },
     ...(r.kept ? [['svg', { class: 'ico keep-trigger__tick', 'aria-hidden': 'true' }, ['use', { href: '#i-check' }]]] : []),
@@ -89,7 +90,7 @@ const ROWS = [
   { id: 'm1', title: 'Copperline', deletion: true },
   { id: 'm2', title: 'Saltmarsh' },
   { id: 's1', title: 'Night Shift', showRk: '77' },
-  { id: 'm3', title: 'Glass Harbour', kept: true },
+  { id: 'm3', title: 'Glass Harbour', kept: true, keep: MADE },
 ];
 
 function fragment(doc, state, rows) {
@@ -687,6 +688,35 @@ const scenarios = {
     p.toasts[0].action.onClick();
     await settle();
     return { phases, errors: p.errors.length, toasts: p.toasts.length, undo: p.calls[p.calls.length - 1] };
+  },
+
+  // A row changed, or its keep removed, after another admin changed that keep.
+  async staleRow() {
+    const run = async (id, reply, press, rows, shown) => {
+      const p = load({ list: true, rows: shown });
+      const phases = [];
+      p.doc.addEventListener('mm:watch-admin', (e) => phases.push([e.detail.phase, e.detail.action]));
+      if (rows) p.serve('/watch/list', {}, rows); else p.fail('/watch/list');
+      p.replies[reply[0]] = reply[1];
+      click(p.doc, press(p));
+      await settle();
+      const row = p.row('id:' + id);
+      return { call: p.calls[0], phases, errors: p.errors, toasts: p.toasts.length, busy: row.classList.contains('is-busy'),
+        kept: row.classList.contains('wl-row--kept'), read: JSON.parse(row.querySelector('.keep-wrapper').getAttribute('data-keep')) };
+    };
+    const keep = (id) => (p) => keepOption(p, 'id:' + id, '30 days');
+    const now = ROWS.map((r) => (r.id === 'm2' || r.kept ? r : Object.assign({}, r, { kept: true, deletion: false })))
+      .map((r) => (r.kept ? Object.assign({}, r, { keep: readOf(FOREVER) }) : r));
+    const gone = () => Promise.reject(Object.assign(new Error('gone'), { status: 404 }));
+    return {
+      forever: readOf(FOREVER),
+      keep: await run('m3', ['postForm /api/media/m3/keep', keepChanged], keep('m3'), now),
+      remove: await run('m3', ['post /api/media/m3/unprotect', keepChanged], (p) => p.row('id:m3').querySelector('[data-remove-keep-id]'), now),
+      scheduled: await run('m1', ['post /api/watch/keep', gone], keep('m1'), now),
+      keptWithNoKeep: await run('m3', ['post /api/media/m3/unprotect', keepChanged], (p) => p.row('id:m3').querySelector('[data-remove-keep-id]'), now,
+        ROWS.map((r) => Object.assign({}, r, { keep: null }))),
+      unread: await run('m2', ['postForm /api/media/m2/keep', keepChanged], keep('m2'), null),
+    };
   },
 
   // The Undo of seasons kept in the dialog takes back only the keeps that save made.

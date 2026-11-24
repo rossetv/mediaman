@@ -97,6 +97,19 @@ def test_a_kept_movie_offers_no_delete(admin, library):
     assert body["actions"]["delete"] is None
 
 
+def test_the_keep_control_is_given_the_keep_as_read_to_send_it_back(admin, library):
+    later = (datetime.now(UTC) + timedelta(days=20)).isoformat()
+    made = datetime(2026, 11, 1, tzinfo=UTC).isoformat()
+    assert _facts(admin, "movie-100")["actions"]["keep_wrapper"]["keep"] is None
+
+    insert_scheduled_action(library, media_item_id="100", action="snoozed", execute_at=later)
+    library.execute("UPDATE scheduled_actions SET snoozed_at = ?", (made,))
+    library.commit()
+
+    keep = _facts(admin, "movie-100")["actions"]["keep_wrapper"]["keep"]
+    assert keep == {"action": "snoozed", "execute_at": later, "kept_at": made}
+
+
 def test_a_show_sums_its_seasons_and_deletes_through_the_season_picker(admin):
     body = _facts(admin, "show-500")
 

@@ -52,7 +52,8 @@ def test_keeping_an_unscheduled_movie_is_undone_by_removing_the_keep() -> None:
 
 def test_changing_an_existing_keep_offers_no_undo() -> None:
     out = _run("keepAgain")
-    assert out["call"] == ["postForm", "/api/media/m3/keep", {"duration": "30 days"}]
+    read = {f"read_{key}": value for key, value in MADE.items()}
+    assert out["call"] == ["postForm", "/api/media/m3/keep", {"duration": "30 days", **read}]
     assert out["undo"] is False
 
 
@@ -68,7 +69,7 @@ def test_a_failed_keep_says_why_and_reads_nothing_again() -> None:
 
 def test_removing_a_keep_turns_the_row_back_in_place() -> None:
     out = _run("removeKeep")
-    assert out["call"] == ["post", "/api/media/m3/unprotect", None]
+    assert out["call"] == ["post", "/api/media/m3/unprotect", {"read": MADE}]
     assert out["toast"] == "Removed the keep on Glass Harbour."
     assert out["kept"] is False
     assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
@@ -238,7 +239,11 @@ def test_after_a_season_delete_focus_is_on_the_show_delete_or_the_next_row() -> 
 
 def test_keeping_a_scheduled_movie_forever_offers_no_undo_that_would_lose_its_date() -> None:
     out = _run("keepForeverScheduled")
-    assert out["call"] == ["postForm", "/api/media/m1/keep", {"duration": "forever"}]
+    assert out["call"] == [
+        "postForm",
+        "/api/media/m1/keep",
+        {"duration": "forever", "read_action": "none"},
+    ]
     assert (out["toast"], out["undo"]) == ("Kept Copperline forever.", False)
 
 
@@ -563,6 +568,20 @@ def test_a_film_whose_keep_changed_meanwhile_is_read_again_and_its_undo_names_it
     assert out["phases"] == ["busy", "done"] * 3
     assert (out["errors"], out["toasts"]) == (2, 1)
     assert out["undo"] == ["post", "/api/media/m2/unprotect", {"read": MADE}]
+
+
+def test_a_row_whose_keep_changed_meanwhile_is_left_alone_read_again_and_said_so() -> None:
+    out = _run("staleRow")
+    for name in ("keep", "remove", "scheduled"):
+        case = out[name]
+        assert [phase for phase, _ in case["phases"]] == ["busy", "done"], name
+        assert (case["toasts"], case["busy"], case["kept"]) == (0, False, True), name
+        assert case["read"] == out["forever"], name
+        assert len(case["errors"]) == 1 and "changed meanwhile" in case["errors"][0], name
+    assert out["remove"]["call"] == ["post", "/api/media/m3/unprotect", {"read": MADE}]
+    assert out["keptWithNoKeep"]["call"][2] == {"read": {"action": "none"}}
+    # Read again in vain: nothing was saved, so it does not read as kept.
+    assert (out["unread"]["busy"], out["unread"]["kept"]) == (False, False)
 
 
 def test_the_undo_of_a_season_takes_back_only_the_keep_its_save_made() -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -17,10 +18,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.core.time import parse_iso_strict_utc
+from mediaman.core.time import now_iso, parse_iso_strict_utc
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import resolve_admin_page_session
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.kept import fetch_keeps
 from mediaman.web.repository.library_query import (
     MAX_SEARCH_TERM_LEN,
     VALID_SORTS,
@@ -68,6 +70,17 @@ def _deletion_label(iso: str | None) -> str:
 def list_context(
     conn: sqlite3.Connection, username: str, params: Mapping[str, str]
 ) -> dict[str, Any]:
+    if conn.in_transaction:
+        return _list_context(conn, username, params)
+    # One snapshot: a keep made between two reads must not pass for the one the row shows.
+    with conn:
+        conn.execute("BEGIN")
+        return _list_context(conn, username, params)
+
+
+def _list_context(
+    conn: sqlite3.Connection, username: str, params: Mapping[str, str]
+) -> dict[str, Any]:
     """The rows, stats and paging of the list for *params*; unknown values fall back to defaults.
 
     A row's ``watched`` is *username*'s own mark, apart from the cleanup's last watched time.
@@ -91,7 +104,10 @@ def list_context(
             conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
         )
     seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+    keeps = fetch_keeps(conn, [cast(str, item["id"]) for item in items], now_iso())
     for item in items:
+        keep = keeps.get(cast(str, item["id"]))
+        item["keep"] = asdict(keep) if keep else None
         item["watched"] = item["ref"] in seen
         item["deletion_label"] = _deletion_label(cast(str | None, item["deletion_at"]))
 

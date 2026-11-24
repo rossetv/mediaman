@@ -157,7 +157,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
 
     now = now_iso()
     kept_set = fetch_protected_media_ids(conn, [r["id"] for r in rows], now)
-    keeps = _longest_keeps(conn, sorted(kept_set), now)
+    keeps = fetch_keeps(conn, sorted(kept_set), now)
 
     return [
         SeasonRow(
@@ -173,7 +173,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ]
 
 
-def _longest_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> dict[str, KeepRow]:
+def fetch_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> dict[str, KeepRow]:
     """The keep in force of each of *media_ids* that has one: of several, the longest."""
     keeps: dict[str, KeepRow] = {}
     # rationale: placeholders is purely "?" * len(media_ids); every value is bound
@@ -191,7 +191,7 @@ def _longest_keeps(conn: sqlite3.Connection, media_ids: list[str], now: str) -> 
 
 def fetch_keep(conn: sqlite3.Connection, media_id: str) -> KeepRow | None:
     """The keep in force of one item: of several, the longest."""
-    return _longest_keeps(conn, [media_id], now_iso()).get(media_id)
+    return fetch_keeps(conn, [media_id], now_iso()).get(media_id)
 
 
 def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> KeepRow | None:

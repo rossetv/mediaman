@@ -4,12 +4,12 @@
  *
  * Nothing here reloads the page. Each action announces itself on the
  * document as an `mm:watch-admin` event, {phase: 'busy'|'done'|'failed',
- * action: 'keep'|'unkeep'|'show'|'delete', id, showRk}, and whatever shows
+ * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, showRk}, and whatever shows
  * the title (a list row, the detail) updates itself in place.
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
  * detail's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
- * show_title}) with `season_id`, the season the Keep dialog opens for ('' for
+ * show_title, keep}) with `season_id`, the season the Keep dialog opens for ('' for
  * none; without one it opens for the season that leaves first).
  */
 (function () {
@@ -63,6 +63,7 @@
         title: parseJson(d.title, '') || d.showTitle || '',
         kept: d.kept === 'true',
         deletion: d.deletion === 'true',
+        keep: parseJson(d.keep, null),
         seasonId: null
       };
     }
@@ -77,6 +78,7 @@
       title: w.title || w.show_title || '',
       kept: !!w.kept,
       deletion: !!w.deletion,
+      keep: w.keep || null,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
   }
@@ -143,10 +145,22 @@
   }
 
   function unprotect(id, keep) {
-    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', keep ? { read: readOf(keep) } : undefined);
+    return MM.api.post('/api/media/' + encodeURIComponent(id) + '/unprotect', { read: readOf(keep) || { action: 'none' } });
   }
 
   function changedMeanwhile(err) { return !!err && err.error === 'keep_changed'; }
+
+  /* The Watch keep refuses what no longer leaves as read. */
+  function leavesNoMore(err) { return !!err && (err.status === 404 || err.status === 409); }
+
+  /* A request that was refused or failed. Where the keep is another than the one
+     read, nothing was saved but what shows the title has to be read again. */
+  function notSaved(detail, changed) {
+    if (changed) emit('done', Object.assign({}, detail, { action: 'changed' }));
+    else emit('failed', detail);
+  }
+
+  var KEEP_CHANGED = 'Its keep was changed meanwhile, so it was left as it is now.';
 
   /* The Undo toast of each title's last keep, so a later change to that keep
      can take it away: its Undo would then undo the wrong thing. */
@@ -206,9 +220,7 @@
     var viaWatch = !w.kept && w.deletion && !!days;
     var request = viaWatch
       ? MM.api.post('/api/watch/keep', { media_item_id: id, days: days })
-      : !w.kept && !w.deletion
-        ? keepAsRead(id, duration, null)
-        : MM.api.postForm(keepUrl(id), { duration: duration });
+      : keepAsRead(id, duration, w.keep);
     return request.then(function (data) {
       delete _busy[id];
       emit('done', detail);
@@ -228,8 +240,9 @@
       return true;
     }, function (err) {
       delete _busy[id];
-      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
-      window.UIFeedback.error("Couldn't save keep. " + MM.api.messageOf(err, 'Try again.'));
+      var changed = changedMeanwhile(err) || (viaWatch && leavesNoMore(err));
+      notSaved(detail, changed);
+      window.UIFeedback.error("Couldn't save keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
       backToTrigger(w);
       return false;
     });
@@ -246,7 +259,7 @@
       window.UIFeedback.toast('Keep undone.');
     }, function (err) {
       delete _busy[id];
-      emit(changedMeanwhile(err) ? 'done' : 'failed', detail);
+      notSaved(detail, changedMeanwhile(err));
       window.UIFeedback.error("Couldn't undo the keep. " + MM.api.messageOf(err, 'Try again.'));
     });
   }
@@ -267,7 +280,7 @@
     backToTrigger(w);
     var detail = { action: 'unkeep', id: id, showRk: w.isTv ? w.showRk : '' };
     emit('busy', detail);
-    return unprotect(id)
+    return unprotect(id, w.keep)
       .then(function () {
         delete _busy[id];
         emit('done', detail);
@@ -275,8 +288,9 @@
         return true;
       }, function (err) {
         delete _busy[id];
-        emit('failed', detail);
-        window.UIFeedback.error("Couldn't remove keep. " + MM.api.messageOf(err, 'Try again.'));
+        var changed = changedMeanwhile(err);
+        notSaved(detail, changed);
+        window.UIFeedback.error("Couldn't remove keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
         backToTrigger(w);
         return false;
       });
@@ -869,8 +883,7 @@
           made[s.id] = data && data.keep;
           if (data && data.deletion_running) running = data;
         }).catch(function (err) {
-          /* The Watch keep refuses a season that no longer leaves as read. */
-          if (changedMeanwhile(err) || (viaWatch(s, dur) && err && (err.status === 404 || err.status === 409))) {
+          if (changedMeanwhile(err) || (viaWatch(s, dur) && leavesNoMore(err))) {
             changed.push(seasonName(s));
             return;
           }
