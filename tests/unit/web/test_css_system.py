@@ -118,6 +118,16 @@ def test_toggles_reach_44px_on_phones_without_growing() -> None:
     )
 
 
+def test_nav_links_reach_44px_on_tablets_without_growing_their_pill() -> None:
+    rules = [
+        rule
+        for block in _media_blocks(_text(CSS_DIR / "_nav.css"), "(max-width: 1023.98px)")
+        for rule in _rules(block)
+    ]
+    assert any(".nav-btn::after" in s and "inset: -6px" in body for s, body in rules)
+    assert not any(".nav-btn" in s and "height" in body for s, body in rules)
+
+
 def test_no_control_drops_back_to_40px_on_phones() -> None:
     for path in SHARED:
         css = _text(path)
