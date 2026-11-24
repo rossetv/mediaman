@@ -737,6 +737,23 @@ const scenarios = {
     return Object.assign(menuState(p), { starts: p.starts(), toasts: p.toasts });
   },
 
+  /* An original that played is started anew, and that stream fails before its first frame. */
+  async original_restarts(p) {
+    const last = () => p.hlsList[p.hlsList.length - 1];
+    p.replies[0] = answer('original');
+    await streamPlays(p, 0);
+    playOn(p, 5);
+    p.held.answer = (body) => answer(body.quality);
+    last().emit('hlsError', { response: { code: 410 } });
+    await settle();
+    last().emit('hlsError', { fatal: true, type: p.win.serverPlays });
+    await settle();
+    const once = p.starts();
+    last().emit('hlsError', { fatal: true, type: p.win.serverPlays });
+    await settle();
+    return { once: once, twice: p.starts() };
+  },
+
   /* The person tries one quality after another and all are refused. */
   async picks_refused(p) {
     await streamPlays(p, 0);

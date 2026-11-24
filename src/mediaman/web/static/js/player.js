@@ -191,6 +191,7 @@
   var streamChoice;          // those of the stream now loading or playing
   var playing;               // the quality the server says that stream has
   var streamPlayed;
+  var originalPlayed;
   var swapNotice;            // toast to show once the stream that takes over plays
   var rolling;               // playback has moved since the last start, seek or stall
   var autoTop;               // the best quality Automatic may step up to
@@ -224,6 +225,7 @@
     streamChoice = null;
     playing = null;
     streamPlayed = false;
+    originalPlayed = false;
     swapNotice = null;
     stopRolling();
     autoTop = null;
@@ -684,7 +686,10 @@
     /* Also how a connection too slow to start at all shows. */
     if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
     if (!data.fatal) return;
-    if (playing === 'original' && !streamPlayed) { leaveOriginal(); return; }
+    /* An original that has played is one this browser can play: only the picture
+       itself failing says otherwise. */
+    var unplayable = data.type === Hls.ErrorTypes.MEDIA_ERROR || !originalPlayed;
+    if (playing === 'original' && !streamPlayed && unplayable) { leaveOriginal(); return; }
     /* Nothing above can play where the lowest step of Automatic's could not. */
     var lost = quality === 'auto' && !streamPlayed && !lowerRows().length;
     if (mayRevert() && !lost) {
@@ -891,6 +896,7 @@
     if (streamId) {
       good = streamChoice;
       streamPlayed = true;
+      if (playing === 'original') originalPlayed = true;
     }
     if (swapNotice) {
       if (window.UIFeedback) window.UIFeedback.error(swapNotice);

@@ -255,6 +255,15 @@ def test_an_original_that_was_left_is_not_gone_back_to(markup):
     assert "Staying on 1080p · 10 Mbps" in out["toasts"][-1]["text"]
 
 
+def test_a_connection_that_fails_under_an_original_that_played_gets_one_more_try(markup):
+    saved = {"mediaman.watch.quality": "original"}
+    out = run(markup, "original_restarts", saved=saved, plays="networkError")
+    assert out["once"] == ["original"] * 3
+    assert out["twice"] == ["original"] * 3 + ["1080p-10000"]
+    out = run(markup, "original_restarts", saved=saved, plays="mediaError")
+    assert out["once"] == ["original", "original", "1080p-10000"]
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 
