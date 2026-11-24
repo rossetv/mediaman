@@ -147,6 +147,24 @@ class TestRow:
         first = group_into_batches(rows, date(2026, 5, 20))[0]
         assert [i["title"] for i in first["items"]] == titles
 
+    def test_the_first_batch_says_the_date_of_the_own_picks_that_lead_it(self):
+        rows = [
+            {"title": "Shared", "category": "trending", "batch_id": "2026-05-20"},
+            {"title": "Amys", "category": "personal", "batch_id": "2026-05-10"},
+        ]
+        first, second = group_into_batches(rows, date(2026, 5, 20))
+
+        assert first["date_label"] == "10 May"
+        assert second["date_label"] == "10 May"
+
+    def test_the_first_batch_says_its_own_date_when_the_own_picks_are_of_it(self):
+        rows = [
+            {"title": "Shared", "category": "trending", "batch_id": "2026-05-20"},
+            {"title": "Amys", "category": "personal", "batch_id": "2026-05-20"},
+        ]
+
+        assert group_into_batches(rows, date(2026, 5, 20))[0]["date_label"] == "20 May"
+
     def test_the_card_says_it_is_an_ai_pick_and_where_its_detail_is(self, people, conn):
         insert_media_item(conn, id="9", plex_rating_key="9", title="Held")
         conn.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '9'")

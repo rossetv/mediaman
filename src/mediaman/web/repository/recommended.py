@@ -87,6 +87,13 @@ def _relative_label(batch_date: date | None, index: int, today: date) -> str:
     return "A month ago" if months == 1 else f"{months} months ago"
 
 
+def _date_label(batch_id: str) -> str:
+    try:
+        return datetime.strptime(batch_id, "%Y-%m-%d").strftime("%-d %b")
+    except ValueError:
+        return batch_id
+
+
 def group_into_batches(
     recommendations: list[dict[str, object]], today: date
 ) -> list[dict[str, object]]:
@@ -95,7 +102,8 @@ def group_into_batches(
     A batch is ``{"id", "label", "date_label", "items"}``; its items are the
     person's own picks followed by the shared ones. The first holds the latest of
     both, unless old, also where one is from an earlier batch, which has them too.
-    A row without a ``batch_id`` falls back to the date of its ``created_at``.
+    The first batch's date is the date of the person's own picks when they come from an
+    earlier batch. A row without a ``batch_id`` falls back to the date of its ``created_at``.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
@@ -103,10 +111,16 @@ def group_into_batches(
         group["trending" if row.get("category") == "trending" else "personal"].append(row)
 
     oldest = (today - PICKS_LAST).isoformat()
+    own_from: str | None = None
     for latest in list(groups.values())[:1]:
         for kind in latest:
-            held = (g[kind] for bid, g in groups.items() if bid >= oldest and g[kind])
-            latest[kind] = latest[kind] or next(held, [])
+            if latest[kind]:
+                continue
+            for bid, g in groups.items():
+                if bid >= oldest and g[kind]:
+                    latest[kind] = g[kind]
+                    own_from = bid if kind == "personal" else own_from
+                    break
 
     batches: list[dict[str, object]] = []
     for index, (bid, group) in enumerate(groups.items()):
@@ -114,11 +128,13 @@ def group_into_batches(
             batch_date: date | None = datetime.strptime(bid, "%Y-%m-%d").date()
         except ValueError:
             batch_date = None
+        # The person's own picks from an earlier batch lead the first, and say their date.
+        shown = own_from if index == 0 and own_from else bid
         batches.append(
             {
                 "id": bid,
                 "label": _relative_label(batch_date, index, today),
-                "date_label": batch_date.strftime("%-d %b") if batch_date else bid,
+                "date_label": _date_label(shown),
                 "items": group["personal"] + group["trending"],
             }
         )
