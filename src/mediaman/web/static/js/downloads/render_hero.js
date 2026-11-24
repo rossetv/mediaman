@@ -148,7 +148,8 @@
     /* Progress bar */
     var fill = d.q('[data-v="fill"]', card);
     if (fill) {
-      fill.style.width = item.progress + '%';
+      d.setProgress(fill, item.progress);
+      fill.parentNode.setAttribute('aria-label', item.title);
       fill.className = 'dl-hero-fill' + (item.state === 'almost_ready' ? ' green' : '');
     }
 

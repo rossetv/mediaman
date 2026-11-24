@@ -130,3 +130,24 @@ def test_a_row_drawn_without_episodes_gains_them() -> None:
 def test_an_episodes_button_added_by_a_poll_says_whether_it_is_open() -> None:
     out = _run("heroEpisodes", hero=_item("h", media_type="series"))
     assert out == {"drawn": "false", "opened": "true", "inInfo": True}
+
+
+def test_every_bar_says_whose_progress_it_is_and_every_section_has_a_heading() -> None:
+    show = _item("h", progress=10, media_type="series", episodes=[{**_EPISODE, "progress": 5}])
+    out = _run("spoken", hero=show, queue=[_item("q", progress=1)])
+    assert out["drawn"] == [["Th", "10"], ["S01E01", "5"], ["Tq", "1"]]
+    assert out["first"]["bars"] == [["Th2", "20"], ["S01E01", "10"], ["Tq", "2"]]
+    assert out["rebuilt"] == [["Th3", "30"], ["S01E01", "15"], ["Tq", "3"]]
+    headings = ["Th2", "Also downloading", "Coming soon", "Recently added"]
+    assert out["first"]["headings"] == ["H1 Downloads", *(f"H2 {h}" for h in headings)]
+
+
+def test_the_server_draws_the_same_headings_as_the_polls() -> None:
+    data = {
+        "hero": _item("h"),
+        "queue": [_item("q")],
+        "upcoming": [_item("u")],
+        "recent": [_item("r")],
+    }
+    out = _run("spoken", **data)
+    assert [h[:2] for h in out["first"]["headings"]] == ["H1", "H2", "H2", "H2", "H2"]

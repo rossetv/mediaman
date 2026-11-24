@@ -32,7 +32,7 @@
     if (hero().updateSearchHint) hero().updateSearchHint(row, item);
     var fill = d.q('[data-v="fill"]', row);
     if (fill) {
-      fill.style.width = item.progress + '%';
+      d.setProgress(fill, item.progress);
       fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
     }
     var pct = d.q('[data-v="pct"]', row);

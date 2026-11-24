@@ -22,6 +22,7 @@
  *   MM.downloads.buildDom.dropAbsent(rows, present, data)  close departed rows, dim the held, say how many
  *   MM.downloads.buildDom.buildUpcomingRow(item)
  *   MM.downloads.buildDom.buildCompactRow(item)    queue row for an item the page has not seen
+ *   MM.downloads.buildDom.setProgress(fill, percent)  a bar's width and its spoken value
  *   MM.downloads.buildDom.buildEpisodeRow(ep)
  *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
@@ -101,6 +102,23 @@
 
   /* State labels come from the server (item.state_label). The canonical map
      lives in services/downloads/download_format/_types.py. */
+
+  function buildBar(cls, label) {
+    var bar = document.createElement('div');
+    bar.className = cls;
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-label', label || '');
+    return bar;
+  }
+
+  /* Fill a bar to `percent`, and say so to a screen reader. */
+  function setProgress(fill, percent) {
+    if (!fill) return;
+    fill.style.width = (percent || 0) + '%';
+    fill.parentNode.setAttribute('aria-valuenow', String(percent || 0));
+  }
 
   /* Build a recent item element safely. */
   function buildRecentItem(r) {
@@ -248,7 +266,7 @@
     var info = document.createElement('div');
     info.className = 'dl-hero-info';
 
-    var titleEl = document.createElement('div');
+    var titleEl = document.createElement('h2');
     titleEl.className = 'dl-hero-title';
     if (item.title) titleEl.textContent = item.title;
     info.appendChild(titleEl);
@@ -276,13 +294,12 @@
     progressWrap.setAttribute('data-v', 'progress-wrap');
     if (state === 'searching') progressWrap.hidden = true;
 
-    var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar dl-bar';
+    var bar = buildBar('dl-hero-bar dl-bar', item.title);
     var fill = document.createElement('div');
     fill.className = 'dl-hero-fill dl-bar-fill' + (state === 'almost_ready' ? ' green' : '');
     fill.setAttribute('data-v', 'fill');
-    fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
+    setProgress(fill, item.progress);
     progressWrap.appendChild(bar);
 
     /* Same stats line as _dl_hero_card.html: "N% complete", "done of total", "ETA x". */
@@ -400,7 +417,7 @@
       return row;
     }
 
-    var miniBar = el('div', 'dl-ep-mini-bar');
+    var miniBar = buildBar('dl-ep-mini-bar', ep.label);
     var miniFill = el('div', 'dl-ep-mini-fill');
     miniFill.setAttribute('data-v', 'ep-fill');
     miniBar.appendChild(miniFill);
@@ -415,7 +432,7 @@
     if (ep.is_pack_episode) return;
     var state = ep.state || 'searching';
     var fill = row.querySelector('[data-v="ep-fill"]');
-    fill.style.width = (ep.progress || 0) + '%';
+    setProgress(fill, ep.progress);
     fill.className = 'dl-ep-mini-fill' + (state === 'ready' ? ' green' : '');
     var pill = row.querySelector('.dl-ep-status-pill');
     pill.className = 'dl-ep-status-pill ' + state;
@@ -523,12 +540,12 @@
     hint.hidden = true;
     info.appendChild(hint);
 
-    var bar = el('div', 'dl-compact-bar dl-row-bar');
+    var bar = buildBar('dl-compact-bar dl-row-bar', item.title);
     var fill = el('div', 'dl-compact-fill dl-row-bar-fill' +
       (item.state === 'almost_ready' ? ' green' : ''));
     fill.setAttribute('data-v', 'fill');
-    fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
+    setProgress(fill, item.progress);
     info.appendChild(bar);
     row.appendChild(info);
 
@@ -703,6 +720,7 @@
     dropAbsent:           dropAbsent,
     buildUpcomingRow:     buildUpcomingRow,
     buildCompactRow:      buildCompactRow,
+    setProgress:          setProgress,
     buildEpisodeRow:      buildEpisodeRow,
     syncEpisodes:         syncEpisodes,
     syncAbandon:          syncAbandon,

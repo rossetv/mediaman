@@ -123,6 +123,23 @@ const scenarios = {
     return { first, more, pack, none: look() };
   },
 
+  // what a screen reader is told of each bar and section
+  async spoken() {
+    const p = page(spec);
+    const bars = () => p.qa('[role="progressbar"]').map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-valuenow')]);
+    const headings = () => p.q('#dl-root').descendants().filter((e) => /^H\d$/.test(e.tagName)).map((h) => h.tagName + ' ' + h.textContent);
+    const poll = (n) => p.upd({
+      hero: item('h' + n, { progress: 10 * n, media_type: 'series', episodes: [{ label: 'S01E01', title: '', state: 'downloading', progress: 5 * n }] }),
+      queue: [item('q', { progress: n })], upcoming: [item('u')], recent: [{ title: 'R', poster_url: '' }],
+    });
+    const drawn = bars();
+    poll(2);
+    const first = { bars: bars(), headings: headings() };
+    p.qa('.dl-compact').forEach((r) => r.remove());
+    poll(3);
+    return { drawn, first, rebuilt: bars() };
+  },
+
   // the episodes button says whether its list is open from the moment it is drawn
   async heroEpisodes() {
     const p = page(spec);

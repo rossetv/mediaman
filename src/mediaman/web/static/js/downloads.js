@@ -173,7 +173,7 @@
          open list open on their own. */
       var opening = !list || dom.isCollapsing(queueContainer);
       if (!list) {
-        var qHeader = document.createElement('div');
+        var qHeader = document.createElement('h2');
         qHeader.className = 'dl-compact-header';
         qHeader.textContent = 'Also downloading';
         queueContainer.appendChild(qHeader);

@@ -19,7 +19,7 @@
            {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}hidden{% endif %}>
         {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}{% endif %}
       </div>
-      <div class="dl-compact-bar dl-row-bar">
+      <div class="dl-compact-bar dl-row-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
         <div class="dl-compact-fill dl-row-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
       </div>
     </div>
@@ -50,7 +50,7 @@
       {% if ep.is_pack_episode %}
       <span class="dl-ep-status-pill downloading">In pack</span>
       {% else %}
-      <div class="dl-ep-mini-bar"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
+      <div class="dl-ep-mini-bar" role="progressbar" aria-label="{{ ep.label }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ ep.progress }}"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
       <span class="dl-ep-status-pill {{ ep.state }}">
         {% if ep.state == 'ready' %}Ready
         {% elif ep.state == 'downloading' %}{{ ep.progress }}%

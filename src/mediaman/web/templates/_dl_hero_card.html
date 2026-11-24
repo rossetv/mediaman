@@ -35,7 +35,7 @@
                   variant=('movie' if item.media_type == 'movie' else 'tv')) }}
       </div>
 
-      <div class="dl-hero-title">{{ item.title }}</div>
+      <h2 class="dl-hero-title">{{ item.title }}</h2>
 
       {% if item.episode_summary %}
       <div class="dl-hero-ep-summary">{{ item.episode_summary }}</div>
@@ -51,7 +51,7 @@
       </div>
 
       <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state == 'searching' %}hidden{% endif %}>
-        <div class="dl-hero-bar dl-bar">
+        <div class="dl-hero-bar dl-bar" role="progressbar" aria-label="{{ item.title }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
           <div class="dl-hero-fill dl-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
         </div>
         <div class="dl-hero-details dl-stats">
@@ -74,7 +74,7 @@
           {% if ep.is_pack_episode %}
           <span class="dl-ep-status-pill downloading">In pack</span>
           {% else %}
-          <div class="dl-ep-mini-bar"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
+          <div class="dl-ep-mini-bar" role="progressbar" aria-label="{{ ep.label }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ ep.progress }}"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
           <span class="dl-ep-status-pill {{ ep.state }}">
             {% if ep.state == 'ready' %}Ready
             {% elif ep.state == 'downloading' %}{{ ep.progress }}%
