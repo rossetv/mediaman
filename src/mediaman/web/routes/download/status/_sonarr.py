@@ -36,6 +36,7 @@ class _SonarrEpEntry(TypedDict):
     status: str
     tracked_state: str
     timeleft: str
+    download_id: str
 
 
 def _sonarr_queue_entries(
@@ -76,6 +77,7 @@ def _sonarr_queue_entries(
                 "status": item.get("status") or "",
                 "tracked_state": item.get("trackedDownloadState") or "",
                 "timeleft": item.get("timeleft", ""),
+                "download_id": item.get("downloadId") or "",
             }
         )
 
@@ -88,8 +90,13 @@ def _sonarr_aggregate(
     """Fold ep_entries into one multi-episode item; callers must pass a non-empty list."""
     ep_entries.sort(key=lambda e: e["label"])
     episodes = build_episode_dicts(cast("list[dict[str, object]]", ep_entries))
-    total_size = sum(e["size"] for e in ep_entries)
-    total_left = sum(e["sizeleft"] for e in ep_entries)
+    # Every episode of a season pack reports the whole pack's size, under one download id.
+    sizes = {
+        e["download_id"] or f"episode {i}": (e["size"], e["sizeleft"])
+        for i, e in enumerate(ep_entries)
+    }
+    total_size = sum(size for size, _ in sizes.values())
+    total_left = sum(left for _, left in sizes.values())
     overall_progress = _safe_progress(total_size, total_left) if total_size else 0
     raw_statuses = [e["status"] for e in ep_entries]
     raw_tracked = [e["tracked_state"] for e in ep_entries]
