@@ -1,4 +1,4 @@
-// Runs the Watch page's browse scripts (core, keep, browse, watch-rows) against the fake DOM and
+// Runs the Watch page's browse scripts (core, keep, rows-load, browse, watch-rows) against the fake DOM and
 // prints the outcome of one scenario as JSON. Usage: node watch_browse_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -114,7 +114,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/rows-load.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
   return { ctx, doc, toasts, timers, calls, routes, replaced, scrolls };
 }
@@ -420,6 +420,27 @@ const scenarios = {
       menuTop: box().top,
       menuBottom: box().bottom,
     };
+  },
+
+  // A season line of pills 100px apart: the keys and the arrow page it like a poster row.
+  async seasonLine() {
+    const p = load();
+    await settle();
+    const pills = Array.from({ length: 12 }, (_, i) => ['button', { class: 'watch-pill' }, 'Season ' + (i + 1)]);
+    const viewport = build(p.doc, ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...pills]]);
+    p.doc.body.appendChild(viewport);
+    const scroller = viewport.querySelector('.watch-row__scroll');
+    scroller.children.forEach((pill, i) => { pill.offsetLeft = i * 100; });
+    Object.assign(scroller, { clientWidth: 400, scrollWidth: 1200, scrollLeft: 0, scrollTo(o) { this.scrollLeft = o.left; } });
+    p.ctx.MMWatch.rows.init(viewport);
+    const next = viewport.querySelector('.watch-row__arrow--next');
+    const key = (k) => scroller.listeners.keydown.forEach((fn) => fn({ key: k, target: scroller, preventDefault() {} }));
+    const out = { hasNext: viewport.classList.contains('has-next') };
+    key('ArrowRight');
+    out.afterKey = scroller.scrollLeft;
+    next.listeners.click.forEach((fn) => fn());
+    out.afterArrow = scroller.scrollLeft;
+    return out;
   },
 
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.

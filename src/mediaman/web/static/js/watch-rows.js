@@ -37,8 +37,9 @@
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
   }
 
+  /* The cards of a poster row, or the pills of a season line. */
   function cards(scroller) {
-    return scroller.querySelectorAll('.watch-card');
+    return scroller.querySelectorAll('.watch-card, .watch-pill');
   }
 
   /* Distance from one card's start to the next. */

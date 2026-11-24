@@ -163,3 +163,7 @@ def test_landing_from_recommended_scrolls_its_row_into_view_and_cleans_the_addre
     # No Recommended row for a viewer with picks off, and nobody is pulled back from where they scrolled.
     assert out["picksOff"] == {"replacedAtOnce": ["/watch"], "scrolls": []}
     assert out["alreadyScrolled"]["scrolls"] == []
+
+
+def test_a_season_line_of_pills_pages_by_the_keys_and_the_arrow() -> None:
+    assert _run("seasonLine") == {"hasNext": True, "afterKey": 100, "afterArrow": 500}
