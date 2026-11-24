@@ -224,6 +224,27 @@ const scenarios = {
     return page.doc.activeElement.id;
   },
 
+  // What has eased in, in the view that goes and in the one that comes, while both are moved into
+  // the fade's cell and once the new one is moved out of it: what would ease in again.
+  async swapEased() {
+    const page = load({ motion: true });
+    const anims = [];
+    Node.prototype.animate = function () { const a = { node: this, cancel() {} }; anims.push(a); return a; };
+    page.run();
+    const doc = page.doc;
+    const host = build(doc, ['div', {}, ['p', { id: 'old', class: 'fade-in' }, ['b', { class: 'fade-in' }, 'old']]]);
+    doc.body.appendChild(host);
+    const oldNode = doc.getElementById('old');
+    const eased = (n) => [n].concat(n.descendants()).filter((x) => x.classList.contains('fade-in')).length;
+    const before = eased(host);
+    const fresh = build(doc, ['p', { class: 'fade-in' }, ['b', { class: 'fade-in' }, 'new']]);
+    const done = page.ctx.MMWatch.core.swap(oldNode, fresh);
+    const going = eased(oldNode);
+    anims.find((a) => a.node === oldNode).onfinish();
+    await done;
+    return { before, going, left: eased(host) };
+  },
+
   // A drop or a newer swap while a fade runs wins: the older fade's end never puts back a dropped
   // view, nor loses the newer one (whichever fade ends first).
   async swapInterrupted() {
