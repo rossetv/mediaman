@@ -127,8 +127,7 @@ class ScanEngine:
         library_types: Mapping of library_id -> its type, for every library Plex
             lists, scanned or not. A library it lacks is gone from Plex, unless
             it is empty.
-        library_titles: Mapping of library_id -> lowercase library title
-            (e.g. ``"anime"``).
+        library_titles: Mapping of library_id -> library title (e.g. ``"Anime"``).
         secret_key: HMAC secret used to sign keep tokens.
         min_age_days: Minimum days since added before eligibility is assessed.
         inactivity_days: Days without a watch event before deletion is triggered.
@@ -162,7 +161,9 @@ class ScanEngine:
         self._plex = plex_client
         self._library_ids = library_ids
         self._library_types = library_types
-        self._library_titles = library_titles or {}
+        self._library_titles = {
+            lib_id: title.lower() for lib_id, title in (library_titles or {}).items()
+        }
         self._secret_key = secret_key
         self._min_age_days = min_age_days
         self._inactivity_days = inactivity_days

@@ -18,11 +18,9 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 import requests
 
 from mediaman.core.audit import log_audit
+from mediaman.core.time import now_iso
 from mediaman.scanner import repository
-from mediaman.scanner.repository.scheduled_actions import (
-    has_pending_unmonitors,
-    is_latest_audit,
-)
+from mediaman.scanner.repository.scheduled_actions import has_pending_unmonitors
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
@@ -123,6 +121,8 @@ logger = logging.getLogger(__name__)
 
 # Audit rows about a Plex library rather than an item carry this prefix and its id.
 _LIBRARY_AUDIT_ID = "_library:"
+# Settings key holding the ids of the libraries the last scan to check the disks left out.
+_LEFT_OUT_KEY = "libraries_left_out"
 
 
 # Module-level Plex client cache. Rebuilding PlexClient on every
@@ -270,14 +270,25 @@ def _filter_libraries_by_disk(
 def _audit_left_out(
     conn: sqlite3.Connection, left_out: list[str], lib_titles: dict[str, str]
 ) -> None:
-    """Record in the history each library left out, until it changes."""
+    """Record in the history each library left out that the last scan to check did not leave out."""
+    stored = repository.read_setting(conn, _LEFT_OUT_KEY)
+    before = json.loads(stored) if stored else []
     for lib_id in left_out:
-        detail = (
-            f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: its disk limit "
-            "in Settings cannot be read"
+        if lib_id not in before:
+            log_audit(
+                conn,
+                _LIBRARY_AUDIT_ID + lib_id,
+                "library_left_out",
+                f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: its disk "
+                "limit in Settings cannot be read",
+            )
+    if left_out != before:
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at",
+            (_LEFT_OUT_KEY, json.dumps(left_out), now_iso()),
         )
-        if not is_latest_audit(conn, _LIBRARY_AUDIT_ID + lib_id, "library_left_out", detail):
-            log_audit(conn, _LIBRARY_AUDIT_ID + lib_id, "library_left_out", detail)
     conn.commit()
 
 
@@ -353,7 +364,7 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientB
     lib_ids = _load_library_ids(conn)
     plex_libs = plex.get_libraries()
     lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
-    lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
+    lib_titles: dict[str, str] = {lib["id"]: lib["title"] for lib in plex_libs}
 
     return PlexClientBundle(plex, lib_ids, lib_types, lib_titles)
 

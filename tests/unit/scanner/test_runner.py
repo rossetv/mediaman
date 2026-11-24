@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.scanner import runner
 from mediaman.scanner.runner import _filter_libraries_by_disk
 from mediaman.services.infra import SSRFRefused
 
@@ -280,7 +281,39 @@ class TestDiskThresholdFiltering:
         [told] = conn.execute(
             "SELECT detail FROM audit_log WHERE action = 'library_left_out'"
         ).fetchall()
-        assert "'library 1'" in told[0]
+        assert "'Library 1'" in told[0]
+
+    def test_a_library_left_out_again_after_it_was_scanned_is_told_again(self, conn):
+        for left_out in (["1"], ["1", "2"], [], ["2"]):
+            runner._audit_left_out(conn, left_out, {"1": "Movies", "2": "TV"})
+
+        told = conn.execute(
+            "SELECT media_item_id FROM audit_log WHERE action = 'library_left_out' ORDER BY id"
+        )
+        assert [row[0] for row in told] == ["_library:1", "_library:2", "_library:2"]
+
+    def test_a_library_named_anime_holds_anime_whatever_the_case_of_its_name(self, conn):
+        _seed_plex_settings(conn, ["1"])
+        plex = _make_plex_mock([{"id": "1", "title": "Anime", "type": "show"}])
+        plex.get_show_seasons.return_value = [
+            {
+                "plex_rating_key": "10",
+                "title": "Season 1",
+                "show_title": "Show",
+                "season_number": 1,
+                "file_path": "/anime/Show/Season 1",
+            }
+        ]
+        plex.get_season_watch_history.return_value = []
+        with (
+            patch("mediaman.services.media_meta.plex.PlexClient", return_value=plex),
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            runner.run_library_sync(conn, "test-secret")
+
+        assert [r[0] for r in conn.execute("SELECT media_type FROM media_items")] == [
+            "anime_season"
+        ]
 
     def test_no_thresholds_configured_scans_all(self, conn):
         """When no disk_thresholds setting exists, all libraries are passed through."""
