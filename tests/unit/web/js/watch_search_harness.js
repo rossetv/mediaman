@@ -976,6 +976,20 @@ const scenarios = {
     return out;
   },
 
+  // A place in the list that is no longer read: the list is asked for anew, as it was chosen.
+  async stalePlace() {
+    const p = await ready(ADMIN, '', '/watch?genre=action&sort=newest&decade=2010s');
+    const page = { tmdb_configured: true, genre: GENRES[0], items: [TM], total: 40, next_after: '1-5,1-9', next_page: null };
+    await p.answer('explore?genre=action', page);
+    p.grids[0].opts.fetchPage('1-5,1-9').catch(() => {});
+    p.calls.pop().reject(Object.assign(new Error('400'), { status: 400 }));
+    await settle();
+    const asked = p.calls[p.calls.length - 1].url;
+    await p.answer('explore?genre=action', { ...page, next_after: '2,2' });
+    const { grids } = p;
+    return { asked, url: p.url(), years: p.doc.querySelector('.explore-years__select').value, set: grids[0].set, next: grids[0].next };
+  },
+
   // Only films or only TV: there is no kind to choose, and one in the address that it has not is not asked for.
   async oneKind() {
     const p = await ready(ADMIN);

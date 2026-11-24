@@ -390,6 +390,14 @@ def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_r
     assert out["cleared"] == ["/watch", "browse", True]
 
 
+def test_a_category_s_place_that_is_no_longer_read_starts_its_list_anew_as_chosen() -> None:
+    out = _run("stalePlace")
+    assert out["asked"] == "/api/watch/explore?genre=action&sort=newest&decade=2010s&after="
+    assert out["url"] == "/watch?genre=action&sort=newest&decade=2010s"
+    assert out["years"] == "2010s"
+    assert (out["set"], out["next"]) == ([[1, "2,2", True]], "2,2")
+
+
 def test_a_person_s_title_that_only_radarr_or_sonarr_has_is_in_the_library() -> None:
     assert _run("personHeldByArr") == [
         "In your library2 titles",

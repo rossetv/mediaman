@@ -406,7 +406,12 @@
           if (open === mine && page === 1 && url(want.id, of) === url(want.id, filter)) learn(reply);
           return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && (reply.next_after || reply.next_page)) || null };
         }, function (err) {
-          if (err && err.status === 400 && of.decade) {
+          // A page from before an update may name its place in a form that is no longer read.
+          if (err && err.status === 400 && typeof page === 'string' && open === mine && url(want.id, of) === url(want.id, filter)) {
+            load();
+            return new Promise(function () {}); // the list that asked is gone
+          }
+          if (err && err.status === 400 && typeof page === 'number' && of.decade) {
             dropDecade(of);
             return ask(page);
           }
