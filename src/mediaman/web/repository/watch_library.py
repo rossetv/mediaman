@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from mediaman.scanner.repository.scheduled_actions import fetch_deletion, is_fully_removed
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.services.infra import get_setting
 from mediaman.services.watch_catalog import folder_year
 from mediaman.web.repository.library_query import (
@@ -413,8 +413,8 @@ def pending_deletions(
     *,
     media_item_id: str | None = None,
 ) -> list[PendingDeletion]:
-    """Movies and seasons scheduled for deletion that are neither kept nor begun by the deletion
-    pass, soonest first. One whose date has passed is leaving until the pass claims it."""
+    """Movies and seasons scheduled for deletion that are neither kept, begun by the deletion
+    pass nor already removed, soonest first. One whose date has passed is leaving until the pass claims it."""
     lib_sql, params = _in_libraries(libraries, "mi.plex_library_id")
     where = [
         lib_sql,
@@ -422,6 +422,7 @@ def pending_deletions(
         "sa.token_used = 0",
         "(sa.delete_status IS NULL OR sa.delete_status = 'pending')",
         "sa.execute_at IS NOT NULL",
+        f"NOT {FILES_GONE}",
     ]
     if media_item_id is not None:
         where.append("sa.media_item_id = ?")
@@ -429,17 +430,13 @@ def pending_deletions(
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         "SELECT sa.id AS action_id, sa.media_item_id, sa.execute_at, mi.title, mi.media_type,"
-        " mi.show_title, mi.season_number, mi.show_rating_key, sa.removed_files"
+        " mi.show_title, mi.season_number, mi.show_rating_key"
         " FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id"
         f" WHERE {' AND '.join(where)} ORDER BY sa.execute_at, sa.id",
         params,
     ).fetchall()
     result: list[PendingDeletion] = []
     for r in rows:
-        if r["removed_files"] is not None:
-            row = fetch_deletion(conn, r["action_id"])
-            if row is not None and is_fully_removed(row):
-                continue
         is_movie = r["media_type"] == "movie"
         result.append(
             PendingDeletion(

@@ -7,6 +7,7 @@ client — these are pure DB-query helpers.
 
 from __future__ import annotations
 
+import json
 import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -16,6 +17,7 @@ import pytest
 from mediaman.core.format import format_bytes
 from mediaman.db import init_db, set_connection
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
+from mediaman.scanner.repository.scheduled_actions import record_removed_files
 from mediaman.web.repository.library_query import _match
 from mediaman.web.routes.library import (
     fetch_library,
@@ -815,6 +817,23 @@ class TestPendingDeletion:
             _schedule_deletion(conn, f"m{i}", days, **kw)
         items, _ = fetch_library(conn)
         assert all(i["deletion_at"] is None for i in items)
+
+    @pytest.mark.parametrize("left", [[], ["/m/b.mkv"]])
+    def test_a_deletion_is_still_to_come_only_while_it_has_files_left(self, db_path, left):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _schedule_deletion(conn, "m1", -1)
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": f, "size": 1} for f in ["/m/a.mkv", *left]]),),
+        )
+        record_removed_files(conn, 1, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+
+        items, _ = fetch_library(conn)
+
+        assert (items[0]["deletion_at"] is not None) is bool(left)
+        assert fetch_stats(conn)["due_soon"] == len(left)
 
     def test_an_item_whose_library_is_not_selected_shows_no_deletion(self, db_path):
         conn = init_db(str(db_path))

@@ -6,7 +6,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.services.scheduled_actions import apply_keep_snooze, revert_keep_snooze
+from mediaman.scanner.repository.scheduled_actions import record_removed_files
+from mediaman.services.scheduled_actions import (
+    apply_keep_forever,
+    apply_keep_snooze,
+    revert_keep_snooze,
+)
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
@@ -49,6 +54,18 @@ def test_keep_is_refused_when_the_date_changed_since_it_was_read(conn, action_id
     before = _row(conn, action_id)
 
     assert _keep(conn, action_id) == 0
+    assert _row(conn, action_id) == before
+
+
+@pytest.mark.parametrize("forever", [False, True])
+def test_a_keep_is_refused_once_every_file_is_removed(conn, action_id, forever):
+    conn.execute("""UPDATE media_items SET tracked_files = '[{"path": "/m/a.mkv"}]'""")
+    record_removed_files(conn, action_id, {"/m/a.mkv"}, 1, {}, ())
+    before = _row(conn, action_id)
+
+    kept = apply_keep_forever(conn, action_id, NOW) if forever else _keep(conn, action_id)
+
+    assert kept == 0
     assert _row(conn, action_id) == before
 
 

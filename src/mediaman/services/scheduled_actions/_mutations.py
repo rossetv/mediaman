@@ -15,6 +15,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.core.scheduled_action_kinds import (
     ACTION_PROTECTED_FOREVER,
     ACTION_SCHEDULED_DELETION,
@@ -22,6 +23,11 @@ from mediaman.core.scheduled_action_kinds import (
 )
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.scheduled_actions._types import VerifiedKeepAction
+
+_HAS_FILES_LEFT = (
+    "NOT EXISTS (SELECT 1 FROM scheduled_actions sa JOIN media_items mi "
+    f"ON mi.id = sa.media_item_id WHERE sa.id = scheduled_actions.id AND {FILES_GONE})"
+)
 
 
 def parse_execute_at(raw: object, *, default: datetime) -> datetime:
@@ -43,11 +49,11 @@ def is_pending(verified: VerifiedKeepAction) -> bool:
     """Confirm a ``VerifiedKeepAction`` is still actionable.
 
     Returns ``True`` only when the row is a ``scheduled_deletion`` the
-    deletion pass has not claimed (delete_status null or "pending").  A
-    date that has passed does not matter: until that claim the item is
-    still there to keep.
+    deletion pass has not claimed (delete_status null or "pending") and
+    that has files left to remove.  A date that has passed does not
+    matter: until that claim the item is still there to keep.
     """
-    if verified.action != ACTION_SCHEDULED_DELETION:
+    if verified.action != ACTION_SCHEDULED_DELETION or verified.files_gone:
         return False
     return verified.delete_status in (None, "pending")
 
@@ -64,9 +70,9 @@ def apply_keep_snooze(
     """Apply a finite snooze to a ``scheduled_deletion`` row.
 
     The UPDATE is guarded by ``action='scheduled_deletion'``,
-    ``delete_status='pending'`` and ``token_used=0`` so a concurrent mutation
-    or a deletion the pass has claimed cannot be accidentally overwritten; one
-    whose date has passed unclaimed can.  With *expected_execute_at* the row must
+    ``delete_status='pending'``, ``token_used=0`` and files left to remove, so a
+    concurrent mutation or a deletion the pass has claimed or finished cannot be
+    accidentally overwritten; one whose date has passed unclaimed can.  With *expected_execute_at* the row must
     also still hold that deletion date, so a caller that read the date to
     restore it later knows it is the one the snooze replaced.  Returns the
     rowcount (0 means nothing happened — caller should respond 409).
@@ -77,7 +83,7 @@ def apply_keep_snooze(
         "execute_at=?, snoozed_at=?, snooze_duration=? "
         "WHERE id=? AND action='scheduled_deletion' "
         "AND (delete_status IS NULL OR delete_status='pending') "
-        "AND token_used=0"
+        f"AND token_used=0 AND {_HAS_FILES_LEFT}"
     )
     params: list[object] = [
         ACTION_SNOOZED,
@@ -140,15 +146,15 @@ def apply_keep_forever(
 ) -> int:
     """Apply a forever-keep to a ``scheduled_deletion`` row.
 
-    Same guards as ``apply_keep_snooze``: action, delete_status and
-    token_used all checked atomically.  Returns the rowcount (0 means nothing happened — caller should respond 409).
+    Same guards as ``apply_keep_snooze``: action, delete_status,
+    token_used and files left all checked atomically.  Returns the rowcount (0 means nothing happened — caller should respond 409).
     """
     cursor = conn.execute(
         "UPDATE scheduled_actions SET action=?, token_used=1, "
         "snoozed_at=?, snooze_duration=? "
         "WHERE id=? AND action='scheduled_deletion' "
         "AND (delete_status IS NULL OR delete_status='pending') "
-        "AND token_used=0",
+        f"AND token_used=0 AND {_HAS_FILES_LEFT}",
         (
             ACTION_PROTECTED_FOREVER,
             now.isoformat(),

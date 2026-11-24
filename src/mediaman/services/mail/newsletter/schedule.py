@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime
 
 from mediaman.core.library_selected import LIBRARY_SELECTED
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.crypto import sign_poster_url
 from mediaman.crypto.tokens import rebuild_keep_token, validate_keep_token
 from mediaman.services.scheduled_actions import parse_execute_at
@@ -21,11 +22,11 @@ logger = logging.getLogger(__name__)
 def _keep_url(row: sqlite3.Row, base_url: str, secret_key: str) -> str:
     """Return the row's /keep link, or "" (no Keep button) when the keep page would refuse it.
 
-    That is a row already being deleted, or one whose token cannot be rebuilt or has expired.
+    That is a row already being deleted, or with no file left, or one whose token cannot be rebuilt or has expired.
     """
     # Same rule as is_pending (the action is already scheduled_deletion here): a row past its
     # date can be kept until the deletion pass claims it.
-    if row["delete_status"] not in (None, "pending"):
+    if row["delete_status"] not in (None, "pending") or row["files_gone"]:
         return ""
     try:
         token = rebuild_keep_token(
@@ -123,7 +124,7 @@ def _load_scheduled_items(
     # rationale: the interpolated conditions are fixed strings
     rows = conn.execute(  # nosec B608
         "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
-        "sa.is_reentry, sa.delete_status, "
+        f"sa.is_reentry, sa.delete_status, {FILES_GONE} AS files_gone, "
         "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
         "mi.added_at, mi.last_watched_at "
         "FROM scheduled_actions sa "

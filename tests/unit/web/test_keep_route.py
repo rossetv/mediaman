@@ -19,7 +19,10 @@ import mediaman.web
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token, validate_poster_token
 from mediaman.db import set_connection
-from mediaman.scanner.repository.scheduled_actions import claim_due_deletion
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    record_removed_files,
+)
 from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
     lookup_verified_action,
@@ -959,6 +962,35 @@ class TestItemKeptMeanwhile:
         assert resp.status_code == 400
         assert "This is being deleted now." in resp.text
         assert self._action_row(conn) == before
+
+    @pytest.mark.parametrize(("left", "status"), [([], 400), (["/m/b.mkv"], 302)])
+    def test_only_a_deletion_that_left_files_can_be_kept(self, conn, left, status):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": f, "size": 1} for f in ["/m/a.mkv", *left]]),),
+        )
+        record_removed_files(conn, action_id, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+        conn.commit()
+        client = self._client(conn)
+
+        page = client.get(f"/keep/{token}").text
+        resp = client.post(
+            f"/keep/{token}",
+            data={"duration": "30 days"},
+            headers=self._HTML,
+            follow_redirects=False,
+        )
+
+        assert ("Keep for" in page, resp.status_code) == (bool(left), status)
+        action = conn.execute("SELECT action FROM scheduled_actions").fetchone()["action"]
+        assert action == ("snoozed" if left else "scheduled_deletion")
+        assert ("This is being deleted now." in page) is (not left)
 
     def test_a_forever_keep_made_past_the_date_reads_protected(
         self, app_factory, authed_client, conn

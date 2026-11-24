@@ -12,6 +12,7 @@ import hashlib
 import sqlite3
 from datetime import datetime
 
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.crypto import validate_keep_token
 from mediaman.services.scheduled_actions._types import VerifiedKeepAction
 
@@ -29,8 +30,6 @@ def token_hash(token: str) -> str:
 # ``scheduled_actions`` column followed by the ``media_items`` display
 # columns.  Both queries below inline exactly these columns in this
 # order so a single ``_row_to_verified_keep_action`` mapper covers both.
-# It is kept as a literal in each query (not interpolated) so no string
-# is ever built into SQL.
 
 
 def _row_to_verified_keep_action(row: sqlite3.Row) -> VerifiedKeepAction:
@@ -63,6 +62,7 @@ def _row_to_verified_keep_action(row: sqlite3.Row) -> VerifiedKeepAction:
         added_at=row["added_at"],
         show_title=row["show_title"],
         season_number=row["season_number"],
+        files_gone=bool(row["files_gone"]),
     )
 
 
@@ -83,12 +83,14 @@ def lookup_verified_action(
     if payload is None:
         return None
 
-    row: sqlite3.Row | None = conn.execute(
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    row: sqlite3.Row | None = conn.execute(  # nosec B608
         "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
         "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
         "sa.is_reentry, sa.delete_status, sa.token_hash, "
         "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
-        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
+        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number, "
+        f"{FILES_GONE} AS files_gone "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.token_hash = ?",

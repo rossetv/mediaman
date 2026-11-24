@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -13,7 +14,10 @@ import pytest
 from mediaman.crypto import generate_keep_token, validate_keep_token
 from mediaman.db import init_db
 from mediaman.scanner.phases.upsert import schedule_deletion
-from mediaman.scanner.repository.scheduled_actions import claim_due_deletion
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    record_removed_files,
+)
 from mediaman.services.mail.newsletter import send_newsletter
 from mediaman.services.scheduled_actions import is_pending, lookup_verified_action
 from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_subscriber
@@ -227,6 +231,19 @@ def test_row_past_its_date_keeps_its_keep_button_until_the_pass_claims_it(conn, 
     assert claim_due_deletion(conn, action_id, datetime.now(UTC).isoformat())
     conn.commit()
     assert "/keep/" not in _send(conn, manual=True)
+
+
+@pytest.mark.parametrize(("left", "links"), [([], 0), (["/m/b.mkv"], 1)])
+def test_only_a_deletion_that_left_files_has_a_keep_button(conn, left, links):
+    action_id = _schedule(conn, grace_days=14)
+    conn.execute(
+        "UPDATE media_items SET tracked_files = ?",
+        (json.dumps([{"path": f, "size": 1} for f in ["/m/a.mkv", *left]]),),
+    )
+    record_removed_files(conn, action_id, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+    conn.commit()
+
+    assert len(_KEEP_HREF.findall(_send(conn, manual=True))) == links
 
 
 def test_unsubscribe_header_is_the_link_in_the_footer(conn):

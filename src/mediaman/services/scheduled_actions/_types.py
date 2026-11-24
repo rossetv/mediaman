@@ -90,3 +90,5 @@ class VerifiedKeepAction:
     added_at: str
     show_title: str | None
     season_number: int | None
+    # Whether the deletion has already removed every file, and only its booking is left.
+    files_gone: bool = False

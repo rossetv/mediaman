@@ -160,7 +160,7 @@ def _submit_failure(
 
 def _keep_state(row: VerifiedKeepAction, now: datetime) -> str:
     """Name the state the keep page shows for a verified action."""
-    if row.delete_status == "deleting":
+    if row.delete_status == "deleting" or row.files_gone:
         # Files may already be gone, so neither Keep nor "already kept" is true.
         return "deleting"
     if is_pending(row) and not row.token_used:

@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from mediaman.core.format import format_bytes
 from mediaman.core.library_selected import LIBRARY_SELECTED
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.core.time import now_utc
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._query import (
@@ -161,6 +162,7 @@ def count_deletions_due(conn: sqlite3.Connection, *, until: str) -> int:
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
+                AND NOT {FILES_GONE}
                 AND sa.execute_at <= ?)
             UNION ALL
             SELECT MIN(mi.id) FROM media_items mi
@@ -168,6 +170,7 @@ def count_deletions_due(conn: sqlite3.Connection, *, until: str) -> int:
                 SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id
                 AND sa.action = 'scheduled_deletion' AND sa.token_used = 0
                 AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
+                AND NOT {FILES_GONE}
                 AND sa.execute_at <= ?)
             GROUP BY COALESCE(mi.show_rating_key, mi.show_title)
         )
