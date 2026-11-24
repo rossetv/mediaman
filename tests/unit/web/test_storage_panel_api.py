@@ -274,6 +274,41 @@ class TestDisks:
 
         assert get("/api/dashboard/stats")["storage"]["readable"] is True
 
+    def test_disks_that_were_all_read_are_not_read_again_within_the_half_minute(
+        self, get, conn, disks, tmp_path, monkeypatch
+    ):
+        clock = [1000.0]
+        monkeypatch.setattr(_data.time, "monotonic", lambda: clock[0])
+        disks(movies=(4 * TB, TB))
+        _libraries(conn, tmp_path, {"1": ("movies", 0)}, ["1"])
+
+        def used():
+            return get("/api/dashboard/stats")["storage"]["used_bytes"]
+
+        assert used() == TB
+        disks(movies=(4 * TB, 2 * TB))
+        clock[0] += 29
+        assert used() == TB
+        clock[0] += 2
+        assert used() == 2 * TB
+
+    def test_a_folder_that_fails_after_its_reading_does_not_hide_another_disk(
+        self, get, conn, disks, tmp_path, monkeypatch
+    ):
+        disks(movies=(4 * TB, TB), tv=(2 * TB, TB))
+        _libraries(conn, tmp_path, {"1": ("movies", 0), "2": ("tv", 0)}, ["1", "2"])
+        read, seen = shutil.disk_usage, set()
+
+        def once(path):
+            if path in seen and path.endswith("movies"):
+                raise OSError("stale mount")
+            seen.add(path)
+            return read(path)
+
+        monkeypatch.setattr(shutil, "disk_usage", once)
+
+        assert len(get("/api/dashboard/stats")["storage"]["disks"]) == 2
+
     @pytest.mark.parametrize("value", ["[]", "not json", '{"1": 5, "2": {"path": 7}}'])
     def test_a_malformed_setting_lists_no_disk(self, get, conn, disks, value):
         insert_settings(conn, plex_libraries='["1"]', disk_thresholds=value)

@@ -30,6 +30,7 @@ from mediaman.services.infra import (
     get_aggregate_disk_usage,
     get_disk_usage_for_paths,
     get_setting,
+    is_same_disk,
 )
 from mediaman.services.infra import get_media_path as _get_media_path
 from mediaman.services.scheduled_actions.days_left import days_left
@@ -300,10 +301,10 @@ class _Disk:
 _disks_cache: dict[tuple[str, ...], tuple[float, list[_Disk]]] = {}
 
 
-def _read_usage(*paths: str) -> dict[str, int] | None:
-    """Return the usage of the disks behind *paths*, or None when none can be read."""
+def _read_usage(path: str) -> dict[str, int] | None:
+    """Return the usage of the disk behind *path*, or None when it cannot be read."""
     try:
-        usage = get_disk_usage_for_paths(paths)
+        usage = get_disk_usage_for_paths([path])
     except OSError:
         return None
     return usage if usage["total_bytes"] else None
@@ -314,10 +315,17 @@ def _read_disks(paths: Iterable[str]) -> list[_Disk]:
     disks: list[_Disk] = []
     for path in paths:
         usage = _read_usage(path)
-        for disk in disks if usage else []:
-            # Two folders are on one disk when the shared rule counts their total once.
-            both = _read_usage(disk.folders[0], path) if disk.usage else None
-            if both and usage and both["total_bytes"] == usage["total_bytes"]:
+        for disk in disks:
+            if (
+                usage
+                and disk.usage
+                and is_same_disk(
+                    disk.usage["total_bytes"],
+                    disk.usage["free_bytes"],
+                    usage["total_bytes"],
+                    usage["free_bytes"],
+                )
+            ):
                 disk.folders.append(path)
                 break
         else:
