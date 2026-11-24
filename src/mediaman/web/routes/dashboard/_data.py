@@ -418,8 +418,11 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     known_bytes = movies_bytes + tv_bytes + anime_bytes
     other_bytes = max(0, used - known_bytes) if used else 0
 
+    # The sizes also count titles on a disk that could not be read, and extra copies.
+    fit = min(1.0, used / known_bytes) if known_bytes else 1.0
+
     def pct(val: int) -> float:
-        return round(val / total * 100, 1) if total else 0.0
+        return round(val * fit / total * 100, 1) if total else 0.0
 
     return {
         "used": format_bytes(used),

@@ -309,6 +309,19 @@ class TestDisks:
 
         assert len(get("/api/dashboard/stats")["storage"]["disks"]) == 2
 
+    def test_the_types_never_take_more_of_the_bar_than_what_is_used(
+        self, get, conn, disks, tmp_path
+    ):
+        disks(movies=(4 * TB, 2 * TB), tv=None)
+        _libraries(conn, tmp_path, {"1": ("movies", 0), "2": ("tv", 0)}, ["1", "2"])
+        insert_media_item(conn, id="m", media_type="movie", file_size_bytes=3 * TB)
+        insert_media_item(conn, id="t", media_type="tv_season", file_size_bytes=9 * TB)
+
+        storage = get("/api/dashboard/stats")["storage"]
+
+        assert (storage["movies_pct"], storage["tv_pct"]) == (12.5, 37.5)
+        assert (storage["movies_bytes"], storage["tv_bytes"]) == (3 * TB, 9 * TB)
+
     @pytest.mark.parametrize("value", ["[]", "not json", '{"1": 5, "2": {"path": 7}}'])
     def test_a_malformed_setting_lists_no_disk(self, get, conn, disks, value):
         insert_settings(conn, plex_libraries='["1"]', disk_thresholds=value)
