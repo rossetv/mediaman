@@ -20,6 +20,7 @@ import os
 import sqlite3
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -714,11 +715,12 @@ def was_audited_since(
 
 
 def was_requested_since(conn: sqlite3.Connection, row: DeletionRow) -> bool:
-    """Return True if the title was downloaded again after *row*'s deletion was booked.
+    """Return True if the title was downloaded again after *row*'s deletion was booked, or may have been.
 
     *row* is as fetch_pending_unmonitors returns it. A download is audited
     under its TMDB/TVDB id, or under its bare title, which another movie or
-    show may share: its audit detail, and the notification it left, say which.
+    show may share: only the service its audit names, or the notification
+    recorded with it, tells them apart.
     """
     tokens = redownload_tokens(
         DeletedMedia(
@@ -733,25 +735,55 @@ def was_requested_since(conn: sqlite3.Connection, row: DeletionRow) -> bool:
     keys = [row.title, *tokens]
     # rationale: only "?" placeholders are interpolated; every value is bound
     requests = conn.execute(  # nosec B608
-        "SELECT media_item_id, detail FROM audit_log "
+        "SELECT media_item_id, detail, created_at FROM audit_log "
         "WHERE id > ? AND action IN ('downloaded', 're_downloaded') "
-        f"AND media_item_id IN ({','.join('?' * len(keys))})",
+        f"AND media_item_id IN ({','.join('?' * len(keys))}) ORDER BY created_at, id",
         (row.id, *keys),
     ).fetchall()
     if any(request["media_item_id"] in tokens for request in requests):
         return True
-    other = "Sonarr" if row.media_type == "movie" else "Radarr"
-    if all(
-        (request["detail"] or "").startswith(f"Added '{row.title}' to {other}")
-        for request in requests
-    ):
-        return False
     notifications = conn.execute(
-        "SELECT service, tmdb_id, tvdb_id, season_number FROM download_notifications "
-        "WHERE title = ? AND created_at >= (SELECT created_at FROM audit_log WHERE id = ?)",
+        "SELECT service, email, tmdb_id, tvdb_id, season_number, created_at "
+        "FROM download_notifications "
+        "WHERE title = ? AND created_at >= (SELECT created_at FROM audit_log WHERE id = ?) "
+        "ORDER BY created_at, id",
         (row.title, row.id),
     ).fetchall()
-    return not notifications or any(_may_ask_for(found, row) for found in notifications)
+    if any(_may_ask_for(found, row) for found in notifications):
+        return True
+    other = "Sonarr" if row.media_type == "movie" else "Radarr"
+    for request in requests:
+        own = next((found for found in notifications if _recorded_with(request, found)), None)
+        if own is not None:
+            notifications.remove(own)
+        elif _added_to(request) != other:
+            return True
+    return False
+
+
+# Both are written in one transaction, which may wait for the write lock in between.
+_RECORDED_WITHIN = timedelta(seconds=30)
+
+
+def _added_to(request: sqlite3.Row) -> str | None:
+    """Return the service an audited download says it was added to, or None when it names none."""
+    for service in ("Radarr", "Sonarr"):
+        if (request["detail"] or "").startswith(f"Added '{request['media_item_id']}' to {service}"):
+            return service
+    return None
+
+
+def _recorded_with(request: sqlite3.Row, notification: sqlite3.Row) -> bool:
+    """Return True if *notification* is the one the audited download *request* recorded."""
+    service = _added_to(request)
+    if service is None:
+        same = (request["detail"] or "").endswith(f" by {notification['email']}")
+    else:
+        same = service.lower() == notification["service"]
+    gap = datetime.fromisoformat(request["created_at"]) - datetime.fromisoformat(
+        notification["created_at"]
+    )
+    return same and abs(gap) <= _RECORDED_WITHIN
 
 
 def _may_ask_for(notification: sqlite3.Row, row: DeletionRow) -> bool:

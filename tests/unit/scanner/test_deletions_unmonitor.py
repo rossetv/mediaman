@@ -5,12 +5,14 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
 import requests
 
 from mediaman.core.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.db import init_db
 from mediaman.scanner import deletions, runner
 from mediaman.scanner.deletions import DeletionExecutor
@@ -295,6 +297,97 @@ def test_the_movie_itself_asked_for_by_search_stays_monitored(conn, root, monkey
     for _ in range(others):
         _ask(conn, "Radarr", tmdb_id=999)
     _ask(conn, "Radarr", tmdb_id=601)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == []
+
+
+def _notify_by_email(conn, tmdb_id):
+    record_download_notification(
+        conn,
+        email="a@b.c",
+        title="Film",
+        media_type="movie",
+        service="radarr",
+        tmdb_id=tmdb_id,
+    )
+
+
+def _ask_by_email(conn, tmdb_id, *, notified=True):
+    """Record a download as an emailed link does, under the bare title "Film"."""
+    log_audit(conn, "Film", "downloaded", "Downloaded 'Film' by a@b.c")
+    if notified:
+        _notify_by_email(conn, tmdb_id)
+    conn.commit()
+
+
+def test_another_film_of_the_same_name_asked_for_by_email_does_not_stop_the_unmonitor(
+    conn, root, monkeypatch
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _ask_by_email(conn, 999)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == [1]
+
+
+def _ask_by_email_unrecorded(conn):
+    _ask_by_email(conn, 601, notified=False)
+
+
+def _ask_by_search_unrecorded(conn):
+    _ask(conn, "Radarr", email=None)
+
+
+@pytest.mark.parametrize("wanted_first", [True, False])
+@pytest.mark.parametrize("ask_wanted", [_ask_by_email_unrecorded, _ask_by_search_unrecorded])
+def test_a_request_no_notification_tells_of_keeps_the_title_monitored_beside_another_films(
+    conn, root, monkeypatch, ask_wanted, wanted_first
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    if wanted_first:
+        ask_wanted(conn)
+    _ask_by_email(conn, 999)
+    if not wanted_first:
+        ask_wanted(conn)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == []
+
+
+def test_a_notification_of_another_film_recorded_at_another_time_does_not_tell_of_a_request(
+    conn, root, monkeypatch
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _notify_by_email(conn, 999)
+    conn.execute(
+        "UPDATE download_notifications SET created_at = ?",
+        ((now_utc() + timedelta(hours=1)).isoformat(),),
+    )
+    _ask_by_email(conn, 601, notified=False)
+    radarr = _radarr(root)
+
+    _sync(conn, monkeypatch, radarr)
+
+    assert _unmonitored(radarr) == []
+
+
+def test_a_film_whose_add_got_no_answer_and_only_its_email_is_recorded_stays_monitored(
+    conn, root, monkeypatch
+):
+    _due(conn, root, 1)
+    _die_unmonitoring(conn, root)
+    _notify_by_email(conn, 601)
+    conn.commit()
     radarr = _radarr(root)
 
     _sync(conn, monkeypatch, radarr)
