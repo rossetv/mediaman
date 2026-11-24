@@ -155,6 +155,9 @@ def remove_orphans(
     later healthy scan re-populates anything Plex still has, so the cost of a
     wrong prune is bounded.
 
+    An item whose deletion removed files that are not booked yet stays until
+    that is done: its rows are the only record of them.
+
     Args:
         conn: Open SQLite connection.
         seen_keys: Set of ``plex_rating_key`` values observed in the scan.
@@ -175,9 +178,8 @@ def remove_orphans(
         return 0
 
     all_ids = repository.fetch_ids_in_libraries(conn, list(prune_libs))
-    orphan_ids = [i for i in all_ids if i not in seen_keys]
-
-    if not orphan_ids:
+    unlisted = [i for i in all_ids if i not in seen_keys]
+    if not unlisted:
         return 0
 
     # Atomic two-table delete: the matching ``scheduled_actions`` rows
@@ -187,8 +189,16 @@ def remove_orphans(
     # deleted ``media_items`` row. Each repository call chunks its own
     # IN-clause; the ``with conn:`` here owns the transaction boundary.
     with conn:
+        # The lock comes before the read, so no deletion starts in between.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        unbooked = repository.fetch_unbooked_media_ids(conn)
+        repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
+        orphan_ids = [i for i in unlisted if i not in unbooked]
         repository.delete_actions_for_media_items(conn, orphan_ids)
         repository.delete_media_items(conn, orphan_ids)
+    if not orphan_ids:
+        return 0
     logger.info(
         "Removed %d orphaned media items no longer in Plex",
         len(orphan_ids),

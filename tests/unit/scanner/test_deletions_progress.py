@@ -234,6 +234,7 @@ class TestNewCopyAfterAnUnbookedRemoval:
         cd2.unlink()
         (cd1.parent.parent / "other.mkv").write_bytes(b"x")
         self._track(conn, cd1)
+        conn.execute("UPDATE media_items SET tmdb_id = 10")
         return cd1
 
     @staticmethod

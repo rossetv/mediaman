@@ -43,6 +43,7 @@ from mediaman.scanner.repository.media_items import (
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
     DeletionRow,
+    book_deletion,
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
     clear_pending_deletions,
@@ -54,6 +55,8 @@ from mediaman.scanner.repository.scheduled_actions import (
     fetch_pending_deletions,
     fetch_protected_media_ids,
     fetch_stuck_deletions,
+    fetch_unbooked_media_ids,
+    forget_unremoved_files,
     has_expired_snooze,
     is_already_scheduled,
     is_protected,
@@ -70,6 +73,7 @@ from mediaman.scanner.repository.watch_credit import last_credited_by_media_item
 __all__ = [
     "DELETION_ACTION",
     "DeletionRow",
+    "book_deletion",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
@@ -84,6 +88,8 @@ __all__ = [
     "fetch_pending_deletions",
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
+    "fetch_unbooked_media_ids",
+    "forget_unremoved_files",
     "has_expired_snooze",
     "is_already_scheduled",
     "is_protected",
