@@ -423,7 +423,6 @@
       setQuality(good.quality);
     } else {
       /* A step of Automatic's own that failed is not tried again soon. */
-      steppedAt = playedS;
       upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
     }
     override = good.override;

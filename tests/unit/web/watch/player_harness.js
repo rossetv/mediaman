@@ -779,6 +779,85 @@ const scenarios = {
     return { before: before, saved: p.storage['mediaman.watch.quality'], starts: p.starts().length };
   },
 
+  /* What Automatic waits for before a step up, and what it makes of one refused. */
+  async up_waits(p) {
+    const out = {};
+    const count = () => p.starts().length;
+    const last = () => p.hlsList[p.hlsList.length - 1];
+    const stall = () => { playOn(p, 5); fire(p.video, 'waiting'); };
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    playOn(p, 310);
+    out.atItsTop = count();
+    stall();
+    p.tick(5000);
+    fire(p.video, 'playing');
+    p.tick(20000);
+    out.afterAShortStall = count();
+    stall();
+    p.replies.push(answer('720p-4000'));
+    await streamPlays(p, 100);
+    out.down = count();
+    playOn(p, 280);
+    p.video.currentTime = 2900;
+    playOn(p, 40);
+    out.nearTheEnd = count();
+    p.video.currentTime = 500;
+    press(p.q('[data-quality-btn]'));
+    playOn(p, 10);
+    out.menuOpen = count();
+    key('Escape');
+    p.replies.push({ err: { status: 404, error: 'unreachable' } }, answer('720p-4000'));
+    playOn(p, 2);
+    await streamPlays(p, 500);
+    out.refused = p.starts().slice(-2);
+    const from = count();
+    playOn(p, 400);
+    out.waitsLonger = count() - from;
+    p.replies.push(answer('1080p-8000'));
+    playOn(p, 300);
+    await settle();
+    out.again = p.starts().slice(from);
+    return out;
+  },
+
+  /* Frames: a stream's refusal that comes late, an image that cannot be shown, and
+     the wait after a refusal that follows a frame. */
+  async frame_trouble(p) {
+    const out = {};
+    p.replies[0] = answer('1080p-8000', WITH_FRAMES);
+    await streamPlays(p, 0);
+    point(p, 'pointermove', 100);
+    p.tick(100);
+    p.replies.push(answer('720p-4000', WITH_FRAMES));
+    click(p.q('[data-quality="720p-4000"]'));
+    const late = p.frames.answer;
+    await streamPlays(p, 0);
+    late(404);
+    await settle();
+    out.newStream = !p.q('[data-frame]').hidden;
+    const ask = async (x, status) => {
+      point(p, 'pointermove', x);
+      p.tick(100);
+      if (p.frames.answer) p.frames.answer(status);
+      await settle();
+    };
+    await ask(200, 503);
+    p.tick(2000);
+    p.frames.answer(200);
+    await settle();
+    await ask(300, 503);
+    const asked = p.frames.asked.length;
+    p.tick(2000);
+    out.waitedAgain = p.frames.asked.length - asked;
+    p.frames.answer(200);
+    await settle();
+    out.shown = !p.q('[data-frame]').hidden;
+    fire(p.q('[data-frame-img]'), 'error');
+    out.afterError = !p.q('[data-frame]').hidden;
+    return out;
+  },
+
   /* The person tries one quality after another and all are refused. */
   async picks_refused(p) {
     await streamPlays(p, 0);

@@ -275,6 +275,39 @@ def test_automatic_picked_replaces_a_saved_choice_the_server_does_not_know(marku
     assert out == {"before": "4320p-90000", "saved": "auto", "starts": 2}
 
 
+def test_automatic_never_steps_above_what_it_began_with(markup):
+    assert run(markup, "up_waits")["atItsTop"] == 1
+
+
+def test_a_stall_that_is_over_in_time_steps_nowhere(markup):
+    out = run(markup, "up_waits")
+    assert (out["afterAShortStall"], out["down"]) == (1, 2)
+
+
+def test_automatic_steps_up_neither_near_the_end_nor_under_an_open_menu(markup):
+    out = run(markup, "up_waits")
+    assert (out["nearTheEnd"], out["menuOpen"]) == (2, 2)
+
+
+def test_a_step_up_that_is_refused_waits_longer_for_the_next_try(markup):
+    out = run(markup, "up_waits")
+    assert out["refused"] == ["1080p-8000", "720p-4000"]
+    assert (out["waitsLonger"], out["again"]) == (0, ["1080p-8000"])
+
+
+def test_a_frame_refused_late_by_the_stream_before_turns_nothing_off(markup):
+    assert run(markup, "frame_trouble")["newStream"] is True
+
+
+def test_a_frame_that_came_sets_the_wait_after_a_refusal_back(markup):
+    assert run(markup, "frame_trouble")["waitedAgain"] == 1
+
+
+def test_a_frame_that_cannot_be_shown_turns_the_previews_off(markup):
+    out = run(markup, "frame_trouble")
+    assert (out["shown"], out["afterError"]) == (True, False)
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 
