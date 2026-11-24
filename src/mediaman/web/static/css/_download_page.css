@@ -21,30 +21,58 @@
 
 .dl-cinema {
   position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   width: 100%;
-  height: 320px;
+  min-height: clamp(320px, 27vw, 480px); /* grows for a long title */
+  padding: 28px 0 32px;
   overflow: hidden;
   background: var(--s3);
 }
-.dl-cinema img {
+.dl-cinema__art,
+.dl-cinema__fill {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: blur(2px) saturate(1.1);
-  transform: scale(1.05);
 }
+.dl-cinema__art { object-position: 50% 25%; }
+.dl-cinema__fill { filter: blur(40px) brightness(.8); transform: scale(1.2); }
+.dl-cinema__poster {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: clamp(104px, 24vw, 180px);
+  height: auto;
+  aspect-ratio: auto 2 / 3; /* its own shape, once known */
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+.dl-cinema__art:not([data-broken]) ~ .dl-cinema__fill,
+.dl-cinema__art:not([data-broken]) ~ .dl-cinema-info .dl-cinema__poster { display: none; }
 .dl-cinema-gradient {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,.4) 0%, rgba(0,0,0,.85) 70%, var(--bg) 100%);
+  background: linear-gradient(0deg, var(--bg), color-mix(in srgb, var(--bg) 60%, transparent) 70px, color-mix(in srgb, var(--bg) 25%, transparent) 150px, color-mix(in srgb, var(--bg) 18%, transparent));
 }
 .dl-cinema-info {
-  position: absolute;
-  left: 50%;
-  bottom: 32px;
-  transform: translateX(-50%);
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(16px, 3vw, 28px);
   width: min(720px, 92vw);
-  text-align: left;
+}
+/* The shade rises with the text, whatever height it takes, and runs the hero's full width. */
+.dl-cinema-text { position: relative; z-index: 0; min-width: 0; overflow-wrap: anywhere; }
+.dl-cinema-text::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -72px -100vw -32px;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) calc(100% - 72px), color-mix(in srgb, var(--scrim) 38%, transparent) calc(100% - 46px), color-mix(in srgb, var(--scrim) 12%, transparent) calc(100% - 18px), transparent);
+  pointer-events: none;
 }
 .dl-cinema-title {
   font-family: var(--font-display);
@@ -53,6 +81,7 @@
   letter-spacing: -.03em;
   line-height: 1.05;
 }
+.dl-cinema-text--long .dl-cinema-title { font-size: clamp(22px, 2.6vw, 32px); line-height: 1.12; }
 .dl-cinema-title .year { color: var(--t3); font-weight: 400; margin-left: 6px; font-size: .7em; }
 .dl-cinema-tagline {
   font-style: italic;
@@ -219,7 +248,7 @@
 .dl-result-icon--success { color: var(--success); }
 .dl-result-icon--error   { color: var(--danger-text); }
 .dl-expired-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
-.dl-expired-sub   { color: var(--t3); font-size: 14px; }
+.dl-expired-sub   { color: var(--t3); font-size: 14px; text-wrap: balance; }
 .dl-expired-back  { margin-top: 6px; }
 .dl-expired-back a { color: var(--accent); font-size: 14px; }
 
@@ -234,4 +263,28 @@
     align-items: center;
     min-height: 44px;
   }
+}
+
+/* A finger's width to tap. */
+@media (pointer: coarse) {
+  .dl-expired-back a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 16px; }
+}
+
+/* A phone held sideways: the whole card on one screen. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .dl-nav { padding-block: 10px; }
+  .dl-expired { margin: 12px auto; padding: 14px 24px; gap: 8px; }
+  .dl-expired-icon-wrap { width: 48px; height: 48px; margin-bottom: 0; }
+  .dl-expired-icon { font-size: 26px; }
+  .dl-expired-back { margin-top: 0; }
+}
+@media (max-height: 360px) and (orientation: landscape) {
+  .dl-expired-icon-wrap { display: none; }
+}
+
+@media (forced-colors: active) {
+  .dl-cinema__art,
+  .dl-cinema__fill,
+  .dl-cinema-gradient,
+  .dl-cinema-text::before { display: none; }
 }

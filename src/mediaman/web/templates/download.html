@@ -16,17 +16,21 @@
 
 {% if state == "confirm" %}
 
-{# Hero backdrop — poster as cinematic bg #}
+{# Hero: the wide backdrop; with none, or one that is no wide picture, the poster as a poster
+   over a blurred copy of itself. Lazy, so those are only fetched when they show. #}
+{% set poster = (item.poster_url or '') | replace('/w300/', '/w500/') | replace('/w200/', '/w500/') %}
 <div class="dl-cinema" id="dl-cinema"{% if item.download_state == "queued" %} hidden{% endif %}>
-  {% if item.poster_url %}
-  <img src="{{ item.poster_url | replace('/w300', '/w1280') | replace('/w200', '/w1280') }}" alt="" referrerpolicy="no-referrer">
-  {% endif %}
+  {% if item.backdrop_url %}<img class="dl-cinema__art" src="{{ item.backdrop_url }}" alt="" referrerpolicy="no-referrer" data-wide-art data-broken-on-error>{% endif %}
+  {% if poster %}<img class="dl-cinema__fill" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}
   <div class="dl-cinema-gradient"></div>
   <div class="dl-cinema-info">
-    <h1 class="dl-cinema-title">{{ item.title }}{% if item.year %} <span class="year">({{ item.year }})</span>{% endif %}</h1>
-    {% if item.tagline %}
-    <div class="dl-cinema-tagline">&ldquo;{{ item.tagline }}&rdquo;</div>
-    {% endif %}
+    {% if poster %}<img class="dl-cinema__poster" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}
+    <div class="dl-cinema-text{% if (item.title or '')|length > 40 %} dl-cinema-text--long{% endif %}">
+      <h1 class="dl-cinema-title">{{ item.title }}{% if item.year %} <span class="year">({{ item.year }})</span>{% endif %}</h1>
+      {% if item.tagline %}
+      <div class="dl-cinema-tagline">&ldquo;{{ item.tagline }}&rdquo;</div>
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -120,11 +124,11 @@
     </div>
 
   {% elif item.download_state == "tracked" %}
-    {# Held by Sonarr but not set to fetch: nothing to download from here #}
+    {# Held by Sonarr, with nothing it would fetch now: nothing to download from here #}
     <div class="dl-result">
       <i class="fa-solid fa-circle-check dl-result-icon dl-result-icon--success" aria-hidden="true"></i>
       <div class="dl-result-title dl-result-title--success">Already tracked by Sonarr</div>
-      <div class="dl-result-detail">Sonarr is not set to download it. Choose what to fetch there.</div>
+      <div class="dl-result-detail">Sonarr has nothing to download for it right now.</div>
     </div>
 
   {% elif item.download_state != "queued" %}
