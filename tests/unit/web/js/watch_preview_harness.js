@@ -104,8 +104,10 @@ function load(opts = {}) {
     },
     messageOf: (_e, fallback) => fallback,
   };
+  const watchers = new Set();
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Map, Set, Error, parseFloat, parseInt, AbortController, encodeURIComponent,
+    MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { watchers.add(this); } disconnect() { watchers.delete(this); } },
     Date: { now: () => clock },
     performance: { now: () => clock },
     setTimeout: (fn, ms) => at(ms || 0, fn),
@@ -162,6 +164,10 @@ function load(opts = {}) {
     over(target, e) { h.x += 7; fire(doc, 'pointermove', { target, pointerType: 'mouse', clientX: h.x, clientY: 5, buttons: 0, ...e }); },
     /* Two close moves, then stillness: the mouse comes to rest. */
     async rest(id, ms) { h.over(h.link(id)); h.over(h.link(id), { clientX: h.x - 6 }); await h.pass(ms === undefined ? 600 : ms); },
+    /* What an observer of the page is told of a change made to it. */
+    changed() { [...watchers].forEach((w) => w.fn([])); },
+    watchers: () => watchers.size,
+    timers: () => timers.length,
     away() { h.over(doc.body); },
     pv: () => doc.querySelectorAll('.pv').filter((n) => n.classList.contains('is-open') && !n.classList.contains('is-fading') && !n.classList.contains('is-handed'))[0],
     title: () => { const n = h.pv(); return n ? n.querySelector('.pv__title').textContent : null; },
@@ -617,6 +623,32 @@ const scenarios = {
     h.pv().querySelector('.pv__keep').focus();
     days.click();
     return [h.title(), h.doc.activeElement === h.doc.body];
+  },
+  /* Its card goes: taken out, or hidden with the view it is in. */
+  async cardGone() {
+    const out = {};
+    for (const how of ['removed', 'hidden', 'stays']) {
+      const h = await trailer();
+      const before = h.title();
+      if (how === 'removed') h.doc.querySelector('#film').remove();
+      if (how === 'hidden') h.link('film').getClientRects = () => [];
+      h.changed();
+      const n = h.doc.querySelector('.pv');
+      out[how] = [before, h.title(), n.classList.contains('is-fading'), n.classList.contains('is-open')];
+      await h.pass(1000);
+      out[how].push(!!h.frame(), h.watchers());
+    }
+    return out;
+  },
+  /* Closed by a key once its card has gone, before the page's change is told. */
+  async escapeAfterGone() {
+    const h = load();
+    await h.rest('film');
+    const set = [];
+    h.pv().style.setProperty = (name, value) => set.push(name);
+    h.doc.querySelector('#film').remove();
+    h.key('Escape', h.doc.body);
+    return [h.doc.querySelector('.pv').classList.contains('is-fading'), set];
   },
 };
 

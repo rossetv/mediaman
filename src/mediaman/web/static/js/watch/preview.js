@@ -285,6 +285,17 @@
     return box;
   }
 
+  function there(p) { return document.body.contains(p.link) && p.link.getClientRects().length > 0; }
+
+  /* The card of the preview that is open may go, with the mouse at rest. */
+  var watcher = new MutationObserver(function () { if (live && !there(live)) close(live, 'fade'); });
+
+  function setLive(p) {
+    live = p;
+    if (p) watcher.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
+    else watcher.disconnect();
+  }
+
   /* Open *link*'s preview, with *data* or while it is on its way. */
   function open(link, data) {
     var box = room();
@@ -305,7 +316,7 @@
     p.shell.style.height = p.h + 'px'; // what arrives later never moves it
     fold(p);
     link.classList.add('is-previewed');
-    live = p;
+    setLive(p);
     void p.n.offsetWidth; // start from the card's own look
     p.n.classList.remove('is-placing');
     unfold(p);
@@ -348,7 +359,7 @@
   function close(p, how) {
     if (p.closing) return;
     p.closing = true;
-    if (live === p) live = null;
+    if (live === p) setLive(null);
     if (!p.data) forget();
     clearTimeout(closeTimer);
     closeTimer = null;
@@ -363,6 +374,7 @@
       remove(p);
       return;
     }
+    if (!how && !there(p)) how = 'fade';
     var ms = core.tokenMs('--dur', 200);
     if (how === 'fade') p.n.classList.add('is-fading');
     else if (how === 'hand') p.n.classList.add('is-handed');
@@ -386,7 +398,7 @@
     if (live) close(live);
     disarm();
     closing = null;
-    live = p;
+    setLive(p);
     stopTrailer(p);
     p.link.classList.add('is-previewed');
     unfold(p);
@@ -995,7 +1007,6 @@
     if (trail.length > 40) trail.shift();
     var target = e.target && e.target.closest ? e.target : null;
     var link = target && target.closest('.watch-card__link');
-    if (live && !document.body.contains(live.link)) close(live, 'fade');
     if (live && ((target && live.n.contains(target)) || link === live.link)) {
       clearTimeout(closeTimer);
       closeTimer = null;

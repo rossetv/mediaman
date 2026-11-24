@@ -297,3 +297,14 @@ def test_a_preview_that_closes_leaves_a_focus_that_was_elsewhere() -> None:
 
 def test_a_title_kept_from_its_preview_leaves_the_focus_for_keep_to_place() -> None:
     assert _run("keptFromMenu") == [None, True]
+
+
+def test_a_preview_whose_card_goes_fades_where_it_stands_with_its_trailer() -> None:
+    out = _run("cardGone")
+    assert out["removed"] == ["Fieldwork", None, True, True, False, 0]
+    assert out["hidden"] == ["Fieldwork", None, True, True, False, 0]
+    assert out["stays"] == ["Fieldwork", "Fieldwork", False, True, True, 1]
+
+
+def test_a_preview_is_never_folded_into_a_card_that_has_gone() -> None:
+    assert _run("escapeAfterGone") == [True, []]
