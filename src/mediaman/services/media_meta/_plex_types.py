@@ -27,6 +27,12 @@ class PlexTrackedFile(TypedDict):
     size: int
 
 
+class PlexEpisodeFile(TypedDict):
+    key: str
+    number: int | None
+    path: str
+
+
 class PlexMovieItem(TypedDict):
     plex_rating_key: str
     title: str
@@ -50,6 +56,7 @@ class PlexSeasonItem(TypedDict):
     file_size_bytes: int
     poster_path: str
     episode_count: int
+    episodes: list[PlexEpisodeFile]
     show_rating_key: str
     is_anime: bool
     tmdb_id: int | None  # the show's
@@ -182,6 +189,15 @@ def _season_to_item(show: Any, season: Any) -> PlexSeasonItem:
         "file_size_bytes": file_size,
         "poster_path": show.thumb,
         "episode_count": len(episodes),
+        "episodes": [
+            {
+                "key": str(ep.ratingKey),
+                "number": ep.index if isinstance(ep.index, int) else None,
+                # Plex may list the versions of an episode in any order.
+                "path": min((f["path"] for f in _part_files([ep.media])), default=""),
+            }
+            for ep in episodes
+        ],
         "show_rating_key": str(show.ratingKey),
         "is_anime": _is_anime_show(show),
         "tmdb_id": _external_id(show, "tmdb", _LEGACY_TMDB_PREFIX),

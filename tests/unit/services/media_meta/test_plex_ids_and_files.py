@@ -53,8 +53,8 @@ def _season(episodes) -> SimpleNamespace:
     return SimpleNamespace(ratingKey=11, index=1, addedAt=None, episodes=lambda: list(episodes))
 
 
-def _episode(*media: SimpleNamespace) -> SimpleNamespace:
-    return SimpleNamespace(media=list(media), addedAt=None)
+def _episode(*media: SimpleNamespace, key=21, number=1) -> SimpleNamespace:
+    return SimpleNamespace(ratingKey=key, index=number, media=list(media), addedAt=None)
 
 
 class TestMovieTmdbId:
@@ -130,3 +130,17 @@ class TestTrackedFiles:
             {"path": "/tv/Show/Season 01/S01E03.mkv", "size": 300},
         ]
         assert item["file_path"] == "/tv/Show/Season 01"
+
+    def test_season_names_the_number_and_file_of_each_episode(self):
+        versions = [_media(_part("/tv/b.mkv", 1)), _media(_part("/tv/a.mkv", 1))]
+        episodes = [
+            _episode(*versions, key=21, number=4),
+            _episode(*reversed(versions), key=22, number=None),
+            _episode(key=23, number=6),
+        ]
+        item = _season_to_item(_show("plex://show/1"), _season(episodes))
+        assert item["episodes"] == [
+            {"key": "21", "number": 4, "path": "/tv/a.mkv"},
+            {"key": "22", "number": None, "path": "/tv/a.mkv"},
+            {"key": "23", "number": 6, "path": ""},
+        ]

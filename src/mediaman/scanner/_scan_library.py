@@ -342,6 +342,11 @@ def scan_tv_library(
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 
+    # Before any season is evaluated: one that shows its show to be a kept one
+    # under a new key may come after the others.
+    engine._listed_keys.update(fetched.listed_keys)
+    repository.carry_show_keeps(conn, fetched.seasons, engine._listed_keys)
+
     # Batching for the show-kept guard: a per-season repository.is_show_kept()
     # would issue a ``kept_shows`` SELECT (and a DELETE on the not-kept path)
     # for every season — O(seasons) round trips against a one-row-per-show

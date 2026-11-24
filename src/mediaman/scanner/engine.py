@@ -276,15 +276,12 @@ class ScanEngine:
             ],
         )
         for fetched in per_lib_fetches.values():
-            self._listed_keys.update(
-                fetched.skipped_keys, (f.item["plex_rating_key"] for f in fetched.items)
-            )
+            self._listed_keys.update(fetched.listed_keys)
         for lib_id, fetched in per_lib_fetches.items():
-            # Union the history-fetch skips into the seen set: those items
-            # are still present in Plex, just not fetched this pass, so they
-            # must never be pruned as orphans.
-            seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
-            seen_lib_keys.update(fetched.skipped_keys)
+            repository.carry_show_keeps(self._conn, fetched.seasons, self._listed_keys)
+            # Includes the history-fetch skips: those items are still present in
+            # Plex, just not fetched this pass, so they must never be pruned as orphans.
+            seen_lib_keys = fetched.listed_keys
             for f in fetched.items:
                 if not self._upsert_item_isolated(with_mediaman_play(f, credited)):
                     summary["errors"] += 1
@@ -302,6 +299,8 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
+        repository.restore_progress(self._conn)
+        self._conn.commit()
 
     def _upsert_item_isolated(self, f: PlexItemFetch) -> bool:
         """Upsert one item inside its own savepoint; return False if it failed.
@@ -426,6 +425,7 @@ class ScanEngine:
                 )
                 continue
             summary["removed"] += self._remove_orphaned_items(seen, lib_set)
+        repository.restore_progress(self._conn)
         self._conn.commit()
 
     def _record_deletion_outcome(self, summary: dict[str, int]) -> None:

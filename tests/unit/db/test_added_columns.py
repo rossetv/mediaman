@@ -177,7 +177,7 @@ def test_an_old_database_gains_the_mark_columns_and_keeps_its_rows(tmp_path):
     progress = conn.execute("SELECT position_s, seen_at FROM watch_progress").fetchone()
     assert tuple(progress) == (12.5, None)
     assert conn.execute("SELECT backdrop_url FROM suggestions").fetchone()[0] is None
-    assert "episode_count" in _columns(conn)
+    assert {"episode_count", "episode_keys"} <= _columns(conn)
     conn.close()
 
 

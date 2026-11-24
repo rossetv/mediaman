@@ -89,7 +89,9 @@ CREATE TABLE IF NOT EXISTS media_items (
     tmdb_id INTEGER,
     tvdb_id INTEGER,
     tracked_files TEXT,
-    episode_count INTEGER
+    episode_count INTEGER,
+    -- JSON [{"key", "number", "path"}]: the season's episodes in Plex.
+    episode_keys TEXT
 );
 
 CREATE TABLE IF NOT EXISTS deleted_media (
@@ -146,6 +148,37 @@ CREATE TABLE IF NOT EXISTS pruned_keeps (
 );
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_media ON pruned_keeps(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_pruned_keeps_file_path ON pruned_keeps(file_path);
+
+-- Seasons of kept shows Plex stopped listing: where a show listed under a new key is found.
+CREATE TABLE IF NOT EXISTS pruned_show_seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_show ON pruned_show_seasons(show_rating_key);
+CREATE INDEX IF NOT EXISTS idx_pruned_show_seasons_file_path ON pruned_show_seasons(file_path);
+
+-- Watch progress in items Plex stopped listing, given back if Plex lists them again.
+CREATE TABLE IF NOT EXISTS pruned_progress (
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    show_rating_key TEXT,
+    position_s REAL NOT NULL,
+    duration_s REAL NOT NULL,
+    watched INTEGER NOT NULL,
+    credited_at TEXT,
+    updated_at TEXT NOT NULL,
+    seen_at TEXT,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    episode_path TEXT,
+    episode_number INTEGER,
+    pruned_at TEXT NOT NULL,
+    PRIMARY KEY (username, rating_key)
+);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

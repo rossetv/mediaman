@@ -18,6 +18,8 @@ when it changes.
   ``kept_shows``.
 * mediaman.scanner.repository.settings — table-group 4:
   ``read_delete_allowed_roots_setting``, ``read_setting``.
+* mediaman.scanner.repository.rekeyed — the keeps and Watch progress of titles
+  Plex lists under a new key.
 * mediaman.scanner.repository.watch_credit — table-group 5:
   ``last_credited_by_media_item``, the plays made in mediaman.
 
@@ -40,6 +42,14 @@ from mediaman.scanner.repository.media_items import (
     fetch_ids_touched_since,
     update_last_watched,
     upsert_media_item,
+)
+from mediaman.scanner.repository.rekeyed import (
+    carry_show_keeps,
+    forget_pruned_show_season,
+    refresh_progress_keys,
+    restore_progress,
+    save_pruned_progress,
+    save_pruned_show_seasons,
 )
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
@@ -81,6 +91,7 @@ __all__ = [
     "DeletionRow",
     "book_deletion",
     "book_removed_files",
+    "carry_show_keeps",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
@@ -98,6 +109,7 @@ __all__ = [
     "fetch_protected_media_ids",
     "fetch_stuck_deletions",
     "fetch_unbooked_media_ids",
+    "forget_pruned_show_season",
     "forget_unremoved_files",
     "has_expired_snooze",
     "is_already_scheduled",
@@ -108,8 +120,12 @@ __all__ = [
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
     "read_setting",
+    "refresh_progress_keys",
     "restore_keeps",
+    "restore_progress",
     "save_pruned_keeps",
+    "save_pruned_progress",
+    "save_pruned_show_seasons",
     "take_pruned_keeps",
     "update_last_watched",
     "upsert_media_item",

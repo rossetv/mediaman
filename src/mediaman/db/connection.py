@@ -97,6 +97,7 @@ _ADDED_COLUMNS = (
     ("media_items", "tvdb_id", "INTEGER"),
     ("media_items", "tracked_files", "TEXT"),
     ("media_items", "episode_count", "INTEGER"),
+    ("media_items", "episode_keys", "TEXT"),
     ("watch_progress", "seen_at", "TEXT"),
     ("suggestions", "backdrop_url", "TEXT"),
     ("scheduled_actions", "removed_files", "TEXT"),

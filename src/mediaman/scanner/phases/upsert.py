@@ -93,6 +93,7 @@ def upsert_item(
     keeps = repository.take_pruned_keeps(conn, media_id, file_path, season) or fetch_replaced_keep(
         conn, media_id, file_path, season, listed
     )
+    repository.refresh_progress_keys(conn, media_id, item)
     repository.upsert_media_item(
         conn,
         item=item,
@@ -105,6 +106,7 @@ def upsert_item(
         set_sonarr_id=set_sonarr_id,
     )
     repository.restore_keeps(conn, media_id, keeps)
+    repository.forget_pruned_show_season(conn, file_path, season)
     repository.update_last_watched(conn, media_id, fetch.watch_history)
     return bool(keeps)
 
