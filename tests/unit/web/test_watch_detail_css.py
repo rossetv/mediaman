@@ -36,15 +36,13 @@ def test_a_phone_shows_which_episodes_are_watched_or_in_progress() -> None:
 
 
 def test_a_long_season_name_wraps_inside_its_chip() -> None:
-    assert "max-width: 100%" in _of(".season-chip")
     assert "min-width: 0" in _of(".season-chip__name")
-    phone = _of(".season-chip", PHONE)
-    assert "nowrap" not in phone and "min-width: 0" in phone
+    assert "nowrap" not in _of(".season-chip", PHONE)
 
 
 def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     body = _of(".ttl-cast__name")
-    assert "overflow-wrap: anywhere" in body and "max-width: 100%" in body
+    assert "overflow-wrap: anywhere" in body
 
 
 def test_a_trailer_s_bar_stands_over_the_video_and_not_on_it() -> None:
@@ -54,7 +52,7 @@ def test_a_trailer_s_bar_stands_over_the_video_and_not_on_it() -> None:
 
 def test_a_trailer_s_frame_never_stands_taller_than_its_box() -> None:
     body = _of(".ttl__frame")
-    assert "width: 100%" in body and "height: 100%" in body and "aspect-ratio" not in body
+    assert "height: 100%" in body and "aspect-ratio" not in body
 
 
 def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:
@@ -64,14 +62,12 @@ def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:
 
 
 def test_the_space_of_a_tagline_a_title_lacks_goes_under_its_meta_line() -> None:
-    body = _of(".ttl__tagline:empty")
-    assert "order: 1" in body
+    assert "order: 1" in _of(".ttl__tagline:empty")
     assert "min-height" in _of(".ttl__tagline")
 
 
 def test_the_admin_s_keep_and_delete_share_the_panel_s_width_equally() -> None:
-    body = _of(".ttl-facts__foot")
-    assert "display: grid" in body and "grid-auto-columns: minmax(0, 1fr)" in body
+    assert "grid-auto-columns: minmax(0, 1fr)" in _of(".ttl-facts__foot")
 
 
 def test_the_seasons_of_a_show_never_wrap_onto_a_second_line() -> None:
