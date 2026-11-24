@@ -376,6 +376,7 @@
             title: 'Re-authenticate to delete ' + user.username,
             descText: 'mediaman asks for your own password before it deletes a user.',
             confirmLabel: 'Confirm & delete',
+            confirmVariant: 'danger',
           }).then(function () {
             MM.settings.rows.leave(row, {
               focusSelector: '[data-user-action="delete"]',

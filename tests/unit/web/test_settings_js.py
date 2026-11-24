@@ -262,6 +262,7 @@ def test_a_press_just_after_a_role_change_does_not_reverse_it() -> None:
 def test_the_password_dialog_for_a_delete_names_the_delete() -> None:
     words = _run("deleteWords")
     assert "delete bob" in words["title"]
+    assert words["confirmVariant"] == "danger"
     assert "delete" in words["confirmLabel"] and "save" not in json.dumps(words)
 
 
