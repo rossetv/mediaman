@@ -249,10 +249,12 @@ class TestSubmitRefusedForAHeldTitle:
         sonarr = MagicMock()
         sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
         sonarr.add_series.side_effect = SafeHTTPError(400, "already been added", "sonarr/s")
-        sonarr.get_series.return_value = [{"tvdbId": 999}]
+        held = [{"tvdbId": 999}]
+        sonarr.get_series.side_effect = [[], held, held]
 
         token, resp = self._post(client, secret_key, "tv", sonarr, "build_sonarr_from_db")
 
+        sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
         assert "already exists" in resp.json()["error"]
         assert _consumed(token)
@@ -263,10 +265,12 @@ class TestSubmitRefusedForAHeldTitle:
         sonarr = MagicMock()
         sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
         sonarr.add_series.side_effect = SafeHTTPError(400, "already been added", "sonarr/s")
-        sonarr.get_series.return_value = [{"tvdbId": 999, "monitored": False, "seasons": []}]
+        held = [{"tvdbId": 999, "monitored": False, "seasons": []}]
+        sonarr.get_series.side_effect = [[], held, held]
 
         token, resp = self._post(client, secret_key, "tv", sonarr, "build_sonarr_from_db")
 
+        sonarr.add_series.assert_called_once()
         assert resp.status_code == 409
         assert "already exists" in resp.json()["error"]
         assert not _consumed(token)
