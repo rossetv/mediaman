@@ -8,7 +8,6 @@ three domain errors below, whose messages never carry a URL or a token.
 from __future__ import annotations
 
 import logging
-import math
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -79,6 +78,7 @@ class PlexMedia:
     part_id: str | None = None  # never send it to a browser
     part_size: str = ""
     has_previews: bool = False
+    part_duration_ms: int | None = None
 
 
 @dataclass(frozen=True)
@@ -121,7 +121,13 @@ class PlexItem:
         """How many preview frames, one every ``PREVIEW_INTERVAL_S``, the player can ask for."""
         if self.media is None or self.media.part_id is None or not self.media.has_previews:
             return 0
-        return min(math.ceil(self.duration_s / PREVIEW_INTERVAL_S), _PREVIEW_MAX_COUNT)
+        duration_ms = self.duration_s * 1000
+        if self.media.part_duration_ms:
+            duration_ms = min(duration_ms, self.media.part_duration_ms)
+        if duration_ms <= 0:
+            return 0
+        # Plex often has no frame in the last moments of a file, so only whole intervals count.
+        return min(max(duration_ms // (PREVIEW_INTERVAL_S * 1000), 1), _PREVIEW_MAX_COUNT)
 
 
 @dataclass(frozen=True)
@@ -215,6 +221,7 @@ def _media(node: Element) -> PlexMedia | None:
         part_id=part_id if _RATING_KEY_RE.fullmatch(part_id) else None,
         part_size=(part.get("size") or "") if part is not None else "",
         has_previews=part is not None and "sd" in (part.get("indexes") or "").split(","),
+        part_duration_ms=_int(part.get("duration")) if part is not None else None,
     )
 
 

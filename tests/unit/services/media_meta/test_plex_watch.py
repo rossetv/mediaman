@@ -400,16 +400,31 @@ def _movie_with_part(part: str, duration: str = "62000") -> PlexItem:
 @pytest.mark.parametrize(
     ("part", "duration", "count"),
     [
-        ('id="3" indexes="sd"', "62000", 13),
-        ('id="3" indexes="hd,sd"', "62000", 13),
+        ('id="3" indexes="sd"', "62000", 12),
+        ('id="3" indexes="hd,sd"', "62000", 12),
+        ('id="3" indexes="sd" duration="51000"', "62000", 10),
+        ('id="3" indexes="sd" duration="90000"', "62000", 12),
+        ('id="3" indexes="sd" duration="59900"', "59900", 11),
+        ('id="3" indexes="sd"', "3000", 1),
         ('id="3"', "62000", 0),
         ('id="../x" indexes="sd"', "62000", 0),
         ('id="3" indexes="sd"', "", 0),
         ('id="3" indexes="sd"', "9" * 15, 17280),
     ],
-    ids=["sd", "among others", "none made", "odd part id", "no duration", "absurd duration"],
+    ids=[
+        "sd",
+        "among others",
+        "file shorter than the title",
+        "file longer than the title",
+        "title rounded up",
+        "under one interval",
+        "none made",
+        "odd part id",
+        "no duration",
+        "absurd duration",
+    ],
 )
-def test_preview_frames_are_counted_only_where_plex_has_them(part, duration, count) -> None:
+def test_preview_frames_are_counted_up_to_the_last_whole_interval(part, duration, count) -> None:
     assert _movie_with_part(part, duration).preview_count == count
 
 
