@@ -879,7 +879,7 @@ class TestDownloadEndpoint:
             json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": [2]},
         )
         assert resp.status_code == 422
-        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing yet"
+        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing."
         assert resp.json()["ok"] is False
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
@@ -914,6 +914,33 @@ class TestDownloadEndpoint:
         assert resp.json()["error"] == "Pick at least one season"
         sonarr.add_series.assert_not_called()
         sonarr.add_series_with_seasons.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("picked", "missing", "message"),
+        [
+            ([1, 2], [2], "Season 2 isn't in Sonarr's listing. Untick it to add the rest."),
+            (
+                [1, 2, 3],
+                [2, 3],
+                "Seasons 2 and 3 aren't in Sonarr's listing. Untick them to add the rest.",
+            ),
+        ],
+    )
+    @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
+    def test_tv_when_other_picks_are_listed_the_refusal_says_to_untick_the_missing(
+        self, mock_build_sonarr, authed_client, picked, missing, message
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
+        sonarr.get_series.return_value = []
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed(missing)
+        mock_build_sonarr.return_value = sonarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": picked},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"] == message
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
     def test_tv_monitored_seasons_alone_are_the_seasons_added(

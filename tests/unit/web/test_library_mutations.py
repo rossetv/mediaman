@@ -1374,7 +1374,7 @@ class TestMediaRedownload:
         resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
 
         assert resp.json()["ok"] is False
-        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing yet"
+        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing."
         assert not conn.execute("SELECT 1 FROM audit_log WHERE action = 're_downloaded'").fetchone()
 
     @pytest.mark.parametrize("held", [True, False], ids=["remonitored", "added"])

@@ -470,9 +470,9 @@ class TestAddSeriesWithSeasons:
     @pytest.mark.parametrize(
         ("listed", "picked", "message"),
         [
-            ([1], [1, 2], "Season 2 isn't in Sonarr's listing yet"),
-            ([], [1, 2], "Seasons 1 and 2 aren't in Sonarr's listing yet"),
-            ([1], [2, 3, 4], "Seasons 2, 3 and 4 aren't in Sonarr's listing yet"),
+            ([1], [1, 2], "Season 2 isn't in Sonarr's listing."),
+            ([], [1, 2], "Seasons 1 and 2 aren't in Sonarr's listing."),
+            ([1], [2, 3, 4], "Seasons 2, 3 and 4 aren't in Sonarr's listing."),
         ],
     )
     def test_a_picked_season_the_lookup_omits_adds_nothing(

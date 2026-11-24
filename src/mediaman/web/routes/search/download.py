@@ -267,7 +267,12 @@ def _submit_tv(
             sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
     except SeasonsNotListed as exc:
         # The person's own pick, not a fault: nothing was added, and not "already there".
-        return respond_failure(str(exc), status=422)
+        message = str(exc)
+        if set(seasons or []) - set(exc.seasons):
+            message += (
+                " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
+            )
+        return respond_failure(message, status=422)
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return respond_failure("Failed to add to Sonarr", status=502)

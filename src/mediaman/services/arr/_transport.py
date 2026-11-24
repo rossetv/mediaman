@@ -67,9 +67,9 @@ class SeasonsNotListed(ArrError):
         self.seasons = sorted(seasons)
         names = [str(n) for n in self.seasons]
         if len(names) == 1:
-            text = f"Season {names[0]} isn't in Sonarr's listing yet"
+            text = f"Season {names[0]} isn't in Sonarr's listing."
         else:
-            text = f"Seasons {', '.join(names[:-1])} and {names[-1]} aren't in Sonarr's listing yet"
+            text = f"Seasons {', '.join(names[:-1])} and {names[-1]} aren't in Sonarr's listing."
         super().__init__(text)
 
 
