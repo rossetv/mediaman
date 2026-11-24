@@ -10,12 +10,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from datetime import datetime, timedelta
 from typing import Any
 
 import requests
 
-from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -79,23 +77,11 @@ class SeasonsNotListed(ArrError):
         super().__init__(text)
 
 
-#: How far an *arr's clock may be behind this one.
-_CLOCK_DIFFERENCE = timedelta(minutes=1)
-
-
-def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any], posted_at: datetime) -> bool:
-    """Whether *entry* of the *arr's command list is *command*: waiting, running, or done since
-    it was posted. The list keeps what was done before too.
-    """
+def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any]) -> bool:
     body = entry.get("body") or {}
-    if entry.get("name") != command["name"] or any(
-        body.get(key) != value for key, value in command.items() if key != "name"
-    ):
-        return False
-    if entry.get("status") != "completed":
-        return entry.get("status") in ("queued", "started")
-    queued_at = parse_iso_utc(entry.get("queued"))
-    return queued_at is not None and queued_at >= posted_at - _CLOCK_DIFFERENCE
+    return entry.get("name") == command["name"] and all(
+        body.get(key) == value for key, value in command.items() if key != "name"
+    )
 
 
 class _TransportMixin:
@@ -198,21 +184,36 @@ class _TransportMixin:
     def _start_search(self, command: Mapping[str, Any]) -> None:
         """Post a search command; one that got no answer has started if the *arr lists it.
 
-        Raises ``SearchUnanswered`` when that list cannot be read either.
+        Raises ``SearchUnanswered`` when the list does not tell either.
         """
-        posted_at = now_utc()
+        # The list keeps what was done before, so the ids tell which came of this post.
+        try:
+            last_before = max((e.get("id") or 0 for e in self._listed_commands()), default=0)
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            last_before = None
         try:
             self._post("/api/v3/command", command)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrUpstreamError) as exc:
             if isinstance(exc, SafeHTTPError) and 0 < exc.status_code < 500:
                 raise
+            unanswered = SearchUnanswered(f"{command['name']} got no answer")
             try:
-                listed = self._get_list("/api/v3/command")
+                listed = self._listed_commands()
             except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as unread:
-                raise SearchUnanswered(f"{command['name']} got no answer") from unread
-            if not any(_is_command(entry, command, posted_at) for entry in listed):
+                raise unanswered from unread
+            same = [e for e in listed if _is_command(e, command)]
+            done = [e for e in same if e.get("status") == "completed"]
+            if any(e.get("status") in ("queued", "started") for e in same) or (
+                last_before is not None and any((e.get("id") or 0) > last_before for e in done)
+            ):
+                logger.info("%s got no answer but was started", command["name"])
+            elif done and last_before is None:
+                raise unanswered from exc
+            else:
                 raise
-            logger.info("%s got no answer but was started", command["name"])
+
+    def _listed_commands(self) -> list[dict[str, Any]]:
+        return self._get_list("/api/v3/command")
 
     def _delete(self, path: str) -> None:
         """Perform an authenticated DELETE.  Sets ``last_error`` on failure."""

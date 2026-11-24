@@ -212,6 +212,7 @@ class TestArrClientSonarr:
             ),
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_season(series_id=1, season_number=1)
         put_call = _calls(fake_http, "PUT")[0]
@@ -230,6 +231,7 @@ class TestArrClientSonarr:
             "GET", fake_response(json_data={"id": 1, "monitored": False, "seasons": seasons})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_season(series_id=1, season_number=2)
@@ -247,6 +249,7 @@ class TestArrClientSonarr:
         first = {"id": 1, "monitored": was_monitored, "seasons": seasons}
         fake_http.queue("GET", fake_response(json_data=first))
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=500, text="no"))
         fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("GET", fake_response(json_data={"id": 1, "monitored": True}))
@@ -298,6 +301,7 @@ class TestArrClientSonarr:
         # Round 2: fresh GET (new dict to avoid mutation from round 1) + successful PUT.
         fake_http.queue("GET", fake_response(json_data=_series()))
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_season(series_id=1, season_number=1, max_retries=3)
@@ -351,6 +355,7 @@ class TestArrClientSonarr:
             ),
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         # Must not raise KeyError on the malformed season.
         client.remonitor_season(series_id=1, season_number=2)

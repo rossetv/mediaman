@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -108,14 +107,15 @@ def test_throttled_redownload_carries_its_reason_under_message(app_factory, auth
 class _OneTitleArr(ArrClient):
     """The real client over one in-memory Arr entry; every search command fails.
 
-    *commands* is the Arr's own list of them, or the error reading it raises.
+    *commands* is the Arr's own list of them after one, *before* the list until then; either
+    may be the error reading it raises.
     """
 
-    def __init__(self, spec, entry, error, commands=()):
+    def __init__(self, spec, entry, error, commands=(), before=()):
         super().__init__(spec, "http://arr.local", "k")
         self.entry = entry
         self._error = error
-        self._commands = commands
+        self._after, self._commands = commands, before
 
     def _get(self, path):
         if path == "/api/v3/command":
@@ -129,6 +129,7 @@ class _OneTitleArr(ArrClient):
         self.entry = copy.deepcopy(data)
 
     def _post(self, path, data):
+        self._commands = self._after
         raise self._error
 
 
@@ -198,27 +199,27 @@ def test_a_search_that_got_no_answer_but_was_started_is_a_success(
 
 
 @pytest.mark.parametrize(
-    ("queued", "started"),
-    [("2026-05-01T11:50:00Z", False), ("2026-05-01T11:59:50Z", True), (None, False)],
-    ids=["earlier", "this one", "undated"],
+    ("ids_before", "started"),
+    [([7, 9], False), ([7], True), ([], True), (None, False)],
+    ids=["an earlier one", "this one", "nothing listed before", "list unread before"],
 )
-def test_a_search_done_counts_as_this_one_only_if_queued_since_it_was_posted(
-    app_factory, authed_client, conn, monkeypatch, queued, started
+def test_a_search_done_counts_as_this_one_only_if_it_was_not_listed_before(
+    app_factory, authed_client, conn, ids_before, started
 ):
-    monkeypatch.setattr(
-        "mediaman.services.arr._transport.now_utc", lambda: datetime(2026, 5, 1, 12, tzinfo=UTC)
-    )
-    done = {"status": "completed", "queued": queued}
     client = _client(app_factory, authed_client, conn)
     error = requests.ReadTimeout("slow")
-    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [{**_MOVIE_SEARCH, **done}])
-    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [{**_SEASON_SEARCH, **done}])
+    before = error if ids_before is None else [{"id": n, "name": "Any"} for n in ids_before]
+    done = {"id": 9, "status": "completed", "queued": "2001-01-01T00:00:00Z"}
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [{**_MOVIE_SEARCH, **done}], before)
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [{**_SEASON_SEARCH, **done}], before)
     with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
         movie = _post(client, {"title": "Dune", "tmdb_id": 42})
         season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
     assert (movie.json()["ok"], season.json()["ok"]) == (started, started)
-    assert radarr.entry["monitored"] is started
-    assert sonarr.entry["seasons"][1]["monitored"] is started
+    # One that nobody can tell from an earlier one may be running: nothing is unmonitored.
+    stays = started or ids_before is None
+    assert radarr.entry["monitored"] is stays
+    assert sonarr.entry["seasons"][1]["monitored"] is stays
 
 
 @_SEARCH_ERRORS

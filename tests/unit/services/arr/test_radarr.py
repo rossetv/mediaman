@@ -121,6 +121,7 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_movie(movie_id=1)
         put_call = _find_call(fake_http, "PUT")
@@ -139,6 +140,7 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_movie(movie_id=1, max_retries=3)
@@ -153,6 +155,7 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
         )
         # Still triggers a search even when no PUT is needed.
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_movie(movie_id=1)
         puts = [c for c in fake_http.calls if c[0] == "PUT"]
