@@ -233,7 +233,9 @@
   function confirmDialog(opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
-      var titleId = 'ui-confirm-title-' + (++asked);
+      var id = 'ui-confirm-' + (++asked);
+      var titleId = id + '-title';
+      var bodyId = id + '-body';
       var overlay = el('div', {
         class: 'ui-confirm-overlay',
         role: 'dialog',
@@ -242,8 +244,11 @@
       });
       var card = el('div', { class: 'ui-confirm-card' });
       var h = el('h3', { id: titleId, class: 'ui-confirm-title', text: opts.title || 'Are you sure?' });
-      var p = el('p', { class: 'ui-confirm-body' });
-      if (opts.body) p.textContent = opts.body;
+      var p = el('p', { id: bodyId, class: 'ui-confirm-body' });
+      if (opts.body) {
+        p.textContent = opts.body;
+        overlay.setAttribute('aria-describedby', bodyId);
+      }
       var actions = el('div', { class: 'ui-confirm-actions' });
       var cancelBtn = el('button', { type: 'button', class: 'btn btn--ghost',
                                      text: opts.cancelLabel || 'Cancel' });
@@ -263,7 +268,7 @@
         if (closed) return;
         closed = true;
         open.splice(open.indexOf(cancel), 1);
-        if (window.ModalA11y) window.ModalA11y.onClosed(titleId);
+        if (window.ModalA11y) window.ModalA11y.onClosed(id);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
         overlay.classList.add('is-leaving');
@@ -271,7 +276,7 @@
         removeAfterExit(overlay);
       }
       function cancel() { cleanup(false); }
-      overlay.id = titleId;
+      overlay.id = id;
       open.push(cancel);
       cancelBtn.addEventListener('click', cancel);
       confirmBtn.addEventListener('click', function () { cleanup(true); });
@@ -280,8 +285,8 @@
       });
 
       if (window.ModalA11y) {
-        window.ModalA11y.register(titleId, cancel);
-        window.ModalA11y.onOpened(titleId);
+        window.ModalA11y.register(id, cancel);
+        window.ModalA11y.onOpened(id);
       } else {
         // Fallback focus + Escape
         setTimeout(function () { cancelBtn.focus(); }, 0);

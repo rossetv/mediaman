@@ -59,6 +59,18 @@ async function stacked(close) {
   return { ids, answers };
 }
 
+/* What names the dialog and what describes it, as text. */
+function named() {
+  const says = (opts) => {
+    const { doc, ui } = page();
+    ui.confirm(opts);
+    const dialog = doc.querySelector('.ui-confirm-overlay');
+    const text = (attr) => (dialog.hasAttribute(attr) ? doc.getElementById(dialog.getAttribute(attr)).textContent : null);
+    return [text('aria-labelledby'), text('aria-describedby')];
+  };
+  return { body: says({ title: 'Delete it?', body: 'For good.' }), none: says({ title: 'Delete it?' }) };
+}
+
 const open = { attrs: {} };
 const pressed = () => ({
   nothingOpen: press(),
@@ -80,7 +92,7 @@ const pressed = () => ({
 function page(phone) {
   const doc = makeDocument();
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
     matchMedia: (q) => ({ matches: /max-width/.test(q) && !!phone }),
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };
@@ -134,5 +146,5 @@ const onPhone = () => ({
   undoStays: stays(['1 Undo', 'a', 'b'], true),
   errorStays: stays(['1 Undo', 'Error', '2 Undo'], true),
 });
-const scenarios = { pressed, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+const scenarios = { pressed, named, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));
