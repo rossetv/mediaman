@@ -13,7 +13,7 @@ import re
 import sqlite3
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote as urlquote
 
@@ -37,6 +37,11 @@ ENRICH_SECONDS = 60.0
 # After this many calls TMDB did not answer, it is not asked again for the batch.
 _TMDB_FAILURES_MAX = 2
 
+# Search results looked through for a pick's title.
+_RESULTS_READ = 5
+
+# Where a subtitle can begin. A hyphen needs its spaces: "Spider" is no "Spider-Man".
+_SUBTITLE_RE = re.compile(r"\s*[:：–—(]|\s+-\s|\s+or\b", re.IGNORECASE)
 _COMBINING_RE = re.compile(r"[\u0300-\u036f]")
 
 
@@ -102,16 +107,46 @@ def enrich_recommendations(
 
 def _spelling(title: object) -> str:
     """*title* with what two spellings of one title differ in removed: case, accents,
-    punctuation, "&" for "and" and a year in brackets at its end."""
+    punctuation, spaces, "&" for "and" and a year in brackets at its end."""
     text = re.sub(r"\s*\(\d{4}\)\s*$", "", title) if isinstance(title, str) else ""
     text = unicodedata.normalize("NFKD", text.replace("&", " and "))
-    return normalise_title(_COMBINING_RE.sub("", text))
+    squeezed = normalise_title(_COMBINING_RE.sub("", text)).replace(" ", "")
+    return squeezed or text.strip()
 
 
-def _is_titled(found: TmdbSearchResult, title: str) -> bool:
+def _main_titles(title: str) -> set[str]:
+    """The spellings *title* has when it is cut where a subtitle can begin."""
+    return {_spelling(title[: m.start()]) for m in _SUBTITLE_RE.finditer(title) if m.start()}
+
+
+def _pick_result(
+    results: Sequence[TmdbSearchResult], title: str, year: int | None
+) -> TmdbSearchResult | None:
+    """The first of *results* that is *title*, or else that is it but for a subtitle one of
+    the two leaves out, which only a title of the same *year* may: "Alien" is no "Alien:
+    Romulus"."""
     wanted = _spelling(title)
-    names = (found.get(k) for k in ("title", "name", "original_title", "original_name"))
-    return any(_spelling(name) == wanted for name in names if name)
+    but_for_subtitle = None
+    for found in results[:_RESULTS_READ]:
+        names = [
+            name
+            for k in ("title", "name", "original_title", "original_name")
+            if isinstance(name := found.get(k), str) and name
+        ]
+        if any(_spelling(name) == wanted for name in names):
+            return found
+        released = str(found.get("release_date") or found.get("first_air_date") or "")
+        if (
+            but_for_subtitle is None
+            and year
+            and released[:4] == str(year)
+            and any(
+                wanted in _main_titles(name) or _spelling(name) in _main_titles(title)
+                for name in names
+            )
+        ):
+            but_for_subtitle = found
+    return but_for_subtitle
 
 
 def _find_on_tmdb(client: TmdbClient, s: RecommendationItem, budget: _Budget) -> bool:
@@ -127,13 +162,15 @@ def _find_on_tmdb(client: TmdbClient, s: RecommendationItem, budget: _Budget) ->
         if not budget.may_ask_tmdb():
             return True
         try:
-            found = client.search_or_raise(search_title, year=year, media_type=s["media_type"])
+            results = client.search_results_or_raise(
+                search_title, year=year, media_type=s["media_type"]
+            )
         except (SafeHTTPError, requests.RequestException, ValueError):
             logger.warning("recommendations: TMDB did not answer a title search", exc_info=True)
             budget.tmdb_failed()
             return True
-        if found is not None and _is_titled(found, search_title):
-            best = found
+        best = _pick_result(results, search_title, s.get("year"))
+        if best is not None:
             break
     if best is None:
         return False

@@ -64,9 +64,9 @@ def _mock_tmdb(search_return=None, card_return=None, detail_return=None):
     cls = MagicMock()
     inst = MagicMock()
     if search_return is None:
-        inst.search_or_raise.side_effect = requests.ConnectionError("TMDB is down")
+        inst.search_results_or_raise.side_effect = requests.ConnectionError("TMDB is down")
     else:
-        inst.search_or_raise.return_value = search_return
+        inst.search_results_or_raise.return_value = [search_return]
     inst.shape_card.return_value = card_return or _shape_card()
     inst.shape_detail.return_value = _shape_detail_empty()
     inst.details.return_value = detail_return or {}
@@ -226,14 +226,16 @@ class _Tmdb:
     def __init__(self, titles, down=False):
         self.titles, self.down, self.asked = titles, down, []
 
-    def search_or_raise(self, title, *, year=None, media_type="movie"):
+    def search_results_or_raise(self, title, *, year=None, media_type="movie"):
         self.asked.append((title, year))
         if self.down:
             raise requests.ConnectionError("down")
         found = self.titles.get((title, year))
         if not found:
-            return None
-        return found if isinstance(found, dict) else {"id": found, "title": title}
+            return []
+        if isinstance(found, int):
+            found = {"id": found, "title": title}
+        return found if isinstance(found, list) else [found]
 
     def shape_card(self, item):
         return {**_shape_card(tmdb_id=item["id"]), "year": 2000}
@@ -276,13 +278,13 @@ class TestWhichPicksAreKept:
     def test_when_the_time_is_up_the_rest_stays_as_it_is(self, enrich):
         tmdb = _Tmdb({(t, None): n for n, t in enumerate("ABC", start=1)})
         now = [0.0]
-        real = tmdb.search_or_raise
+        real = tmdb.search_results_or_raise
 
         def slow(*args, **kwargs):
             now[0] += 40
             return real(*args, **kwargs)
 
-        tmdb.search_or_raise = slow
+        tmdb.search_results_or_raise = slow
         kept = enrich(tmdb, [_rec(t) for t in "ABC"], seconds=60, clock=lambda: now[0])
         assert kept == [("A", 1), ("B", 2), ("C", None)]
 
@@ -310,6 +312,58 @@ class TestWhichPicksAreKept:
     def test_ampersand_and_and_are_one_word(self, enrich):
         tmdb = _Tmdb({("Fire and Ash", None): {"id": 4, "title": "Fire & Ash"}})
         assert enrich(tmdb, [_rec("Fire and Ash")]) == [("Fire and Ash", 4)]
+
+    @pytest.mark.parametrize(
+        ("title", "found"),
+        [
+            ("Spiderman", {"title": "Spider-Man"}),
+            ("Oceans Eleven", {"title": "Ocean's Eleven"}),
+            ("Ocean's Eleven", {"title": "Ocean\u2019s Eleven"}),
+            ("Birdman", {"title": "Birdman or (The Unexpected Virtue of Ignorance)"}),
+            ("Star Wars", {"title": "Star Wars: Episode IV - A New Hope"}),
+            ("Borat: Cultural Learnings", {"title": "Borat"}),
+            ("Andor", {"name": "Andor \u2013 A Story"}),
+        ],
+    )
+    def test_a_real_title_is_found_by_its_shorter_or_other_spelling(self, enrich, title, found):
+        kind = "release_date" if "title" in found else "first_air_date"
+        tmdb = _Tmdb({(title, 2001): {"id": 4, kind: "2001-05-01", **found}})
+        assert enrich(tmdb, [{**_rec(title), "year": 2001}]) == [(title, 4)]
+
+    @pytest.mark.parametrize(
+        ("title", "year", "found"),
+        [
+            ("Alien", 1979, {"title": "Alien: Romulus", "release_date": "2024-08-13"}),
+            ("Alien", None, {"title": "Alien: Romulus", "release_date": "2024-08-13"}),
+            ("Spider", 2002, {"title": "Spider-Man", "release_date": "2002-05-01"}),
+            ("Star", 1977, {"title": "Star Wars", "release_date": "1977-05-25"}),
+            ("Star Wars: Rogue One", 2016, {"title": "Star", "release_date": "2016-01-01"}),
+            ("Or", 2004, {"title": "Life or Death", "release_date": "2004-01-01"}),
+            ("Birdman", 2014, {"title": "Birdman or (The)", "release_date": ""}),
+        ],
+    )
+    def test_a_film_that_only_begins_alike_is_refused(self, enrich, title, year, found):
+        tmdb = _Tmdb({(title, year): {"id": 4, **found}, (title, None): {"id": 4, **found}})
+        assert enrich(tmdb, [{**_rec(title), "year": year}]) == []
+
+    def test_the_exact_title_wins_over_one_with_a_subtitle_before_it(self, enrich):
+        results = [
+            {"id": 1, "title": "Heat: The Making", "release_date": "1995-01-01"},
+            {"id": 2, "title": "Heat", "release_date": "1995-12-15"},
+        ]
+        assert enrich(_Tmdb({("Heat", 1995): results}), [{**_rec("Heat"), "year": 1995}]) == [
+            ("Heat", 2)
+        ]
+
+    def test_the_first_five_results_are_looked_through_and_no_more(self, enrich):
+        others = [{"id": n, "title": f"Other {n}"} for n in range(1, 6)]
+        fifth = [*others[:4], {"id": 9, "title": "Heat"}]
+        assert enrich(_Tmdb({("Heat", None): fifth}), [_rec("Heat")]) == [("Heat", 9)]
+        sixth = [*others, {"id": 9, "title": "Heat"}]
+        assert enrich(_Tmdb({("Heat", None): sixth}), [_rec("Heat")]) == []
+
+    def test_a_title_of_signs_alone_is_not_taken_for_another(self, enrich):
+        assert enrich(_Tmdb({("???", None): {"id": 4, "title": "!!!"}}), [_rec("???")]) == []
 
     def test_another_title_found_by_the_search_is_not_taken_for_the_pick(self, enrich):
         tmdb = _Tmdb({("Made up", None): {"id": 4, "title": "Made", "original_title": "Up"}})

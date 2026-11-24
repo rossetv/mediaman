@@ -237,8 +237,8 @@ class TestRefresh:
         monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
         monkeypatch.setattr(
             FakeTmdb,
-            "search_or_raise",
-            lambda *_a, **_k: {"id": 12, "title": "Glass Onion"},
+            "search_results_or_raise",
+            lambda *_a, **_k: [{"id": 12, "title": "Glass Onion"}],
             raising=False,
         )
         monkeypatch.setattr(
