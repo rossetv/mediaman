@@ -111,6 +111,9 @@ class FakeTmdb:
             raise SafeHTTPError(status_code=500, body_snippet="", url="https://tmdb.invalid")
         return {"results": self.search_results}
 
+    def details(self, media_type, tmdb_id):
+        return None if self.failing else self.detail.get(tmdb_id)
+
     def details_or_raise(self, media_type, tmdb_id):
         if self.failing or tmdb_id not in self.detail:
             raise SafeHTTPError(
