@@ -475,6 +475,18 @@ const scenarios = {
     await p.open();
     return { meter, rows: p.rows() };
   },
+  async keepInAGrid() {
+    const p = await page();
+    const took = [];
+    p.ctx.MMWatch.grid = { take: (card, control) => { took.push([card.getAttribute('data-keep-id'), control]); card.remove(); return { undo: () => null, focus: p.$('card-keep-2') }; } };
+    await p.click(p.$('card-keep-1'));
+    await p.click(p.one('#watch-keep-menu [data-days="7"]'));
+    const inGrid = { took, focused: p.focused() };
+    p.ctx.MMWatch.grid.take = () => null;
+    await p.click(p.$('card-keep-2'));
+    await p.click(p.one('#watch-keep-menu [data-days="7"]'));
+    return { inGrid, inRow: p.all('.watch-card').length };
+  },
   async secondPress() {
     const p = await page();
     await p.open();

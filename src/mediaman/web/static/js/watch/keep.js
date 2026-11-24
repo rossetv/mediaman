@@ -351,6 +351,10 @@
      page when it was the last. Behind search results the row is hidden: it
      just goes. Returns { undo, focus } as applyKept does. */
   function keepFromRow(card, row, shown, control) {
+    // In a row opened as a grid, the grid closes up around it.
+    var grid = window.MMWatch.grid;
+    var taken = grid && grid.take && grid.take(card, control);
+    if (taken) return taken;
     var scroller = card.parentNode;
     var left = toArray(scroller.children).filter(function (c) {
       return c !== card && !c.classList.contains('is-kept');

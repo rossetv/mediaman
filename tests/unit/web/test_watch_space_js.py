@@ -252,6 +252,14 @@ class TestScheduled:
         assert "2 leaving" in out["meter"]
         assert out["rows"] == ["2", "3"]
 
+    def test_a_card_kept_in_an_open_grid_is_taken_out_by_the_grid(self):
+        out = _run("keepInAGrid")
+        assert out["inGrid"] == {
+            "took": [["1", "[data-watch-keep]"]],
+            "focused": "Keep Film 2",
+        }
+        assert out["inRow"] == 0
+
     def test_a_scan_that_ends_during_a_failed_keep_still_refreshes(self):
         out = _run("scanDuringFailedKeep")
         assert out["during"] == ["1", "2", "3"]
