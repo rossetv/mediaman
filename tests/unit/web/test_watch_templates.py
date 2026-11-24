@@ -706,6 +706,16 @@ def test_the_shade_on_a_small_title_hero_keeps_close_to_the_text() -> None:
     assert "55%, transparent) calc(100% - 40px)" in small
 
 
+def test_a_title_with_no_picture_has_a_short_hero_until_its_trailer_plays() -> None:
+    body = _declarations_of(
+        "_watch_detail.css",
+        ".ttl:not(.is-trailer) .ttl__hero:has(> .ttl__hero-skel[hidden])"
+        ":not(:has(> img:not([hidden])))",
+    )
+
+    assert "min-height: 0" in body and "var(--hero-hi)" in body
+
+
 def test_the_banner_scrim_does_not_widen_with_a_wide_screen() -> None:
     wide = _declarations_in(_in_media("_watch.css", "(min-width: 1280px)"), ".watch-banner")
 

@@ -94,6 +94,12 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .ttl__art { object-position: 50% 25%; }
 .ttl__fill { filter: blur(40px) brightness(.7); transform: scale(1.2); }
+/* With no picture at all: a short head. The trailer still gets the full height. */
+.ttl:not(.is-trailer) .ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
+  min-height: 0;
+  padding-top: 72px;
+  background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--s1) 80%);
+}
 /* With no wide picture the poster stands beside the title, whole and at its own shape. */
 .ttl__poster {
   position: relative;
