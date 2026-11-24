@@ -18,3 +18,5 @@
   .plex-link-actions { flex-direction: column; }
   .plex-link-actions .btn { width: 100%; }
 }
+.setg-pg .link-danger[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+#plex-others:focus { outline: none; }

@@ -63,7 +63,19 @@ ctx.MM.api = {
 };
 ctx.MM.reauth = { run: (fn) => fn() };
 
-const flush = async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r)); };
+const said = [];
+// Announcements wait 100 ms after clearing their line; everything else waits for tick().
+const flush = async () => {
+  for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r));
+  for (const t of timers.filter((x) => x.live && x.ms === 100)) {
+    t.live = false;
+    const before = ['plex-status', 'plex-others-status'].map((id) => at(id).textContent);
+    t.fn();
+    ['plex-status', 'plex-others-status'].forEach((id, i) => {
+      if (at(id).textContent !== before[i]) said.push(at(id).textContent);
+    });
+  }
+};
 const click = async (id) => { at(id).listeners.click.forEach((f) => f.call(at(id), {})); await flush(); };
 const tick = async () => {
   const due = timers.filter((t) => t.live);
@@ -84,9 +96,11 @@ const WAITING = {
 };
 const CONFIRM = { id: 'a1', state: 'confirm', name: '<b>amy</b>', signed_out: true };
 const NONE = { configured: true, link: null, attempt: null };
+const BOB = { id: 3, username: '<i>bob</i>', linked_at: '2026-03-01T12:00:00Z' };
+const CAT = { id: 4, username: 'cat', linked_at: '2026-03-01T12:00:00Z' };
 const LINK = { name: 'amy', linked_at: '2026-03-01T12:00:00Z', last_read_at: null, reading: true };
 answers['GET /api/users/plex-links'] = [{ links: [] }];
-answers['POST /api/account/plex/cancel'] = [{}];
+answers['POST /api/account/plex/cancel'] = [{ signed_out: true }];
 
 async function load(first) {
   answers[GET] = [first];
@@ -119,6 +133,90 @@ const scenarios = {
     out.read = { text: at('plex-read').textContent, waits: waits() };
     out.sent = calls.filter((c) => c.startsWith(START + ' '));
     return out;
+  },
+  async moves() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers[CHECK] = [{ attempt: CONFIRM }];
+    await click('plex-start');
+    await tick();
+    const untold = !at('plex-moves').hidden;
+    answers[START] = [{ attempt: { ...CONFIRM, moves: true } }, {}];
+    answers[GET] = [{ configured: true, link: { ...LINK, reading: false }, attempt: null }];
+    await click('plex-confirm');
+    const told = { shown: shown(), notice: !at('plex-moves').hidden, said: said[said.length - 1] };
+    await click('plex-confirm');
+    return { untold, told, shown: shown(), sent: calls.filter((c) => c.startsWith(START + ' ')) };
+  },
+  async failedLoad() {
+    answers[GET] = [{ error: 'network_error', status: 0, message: 'Unreachable.' }, NONE];
+    vm.runInContext(fs.readFileSync(path.join(WEB, 'static/js/profile-plex.js'), 'utf8'), ctx);
+    await flush();
+    const first = { shown: shown(), text: at('plex-failed').textContent };
+    await click('plex-retry');
+    return { first, shown: shown(), started: calls.includes(START) };
+  },
+  async quietFailure() {
+    await load({ configured: true, link: LINK, attempt: null });
+    answers[GET] = [
+      { error: 'network_error', status: 0, message: 'Unreachable.' },
+      { configured: true, link: { ...LINK, reading: false, last_read_at: '2026-03-01T12:01:00Z' }, attempt: null },
+    ];
+    await tick();
+    const during = { shown: shown(), waits: waits() };
+    await tick();
+    return { during, shown: shown(), read: at('plex-read').textContent };
+  },
+  async otherTab() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers[CHECK] = [{ attempt: null }];
+    answers[GET] = [{ configured: true, link: { ...LINK, reading: false }, attempt: null }];
+    await click('plex-start');
+    await tick();
+    return { shown: shown(), waits: waits() };
+  },
+  async otherTabConfirmed() {
+    const out = [];
+    await load({ configured: true, link: null, attempt: CONFIRM });
+    for (const error of ['expired', 'already_linked']) {
+      answers[START] = [{ error, status: 409, message: 'Too late.' }];
+      answers[GET] = [{ configured: true, link: { ...LINK, reading: false }, attempt: null }];
+      await click('plex-confirm');
+      out.push(shown());
+    }
+    answers[START] = [{ error: 'expired', status: 409, message: 'Too late.' }];
+    answers[GET] = [NONE];
+    await click('plex-confirm');
+    out.push(shown(), at('plex-failed').textContent);
+    return out;
+  },
+  async repeat() {
+    await load(NONE);
+    answers[START] = [{ error: 'plex_unavailable', status: 503, message: 'Plex is down.' }];
+    await click('plex-start');
+    await click('plex-retry');
+    return said;
+  },
+  async cancelNote() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers['POST /api/account/plex/cancel'] = [{ signed_out: false }];
+    await click('plex-start');
+    await click('plex-cancel');
+    return { shown: shown(), note: !at('plex-signout-note').hidden };
+  },
+  async busy() {
+    await load(NONE);
+    at('plex-start').focus();
+    let answer;
+    answers[START] = [new Promise((r) => { answer = r; })];
+    await click('plex-start');
+    await click('plex-start');
+    const during = { disabled: !!at('plex-start').disabled, aria: at('plex-start').getAttribute('aria-disabled') };
+    answer({ attempt: WAITING });
+    await flush();
+    return { during, starts: calls.filter((c) => c === START).length, after: at('plex-start').getAttribute('aria-disabled') };
   },
   async badUrl() {
     await load(NONE);
@@ -155,12 +253,13 @@ const scenarios = {
     answers[START] = [{ attempt: WAITING }];
     for (const attempt of [
       { id: 'a1', state: 'failed', reason: 'not_on_server', message: 'No access here.', signed_out: false },
+      { id: 'a1', state: 'failed', reason: 'not_on_server', message: 'No access here.', signed_out: true },
       null,
     ]) {
       answers[CHECK] = [{ attempt }];
       await click(out.length ? 'plex-retry' : 'plex-start');
       await tick();
-      out.push({ ...state(), text: at('plex-failed').textContent, note: !at('plex-signout-note').hidden });
+      out.push({ ...state(), said: said.splice(0), text: at('plex-failed').textContent, note: !at('plex-signout-note').hidden });
     }
     return out;
   },
@@ -184,16 +283,21 @@ const scenarios = {
   },
   async others() {
     answers['GET /api/users/plex-links'] = [
-      { links: [{ id: 3, username: '<i>bob</i>', linked_at: '2026-03-01T12:00:00Z' }] }, { links: [] },
+      { links: [BOB, CAT] }, { links: [CAT] }, { links: [] },
     ];
     answers['DELETE /api/users/3/plex-link'] = [{}];
+    answers['DELETE /api/users/4/plex-link'] = [{}];
     await load(NONE);
     const box = at('plex-others');
     const name = box.querySelector('.usr-name').textContent;
     const button = box.querySelector('.link-danger');
+    button.focus();
     button.listeners.click.forEach((f) => f());
     await flush();
-    return { name, label: button.getAttribute('aria-label'), left: box.textContent, deleted: calls.includes('DELETE /api/users/3/plex-link') };
+    const next = { focus: doc.activeElement.getAttribute('aria-label'), said: said.slice() };
+    box.querySelector('.link-danger').listeners.click.forEach((f) => f());
+    await flush();
+    return { next, focus: doc.activeElement.id, said,  name, label: button.getAttribute('aria-label'), left: box.textContent, deleted: calls.includes('DELETE /api/users/3/plex-link') };
   },
 };
 

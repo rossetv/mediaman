@@ -31,7 +31,7 @@ def test_linking_goes_from_open_plex_to_is_this_you_to_linked() -> None:
     assert out["confirm"]["status"] != out["waiting"]["status"]
     assert out["confirm"]["name"] == "<b>amy</b>"
     assert out["confirm"]["waits"] == []
-    assert out["sent"] == ['POST /api/account/plex {"attempt":"a1"}']
+    assert out["sent"] == ['POST /api/account/plex {"attempt":"a1","move":false}']
     assert out["linked"]["shown"] == "linked"
     assert "Reading" in out["linked"]["read"]
     assert "last read" in out["read"]["text"]
@@ -55,10 +55,11 @@ def test_a_hidden_tab_does_not_ask_and_asks_at_once_on_return() -> None:
 
 
 def test_a_failed_sign_in_says_why_and_whether_plex_signed_out() -> None:
-    refused, ran_out = _run("failures")
+    refused, again, ran_out = _run("failures")
     assert (refused["shown"], refused["text"]) == ("failed", "No access here.")
     assert refused["status"] == "No access here."
     assert refused["note"] is True
+    assert (again["note"], again["said"][-1:]) == (False, ["No access here."])
     assert (ran_out["shown"], ran_out["note"]) == ("failed", False)
     assert "ran out" in ran_out["text"]
     assert ran_out["focus"] == "plex-retry"
@@ -82,4 +83,49 @@ def test_an_admin_unlinks_another_person_by_a_named_button() -> None:
     assert out["name"] == "<i>bob</i>"
     assert "<i>bob</i>" in out["label"]
     assert out["deleted"] is True
+    assert out["next"]["focus"] == "Unlink the Plex account of cat"
+    assert "bob" in out["next"]["said"][-1]
+    assert out["focus"] == "plex-others"
+    assert "cat" in out["said"][-1]
     assert "Nobody else" in out["left"]
+
+
+def test_a_move_from_another_person_is_said_before_it_is_made() -> None:
+    out = _run("moves")
+    assert out["untold"] is False
+    assert (out["told"]["shown"], out["told"]["notice"]) == ("confirm", True)
+    assert "moves it to you" in out["told"]["said"]
+    assert out["shown"] == "linked"
+    assert [call.endswith('"move":true}') for call in out["sent"]] == [False, True]
+
+
+def test_trying_a_failed_load_again_loads_and_does_not_start_a_link() -> None:
+    out = _run("failedLoad")
+    assert out["first"] == {"shown": "failed", "text": "Unreachable."}
+    assert (out["shown"], out["started"]) == ("unlinked", False)
+
+
+def test_one_failed_refresh_leaves_the_linked_card() -> None:
+    out = _run("quietFailure")
+    assert out["during"] == {"shown": "linked", "waits": [10000]}
+    assert out["shown"] == "linked"
+    assert "last read" in out["read"]
+
+
+def test_a_link_made_in_another_tab_shows_here() -> None:
+    assert _run("otherTab") == {"shown": "linked", "waits": []}
+    assert _run("otherTabConfirmed") == ["linked", "linked", "failed", "Too late."]
+
+
+def test_cancelling_shows_when_mediaman_may_still_be_signed_in() -> None:
+    assert _run("cancelNote") == {"shown": "unlinked", "note": True}
+
+
+def test_a_busy_button_keeps_the_focus_and_runs_once() -> None:
+    out = _run("busy")
+    assert out["during"] == {"disabled": False, "aria": "true"}
+    assert (out["starts"], out["after"]) == (1, None)
+
+
+def test_the_same_failure_twice_is_announced_twice() -> None:
+    assert _run("repeat") == ["Plex is down.", "Plex is down."]
