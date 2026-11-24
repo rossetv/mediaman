@@ -298,7 +298,6 @@
     b.setAttribute('data-mark-name', name);
     b.setAttribute('aria-pressed', watched ? 'true' : 'false');
     b.setAttribute('aria-label', label);
-    b.appendChild(window.MM.dom.icon('i-eye'));
     return b;
   }
 
@@ -306,6 +305,7 @@
   function markToggle(mark, watched, name) {
     var b = toggle('watch-mark', mark, watched, 'Mark ' + name + ' as watched', name);
     b.setAttribute('title', markAction(watched));
+    b.appendChild(window.MM.dom.icon('i-eye'));
     b.appendChild(el('span', 'watch-mark__word', 'Watched'));
     return b;
   }
@@ -314,8 +314,11 @@
   function markButton(className, mark, watched, name, label) {
     var b = toggle(className + ' watch-mark-btn', mark, watched, label, name);
     var faces = el('span', 'watch-mark-btn__faces');
-    faces.appendChild(el('span', 'watch-mark-btn__off', label));
-    faces.appendChild(el('span', 'watch-mark-btn__on', 'Watched'));
+    [['off', label], ['on', 'Watched']].forEach(function (f) {
+      var face = faces.appendChild(el('span', 'watch-mark-btn__' + f[0]));
+      face.appendChild(window.MM.dom.icon('i-eye'));
+      face.appendChild(document.createTextNode(f[1]));
+    });
     b.appendChild(faces);
     return b;
   }

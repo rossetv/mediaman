@@ -599,7 +599,7 @@
 .watch-badge--watched,
 .watch-pill__mark,
 .watch-mark[aria-pressed="true"],
-.watch-mark-btn[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; }
+.watch-mark-btn__on { --eye-open: none; --eye-seen: inline; }
 
 /* A toggle of the person's own mark: an empty ring, filled once watched, with the word beside it
    where there is room. */
@@ -631,18 +631,18 @@
 .watch-mark:hover { color: var(--t1); }
 .watch-mark:hover::before { border-color: var(--hair-hover); }
 .watch-mark[aria-pressed="true"] { padding-inline: 18px; color: var(--bg); }
-.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 86%, transparent); border-color: transparent; }
-.watch-mark[aria-pressed="true"]:hover::before { background: var(--t1); }
+.watch-mark[aria-pressed="true"]::before { background: color-mix(in srgb, var(--t1) 60%, transparent); border-color: transparent; }
+.watch-mark[aria-pressed="true"]:hover::before { background: color-mix(in srgb, var(--t1) 76%, transparent); }
 .watch-mark:active::before { transform: scale(.94); }
 .watch-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-pill); }
 .watch-mark[aria-busy="true"],
 .watch-mark-btn[aria-busy="true"] { opacity: .55; cursor: progress; }
 
-/* A button toggle: both its labels share one cell, so its width never changes. */
-.watch-mark-btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
-.watch-mark-btn > .ico { flex: none; font-size: 16px; }
+/* A button toggle: both its faces, each an eye and a label, share one cell, so its width never changes. */
+.watch-mark-btn { display: inline-flex; align-items: center; justify-content: center; }
 .watch-mark-btn__faces { display: grid; }
-.watch-mark-btn__faces > * { grid-area: 1 / 1; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-mark-btn__faces > * { grid-area: 1 / 1; display: flex; align-items: center; justify-content: center; gap: 9px; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-mark-btn__faces .ico { flex: none; font-size: 16px; }
 .watch-mark-btn[aria-pressed="true"] .watch-mark-btn__off,
 .watch-mark-btn:not([aria-pressed="true"]) .watch-mark-btn__on { opacity: 0; visibility: hidden; }
 .watch-mark-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--t1) 34%, transparent); border-color: color-mix(in srgb, var(--t1) 60%, transparent); }

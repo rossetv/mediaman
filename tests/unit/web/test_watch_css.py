@@ -62,7 +62,7 @@ def test_a_leaving_badge_says_the_days_left_at_every_width() -> None:
         ".watch-badge--watched",
         ".watch-pill__mark",
         '.watch-mark[aria-pressed="true"]',
-        '.watch-mark-btn[aria-pressed="true"]',
+        ".watch-mark-btn__on",
     ],
 )
 def test_the_eye_of_what_is_watched_is_another_one(seen: str) -> None:
@@ -74,9 +74,10 @@ def test_the_eye_of_what_is_watched_is_another_one(seen: str) -> None:
     assert eye and 'class="eye-open"' in eye[0] and 'class="eye-seen" display="none"' in eye[0]
 
 
-def test_a_watched_toggle_is_filled_far_more_than_one_that_is_not() -> None:
+def test_a_watched_toggle_is_filled_and_outshines_no_title() -> None:
     fill = re.search(r"var\(--t1\) (\d+)%", _background('.watch-mark[aria-pressed="true"]::before'))
-    assert fill and int(fill[1]) >= 80
+    # Dark text needs 50% of the fill for its contrast; much over 60% the column of pills glares.
+    assert fill and 55 <= int(fill[1]) <= 65
     assert "color: var(--bg)" in _of('.watch-mark[aria-pressed="true"]')
     assert "background" not in _of(".watch-mark::before").replace("background-color", "")
 

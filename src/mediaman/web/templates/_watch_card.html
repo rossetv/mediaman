@@ -74,7 +74,7 @@
 
 {# A button toggle: both its labels are laid out, so its width never changes. #}
 {% macro mark_button(kind, key, watched, name, label="Mark as watched", class="btn btn--lg watch-btn--grey") -%}
-<button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}">{{ icon("i-eye") }}<span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ label }}</span><span class="watch-mark-btn__on">Watched</span></span></button>
+<button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}"><span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ icon("i-eye") }}{{ label }}</span><span class="watch-mark-btn__on">{{ icon("i-eye") }}Watched</span></span></button>
 {%- endmacro %}
 
 {# "1 h 5 min left", drawn "1h 5m left" on a phone. #}
