@@ -267,10 +267,15 @@ def _filter_libraries_by_disk(
     return filtered, left_out
 
 
-def _audit_left_out(conn: sqlite3.Connection, left_out: list[str]) -> None:
+def _audit_left_out(
+    conn: sqlite3.Connection, left_out: list[str], lib_titles: dict[str, str]
+) -> None:
     """Record in the history each library left out, until it changes."""
     for lib_id in left_out:
-        detail = f"Plex library {lib_id} was not scanned: its disk limit in Settings cannot be read"
+        detail = (
+            f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: its disk limit "
+            "in Settings cannot be read"
+        )
         if not is_latest_audit(conn, _LIBRARY_AUDIT_ID + lib_id, "library_left_out", detail):
             log_audit(conn, _LIBRARY_AUDIT_ID + lib_id, "library_left_out", detail)
     conn.commit()
@@ -390,7 +395,7 @@ def run_scan_from_db(
     left_out: list[str] = []
     if not skip_disk_check:
         lib_ids, left_out = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
-        _audit_left_out(conn, left_out)
+        _audit_left_out(conn, left_out, lib_titles)
 
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)

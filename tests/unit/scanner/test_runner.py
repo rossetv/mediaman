@@ -280,7 +280,7 @@ class TestDiskThresholdFiltering:
         [told] = conn.execute(
             "SELECT detail FROM audit_log WHERE action = 'library_left_out'"
         ).fetchall()
-        assert "1" in told[0]
+        assert "'library 1'" in told[0]
 
     def test_no_thresholds_configured_scans_all(self, conn):
         """When no disk_thresholds setting exists, all libraries are passed through."""
