@@ -5,7 +5,7 @@ its TVDB id maps to (through Sonarr, or through TMDB itself). Failing that it ma
 its title and year together. The library keeps no year of its own, so the year is read
 from a "(2005)" in the title or in the folder Plex holds it in; without one, an exact
 title counts only when Radarr or Sonarr reports the title downloaded and the years, where
-both are known, agree, so a remake that shares a title is left out of the library rather
+both are known, are at most one apart, so a remake that shares a title is left out of the library rather
 than hidden.
 """
 
@@ -143,9 +143,9 @@ class LibraryIndex:
         if arr.state(kind, tmdb_id)[0] in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
             candidate = by_title.get(name)
             held_year = self.year_of.get(candidate) if candidate else None
-            # A remake shares the title of an older library title; two known years apart
-            # are two titles.
-            if year and held_year and year != held_year:
+            # A remake shares the title of an older library title, so known years apart are
+            # two titles; one apart is one title, dated by two of its releases.
+            if year and held_year and abs(year - held_year) > 1:
                 return None
             return candidate
         return None

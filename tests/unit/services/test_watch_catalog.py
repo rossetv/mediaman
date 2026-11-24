@@ -217,8 +217,18 @@ class TestLibraryRef:
         held = _view(movies={13: {"tmdbId": 13, "hasFile": True}})
 
         assert index.library_ref("movie", 13, "The Thing", held, year=2011) is None
+        assert index.library_ref("movie", 13, "The Thing", held, year=1984) is None
         # With no year on TMDB's side, the title and Arr still match.
         assert index.library_ref("movie", 13, "The Thing", held) == "movie-1"
+
+    @pytest.mark.parametrize("year", [1981, 1983])
+    def test_a_title_downloaded_in_arr_matches_when_its_years_are_one_apart(self, year):
+        index = catalog.LibraryIndex.build(
+            [("1", "The Thing", None)], [], ids={"movie-1": (None, 1982)}
+        )
+        held = _view(movies={13: {"tmdbId": 13, "hasFile": True}})
+
+        assert index.library_ref("movie", 13, "The Thing", held, year=year) == "movie-1"
 
 
 class TestLibraryRefWithoutSonarr:
