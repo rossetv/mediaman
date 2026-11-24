@@ -266,6 +266,13 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
 
     try:
         if season_number is None:
+            # Asked before the add, so a 5xx or timeout for a show held all along is not
+            # taken for an add that landed.
+            if sonarr_tracks_series(client, tvdb_id):
+                raise _held_error(
+                    SafeHTTPError(409, "already tracked", "sonarr/api/v3/series"),
+                    sonarr_fetches_series(client, tvdb_id),
+                )
             client.add_series(tvdb_id, title)
         elif not _remonitor_held_season(client, tvdb_id, season_number):
             client.add_series_with_seasons(tvdb_id, title, [season_number])

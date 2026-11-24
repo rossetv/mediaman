@@ -298,7 +298,8 @@ class TestSubmitWhoseAddGotNoAnswer:
         arr = MagicMock()
         arr.get_movie_by_tmdb.side_effect = [None, {"id": 7, "monitored": True} if held else None]
         arr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
-        arr.get_series.return_value = [{"tvdbId": 999, "monitored": True}] if held else []
+        # Sonarr is asked before the add, when it holds nothing, and again after it.
+        arr.get_series.side_effect = [[], [{"tvdbId": 999, "monitored": True}] if held else []]
         arr.add_movie.side_effect = arr.add_series.side_effect = self.NO_ANSWER
         return arr
 
@@ -328,3 +329,18 @@ class TestSubmitWhoseAddGotNoAnswer:
 
         assert resp.status_code == 502
         assert not _consumed(token)
+
+    def test_a_show_sonarr_held_all_along_is_not_taken_for_an_add_that_landed(
+        self, client, secret_key
+    ):
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        sonarr.get_series.return_value = [{"tvdbId": 999, "monitored": True}]
+        sonarr.add_series.side_effect = self.NO_ANSWER
+
+        token, resp = self._post(client, secret_key, "tv", sonarr)
+
+        assert resp.status_code == 409
+        sonarr.add_series.assert_not_called()
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert mails == []
