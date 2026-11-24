@@ -101,6 +101,27 @@ class TestPanel:
         assert out["once"]["focused"].startswith("Movies, ")
         assert out["twice"] == {"open": False}
 
+    def test_escape_is_first_the_confirm_s_and_the_keep_menu_s(self):
+        assert _run("escapeElsewhere") == {
+            "underConfirm": True,
+            "menu": {"open": True, "expanded": "false"},
+            "then": False,
+        }
+
+    def test_a_pull_of_the_handle_far_or_fast_closes_it_and_any_other_springs_back(self):
+        assert _run("drag") == {
+            "far": ["translateY(130px)", True, "", False],
+            "near": ["translateY(60px)", False, "", False],
+            "fast": ["translateY(60px)", True, "", False],
+            "twitch": ["translateY(20px)", False, "", False],
+            "up": ["translateY(0px)", False, "", False],
+            "cancelled": ["translateY(300px)", False, "", False],
+        }
+
+    def test_back_to_it_takes_the_focus_only_when_nothing_in_it_has_it(self):
+        out = _run("backFocus")
+        assert out == {"lost": "Storage", "kept": "Scheduled for deletion, 3 titles"}
+
     def test_a_failure_is_told_in_every_tab_and_try_again_fills_them(self):
         out = _run("panelFails")
         assert out["was"] == {
@@ -118,6 +139,12 @@ class TestPanel:
 class TestStorage:
     def test_the_list_follows_the_pointer_after_a_pause_and_stays_through_a_short_absence(self):
         assert _run("hover") == [ALL, ALL, "Big", "Show", "Show", "Show", ALL]
+
+    def test_the_keyboard_opens_each_segment_it_comes_to_without_pinning_it(self):
+        out = _run("segmentFocus")
+        assert (out["rows"], out["next"]) == (["Big", "Small"], ["Show"])
+        assert out["focused"].startswith("TV Shows, ")
+        assert out["pressed"] == "false"
 
     def test_a_pinned_list_stays_whatever_the_pointer_does_until_pressed_again(self):
         assert _run("pinned") == {"held": "Big", "left": "list", "again": ALL}
@@ -258,6 +285,33 @@ class TestScheduled:
             "busy": 0,
         }
 
+    def test_a_failed_keep_moves_focus_only_out_of_the_closed_menu(self):
+        assert _run("failedFocus") == {
+            "fromMenu": "Keep Film 1",
+            "moved": "space-tab-scheduled",
+            "menu": False,
+        }
+
+    def test_the_next_keep_comes_into_view_at_once_and_stays_through_a_refresh(self):
+        assert _run("keepRevealed") == {
+            "seen": [["2", "auto"]],
+            "rows": ["2", "3", "9"],
+            "same": True,
+            "focused": "Keep Film 2",
+        }
+
+    def test_an_overdue_title_kept_leaves_the_count_of_those_leaving(self):
+        assert _run("keepLateCount") == {
+            "rows": ["2"],
+            "meter": "1.4 TB free1 leaving",
+            "tab": "1",
+        }
+
+    def test_an_empty_list_says_the_library_is_healthy(self):
+        out = _run("healthy")
+        assert "Library is healthy" in out["text"]
+        assert out["button"] is False
+
     def test_a_second_press_while_a_keep_runs_sends_nothing(self):
         assert _run("secondPress") == 1
 
@@ -298,6 +352,13 @@ class TestScheduled:
         assert out["focused"] == "space-empty"
         assert out["meter"] == "1.4 TB free"
 
+    def test_a_second_press_of_clear_all_sends_nothing_and_the_busy_button_keeps_the_focus(self):
+        assert _run("clearBusy") == {
+            "busy": {"disabled": False, "aria": "true", "said": "true", "focused": True},
+            "posts": 1,
+            "inPanel": True,
+        }
+
     def test_back_with_the_clear_confirm_open_takes_it_along_and_clears_nothing(self):
         out = _run("backOverConfirm")
         assert out.pop("focused").startswith("Storage: ")
@@ -308,6 +369,48 @@ class TestScheduled:
         assert out["rows"] == ["1", "2", "3"]
         assert "Slow down" in out["toast"]
         assert (out["enabled"], out["focused"]) == (True, True)
+
+
+class TestRefresh:
+    def test_changes_what_the_rows_the_head_and_the_notices_say_where_they_are(self):
+        out = _run("refreshed")
+        wait = "/media/tv is empty or not mounted: "
+        assert out["was"] == {
+            "rows": ["Deletes in 3 days"] * 2,
+            "late": [False, False],
+            "head": "2 titles · 20 GB to reclaim",
+            "notices": [],
+            "storage": 0,
+        }
+        assert out["now"] == {
+            "rows": ["Due, but a folder is missing", "Deletes tomorrow"],
+            "late": [True, False],
+            "head": "1 title, 1 overdue · 20 GB to reclaim",
+            "notices": [wait + "2 scheduled deletions are waiting"],
+            "storage": 1,
+        }
+        assert out["later"]["rows"] == ["Deletes in 3 days"] * 2
+        assert out["later"]["late"] == [False, False]
+        assert out["later"]["notices"][0] == wait + "1 scheduled deletion is waiting"
+        assert out["later"]["notices"][1].startswith("Deletions are off")
+        assert out["later"]["storage"] == 2
+        assert out["gone"] == []
+        assert (out["same"], out["focused"]) == (True, True)
+
+    def test_an_older_one_answering_last_changes_nothing(self):
+        assert _run("refreshOrder") == {
+            "now": ["9"],
+            "after": ["9"],
+            "meter": "1.4 TB free1 leaving",
+        }
+
+    def test_what_a_redownload_button_says_outlives_a_redraw(self):
+        assert _run("redoneStays") == {
+            "drawnAgain": True,
+            "adding": ["Adding…", "true", True],
+            "queued": "Queued",
+            "again": ["Queued", "true", True],
+        }
 
 
 class TestThePageBehind:
@@ -371,6 +474,9 @@ class TestScan:
             "live": "Scan finished in Ns",
         }
 
+    def test_a_second_press_starts_no_second_scan(self):
+        assert _run("scanTwice") == {"posts": 1, "look": True, "aria": "true"}
+
     @pytest.mark.parametrize(
         ("end", "label", "said", "link"),
         [
@@ -427,6 +533,11 @@ class TestDeleted:
 
 def test_an_expired_session_goes_to_sign_in_without_showing_a_failure_first():
     assert _run("expired") == {"to": "/login", "meter": "true"}
+
+
+def test_a_session_that_ends_meanwhile_sends_a_scan_its_polls_and_a_clear_to_sign_in():
+    gone = {"to": "/login", "toasts": 0, "rows": 3}
+    assert _run("expiredActions") == {"scan": gone, "clear": gone, "poll": gone}
 
 
 def test_the_panel_never_reloads_the_page():

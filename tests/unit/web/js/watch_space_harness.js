@@ -14,6 +14,10 @@ Object.defineProperty(Node.prototype, 'inert', {
   get() { return this.hasAttribute('inert'); },
   set(on) { if (on) this.setAttribute('inert', ''); else this.removeAttribute('inert'); },
 });
+const classes = Object.getOwnPropertyDescriptor(Node.prototype, 'classList').get;
+Object.defineProperty(Node.prototype, 'classList', {
+  get() { return Object.assign(classes.call(this), { 0: this.className.split(/\s+/)[0] }); },
+});
 Node.prototype.scrollIntoView = function () {};
 Node.prototype.focus = function () {
   if (!this.isConnected || this.closest('[inert]') || this.closest('#space') && this.ownerDocument.getElementById('space').hidden) return;
@@ -177,7 +181,9 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
     location: { pathname: '/watch', reload() { throw new Error('the page was reloaded'); } },
-    fetch: (url) => {
+    fetch: (url, init) => {
+      // Signed out since the page was loaded: what is asked for next is refused.
+      if (opts.signedIn && opts.signedIn.yes) return server.request('GET', url).then((data) => ({ ok: true, status: 200, json: () => Promise.resolve(data) }));
       if (url !== '/watch') return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
       const answer = { ok: !!server.page, status: 200, redirected: false, text: () => Promise.resolve('') };
       server.pages += 1;
@@ -234,6 +240,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       click(doc, one('#watch-keep-menu [data-days="' + days + '"]'));
       await settle();
     },
+    async refresh() { doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase: 'done' } }); await settle(); },
     rows: () => all('#space-scheduled .space-item').filter((li) => !li.inert).map((li) => li.getAttribute('data-id')),
     cards: () => all('[data-row-id="leaving"] .watch-card').filter((c) => !c.classList.contains('is-kept')).map((c) => c.getAttribute('data-keep-id')),
     heads: () => all('.space-layer:not([inert]) .space-heavy__row b').map((b) => b.textContent),
@@ -275,7 +282,7 @@ const scenarios = {
     const before = p.one('.space__panel').hasAttribute('aria-modal');
     p.$('meter').focus();
     await p.click(p.$('meter'));
-    const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').inert, modal: p.one('.space__panel').hasAttribute('aria-modal'), expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
+    const open = { hidden: p.$('space').hidden, focused: p.focused(), held: p.held(), menuFree: !p.$('watch-keep-menu').closest('[inert]'), modal: p.one('.space__panel').hasAttribute('aria-modal'), expanded: p.$('meter').getAttribute('aria-expanded'), pushed: p.pushed.slice() };
     await p.key('Escape');
     (p.doc.listeners.click || []).forEach((fn) => fn({ target: p.$('meter'), detail: 1 }));
     const byPointer = p.focused();
@@ -703,6 +710,197 @@ const scenarios = {
     await settle();
     await p.let_go('/api/watch/keep');
     return { during, kept, failed, mixed: p.told.length };
+  },
+  async clearBusy() {
+    const p = await page();
+    await p.open();
+    const b = p.one('#space-scheduled .btn--danger');
+    p.server.holding = 'clear-scheduled';
+    b.focus();
+    await p.click(b);
+    const busy = { disabled: b.disabled === true, aria: b.getAttribute('aria-disabled'), said: b.getAttribute('aria-busy'), focused: p.doc.activeElement === b };
+    await p.click(b);
+    const posts = p.posts().length;
+    await p.let_go('clear-scheduled');
+    return { busy, posts, inPanel: !!p.doc.activeElement.closest('#space') };
+  },
+  async scanTwice() {
+    const p = await page();
+    await p.open('storage');
+    p.server.scan = { running: true };
+    await p.click(p.$('space-scan'));
+    await p.click(p.$('space-scan'));
+    await p.run(3000);
+    await p.click(p.$('space-scan'));
+    return { posts: p.posts().length, look: p.$('space-scan').classList.contains('is-busy'), aria: p.$('space-scan').getAttribute('aria-disabled') };
+  },
+  // What has the keyboard before the panel does.
+  async escapeElsewhere() {
+    const p = await page();
+    await p.open();
+    const confirm = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-confirm-overlay' }]));
+    await p.key('Escape');
+    const underConfirm = !p.$('space').inert;
+    confirm.remove();
+    const trigger = p.all('#space-scheduled .watch-keep')[0];
+    await p.click(trigger);
+    await p.key('Escape');
+    const menu = { open: !p.$('space').inert, expanded: trigger.getAttribute('aria-expanded') };
+    await p.key('Escape');
+    return { underConfirm, menu, then: !p.$('space').inert };
+  },
+  // A refresh changes what the rows, the head and the notices say where they are.
+  async refreshed() {
+    const p = await page(['1', '2'].map((id) => row(id)));
+    await p.open();
+    await p.refresh();
+    const li = p.all('#space-scheduled .space-item');
+    const keep = li[0].querySelector('.watch-keep');
+    keep.focus();
+    const look = () => ({ rows: p.all('#space-scheduled .space-item__when').map((n) => n.textContent), late: li.map((n) => n.querySelector('.watch-keep').hasAttribute('data-keep-late')),
+      head: p.one('#space-scheduled .space-list-head small').textContent, notices: p.all('#space-scheduled .space-notice').map((n) => n.textContent), storage: p.all('#space-storage .space-notice').length });
+    const was = look();
+    p.server.rows = [row('1', { state: 'overdue', waiting_folder: '/media/tv' }), row('2', { countdown: 'Deletes tomorrow', days_left: 1 })];
+    p.server.extra = { unavailable_roots: [{ path: '/media/tv', waiting: 2 }], deletions_off: false };
+    await p.refresh();
+    const now = look();
+    p.server.rows = ['1', '2'].map((id) => row(id));
+    p.server.extra = { unavailable_roots: [{ path: '/media/tv', waiting: 1 }], deletions_off: true };
+    await p.refresh();
+    const later = look();
+    p.server.extra = {};
+    await p.refresh();
+    return { was, now, later, gone: look().notices, same: p.all('#space-scheduled .space-item').every((n, i) => n === li[i]), focused: p.doc.activeElement === keep };
+  },
+  // Two refreshes, the newer one answered first.
+  async refreshOrder() {
+    const p = await page();
+    await p.open();
+    p.server.holding = '/api/dashboard';
+    await p.refresh();
+    const older = p.server.held;
+    p.server.held = [];
+    p.server.rows = [row('9')];
+    await p.refresh();
+    const newer = p.server.held;
+    p.server.held = [];
+    newer.forEach((h) => h.go()); await settle();
+    const now = p.rows();
+    older.forEach((h) => h.go()); await settle();
+    return { now, after: p.rows(), meter: p.meter() };
+  },
+  // Before the refresh that follows a keep is in.
+  async keepLateCount() {
+    const p = await page([row('1', { state: 'overdue' }), row('2')]);
+    await p.open();
+    p.server.holding = '/api/dashboard';
+    await p.keep('1', '30');
+    return { rows: p.rows(), meter: p.meter(), tab: p.one('#space-tab-scheduled .space-tab__count').textContent };
+  },
+  async redoneStays() {
+    const p = await page(undefined, (s) => {
+      s.deleted = [{ id: 1, title: 'Dune', poster_url: '', deleted_ago: '2 days ago', reclaimed: '1.0 GB', redownload: { title: 'Dune', tmdb_id: 1 } }];
+    });
+    await p.open('deleted');
+    const b = p.one('.space-redo');
+    p.server.holding = 'redownload';
+    b.focus();
+    await p.click(b);
+    const redrawn = async () => {
+      p.server.deleted = p.server.deleted.concat([{ id: 2 + p.server.deleted.length, title: 'New', poster_url: '', deleted_ago: 'today', reclaimed: '1.0 GB', redownload: null }]);
+      await p.refresh();
+      const now = p.one('.space-redo');
+      return [now.textContent, now.getAttribute('aria-disabled'), p.doc.activeElement === now];
+    };
+    const adding = await redrawn();
+    await p.let_go('redownload');
+    const queued = p.one('.space-redo').textContent;
+    return { drawnAgain: p.one('.space-redo') !== b, adding, queued, again: await redrawn() };
+  },
+  // Pulled down by the handle: far, not far, fast, up, and cancelled.
+  async drag() {
+    const of = async (by, ms, end = 'pointerup') => {
+      const p = await page();
+      await p.click(p.$('meter'));
+      const grab = p.one('.space__grab');
+      grab.setPointerCapture = () => {};
+      await p.fire(grab, 'pointerdown', { clientY: 100, timeStamp: 0, pointerId: 1 });
+      await p.fire(grab, 'pointermove', { clientY: 100 + by });
+      const follows = p.one('.space__panel').style.transform;
+      await p.fire(grab, end, { type: end, timeStamp: ms });
+      return [follows, p.$('space').inert, p.one('.space__panel').style.transform, p.one('.space__panel').classList.contains('is-dragged')];
+    };
+    return { far: await of(130, 1000), near: await of(60, 1000), fast: await of(60, 50), twitch: await of(20, 5), up: await of(-200, 100), cancelled: await of(300, 100, 'pointercancel') };
+  },
+  // Back to the panel from what opened over it.
+  async backFocus() {
+    const p = await page();
+    await p.open();
+    p.layer().close('push');
+    p.doc.activeElement = p.doc.body;
+    p.layer().open('scheduled', 'pop');
+    await p.run(0);
+    const lost = p.focused();
+    p.layer().close('push');
+    p.layer().open('scheduled', 'pop');
+    p.$('space-tab-scheduled').focus(); // as address.js puts it back
+    await p.run(0);
+    return { lost, kept: p.focused() };
+  },
+  async segmentFocus() {
+    const p = await page();
+    await p.click(p.$('meter'));
+    p.seg('movies').focus();
+    await settle();
+    const rows = p.heads();
+    await p.key('ArrowRight');
+    return { rows, next: p.heads(), focused: p.focused(), pressed: p.seg('tv').getAttribute('aria-pressed') };
+  },
+  // With reduced motion the next Keep is brought into view at once; a refresh that lands then leaves it be.
+  async keepRevealed() {
+    const p = await page();
+    await p.open();
+    const seen = [];
+    Node.prototype.scrollIntoView = function (o) { seen.push([this.getAttribute('data-watch-keep'), o.behavior]); };
+    p.server.holding = '/api/dashboard';
+    await p.keep('1', '7');
+    const next = p.doc.activeElement;
+    p.server.rows = p.server.rows.concat([row('9')]);
+    p.server.holding = null;
+    p.server.held.splice(0).forEach((h) => h.go());
+    await settle();
+    await p.refresh();
+    return { seen, rows: p.rows(), same: p.doc.activeElement === next && next.isConnected, focused: p.focused() };
+  },
+  // The focus of a failed keep: from the menu, and moved on meanwhile.
+  async failedFocus() {
+    const p = await page(undefined, (s) => { s.fail = { '/api/watch/keep': 'Not now' }; });
+    await p.open();
+    await p.keep('1', '7');
+    const fromMenu = p.focused();
+    p.server.holding = '/api/watch/keep';
+    await p.keep('2', '90');
+    p.$('space-tab-scheduled').focus();
+    await p.let_go('/api/watch/keep');
+    return { fromMenu, moved: p.doc.activeElement.id, menu: p.$('watch-keep-menu').classList.contains('is-open') };
+  },
+  async healthy() {
+    const p = await page([]);
+    await p.open();
+    return { text: p.text('scheduled'), button: p.one('#space-scheduled .btn--danger') !== null };
+  },
+  // The session ended while the page was open.
+  async expiredActions() {
+    const of = async (press) => {
+      const signedIn = { yes: true };
+      const p = await page(undefined, undefined, { realApi: true, signedIn });
+      await p.open();
+      signedIn.yes = false;
+      await press(p);
+      return { to: p.ctx.location.href, toasts: p.toasts.length, rows: p.rows().length };
+    };
+    return { scan: await of((p) => p.click(p.$('space-scan'))), clear: await of((p) => p.click(p.one('#space-scheduled .btn--danger'))),
+      poll: await of(async (p) => { p.ctx.MM.api.post = () => Promise.resolve({ status: 'started' }); await p.click(p.$('space-scan')); await p.run(3000); }) };
   },
   async clearFails() {
     const p = await page(undefined, (s) => { s.fail = { 'clear-scheduled': 'Slow down' }; });
