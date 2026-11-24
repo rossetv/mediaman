@@ -512,8 +512,11 @@
         return { cards: pickCards(older), next: older.next_batch };
       }, function (err) {
         if (!err || err.status !== 404) throw err;
-        // Deleted meanwhile, the batch or the one the row starts at: on without both.
-        start = null;
+        // Deleted meanwhile, the one the row starts at or the batch: on without the first, then without both.
+        if (start !== null) {
+          start = null;
+          return load(batch);
+        }
         var after = ids.indexOf(batch) + 1;
         return after && after < ids.length ? load(ids[after]) : { cards: [], next: null };
       });

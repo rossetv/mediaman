@@ -356,6 +356,19 @@ const scenarios = {
     return { first, chosen: refsOf(scrollerOf(p, 'recommended')), pill: text(rec(p.doc).querySelector('[data-picks-menu]')) };
   },
 
+  // The batch the row starts at is gone; the one it goes on to is not.
+  async goneStart() {
+    layout();
+    const p = load({ batches: BATCHES, routes: {
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
+      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: null }),
+    } });
+    await settle();
+    await scroll(scrollerOf(p, 'recommended'), 0);
+    return refsOf(scrollerOf(p, 'recommended'));
+  },
+
   // Every batch the row goes on to is gone, and the last is one the menu does not know.
   async goneBatches() {
     layout();

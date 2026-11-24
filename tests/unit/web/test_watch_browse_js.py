@@ -400,9 +400,13 @@ def test_the_picks_go_on_to_older_batches_from_the_one_the_row_starts_at() -> No
     assert "14 Nov" in out["pill"]
 
 
+def test_a_row_whose_first_batch_is_gone_still_shows_the_older_one() -> None:
+    assert _run("goneStart") == ["rec-7", "rec-8", "rec-9"]
+
+
 def test_a_row_whose_older_batches_are_gone_ends() -> None:
     out = _run("goneBatches")
-    assert out == {"refs": ["rec-7", "rec-8"], "asked": 3, "more": False}
+    assert out == {"refs": ["rec-7", "rec-8"], "asked": 4, "more": False}
 
 
 def test_picks_of_one_name_kind_and_year_are_told_apart_by_their_tmdb_id() -> None:
