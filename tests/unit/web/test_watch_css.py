@@ -161,3 +161,13 @@ def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode
     # A dot after the episode would stay behind when the time goes.
     assert "content: none" in _of(f"{caption} > .watch-card__lead::after")
     assert "\\a0·\\a0" in _of(f"{caption} > .watch-card__tail::before")
+
+
+def test_a_rows_heading_takes_44px_to_tap_on_a_phone_over_the_posters_of_its_row() -> None:
+    reach = _of(".watch-row__title > .row-open[href]::after", "(max-width: 599.98px)")
+    top, _, bottom = re.findall(r"-(\d+)px", reach)
+    line = 17 * 1.15  # the smallest a heading's line is
+    assert int(top) + line + int(bottom) >= 44
+    # Positioned later, the posters' own box would take the lower part.
+    above = _of(".watch-row__title > .row-open[href]", "(max-width: 599.98px)")
+    assert "z-index: 1" in above

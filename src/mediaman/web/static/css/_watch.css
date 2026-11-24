@@ -334,6 +334,18 @@
 .watch-rows { display: flex; flex-direction: column; gap: 30px; padding-top: 28px; container-type: inline-size; }
 .watch-row { min-width: 0; }
 .watch-row__title { font-size: 19px; font-weight: 600; padding: 0 var(--pad); margin-bottom: 12px; }
+/* 44px to tap: over the room above the posters, and clear of the buttons under the row above. */
+@media (max-width: 599.98px) {
+  .watch-row__title > .row-open[href],
+  .watch-row__head > .space-row-link { z-index: 1; }
+  .watch-row__title > .row-open[href]::after { inset: -12px -10px -13px; }
+}
+/* Here Leaving soon's link is a line of its own under the heading. */
+@media (max-width: 359.98px) {
+  .watch-row + .watch-row > .watch-row__head:has(> .space-row-link) { margin-top: 12px; }
+  .watch-row__head:has(> .space-row-link) > .watch-row__title > .row-open[href]::after { inset: -26px -10px 0; }
+  .watch-row__head > .space-row-link::after { inset: -2px -10px -16px; }
+}
 .watch-row__viewport { position: relative; }
 .watch-row__scroll {
   display: flex;
