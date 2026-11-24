@@ -21,7 +21,13 @@ from mediaman.scanner.repository.audit import (
 )
 from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
-from mediaman.web.routes._history_view import describe, scrub_control, split_security_body
+from mediaman.web.routes._history_view import (
+    describe,
+    hide_emails,
+    redact_text,
+    scrub_control,
+    split_security_body,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +140,8 @@ SECURITY_EVENT_LABELS = {
     "user.email_update.rate_limited": "User email change throttled",
 }
 
+# Deletion problems whose stored text quotes paths and errors, so a quoted phrase is no title.
+_DELETE_PREFIX = "delete_"
 _DELETE_ROOT_PREFIX = "_delete_root:"
 
 
@@ -154,19 +162,25 @@ def _build_item(r: AuditRow) -> dict[str, object]:
     is_security = isinstance(action, str) and action.startswith("sec:")
 
     if is_security:
-        title = _security_label(action[4:])
+        title = line_title = _security_label(action[4:])
         action_label = "security"
         badge = "badge-action-security"
     else:
         resolved_title = r.mi_title or r.ks_title
+        line_title = resolved_title or ""
         if not resolved_title and r.detail:
             resolved_title = title_from_audit_detail(r.detail, strict=True)
+            line_title = hide_emails(resolved_title)
             if resolved_title == "Unknown":
                 m = re.search(r"'([^'/\\][^']*)'", r.detail)
-                resolved_title = m.group(1) if m else resolved_title
+                resolved_title = redact_text(m.group(1)) if m else resolved_title
+                if not action.startswith(_DELETE_PREFIX):
+                    line_title = hide_emails(resolved_title)
         title = resolved_title or "Unknown"
+        line_title = line_title or "Unknown"
         if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
             title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]
+            line_title = "Delete folder"
         action_label = ACTION_LABELS.get(action, action)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 
@@ -190,10 +204,13 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         "action": action,
         "action_label": action_label,
         "badge_class": badge,
-        "detail": _security_detail(r.detail, r.actor) if is_security else scrub_control(r.detail),
+        "detail": _security_detail(r.detail, r.actor)
+        if is_security
+        else redact_text(scrub_control(r.detail)),
         "space_impact": space_impact,
         "created_at": r.created_at,
         "title": title,
+        "line_title": line_title,
         "plex_rating_key": r.plex_rating_key,
         "is_security": is_security,
         "summary": view.summary,

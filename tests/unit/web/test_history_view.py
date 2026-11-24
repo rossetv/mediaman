@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from fastapi.templating import Jinja2Templates
 
 from mediaman.core.audit import security_event
 from mediaman.scanner.repository.audit import event_page
-from mediaman.web.routes._history_view import describe, redact_text
+from mediaman.web.routes._history_view import _VALUE_MAX, describe, redact_text
 from mediaman.web.routes.history import router as history_router
 from tests.helpers.factories import insert_audit_log
 
@@ -111,6 +113,29 @@ class TestDetailList:
         assert fields["Details"] == "Deleted: Heat [rk:55]"
         assert view.summary == "1.5 GB"
 
+    @pytest.mark.parametrize(
+        ("actor", "summary"), [("amy", ""), ("boss", "amy")], ids=["by-self", "by-another"]
+    )
+    def test_an_unlinked_plex_account_names_its_owner_when_another_did_it(self, actor, summary):
+        view = _describe(
+            action="sec:plex.unlinked",
+            detail=f'actor={actor} ip=1.2.3.4 {{"user":"amy","reason":"admin"}}',
+            actor=actor,
+        )
+        assert view.summary == summary
+
+    @pytest.mark.parametrize(
+        "stored", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00", "soon"]
+    )
+    def test_a_time_out_of_range_is_shown_as_stored(self, stored):
+        assert _by_label(_describe(created_at=stored))["Time"] == stored
+
+    def test_a_long_value_is_whole_and_a_runaway_one_says_how_much_is_cut(self):
+        long = "word " * 3000
+        assert _by_label(_describe(detail=f"actor=a ip=1.1.1.1 {long}"))["Details"] == long
+        runaway = _by_label(_describe(detail="actor=a ip=1.1.1.1 " + "x" * (_VALUE_MAX + 1234)))
+        assert runaway["Details"] == "x" * _VALUE_MAX + "… (1,234 more characters)"
+
 
 class TestNothingSensitive:
     def test_ua_hash_and_credential_values_never_appear(self):
@@ -145,6 +170,72 @@ class TestNothingSensitive:
         out = redact_text('Authorization: Bearer abc.def {"secret": "zzz"} cookie=a=b')
         assert not re.search(r"abc\.def|zzz|a=b", out)
 
+    @pytest.mark.parametrize(
+        ("text", "leaks"),
+        [
+            ("GET http://bob:hunter2@plex:32400/x failed", ["bob", "hunter2"]),
+            ("at https://s3cr3t@host/", ["s3cr3t"]),
+            ("http://bob:hun@ter2@plex/x", ["hun", "ter2"]),
+            ("Authorization: Basic Ym9iOmh1", ["Ym9iOmh1"]),
+            ("Authorization: Weird Ym9iOmh1", ["Ym9iOmh1"]),
+            (
+                'Authorization: Digest username="bob b", response="f00d"',
+                ["bob", "f00d"],
+            ),
+            ("sent Bearer abc.def-9 and", ["abc.def-9"]),
+            ("sent bearer%20abc9", ["abc9"]),
+            (r'{"password":"zq\"vv tail","x":1}', ["zq", "vv", "tail"]),
+            (r"{'secret':'pa\'ss tail'}", ["pa", "tail"]),
+            (r'{"body":"{\"token\":\"ab cd\"}"}', ["ab", "cd"]),
+            ("next=%2Fx%3FX-Plex-Token%3Dabcd1234", ["abcd1234"]),
+            ("next=%252Fx%253FX-Plex-Token%253Dabcd1234", ["abcd1234"]),
+            ("Cookie: a=bbb; c=ddd", ["bbb", "ddd"]),
+            ('password="never closed', ["never", "closed"]),
+            ("{'token' => 'zzz'}", ["zzz"]),
+        ],
+    )
+    def test_every_shape_of_credential_is_hidden(self, text, leaks):
+        out = redact_text(text)
+        assert "[hidden]" in out
+        assert [leak for leak in leaks if leak in out] == []
+
+    def test_text_beside_a_credential_still_reads(self):
+        out = redact_text(
+            "GET http://bob:pw@plex:32400/x?X-Plex-Token=abc failed for bob@x.example"
+        )
+        assert (
+            out == "GET http://[hidden]@plex:32400/x?X-Plex-Token=[hidden] failed for bob@x.example"
+        )
+        plain = "Not deleted: Heat — https://plex:32400/x: 2 tokens, hash of the file"
+        assert redact_text(plain) == plain
+
+    @pytest.mark.parametrize(
+        "text", ["token", "a.", "token.", '\\"', "token\\", "://", "token ", 'token="', "bearer "]
+    )
+    def test_hiding_takes_no_longer_than_the_text_is_long(self, text):
+        started = time.process_time()
+        redact_text(text * (200_000 // len(text)))
+        assert time.process_time() - started < 2
+
+    @pytest.mark.parametrize(
+        ("label", "body"),
+        [
+            ("Details", "{0}"),
+            ("Stored record", "{0}"),
+            ("Note", '{{"note":"{0}"}}'),
+            ("Stored record", '{{"note":"{0}"}}'),
+        ],
+    )
+    def test_a_credential_at_the_cut_is_hidden_first(self, label, body):
+        # The @ that tells an address's password apart lies past the cut.
+        head = "actor=a ip=1.1.1.1 "
+        before = len(head) + len(body.format("")) if label == "Stored record" else 0
+        filler = "x" * (_VALUE_MAX - before - len("http://bob:hunter2"))
+        secret = "http://bob:hunter2pass@plex/x " + "y" * 100
+        fields = _by_label(_describe(detail=head + body.format(filler + secret)))
+        assert "hunter2" not in fields[label]
+        assert "[hidden]" in fields[label]
+
     def test_main_line_summary_never_carries_an_address_email_or_typed_name(self):
         for event, detail in (
             ("subscriber.added", '{"email":"a@b.example"}'),
@@ -158,6 +249,14 @@ class TestNothingSensitive:
                 actor="typed-name",
             )
             assert view.summary == ""
+
+    def test_a_name_that_is_an_email_is_off_the_main_line(self):
+        view = _describe(
+            action="sec:user.created",
+            detail='actor=admin ip=1.2.3.4 {"new_username":"bob@x.example","role":"viewer"}',
+        )
+        assert view.summary == "[hidden] (viewer)"
+        assert _by_label(view)["New username"] == "bob@x.example"
 
     def test_failed_sign_in_names_the_typed_name_only_in_the_details(self):
         view = _describe(
@@ -276,3 +375,64 @@ def test_a_quoted_file_path_is_not_taken_for_the_title(app_factory, authed_clien
     app = app_factory(history_router, conn=conn, state_extras={"templates": _TEMPLATES})
     item = authed_client(app, conn).get("/api/history").json()["items"][0]
     assert item["title"] == "Unknown"
+
+
+class TestMainLine:
+    def _row(self, app_factory, authed_client, conn, **row):
+        insert_audit_log(conn, **row)
+        app = app_factory(history_router, conn=conn, state_extras={"templates": _TEMPLATES})
+        client = authed_client(app, conn)
+        html = client.get("/history").text
+        [line] = re.findall(r"<summary.*?</summary>", html, re.S)
+        return line, client.get("/api/history").json()["items"][0]
+
+    def test_a_folder_row_has_no_path(self, app_factory, authed_client, conn):
+        line, item = self._row(
+            app_factory,
+            authed_client,
+            conn,
+            media_item_id="_delete_root:/mnt/x",
+            action="delete_root_unavailable",
+            detail="Delete root or folder '/mnt/x' is missing or empty",
+        )
+        assert "/mnt/x" not in line and "Delete folder" in line
+        assert item["title"] == "/mnt/x"
+
+    def test_a_deletion_problem_takes_no_quoted_text_for_its_title(
+        self, app_factory, authed_client, conn
+    ):
+        line, item = self._row(
+            app_factory,
+            authed_client,
+            conn,
+            media_item_id="gone",
+            action="delete_failed_permanent",
+            detail="Permanent delete error: OSError: denied: 'movies/Heat/heat.mkv'",
+        )
+        assert "heat.mkv" not in line and "Unknown" in line
+        assert item["title"] == "movies/Heat/heat.mkv"
+
+    def test_an_email_taken_from_the_stored_text_is_not_on_it(
+        self, app_factory, authed_client, conn
+    ):
+        line, _item = self._row(
+            app_factory,
+            authed_client,
+            conn,
+            media_item_id="gone",
+            action="downloaded",
+            detail="asked for by 'amy@x.example'",
+        )
+        assert "amy@x.example" not in line
+
+    def test_the_api_hides_credentials_in_a_media_row(self, app_factory, authed_client, conn):
+        _line, item = self._row(
+            app_factory,
+            authed_client,
+            conn,
+            media_item_id="gone",
+            action="scanned",
+            detail="GET 'http://plex/x?X-Plex-Token=abcd1234' failed",
+        )
+        assert "abcd1234" not in item["detail"] + item["title"]
+        assert item["detail"].startswith("GET 'http://plex/x?X-Plex-Token=[hidden]")

@@ -28,7 +28,7 @@
     <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
       <summary class="hist-sum">
         <span class="hist-date">{{ item.created_at[:16] | replace('T', ' ') }}</span>
-        <span class="hist-msg"><b>{{ item.title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}</span>
+        <span class="hist-msg"><b>{{ item.line_title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}</span>
         <span class="hist-type hist-pill">
           {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
           {{ c.pill(item.action_label, variant=_variant) }}
