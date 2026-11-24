@@ -483,3 +483,8 @@ def test_the_last_credits_with_nothing_next_go_to_the_end(last_episode):
 
 def test_an_error_hides_the_skip_button(markup):
     assert run(markup, "skip_error") == {"shown": True, "underError": False}
+
+
+def test_a_seek_while_a_quality_starts_is_kept_when_the_server_refuses_it(markup):
+    out = run(markup, "seek_then_refused")
+    assert out == {"starts": ["auto", "low", "auto"], "at": 50}

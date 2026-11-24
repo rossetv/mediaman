@@ -1056,6 +1056,17 @@ const scenarios = {
     return out;
   },
 
+  /* A seek while a new quality starts, which the server then refuses. */
+  async seek_then_refused(p) {
+    await streamPlays(p, 30);
+    p.replies.push({ err: { status: 429, error: 'rate_limited' } }, answer('best'));
+    click(p.q('[data-quality="low"]'));
+    key('ArrowRight');
+    key('ArrowRight');
+    await settle();
+    return { starts: p.starts(), at: p.hlsList[p.hlsList.length - 1].config.startPosition };
+  },
+
   /* The full screen button as the state changes, by whatever route. */
   async fullscreen(p) {
     const btn = p.q('[data-fullscreen]');

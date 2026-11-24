@@ -550,7 +550,7 @@
           if (isNew() && (!known || known.retry)) {
             /* The old stream is already stopped. */
             revertQuality();
-            return startStream(pos);
+            return startStream(position());
           }
           starting = false;
           showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
