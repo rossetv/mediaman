@@ -449,6 +449,12 @@ class TestThePageBehind:
             "link": "1 · 10 GB to reclaim",
         }
 
+    def test_what_a_scan_adds_is_given_to_the_open_grid_once_all_of_it_is_in_the_row(self):
+        assert _run("gridAfterScan") == {
+            "added": [["8", "9,1,8,2"], ["9", "9,1,8,2"]],
+            "row": [["7", "7"]],
+        }
+
     def test_a_row_s_see_all_is_fitted_once_its_new_cards_have_their_width(self):
         for came in ("rowGrown", "rowUndone"):
             assert _run(came) == {"before": 0, "after": ["leaving"]}, came

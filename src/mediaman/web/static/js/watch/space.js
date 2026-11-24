@@ -1443,19 +1443,28 @@
       watch.expand.row(row);
       renderRowLink();
       if (row.getClientRects().length) watch.keep.growIn(row, false);
+      toGrid(liveCards(row));
       return;
     }
     var scroller = row.querySelector('.watch-row__scroll');
     var before = null;
+    var fresh = [];
     liveCards(now).reverse().forEach(function (card) {
       var mine = liveCards(row).filter(function (c) { return idOf(c) === idOf(card); })[0];
       if (!mine) {
         mine = document.importNode(card, true);
         scroller.insertBefore(mine, before);
+        fresh.push(mine);
         if (mine.getClientRects().length) watch.keep.growCard(mine, row);
       }
       before = mine;
     });
+    toGrid(fresh);
+  }
+
+  /* Cards new in the row, in its grid too if that is open. */
+  function toGrid(cards) {
+    if (watch.grid && watch.grid.bring) cards.forEach(function (card) { watch.grid.bring(card); });
   }
 
   async function clearScheduled(b) {

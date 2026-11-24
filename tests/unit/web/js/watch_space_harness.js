@@ -656,6 +656,24 @@ const scenarios = {
     await settle();
     return { before, after: p.started };
   },
+  // What a scan adds is given to the row's grid, once all of it is in the row.
+  async gridAfterScan() {
+    const p = await page();
+    await p.open();
+    const given = [];
+    p.ctx.MMWatch.grid = { take: () => null, bring: (c) => { given.push([c.getAttribute('data-keep-id'), p.cards().join()]); return null; } };
+    const scan = async (...ids) => {
+      p.server.rows = ids.map((id) => row(id));
+      p.server.page = ['div', { class: 'watch-rows' }, leavingSection(...ids), recentSection()];
+      await p.click(p.$('space-scan'));
+      await p.run(3000);
+      await p.run(2000);
+      return given.splice(0);
+    };
+    const added = await scan('9', '1', '8', '2');
+    await p.click(p.one('#space-scheduled .btn--danger'));
+    return { added: added.sort(), row: await scan('7') };
+  },
   // See all is fitted again once the cards that came have their width.
   async rowGrown() {
     const p = await page(undefined, undefined, { motion: true });
