@@ -215,7 +215,8 @@ def map_episode_state(ep: _ArrLike) -> str:
 
     NZBGet transfers one NZB at a time, so paused, queued or delayed items with partial
     or zero progress are labelled queued; calling them downloading would overstate
-    progress.
+    progress. One that failed, that no download client holds, or that a warning keeps from
+    starting is bringing nothing, whatever the sizes it reports.
     """
     progress_raw = ep.get("progress", 0)
     progress = progress_raw if isinstance(progress_raw, int) else 0
@@ -226,10 +227,12 @@ def map_episode_state(ep: _ArrLike) -> str:
     status_raw = ep.get("status") or ""
     status = status_raw.lower() if isinstance(status_raw, str) else ""
 
+    if status in ("failed", "downloadclientunavailable"):
+        return "searching"
     if progress == 100 or (sizeleft == 0 and size > 0):
         return "ready"
     if status == "downloading":
         return "downloading"
-    if status in ("paused", "queued", "delay", "warning") or progress > 0:
+    if status in ("paused", "queued", "delay") or progress > 0:
         return "queued"
     return "searching"

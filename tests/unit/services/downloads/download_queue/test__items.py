@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 # rationale: make_arr_card is an internal helper not in fetcher/__all__;
 # it is the canonical way to build ArrCard dicts for unit tests of queue items.
 from mediaman.services.arr.fetcher._base import make_arr_card
@@ -140,6 +142,26 @@ class TestBuildUnmatchedArrItem:
         )
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["state"] == "downloading"
+
+    @pytest.mark.parametrize(
+        ("status", "progress"),
+        [("failed", 40), ("failed", 100), ("downloadClientUnavailable", 40), ("warning", 0)],
+    )
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_movie_whose_download_brings_nothing_is_not_downloading(
+        self, _mock_search, status, progress
+    ):
+        arr = make_arr_card(
+            "movie",
+            "Dune",
+            source="Radarr",
+            progress=progress,
+            size=100,
+            sizeleft=100 - progress,
+            status=status,
+        )
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["state"] == "searching"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):

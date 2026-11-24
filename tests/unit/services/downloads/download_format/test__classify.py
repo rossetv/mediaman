@@ -196,6 +196,17 @@ class TestMapEpisodeState:
         ep = {"progress": 0, "sizeleft": 500, "size": 500_000_000, "status": "paused"}
         assert map_episode_state(ep) == "queued"
 
+    @pytest.mark.parametrize("status", ["failed", "downloadClientUnavailable"])
+    @pytest.mark.parametrize(("progress", "left"), [(0, 100), (40, 60), (100, 0)])
+    def test_a_dead_download_is_searching_whatever_it_reports(self, status, progress, left):
+        ep = {"progress": progress, "sizeleft": left, "size": 100, "status": status}
+        assert map_episode_state(ep) == "searching"
+
+    @pytest.mark.parametrize(("progress", "state"), [(0, "searching"), (40, "queued")])
+    def test_a_warning_is_searching_until_something_has_come(self, progress, state):
+        ep = {"progress": progress, "sizeleft": 100 - progress, "size": 100, "status": "warning"}
+        assert map_episode_state(ep) == state
+
     def test_no_progress_no_status_returns_searching(self):
         ep = {"progress": 0, "sizeleft": 500, "size": 500_000_000, "status": ""}
         assert map_episode_state(ep) == "searching"

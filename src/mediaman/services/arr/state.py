@@ -259,18 +259,25 @@ def _build_arr_index(
 
 def _queue_progress(queue: Sequence[Mapping[str, Any]], media_key: str) -> dict[int, int]:
     """Return ``{tmdbId: pct}`` for queue entries, summing ``size``/``sizeleft`` per item
-    so a series with several queued episodes reports one overall percentage.
+    so a series with several queued episodes reports one overall percentage. An entry the
+    downloads page shows as still searched for is left out.
     """
     from mediaman.services.arr.fetcher._base import clamp_progress
+    from mediaman.services.downloads.download_format import map_episode_state
 
     totals: dict[int, list[int]] = {}
     for q in queue:
         tid = (q.get(media_key) or {}).get("tmdbId")
         if not tid:
             continue
+        size, left = q.get("size") or 0, q.get("sizeleft") or 0
+        status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
+        entry = {"size": size, "sizeleft": left, "progress": clamp_progress(size, left)}
+        if map_episode_state({**entry, "status": status}) == "searching":
+            continue
         acc = totals.setdefault(tid, [0, 0])
-        acc[0] += q.get("size") or 0
-        acc[1] += q.get("sizeleft") or 0
+        acc[0] += size
+        acc[1] += left
     return {tid: clamp_progress(size, left) for tid, (size, left) in totals.items()}
 
 
