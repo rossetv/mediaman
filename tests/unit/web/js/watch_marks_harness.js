@@ -553,7 +553,7 @@ const scenarios = {
     return { replaced, inBanner, redrawn, elsewhere: o.doc.activeElement.id };
   },
 
-  // Undo pressed while a newer change of the same title is on its way, from a mark and from a dismissal.
+  // Undo pressed while a newer change of the same title is on its way.
   async undoWaits() {
     const change = later();
     const p = load(watchPage([row('lib', [FILM()])]), { api: { 'DELETE /api/watch/watched/movie/1': () => change.answer } });
