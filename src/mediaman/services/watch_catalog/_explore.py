@@ -265,6 +265,9 @@ def _job(department: object) -> str | None:
     return _JOBS.get(department) if isinstance(department, str) else None
 
 
+_wall = time.time
+
+
 def person(
     client: TmdbClient, person_id: int, *, allow_fetch: Callable[[], bool] | None = None
 ) -> dict[str, Any]:
@@ -277,7 +280,7 @@ def person(
             payload = client.person(person_id)
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             if _is_gone(exc):
-                return {"gone": True}
+                return {"gone": True, "at": _wall()}
             raise _failure(exc, "person") from exc
         # Stored, so that a person held before TMDB marked or dropped them is not served from
         # then on.
@@ -289,6 +292,9 @@ def person(
     result: dict[str, Any] = _cached(
         client, f"tmdb:person:v1:{person_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
+    if result.get("gone") and _wall() - float(result.get("at", 0)) >= _DAY:
+        # A page TMDB had none for may come later: only the answer of a day ago is asked again.
+        result = _cached(client, f"tmdb:person:v1:{person_id}", 0, 0, fetch, allow_fetch)
     if result.get("adult") or result.get("gone"):
         raise PersonNotFound("person")
     return result

@@ -325,6 +325,22 @@ class TestPerson:
 
         assert viewer.get(PERSON).status_code == status
 
+    def test_a_person_tmdb_had_no_page_for_is_asked_for_again_after_a_day(
+        self, viewer, tmdb, monkeypatch
+    ):
+        now = [1_800_000_000.0]
+        monkeypatch.setattr(_explore, "_wall", lambda: now[0])
+        tmdb["/person/7"] = 404
+        codes = [viewer.get(PERSON).status_code]
+        tmdb["/person/7"] = _person()
+
+        now[0] += 23 * 3600
+        codes.append(viewer.get(PERSON).status_code)
+        now[0] += 2 * 3600
+        codes.append(viewer.get(PERSON).status_code)
+
+        assert codes == [404, 404, 200]
+
     def test_past_the_limit_only_a_person_tmdb_must_answer_for_is_refused(
         self, viewer, tmdb, monkeypatch
     ):
