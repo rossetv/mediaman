@@ -246,7 +246,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
     batch_id TEXT,
     downloaded_at TEXT,
     created_at TEXT NOT NULL,
-    backdrop_url TEXT
+    backdrop_url TEXT,
+    because_of TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ratings_cache (

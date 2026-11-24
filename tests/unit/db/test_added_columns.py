@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
+import pytest
+
 from mediaman.db import init_db
 from mediaman.services.downloads._notification_claims import _claim_pending_notifications
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
@@ -176,7 +178,8 @@ def test_an_old_database_gains_the_mark_columns_and_keeps_its_rows(tmp_path):
 
     progress = conn.execute("SELECT position_s, seen_at FROM watch_progress").fetchone()
     assert tuple(progress) == (12.5, None)
-    assert conn.execute("SELECT backdrop_url FROM suggestions").fetchone()[0] is None
+    row = conn.execute("SELECT backdrop_url, because_of FROM suggestions").fetchone()
+    assert tuple(row) == (None, None)
     assert {"episode_count", "episode_keys"} <= _columns(conn)
     conn.close()
 
@@ -192,4 +195,59 @@ def test_a_dismissal_goes_with_its_user(tmp_path):
     conn.execute("DELETE FROM admin_users WHERE username='amy'")
 
     assert conn.execute("SELECT count(*) FROM watch_dismissed").fetchone()[0] == 0
+    conn.close()
+
+
+def test_a_persons_picks_and_plex_plays_go_with_the_person_alone(tmp_path):
+    conn = init_db(str(tmp_path / "new.db"))
+    for number, name in enumerate(("amy", "bob"), start=1):
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) VALUES (?,'h','2020')",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO user_picks (username, title, media_type, batch_id, created_at)"
+            " VALUES (?, 'T', 'movie', '2026-01-01', '2026')",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO user_pick_runs (username, requested_by, started_at)"
+            " VALUES (?, 'scan', '2026')",
+            (name,),
+        )
+        conn.execute(
+            "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
+            " server_id, linked_at) VALUES (?, ?, ?, 'P', 's', '2026')",
+            (name, number, number),
+        )
+        conn.execute(
+            "INSERT INTO plex_plays (username, history_key, media_type, title, viewed_at)"
+            " VALUES (?, '/h/1', 'movie', 'T', '2026')",
+            (name,),
+        )
+    conn.commit()
+
+    conn.execute("DELETE FROM plex_links WHERE username='bob'")
+    assert [r[0] for r in conn.execute("SELECT username FROM plex_plays")] == ["amy"]
+    conn.execute("DELETE FROM admin_users WHERE username='amy'")
+    for table in ("user_picks", "user_pick_runs"):
+        assert [r[0] for r in conn.execute(f"SELECT username FROM {table}")] == ["bob"]
+    assert conn.execute("SELECT count(*) FROM plex_plays").fetchone()[0] == 0
+    conn.close()
+
+
+def test_one_plex_account_belongs_to_one_person(tmp_path):
+    conn = init_db(str(tmp_path / "new.db"))
+    for name in ("amy", "bob"):
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) VALUES (?,'h','2020')",
+            (name,),
+        )
+    link = (
+        "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
+        " server_id, linked_at) VALUES (?, ?, ?, 'P', 's', '2026')"
+    )
+    conn.execute(link, ("amy", 7, 7))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(link, ("bob", 7, 8))
     conn.close()
