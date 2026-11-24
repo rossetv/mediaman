@@ -1,7 +1,7 @@
 /**
  * Profile page — change-password and email forms, and the list of sign-ins.
  *
- * Requires: core/api.js (MM.api), core/reauth.js (MM.reauth).
+ * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth).
  * The strength meter and match hint of the password form are password-strength.js.
  */
 (function () {
@@ -38,21 +38,9 @@
   // On a narrow phone a status wraps under its button, where the bottom bar may cover it.
   function reveal(result) { result.scrollIntoView({ block: 'nearest' }); }
 
-  // Whether the reader is still where they pressed, so a late answer does not pull the page back.
-  // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
-  function stillAt(result, scope) {
-    var at = document.activeElement;
-    if (!scope.contains(at) && !at.contains(scope)) return false;
-    var root = document.documentElement;
-    var bars = getComputedStyle(root);
-    var box = result.getBoundingClientRect();
-    return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
-      box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
-  }
-
   // Say an answer in a status, which the new words may make taller.
   function answer(result, scope, text, tone) {
-    var there = stillAt(result, scope);
+    var there = MM.dom.stillAt(result, scope);
     result.className = 'inline-form-msg ' + tone;
     result.textContent = text;
     if (there) reveal(result);

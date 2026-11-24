@@ -131,21 +131,8 @@
     reveal(status);
   }
 
-  // Whether some of it shows between the bars at the top and bottom.
-  function inView(el) {
-    var root = document.documentElement;
-    var bars = getComputedStyle(root);
-    var box = el.getBoundingClientRect();
-    return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
-      box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
-  }
-
-  // Whether the reader is still where they pressed, so a late answer does not pull the page back.
-  // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
-  function stillAt(status, scope) {
-    var at = document.activeElement || document.body;
-    return (scope.contains(at) || at.contains(scope)) && inView(status);
-  }
+  function inView(el) { return MM.dom.inView(el); }
+  function stillAt(status, scope) { return MM.dom.stillAt(status, scope); }
 
   function close(panel, done) {
     done = done || function () {};

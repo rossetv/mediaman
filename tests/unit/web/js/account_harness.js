@@ -47,7 +47,7 @@ function page(api) {
   // A top bar of 64px and a bottom bar of 72px.
   const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
   const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate, getComputedStyle });
-  vm.runInContext(fs.readFileSync(path.join(JS, 'account.js'), 'utf8'), ctx);
+  ['core/dom.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
     $,
     fire: (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} })),
