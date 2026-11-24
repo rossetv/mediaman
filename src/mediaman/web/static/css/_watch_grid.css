@@ -36,6 +36,7 @@
   color: var(--t2);
 }
 .grid-group:first-child { padding-top: 0; }
+.grid-group > .ai-label { flex: none; }
 .grid-group::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
 
 /* ── What stands under it ── */

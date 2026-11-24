@@ -1,14 +1,16 @@
 /* Watch page: the Discover rows (Recommended for you, Trending this week,
  * Popular movies, Popular TV) that load after the page in place of their
  * skeleton, the badges on their posters, the menu of earlier picks, each
- * person's Refresh of their own picks and an admin's of the shared ones; and the rest of the library rows as they are scrolled.
- * Needs watch/core.js, watch/keep.js, watch/search.js and watch/rows-load.js.
+ * person's Refresh of their own picks and an admin's of the shared ones; the rest of the library rows as they are scrolled;
+ * and what each of these rows holds when it is opened as a grid.
+ * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/rows-load.js and watch/expand.js.
  */
 (function () {
   'use strict';
 
   var watch = window.MMWatch;
   var core = watch.core;
+  var address = watch.address;
   var el = core.el;
   var icon = window.MM.dom.icon;
   var byId = core.byId;
@@ -30,6 +32,7 @@
   ];
   var REF_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$|^(rec|pick)-[0-9]{1,10}$/;
   var PICK_RE = /^(rec|pick)-[0-9]{1,10}$/;
+  var GRID_PAGE = 60;
   var DAY_MS = 86400000;
   var POLL_MS = 3000;
   var POLL_MAX_MS = 30000;
@@ -152,9 +155,8 @@
   function rowSection(id, title) {
     var section = el('section', 'watch-row');
     section.setAttribute('data-discover-row', id);
-    var head = el('div', 'watch-row__head');
-    head.appendChild(el('h2', 'watch-row__title', title));
-    section.appendChild(head);
+    section.setAttribute('data-row-id', id);
+    section.appendChild(watch.expand.head(id, title));
     return section;
   }
 
@@ -195,8 +197,10 @@
   }
 
   function startRows(root) {
-    if (!watch.rows) return; // watch-rows.js starts every row it finds when it loads
-    toArray(root.querySelectorAll('.watch-row__viewport')).forEach(watch.rows.init);
+    // Until it loads; then watch-rows.js starts every row it finds.
+    if (watch.rows) toArray(root.querySelectorAll('.watch-row__viewport')).forEach(watch.rows.init);
+    var own = root.closest('[data-row-id]');
+    (own ? [own] : toArray(root.querySelectorAll('[data-row-id]'))).forEach(watch.expand.row);
   }
 
   /* Swap a row's body (its strip or note) for another in place. */
@@ -208,19 +212,50 @@
 
   /* ── Discover rows ── */
 
-  /* The later pages of one TMDB row. */
-  function discoverPages(id) {
+  var loaders = {}; // what loads the rest of each TMDB and library row, by id
+
+  /* The later pages of one TMDB row; of one *kind* ("movie" or "tv") when given. */
+  function discoverPages(id, kind) {
     return function (page) {
       return MM.api.get(DISCOVER_URL + '?row=' + id + '&page=' + page).then(function (data) {
-        return { cards: cardsOf(data.items), next: data.next_page };
+        return { cards: ofKind(cardsOf(data.items), kind), next: data.next_page };
       });
     };
+  }
+
+  function ofKind(cards, kind) {
+    if (kind !== 'movie' && kind !== 'tv') return cards;
+    return cards.filter(function (c) {
+      return (c.querySelector('.watch-card__link').getAttribute('data-kind') === 'movie') === (kind === 'movie');
+    });
+  }
+
+  /* A TMDB row's grid goes on from where the row stands, or starts where the row is not here yet. */
+  function discoverGrid(at) {
+    var loader = at.row && loaders[at.id];
+    function from(kind) {
+      var pages = discoverPages(at.id, kind);
+      if (loader) return { cards: ofKind(at.cards(), kind), next: loader.next(), fetchPage: pages };
+      return { cards: [], next: 'first', fetchPage: function (page) { return page === 'first' ? firstOf(at.id, kind) : pages(page); } };
+    }
+    var made = from(at.sort);
+    if (at.id === 'trending') {
+      made.sort = { label: 'Show', choose: function (kind) { return from(kind); } };
+    }
+    return made;
+  }
+
+  function firstOf(id, kind) {
+    return discover().then(function (data) {
+      var row = (data.rows || []).filter(function (r) { return r.id === id; })[0];
+      return { cards: row ? ofKind(cardsOf(row.items), kind) : [], next: row ? row.next_page : null };
+    });
   }
 
   function discoverRow(id, title, items, next) {
     var body = strip(title, items);
     if (!body) return null;
-    watch.rowsLoad.start(body, { title: title, next: next, fetchPage: discoverPages(id) });
+    loaders[id] = watch.rowsLoad.start(body, { title: title, next: next, fetchPage: discoverPages(id) });
     var section = rowSection(id, title);
     section.appendChild(body);
     return section;
@@ -235,9 +270,21 @@
     });
   }
 
+  var asking = null;
+
+  /* Asked for once for the rows and a grid opened before they are here. */
+  function discover() {
+    if (!asking) {
+      asking = MM.api.get(DISCOVER_URL);
+      var done = function () { asking = null; };
+      asking.then(done, done);
+    }
+    return asking;
+  }
+
   /* The three TMDB rows, as sections; a failure gives each its Try again. */
   function loadDiscover() {
-    return MM.api.get(DISCOVER_URL).then(function (data) {
+    return discover().then(function (data) {
       var titles = {};
       DISCOVER_ROWS.forEach(function (r) { titles[r[0]] = r[1]; });
       return (data.rows || []).map(function (row) {
@@ -278,24 +325,47 @@
 
   /* ── Your library ── */
 
-  /* The rest of a library row, past the cards the page came with. */
-  function libraryPages(kind) {
+  /* The rest of a library row, past the cards the page came with. *more*: the
+     order and the size of a grid's page. */
+  function libraryPages(kind, more) {
     return function (after) {
-      return MM.api.get(LIBRARY_URL + kind + '/row?after=' + encodeURIComponent(after)).then(function (data) {
-        return { cards: (data.items || []).map(watch.search.card), next: data.next };
+      return MM.api.get(LIBRARY_URL + kind + '/row?after=' + encodeURIComponent(after) + (more || '')).then(function (data) {
+        return { cards: (data.items || []).map(watch.search.card), next: data.next, total: data.total };
       });
     };
   }
 
   function startLibrary() {
     toArray(document.querySelectorAll('.watch-row__viewport[data-row-next]')).forEach(function (viewport) {
-      watch.rowsLoad.start(viewport, {
+      loaders[viewport.getAttribute('data-row-kind')] = watch.rowsLoad.start(viewport, {
         title: viewport.querySelector('.watch-row__scroll').getAttribute('aria-label'),
         next: viewport.getAttribute('data-row-next'),
         fetchPage: libraryPages(viewport.getAttribute('data-row-kind'))
       });
     });
   }
+
+  /* A library row's grid: newest first, as the row, it goes on from where that stands. */
+  function libraryGrid(at) {
+    function pages(sort) { return libraryPages(at.id, '&limit=' + GRID_PAGE + (sort === 'az' ? '&sort=az' : '')); }
+    var made = {
+      fetchPage: pages(at.sort),
+      total: at.drawn ? at.drawn.total : at.row ? Number(at.row.getAttribute('data-row-total')) : 0,
+      sort: {
+        label: 'Sort',
+        choose: function (sort) {
+          return pages(sort)('').then(function (page) { return Object.assign(page, { fetchPage: pages(sort) }); });
+        }
+      }
+    };
+    if (at.drawn) made.next = at.drawn.next;
+    else if (at.sort === 'az') Object.assign(made, { cards: [], next: '' });
+    else Object.assign(made, { cards: at.cards(), next: loaders[at.id] ? loaders[at.id].next() : null });
+    return made;
+  }
+
+  ['movies', 'tv', 'anime'].forEach(function (kind) { watch.expand.source(kind, libraryGrid); });
+  DISCOVER_ROWS.forEach(function (r) { watch.expand.source(r[0], discoverGrid); });
 
   /* ── Recommended for you ── */
 
@@ -420,12 +490,22 @@
     return !refresh.available && refresh.next_available_at ? 'cooldown' : 'ready';
   }
 
+  /* A batch's cards, each with the batch it is of. */
+  function pickCards(payload) {
+    return tagged(cardsOf(payload.items), payload.batch);
+  }
+
+  function tagged(cards, batch) {
+    cards.forEach(function (c) { c.setAttribute('data-batch', batch); });
+    return cards;
+  }
+
   /* The batches older than the one the row starts at. */
   function olderPicks(start) {
     return function (batch) {
       return MM.api.get(RECOMMENDED_URL + '?batch=' + encodeURIComponent(batch) + '&start=' + encodeURIComponent(start))
         .then(function (payload) {
-          return { cards: cardsOf(payload.items), next: payload.next_batch };
+          return { cards: pickCards(payload), next: payload.next_batch };
         }, function (err) {
           if (err && err.status === 404) return { cards: [], next: null }; // deleted meanwhile
           throw err;
@@ -438,6 +518,7 @@
     recLoader = null;
     var body = payload.enabled ? strip(REC_TITLE, payload.items) : null;
     if (body) {
+      tagged(toArray(body.querySelectorAll('.watch-card')), payload.batch);
       recLoader = watch.rowsLoad.start(body, {
         title: REC_TITLE, next: payload.next_batch, fetchPage: olderPicks(payload.batch)
       });
@@ -452,6 +533,58 @@
     if (payload.refresh) empty.appendChild(el('span', 'watch-row__hint', 'Refresh shared to fetch the first ones.'));
     return empty;
   }
+
+  /* Recommended's grid: each batch under its date, from the one the row starts at. */
+  function recGrid(at) {
+    var shown = null; // the batch of the last card
+    function lines(cards, payload) {
+      return cards.reduce(function (out, c) {
+        var id = c.getAttribute('data-batch');
+        if (id !== shown) {
+          out.push(batchLine(id, payload));
+          shown = id;
+        }
+        return out.concat(c);
+      }, []);
+    }
+    function pages(payload) {
+      var older = olderPicks(payload.batch);
+      return function (batch) {
+        return older(batch).then(function (page) { return { cards: lines(page.cards, payload), next: page.next }; });
+      };
+    }
+    function jump(payload) {
+      var from = payload.batches.map(function (b) { return b.id; }).indexOf(payload.batch);
+      var options = payload.batches.map(function (b, i) { return { id: b.id, label: batchName(b, i === 0) }; }).slice(Math.max(0, from));
+      return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
+    }
+    var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    if (at.row && rec && rec.payload.batch) {
+      return { cards: lines(at.cards(), rec.payload), next: recLoader ? recLoader.next() : null,
+        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty };
+    }
+    var rest = null;
+    return { cards: [], next: 'first', empty: empty, fetchPage: function (batch) {
+      if (batch !== 'first') return rest(batch);
+      return fetchRec(null).then(function (payload) {
+        if (!payload.batch) return { cards: [], next: null };
+        rest = pages(payload);
+        var sort = jump(payload);
+        if (sort && address.value('grid') === at.id) watch.grid.setSort(sort);
+        return { cards: lines(pickCards(payload), payload), next: payload.next_batch };
+      });
+    } };
+  }
+
+  function batchLine(id, payload) {
+    var at = payload.batches.map(function (b) { return b.id; }).indexOf(id);
+    var date = at < 0 ? '' : payload.batches[at].date_label;
+    var line = watch.grid.group(id, at === 0 ? 'Latest picks · ' + date : 'Picks of ' + date);
+    line.insertBefore(core.aiLabel('AI picks'), line.firstChild);
+    return line;
+  }
+
+  watch.expand.source('recommended', recGrid);
 
   function fillTools(tools, payload) {
     var keepRefresh = tools.querySelector('[data-picks-refresh]');
@@ -766,8 +899,7 @@
     var params = (window.location.search || '').replace(/^\?/, '').split('&').filter(Boolean);
     var rest = params.filter(function (p) { return p !== 'row=recommended'; });
     if (rest.length === params.length) return false;
-    window.history.replaceState(window.history.state, '', window.location.pathname +
-      (rest.length ? '?' + rest.join('&') : '') + (window.location.hash || ''));
+    address.replace(null, window.location.pathname + (rest.length ? '?' + rest.join('&') : '') + (window.location.hash || ''));
     return true;
   }
 

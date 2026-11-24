@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
+{% import "_watch_all.html" as g %}
 {% import "_watch_space.html" as space %}
 
 {% block title %}Watch · Mediaman{% endblock %}
@@ -13,6 +14,7 @@
 <link rel="stylesheet" href="/static/css/_watch_grid.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_preview.css?v={{ static_v }}">
 {% if is_admin %}
 <link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_space.css?v={{ static_v }}">
@@ -20,8 +22,8 @@
 {% endblock %}
 
 {% macro row_section(row) -%}
-<section class="watch-row"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
-  <h2 class="watch-row__title">{{ row.title }}</h2>
+<section class="watch-row" data-row-id="{{ row.id }}" data-row-total="{{ row['items']|length }}"{% if row.title == "Leaving soon" %} data-watch-leaving-row{% endif %}>
+  {{ g.row_head(row) }}
   <div class="watch-row__viewport"{% if row.next %} data-row-kind="{{ row.kind }}" data-row-next="{{ row.next }}"{% endif %}>
     <div class="watch-row__scroll" tabindex="0" role="region" aria-label="{{ row.title }}">
       {% for item in (row['items'][:row.page_size] if row.next else row['items']) %}{{ w.card(item, keep=(row.title == "Leaving soon")) }}{% endfor %}
@@ -109,7 +111,7 @@
   </div>
   <div class="watch-veil" id="watch-veil"></div>
 
-  <div id="watch-browse"{% if list_view or on_results %} hidden{% endif %}>
+  <div id="watch-browse"{% if list_view or on_results or grid %} hidden{% endif %}>
     {% if watch_error %}
     {{ w.error_state(watch_error, is_admin) }}
     {% else %}
@@ -174,6 +176,8 @@
       {% endif %}
     </div>
   </div>
+  {% if grid %}{{ g.section(grid) }}{% endif %}
+
   <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}></section>
 
   {% if is_admin %}
@@ -194,8 +198,10 @@
 <script src="/static/js/watch/search.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/rows-load.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/grid.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/expand.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/detail.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/preview.js?v={{ static_v }}" defer></script>
 {% if is_admin %}
 <script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/list.js?v={{ static_v }}" defer></script>

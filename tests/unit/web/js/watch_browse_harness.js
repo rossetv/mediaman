@@ -1,4 +1,4 @@
-// Runs the Watch page's browse scripts (core, keep, search, rows-load, browse, watch-rows) against the fake DOM and
+// Runs the Watch page's browse scripts (core, address, keep, search, rows-load, grid, expand, browse, watch-rows) against the fake DOM and
 // prints the outcome of one scenario as JSON. Usage: node watch_browse_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -67,14 +67,14 @@ function page(doc, opts) {
     ['button', { class: 'watch-keep', 'data-watch-keep': id, 'aria-label': 'Keep ' + title }, 'Keep']];
   doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['input', { id: 'watch-search' }],
-    ['div', { class: 'watch-rows' },
+    ['div', { id: 'watch-browse' }, ['div', { class: 'watch-rows' },
       ['section', { class: 'watch-row', 'data-watch-leaving-row': '' },
         ['div', { class: 'watch-row__viewport' },
           ['div', { class: 'watch-row__scroll' }, leaving('1100', 'Leaving Film'), leaving('1101', 'Northbound')]]],
       ['div', { class: 'watch-discover-slot', id: 'watch-discover-slot', 'aria-busy': 'true' },
         ['div', { class: 'watch-discover-skel', 'aria-hidden': 'true' },
           ['p', { class: 'watch-group-label' }, 'Discover'], skelRow, skelRow, skelRow]],
-      ...libraryRow],
+      ...libraryRow]],
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']]]));
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' },
@@ -89,6 +89,11 @@ function load(opts = {}) {
   const timers = [];
   const calls = [];
   const replaced = [];
+  const pushed = [];
+  const moveTo = (url) => {
+    const [, pathname, search, hash] = /^([^?#]*)(\?[^#]*)?(#.*)?$/.exec(url);
+    Object.assign(ctx.location, { pathname, search: search || '', hash: hash || '' });
+  };
   const scrolls = [];
   const routes = Object.assign({
     'GET /api/watch/discover': () => Promise.resolve(DISCOVER),
@@ -112,7 +117,12 @@ function load(opts = {}) {
     innerHeight: opts.innerHeight || 900,
     innerWidth: opts.innerWidth || 1280,
     location: { pathname: '/watch', href: '/watch', search: opts.search || '', hash: opts.hash || '' },
-    history: { state: null, replaceState(_s, _t, url) { replaced.push(url); } },
+    history: { state: null, replaceState(state, _t, url) {
+      this.state = state;
+      if (url !== ctx.location.pathname + ctx.location.search + ctx.location.hash) replaced.push(url);
+      moveTo(url);
+    }, pushState(state, _t, url) { this.state = state; pushed.push(url); moveTo(url); } },
+    URLSearchParams, Map, Set,
     scrollY: opts.scrollY || 0,
     scrollBy(o) { scrolls.push(o); },
     UIFeedback: { toast: (message, o) => toasts.push({ message, opts: o }) },
@@ -121,9 +131,9 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
-  return { ctx, doc, toasts, timers, calls, routes, replaced, scrolls };
+  return { ctx, doc, toasts, timers, calls, routes, replaced, pushed, scrolls };
 }
 
 /* Run the timers due now (the poll), in order, once each. */
