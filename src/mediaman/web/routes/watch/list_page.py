@@ -21,6 +21,7 @@ from starlette.responses import Response
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.auth.middleware import resolve_admin_page_session
+from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.library_query import (
     MAX_SEARCH_TERM_LEN,
     VALID_SORTS,
@@ -76,8 +77,13 @@ def _deletion_label(iso: str | None) -> str:
     return f"{when.day} {when:%b}" if when else ""
 
 
-def list_context(conn: sqlite3.Connection, params: Mapping[str, str]) -> dict[str, Any]:
-    """The rows, stats and paging of the list for *params*; unknown values fall back to defaults."""
+def list_context(
+    conn: sqlite3.Connection, username: str, params: Mapping[str, str]
+) -> dict[str, Any]:
+    """The rows, stats and paging of the list for *params*; unknown values fall back to defaults.
+
+    A row's ``watched`` is *username*'s own mark, apart from the cleanup's last watched time.
+    """
     q = (params.get("q") or "").strip()[:MAX_SEARCH_TERM_LEN]
     media_type = params.get("type") or ""
     media_type = media_type if media_type in VALID_TYPES else ""
@@ -96,8 +102,10 @@ def list_context(conn: sqlite3.Connection, params: Mapping[str, str]) -> dict[st
         items, total = fetch_library(
             conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
         )
+    seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
     for item in items:
         item["ref"] = _title_ref(item)
+        item["watched"] = item["ref"] in seen
         item["deletion_label"] = _deletion_label(cast(str | None, item["deletion_at"]))
 
     def href(**changes: object) -> str:
@@ -146,10 +154,10 @@ def watch_list(request: Request) -> Response:
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    _username, conn = resolved
+    username, conn = resolved
     templates = cast(Jinja2Templates, request.app.state.templates)
     response = templates.TemplateResponse(
-        request, "_watch_list.html", list_context(conn, request.query_params)
+        request, "_watch_list.html", list_context(conn, username, request.query_params)
     )
     response.headers["Cache-Control"] = "no-store"
     return response

@@ -26,7 +26,12 @@ from mediaman.services.media_meta.plex_watch import (
 )
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
-from mediaman.web.repository.watch_progress import save_progress
+from mediaman.web.repository.watch_progress import (
+    MarkTarget,
+    dismiss,
+    mark_watched,
+    save_progress,
+)
 from mediaman.web.routes.watch import list_page, pages
 from tests.helpers.factories import (
     insert_admin_user,
@@ -269,7 +274,7 @@ class TestWatchRows:
             "Anime",
         ]
         rows = _rows(ctx)
-        assert _titles(rows["Movies"]) == ["Brightwater", "Glasshouse"]
+        assert _titles(rows["Movies"]) == ["Glasshouse", "Brightwater"]
         assert _titles(rows["Recently added"]) == ["Glasshouse"]
         assert rows["Continue watching"][0]["href"] == "/watch/play/100?resume=1&from=%2Fwatch"
         assert rows["Continue watching"][0]["minutes_left"] == 80
@@ -332,6 +337,9 @@ class TestWatchRows:
                 "progress_pct": None,
                 "minutes_left": None,
                 "watched": False,
+                "mark_kind": "episode",
+                "mark_key": "521",
+                "dismiss_ref": "show-500",
                 "leaving_days": None,
                 "keep_id": None,
             }
@@ -486,10 +494,10 @@ class TestWatchRows:
     def test_in_progress_movie_shows_its_bar_in_the_movies_row(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
-        movies = _rows(get("/watch").json())["Movies"]
+        movies = {c["title"]: c for c in _rows(get("/watch").json())["Movies"]}
 
-        assert movies[0]["progress_pct"] == 20
-        assert movies[1]["progress_pct"] is None
+        assert movies["Brightwater"]["progress_pct"] == 20
+        assert movies["Glasshouse"]["progress_pct"] is None
 
     def test_movie_captions_say_movie_and_use_hours(self, get, conn):
         _play(conn, "aoife", "100", position=6000 - 3120, duration=6000, item="100")
@@ -543,7 +551,243 @@ class TestWatchRows:
         )
 
 
+def _add_movie(conn, key: str, title: str, added_at: str | datetime, **fields) -> None:
+    insert_media_item(conn, id=key, plex_rating_key=key, title=title, added_at=added_at, **fields)
+
+
+def _mark(conn, *keys: str, season: str = "501", show: str | None = "500", user="aoife") -> None:
+    mark_watched(conn, user, [MarkTarget(k, season, show, 3000) for k in keys], NOW)
+
+
+def _count_episodes(conn, **counts: int) -> None:
+    for item_id, count in counts.items():
+        conn.execute(
+            "UPDATE media_items SET episode_count = ? WHERE id = ?", (count, item_id.strip("s"))
+        )
+    conn.commit()
+
+
+class TestLibraryRowOrder:
+    def test_films_are_newest_first_ties_by_title_and_no_date_last(self, get, conn):
+        day = (NOW - timedelta(days=100)).isoformat()
+        _add_movie(conn, "103", "Zephyr", day)
+        _add_movie(conn, "104", "alder", day)
+        _add_movie(conn, "105", "Aaa Undated", "")
+
+        rows = _rows(get("/watch").json())
+
+        assert _titles(rows["Movies"]) == [
+            "Glasshouse",
+            "alder",
+            "Zephyr",
+            "Brightwater",
+            "Aaa Undated",
+        ]
+
+    def test_shows_come_by_their_latest_season_as_in_the_list_view(self, get, conn, admin):
+        for season, show, title, number, days in (
+            ("801", "800", "Aardvark", 1, 300),
+            ("802", "800", "Aardvark", 2, 5),
+            ("811", "810", "Badger", 1, 50),
+        ):
+            insert_media_item(
+                conn,
+                id=season,
+                plex_rating_key=season,
+                title=title,
+                show_title=title,
+                media_type="tv_season",
+                season_number=number,
+                show_rating_key=show,
+                added_at=NOW - timedelta(days=days),
+            )
+
+        rows = _rows(get("/watch").json())
+        listed = get("/watch?view=list", user=admin).json()["items"]
+
+        assert _titles(rows["TV"]) == ["Aardvark", "Badger", "The Long Coast"]
+        tv = [i["title"] for i in listed if i["media_type"] == "tv" and i["title"] != "Hidden Show"]
+        assert tv == _titles(rows["TV"])
+
+    def test_a_long_row_says_where_its_first_page_ends(self, get, conn, monkeypatch):
+        monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 1)
+
+        rows = {r["title"]: r for r in get("/watch").json()["rows"]}
+
+        assert (rows["Movies"]["kind"], rows["Movies"]["page_size"]) == ("movies", 1)
+        assert rows["Movies"]["next"] is not None
+        assert (rows["TV"]["kind"], rows["TV"]["next"]) == ("tv", None)
+        assert rows["Recently added"]["kind"] is None
+
+    def test_a_film_of_a_known_year_says_it(self, get, conn):
+        _add_movie(conn, "103", "Zephyr", NOW, file_path="/films/Zephyr (2026)/Zephyr.mkv")
+
+        rows = _rows(get("/watch").json())
+
+        assert {c["title"]: c["subtitle"] for c in rows["Movies"]}["Zephyr"] == "Movie · 2026"
+
+
+class TestMarks:
+    def test_a_seen_film_keeps_its_mark_through_a_replay(self, get, conn):
+        _play(conn, "aoife", "100", position=6000, duration=6000, item="100", minutes_ago=99)
+        _play(conn, "aoife", "100", position=300, duration=6000, item="100")
+
+        mine = {c["title"]: c for c in _rows(get("/watch").json())["Movies"]}
+        theirs = {c["title"]: c for c in _rows(get("/watch", user="cian").json())["Movies"]}
+
+        assert (mine["Brightwater"]["watched"], mine["Glasshouse"]["watched"]) == (True, False)
+        assert theirs["Brightwater"]["watched"] is False
+        assert (mine["Brightwater"]["mark_kind"], mine["Brightwater"]["mark_key"]) == (
+            "movie",
+            "100",
+        )
+
+    def test_a_show_is_marked_once_every_counted_episode_is_seen(self, get, conn):
+        _mark(conn, "511", "512")
+        _count_episodes(conn, s501=2, s502=2)
+        [partly] = _rows(get("/watch").json())["TV"]
+        _mark(conn, "521", "522", "523", season="502")  # one more than the scan counted
+        [seen] = _rows(get("/watch").json())["TV"]
+
+        assert (partly["watched"], partly["subtitle"]) == (False, "TV · 2 seasons · 2 left")
+        assert (seen["watched"], seen["subtitle"]) == (True, "TV · 2 seasons")
+
+    def test_a_show_no_scan_has_counted_has_no_mark(self, get, conn):
+        _mark(conn, "511", "512")
+        _mark(conn, "521", "522", season="502")
+        _count_episodes(conn, s501=2)
+
+        [show] = _rows(get("/watch").json())["TV"]
+
+        assert (show["watched"], show["subtitle"]) == (False, "TV · 2 seasons")
+
+    def test_leaving_cards_carry_their_own_marks(self, get, conn):
+        _mark(conn, "521", "522", season="502")
+        _count_episodes(conn, s502=2)
+        _schedule(conn, "502", 2)
+        _schedule(conn, "501", 3)
+
+        second, first = _rows(get("/watch").json())["Leaving soon"]
+
+        assert (second["mark_kind"], second["mark_key"], second["watched"]) == (
+            "season",
+            "502",
+            True,
+        )
+        assert first["watched"] is False
+
+    def test_the_banner_and_its_card_can_be_dismissed(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
+        _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
+        dismiss(conn, "aoife", "500", NOW)
+
+        ctx = get("/watch").json()
+
+        [card] = _rows(ctx)["Continue watching"]
+        assert card["dismiss_ref"] == ctx["banner"]["dismiss_ref"] == "movie-100"
+        assert ctx["banner"]["mark_key"] == "100"
+
+    def test_a_banner_of_the_newest_title_has_nothing_to_dismiss(self, get):
+        banner = get("/watch").json()["banner"]
+        assert (banner["dismiss_ref"], banner["mark_key"]) == (None, "101")
+
+    def test_the_next_episode_is_found_past_more_than_twenty_seen_ones(self, get, conn, plex):
+        season1 = [str(3000 + n) for n in range(1, 31)]
+        plex.add_show("300", "Long Run", {1: ("301", season1), 2: ("302", ["3101", "3102"])})
+        insert_media_item(
+            conn,
+            id="301",
+            plex_rating_key="301",
+            title="Long Run",
+            show_title="Long Run",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="300",
+        )
+        _play(conn, "aoife", "3001", position=3000, duration=3000, item="301", show="300")
+        _mark(conn, *season1, season="301", show="300")
+
+        [card] = _rows(get("/watch").json())["Continue watching"]
+        show = get("/watch/show/300").json()
+
+        assert (card["subtitle"], card["mark_key"]) == ("S2 · E1", "3101")
+        assert show["primary"]["label"] == "Play S2 · E1"
+
+    def test_reading_past_seen_episodes_stays_within_the_page_budget(
+        self, get, conn, plex, monkeypatch
+    ):
+        seasons = {n: (str(4000 + n), [str(40000 + n)]) for n in range(1, 120)}
+        plex.add_show("400", "Endless", seasons)
+        insert_media_item(
+            conn,
+            id="4001",
+            plex_rating_key="4001",
+            title="Endless",
+            show_title="Endless",
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="400",
+        )
+        _play(conn, "aoife", "40001", position=3000, duration=3000, item="4001", show="400")
+        _mark(conn, *[e for _, [e] in seasons.values()], season="4001", show="400")
+        calls: list[str] = []
+        real = plex.get_season_episodes
+        monkeypatch.setattr(plex, "get_season_episodes", lambda k: calls.append(k) or real(k))
+
+        assert get("/watch").status_code == 200
+
+        assert 0 < len(calls) <= pages._PLEX_LOOKUP_BUDGET
+
+
 class TestShowPage:
+    def test_the_main_button_skips_a_first_episode_already_seen(self, get, conn):
+        _mark(conn, "511")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E2"
+
+    def test_after_the_last_episode_it_plays_an_earlier_one_never_seen(self, get, conn):
+        _play(conn, "aoife", "522", position=3000, duration=3000, item="502", show="500")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+
+    def test_with_every_episode_seen_it_starts_over(self, get, conn):
+        _mark(conn, "511", "512")
+        _mark(conn, "521", "522", season="502")
+        _count_episodes(conn, s501=2, s502=2)
+        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+
+    def test_a_marked_episode_is_never_the_place_to_resume(self, get, conn):
+        _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
+        _mark(conn, "521", season="502")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Resume S1 · E1"
+
+    def test_a_show_with_only_a_later_episode_marked_begins_at_its_first(self, get, conn):
+        _mark(conn, "521", season="502")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
+
+    def test_seasons_and_episodes_say_what_is_seen_and_what_to_mark(self, get, conn):
+        _mark(conn, "511", "512")
+        _mark(conn, "521", season="502")
+        _count_episodes(conn, s501=2, s502=2)
+
+        ctx = get("/watch/show/500").json()
+
+        assert [(s["key"], s["watched"]) for s in ctx["seasons"]] == [("501", True), ("502", False)]
+        assert [(e["key"], e["watched"], e["state"]) for e in ctx["episodes"]] == [
+            ("521", True, "watched"),
+            ("522", False, "none"),
+        ]
+        assert (ctx["show"]["watched"], ctx["show"]["mark_key"]) == (False, "500")
+
+    def test_a_new_episode_unmarks_its_season_before_any_scan(self, get, conn, plex):
+        _mark(conn, "521", "522", season="502")
+        _count_episodes(conn, s502=1)
+        plex.add_show(
+            "500", "The Long Coast", {1: ("501", ["511"]), 2: ("502", ["521", "522", "523"])}
+        )
+
+        ctx = get("/watch/show/500?season=2").json()
+
+        assert ctx["seasons"][1]["watched"] is False
+
     def test_episode_states_and_resume_of_the_episode_in_progress(self, get, conn):
         _play(
             conn,

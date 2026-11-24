@@ -8,8 +8,11 @@ searched or looked up.
 
 from __future__ import annotations
 
+import base64
+import json
 import sqlite3
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from mediaman.services.infra import get_setting
@@ -18,6 +21,7 @@ from mediaman.web.repository.library_query import (
     ANIME_SEASON_TYPES,
     MAX_SEARCH_TERM_LEN,
 )
+from mediaman.web.repository.watch_progress import seen_movies
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +40,47 @@ class LibraryShow:
     season_count: int
     added_at: str
     tvdb_id: int | None = None
+
+
+# Where a newest-first page of titles ended: the last title's added date, its title folded
+# for comparing, and its key.
+RowCursor = tuple[str, str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class SeasonSeen:
+    """How many of a season's episodes a person has seen."""
+
+    seen: int
+    total: int | None  # None until a scan has counted the episodes
+
+    @property
+    def watched(self) -> bool:
+        return bool(self.total) and self.seen >= (self.total or 0)
+
+
+@dataclass(slots=True)
+class ShowSeen:
+    """A person's seen episodes of one show, by the number of each regular season."""
+
+    seasons: dict[int, SeasonSeen] = field(default_factory=dict)
+
+    @property
+    def watched(self) -> bool:
+        return bool(self.seasons) and all(s.watched for s in self.seasons.values())
+
+    @property
+    def left(self) -> int | None:
+        """Episodes left of a show partly seen; None when none or all are seen, or a season's
+        episodes are not counted yet."""
+        if not any(s.seen for s in self.seasons.values()):
+            return None
+        left = 0
+        for s in self.seasons.values():
+            if not s.total:
+                return None
+            left += s.total - min(s.seen, s.total)
+        return left or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +209,95 @@ def library_movies(conn: sqlite3.Connection, libraries: list[str]) -> list[Libra
 def library_shows(conn: sqlite3.Connection, libraries: list[str]) -> list[LibraryShow]:
     """Every show (TV and anime) in the scanned libraries, grouped from its seasons, by title."""
     return _shows(conn, libraries)
+
+
+def row_cursor(item: LibraryMovie | LibraryShow) -> RowCursor:
+    return item.added_at or "", item.title.casefold(), item.key
+
+
+def cursor_text(cursor: RowCursor) -> str:
+    """*cursor* as text safe in a URL; parse_cursor reads it back."""
+    return base64.urlsafe_b64encode(json.dumps(cursor).encode()).decode().rstrip("=")
+
+
+def parse_cursor(text: str) -> RowCursor | None:
+    """The cursor in *text*; None when it is not one of cursor_text's."""
+    try:
+        value = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+    except (ValueError, RecursionError):
+        return None
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or not all(isinstance(part, str) for part in value)
+    ):
+        return None
+    return value[0], value[1], value[2]
+
+
+def newest_first[T: (LibraryMovie, LibraryShow)](items: Sequence[T]) -> list[T]:
+    """*items* newest added first, by the date List's Recently added sort compares; ties by
+    title, and an item with no date last."""
+    by_title = sorted(items, key=lambda item: row_cursor(item)[1:])
+    return sorted(by_title, key=lambda item: row_cursor(item)[0], reverse=True)
+
+
+def row_page[T: (LibraryMovie, LibraryShow)](
+    newest: Sequence[T], after: RowCursor | None, limit: int
+) -> tuple[list[T], RowCursor | None]:
+    """The next *limit* of the *newest*-first items past *after*, and where they end (None at
+    the end). Found by value, so a title that comes or goes meanwhile moves no other."""
+    rest = [item for item in newest if after is None or _is_past(row_cursor(item), after)]
+    page = rest[:limit]
+    return page, row_cursor(page[-1]) if len(rest) > limit else None
+
+
+def _is_past(cursor: RowCursor, after: RowCursor) -> bool:
+    return cursor[0] < after[0] or (cursor[0] == after[0] and cursor[1:] > after[1:])
+
+
+def show_seen(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    *,
+    show_key: str | None = None,
+) -> dict[str, ShowSeen]:
+    """*username*'s seen episodes of each show of the scanned libraries (or only of *show_key*),
+    by show rating key. Specials do not count."""
+    lib_sql, params = _in_libraries(libraries, "mi.plex_library_id")
+    season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
+    where = [
+        lib_sql,
+        f"mi.media_type IN ({season_marks})",
+        "mi.show_rating_key IS NOT NULL",
+        "mi.season_number > 0",
+    ]
+    params.extend(ALL_SEASON_TYPES)
+    if show_key is not None:
+        where.append("mi.show_rating_key = ?")
+        params.append(show_key)
+    # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT mi.show_rating_key, mi.season_number, mi.episode_count, COUNT(wp.rating_key) AS seen"
+        " FROM media_items mi LEFT JOIN watch_progress wp ON wp.media_item_id = mi.id"
+        " AND wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
+        f" WHERE {' AND '.join(where)} GROUP BY mi.id",
+        (username, *params),
+    ).fetchall()
+    found: dict[str, ShowSeen] = {}
+    for r in rows:
+        seasons = found.setdefault(r["show_rating_key"], ShowSeen()).seasons
+        seasons[r["season_number"]] = SeasonSeen(r["seen"], r["episode_count"])
+    return found
+
+
+def seen_refs(conn: sqlite3.Connection, username: str, libraries: list[str]) -> set[str]:
+    """The refs ("movie-<key>", "show-<key>") of the library titles *username* has seen."""
+    shows = show_seen(conn, username, libraries)
+    return {f"movie-{key}" for key in seen_movies(conn, username)} | {
+        f"show-{key}" for key, seen in shows.items() if seen.watched
+    }
 
 
 def find_movie(conn: sqlite3.Connection, libraries: list[str], key: str) -> LibraryMovie | None:
@@ -350,16 +484,26 @@ __all__ = [
     "LibraryMovie",
     "LibraryShow",
     "PendingDeletion",
+    "RowCursor",
+    "SeasonSeen",
+    "ShowSeen",
     "TitleFacts",
+    "cursor_text",
     "find_movie",
     "find_show",
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",
+    "newest_first",
+    "parse_cursor",
     "pending_deletion",
     "pending_deletions",
+    "row_cursor",
+    "row_page",
     "scanned_library_ids",
     "search_library",
     "season_item_id",
+    "seen_refs",
+    "show_seen",
     "title_facts",
 ]

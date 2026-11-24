@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import pathlib
 import re
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import list_page
-from tests.helpers.factories import insert_media_item, insert_settings
+from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
 
 @pytest.fixture
@@ -112,7 +114,9 @@ def test_the_inline_list_takes_the_same_params_and_clamps_what_a_url_can_hold(co
         _insert_movie(conn, f"m{i}", f"Film {i}")
 
     ctx = list_page.list_context(
-        conn, {"view": "list", "page": "abc", "per_page": "9999", "q": "  Film  ", "sort": "x"}
+        conn,
+        "admin",
+        {"view": "list", "page": "abc", "per_page": "9999", "q": "  Film  ", "sort": "x"},
     )
 
     assert (ctx["page"], ctx["per_page"], ctx["q"], ctx["current_sort"]) == (
@@ -122,6 +126,24 @@ def test_the_inline_list_takes_the_same_params_and_clamps_what_a_url_can_hold(co
         "added_desc",
     )
     assert ctx["total"] == 3
+
+
+def test_a_row_carries_the_signed_in_persons_own_mark_and_not_the_last_watched_time(conn):
+    insert_settings(conn, plex_libraries='["1"]')
+    for username in ("aoife", "cian"):
+        insert_admin_user(conn, username=username)
+    for key in ("11", "12"):
+        _insert_movie(conn, key, f"Film {key}")
+    mark_watched(
+        conn, "aoife", [MarkTarget("11", "11", None, 0)], datetime(2026, 11, 23, tzinfo=UTC)
+    )
+
+    mine = list_page.list_context(conn, "aoife", {})["items"]
+    theirs = list_page.list_context(conn, "cian", {})["items"]
+
+    assert {i["id"]: i["watched"] for i in mine} == {"11": True, "12": False}
+    assert [i["watched"] for i in theirs] == [False, False]
+    assert [i["last_watched"] for i in mine] == [i["last_watched"] for i in theirs]
 
 
 def _empty(client) -> str:
