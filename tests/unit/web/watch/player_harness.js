@@ -77,14 +77,31 @@ class Element extends Node {
     this.classList = {
       list() { return (el.attrs.class || '').split(/\s+/).filter(Boolean); },
       contains(c) { return this.list().indexOf(c) >= 0; },
-      add(c) { if (!this.contains(c)) el.attrs.class = this.list().concat(c).join(' '); },
-      remove(c) { el.attrs.class = this.list().filter((x) => x !== c).join(' '); },
+      add(c) {
+        if (c === 'is-leaving' && !this.contains(c)) el.dropping = true;
+        if (!this.contains(c)) el.attrs.class = this.list().concat(c).join(' ');
+      },
+      remove(c) {
+        if (c === 'is-leaving') el.cutShort();
+        el.attrs.class = this.list().filter((x) => x !== c).join(' ');
+      },
       toggle(c, on) {
         if (on === undefined) on = !this.contains(c);
         if (on) this.add(c); else this.remove(c);
         return on;
       },
     };
+  }
+  /* Like the browser: an exit that stops before its end says so a moment later. */
+  cutShort() {
+    if (!this.dropping) return;
+    this.dropping = false;
+    Promise.resolve().then(() => fire(this, 'animationcancel', { bubbles: true, animationName: 'player-drop' }));
+  }
+  /* The exit plays to its end. */
+  dropped() {
+    this.dropping = false;
+    fire(this, 'animationend', { bubbles: true, animationName: 'player-drop' });
   }
   getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; }
   setAttribute(n, v) { this.attrs[n] = String(v); }
@@ -96,7 +113,7 @@ class Element extends Node {
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
   get hidden() { return 'hidden' in this.attrs; }
-  set hidden(v) { if (v) this.attrs.hidden = ''; else delete this.attrs.hidden; }
+  set hidden(v) { if (v) { this.attrs.hidden = ''; this.cutShort(); } else delete this.attrs.hidden; }
   matches(sel) {
     /* Like Chrome: any key pressed after the mouse makes the focus visible. */
     if (sel === ':focus-visible') return doc.activeElement === this && doc.lastInput === 'key';
@@ -617,7 +634,7 @@ const scenarios = {
     else p.tick(p.win.serverPlays === 'untold' ? 40 : 1000);
     out.seen = held();
     out.fading = p.hold.classList.contains('is-leaving');
-    fire(p.hold, 'animationend', { bubbles: true, animationName: 'player-drop' });
+    p.hold.dropped();
     out.after = p.hold.hidden;
     /* Another quality before the frame of this one is seen: what was held stays. */
     p.replies.push(answer('480p-1500'));
@@ -1343,7 +1360,7 @@ const scenarios = {
     p.q('[data-upnext-cancel]').focus();
     click(p.q('[data-upnext-cancel]'));
     const afterClick = { hidden: card.hidden, leaving: card.classList.contains('is-leaving') };
-    fire(card, 'animationend', { bubbles: true, animationName: 'player-drop' });
+    card.dropped();
     const afterExit = { hidden: card.hidden, leaving: card.classList.contains('is-leaving'), focus: doc.activeElement.getAttribute('data-play') !== null };
     p.tick(20000);
     return { shown: shown, afterClick: afterClick, afterExit: afterExit, href: p.win.location.href };
@@ -1361,7 +1378,7 @@ const scenarios = {
       /* An animation of its own that the exit cut short says nothing. */
       fire(el, 'animationcancel', { bubbles: true, animationName: 'player-pop' });
       out[name].still = !el.hidden;
-      fire(el, 'animationend', { bubbles: true, animationName: 'player-drop' });
+      el.dropped();
       out[name].after = look();
     };
     p.replies[0] = answer('1080p-8000', { markers: MARKERS });
@@ -1383,6 +1400,39 @@ const scenarios = {
     await settle();
     p.replies.push(answer('1080p-8000'));
     going('message', '[data-message]', () => press(p.q('[data-retry]')));
+    return out;
+  },
+
+  /* What goes is shown again before its exit has played. */
+  async shown_again(p) {
+    const out = {};
+    const look = (sel) => { const el = p.q(sel); return { hidden: el.hidden, leaving: el.classList.contains('is-leaving'), inert: !!el.inert }; };
+    const again = async (name, sel, leave, show) => {
+      leave();
+      const leaving = look(sel).leaving;
+      show();
+      await settle();
+      out[name] = Object.assign({ left: leaving }, look(sel));
+    };
+    p.replies[0] = answer('1080p-8000', { markers: MARKERS });
+    await streamPlays(p, 70);
+    const at = (t) => () => { p.video.currentTime = t; fire(p.video, 'timeupdate'); };
+    at(70)();
+    await again('skip', '[data-skip]', at(200), at(71));
+    point(p, 'pointermove', 100);
+    await again('bubble', '[data-bubble]', () => point(p, 'pointerleave', 100), () => point(p, 'pointermove', 110));
+    press(p.q('[data-quality-btn]'));
+    await again('menu', '[data-quality-menu]', () => key('Escape'), () => press(p.q('[data-quality-btn]')));
+    key('Escape');
+    endsNow(p);
+    await again('card', '[data-upnext]', () => press(p.q('[data-upnext-cancel]')), () => endsNow(p));
+    press(p.q('[data-upnext-cancel]'));
+    const refused = { err: { status: 429, error: 'rate_limited' } };
+    p.replies.push(refused);
+    p.hlsList[0].emit('hlsError', { response: { code: 410 } });
+    await settle();
+    p.replies.push(refused);
+    await again('message', '[data-message]', () => press(p.q('[data-retry]')), () => {});
     return out;
   },
 

@@ -209,7 +209,8 @@
 
   ['animationend', 'animationcancel'].forEach(function (name) {
     root.addEventListener(name, function (e) {
-      if (e.animationName === 'player-drop') hide(e.target);
+      /* Shown again meanwhile, it stays: that too cuts its exit short. */
+      if (e.animationName === 'player-drop' && e.target.classList.contains('is-leaving')) hide(e.target);
     });
   });
 

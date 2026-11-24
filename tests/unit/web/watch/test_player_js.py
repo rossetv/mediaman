@@ -375,6 +375,12 @@ def test_what_goes_plays_its_exit_and_then_hides(markup, what):
     assert out["after"] == {"hidden": True, "leaving": False, "inert": False}
 
 
+@pytest.mark.parametrize("what", ["skip", "bubble", "menu", "card", "message"])
+def test_what_is_shown_again_as_it_goes_stays(markup, what):
+    out = run(markup, "shown_again")[what]
+    assert out == {"left": True, "hidden": False, "leaving": False, "inert": False}
+
+
 @pytest.mark.parametrize("what", ["skip", "bubble", "menu", "message"])
 def test_under_reduced_motion_what_goes_hides_at_once(markup, what):
     out = run(markup, "exits", reduced=True)[what]
