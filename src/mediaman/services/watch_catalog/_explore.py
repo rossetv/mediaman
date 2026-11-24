@@ -216,6 +216,9 @@ class _Walk:
         got = self._read(self.page)
         self.total = got["total"]
         self._end = min(got["pages"], MAX_PAGE)
+        on_page = [tmdb_id_of(i) for i in got["items"]]
+        # Those of this page last, where a place still names them.
+        self.shown.sort(key=on_page.__contains__)
         rows = [i for i in got["items"] if tmdb_id_of(i) not in (None, *self.shown)]
         self._held = sorted(rows, key=self._rank, reverse=True)
         self._move_on()

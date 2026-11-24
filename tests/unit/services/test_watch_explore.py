@@ -301,6 +301,17 @@ class TestExplorePage:
         titles = [(i["media_type"], i["id"]) for i in got]
         assert len(titles) == len(set(titles)) == 60
 
+    @pytest.mark.parametrize("moved", [2, 5, 19])
+    def test_a_title_moved_to_the_next_page_is_in_no_later_reply(self, tmdb, moved):
+        films = _ranked(40, 1)
+        films[20:20] = [films[moved]]
+        tmdb.pages = _paged(films, _ranked(40, 1))
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert len(titles) == len(set(titles)) == 80
+
     def test_by_page_each_is_in_order_by_itself(self, tmdb):
         tmdb.pages = _paged(_ranked(40, 1), _ranked(40, 1))
         genre = catalog.GENRES["action"]
