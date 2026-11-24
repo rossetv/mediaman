@@ -266,3 +266,8 @@ def test_a_new_hero_fades_in_and_the_same_one_does_not() -> None:
     assert out["swapped"] == [False, True]
     for part in (".dl-hero-content", ".dl-hero-bg"):
         assert "animation: dl-hero-swap var(--dur-slow)" in _rule(f".dl-hero.is-swapped > {part}")
+
+
+def test_the_heros_background_may_come_from_mediaman_itself() -> None:
+    out = _run("ownArt", hero=_item("h", poster_url="/api/watch/img/tmdb/w342/h.jpg"))
+    assert out == {"drawn": 'url("/api/watch/img/tmdb/w342/h.jpg")', "other": None}

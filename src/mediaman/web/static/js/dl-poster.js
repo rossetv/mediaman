@@ -18,8 +18,8 @@
    */
   function applyPosterBg(bgEl) {
     var url = bgEl.getAttribute('data-bg-url');
-    /* Validate scheme before applying — only http / https are acceptable. */
-    if (!url || !/^https?:\/\//i.test(url)) {
+    /* Only http / https, or a path of this host, are acceptable. */
+    if (!url || !/^(https?:\/\/|\/(?!\/))/i.test(url)) {
       bgEl.style.removeProperty('background-image');
       return;
     }

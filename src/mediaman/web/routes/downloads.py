@@ -18,6 +18,7 @@ from mediaman.db import get_db
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
+from mediaman.services.watch_catalog import tmdb_image_url
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.routes.download import drop_arr_cache
@@ -27,6 +28,25 @@ router = APIRouter()
 
 class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
+
+
+def _page_payload(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
+    """The downloads with TMDB posters at mediaman's own address, so a browser here never
+    calls TMDB. Copies: completion detection keeps the items, with the addresses they came with.
+    """
+
+    def shown(item: dict[str, object]) -> dict[str, object]:
+        poster = item.get("poster_url") or ""
+        return {**item, "poster_url": tmdb_image_url(poster, "w342") or poster}
+
+    data = build_downloads_response(conn, secret_key)
+    return {
+        **data,
+        "hero": shown(data["hero"]) if data["hero"] else None,
+        "queue": [shown(item) for item in data["queue"]],
+        "upcoming": [shown(item) for item in data["upcoming"]],
+        "recent": [shown(item) for item in data["recent"]],
+    }
 
 
 def _lookup_dl_item(
@@ -66,7 +86,7 @@ def downloads_page(request: Request) -> Response:
     username, conn = resolved
 
     config = request.app.state.config
-    data = build_downloads_response(conn, config.secret_key)
+    data = _page_payload(conn, config.secret_key)
     can_abandon = get_user_role(conn, username) == "admin"
     if not can_abandon:
         _hide_abandon(data)
@@ -91,7 +111,7 @@ def downloads_page(request: Request) -> Response:
 def downloads_api(request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     conn = get_db()
     config = request.app.state.config
-    data = build_downloads_response(conn, config.secret_key)
+    data = _page_payload(conn, config.secret_key)
     if get_user_role(conn, admin) != "admin":
         _hide_abandon(data)
     return JSONResponse(data)

@@ -266,6 +266,15 @@ const scenarios = {
     return { pill, swapped: [same, swapped()] };
   },
 
+  // the hero's background from mediaman's own address, and from one that only looks like it
+  async ownArt() {
+    const p = page(spec);
+    const bg = () => p.q('.dl-hero-bg').style['background-image'] || null;
+    const drawn = bg();
+    p.upd({ hero: item('b', { poster_url: '//elsewhere/b.jpg' }) });
+    return { drawn, other: bg() };
+  },
+
   // everything coming soon gives way to something else in one poll
   async upcomingReplaced() {
     const p = page(spec);
