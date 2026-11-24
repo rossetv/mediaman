@@ -107,6 +107,11 @@ def poster_url(key: str) -> str:
     return f"/api/poster/{key}"
 
 
+def backdrop_url(key: str) -> str:
+    """The wide image of a title for the banner; the route sends the poster when there is none."""
+    return f"/api/poster/{key}?kind=art"
+
+
 def safe_origin(value: str | None) -> str | None:
     """*value* when it is one of the Watch pages a person can come from, else None."""
     return value if value and _ORIGIN_RE.fullmatch(value) else None
@@ -468,7 +473,7 @@ def _banner(
         "progress_pct": pct,
         "primary": {"label": "Resume", "href": href},
         "episodes_href": None,
-        "backdrop_url": poster_url(key),
+        "backdrop_url": backdrop_url(key),
     }
 
 
@@ -517,34 +522,34 @@ def watch_page(request: Request, view: str = "rows", q: str = "") -> Response:
     plex.check_reachable()
     leaving_row = [_leaving_card(p, now) for p in pending]
 
-    # (added, card, where the banner's Play goes, its detail ref): a movie plays, a show
-    # opens its page.
+    # (added, card, where the banner's Play goes, kind, key): a movie plays, a show opens its
+    # page.
     newest = sorted(
         [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"), f"movie-{m.key}")
+            (_added(m.added_at), c, play_href(m.key, origin="/watch"), "movie", m.key)
             for m, c in zip(movies, movie_row, strict=True)
         ]
         + [
-            (_added(s.added_at), c, c["href"], f"show-{s.key}")
+            (_added(s.added_at), c, c["href"], "show", s.key)
             for s, c in zip(shows, show_row, strict=True)
         ],
         key=lambda entry: entry[0],
         reverse=True,
     )
     cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, _, _ in newest if added >= cutoff]
+    recent_row = [c for added, c, *_ in newest if added >= cutoff]
     if banner is None and newest:
-        added, latest, play, ref = newest[0]
+        added, latest, play, kind, key = newest[0]
         banner = {
             # Only as true as the Recently added row: an older newest title gets a neutral label.
             "kicker": "Recently added" if added >= cutoff else "From your library",
             "title": latest["title"],
-            "ref": ref,
+            "ref": f"{kind}-{key}",
             "line": latest["subtitle"],
             "progress_pct": None,
             "primary": {"label": "Play", "href": play},
             "episodes_href": None,
-            "backdrop_url": latest["poster_url"],
+            "backdrop_url": backdrop_url(key),
         }
 
     # (title, cards, under the "Your library" divider); Discover goes between the two groups.

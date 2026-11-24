@@ -393,6 +393,13 @@ class TestWatchRows:
         assert banner["progress_pct"] == 40
         assert banner["ref"] == "show-500"
 
+    def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
+        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
+
+        _play(conn, "aoife", "522", position=1200, duration=3000, item="502", show="500")
+
+        assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/500?kind=art"
+
     def test_the_banner_says_continue_watching_for_a_title_in_progress(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 

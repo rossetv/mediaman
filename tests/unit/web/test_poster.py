@@ -1173,3 +1173,86 @@ class TestPlexTransportFailures:
 
         assert content is None
         assert len(urls) == 1
+
+
+class TestPosterBackdrop:
+    """?kind=art serves the wide backdrop from Plex, cached on disk; no backdrop means the poster."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _client(self, tmp_path):
+        return TestOversizedPlexPoster._app(self, tmp_path)
+
+    @staticmethod
+    def _plex(*, has_art: bool):
+        from unittest.mock import MagicMock
+
+        urls: list[str] = []
+
+        def is_art(url):
+            return "%2Fart" in url or url.endswith("/art")
+
+        def get(url, **kwargs):
+            urls.append(url)
+            if is_art(url) and not has_art:
+                raise SafeHTTPError(404, "not found", url)
+            resp = MagicMock()
+            resp.content = b"wide-art" if is_art(url) else b"portrait-poster"
+            resp.headers = {"Content-Type": "image/jpeg"}
+            return resp
+
+        stub = MagicMock()
+        stub.get.side_effect = get
+        return stub, urls
+
+    def _get(self, client, stub, query="&kind=art"):
+        from unittest.mock import patch
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        with (
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP", stub),
+            patch(
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
+                return_value="https://localhost",
+            ),
+            patch("mediaman.web.routes.poster._fetch_arr_poster", return_value=(None, None)),
+        ):
+            return client.get(sign_poster_url("12345", self._KEY) + query)
+
+    def test_the_backdrop_is_asked_of_plex_at_screen_width(self, tmp_path):
+        stub, urls = self._plex(has_art=True)
+
+        r = self._get(self._client(tmp_path), stub)
+
+        assert r.status_code == 200
+        assert r.content == b"wide-art"
+        assert "url=%2Flibrary%2Fmetadata%2F12345%2Fart" in urls[0]
+        assert "width=1920" in urls[0]
+
+    def test_a_cached_backdrop_is_not_fetched_again(self, tmp_path):
+        stub, urls = self._plex(has_art=True)
+        client = self._client(tmp_path)
+
+        self._get(client, stub)
+        first = len(urls)
+        r = self._get(client, stub)
+
+        assert r.content == b"wide-art"
+        assert len(urls) == first
+
+    def test_a_title_with_no_backdrop_gets_its_poster(self, tmp_path):
+        stub, _ = self._plex(has_art=False)
+
+        r = self._get(self._client(tmp_path), stub)
+
+        assert r.status_code == 200
+        assert r.content == b"portrait-poster"
+
+    def test_without_kind_the_poster_is_served_and_plex_is_not_asked_for_art(self, tmp_path):
+        stub, urls = self._plex(has_art=True)
+
+        r = self._get(self._client(tmp_path), stub, query="")
+
+        assert r.content == b"portrait-poster"
+        assert not any("%2Fart" in u for u in urls)

@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from pathlib import Path
 from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
+from mediaman.config import Config
 from mediaman.crypto import (
     sign_poster_url,
     validate_poster_token,
@@ -52,6 +54,7 @@ from mediaman.web.routes.poster.cache import (
 # be importable from this module for the test suite to patch them.
 from mediaman.web.routes.poster.fetch import _POSTER_HTTP  # noqa: F401
 from mediaman.web.routes.poster.fetch import fetch_arr_poster as _fetch_arr_poster  # noqa: F401
+from mediaman.web.routes.poster.fetch import fetch_plex_art as _fetch_plex_art
 from mediaman.web.routes.poster.fetch import (
     is_allowed_poster_host as _is_allowed_poster_host,  # noqa: F401
 )
@@ -110,9 +113,12 @@ def proxy_poster(
     request: Request,
     rating_key: str,
     sig: str | None = None,
+    kind: str = "poster",
     admin: str | None = Depends(get_optional_admin),
 ) -> Response:
     """Serve a poster image, fetching from Plex only on cache miss.
+
+    ?kind=art asks for the item's wide backdrop instead; an item with none gets its poster.
 
     Needs an admin session or a valid HMAC signature in ?sig=. The 401 comes before any
     rating_key validity or existence check, so the endpoint is no oracle for enumerating
@@ -131,17 +137,56 @@ def proxy_poster(
         if not is_poster_key_allowed(db, scanned_library_ids(db), rating_key):
             return Response(status_code=404)
 
+    if kind == "art":
+        art = _serve_art(config, rating_key)
+        if art is not None:
+            return art
+    return _serve_poster(config, rating_key)
+
+
+def _cached_response(path: Path) -> Response | None:
+    if not path.exists():
+        return None
+    return Response(
+        content=path.read_bytes(),
+        media_type=_read_sidecar_mime(path),
+        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
+    )
+
+
+def _serve_art(config: Config, rating_key: str) -> Response | None:
+    """The item's backdrop from the disk cache or Plex; None when it has none."""
+    cache_dir = _get_cache_dir(config.data_dir)
+    cached_path = cache_dir / f"{hashlib.sha256(f'{rating_key}:art'.encode()).hexdigest()}.jpg"
+    cached = _cached_response(cached_path)
+    if cached is not None:
+        return cached
+
+    conn = get_db()
+    plex_base, plex_token, cred_err = _load_plex_credentials(conn, config.secret_key)
+    if cred_err is not None:
+        return cred_err
+    art = _fetch_plex_art(conn, rating_key, cast(str, plex_base), cast(str, plex_token))
+    if art is None:
+        return None
+    content, content_type = art
+    _write_poster_cache(cache_dir, cached_path, rating_key, content, content_type)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
+    )
+
+
+def _serve_poster(config: Config, rating_key: str) -> Response:
     cache_dir = _get_cache_dir(config.data_dir)
     # Full SHA-256 cache filename — collision-free, filesystem-safe.
     cached_path = cache_dir / f"{hashlib.sha256(rating_key.encode()).hexdigest()}.jpg"
 
     # Serve from disk cache (sidecar carries the true mime type).
-    if cached_path.exists():
-        return Response(
-            content=cached_path.read_bytes(),
-            media_type=_read_sidecar_mime(cached_path),
-            headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
-        )
+    cached = _cached_response(cached_path)
+    if cached is not None:
+        return cached
 
     conn = get_db()
     plex_base, plex_token, cred_err = _load_plex_credentials(conn, config.secret_key)
