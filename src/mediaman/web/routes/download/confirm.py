@@ -134,11 +134,27 @@ def validate_youtube_id(s: str | None) -> str | None:
 
 def _coerce_string_list(value: object) -> list[str]:
     """Return value as a list of plain strings, dropping anything else: a tampered DB row could
-    carry nested objects or ints in genres/cast_json.
+    carry nested objects or ints in genres.
     """
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_cast(value: object) -> list[dict[str, str]]:
+    """Return value as name and character pairs, dropping an entry with no plain-string name."""
+    if not isinstance(value, list):
+        return []
+    members = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name, character = entry.get("name"), entry.get("character")
+        if isinstance(name, str) and name:
+            members.append(
+                {"name": name, "character": character if isinstance(character, str) else ""}
+            )
+    return members
 
 
 def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
@@ -238,7 +254,7 @@ def _enrich_item_fields(item: dict[str, object]) -> None:
     cast_value = item.get("cast_json")
     if isinstance(cast_value, (str, bytes, bytearray)):
         try:
-            item["cast_list"] = _coerce_string_list(json.loads(cast_value))
+            item["cast_list"] = _coerce_cast(json.loads(cast_value))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
 

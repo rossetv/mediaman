@@ -743,3 +743,28 @@ class TestDownloadPageTrailer:
             "allow-popups",
             "allow-popups-to-escape-sandbox",
         }
+
+
+class TestDownloadPageCast:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_the_stored_cast_is_shown_and_a_broken_entry_is_left_out(
+        self, app_factory, conn, secret_key
+    ):
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            cast_json='[{"name": "Ada Vale", "character": "Lead"}, {"name": null}, 7]',
+            created_at="2026-01-01",
+        )
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        assert re.findall(r'class="cast-name">([^<]*)<', page) == ["Ada Vale"]
+        assert re.findall(r'class="cast-char">([^<]*)<', page) == ["Lead"]
