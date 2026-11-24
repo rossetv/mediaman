@@ -260,3 +260,12 @@ def test_an_undone_dismissal_stands_while_the_server_cannot_ask_plex() -> None:
     out = _run("undoWithoutPlex")
     assert out["gone"] == [["Fieldwork"], ["movie/1", "movie/3"]]
     assert out["back"] == [["Brightwater"], ["movie/1", "episode/22", "movie/3"]]
+
+
+def test_an_undo_gives_the_focus_to_what_came_back_when_it_took_the_focused_button_away() -> None:
+    assert _run("undoFocus") == {
+        "replaced": "episode/22",
+        "inBanner": ["Fieldwork"],
+        "redrawn": "episode/22",
+        "elsewhere": "watch-search",
+    }

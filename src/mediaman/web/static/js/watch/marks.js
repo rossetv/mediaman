@@ -74,6 +74,16 @@
     return isBannerOf(banner, ref) ? banner : null;
   }
 
+  /* What a title is changed from in Continue watching, for the focus: its card's
+     More, or its banner's Dismiss, by where the change came from. */
+  function controlOf(ref, fromBanner) {
+    var card = continueCards(document, ref)[0];
+    var banner = bannerOf(ref);
+    var more = card && card.querySelector('[data-watch-more]');
+    var button = banner && banner.querySelector('[data-watch-dismiss]');
+    return fromBanner ? button || more : more || button;
+  }
+
   /* ── One change at a time ──
      The buttons stay focusable (aria-disabled, not disabled) so focus never drops. */
 
@@ -189,8 +199,7 @@
       done.rows = true;
       done.undos.push(function () {
         var now = continueRow(document);
-        if (continueCards(document, ref).length || (now && now !== row)) return null;
-        return taken.undo();
+        if (!continueCards(document, ref).length && (!now || now === row)) taken.undo();
       });
       if (lost && taken.focus) core.focusSoftly(taken.focus);
     });
@@ -204,11 +213,10 @@
     core.fadeIn(fresh);
     done.rows = true;
     done.undos.push(function () {
-      if (!document.body.contains(fresh) || fresh.classList.contains('is-kept')) return null;
+      if (!document.body.contains(fresh) || fresh.classList.contains('is-kept')) return;
       closeMenu(fresh);
       fresh.replaceWith(card);
       core.fadeIn(card);
-      return card.querySelector('[data-watch-more]');
     });
     if (lost) fresh.querySelector('[data-watch-more]').focus({ preventScroll: true });
   }
@@ -306,6 +314,7 @@
     var fresh = doc.querySelector('.watch-banner');
     var own = isBannerOf(banner, ref) && (whole || now || !here.length);
     if (own || isBannerOf(fresh, ref)) replaceBanner(banner, fresh, done);
+    if (done.seek && focusLost(null)) refocus(controlOf(ref, done.fromBanner));
     if (done.part) followShow(ref, doc, done);
   }
 
@@ -451,11 +460,13 @@
     if (busy[key]) afterBusy[key] = fn; else fn();
   }
 
-  function putBack(done) {
+  /* Put the page back, and the focus on what came back if it went with what was
+     there. Returns the change to follow the rows with: seek, where the focus still has to go. */
+  function putBack(ref, done, part) {
     changes += 1;
-    var back = null;
-    done.undos.splice(0).reverse().forEach(function (fn) { back = fn() || back; });
-    return back;
+    done.undos.splice(0).reverse().forEach(function (fn) { fn(); });
+    if (focusLost(null)) refocus(controlOf(ref, done.fromBanner));
+    return { undos: [], part: part, redraw: done.rows, fromBanner: done.fromBanner, seek: focusLost(null) };
   }
 
   function undoChange(mark, watched, name, ref, done) {
@@ -463,14 +474,12 @@
       refocus(toggleOf(mark));
       setBusy(mark, true);
       send(mark, !watched, '?undo=1').then(function (data) {
-        var lost = focusLost(null);
-        var back = putBack(done);
+        var after = putBack(ref, done, !/^movie\//.test(mark));
         withAttr(document, 'data-mark-toggle', mark).forEach(function (b) { setToggle(b, data.watched); });
-        if (lost) refocus(back);
         core.toast('Undone for ' + name + '.', { variant: 'info' });
         setBusy(mark, false);
         announce(ref);
-        follow(ref, { undos: [], part: !/^movie\//.test(mark), redraw: done.rows });
+        follow(ref, after);
       }, function (err) {
         toastFailed(err, name);
         setBusy(mark, false);
@@ -493,9 +502,9 @@
 
   /* ── Dismiss ── */
 
-  function dismiss(ref, name) {
+  function dismiss(ref, name, fromBanner) {
     if (busy[ref]) return;
-    var done = { undos: [], part: false, rows: false };
+    var done = { undos: [], part: false, rows: true, fromBanner: fromBanner };
     setBusy(ref, true);
     MM.api.post(DISMISSED_URL + ref).then(function () {
       changes += 1;
@@ -517,12 +526,10 @@
     whenIdle(ref, function () {
       setBusy(ref, true);
       MM.api.delete(DISMISSED_URL + ref).then(function () {
-        var lost = focusLost(null);
-        var back = putBack(done);
-        if (lost) refocus(back);
+        var after = putBack(ref, done, false);
         core.toast(name + ' is back in Continue watching.', { variant: 'info' });
         setBusy(ref, false);
-        followRows(ref, { undos: [], part: false, redraw: true });
+        followRows(ref, after);
       }, function (err) {
         core.toast(MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
         setBusy(ref, false);
@@ -589,7 +596,7 @@
       return;
     }
     var button = e.target.closest('[data-watch-dismiss]');
-    if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'));
+    if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
   window.MMWatch.marks = { paint: paint };

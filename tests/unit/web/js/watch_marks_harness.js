@@ -8,6 +8,16 @@ const vm = require('vm');
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
+// As in a browser, a node taken off the page loses the focus.
+['remove', 'replaceWith'].forEach((name) => {
+  const own = Node.prototype[name];
+  Node.prototype[name] = function (...args) {
+    own.apply(this, args);
+    const doc = this.ownerDocument;
+    if (this.contains(doc.activeElement) && !doc.body.contains(this)) doc.activeElement = doc.body;
+  };
+});
+
 Object.defineProperty(Node.prototype, 'hidden', {
   get() { return this.hasAttribute('hidden'); },
   set(v) { if (v) this.setAttribute('hidden', ''); else this.removeAttribute('hidden'); },
@@ -497,6 +507,35 @@ const scenarios = {
     const gone = [p.banner(), p.marks()];
     await p.undo();
     return { gone, back: [p.banner(), p.marks()] };
+  },
+
+  // Undone with the focus in what the Undo takes away: a card, the banner, and a card the server's page brings.
+  async undoFocus() {
+    const p = load(watchPage([row('cont', CONTINUE)]), { next: watchPage([row('cont', [CONTINUE[0], episodeCard(23), CONTINUE[2]])]) });
+    await p.pick(p.cards()[1], 'mark');
+    await p.undo();
+    const replaced = p.focus();
+    const q = load(watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), row('cont', CONTINUE)]),
+      { next: watchPage([banner('show-2', 'Brightwater', '/watch/play/22'), row('cont', CONTINUE.slice(1))]) });
+    const b = q.doc.querySelector('[data-watch-dismiss]');
+    b.focus();
+    click(q.doc, b);
+    await settle();
+    await q.undo();
+    const inBanner = q.doc.activeElement === b && q.banner();
+    let keys = [23];
+    const o = load(continuePage([CONTINUE[0], episodeCard(22)]), { next: () => continuePage([CONTINUE[0], ...keys.map(episodeCard)]) });
+    await o.pick(o.cards()[1], 'mark');
+    keys = [];
+    await o.pick(o.cards()[1], 'mark');
+    keys = [22];
+    o.doc.activeElement = o.doc.body;
+    await o.undo(0);
+    const redrawn = o.focus();
+    // Focus elsewhere stays there.
+    o.doc.getElementById('watch-search').focus();
+    await o.undo(1);
+    return { replaced, inBanner, redrawn, elsewhere: o.doc.activeElement.id };
   },
 };
 
