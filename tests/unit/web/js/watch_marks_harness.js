@@ -392,6 +392,7 @@ const scenarios = {
     const another = [open(), !!p.doc.activeElement.closest('#watch-more-menu')];
     const last = later();
     sent = last.answer;
+    click(p.doc, p.doc.body);
     await p.pick(p.cards()[1], 'mark');
     p.open(p.cards()[1]);
     last.send(watchPage([]));
