@@ -63,11 +63,11 @@ def enrich_recommendations(
             if tmdb_id:
                 data = client.details(s["media_type"], tmdb_id)
                 if data:
-                    item = cast(dict[str, object], s)
                     apply_tmdb_detail(
-                        item, TmdbClient.shape_detail(data, media_type=s["media_type"])
+                        cast(dict[str, object], s),
+                        TmdbClient.shape_detail(data, media_type=s["media_type"]),
                     )
-                    item["backdrop_url"] = tmdb_backdrop(data)
+                    s["backdrop_url"] = tmdb_backdrop(data)
 
         title = s.get("title")
         if not title:

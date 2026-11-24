@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -164,7 +163,7 @@ def _insert_recommendations(
                     today,
                     now_iso,
                     downloaded_at,
-                    cast(Mapping[str, str | None], s).get("backdrop_url"),
+                    s.get("backdrop_url"),
                 ),
             )
             inserted += 1

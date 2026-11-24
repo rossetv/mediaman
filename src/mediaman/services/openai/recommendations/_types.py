@@ -33,3 +33,4 @@ class RecommendationItem(TypedDict):
     director: NotRequired[str | None]
     trailer_key: NotRequired[str | None]
     metascore: NotRequired[str | None]
+    backdrop_url: NotRequired[str | None]
