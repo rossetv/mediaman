@@ -795,11 +795,13 @@
     scheduleIdle();
   }
 
+  /* Whether the mouse or a finger, not the keyboard, last moved the focus.
+     :focus-visible cannot say: any key pressed after a click sets it. */
+  var focusByPointer = false;
+
   /* Keyboard focus on a control keeps the controls up; mouse focus does not. */
   function keyboardInChrome() {
-    var a = document.activeElement;
-    if (!a || a === video || !root.contains(a)) return false;
-    try { return a.matches(':focus-visible'); } catch (e) { return false; }
+    return !focusByPointer && root.contains(document.activeElement);
   }
 
   function scheduleIdle() {
@@ -812,7 +814,10 @@
   }
 
   var lastPointer = 'mouse';
-  root.addEventListener('pointerdown', function (e) { lastPointer = e.pointerType || 'mouse'; });
+  root.addEventListener('pointerdown', function (e) {
+    lastPointer = e.pointerType || 'mouse';
+    focusByPointer = true;
+  });
   root.addEventListener('pointermove', function (e) {
     if (e.pointerType === 'mouse') showControls();
   });
@@ -843,6 +848,7 @@
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
+    if (e.key === 'Tab' || menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
       else hideUpnext();
@@ -857,7 +863,11 @@
       }
     }
     if (e.key === ' ' || e.key === 'Spacebar') {
-      if (onControl) return;
+      if (onControl) {
+        /* Space presses a control the keyboard is on, not one the mouse left the focus on. */
+        if (!focusByPointer || !e.target.closest('.player-chrome')) return;
+        e.target.blur();
+      }
       e.preventDefault();
       togglePlay();
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {

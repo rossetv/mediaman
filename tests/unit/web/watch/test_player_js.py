@@ -133,3 +133,18 @@ def test_a_stop_during_the_countdown_stays_at_the_end_and_never_replays(markup, 
 def test_after_the_countdown_only_play_itself_replays(markup):
     out = run(markup, "upnext_stops")
     assert (out["pictureReplays"], out["buttonReplays"]) == (0, 1)
+
+
+def test_space_pauses_after_the_mouse_pressed_a_control(markup):
+    out = run(markup, "space")
+    assert out["afterMouse"] == {"skippedOnce": True, "paused": True}
+    assert out["afterMenu"] == {"paused": True, "menuClosed": True}
+    assert out["afterSlider"] == {"paused": True}
+
+
+def test_space_presses_the_control_tab_reached(markup):
+    assert run(markup, "space")["afterTab"] == {"skipped": 10, "paused": False}
+
+
+def test_controls_hide_after_a_mouse_press_and_a_key_but_stay_for_tab(markup):
+    assert run(markup, "idle") == {"afterMouse": True, "afterTab": False}
