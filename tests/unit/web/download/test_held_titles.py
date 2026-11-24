@@ -366,3 +366,86 @@ class TestSubmitWhoseAddGotNoAnswer:
         assert not _consumed(token)
         mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
         assert mails == []
+
+
+class TestRetryOfAnAddThatLandedLate:
+    """The add got no answer, was not there yet when asked after, and landed later."""
+
+    NO_ANSWER = SafeHTTPError(0, "transport error: ReadTimeout", "arr/add")
+
+    def _arr(self, media_type):
+        held = []
+        arr = MagicMock(held=held)
+        arr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        arr.get_movie_by_tmdb.side_effect = lambda _: held[0] if held else None
+        arr.get_series.side_effect = lambda: list(held)
+        arr.add_movie.side_effect = arr.add_series.side_effect = self.NO_ANSWER
+        arr.landed = {"id": 7, "tvdbId": 999, "monitored": True}
+        return arr
+
+    def _post(self, client, token, media_type, arr):
+        builder = "build_radarr_from_db" if media_type == "movie" else "build_sonarr_from_db"
+        with patch(f"{_SUBMIT}.{builder}", return_value=arr):
+            return client.post(f"/download/{token}")
+
+    def _mails(self, client):
+        rows = client.app.state.db.execute("SELECT email FROM download_notifications")
+        return [r["email"] for r in rows]
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_the_retry_is_a_success_and_the_person_will_be_mailed(
+        self, client, secret_key, media_type
+    ):
+        arr, token = self._arr(media_type), _token(secret_key, media_type)
+        assert self._post(client, token, media_type, arr).status_code == 502
+        arr.held.append(arr.landed)
+        reset_used_tokens()  # as after a restart
+
+        resp = self._post(client, token, media_type, arr)
+
+        assert resp.status_code == 200
+        assert "poll_token" in resp.json()
+        assert self._mails(client) == ["viewer@example.com"]
+        assert arr.add_movie.call_count + arr.add_series.call_count == 1
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_a_refused_retry_of_the_add_that_landed_meanwhile_is_a_success_too(
+        self, client, secret_key, media_type
+    ):
+        arr, token = self._arr(media_type), _token(secret_key, media_type)
+        assert self._post(client, token, media_type, arr).status_code == 502
+
+        def refuse(*_):
+            arr.held.append(arr.landed)
+            raise SafeHTTPError(400, "already added", "arr/add")
+
+        arr.add_movie.side_effect = arr.add_series.side_effect = refuse
+
+        assert self._post(client, token, media_type, arr).status_code == 200
+        assert self._mails(client) == ["viewer@example.com"]
+
+    def test_another_link_for_the_title_is_already_exists(self, client, secret_key):
+        arr = self._arr("movie")
+        self._post(client, _token(secret_key, "movie"), "movie", arr)
+        arr.held.append(arr.landed)
+        other = generate_download_token(
+            email="other@example.com",
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=500,
+            recommendation_id=None,
+            secret_key=secret_key,
+        )
+
+        assert self._post(client, other, "movie", arr).status_code == 409
+        assert self._mails(client) == []
+
+    def test_an_add_that_was_answered_with_a_refusal_is_no_late_landing(self, client, secret_key):
+        arr, token = self._arr("movie"), _token(secret_key, "movie")
+        arr.add_movie.side_effect = SafeHTTPError(400, "bad profile", "arr/add")
+        assert self._post(client, token, "movie", arr).status_code == 502
+        arr.held.append(arr.landed)
+
+        assert self._post(client, token, "movie", arr).status_code == 409
+        assert self._mails(client) == []

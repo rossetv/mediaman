@@ -179,6 +179,18 @@ class TestSubmit:
         sonarr.remonitor_season.assert_not_called()
         assert _post(client, link, _sonarr(_series(UNMONITORED))).status_code == 200
 
+    def test_a_season_whose_add_landed_late_and_is_complete_by_the_retry_is_a_success(
+        self, client, link
+    ):
+        sonarr = _sonarr(None)
+        sonarr.add_series_with_seasons.side_effect = SafeHTTPError(0, "timeout", "sonarr/s")
+        assert _post(client, link, sonarr).status_code == 502
+        sonarr.get_series_by_tvdb.return_value = _series(ON_DISK)
+
+        assert _post(client, link, sonarr).status_code == 200
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert [m["email"] for m in mails] == ["a@example.com"]
+
     def test_a_season_with_some_episodes_left_is_fetched(self, client, link):
         sonarr = _sonarr(_series(PART_LEFT))
 

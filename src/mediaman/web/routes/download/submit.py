@@ -43,7 +43,12 @@ from mediaman.web.routes.library_api._redownload_match import _redownload_audit_
 from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
 
 from ._season import deleted_season, season_on_disk, sonarr_media_id
-from ._tokens import _mark_token_used, _unmark_token_used
+from ._tokens import (
+    _mark_token_used,
+    _unmark_token_used,
+    note_unanswered_add,
+    take_unanswered_add,
+)
 from .confirm import drop_arr_cache
 
 logger = logging.getLogger(__name__)
@@ -61,6 +66,7 @@ class DownloadPayload(TypedDict):
     """
 
     token: str
+    exp: int
     title: str
     tmdb_id: int | None
     email: str | None
@@ -135,7 +141,7 @@ class _HeldNotFetched(SafeHTTPError):
     link is released rather than burned."""
 
 
-class _SeasonOnDisk(_HeldNotFetched):
+class _SeasonOnDisk(SafeHTTPError):
     """The 409 for a season Sonarr has complete."""
 
 
@@ -143,6 +149,19 @@ def _held_error(exc: SafeHTTPError, fetched: bool) -> SafeHTTPError:
     """The 409 for a refused add of a title the Arr holds."""
     cls = SafeHTTPError if fetched else _HeldNotFetched
     return cls(409, exc.body_snippet, exc.url)
+
+
+def _landed_late(payload: DownloadPayload, conn: sqlite3.Connection, exc: SafeHTTPError) -> bool:
+    """Whether *exc* refuses as already there what this link's own earlier add put there.
+
+    An add that got no answer may land after it was looked for: it is noted here, for the retry.
+    """
+    if exc.status_code == 0 or exc.status_code >= 500:
+        note_unanswered_add(conn, payload["token"], payload["exp"])
+        return False
+    if exc.status_code not in (409, 422) or isinstance(exc, _HeldNotFetched):
+        return False
+    return take_unanswered_add(conn, payload["token"], payload["exp"])
 
 
 def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
@@ -175,15 +194,18 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
 
     try:
         outcome = add_or_remonitor_movie(client, tmdb_id, title, keep_filed=True)
+        if outcome == "already_tracked":
+            raise SafeHTTPError(409, "already tracked", "radarr/api/v3/movie")
     except SafeHTTPError as exc:
+        error = exc
         # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
         if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):
-            raise _held_error(exc, radarr_fetches_movie(client, tmdb_id)) from exc
-        if not movie_add_landed(exc, client, tmdb_id):
-            raise
+            error = _held_error(exc, radarr_fetches_movie(client, tmdb_id))
+        if not (movie_add_landed(error, client, tmdb_id) or _landed_late(payload, conn, error)):
+            if error is exc:
+                raise
+            raise error from exc
         outcome = "added"
-    if outcome == "already_tracked":
-        raise SafeHTTPError(409, "already tracked", "radarr/api/v3/movie")
     if outcome == "bad_entry":
         raise ExistingMovieError("Radarr holds the movie with no usable id")
     logger.info(
@@ -301,11 +323,14 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         elif not _remonitor_held_season(client, tvdb_id, season_number):
             client.add_series_with_seasons(tvdb_id, title, [season_number])
     except SafeHTTPError as exc:
+        error = exc
         # Sonarr answers 400, not 409, for a series it tracks: same path.
         if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
-            raise _held_error(exc, sonarr_fetches_series(client, tvdb_id)) from exc
-        if not series_add_landed(exc, client, tvdb_id):
-            raise
+            error = _held_error(exc, sonarr_fetches_series(client, tvdb_id))
+        if not (series_add_landed(error, client, tvdb_id) or _landed_late(payload, conn, error)):
+            if error is exc:
+                raise
+            raise error from exc
     logger.info(
         "Download token: added series '%s' (tvdb:%s season:%s) to Sonarr for %s",
         title,
@@ -392,6 +417,7 @@ def _build_dl_payload(
     )
     dl_payload: DownloadPayload = {
         "token": token,
+        "exp": int(payload.get("exp", 0)),
         "title": title,
         "tmdb_id": tmdb_id,
         "email": email,

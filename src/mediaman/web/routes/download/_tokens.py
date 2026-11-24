@@ -168,3 +168,21 @@ def _unmark_token_used(token: str) -> None:
     conn = _get_db_or_none()
     if conn is not None:
         _release_used_token(conn, digest)
+
+
+def _unanswered_digest(token: str) -> str:
+    return _digest(f"unanswered add:{token}")
+
+
+def note_unanswered_add(conn: sqlite3.Connection, token: str, exp: int) -> None:
+    """Remember, until the link expires, that its add got no answer and may land later."""
+    claim_download_token(conn, digest=_unanswered_digest(token), exp=exp)
+
+
+def take_unanswered_add(conn: sqlite3.Connection, token: str, exp: int) -> bool:
+    """Whether an earlier add of this link got no answer; forgets it."""
+    digest = _unanswered_digest(token)
+    # A claim is refused only when the note is there.
+    noted = not claim_download_token(conn, digest=digest, exp=exp)
+    release_download_token(conn, digest)
+    return noted
