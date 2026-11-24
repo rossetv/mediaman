@@ -36,6 +36,7 @@
   var COPIED_MS = 2000;
   /* How long a title waits for its picture, which settles the hero's height, and for why it is a pick. */
   var PICTURE_WAIT_MS = 400;
+  var SEASON_WAIT_MS = 1500;
   /* How long after a close the next press of a double click can still come. */
   var DOUBLE_CLICK_MS = 600;
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
@@ -247,7 +248,8 @@
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
       picks: null,
       season: null,
-      chosen: false,        // the person picked the season
+      chosen: false,        // the person picked the season, or their link named it
+      pressed: false,       // something has been pressed since it came
       picked: null,         // the episodes of the season on show, when not the title's own
       seasonLoading: null,  // the season being loaded: { number }
       room: 0,              // what is left above the seasons, for them to stay where they were
@@ -439,16 +441,44 @@
   }
 
   /* The episodes of the season the link named, where the show opens on another: on its
-     own one if they cannot be had. */
+     own one if they cannot be had, or take long: they then come in their own time. */
   function afterSeason(c, data, then) {
     var s = (data.seasons || []).filter(function (one) { return one.number === c.opensOn && !one.selected; })[0];
     if (!s) { then(); return; }
+    var late = false;
+    function go() {
+      clearTimeout(timer);
+      if (!late) then();
+      late = true;
+    }
+    var timer = setTimeout(go, SEASON_WAIT_MS);
     get(apiUrl(c.ref) + '/season/' + s.number, c.ctrl).then(function (got) {
-      c.season = s.number;
-      c.picked = got.episodes || [];
-      s.key = got.key;
-      s.watched = got.watched;
-    }).catch(function () {}).then(then);
+      if (late) {
+        comeLate(c, s, got);
+        return;
+      }
+      takeSeason(c, s, got);
+      go();
+    }).catch(go);
+  }
+
+  /* The link's season, once the show stands open on its own: it takes over unless the person
+     has begun something there, or Keep would be of another season. */
+  function comeLate(c, s, got) {
+    if (c !== cur || !isOpen || c.pressed || !body.querySelector('.ttl__seasonsec')) return;
+    var active = document.activeElement;
+    if (active && active.closest && active.closest('.watch-episodes, .ttl__season-mark')) return;
+    var now = numbered(c.data, s.number);
+    if (!now) return;
+    var left = leavingNow();
+    var leaves = (c.data.leaving_seasons || []).filter(function (one) { return one.season === s.number && one.keep_id; })[0];
+    var keeps = left || hasFacts(c);
+    if (keeps && (left && left.id) !== (leaves ? String(leaves.keep_id) : null)) return;
+    var sec = body.querySelector('.ttl__seasonsec');
+    markSeason(sec, s.number);
+    var line = sec.querySelector('.watch-seasons');
+    if (line) showPill(line, 'auto');
+    showSeason(c, now, got, root.scrollTop ? null : titleEl);
   }
 
   /* A TMDB title found in the library opens as the library title. */
@@ -935,7 +965,8 @@
   }
 
   /* What of the title leaves, and a Keep here keeps: of a show the season the person
-     picked, else the one on the card it was opened from, else the first that goes.
+     picked; opened by a link that names a season, the one on show; else the one on the
+     card it was opened from, else the first that goes.
      Never another season than the one asked about. */
   function leavingNow() {
     var d = cur.data;
@@ -943,6 +974,7 @@
     if (d.kind !== 'movie') {
       found = (d.leaving_seasons || []).filter(function (s) {
         if (cur.chosen) return s.season === cur.season;
+        if (cur.opensOn !== undefined && d.seasons && d.seasons.length) return s.season === ownSeason(d).number;
         return !cur.cardKeep || String(s.keep_id) === cur.cardKeep;
       })[0];
     }
@@ -1831,6 +1863,11 @@
     return ol;
   }
 
+  function numbered(d, n) { return (d.seasons || []).filter(function (s) { return s.number === n; })[0]; }
+
+  /* The season a show opens on by itself. */
+  function ownSeason(d) { return d.seasons.filter(function (s) { return s.selected; })[0] || d.seasons[0]; }
+
   function seasonName(s) { return s.name || 'Season ' + s.number; }
 
   function episodesSection(d) {
@@ -1839,15 +1876,14 @@
     var head = el('div', 'ttl__sec-head');
     head.appendChild(el('h3', 'ttl__sec-title', 'Episodes'));
     sec.appendChild(head);
-    function numbered(n) { return d.seasons.filter(function (s) { return s.number === n; })[0]; }
-    var shown = cur.picked && numbered(cur.season);
+    var shown = cur.picked && numbered(d, cur.season);
     if (!shown) {
-      shown = d.seasons.filter(function (s) { return s.selected; })[0] || d.seasons[0];
+      shown = ownSeason(d);
       cur.season = shown ? shown.number : null;
       cur.picked = null;
       cur.chosen = false;
     }
-    if (cur.seasonLoading && !numbered(cur.seasonLoading.number)) cur.seasonLoading = null;
+    if (cur.seasonLoading && !numbered(d, cur.seasonLoading.number)) cur.seasonLoading = null;
     var mark = seasonMark(shown);
     if (mark) head.appendChild(mark);
     var pressed = cur.seasonLoading ? cur.seasonLoading.number : cur.season;
@@ -1930,6 +1966,36 @@
     if (sec) sec.style.marginTop = cur.room ? cur.room + 'px' : '';
   }
 
+  function takeSeason(c, s, data) {
+    c.season = s.number;
+    c.chosen = true;
+    c.picked = data.episodes || [];
+    s.key = data.key;
+    s.watched = data.watched;
+  }
+
+  /* Draw season *s* in place of the one on show. *still*: what stays where it stands, the
+     season's pill if not given. */
+  function showSeason(c, s, data, still) {
+    var leftOn = leavingNow();
+    takeSeason(c, s, data);
+    var leaves = leavingNow();
+    var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
+    var sec = body.querySelector('.ttl__seasonsec');
+    still = still || sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
+    holdStill(function () { return still; }, function () {
+      sec.querySelector('.watch-episodes').replaceWith(fresh);
+      if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
+        redrawActions(c.ref);
+        if (hasFacts(c)) renderFacts(false);
+      }
+      var oldMark = sec.querySelector('.ttl__season-mark');
+      var mark = seasonMark(s);
+      if (oldMark && mark) oldMark.replaceWith(mark);
+    });
+    core.fadeIn(fresh);
+  }
+
   /* A season pill swaps the list in place; focus stays on the pill. When the
      season will not load, the one on show stays and offers a retry. The section
      may be drawn again meanwhile, so it is looked up when the reply comes. */
@@ -1948,27 +2014,7 @@
     get(apiUrl(c.ref) + '/season/' + encodeURIComponent(s.number)).then(function (data) {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
-      var leftOn = leavingNow();
-      c.season = s.number;
-      c.chosen = true;
-      c.picked = data.episodes || [];
-      var leaves = leavingNow();
-      s.key = data.key;
-      s.watched = data.watched;
-      var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
-      var sec = body.querySelector('.ttl__seasonsec');
-      var pill = sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
-      holdStill(function () { return pill; }, function () {
-        sec.querySelector('.watch-episodes').replaceWith(fresh);
-        if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
-          redrawActions(c.ref);
-          if (hasFacts(c)) renderFacts(false);
-        }
-        var oldMark = sec.querySelector('.ttl__season-mark');
-        var mark = seasonMark(s);
-        if (oldMark && mark) oldMark.replaceWith(mark);
-      });
-      core.fadeIn(fresh);
+      showSeason(c, s, data);
     }).catch(function () {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
@@ -2287,6 +2333,8 @@
     if (!isOpen || root.contains(e.target) || allowedOutside(e.target)) return;
     titleEl.focus({ preventScroll: true });
   });
+
+  root.addEventListener('click', function () { if (cur && cur.data) cur.pressed = true; }, true);
 
   /* Where Close stays on screen, what scrolls under it is out of sight and of reach. */
   function markPast() {

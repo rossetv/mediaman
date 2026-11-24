@@ -844,6 +844,7 @@ const scenarios = {
     const root = p.ttl();
     root.scrollTop = 300;
     const mark = () => p.q('[data-ttl-act="mark-season"]');
+    const faces = mark().querySelector('.watch-mark-btn__faces').children.map((f) => [f.querySelectorAll('use').length, f.textContent]);
     Node.prototype.getBoundingClientRect = function () {
       return { top: 500 + (p.q('.ttl__progress') ? 40 : 0) - root.scrollTop, bottom: 20, left: 0, right: 20, width: 20, height: 20 };
     };
@@ -856,7 +857,7 @@ const scenarios = {
     seen = true;
     p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
     await settle();
-    return { before: was.look, after: look(), moved: top() - was.top, focus: p.doc.activeElement === mark() };
+    return { faces, before: was.look, after: look(), moved: top() - was.top, focus: p.doc.activeElement === mark() };
   },
 
   async noTrailerKey() {
@@ -1988,6 +1989,19 @@ const scenarios = {
     });
   },
 
+  // The window turns while a closed title is on its way out.
+  async turnedWhileLeaving() {
+    const p = load({ routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'show-300');
+    p.q('.ttl__bar').getBoundingClientRect = () => ({ top: 0, bottom: 56 });
+    p.q('.ttl__head').getBoundingClientRect = () => ({ top: 0, bottom: 0 });
+    p.key('Escape');
+    p.ttl().scrollTop = 60;
+    p.fireWindow('resize');
+    return p.ttl().classList.contains('is-past');
+  },
+
   // Opened by a link that names a season: the one on show and its episodes.
   async openOnSeason() {
     const run = async (href, season, seasons) => {
@@ -2002,6 +2016,39 @@ const scenarios = {
     const one = { key: '301', episodes: [{ ...LIB_SHOW.episodes[0], title: 'One One' }] };
     return { named: await run('/watch/show/300?season=1', one), own: await run('/watch/show/300?season=2', one),
       none: await run('/watch/show/300', one), gone: await run('/watch/show/300?season=9', one), failed: await run('/watch/show/300?season=1', new APIError(503, 'x')) };
+  },
+
+  // The season a link names is slow: what shows while it is, what it changes when it comes, and
+  // what Keep is of; then one that cannot be had.
+  async openOnSlowSeason() {
+    const look = (p) => ({ busy: p.ttl().hasAttribute('aria-busy'), on: p.ttl().querySelectorAll('.watch-pill').filter((n) => n.getAttribute('aria-pressed') === 'true').map((n) => n.textContent),
+      episode: p.text('.watch-ep__title'), keep: p.q('.watch-btn--keep') && p.q('.watch-btn--keep').getAttribute('aria-label') });
+    const open = async (over, meanwhile, how) => {
+      let answer = null;
+      const p = load({ routes: { '/api/watch/title/show-300': { ...LIB_SHOW, ...over },
+        '/api/watch/title/show-300/season/1': () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } });
+      const link = p.doc.body.appendChild(build(p.doc, ['a', { 'data-title-ref': 'show-300', href: '/watch/show/300?season=1' }, 'Season 1']));
+      p.run();
+      click(p.doc, link);
+      await settle();
+      const held = look(p);
+      const bound = Math.max(...p.timers.filter((t) => t.fn).map((t) => t.ms));
+      p.tick();
+      await settle();
+      const arrived = look(p);
+      if (meanwhile) meanwhile(p);
+      const focus = p.doc.activeElement;
+      if (how === 'failed') answer.reject(new APIError(503, 'x'));
+      else answer.resolve({ key: '301', watched: false, episodes: [{ ...LIB_SHOW.episodes[0], title: 'One One' }] });
+      await settle();
+      return { held, bound, arrived, came: look(p), focusKept: p.doc.activeElement === focus };
+    };
+    const both = { leaving_seasons: [{ days: 3, keep_id: '3010', season: 1 }, { days: 9, keep_id: '3020', season: 2 }] };
+    const none = { leaving: null, leaving_seasons: [] };
+    return { quiet: await open(none), appears: await open({}), otherKeep: await open(both),
+      pressed: await open(none, (p) => click(p.doc, p.q('.ttl__overview') || p.q('.ttl__body'))),
+      reading: await open(none, (p) => p.q('.watch-ep').focus()),
+      failed: await open(both, null, 'failed') };
   },
 
   // Opened by a link to its episodes: where it is scrolled and what has the focus once it has come;

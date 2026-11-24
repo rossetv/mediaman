@@ -784,6 +784,55 @@ def test_a_link_that_names_a_season_opens_the_show_on_it() -> None:
     assert out["failed"] == {**own, "asked": 1}
 
 
+def test_the_bar_of_close_is_left_alone_while_a_title_goes() -> None:
+    assert _run("turnedWhileLeaving") is False
+
+
+def test_each_face_of_the_watched_button_holds_its_own_icon() -> None:
+    assert _run("markedSeasonStays")["faces"] == [
+        [1, "Mark season as watched"],
+        [1, "Watched"],
+    ]
+
+
+def test_a_show_waits_only_so_long_for_the_season_its_link_names() -> None:
+    quiet = _run("openOnSlowSeason")["quiet"]
+    assert (quiet["held"]["busy"], quiet["bound"]) == (True, 1500)
+    assert quiet["arrived"] == {
+        "busy": False,
+        "on": ["Season 2"],
+        "episode": "Two One",
+        "keep": None,
+    }
+
+
+def test_the_named_season_takes_over_when_it_comes_late_and_focus_stays() -> None:
+    quiet = _run("openOnSlowSeason")["quiet"]
+    assert quiet["came"] == {
+        "busy": False,
+        "on": ["Season 1"],
+        "episode": "One One",
+        "keep": None,
+    }
+    assert quiet["focusKept"] is True
+
+
+def test_a_late_season_does_not_take_over_from_what_the_person_began() -> None:
+    out = _run("openOnSlowSeason")
+    for case in ("pressed", "reading"):
+        assert out[case]["came"] == out[case]["arrived"]
+        assert out[case]["focusKept"] is True
+
+
+def test_keep_is_of_the_season_on_show_and_a_late_one_never_changes_it() -> None:
+    out = _run("openOnSlowSeason")
+    assert out["appears"]["arrived"]["keep"] is None
+    assert out["appears"]["came"]["keep"] == "Keep Brightwater, Season 1"
+    for case in ("otherKeep", "failed"):
+        assert out[case]["came"]["on"] == ["Season 2"]
+        assert out[case]["came"]["keep"] == "Keep Brightwater, Season 2"
+
+
 def test_a_link_to_a_shows_episodes_opens_it_at_them_unless_the_person_has_moved_on() -> None:
     out = _run("openAtEpisodes")
     assert out["show"] == {"to": 876, "focus": "Episodes", "hash": "#title=show-300"}
