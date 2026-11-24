@@ -687,7 +687,9 @@ class TestHistoryPageMarkup:
         for i in range(_PER_PAGE_DEFAULT * 2 + 1):
             insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
         html = self._page(app_factory, authed_client, conn, "?page=2")
-        nav = re.search(r'<nav class="pagination" aria-label="([^"]+)">(.*?)</nav>', html, re.S)
+        nav = re.search(
+            r'<nav class="pagination hist-pager" aria-label="([^"]+)">(.*?)</nav>', html, re.S
+        )
         assert nav
         buttons = nav.group(2)
         assert 'aria-label="Previous page"' in buttons
@@ -702,6 +704,22 @@ class TestHistoryPageMarkup:
             insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
         html = self._page(app_factory, authed_client, conn, "")
         assert 'role="link" aria-label="Previous page" aria-disabled="true"' in html
+
+    def test_on_a_phone_only_the_arrows_and_the_page_count_remain(
+        self, app_factory, authed_client, conn
+    ):
+        for i in range(_PER_PAGE_DEFAULT * 9):
+            insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
+        html = self._page(app_factory, authed_client, conn, "?page=5")
+        nav = re.search(r'<nav class="pagination hist-pager".*?</nav>', html, re.S)[0]
+        classes = re.findall(r'<(?:a|span)[^>]*class="(page-btn[^"]*)"', nav)
+        shown_on_phone = [c for c in classes if "page-btn--num" not in c]
+        assert [("page-next" in c) for c in shown_on_phone] == [False, True]
+        assert len(classes) > 6  # numbers and an ellipsis are in the page, for wider screens
+        css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()
+        assert re.search(
+            r"max-width: 699\.98px\)\s*\{[^@]*\.hist-pager \.page-btn--num \{ display: none", css
+        )
 
     def test_the_last_row_does_not_double_the_card_border(self):
         css = (_TEMPLATE_DIR.parent / "static" / "css" / "_history.css").read_text()

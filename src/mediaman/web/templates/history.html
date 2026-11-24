@@ -12,7 +12,7 @@
     <p>Audit log of scans, deletions, keeps, and newsletter sends.</p>
   </div>
 
-  <div class="pill-row u-mb-24">
+  <div class="pill-row hist-filters u-mb-24">
     {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
     {% for at, at_label in action_types %}
     {{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}
@@ -49,7 +49,7 @@
   </div>
 
   {% if total_pages > 1 %}
-  <nav class="pagination" aria-label="History pages">
+  <nav class="pagination hist-pager" aria-label="History pages">
     {% if page > 1 %}
     <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}" class="page-btn" rel="prev" aria-label="Previous page">‹</a>
     {% else %}
@@ -58,18 +58,18 @@
 
     {% for p in range(1, total_pages + 1) %}
       {% if p == page %}
-      <span class="page-btn active" role="link" aria-current="page" aria-label="Page {{ p }}">{{ p }}</span>
+      <span class="page-btn page-btn--num active" role="link" aria-current="page" aria-label="Page {{ p }}">{{ p }}</span>
       {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn" aria-label="Page {{ p }}">{{ p }}</a>
+      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn page-btn--num" aria-label="Page {{ p }}">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
-      <span class="page-btn page-btn--ellipsis" aria-hidden="true">…</span>
+      <span class="page-btn page-btn--num page-btn--ellipsis" aria-hidden="true">…</span>
       {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn" rel="next" aria-label="Next page">›</a>
+    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn page-next" rel="next" aria-label="Next page">›</a>
     {% else %}
-    <span class="page-btn disabled" role="link" aria-label="Next page" aria-disabled="true">›</span>
+    <span class="page-btn page-next disabled" role="link" aria-label="Next page" aria-disabled="true">›</span>
     {% endif %}
 
     <span class="page-info">Page {{ page }} of {{ total_pages }}</span>

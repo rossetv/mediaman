@@ -60,6 +60,27 @@
   .hist-pill { grid-area: 3 / 1 / 4 / -1; }
 }
 
+/* Touch screens wider than a phone, where the pills and the button stay short: a 44px reach by an
+   invisible band, so they look the same. The bands of two rows of pills overlap by a few pixels,
+   which harms nothing. (Below 700px they are 44px tall already.) */
+@media (pointer: coarse) and (min-width: 700px) {
+  .hist-filters .fpill,
+  .hist-body .btn { position: relative; }
+  .hist-filters .fpill::after { content: ""; position: absolute; inset: -4.5px 0; }
+  .hist-body .btn::after { content: ""; position: absolute; inset: -7px 0; }
+}
+@media (pointer: coarse) {
+  .hist-pager .page-btn { min-width: 44px; height: 44px; }
+}
+
+/* Phone: the numbered pages give way to "Page 2 of 18" between the arrows, which keeps the row on one line. */
+@media (max-width: 699.98px) {
+  .hist-pager { justify-content: center; }
+  .hist-pager .page-btn--num { display: none; }
+  .hist-pager .page-info { order: 1; margin: 0; padding: 0 16px; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
+  .hist-pager .page-next { order: 2; }
+}
+
 @media (forced-colors: active) {
   .hist { border-bottom-color: CanvasText; }
   .hist-chev, .hist-sum:hover .hist-chev { color: ButtonText; }
