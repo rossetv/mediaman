@@ -126,7 +126,9 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 }
 
 .security-note { color: var(--t3); font-size: 12px; margin-top: 18px; text-align: center; line-height: 1.5; }
-.security-note a { color: var(--accent); }
+.security-note a { position: relative; color: var(--accent); }
+/* One 15px line of text: the press reaches 45px without moving the lines around it. */
+.security-note a::after { content: ""; position: absolute; inset: -15px -8px; }
 
 .error-msg {
   margin-bottom: 14px;

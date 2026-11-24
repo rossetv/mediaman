@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -147,6 +148,13 @@ def test_an_empty_second_password_is_not_sent_either() -> None:
 def test_new_passwords_that_match_are_sent_once() -> None:
     out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd!")
     assert (out["sent"], out["busy"], out["focused"]) == (True, True, "old_password")
+
+
+def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:
+    css = (WEB / "static" / "css" / "_login.css").read_text()
+    reach = re.search(r"\.security-note a::after \{[^}]*inset: -(\d+)px", css)
+    # the link's own box is one 12px line, 15px tall
+    assert reach and 15 + 2 * int(reach.group(1)) >= 44
 
 
 def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
