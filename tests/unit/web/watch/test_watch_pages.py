@@ -460,6 +460,34 @@ class TestWatchRows:
         assert banner["progress_pct"] == 40
         assert banner["ref"] == "show-500"
 
+    def test_with_nothing_half_watched_the_banner_offers_the_next_episode(self, get, conn):
+        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
+
+        ctx = get("/watch").json()
+
+        banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert (banner["title"], banner["ref"]) == ("The Long Coast", "show-500")
+        assert (banner["kicker"], banner["progress_pct"]) == ("Continue watching", None)
+        assert banner["line"] == 'Season 2 · Episode 1 — "Episode 521"'
+        assert banner["line_short"] == "S2 · E1"
+        assert banner["primary"] == {"label": "Play", "href": "/watch/play/521?from=%2Fwatch"}
+        assert banner["episodes_href"] == "/watch/show/500?season=2"
+        assert (banner["dismiss_ref"], banner["mark_key"]) == ("show-500", "521")
+        assert banner["primary"]["href"] == card["href"]
+        assert get("/watch", user="cian").json()["banner"]["title"] == "Glasshouse"
+
+    def test_what_is_half_watched_comes_before_a_next_episode_played_later(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100", minutes_ago=60)
+        _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
+
+        assert get("/watch").json()["banner"]["ref"] == "movie-100"
+
+        dismiss(conn, "aoife", "100", NOW)
+        assert get("/watch").json()["banner"]["ref"] == "show-500"
+
+        dismiss(conn, "aoife", "500", NOW)
+        assert get("/watch").json()["banner"]["kicker"] == "Recently added"
+
     def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
         assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
 

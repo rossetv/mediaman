@@ -504,9 +504,11 @@ def _continue_watching(
     movies: dict[str, lib.LibraryMovie],
     shows: dict[str, lib.LibraryShow],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """This person's Continue watching cards, and the banner for the most recent item in progress."""
+    """This person's Continue watching cards, and the banner: for the most recent item in
+    progress, else the next episode of the show they played last."""
     cards: list[dict[str, Any]] = []
     banner: dict[str, Any] | None = None
+    next_banner: dict[str, Any] | None = None
     for entry in continue_watching(conn, username):
         if len(cards) >= _CONTINUE_LIMIT:
             break
@@ -543,18 +545,28 @@ def _continue_watching(
         if entry.find_next or (progress.seen and not resumable(progress)):
             watched = show_progress(conn, username, show.key)
             episode = _next_unwatched(plex, show.key, key, watched)
-            if episode is not None:
-                cards.append(
-                    card(
-                        "show",
-                        show.title,
-                        episode_label(episode.season_index, episode.index),
-                        poster_url(show.key),
-                        play_href(episode.rating_key, origin="/watch"),
-                        mark=("episode", episode.rating_key),
-                        dismiss_ref=f"show-{show.key}",
-                    )
+            if episode is None:
+                continue
+            label = episode_label(episode.season_index, episode.index)
+            href = play_href(episode.rating_key, origin="/watch")
+            cards.append(
+                card(
+                    "show",
+                    show.title,
+                    label,
+                    poster_url(show.key),
+                    href,
+                    mark=("episode", episode.rating_key),
+                    dismiss_ref=f"show-{show.key}",
                 )
+            )
+            if next_banner is None:
+                line = _episode_line(episode.season_index, episode.index, episode.title)
+                next_banner = _banner(show.title, line, None, href, show.key, "show")
+                _mark_banner(next_banner, cards[-1])
+                next_banner["primary"]["label"] = "Play"
+                next_banner["line_short"] = label
+                next_banner["episodes_href"] = _episodes_href(show.key, episode.season_index)
             continue
 
         item = plex.call(_get_item, key)
@@ -578,15 +590,13 @@ def _continue_watching(
         )
         if banner is None:
             if item is not None:
-                line = f"Season {item.parent_index} · Episode {item.index}"
-                if item.title:
-                    line += f' — "{item.title}"'
+                line = _episode_line(item.parent_index, item.index, item.title)
                 line = " · ".join(p for p in (line, left_text) if p)
                 line_short = " · ".join(p for p in (label, left_text) if p)
-                episodes_href = f"/watch/show/{show.key}?season={item.parent_index}"
+                episodes_href = _episodes_href(show.key, item.parent_index)
             else:
                 line = line_short = left_text
-                episodes_href = f"/watch/show/{show.key}"
+                episodes_href = _episodes_href(show.key, None)
             banner = _banner(
                 show.title,
                 line,
@@ -598,7 +608,16 @@ def _continue_watching(
             _mark_banner(banner, cards[-1])
             banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
-    return cards, banner
+    return cards, banner or next_banner
+
+
+def _episode_line(season: int | None, episode: int | None, title: str) -> str:
+    line = f"Episode {episode or 0}" if season is None else f"Season {season} · Episode {episode}"
+    return f'{line} — "{title}"' if title else line
+
+
+def _episodes_href(show_key: str, season: int | None) -> str:
+    return f"/watch/show/{show_key}" + ("" if season is None else f"?season={season}")
 
 
 def _banner(
