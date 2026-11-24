@@ -62,7 +62,8 @@ class DownloadTokenPayload(TypedDict):
     tmdb: int | None
     """TMDB ID of the item, or ``None`` when unavailable."""
     sid: int | None
-    """Recommendation row ID, or ``None`` when not originating from a recommendation."""
+    """Recommendation row ID, or ``None`` when not originating from a recommendation. A
+    season's Re-Download link carries the ``audit_log`` ID of its deletion here instead."""
     exp: int | float
     """UNIX timestamp at which the token expires."""
 
