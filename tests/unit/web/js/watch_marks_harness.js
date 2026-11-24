@@ -136,8 +136,8 @@ function later() {
 }
 
 /* The Watch page whose Continue watching row holds *cards*, or has no row at all. */
-function continuePage(cards) {
-  return watchPage([['div', { class: 'watch-rows' }, ...(cards.length ? [row('cont', cards)] : []), row('lib', [card('movie/9', 'Other', 'Movie')])]]);
+function continuePage(cards, show) {
+  return watchPage([['div', { class: 'watch-rows' }, ...(cards.length ? [row('cont', cards)] : []), row('lib', [card('movie/9', 'Other', 'Movie'), ...(show ? [card('show/2', 'Brightwater', 'TV')] : [])])]]);
 }
 function episodeCard(key) { return card('episode/' + key, 'Brightwater', 'S1 · E' + (key - 20), { dismiss: 'show-2' }); }
 
@@ -263,6 +263,41 @@ const scenarios = {
     const gone = [p.marks('cont'), p.marks('grid')];
     await p.undo();
     return { gone, back: [p.marks('cont'), p.marks('grid')], calls: p.calls };
+  },
+
+  // With the rows hidden behind an open grid, an Undo gives the focus to what is shown; once the grid is closed, to the row.
+  async undoFocusInGrid() {
+    const go = async (act, { at, close, menu = true, toggle, inert, mark }) => {
+      const p = load(watchPage([['div', { id: 'rows' }, row('cont', CONTINUE), row('lib', [FILM(), card('movie/9', 'Other', 'Movie')])],
+        ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE, FILM(), card('movie/9', 'Other', 'Movie')]]),
+      { next: (n, calls) => watchPage([row('cont', calls.length > 1 ? CONTINUE : CONTINUE.slice(1))]) });
+      const hide = (id, on) => { p.doc.getElementById(id).hidden = on; };
+      p.doc.body.descendants().forEach((n) => { n.getClientRects = () => (n.closest('[hidden]') || !p.doc.body.contains(n) ? [] : [{}]); });
+      hide('rows', true);
+      if (inert) { hide('rows', false); p.doc.getElementById('rows').setAttribute('inert', ''); }
+      if (toggle) {
+        const b = p.doc.body.appendChild(build(p.doc, ['button', { 'data-mark-toggle': 'movie/9', 'data-mark-name': 'Other', 'aria-pressed': 'false' }]));
+        click(p.doc, b);
+        await settle();
+        b.remove();
+      } else if (menu) await p.pick(p.cards(at || 'grid')[mark || 0], act);
+      else { p.dismissed('movie-1'); await settle(); }
+      if (close) { hide('rows', false); p.doc.getElementById('grid').remove(); }
+      p.doc.activeElement = p.doc.body;
+      await p.undo();
+      const c = p.doc.activeElement.closest('.watch-card');
+      return c ? (c.closest('#grid') ? 'grid ' : c.closest('#cont') ? 'row ' : 'lib ') + (c.hasAttribute('data-dismiss-ref') ? 'continue' : 'library') : p.doc.activeElement.tagName;
+    };
+    return {
+      dismissed: await go('dismiss', {}),
+      fromPreview: await go('dismiss', { menu: false }),
+      watched: await go('mark', {}),
+      libraryCard: await go('mark', { mark: 3 }),
+      closed: await go('dismiss', { close: true }),
+      toggledElsewhere: await go('mark', { toggle: true }),
+      opening: await go('dismiss', { inert: true, menu: false }),
+      libraryClosed: await go('mark', { mark: 3, close: true }),
+    };
   },
 
   async dismissRefused() {
@@ -548,7 +583,7 @@ const scenarios = {
     await q.undo();
     const inBanner = q.doc.activeElement === b && q.banner();
     let keys = [23];
-    const o = load(continuePage([CONTINUE[0], episodeCard(22)]), { next: () => continuePage([CONTINUE[0], ...keys.map(episodeCard)]) });
+    const o = load(continuePage([CONTINUE[0], episodeCard(22)], true), { next: () => continuePage([CONTINUE[0], ...keys.map(episodeCard)], true) });
     await o.pick(o.cards()[1], 'mark');
     keys = [];
     await o.pick(o.cards()[1], 'mark');

@@ -134,6 +134,20 @@ def test_a_dismissal_in_a_row_opened_as_a_grid_leaves_both_and_comes_back_to_bot
     ]
 
 
+def test_an_undo_gives_the_focus_to_a_control_that_is_shown() -> None:
+    assert _run("undoFocusInGrid") == {
+        "dismissed": "grid continue",
+        "fromPreview": "grid continue",
+        "watched": "grid continue",
+        "libraryCard": "grid library",
+        "closed": "row continue",
+        "toggledElsewhere": "grid library",
+        # The rows on their way out are laid out and inert.
+        "opening": "grid continue",
+        "libraryClosed": "row continue",
+    }
+
+
 def test_a_dismissal_the_server_refuses_leaves_the_card() -> None:
     out = _run("dismissRefused")
     assert out == {"marks": ["movie/1", "episode/22", "movie/3"], "variant": "error"}

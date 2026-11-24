@@ -75,15 +75,24 @@
     return isBannerOf(banner, ref) ? banner : null;
   }
 
-  /* What a title is changed from in Continue watching, for the focus: its card's
-     More, or its banner's Dismiss, by where the change came from. */
-  function controlOf(ref, fromBanner) {
-    var card = continueCards(document, ref)[0];
+  /* What the title of *done* can be changed from, for the focus: the card it was
+     changed from, else its Continue watching card or its banner's Dismiss, by where
+     the change came from, else (*any*) another card of it. The rows stand hidden
+     behind an open grid: only what is shown. */
+  function controlOf(ref, done, any) {
     var banner = bannerOf(ref);
-    var more = card && card.querySelector('[data-watch-more]');
-    var button = banner && banner.querySelector('[data-watch-dismiss]');
-    return fromBanner ? button || more : more || button;
+    var buttons = banner ? [banner.querySelector('[data-watch-dismiss]')] : [];
+    var mores = moresOf(continueCards(document, ref));
+    var all = moresOf(done.card ? [done.card] : []).concat(done.fromBanner ? buttons.concat(mores) : mores.concat(buttons));
+    if (any) all = all.concat(moresOf(cardsOf(function (card) { return refOf(card) === ref; })));
+    return all.filter(canFocus)[0];
   }
+
+  function moresOf(cards) {
+    return cards.map(function (card) { return card.querySelector('[data-watch-more]'); }).filter(Boolean);
+  }
+
+  function canFocus(node) { return node.getClientRects().length > 0 && !node.closest('[inert]'); }
 
   /* ── One change at a time ──
      The buttons stay focusable (aria-disabled, not disabled) so focus never drops. */
@@ -327,7 +336,7 @@
     var fresh = doc.querySelector('.watch-banner');
     var own = isBannerOf(banner, ref) && (whole || now || !here.length);
     if (own || isBannerOf(fresh, ref)) replaceBanner(banner, fresh, done);
-    if (done.seek && focusLost(null)) refocus(controlOf(ref, done.fromBanner));
+    if (done.seek && focusLost(null)) refocus(controlOf(ref, done, true));
   }
 
   /* Bring one card up to date with what the server now says of its title. */
@@ -449,10 +458,10 @@
     return own ? own[1] + '-' + own[2] : given || '';
   }
 
-  function change(mark, watched, name, ref) {
+  function change(mark, watched, name, ref, card) {
     if (busy[mark]) return;
     // undos puts the page back; rows: Continue watching or the banner changed with it; redraw: it may come back there.
-    var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched };
+    var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched, card: card };
     ref = refOfMark(mark, ref);
     setBusy(mark, true);
     send(mark, watched).then(function (data) {
@@ -482,8 +491,8 @@
   function putBack(ref, done, part) {
     changes += 1;
     done.undos.splice(0).reverse().forEach(function (fn) { fn(); });
-    if (focusLost(null)) refocus(controlOf(ref, done.fromBanner));
-    return { undos: [], part: part, redraw: done.rows, fromBanner: done.fromBanner, seek: focusLost(null) };
+    if (focusLost(null)) refocus(controlOf(ref, done, !done.rows));
+    return { undos: [], part: part, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
 
   function undoChange(mark, watched, name, ref, done) {
@@ -585,7 +594,7 @@
     if (item.getAttribute('data-act') === 'dismiss') {
       dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
     } else {
-      change(card.getAttribute('data-mark'), !hasBadge(card), nameOf(card), refOf(card));
+      change(card.getAttribute('data-mark'), !hasBadge(card), nameOf(card), refOf(card), card);
     }
   }
 
