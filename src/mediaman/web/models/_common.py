@@ -109,10 +109,13 @@ def _validate_api_key(v: str | None) -> str | None:
     Rejects CR, LF, NUL, and non-ASCII so an injected key can never
     corrupt an HTTP header line.  An empty string (used by the UI to
     signal "leave unchanged") is passed through so the route can apply
-    its "****" / empty sentinel logic.
+    its "****" / empty sentinel logic.  A key of spaces alone is refused:
+    it is no key, and stored it would replace one.
     """
     if v is None or v == "" or v == "****":
         return v
+    if not v.strip():
+        raise ValueError("API key must not be spaces alone")
     if not _API_KEY_RE.match(v):
         raise ValueError("API key must be 1–1024 ASCII printable characters (no CR, LF, or NUL)")
     return v
