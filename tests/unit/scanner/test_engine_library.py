@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 from xml.etree.ElementTree import ParseError
 
 import pytest
+import requests
+from plexapi.exceptions import PlexApiException
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
-from tests.helpers.factories import insert_kept_show, insert_media_item
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
@@ -488,3 +491,140 @@ class TestSyncWithOneBadLibrary:
 
         assert summary["errors"] == 1
         assert {r[0] for r in conn.execute("SELECT id FROM media_items")} == {"10", "20"}
+
+
+class TestScanWithOneBadLibrary:
+    @pytest.fixture(autouse=True)
+    def _no_followups(self, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+
+    @staticmethod
+    def _item(key, path):
+        return {
+            "plex_rating_key": key,
+            "title": key,
+            "added_at": datetime(2020, 1, 1, tzinfo=UTC),
+            "file_path": str(path),
+            "file_size_bytes": 4,
+            "tracked_files": [{"path": str(path), "size": 4}],
+        }
+
+    def _scan(self, conn, mock_plex, listed, error=None):
+        """Scan libraries 1, which answers with *error*, and 2, which lists *listed*."""
+
+        def movies(library_id):
+            if library_id == "1":
+                raise error or PlexApiException("(500) internal_server_error")
+            return listed
+
+        mock_plex.get_movie_items.side_effect = movies
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1", "2"],
+            library_types={"1": "movie", "2": "movie"},
+            secret_key="test-key",
+        ).run_scan()
+
+    @staticmethod
+    def _scheduled(conn):
+        return {
+            r[0]
+            for r in conn.execute(
+                "SELECT media_item_id FROM scheduled_actions WHERE action = 'scheduled_deletion'"
+            )
+        }
+
+    @staticmethod
+    def _due(conn, key, file, library):
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(b"data")
+        insert_media_item(
+            conn, id=key, plex_rating_key=key, plex_library_id=library, file_path=str(file)
+        )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = ?",
+            (json.dumps([{"path": str(file), "size": 4}]), key),
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="scheduled_deletion",
+            token=f"tok-{key}",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+        conn.commit()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SafeHTTPError(status_code=502, body_snippet="bad gateway", url="http://plex"),
+            PlexApiException("(500) internal_server_error"),
+            requests.ConnectionError("refused"),
+            ParseError("no element found"),
+        ],
+        ids=["safe_http", "plexapi", "connection", "bad_xml"],
+    )
+    def test_the_other_libraries_are_scanned_and_its_own_items_stay(self, conn, mock_plex, error):
+        insert_media_item(conn, id="10", plex_rating_key="10", plex_library_id=1)
+        conn.commit()
+
+        summary = self._scan(conn, mock_plex, [self._item("20", "/media/film.mkv")], error)
+
+        assert summary["errors"] == 1
+        assert self._scheduled(conn) == {"20"}
+        assert {r[0] for r in conn.execute("SELECT id FROM media_items")} == {"10", "20"}
+
+    def test_an_item_at_the_place_of_one_of_its_own_is_not_scheduled(self, conn, mock_plex):
+        insert_media_item(
+            conn, id="10", plex_rating_key="10", plex_library_id=1, file_path="/media/film.mkv"
+        )
+        conn.commit()
+
+        self._scan(
+            conn,
+            mock_plex,
+            [self._item("20", "/media/film.mkv"), self._item("21", "/media/other.mkv")],
+        )
+
+        assert self._scheduled(conn) == {"21"}
+
+    def test_due_deletions_run_but_for_its_own(self, conn, mock_plex, tmp_path, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["1", "2"]', '2026')"""
+        )
+        own, other = tmp_path / "own" / "own.mkv", tmp_path / "other" / "other.mkv"
+        self._due(conn, "10", own, 1)
+        self._due(conn, "20", other, 2)
+
+        summary = self._scan(conn, mock_plex, [self._item("20", other)])
+
+        assert (summary["deleted"], own.exists(), other.exists()) == (1, True, False)
+        assert self._scheduled(conn) == {"10"}
+
+    def test_a_due_folder_of_another_library_that_holds_one_of_its_own_is_left(
+        self, conn, mock_plex, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["1", "2"]', '2026')"""
+        )
+        outer, inner = tmp_path / "Box" / "outer.mkv", tmp_path / "Box" / "in" / "inner.mkv"
+        self._due(conn, "10", inner, 1)
+        self._due(conn, "20", outer, 2)
+        conn.execute("UPDATE media_items SET file_path = ? WHERE id = '20'", (str(outer.parent),))
+        conn.commit()
+        item = {**self._item("20", outer), "file_path": str(outer.parent)}
+
+        self._scan(conn, mock_plex, [item])
+
+        assert inner.exists()
+        assert self._scheduled(conn) == {"10", "20"}

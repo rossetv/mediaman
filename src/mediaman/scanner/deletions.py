@@ -21,7 +21,7 @@ import logging
 import os
 import re
 import sqlite3
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from pathlib import Path
@@ -1152,10 +1152,11 @@ class DeletionExecutor:
         self._radarr = radarr_client
         # Action row id -> the folder found missing or empty that holds it back.
         self._waiting: dict[int, str] = {}
+        self._unread_libraries: Collection[str] = ()
         self._turn = ArrTurn()
 
-    def execute(self) -> DeletionResult:
-        """Run the deletion pass.
+    def execute(self, *, unread_libraries: Collection[str] = ()) -> DeletionResult:
+        """Run the deletion pass; the items of *unread_libraries* (Plex ids) wait.
 
         Returns a dict with ``deleted`` count and ``reclaimed_bytes``
         total. Cleans up expired snoozes before returning unless
@@ -1173,6 +1174,7 @@ class DeletionExecutor:
         6. Live: ask Radarr/Sonarr to rescan what was unmonitored, then or by an earlier run.
         """
         now = now_utc()
+        self._unread_libraries = unread_libraries
         self._turn = ArrTurn()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
@@ -1199,7 +1201,9 @@ class DeletionExecutor:
         due = [
             row
             for row in rows
-            if row.library_selected and not is_kept_deletion(self._conn, row.id, now.isoformat())
+            if row.library_selected
+            and row.library_id not in self._unread_libraries
+            and not is_kept_deletion(self._conn, row.id, now.isoformat())
         ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
         waiting: dict[str, list[int]] = {}
@@ -1268,6 +1272,14 @@ class DeletionExecutor:
                 )
         else:
             for row in rows:
+                if row.library_id in self._unread_libraries:
+                    logger.info(
+                        "engine.delete.library_unread id=%s media_id=%s — Plex failed to answer "
+                        "for its library; leaving the row pending",
+                        row.id,
+                        row.media_item_id,
+                    )
+                    continue
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
@@ -1474,7 +1486,10 @@ class DeletionExecutor:
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
         closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
-        unsettled = any(other.removal_intent for other in co_located)
+        unsettled = any(
+            other.removal_intent or other.library_id in self._unread_libraries
+            for other in co_located
+        )
         for done in closing if not unsettled else []:
             intent = {
                 str(Path(file)): stamps.get(str(Path(file))) for file in tracked_paths(done) or []

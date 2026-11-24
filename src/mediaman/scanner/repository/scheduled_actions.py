@@ -147,6 +147,7 @@ class DeletionRow:
     removal_intent: dict[str, list[int] | None] = field(default_factory=dict)
     # Whether the item's Plex library is ticked in Settings.
     library_selected: bool = True
+    library_id: str | None = None
 
 
 def tracked_paths(row: DeletionRow) -> list[str] | None:
@@ -176,7 +177,7 @@ _DELETION_COLUMNS = (
     "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
     "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
     "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files, "
-    f"{LIBRARY_SELECTED} AS library_selected"
+    f"{LIBRARY_SELECTED} AS library_selected, CAST(mi.plex_library_id AS TEXT) AS library_id"
 )
 
 
@@ -334,6 +335,7 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         left_paths=removed.left,
         removal_intent=removed.intent,
         library_selected=bool(row["library_selected"]),
+        library_id=row["library_id"],
     )
 
 
@@ -698,7 +700,7 @@ _MARK_COLUMNS = (
     "p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
     "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
     "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
-    "1 AS library_selected"
+    "1 AS library_selected, NULL AS library_id"
 )
 _MARKS = (
     "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
