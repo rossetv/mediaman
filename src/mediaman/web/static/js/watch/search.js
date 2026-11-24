@@ -479,9 +479,14 @@
     return node;
   }
 
+  // As the server's own search reads them.
+  var LETTERS = { 'æ': 'ae', 'œ': 'oe', 'ø': 'o', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ł': 'l', 'ħ': 'h', 'ı': 'i', 'ß': 'ss', '&': 'and' };
+  var APOSTROPHE = /[\p{M}'’‘ʼ′`´]/u;
+
   /* The letters and digits of *text*, without case or accents; "&" is "and". */
   function folded(text) {
-    return String(text || '').toLowerCase().replace(/&/g, 'and').normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '');
+    return String(text || '').toLowerCase().replace(/[ʼ™℠]/g, '').normalize('NFKD')
+      .replace(/[æœøđðþłħıß&]/g, function (char) { return LETTERS[char]; }).replace(/[^\p{L}\p{N}]/gu, '');
   }
 
   /* Where *typed* begins a word of *text*, as [from, to], or null; spaces, accents and
@@ -496,7 +501,7 @@
     var first = []; // whether it begins a word
     var inWord = false;
     text.replace(/[\s\S]/gu, function (char, at) {
-      var letters = char === '&' ? 'and' : folded(char);
+      var letters = folded(char);
       for (var i = 0; i < letters.length; i++) {
         first.push(!i && (!inWord || char === '&'));
         from.push(at);
@@ -504,7 +509,7 @@
       }
       plain += letters;
       // An accent of its own and an apostrophe are inside their word.
-      inWord = char !== '&' && (letters !== '' || (inWord && /[\p{M}'’‘`]/u.test(char)));
+      inWord = char !== '&' && (letters !== '' || (inWord && APOSTROPHE.test(char)));
       return char;
     });
     for (var at = plain.indexOf(want); at > -1; at = plain.indexOf(want, at + 1)) {

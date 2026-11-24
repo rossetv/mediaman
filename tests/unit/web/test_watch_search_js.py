@@ -285,6 +285,9 @@ def test_what_is_typed_begins_a_word_whatever_its_accents_and_punctuation() -> N
         None,
         None,
         None,
+        "Smørr",
+        "Straße",
+        "Xʼs Own",
     ]
 
 

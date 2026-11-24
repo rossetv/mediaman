@@ -747,7 +747,7 @@ const scenarios = {
     const out = [];
     for (const [title, q] of [['Amélie', 'ame'], ['Amelie', 'Amé'], ['The Handmaid’s Tale', 'handmaids'], ['The Amazing Spider-Man', 'spiderman'],
       ['Spiderman Returns', 'spider-man'], ['WALL·E', 'wall-e'], ['Law & Order', 'law and'], ['Law and Order', 'law & o'], ['A & B', 'b'],
-      ['S.W.A.T.', 'swat'], ['Se7en!', 'se7en!'], ['…And Then', '…'], ['Anthill', 'hill'], ['O’Hara', 'hara'], ['Salt', '!']]) out.push(await typed(title, q));
+      ['S.W.A.T.', 'swat'], ['Se7en!', 'se7en!'], ['…And Then', '…'], ['Anthill', 'hill'], ['O’Hara', 'hara'], ['Salt', '!'], ['Smørrebrød', 'smorr'], ['Straße', 'strasse'], ['Xʼs Own™', 'xs own']]) out.push(await typed(title, q));
     return out;
   },
 
