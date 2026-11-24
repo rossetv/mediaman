@@ -109,6 +109,8 @@ _ADDED_COLUMNS = (
     ("plex_links", "libraries", "TEXT"),
     ("plex_links", "last_tried_at", "TEXT"),
     ("plex_plays", "library_id", "TEXT"),
+    ("suggestions", "adult_checked", "INTEGER"),
+    ("user_picks", "adult_checked", "INTEGER"),
 )
 
 

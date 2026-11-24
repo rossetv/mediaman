@@ -270,7 +270,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
     batch_id TEXT,
     downloaded_at TEXT,
     created_at TEXT NOT NULL,
-    backdrop_url TEXT
+    backdrop_url TEXT,
+    adult_checked INTEGER
 );
 
 -- One person's own AI picks. Apart from suggestions, whose rows everyone sees.
@@ -304,6 +305,7 @@ CREATE TABLE IF NOT EXISTS user_picks (
     batch_id TEXT NOT NULL,
     downloaded_at TEXT,
     created_at TEXT NOT NULL,
+    adult_checked INTEGER,
     UNIQUE (username, batch_id, media_type, tmdb_id)
 );
 CREATE INDEX IF NOT EXISTS idx_user_picks_user_batch ON user_picks(username, batch_id);

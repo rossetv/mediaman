@@ -80,7 +80,8 @@ def enrich_recommendations(
     """Enrich recommendations in place with TMDB data and OMDb ratings, sharing one
     TmdbClient. *secret_key* decrypts the stored API credentials.
 
-    A title TMDB answered it does not know is dropped, as is one *accept* refuses once its
+    A title TMDB answered it does not know, or whose details say it is an adult one, is
+    dropped, as is one *accept* refuses once its
     TMDB id and year are known, and any past *limit*; TMDB not answering drops nothing.
     After *seconds*, or two calls TMDB did not answer, what is left stays as it is.
 
@@ -100,9 +101,7 @@ def enrich_recommendations(
             break
         if (client is None or _find_on_tmdb(client, s, budget)) and accept(s):
             kept.append(s)
-    recommendations[:] = kept
-    for s in recommendations:
-        _fill_details(client, s, conn, secret_key, budget)
+    recommendations[:] = [s for s in kept if _fill_details(client, s, conn, secret_key, budget)]
 
 
 def _spelling(title: str) -> str:
@@ -214,7 +213,8 @@ def _fill_details(
     conn: sqlite3.Connection,
     secret_key: str,
     budget: _Budget,
-) -> None:
+) -> bool:
+    """Give *s* its details and ratings; False when its details say it is an adult title."""
     from mediaman.services.media_meta.omdb import fetch_ratings
 
     tmdb_id = s.get("tmdb_id")
@@ -222,7 +222,10 @@ def _fill_details(
         data = client.details(s["media_type"], tmdb_id)
         if data is None:
             budget.tmdb_failed()
+        if data and data.get("adult"):
+            return False
         if data:
+            s["adult_checked"] = 1
             apply_tmdb_detail(
                 cast(dict[str, object], s),
                 client.shape_detail(data, media_type=s["media_type"]),
@@ -231,7 +234,7 @@ def _fill_details(
 
     title = s.get("title")
     if not title or not budget.has_time():
-        return
+        return True
     omdb_title = strip_season_suffix(title) or title if s["media_type"] == "tv" else title
     ratings = fetch_ratings(
         omdb_title, s.get("year"), s["media_type"], conn=conn, secret_key=secret_key
@@ -245,3 +248,44 @@ def _fill_details(
     if s.get("rating") is None and "imdb" in ratings:
         with contextlib.suppress(TypeError, ValueError):
             s["rating"] = round(float(ratings["imdb"]), 1)
+    return True
+
+
+def drop_adult_picks(
+    conn: sqlite3.Connection, secret_key: str, *, clock: Callable[[], float] = time.monotonic
+) -> None:
+    """Delete the stored picks, shared and own, whose TMDB details say they are adult titles.
+
+    Each title is asked about until TMDB answered for it, newest first, within the time and
+    the failures one batch may take; one TMDB no longer has counts as answered.
+    """
+    from mediaman.services.media_meta.tmdb import TmdbClient
+
+    client = TmdbClient.from_db(conn, secret_key)
+    if client is None:
+        return
+    rows = conn.execute(
+        "SELECT media_type, tmdb_id, MAX(batch_id) FROM ("
+        " SELECT media_type, tmdb_id, batch_id, adult_checked FROM suggestions"
+        " UNION ALL SELECT media_type, tmdb_id, batch_id, adult_checked FROM user_picks)"
+        " WHERE tmdb_id IS NOT NULL AND adult_checked IS NULL GROUP BY 1, 2 ORDER BY 3 DESC"
+    ).fetchall()
+    budget = _Budget(ENRICH_SECONDS, clock)
+    for row in rows:
+        if not budget.may_ask_tmdb():
+            return
+        title = (row["media_type"], row["tmdb_id"])
+        adult = False
+        try:
+            adult = bool(client.details_or_raise(*title).get("adult"))
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            if not (isinstance(exc, SafeHTTPError) and exc.status_code == 404):
+                budget.tmdb_failed()
+                continue
+        change = "DELETE FROM {}" if adult else "UPDATE {} SET adult_checked = 1"
+        with conn:
+            for table in ("suggestions", "user_picks"):
+                # rationale: only the fixed fragments above are interpolated; values are bound
+                conn.execute(  # nosec B608
+                    f"{change.format(table)} WHERE media_type = ? AND tmdb_id = ?", title
+                )

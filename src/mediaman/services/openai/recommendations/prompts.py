@@ -102,6 +102,7 @@ _SHARED_RULES = """How to choose:
 - Only real, released titles that you are sure exist. Leave out any you are unsure of.
 - At most one title from any franchise, and at most two with the same lead actor or director.
 - No title twice. No other season of a listed show.
+- No adult or pornographic titles.
 
 How to write "reason":
 - One or two short sentences, at most 200 characters in total.

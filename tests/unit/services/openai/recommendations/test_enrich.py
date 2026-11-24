@@ -14,7 +14,12 @@ import pytest
 import requests
 
 from mediaman.db import init_db
-from mediaman.services.openai.recommendations.enrich import enrich_recommendations
+from mediaman.services.infra import SafeHTTPError
+from mediaman.services.openai.recommendations.enrich import (
+    drop_adult_picks,
+    enrich_recommendations,
+)
+from tests.helpers.factories import insert_suggestion, insert_user_pick
 
 _SECRET_KEY = "x" * 64
 
@@ -257,10 +262,77 @@ def enrich(conn, monkeypatch):
     return run
 
 
+class TestStoredPicks:
+    @pytest.fixture
+    def tmdb(self, conn, monkeypatch):
+        """TMDB with the stored picks 1 to 4: 2 is adult, 3 is gone and 4 gives no answer."""
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at)"
+            " VALUES ('amy', 'x', '2020')"
+        )
+        for number in (1, 2, 3, 4):
+            insert_suggestion(conn, title=f"S{number}", tmdb_id=number)
+            insert_user_pick(conn, "amy", title=f"U{number}", tmdb_id=number)
+        insert_suggestion(conn, title="No id")
+        conn.commit()
+        client = MagicMock(asked=[])
+
+        def details(media_type, tmdb_id):
+            client.asked.append((media_type, tmdb_id))
+            if tmdb_id == 3:
+                raise SafeHTTPError(404, "", "https://api.example/3/movie/3")
+            if tmdb_id == 4:
+                raise requests.ConnectionError("down")
+            return {"id": tmdb_id, "adult": tmdb_id == 2}
+
+        client.details_or_raise = details
+        monkeypatch.setattr(
+            "mediaman.services.media_meta.tmdb.TmdbClient.from_db", lambda *_a: client
+        )
+        return client
+
+    def _left(self, conn) -> list[str]:
+        rows = conn.execute("SELECT title FROM suggestions UNION SELECT title FROM user_picks")
+        return sorted(r["title"] for r in rows)
+
+    def test_an_adult_one_goes_from_both_tables_and_any_other_stays(self, conn, tmdb):
+        drop_adult_picks(conn, _SECRET_KEY)
+        assert self._left(conn) == ["No id", "S1", "S3", "S4", "U1", "U3", "U4"]
+
+    def test_only_one_that_got_no_answer_is_asked_about_again(self, conn, tmdb):
+        drop_adult_picks(conn, _SECRET_KEY)
+        tmdb.asked.clear()
+        drop_adult_picks(conn, _SECRET_KEY)
+        assert tmdb.asked == [("movie", 4)]
+
+    def test_an_outage_is_met_twice_at_most(self, conn, tmdb):
+        conn.execute("UPDATE suggestions SET tmdb_id = 4, media_type = 'tv' WHERE id = 1")
+        for n in range(5):
+            insert_suggestion(conn, title=f"T{n}", tmdb_id=10 + n)
+        conn.commit()
+        calls = []
+
+        def down(*args):
+            calls.append(args)
+            raise requests.ConnectionError("down")
+
+        tmdb.details_or_raise = down
+        drop_adult_picks(conn, _SECRET_KEY)
+        assert len(calls) == 2
+
+
 class TestWhichPicksAreKept:
     def test_a_title_tmdb_does_not_know_is_dropped(self, enrich):
         tmdb = _Tmdb({("Real", None): 5})
         assert enrich(tmdb, [_rec("Made up"), _rec("Real")]) == [("Real", 5)]
+
+    def test_a_title_whose_details_say_adult_is_dropped(self, enrich):
+        tmdb = _Tmdb({("Real", None): 5, ("Adult", None): 6})
+        tmdb.details = lambda _type, tmdb_id: {"id": tmdb_id, "adult": tmdb_id == 6}
+        tmdb.shape_detail = lambda *_a, **_k: _shape_detail_empty()
+        recs = [_rec("Real"), _rec("Adult")]
+        assert enrich(tmdb, recs) == [("Real", 5)]
+        assert recs[0]["adult_checked"] == 1
 
     def test_an_outage_of_tmdb_drops_nothing_and_is_asked_about_twice_at_most(self, enrich):
         tmdb = _Tmdb({}, down=True)

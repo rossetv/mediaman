@@ -36,3 +36,5 @@ class RecommendationItem(TypedDict):
     trailer_key: NotRequired[str | None]
     metascore: NotRequired[str | None]
     backdrop_url: NotRequired[str | None]
+    # 1 once TMDB's details said the title is not an adult one.
+    adult_checked: NotRequired[int | None]

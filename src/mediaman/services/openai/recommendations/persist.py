@@ -13,7 +13,10 @@ from mediaman.core.time import now_utc
 from mediaman.services.downloads.download_format._parsing import normalise_for_match
 from mediaman.services.openai.recommendations import user_picks
 from mediaman.services.openai.recommendations._types import RecommendationItem
-from mediaman.services.openai.recommendations.enrich import enrich_recommendations
+from mediaman.services.openai.recommendations.enrich import (
+    drop_adult_picks,
+    enrich_recommendations,
+)
 from mediaman.services.openai.recommendations.prompts import (
     generate_trending,
     strip_season_suffix,
@@ -133,7 +136,7 @@ def _match_downloaded(
 _STORED = (
     "title, media_type, year, tmdb_id, imdb_id, description, reason, poster_url, trailer_url, "
     "rating, rt_rating, tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, "
-    "metascore, backdrop_url"
+    "metascore, backdrop_url, adult_checked"
 )
 
 
@@ -240,8 +243,10 @@ def refresh_recommendations(
     secret_key: str,
 ) -> int:
     """Generate the new and popular recommendations everyone sees; returns the count
-    generated. No viewing data goes into them. Every run replaces today's batch.
+    generated. No viewing data goes into them. Every run replaces today's batch, and drops
+    the stored picks, the people's own too, that TMDB holds for adult titles.
     """
+    drop_adult_picks(conn, secret_key)
     now = now_utc()
     earlier = recent_rows(conn, now)
     trending = generate_trending(

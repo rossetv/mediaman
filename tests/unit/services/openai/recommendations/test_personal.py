@@ -10,6 +10,7 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.scanner.repository.media_items import delete_media_items
+from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations import personal, prompts, user_picks
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from mediaman.services.openai.recommendations.plays import person_plays
@@ -603,6 +604,26 @@ class TestRefreshLimits:
 
 
 class TestSharedPicks:
+    def test_every_run_drops_stored_picks_found_to_be_adult_and_marks_its_own_as_checked(
+        self, conn, openai, monkeypatch
+    ):
+        insert_suggestion(conn, title="Adult", tmdb_id=6, batch_id="2026-05-01")
+        conn.commit()
+        client = MagicMock()
+        client.search_results_or_raise.return_value = [{"id": 5, "title": "New"}]
+        client.details_or_raise.side_effect = lambda _t, n: {"id": n, "adult": n == 6}
+        client.details.return_value = {"id": 5, "adult": False}
+        client.shape_card = TmdbClient.shape_card
+        client.shape_detail = TmdbClient.shape_detail
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a: client)
+        openai.items = [_pick("New")]
+
+        refresh_recommendations(conn, secret_key=_KEY)
+
+        rows = conn.execute("SELECT title, adult_checked FROM suggestions").fetchall()
+        assert [tuple(r) for r in rows] == [("New", 1)]
+        assert "adult" in openai.prompts[0]
+
     def test_the_shared_batch_leaves_out_what_the_library_holds_or_it_had_lately(
         self, conn, openai
     ):
