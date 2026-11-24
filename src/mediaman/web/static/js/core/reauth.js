@@ -144,10 +144,7 @@
         if (document.activeElement === input) input.blur();
         if (closeOpen === modal.close) closeOpen = null;
         /* The exit is 150 ms and the modal gives up waiting for it at 250 ms; 400 is past both. */
-        setTimeout(function () {
-          if (document.activeElement === input) input.blur();
-          backdrop.remove();
-        }, 400);
+        setTimeout(function () { backdrop.remove(); }, 400);
         if (!done) {
           done = true;
           if (typeof opts.onCancel === 'function') opts.onCancel();
