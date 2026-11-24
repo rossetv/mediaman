@@ -279,9 +279,14 @@
         card.style.top = from.top + 'px';
         card.style.width = from.width + 'px';
         host.appendChild(card);
-        animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.96)' }], {
+        var fade = animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.96)' }], {
           duration: core.tokenMs('--dur', 200), fill: 'forwards'
-        }).onfinish = function () { if (card.classList.contains('is-gone')) card.remove(); };
+        });
+        fade.onfinish = function () {
+          if (!card.classList.contains('is-gone')) return;
+          card.remove();
+          fade.cancel(); // held, it would hide the card put back by an Undo
+        };
       });
       var n = 0;
       onScreen().forEach(function (card) {

@@ -255,6 +255,10 @@ def test_a_card_taken_out_lets_the_rest_close_up_and_comes_back_to_its_place() -
     assert out["left"] == 0
 
 
+def test_a_card_undone_after_it_faded_out_of_the_grid_is_seen_again() -> None:
+    assert _run("backFromAFade") == {"off": True, "held": False, "back": 2}
+
+
 def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it() -> None:
     out = _run("bringsBack")
     every = list(range(1, 13))

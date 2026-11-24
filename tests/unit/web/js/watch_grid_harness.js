@@ -559,6 +559,22 @@ const scenarios = {
     return { notHere, moved, ghost, gone, refs: p.refs().slice(0, 3), count: p.doc.querySelector('.watch-all__count').textContent, back: back.getAttribute('data-title-ref'), left: p.leftovers() + (card.classList.contains('is-gone') ? 1 : 0) };
   },
 
+  // Undone once the card has faded out: nothing it was left with holds it unseen. A card off the page lists no animations.
+  async backFromAFade() {
+    const p = load({ motion: true });
+    Node.prototype.getAnimations = function () { return p.doc.body.contains(this) ? p.anims.filter((a) => a.node === this && !a.cancelled) : []; };
+    p.grid.open(p.opts());
+    p.finish();
+    p.anims.length = 0;
+    const card = p.doc.querySelectorAll('.watch-all .watch-card')[1];
+    const took = p.grid.take(card, '.watch-card__link');
+    const fade = p.anims.find((a) => a.node === card);
+    p.finish();
+    const off = !p.doc.body.contains(card);
+    took.undo();
+    return { off, held: !fade.cancelled && fade.opts.fill === 'forwards', back: p.refs()[1] };
+  },
+
   // A card comes back to its row: to the grid too where that was filled without it, once, and to its own place.
   async bringsBack() {
     const inOrder = (p, sort) => { const ns = p.rows[0].querySelectorAll('[data-title-ref]').map((a) => Number(a.getAttribute('data-title-ref').slice(6)));
