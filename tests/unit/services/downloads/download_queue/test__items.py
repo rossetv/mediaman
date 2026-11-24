@@ -205,6 +205,19 @@ class TestAbandonVisibleThreshold:
         item = self._make_item(added_at=0.0)
         assert item["abandon_visible"] is False
 
+    def test_hidden_on_a_show_with_no_season_to_unmonitor(self):
+        arr = make_arr_card("series", "Show", source="Sonarr")
+        arr["added_at"] = __import__("time").time() - 48 * 3600
+        with patch(
+            "mediaman.services.arr.search_trigger.get_search_info",
+            return_value=(5, 1.0),
+        ):
+            bare = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+            arr["stuck_seasons"] = [{"number": 1, "missing_episodes": 3}]
+            with_season = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert bare["abandon_visible"] is False
+        assert with_season["abandon_visible"] is True
+
 
 def _ep_with_season(label: str, season_number: int) -> dict:
     """Episode entry in 'searching' state — size=0, no active status."""

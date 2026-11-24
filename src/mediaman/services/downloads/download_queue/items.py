@@ -165,7 +165,11 @@ def _build_unmatched_series_item(
         else ""
     )
     raw_episodes = arr.get("episodes", [])
-    stuck_seasons = _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
+    stuck_seasons = (
+        arr.get("stuck_seasons") or _stuck_seasons_from_episodes(raw_episodes)
+        if state == "searching"
+        else []
+    )
     return build_item(
         dl_id=arr.get("dl_id", ""),
         title=arr.get("title", "Unknown"),
@@ -185,7 +189,8 @@ def _build_unmatched_series_item(
         search_hint=search_hint,
         arr_link=build_arr_link(arr, arr_base_urls),
         arr_source=arr.get("source", ""),
-        abandon_visible=(state == "searching" and abandon_visible_now),
+        # Without a season there is nothing Abandon could unmonitor.
+        abandon_visible=(state == "searching" and abandon_visible_now and bool(stuck_seasons)),
         stuck_seasons=stuck_seasons,
         arr_id=arr.get("arr_id") or 0,
         kind="series",

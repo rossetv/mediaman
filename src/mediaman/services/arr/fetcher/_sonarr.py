@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 import requests
 
 from mediaman.services.arr import ArrError
-from mediaman.services.arr._types import ArrEpisode
+from mediaman.services.arr._types import ArrEpisode, SonarrSeries
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
@@ -207,6 +207,22 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     return items
 
 
+def _monitored_seasons(series: SonarrSeries) -> list[dict[str, int]]:
+    """Return the monitored seasons of a series without files, with the episodes each misses.
+
+    A season still to air counts none missing but is listed: left monitored, it keeps
+    the series searching after the others are abandoned.
+    """
+    return [
+        {
+            "number": season["seasonNumber"],
+            "missing_episodes": (season.get("statistics") or {}).get("episodeCount", 0),
+        }
+        for season in series.get("seasons") or []
+        if season.get("monitored") and isinstance(season.get("seasonNumber"), int)
+    ]
+
+
 def _build_still_searching_cards(
     client: ArrClient, queue_series_title_years: set[tuple[str, int | None]]
 ) -> list[ArrCard]:
@@ -259,20 +275,20 @@ def _build_still_searching_cards(
 
         poster_url = extract_poster_url(series.get("images"))
 
-        items.append(
-            make_arr_card(
-                "series",
-                s_title,
-                source="Sonarr",
-                poster_url=poster_url,
-                arr_id=series_id,
-                title_slug=series.get("titleSlug", ""),
-                added_at=added_at,
-                released_at=released_at,
-                is_upcoming=is_upcoming,
-                release_label=release_label,
-            )
+        card = make_arr_card(
+            "series",
+            s_title,
+            source="Sonarr",
+            poster_url=poster_url,
+            arr_id=series_id,
+            title_slug=series.get("titleSlug", ""),
+            added_at=added_at,
+            released_at=released_at,
+            is_upcoming=is_upcoming,
+            release_label=release_label,
         )
+        card["stuck_seasons"] = _monitored_seasons(series)
+        items.append(card)
     return items
 
 

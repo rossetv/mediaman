@@ -12,6 +12,8 @@ Covers mediaman.web.routes.downloads:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -250,3 +252,45 @@ class TestAbandonEndpoint:
         )
         assert called.get("arr_id") == 42
         assert called.get("dl_id") == "radarr:Tenet"
+
+    def test_searching_show_is_abandoned_with_the_seasons_its_card_offers(
+        self, db_path, secret_key, monkeypatch
+    ):
+        series = {
+            "id": 3,
+            "title": "Show",
+            "monitored": True,
+            "added": "2024-01-01T00:00:00Z",
+            "statistics": {"episodeFileCount": 0},
+            "seasons": [
+                {"seasonNumber": 1, "monitored": True, "statistics": {"episodeCount": 8}},
+                {"seasonNumber": 2, "monitored": True},
+            ],
+        }
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = []
+        sonarr.get_series.return_value = [series]
+        sonarr.get_episodes.return_value = [{"airDateUtc": "2020-01-01T00:00:00Z"}]
+
+        def unmonitor_season(series_id, number):
+            for season in series["seasons"]:
+                if season["seasonNumber"] == number:
+                    # Sonarr counts monitored episodes only.
+                    season.update(monitored=False, statistics={"episodeCount": 0})
+
+        sonarr.unmonitor_season.side_effect = unmonitor_season
+        for module in ("arr.build", "arr.search_trigger", "downloads.abandon"):
+            monkeypatch.setattr(
+                f"mediaman.services.{module}.build_sonarr_from_db", lambda *a: sonarr
+            )
+
+        client = self._make_client(db_path, secret_key)
+        hero = client.get("/api/downloads").json()["hero"]
+        resp = client.post(
+            "/api/downloads/sonarr%3AShow/abandon",
+            json={"seasons": [s["number"] for s in hero["stuck_seasons"]]},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["abandoned"]["succeeded"] == [1, 2]
+        assert resp.json()["queue"]["hero"] is None

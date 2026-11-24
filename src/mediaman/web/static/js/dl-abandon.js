@@ -86,10 +86,10 @@
     var lbl = document.createElement('div');
     lbl.className = 'setg-row-lbl';
     lbl.id = 'abandon-season-lbl-' + s.number;
-    lbl.textContent = 'Season ' + s.number;
+    lbl.textContent = s.number === 0 ? 'Specials' : 'Season ' + s.number;
     var sub = document.createElement('div');
     sub.className = 'setg-row-sub';
-    sub.textContent = s.missing_episodes + ' missing episode'
+    sub.textContent = (s.missing_episodes || 'No') + ' missing episode'
       + (s.missing_episodes === 1 ? '' : 's');
     left.appendChild(lbl);
     left.appendChild(sub);

@@ -284,6 +284,23 @@ class TestFetchSonarrQueueSearching:
         cards = fetch_sonarr_queue(_client(series=[_searching_series(seasons=[season])]))
         assert [c["title"] for c in cards] == ["Andor"]
 
+    def test_searching_show_names_every_monitored_season(self):
+        """Without them the show has nothing Abandon can act on."""
+        seasons = [
+            {"seasonNumber": 0, "monitored": False},
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {"episodeCount": 8, "episodeFileCount": 0},
+            },
+            {"seasonNumber": 2, "monitored": True},
+        ]
+        (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
+        assert card["stuck_seasons"] == [
+            {"number": 1, "missing_episodes": 8},
+            {"number": 2, "missing_episodes": 0},
+        ]
+
     def test_get_series_exception_does_not_crash(self):
         """Network error from get_series is swallowed; queue cards returned."""
         import requests
