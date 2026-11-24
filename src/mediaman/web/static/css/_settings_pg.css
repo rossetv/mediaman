@@ -140,6 +140,11 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   /* top bar (48) + chip strip (65, as laid out above) + a gap */
   html:has(.setg-pg) { scroll-padding-top: calc(48px + 65px + 12px); }
 }
+/* A phone held sideways has no room for three bars beside the save bar: the strip scrolls with the page. */
+@media (max-width: 960px) and (max-height: 500px) {
+  .setg-pg .setg-rail { position: relative; top: auto; }
+  html:has(.setg-rail) { scroll-padding-top: 60px; }
+}
 .setg-pg .setg-block-hd {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
