@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 # rationale: make_arr_card, fetch_sonarr_queue, and _aggregate_pack_episodes
 # are internal helpers not in __all__; _aggregate_pack_episodes in particular
@@ -340,6 +341,19 @@ class TestFetchSonarrQueueSearching:
         assert card["is_upcoming"] is True
         assert card["release_label"] == "Premieres 1 Jan 2099"
         assert card["released_at"] == 0.0
+
+    @pytest.mark.parametrize("season_2", [[{"seasonNumber": 2}], []], ids=["undated", "unlisted"])
+    def test_show_with_nothing_aired_to_fetch_is_not_searched_for(self, season_2):
+        card = self._card(
+            {2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, *season_2]
+        )
+        assert (card["is_upcoming"], card["release_label"]) == (True, "Not yet aired")
+
+    def test_show_whose_episodes_cannot_be_read_is_still_searching(self):
+        client = _client(series=[_searching_series(status="continuing")])
+        client.get_episodes.side_effect = requests.ConnectionError
+        (card,) = fetch_sonarr_queue(client)
+        assert card["is_upcoming"] is False
 
     def test_show_with_a_monitored_aired_season_is_searching(self):
         card = self._card(

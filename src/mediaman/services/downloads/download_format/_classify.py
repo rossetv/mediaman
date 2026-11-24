@@ -108,10 +108,14 @@ def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     return True, "Not yet released"
 
 
-def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> tuple[bool, str]:
+def classify_series_upcoming(
+    series: _ArrLike, episodes: Sequence[_ArrLike] | None
+) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
 
-    Returns (is_upcoming, release_label), label "" when not upcoming. Episodes with a
+    *episodes* are those Sonarr is set to fetch, None when they could not be read. A
+    series with none aired is upcoming, dated or not; an ended one that lists no episode
+    at all has aired and only lacks its metadata. Returns (is_upcoming, release_label), label "" when not upcoming. Episodes with a
     missing or unparseable airDateUtc go into an unknown-airdate bucket and are counted
     at DEBUG rather than silently dropped.
     """
@@ -131,7 +135,7 @@ def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> 
     future_airs: list[datetime] = []
     unknown_count = 0
 
-    for e in episodes:
+    for e in episodes or ():
         raw = e.get("airDateUtc", "")
         if not isinstance(raw, str) or not raw:
             unknown_count += 1
@@ -160,6 +164,9 @@ def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> 
 
     if future_airs and not has_aired:
         return True, f"Premieres {_format_release_date(min(future_airs))}"
+
+    if episodes is not None and not has_aired and (episodes or status != "ended"):
+        return True, "Not yet aired"
 
     return False, ""
 
