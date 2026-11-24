@@ -1041,6 +1041,7 @@
     var box = el('div');
     box.setAttribute('data-ttl-part', 'ratings');
     box.style.display = 'grid';
+    box.style.alignItems = 'start'; // on fewer lines than the room, a pill keeps its height
     var early = ratingKeys(cur.ratings.early);
     var room = pillsToCome(pillsRow(early, cur.ratings.early), early, true);
     room.setAttribute('aria-hidden', 'true');
