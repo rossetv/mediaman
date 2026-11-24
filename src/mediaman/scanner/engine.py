@@ -187,6 +187,9 @@ class ScanEngine:
             per_lib_fetches = self._sync_phase_fetch(summary)
             self._arr_cache.ensure_loaded()
             self._sync_phase_write(per_lib_fetches, summary)
+        except BaseException:
+            self._roll_back_failed_run()
+            raise
         finally:
             # Libraries committed before a failure are already in the DB.
             watch_catalog.clear_library_index()
@@ -197,6 +200,20 @@ class ScanEngine:
             summary["errors"],
         )
         return summary
+
+    def _roll_back_failed_run(self) -> None:
+        """Drop the half-written library a failed run leaves open on the connection.
+
+        Callers that do not roll back (the manual scan, the sync route) would
+        otherwise commit it with their next write. Everything a run must keep
+        is committed as it goes, so only the in-flight step is lost. A failing
+        rollback is logged: it must not hide the error being raised.
+        """
+        try:
+            if self._conn.in_transaction:
+                self._conn.rollback()
+        except sqlite3.Error:
+            logger.exception("Rollback after a failed scan or library sync failed")
 
     def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, FetchedLibrary]:
         """Pull every library's items + watch history from Plex into memory.
@@ -320,6 +337,9 @@ class ScanEngine:
             seen_by_lib = self._scan_all_libraries(summary)
             self._cleanup_orphans_per_library(seen_by_lib, summary)
             self._record_deletion_outcome(summary)
+        except BaseException:
+            self._roll_back_failed_run()
+            raise
         finally:
             # Libraries committed before a failure are already in the DB.
             watch_catalog.clear_library_index()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -443,6 +444,90 @@ class TestArrIdsAndTrackedFiles:
             engine.sync_library()
 
         assert library_movies(conn) == {603: "movie-100"}
+
+    @staticmethod
+    def _half_write_then_fail(conn):
+        """A step that writes a movie into the open transaction and then raises."""
+
+        def step(*args, **kwargs):
+            conn.execute(
+                "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+                "plex_rating_key, added_at, file_path, file_size_bytes, last_scanned_at, "
+                "tmdb_id) VALUES ('half', 'Half', 'movie', '1', 'half', "
+                "'2026-01-01T00:00:00+00:00', '/x', 1, '2026-01-01T00:00:00+00:00', 777)"
+            )
+            raise RuntimeError("boom")
+
+        return step
+
+    def _after_the_callers_next_write(self, conn, db_path):
+        """What a second connection sees once the caller commits its own next write."""
+        conn.execute("UPDATE settings SET value = value WHERE key = 'none'")
+        conn.commit()
+        other = sqlite3.connect(db_path)
+        try:
+            return other.execute("SELECT id FROM media_items").fetchall()
+        finally:
+            other.close()
+
+    def test_a_scan_that_fails_mid_library_leaves_no_half_written_rows(
+        self, conn, mock_plex, db_path
+    ):
+        assert library_movies(conn) == {}
+        mock_plex.get_movie_items.return_value = [self._movie()]
+        failing = self._half_write_then_fail(conn)
+
+        with (
+            patch.object(ScanEngine, "_record_deletion_outcome", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            self._scan(conn, mock_plex, "movie")
+
+        assert self._after_the_callers_next_write(conn, db_path) == [("100",)]
+        assert library_movies(conn) == {603: "movie-100"}
+
+    def test_a_library_sync_that_fails_mid_library_leaves_no_half_written_rows(
+        self, conn, mock_plex, db_path
+    ):
+        assert library_movies(conn) == {}
+        failing = self._half_write_then_fail(conn)
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
+
+        assert self._after_the_callers_next_write(conn, db_path) == []
+        assert library_movies(conn) == {}
+
+    def test_a_failing_rollback_does_not_hide_the_original_error(self, conn, mock_plex):
+        failing = self._half_write_then_fail(conn)
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1"],
+            library_types={"1": "movie"},
+            secret_key="k",
+            dry_run=True,
+        )
+        broken = MagicMock(wraps=conn)
+        broken.rollback.side_effect = sqlite3.OperationalError("disk I/O error")
+        engine._conn = broken
+
+        with (
+            patch.object(ScanEngine, "_sync_phase_write", failing),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            engine.sync_library()
 
     def test_season_folder_mismatch_gets_no_sonarr_id(self, conn, mock_plex):
         insert_media_item(conn, id="s2", plex_rating_key="s2", media_type="tv_season", sonarr_id=3)
