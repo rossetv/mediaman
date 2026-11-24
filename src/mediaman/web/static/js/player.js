@@ -94,21 +94,44 @@
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
-  var pendingStart = startS; // where the stream will start, until the video has loaded
-  var wantPlaying = true;
-  var hasPlayed = false;
-  var playedS = 0;
-  var lastTime = null;
   var dragging = false;
   var quality = readQuality();
-  var goodQuality = quality; // the last quality that played, or the one the page started with
-  var streamQuality = null;  // the quality of the stream now loading or playing
-  var revertNotice = null;   // toast to show once the reverted stream plays
 
-  var mediaRecoverUsed = false;
-  var fatalRestartUsed = false;
-  var goneRestarts = 0;
-  var troubleAtPlayed = 0;
+  /* What belongs to the video being watched; resetVideo sets every one. */
+  var pendingStart;          // where the stream will start, until the video has loaded
+  var wantPlaying;
+  var hasPlayed;
+  var playedS;
+  var lastTime;
+  var goodQuality;           // the last quality that played, or the one the video started with
+  var streamQuality;         // the quality of the stream now loading or playing
+  var revertNotice;          // toast to show once the reverted stream plays
+  var troubleAtPlayed;
+  var mediaRecoverUsed;
+  var fatalRestartUsed;
+  var goneRestarts;
+
+  function resetVideo(at) {
+    pendingStart = at;
+    wantPlaying = true;
+    hasPlayed = false;
+    playedS = 0;
+    lastTime = null;
+    goodQuality = quality;
+    streamQuality = null;
+    revertNotice = null;
+    troubleAtPlayed = 0;
+    clearTrouble();
+  }
+
+  /* Every way of getting over a failing stream may be tried again. */
+  function clearTrouble() {
+    mediaRecoverUsed = false;
+    fatalRestartUsed = false;
+    goneRestarts = 0;
+  }
+
+  resetVideo(startS);
 
   function duration() {
     if (item.duration_s > 0) return item.duration_s;
@@ -157,13 +180,11 @@
     restartStream(true);
   }
 
-  /* The server refused the stream of a new quality, and the old stream is
-     already stopped: start the quality that was playing, where it was. */
-  function revertQuality(pos) {
+  /* A new quality cannot play: choose again the one that did. */
+  function revertQuality() {
     var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
     setQuality(goodQuality);
     revertNotice = "Couldn't change the quality. Staying on " + label + '.';
-    return startStream(pos);
   }
 
   /* ---- messages and loading ------------------------------------------- */
@@ -244,7 +265,9 @@
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
           var known = err && START_ERRORS[err.error];
           if (goodQuality && goodQuality !== quality && (!known || known.retry)) {
-            return revertQuality(pos);
+            /* The old stream is already stopped. */
+            revertQuality();
+            return startStream(pos);
           }
           starting = false;
           showMessage(known ? known.text : MSG_FAILED, known ? known.retry : true);
@@ -308,10 +331,7 @@
     }
     if (!data.fatal) return;
     if (goodQuality && goodQuality !== quality) {
-      /* A quality that never played failed in the player: go back to the one that did. */
-      var label = root.querySelector('[data-quality="' + goodQuality + '"]').getAttribute('data-quality-label');
-      setQuality(goodQuality);
-      revertNotice = "Couldn't change the quality. Staying on " + label + '.';
+      revertQuality();
       restartStream(true);
       return;
     }
@@ -516,11 +536,7 @@
       if (delta > 0 && delta < 2) playedS += delta;
     }
     lastTime = now;
-    if (playedS - troubleAtPlayed >= CALM_PLAYED_S) {
-      mediaRecoverUsed = false;
-      fatalRestartUsed = false;
-      goneRestarts = 0;
-    }
+    if (playedS - troubleAtPlayed >= CALM_PLAYED_S) clearTrouble();
     render();
   });
 
@@ -914,9 +930,7 @@
   });
 
   els.retry.addEventListener('click', function () {
-    mediaRecoverUsed = false;
-    fatalRestartUsed = false;
-    goneRestarts = 0;
+    clearTrouble();
     wantPlaying = true;
     restartStream(true);
   });
