@@ -170,10 +170,17 @@ def security_event(
     security_event_or_raise when you need fail-closed
     behaviour for high-impact mutations.
     """
+    opened_here = not conn.in_transaction
     try:
         _insert_security_event(conn, event=event, actor=actor, ip=ip, detail=detail)
         conn.commit()
-    except Exception:  # pragma: no cover; rationale: best-effort audit write — never break the user-facing flow on log failure
+    except (
+        Exception
+    ):  # rationale: best-effort audit write — never break the user-facing flow on log failure
+        # A failed insert leaves its own implicit transaction open and holding the write lock;
+        # a transaction the caller already had open keeps its pending writes.
+        if opened_here:
+            conn.rollback()
         logger.exception("security_event write failed event=%s", event)
 
 

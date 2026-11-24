@@ -247,3 +247,18 @@ class TestSecurityBodyInjectionStripped:
         rows = conn.execute("SELECT detail FROM audit_log").fetchall()
         assert len(rows) == 1
         assert "\n" not in rows[0]["detail"]
+
+
+class TestSecurityEventFailure:
+    def test_a_failed_write_leaves_no_transaction_open(self, conn):
+        security_event(conn, event="login.failed", actor="\ud800")
+        assert not conn.in_transaction
+
+    def test_a_failed_write_keeps_the_callers_pending_writes(self, conn):
+        conn.execute(
+            "INSERT INTO audit_log (media_item_id, action, created_at) VALUES ('a','b','c')"
+        )
+        security_event(conn, event="login.failed", actor="\ud800")
+        assert conn.in_transaction
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == 1

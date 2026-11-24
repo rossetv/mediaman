@@ -189,24 +189,28 @@ def _submit_movie(
         if not (isinstance(exc, SafeHTTPError) and movie_add_landed(exc, radarr, body.tmdb_id)):
             logger.exception("Failed to add movie")
             return respond_failure("Failed to add to Radarr", status=502)
-    if notify_email is not None:
-        _record_dn(
+    with conn:
+        if notify_email is not None:
+            _record_dn(
+                conn,
+                email=notify_email,
+                title=body.title,
+                media_type="movie",
+                tmdb_id=body.tmdb_id,
+                service="radarr",
+            )
+        else:
+            logger.info(
+                "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
+                body.tmdb_id,
+            )
+        log_audit(
             conn,
-            email=notify_email,
-            title=body.title,
-            media_type="movie",
-            tmdb_id=body.tmdb_id,
-            service="radarr",
+            body.title,
+            "downloaded",
+            f"Added '{body.title}' to Radarr by {actor}",
+            actor=actor,
         )
-    else:
-        logger.info(
-            "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
-            body.tmdb_id,
-        )
-    log_audit(
-        conn, body.title, "downloaded", f"Added '{body.title}' to Radarr by {actor}", actor=actor
-    )
-    conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
 
@@ -280,25 +284,29 @@ def _submit_tv(
         if not (isinstance(exc, SafeHTTPError) and series_add_landed(exc, sonarr, tvdb_id)):
             logger.exception("Failed to add series")
             return respond_failure("Failed to add to Sonarr", status=502)
-    if notify_email is not None:
-        _record_dn(
+    with conn:
+        if notify_email is not None:
+            _record_dn(
+                conn,
+                email=notify_email,
+                title=body.title,
+                media_type="tv",
+                tmdb_id=body.tmdb_id,
+                tvdb_id=tvdb_id,
+                service="sonarr",
+            )
+        else:
+            logger.info(
+                "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
+                body.tmdb_id,
+            )
+        log_audit(
             conn,
-            email=notify_email,
-            title=body.title,
-            media_type="tv",
-            tmdb_id=body.tmdb_id,
-            tvdb_id=tvdb_id,
-            service="sonarr",
+            body.title,
+            "downloaded",
+            f"Added '{body.title}' to Sonarr by {actor}",
+            actor=actor,
         )
-    else:
-        logger.info(
-            "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
-            body.tmdb_id,
-        )
-    log_audit(
-        conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr by {actor}", actor=actor
-    )
-    conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
 

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mediaman.web.routes.search.download import _submit_movie, _submit_tv
 
 _MODULE = "mediaman.web.routes.search.download"
@@ -161,3 +163,22 @@ class TestSubmitTvAudit:
         assert resp.status_code == 503
         mock_sonarr.add_series.assert_not_called()
         mock_sonarr.add_series_with_seasons.assert_not_called()
+
+
+class TestFailedWriteRollsBack:
+    def test_a_failed_audit_write_takes_the_notification_row_with_it(self, conn):
+        body = MagicMock()
+        body.tmdb_id = 100
+        body.title = "Dune"
+        body.media_type = "movie"
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+
+        with (
+            patch(f"{_MODULE}.build_radarr_from_db", return_value=radarr),
+            pytest.raises(UnicodeEncodeError),
+        ):
+            _submit_movie(conn, "secret", body, "admin@example.com", "\ud800")
+
+        assert not conn.in_transaction
+        assert conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0] == 0

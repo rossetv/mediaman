@@ -382,3 +382,10 @@ class TestUsernameReuseCannotInheritTicket:
 
         destroy_all_sessions_for(conn, "alice")
         assert has_recent_reauth(conn, token, "alice") is False
+
+
+class TestFailedGrantLeavesNothingOpen:
+    def test_a_failed_grant_leaves_no_transaction_open(self, conn):
+        with pytest.raises(UnicodeEncodeError):
+            grant_recent_reauth(conn, "tok", "\ud800")
+        assert not conn.in_transaction

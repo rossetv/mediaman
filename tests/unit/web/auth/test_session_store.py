@@ -1022,3 +1022,10 @@ class TestSessionIdleTimeout:
 
         # Should now be rejected.
         assert validate_session(conn, token) is None
+
+
+class TestFailedWritesLeaveNothingOpen:
+    def test_a_failed_create_session_leaves_no_transaction_open(self, conn):
+        with pytest.raises(UnicodeEncodeError):
+            create_session(conn, "\ud800")
+        assert not conn.in_transaction

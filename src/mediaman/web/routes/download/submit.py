@@ -94,19 +94,19 @@ def _record_and_respond(
         audit_id = _redownload_audit_id(
             media_type=media_type, tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
         )
-    log_audit(conn, audit_id, audit_action, audit_detail)
-    if email:
-        record_download_notification(
-            conn,
-            email=email,
-            title=title,
-            media_type=media_type,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            service=service,
-            season_number=season_number,
-        )
-    conn.commit()
+    with conn:
+        log_audit(conn, audit_id, audit_action, audit_detail)
+        if email:
+            record_download_notification(
+                conn,
+                email=email,
+                title=title,
+                media_type=media_type,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                service=service,
+                season_number=season_number,
+            )
 
     poll_token = generate_poll_token(
         media_item_id=(
