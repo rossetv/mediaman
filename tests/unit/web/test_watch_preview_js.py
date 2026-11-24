@@ -293,3 +293,7 @@ def test_focus_left_in_a_preview_or_its_menu_goes_to_the_card_as_it_closes() -> 
 
 def test_a_preview_that_closes_leaves_a_focus_that_was_elsewhere() -> None:
     assert _run("focusElsewhere") == "watch-search"
+
+
+def test_a_title_kept_from_its_preview_leaves_the_focus_for_keep_to_place() -> None:
+    assert _run("keptFromMenu") == [None, True]

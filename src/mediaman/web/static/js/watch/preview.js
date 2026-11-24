@@ -1103,7 +1103,9 @@
   /* A day count chosen in the Keep menu takes the card away: not under its preview. */
   document.addEventListener('click', function (e) {
     var days = e.target.closest && e.target.closest('#watch-keep-menu [data-days]');
-    if (days && live && live.keep && document.activeElement === live.keep) close(live);
+    if (!days || !live || !live.keep || document.activeElement !== live.keep) return;
+    live.keep.blur(); // keep.js moves a focus that is nowhere on from the card that goes
+    close(live);
   });
 
   document.addEventListener('mm:title-changed', function (e) {

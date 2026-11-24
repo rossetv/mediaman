@@ -610,6 +610,14 @@ const scenarios = {
     h.key('Escape', h.doc.body);
     return h.doc.activeElement.id;
   },
+  async keptFromMenu() {
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
+    const days = h.doc.body.appendChild(build(h.doc, ['div', { id: 'watch-keep-menu' }, ['button', { 'data-days': '30' }]])).children[0];
+    await h.rest('film');
+    h.pv().querySelector('.pv__keep').focus();
+    days.click();
+    return [h.title(), h.doc.activeElement === h.doc.body];
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
