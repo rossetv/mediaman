@@ -262,15 +262,31 @@ class TestGenrePosters:
         monkeypatch.setattr(_explore, "_clock", lambda: now[0])
         tmdb.pages = {"/discover/movie": _failed(500), "/discover/tv": _failed(500)}
         catalog.genre_posters(tmdb.client)
-        disk_cache._failed.clear()
         tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list({"id": 2})}
-        catalog.genre_posters(tmdb.client)
-        asked = len(tmdb.asked)
+        asked = []
+        for _ in range(2):
+            catalog.genre_posters(tmdb.client)
+            asked.append(len(tmdb.asked))
 
         now[0] += _explore._TILES_PAUSE_S
         catalog.genre_posters(tmdb.client)
 
-        assert (asked, len(tmdb.asked)) == (len(catalog.GENRES), 2 * len(catalog.GENRES))
+        # All but the one that failed, and that one in its own time.
+        assert (asked, len(tmdb.asked)) == ([len(catalog.GENRES)] * 2, len(catalog.GENRES) + 1)
+
+    def test_the_first_list_that_fails_ends_the_asking(self, tmdb):
+        tmdb.pages = {"/discover/movie": _failed(500), "/discover/tv": _failed(500)}
+
+        catalog.genre_posters(tmdb.client)
+
+        assert len(tmdb.asked) == 1
+
+    def test_a_list_that_failed_for_a_tile_holds_nobody_back(self, tmdb):
+        tmdb.pages = {"/discover/movie": _failed(500), "/discover/tv": _failed(500)}
+        catalog.genre_posters(tmdb.client)
+        tmdb.pages = {"/discover/movie": _list({"id": 1}), "/discover/tv": _list({"id": 2})}
+
+        assert _explore_ids(tmdb, "action") == [("movie", 1), ("tv", 2)]
 
     def test_a_list_that_cannot_be_read_leaves_a_plain_tile_and_fails_as_tmdb_does(
         self, tmdb, monkeypatch
@@ -434,6 +450,22 @@ class TestPerson:
             catalog.person(tmdb.client, 7)
 
         assert caught.type is raised
+
+    @pytest.mark.parametrize("now", [_failed(404), _person(adult=True)])
+    def test_one_held_before_tmdb_removed_or_marked_them_is_not_served_once_refreshed(
+        self, tmdb, monkeypatch, now
+    ):
+        tmdb.pages = {"/person/7": _person()}
+        catalog.person(tmdb.client, 7)
+        tmdb.pages = {"/person/7": now}
+        later = disk_cache.time.time() + 8 * 86400
+        monkeypatch.setattr(disk_cache.time, "time", lambda: later)
+        catalog.person(tmdb.client, 7)  # old: served, and refreshed behind it
+
+        for _ in range(2):
+            with pytest.raises(catalog.PersonNotFound):
+                catalog.person(tmdb.client, 7)
+        assert len(tmdb.asked) == 2
 
     def test_odd_votes_and_genres_do_not_lose_the_person(self, tmdb):
         credits = _credits(

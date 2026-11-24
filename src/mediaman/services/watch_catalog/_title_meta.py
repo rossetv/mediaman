@@ -26,8 +26,9 @@ from mediaman.core.time import now_utc
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 
-from ._discover import TitleNotFound, TmdbBusy, TmdbDown, _failure, details
+from ._discover import TitleNotFound, _failure, details
 from ._explore import _AS_THEMSELVES, _TOP_RATED_VOTES, _mixed
+from ._gate import TmdbBusy, TmdbDown
 from ._genres import GENRES, Genre
 from ._shape import tmdb_id_of, tmdb_image_url
 
@@ -257,7 +258,15 @@ def _fill_one(
     fields = None
     if tmdb_id is not None:
         with contextlib.suppress(TitleNotFound):
-            fields = details(client, kind, tmdb_id, allow_fetch=allow_fetch, brief=True, fresh=True)
+            fields = details(
+                client,
+                kind,
+                tmdb_id,
+                allow_fetch=allow_fetch,
+                brief=True,
+                fresh=True,
+                background=True,
+            )
     with conn:
         conn.execute(
             "INSERT OR REPLACE INTO title_meta"

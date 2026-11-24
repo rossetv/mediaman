@@ -507,6 +507,15 @@ def _reset_disk_cache(monkeypatch):
     monkeypatch.setattr(disk_cache, "_root", None)
     monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "_queued", set())
+
+
+@pytest.fixture(autouse=True)
+def _reset_tmdb_gate():
+    """TMDB failing in one test must not keep the next from asking it."""
+    from mediaman.services.watch_catalog._gate import gate
+
+    gate.reset()
 
 
 @pytest.fixture(autouse=True)

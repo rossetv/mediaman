@@ -81,7 +81,7 @@ class TmdbClient:
     """
 
     def __init__(self, read_token: str, *, timeout: float = 10.0, retry: bool = True) -> None:
-        self._token = read_token
+        self.token = read_token
         self._timeout = timeout
         self._retry = retry
         self._headers = {

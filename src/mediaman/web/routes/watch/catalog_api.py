@@ -79,6 +79,8 @@ _SHELF_IDS = frozenset(shelf[0] for shelf in catalog.SHELVES)
 # Pages of discover rows TMDB is asked for, apart from the query limit so a long scroll does
 # not use up the day's searches. The day's cap is each of the three lists to its end.
 _PAGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1500)
+# A worker thread waits for the answer.
+_TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
 # OMDb with nothing to give (no rating yet, or the day's quota spent) is asked again the
 # next day, not on every open.
@@ -108,7 +110,9 @@ def _not_found() -> JSONResponse:
 
 
 def _tmdb_client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    return TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    return TmdbClient.from_db(
+        conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
+    )
 
 
 def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
@@ -130,7 +134,7 @@ def api_watch_search_tmdb(
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
         found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
-    except disk_cache.Refused:
+    except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
@@ -721,7 +725,7 @@ def api_watch_title(
                 poster_url=catalog.tmdb_image_url(rec.poster_url, "w500"),
             )
             out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)
-    except disk_cache.Refused:
+    except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TitleNotFound:
         return _not_found()

@@ -8,6 +8,7 @@ run them on a worker thread.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -19,6 +20,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient, year_of
 
 from ._arr import ArrView
 from ._dedupe import LibraryIndex
+from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable, gate
 from ._shape import discover_card, tmdb_id_of, tmdb_image_url, tmdb_kind, tmdb_rating
 from ._title import tmdb_fields
 
@@ -30,6 +32,9 @@ MAX_PAGE = 500
 _MINUTE = 60
 _HOUR = 60 * _MINUTE
 _DAY = 24 * _HOUR
+
+# A failure someone waited for is not held longer: they may try again.
+_HOLD_S = 5.0
 
 MIN_QUERY_LEN = 2
 MAX_QUERY_LEN = 100
@@ -61,18 +66,6 @@ _CARD_FIELDS = (
 )
 
 
-class TmdbUnavailable(Exception):
-    """TMDB failed and nothing usable was cached."""
-
-
-class TmdbBusy(TmdbUnavailable):
-    """TMDB answered 429 and nothing usable was cached."""
-
-
-class TmdbDown(TmdbUnavailable):
-    """TMDB could not be reached, did not answer in time, or answered with a 5xx."""
-
-
 class TitleNotFound(TmdbUnavailable):
     """TMDB has no such title, or marks it adult."""
 
@@ -89,24 +82,61 @@ def _failure(exc: Exception, what: str) -> TmdbUnavailable:
     return TmdbUnavailable(what)
 
 
+def _is_gone(exc: Exception) -> bool:
+    return isinstance(exc, SafeHTTPError) and exc.status_code == 404
+
+
 def _cache() -> disk_cache.Store[Any]:
     return disk_cache.meta()
 
 
 def _cached(
+    client: TmdbClient,
     key: str,
     fresh_s: float,
     stale_s: float,
     fetch: Callable[[], Any],
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
+    background: bool = False,
 ) -> Any:
+    """As the disk cache's ``get_or_fetch``, for a request: TMDB is asked, or waited for,
+    only as ``gate`` lets it, which *allow_fetch* comes after. *fetch* must raise TmdbDown
+    or TmdbBusy when TMDB gives no answer. A caller in the *background* does not pass the
+    gate."""
+    waits = False
+    with contextlib.ExitStack() as held:
+
+        def may_ask() -> bool:
+            nonlocal waits
+            waits = True
+            if not background:
+                held.enter_context(gate.asking(client.token, probe=not brief))
+            return allow_fetch is None or allow_fetch()
+
+        def noted() -> Any:
+            if background:
+                return _shaped(fetch)()
+            if not waits:  # refreshed for nobody who waits
+                gate.check(client.token)
+            return _noted(client, fetch)
+
+        try:
+            return _cache().get_or_fetch(
+                key, fresh_s, stale_s, noted, allow_fetch=may_ask, brief=brief, hold_s=_HOLD_S
+            )
+        except TimeoutError as exc:
+            raise TmdbUnavailable("still being asked") from exc
+
+
+def _noted(client: TmdbClient, fetch: Callable[[], Any]) -> Any:
     try:
-        return _cache().get_or_fetch(
-            key, fresh_s, stale_s, _shaped(fetch), allow_fetch=allow_fetch, brief=brief
-        )
-    except TimeoutError as exc:
-        raise TmdbUnavailable("still being asked") from exc
+        value = _shaped(fetch)()
+    except TmdbUnavailable as exc:
+        gate.note(client.token, exc)
+        raise
+    gate.note(client.token, None)
+    return value
 
 
 def _shaped(fetch: Callable[[], Any]) -> Callable[[], Any]:
@@ -129,7 +159,7 @@ def _shelf_fetch(
         items: list[dict[str, object]] = getattr(client, method)(1)
         # The client answers [] on a failure; a real list is never empty.
         if not items:
-            raise TmdbUnavailable(method)
+            raise TmdbDown(method)
         return [{**i, "media_type": media_type} if media_type else i for i in items]
 
     return fetch
@@ -142,6 +172,7 @@ def discover_shelves(client: TmdbClient) -> list[tuple[str, str, list[dict[str, 
     for shelf_id, title, method, media_type in SHELVES:
         try:
             items = _cached(
+                client,
                 f"tmdb:discover:{shelf_id}:1",
                 6 * _HOUR,
                 7 * _DAY,
@@ -169,10 +200,8 @@ def discover_page(
             # The client's list methods answer [] on a failure too; asked directly so a
             # failure is not taken for the end of the list.
             payload = client._get(path, {"page": page})
-        except SafeHTTPError as exc:
-            raise (TmdbBusy if exc.status_code == 429 else TmdbUnavailable)(row_id) from exc
-        except (requests.RequestException, ValueError) as exc:
-            raise TmdbUnavailable(row_id) from exc
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            raise _failure(exc, row_id) from exc
         results = payload.get("results") if isinstance(payload, dict) else None
         if not isinstance(results, list):
             raise TmdbUnavailable(row_id)
@@ -192,7 +221,7 @@ def discover_page(
 
     # "v2": entries before it hold adult titles.
     found: dict[str, Any] = _cached(
-        f"tmdb:discover-page:v2:{row_id}:{page}", 6 * _HOUR, 7 * _DAY, fetch, allow_fetch
+        client, f"tmdb:discover-page:v2:{row_id}:{page}", 6 * _HOUR, 7 * _DAY, fetch, allow_fetch
     )
     more = not found["empty"] and page < min(found["pages"], MAX_PAGE)
     return found["items"], page + 1 if more else None
@@ -214,14 +243,14 @@ def search(
                 "/search/multi", {"query": q, "include_adult": "false", "page": 1}
             )
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            raise TmdbUnavailable("search") from exc
+            raise _failure(exc, "search") from exc
         results = payload.get("results") if isinstance(payload, dict) else None
         if not isinstance(results, list):
             raise TmdbUnavailable("search")
         return [r for r in results if isinstance(r, dict)]
 
     result: list[dict[str, object]] = _cached(
-        f"tmdb:search:{q.casefold()}:1", 15 * _MINUTE, _HOUR, fetch, allow_fetch
+        client, f"tmdb:search:{q.casefold()}:1", 15 * _MINUTE, _HOUR, fetch, allow_fetch
     )
     return [r for r in result if not r.get("adult")]
 
@@ -234,39 +263,41 @@ def details(
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
     fresh: bool = False,
+    background: bool = False,
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
     TMDB's own payload, with its full crew and every country's release dates, is many
     times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
     asked as in ``search``, and *brief* says that *client* gives up early, so that its
     failure is not held against the next caller. *fresh* takes nothing TMDB answered more
-    than a week ago."""
+    than a week ago, and *background* is as in ``_cached``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
         try:
             found = client.details_or_raise(media_type, tmdb_id)
-        except SafeHTTPError as exc:
-            if exc.status_code == 404:
-                raise TitleNotFound("details") from exc
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            if _is_gone(exc):
+                return {"gone": True}
             raise _failure(exc, "details") from exc
-        except (requests.RequestException, ValueError) as exc:
-            raise _failure(exc, "details") from exc
-        # Stored, so that a title held before TMDB marked it is not served from then on.
+        # Stored, so that a title held before TMDB marked or dropped it is not served from
+        # then on.
         if found.get("adult"):
             return {"adult": True}
         return tmdb_fields(found, media_type)
 
     # "v5": entries before it lack the director's id, the date and the popularity.
     result: dict[str, Any] = _cached(
+        client,
         f"tmdb:details:v5:{media_type}:{tmdb_id}",
         7 * _DAY,
         7 * _DAY if fresh else 90 * _DAY,
         fetch,
         allow_fetch,
         brief,
+        background,
     )
-    if result.get("adult"):
+    if result.get("adult") or result.get("gone"):
         raise TitleNotFound("details")
     return result
 

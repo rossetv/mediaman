@@ -12,9 +12,6 @@ from ._discover import (
     MIN_QUERY_LEN,
     SHELVES,
     TitleNotFound,
-    TmdbBusy,
-    TmdbDown,
-    TmdbUnavailable,
     details,
     discover_page,
     discover_shelves,
@@ -33,6 +30,7 @@ from ._explore import (
     people,
     person,
 )
+from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable
 from ._genres import GENRES, Genre
 from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
 from ._shape import discover_card, library_href, tmdb_image_url

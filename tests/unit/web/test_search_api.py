@@ -1299,6 +1299,7 @@ class TestDiscoverSharedWithWatch:
         from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
 
         client = SimpleNamespace(
+            token="t",
             trending=lambda page: [],
             popular_movies=lambda page: [{"id": 1}],
             popular_tv=lambda page: [{"id": 2}],
@@ -1315,6 +1316,7 @@ class TestDiscoverSharedWithWatch:
 
         assert _fetch_discover_shelf("trending", lambda page: [], None, 1) == []
         client = SimpleNamespace(
+            token="t",
             trending=lambda page: [{"id": 9}],
             popular_movies=lambda page: [{"id": 1}],
             popular_tv=lambda page: [{"id": 2}],

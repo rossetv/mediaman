@@ -5,6 +5,7 @@ TMDB marks adult is kept."""
 from __future__ import annotations
 
 import re
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
@@ -22,11 +23,12 @@ from ._discover import (
     _DAY,
     _HOUR,
     MAX_PAGE,
-    TmdbUnavailable,
     _cached,
     _failure,
-    _shaped,
+    _is_gone,
+    _noted,
 )
+from ._gate import TmdbUnavailable, gate
 from ._genres import GENRES, Genre
 from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
 
@@ -149,7 +151,7 @@ def explore_page(
         if genre_id is None:
             continue
         key, fetch = _page_entry(client, kind, genre_id, sort, decade, page)
-        pages.append(_cached(key, 6 * _HOUR, 7 * _DAY, fetch, allow_fetch))
+        pages.append(_cached(client, key, 6 * _HOUR, 7 * _DAY, fetch, allow_fetch))
     more = any(page < min(p["pages"], MAX_PAGE) for p in pages)
     items = _mixed([p["items"] for p in pages], sort)
     return items, sum(p["total"] for p in pages), page + 1 if more else None
@@ -181,15 +183,17 @@ def _released(item: Mapping[str, Any]) -> str:
 
 def genre_posters(client: TmdbClient) -> dict[str, list[str]]:
     """Up to two posters of each genre, from popular titles already cached and none on two
-    genres. A list not cached is fetched in the background for the next call."""
+    genres. Lists not cached are fetched in the background for the next call, until one
+    fails: the rest would wait a thread out in turn."""
     used: set[str] = set()
     found: dict[str, list[str]] = {}
+    failed = threading.Event()
     for genre in GENRES.values():
         media_type = genre.types[0]
         genre_id = genre.tmdb_id(media_type)
         assert genre_id is not None
         key, fetch = _page_entry(client, media_type, genre_id, "popular", None, 1)
-        page = _held_page(key, _shaped(fetch))
+        page = _held_page(client, key, fetch, failed)
         urls = [tmdb_image_url(i.get("poster_path"), "w185") for i in page["items"]] if page else []
         picked = [u for u in dict.fromkeys(urls) if u and u not in used][:_TILE_POSTERS]
         used.update(picked)
@@ -197,15 +201,33 @@ def genre_posters(client: TmdbClient) -> dict[str, list[str]]:
     return found
 
 
-def _held_page(key: str, fetch: Callable[[], Any]) -> dict[str, Any] | None:
+def _held_page(
+    client: TmdbClient, key: str, fetch: Callable[[], Any], failed: threading.Event
+) -> dict[str, Any] | None:
+    def fetch_until_one_fails() -> Any:
+        try:
+            if failed.is_set():
+                raise TmdbUnavailable("not asked")
+            gate.check(client.token)
+        except TmdbUnavailable:
+            _tiles_asked.pop(key, None)
+            raise
+        try:
+            return _noted(client, fetch)
+        except TmdbUnavailable:
+            failed.set()
+            raise
+
     now = _clock()
     page: dict[str, Any] | None
     if now - _tiles_asked.get(key, -_TILES_PAUSE_S) >= _TILES_PAUSE_S:
         _tiles_asked[key] = now
-        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, fetch)
+        page = _discover._cache().peek(key, 6 * _HOUR, 7 * _DAY, fetch_until_one_fails, brief=True)
         return page
     try:
-        page = _cached(key, 7 * _DAY, 7 * _DAY, _not_asked, lambda: False)
+        page = _discover._cache().get_or_fetch(
+            key, 7 * _DAY, 7 * _DAY, _not_asked, allow_fetch=lambda: False
+        )
     except (TmdbUnavailable, disk_cache.Refused):
         return None
     return page
@@ -253,20 +275,22 @@ def person(
     def fetch() -> dict[str, Any]:
         try:
             payload = client.person(person_id)
-        except SafeHTTPError as exc:
-            if exc.status_code == 404:
-                raise PersonNotFound("person") from exc
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            if _is_gone(exc):
+                return {"gone": True}
             raise _failure(exc, "person") from exc
-        except (requests.RequestException, ValueError) as exc:
-            raise _failure(exc, "person") from exc
+        # Stored, so that a person held before TMDB marked or dropped them is not served from
+        # then on.
         if payload.get("adult"):
-            raise PersonNotFound("person")
+            return {"adult": True}
         return _person_fields(payload)
 
     # Only these fields are cached: TMDB's answer carries the plot of every title.
     result: dict[str, Any] = _cached(
-        f"tmdb:person:v1:{person_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
+        client, f"tmdb:person:v1:{person_id}", 7 * _DAY, 90 * _DAY, fetch, allow_fetch
     )
+    if result.get("adult") or result.get("gone"):
+        raise PersonNotFound("person")
     return result
 
 
