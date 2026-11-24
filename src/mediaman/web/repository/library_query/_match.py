@@ -8,8 +8,13 @@ Other punctuation is read both as a gap between words and as nothing, so "spider
 from __future__ import annotations
 
 import re
+import sqlite3
 import unicodedata
-from functools import lru_cache
+
+# Hard cap on the user-supplied search term. Without this an attacker could
+# submit a multi-megabyte string to be compared with every title.
+# 200 chars is well above any realistic title length.
+MAX_SEARCH_TERM_LEN = 200
 
 _ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
 
@@ -38,7 +43,10 @@ def without_article(text: str) -> str:
     return _ARTICLE.sub("", text)
 
 
-@lru_cache(maxsize=20_000)
+# The spellings of the library's titles, which a search reads every one of.
+_folds: dict[str, tuple[str, str]] = {}
+
+
 def _spellings(text: str) -> tuple[str, str]:
     """*text* folded, its punctuation read as gaps and then as nothing."""
     plain = "".join(
@@ -64,16 +72,30 @@ def _spellings(text: str) -> tuple[str, str]:
     return " ".join("".join(spaced).split()), " ".join("".join(joined).split())
 
 
-def title_distance(title: str, query: str) -> int | None:
-    """How far *title* is from *query*: the same, the same but for a leading article, starting
-    with it, with a word that does, or only containing it; None when it does not."""
-    wanted = _spellings(query)
-    if wanted[0]:
-        pairs = zip(_spellings(title), wanted, strict=True)
+class TitleSearch:
+    """The titles of the library of *conn*, as compared with *query*."""
+
+    def __init__(self, conn: sqlite3.Connection, query: str) -> None:
+        query = query[:MAX_SEARCH_TERM_LEN]
+        self._wanted = _spellings(query)
+        # Where nothing but punctuation was typed, that is what to look for.
+        self._typed = query.casefold().strip()
+        items = conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0]
+        if len(_folds) > 2 * items:  # each has its own title and its show's
+            _folds.clear()
+
+    def distance(self, title: str) -> int | None:
+        """How far *title* is from the query: the same, the same but for a leading article,
+        starting with it, with a word that does, or only containing it; None when it does
+        not."""
+        if not self._wanted[0]:
+            return _distance(title.casefold().strip(), self._typed) if self._typed else None
+        spellings = _folds.get(title)
+        if spellings is None:
+            spellings = _folds[title] = _spellings(title)
+        pairs = zip(spellings, self._wanted, strict=True)
         found = [d for whole, want in pairs if (d := _distance(whole, want)) is not None]
         return min(found, default=None)
-    # Nothing but punctuation was typed, so that is what to look for.
-    return _distance(title.casefold().strip(), query.casefold().strip())
 
 
 def _distance(whole: str, wanted: str) -> int | None:

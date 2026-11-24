@@ -7,13 +7,16 @@ client — these are pure DB-query helpers.
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from mediaman.core.format import format_bytes
 from mediaman.db import init_db, set_connection
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
+from mediaman.web.repository.library_query import _match
 from mediaman.web.routes.library import (
     fetch_library,
     fetch_stats,
@@ -209,6 +212,52 @@ class TestFetchLibrary:
         items, total = fetch_library(conn, q=typed)
 
         assert ([i["id"] for i in items], total) == (["m1"], 1)
+
+    @pytest.mark.parametrize("typed", [" ", "   ", "\t"])
+    def test_a_search_for_nothing_but_space_matches_nothing(self, db_path, typed):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "The Dark Knight")
+
+        assert fetch_library(conn, q=typed) == ([], 0)
+
+    def test_titles_are_folded_once_however_large_the_library(self, db_path, monkeypatch):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        conn.executemany(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+            " added_at, file_path, file_size_bytes) VALUES (?, ?, 'movie', 1, ?, '2026', '/f', 1)",
+            [(str(n), f"Film {n}", str(n)) for n in range(20_010)],
+        )
+        fetch_library(conn, q="none")
+        folded = []
+
+        def normalize(form, text):
+            folded.append(text)
+            return unicodedata.normalize(form, text)
+
+        monkeypatch.setattr(
+            _match,
+            "unicodedata",
+            SimpleNamespace(
+                normalize=normalize,
+                combining=unicodedata.combining,
+                category=unicodedata.category,
+            ),
+        )
+        fetch_library(conn, q="another")
+
+        assert folded == ["another"]
+
+    def test_what_is_held_of_titles_no_longer_there_is_let_go(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        for n in range(6):
+            conn.execute("UPDATE media_items SET title = ?", (f"Name {n}",))
+            fetch_library(conn, q="name")
+
+        assert len(_match._folds) <= 3
 
     def test_type_filter_movie(self, db_path):
         conn = init_db(str(db_path))

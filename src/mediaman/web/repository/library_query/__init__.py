@@ -3,14 +3,14 @@
 Four private modules, one concept each:
 
 * `._query` — shared constants (``VALID_SORTS``, ``VALID_TYPES``,
-  ``TV_SEASON_TYPES``, ``ANIME_SEASON_TYPES``, ``ALL_SEASON_TYPES``,
-  ``MAX_SEARCH_TERM_LEN``) plus the core paginated query pipeline
+  ``TV_SEASON_TYPES``, ``ANIME_SEASON_TYPES``, ``ALL_SEASON_TYPES``)
+  plus the core paginated query pipeline
   (``fetch_library`` and its private helpers).
 * `._display` — display-formatting helpers (``days_ago``, ``type_css``,
   ``protection_label``, ``title_ref``, ``_shape_rows``) that convert raw DB values into
   Jinja-template-ready strings and dicts.
-* `._match` — how a title is compared with what a person typed (``title_distance``,
-  ``without_article``).
+* `._match` — how a title is compared with what a person typed (``TitleSearch``,
+  ``without_article``, ``MAX_SEARCH_TERM_LEN``).
 * `._stats` — simple ``COUNT`` / ``SUM`` queries for the library stats bar
   (``fetch_stats``, ``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
   ``count_titles``, ``sum_total_size_bytes``).
@@ -27,11 +27,14 @@ from mediaman.web.repository.library_query._display import (
     title_ref,
     type_css,
 )
-from mediaman.web.repository.library_query._match import title_distance, without_article
+from mediaman.web.repository.library_query._match import (
+    MAX_SEARCH_TERM_LEN,
+    TitleSearch,
+    without_article,
+)
 from mediaman.web.repository.library_query._query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
-    MAX_SEARCH_TERM_LEN,
     TV_SEASON_TYPES,
     VALID_SORTS,
     VALID_TYPES,
@@ -54,6 +57,7 @@ __all__ = [
     "TV_SEASON_TYPES",
     "VALID_SORTS",
     "VALID_TYPES",
+    "TitleSearch",
     "count_anime_shows",
     "count_movies",
     "count_stale",
@@ -64,7 +68,6 @@ __all__ = [
     "fetch_stats",
     "protection_label",
     "sum_total_size_bytes",
-    "title_distance",
     "title_ref",
     "type_css",
     "without_article",

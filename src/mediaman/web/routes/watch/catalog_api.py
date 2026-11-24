@@ -53,7 +53,7 @@ from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email, get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
-from mediaman.web.repository.library_query import protection_label
+from mediaman.web.repository.library_query import TitleSearch, protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
@@ -154,11 +154,12 @@ def api_watch_search_tmdb(
     arr = _arr(request, conn)
     cards = [card for item in found if (card := catalog.tmdb_card(item, index, arr)) is not None]
     refs = dict.fromkeys(cast(str, c["library_ref"]) for c in cards if c["in_library"])
+    search = TitleSearch(conn, term)
     held = [
         title
         for ref in refs
         if (title := _library_title(conn, libraries, ref)) is not None
-        and not lib.is_found_by(title, term)
+        and search.distance(title.title) is None
     ]
     return respond_ok(
         {

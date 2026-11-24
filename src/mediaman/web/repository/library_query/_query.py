@@ -15,7 +15,7 @@ from mediaman.core.time import now_iso, now_utc
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import Keep, _shape_rows, lapse_key
-from mediaman.web.repository.library_query._match import title_distance
+from mediaman.web.repository.library_query._match import TitleSearch
 
 VALID_SORTS = {
     "added_desc",
@@ -31,11 +31,6 @@ VALID_SORTS = {
 }
 VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
-# Hard cap on the user-supplied search term. Without this an attacker could
-# submit a multi-megabyte string to be compared with every title.
-# 200 chars is well above any realistic title length.
-MAX_SEARCH_TERM_LEN = 200
-
 # Joins the ids of a show row's seasons; a unit separator never occurs in an id.
 _ITEM_ID_SEP = "\x1f"
 
@@ -47,12 +42,12 @@ ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
 
 def _matching_ids(conn: sqlite3.Connection, q: str) -> list[str]:
     """The ids of the items whose own title, or whose show's, holds *q*."""
+    search = TitleSearch(conn, q)
     return [
         r["id"]
         for r in conn.execute("SELECT id, title, show_title FROM media_items")
         if any(
-            title and title_distance(title, q) is not None
-            for title in (r["title"], r["show_title"])
+            title and search.distance(title) is not None for title in (r["title"], r["show_title"])
         )
     ]
 
@@ -73,7 +68,7 @@ def _build_where_clause(
 
     if q:
         where_clauses.append("id IN (SELECT value FROM json_each(?))")
-        params.append(json.dumps(_matching_ids(conn, q[:MAX_SEARCH_TERM_LEN])))
+        params.append(json.dumps(_matching_ids(conn, q)))
 
     kept_filter = False
     if media_type == "kept":

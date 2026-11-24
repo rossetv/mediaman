@@ -23,8 +23,7 @@ from mediaman.services.watch_catalog import folder_year
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
-    MAX_SEARCH_TERM_LEN,
-    title_distance,
+    TitleSearch,
     without_article,
 )
 from mediaman.web.repository.watch_progress import seen_movies
@@ -148,7 +147,7 @@ def _movies(
     libraries: list[str],
     *,
     key: str | None = None,
-    term: str | None = None,
+    search: TitleSearch | None = None,
 ) -> list[LibraryMovie]:
     lib_sql, params = _in_libraries(libraries)
     where = [lib_sql, "media_type = 'movie'"]
@@ -170,7 +169,7 @@ def _movies(
             r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
-        if term is None or title_distance(r["title"], term) is not None
+        if search is None or search.distance(r["title"]) is not None
     ]
 
 
@@ -179,7 +178,7 @@ def _shows(
     libraries: list[str],
     *,
     key: str | None = None,
-    term: str | None = None,
+    search: TitleSearch | None = None,
 ) -> list[LibraryShow]:
     lib_sql, params = _in_libraries(libraries)
     season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -212,7 +211,7 @@ def _shows(
             year=r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
-        if term is None or title_distance(r["show_title"], term) is not None
+        if search is None or search.distance(r["show_title"]) is not None
     ]
 
 
@@ -384,21 +383,14 @@ def search_library(
     conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
 ) -> tuple[list[LibraryMovie | LibraryShow], int]:
     """The *limit* movies and shows whose titles come closest to *query* of those that contain
-    it (as title_distance reads both), then by title, and how many contain it."""
-    term = query[:MAX_SEARCH_TERM_LEN]
+    it (as TitleSearch reads both), then by title, and how many contain it."""
+    search = TitleSearch(conn, query)
     found: list[LibraryMovie | LibraryShow] = [
-        *_movies(conn, libraries, term=term),
-        *_shows(conn, libraries, term=term),
+        *_movies(conn, libraries, search=search),
+        *_shows(conn, libraries, search=search),
     ]
-    found.sort(
-        key=lambda item: (title_distance(item.title, term), sort_title(item.title), item.key)
-    )
+    found.sort(key=lambda item: (search.distance(item.title), sort_title(item.title), item.key))
     return found[:limit], len(found)
-
-
-def is_found_by(item: LibraryMovie | LibraryShow, query: str) -> bool:
-    """Whether search_library finds *item* for *query*."""
-    return title_distance(item.title, query[:MAX_SEARCH_TERM_LEN]) is not None
 
 
 def season_item_id(
@@ -574,7 +566,6 @@ __all__ = [
     "find_movie",
     "find_show",
     "in_order",
-    "is_found_by",
     "is_poster_key_allowed",
     "library_movies",
     "library_shows",
