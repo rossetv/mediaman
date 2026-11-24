@@ -206,9 +206,11 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
     """
     try:
         series = client.get_series_by_tvdb(tvdb_id)
-        series_id = series.get("id") if series else None
-        if series is None or series_id is None:
+        if series is None:
             return False
+        series_id = series.get("id")
+        if series_id is None:
+            raise ArrError("Sonarr holds the series with no usable id")
         was_unmonitored = any(
             s.get("seasonNumber") == season_number and not s.get("monitored")
             for s in series.get("seasons") or []

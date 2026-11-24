@@ -153,6 +153,17 @@ class TestSubmit:
         assert sonarr.unmonitor_season.call_count == put_back
         assert _post(client, link, sonarr).status_code == 200
 
+    def test_a_held_show_with_no_id_is_a_502_never_added_again_and_frees_the_link(
+        self, client, link
+    ):
+        sonarr = _sonarr(_series(UNMONITORED, id=None))
+        sonarr.add_series_with_seasons.side_effect = SafeHTTPError(0, "timeout", "sonarr/s")
+
+        assert _post(client, link, sonarr).status_code == 502
+        sonarr.get_series_by_tvdb.return_value = _series(UNMONITORED)
+        assert _post(client, link, sonarr).status_code == 200
+        sonarr.add_series_with_seasons.assert_not_called()
+
     def test_a_link_from_before_seasons_were_named_still_adds_the_show(self, client, secret_key):
         _delete_season(client.app.state.db, 2)
         token = generate_download_token(
