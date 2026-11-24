@@ -210,6 +210,18 @@ class TestFetchSonarrQueueItems:
         assert len(cards) == 1
         assert cards[0]["episode_count"] == 2
 
+    def test_bytes_left_of_a_show_never_count_an_episode_below_zero(self):
+        sp = _series_payload()
+        client = _client(
+            queue=[
+                _queue_ep(series=sp, ep_num=1, size=1_000, sizeleft=-300, download_id="d1"),
+                _queue_ep(series=sp, ep_num=2, size=1_000, sizeleft=400, download_id="d2"),
+            ]
+        )
+        card = fetch_sonarr_queue(client)[0]
+        assert card["sizeleft"] == 400
+        assert card["progress"] == 80
+
     def test_release_name_recorded(self):
         ep = _queue_ep()
         ep["title"] = "Breaking.Bad.S01E01.720p"

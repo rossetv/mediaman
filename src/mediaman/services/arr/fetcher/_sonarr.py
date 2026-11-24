@@ -164,7 +164,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
         episode = q.get("episode") or {}
         series_id = series.get("id", 0)
         size = q.get("size") or 0
-        sizeleft = q.get("sizeleft") or 0
+        sizeleft = max(0, q.get("sizeleft") or 0)
         # Clamp to [0, 100]: Sonarr can briefly report ``sizeleft > size``
         # while a torrent re-downloads, which would otherwise produce a
         # negative percentage and break progress bars.
