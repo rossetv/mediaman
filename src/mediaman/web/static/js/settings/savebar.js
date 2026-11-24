@@ -32,12 +32,26 @@
 
   var savebar = null;
 
-  function markDirty() { if (savebar) savebar.classList.add('on'); }
+  // Counts the edits, so a save can tell whether any came after it was sent.
+  var edits = 0;
+  var onEdit = function () {};
+
+  function markDirty() {
+    edits += 1;
+    if (savebar) savebar.classList.add('on');
+    onEdit();
+  }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
   // The last settings control the user edited, so focus lost to the hiding
   // bar can go back to where they were working.
   var lastEdited = null;
+
+  // Focus on the body or in the bar is nobody's place; anywhere else is left alone.
+  function focusLost() {
+    var active = document.activeElement;
+    return !active || active === document.body || !!(savebar && savebar.contains(active));
+  }
 
   // The bar hides after a save or a discard. Only a keyboard press restores focus, since a
   // pointer user has no focus to lose and a refocus would scroll them back or
@@ -46,10 +60,7 @@
   // page heading when that cannot take focus.
   function settleAfterHide(fromKeyboard) {
     markClean();
-    if (!fromKeyboard) return;
-    var active = document.activeElement;
-    var lost = !active || active === document.body || (savebar && savebar.contains(active));
-    if (!lost) return;
+    if (!fromKeyboard || !focusLost()) return;
     if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
       lastEdited.focus();
       if (document.activeElement === lastEdited) return;
@@ -85,7 +96,7 @@
       values[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
     });
     var disk = MM.settings.diskThresholds ? MM.settings.diskThresholds.state() : null;
-    saved = { values: values, disk: disk };
+    return { values: values, disk: disk };
   }
 
   function restoreSaved() {
@@ -168,7 +179,10 @@
       return !!savebar && savebar.classList.contains('on');
     };
     var saveBtn   = document.getElementById('btn-save');
+    var discardBtn = document.getElementById('btn-discard');
     var statusEl  = document.getElementById('save-status');
+    var SAVE_LABEL = 'Save Settings';
+    var STANDING_TEXT = 'Edits apply to every section at once.';
 
     document.addEventListener('input', function (e) {
       if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
@@ -195,6 +209,21 @@
       }
     }
 
+    // The success state, until its timers have run or an edit ends it early.
+    var successTimers = [];
+    function endSuccess() {
+      if (!successTimers.length) return;
+      successTimers.forEach(clearTimeout);
+      successTimers = [];
+      saveBtn.textContent = SAVE_LABEL;
+      saveBtn.disabled = false;
+    }
+    onEdit = function () {
+      if (!successTimers.length) return;
+      endSuccess();
+      if (statusEl) statusEl.textContent = STANDING_TEXT;
+    };
+
     // runSave is a named function so the reauth retry path can re-fire the same
     // payload without duplicating response-bookkeeping. Routes through
     // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
@@ -204,15 +233,19 @@
       // Disabling the button blurs it, so note now whether focus was in the bar.
       var hadFocus = savebar && savebar.contains(document.activeElement);
       saveBtn.disabled = true;
+      // Discard would put back values the server no longer holds.
+      if (discardBtn) discardBtn.disabled = true;
       clearSaveError();
-      var orig = 'Save Settings';
+      var sent = snapshot();
+      var editsSent = edits;
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
 
-      // After a failure the button is the way back in, so give it focus again.
+      // The button is the way back in, so give it focus again.
       function reenable() {
         saveBtn.disabled = false;
-        if (hadFocus) saveBtn.focus();
+        if (discardBtn) discardBtn.disabled = false;
+        if (hadFocus && focusLost()) saveBtn.focus();
       }
 
       MM.reauth.run(function () {
@@ -225,22 +258,28 @@
           // succeeded. Treat any 2xx that lacks data.status==='saved' as a
           // partial success (shouldn't happen, but be defensive).
           if (data.status === 'saved' || data.ok !== false) {
-            snapshot();
+            saved = sent;
+            refreshOverviewHero();
+            if (edits !== editsSent) {
+              saveBtn.textContent = SAVE_LABEL;
+              if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';
+              reenable();
+              return;
+            }
+            if (discardBtn) discardBtn.disabled = false;
             saveBtn.textContent = 'Saved ✓';
             if (statusEl) {
               statusEl.textContent = ignored.length
                 ? 'Saved · ignored unknown: ' + ignored.join(', ')
                 : 'Settings saved';
             }
-            setTimeout(function () { settleAfterHide(fromKeyboard); }, 600);
-            refreshOverviewHero();
-            setTimeout(function () {
-              saveBtn.textContent = orig;
-              saveBtn.disabled = false;
-              if (statusEl && !ignored.length) {
-                statusEl.textContent = 'Edits apply to every section at once.';
-              }
-            }, 2200);
+            successTimers = [
+              setTimeout(function () { settleAfterHide(fromKeyboard); }, 600),
+              setTimeout(function () {
+                endSuccess();
+                if (statusEl && !ignored.length) statusEl.textContent = STANDING_TEXT;
+              }, 2200),
+            ];
             return;
           }
 
@@ -280,9 +319,8 @@
       if (savebar && savebar.classList.contains('is-error')) clearSaveError();
     }, true);
 
-    snapshot();
+    saved = snapshot();
 
-    var discardBtn = document.getElementById('btn-discard');
     if (discardBtn) discardBtn.addEventListener('click', function (e) {
       var fromKeyboard = e.detail === 0;
       window.UIFeedback.confirm({
@@ -294,8 +332,8 @@
         if (!ok) return;
         restoreSaved();
         clearSaveError();
-        if (saveBtn) saveBtn.textContent = 'Save Settings';
-        if (statusEl) statusEl.textContent = 'Edits apply to every section at once.';
+        if (saveBtn) saveBtn.textContent = SAVE_LABEL;
+        if (statusEl) statusEl.textContent = STANDING_TEXT;
         refreshOverviewHero();
         settleAfterHide(fromKeyboard);
       });

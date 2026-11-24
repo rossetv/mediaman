@@ -133,8 +133,8 @@ function build() {
   doc.body = body;
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Set, Event: class { constructor(t) { this.type = t; } },
-    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-    clearTimeout() {}, MM: {}, UIFeedback: {},
+    setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
+    clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
   };
   ctx.window = ctx;
@@ -219,6 +219,55 @@ const scenarios = {
     discard.fire('click');
     await h.flush();
     return { dirty, afterDiscard, afterSaveDiscard, afterSave: { value: input.value === 'http://e' ? 'kept' : input.value, flag: box.checked } };
+  },
+
+  // An edit made while a save is under way, or just after it, is not in what was sent.
+  async editDuringSave() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const status = h.add('span', { id: 'save-status' }, bar);
+    const input = h.add('input', { id: 'plex_url', value: 'old', type: 'text' }, page);
+    let reply;
+    h.ctx.MM.api = { put: () => new Promise((done) => { reply = () => done({ status: 'saved' }); }), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    const edit = (v) => { input.value = v; input.fire('input'); };
+    const now = () => ({ on: bar.classList.contains('on'), button: save.textContent, disabled: save.disabled });
+    edit('first');
+    save.focus();
+    save.fire('click', { detail: 0 });
+    const discardWhileSending = discard.disabled;
+    input.focus();
+    edit('during');
+    reply();
+    await h.flush();
+    const status1 = status.textContent;
+    h.drain();
+    const during = now();
+    const keptPlace = h.doc.activeElement === input;
+    discard.fire('click');
+    await h.flush();
+    const discarded = input.value;
+    // the moment between the reply and the bar hiding
+    edit('second');
+    save.fire('click');
+    reply();
+    await h.flush();
+    const said = save.textContent;
+    edit('after');
+    h.drain();
+    const after = now();
+    // with no edit the bar goes
+    save.fire('click');
+    reply();
+    await h.flush();
+    h.drain();
+    return { discardWhileSending, during, status: status1, keptPlace, discarded, said, after, quiet: now(), discardAfter: discard.disabled };
   },
 
   // A subscriber is removed only after the dialog is confirmed.

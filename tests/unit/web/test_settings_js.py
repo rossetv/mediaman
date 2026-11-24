@@ -46,6 +46,19 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
+def test_an_edit_made_during_a_save_stays_unsaved() -> None:
+    out = _run("editDuringSave")
+    unsaved = {"on": True, "button": "Save Settings", "disabled": False}
+    assert out["during"] == unsaved
+    assert "since" in out["status"]
+    assert out["keptPlace"] is True
+    # Discard waits for the reply, then goes back to what was sent
+    assert (out["discardWhileSending"], out["discardAfter"]) == (True, False)
+    assert out["discarded"] == "first"
+    assert (out["said"], out["after"]) == ("Saved ✓", unsaved)
+    assert out["quiet"] == {"on": False, "button": "Save Settings", "disabled": False}
+
+
 def test_subscriber_is_removed_only_after_confirming() -> None:
     out = _run("remove")
     assert out["declined"] == {
