@@ -317,6 +317,17 @@
 .player-pill--primary::before,
 .player-pill--primary:hover::before { background: var(--t1); }
 
+/* Focus rings have the shape of what is drawn: the pill, the round button, the bar's thumb. */
+.player-pill:focus-visible { outline: none; }
+.player-pill:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 2px; }
+.player-back:focus-visible,
+.player-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-pill); }
+.player-seek:focus-visible { outline: none; }
+.player-seek:focus-visible .player-seek-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-volume-slider:focus-visible { outline: none; }
+.player-volume-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+.player-volume-slider:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 3px; }
+
 /* Skip intro, Skip credits, Next episode: there without the controls at first. */
 .player-skip {
   position: absolute;

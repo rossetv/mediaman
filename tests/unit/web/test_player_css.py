@@ -150,3 +150,12 @@ def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
 
     assert level(".player-band") < level(".player-seek-played") < level(".player-gap")
     assert level(".player-gap") <= level(".player-seek-thumb")
+
+
+def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_pressed_by() -> None:
+    css = _text("_player.css")
+    assert re.search(r"outline:\s*none", _rule(css, ".player-pill:focus-visible"))
+    assert re.search(r"outline:\s*2px solid", _rule(css, ".player-pill:focus-visible::before"))
+    # Forced colours draw outlines, so nothing there may take it away again.
+    forced = css[css.index("@media (forced-colors: active)") :]
+    assert "outline: none" not in forced
