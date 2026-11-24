@@ -33,3 +33,15 @@ def _of(selector: str, media: str | None = None) -> str:
 def test_a_phone_shows_which_episodes_are_watched_or_in_progress() -> None:
     assert "display: none" not in _of(".ttl .watch-ep__state", PHONE)
     assert '". thumb state"' in _of(".ttl .watch-ep", PHONE)
+
+
+def test_a_long_season_name_wraps_inside_its_chip() -> None:
+    assert "max-width: 100%" in _of(".season-chip")
+    assert "min-width: 0" in _of(".season-chip__name")
+    phone = _of(".season-chip", PHONE)
+    assert "nowrap" not in phone and "min-width: 0" in phone
+
+
+def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
+    body = _of(".ttl-cast__name")
+    assert "overflow-wrap: anywhere" in body and "max-width: 100%" in body
