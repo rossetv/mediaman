@@ -242,8 +242,9 @@
   /* Make *root* hold *list*, [{ key, sig, make, update }], keeping the node of
      each key that stays. What stays glides from where it is on the screen this
      instant, even mid-flight; what is new rises; what is gone fades. A change of
-     *sig* redraws a node where it stands. */
-  function glide(root, list) {
+     *sig* redraws a node where it stands. *first* changes the page around them,
+     once it is known where they are. */
+  function glide(root, list, first) {
     var g = glides.get(root);
     if (!g) {
       g = { nodes: new Map(), ghosts: el('div', 'results-ghosts') };
@@ -253,7 +254,6 @@
       glides.set(root, g);
     }
     var go = moves(root);
-    var around = g.ghosts.getBoundingClientRect();
     var keep = new Set();
     list = list.filter(function (x) {
       if (keep.has(x.key)) return false;
@@ -268,6 +268,8 @@
           ? parseFloat(getComputedStyle(held.node).opacity) : 1;
       });
     }
+    if (first) first();
+    var around = g.ghosts.getBoundingClientRect();
     g.nodes.forEach(function (held, key) {
       if (keep.has(key)) return;
       g.nodes.delete(key);
@@ -733,6 +735,7 @@
       live.bar = bar;
       live.grid = grid;
       live.drawn = false; // whether the grid shows an answer
+      live.rows = []; // what the grid shows
     }
 
     function suggestion(key, kind, o) {
@@ -836,7 +839,11 @@
     function drawSuggestions(q, c) {
       var list = suggestionsFor(q, c);
       var at = picked && picked.id;
-      live.node.classList.toggle('has-no-suggestions', !list.length);
+      var none = !list.length;
+      if (none !== live.node.classList.contains('has-no-suggestions')) {
+        // The grid gives up or takes the column beside it.
+        glide(live.grid, live.rows, function () { live.node.classList.toggle('has-no-suggestions', none); });
+      }
       live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
       glide(live.list, list);
       input.setAttribute('aria-controls', 'watch-suggestions');
@@ -1043,11 +1050,6 @@
 
     function plain(key, node) { return { key: key, sig: key, make: function () { return node(); } }; }
 
-    function drawLoading() {
-      holdResults();
-      glide(live.grid, [headRow('lib', 'In your library')].concat(skeletonRows('lib')));
-    }
-
     /* Put what is known about search *c* on the page. The library group goes
        up the moment it arrives; TMDB fills its own place when it does. */
     function paint(c) {
@@ -1102,6 +1104,7 @@
       }
       live.grid.removeAttribute('aria-busy');
       live.drawn = lib.state !== 'loading';
+      live.rows = rows;
       glide(live.grid, rows);
       refocus(c, 'lib', lib);
       refocus(c, 'tmdb', tmdb);
