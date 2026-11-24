@@ -198,9 +198,21 @@ class TestWebSearchTitleValidation:
             is False
         )
 
-    def test_non_ascii_rejected(self):
-        """Titles with non-ASCII characters fail the strict ASCII-only check."""
-        assert openai_recommendations._is_web_search_title_safe("Amélie") is False
+    def test_a_letter_of_another_alphabet_does_not_reject_the_batch(
+        self, conn, monkeypatch, fake_http, fake_response
+    ):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
+        )
+        text = '{"items": [{"title": "Amélie", "media_type": "movie", "reason": ""}]}'
+        output = [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        fake_http.queue("POST", fake_response(json_data={"output": output}))
+
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=True)
+
+        assert [r["title"] for r in result] == ["Amélie"]
 
     def test_adversarial_batch_rejected(self, conn, monkeypatch, fake_http, fake_response):
         """When web search is active and a title fails validation, the whole batch is rejected."""

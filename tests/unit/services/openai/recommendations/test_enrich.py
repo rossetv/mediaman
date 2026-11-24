@@ -11,6 +11,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
@@ -62,11 +63,14 @@ def _mock_tmdb(search_return=None, card_return=None, detail_return=None):
     """Build a TmdbClient mock. Returned via ``from_db``."""
     cls = MagicMock()
     inst = MagicMock()
-    inst.search.return_value = search_return  # None means "not found"
+    if search_return is None:
+        inst.search_or_raise.side_effect = requests.ConnectionError("TMDB is down")
+    else:
+        inst.search_or_raise.return_value = search_return
+    inst.shape_card.return_value = card_return or _shape_card()
+    inst.shape_detail.return_value = _shape_detail_empty()
     inst.details.return_value = detail_return or {}
     cls.from_db.return_value = inst
-    cls.shape_card.return_value = card_return or _shape_card()
-    cls.shape_detail.return_value = _shape_detail_empty()
     return cls, inst
 
 
@@ -214,3 +218,56 @@ class TestEnrichRecommendations:
             enrich_recommendations([rec], conn, _SECRET_KEY)
 
         assert rec["rating"] == 6.2
+
+
+class _Tmdb:
+    """Answers a title search from *titles*: (title, year) -> id; a missing one is no match."""
+
+    def __init__(self, titles, down=False):
+        self.titles, self.down, self.asked = titles, down, []
+
+    def search_or_raise(self, title, *, year=None, media_type="movie"):
+        self.asked.append((title, year))
+        if self.down:
+            raise requests.ConnectionError("down")
+        found = self.titles.get((title, year))
+        return {"id": found} if found else None
+
+    def shape_card(self, item):
+        return {**_shape_card(tmdb_id=item["id"]), "year": 2000}
+
+    def details(self, media_type, tmdb_id):
+        return None
+
+
+@pytest.fixture
+def enrich(conn, monkeypatch):
+    def run(tmdb, recs, **kwargs):
+        monkeypatch.setattr(
+            "mediaman.services.media_meta.tmdb.TmdbClient.from_db", lambda *_a: tmdb
+        )
+        monkeypatch.setattr("mediaman.services.media_meta.omdb.fetch_ratings", lambda *_a, **_k: {})
+        enrich_recommendations(recs, conn, _SECRET_KEY, **kwargs)
+        return [(r["title"], r["tmdb_id"]) for r in recs]
+
+    return run
+
+
+class TestWhichPicksAreKept:
+    def test_a_title_tmdb_does_not_know_is_dropped(self, enrich):
+        tmdb = _Tmdb({("Real", None): 5})
+        assert enrich(tmdb, [_rec("Made up"), _rec("Real")]) == [("Real", 5)]
+
+    def test_an_outage_of_tmdb_drops_nothing(self, enrich):
+        assert enrich(_Tmdb({}, down=True), [_rec("A"), _rec("B")]) == [("A", None), ("B", None)]
+
+    def test_the_year_picks_the_remake_and_a_wrong_year_still_finds_the_title(self, enrich):
+        tmdb = _Tmdb({("Dune", 1984): 1, ("Dune", None): 2, ("Heat", None): 3})
+        recs = [{**_rec("Dune"), "year": 1984}, {**_rec("Heat"), "year": 1990}]
+        assert enrich(tmdb, recs) == [("Dune", 1), ("Heat", 3)]
+
+    def test_a_refused_pick_makes_room_for_the_next(self, enrich):
+        tmdb = _Tmdb({(t, None): n for n, t in enumerate("ABCD", start=1)})
+        kept = enrich(tmdb, [_rec(t) for t in "ABCD"], accept=lambda r: r["tmdb_id"] != 1, limit=2)
+        assert kept == [("B", 2), ("C", 3)]
+        assert ("D", None) not in tmdb.asked

@@ -91,8 +91,15 @@ class TestValidateWebSearchTitle:
     def test_non_printable_ascii_rejected(self):
         assert is_web_search_title_safe("Title\x01here") is False
 
-    def test_non_ascii_unicode_rejected(self):
-        assert is_web_search_title_safe("Títle with accent") is False
+    @pytest.mark.parametrize("title", ["Amélie", "アニメ", "Ocean’s – Eight", "Pokémon 2"])
+    def test_a_title_in_another_script_is_valid(self, title):
+        assert is_web_search_title_safe(title) is True
+
+    @pytest.mark.parametrize(
+        "title", ["", "A\u202etitle", "A\u200btitle", "A\u00a0title", "A\ue000"]
+    )
+    def test_an_invisible_or_unassigned_character_is_rejected(self, title):
+        assert is_web_search_title_safe(title) is False
 
     def test_markdown_link_rejected(self):
         assert is_web_search_title_safe("[click me](http://evil.com)") is False

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from mediaman.services.openai.recommendations import prompts
 from mediaman.services.openai.recommendations.prompts import (
     _PLEX_STRING_MAX_LEN,
     parse_recommendations,
@@ -107,11 +112,129 @@ class TestParseRecommendations:
         result = parse_recommendations(items, "trending")
         assert result[0]["trailer_url"].startswith("https://www.youtube.com")
 
-    def test_year_set_to_none(self):
-        """Year is not populated by the prompt stage — enrichment does that later."""
-        items = [{"title": "Dune", "media_type": "movie", "reason": "x"}]
-        result = parse_recommendations(items, "trending")
-        assert result[0]["year"] is None
+    @pytest.mark.parametrize(
+        ("year", "kept"), [(1999, 1999), ("1999", 1999), ("soon", None), (3000, None), (None, None)]
+    )
+    def test_only_a_plausible_year_is_kept(self, year, kept):
+        items = [{"title": "Dune", "media_type": "movie", "reason": "x", "year": year}]
+        assert parse_recommendations(items, "trending")[0]["year"] == kept
 
     def test_empty_input_returns_empty(self):
         assert parse_recommendations([], "trending") == []
+
+
+def _reason(reason: str, **kwargs) -> str:
+    [pick] = parse_recommendations(
+        [{"title": "Dune", "media_type": "movie", "reason": reason}], "personal", **kwargs
+    )
+    return pick["reason"]
+
+
+class TestReasons:
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "Because of its pace.",
+            "A heist you will like.",
+            "Made for your evenings.",
+            "See https://a.example/x.",
+            "See www.a.example.",
+            "More at films.com today.",
+            "A [heist](x) story.",
+            "A **bold** heist.",
+            "# A heist",
+            "A thief like those in Heat plans one job.",
+        ],
+    )
+    def test_a_reason_that_may_not_be_shown_is_blanked_and_the_pick_kept(self, reason):
+        assert _reason(reason, sent_titles=["Heat"]) == ""
+
+    @pytest.mark.parametrize(
+        "reason", ["A heat wave traps four strangers.", "Four thieves in Heathrow at night."]
+    )
+    def test_a_title_inside_another_word_or_in_small_letters_names_nothing(self, reason):
+        assert _reason(reason, sent_titles=["Heat"]) == reason
+
+    def test_a_long_reason_ends_at_a_whole_sentence(self):
+        first = "A thief trains three strangers for one job."
+        assert _reason(f"{first} {'And so on ' * 30}.") == first
+
+    def test_a_long_reason_of_one_sentence_is_blanked(self):
+        assert _reason("word " * 60) == ""
+
+
+def _answering(monkeypatch, items=()):
+    """Answer every call with *items*; returns the calls as (prompt, web search asked for)."""
+    calls: list[tuple[str, bool]] = []
+
+    def fake(prompt, conn, use_web_search=False, *, secret_key=None):
+        calls.append((prompt, use_web_search))
+        return list(items)
+
+    monkeypatch.setattr(prompts, "call_openai", fake)
+    return calls
+
+
+class TestPersonalPrompt:
+    def test_a_pick_names_at_most_two_of_the_titles_sent_and_only_those(self, monkeypatch):
+        raw = {"title": "Pick", "media_type": "movie", "reason": "A heist."}
+        _answering(
+            monkeypatch,
+            [
+                {**raw, "because_of": ["H2", "H9", "H2", 7, "Secret", "H1", "H3"]},
+                {**raw, "because_of": "H1"},
+            ],
+        )
+        history = [{"title": t, "type": "movie"} for t in ("Alpha", "Beta", "Gamma")]
+
+        first, second = prompts.generate_personal(None, history)
+
+        assert first["because_of"] == ["Beta", "Alpha"]
+        assert second["because_of"] == []
+
+    def test_a_title_left_out_for_lack_of_room_cannot_be_named(self, monkeypatch):
+        calls = _answering(
+            monkeypatch,
+            [{"title": "P", "media_type": "tv", "reason": "", "because_of": ["H1", "H50"]}],
+        )
+        history = [{"title": f"{n:02} " + "é" * 110, "type": "movie"} for n in range(50)]
+
+        [pick] = prompts.generate_personal(None, history, previous_titles=["Old " * 20] * 100)
+
+        prompt = calls[0][0]
+        data = prompt[prompt.rindex("<BEGIN_PLEX_DATA>") : prompt.rindex("<END_PLEX_DATA>")]
+        lines = [line for line in data.splitlines() if line.startswith("H")][1:]
+        assert 10 < len(lines) < 50
+        assert all(line.endswith("é (movie)") for line in lines)
+        assert len(data.encode()) < prompts._PLEX_BLOCK_MAX_BYTES + 100
+        block = data.split("<UNTRUSTED_PREVIOUS_TITLES>\n")[1].split("\n</")[0]
+        assert set(json.loads(block)) == {"Old " * 20}
+        assert len(pick["because_of"]) == 1
+
+    def test_a_reason_naming_a_rated_or_earlier_title_is_blanked(self, monkeypatch):
+        item = {"title": "P", "media_type": "tv"}
+        _answering(
+            monkeypatch, [{**item, "reason": "Like Heat."}, {**item, "reason": "Like Ronin."}]
+        )
+        picks = prompts.generate_personal(
+            None,
+            [{"title": "Alpha", "type": "movie"}],
+            [{"title": "Heat", "type": "movie", "stars": 5.0}],
+            ["Ronin"],
+        )
+        assert [p["reason"] for p in picks] == ["", ""]
+
+    def test_a_persons_titles_never_go_with_a_web_search(self, monkeypatch):
+        calls = _answering(monkeypatch)
+        prompts.generate_personal(None, [{"title": "Alpha", "type": "movie"}])
+        assert [web for _, web in calls] == [False]
+
+
+class TestTrendingPrompt:
+    @pytest.mark.parametrize("web", [True, False])
+    def test_the_model_is_told_to_search_only_when_it_can(self, monkeypatch, web):
+        calls = _answering(monkeypatch)
+        monkeypatch.setattr(prompts, "is_web_search_enabled", lambda _conn: web)
+        prompts.generate_trending(None)
+        assert ("Search the web" in calls[0][0]) is web
+        assert ("You cannot search the web" in calls[0][0]) is not web

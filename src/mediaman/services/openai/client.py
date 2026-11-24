@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sqlite3
+import unicodedata
 from typing import Any
 
 import requests
@@ -46,8 +47,6 @@ OPENAI_MODELS: tuple[str, ...] = ("gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-terra
 # retired model keeps working instead of sending OpenAI a model it has dropped.
 _DEFAULT_MODEL = "gpt-6.2-sol"
 
-# Regex for validating web-search-derived recommendation titles.
-_SAFE_TITLE_RE = re.compile(r"^[\x20-\x7E]+$")
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
 
@@ -96,11 +95,14 @@ def is_web_search_title_safe(title: str) -> bool:
     """Return True if *title* is safe to persist after a web-search response.
 
     Rejects the entire batch (caller must check the return value) if:
-    - The title contains non-printable-ASCII characters.
+    - The title contains a character that is neither printable ASCII nor a letter, mark,
+      number or punctuation of another script (so no control or invisible character).
     - The title contains markdown link syntax ``[text](url)``.
     - The title contains a URL scheme pattern (``http://``, ``https://``).
     """
-    if not _SAFE_TITLE_RE.match(title):
+    if not title or not all(
+        " " <= c <= "~" or (ord(c) > 0x7F and unicodedata.category(c)[0] in "LMNP") for c in title
+    ):
         return False
     if _MARKDOWN_LINK_RE.search(title):
         return False
@@ -116,7 +118,7 @@ def _build_request(
     """Build the Responses-API request body and auth headers.
 
     ``web_search_active`` controls whether the ``web_search_preview`` tool
-    and the "ALWAYS search the web" instruction are included. Both the
+    and the instruction to search the web are included. Both the
     directive and the tool must arrive together — or neither — so the model
     is never told to do something it has no way to do.
     """
@@ -127,8 +129,7 @@ def _build_request(
     }
     if web_search_active:
         body["instructions"] = (
-            "You are a media recommendation engine. ALWAYS search the web to find "
-            "current, real, accurate information. Do not rely on training data alone. "
+            "You are a media recommendation engine. Use web search for current facts. "
             "Return only valid JSON."
         )
         body["tools"] = [{"type": "web_search_preview"}]
@@ -226,8 +227,8 @@ def call_openai(
     indirect-prompt-injection surface. *use_web_search* defaults to False so callers
     must opt in alongside the operator setting.
 
-    When web search is active every returned title must pass a strict printable-ASCII
-    check; if any looks adversarial the whole batch is rejected and [] is returned.
+    When web search is active every returned title must pass is_web_search_title_safe;
+    if any looks adversarial the whole batch is rejected and [] is returned.
     """
     try:
         api_key = get_openai_key(conn, secret_key)

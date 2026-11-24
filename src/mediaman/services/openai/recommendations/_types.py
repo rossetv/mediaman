@@ -20,6 +20,8 @@ class RecommendationItem(TypedDict):
     imdb_id: NotRequired[str | None]
     description: NotRequired[str | None]
     reason: str
+    # Titles the person played that led to the pick; only on a person's own picks.
+    because_of: NotRequired[list[str]]
     trailer_url: NotRequired[str | None]
     poster_url: NotRequired[str | None]
     # Fields added by enrich stage
