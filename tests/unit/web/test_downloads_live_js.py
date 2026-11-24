@@ -139,6 +139,7 @@ def test_every_bar_says_whose_progress_it_is_and_every_section_has_a_heading() -
     assert out["drawn"] == [["Th", "10"], ["S01E01", "5"], ["Tq", "1"]]
     assert out["first"]["bars"] == [["Th2", "20"], ["S01E01", "10"], ["Tq", "2"]]
     assert out["rebuilt"] == [["Th3", "30"], ["S01E01", "15"], ["Tq", "3"]]
+    assert out["brought"] == [["S01E01", "7"], ["S01E02", "7"]]
     headings = ["Th2", "Also downloading", "Coming soon", "Recently added"]
     assert out["first"]["headings"] == ["H1 Downloads", *(f"H2 {h}" for h in headings)]
 
@@ -270,4 +271,42 @@ def test_a_new_hero_fades_in_and_the_same_one_does_not() -> None:
 
 def test_the_heros_background_may_come_from_mediaman_itself() -> None:
     out = _run("ownArt", hero=_item("h", poster_url="/api/watch/img/tmdb/w342/h.jpg"))
-    assert out == {"drawn": 'url("/api/watch/img/tmdb/w342/h.jpg")', "other": None}
+    assert out["drawn"] == 'url("/api/watch/img/tmdb/w342/h.jpg")'
+    assert out["other"] == [None] * 3, "a browser reads these as another host"
+
+
+_STUCK = {
+    "state": "searching",
+    "search_hint": "x",
+    "arr_link": "http://arr/h",
+    "arr_source": "Radarr",
+}
+
+
+def test_a_row_that_changes_place_keeps_the_focus_in_it() -> None:
+    show = _item("q2", media_type="series", episodes=[_EPISODE], **_STUCK)
+    rows = [_item("q1", **_STUCK), show]
+    out = _run("reordered", hero=_item("h"), queue=rows)
+    assert out == {"rows": ["q2", "q1"], "on": True}
+
+
+def test_a_control_of_the_hero_never_becomes_another_titles_under_the_focus() -> None:
+    show = _item("h", media_type="series", episodes=[_EPISODE], abandon_visible=True, **_STUCK)
+    out = _run("heroFollowed", hero=show)
+    # it stays through a poll of the same title, and leaves with the title
+    assert out["on"] == [[True, "H1"]] * 3
+    assert out["closed"] == [False, "false", False]
+
+
+def test_a_poll_that_cannot_be_drawn_is_not_told_as_mediaman_not_answering() -> None:
+    out = _run("unreadable", hero=_item("h"), subtitle="1 item in progress")
+    assert out == {"polls": 3, "logged": 3, "line": "1 item in progress", "dimmed": 0}
+
+
+def test_what_is_coming_soon_gains_and_changes_its_poster() -> None:
+    out = _run("upcomingPoster", hero=_item("h"), upcoming=[_item("u")])
+    assert out["out"] == [[], ["https://art/1.jpg"], ["https://art/2.jpg"], []]
+
+
+def test_a_small_state_pill_stays_on_one_line() -> None:
+    assert "white-space: nowrap" in _rule(".dl-state-pill--xs")

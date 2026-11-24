@@ -271,8 +271,68 @@ const scenarios = {
     const p = page(spec);
     const bg = () => p.q('.dl-hero-bg').style['background-image'] || null;
     const drawn = bg();
-    p.upd({ hero: item('b', { poster_url: '//elsewhere/b.jpg' }) });
-    return { drawn, other: bg() };
+    const other = ['//elsewhere/b.jpg', '/\\elsewhere/b.jpg', '/\t/elsewhere/b.jpg'].map((poster_url, i) => {
+      p.upd({ hero: item('b' + i, { poster_url }) });
+      return bg();
+    });
+    return { drawn, other };
+  },
+
+  // a queued row changes place while a person is on its episodes button
+  async reordered() {
+    const p = page(spec);
+    const toggle = p.q('.dl-compact [data-v="ep-toggle"]');
+    toggle.focus();
+    const episodes = [{ label: 'S01E01', title: '', state: 'downloading', progress: 1 }];
+    p.upd({ hero: item('h'), queue: [item('q2', { media_type: 'series', episodes }), item('q1', { state: 'searching' })] });
+    const on = p.doc.activeElement === toggle;
+    return { rows: p.qa('.dl-compact').map((r) => r.getAttribute('data-dl-id')), on };
+  },
+
+  // another title takes the hero while a person is on one of its controls, its list open
+  async heroFollowed() {
+    const p = page(spec);
+    const ep = (label) => ({ label, title: '', state: 'queued', progress: 0 });
+    const toggle = p.q('.dl-hero [data-v="ep-toggle"]');
+    const open = () => [toggle.classList.contains('open'), toggle.getAttribute('aria-expanded'), !p.q('.dl-hero [data-v="ep-list"]').hidden];
+    const hero = (id) => item(id, { media_type: 'series', state: 'searching', arr_link: 'http://arr/' + id, search_hint: 'x', abandon_visible: true, episodes: [ep('S01E01')] });
+    click(p.doc, toggle);
+    const out = { on: [] };
+    for (const [i, part] of ['arr-link', 'ep-toggle', 'abandon'].entries()) {
+      const at = p.q('.dl-hero ' + (part === 'abandon' ? '[data-abandon-trigger]' : `[data-v="${part}"]`));
+      at.focus();
+      p.upd({ hero: hero(i ? 'n' + (i - 1) : 'h') });
+      const stays = p.doc.activeElement === at;
+      p.upd({ hero: hero('n' + i) });
+      out.on.push([stays, p.doc.activeElement.tagName]);
+      if (!i) out.closed = open();
+    }
+    return out;
+  },
+
+  // a poll whose answer cannot be drawn
+  async unreadable() {
+    const polls = [];
+    const p = page(spec, { get: () => { polls.push(1); return Promise.resolve({ hero: null, queue: [null], upcoming: [], recent: [], subtitle: 'x' }); } });
+    const logged = [];
+    p.ctx.console = { error: (e) => logged.push(String(e)) };
+    for (let i = 0; i < 3; i++) {
+      const t = p.timers.find((x) => x.ms === 2000);
+      if (t) { p.timers.splice(p.timers.indexOf(t), 1); t.fn(); await settle(); }
+    }
+    return { polls: polls.length, logged: logged.length, line: p.text('.ph p'), dimmed: p.qa('.is-held').length };
+  },
+
+  // a poster comes to something coming soon, and another takes its place
+  async upcomingPoster() {
+    const p = page(spec);
+    const src = () => p.qa('.dl-upcoming-row img').map((i) => i.getAttribute('src'));
+    const out = [src()];
+    for (const poster_url of ['https://art/1.jpg', 'https://art/2.jpg', '']) {
+      p.upd({ hero: item('h'), upcoming: [item('u', { poster_url })] });
+      out.push(src());
+    }
+    return { out };
   },
 
   // everything coming soon gives way to something else in one poll
@@ -296,7 +356,9 @@ const scenarios = {
     const first = { bars: bars(), headings: headings() };
     p.qa('.dl-compact').forEach((r) => r.remove());
     poll(3);
-    return { drawn, first, rebuilt: bars() };
+    const rebuilt = bars();
+    p.upd({ hero: item('h3', { media_type: 'series', episodes: ['S01E01', 'S01E02'].map((label) => ({ label, title: '', state: 'downloading', progress: 7 })) }) });
+    return { drawn, first, rebuilt, brought: bars().slice(1) };
   },
 
   // the episodes button says whether its list is open from the moment it is drawn
