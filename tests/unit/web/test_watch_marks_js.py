@@ -292,6 +292,15 @@ def test_a_card_an_undo_puts_back_out_of_sight_is_scrolled_to_in_its_row() -> No
     }
 
 
+def test_a_card_an_older_undo_brings_from_the_server_is_scrolled_to_too() -> None:
+    assert _run("olderUndoOffScreen") == {
+        "brought": ["movie/3"],
+        "marks": ["movie/1", "movie/3"],
+        "by": [[-128, "auto"]],
+        "snap": "",
+    }
+
+
 def test_dismissing_the_last_title_folds_the_banner_and_the_row_away_until_undo() -> None:
     out = _run("lastBanner")
     assert out["gone"] == {"banner": [], "marks": []}

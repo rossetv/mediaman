@@ -400,6 +400,29 @@ const scenarios = {
     };
   },
 
+  // An Undo of an older dismissal, when another change has brought the row back without that
+  // title: its card comes with the server's page, out of sight at the start of a scrolled row.
+  async olderUndoOffScreen() {
+    const salt = card('movie/3', 'Salt', 'Movie', { watched: true });
+    const page = (cards) => watchPage([['div', { class: 'watch-rows' }, ...(cards.length ? [row('cont', cards)] : []), row('lib', [salt])]]);
+    const p = load(page(CONTINUE.slice(0, 1)), { next: (_n, calls) => {
+      const sent = calls.filter((c) => !/^GET /.test(c));
+      return page(sent.length < 2 ? [] : sent.length < 3 ? CONTINUE.slice(2) : [CONTINUE[0], CONTINUE[2]]);
+    } });
+    await p.pick(p.cards('cont')[0], 'dismiss');
+    await p.pick(p.cards('lib')[0], 'mark');
+    const rowNow = p.doc.querySelector('.watch-rows').children[0];
+    const brought = p.marks('cont');
+    const scroller = rowNow.querySelector('.watch-row__scroll');
+    const by = [];
+    scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
+    scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
+    const box = Node.prototype.getBoundingClientRect;
+    Node.prototype.getBoundingClientRect = function () { return this.getAttribute('data-mark') === 'movie/1' ? { top: 0, bottom: 20, left: -128, right: -108, width: 20, height: 20 } : box.call(this); };
+    await p.undo(0);
+    return { brought, marks: p.marks('cont'), by, snap: scroller.style.scrollSnapType };
+  },
+
   // The last title dismissed: with no banner on the server's page, it folds away and comes back.
   async lastBanner() {
     const p = load(watchPage([banner('movie-1', 'Fieldwork', '/watch/play/1'), row('cont', CONTINUE.slice(0, 1))]), { next: watchPage([]) });
