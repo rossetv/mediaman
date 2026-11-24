@@ -225,6 +225,9 @@ class PlexTv:
         try:
             self._call("DELETE", "/users/signout", token=token).close()
         except (SafeHTTPError, requests.RequestException) as exc:
+            # A 401 means the token is dead already.
+            if isinstance(exc, SafeHTTPError) and exc.status_code == 401:
+                return True
             self._unavailable("sign_out", exc)
             return False
         return True

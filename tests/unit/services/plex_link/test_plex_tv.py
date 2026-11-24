@@ -138,3 +138,9 @@ def test_only_a_404_ends_a_pin(plex, tv):
     plex.answers["GET", f"{TV}/pins/77"] = (404, "{}")
     with pytest.raises(PinExpired):
         tv.poll_pin(pin)
+
+
+@pytest.mark.parametrize(("status", "signed_out"), [(401, True), (403, False), (429, False)])
+def test_a_token_plex_no_longer_accepts_is_signed_out(plex, tv, status, signed_out):
+    plex.answers["DELETE", f"{TV}/users/signout"] = (status, "{}")
+    assert tv.sign_out(SignInToken(TOKEN)) is signed_out
