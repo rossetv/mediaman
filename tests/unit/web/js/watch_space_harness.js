@@ -118,7 +118,7 @@ function markup() {
         ...['7', '30', '90'].map((d) => ['button', { class: 'watch-keep-menu__item', 'data-days': d }, d])]],
     ['div', { class: 'space', id: 'space' },
       ['div', { class: 'space__veil', 'data-space-close': '' }],
-      ['section', { class: 'space__panel', role: 'dialog' },
+      ['section', { class: 'space__panel', role: 'dialog', 'aria-label': 'Storage' },
         ['div', { class: 'space__grab' }],
         ['div', { class: 'space__tabs' }, ['span', { class: 'space__ink' }], tab('storage'), tab('scheduled'), tab('deleted')],
         ['button', { class: 'space__close', 'data-space-close': '', id: 'close' }],

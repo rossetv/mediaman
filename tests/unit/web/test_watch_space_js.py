@@ -80,7 +80,7 @@ class TestPanel:
         assert out == {
             "values": ["storage", "scheduled", "deleted", None, None, None],
             "on": ["space-deleted"],
-            "tabs": "space-tab-deleted",
+            "tabs": "Storage",
         }
 
     def test_tabs_move_by_arrow_key_replace_the_address_and_leave_one_pane_in_reach(self):

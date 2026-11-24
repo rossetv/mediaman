@@ -413,7 +413,8 @@
     void panel.offsetWidth; // start the entrance from the closed look
     root.classList.add('is-open');
     placeInk(false);
-    if (fresh) tabButton(tab).focus({ preventScroll: true });
+    // From a link nobody pressed anything here: no ring on a tab.
+    if (fresh) (opener ? tabButton(tab) : panel).focus({ preventScroll: true });
     if (name === 'storage' && !act) {
       toArray(panes.storage.querySelectorAll('.space-seg')).forEach(function (s, i) {
         anim(s, [{ opacity: 0, transform: 'scaleX(.6)' }, { opacity: 1, transform: 'none' }], dur() + i * 20);
@@ -454,6 +455,7 @@
     open: function (name, how) {
       if (isOpen) { setTab(name, true); return; }
       // Back to the panel: address.js puts the focus where it was, if that is still there.
+      if (how !== 'pop') opener = null;
       show(name, how !== 'pop');
       if (how === 'pop') {
         setTimeout(function () {
