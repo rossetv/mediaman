@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -70,6 +71,14 @@ def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_wa
     assert out["revealed"] == [words, words]  # being sent, then updated
     assert out["revealedRefusal"] == [words]
     assert out["revealedEmptied"] == []
+
+
+def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    rule = css.split(".profile-pg .inline-form-actions .inline-form-msg {")[1].split("}")[0]
+    margin = re.search(r"scroll-margin-bottom: (\d+)px", rule)
+    # a 44px button centred on one 18px line reaches 13px below it
+    assert margin and int(margin.group(1)) >= 13
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
