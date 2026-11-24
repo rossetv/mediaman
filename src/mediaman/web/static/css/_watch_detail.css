@@ -494,7 +494,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl { scroll-padding-top: var(--ttl-bar); }
   .ttl__bar { position: sticky; top: 0; }
   .ttl.is-past .ttl__bar { pointer-events: auto; }
-  .ttl.is-past .ttl__bar::before { opacity: 1; box-shadow: 0 1px 0 var(--hair); }
+  .ttl.is-past .ttl__bar::before { opacity: 1; border-bottom: 1px solid var(--hair); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
 }
 
