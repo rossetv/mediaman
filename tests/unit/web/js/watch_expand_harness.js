@@ -37,6 +37,7 @@ function libraryCard(n, over = {}) {
   return ['article', { class: 'watch-card', 'data-keep-id': over.keep || '', ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
     ['a', { class: 'watch-card__link', href: over.dismiss ? '/watch/play/' + n : '/watch/movie/' + n, ...(over.dismiss ? {} : { 'data-title-ref': 'movie-' + n }) },
       ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, over.title || 'Film ' + n]], ['span', { class: 'watch-card__sub' }, 'Movie']],
+    ...(over.keep ? [['button', { 'data-watch-keep': over.keep, 'aria-label': 'Keep Film ' + n }]] : []),
     ['button', { class: 'watch-more', 'data-watch-more': '' }]];
 }
 
@@ -65,6 +66,7 @@ async function load(opts = {}) {
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const listeners = {};
   const calls = [];
+  const toasts = [];
   const routes = {
     '/api/watch/discover': () => ({ rows: [{ id: 'trending', items: [tmdb(1), tmdb(2, 'show'), tmdb(3)], next_page: 2 }, { id: 'popular_movies', items: range(10, 30).map((n) => tmdb(n)), next_page: null }] }),
     '/api/watch/discover?row=trending&page=2': () => ({ items: [tmdb(4, 'show'), tmdb(5)], next_page: null }),
@@ -91,7 +93,7 @@ async function load(opts = {}) {
       ['div', { id: 'watch-discover-slot' }],
       serverRow('movies', 'Movies', range(1, 31).map((n) => libraryCard(n)), 32, 'c30')]],
     ...server,
-    ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' }]]));
+    ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]));
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify({ is_admin: false, tmdb_configured: true, grids: opts.grids || GRIDS, grid: opts.grid || null })]));
   doc.createRange = () => ({ selectNodeContents() {}, getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, width: 0, height: 0 }) });
   const get = (url) => {
@@ -118,8 +120,8 @@ async function load(opts = {}) {
       go,
     },
     location: { get pathname() { return here().pathname; }, get search() { return here().search; }, get hash() { return here().hash; } },
-    UIFeedback: { toast() {} },
-    MM: { api: { get, messageOf: (_e, f) => f } },
+    UIFeedback: { toast: (m, o) => toasts.push(o) },
+    MM: { api: { get, post: () => Promise.resolve({}), messageOf: (_e, f) => f } },
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
   };
@@ -130,7 +132,7 @@ async function load(opts = {}) {
   if (opts.beforeStart) await settle();
   ctx.MMWatch.address.start();
   if (!opts.early) await settle();
-  const p = { doc, ctx, calls, tab, fire };
+  const p = { doc, ctx, calls, tab, fire, toasts };
   p.at = () => tab.entries[tab.index].url;
   p.row = (id) => doc.querySelectorAll('#watch-browse [data-row-id]').find((s) => s.getAttribute('data-row-id') === id);
   p.open = async (id) => { const link = p.row(id).querySelector('.row-open'); link.focus(); const e = press(link); await settle(); fire('scroll'); await p.settle(); return e; };
@@ -346,6 +348,37 @@ const scenarios = {
     return { gone, back, left, empty: { things: q.grid().things, tail: q.grid().tail, count: q.grid().count, focus: last[1].focus.id, body: q.doc.querySelector('.watch-all__body').hasAttribute('data-watch-leaving-row') } };
   },
 };
+
+const keepIn = async (p, root, n) => {
+  const button = root.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === n);
+  button.focus();
+  click(p.doc, button);
+  click(p.doc, p.doc.querySelector('#watch-keep-menu [data-days]'));
+  await p.settle();
+};
+Object.assign(scenarios, {
+  // An Undo of a Keep focuses the Keep that is shown: the grid's while it is open, the row's once it is closed.
+  async keepUndone() {
+    const go = async (meanwhile, preview) => {
+      const p = await load({ url: '/watch?all=leaving' });
+      const all = p.doc.getElementById('watch-all');
+      const pv = p.doc.body.appendChild(build(p.doc, ['div', { class: 'pv' }, ['button', { 'data-watch-keep': '51', 'aria-label': 'Keep Film 51' }]]));
+      const node = all.querySelector('.watch-card');
+      await keepIn(p, preview ? pv : all, '51');
+      pv.remove();
+      const focus = p.doc.activeElement.closest('.watch-card');
+      if (meanwhile) await meanwhile(p);
+      p.doc.activeElement = p.doc.body;
+      p.toasts[0].action.onClick();
+      await p.settle();
+      const on = p.doc.activeElement;
+      return { where: all.contains(on) ? 'grid' : p.row('leaving').contains(on) ? 'row' : on.tagName, keep: on.getAttribute('data-watch-keep'),
+        shown: shown(on), same: all.querySelector('.watch-card') === node, things: p.grid() && p.grid().things, kept: focus && focus.getAttribute('data-keep-id') };
+    };
+    const reopen = async (p) => { p.press(p.doc.querySelector('.watch-all__back')); await p.settle(); };
+    return { inGrid: await go(), opening: await go((p) => { const b = p.doc.getElementById('watch-browse'); b.hidden = false; b.setAttribute('inert', ''); }, true), fromPreview: await go(null, true), closed: await go(reopen) };
+  },
+});
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }

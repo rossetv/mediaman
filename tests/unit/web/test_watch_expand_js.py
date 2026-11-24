@@ -145,6 +145,15 @@ def test_a_card_kept_or_dismissed_in_the_grid_leaves_it_and_its_row_and_comes_ba
     assert (out["empty"]["focus"], out["empty"]["body"]) == ("watch-all-title", True)
 
 
+def test_the_undo_of_a_keep_focuses_the_keep_that_is_shown() -> None:
+    out = _run("keepUndone")
+    both = ["Film 51", "Film 52"]
+    grid = {"where": "grid", "keep": "51", "shown": True, "same": True}
+    grid.update(things=both, kept="52")
+    assert (out["inGrid"], out["fromPreview"], out["opening"]) == (grid, grid, grid)
+    assert out["closed"] == {**grid, "where": "row", "same": False, "things": None}
+
+
 def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_count():
     assert _run("underAPanel") == {
         "href": "/watch?all=continue",

@@ -455,8 +455,8 @@
   var panel = null;
 
   /* Take what a Keep ends off the page. Returns { undo, focus }: undo puts it
-     all back (and returns the Keep button to focus), focus is where focus
-     should go now. */
+     all back (and returns the Keep button to focus, one that is shown), focus
+     is where focus should go now. */
   function applyKept(id, days, trigger) {
     var undos = [];
     var focus = null;
@@ -488,9 +488,11 @@
       });
     });
 
-    // The card the Keep was pressed in comes first, so focus stays there.
+    // The card the Keep was pressed in comes first, so focus stays there; an open
+    // grid's, the rows hidden behind it, last, so an Undo has it back before the row's.
     var own = trigger && trigger.closest('.watch-card');
-    cardsFor(id).sort(function (a, b) { return (b === own) - (a === own); }).forEach(function (card) {
+    function rank(card) { return card.closest('.watch-grid') ? 1 : card === own ? -1 : 0; }
+    cardsFor(id).sort(function (a, b) { return rank(a) - rank(b); }).forEach(function (card) {
       var shown = card.getClientRects().length > 0;
       var row = card.closest('[data-watch-leaving-row]');
       if (row) {
@@ -515,9 +517,8 @@
     return {
       focus: focus,
       undo: function () {
-        var back = null;
-        undos.forEach(function (fn) { var b = fn(); if (!back) back = b; });
-        return back;
+        var backs = undos.slice().reverse().map(function (fn) { return fn(); }).reverse().filter(Boolean);
+        return backs.filter(function (b) { return b.getClientRects().length && !b.closest('[inert]'); })[0] || backs[0] || null;
       }
     };
   }
