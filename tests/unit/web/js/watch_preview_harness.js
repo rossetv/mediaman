@@ -39,9 +39,10 @@ const showOf = (seasons) => ({
 });
 
 function card(id, title, over = {}) {
-  return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
+  return ['article', { class: 'watch-card', id, ...(over.mark ? { 'data-mark': over.mark } : {}), ...(over.keep ? { 'data-keep-id': over.keep } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
     ['a', { class: 'watch-card__link', href: over.href || '/watch#title=' + over.ref, ...(over.ref ? { 'data-title-ref': over.ref } : {}), ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie' } : {}) },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/api/poster/1' }], ['span', { class: 'watch-card__title' }, title],
+        ...(over.leaving ? [['span', { class: 'watch-badge watch-badge--leaving' }, ['span', { class: 'watch-badge__long' }, over.leaving]]] : []),
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
       ['span', { class: 'watch-card__sub' }, over.sub || 'Movie']],
     ['button', { class: 'watch-more', 'data-watch-more': '' }]];
@@ -54,6 +55,11 @@ const CARDS = [
   card('outside', 'Salt', { ref: 'tmdb-movie-9' }),
   card('show', 'Brightwater', { ref: 'tmdb-tv-7' }),
   card('pick', 'Pick', { ref: 'rec-5' }),
+  card('season2', 'The Long Coast', { ref: 'show-2', keep: '202', sub: 'Season 2', leaving: 'Leaving in 9 days' }),
+  card('season3', 'The Long Coast', { ref: 'show-2', keep: '203', sub: 'Season 3', leaving: 'Leaving in 3 days' }),
+  card('keptSeason', 'The Long Coast', { ref: 'show-2', keep: '202', sub: 'Season 2' }),
+  card('wholeShow', 'The Long Coast', { ref: 'show-2', sub: 'TV · 3 seasons' }),
+  card('onAnother', 'The Long Coast', { href: '/watch/play/21', dismiss: 'show-2', sub: 'S1 · E4 · 23 min left' }),
   card('held', 'Held', { ref: 'movie-3', pick: 'rec-6' }),
   card('going', 'The Long Coast', { href: '/watch/play/22?resume=1', dismiss: 'show-2', mark: 'episode/22', pct: 40, sub: 'S2 · E4 · 23 min left' }),
 ];
@@ -62,7 +68,7 @@ const CARDS = [
 function load(opts = {}) {
   const doc = makeDocument();
   doc.createElement = ((make) => (tag) => { const n = make(tag); n.style.setProperty = () => {}; return n; })(doc.createElement);
-  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
+  doc.body.appendChild(build(doc, ['div', { id: 'watch-page' }, ['div', { id: 'watch-keep-menu', class: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']], ['input', { id: 'watch-search' }], ['div', { id: 'watch-browse' }, ['div', { class: 'watch-row__scroll' }, ...CARDS]]]));
   // A listener of the capture phase is kept apart: it has the event first.
   doc.addEventListener = ((on) => (type, fn, how) => on(how === true ? type + ' capture' : type, fn))(doc.addEventListener);
   doc.documentElement.clientWidth = 1280;
@@ -620,7 +626,7 @@ const scenarios = {
   },
   async keptFromMenu() {
     const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { keep_id: 5 } } } });
-    const days = h.doc.body.appendChild(build(h.doc, ['div', { id: 'watch-keep-menu' }, ['button', { 'data-days': '30' }]])).children[0];
+    const days = h.doc.querySelector('#watch-keep-menu [data-days]');
     await h.rest('film');
     h.pv().querySelector('.pv__keep').focus();
     days.click();
@@ -816,6 +822,42 @@ const scenarios = {
       out[name] = [still, h.title()];
     }
     return out;
+  },
+  /* Two seasons of one show leaving: each card that shows the show, what its preview offers and keeps. */
+  async seasonsLeaving() {
+    const reply = { ...FILM, ref: 'show-2', kind: 'show', library_ref: 'show-2', title: 'The Long Coast', keep_allowed: true, leaving: { days: 3, keep_id: '203', season: 3 },
+      leaving_seasons: [{ days: 3, keep_id: '203', season: 3 }, { days: 9, keep_id: '202', season: 2 }] };
+    const h = load({ api: { 'show-2': reply } });
+    const out = {};
+    for (const id of ['season2', 'season3', 'wholeShow', 'going', 'onAnother', 'keptSeason']) {
+      await h.rest(id, 900);
+      const keep = h.pv().querySelector('.pv__keep');
+      h.pv().querySelector('[data-preview-more]').click();
+      const item = h.doc.querySelector('.pv-menu [data-act="keep"]');
+      out[id] = [keep && keep.getAttribute('data-watch-keep'), keep && keep.getAttribute('aria-label'), item && item.textContent, h.text('.pv__leaving')];
+      h.key('Escape', h.doc.body);
+      h.key('Escape', h.doc.body);
+      h.away();
+      await h.pass(1000);
+    }
+    return { ...out, gets: h.gets };
+  },
+  /* A reply from when nothing was leaving: the card is newer. */
+  async leavingSince() {
+    const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', keep_allowed: false, leaving_seasons: [] } } });
+    await h.rest('season2', 900);
+    return h.pv().querySelector('.pv__keep').getAttribute('data-watch-keep');
+  },
+  async keptSeasonToast() {
+    const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', keep_allowed: true, leaving: { days: 3, keep_id: '203', season: 3 }, leaving_seasons: [{ days: 3, keep_id: '203', season: 3 }, { days: 9, keep_id: '202', season: 2 }] } } });
+    await h.rest('season2', 900);
+    h.pv().querySelector('[data-preview-more]').click();
+    h.doc.querySelector('.pv-menu [data-act="keep"]').click();
+    h.doc.querySelector('#watch-keep-menu [data-days]').click();
+    await h.pass(1000);
+    const cards = ['season2', 'season3'].map((id) => !!h.doc.querySelector('#' + id + ' .watch-badge--leaving'));
+    await h.rest('season3', 900);
+    return { posts: h.posts, toasts: h.toasts, cards, asked: h.gets.length };
   },
 };
 

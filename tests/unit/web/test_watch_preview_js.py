@@ -378,3 +378,44 @@ def test_a_card_a_view_puts_under_a_mouse_at_rest_opens_nothing_until_it_moves()
         "back": opened,
         "moved": opened,
     }
+
+
+def test_keep_acts_on_the_season_its_card_shows_and_names_it() -> None:
+    out = _run("seasonsLeaving")
+    season_2 = [
+        "202",
+        "Keep The Long Coast, Season 2",
+        "Keep Season 2",
+        "Season 2 leaves in 9 days",
+    ]
+    season_3 = [
+        "203",
+        "Keep The Long Coast, Season 3",
+        "Keep Season 3",
+        "Season 3 leaves in 3 days",
+    ]
+    assert out["season2"] == season_2
+    assert out["season3"] == season_3
+    # An episode's card shows its season; a whole show's, what leaves first.
+    assert out["going"] == season_2
+    assert out["wholeShow"] == season_3
+    assert out["gets"] == ["show-2"]
+
+
+def test_a_card_of_a_season_that_is_not_leaving_offers_no_keep_of_another() -> None:
+    out = _run("seasonsLeaving")
+    assert out["onAnother"] == [None, None, None, None]
+    assert out["keptSeason"] == [None, None, None, None]
+
+
+def test_a_season_on_a_card_as_leaving_can_be_kept_whatever_an_older_reply_says() -> None:
+    assert _run("leavingSince") == "202"
+
+
+def test_keeping_one_season_from_its_preview_keeps_that_one_and_says_which() -> None:
+    assert _run("keptSeasonToast") == {
+        "posts": [["/api/watch/keep", {"media_item_id": "202", "days": 30}]],
+        "toasts": ["Kept The Long Coast, Season 2 for 30 days."],
+        "cards": [False, True],
+        "asked": 2,
+    }

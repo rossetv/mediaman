@@ -97,12 +97,16 @@
     var bar = poster.querySelector('progress');
     var img = poster.querySelector('img');
     var ref = refOf(link);
+    var sub = textOf(link, '.watch-card__sub');
+    var season = /^(?:Season (\d+)$|S(\d+) · E)/.exec(sub);
     return {
       ref: ref,
       title: textOf(link, '.watch-card__title'),
       href: link.getAttribute('href'),
       plays: !link.hasAttribute('data-title-ref'), // Continue watching: the card is a play link
-      sub: textOf(link, '.watch-card__sub'),
+      sub: sub,
+      season: season ? Number(season[1] || season[2]) : null,
+      keepId: cardOf(link).getAttribute('data-keep-id') || '',
       pct: bar ? bar.value : 0,
       leaving: textOf(poster, '.watch-badge__long'),
       poster: img && !img.hasAttribute('data-broken') ? img.getAttribute('src') : '',
@@ -479,7 +483,8 @@
   /* When it leaves, what is left of it to watch, its genres. */
   function where(p, d) {
     var line = el('div', 'pv__meta');
-    addPart(line, 'pv__leaving', p.card.leaving);
+    var leaving = leavingOf(p);
+    addPart(line, 'pv__leaving', leaving ? leaving.text : '');
     var left = '';
     if (p.card.plays) left = p.card.sub.replace(/^(Movie|TV) · /, '').replace(/ · ([^·]* left)$/, ', $1');
     else if (d.play && d.play.minutes_left) left = dur(d.play.minutes_left) + ' left';
@@ -624,7 +629,8 @@
     b.setAttribute('tabindex', '-1');
     b.setAttribute('data-watch-keep', keepIdOf(p));
     b.setAttribute('aria-expanded', 'false');
-    b.setAttribute('aria-label', 'Keep ' + p.card.title);
+    var season = leavingOf(p).season;
+    b.setAttribute('aria-label', 'Keep ' + p.card.title + (season === null ? '' : ', Season ' + season));
     return b;
   }
 
@@ -801,9 +807,31 @@
     }
   }
 
-  function keepIdOf(p) {
+  /* What a Keep here keeps and when it leaves. A card that is leaving says it itself, and the
+     reply, its show's, is for every season: one shown on the card is kept, or none. */
+  function leavingOf(p) {
     var d = p.data;
-    return d && d.leaving && d.leaving.keep_id && d.keep_allowed ? String(d.leaving.keep_id) : '';
+    var c = p.card;
+    if (!d) return null;
+    if (c.keepId) return c.leaving ? { id: c.keepId, season: c.season, text: whenText(c.season, c.leaving) } : null;
+    var found = d.kind === 'movie' ? d.leaving : (d.leaving_seasons || []).filter(function (s) {
+      return c.season === null || s.season === c.season;
+    })[0];
+    if (!found) return null;
+    var season = d.kind === 'movie' ? null : found.season;
+    return { id: d.keep_allowed && found.keep_id ? String(found.keep_id) : '', season: season, text: whenText(season, leavingText(found.days)) };
+  }
+
+  function leavingText(days) {
+    if (days <= 0) return 'Leaving today';
+    return days === 1 ? 'Leaving in 1 day' : 'Leaving in ' + days + ' days';
+  }
+
+  function whenText(season, text) { return season === null ? text : text.replace('Leaving', 'Season ' + season + ' leaves'); }
+
+  function keepIdOf(p) {
+    var leaving = leavingOf(p);
+    return leaving ? leaving.id : '';
   }
 
   var menuNode = null;
@@ -831,7 +859,7 @@
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
     if (mark) item('mark', 'i-eye', core.markAction(seen(live)).replace('Mark ', mark[1] === 'movie' ? 'Mark ' : 'Mark ' + mark[1] + ' '));
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');
-    if (keepIdOf(live)) item('keep', 'i-clock', 'Keep');
+    if (keepIdOf(live)) item('keep', 'i-clock', 'Keep' + (leavingOf(live).season === null ? '' : ' Season ' + leavingOf(live).season));
     if (menuNode.children.length) menuNode.appendChild(el('hr', 'pv-menu__line'));
     var trailers = item('trailers', 'i-check', 'Play trailers on hover');
     trailers.setAttribute('role', 'menuitemcheckbox');
@@ -1121,7 +1149,9 @@
   /* A day count chosen in the Keep menu takes the card away: not under its preview. */
   document.addEventListener('click', function (e) {
     var days = e.target.closest && e.target.closest('#watch-keep-menu [data-days]');
-    if (!days || !live || !live.keep || document.activeElement !== live.keep) return;
+    if (!days) return;
+    if (live) unkeep(live.card.ref);
+    if (!live || !live.keep || document.activeElement !== live.keep) return;
     live.keep.blur(); // keep.js moves a focus that is nowhere on from the card that goes
     close(live);
   });
