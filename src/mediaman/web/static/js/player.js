@@ -18,8 +18,10 @@
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works. What answers 429 is asked again
- * when it says. If the server refuses the stream of a new quality, the quality that
+ * which is also how a quality change works. One that says the stream was
+ * replaced means that the person plays the title elsewhere now: this player
+ * stops until they press Play here. What answers 429 is asked again when it
+ * says. If the server refuses the stream of a new quality, the quality that
  * was playing comes back.
  * Automatic steps the quality down when playback keeps stalling, and
  * slowly up again when it no longer does.
@@ -105,6 +107,7 @@
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   var MSG_LOST = "Can't reach mediaman. Check your connection.";
+  var MSG_REPLACED = 'Playing somewhere else.';
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
@@ -233,6 +236,8 @@
   var streamId = null;
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
+  var startsOpen = 0;        // starts not answered yet, dropped ones included
+  var ownRival = false;      // one of them was, as the stream now playing started
   var busy = false;          // the server had no room for the last request
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
@@ -668,10 +673,11 @@
   function showMessage(text, again) {
     tryAgain = again;
     swapping = false;
-    if (again !== tryLost) releaseFrame();
+    if (again !== tryLost && again !== playHere) releaseFrame();
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
+    els.retry.textContent = again === playHere ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
     showSkip();
@@ -813,7 +819,11 @@
     setLoading(true);
 
     function attempt(tries) {
-      return MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() })
+      startsOpen++;
+      var answered = function () { startsOpen--; };
+      var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() });
+      start.then(answered, answered);
+      return start
         .then(function (data) {
           if (gen !== generation) {
             if (data && data.stream_id) stopOnServer(data.stream_id);
@@ -821,6 +831,7 @@
           }
           starting = false;
           reached();
+          ownRival = startsOpen > 0;
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
@@ -951,6 +962,36 @@
     restartStream(false);
   }
 
+  /* The same title was started somewhere else. This stream's place is no longer
+     the one to save. */
+  function streamReplaced() {
+    /* By an earlier start of this page that reached the server after this one's. */
+    if (ownRival) { streamGone(); return; }
+    wantPlaying = false;
+    swapping = true;
+    leaveNative();
+    hideUpnext();
+    holdFrame();
+    pendingStart = position();
+    streamId = null;
+    release();
+    showMessage(MSG_REPLACED, playHere);
+  }
+
+  /* Go on from where the other one got to, where the server can say. */
+  function playHere() {
+    var gen = ++generation;
+    hideMessage();
+    setLoading(true);
+    fetchPage(window.location.href)
+      .then(function (page) {
+        var el = page.getElementById('player');
+        if (gen === generation && el) pendingStart = parseFloat(el.getAttribute('data-start-s')) || 0;
+      })
+      .catch(function () { /* from where this one stands */ })
+      .then(function () { if (gen === generation) retry(); });
+  }
+
   /* The code of the server's own in a failed answer; null where it has none. */
   function codeOf(data) {
     var xhr = data.networkDetails;
@@ -971,7 +1012,8 @@
     var h = hls;
     var status = data.response ? data.response.code : undefined;
     if (status === 410) {
-      streamGone();
+      if (codeOf(data) === 'replaced') streamReplaced();
+      else streamGone();
       return;
     }
     if (status === 429) {
@@ -1070,7 +1112,9 @@
     MM.api.post('/api/watch/progress', withStream(body)).then(function () {
       if (id === streamId) savedAs = JSON.stringify(body);
     }).catch(function (err) {
-      if (err && err.status === 410 && id === streamId) streamGone();
+      if (!err || err.status !== 410 || id !== streamId) return;
+      if (err.error === 'replaced') streamReplaced();
+      else streamGone();
     });
   }
 
@@ -2489,6 +2533,8 @@
   /* Back from the browser's page cache: the old stream was stopped. */
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted || (els.ask && els.ask.open)) return;
+    /* Playing somewhere else it stays so. */
+    if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
     startStream(pendingStart || 0);
   });

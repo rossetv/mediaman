@@ -1192,6 +1192,7 @@ def test_a_film_that_ends_on_a_page_that_came_by_a_link_stays_in_the_app(tmp_pat
 
 
 LOST = {"text": "Can't reach mediaman. Check your connection.", "button": "Try again"}
+REPLACED = {"text": "Playing somewhere else.", "button": "Play here"}
 
 
 def test_a_held_arrow_moves_the_bar_at_once_and_the_video_once_when_it_is_let_go(markup):
@@ -1334,8 +1335,37 @@ def test_moving_back_while_what_follows_is_asked_ends_the_asking(unknown_next):
     assert out == {"message": None, "notice": False, "asked": 1}
 
 
+@pytest.mark.parametrize("way", ["fragLoadError", "manifestLoadError", "save"])
+def test_a_title_started_somewhere_else_stops_here_for_good(markup, way):
+    out = run(markup, "replaced", plays=way)
+    assert (out["message"], out["role"], out["focus"]) == (REPLACED, "alert", True)
+    assert (out["frame"], out["playing"], out["destroyed"]) == (True, False, True)
+    # Nothing is saved over the place the other one is at, and nothing starts by itself.
+    assert (out["told"], out["byItself"], out["still"]) == (0, 0, REPLACED)
+    assert out["here"] == {"starts": 1, "at": 105, "message": None}
+    assert out["button"] == "Try again"
+
+
+def test_play_here_goes_on_from_where_the_other_one_got_to(markup, tmp_path_factory):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 900.5})
+    out = run(markup, "replaced", plays="fragLoadError", pages={"/elsewhere": elsewhere})
+    assert out["here"] == {"starts": 1, "at": 900.5, "message": None}
+
+
+def test_a_stream_this_page_replaced_is_never_taken_for_another_page_s(markup):
+    assert run(markup, "replaced_by_itself", plays="save") == {"message": None, "starts": 2}
+    out = run(markup, "replaced_by_itself", plays="start")
+    assert (out["message"], out["starts"]) == (None, 4)
+    assert (out["later"], out["after"]) == (REPLACED["text"], 4)
+
+
 def test_a_wait_for_a_busy_server_says_nothing_of_the_quality(markup):
     assert run(markup, "busy_stalls") == {"busy": 1, "slow": 2}
+
+
+def test_a_title_started_somewhere_else_at_its_end_never_goes_on_to_the_next(markup, season):
+    out = run(markup, "replaced_at_end", pages=season)
+    assert out == {"message": "Playing somewhere else.", "card": False, "went": False}
 
 
 def test_f_and_the_arrows_work_after_the_mouse_used_the_volume_slider(markup):

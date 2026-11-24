@@ -312,6 +312,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       calls.push({ url: url, body: body });
       if (held.stopFails && /\/stop$/.test(url)) return Promise.reject({ status: 0 });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
+      if (held.progressFails && /\/progress$/.test(url)) return Promise.reject(held.progressFails);
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       return Promise.resolve().then(() => {
         const reply = replies.shift() || (held.answer && held.answer(body));
@@ -1410,6 +1411,82 @@ const scenarios = {
     return { message: messageState(p), notice: !gone(p.q('[data-lost]')), asked: p.calls.filter((c) => c.page).length };
   },
 
+  /* The same title was started somewhere else: this one learns of it by a segment, the playlist or a save. */
+  async replaced(p) {
+    const way = p.win.serverPlays;
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const stops = () => p.calls.filter((c) => /\/(stop|progress)$/.test(c.url)).length + p.beacons.length;
+    if (way === 'save') {
+      p.held.progressFails = { error: 'replaced', status: 410 };
+      p.tick(10000);
+      await settle();
+    }
+    const said = stops();
+    if (way !== 'save') p.hlsList[0].emit('hlsError', loadError(way, 410, { ok: false, error: 'replaced' }));
+    await settle();
+    const out = { message: messageState(p), role: p.q('[data-message]').getAttribute('role'), focus: doc.activeElement === p.q('[data-retry]'), frame: holdState(p).shown, playing: !p.video.paused, destroyed: p.hlsList[0].destroyed };
+    p.online();
+    p.tick(600000);
+    await settle();
+    p.leave();
+    out.told = stops() - said;
+    p.comeBack();
+    await settle();
+    p.tick(60000);
+    out.byItself = p.starts().length - 1;
+    out.still = messageState(p);
+    /* The other one played on: here goes on from there. */
+    p.pages['/watch/play/1'] = p.pages['/elsewhere'] || 'offline';
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await settle();
+    out.here = { starts: p.starts().length - 1, at: p.hlsList[p.hlsList.length - 1].config.startPosition, message: messageState(p) };
+    await streamPlays(p, 900);
+    /* A later error has its own words on the button again. */
+    p.held.answer = () => ({ err: { status: 429, error: 'rate_limited' } });
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    out.button = messageState(p).button;
+    return out;
+  },
+
+  /* A stream this page itself replaced says so: by a save under way as the quality changes, or by
+     a start the page gave up that reaches the server last. */
+  async replaced_by_itself(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const hold = (into) => ({ ok: new Promise((r) => { into.reply = r; }) });
+    if (p.win.serverPlays === 'save') {
+      p.held.progressFails = { error: 'replaced', status: 410 };
+      p.tick(10000);
+      p.replies.push(answer('480p-1500'));
+      click(p.q('[data-quality="480p-1500"]'));
+      await streamPlays(p, 105);
+      return { message: messageState(p), starts: p.starts().length };
+    }
+    const first = {};
+    const second = {};
+    p.replies.push(hold(first), hold(second));
+    click(p.q('[data-quality="480p-1500"]'));
+    await settle();
+    click(p.q('[data-quality="720p-4000"]'));
+    await settle();
+    second.reply(answer('720p-4000').ok);
+    await streamPlays(p, 105);
+    first.reply(answer('480p-1500').ok);
+    await settle();
+    p.replies.push(answer('720p-4000'), answer('720p-4000'));
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    await streamPlays(p, 105);
+    const restarted = { message: messageState(p), starts: p.starts().length };
+    /* From then on it can only be another page. */
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    await settle();
+    return Object.assign(restarted, { later: messageState(p).text, after: p.starts().length });
+  },
+
   /* A server too busy for a while lets the video run dry, twice. */
   async busy_stalls(p) {
     p.replies[0] = answer('1080p-8000');
@@ -1428,6 +1505,18 @@ const scenarios = {
     for (let i = 0; i < 2; i++) { playOn(p, 5); fire(p.video, 'waiting'); fire(p.video, 'playing'); }
     await settle();
     return { busy: starts, slow: p.starts().length };
+  },
+
+  /* The title starts somewhere else as this one ends and counts down to the next episode. */
+  async replaced_at_end(p) {
+    p.held.progressFails = { error: 'replaced', status: 410 };
+    await streamPlays(p, 0);
+    playOn(p, 5);
+    endsNow(p);
+    await settle();
+    p.tick(60000);
+    await settle();
+    return { message: messageState(p).text, card: !gone(p.q('[data-upnext]')), went: p.calls.some((c) => c.page) };
   },
 
   /* F and the arrows with the volume slider in focus: by the mouse, then by Tab. */
