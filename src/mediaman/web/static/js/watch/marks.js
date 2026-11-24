@@ -196,11 +196,16 @@
       closeMenu(card);
       var lost = focusLost(card);
       var row = card.closest('.watch-row');
+      var grid = row ? null : card.parentNode; // the row opened as a grid holds one too
       var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '[data-watch-more]');
       done.rows = true;
       done.undos.push(function () {
+        if (grid) {
+          if (!continueCards(grid, ref).length) taken.undo();
+          return;
+        }
         var now = continueRow(document);
-        if (!continueCards(document, ref).length && (!now || now === row)) taken.undo();
+        if (!now || (now === row && !continueCards(row, ref).length)) taken.undo();
       });
       if (lost && taken.focus) core.focusSoftly(taken.focus);
     });
@@ -236,6 +241,7 @@
       var rows = document.querySelector('.watch-rows');
       rows.insertBefore(fresh, rows.children[0] || null);
       window.MMWatch.rows.init(fresh.querySelector('.watch-row__viewport'));
+      if (window.MMWatch.expand) window.MMWatch.expand.row(fresh);
     }
     core.fadeIn(fresh);
   }

@@ -256,6 +256,15 @@ const scenarios = {
     return { gone, back: p.marks(), focus: p.focus(), call: p.calls[p.calls.length - 1] };
   },
 
+  // The row opened as a grid: the card is in both, and an Undo brings it back to both.
+  async dismissInGrid() {
+    const p = load(watchPage([row('cont', CONTINUE), ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE]]));
+    await p.pick(p.cards('grid')[1], 'dismiss');
+    const gone = [p.marks('cont'), p.marks('grid')];
+    await p.undo();
+    return { gone, back: [p.marks('cont'), p.marks('grid')], calls: p.calls };
+  },
+
   async dismissRefused() {
     const p = load(watchPage([row('cont', CONTINUE)]), { api: { 'POST /api/watch/dismissed/movie-1': 500 } });
     await p.pick(p.cards()[0], 'dismiss');

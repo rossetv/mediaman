@@ -124,6 +124,16 @@ def test_a_dismissed_card_leaves_focus_goes_on_and_undo_brings_it_back_in_its_pl
     assert (out["focus"], out["call"]) == ("episode/22", "DELETE /api/watch/dismissed/show-2")
 
 
+def test_a_dismissal_in_a_row_opened_as_a_grid_leaves_both_and_comes_back_to_both() -> None:
+    out = _run("dismissInGrid")
+    assert out["gone"] == [["movie/1", "movie/3"]] * 2
+    assert out["back"] == [["movie/1", "episode/22", "movie/3"]] * 2
+    assert out["calls"] == [
+        "POST /api/watch/dismissed/show-2",
+        "DELETE /api/watch/dismissed/show-2",
+    ]
+
+
 def test_a_dismissal_the_server_refuses_leaves_the_card() -> None:
     out = _run("dismissRefused")
     assert out == {"marks": ["movie/1", "episode/22", "movie/3"], "variant": "error"}
