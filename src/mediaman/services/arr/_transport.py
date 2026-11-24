@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
 
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -77,14 +79,23 @@ class SeasonsNotListed(ArrError):
         super().__init__(text)
 
 
-def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any]) -> bool:
-    """Whether *entry* of the *arr's command list is *command*, waiting, running or done."""
+#: How far an *arr's clock may be behind this one.
+_CLOCK_DIFFERENCE = timedelta(minutes=1)
+
+
+def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any], posted_at: datetime) -> bool:
+    """Whether *entry* of the *arr's command list is *command*: waiting, running, or done since
+    it was posted. The list keeps what was done before too.
+    """
     body = entry.get("body") or {}
-    return (
-        entry.get("name") == command["name"]
-        and entry.get("status") in ("queued", "started", "completed")
-        and all(body.get(key) == value for key, value in command.items() if key != "name")
-    )
+    if entry.get("name") != command["name"] or any(
+        body.get(key) != value for key, value in command.items() if key != "name"
+    ):
+        return False
+    if entry.get("status") != "completed":
+        return entry.get("status") in ("queued", "started")
+    queued_at = parse_iso_utc(entry.get("queued"))
+    return queued_at is not None and queued_at >= posted_at - _CLOCK_DIFFERENCE
 
 
 class _TransportMixin:
@@ -189,6 +200,7 @@ class _TransportMixin:
 
         Raises ``SearchUnanswered`` when that list cannot be read either.
         """
+        posted_at = now_utc()
         try:
             self._post("/api/v3/command", command)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrUpstreamError) as exc:
@@ -198,7 +210,7 @@ class _TransportMixin:
                 listed = self._get_list("/api/v3/command")
             except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as unread:
                 raise SearchUnanswered(f"{command['name']} got no answer") from unread
-            if not any(_is_command(entry, command) for entry in listed):
+            if not any(_is_command(entry, command, posted_at) for entry in listed):
                 raise
             logger.info("%s got no answer but was started", command["name"])
 

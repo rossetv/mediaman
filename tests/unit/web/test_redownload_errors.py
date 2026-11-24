@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -194,6 +195,30 @@ def test_a_search_that_got_no_answer_but_was_started_is_a_success(
     assert (movie.json()["ok"], season.json()["ok"]) == (True, True)
     assert radarr.entry["monitored"] is True
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
+
+
+@pytest.mark.parametrize(
+    ("queued", "started"),
+    [("2026-05-01T11:50:00Z", False), ("2026-05-01T11:59:50Z", True), (None, False)],
+    ids=["earlier", "this one", "undated"],
+)
+def test_a_search_done_counts_as_this_one_only_if_queued_since_it_was_posted(
+    app_factory, authed_client, conn, monkeypatch, queued, started
+):
+    monkeypatch.setattr(
+        "mediaman.services.arr._transport.now_utc", lambda: datetime(2026, 5, 1, 12, tzinfo=UTC)
+    )
+    done = {"status": "completed", "queued": queued}
+    client = _client(app_factory, authed_client, conn)
+    error = requests.ReadTimeout("slow")
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [{**_MOVIE_SEARCH, **done}])
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [{**_SEASON_SEARCH, **done}])
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (started, started)
+    assert radarr.entry["monitored"] is started
+    assert sonarr.entry["seasons"][1]["monitored"] is started
 
 
 @_SEARCH_ERRORS
