@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -103,16 +102,18 @@ class _NoTmdb(Exception):
 
 class _Ask:
     """One request's leave to ask TMDB or Plex, counted against the person's limit once
-    however much it then asks."""
+    however much it then asks. Raises disk_cache.Refused past the limit: a preview without
+    its words or its next episode would be kept and shown as the title's."""
 
     def __init__(self, username: str) -> None:
         self._username = username
-        self._answer: bool | None = None
+        self._counted = False
 
     def __call__(self) -> bool:
-        if self._answer is None:
-            self._answer = _LIMITER.check(self._username)
-        return self._answer
+        if not self._counted and not _LIMITER.check(self._username):
+            raise disk_cache.Refused(self._username)
+        self._counted = True
+        return True
 
 
 def _not_found() -> JSONResponse:
@@ -140,7 +141,7 @@ def _fill_from_tmdb(
     kind: str,
     tmdb_id: int,
     username: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> None:
     """Fill *out* from TMDB and the ratings held; raises as ``catalog.details``."""
     fields = catalog.details(client, kind, tmdb_id, allow_fetch=ask)
@@ -154,7 +155,7 @@ def _library_title(
     username: str,
     is_admin: bool,
     ref: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> dict[str, Any] | None:
     """The preview of a library title ("movie-<key>", "show-<key>"), or None when the scanned
     libraries hold none. Raises _OutsideLibraries when Plex places it outside them."""
@@ -176,7 +177,7 @@ def _library_title(
     tmdb_id = _tmdb_id(request, conn, client, libraries, ref, listed) if client else None
     if client is not None and tmdb_id is not None:
         # Without TMDB, Plex has the words.
-        with contextlib.suppress(catalog.TmdbUnavailable, disk_cache.Refused):
+        with contextlib.suppress(catalog.TmdbUnavailable):
             media_type = "movie" if movie else "tv"
             _fill_from_tmdb(out, request, conn, client, media_type, tmdb_id, username, ask)
             known = True
@@ -252,10 +253,9 @@ def _movie_words(
     conn: sqlite3.Connection,
     libraries: list[str],
     key: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> None:
-    if not ask():
-        return
+    ask()
     try:
         item = _open_plex(request, conn).get_item(key)
     except PlexError:
@@ -293,11 +293,10 @@ def _show_from_plex(
     username: str,
     libraries: list[str],
     key: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> None:
     """The next episode to play, and the words *out* has none of yet."""
-    if not ask():
-        return
+    ask()
     try:
         plex = _open_plex(request, conn)
         show = plex.get_show(key)
@@ -335,7 +334,7 @@ def _outside_title(
     media_type: str,
     tmdb_id: int,
     download_url: str | None,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> dict[str, Any]:
     """The preview of a TMDB title; raises as ``catalog.details``."""
     fields = catalog.details(client, media_type, tmdb_id, allow_fetch=ask)
@@ -409,7 +408,7 @@ def _other_title(
     ref: str,
     kind: str,
     rest: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> dict[str, Any] | None:
     """The preview of a TMDB title or a pick; None for a pick that is not there, or not
     this person's. Raises as ``catalog.details``."""
@@ -458,7 +457,7 @@ def _as_held(
     request: Request,
     conn: sqlite3.Connection,
     username: str,
-    ask: Callable[[], bool],
+    ask: _Ask,
 ) -> dict[str, Any]:
     """*out*, or its library title where the library holds it."""
     library_ref = out["library_ref"]

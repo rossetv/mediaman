@@ -430,15 +430,38 @@ class TestLimit:
 
         assert codes == [200, 200, 429]
 
-    def test_past_it_a_library_film_still_plays_and_plex_is_not_asked(
+    def test_past_it_a_library_title_not_cached_is_refused_and_plex_is_not_asked(
+        self, viewer, library, tmdb, plex, monkeypatch
+    ):
+        monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(0, 60))
+
+        film = _preview(viewer, "movie-100").status_code
+        library.execute("UPDATE media_items SET tmdb_id = NULL")
+        library.commit()
+        others = [_preview(viewer, r).status_code for r in ("movie-100", "show-500")]
+
+        assert (film, others, plex.calls) == (429, [429, 429], 0)
+
+    def test_past_it_a_library_title_that_is_cached_still_plays(
         self, viewer, tmdb, plex, monkeypatch
     ):
         monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(1, 60))
-        _preview(viewer, "tmdb-movie-12")
+        _preview(viewer, "movie-100")
 
         body = _preview(viewer, "movie-100").json()
 
-        assert (body["play"]["label"], body["overview"], plex.calls) == ("Play", "", 0)
+        assert (body["play"]["label"], body["overview"]) == ("Play", "From TMDB.")
+
+    def test_one_request_is_counted_once_however_much_it_asks(
+        self, viewer, tmdb, plex, monkeypatch
+    ):
+        monkeypatch.setattr(title_preview_api, "_LIMITER", ActionRateLimiter(1, 60))
+
+        # TMDB for the words, then Plex for the next episode.
+        body = _preview(viewer, "show-500").json()
+
+        assert (body["overview"], body["play"]["label"]) == ("A coast.", "Play S1 · E1")
+        assert _preview(viewer, "tmdb-movie-12").status_code == 429
 
 
 @pytest.mark.parametrize(
