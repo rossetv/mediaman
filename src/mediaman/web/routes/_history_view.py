@@ -231,14 +231,18 @@ def _media_summary(detail: str, space_impact: str) -> str:
     return ""
 
 
-def _exact_time(created_at: str) -> str:
+def _time_field(created_at: str) -> dict[str, object]:
+    """The "Time" line; ``at`` is the moment for the browser to show in its own zone."""
     try:
         moment = datetime.fromisoformat(created_at)
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=UTC)
-        return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        utc = moment.astimezone(UTC)
     except (ValueError, OverflowError):
-        return created_at
+        return _field("Time", created_at)
+    return _field("Time", utc.strftime("%Y-%m-%d %H:%M:%S UTC")) | {
+        "at": utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    }
 
 
 def _field(label: str, value: object) -> dict[str, object]:
@@ -276,7 +280,7 @@ def describe(
     shown = f"{action_label} ({action})" if action_label != action else action
     fields = [
         _field("Event", shown),
-        _field("Time", _exact_time(created_at)),
+        _time_field(created_at),
     ]
     if not is_security:
         fields.append(_field("Title", title if title != "Unknown" else ""))

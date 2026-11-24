@@ -25,9 +25,10 @@
   {% if items %}
   <div class="card card--bordered card--hist">
     {% for item in items %}
+    {% set time = item.fields | selectattr("at", "defined") | first %}
     <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
       <summary class="hist-sum">
-        <span class="hist-date">{{ item.created_at[:16] | replace('T', ' ') }}</span>
+        {% if time %}<time class="hist-date" data-hist-at="line" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
         <span class="hist-msg"><b>{{ item.line_title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}</span>
         <span class="hist-type hist-pill">
           {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
@@ -38,7 +39,7 @@
       <div class="hist-body">
         <dl class="hist-fields">
           {% for f in item.fields %}
-          <div class="hist-field"><dt>{{ f.label }}</dt><dd{% if f.empty %} class="is-empty"{% endif %}>{{ f.value }}</dd></div>
+          <div class="hist-field"><dt>{{ f.label }}</dt><dd{% if f.empty %} class="is-empty"{% endif %}>{% if f.at %}<time data-hist-at="full" datetime="{{ f.at }}">{{ f.value }}</time>{% else %}{{ f.value }}{% endif %}</dd></div>
           {% endfor %}
         </dl>
         <button type="button" class="btn btn--ghost btn--sm" data-hist-copy>Copy details</button>

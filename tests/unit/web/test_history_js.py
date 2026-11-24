@@ -39,7 +39,9 @@ def test_opening_a_row_is_left_to_the_browser_and_puts_its_id_in_the_address() -
 
 def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open() -> None:
     out = _run("copy")
-    assert out["copied"] == ["Who: admin\nIP address: 1.2.3.4"]
+    assert out["copied"] == [
+        "Time: 25 Nov 2026, 01:45:03 (2026-11-24 20:15:03 UTC)\nWho: admin\nIP address: 1.2.3.4"
+    ]
     assert out["toasts"] == ["Details copied"]
     assert out["stillOpen"] is True
 
@@ -60,3 +62,13 @@ def test_what_is_below_an_opening_row_slides_down_from_where_it_was() -> None:
 
 def test_reduced_motion_slides_nothing() -> None:
     assert _run("reduced")["moves"] == _run("open-reduced")["moves"] == []
+
+
+def test_times_are_in_the_viewers_time_zone_and_the_details_keep_utc() -> None:
+    line, full = _run("times")["times"][0]
+    assert line == "25 Nov 2026, 01:45"
+    assert full == "25 Nov 2026, 01:45:03 (2026-11-24 20:15:03 UTC)"
+
+
+def test_a_time_that_cannot_be_read_stays_as_the_page_sent_it() -> None:
+    assert _run("times")["times"][1] == ["stored UTC", "2026-11-24 20:15:03 UTC"]

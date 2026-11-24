@@ -369,6 +369,13 @@ class TestPage:
         app = app_factory(history_router, conn=conn, state_extras={"templates": _TEMPLATES})
         return authed_client(app, conn)
 
+    def _event_at(self, conn, stored):
+        conn.execute(
+            "INSERT INTO audit_log (media_item_id, action, created_at) VALUES ('m1', 'scanned', ?)",
+            (stored,),
+        )
+        conn.commit()
+
     def test_every_row_is_a_details_element_and_the_script_is_loaded(
         self, app_factory, authed_client, conn
     ):
@@ -376,6 +383,25 @@ class TestPage:
         html = self._client(app_factory, authed_client, conn).get("/history").text
         assert html.count("<details") == html.count("<summary") == 1
         assert re.search(r'<script src="/static/js/history\.js[^"]*" defer>', html)
+
+    @pytest.mark.parametrize("stored", ["2026-11-24T10:15:03+00:00", "2026-11-24T10:15:03"])
+    def test_a_time_carries_its_utc_moment_and_names_its_zone(
+        self, app_factory, authed_client, conn, stored
+    ):
+        self._event_at(conn, stored)
+        html = self._client(app_factory, authed_client, conn).get("/history").text
+        times = re.findall(r"<time ([^>]*)>([^<]*)</time>", html)
+        assert [text for _, text in times] == ["2026-11-24 10:15 UTC", "2026-11-24 10:15:03 UTC"]
+        assert all('datetime="2026-11-24T10:15:03Z"' in attrs for attrs, _ in times)
+        assert 'title="2026-11-24 10:15:03 UTC"' in times[0][0]
+
+    def test_a_stored_time_that_cannot_be_read_is_shown_without_a_moment(
+        self, app_factory, authed_client, conn
+    ):
+        self._event_at(conn, "soon")
+        html = self._client(app_factory, authed_client, conn).get("/history").text
+        assert "<time" not in html
+        assert '<span class="hist-date">soon</span>' in html
 
     def test_deep_link_opens_the_right_row_on_its_page_under_the_filter(
         self, app_factory, authed_client, conn

@@ -4,6 +4,9 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+
+process.env.TZ = 'Asia/Kolkata';
+
 const { makeDocument, build, click } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
@@ -34,14 +37,15 @@ function run(scenario) {
   };
   vm.createContext(ctx);
 
-  const row = (id, open) => build(doc, ['details', { class: 'hist', 'data-event': id, ...(open ? { open: '' } : {}) },
-    ['summary', { class: 'hist-sum' }, ['span', {}, 'title']],
+  const row = (id, open, at) => build(doc, ['details', { class: 'hist', 'data-event': id, ...(open ? { open: '' } : {}) },
+    ['summary', { class: 'hist-sum' }, ['time', { 'data-hist-at': 'line', datetime: at }, 'stored UTC'], ['span', {}, 'title']],
     ['div', { class: 'hist-body' },
-      ['dl', {}, ['div', { class: 'hist-field' }, ['dt', {}, 'Who'], ['dd', {}, 'admin']],
+      ['dl', {}, ['div', { class: 'hist-field' }, ['dt', {}, 'Time'], ['dd', {}, ['time', { 'data-hist-at': 'full', datetime: at }, '2026-11-24 20:15:03 UTC']]],
+        ['div', { class: 'hist-field' }, ['dt', {}, 'Who'], ['dd', {}, 'admin']],
         ['div', { class: 'hist-field' }, ['dt', {}, 'IP address'], ['dd', {}, '1.2.3.4']]],
       ['button', { class: 'btn', 'data-hist-copy': '' }, 'Copy details']]]);
   const list = build(doc, ['div', { class: 'card--hist' }]);
-  const rows = [row('5', true), row('6', false)];
+  const rows = [row('5', true, '2026-11-24T20:15:03Z'), row('6', false, 'soon')];
   rows.forEach((r) => {
     Object.defineProperty(r, 'open', { get: () => r.hasAttribute('open') });
     Object.defineProperty(r, 'dataset', { get: () => ({ event: r.getAttribute('data-event') }) });
@@ -89,6 +93,9 @@ function run(scenario) {
     timers.forEach((t) => t());
     out.moves = moves;
     out.url = win.location.href;
+  }
+  if (scenario === 'times') {
+    out.times = rows.map((r) => r.querySelectorAll('time').map((t) => t.textContent));
   }
   if (scenario === 'copy') {
     click(doc, rows[0].querySelector('[data-hist-copy]'));

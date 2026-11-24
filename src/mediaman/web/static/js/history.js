@@ -7,6 +7,7 @@
  *  - Closing plays the exit animation before the row folds; with reduced motion
  *    it folds at once. Opening is a CSS animation, which reduced motion shortens.
  *  - What lies below a row slides with it, over the same time as the row's own animation.
+ *  - Times are shown in the viewer's zone, the details with the UTC time beside it.
  *  - "Copy details" copies the labels and values the row shows.
  */
 (function () {
@@ -99,9 +100,23 @@
     });
   }
 
+  function showLocalTimes(list) {
+    list.querySelectorAll('[data-hist-at]').forEach(function (el) {
+      var at = new Date(el.getAttribute('datetime'));
+      if (isNaN(at)) return;
+      var full = el.getAttribute('data-hist-at') === 'full';
+      var words = { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+      if (full) words.second = '2-digit';
+      var local = at.toLocaleString('en-GB', words);
+      el.textContent = full ? local + ' (' + el.textContent + ')' : local;
+    });
+  }
+
   function init() {
     var list = document.querySelector('.card--hist');
     if (!list) return;
+
+    showLocalTimes(list);
 
     list.addEventListener('click', function (e) {
       var copy = e.target.closest('[data-hist-copy]');
