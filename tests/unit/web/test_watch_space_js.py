@@ -255,6 +255,7 @@ class TestStorage:
         }
         # Only the list's own sum counts what is no longer leaving.
         assert out["overdue"]["head"] == "1 title, 1 overdue · at least 10 GB to reclaim"
+        assert out["overdue"]["closed"] == "1 · 10 GB to reclaim"
         assert out["overdue"]["link"] == "1 · 10 GB to reclaim"
         assert out["overdue"]["after"] == "1 scheduled title will free 10 GB"
 
