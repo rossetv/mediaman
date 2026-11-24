@@ -21,6 +21,7 @@
   var SEARCH_DELAY_MS = 200;
   var LIST_DELAY_MS = 350;
   var COMPOSING_MS = 400;
+  var STEP_MS = 1000;
   var EXAMPLE_MS = 3200;
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
@@ -569,7 +570,7 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
-    var emptied = false; // the field, and the step back to what the search was typed over is on its way
+    var emptied = null; // the timer of the step back to what an emptied search was typed over, while it is on its way
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -1437,8 +1438,6 @@
 
     function run(inPlace) {
       var q = input.value.trim();
-      // What was typed since waits for the step to be made.
-      if (q && emptied) return;
       stop();
       if (!q) {
         syncUrl(q);
@@ -1499,9 +1498,11 @@
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        emptied = true;
+        clearTimeout(emptied);
+        // A step that takes longer is not coming.
+        emptied = setTimeout(function () { emptied = null; }, STEP_MS);
         address.back('search', function () {
-          emptied = false;
+          leftEmpty();
           // What opens there takes the focus.
           input.focus({ preventScroll: true });
           openSheet(address.top() === null);
@@ -1532,6 +1533,11 @@
       input.value = text;
       input.focus({ preventScroll: true });
       typed(true);
+    }
+
+    function leftEmpty() {
+      clearTimeout(emptied);
+      emptied = null;
     }
 
     /* Empty the bar: the text, or the category or person in it. */
@@ -1730,13 +1736,13 @@
         run();
       },
       close: function (how) {
-        var again = emptied && input.value.trim();
-        emptied = false;
+        var again = emptied !== null && input.value.trim();
+        leftEmpty();
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
+        // Typed since, it is a search of its own in the entry the step led to.
         if (again) {
-          clearTimeout(timer);
-          timer = setTimeout(run);
+          setTimeout(function () { if (current && current.q === input.value.trim()) syncUrl(current.q); });
           return;
         }
         stop();

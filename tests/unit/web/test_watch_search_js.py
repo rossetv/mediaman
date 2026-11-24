@@ -728,15 +728,15 @@ def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None
 
 def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_usable() -> None:
     out = _run("emptiedStepLost")
-    assert out["left"] == ["/watch", "browse"]
-    assert out["next"] == ["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
+    assert out["next"] == [["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
 
 
-def test_a_search_whose_step_back_is_lost_or_late_takes_nothing_from_what_comes_after() -> None:
-    out = _run("emptiedAndGoneOn")
-    lantern = "/api/watch/search?q=lantern"
-    assert out["category"] == ["/watch?q=lantern", "results", lantern]
-    assert out["typed"] == ["/watch?q=lantern", "lantern", lantern]
+def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:
+    assert _run("emptiedThenCategory") == [
+        "/watch?q=lantern",
+        "results",
+        "/api/watch/search?q=lantern",
+    ]
 
 
 def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() -> None:

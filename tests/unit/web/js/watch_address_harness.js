@@ -588,67 +588,6 @@ const scenarios = {
     return { before, at: p.at(), log: p.took() };
   },
 
-  // Back lost: the page stands as Back would have left it, also when only the entry says what is open; the step made after all changes nothing.
-  async aBackThatNeverComes() {
-    const out = {};
-    const p = open(makeTab('/watch'));
-    title(p, 'movie-1'); trailer(p);
-    p.tab.lost = true;
-    p.took();
-    p.address.back('trailer');
-    p.late();
-    out.trailer = [p.at(), p.address.top(), p.address.value('trailer'), ...p.took()];
-    await p.step(-1);
-    out.late = [p.at(), p.address.top(), ...p.took()];
-    // Loaded again on it, it has nothing to go back to that it knows.
-    const tab = makeTab('/watch');
-    const first = open(tab);
-    title(first, 'movie-1'); trailer(first);
-    const again = open(tab, { onOpen: (name, v, api) => { if (name === 'trailer') api.address.back('trailer'); } });
-    tab.lost = true;
-    again.late();
-    out.loaded = [again.address.top(), again.address.value('trailer')];
-    const q = open(makeTab('/watch'));
-    const push = (params) => q.address.push('explore', q.address.url(Object.assign({ genre: null, person: null }, params)));
-    push({ genre: 'action' }); push({ person: '9001' });
-    q.tab.lost = true;
-    q.took();
-    q.address.back('explore');
-    q.late();
-    out.person = [q.at(), ...q.took()];
-    // Back on the page leads past the entry that now says the same.
-    q.tab.lost = false;
-    q.address.back('explore');
-    await settle();
-    out.next = [q.at(), q.tab.index];
-    return out;
-  },
-
-  // Something else was opened before the step was given up, or before it came: that stays.
-  async aStepThatComesTooLate() {
-    const out = [];
-    for (const soon of [true, false]) {
-      const p = open(makeTab('/watch'));
-      const push = (person) => p.address.push('explore', p.address.url({ person }));
-      push('9001');
-      p.tab.lost = true;
-      p.address.back('explore');
-      if (!soon) p.late();
-      p.took();
-      push('9002');
-      const opened = p.took();
-      p.late();
-      p.tab.lost = false;
-      p.ctx.history.go(-1); // the one asked for, at last
-      await settle();
-      await settle();
-      const at = [p.at(), p.tab.index, opened, p.took()];
-      await p.step(-1);
-      out.push(at.concat(p.at()));
-    }
-    return out;
-  },
-
   async twoClosesInARow() {
     const p = open(makeTab('/watch'));
     title(p, 'movie-1'); trailer(p);

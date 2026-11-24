@@ -1461,47 +1461,33 @@ const scenarios = {
     p.ctx.history.go = go;
     other.focus();
     await p.back();
-    const out = { url: p.url(), other: p.doc.activeElement === other };
-    // What is typed after one is searched for.
-    const q = await ready(ADMIN);
-    await q.search('orchard');
-    q.ctx.history.go = () => {};
-    q.type('');
-    q.wait();
-    out.left = [q.url(), q.shown()];
-    q.type('lantern');
-    q.key('Enter');
-    await settle();
-    out.next = [q.url(), q.shown(), q.calls.filter((c) => c.url.includes('search?')).pop().url];
+    const out = { url: p.url(), other: p.doc.activeElement === other, next: [] };
+    // What is typed after one, or while one is still awaited, is searched for.
+    for (const soon of [true, false]) {
+      const q = await ready(ADMIN);
+      await q.search('orchard');
+      q.ctx.history.go = () => {};
+      q.type('');
+      if (!soon) q.wait();
+      q.type('lantern');
+      q.key('Enter');
+      await settle();
+      out.next.push([q.url(), q.shown(), q.calls.filter((c) => c.url.includes('search?')).pop().url]);
+    }
     return out;
   },
 
-  // The step back from an emptied search is lost, or late, and the person has gone on meanwhile.
-  async emptiedAndGoneOn() {
-    const asked = (p) => p.calls.filter((c) => c.url.includes('search?')).pop().url;
+  // The step back from an emptied search is lost, and a category is opened before it is given up.
+  async emptiedThenCategory() {
     const p = await ready(ADMIN);
     await p.search('orchard');
     p.ctx.history.go = () => {};
     p.type('');
     p.ctx.MMWatch.explore.openGenre('action', {}, null);
-    p.wait();
     p.type('lantern');
     p.key('Enter');
     await settle();
-    const out = { category: [p.url(), p.shown(), asked(p)] };
-    const q = await ready(ADMIN);
-    await q.search('orchard');
-    const real = q.ctx.history.go;
-    q.ctx.history.go = () => {};
-    q.type('');
-    q.wait();
-    q.type('lantern');
-    q.key('Enter');
-    q.ctx.history.go = real;
-    await q.back(); // the one asked for, at last
-    await settle();
-    out.typed = [q.url(), q.input.value, asked(q)];
-    return out;
+    return [p.url(), p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url];
   },
 
   // The categories come in while the arrows stand on one of the first sheet's options: their place is held, and so is the highlight's.

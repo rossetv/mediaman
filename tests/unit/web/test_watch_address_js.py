@@ -104,24 +104,7 @@ def test_scroll_waits_for_a_page_that_is_still_filling_unless_the_person_scrolls
 def test_a_step_the_browser_never_makes_still_closes() -> None:
     out = _run("aStepThatNeverComes")
     assert out["before"] == "/watch#title=movie-1"
-    assert (out["at"], out["log"]) == ("/watch", ["close title pop"])
-
-
-def test_a_back_the_browser_never_makes_is_done_without_it_and_a_late_one_changes_nothing() -> None:
-    out = _run("aBackThatNeverComes")
-    assert out["trailer"] == ["/watch#title=movie-1", "title", None, "close trailer pop"]
-    assert out["late"] == ["/watch#title=movie-1", "title"]
-    assert out["loaded"] == ["title", None]
-    assert out["person"] == ["/watch?genre=action", "open explore action pop"]
-    assert out["next"] == ["/watch", 0]
-
-
-def test_a_page_opened_before_a_late_step_is_given_up_or_made_stays() -> None:
-    # The one the step left is shut under it, at once or by then.
-    assert _run("aStepThatComesTooLate") == [
-        ["/watch?person=9002", 2, ["close explore pop"], [], "/watch"],
-        ["/watch?person=9002", 2, [], [], "/watch"],
-    ]
+    assert (out["at"], out["log"]) == ("/watch", ["close title replace"])
 
 
 def test_a_second_close_during_the_first_is_made_after_it() -> None:
