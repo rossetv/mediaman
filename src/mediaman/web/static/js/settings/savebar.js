@@ -307,9 +307,12 @@
           // partial success (shouldn't happen, but be defensive).
           if (data.status === 'saved' || data.ok !== false) {
             saved = sent;
+            if (sent.disk && 'plex_libraries' in data) {
+              saved = { values: sent.values, disk: MM.settings.diskThresholds.adopt(sent.disk, data) };
+            }
             paintTests();
             refreshOverviewHero();
-            if (changedKeys(sent, snapshot()).length) {
+            if (changedKeys(saved, snapshot()).length) {
               saveBtn.textContent = SAVE_LABEL;
               savebar.classList.add('is-partial');
               if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';

@@ -181,7 +181,8 @@ def _persist_settings(
     admin: str,
     now: str,
 ) -> Response:
-    """Write the settings rows and audit entry; return the saved/ignored envelope.
+    """Write the settings rows and audit entry; return the saved/ignored envelope, with the
+    libraries and thresholds as they are now stored, which may be more than was sent.
     Encrypt-on-write happens inside the repository so plaintext never escapes it, and the
     audit row shares the BEGIN IMMEDIATE so a failure rolls every mutation back together.
     """
@@ -214,7 +215,15 @@ def _persist_settings(
         # rationale: the save is already committed and the scheduler reads it at the next restart.
         except Exception:
             logger.warning("settings.reschedule_failed", exc_info=True)
-    return respond_ok({"status": "saved", "written": written, "ignored": ignored})
+    return respond_ok(
+        {
+            "status": "saved",
+            "written": written,
+            "ignored": ignored,
+            "plex_libraries": get_setting(conn, "plex_libraries", default=[]),
+            "disk_thresholds": get_setting(conn, "disk_thresholds", default={}),
+        }
+    )
 
 
 #: Held while the libraries and thresholds are read, merged and written, so two saves cannot undo each other's.

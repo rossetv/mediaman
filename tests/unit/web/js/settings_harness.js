@@ -1364,6 +1364,48 @@ const scenarios = {
     return { refused, sent: await p.save(), on: p.on() };
   },
 
+  // The server lays a save over what another page has stored since; this page then shows and keeps that too.
+  async mergedReply() {
+    const p = await openLibraries(plexLists(1, 2, 3, 4), {
+      selectedLibs: ['1', '2'],
+      diskThresholds: { 1: { path: '/a', threshold: 80 }, 2: { path: '/b', threshold: 70 } },
+    });
+    const stored = {
+      status: 'saved', plex_libraries: ['1', '3'],
+      disk_thresholds: { 1: { path: '/a', threshold: 60 }, 2: { path: '/b', threshold: 70 }, 3: { path: '/c', threshold: 50 } },
+    };
+    // nothing touched meanwhile
+    p.pill(2);
+    p.reply = () => Promise.resolve(stored);
+    await p.save();
+    const look = () => ({ pills: p.pills(), rows: [1, 2, 3, 4].map(p.shows), on: p.on() });
+    const out = { quiet: look() };
+    // the caret is in a field, a pill is clicked and another typed over while the next save is under way
+    let answer;
+    p.reply = () => new Promise((r) => { answer = r; });
+    p.edit('b');
+    p.press();
+    const card = p.card(1);
+    const path = p.input(1, 'path');
+    path.focus();
+    p.pill(4);
+    p.type(1, '/typed ', '60');
+    answer(Object.assign({}, stored, {
+      plex_libraries: ['1', '2'],
+      disk_thresholds: { 1: { path: '/a', threshold: 40 }, 2: { path: '/b', threshold: 70 } },
+    }));
+    await p.h.flush();
+    out.busy = look();
+    out.sameCard = p.card(1) === card && p.h.doc.activeElement === path;
+    p.reply = () => Promise.resolve({ status: 'saved' });
+    out.next = await p.save();
+    p.pill(4);
+    p.type(2, '/b ', '70');
+    await p.discard();
+    out.discarded = [p.pills(), p.shows(2)];
+    return out;
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

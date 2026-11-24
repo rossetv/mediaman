@@ -424,6 +424,27 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         assert data["plex_libraries"] == stored
         assert "plex_libraries_base" not in data
 
+    def test_put_replies_with_the_libraries_and_thresholds_now_stored(
+        self, app_factory, authed_client, conn
+    ):
+        """A save is laid over what another page stored, so the page cannot tell the outcome alone."""
+        movies = {"path": "/media/movies", "threshold": 85}
+        anime = {"path": "/media/anime", "threshold": 90}
+        insert_settings(conn, plex_libraries='["1", "4"]', disk_thresholds=json.dumps({"4": anime}))
+        client = _client(app_factory, authed_client, conn)
+        payload = {
+            "plex_libraries": ["1", "2"],
+            "plex_libraries_base": ["1"],
+            "disk_thresholds": {"1": movies},
+        }
+        merged = client.put("/api/settings", json=payload).json()
+        assert merged["plex_libraries"] == ["1", "4", "2"]
+        assert merged["disk_thresholds"] == {"4": anime, "1": movies}
+        # whatever was saved
+        other = client.put("/api/settings", json={"grace_days": 20}).json()
+        assert other["plex_libraries"] == merged["plex_libraries"]
+        assert other["disk_thresholds"] == merged["disk_thresholds"]
+
     def test_put_persists_disk_thresholds(self, app_factory, authed_client, conn):
         """disk_thresholds (nested {lib_id: {path, threshold}}) round-trips."""
         payload = {

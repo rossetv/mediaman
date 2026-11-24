@@ -354,6 +354,28 @@ def test_thresholds_stored_as_no_object_do_not_stop_the_page_saving() -> None:
     assert out == {"odd": saved, "5": saved, "true": saved}
 
 
+def test_a_save_shows_what_another_page_stored_and_keeps_what_is_being_typed() -> None:
+    out = _run("mergedReply")
+    assert out["quiet"] == {
+        "pills": ["1", "3"],
+        "rows": [["/a", "60"], None, ["/c", "50"], None],
+        "on": False,
+    }
+    assert out["busy"] == {
+        "pills": ["1", "2", "4"],
+        "rows": [["/typed ", "60"], ["/b", "70"], None, ["", "0"]],
+        "on": True,
+    }
+    assert out["sameCard"] is True
+    # the next save says what this page changed from what is stored now
+    assert out["next"] == {
+        "plex_libraries": ["1", "2", "4"],
+        "plex_libraries_base": ["1", "2"],
+        "disk_thresholds": {"1": {"path": "/typed", "threshold": 60}},
+    }
+    assert out["discarded"] == [["1", "2", "4"], ["/b", "70"]]
+
+
 def test_unreadable_thresholds_can_be_mended_from_the_page() -> None:
     out = _run("mendThresholds")
     assert out["refused"] == {"on": True, "says": "why it was refused"}

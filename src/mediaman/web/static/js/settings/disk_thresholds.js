@@ -19,6 +19,7 @@
  *   MM.settings.diskThresholds.getSelectedLibs()
  *   MM.settings.diskThresholds.state() / restore(state) — for save and Discard
  *   MM.settings.diskThresholds.changes(from, to)        — for collectSettings
+ *   MM.settings.diskThresholds.adopt(sent, reply)       — takes in what a save stored
  */
 (function () {
   'use strict';
@@ -71,6 +72,13 @@
     updateLibPillCount();
   }
 
+  function paintPills() {
+    document.querySelectorAll('#plex-library-pills .lib-pill').forEach(function (pill) {
+      pill.classList.toggle('on', SELECTED_LIBS.indexOf(pill.dataset.libId) !== -1);
+    });
+    updateLibPillCount();
+  }
+
   function updateLibPillCount() {
     var el = document.getElementById('lib-pill-count');
     if (!el) return;
@@ -82,8 +90,14 @@
   function renderDiskRows() {
     var container = document.getElementById('disk-threshold-rows');
     if (!container) return;
-    container.replaceChildren();
     var selected = PLEX_LIBRARIES.filter(function (l) { return SELECTED_LIBS.indexOf(String(l.id)) !== -1; });
+    // A card that already shows its entry stays, with the caret and whatever is being typed in it.
+    var kept = {};
+    Array.prototype.slice.call(container.children).forEach(function (card) {
+      var id = card.dataset.libId;
+      var stays = SELECTED_LIBS.indexOf(id) !== -1 && same(typedIn(card), shown(DISK_THRESHOLDS[id]));
+      if (stays) kept[id] = card; else card.remove();
+    });
     if (!selected.length) {
       var hint = document.createElement('div');
       hint.className = 'fld-sub';
@@ -91,9 +105,11 @@
       container.appendChild(hint);
       return;
     }
+    var next = container.firstChild;
     selected.forEach(function (lib) {
-      var cfg = DISK_THRESHOLDS[String(lib.id)] || {};
-      container.appendChild(buildLibPathCard(lib, cfg));
+      var id = String(lib.id);
+      if (kept[id]) { next = kept[id].nextSibling; return; }
+      container.insertBefore(buildLibPathCard(lib, DISK_THRESHOLDS[id] || {}), next);
     });
   }
 
@@ -287,13 +303,17 @@
     return a.path === b.path && a.threshold === b.threshold;
   }
 
+  function typedIn(card) {
+    return shown({
+      path: card.querySelector('[data-field="path"]').value,
+      threshold: card.querySelector('[data-field="threshold"]').value,
+    });
+  }
+
   // An entry whose fields were not touched stays exactly as it was saved.
   function keepTyped() {
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
-      var typed = shown({
-        path: card.querySelector('[data-field="path"]').value,
-        threshold: card.querySelector('[data-field="threshold"]').value,
-      });
+      var typed = typedIn(card);
       if (!same(typed, shown(DISK_THRESHOLDS[card.dataset.libId]))) {
         DISK_THRESHOLDS[card.dataset.libId] = typed;
       }
@@ -348,10 +368,12 @@
   }
 
   function init(opts) {
-    var stored = (opts && opts.diskThresholds) || {};
-    SELECTED_LIBS = ((opts && opts.selectedLibs) || []).map(String);
-    UNREADABLE = !isObject(stored);
-    DISK_THRESHOLDS = UNREADABLE ? {} : copy(stored);
+    var stored = fromServer({
+      plex_libraries: opts && opts.selectedLibs,
+      disk_thresholds: (opts && opts.diskThresholds) || {},
+    });
+    SELECTED_LIBS = stored.libs;
+    DISK_THRESHOLDS = stored.disk;
     loadPlexLibraries();
   }
 
@@ -370,7 +392,41 @@
     DISK_THRESHOLDS = copy(saved.disk);
     if (!LOADED) return;
     renderLibraryPills();
+    var rows = document.getElementById('disk-threshold-rows');
+    if (rows) rows.replaceChildren();
     renderDiskRows();
+  }
+
+  function fromServer(data) {
+    UNREADABLE = !isObject(data.disk_thresholds);
+    return {
+      libs: Array.isArray(data.plex_libraries) ? data.plex_libraries.map(String) : [],
+      disk: UNREADABLE ? {} : copy(data.disk_thresholds),
+    };
+  }
+
+  // A save may store more than this page sent, such as another page's choices. They are shown
+  // here too, under whatever was clicked or typed since `sent`. Returns what is stored.
+  function adopt(sent, reply) {
+    var stored = fromServer(reply);
+    keepTyped();
+    function has(libs, id) { return libs.indexOf(id) !== -1; }
+    function clicked(id) { return has(sent.libs, id) !== has(SELECTED_LIBS, id); }
+    var mine = SELECTED_LIBS.filter(clicked);
+    SELECTED_LIBS = stored.libs
+      .filter(function (id) { return !clicked(id); })
+      .concat(mine);
+    var typed = DISK_THRESHOLDS;
+    DISK_THRESHOLDS = {};
+    Object.keys(Object.assign({}, typed, stored.disk)).forEach(function (id) {
+      var now = same(shown(typed[id]), shown(sent.disk[id])) ? stored.disk[id] : typed[id];
+      if (now !== undefined) DISK_THRESHOLDS[id] = copy(now);
+    });
+    if (LOADED) {
+      paintPills();
+      renderDiskRows();
+    }
+    return stored;
   }
 
   MM.settings.diskThresholds = {
@@ -378,6 +434,7 @@
     state: state,
     restore: restore,
     changes: changes,
+    adopt: adopt,
     getSelectedLibs: function () { return SELECTED_LIBS; },
   };
 })();
