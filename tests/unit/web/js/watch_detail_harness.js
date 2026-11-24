@@ -1493,6 +1493,34 @@ const scenarios = {
     return { pressed, reloaded: p.doc.activeElement.getAttribute('data-ttl-act') };
   },
 
+  // Undo of a viewer's Keep, pressed in its toast: the page behind puts its own Keep back and focuses
+  // it, which the overlay pulls back, before the title is loaded again with its Keep. Then the same
+  // where the person has moved on meanwhile.
+  async undoKeepFocus() {
+    const run = async (movedOn) => {
+      let leaving = null;
+      const p = load({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { leaving, trailer_key: 'abcdefghijk' })) } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const toast = build(p.doc, ['div', { class: 'ui-toast' }, ['button', { class: 'ui-toast__action' }, 'Undo']]);
+      p.doc.body.appendChild(toast);
+      toast.children[0].listeners.click = [() => {
+        toast.remove();
+        p.doc.activeElement = p.doc.querySelector('.watch-card .watch-keep');
+        p.doc.listeners.focusin.forEach((fn) => fn({ target: p.doc.activeElement }));
+      }];
+      click(p.doc, toast.children[0]);
+      const pressed = p.doc.activeElement.getAttribute('data-ttl-act');
+      if (movedOn) p.q('[data-ttl-act="trailer"]').focus();
+      leaving = LIB_MOVIE.leaving;
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-kept', { detail: { id: '120' } }));
+      await settle();
+      return [pressed, p.doc.activeElement.getAttribute('data-ttl-act')];
+    };
+    return { waits: await run(false), movedOn: await run(true) };
+  },
+
   // A season with fewer episodes, picked when the overlay is scrolled so far that the shorter
   // page moves its pills; then one long enough.
   async shorterSeason() {

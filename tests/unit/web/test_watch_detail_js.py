@@ -609,6 +609,12 @@ def test_undo_in_a_toast_puts_focus_on_keep() -> None:
     assert _run("undoInToast") == {"pressed": "admin-keep", "reloaded": "admin-keep"}
 
 
+def test_undo_of_a_keep_puts_focus_on_the_keep_button_that_comes_back() -> None:
+    out = _run("undoKeepFocus")
+    assert out["waits"] == ["primary", "keep"]
+    assert out["movedOn"] == ["primary", "trailer"]
+
+
 def test_a_shorter_season_leaves_its_pill_where_it_was_pressed() -> None:
     out = _run("shorterSeason")
     assert out["1"] == {"scroll": 530, "room": "30px"}

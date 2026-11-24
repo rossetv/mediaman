@@ -257,6 +257,7 @@
       checkedAt: 0,
       openedAs: ref,     // a title scanned meanwhile goes on under its library ref
       marksAsked: 0,
+      keepComes: null,   // where the focus waits for a Keep button
       ctrl: null,
       seq: ++seq
     };
@@ -856,6 +857,8 @@
     var d = cur.data;
     closeOtherKeep();
     var key = focusKey();
+    var keepComes = key && key === cur.keepComes;
+    cur.keepComes = null;
     var line = body.querySelector('.watch-seasons');
     var lineAt = line ? line.scrollLeft : null;
     root.removeAttribute('aria-busy');
@@ -893,7 +896,7 @@
         n.classList.add('is-swapping-in');
       });
     }
-    restoreFocus(key);
+    restoreFocus(keepComes && byAct('keep') ? 'keep' : key);
   }
 
   function keepOnCard(origin) {
@@ -2281,13 +2284,16 @@
     e.stopPropagation();
   }, true);
 
-  /* A toast goes with the press of its button, and would take the focus too. */
+  /* A toast goes with the press of its button, and would take the focus too. After the
+     Undo of a Keep it goes to the Keep button once that is back. */
   document.addEventListener('click', function (e) {
     if (!isOpen || !e.target.closest || !e.target.closest('.ui-toast__action')) return;
-    if (root.contains(document.activeElement)) return; // the action has moved it already
-    var to = root.querySelector('[data-ttl-act="admin-keep"]') || root.querySelector('[data-ttl-act="keep"]') ||
-      root.querySelector('[data-ttl-part="actions"] > *') || titleEl;
+    var active = document.activeElement;
+    // The action has moved it already; from behind the overlay it only came back to the title.
+    if (active !== titleEl && root.contains(active)) return;
+    var to = byAct('admin-keep') || byAct('keep') || root.querySelector('[data-ttl-part="actions"] > *') || titleEl;
     to.focus({ preventScroll: true });
+    cur.keepComes = focusKey();
   });
 
   function cardTitle(node) {
