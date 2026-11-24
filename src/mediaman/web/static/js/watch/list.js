@@ -352,7 +352,7 @@
       row.remove();
       play();
       if (hadFocus && next) core.focusSoftly(firstAction(next) || next);
-      if (!tbody.querySelector('tr')) load(stateOf(root()), {});
+      if (!tbody.querySelector('tr') && !_asked) load(stateOf(root()), {});
     }
     if (core.reduceMotion()) { gone(); return; }
     row.classList.add('is-leaving');
@@ -555,9 +555,28 @@
 
   /* ── Wiring ── */
 
-  function navigate(href, find, toTopAfter) {
+  /* A pill, tile, header or page link, whose address is for the list showing.
+     While another list loads it changes only its own part of that one; a page
+     means nothing in a list of other titles or another order, so it is left
+     to load. */
+  function follow(nav) {
+    var href = nav.getAttribute('href');
     var at = href.indexOf('?');
-    load(stateFromSearch(at < 0 ? '' : href.slice(at + 1)), { history: 'push', focus: find, toTop: toTopAfter });
+    var state = stateFromSearch(at < 0 ? '' : href.slice(at + 1));
+    var paging = nav.classList.contains('page-btn');
+    if (_asked) {
+      var base = wanted();
+      if (paging) {
+        base.page = state.page;
+        if (!same(base, state)) return;
+      } else {
+        var key = nav.hasAttribute('data-sort-col') ? 'sort' : 'type';
+        base[key] = state[key];
+        base.page = '1';
+        state = base;
+      }
+    }
+    load(state, { history: 'push', focus: focusKey(nav), toTop: paging });
   }
 
   document.addEventListener('click', function (e) {
@@ -630,7 +649,7 @@
     if (nav) {
       if (!plainClick(e)) return;
       e.preventDefault();
-      navigate(nav.getAttribute('href'), focusKey(nav), nav.classList.contains('page-btn'));
+      follow(nav);
     }
   });
 

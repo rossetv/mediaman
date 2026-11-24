@@ -301,6 +301,32 @@ def test_a_search_or_sort_asked_while_a_fetch_runs_builds_on_what_was_asked() ->
     ]
 
 
+def test_a_header_pill_or_page_link_of_the_list_showing_builds_on_the_list_loading() -> None:
+    out = _run("linksWhileLoading")
+    # A header sorts the filter that is loading, from its first page.
+    assert out["header"]["fetches"][-1] == "/watch/list?type=movie&sort=name_asc"
+    assert out["header"]["summary"] == "summary movies by name"
+    assert out["header"]["history"] == [["push", "/watch?view=list&type=movie&sort=name_asc"]]
+    # A pill filters the search that is loading.
+    assert out["pill"]["summary"] == "summary kept har"
+    assert out["pill"]["history"] == [["push", "/watch?view=list&q=har&type=kept"]]
+    # A page of the old list is no page of the filter that is loading.
+    assert out["page"]["fetches"] == ["/watch/list?type=movie"]
+    assert out["page"]["summary"] == "summary movies"
+    assert out["page"]["history"] == [["push", "/watch?view=list&type=movie"]]
+    # While another page of the same list loads, the page pressed last wins.
+    assert out["pages"]["summary"] == "summary all 2"
+    assert out["pages"]["history"] == [["push", "/watch?view=list&page=2"]]
+    # A new tab is the browser's own, on the link's address.
+    assert out["modified"] == {"newTab": [False, False], "fetches": ["/watch/list?type=movie"]}
+
+
+def test_the_last_row_leaving_while_a_filter_loads_does_not_replace_that_filter() -> None:
+    out = _run("lastRowLeavesWhileLoading")
+    assert (out["keys"], out["summary"]) == (["id:m3"], "summary kept")
+    assert out["history"] == [["push", "/watch?view=list&type=kept"]]
+
+
 def test_focus_after_a_sort_header_lands_on_the_rows_coming_in() -> None:
     assert _run("sortHeaderFocus") == {"header": True, "inert": False, "old": False}
 

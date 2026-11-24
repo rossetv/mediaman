@@ -8,9 +8,9 @@ const vm = require('vm');
 const { Node, makeDocument, build, settle } = require('./fake_dom');
 
 /* Bubble a click from *target* up to the document; stopPropagation ends it there. */
-function click(doc, target) {
+function click(doc, target, keys) {
   const e = {
-    target, button: 0, defaultPrevented: false, stopped: false,
+    target, button: 0, ...keys, defaultPrevented: false, stopped: false,
     preventDefault() { this.defaultPrevented = true; },
     stopPropagation() { this.stopped = true; },
   };
@@ -820,6 +820,77 @@ const scenarios = {
     await settle();
     out.sortAfterPill = { fetches: p.fetches, summary: p.part('summary'), address: p.history[p.history.length - 1] };
     return out;
+  },
+
+  // A header, pill or page link of the list showing, pressed while another list loads: a header or pill
+  // changes only its own part of what was asked, and a page of the old list is not asked of the new one.
+  async linksWhileLoading() {
+    const run = async (asks, serve) => {
+      const p = load({ list: true, state: { page: '2' } });
+      const slow = deferred();
+      serve(p, slow);
+      for (const ask of asks) ask(p);
+      await settle();
+      slow.resolve();
+      await settle();
+      return { fetches: p.fetches, summary: p.part('summary'), history: p.history };
+    };
+    const pill = (type) => (p) => click(p.doc, p.doc.querySelectorAll('#watch-list .fpill').find((a) => a.getAttribute('data-type') === type));
+    const header = (p) => click(p.doc, p.doc.querySelector('#watch-list .th-sort'));
+    const pageLink = (p) => click(p.doc, p.doc.querySelector('#watch-list .page-btn'));
+    const find = (q) => (p) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-list-search', { detail: { q } }));
+    const movies = (p, slow) => p.serve('/watch/list?type=movie', { type: 'movie', label: 'movies' }, ROWS.slice(0, 2), slow);
+    const out = {
+      header: await run([pill('movie'), header], (p, slow) => {
+        movies(p, slow);
+        p.serve('/watch/list?type=movie&sort=name_asc', { type: 'movie', sort: 'name_asc', label: 'movies by name' }, ROWS.slice(0, 2));
+        p.serve('/watch/list?sort=name_asc', { sort: 'name_asc', label: 'all by name' }, ROWS);
+      }),
+      pill: await run([find('har'), pill('kept')], (p, slow) => {
+        p.serve('/watch/list?q=har', { q: 'har', label: 'har' }, ROWS.slice(0, 1), slow);
+        p.serve('/watch/list?q=har&type=kept', { q: 'har', type: 'kept', label: 'kept har' }, ROWS.slice(3));
+        p.serve('/watch/list?type=kept', { type: 'kept', label: 'kept' }, ROWS.slice(3));
+      }),
+      page: await run([pill('movie'), pageLink], (p, slow) => {
+        movies(p, slow);
+        p.serve('/watch/list?type=movie&page=2', { type: 'movie', page: '2', label: 'movies 2' }, []);
+        p.serve('/watch/list?page=2', { page: '2', label: 'all 2' }, ROWS);
+      }),
+      pages: await run([(p) => {
+        const three = build(p.doc, ['a', { class: 'page-btn', href: '/watch?view=list&page=3', 'data-list-nav': '' }, '3']);
+        p.doc.querySelector('#watch-list .pagination').appendChild(three);
+        click(p.doc, three);
+      }, pageLink], (p, slow) => {
+        p.serve('/watch/list?page=3', { page: '3', label: 'all 3' }, ROWS, slow);
+        p.serve('/watch/list?page=2', { page: '2', label: 'all 2' }, ROWS);
+      }),
+    };
+    const p = load({ list: true });
+    const slow = deferred();
+    movies(p, slow);
+    pill('movie')(p);
+    const newTab = [p.doc.querySelector('#watch-list .th-sort'), p.doc.querySelector('#watch-list .page-btn')]
+      .map((a) => click(p.doc, a, { metaKey: true }).defaultPrevented);
+    out.modified = { newTab, fetches: p.fetches };
+    return out;
+  },
+
+  // The last row leaves while a filter loads: the filter's list is the one that ends up showing.
+  async lastRowLeavesWhileLoading() {
+    const p = load({ list: true, rows: ROWS.slice(0, 1) });
+    const reply = deferred();
+    const slow = deferred();
+    p.replies['post /api/media/m1/delete'] = () => reply.promise;
+    p.serve('/watch/list', { label: 'all' }, []);
+    p.serve('/watch/list?type=kept', { type: 'kept', label: 'kept' }, ROWS.slice(3), slow);
+    click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+    await settle();
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[1]);
+    reply.resolve({ ok: true });
+    await settle();
+    slow.resolve();
+    await settle();
+    return { keys: p.rowKeys(), summary: p.part('summary'), history: p.history };
   },
 
   // A sort header pressed with motion on: focus lands on the header in the rows coming in, not the
