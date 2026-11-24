@@ -802,12 +802,11 @@ def _tv_caches(series, queued=False):
     }
 
 
-def _season(number, monitored=True, total=8, files=0):
-    return {
-        "seasonNumber": number,
-        "monitored": monitored,
-        "statistics": {"episodeCount": total, "episodeFileCount": files},
-    }
+def _season(number, monitored=True, total=8, files=0, next_airing=None):
+    stats = {"episodeCount": total, "episodeFileCount": files}
+    if next_airing:
+        stats["nextAiring"] = next_airing
+    return {"seasonNumber": number, "monitored": monitored, "statistics": stats}
 
 
 class TestSonarrQueuedOnlyWhenItWillFetch:
@@ -820,7 +819,11 @@ class TestSonarrQueuedOnlyWhenItWillFetch:
         series = {
             "tmdbId": 500,
             "monitored": True,
-            "seasons": [_season(1, monitored=False), _season(2, monitored=False)],
+            # Sonarr counts monitored episodes only, so an unmonitored season counts none.
+            "seasons": [
+                _season(1, monitored=False, total=0),
+                _season(2, monitored=False, total=0),
+            ],
         }
 
         assert compute_download_state("tv", 500, _tv_caches(series)) is None
@@ -851,3 +854,45 @@ class TestSonarrQueuedOnlyWhenItWillFetch:
         series = {"tmdbId": 500, "seasons": [{"seasonNumber": 1, "monitored": True}]}
 
         assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_season_with_single_monitored_episodes_stays_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(1, False, total=1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_season_with_a_monitored_episode_still_to_air_stays_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, False, total=0, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_one_early_file_with_the_rest_unaired_stays_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, True, total=1, files=1, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_complete_specials_alone_are_not_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(0, True, total=3, files=3)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_missing_specials_stay_queued(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(0, True, total=3, files=1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_an_unmonitored_series_with_an_episode_to_air_is_still_none(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": False,
+            "seasons": [_season(1, True, total=1, next_airing="2099-01-01T00:00:00Z")],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None

@@ -153,10 +153,13 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
 def _sonarr_will_fetch(series: SonarrSeries) -> bool:
     """Whether Sonarr, as set, is going to fetch something for *series*.
 
-    A show it holds with the series or every season unmonitored, or with every
-    monitored season complete, will never be fetched, so "queued" would be
-    false. Anything it does not say plainly (no seasons listed, no counts)
-    stays queued.
+    Sonarr picks episodes, not seasons: a season left unmonitored can still
+    hold single monitored episodes. So in any season, a monitored episode
+    without a file (``episodeCount`` above ``episodeFileCount``) or one still
+    to air (``nextAiring``) is something to fetch. An unmonitored series, or
+    one with nothing of either kind, will never be fetched, so "queued" would
+    be false. A monitored season that does not show itself complete, and a
+    series that lists no seasons, stay queued.
     """
     if series.get("monitored") is False:
         return False
@@ -164,11 +167,12 @@ def _sonarr_will_fetch(series: SonarrSeries) -> bool:
     if not isinstance(seasons, list) or not seasons:
         return True
     for season in seasons:
-        if season.get("monitored", True) is False:
-            continue
         stats = _season_stats(season)
         total = stats.get("episodeCount", 0)
-        if not (total > 0 and stats.get("episodeFileCount", 0) >= total):
+        files = stats.get("episodeFileCount", 0)
+        if total > files or stats.get("nextAiring"):
+            return True
+        if season.get("monitored", True) is not False and not (total > 0 and files >= total):
             return True
     return False
 
