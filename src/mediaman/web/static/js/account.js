@@ -38,6 +38,26 @@
   // On a narrow phone a status wraps under its button, where the bottom bar may cover it.
   function reveal(result) { result.scrollIntoView({ block: 'nearest' }); }
 
+  // Whether the reader is still where they pressed, so a late answer does not pull the page back.
+  // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
+  function stillAt(result, scope) {
+    var at = document.activeElement;
+    if (!scope.contains(at) && !at.contains(scope)) return false;
+    var root = document.documentElement;
+    var bars = getComputedStyle(root);
+    var box = result.getBoundingClientRect();
+    return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
+      box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
+  }
+
+  // Say an answer in a status, which the new words may make taller.
+  function answer(result, scope, text, tone) {
+    var there = stillAt(result, scope);
+    result.className = 'inline-form-msg ' + tone;
+    result.textContent = text;
+    if (there) reveal(result);
+  }
+
   function initPassword(reloadSessions) {
     var form = document.getElementById('account-password-form');
     var result = document.getElementById('account-password-result');
@@ -81,9 +101,7 @@
       }).then(function () {
         setBusy(submit, false);
         form.reset();
-        result.className = 'inline-form-msg ok';
-        result.textContent = 'Password updated.';
-        reveal(result);
+        answer(result, form, 'Password updated.', 'ok');
         // A new password ends every sign-in but this one.
         reloadSessions();
       }).catch(function (err) {
@@ -113,7 +131,6 @@
     function say(text, tone) {
       result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
       result.textContent = text;
-      if (text) reveal(result);
     }
 
     form.addEventListener('input', function () {
@@ -126,16 +143,18 @@
       var email = input.value.trim();
       setBusy(submit, true);
       say('Saving…');
+      reveal(result);
       MM.reauth.run(function () {
         return MM.api.patch('/api/users/me/email', { email: email });
       }).then(function () {
         setBusy(submit, false);
-        say(email ? 'Email saved.' : 'Email removed. Alerts are off.', 'ok');
+        answer(result, form, email ? 'Email saved.' : 'Email removed. Alerts are off.', 'ok');
       }).catch(function (err) {
         setBusy(submit, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
         say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
         input.focus();
+        reveal(result);
       });
     });
   }
@@ -173,7 +192,7 @@
           list.appendChild(li);
         });
         var alone = live.length < 2;
-        if (alone && document.activeElement === revoke) list.focus();
+        if (alone && document.activeElement === revoke) list.focus({ preventScroll: true });
         revoke.disabled = alone;
         why.hidden = !alone || Boolean(result.textContent);
       }).catch(function () {
@@ -188,24 +207,24 @@
     function say(text, tone) {
       result.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
       result.textContent = text;
-      if (text) reveal(result);
     }
 
     revoke.addEventListener('click', function () {
       if (isBusy(revoke)) return;
       setBusy(revoke, true);
       say('Signing out…');
+      reveal(result);
       MM.reauth.run(function () {
         return MM.api.post('/api/users/sessions/revoke-others');
       }).then(function () {
-        say('Signed out everywhere else.', 'ok');
+        answer(result, revoke.parentNode, 'Signed out everywhere else.', 'ok');
         return load();
       }).then(function () {
         setBusy(revoke, false);
       }, function (err) {
         setBusy(revoke, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
-        say(MM.api.messageOf(err, 'Could not sign the others out. Try again.'), 'err');
+        answer(result, revoke.parentNode, MM.api.messageOf(err, 'Could not sign the others out. Try again.'), 'err');
       });
     });
 

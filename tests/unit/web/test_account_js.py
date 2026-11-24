@@ -72,6 +72,22 @@ def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_wa
     assert out["revealedEmptied"] == []
 
 
+def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
+    out = _run("lateAnswer")
+    for which in ("email", "password", "sessions", "sessionsRefused"):
+        assert {where for where, seen in out[which].items() if seen[0]} == set(out[which])
+        assert [where for where, seen in out[which].items() if seen[1]] == ["there", "around"]
+
+
+def test_a_refusal_that_moves_the_cursor_is_brought_into_view_wherever_the_reader_is() -> None:
+    out = _run("lateAnswer")
+    assert (out["emailRefused"], out["passwordRefused"]) == ([True, True], [True, True])
+
+
+def test_the_list_of_sign_ins_takes_the_focus_without_pulling_the_page_to_it() -> None:
+    assert _run("focusOnTheList") == {"preventScroll": True}
+
+
 def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     out = _run("email")
     assert [body["email"] for _url, body in out["sent"]] == [
