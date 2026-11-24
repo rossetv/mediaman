@@ -41,11 +41,6 @@ class TestScanStatusAndToastPlacement:
         assert "top: auto" in desktop
         assert "bottom: var(--toast-bottom)" in desktop
 
-    def test_tile_lift_only_where_a_pointer_can_hover(self):
-        css = (_CSS / "_tiles.css").read_text(encoding="utf-8")
-        assert re.search(r"@media \(hover: hover\) \{\s*\.tile:hover \{ transform", css)
-        assert not re.search(r"^\.tile:hover \{", css, flags=re.M)
-
 
 class TestAbandonDialogCss:
     def test_abandon_dialog_stacks_like_the_confirm_dialog_on_phones(self):

@@ -3,7 +3,7 @@
      Every page-level script lives in static/js/; the only remaining inline scripts are
      <script type="application/json"> data islands, which CSP does not
      gate. style-src still allows 'unsafe-inline' for the few inline styles
-     that carry data (bar widths, legend colours). -->
+     that carry data (bar widths). -->
 <html lang="en-GB">
 <head>
   <meta charset="UTF-8">
@@ -16,9 +16,7 @@
   <link rel="stylesheet" href="/static/css/_tokens.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_base.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_forms.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_search.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tables.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_storage.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_history.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">

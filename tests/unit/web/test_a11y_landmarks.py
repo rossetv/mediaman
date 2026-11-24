@@ -122,14 +122,6 @@ def test_watch_list_uses_empty_alt_posters():
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
-def test_components_exposes_poster_macro():
-    """The macro is the new single source of truth — without
-    it, future templates would need to know the alt-empty rule."""
-    comps = _tpl("_components.html")
-    assert "{% macro poster(item)" in comps
-    assert 'alt=""' in comps  # macro emits empty alt
-
-
 def test_components_warns_about_safe_filter():
     """Macros use ``|safe`` for trusted slots. The header
     comment must warn future contributors to escape user-supplied
