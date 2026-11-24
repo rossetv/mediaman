@@ -582,6 +582,10 @@ class TestScan:
         assert out["already"]["out"][2:5] == [already, already, f"{said}, 4s"]
         assert out["already"]["stopped"] is True
 
+    def test_the_clock_starts_at_one_second_when_the_start_is_slow_to_answer(self):
+        said = "Scanning libraries"
+        assert _run("scanClockSlowStart") == [f"{said}, 1s", f"{said}, 2s"]
+
     def test_keeps_its_icon_and_focus_through_every_state_and_shows_what_it_found(self):
         out = _run("scan")
         redo = "#i-rotate-right"

@@ -1086,6 +1086,20 @@ const scenarios = {
     await p.run(2000); await p.run(5000); states.push(look());
     return { states, during, toasts: p.toasts.length };
   },
+  // The server takes half a second to answer the start.
+  async scanClockSlowStart() {
+    const p = await page();
+    let now = 0;
+    p.ctx.Date = { now: () => now };
+    p.server.scan = { running: true };
+    await p.open('storage');
+    const post = p.server.post.bind(p.server);
+    p.server.post = (url, body) => { now += 500; return post(url, body); };
+    await p.click(p.$('space-scan'));
+    const out = [];
+    for (let i = 0; i < 2; i++) { now += 1000; p.second(); out.push(p.$('space-scan-status').textContent); }
+    return out;
+  },
   // The seconds of a running scan, at *posted*'s answer and between two polls.
   async scanClock() {
     const of = async (posted) => {

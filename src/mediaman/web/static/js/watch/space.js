@@ -1657,7 +1657,7 @@
   }
 
   function elapsed() {
-    var sec = Math.round((Date.now() - scanStart) / 1000);
+    var sec = Math.floor((Date.now() - scanStart) / 1000);
     return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
   }
 
