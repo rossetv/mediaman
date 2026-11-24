@@ -1035,6 +1035,42 @@ const scenarios = {
     await settle();
     return [select.value, p.url(), select.children.length];
   },
+
+  // What the field says of its list: whether one shows, and which.
+  async combobox() {
+    const p = await ready(ADMIN);
+    const said = () => [p.input.getAttribute('aria-expanded'), p.input.getAttribute('aria-controls'), !!p.$(p.input.getAttribute('aria-controls'))];
+    const out = {};
+    p.press();
+    out.sheet = said();
+    await p.search('act');
+    out.suggestions = said();
+    click(p.doc, p.doc.querySelector('.watch-suggestion--category'));
+    await settle();
+    out.category = said();
+    await p.search('zzqx');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out.nothing = said();
+    // Where the titles among the suggestions do not show (the results have them).
+    const q = await ready(ADMIN);
+    const plain = Node.prototype.getClientRects;
+    let narrow = true;
+    Node.prototype.getClientRects = function () { return narrow && this.classList.contains('watch-suggestion--title') ? [] : plain.call(this); };
+    const at = () => [q.input.getAttribute('aria-expanded'), q.input.getAttribute('aria-controls')];
+    try {
+      await q.search('orchard');
+      await q.answer('/api/watch/search?', { items: [LIB] });
+      await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      out.titles = at();
+      narrow = false;
+      q.fire('resize');
+      out.wide = at();
+    } finally {
+      Node.prototype.getClientRects = plain;
+    }
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.

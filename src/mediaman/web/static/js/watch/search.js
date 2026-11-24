@@ -647,8 +647,7 @@
       sheet.classList.toggle('is-on', on);
       sheet.inert = !on;
       [browse, byId('watch-all')].forEach(function (n) { if (n) n.inert = on; });
-      input.setAttribute('aria-expanded', on ? 'true' : 'false');
-      input.setAttribute('aria-controls', 'watch-sheet');
+      sayList();
       pick(null);
     }
 
@@ -699,6 +698,7 @@
       if (!live) return;
       var node = live.node;
       live = null;
+      sayList();
       if (!moves(node) || !node.getClientRects().length) { node.remove(); return; }
       var at = node.getBoundingClientRect();
       node.remove();
@@ -850,8 +850,7 @@
         if (list.length || settled) live.node.classList.toggle('has-no-suggestions', !list.length);
         live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
         glide(live.list, list);
-        input.setAttribute('aria-controls', 'watch-suggestions');
-        input.setAttribute('aria-expanded', list.length ? 'true' : 'false');
+        sayList();
         pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
       });
     }
@@ -861,6 +860,13 @@
     function options() {
       var root = sheetOn ? sheet : live && live.kind === 'results' ? live.list : null;
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
+    }
+
+    /* Tell the field's readers of the list that shows, if one does. */
+    function sayList() {
+      var open = options().length > 0;
+      input.setAttribute('aria-expanded', open ? 'true' : 'false');
+      input.setAttribute('aria-controls', open && !sheetOn ? 'watch-suggestions' : 'watch-sheet');
     }
 
     function pick(node) {
@@ -1410,6 +1416,7 @@
       browse.classList.remove('is-off');
       if (live) live.node.remove();
       live = null;
+      sayList();
       view = 'browse';
       results.hidden = true;
       status.textContent = '';
@@ -1423,6 +1430,8 @@
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
     fitSheet();
+    // A narrow window shows no titles among the suggestions.
+    window.addEventListener('resize', sayList);
 
     /* ── A page in the results' place ── */
 

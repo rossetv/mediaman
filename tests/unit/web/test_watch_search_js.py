@@ -450,3 +450,14 @@ def test_keys_pressed_during_a_composition_are_left_to_it() -> None:
 
 def test_any_year_stays_chosen_when_the_years_arrive() -> None:
     assert _run("anyYear") == ["", "/watch?genre=action", 4]
+
+
+def test_the_field_names_a_list_only_while_it_can_be_seen() -> None:
+    out = _run("combobox")
+    sheet, shut = ["true", "watch-sheet", True], ["false", "watch-sheet", True]
+    assert out["sheet"] == sheet
+    assert out["suggestions"] == ["true", "watch-suggestions", True]
+    assert out["category"] == shut
+    assert out["nothing"] == shut
+    assert out["titles"] == ["false", "watch-sheet"]
+    assert out["wide"] == ["true", "watch-suggestions"]
