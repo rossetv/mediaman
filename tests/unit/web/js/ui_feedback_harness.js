@@ -43,8 +43,9 @@ function press({ dialog, own, other, confirm, key = {}, field } = {}) {
 /* Two confirms asked at once; *close* says what closes first. What each answered, and how many are still open. */
 async function stacked(close) {
   const doc = makeDocument();
+  let now = 0; // each look at the clock is a second on, so no click comes too soon after a dialog opens
   const ctx = {
-    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date, WeakMap, parseFloat, Promise,
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, Date: { now: () => (now += 1000) }, WeakMap, parseFloat, Promise,
     getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
   };
   ctx.window = ctx;
@@ -110,6 +111,40 @@ const held = () => ({
   // a tap leaves :hover on the toast until the next one
   errorAfterATap: underPointer((ui) => ui.error('No luck'), false),
   plain: underPointer((ui) => ui.toast('Saved'), true),
+});
+
+/* What a confirm answers to one click: on its main button, its Cancel or its backdrop, *ms* after
+   it opened, as click number *detail* of a run of clicks. null where the click did nothing. */
+async function clicked(on, ms, detail) {
+  const doc = makeDocument();
+  let now = 1000;
+  const ctx = {
+    document: doc, navigator: { platform: 'Linux' }, setTimeout() {}, requestAnimationFrame() {}, Array, Math, WeakMap, parseFloat, Promise,
+    Date: { now: () => now },
+    getComputedStyle: () => ({ transitionDuration: '0s', transitionDelay: '0s' }),
+  };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  load(ctx);
+  let answer = null;
+  ctx.UIFeedback.confirm({ title: 'Delete it?' }).then((yes) => { answer = yes; });
+  const overlay = doc.querySelector('.ui-confirm-overlay');
+  const [cancel, main] = overlay.querySelectorAll('button');
+  const target = { main, cancel, backdrop: overlay }[on];
+  now += ms;
+  target.listeners.click.forEach((fn) => fn({ target, detail }));
+  await Promise.resolve();
+  await Promise.resolve();
+  return answer;
+}
+const stray = async () => ({
+  // the second click of a double click on what asked
+  doubleClick: [await clicked('main', 150, 2), await clicked('backdrop', 150, 2), await clicked('cancel', 150, 2)],
+  // a slow second click, before the dialog could be read
+  early: [await clicked('main', 250, 1), await clicked('backdrop', 250, 1), await clicked('cancel', 250, 1)],
+  meant: [await clicked('main', 400, 1), await clicked('backdrop', 400, 1), await clicked('cancel', 400, 1)],
+  // Enter or Space on a button is a click numbered 0
+  byKey: [await clicked('main', 400, 0), await clicked('cancel', 400, 0)],
 });
 
 const open = { attrs: {} };
@@ -187,5 +222,5 @@ const onPhone = () => ({
   undoStays: stays(['1 Undo', 'a', 'b'], true),
   errorStays: stays(['1 Undo', 'Error', '2 Undo'], true),
 });
-const scenarios = { pressed, named, bar, held, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+const scenarios = { pressed, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

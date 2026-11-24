@@ -30,6 +30,15 @@ def test_a_confirm_is_named_by_its_title_and_described_by_its_body() -> None:
     assert _run("named") == {"body": ["Delete it?", "For good."], "none": ["Delete it?", None]}
 
 
+def test_a_confirm_is_not_answered_by_the_rest_of_a_double_click_on_what_asked() -> None:
+    out = _run("stray")
+    assert out["doubleClick"] == [None, None, None]
+    # nor yes, or no by its backdrop, before it could be read; Cancel is always safe
+    assert out["early"] == [None, None, False]
+    assert out["meant"] == [True, False, False]
+    assert out["byKey"] == [True, False]
+
+
 def test_a_confirm_holds_the_width_of_the_page_s_scrollbar_until_it_closes() -> None:
     assert _run("bar") == {"held": "15px", "after": None}
 

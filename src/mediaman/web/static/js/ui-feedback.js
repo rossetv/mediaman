@@ -284,10 +284,15 @@
       function cancel() { cleanup(false); }
       overlay.id = id;
       open.push(cancel);
-      cancelBtn.addEventListener('click', cancel);
-      confirmBtn.addEventListener('click', function () { cleanup(true); });
+      // The rest of a double click on what asked lands on the dialog, and a slow
+      // one comes before it could be read: neither answers yes, nor no by the backdrop.
+      var openedAt = Date.now();
+      function stray(e) { return e.detail > 1; }
+      function early() { return Date.now() - openedAt < 300; }
+      cancelBtn.addEventListener('click', function (e) { if (!stray(e)) cancel(); });
+      confirmBtn.addEventListener('click', function (e) { if (!stray(e) && !early()) cleanup(true); });
       overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) cancel();
+        if (e.target === overlay && !stray(e) && !early()) cancel();
       });
 
       if (window.ModalA11y) {
