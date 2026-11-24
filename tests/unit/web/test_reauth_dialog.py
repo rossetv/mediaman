@@ -95,6 +95,12 @@ def test_a_request_can_word_its_own_dialog_and_a_save_keeps_the_usual_words() ->
     assert (out["none"][0], out["none"][2]) == ("Re-authenticate to save", "Confirm & save")
 
 
+def test_a_request_can_ask_for_the_danger_look_on_the_dialog_s_main_button() -> None:
+    out = _run("variant")
+    assert "btn--danger" in out["danger"].split() and "btn--primary" not in out["danger"].split()
+    assert "btn--primary" in out["usual"].split() and "btn--danger" not in out["usual"].split()
+
+
 def test_the_dialog_is_named_by_its_title_and_described_by_its_reason() -> None:
     out = _run("named")
     assert out["name"] == "Re-authenticate to save"

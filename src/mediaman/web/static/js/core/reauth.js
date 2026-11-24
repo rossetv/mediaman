@@ -4,11 +4,12 @@
  *
  * Public surface (global MM.reauth):
  *
- *   MM.reauth.openModal({ onSubmit, onCancel, title, descText, confirmLabel })
+ *   MM.reauth.openModal({ onSubmit, onCancel, title, descText, confirmLabel, confirmVariant })
  *       Open the centred modal, "Re-authenticate to save" unless worded otherwise. onSubmit(pw)
  *       returns Promise<{ok, error?}>; resolving ok=true closes the
  *       modal, ok=false surfaces the error inline and keeps it open.
- *       onCancel runs on Cancel / Escape / backdrop click.
+ *       onCancel runs on Cancel / Escape / backdrop click. confirmVariant
+ *       'danger' gives the main button the danger look, as in UIFeedback.confirm.
  *
  *   MM.reauth.run(requestFn, words)
  *       Call requestFn() and return its promise. If it rejects with an
@@ -18,7 +19,7 @@
  *       the user cancels the modal, reject with an APIError carrying
  *       error code 'reauth_cancelled' so callers can distinguish
  *       "backed out" from "request failed". `words` may hold the modal's
- *       title, descText and confirmLabel, for what is not a save.
+ *       title, descText, confirmLabel and confirmVariant, for what is not a save.
  *
  * Depends on:
  *   MM.api          (core/api.js — APIError type, fetch wrapper)
@@ -116,7 +117,7 @@
     actions.appendChild(cancelBtn);
     var confirmBtn = document.createElement('button');
     confirmBtn.type = 'button';
-    confirmBtn.className = 'btn btn--primary btn--sm';
+    confirmBtn.className = 'btn ' + (opts.confirmVariant === 'danger' ? 'btn--danger' : 'btn--primary') + ' btn--sm';
     confirmBtn.textContent = opts.confirmLabel || 'Confirm & save';
     actions.appendChild(confirmBtn);
     sheet.appendChild(actions);
@@ -218,6 +219,7 @@
             title: words.title,
             descText: words.descText,
             confirmLabel: words.confirmLabel,
+            confirmVariant: words.confirmVariant,
             onSubmit: function (pw) {
               return MM.api.post('/api/auth/reauth', { password: pw })
                 .then(function () {

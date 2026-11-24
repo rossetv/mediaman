@@ -153,6 +153,16 @@ const scenarios = {
     };
     return { refused: await late({ ok: false, error: 'No' }), accepted: await late({ ok: true }), closedAgain: await late(null) };
   },
+  // the look of the main button of run()'s dialog: as asked for something that cannot be undone, and as usual
+  async variant() {
+    const look = async (words) => {
+      ctx.MM.reauth.run(() => Promise.reject({ name: 'APIError', status: 403, data: { reauth_required: true } }), words).catch(() => {});
+      await flush();
+      const buttons = doc.body.children[doc.body.children.length - 1].children[0].all().filter((e) => e.tagName === 'BUTTON');
+      return buttons[buttons.length - 1].className;
+    };
+    return { danger: await look({ confirmVariant: 'danger' }), usual: await look() };
+  },
   // what the dialog of run() says, with the caller's words and without
   async words() {
     const says = async (words) => {
