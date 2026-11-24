@@ -464,16 +464,27 @@ def test_the_volume_track_fills_to_the_volume_heard(markup):
     assert (out["start"]["fill"], out["unmutedFill"], out["mutedFill"]) == ("60%", "25%", "0%")
 
 
-def test_the_bar_shows_the_frame_under_a_resting_mouse_and_asks_for_no_other(markup):
+def test_the_bar_shows_frames_at_once_and_while_the_mouse_moves_along_it(markup):
     out = run(markup, "frame_hover")
-    assert (out["moving"], out["rested"]) == ([], [84])
-    # One request at a time; then only the place the mouse is at by then.
-    assert out["oneInFlight"] == [84]
-    assert out["latest"] == [84, 240]
-    assert (out["waiting"]["stale"], out["waiting"]["time"]) == (True, "20:00")
+    assert out["atOnce"] == [60]
+    assert out["first"] == {"shown": True, "time": "5:00", "frame": 60, "stale": False}
+    # 800 ms of movement: one at once, then one about every 300 ms, where the mouse is by then.
+    assert len(out["moving"]) == 3
+    assert out["moving"] == sorted(out["moving"])
+    # What shows meanwhile is the nearest there is.
+    assert (out["near"]["frame"], out["near"]["stale"]) == (out["moving"][-1], True)
+    # And the place the mouse came to rest at.
+    assert (out["trailing"], out["rested"]["frame"], out["rested"]["stale"]) == (84, 84, False)
+
+
+def test_one_frame_is_asked_for_at_a_time_and_none_that_is_kept(markup):
+    out = run(markup, "frame_hover")
+    assert len(out["oneInFlight"]) == 1
+    assert out["latest"] == [*out["oneInFlight"], 240]
     assert out["arrived"] == {"shown": True, "time": "20:00", "frame": 240, "stale": False}
+    assert (out["nearest"]["frame"], out["nearest"]["stale"]) == (84, True)
     assert out["kept"] == {"shown": True, "time": "7:00", "frame": 84, "stale": False}
-    assert out["keptAsked"] == 2
+    assert out["keptAsked"] == 0
 
 
 def test_looking_along_the_bar_moves_neither_the_video_nor_what_a_screen_reader_hears(markup):
@@ -490,7 +501,7 @@ def test_a_finger_on_the_bar_shows_frames_and_lets_go_at_the_place_shown(markup)
     out = run(markup, "frame_drag")
     assert out["before"] is False
     assert (out["during"]["shown"], out["during"]["time"], out["duringAt"]) == (True, "10:00", 30)
-    assert out["asked"] == [120]
+    assert out["asked"] == [60, 120]
     assert (out["after"], out["at"]) == (False, 600)
 
 

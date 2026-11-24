@@ -944,22 +944,35 @@ const scenarios = {
     fire(p.video, 'timeupdate');
     const now = () => p.q('[data-seek]').getAttribute('aria-valuenow');
     const out = { now: now() };
-    for (const x of [100, 120, 140]) { point(p, 'pointermove', x); p.tick(50); }
+    const answered = async () => { if (p.frames.answer) p.frames.answer(200); await settle(); };
+    point(p, 'pointermove', 100);
+    out.atOnce = p.frames.asked.slice();
+    await answered();
+    out.first = await bubbleState(p);
+    /* On the move: never a moment's rest. */
+    for (let x = 101; x <= 140; x++) { point(p, 'pointermove', x); p.tick(20); await answered(); }
     out.moving = p.frames.asked.slice();
-    p.tick(100);
-    out.rested = p.frames.asked.slice();
-    /* Moved on while the request is out: only the last place is asked for after it. */
-    for (const x of [200, 300, 400]) { point(p, 'pointermove', x); p.tick(150); }
-    out.oneInFlight = p.frames.asked.slice();
-    p.frames.answer(200);
-    out.waiting = await bubbleState(p);
-    out.latest = p.frames.asked.slice();
-    p.frames.answer(200);
+    out.near = await bubbleState(p);
+    p.tick(400);
+    out.trailing = p.frames.asked[p.frames.asked.length - 1];
+    await answered();
+    out.rested = await bubbleState(p);
+    /* Moved on while a request is out: only the last place is asked for after it. */
+    const from = p.frames.asked.length;
+    for (const x of [200, 300, 400]) { point(p, 'pointermove', x); p.tick(350); }
+    out.oneInFlight = p.frames.asked.slice(from);
+    await answered();
+    p.tick(400);
+    out.latest = p.frames.asked.slice(from);
+    await answered();
     out.arrived = await bubbleState(p);
+    point(p, 'pointermove', 142);
+    out.nearest = await bubbleState(p);
     point(p, 'pointermove', 140);
     out.kept = await bubbleState(p);
+    const asked = p.frames.asked.length;
     p.tick(500);
-    out.keptAsked = p.frames.asked.length;
+    out.keptAsked = p.frames.asked.length - asked;
     out.nowAfter = now();
     out.position = p.video.currentTime;
     p.video.paused = false;
@@ -982,7 +995,9 @@ const scenarios = {
     point(p, 'pointermove', 200, 'touch');
     const during = await bubbleState(p);
     const during_s = p.video.currentTime;
-    p.tick(150);
+    p.frames.answer(200);
+    await settle();
+    p.tick(300);
     point(p, 'pointerup', 200, 'touch');
     return { before: before.shown, during: during, duringAt: during_s, asked: p.frames.asked, after: (await bubbleState(p)).shown, at: p.video.currentTime };
   },
@@ -993,7 +1008,7 @@ const scenarios = {
     await streamPlays(p, 30);
     for (let i = 0; i < 65; i++) {
       point(p, 'pointermove', 5 * i);
-      p.tick(150);
+      p.tick(300);
       p.frames.answer(200);
       await settle();
     }
@@ -1005,7 +1020,7 @@ const scenarios = {
     const status = +p.win.serverPlays;
     p.replies[0] = answer('1080p-8000', WITH_FRAMES);
     await streamPlays(p, 30);
-    const go = (x) => { point(p, 'pointermove', x); p.tick(150); };
+    const go = (x) => { point(p, 'pointermove', x); p.tick(300); };
     go(100);
     p.frames.answer(status);
     const out = { first: await bubbleState(p) };
@@ -1588,7 +1603,7 @@ const scenarios = {
     await settle();
     await streamPlays(p, 0);
     point(p, 'pointermove', 2);
-    p.tick(100);
+    p.tick(300);
     out.asked = p.frames.asked.length;
     point(p, 'pointerleave', 100);
     point(p, 'pointerdown', 500);

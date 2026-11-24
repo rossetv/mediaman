@@ -216,8 +216,8 @@
   object-fit: contain;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
-/* Still the last frame, while the one wanted loads. */
-.player-frame.is-stale img { opacity: .4; }
+/* Still the nearest frame, while the one wanted loads: dimmed only where that takes a while. */
+.player-frame.is-stale img { opacity: .75; transition-delay: .15s; }
 .player-bubble-text {
   display: flex;
   flex-direction: column;

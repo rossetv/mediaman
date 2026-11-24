@@ -4,12 +4,15 @@ with no exception for an admin, and the old household picks shown to no one."""
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_iso
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations import prompts, user_picks
 from mediaman.services.watch_catalog import _arr, _discover, _library
@@ -106,15 +109,33 @@ class TestRow:
         resp = people["admin"].get("/api/watch/recommended", params={"batch": DAY})
         assert resp.status_code == 404
 
-    def test_own_and_shared_batches_run_on_newest_first(self, people, conn):
-        insert_suggestion(conn, title="Shared new", batch_id="2099-01-03")
-        insert_user_pick(conn, "amy", title="Amys", batch_id="2099-01-02")
-        insert_suggestion(conn, title="Shared old", batch_id="2099-01-01")
+    def test_the_row_begins_with_the_persons_latest_picks_before_newer_shared_ones(
+        self, people, conn
+    ):
+        insert_suggestion(conn, title="Shared new", tmdb_id=1, batch_id="2099-01-03")
+        insert_user_pick(conn, "amy", title="Amys", tmdb_id=2, batch_id="2099-01-02")
+        insert_suggestion(conn, title="Shared mid", tmdb_id=3, batch_id="2099-01-02")
+        insert_user_pick(conn, "amy", title="Amys old", tmdb_id=4, batch_id="2099-01-01")
 
         body = _row(people["amy"])
-        assert [b["id"] for b in body["batches"]] == ["2099-01-03", "2099-01-02", "2099-01-01"]
+        assert [i["title"] for i in body["items"]] == ["Amys", "Shared new"]
         assert (body["batch"], body["next_batch"]) == ("2099-01-03", "2099-01-02")
-        assert _titles(people["amy"], batch="2099-01-02", start="2099-01-03") == ["Amys"]
+        assert [b["id"] for b in body["batches"]] == ["2099-01-03", "2099-01-02", "2099-01-01"]
+        assert _titles(people["amy"], batch="2099-01-02", start="2099-01-03") == ["Shared mid"]
+        assert _titles(people["amy"], batch="2099-01-01", start="2099-01-03") == ["Amys old"]
+        # Chosen by itself, a batch has all of its own.
+        assert _titles(people["amy"], batch="2099-01-02") == ["Amys", "Shared mid"]
+        assert _titles(people["bob"]) == ["Shared new"]
+
+    @pytest.mark.parametrize(("age", "first"), [(28, True), (29, False)])
+    def test_own_picks_over_28_days_old_no_longer_come_first(self, people, conn, age, first):
+        day = (date.today() - timedelta(days=age)).isoformat()
+        insert_suggestion(conn, title="Shared", tmdb_id=1, batch_id=date.today().isoformat())
+        insert_user_pick(conn, "amy", title="Amys", tmdb_id=2, batch_id=day)
+
+        body = _row(people["amy"])
+        assert [i["title"] for i in body["items"]] == (["Amys"] if first else []) + ["Shared"]
+        assert body["next_batch"] == (None if first else day)
 
     def test_the_card_says_it_is_an_ai_pick_and_where_its_detail_is(self, people, conn):
         insert_media_item(conn, id="9", plex_rating_key="9", title="Held")
@@ -196,6 +217,27 @@ class TestDownload:
         assert [m["tmdbId"] for m in arr.movies] == [12]
         assert user_picks.fetch_pick(conn, "amy", pick).downloaded_at is not None
         assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+
+    def test_a_pick_is_marked_only_under_the_name_it_belongs_to(self, conn):
+        for name in ("amy", "bob"):
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash, created_at, role)"
+                " VALUES (?, 'x', '2020', 'viewer')",
+                (name,),
+            )
+        pick = insert_user_pick(conn, "amy", tmdb_id=12)
+
+        user_picks.mark_downloaded(conn, "bob", pick, now_iso())
+
+        assert user_picks.fetch_pick(conn, "amy", pick).downloaded_at is None
+
+    @pytest.mark.parametrize(
+        "url", ["/api/watch/picks/{}/download", "/api/recommended/{}/download"]
+    )
+    @pytest.mark.parametrize("number", [2**63, 10**30])
+    def test_a_number_too_large_for_any_pick_is_refused(self, people, arr, url, number):
+        assert people["amy"].post(url.format(number)).status_code == 422
+        assert arr.movies == []
 
 
 class TestOldHouseholdPicks:
@@ -299,6 +341,31 @@ class TestRefresh:
         people["amy"].post("/api/watch/picks/refresh")
 
         assert asked == [("amy", 0)]
+        assert len(user_picks.fetch_picks(conn, "amy")) == 1
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            SSRFRefused("refused"),
+            ConfigDecryptError("plex_token", ValueError("bad key")),
+            requests.ConnectionError("down"),
+            ValueError("bad url"),
+        ],
+    )
+    def test_a_plex_client_that_cannot_be_built_costs_only_its_stars(
+        self, people, conn, openai, monkeypatch, error
+    ):
+        self._play(conn, "amy", 5)
+
+        def build(*_a):
+            raise error
+
+        monkeypatch.setattr(own, "build_plex_from_db", build)
+
+        people["amy"].post("/api/watch/picks/refresh")
+
+        status = people["amy"].get("/api/watch/picks/refresh").json()
+        assert (status["status"], status["my_refresh"]["running"]) == ("done", False)
         assert len(user_picks.fetch_picks(conn, "amy")) == 1
 
     def test_one_that_gives_nothing_says_failed_and_may_be_tried_again(

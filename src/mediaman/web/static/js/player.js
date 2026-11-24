@@ -73,8 +73,8 @@
   var UP_TRIAL_S = 120;
   /* Not worth a new stream this close to the end. */
   var UP_LEFT_S = 120;
-  /* A frame preview is asked for once the pointer rests, and this many are kept. */
-  var FRAME_SETTLE_MS = 100;
+  /* While the pointer moves a frame preview is asked for this often, and this many are kept. */
+  var FRAME_EVERY_MS = 300;
   var FRAMES_KEPT = 60;
   var FRAME_BACKOFF_MS = 2000;
   var FRAME_BACKOFF_MAX_MS = 30000;
@@ -1154,6 +1154,8 @@
 
   var bubbleX = 0;
   var frameWanted = null;
+  var frameShown = null;
+  var frameAskedAt = -Infinity;
   var frameBusy = false;
   var frameBlocked = false;  // Plex or the server asked for a rest
   var frameBackoff = FRAME_BACKOFF_MS;
@@ -1166,7 +1168,10 @@
     if (!(d > 0)) return;
     var t = seekTimeAt(clientX);
     bubbleX = clientX;
-    if (els.bubble.hidden) els.frameImg.hidden = true;
+    if (els.bubble.hidden) {
+      els.frameImg.hidden = true;
+      frameShown = null;
+    }
     els.bubble.hidden = false;
     els.seekHover.hidden = dragging;
     var chapter = startedBy(chapters, t);
@@ -1188,7 +1193,6 @@
   }
 
   function hideBubble() {
-    clearTimeout(frameTimer);
     els.bubble.hidden = true;
     els.seekHover.hidden = true;
     scheduleIdle();
@@ -1198,34 +1202,41 @@
     els.frame.hidden = !previews;
     if (!previews) return;
     frameWanted = Math.min(previews.count - 1, Math.floor(t / previews.interval_s));
-    clearTimeout(frameTimer);
-    if (frames[frameWanted]) {
-      paintFrame();
-      return;
-    }
-    els.frame.classList.add('is-stale');
-    frameTimer = setTimeout(loadFrame, FRAME_SETTLE_MS);
+    paintFrame();
+    askFrame();
   }
 
+  /* The frame wanted, or the nearest there is. */
   function paintFrame() {
-    frameOrder.splice(frameOrder.indexOf(frameWanted), 1);
-    frameOrder.push(frameWanted);
-    els.frameImg.src = frames[frameWanted];
+    var near = frameOrder.slice().sort(function (a, b) {
+      return Math.abs(a - frameWanted) - Math.abs(b - frameWanted);
+    })[0];
+    els.frame.classList.toggle('is-stale', near !== frameWanted);
+    if (near === undefined) return;
+    frameOrder.splice(frameOrder.indexOf(near), 1);
+    frameOrder.push(near);
+    if (near === frameShown) return;
+    frameShown = near;
+    els.frameImg.src = frames[near];
     els.frameImg.hidden = false;
-    els.frame.classList.remove('is-stale');
   }
 
-  /* One request at a time; the frame wanted by the time it is done comes next. */
+  /* The first at once, then one now and again while the pointer moves, and where it rests. */
+  function askFrame() {
+    if (frameTimer !== null || frameBusy || frames[frameWanted]) return;
+    var wait = frameAskedAt + FRAME_EVERY_MS - Date.now();
+    if (wait <= 0) loadFrame();
+    else frameTimer = setTimeout(function () { frameTimer = null; loadFrame(); }, wait);
+  }
+
+  /* One request at a time, for the frame wanted by then. */
   function loadFrame() {
-    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId) return;
-    if (frames[frameWanted]) {
-      paintFrame();
-      return;
-    }
+    if (frameBusy || frameBlocked || els.bubble.hidden || !previews || !streamId || frames[frameWanted]) return;
     var n = frameWanted;
     var id = streamId;
     var mine = frames;
     frameBusy = true;
+    frameAskedAt = Date.now();
     fetch('/api/watch/stream/' + encodeURIComponent(id) + '/preview/' + n, { credentials: 'same-origin' })
       .then(function (resp) {
         if (resp.ok) return resp.blob().then(function (blob) { if (mine === frames) keepFrame(n, blob); });
@@ -1240,7 +1251,7 @@
       })
       .then(function () {
         frameBusy = false;
-        loadFrame();
+        askFrame();
       });
   }
 
@@ -1248,6 +1259,7 @@
     frames[n] = URL.createObjectURL(blob);
     frameOrder.push(n);
     frameBackoff = FRAME_BACKOFF_MS;
+    paintFrame();
     if (frameOrder.length > FRAMES_KEPT) {
       var old = frameOrder.shift();
       URL.revokeObjectURL(frames[old]);
@@ -1259,6 +1271,7 @@
     Object.keys(frames || {}).forEach(function (n) { URL.revokeObjectURL(frames[n]); });
     frames = {};
     frameOrder = [];
+    frameShown = null;
   }
 
   function noPreviews() {
