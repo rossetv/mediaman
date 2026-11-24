@@ -97,16 +97,31 @@
   function apiUrl(ref) { return '/api/watch/title/' + encodeURIComponent(ref); }
 
   /* Cards of the title under another ref (a pick, a result) are found by what
-     they print: its title, kind and year. */
+     they print: its title, kind and year, whichever title is open by now. */
   function fire(ref, state, pct) {
     if (typeof CustomEvent !== 'function') return;
-    var d = cur && cur.ref === ref && cur.data;
+    var k = stateOf(ref);
     document.dispatchEvent(new CustomEvent('mm:title-changed', {
       detail: {
         ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
-        title: d ? d.title : null, kind: d ? d.kind : null, year: d ? d.year : null
+        title: k.title, kind: k.kind, year: k.year
       }
     }));
+  }
+
+  function learn(ref, data) {
+    var k = stateOf(ref);
+    k.title = data.title;
+    k.kind = data.kind;
+    k.year = data.year;
+  }
+
+  function nowInLibrary(ref) {
+    var k = stateOf(ref);
+    k.state = 'in_library';
+    k.pct = null;
+    k.tracked = false;
+    fire(ref, 'in_library', null);
   }
 
   /* ── Address ── */
@@ -311,6 +326,8 @@
 
   /* A TMDB title found in the library opens as the library title. */
   function switchTo(c, data) {
+    learn(c.ref, data);
+    fire(c.ref, 'in_library', null);
     c.reason = c.reason || data.reason;
     if (hashRef() === c.ref) {
       var state = window.history.state && window.history.state.mmTitle ? { mmTitle: data.library_ref } : null;
@@ -325,7 +342,8 @@
     c.data = data;
     c.title = data.title || c.title;
     if (data.leaving && data.leaving.keep_id) c.keepId = String(data.leaving.keep_id);
-    takeDownload(c.ref, data.download);
+    learn(c.ref, data);
+    takeDownload(c.ref, data.download, true);
     renderContent(true);
     if (isAdmin && /^(movie|show)-/.test(c.ref)) loadFacts(c);
     if (pollable()) schedulePoll(0);
@@ -333,23 +351,44 @@
 
   /* What a title reply says of its download, into what this page knows. A
      null state counts only when the Arr answered, and not just after this
-     page's own Download, which the Arr may not list yet. Says whether it changed. */
-  function takeDownload(ref, dl) {
+     page's own Download, which the Arr may not list yet. *opened*: the title
+     was just opened, so its cards are brought into line even with no change.
+     Says whether the panel has changed. */
+  function takeDownload(ref, dl, opened) {
     if (!dl) return false;
     var k = stateOf(ref);
     var was = k.state + ':' + k.pct;
+    var wasTracked = k.tracked;
     var st = dl.state || null;
     if (st) {
       k.state = st;
       k.pct = st === 'downloading' && typeof dl.pct === 'number' ? Math.max(0, Math.min(100, Math.round(dl.pct)))
         : st === 'downloading' ? k.pct : null;
-    } else if (inFlight(k) && dl.answered === true && !inGrace(k)) {
-      k.state = null;
-      k.pct = null;
+      k.tracked = false;
+    } else if (dl.answered === true && !inGrace(k)) {
+      if (inFlight(k)) {
+        k.state = null;
+        k.pct = null;
+      }
+      k.tracked = false;
     }
-    if (k.state + ':' + k.pct === was) return false;
-    fire(ref, k.state, k.pct);
-    return true;
+    var moved = k.state + ':' + k.pct !== was;
+    if (moved || (opened && (k.state || dl.answered === true))) fire(ref, k.state, k.pct);
+    return moved || k.tracked !== wasTracked;
+  }
+
+  /* A later reply of a title asked for again, into the panel's facts and what
+     this page knows. Says whether the panel has changed. */
+  function takeReply(ref, data) {
+    if (data.in_library || data.library_ref) {
+      nowInLibrary(ref);
+      return true;
+    }
+    if (cur && cur.ref === ref && cur.data) {
+      data.reason = data.reason || cur.reason;
+      cur.data = data;
+    }
+    return takeDownload(ref, data.download);
   }
 
   /* Load the title again without the skeleton (after a Keep or a finished
@@ -692,7 +731,7 @@
   /* ── Download ── */
 
   function stateOf(ref) {
-    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false };
+    if (!known[ref]) known[ref] = { state: null, pct: null, sizeDone: '', sizeTotal: '', eta: '', busy: false, error: null, sentAt: 0, tracked: false, title: null, kind: null, year: null };
     return known[ref];
   }
 
@@ -988,19 +1027,9 @@
   function settleExisting(ref, k) {
     get(apiUrl(ref)).then(function (data) {
       k.busy = false;
-      if (data.in_library || data.library_ref) {
-        k.state = 'in_library';
-        k.pct = null;
-        fire(ref, 'in_library', null);
-      } else {
-        if (cur && cur.ref === ref) {
-          data.reason = data.reason || cur.reason;
-          cur.data = data;
-        }
-        takeDownload(ref, data.download);
-        // The Arr has it yet lists nothing: pressing Download again can only 409 again.
-        k.tracked = !k.state;
-      }
+      takeReply(ref, data);
+      // The Arr has it yet lists nothing: pressing Download again can only 409 again.
+      k.tracked = !k.state;
       redrawActions(ref);
       if (!cur || cur.ref !== ref || !isOpen) return;
       if (data.library_ref) refresh();
@@ -1012,6 +1041,7 @@
       k.busy = false;
       k.tracked = true;
       redrawActions(ref);
+      if (cur && cur.ref === ref) schedulePoll(POLL_SLOW_MS);
     });
   }
 
@@ -1038,7 +1068,8 @@
 
   function pollable() {
     if (!cur || !cur.data || !cur.data.download || !isOpen) return false;
-    return inFlight(stateOf(cur.ref));
+    var k = stateOf(cur.ref);
+    return inFlight(k) || k.tracked;
   }
 
   function stopPolling() {
@@ -1050,7 +1081,7 @@
     stopPolling();
     if (!pollable() || document.hidden) return;
     if (!cur.movedAt) cur.movedAt = Date.now();
-    pollTimer = setTimeout(poll, delay);
+    pollTimer = setTimeout(poll, inFlight(stateOf(cur.ref)) ? delay : POLL_SLOW_MS);
   }
 
   /* Every 5 s while the download moves, every 30 s once it has sat still
@@ -1066,11 +1097,19 @@
     if (k.state !== 'queued' || inGrace(k)) return;
     if (c.checkedAt && Date.now() - c.checkedAt < RECHECK_MS) return;
     c.checkedAt = Date.now();
+    askAgain(c).catch(function () {});
+  }
+
+  /* Ask the open title again and show what its reply says. */
+  function askAgain(c) {
     var ref = c.ref;
-    get(apiUrl(ref)).then(function (data) {
+    return get(apiUrl(ref)).then(function (data) {
       if (c !== cur || !isOpen || c.ref !== ref) return;
-      if (takeDownload(ref, data.download)) redrawActions(ref);
-    }).catch(function () {});
+      if (!takeReply(ref, data)) return;
+      c.movedAt = Date.now();
+      redrawActions(ref);
+      if (data.library_ref) refresh();
+    });
   }
 
   function poll() {
@@ -1078,6 +1117,14 @@
     if (!pollable()) return;
     var c = cur;
     var ref = c.ref;
+    if (!inFlight(stateOf(ref))) {
+      // Already in the Arr with no download to follow: the title may yet be
+      // queued there, or removed from it.
+      askAgain(c).then(function () {
+        if (c === cur && c.ref === ref) schedulePoll(POLL_MS);
+      }, function (err) { pollFailed(err, c, ref); });
+      return;
+    }
     var dl = c.data.download;
     var url = '/api/download/status?service=' + encodeURIComponent(dl.service) +
       '&tmdb_id=' + encodeURIComponent(dl.tmdb_id);
@@ -1113,10 +1160,12 @@
       if (c !== cur || c.ref !== ref) return;
       if (r.state === 'searching') recheck(c);
       schedulePoll(r.state === 'unknown' ? POLL_SLOW_MS : nextPoll());
-    }).catch(function (err) {
-      if (err && (err.status === 401 || err.status === 403)) return;
-      if (c === cur && c.ref === ref) schedulePoll(POLL_SLOW_MS);
-    });
+    }).catch(function (err) { pollFailed(err, c, ref); });
+  }
+
+  function pollFailed(err, c, ref) {
+    if (err && (err.status === 401 || err.status === 403)) return;
+    if (c === cur && c.ref === ref) schedulePoll(POLL_SLOW_MS);
   }
 
   document.addEventListener('visibilitychange', function () {

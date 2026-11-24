@@ -602,14 +602,14 @@ const scenarios = {
   // The Arr says the title is already there: no error, no Try again, busy until the title's own reply
   // answers, and that reply decides the panel and the cards.
   async downloadAlreadyThere() {
-    const run = async (again) => {
+    const run = async (again, later) => {
       let gets = 0;
       let answer;
       const p = load({
         routes: { '/api/watch/title/tmdb-movie-77': () => {
           gets += 1;
           if (gets === 1) return Promise.resolve(MOVIE_DL);
-          return gets === 2 ? new Promise((resolve, reject) => { answer = () => (again instanceof Error ? reject(again) : resolve(again)); }) : Promise.resolve(again);
+          return gets === 2 ? new Promise((resolve, reject) => { answer = () => (again instanceof Error ? reject(again) : resolve(again)); }) : Promise.resolve(later || again);
         }, '/api/watch/title/movie-120': LIB_MOVIE },
         posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in Radarr") },
       });
@@ -622,16 +622,105 @@ const scenarios = {
       const eventsAt409 = p.events.length;
       answer();
       await settle();
-      return { at409, eventsAt409, refetched: shown(), gets: p.gets.slice(), events: p.events, toasts: p.toasts.map((t) => t.message),
-        polls: p.timers.filter((t) => t.fn && t.ms === 5000).length };
+      const due = (ms) => p.timers.filter((t) => t.fn && t.ms === ms).length;
+      const out = { at409, eventsAt409, refetched: shown(), gets: p.gets.slice(), events: p.events.slice(), toasts: p.toasts.map((t) => t.message),
+        polls: due(5000), slowPolls: due(30000) };
+      if (!later) return out;
+      p.tick();
+      await settle();
+      return Object.assign(out, { later: primary(p).text, laterEvents: p.events.slice(out.events.length), pollsLater: [due(5000), due(30000)] });
     };
     const dl = (state, pct) => Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state, pct, answered: true }) });
     return {
       queued: await run(dl('queued', 0)),
       downloading: await run(dl('downloading', 40)),
-      none: await run(dl(null, null)),
-      failed: await run(new Error('offline')),
+      none: await run(dl(null, null), dl(null, null)),
+      noneYet: await run(dl(null, null), Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { answered: false }) })),
+      failed: await run(new Error('offline'), dl('queued', 0)),
       inLibrary: await run(Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' })),
+    };
+  },
+
+  // A refused download whose title could not be asked again, then reopened: already there until the
+  // Arr answers that it holds nothing, or says what it does with it.
+  async trackedReopened() {
+    const run = async (first, ref, over) => {
+      let offline = false;
+      let data = first;
+      const p = load({
+        routes: {
+          ['/api/watch/title/' + ref]: () => (offline ? Promise.reject(new Error('offline')) : Promise.resolve(data)),
+          '/api/watch/title/show-300': LIB_SHOW,
+        },
+        posted: { '/api/search/download': () => { offline = true; return Promise.reject(new APIError(409, 'conflict', 'already there')); } },
+      });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await settle();
+      const out = [primary(p).text];
+      p.ctx.MMWatch.detail.open('show-300', {});
+      await settle();
+      offline = false;
+      data = Object.assign({}, first, { download: Object.assign({}, first.download, over) });
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      return out.concat(primary(p).text);
+    };
+    const each = async (first, ref) => ({
+      gone: await run(first, ref, { state: null, answered: true }),
+      noAnswer: await run(first, ref, { state: null, answered: false }),
+      queued: await run(first, ref, { state: 'queued', pct: 0, answered: true }),
+    });
+    return { movie: await each(MOVIE_DL, 'tmdb-movie-77'), show: await each(TV_DL, 'tmdb-tv-90') };
+  },
+
+  // A pick accepted, or refused and asked again, while another title is open: the event names its own
+  // title, and reopening it tells its cards again.
+  async eventAfterAnotherOpened() {
+    const run = async (outcome) => {
+      let finish;
+      let data = REC_DL;
+      const p = load({
+        routes: { '/api/watch/title/rec-5': () => Promise.resolve(data), '/api/watch/title/show-300': LIB_SHOW },
+        posted: { '/api/recommended/5/download': () => new Promise((resolve, reject) => {
+          finish = () => (outcome === 'accepted' ? resolve({ ok: true }) : reject(new APIError(409, 'conflict', 'already there')));
+        }) },
+      });
+      p.run();
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      await settle();
+      p.ctx.MMWatch.detail.open('show-300', {});
+      await settle();
+      data = Object.assign({}, REC_DL, { download: Object.assign({}, REC_DL.download, { state: 'queued', pct: 0, answered: true }) });
+      finish();
+      await settle();
+      const away = p.events.slice();
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      return { away, reopened: p.events.slice(away.length) };
+    };
+    return { accepted: await run('accepted'), refused: await run('refused') };
+  },
+
+  // Opening a title tells its cards what its reply says, even where this page knew nothing: gone from
+  // the Arr, or in the library under another ref; an Arr that did not answer says nothing.
+  async openedTellsCards() {
+    const open = async (data) => {
+      const p = load({ routes: { '/api/watch/title/rec-5': data, '/api/watch/title/movie-120': LIB_MOVIE } });
+      p.run();
+      p.ctx.MMWatch.detail.open('rec-5', {});
+      await settle();
+      return p.events.map((e) => [e.ref, e.download_state, e.title]);
+    };
+    const dl = (answered) => Object.assign({}, REC_DL, { download: Object.assign({}, REC_DL.download, { answered }) });
+    return {
+      gone: await open(dl(true)),
+      noAnswer: await open(dl(false)),
+      inLibrary: await open(Object.assign({}, REC_DL, { in_library: true, library_ref: 'movie-120', download: null })),
     };
   },
 
@@ -655,13 +744,13 @@ const scenarios = {
       await Promise.resolve();
       const at409 = { primary: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]') };
       await settle();
-      const out = { at409, refetched: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]'), events: p.events, gets: p.gets.slice(),
+      const out = { at409, refetched: primary(p).text, retry: !!p.q('[data-ttl-act="retry"]'), events: p.events.slice(), gets: p.gets.slice(),
         polls: p.timers.filter((t) => t.fn && t.ms === 5000).length };
       p.ctx.MMWatch.detail.open('show-300', {});
       await settle();
       p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
       await settle();
-      return Object.assign(out, { reopened: primary(p).text });
+      return Object.assign(out, { reopened: primary(p).text, reopenedEvents: p.events.slice(out.events.length) });
     };
     const dl = (state, pct) => Object.assign({}, TV_DL, {
       sonarr_tracked: true, download: Object.assign({}, TV_DL.download, { state, pct, answered: true }),

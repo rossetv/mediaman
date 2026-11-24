@@ -229,7 +229,7 @@ def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again(
 
 def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_that_says() -> None:
     out = _run("downloadAlreadyThere")
-    for name in ("queued", "downloading", "none", "failed", "inLibrary"):
+    for name in ("queued", "downloading", "none", "noneYet", "failed", "inLibrary"):
         run = out[name]
         # Neither an error nor "In library" before the reply answers; nothing told the cards yet.
         assert run["at409"]["primary"]["text"] == "Adding…", name
@@ -251,6 +251,22 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     assert out["none"]["refetched"]["primary"]["disabled"] is False
     assert out["none"]["events"] == []
     assert out["failed"]["refetched"]["primary"]["text"] == "Already in Radarr"
+    assert out["failed"]["refetched"]["primary"]["disabled"] is False
+    assert out["failed"]["events"] == []
+    # It is asked again, slowly, for as long as it is already there.
+    for name in ("none", "noneYet", "failed"):
+        assert (out[name]["polls"], out[name]["slowPolls"]) == (0, 1), name
+    # Still none once Radarr answers later: it was removed, and can be downloaded.
+    assert (out["none"]["later"], out["none"]["pollsLater"]) == ("Download", [0, 0])
+    # No answer is no news.
+    assert out["noneYet"]["later"] == "Already in Radarr"
+    assert (out["noneYet"]["laterEvents"], out["noneYet"]["pollsLater"]) == ([], [0, 1])
+    # Queued later: the panel and the cards say it, and it is followed.
+    assert out["failed"]["later"] == "Queued"
+    assert out["failed"]["laterEvents"] == [
+        {**event, "download_state": "queued", "download_pct": None}
+    ]
+    assert out["failed"]["pollsLater"] == [1, 0]
     # In the library: it opens as the library title it now is.
     library = out["inLibrary"]
     assert library["events"] == [{**event, "download_state": "in_library", "download_pct": None}]
@@ -278,12 +294,46 @@ def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says
         assert (run["refetched"], run["reopened"]) == (text, text), name
         assert run["events"] == [{**event, "download_state": state, "download_pct": pct}], name
         assert run["polls"] == polls, name
+        assert run["reopenedEvents"] == run["events"], name
     # The title asked for again is in the library: it opens as the library show.
     assert out["inLibrary"]["at409"]["primary"] == "Already in Sonarr"
     assert out["inLibrary"]["refetched"] == "Resume S2 · E4"
     assert out["inLibrary"]["events"] == [
         {**event, "download_state": "in_library", "download_pct": None}
     ]
+
+
+def test_already_there_is_dropped_on_reopening_once_the_arr_answers() -> None:
+    out = _run("trackedReopened")
+    for kind, tracked, download in (
+        ("movie", "Already in Radarr", "Download"),
+        ("show", "Already in Sonarr", "Download 2 seasons"),
+    ):
+        assert out[kind]["gone"] == [tracked, download], kind
+        assert out[kind]["noAnswer"] == [tracked, tracked], kind
+        assert out[kind]["queued"] == [tracked, "Queued"], kind
+
+
+def test_a_state_learned_while_another_title_is_open_names_its_own_title() -> None:
+    out = _run("eventAfterAnotherOpened")
+    event = {
+        "ref": "rec-5",
+        "download_state": "queued",
+        "download_pct": None,
+        "title": "Meridian",
+        "kind": "movie",
+        "year": 2026,
+    }
+    assert out["accepted"] == {"away": [event], "reopened": [event]}
+    assert out["refused"] == {"away": [event], "reopened": [event]}
+
+
+def test_opening_a_title_brings_its_cards_into_line() -> None:
+    assert _run("openedTellsCards") == {
+        "gone": [["rec-5", None, "Meridian"]],
+        "noAnswer": [],
+        "inLibrary": [["rec-5", "in_library", "Meridian"]],
+    }
 
 
 def test_a_pick_downloads_through_its_own_route_and_promises_the_email() -> None:
