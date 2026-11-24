@@ -772,6 +772,10 @@ def test_the_bar_of_close_is_marked_once_the_titles_text_reaches_it() -> None:
     assert _run("scrolledPastHead") == [False, False, True, True, False]
 
 
+def test_the_bar_of_close_is_marked_anew_when_the_window_turns() -> None:
+    assert _run("turnedPastHead") == [True, False, True]
+
+
 def test_a_link_to_a_shows_episodes_opens_it_at_them_unless_the_person_has_moved_on() -> None:
     out = _run("openAtEpisodes")
     assert out["show"] == {"to": 876, "focus": "Episodes", "hash": "#title=show-300"}

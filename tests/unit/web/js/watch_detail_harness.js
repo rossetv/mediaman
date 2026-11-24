@@ -284,9 +284,10 @@ function load(opts = {}) {
     (doc.listeners.keydown || []).forEach((fn) => fn(e));
     return e;
   };
+  const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate };
+  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -1968,6 +1969,22 @@ const scenarios = {
       root.scrollTop = at;
       (root.listeners.scroll || []).forEach((fn) => fn({ target: root }));
       return root.classList.contains('is-past');
+    });
+  },
+
+  // The window turned while the sheet stands scrolled: where the title's text is moves with it.
+  async turnedPastHead() {
+    const p = load({ routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    p.run();
+    await openCard(p, 'show-300');
+    let top = 100;
+    p.q('.ttl__bar').getBoundingClientRect = () => ({ top: 0, bottom: 56 });
+    p.q('.ttl__head').getBoundingClientRect = () => ({ top: top - p.ttl().scrollTop, bottom: 0 });
+    p.ttl().scrollTop = 60;
+    return [100, 400, 100].map((at) => {
+      top = at;
+      p.fireWindow('resize');
+      return p.ttl().classList.contains('is-past');
     });
   },
 

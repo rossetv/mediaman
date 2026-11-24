@@ -2272,10 +2272,13 @@
   });
 
   /* Where Close stays on screen, what scrolls under it is out of sight and of reach. */
-  root.addEventListener('scroll', function () {
+  function markPast() {
+    if (!isOpen) return;
     root.classList.toggle('is-past', root.scrollTop > 0 &&
       head.getBoundingClientRect().top <= bar.getBoundingClientRect().bottom);
-  }, { passive: true });
+  }
+  root.addEventListener('scroll', markPast, { passive: true });
+  window.addEventListener('resize', markPast);
 
   /* ── Clicks ── */
 
