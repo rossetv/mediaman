@@ -870,6 +870,18 @@ def test_an_original_that_could_not_play_is_tried_anew_for_the_next_episode(mark
     assert out["starts"] == ["original", "1080p-10000", "original"]
 
 
+@pytest.mark.parametrize(
+    ("then", "at", "paused"), [("plays", 120, False), ("paused", 120, True), ("seeks", 130, False)]
+)
+def test_a_picture_that_fails_and_is_mended_goes_on_from_its_place(markup, then, at, paused):
+    out = run(markup, "media_error", plays=then)
+    assert (out["at"], out["paused"], out["starts"]) == (at, paused, 1)
+    # 0:00 is never saved over the place.
+    assert set(out["saved"]) <= {120}
+    assert out["left"] == [None if paused else at]
+    assert (out["held"], out["heldAfter"]) == (True, False)
+
+
 def test_the_next_link_leaves_an_error_behind(markup):
     assert run(markup, "next_after_error") == {"error": True, "after": False}
 

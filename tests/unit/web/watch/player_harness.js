@@ -350,7 +350,15 @@ function boot(html, reduced, saved, serverPlays) {
     loadSource(src) { this.src = src; }
     attachMedia(v) { this.media = v; }
     startLoad(t) { if (this.startsAt !== null) this.startsAt = t; }
-    recoverMediaError() {}
+    /* Like hls.js: the media is let go of and taken again, empty and paused, with nothing
+       said of its place. */
+    recoverMediaError() {
+      const v = this.media;
+      v.readyState = 0; v.videoWidth = 0; v.videoHeight = 0; v.currentTime = 0;
+      if (!v.paused) { v.paused = true; fire(v, 'pause'); }
+      fire(v, 'emptied');
+      fire(v, 'timeupdate');
+    }
     /* Like hls.js: detaching the media leaves an empty, paused video. */
     destroy() {
       this.destroyed = true;
@@ -1629,6 +1637,33 @@ const scenarios = {
       focus: doc.activeElement === trigger ? 'keep' : doc.activeElement === p.q('[data-play]') ? 'play' : 'nothing',
       undone: p.calls.filter((c) => /\/unkeep$/.test(c.url)).map((c) => c.body.media_item_id),
     };
+  },
+
+  /* The browser cannot go on with the picture, and hls.js gets over it; by `serverPlays` the person
+     had paused, or moves on meanwhile. */
+  async media_error(p) {
+    const v = p.video;
+    await streamPlays(p, 100);
+    playOn(p, 20);
+    if (p.win.serverPlays === 'paused') v.pause();
+    await settle();
+    const from = p.calls.length;
+    p.hlsList[0].emit('hlsError', { fatal: true, type: 'mediaError' });
+    const out = { held: holdState(p).shown };
+    p.tick(20000);
+    if (p.win.serverPlays === 'seeks') key('ArrowRight');
+    out.saved = p.calls.slice(from).filter((c) => /\/progress$/.test(c.url)).map((c) => c.body.position_s);
+    v.readyState = 1;
+    fire(v, 'loadedmetadata');
+    out.at = v.currentTime;
+    out.paused = v.paused;
+    v.readyState = 4; v.videoWidth = 1280; v.videoHeight = 720;
+    fire(v, v.paused ? 'canplay' : 'playing');
+    out.heldAfter = holdState(p).shown;
+    out.starts = p.starts().length;
+    p.leave();
+    out.left = p.beacons.map((b) => b.body && b.body.position_s);
+    return out;
   },
 
   /* A page that cannot take over here is opened instead. */

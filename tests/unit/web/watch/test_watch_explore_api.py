@@ -12,7 +12,7 @@ from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _explore, _library, _title_meta
+from mediaman.services.watch_catalog import _arr, _explore, _gate, _library, _title_meta
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import catalog_api, explore_api
@@ -410,3 +410,32 @@ class TestInLibrary:
 
     def test_anywhere_else_is_refused(self, viewer, tmdb):
         assert viewer.get(EXPLORE, params={"genre": "horror", "where": "x"}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        EXPLORE + "?genre=horror",
+        PERSON,
+        "/api/watch/search/tmdb?q=glass",
+        "/api/watch/discover?row=trending&page=2",
+        "/api/watch/title/tmdb-movie-12",
+    ],
+)
+class TestTmdbWait:
+    def test_it_is_short_and_not_repeated(
+        self, viewer, conn, monkeypatch, fake_http, fake_response, path
+    ):
+        insert_settings(conn, tmdb_read_token="token")
+        monkeypatch.setattr("time.sleep", lambda s: pytest.fail("waited to try again"))
+        fake_http.default(fake_response(status=503))
+
+        assert viewer.get(path).status_code == 502
+
+        [(_, _, sent)] = fake_http.calls
+        assert sum(sent["timeout"]) <= 6
+
+    def test_too_many_waiting_are_told_to_try_again(self, viewer, tmdb, monkeypatch, path):
+        monkeypatch.setattr(_gate.gate, "_free", 0)
+
+        assert viewer.get(path).status_code == 429

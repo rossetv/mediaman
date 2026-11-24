@@ -665,6 +665,26 @@
     h.attachMedia(video);
   }
 
+  /* hls.js empties the video and fills it again, but says nothing of its place or of play. */
+  function recoverMedia() {
+    var h = hls;
+    pendingStart = position();
+    lastTime = null;
+    swapping = true;
+    stopRolling();
+    holdFrame();
+    setLoading(true);
+    video.addEventListener('loadedmetadata', function goOn() {
+      video.removeEventListener('loadedmetadata', goOn);
+      if (h !== hls) return;
+      swapping = false;
+      video.currentTime = pendingStart;
+      if (wantPlaying) play();
+      else setLoading(false);
+    });
+    h.recoverMediaError();
+  }
+
   /* Drop the current stream and start a new one where playback stands.
      `force` is for a quality change, which may replace a stream that is
      still starting. */
@@ -722,7 +742,7 @@
     if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !mediaRecoverUsed) {
       mediaRecoverUsed = true;
       noteTrouble();
-      hls.recoverMediaError();
+      recoverMedia();
       return;
     }
     if (!fatalRestartUsed) {
