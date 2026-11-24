@@ -586,8 +586,8 @@ class TestLibraryRowOrder:
 
     def test_shows_come_by_their_latest_season_as_in_the_list_view(self, get, conn, admin):
         for season, show, title, number, days in (
-            ("801", "800", "Aardvark", 1, 300),
-            ("802", "800", "Aardvark", 2, 5),
+            ("801", "800", "Zebra Street", 1, 300),
+            ("802", "800", "Zebra Street", 2, 5),
             ("811", "810", "Badger", 1, 50),
         ):
             insert_media_item(
@@ -605,7 +605,7 @@ class TestLibraryRowOrder:
         rows = _rows(get("/watch").json())
         listed = get("/watch?view=list", user=admin).json()["items"]
 
-        assert _titles(rows["TV"]) == ["Aardvark", "Badger", "The Long Coast"]
+        assert _titles(rows["TV"]) == ["Zebra Street", "Badger", "The Long Coast"]
         tv = [i["title"] for i in listed if i["media_type"] == "tv" and i["title"] != "Hidden Show"]
         assert tv == _titles(rows["TV"])
 
@@ -776,6 +776,18 @@ class TestShowPage:
             ("522", False, "none"),
         ]
         assert (ctx["show"]["watched"], ctx["show"]["mark_key"]) == (False, "500")
+
+    def test_a_replay_of_a_seen_episode_keeps_its_mark(self, get, conn):
+        for key, replayed in (("511", 10), ("512", 900)):
+            _play(conn, "aoife", key, position=3000, duration=3000, item="501", show="500")
+            _play(conn, "aoife", key, position=replayed, duration=3000, item="501", show="500")
+
+        episodes = get("/watch/show/500?season=1").json()["episodes"]
+
+        assert [(e["state"], e["watched"]) for e in episodes] == [
+            ("watched", True),
+            ("in_progress", True),
+        ]
 
     def test_a_new_episode_unmarks_its_season_before_any_scan(self, get, conn, plex):
         _mark(conn, "521", "522", season="502")
