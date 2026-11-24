@@ -53,6 +53,8 @@ ACTION_TYPES = [
 # Filters kept working for old links but no longer shown as pills: the "kept"
 # and "unkept" pills already cover them.
 _PILL_HIDDEN = {ACTION_SNOOZED, "removed_show_keep"}
+# The pill that lights for such an old link.
+_PILL_COVERING = {ACTION_SNOOZED: "kept", "removed_show_keep": "unkept"}
 
 ACTION_BADGE_CLASS = {
     "scanned": "badge-action-scanned",
@@ -284,6 +286,10 @@ def history_page(request: Request) -> Response:
                 if at not in _PILL_HIDDEN
             ],
             "action_filter": action_filter or "",
+            "pill_on": _PILL_COVERING.get(action_filter or "", action_filter or ""),
+            "filter_label": ACTION_LABELS.get(
+                action_filter or "", (action_filter or "").replace("_", " ")
+            ),
             "page": page,
             "per_page": per_page,
             "total": total,

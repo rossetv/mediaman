@@ -15,10 +15,10 @@
   <div class="pill-row u-mb-24">
     {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
     {% for at, at_label in action_types %}
-    {{ c.fpill(at_label, on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
+    {{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}
     {% endfor %}
     {% if total > 0 %}
-    <span class="sub u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>
+    <span class="hist-count u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>
     {% endif %}
   </div>
 
@@ -49,35 +49,35 @@
   </div>
 
   {% if total_pages > 1 %}
-  <div class="pagination">
+  <nav class="pagination" aria-label="History pages">
     {% if page > 1 %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}" class="page-btn">‹</a>
+    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}" class="page-btn" rel="prev" aria-label="Previous page">‹</a>
     {% else %}
-    <span class="page-btn disabled">‹</span>
+    <span class="page-btn disabled" aria-label="Previous page" aria-disabled="true">‹</span>
     {% endif %}
 
     {% for p in range(1, total_pages + 1) %}
       {% if p == page %}
-      <span class="page-btn active">{{ p }}</span>
+      <span class="page-btn active" aria-current="page" aria-label="Page {{ p }}">{{ p }}</span>
       {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn">{{ p }}</a>
+      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn" aria-label="Page {{ p }}">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
-      <span class="page-btn page-btn--ellipsis">…</span>
+      <span class="page-btn page-btn--ellipsis" aria-hidden="true">…</span>
       {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn">›</a>
+    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn" rel="next" aria-label="Next page">›</a>
     {% else %}
-    <span class="page-btn disabled">›</span>
+    <span class="page-btn disabled" aria-label="Next page" aria-disabled="true">›</span>
     {% endif %}
 
     <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
-  </div>
+  </nav>
   {% endif %}
 
   {% else %}
-  {% set _hist_sub %}{% if action_filter %}No "{{ action_filter | replace('_', ' ') }}" events on record.{% else %}The audit log is empty — actions will appear here as Mediaman runs.{% endif %}{% endset %}
+  {% set _hist_sub %}{% if action_filter %}No "{{ filter_label }}" events on record.{% else %}The audit log is empty — actions will appear here as Mediaman runs.{% endif %}{% endset %}
   {{ c.empty("No events yet", sub=_hist_sub) }}
   {% endif %}
 

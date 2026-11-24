@@ -3,6 +3,9 @@
 
 /* Opaque, so a row moving over an opening one covers its details until it has passed. */
 .hist { border-bottom: 1px solid var(--hair); background: var(--s1); }
+/* The card's own border closes the list. */
+.hist:last-child { border-bottom: 0; }
+.hist-count { font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
 .hist-sum {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr) auto 20px;
