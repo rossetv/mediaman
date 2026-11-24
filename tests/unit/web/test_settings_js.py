@@ -268,6 +268,17 @@ def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> No
     assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
 
 
+def test_a_save_sends_only_the_settings_that_were_changed() -> None:
+    out = _run("changedOnly")
+    # text the browser kept from before the page was left is an unsaved edit
+    assert out["leftTyped"] is True
+    # and a switch is saved as it is drawn
+    assert out["hidden"] == "false"
+    assert out["restored"] == {"scan_time": "10:00"}
+    assert out["one"] == {"grace_days": 20}
+    assert out["two"] == {"base_url": "http://b", "openai_model": "other"}
+
+
 def test_an_edit_that_is_put_back_leaves_nothing_unsaved() -> None:
     out = _run("putBack")
     assert out["start"] is False

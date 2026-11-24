@@ -102,9 +102,20 @@
     return !!saved && el.id in saved.values && saved.values[el.id] !== valueOf(el);
   }
 
-  function snapshot() {
+  // What the server sent for a control, which a browser going back to the page may have put typed text over.
+  function servedValue(el) {
+    if (el.type === 'checkbox' || el.type === 'radio') return el.defaultChecked;
+    if (el.tagName === 'SELECT') {
+      var chosen = el.querySelector('option[selected]') || el.querySelector('option');
+      return chosen ? chosen.value : '';
+    }
+    // A served value its field cannot hold, such as a time written 9:00, shows as empty.
+    return el.value === '' ? '' : el.defaultValue;
+  }
+
+  function snapshot(read) {
     var values = {};
-    settingsControls().forEach(function (el) { values[el.id] = valueOf(el); });
+    settingsControls().forEach(function (el) { values[el.id] = (read || valueOf)(el); });
     var disk = MM.settings.diskThresholds ? MM.settings.diskThresholds.state() : null;
     return { values: values, disk: disk };
   }
@@ -268,8 +279,11 @@
       // Discard would put back values the server no longer holds.
       if (discardBtn) discardBtn.disabled = true;
       clearSaveError();
+      // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
       var sent = snapshot();
-      var payload = getPayload(sent, saved);
+      var all = getPayload(sent, saved);
+      var payload = {};
+      changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
 
@@ -349,7 +363,9 @@
       runSave(e.detail === 0);
     });
 
-    saved = snapshot();
+    saved = snapshot(servedValue);
+    // Chrome puts back what was typed only once the page has loaded.
+    window.addEventListener('pageshow', function () { onEdit(); });
 
     if (discardBtn) discardBtn.addEventListener('click', function (e) {
       var fromKeyboard = e.detail === 0;

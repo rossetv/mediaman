@@ -136,6 +136,7 @@ function build() {
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
     clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
+    addEventListener: (t, fn) => { (docListeners['window:' + t] = docListeners['window:' + t] || []).push(fn); },
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -143,6 +144,9 @@ function build() {
   const add = (tag, props, parent) => {
     const e = new El(tag, doc);
     Object.assign(e, props || {});
+    // what the page was served with, unless the test says the browser put something else over it
+    if (props && !('defaultValue' in props) && 'value' in props) e.defaultValue = props.value;
+    if (props && !('defaultChecked' in props)) e.defaultChecked = e.checked;
     if (props && props.id) e.setAttribute('id', props.id);
     (parent || body).appendChild(e);
     return e;
@@ -344,6 +348,45 @@ const scenarios = {
     out.saved = save.textContent;
     h.drain();
     out.after = on();
+    return out;
+  },
+
+  // A save sends the settings that were changed and no others.
+  async changedOnly() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const input = (id, value, more) => h.add('input', Object.assign({ id, value, type: 'text' }, more), page);
+    const url = input('base_url', 'http://a');
+    input('plex_token', '****');
+    const days = input('grace_days', '14');
+    const model = h.add('select', { id: 'openai_model', value: 'default' }, page);
+    h.add('option', { value: 'default' }, model);
+    h.add('option', { value: 'other' }, model);
+    // a browser going back to the page puts back what was typed there, Chrome after the scripts have run
+    const time = input('scan_time', '09:00');
+    const toggle = h.add('span', { className: 'tog' }, page);
+    toggle.setAttribute('data-toggle', ''); toggle.setAttribute('data-target', 'auto_abandon_enabled');
+    const hidden = input('auto_abandon_enabled', 'true', { type: 'hidden' });
+    const sent = [];
+    h.ctx.MM.api = { put: (u, b) => { sent.push(JSON.parse(JSON.stringify(b))); return Promise.resolve({ status: 'saved' }); }, messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    ['savebar', 'general', 'toggles'].forEach((f) => h.load('settings/' + f + '.js'));
+    h.ctx.innerHeight = 800; h.ctx.scrollY = 0;
+    h.ctx.MM.settings.toggles.init();
+    hidden.defaultValue = hidden.value;
+    h.ctx.MM.settings.savebar.init({ getPayload: h.ctx.MM.settings.general.collectSettings });
+    time.value = '10:00';
+    (h.docListeners['window:pageshow'] || []).forEach((f) => f());
+    const out = { leftTyped: bar.classList.contains('on'), hidden: hidden.value };
+    const press = async () => { save.fire('click'); await h.flush(); h.drain(); return sent[sent.length - 1]; };
+    out.restored = await press();
+    const edit = (el, v) => { el.value = v; el.fire('input'); };
+    edit(days, '20');
+    out.one = await press();
+    edit(url, 'http://b'); edit(model, 'other');
+    out.two = await press();
     return out;
   },
 
