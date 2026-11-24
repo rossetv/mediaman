@@ -78,23 +78,7 @@
 .watch-bar:not([value="0"])::-moz-progress-bar { min-width: 6px; }
 
 /* Search box, top of the content. */
-.watch-top { padding: 20px var(--pad) 4px; }
-.watch-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 460px;
-  min-height: 44px;
-  padding: 0 16px;
-  background: var(--s3);
-  border-radius: var(--r-pill);
-  color: var(--t3);
-}
-.watch-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .watch-search__input {
-  flex: 1;
-  min-width: 0;
-  height: 44px;
   background: none;
   border: 0;
   outline: none;
@@ -104,34 +88,19 @@
   -webkit-appearance: none;
   appearance: none;
 }
-.watch-search__input::placeholder { color: var(--t3); }
 .watch-search__input::-webkit-search-cancel-button { -webkit-appearance: none; }
-/* While a search runs a spinner stands in for the magnifier, in a box of
-   the same width so the text does not move. */
-.watch-search__icon { flex: none; width: 22px; text-align: center; }
-.watch-search__spinner { flex: none; margin-inline: 3px; }
-.watch-search.is-pending .watch-search__icon { display: none; }
-.watch-search.is-pending .watch-search__spinner { display: block; }
-/* 44px to tap; the negative margin lines the cross up with the box's padding. */
 .watch-search__clear {
-  flex: none;
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
-  margin-right: -14px;
   border-radius: 50%;
-  color: var(--t3);
-  font-size: 15px;
-  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.watch-search__clear:hover { color: var(--t1); }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 
 /* Top bar: the search field, and for admins the Browse / List switch at the
    far right; below 600px the switch is two 44px icon buttons. */
 .watch-top { display: flex; align-items: center; gap: 12px; }
-.watch-top > .watch-search { flex: 1 1 0; min-width: 0; }
 .watch-viewtoggle {
   flex: none;
   margin-left: auto;
@@ -713,16 +682,6 @@
 .watch-results { padding: 24px var(--pad) 0; }
 .watch-results__msg { color: var(--t2); margin-bottom: 16px; }
 .watch-results__msg:empty { display: none; }
-/* Nothing found: a small centred block, not a bare sentence. */
-.watch-results__msg--empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 48px 0 24px;
-  text-align: center;
-}
-.watch-results__icon { font-size: 28px; color: var(--t3); margin-bottom: 8px; }
 .watch-results__line { font-size: 16px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
 .watch-results__hint { font-size: 14px; color: var(--t3); }
 .watch-results__msg--error {
@@ -872,8 +831,6 @@
 
 /* Phone */
 @media (max-width: 599.98px) {
-  .watch-top { padding-top: 12px; }
-  .watch-search { max-width: none; }
   .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
   /* Above the title, in the room the padding keeps for it. */
   .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; max-height: 132px; transform: none; border-radius: var(--r-sm); }
@@ -993,7 +950,6 @@
 .watch-pill:active { transform: scale(.97); background: color-mix(in srgb, var(--t1) 30%, transparent); }
 .watch-pill.on:active { background: color-mix(in srgb, var(--t1) 82%, transparent); }
 .watch-ep:active { background: var(--s2); transform: scale(.985); }
-.watch-search__clear:active { color: var(--t1); transform: scale(.9); }
 .watch-keep:active { transform: scale(.97); }
 .watch-keep:active::before { background: color-mix(in srgb, var(--success) 30%, transparent); }
 .watch-keep-menu__item:active { background: var(--s4); color: var(--t1); }
@@ -1006,7 +962,6 @@
   .watch-card__link:active .watch-card__poster,
   .watch-pill:active,
   .watch-ep:active,
-  .watch-search__clear:active,
   .watch-keep:active,
   .watch-more::before,
   .watch-mark:active::before,
