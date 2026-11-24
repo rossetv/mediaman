@@ -666,16 +666,39 @@ class TestGoneLibrary:
     def _ids(conn):
         return {r[0] for r in conn.execute("SELECT id FROM media_items")}
 
-    def test_its_items_go_and_no_longer_hold_a_deletion_back(self, conn, mock_plex):
-        summary = self._engine(conn, mock_plex, ["2"]).run_scan()
+    def test_its_items_go_and_hold_no_deletion_back_once_a_second_run_finds_it_gone_too(
+        self, conn, mock_plex
+    ):
+        first = self._engine(conn, mock_plex, ["2"]).run_scan()
 
-        assert (summary["removed"], summary["deleted"]) == (1, 1)
+        assert (first["removed"], first["deleted"]) == (0, 0)
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
+
+        second = self._engine(conn, mock_plex, ["2"]).run_scan()
+
+        assert (second["removed"], second["deleted"]) == (1, 1)
         assert not self.film.exists()
 
-    def test_its_items_go_with_a_sync_too(self, conn, mock_plex):
+    def test_its_items_go_with_a_second_sync_too(self, conn, mock_plex):
+        assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 0
         assert self._engine(conn, mock_plex, ["2"]).sync_library()["removed"] == 1
 
         assert self._ids(conn) == {"20"}
+
+    def test_one_listed_again_in_between_starts_over(self, conn, mock_plex):
+        for listed in (["2"], ["1", "2"], ["2"]):
+            self._engine(conn, mock_plex, listed).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
+
+    def test_an_empty_list_in_between_is_not_a_run_that_finds_it_gone(self, conn, mock_plex):
+        self._engine(conn, mock_plex, ["2"]).run_scan()
+        self._engine(conn, mock_plex, []).run_scan()
+
+        assert self._ids(conn) == {"10", "20"}
+        assert self.film.exists()
 
     def test_a_keep_of_its_item_still_keeps_the_file(self, conn, mock_plex):
         insert_scheduled_action(
@@ -688,13 +711,15 @@ class TestGoneLibrary:
         )
         conn.commit()
 
-        self._engine(conn, mock_plex, ["2"]).run_scan()
+        for _ in range(2):
+            self._engine(conn, mock_plex, ["2"]).run_scan()
 
         assert self._ids(conn) == {"20"}
         assert self.film.exists()
 
     def test_a_library_plex_still_lists_keeps_its_hold_though_unticked(self, conn, mock_plex):
-        self._engine(conn, mock_plex, ["1", "2"]).run_scan()
+        for _ in range(2):
+            self._engine(conn, mock_plex, ["1", "2"]).run_scan()
 
         assert self._ids(conn) == {"10", "20"}
         assert self.film.exists()
@@ -709,7 +734,8 @@ class TestGoneLibrary:
         assert self.film.exists()
 
     def test_a_dry_run_prunes_nothing(self, conn, mock_plex):
-        self._engine(conn, mock_plex, ["2"], dry_run=True).run_scan()
+        for _ in range(2):
+            self._engine(conn, mock_plex, ["2"], dry_run=True).run_scan()
 
         assert self._ids(conn) == {"10", "20"}
 

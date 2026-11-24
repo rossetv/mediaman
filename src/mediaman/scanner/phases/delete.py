@@ -138,6 +138,7 @@ def remove_orphans(
     scanned_libs: set[int],
     *,
     listed_since: str | None = None,
+    confirmed: bool = False,
 ) -> int:
     """Remove ``media_items`` whose ``plex_rating_key`` is gone from Plex.
 
@@ -168,6 +169,8 @@ def remove_orphans(
         seen_keys: Set of ``plex_rating_key`` values observed in the scan.
         scanned_libs: Integer library IDs that were successfully fetched.
         listed_since: When the run began, before it listed anything.
+        confirmed: Whether an earlier run already found the same, so that no
+            drop is suspicious.
 
     Returns:
         Number of rows deleted.
@@ -178,7 +181,7 @@ def remove_orphans(
     previous_count = repository.count_items_in_libraries(conn, list(scanned_libs))
     current_count = len(seen_keys)
 
-    reason = _suspicious_reason(current_count, previous_count)
+    reason = None if confirmed else _suspicious_reason(current_count, previous_count)
     prune_libs = _resolve_prune_libs(conn, scanned_libs, reason, current_count, previous_count)
     if not prune_libs:
         return 0

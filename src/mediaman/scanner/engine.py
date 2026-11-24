@@ -29,6 +29,7 @@ module orchestrates all three.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Callable, Iterable
@@ -91,6 +92,9 @@ _FETCH_ERRORS = (
 )
 
 __all__ = ["ScanEngine"]
+
+# Settings key holding the ids of the libraries with items that the last run found gone from Plex.
+_GONE_LIBRARIES_KEY = "gone_libraries"
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
@@ -597,27 +601,41 @@ class ScanEngine:
         return _ensure_tz(candidate)
 
     def _remove_items_of_gone_libraries(self) -> int:
-        """Remove the items of each library Plex no longer lists.
+        """Remove the items of each library Plex listed neither in this run nor in the one before.
 
         No scan of a listed library would, and until then they hold back the
-        deletion of what is at their paths. An empty list of libraries says
-        nothing, and one Plex failed to give ends the run before it starts. A
-        library that is only unticked in Settings keeps its items.
+        deletion of what is at their paths. One run is not enough, however few
+        the items: an answer may lack a library that is there. An empty list of
+        libraries says nothing, and one Plex failed to give ends the run before
+        it starts. A library that is only unticked in Settings keeps its items.
         """
         if not self._library_types:
             return 0
+        gone = fetch_gone_library_ids(self._conn, self._library_types)
+        stored = repository.read_setting(self._conn, _GONE_LIBRARIES_KEY)
+        before = json.loads(stored) if stored else []
+        if gone != before:
+            logger.warning("engine.gone_libraries now=%s before=%s", gone, before)
+            self._conn.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                (_GONE_LIBRARIES_KEY, json.dumps(gone), now_iso()),
+            )
         removed = 0
-        for lib_id in fetch_gone_library_ids(self._conn, self._library_types):
+        for lib_id in set(gone).intersection(before):
             listed = self._listed_keys.intersection(
                 repository.fetch_ids_in_libraries(self._conn, [lib_id])
             )
-            removed += self._remove_orphaned_items(listed, {lib_id})
+            removed += self._remove_orphaned_items(listed, {lib_id}, confirmed=True)
         return removed
 
     def _remove_orphaned_items(
         self,
         seen_keys: set[str],
         scanned_libs: set[int],
+        *,
+        confirmed: bool = False,
     ) -> int:
         """Remove ``media_items`` whose ``plex_rating_key`` is gone from Plex.
 
@@ -625,4 +643,10 @@ class ScanEngine:
         fail-closed safeguard logic. Only considers items belonging
         to libraries that were successfully scanned.
         """
-        return remove_orphans(self._conn, seen_keys, scanned_libs, listed_since=self._started_at)
+        return remove_orphans(
+            self._conn,
+            seen_keys,
+            scanned_libs,
+            listed_since=self._started_at,
+            confirmed=confirmed,
+        )

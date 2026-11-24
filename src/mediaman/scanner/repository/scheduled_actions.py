@@ -573,9 +573,9 @@ def fetch_gone_library_ids(conn: sqlite3.Connection, listed: Collection[str]) ->
     Those items are what fetch_media_held_outside_pass would hold a path back for.
     """
     rows = conn.execute("SELECT DISTINCT plex_library_id AS id FROM media_items").fetchall()
-    return [
+    return sorted(
         row["id"] for row in rows if isinstance(row["id"], int) and str(row["id"]) not in listed
-    ]
+    )
 
 
 def claim_due_deletions_under(
