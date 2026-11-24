@@ -230,6 +230,7 @@
 .profile-who-text { min-width: 0; }
 .profile-who-name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .profile-who-role { font-size: 12px; color: var(--t3); }
+.profile-close { display: none; }
 #profile-menu-items { border-top: 1px solid var(--hair); padding-top: 6px; }
 .profile-sep { height: 1px; background: var(--hair); margin: 6px 0; }
 
@@ -292,6 +293,19 @@
     background: var(--hair-strong);
     margin: 4px auto 8px;
   }
+  .profile-close {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    margin: 0 -8px 0 auto;
+    border-radius: 50%;
+    font-size: 16px;
+    color: var(--t2);
+  }
+  .profile-close:active { background: var(--s3); color: var(--t1); }
+  .profile-close:focus-visible { border-radius: 50%; outline-offset: -2px; }
   .profile-item { min-height: 50px; font-size: 16px; gap: 14px; }
   .profile-item > .ico { font-size: 17px; }
   .profile-who-name { font-size: 16px; }

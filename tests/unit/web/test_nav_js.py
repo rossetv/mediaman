@@ -84,6 +84,15 @@ def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes()
     }
 
 
+def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
+    assert _run("closeButton") == {
+        "open": False,
+        "inert": ["already-inert"],
+        "scrolls": True,
+        "focused": "phone",
+    }
+
+
 def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_avatar() -> None:
     assert _run("resize") == {
         "open": False,

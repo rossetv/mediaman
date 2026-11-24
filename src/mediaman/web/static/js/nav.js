@@ -1,8 +1,8 @@
 /* Profile menu: one menu for both profile buttons. A press on either, or an arrow
  * key on it, opens the menu; arrows, Home and End move in it; Escape, Tab, a press
- * outside and focus moving away close it. Below 700 px it is a bottom sheet: the
- * rest of the page is inert and does not scroll under it. The fade is CSS; the
- * open state changes at once. */
+ * outside, focus moving away and the sheet's Close button close it. Below 700 px it
+ * is a bottom sheet: the rest of the page is inert and does not scroll under it. The
+ * fade is CSS; the open state changes at once. */
 (function () {
   'use strict';
 
@@ -69,7 +69,7 @@
     }
     if (!isOpen()) return;
     // The sheet's backdrop is the menu's own box around the panel.
-    if (e.target === menu) close(true);
+    if (e.target === menu || (e.target.closest && e.target.closest('.profile-close'))) close(true);
     else if (e.target.closest && e.target.closest('a[role="menuitem"]')) close(false);
   });
 

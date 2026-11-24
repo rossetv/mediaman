@@ -89,6 +89,8 @@
         <div class="profile-who-name">{{ who }}</div>
         <div class="profile-who-role">{{ "Viewer" if is_viewer else "Admin" }}</div>
       </div>
+      {# Phones only: the rest of the page is inert under the sheet, so touch has no other way out by screen reader. #}
+      <button type="button" class="profile-close" aria-label="Close profile menu">{{ icon("i-xmark") }}</button>
     </div>
     <div id="profile-menu-items" role="menu" aria-label="Profile menu">
       <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>

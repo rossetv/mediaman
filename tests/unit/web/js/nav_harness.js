@@ -15,7 +15,7 @@ function page(isPhone) {
   doc.body.appendChild(build(doc, ['header', { id: 'top' }, button('desktop')]));
   doc.body.appendChild(build(doc, ['div', { id: 'phone-top' }, button('phone')]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel' }, item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
+    ['div', { id: 'panel' }, ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   const $ = (id) => doc.getElementById(id);
@@ -101,6 +101,12 @@ const scenarios = {
     const held = { inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() };
     p.click('profile-menu');
     return { held, freed: { open: p.open(), inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() } };
+  },
+  closeButton() {
+    const p = page(true);
+    p.click('phone');
+    p.click('close-icon');
+    return { open: p.open(), inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() };
   },
   resize() {
     const p = page(true);

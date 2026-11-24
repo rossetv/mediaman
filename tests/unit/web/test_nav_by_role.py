@@ -120,8 +120,17 @@ def test_both_layouts_have_a_button_that_names_the_person_and_opens_the_menu():
         assert re.search(rf'id="{controlled}" role="menu"', html)
 
 
+def test_the_phone_sheet_s_close_button_is_named_and_is_no_menu_item():
+    before, menu = _menu(_render("viewer")).split('role="menu"')
+
+    close = re.search(r'<button[^>]*class="profile-close"[^>]*>', before).group(0)
+    assert 'aria-label="Close profile menu"' in close
+    assert "profile-close" not in menu
+
+
 def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
-    tags = re.findall(r"<(?:a|button)\b[^>]*>", _menu(_render("admin")))
+    items = _menu(_render("admin")).split('role="menu"')[1]
+    tags = re.findall(r"<(?:a|button)\b[^>]*>", items)
 
     assert len(tags) == 5
     assert all('role="menuitem"' in t and 'tabindex="-1"' in t for t in tags)
