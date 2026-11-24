@@ -667,7 +667,13 @@ def test_a_long_banner_title_is_smaller_and_every_title_clamps() -> None:
 
     assert "watch-banner__title--long" not in _watch(banner=banner)
     assert "watch-banner__title--long" in _watch(banner={**banner, "title": long})
-    assert "font-size: 36px" in _declarations_of("_watch.css", ".watch-banner__title--long")
+    smaller = ".watch-banner__title--long"
+    assert "font-size: 36px" in _declarations_of("_watch.css", smaller)
+    # 80 characters, all capitals, beside the poster's place at 600 wide.
+    assert "--title-lines: 7" in _declarations_of("_watch.css", smaller)
+    for query, lines in (("(max-width: 599.98px)", 6), ("(max-height: 500px)", 4)):
+        rules = _declarations_in(_in_media("_watch.css", query), smaller)
+        assert f"--title-lines: {lines}" in rules
     assert "line-clamp: var(--title-lines)" in _declarations_of(
         "_watch.css", ".watch-banner__title"
     )

@@ -309,7 +309,7 @@
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
-.watch-banner__title--long { --title-lines: 4; font-size: 36px; line-height: 1.1; text-wrap: balance; }
+.watch-banner__title--long { --title-lines: 7; font-size: 36px; line-height: 1.1; text-wrap: balance; }
 .watch-banner__title--longest { --title-lines: 8; font-size: 26px; line-height: 1.15; letter-spacing: -.01em; text-wrap: balance; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
 .watch-banner__line--short { display: none; }
@@ -740,7 +740,7 @@
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
   .watch-banner__title { --title-lines: 4; font-size: 30px; }
-  .watch-banner__title--long { font-size: 24px; }
+  .watch-banner__title--long { --title-lines: 6; font-size: 24px; }
   .watch-banner__title--longest { --title-lines: 8; font-size: 20px; }
   .watch-bar--banner { width: 100%; }
   .watch-banner__line { font-size: 13px; }
@@ -775,7 +775,7 @@
   .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
   .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
   .watch-banner__title { --title-lines: 3; font-size: 28px; }
-  .watch-banner__title--long { font-size: 24px; }
+  .watch-banner__title--long { --title-lines: 4; font-size: 24px; }
   .watch-banner__title--longest { --title-lines: 5; font-size: 20px; }
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
