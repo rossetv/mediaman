@@ -28,6 +28,8 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
+import requests
+
 from mediaman.services.arr._transport import ArrError
 from mediaman.services.arr._types import (
     ArrSeason,
@@ -410,6 +412,26 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
         ``True`` when the series is already tracked; ``False`` otherwise.
     """
     return any(s.get("tvdbId") == tvdb_id for s in sonarr_client.get_series())
+
+
+def radarr_holds_movie(radarr_client: ArrClient, tmdb_id: int) -> bool:
+    """Whether Radarr holds *tmdb_id*; an unreadable answer counts as no.
+
+    For telling a refused add (Radarr answers 400, not 409, for a movie it
+    holds) from one that failed for another reason.
+    """
+    try:
+        return radarr_client.get_movie_by_tmdb(tmdb_id) is not None
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
+
+
+def sonarr_tracks_series(sonarr_client: ArrClient, tvdb_id: int) -> bool:
+    """Whether Sonarr tracks *tvdb_id*; an unreadable answer counts as no."""
+    try:
+        return is_series_already_tracked(sonarr_client, tvdb_id)
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        return False
 
 
 MovieAddOutcome = Literal["added", "remonitored", "already_tracked", "bad_entry"]

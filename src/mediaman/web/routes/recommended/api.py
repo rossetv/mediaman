@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
-import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -17,9 +16,14 @@ from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.state import add_or_remonitor_movie, is_series_already_tracked
+from mediaman.services.arr.state import (
+    add_or_remonitor_movie,
+    is_series_already_tracked,
+    radarr_holds_movie,
+    sonarr_tracks_series,
+)
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
@@ -148,22 +152,6 @@ def _already_there(row: SuggestionDetail) -> JSONResponse:
     return respond_failure(already, status=409)
 
 
-def _radarr_holds(client: ArrClient, tmdb_id: int) -> bool:
-    # Monitored only: an unmonitored entry means a failed re-monitor, not a raced add.
-    try:
-        existing = client.get_movie_by_tmdb(tmdb_id)
-        return existing is not None and bool(existing.get("monitored"))
-    except (SafeHTTPError, requests.RequestException, ArrError):
-        return False
-
-
-def _sonarr_tracks(client: ArrClient, tvdb_id: int) -> bool:
-    try:
-        return is_series_already_tracked(client, tvdb_id)
-    except (SafeHTTPError, requests.RequestException, ArrError):
-        return False
-
-
 def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
@@ -191,7 +179,7 @@ def _add_rec_to_radarr(
         # for a movie it holds, 400, so an add that raced the check above ends
         # as already there and any other 400 stays a failure.
         if exc.status_code in (409, 422) or (
-            exc.status_code == 400 and _radarr_holds(client, tmdb_id)
+            exc.status_code == 400 and radarr_holds_movie(client, tmdb_id)
         ):
             return _already_there(row)
         raise
@@ -272,7 +260,7 @@ def _add_rec_to_sonarr(
     except SafeHTTPError as exc:
         # Same as Radarr, for a series Sonarr already tracks.
         if exc.status_code in (409, 422) or (
-            exc.status_code == 400 and _sonarr_tracks(client, tvdb_id)
+            exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id)
         ):
             return _already_there(row)
         raise

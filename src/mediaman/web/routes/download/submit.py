@@ -24,6 +24,7 @@ from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.state import radarr_holds_movie, sonarr_tracks_series
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -132,7 +133,13 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         _unmark_token_used(token)
         return respond_failure("Radarr not configured", status=503)
 
-    client.add_movie(tmdb_id, title)
+    try:
+        client.add_movie(tmdb_id, title)
+    except SafeHTTPError as exc:
+        # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
+        if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):
+            raise SafeHTTPError(409, exc.body_snippet, exc.url) from exc
+        raise
     logger.info(
         "Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email
     )
@@ -185,7 +192,13 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         _unmark_token_used(token)
         return respond_failure("No TVDB ID found for this series", status=422)
 
-    client.add_series(tvdb_id, title)
+    try:
+        client.add_series(tvdb_id, title)
+    except SafeHTTPError as exc:
+        # Sonarr answers 400, not 409, for a series it tracks: same path.
+        if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
+            raise SafeHTTPError(409, exc.body_snippet, exc.url) from exc
+        raise
     logger.info(
         "Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email
     )
