@@ -721,6 +721,22 @@ const scenarios = {
     return { starts: p.starts(), message: !p.q('[data-message]').hidden };
   },
 
+  /* The original was left, then the person's own pick is refused. */
+  async original_left(p) {
+    p.replies[0] = answer('original');
+    await streamPlays(p, 0);
+    playOn(p, 5);
+    for (let i = 0; i < 2; i++) {
+      p.replies.push(answer(i ? '1080p-10000' : 'original'));
+      p.hlsList[p.hlsList.length - 1].emit('hlsError', { fatal: true, type: 'networkError' });
+      await settle();
+    }
+    p.replies.push({ err: { status: 503 } }, answer('1080p-10000'));
+    click(p.q('[data-quality="720p-4000"]'));
+    await streamPlays(p, 0);
+    return Object.assign(menuState(p), { starts: p.starts(), toasts: p.toasts });
+  },
+
   /* The person tries one quality after another and all are refused. */
   async picks_refused(p) {
     await streamPlays(p, 0);

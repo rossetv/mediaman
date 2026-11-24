@@ -244,6 +244,17 @@ def test_automatic_gives_up_with_a_message_when_each_step_down_fails(markup):
     assert len(out["starts"]) < 12
 
 
+def test_an_original_that_was_left_is_not_gone_back_to(markup):
+    saved = {"mediaman.watch.quality": "original"}
+    out = run(markup, "never_loads", saved=saved)
+    assert (out["message"], out["retry"]) == (True, True)
+    assert out["starts"] == ["original", "1080p-10000", "1080p-10000"]
+    out = run(markup, "original_left", saved=saved)
+    assert out["starts"] == ["original", "original", "1080p-10000", "720p-4000", "1080p-10000"]
+    assert (out["ticked"], out["saved"]) == (["1080p-10000"], "original")
+    assert "Staying on 1080p · 10 Mbps" in out["toasts"][-1]["text"]
+
+
 def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(markup):
     assert run(markup, "picks_refused") == {"message": False, "starts": 7}
 

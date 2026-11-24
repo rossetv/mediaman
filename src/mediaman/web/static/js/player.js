@@ -413,7 +413,8 @@
     reverts++;
     noteTrouble();
     if (quality !== good.quality) {
-      var row = findRow(good.quality) || rowFor(good.override || good.quality);
+      var stays = good.quality === 'original' && good.override || good.quality;
+      var row = findRow(stays) || rowFor(good.override || good.quality);
       swapNotice = "Couldn't change the quality." + (row ? ' Staying on ' + rowText(row) + '.' : '');
       setQuality(good.quality);
     } else {
@@ -429,6 +430,7 @@
     var row = convertRows()[0];
     if (!row) { fail(); return; }
     override = row.id;
+    if (good.quality === 'original' && !good.override) good = choice();
     swapNotice = "The original can't play here. Playing " + rowText(row) + ' instead.';
     restartStream(true);
   }
