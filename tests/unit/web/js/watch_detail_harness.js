@@ -187,7 +187,7 @@ function load(opts = {}) {
     AbortController: class { constructor() { this.signal = {}; } abort() { this.signal.aborted = true; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: (q) => ({ matches: /min-width/.test(q) }),
+    matchMedia: (q) => ({ matches: /min-width/.test(q) || (!!opts.still && /reduced-motion/.test(q)) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -358,6 +358,37 @@ const scenarios = {
       open: !p.ttl().classList.contains('is-leaving'), button: p.text('[data-ttl-act="trailer"]') };
     p.key('Escape');
     return { playing, afterFirst, closedSecond: p.ttl().classList.contains('is-leaving') };
+  },
+
+  // How the head's height eases as its trailer comes and goes: each ease, whether it was cut
+  // short, and where the head stood when it was closed halfway through opening.
+  async trailerHeight() {
+    const out = {};
+    for (const [name, steps] of Object.entries({
+      openAndClose: ['press', 'end', 'press', 'end'], closedHalfway: ['press', 'press'], anotherTitle: ['press', 'another'],
+      still: ['press', 'press'],
+    })) {
+      const p = load({ still: name === 'still', routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL, '/api/watch/title/movie-120': LIB_MOVIE } });
+      p.run();
+      await openCard(p, 'tmdb-movie-77');
+      const eases = [];
+      let easing = null;
+      const head = p.q('.ttl__hero');
+      Object.defineProperty(head, 'offsetHeight', { get: () => (easing ? 400 : p.ttl().classList.contains('is-trailer') ? 552 : 234) });
+      head.animate = (frames, o) => {
+        const ease = { from: frames[0].minHeight, to: frames[1].minHeight, ms: o.duration, cut: false };
+        easing = ease;
+        eases.push(ease);
+        return { cancel() { if (easing === ease) { easing = null; ease.cut = true; } } };
+      };
+      steps.forEach((step) => {
+        if (step === 'press') click(p.doc, p.q('[data-ttl-act="trailer"]'));
+        else if (step === 'end') easing = null;
+        else p.ctx.MMWatch.detail.open('movie-120', {});
+      });
+      out[name] = eases;
+    }
+    return out;
   },
 
   async noTrailerKey() {

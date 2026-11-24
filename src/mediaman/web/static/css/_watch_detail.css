@@ -95,10 +95,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__art { object-position: 50% 25%; }
 .ttl__fill { filter: blur(40px) brightness(.7); transform: scale(1.2); }
 /* A title with no picture: a short head. Its height is settled before the buttons
-   can be pressed (.is-short), and only the trailer changes it, by easing. */
+   can be pressed (.is-short), and only the trailer changes it (detail.js eases it). */
 .ttl.is-short .ttl__hero { padding-top: 72px; }
 .ttl.is-short:not(.is-trailer) .ttl__hero { min-height: 190px; }
-.ttl.is-short.has-played .ttl__hero { transition: min-height var(--dur-slow) var(--ease-out); }
 .ttl.is-short .ttl__poster { display: none; }
 .ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--s1) 80%);
@@ -427,5 +426,4 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) linear both !important; }
   .ttl.is-leaving .ttl__sheet,
   .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
-  .ttl.is-short.has-played .ttl__hero { transition: none; }
 }

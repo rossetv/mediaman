@@ -99,6 +99,19 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
     assert out["closedSecond"] is True
 
 
+def test_the_head_eases_between_the_heights_it_really_has_as_its_trailer_comes_and_goes() -> None:
+    out = _run("trailerHeight")
+    grow = {"from": "234px", "to": "552px", "ms": 250, "cut": False}
+    shrink = {"from": "552px", "to": "234px", "ms": 250, "cut": False}
+
+    assert out["openAndClose"] == [grow, shrink]
+    halfway = {**shrink, "from": "400px"}
+    assert out["closedHalfway"] == [{**grow, "cut": True}, halfway]
+    # The next title's head stands at its own height at once.
+    assert all(ease["cut"] for ease in out["anotherTitle"])
+    assert out["still"] == []
+
+
 def test_a_title_without_a_trailer_has_no_trailer_button() -> None:
     assert _run("noTrailerKey") == {"trailer": False, "primary": "Download"}
 

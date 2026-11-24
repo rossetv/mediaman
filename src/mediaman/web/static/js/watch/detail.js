@@ -32,6 +32,7 @@
   var EXIT_FALLBACK = 80; // past an animation's own length, for one that never ends
 
   var sheet = root.querySelector('.ttl__sheet');
+  var hero = root.querySelector('.ttl__hero');
   var titleEl = root.querySelector('#ttl-title');
   var part = function (name) { return root.querySelector('[data-ttl-part="' + name + '"]'); };
   var heroSkel = part('hero-skel');
@@ -56,6 +57,7 @@
   var pictures = '';   // the addresses the hero shows or is trying
   var trying = false;  // the hero's picture is not known yet
   var onSettled = null;
+  var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
   var shareTimer = null;
@@ -444,7 +446,8 @@
 
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
-    root.classList.remove('ttl--admin', 'is-short', 'is-late', 'has-played');
+    root.classList.remove('ttl--admin', 'is-short', 'is-late');
+    if (heroEase) heroEase.cancel();
     hide(heroSkel, false);
     clearPictures();
     kindEl.textContent = cur.kind ? kindLabel({ kind: cur.kind }) : '';
@@ -1309,6 +1312,20 @@
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
+  /* Make a *change* that alters the hero's height, and ease between the heights
+     measured before and after: the text can hold it taller than its CSS asks. */
+  function easeHero(change) {
+    var from = hero.offsetHeight;
+    if (heroEase) heroEase.cancel();
+    change();
+    var to = hero.offsetHeight;
+    if (from === to || !hero.animate || core.reduceMotion()) return;
+    heroEase = hero.animate([{ minHeight: from + 'px' }, { minHeight: to + 'px' }], {
+      duration: core.tokenMs('--dur-slow', 250),
+      easing: core.token('--ease-out', 'ease-out')
+    });
+  }
+
   /* The player takes the hero's box, so nothing below it moves; a short hero
      grows to full height for it. */
   function openTrailer() {
@@ -1324,13 +1341,13 @@
     frame.setAttribute('allowfullscreen', '');
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
-    root.classList.add('is-trailer', 'has-played');
+    easeHero(function () { root.classList.add('is-trailer'); });
     setTrailerButton(true);
   }
 
   function closeTrailer(refocus) {
     if (!root.classList.contains('is-trailer')) return;
-    root.classList.remove('is-trailer');
+    easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
     var frame = player.querySelector('iframe');
     // Gone at once stops the sound; the box fades as it empties.
