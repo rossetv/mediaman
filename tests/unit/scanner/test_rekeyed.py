@@ -10,6 +10,7 @@ import requests
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.scanner.repository.watch_credit import carry_last_watched
 from mediaman.web.auth.password_hash import delete_user
 from mediaman.web.repository.kept import upsert_kept_show
 from mediaman.web.repository.watch_progress import save_progress
@@ -382,6 +383,20 @@ def _play(conn, rating_key, *, user="amy", media=None, show=None, at=_NOW, posit
     )
 
 
+def _set_watched(conn, media_id, at):
+    with conn:
+        conn.execute(
+            "UPDATE media_items SET last_watched_at = ? WHERE id = ?", (at.isoformat(), media_id)
+        )
+
+
+def _watched(conn, media_id):
+    row = conn.execute(
+        "SELECT last_watched_at FROM media_items WHERE id = ?", (media_id,)
+    ).fetchone()
+    return row["last_watched_at"]
+
+
 def _progress(conn):
     return {
         (r["username"], r["rating_key"]): (
@@ -644,6 +659,152 @@ class TestProgress:
         assert delete_user(conn, 2, "amy")
 
         assert conn.execute("SELECT count(*) FROM pruned_progress").fetchone()[0] == 0
+
+
+_YESTERDAY = _NOW - timedelta(days=1)
+_LONG_AGO = _NOW - timedelta(days=200)
+
+
+def _watched_in_plex(conn):
+    _set_watched(conn, "f1", _YESTERDAY)
+    _set_watched(conn, "show-s1", _YESTERDAY)
+
+
+def _played_in_mediaman(conn):
+    _play(conn, "f1", at=_YESTERDAY)
+    _play(conn, "show-s1e2", media="show-s1", show="show", at=_YESTERDAY)
+
+
+class TestLastWatched:
+    @_RUNS
+    @pytest.mark.parametrize("watch", [_watched_in_plex, _played_in_mediaman])
+    @pytest.mark.parametrize("empty_lists", [0, 1, 2])
+    def test_a_title_watched_lately_is_not_scheduled_under_its_new_key(
+        self, conn, freezer, run, watch, empty_lists
+    ):
+        _sync(conn, films=_FILM, seasons=_SHOW)
+        watch(conn)
+        for _ in range(empty_lists):
+            freezer.tick(60)
+            _sync(conn)
+
+        freezer.tick(60)
+        new = {"films": _NEW_FILM, "seasons": [_season("show", 1, prefix="new-")]}
+        run(conn, **new)
+
+        assert _watched(conn, "new-f1") == _YESTERDAY.isoformat()
+        assert _watched(conn, "new-show-s1") == _YESTERDAY.isoformat()
+        _scan(conn, **new)
+        assert _scheduled(conn) == set()
+
+    def test_the_same_key_listed_again_is_still_watched(self, conn, freezer):
+        _sync(conn, films=_FILM)
+        _set_watched(conn, "f1", _YESTERDAY)
+        for films in ([], []):
+            freezer.tick(60)
+            _sync(conn, films=films)
+
+        _scan(conn, films=_FILM)
+
+        assert _scheduled(conn) == set()
+
+    def test_a_new_key_first_listed_beside_the_old_one_is_not_scheduled(self, conn):
+        _sync(conn, films=_FILM)
+        _set_watched(conn, "f1", _YESTERDAY)
+
+        _scan(conn, films=[*_NEW_FILM, *_FILM])
+
+        assert "new-f1" not in _scheduled(conn)
+
+    @pytest.mark.parametrize("empty_lists", [0, 2])
+    def test_an_earlier_watch_never_moves_a_later_one_back(self, conn, freezer, empty_lists):
+        _sync(conn, films=[*_FILM, *_NEW_FILM])
+        _set_watched(conn, "f1", _LONG_AGO)
+        _set_watched(conn, "new-f1", _YESTERDAY)
+        for _ in range(empty_lists):
+            freezer.tick(60)
+            _sync(conn)
+
+        freezer.tick(60)
+        _sync(conn, films=_NEW_FILM)
+
+        assert _watched(conn, "new-f1") == _YESTERDAY.isoformat()
+
+    def test_a_title_last_watched_long_ago_is_still_scheduled(self, conn, freezer):
+        _sync(conn, films=_FILM)
+        _set_watched(conn, "f1", _LONG_AGO)
+        freezer.tick(60)
+
+        _scan(conn, films=_NEW_FILM)
+
+        assert _scheduled(conn) == {"new-f1"}
+
+    @pytest.mark.parametrize("empty_lists", [0, 2])
+    @pytest.mark.parametrize(
+        "other",
+        [
+            {"season_number": 2},
+            {"file_path": "/tv/elsewhere"},
+            {"file_path": ""},
+            {"show_title": "Another"},
+            {"tmdb_id": 8},
+            {"tvdb_id": 8},
+        ],
+    )
+    def test_a_season_not_surely_the_one_watched_takes_nothing(
+        self, conn, freezer, empty_lists, other
+    ):
+        old = _season("show", 1)
+        if "file_path" in other and not other["file_path"]:
+            old |= other
+        old |= {key: 7 for key in other if key.endswith("_id")}
+        _sync(conn, seasons=[old])
+        _set_watched(conn, "show-s1", _YESTERDAY)
+        for _ in range(empty_lists):
+            freezer.tick(60)
+            _sync(conn)
+
+        freezer.tick(60)
+        _scan(conn, seasons=[_season("show", 1, prefix="new-") | other])
+
+        assert _scheduled(conn) == {"new-show-s1"}
+
+    def test_a_show_renamed_with_its_ids_the_same_is_still_watched(self, conn, freezer):
+        ids = {"tmdb_id": 7, "tvdb_id": 8}
+        _sync(conn, seasons=[_season("show", 1) | ids])
+        _set_watched(conn, "show-s1", _YESTERDAY)
+
+        freezer.tick(60)
+        renamed = _season("show", 1, prefix="new-") | ids | {"show_title": "Show (2020)"}
+        _scan(conn, seasons=[renamed])
+
+        assert _scheduled(conn) == set()
+
+    def test_a_watch_no_setting_can_count_is_forgotten(self, conn, freezer):
+        _sync(conn, films=_FILM)
+        _set_watched(conn, "f1", _YESTERDAY)
+        for days in (1, 1, 400):
+            freezer.tick(timedelta(days=days))
+            _sync(conn, films=[_film(f"x{n}") for n in range(6)])
+            _sync(conn, films=[_film(f"x{n}") for n in range(5)])
+
+        assert conn.execute("SELECT count(*) FROM pruned_watches").fetchone()[0] == 0
+
+
+def test_looking_for_an_earlier_watch_does_not_read_the_library(conn):
+    queries = []
+    conn.set_trace_callback(queries.append)
+    carry_last_watched(conn, "f1")
+    conn.set_trace_callback(None)
+
+    plan = [
+        row["detail"]
+        for query in queries
+        if query.startswith("SELECT")
+        for row in conn.execute(f"EXPLAIN QUERY PLAN {query}")
+    ]
+    assert plan
+    assert not [s for s in plan if s.startswith("SCAN") and "subquery" not in s.lower()]
 
 
 def test_the_library_keeps_how_many_episodes_a_season_has(conn):

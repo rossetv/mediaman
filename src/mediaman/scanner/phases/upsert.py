@@ -50,6 +50,7 @@ def upsert_item(
 
     Gives back a keep the item had when Plex stopped listing it, or the keep of
     the key it replaces; returns True when it did, as the item is then kept.
+    The last watch of the key it replaces is carried over too.
 
     Delegates to repository.upsert_media_item and
     repository.update_last_watched.  The Radarr/Sonarr id is matched from
@@ -108,6 +109,7 @@ def upsert_item(
     repository.restore_keeps(conn, media_id, keeps)
     repository.forget_pruned_show_season(conn, file_path, season)
     repository.update_last_watched(conn, media_id, fetch.watch_history)
+    repository.carry_last_watched(conn, media_id)
     return bool(keeps)
 
 

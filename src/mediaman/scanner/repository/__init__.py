@@ -21,7 +21,8 @@ when it changes.
 * mediaman.scanner.repository.rekeyed — the keeps and Watch progress of titles
   Plex lists under a new key.
 * mediaman.scanner.repository.watch_credit — table-group 5:
-  ``last_credited_by_media_item``, the plays made in mediaman.
+  ``last_credited_by_media_item``, the plays made in mediaman, and the last
+  watch of titles Plex lists under a new key.
 
 **Repository purity contract:** this package is pure SQL — it must not
 import crypto primitives at module level.  Token generation lives in
@@ -86,7 +87,11 @@ from mediaman.scanner.repository.settings import (
     read_delete_allowed_roots_setting,
     read_setting,
 )
-from mediaman.scanner.repository.watch_credit import last_credited_by_media_item
+from mediaman.scanner.repository.watch_credit import (
+    carry_last_watched,
+    last_credited_by_media_item,
+    save_pruned_watches,
+)
 
 __all__ = [
     "DELETION_ACTION",
@@ -94,6 +99,7 @@ __all__ = [
     "book_deletion",
     "book_removed_files",
     "book_removed_files_where",
+    "carry_last_watched",
     "carry_show_keeps",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
@@ -130,6 +136,7 @@ __all__ = [
     "save_pruned_keeps",
     "save_pruned_progress",
     "save_pruned_show_seasons",
+    "save_pruned_watches",
     "take_pruned_keeps",
     "update_last_watched",
     "upsert_media_item",

@@ -104,11 +104,9 @@ class ScanDecision(enum.Enum):
 class _GuardSets:
     """Per-library protection / already-scheduled / mediaman-play lookups.
 
-    Built once per library by _build_guard_sets so the hot
-    per-item loop does ZERO ``scheduled_actions`` or ``watch_progress``
-    SELECTs. ``credited`` maps a media item id to the last time anyone
-    played it in mediaman long enough to count as a watch, and
-    ``last_watched`` to the ``last_watched_at`` stored before this scan.
+    Built once per library by _build_guard_sets so the guards of the hot
+    per-item loop need no SELECT. ``credited`` maps a media item id to the last time anyone
+    played it in mediaman long enough to count as a watch.
     ``protected`` and ``already_scheduled`` are mutable: when an item is given its
     keep back or freshly scheduled mid-loop it is added so a later item sharing the
     same ``plex_rating_key`` observes it, as the connection's uncommitted view would.
@@ -117,7 +115,6 @@ class _GuardSets:
     protected: set[str]
     already_scheduled: set[str]
     credited: Mapping[str, datetime]
-    last_watched: Mapping[str, datetime]
 
 
 def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
@@ -132,7 +129,6 @@ def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardS
         protected=repository.fetch_protected_media_ids(conn, media_ids, now_iso()),
         already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
         credited=repository.last_credited_by_media_item(conn, media_ids),
-        last_watched=last_watched_by_media_item(conn, media_ids),
     )
 
 
@@ -221,7 +217,9 @@ def _evaluate_scan_item(
     A mediaman play credited to the item joins its Plex watch history, so
     both ``last_watched_at`` and the inactivity check count it. The stored
     ``last_watched_at`` is a floor for the inactivity check, so a watch
-    whose play is gone (its viewer deleted) still keeps the item.
+    whose play is gone (its viewer deleted) or was of the item's old key
+    still keeps the item. It is read once the upsert has carried that over,
+    and only for an item that would else be scheduled.
     """
     conn = engine._conn
     item = f.item
@@ -240,7 +238,7 @@ def _evaluate_scan_item(
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
     if evaluate_fn(f, added_at, f.watch_history) != "schedule_deletion":
         return media_id, ScanDecision.SKIP_EVAL
-    last_watched = guards.last_watched.get(media_id)
+    last_watched = last_watched_by_media_item(conn, [media_id]).get(media_id)
     if last_watched is not None and not is_inactive(
         [{"viewed_at": last_watched}], engine._inactivity_days
     ):

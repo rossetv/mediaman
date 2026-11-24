@@ -180,6 +180,18 @@ CREATE TABLE IF NOT EXISTS pruned_progress (
     PRIMARY KEY (username, rating_key)
 );
 
+-- When items Plex stopped listing were last watched, for the key Plex lists them under next.
+CREATE TABLE IF NOT EXISTS pruned_watches (
+    media_item_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    show_title TEXT,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    last_watched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pruned_watches_file_path ON pruned_watches(file_path);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     media_item_id TEXT NOT NULL,
