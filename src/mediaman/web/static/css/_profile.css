@@ -14,3 +14,7 @@
 .profile-why { flex: 1 1 8em; font-size: 13px; line-height: 1.4; color: var(--t3); }
 .profile-why:not([hidden]) + .inline-form-msg:empty { display: none; }
 .setg-pg .usr-self-head .avatar { width: 44px; height: 44px; font-size: 15px; }
+/* Below 700px the bottom bar's own room does this. */
+@media (min-width: 700px) {
+  .setg-pg.profile-pg .container { padding-bottom: 64px; }
+}

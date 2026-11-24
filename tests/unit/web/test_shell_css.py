@@ -93,3 +93,18 @@ def test_a_sign_in_button_s_label_has_air_when_it_takes_two_lines() -> None:
     top = re.search(r"(?<![\w-])padding:\s*(\d+)px", body)
     assert top and int(top.group(1)) >= 8
     assert "text-align: center" in body
+
+
+def test_the_profile_page_ends_with_room_under_its_last_card() -> None:
+    wide = _css("_profile.css").split("@media (min-width: 700px) {")[1].split("\n}")[0]
+    room = re.search(r"\.profile-pg \.container \{ padding-bottom: (\d+)px; \}", wide)
+    assert room and int(room.group(1)) >= 48
+
+
+def test_the_line_for_no_linked_accounts_is_the_size_of_the_card_s_other_text() -> None:
+    heads = [
+        head
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", _css("_profile_plex.css"))
+        if "font-size: 14px" in body and ".plex-link p" in head
+    ]
+    assert any("#plex-others p" in head for head in heads)
