@@ -1521,10 +1521,15 @@
     video.muted = !video.muted;
     if (!video.muted && video.volume === 0) video.volume = 1;
   });
+  /* Dragged to nothing it mutes, at the volume there was before the drag. */
+  var volumeBefore = null;
   els.volume.addEventListener('input', function () {
-    video.volume = parseFloat(els.volume.value);
-    video.muted = video.volume === 0;
+    if (volumeBefore === null) volumeBefore = video.volume;
+    var level = parseFloat(els.volume.value);
+    video.muted = level === 0;
+    video.volume = level || volumeBefore;
   });
+  els.volume.addEventListener('change', function () { volumeBefore = null; });
 
   els.qualityMenu.addEventListener('click', function (e) {
     if (e.target.closest('[data-autoplay]')) { toggleAutoplay(); return; }

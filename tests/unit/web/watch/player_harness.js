@@ -995,6 +995,26 @@ const scenarios = {
     return out;
   },
 
+  /* The slider dragged to nothing, and the sound put back on, here and by a later page. */
+  async drag_to_silence(p) {
+    const slider = p.q('[data-volume]');
+    const drag = (levels) => {
+      levels.forEach((v) => { slider.value = String(v); fire(slider, 'input', { bubbles: true }); fire(p.video, 'volumechange'); });
+      fire(slider, 'change', { bubbles: true });
+    };
+    const look = () => ({ volume: p.video.volume, muted: p.video.muted, slider: +slider.value, name: p.q('[data-mute]').getAttribute('aria-label') });
+    await streamPlays(p, 100);
+    drag([0.9, 0.7]);
+    drag([0.5, 0.2, 0.05, 0]);
+    const out = { silent: look(), saved: Object.assign({}, p.storage) };
+    press(p.q('[data-mute]'));
+    fire(p.video, 'volumechange');
+    out.back = look();
+    drag([0.3, 0, 0.4]);
+    out.up = look();
+    return out;
+  },
+
   /* A browser that leaves the page cancels its requests first, and only then says so. */
   async cancelled(p) {
     await streamPlays(p, 100);

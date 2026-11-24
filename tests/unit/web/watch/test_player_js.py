@@ -1189,3 +1189,11 @@ def test_a_film_that_ends_on_a_page_that_came_by_a_link_stays_in_the_app(tmp_pat
     film = {**EPISODE, "next": None, "show_href": None, "back_href": "/watch/movie/7"}
     out = run(_markup(tmp_path_factory, film), "endOfDeepLink")
     assert out == {"through": 0, "at": "/watch/movie/7"}
+
+
+def test_sound_dragged_to_nothing_comes_back_as_loud_as_it_was(markup):
+    out = run(markup, "drag_to_silence")
+    assert out["silent"] == {"volume": 0.7, "muted": True, "slider": 0, "name": "Unmute"}
+    assert out["saved"]["mediaman.watch.volume"] == "0.7"
+    assert out["back"] == {"volume": 0.7, "muted": False, "slider": 0.7, "name": "Mute"}
+    assert out["up"] == {"volume": 0.4, "muted": False, "slider": 0.4, "name": "Mute"}
