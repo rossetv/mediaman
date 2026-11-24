@@ -112,6 +112,8 @@ def test_the_season_delete_list_can_be_read_again_and_stays_after_a_cancelled_de
     out = _run("seasonDeleteCancelledAndRetried")
     assert (out["failed"], out["retry"], out["focus"]) == (True, "Retry", True)
     assert out["back"] == ["Delete", True]
+    # A browser that does not focus what is clicked has somewhere to go back to.
+    assert (out["parked"], out["refocused"]) == (True, True)
     assert out["cancelled"] == {"open": True, "deletes": 1, "posts": 0}
 
 

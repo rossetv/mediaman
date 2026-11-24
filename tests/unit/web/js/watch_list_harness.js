@@ -475,18 +475,23 @@ const scenarios = {
     p.replies[url] = serverError;
     const dialog = () => p.doc.getElementById('season-delete-overlay');
     const list = () => p.doc.getElementById('season-delete-list');
-    click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
+    const opener = p.row('show:77').querySelector('[data-action="pick-season-delete"]');
+    let parked = false;
+    opener.focus = () => { parked = true; };
+    click(p.doc, opener);
     await settle();
     const retry = list().querySelector('button');
-    const out = { failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === retry };
+    const out = { parked, failed: /load/.test(list().textContent), retry: retry && retry.textContent, focus: p.doc.activeElement === retry };
     p.replies[url] = () => Promise.resolve({ show_title: 'Night Shift', show_kept: false, seasons: [{ id: 's1', season_number: 1 }] });
     click(p.doc, retry);
     await settle();
     const del = list().querySelector('button');
     out.back = [del.textContent, p.doc.activeElement === del];
+    del.blur();
     p.answerConfirm(false);
     click(p.doc, del);
     await settle();
+    out.refocused = p.doc.activeElement === del;
     out.cancelled = { open: dialog().classList.contains('active'), deletes: list().querySelectorAll('button').length, posts: p.calls.filter((c) => c[0] === 'post').length };
     return out;
   },

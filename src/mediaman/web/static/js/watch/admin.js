@@ -1146,6 +1146,7 @@
       } else {
         var del = button('btn btn--danger btn--sm', 'Delete');
         del.addEventListener('click', function () {
+          del.focus(); // Safari does not focus a button that is clicked, so a cancel would lose the place
           confirmDelete(String(s.id), title + ' — ' + name.textContent,
             { kind: 'season', size: s.file_size, showRk: showRk, started: function () { _seasonDeleteModal.close(); } });
         });

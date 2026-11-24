@@ -752,6 +752,7 @@
       e.preventDefault();
       var showTitle;
       try { showTitle = JSON.parse(showDeleteBtn.getAttribute('data-title')); } catch (_) { showTitle = ''; }
+      showDeleteBtn.focus({ preventScroll: true }); // as Safari does not on a click, for when the dialog closes
       var showRow = showDeleteBtn.closest('tr').querySelector('.keep-wrapper');
       admin.pickSeasonDelete(showDeleteBtn.getAttribute('data-show-rk') || '', showTitle,
         Number(showRow.getAttribute('data-seasons')) || 0);
