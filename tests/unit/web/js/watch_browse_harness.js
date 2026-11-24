@@ -672,6 +672,28 @@ const scenarios = {
     return out;
   },
 
+  // Pills of different widths, 700px of line: the arrow goes to the first not wholly in view, and
+  // back to end at the one cut off; the keys go a pill at a time.
+  async unevenSeasonLine() {
+    const p = load();
+    await settle();
+    const widths = [100, 300, 100, 260, 100, 100, 400, 100];
+    const viewport = build(p.doc, ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...widths.map((w, i) => ['button', { class: 'watch-pill' }, 'Season ' + i])]]);
+    p.doc.body.appendChild(viewport);
+    const scroller = viewport.querySelector('.watch-row__scroll');
+    let at = 0;
+    scroller.children.forEach((pill, i) => {
+      pill.offsetLeft = at;
+      Object.defineProperty(pill, 'offsetWidth', { value: widths[i] });
+      at += widths[i];
+    });
+    Object.assign(scroller, { clientWidth: 700, scrollWidth: at, scrollLeft: 0, scrollTo(o) { this.scrollLeft = o.left; } });
+    p.ctx.MMWatch.rows.init(viewport);
+    const press = (dir) => { viewport.querySelector('.watch-row__arrow--' + dir).listeners.click.forEach((fn) => fn()); return scroller.scrollLeft; };
+    const key = (k) => { scroller.listeners.keydown.forEach((fn) => fn({ key: k, target: scroller, preventDefault() {} })); return scroller.scrollLeft; };
+    return { arrows: [press('next'), press('next'), press('next'), press('prev'), press('prev')], keys: [key('ArrowRight'), key('ArrowRight'), key('ArrowLeft')] };
+  },
+
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.
   async keepFromRow() {
     const p = load({ routes: { 'POST /api/watch/keep': () => Promise.resolve({ ok: true }) } });

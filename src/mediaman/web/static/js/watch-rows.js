@@ -86,8 +86,9 @@
     scroller.scrollTo({ left: left, behavior: behavior });
   }
 
-  /* Scroll so the card *by* places from the current first card leads the row. */
+  /* Scroll so the card *by* places from the current first card leads the row (on a line of pills, the next one that way). */
   function moveBy(scroller, by) {
+    if (isLine(scroller)) { moveLine(scroller, by, false); return; }
     var step = cardStep(scroller);
     if (!step) return;
     var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
@@ -95,6 +96,31 @@
     var max = scroller.scrollWidth - scroller.clientWidth;
     if (by > 0 && scroller.scrollLeft >= max - EDGE_SLACK) askForMore(scroller);
     goTo(scroller, Math.max(0, Math.min(max, index * step)));
+  }
+
+  /* Season pills are not all one width, so their line goes by where each one
+     stands: *whole* a lineful, to the first not wholly in view, else one pill. */
+  function moveLine(scroller, direction, whole) {
+    var style = getComputedStyle(scroller);
+    var padLeft = parseFloat(style.paddingLeft);
+    var padRight = parseFloat(style.paddingRight);
+    var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
+    var pills = Array.prototype.slice.call(scroller.querySelectorAll('.watch-pill'));
+    function start(p) { return p.offsetLeft - padLeft; }
+    function end(p) { return p.offsetLeft + p.offsetWidth + padRight - scroller.clientWidth; }
+    var ahead = pills.filter(function (p) { return direction > 0 ? start(p) > from + EDGE_SLACK : start(p) < from - EDGE_SLACK; });
+    if (direction < 0) ahead.reverse();
+    if (whole && direction > 0) ahead = ahead.filter(function (p) { return end(p) > from + EDGE_SLACK; });
+    var to = ahead[0];
+    if (!to) return;
+    // Back by a lineful: the pill cut off at the start ends the line, unless it is as wide as it.
+    var left = whole && direction < 0 ? Math.min(end(to), start(to)) : start(to);
+    goTo(scroller, Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, left)));
+  }
+
+  function isLine(scroller) {
+    var first = firstCard(scroller);
+    return !!first && first.classList.contains('watch-pill');
   }
 
   /* Forward from the very end: the row's loader (watch/rows-load.js) may have more. */
@@ -110,6 +136,7 @@
   }
 
   function pageBy(scroller, direction) {
+    if (isLine(scroller)) { moveLine(scroller, direction, true); return; }
     var step = cardStep(scroller);
     if (step) moveBy(scroller, direction * cardsInView(scroller, step));
   }
