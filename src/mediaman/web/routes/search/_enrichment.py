@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from collections.abc import Callable
 from concurrent.futures import (
     CancelledError,
@@ -138,6 +139,12 @@ def _annotate_states(results: list[dict[str, object]], request: Request) -> None
 # stuck future would block the whole iterator.
 _ENRICH_BUDGET_SECONDS = 6.0
 
+# After OMDb gives no answer (an outage, a spent quota) nothing is cached, so
+# every search would ask again for each miss and wait out the budget. Pause the
+# asking for this long and show what is stored instead.
+_NO_ANSWER_PAUSE_SECONDS = 60.0
+_paused_until = 0.0
+
 # Type alias for the ``(key, group)`` pairs threaded through the ratings
 # fan-out: a ``(tmdb_id, media_type)`` key and the result dicts sharing it.
 _RatingsKeyGroup = tuple[tuple[int, str], list[dict[str, object]]]
@@ -164,9 +171,10 @@ def _partition_cached(
         cached = next(
             (row for row in rows if row.tmdb_id == key[0] and row.media_type == key[1]), None
         )
-        if cached and cached.fetched_at >= cutoff:
+        if cached:
+            # A stale row still shows if OMDb cannot be asked or does not answer.
             _apply_ratings(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
-        else:
+        if not cached or cached.fetched_at < cutoff:
             misses.append((key, group))
     return misses
 
@@ -202,6 +210,7 @@ def _drain_futures(
     batch-write to the cache. On TimeoutError unfinished futures are dropped silently, but
     results from the misses that did complete are still returned so they are warm next time.
     """
+    global _paused_until
     pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
     try:
         for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
@@ -210,6 +219,7 @@ def _drain_futures(
             except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
                 continue
             if data is None:
+                _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
                 continue
             rt = data.get("rt")
             imdb = data.get("imdb")
@@ -217,6 +227,7 @@ def _drain_futures(
             _apply_ratings(group, rt=rt, imdb=imdb)
             pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
     except TimeoutError:
+        _paused_until = time.monotonic() + _NO_ANSWER_PAUSE_SECONDS
         logger.debug(
             "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
             _ENRICH_BUDGET_SECONDS,
@@ -249,6 +260,8 @@ def _stamp_omdb_ratings(results: list[dict[str, object]], request: Request) -> N
     # Read the OMDb key in the request thread — SQLite connections must not
     # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
+    if not resolved_omdb_key or time.monotonic() < _paused_until:
+        return
 
     now_iso = _now_iso()
     futures = [

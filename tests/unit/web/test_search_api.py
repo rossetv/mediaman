@@ -491,18 +491,19 @@ class TestEnrichRatingsHelpers:
         assert item["rt_rating"] == "80%"
         assert item["imdb_rating"] == "7.5"
 
-    def test_partition_treats_stale_cache_row_as_miss(self):
+    def test_partition_queues_a_stale_row_as_a_miss_and_still_shows_its_ratings(self):
         from mediaman.web.routes.search._enrichment import _partition_cached
 
         item = {"tmdb_id": 2, "media_type": "tv", "title": "Arcane"}
         by_key = {(2, "tv"): [item]}
-        # Row predates the cutoff — must be treated as a miss, not applied.
+        # Row predates the cutoff — a miss to ask OMDb about again, yet what it holds shows.
         rows = [self._row(2, "tv", fetched_at="2026-01-01T00:00:00")]
 
         misses = _partition_cached(by_key, rows, cutoff="2026-04-01T00:00:00")
 
         assert misses == [((2, "tv"), [item])]
-        assert "rt_rating" not in item
+        assert item["rt_rating"] == "80%"
+        assert item["imdb_rating"] == "7.5"
 
     def test_partition_treats_absent_row_as_miss(self):
         from mediaman.web.routes.search._enrichment import _partition_cached
@@ -550,6 +551,70 @@ class TestEnrichRatingsHelpers:
         # A single bad lookup must not raise; it is no answer, which is not "no ratings".
         assert key == (9, "movie")
         assert data is None
+
+    def _stale_search(self, conn, monkeypatch, lookup):
+        from datetime import timedelta
+        from unittest.mock import MagicMock
+
+        from mediaman.core.time import now_utc
+        from mediaman.web.routes.search import _enrichment
+
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+        monkeypatch.setattr(_enrichment, "get_db", lambda: conn)
+        monkeypatch.setattr(_enrichment, "get_omdb_key", lambda *_a: "k")
+        monkeypatch.setattr(_enrichment, "lookup_ratings", lookup)
+        conn.execute(
+            "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+            " fetched_at) VALUES (1, 'movie', '7.5', '80%', '74', ?)",
+            ((now_utc() - timedelta(days=90)).isoformat(),),
+        )
+        conn.commit()
+        request = MagicMock()
+        request.app.state.config.secret_key = "s"
+
+        def search():
+            item = {"tmdb_id": 1, "media_type": "movie", "title": "Dune", "year": 2021}
+            _enrichment._stamp_omdb_ratings([item], request)
+            return item
+
+        return search
+
+    def test_search_shows_a_stale_row_when_omdb_gives_no_answer(self, conn, monkeypatch):
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: None)
+
+        item = search()
+
+        assert item["rt_rating"] == "80%"
+        assert item["imdb_rating"] == "7.5"
+
+    def test_search_shows_a_stale_row_when_there_is_no_omdb_key(self, conn, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: {"imdb": "1.0"})
+        monkeypatch.setattr(_enrichment, "get_omdb_key", lambda *_a: None)
+
+        assert search()["imdb_rating"] == "7.5"
+
+    def test_after_no_answer_a_search_does_not_ask_omdb_again_for_a_while(self, conn, monkeypatch):
+        asked = []
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: asked.append(1) or None)
+
+        search()
+        second = search()
+
+        assert len(asked) == 1
+        assert second["imdb_rating"] == "7.5"
+
+    def test_the_pause_after_no_answer_ends(self, conn, monkeypatch):
+        from mediaman.web.routes.search import _enrichment
+
+        asked = []
+        search = self._stale_search(conn, monkeypatch, lambda *_a, **_k: asked.append(1) or None)
+        search()
+        monkeypatch.setattr(_enrichment, "_paused_until", 0.0)
+        search()
+
+        assert len(asked) == 2
 
     def test_drain_futures_writes_nothing_for_a_lookup_that_got_no_answer(self):
         from concurrent.futures import Future
