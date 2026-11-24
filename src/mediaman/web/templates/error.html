@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} · Mediaman{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/static/css/_error.css">{% endblock %}
+
+{% block content %}
+<div class="login-page">
+  <div class="login-card err-card">
+    <div class="err-code" aria-hidden="true">{{ status }}</div>
+    <h1 class="err-title">{{ title }}</h1>
+    <p class="err-msg">{{ message }}</p>
+    <a class="btn btn--primary btn--lg" href="/">Back to mediaman</a>
+  </div>
+</div>
+{% endblock %}

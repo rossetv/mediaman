@@ -1,0 +1,32 @@
+/* ERROR — the 404, 500 and refused-request page; it sits in the sign-in card
+   (.login-page / .login-card) and adds only its own parts. */
+
+.err-card { text-align: center; }
+
+.err-code {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 600;
+  letter-spacing: -.04em;
+  line-height: 1;
+  color: var(--t4);
+  margin-bottom: 16px;
+}
+
+.err-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  margin: 0 0 8px;
+}
+
+.err-msg {
+  font-size: 15px;
+  color: var(--t3);
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+
+@media (max-width: 479.98px) {
+  .login-card.err-card { padding: 36px 24px; }
+}

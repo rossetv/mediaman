@@ -424,8 +424,10 @@ def create_app() -> FastAPI:
     )
 
     from mediaman.web import register_security_middleware
+    from mediaman.web.error_pages import register_error_pages
 
     register_security_middleware(app)
+    register_error_pages(app)
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
