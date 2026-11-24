@@ -12,8 +12,8 @@ States:
 - ``partial`` — TV only; at least one aired season has files but not
   all aired episodes are present.
 - ``downloading`` — item is in the Arr download queue.
-- ``queued`` — item is added to Radarr/Sonarr but has no files yet
-  and is not in the queue.
+- ``queued`` — item is added to Radarr/Sonarr but has no files yet, is
+  not in the queue and is set to be fetched (an unmonitored one is not).
 - ``None`` — item is not tracked at all.
 
 ``ACTION_*`` constants are the canonical strings used as the ``action``
@@ -145,7 +145,30 @@ def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches)
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
         return ACTION_DOWNLOADING
-    return ACTION_QUEUED
+    return ACTION_QUEUED if _sonarr_will_fetch(series) else None
+
+
+def _sonarr_will_fetch(series: SonarrSeries) -> bool:
+    """Whether Sonarr, as set, is going to fetch something for *series*.
+
+    A show it holds with the series or every season unmonitored, or with every
+    monitored season complete, will never be fetched, so "queued" would be
+    false. Anything it does not say plainly (no seasons listed, no counts)
+    stays queued.
+    """
+    if series.get("monitored") is False:
+        return False
+    seasons = series.get("seasons")
+    if not isinstance(seasons, list) or not seasons:
+        return True
+    for season in seasons:
+        if season.get("monitored", True) is False:
+            continue
+        stats = _season_stats(season)
+        total = stats.get("episodeCount", 0)
+        if not (total > 0 and stats.get("episodeFileCount", 0) >= total):
+            return True
+    return False
 
 
 def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> str | None:

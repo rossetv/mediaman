@@ -470,6 +470,38 @@ class TestTmdbTitle:
         assert body["director"] == "A. Creator"
         assert [(s["number"], s["in_library"]) for s in body["seasons"]] == [(1, True), (2, False)]
 
+    UNMONITORED_SHOW = {
+        "tmdbId": 77,
+        "tvdbId": 1,
+        "monitored": False,
+        "seasons": [
+            {
+                "seasonNumber": 1,
+                "monitored": False,
+                "statistics": {"episodeCount": 8, "episodeFileCount": 0},
+            }
+        ],
+    }
+
+    def test_a_show_sonarr_holds_unmonitored_is_tracked_and_not_queued(self, viewer, tmdb, arr):
+        arr.series = [self.UNMONITORED_SHOW]
+
+        body = viewer.get("/api/watch/title/tmdb-tv-77").json()
+
+        assert body["sonarr_tracked"] is True
+        assert (body["download"]["state"], body["download"]["answered"]) == (None, True)
+
+    def test_a_pick_sonarr_holds_unmonitored_is_tracked_and_not_queued(
+        self, viewer, library, tmdb, arr
+    ):
+        arr.series = [self.UNMONITORED_SHOW]
+        rec_id = insert_suggestion(library, title="Far Shore", tmdb_id=77, media_type="tv")
+
+        body = viewer.get(f"/api/watch/title/rec-{rec_id}").json()
+
+        assert body["sonarr_tracked"] is True
+        assert body["download"]["state"] is None
+
     def test_unreachable_arr_still_answers_without_download_state(self, viewer, tmdb, arr):
         arr.down = True
 

@@ -791,3 +791,63 @@ def test_annotate_download_states_sets_pct_on_queued_and_downloading(monkeypatch
     assert results[0]["download_state"] == "downloading" and results[0]["download_pct"] == 42
     assert results[1]["download_state"] == "queued" and results[1]["download_pct"] == 0
     assert results[2]["download_state"] is None and "download_pct" not in results[2]
+
+
+def _tv_caches(series, queued=False):
+    return {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "sonarr_series": {500: series},
+        "sonarr_queue_tmdb_ids": {500} if queued else set(),
+    }
+
+
+def _season(number, monitored=True, total=8, files=0):
+    return {
+        "seasonNumber": number,
+        "monitored": monitored,
+        "statistics": {"episodeCount": total, "episodeFileCount": files},
+    }
+
+
+class TestSonarrQueuedOnlyWhenItWillFetch:
+    def test_an_unmonitored_series_is_not_queued(self):
+        series = {"tmdbId": 500, "monitored": False, "seasons": [_season(1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_a_series_whose_every_season_is_unmonitored_is_not_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, monitored=False), _season(2, monitored=False)],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_a_monitored_season_that_lacks_files_keeps_it_queued(self):
+        series = {
+            "tmdbId": 500,
+            "monitored": True,
+            "seasons": [_season(1, monitored=False), _season(2, total=8, files=3)],
+        }
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
+
+    def test_monitored_seasons_that_are_complete_leave_nothing_to_fetch(self):
+        series = {"tmdbId": 500, "monitored": True, "seasons": [_season(1, total=8, files=8)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) is None
+
+    def test_an_unmonitored_series_in_the_queue_is_still_downloading(self):
+        series = {"tmdbId": 500, "monitored": False, "seasons": [_season(1)]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series, queued=True)) == "downloading"
+
+    def test_an_entry_with_no_seasons_or_monitored_flag_stays_queued(self):
+        assert compute_download_state("tv", 500, _tv_caches({"tmdbId": 500})) == "queued"
+
+    def test_a_monitored_season_with_no_counts_stays_queued(self):
+        series = {"tmdbId": 500, "seasons": [{"seasonNumber": 1, "monitored": True}]}
+
+        assert compute_download_state("tv", 500, _tv_caches(series)) == "queued"
