@@ -50,9 +50,10 @@
 
   function hasBadge(card) { return !!card.querySelector('.watch-badge--watched'); }
 
+  /* Not one on its way out of its row (is-kept) or of the grid (is-gone). */
   function continueCards(root, ref) {
     return withAttr(root, 'data-dismiss-ref', ref).filter(function (n) {
-      return n.classList.contains('watch-card') && !n.classList.contains('is-kept');
+      return n.classList.contains('watch-card') && !n.classList.contains('is-kept') && !n.classList.contains('is-gone');
     });
   }
 

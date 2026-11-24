@@ -300,6 +300,16 @@ const scenarios = {
     };
   },
 
+  // A card an open grid has let go of fades out on its own: a change that follows finds it no more.
+  async ghostInGrid() {
+    const p = load(watchPage([row('cont', CONTINUE), ['div', { id: 'host' }, CONTINUE[0]]]));
+    const ghost = p.cards('host')[0];
+    ghost.classList.add('is-gone');
+    p.dismissed('movie-1');
+    await settle();
+    return [p.marks('cont'), p.marks('host'), ghost.classList.contains('is-kept')];
+  },
+
   async dismissRefused() {
     const p = load(watchPage([row('cont', CONTINUE)]), { api: { 'POST /api/watch/dismissed/movie-1': 500 } });
     await p.pick(p.cards()[0], 'dismiss');

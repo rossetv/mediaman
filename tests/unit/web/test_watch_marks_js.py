@@ -148,6 +148,10 @@ def test_an_undo_gives_the_focus_to_a_control_that_is_shown() -> None:
     }
 
 
+def test_a_card_fading_out_of_the_grid_is_taken_out_once() -> None:
+    assert _run("ghostInGrid") == [["episode/22", "movie/3"], ["movie/1"], False]
+
+
 def test_a_dismissal_the_server_refuses_leaves_the_card() -> None:
     out = _run("dismissRefused")
     assert out == {"marks": ["movie/1", "episode/22", "movie/3"], "variant": "error"}
