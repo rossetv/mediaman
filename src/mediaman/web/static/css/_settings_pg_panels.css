@@ -472,8 +472,8 @@
   .setg-pg .usr-actions .btn { min-height: 44px; }
 }
 
-/* Wide enough for "Testing…" and "Select recipients", so the label changing moves nothing. */
-.setg-pg .btn-test[data-test-service] { min-width: 7em; }
+/* Wide enough for "Test saved" and "Select recipients", so the label changing moves nothing. */
+.setg-pg .btn-test[data-test-service] { min-width: 7.75em; }
 .setg-pg #btn-send-newsletter { min-width: 10.75em; }
 
 @media (max-width: 699.98px) {

@@ -14,11 +14,13 @@
  *   MM.api            (core/api.js — told when edits are unsaved)
  *   MM.settings.diskThresholds / MM.settings.toggles (Discard puts their
  *                     state back)
+ *   MM.settings.integrations.paintTests (told of every edit, save and discard)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
  *   MM.settings.savebar.markDirty()
  *   MM.settings.savebar.markClean()
+ *   MM.settings.savebar.isEdited(el)   — el differs from what was last saved
  *
  * `getPayload` is the function general.js exposes as collectSettings();
  * keeping the contract narrow lets the file render unit-friendly without
@@ -40,6 +42,12 @@
     edits += 1;
     if (savebar) savebar.classList.add('on');
     onEdit();
+    paintTests();
+  }
+
+  // Each Test button says when it would test other values than those shown.
+  function paintTests() {
+    if (MM.settings.integrations) MM.settings.integrations.paintTests();
   }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
@@ -90,11 +98,17 @@
     );
   }
 
+  function valueOf(el) {
+    return (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
+  }
+
+  function isEdited(el) {
+    return !!saved && el.id in saved.values && saved.values[el.id] !== valueOf(el);
+  }
+
   function snapshot() {
     var values = {};
-    settingsControls().forEach(function (el) {
-      values[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? el.checked : el.value;
-    });
+    settingsControls().forEach(function (el) { values[el.id] = valueOf(el); });
     var disk = MM.settings.diskThresholds ? MM.settings.diskThresholds.state() : null;
     return { values: values, disk: disk };
   }
@@ -108,6 +122,7 @@
     });
     if (saved.disk && MM.settings.diskThresholds) MM.settings.diskThresholds.restore(saved.disk);
     if (MM.settings.toggles && MM.settings.toggles.sync) MM.settings.toggles.sync();
+    paintTests();
   }
 
   // Plain wording for the codes the settings route sends without a message.
@@ -263,6 +278,7 @@
           // partial success (shouldn't happen, but be defensive).
           if (data.status === 'saved' || data.ok !== false) {
             saved = sent;
+            paintTests();
             refreshOverviewHero();
             if (edits !== editsSent) {
               saveBtn.textContent = SAVE_LABEL;
@@ -341,5 +357,6 @@
     init: init,
     markDirty: markDirty,
     markClean: markClean,
+    isEdited: isEdited,
   };
 })();

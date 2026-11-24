@@ -911,6 +911,54 @@ const scenarios = {
     return { unreachable: await count(() => Promise.reject({})), none: await count(libs()), oneGone: await count(libs(1, 2, 3)) };
   },
 
+  // A test reads the saved settings, which its button says while its card holds other values.
+  async testWhileUnsaved() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const cards = ['Plex', 'Sonarr'].map((name) => {
+      const card = h.add('div', { className: 'intg-card' }, page);
+      h.add('h3', {}, card)._text = name;
+      const btn = h.add('button', { className: 'btn-test' }, card);
+      btn.setAttribute('data-test-service', name.toLowerCase());
+      btn.textContent = 'Test';
+      return { btn, input: h.add('input', { id: name.toLowerCase() + '_url', value: 'a', type: 'text' }, card) };
+    });
+    const [plex, sonarr] = cards;
+    const toasts = [];
+    h.ctx.MM.api = { put: () => Promise.resolve({ status: 'saved' }), post: () => Promise.resolve({}), messageOf: () => 'x' };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast: (m) => toasts.push(m), confirm: () => Promise.resolve(true) };
+    h.load('settings/savebar.js'); h.load('settings/integrations.js');
+    h.ctx.MM.settings.savebar.init({});
+    h.ctx.MM.settings.integrations.init();
+    h.drain(); await h.flush();
+    const labels = () => cards.map((c) => c.btn.textContent);
+    const edit = (v) => { plex.input.value = v; plex.input.fire('input'); };
+    const out = { clean: labels() };
+    sonarr.btn.fire('click'); await h.flush(); h.drain();
+    out.quiet = toasts.length;
+    edit('b');
+    out.edited = labels();
+    plex.btn.fire('click'); await h.flush();
+    out.told = toasts.slice();
+    h.drain();
+    out.afterTest = labels();
+    edit('a');
+    out.putBack = labels();
+    edit('b');
+    save.fire('click'); await h.flush();
+    out.saved = labels();
+    h.drain();
+    edit('c');
+    discard.fire('click'); await h.flush();
+    out.discarded = labels();
+    return out;
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

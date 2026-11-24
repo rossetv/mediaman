@@ -257,6 +257,16 @@ def test_library_count_never_says_more_are_selected_than_plex_has() -> None:
     }
 
 
+def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> None:
+    out = _run("testWhileUnsaved")
+    plain = ["Test", "Test"]
+    assert out["clean"] == out["putBack"] == out["saved"] == out["discarded"] == plain
+    assert out["quiet"] == 0
+    # only the card that was edited
+    assert out["edited"] == out["afterTest"] == ["Test saved", "Test"]
+    assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"
