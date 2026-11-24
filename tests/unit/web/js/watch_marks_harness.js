@@ -96,7 +96,7 @@ function load(page, opts = {}) {
       const sent = typeof opts.next === 'function' ? opts.next(fetched.length, calls) : undone ? page : opts.next;
       return Promise.resolve(sent).then((spec) => ({ ok: true, redirected: !!opts.redirected, text: () => Promise.resolve(JSON.stringify(spec)) }));
     },
-    UIFeedback: { toast: (message, o) => toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick }) },
+    UIFeedback: { toast: (message, o) => toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick, dialog: o.dialog ? o.dialog.id : null }) },
     MM: { api: { get: call('GET'), post: call('POST'), delete: call('DELETE'), messageOf: (_e, f) => f } },
     addEventListener() {},
     scrollBy() {},
@@ -369,7 +369,7 @@ const scenarios = {
     b.focus();
     click(p.doc, b);
     await settle();
-    const out = { marks: p.marks(), focus: p.focus(), events: p.events };
+    const out = { marks: p.marks(), focus: p.focus(), events: p.events.slice(), dialog: p.toasts[0].dialog };
     p.doc.activeElement = p.doc.body;
     await p.undo();
     const afterUndo = p.focus();
@@ -377,7 +377,11 @@ const scenarios = {
     click(p.doc, b);
     p.doc.activeElement = p.doc.body;
     await settle();
-    return { ...out, afterUndo, touched: p.focus() };
+    const touched = p.focus();
+    p.doc.documentElement.classList.remove('has-ttl');
+    click(p.doc, p.doc.querySelector('[data-mark-toggle]'));
+    await settle();
+    return { ...out, afterUndo, touched, onPage: p.toasts[p.toasts.length - 1].dialog };
   },
 
   // The show's own page follows an episode's mark: Play, the tabs and every toggle.

@@ -183,11 +183,16 @@
 
   /* ── Leaving Continue watching ── */
 
+  /* Details, while it is open over the page. */
+  function detailsShown() {
+    return document.documentElement.classList.contains('has-ttl') ? byId('ttl') : null;
+  }
+
   /* Whether the focus goes with *node*, or has gone already. Not while Details
      is open over the page: it keeps its own. */
   function focusLost(node) {
     var active = document.activeElement;
-    if (document.documentElement.classList.contains('has-ttl')) return false;
+    if (detailsShown()) return false;
     return !active || active === document.body || active.tagName === 'MAIN' || !document.body.contains(active) ||
       !!(node && node.contains(active)) || !!active.closest('[inert], .ui-toast');
   }
@@ -472,7 +477,7 @@
       done.undos = paint(mark, watched);
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
       if (watched && !done.part) leaveContinue(ref, done);
-      var opts = { variant: 'success' };
+      var opts = { variant: 'success', dialog: detailsShown() };
       if (data.changed) opts.action = { label: 'Undo', onClick: function () { undoChange(mark, watched, name, ref, done); } };
       core.toast('Marked ' + name + ' as ' + (watched ? 'watched.' : 'not watched.'), opts);
       setBusy(mark, false);
@@ -518,9 +523,9 @@
 
   /* Where an undone mark is now: in Details while that is open over the page. */
   function toggleOf(mark) {
-    var over = document.documentElement.classList.contains('has-ttl');
+    var over = detailsShown();
     return withAttr(document, 'data-mark-toggle', mark).filter(function (b) {
-      return b.getClientRects().length && (!over || b.closest('#ttl'));
+      return b.getClientRects().length && (!over || over.contains(b));
     })[0];
   }
 

@@ -198,7 +198,9 @@ def test_under_details_the_rows_change_but_focus_stays_in_details() -> None:
     assert out["marks"] == ["episode/22", "movie/3"]
     assert (out["focus"], out["afterUndo"]) == ("in-details", "in-details")
     assert out["touched"] == "BODY"
-    assert out["events"][0] == "movie-1"
+    # Details is told once, and Ctrl+Z reaches the Undo of a mark made in it.
+    assert out["events"] == ["movie-1"]
+    assert (out["dialog"], out["onPage"]) == ("ttl", None)
 
 
 def test_a_show_page_follows_an_episode_s_mark_where_it_stands() -> None:
