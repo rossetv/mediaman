@@ -297,9 +297,29 @@ class TestFetchSonarrQueueSearching:
         ]
         (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
         assert card["stuck_seasons"] == [
-            {"number": 1, "missing_episodes": 8},
-            {"number": 2, "missing_episodes": 0},
+            {"number": 1, "missing_episodes": 8, "aired": False},
+            {"number": 2, "missing_episodes": 0, "aired": False},
         ]
+
+    def test_a_season_says_whether_any_of_it_has_aired(self):
+        seasons = [
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {"episodeCount": 8, "previousAiring": "2020-01-01T00:00:00Z"},
+            },
+            {"seasonNumber": 2, "monitored": True},
+            {"seasonNumber": 3, "monitored": True},
+        ]
+        episodes = [
+            {"seasonNumber": 2, "airDateUtc": "2021-01-01T00:00:00Z"},
+            {"seasonNumber": 3, "airDateUtc": "2099-01-01T00:00:00Z"},
+            {"seasonNumber": 3},
+        ]
+        (card,) = fetch_sonarr_queue(
+            _client(series=[_searching_series(seasons=seasons)], episodes=episodes)
+        )
+        assert [s["aired"] for s in card["stuck_seasons"]] == [True, True, False]
 
     def test_get_series_exception_does_not_crash(self):
         """Network error from get_series is swallowed; queue cards returned."""

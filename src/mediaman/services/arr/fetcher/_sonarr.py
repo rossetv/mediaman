@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, cast
 
 import requests
@@ -15,13 +15,13 @@ from mediaman.services.arr.fetcher._base import (
     clamp_progress,
     make_arr_card,
 )
-from mediaman.services.arr.state import _sonarr_will_fetch
+from mediaman.services.arr.state import _season_has_aired, _sonarr_will_fetch
 from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 from mediaman.core.format import format_bytes
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.downloads.download_format import (
     classify_series_upcoming,
     compute_series_released_at,
@@ -208,16 +208,25 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
     return items
 
 
-def _monitored_seasons(series: SonarrSeries) -> list[dict[str, int]]:
+def _monitored_seasons(
+    series: SonarrSeries, episodes: Sequence[ArrEpisode]
+) -> list[dict[str, int]]:
     """Return the monitored seasons of a series without files, with the episodes each misses.
 
     A season still to air counts none missing but is listed: left monitored, it keeps
     the series searching after the others are abandoned.
     """
+    now = now_utc()
+    aired = {
+        ep.get("seasonNumber")
+        for ep in episodes
+        if (airs := parse_iso_utc(ep.get("airDateUtc"))) is not None and airs <= now
+    }
     return [
         {
             "number": season["seasonNumber"],
             "missing_episodes": (season.get("statistics") or {}).get("episodeCount", 0),
+            "aired": _season_has_aired(season) or season["seasonNumber"] in aired,
         }
         for season in series.get("seasons") or []
         if season.get("monitored") and isinstance(season.get("seasonNumber"), int)
@@ -292,7 +301,7 @@ def _build_still_searching_cards(
             is_upcoming=is_upcoming,
             release_label=release_label,
         )
-        card["stuck_seasons"] = _monitored_seasons(series)
+        card["stuck_seasons"] = _monitored_seasons(series, episodes_raw)
         items.append(card)
     return items
 

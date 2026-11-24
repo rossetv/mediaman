@@ -193,6 +193,7 @@ class ArrEpisode(TypedDict, total=False):
     seasonNumber: int
     episodeNumber: int
     title: str
+    airDateUtc: str
     monitored: bool
     hasFile: bool
 

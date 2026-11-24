@@ -166,8 +166,8 @@ class ArrCard(BaseArrCard, total=False):
     episode_count: int
     downloading_count: int
     has_pack: bool
-    # Seasons Abandon can unmonitor, as {"number", "missing_episodes"}; only on a
-    # series still searching, which has no queue episodes to read them from.
+    # Seasons Abandon can unmonitor, as {"number", "missing_episodes", "aired"}; only
+    # on a series still searching, which has no queue episodes to read them from.
     stuck_seasons: list[dict[str, int]]
 
 

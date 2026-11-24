@@ -282,3 +282,15 @@ def test_a_second_reauth_cancels_the_first() -> None:
 def test_the_season_picker_is_hidden_unless_a_show_has_several_stuck_seasons() -> None:
     out = _run("abandonList")
     assert out == {"movie": True, "picker": False, "movieAgain": True}
+
+
+def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> None:
+    out = _run("abandonSeasons")
+    assert out["rows"] == [
+        ["Specials", "4 missing episodes", False, "false"],
+        ["Season 1", "1 missing episode", True, "true"],
+        ["Season 2", "6 missing episodes", True, "true"],
+        ["Season 3", "No missing episodes", False, "false"],
+        ["Season 4", "Not aired yet", False, "false"],
+    ]
+    assert out["label"] == "Abandon 2 seasons"

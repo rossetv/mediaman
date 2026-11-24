@@ -308,6 +308,25 @@ scenarios.abandonSwitchesLocked = async function () {
   return { picked, oneLeft, during, after: status(r) };
 };
 
+// what the season picker starts with, and which seasons a confirm sends
+scenarios.abandonSeasons = async function () {
+  const r = abandonRig();
+  r.openItem('s1', 'series', [
+    { number: 0, missing_episodes: 4, aired: true },
+    { number: 1, missing_episodes: 1, aired: true },
+    { number: 2, missing_episodes: 6, aired: true },
+    { number: 3, missing_episodes: 0, aired: true },
+    { number: 4, missing_episodes: 0, aired: false },
+  ]);
+  const rows = r.list.querySelectorAll('.setg-row').map((row) => [
+    row.querySelector('.setg-row-lbl').textContent,
+    row.querySelector('.setg-row-sub').textContent,
+    row.querySelector('.tog').classList.contains('on'),
+    row.querySelector('.tog').getAttribute('aria-checked'),
+  ]);
+  return { rows, ...status(r) };
+};
+
 scenarios.hero = async function () {
   const h = build(() => Promise.resolve({}));
   ['core/dom.js', 'downloads/build_dom.js'].forEach(h.load);
