@@ -407,6 +407,7 @@
     swapNotice = null;
     override = null;
     stalls = 0;
+    clearTimeout(stallTimer);
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
@@ -496,7 +497,7 @@
   /* One step, or further where the connection measured slower than that. One
      that has played nothing has measured nothing: half of what is left. */
   function stepDown() {
-    if (starting || !streamId) return false;
+    if (quality !== 'auto' || starting || !streamId) return false;
     var lower = lowerRows();
     if (!lower.length) return false;
     if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);

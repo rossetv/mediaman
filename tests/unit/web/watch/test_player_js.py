@@ -329,6 +329,8 @@ def test_each_quality_the_person_tries_may_be_refused_without_ending_the_video(m
 def test_a_picked_quality_never_changes_by_itself(markup):
     saved = {"mediaman.watch.quality": "1080p-8000"}
     assert run(markup, "fixed_stalls", saved=saved) == ["1080p-8000"]
+    # Nor when a stall that Automatic was waiting out goes on after the pick.
+    assert run(markup, "picked_in_stall") == {"starts": ["auto"], "saved": "1080p-8000"}
 
 
 def test_a_refused_step_goes_back_without_a_word(markup):

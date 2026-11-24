@@ -1182,6 +1182,31 @@ class TestTitleDownloadNotify:
 
         assert self._notify(emailed, "tmdb-movie-12") is False
 
+    def test_another_persons_request_to_the_same_address_is_not_told(self, emailed, library):
+        insert_download_notification(library, email=self.OWN, username="casey", tmdb_id=12)
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
+    def test_an_own_request_is_still_owed_after_the_address_changed(self, emailed, library):
+        insert_download_notification(
+            library, email="old@example.com", username="viewer", tmdb_id=12
+        )
+
+        assert self._notify(emailed, "tmdb-movie-12") is True
+
+    def test_one_that_names_nobody_is_not_told_while_two_people_hold_the_address(
+        self, emailed, library
+    ):
+        insert_download_notification(library, email=self.OWN, tmdb_id=12)
+        library.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at, email)"
+            " VALUES ('casey', 'unused', '2026', ?)",
+            (self.OWN.upper(),),
+        )
+        library.commit()
+
+        assert self._notify(emailed, "tmdb-movie-12") is False
+
     def test_a_person_with_no_email_is_not_looked_up(self, viewer, tmdb, arr, monkeypatch):
         def looked_up(*_a, **_k):
             raise AssertionError("looked up")
@@ -1199,6 +1224,8 @@ class TestTitleDownloadNotify:
         arr.get_movie_by_tmdb = lambda _id: None
         assert emailed.post("/api/search/download", json=body).status_code == 200
         assert self._notify(emailed, "tmdb-movie-12") is True
+        row = library.execute("SELECT username FROM download_notifications").fetchone()
+        assert row["username"] == "viewer"
 
 
 class TestDownloadForgetsHeldArrState:

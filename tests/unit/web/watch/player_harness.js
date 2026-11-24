@@ -915,6 +915,18 @@ const scenarios = {
     return p.starts();
   },
 
+  /* A quality is picked while a long stall of Automatic's is being waited out. */
+  async picked_in_stall(p) {
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 30);
+    playOn(p, 5);
+    fire(p.video, 'waiting');
+    click(p.q('[data-quality="1080p-8000"]'));
+    p.tick(12000);
+    await settle();
+    return { starts: p.starts(), saved: p.storage['mediaman.watch.quality'] };
+  },
+
   /* The server refuses a step Automatic takes. */
   async auto_refused(p) {
     p.replies[0] = answer('1080p-8000');

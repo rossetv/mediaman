@@ -399,6 +399,59 @@ def test_stop_with_a_final_position_saves_it_then_stops(alice, conn, clock):
     assert alice.get(f"/api/watch/stream/{stream_id}/index.m3u8").status_code == 410
 
 
+_EARLIER = "2020-01-01T00:00:00+00:00"
+
+
+def _saved_earlier(client, conn, clock, stream_id: str) -> None:
+    clock.now += 100
+    place = {"stream_id": stream_id, "position_s": 900.5, "played_s": 100}
+    assert client.post("/api/watch/progress", json=place).status_code == 200
+    conn.execute("UPDATE watch_progress SET updated_at = ?", (_EARLIER,))
+    conn.commit()
+
+
+@pytest.mark.parametrize("ended", ["live", "reaped", "restarted"])
+def test_leaving_a_paused_player_does_not_count_as_playing(alice, conn, clock, ended):
+    stream_id = _stream(alice, "201")
+    _saved_earlier(alice, conn, clock, stream_id)
+    if ended == "reaped":
+        _reap_after_idle(clock)
+    elif ended == "restarted":
+        stream_id = _stream(alice, "201")
+
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 900.5, "played_s": 100})
+
+    [row] = _progress_rows(conn)
+    assert row["updated_at"] == _EARLIER
+
+
+def test_leaving_a_paused_player_keeps_a_mark_made_meanwhile(alice, conn, clock):
+    stream_id = _stream(alice, "201")
+    _saved_earlier(alice, conn, clock, stream_id)
+    conn.execute("UPDATE watch_progress SET watched = 1")
+    conn.commit()
+
+    alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 900.5, "played_s": 100})
+
+    assert _progress_rows(conn)[0]["watched"] == 1
+
+
+@pytest.mark.parametrize(
+    ("position", "played"), [(950, 100), (900.5, 160)], ids=["moved", "played back to it"]
+)
+def test_a_final_stop_after_moving_or_playing_is_saved(alice, conn, clock, position, played):
+    stream_id = _stream(alice, "201")
+    _saved_earlier(alice, conn, clock, stream_id)
+    clock.now += 60
+
+    alice.post(
+        f"/api/watch/stream/{stream_id}/stop", json={"position_s": position, "played_s": played}
+    )
+
+    [row] = _progress_rows(conn)
+    assert (row["position_s"], row["updated_at"] > _EARLIER) == (position, True)
+
+
 def test_stop_clamps_the_played_time_like_progress(alice, conn):
     stream_id = _stream(alice)
     alice.post(f"/api/watch/stream/{stream_id}/stop", json={"position_s": 500, "played_s": 1e9})

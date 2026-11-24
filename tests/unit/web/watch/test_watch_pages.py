@@ -325,6 +325,15 @@ class TestWatchRows:
         assert ctx["banner"]["title"] == "Glasshouse"
         assert ctx["banner"]["ref"] == "movie-101"
 
+    def test_a_seen_episode_reopened_for_a_moment_is_followed_by_the_next(self, get, conn):
+        _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
+        _play(conn, "aoife", "511", position=10, duration=3000, item="501", show="500")
+
+        [card] = _rows(get("/watch").json())["Continue watching"]
+
+        assert card["subtitle"] == "S1 · E2"
+        assert card["progress_pct"] is None
+
     def test_finished_episode_is_followed_by_the_next_unwatched_one(self, get, conn):
         _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
 
@@ -795,6 +804,16 @@ class TestShowPage:
         _mark(conn, "511")
         assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E2"
 
+    def test_a_seen_episode_reopened_for_a_moment_gives_way_to_the_next_unseen(self, get, conn):
+        _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
+        _play(conn, "aoife", "511", position=10, duration=3000, item="501", show="500")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E2"
+
+    def test_a_seen_episode_being_replayed_is_resumed(self, get, conn):
+        _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
+        _play(conn, "aoife", "511", position=900, duration=3000, item="501", show="500")
+        assert get("/watch/show/500").json()["primary"]["label"] == "Resume S1 · E1"
+
     def test_after_the_last_episode_it_plays_an_earlier_one_never_seen(self, get, conn):
         _play(conn, "aoife", "522", position=3000, duration=3000, item="502", show="500")
         assert get("/watch/show/500").json()["primary"]["label"] == "Play S1 · E1"
@@ -1115,6 +1134,7 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     # An episode is gone from Plex: the text must not call it a film.
     play = client.get("/watch/play/123456")
     assert play.status_code == 200
+    assert "data-plex-unavailable" not in play.text
     assert "This is not in the library any more." in play.text
     page = re.sub(r'<svg class="ico-sprite".*?</svg>', "", play.text, flags=re.S)
     assert "film" not in page.lower()
@@ -1123,6 +1143,7 @@ def test_gone_and_unreachable_pages_say_so_in_plain_words(
     play = client.get("/watch/play/512")
     assert play.status_code == 200
     assert "Can't reach Plex right now." in play.text
+    assert re.search(r'<div [^>]*id="watch-page"[^>]* data-plex-unavailable[ >]', play.text)
 
 
 def _show_html(app_factory, conn, monkeypatch, url: str, *scheduled: tuple[str, int]) -> str:
