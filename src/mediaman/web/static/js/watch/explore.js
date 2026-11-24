@@ -311,6 +311,7 @@
     var bars = {};
     var say = speaker();
     var gathering = null; // the line that says so
+    var drawn = false; // whether what may move is on the page
     var asked = 0;
     f.title.textContent = name;
 
@@ -338,6 +339,7 @@
             gone(f, mine.list, 'Category not found', 'There is no such category.');
             stage().token({ icon: icon(want.id), name: 'Category' });
           }
+          if (open === mine) reveal();
           throw err;
         });
       }
@@ -359,13 +361,14 @@
 
     function learn(reply) {
       if (!reply) return;
-      if (reply.tmdb_configured === false) { mine.list.stop(); notSetUp(f); return; }
+      if (reply.tmdb_configured === false) { mine.list.stop(); notSetUp(f); reveal(); return; }
       if (reply.genre && reply.genre.name !== f.title.textContent) {
         f.title.textContent = reply.genre.name;
         stage().token({ icon: icon(want.id), name: reply.genre.name });
       }
       if (reply.genre) settleTypes(reply.genre);
       settleWhere(reply.library);
+      reveal();
       f.facts.textContent = words(reply.total);
       say.page(f.title.textContent + ', ' + f.facts.textContent);
     }
@@ -378,13 +381,19 @@
       if (filter.type !== 'all' && g.types.indexOf(filter.type) === -1) change('type', 'all');
     }
 
-    /* Offered once the library's own genres are known. A link may come before that. */
+    function reveal() {
+      drawn = true;
+      filters.classList.remove('is-unknown');
+      f.host.classList.remove('is-unknown');
+    }
+
+    /* Offered once the library's own genres are known. A link may come before
+       that. Once drawn, the line above the grid neither comes nor gives up its place. */
     function settleWhere(library) {
       if (!library) return;
-      bars.where.classList.remove('is-unknown');
-      bars.where.hidden = !library.ready;
+      if (library.ready) bars.where.hidden = false;
       var early = !library.ready && filter.where === 'library';
-      if (early && !gathering) {
+      if (early && !gathering && !drawn) {
         gathering = el('p', 'results-hint explore-gathering');
         gathering.appendChild(window.MM.dom.icon('i-circle-info'));
         var text = el('span', '', 'What is in your library is still being gathered, so some of it may be missing. ');
@@ -399,17 +408,17 @@
         f.host.before(gathering);
         stage().rise(gathering);
       }
-      if (!early && gathering) {
-        gathering.remove();
-        gathering = null;
-      }
+      if (gathering) gathering.classList.toggle('is-unknown', !early);
     }
 
     function change(key, value) {
       filter[key] = value;
       address.replace('explore', address.url(query(filter)));
       f.facts.textContent = words();
-      if (gathering) settleWhere(held.library || { ready: false });
+      if (gathering && filter.where !== 'library') {
+        gathering.remove();
+        gathering = null;
+      }
       load();
     }
 
@@ -432,13 +441,16 @@
     bars.type = segments('Type', TYPES, filter.type, function (v) { change('type', v); });
     bars.sort = segments('Order', SORTS, filter.sort, function (v) { change('sort', v); });
     bars.where = segments('Where', WHERES, filter.where, function (v) { change('where', v); });
-    // Its place is held until it is known whether it is offered.
-    bars.where.classList.add('is-unknown');
+    bars.where.hidden = true;
     filters.appendChild(bars.type);
     filters.appendChild(bars.sort);
-    filters.appendChild(bars.where);
     var years = yearsMenu(filter.decade, function (v) { change('decade', v); });
     filters.appendChild(years.node);
+    // Last: it may come later, and nothing after it moves.
+    filters.appendChild(bars.where);
+    // Their places are held until it is known which are offered, and whether a line pushes the grid down.
+    filters.classList.add('is-unknown');
+    f.host.classList.toggle('is-unknown', filter.where === 'library');
     f.node.appendChild(filters);
     f.node.appendChild(f.host);
     f.facts.textContent = words();
@@ -453,11 +465,14 @@
     f.title.focus({ preventScroll: true });
     if (arrived) settleWhere(held.library || { ready: false });
     if (known) settleTypes(known);
-    else categories().then(function (all) {
+    if (arrived) reveal();
+    if (!known) categories().then(function (all) {
       if (open !== mine) return;
       years.fill(all.decades);
-      if (arrived) settleWhere(all.library || { ready: false });
+      if (!arrived) return; // the first page will say
+      settleWhere(all.library || { ready: false });
       if (genre(want.id)) settleTypes(genre(want.id));
+      reveal();
     });
   }
 

@@ -540,3 +540,13 @@ def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_can
     assert out["titles"] == ["Orchard Road"]
     assert out["person"] == [None, 1]
     assert out["one"] == [None, "No matches for “z”"]
+
+
+def test_a_category_s_page_shows_nothing_that_would_move_before_it_is_known() -> None:
+    out = _run("drawnOnceKnown")
+    # What may come or go stands last, so nothing after it moves.
+    assert out["order"] == ["Type", "Order", "Years", "Where"]
+    assert out["any"] == [[False, True], [True, True]]
+    assert out["library"] == [[False, False], [True, True], True, False]
+    assert out["page"] == [[True, True], None, False]
+    assert out["failed"] == [True, True]

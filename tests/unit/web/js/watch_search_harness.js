@@ -1173,6 +1173,42 @@ const scenarios = {
     return out;
   },
 
+  // A link is opened before the categories are in: nothing that could move is on the page until it is known what stands there.
+  async drawnOnceKnown() {
+    const cats = (ready) => ({ tmdb_configured: true, genres: GENRES, decades: DECADES, library: { ready }, people: [] });
+    const reply = (ready) => ({ tmdb_configured: true, genre: GENRES[0], items: [TM], total: 12, next_page: null, library: { ready } });
+    const seen = (p) => ['.explore-filters', '.explore-grid'].map((s) => !p.doc.querySelector(s).classList.contains('is-unknown'));
+    const note = (p) => { const n = p.doc.querySelector('.explore-gathering'); return n && !n.classList.contains('is-unknown'); };
+    const known = async (p, payload) => { p.calls.filter((c) => c.url === '/api/watch/explore')[0].resolve(payload); await settle(); };
+    const out = {};
+    const p = load(ADMIN, '', '/watch?genre=action', null);
+    out.order = p.doc.querySelector('.explore-filters').children.map((n) => n.getAttribute('aria-label') || 'Years');
+    out.any = [seen(p)];
+    await known(p, cats(false));
+    out.any.push(seen(p));
+
+    const held = load(ADMIN, '', '/watch?genre=action&where=library', null);
+    out.library = [seen(held)];
+    await known(held, cats(false));
+    out.library.push(seen(held), note(held));
+    // The first page says otherwise: the line goes and its place stays.
+    await held.answer('where=library', reply(true));
+    out.library.push(note(held));
+
+    // The first page alone is enough to know; a later word does not push the grid down.
+    const page = load(ADMIN, '', '/watch?genre=action&where=library', null);
+    await page.answer('where=library', reply(true));
+    out.page = [seen(page)];
+    await known(page, cats(false));
+    out.page.push(note(page), page.doc.querySelectorAll('.explore-seg').filter((n) => n.getAttribute('aria-label') === 'Where')[0].hidden);
+
+    const failed = load(ADMIN, '', '/watch?genre=action&where=library', null);
+    failed.calls.forEach((c) => c.reject(new Error('502')));
+    await settle();
+    out.failed = seen(failed);
+    return out;
+  },
+
   // A person who could not be had is asked for anew by the next try.
   async personAgain() {
     const p = await ready(ADMIN, '', '/watch?person=9001');
