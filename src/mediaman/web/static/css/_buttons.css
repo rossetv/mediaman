@@ -170,3 +170,10 @@
   .empty p a { position: relative; }
   .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
 }
+
+/* The system's colours: an edge where the fill was, and the choice that is on. */
+@media (forced-colors: active) {
+  .keep-trigger,
+  .btn-sm-caret { border: 1px solid ButtonText; }
+  .fpill.on { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+}

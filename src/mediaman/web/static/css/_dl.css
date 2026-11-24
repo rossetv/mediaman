@@ -477,3 +477,19 @@
   .abandon-modal-actions { flex-direction: column; }
   .abandon-modal-actions .btn { width: 100%; min-height: 44px; }
 }
+
+/* The system's colours take every fill: the bars get an edge and the system's own. */
+@media (forced-colors: active) {
+  .dl-bar,
+  .dl-hero-bar,
+  .dl-row-bar,
+  .dl-compact-bar,
+  .dl-ep-mini-bar { height: 8px; border: 1px solid CanvasText; }
+  .dl-bar-fill,
+  .dl-hero-fill,
+  .dl-row-bar-fill,
+  .dl-compact-fill,
+  .dl-ep-mini-fill { forced-color-adjust: none; background: Highlight; }
+  .dl-bar-fill::after,
+  .dl-hero-fill::after { display: none; }
+}

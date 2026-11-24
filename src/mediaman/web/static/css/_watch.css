@@ -924,6 +924,13 @@
 /* The system's colours: no picture behind the text, and a bar whose value still shows. */
 @media (forced-colors: active) {
   .watch-banner__bg { display: none; }
+  /* With no picture there is nothing to leave room for. */
+  .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: 24px; }
+  .watch-viewtoggle__btn[aria-current="page"],
+  .watch-pill.on { forced-color-adjust: none; color: HighlightText; }
+  .watch-viewtoggle__btn[aria-current="page"]::before,
+  .watch-pill.on { background: Highlight; }
+  .watch-keep::before { border: 1px solid ButtonText; }
   .ai-label { border: 1px solid CanvasText; }
   .watch-badge--leaving { background: Canvas; outline: 1px solid CanvasText; }
   .watch-badge--watched { background: Canvas; border-color: CanvasText; }

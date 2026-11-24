@@ -202,3 +202,7 @@
   .wl .page-of { display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; font-size: 14px; color: var(--t2); font-variant-numeric: tabular-nums; }
   .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
 }
+
+@media (forced-colors: active) {
+  .wl-stat--on { outline: 2px solid Highlight; outline-offset: -2px; }
+}
