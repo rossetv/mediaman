@@ -177,7 +177,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             MIN(id) AS id,
             COALESCE(show_title, title) AS title,
             CASE WHEN MAX(media_type) LIKE 'anime%' THEN 'anime' ELSE 'tv' END AS display_type,
-            MIN(plex_rating_key) AS plex_rating_key,
+            COALESCE(MAX(NULLIF(show_rating_key, '')), MIN(plex_rating_key)) AS plex_rating_key,
             MAX(added_at) AS added_at,
             SUM(file_size_bytes) AS file_size_bytes,
             MAX(last_watched_at) AS last_watched_at,
