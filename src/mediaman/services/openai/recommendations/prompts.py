@@ -128,9 +128,33 @@ _REASON_REFUSED = re.compile(
     rf"https?://|www\.|{DOMAIN_RE.pattern}|@"
     r"|[\[\]【】†]|\(\s*#?\d{1,3}(?:\s*,\s*#?\d{1,3})*\s*\)"
     r"|[*`]|__|^\s*(?:#|>|- )"
-    r"|\b(?:you|your|yours|yourself|because)\b",
+    r"|\b(?:you|your|yours|yourself|because|H\d+)\b",
     re.IGNORECASE,
 )
+_HYPHEN_RE = re.compile(r"(?<=\w)[-‐‑](\w)")
+_APOSTROPHES = str.maketrans(dict.fromkeys("’ʼ`", "'"))
+_NUMBER_WORDS = {
+    word: str(n)
+    for words in (
+        (
+            "Two",
+            "Three",
+            "Four",
+            "Five",
+            "Six",
+            "Seven",
+            "Eight",
+            "Nine",
+            "Ten",
+            "Eleven",
+            "Twelve",
+        ),
+        ("II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"),
+    )
+    for n, word in enumerate(words, start=2)
+}
+_NUMBER_WORD_RE = re.compile(rf"\b(?:{'|'.join(_NUMBER_WORDS)})\b")
+_SENTENCE_START_RE = re.compile(r"(?:^|[.!?…][\"”')]?\s)\s*$")
 _SENTENCE_END_RE = re.compile(r"[.!?][\"”')]?(?=\s|$)")
 
 
@@ -191,13 +215,41 @@ def _checked_reason(reason: str, sent_titles: Iterable[str]) -> str:
     """
     if _REASON_REFUSED.search(reason):
         return ""
-    for title in sent_titles:
-        if title and re.search(rf"(?<!\w){re.escape(title)}(?!\w)", reason):
-            return ""
+    spellings = _spellings(reason)
+    if any(_names(spellings, title) for title in sent_titles):
+        return ""
     if len(reason) <= _REASON_MAX_LEN:
         return reason
     ends = [m.end() for m in _SENTENCE_END_RE.finditer(reason) if m.end() <= _REASON_MAX_LEN]
     return reason[: ends[-1]] if ends else ""
+
+
+def _spellings(text: str) -> list[str]:
+    """*text* with its hyphenated words as two and as one, so "Spider-Man" is "Spiderman" too;
+    last each again with its numbers as digits, so "Rocky II" is "Rocky 2"."""
+    text = text.translate(_APOSTROPHES)
+    words = [_HYPHEN_RE.sub(r" \1", text), _HYPHEN_RE.sub(lambda m: m[1].lower(), text)]
+    return words + [_NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m[0]], w) for w in words]
+
+
+def _names(reason_spellings: Sequence[str], title: str) -> bool:
+    """Whether a reason names *title*. A title of one word is also an ordinary word, so it
+    names nothing where a sentence begins, and its number is not looked for in digits."""
+    one_word = re.fullmatch(r"\w+", title) is not None
+    spellings = _spellings(title)
+    for spelled in dict.fromkeys(spellings[:2] if one_word else spellings):
+        if not spelled.strip():
+            continue
+        for reason in reason_spellings[:2] if one_word else reason_spellings:
+            at = reason.find(spelled)
+            while at >= 0:
+                before, after = reason[:at], reason[at + len(spelled) :]
+                if not (re.search(r"\w$", before) or re.match(r"\w", after)) and not (
+                    one_word and _SENTENCE_START_RE.search(before)
+                ):
+                    return True
+                at = reason.find(spelled, at + 1)
+    return False
 
 
 def _because_of(raw: object, titles_by_id: Mapping[str, str]) -> list[str]:

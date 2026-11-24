@@ -149,6 +149,7 @@ class TestReasons:
             "A heist (see evil.academy).",
             "A heist told by @thief.",
             "A heist [H3] in the rain.",
+            "A heist in the manner of H12.",
             "A heist [12] in the rain.",
             "A heist (12) in the rain.",
             "A heist\u30104\u2020source\u3011 in the rain.",
@@ -162,6 +163,41 @@ class TestReasons:
     )
     def test_a_title_inside_another_word_or_in_small_letters_names_nothing(self, reason):
         assert _reason(reason, sent_titles=["Heat"]) == reason
+
+    @pytest.mark.parametrize(
+        ("title", "reason"),
+        [
+            ("Dark", "Dark comedy set in one town."),
+            ("Suits", "A heist. Suits anyone who likes plans."),
+            ("Heat", 'A quiet start! "It grows." Heat and dust follow.'),
+            ("Seven", "Meets 7 strangers on a train."),
+            ("Ocean's Eleven", "The ocean's eleven islands."),
+        ],
+    )
+    def test_a_one_word_title_at_the_start_of_a_sentence_and_plain_words_name_nothing(
+        self, title, reason
+    ):
+        assert _reason(reason, sent_titles=[title]) == reason
+
+    @pytest.mark.parametrize(
+        ("title", "reason"),
+        [
+            ("Heat", "“Heat” is its model."),
+            ("The Wire", "The Wire with boats."),
+            ("Spider-Man", "Spider-Man with boats."),
+            ("Spider-Man", "Suits fans of Spiderman."),
+            ("Spider-Man", "Suits fans of Spider Man."),
+            ("Spiderman", "Suits fans of Spider-Man."),
+            ("Spider‑Man", "Suits fans of Spider-Man."),
+            ("Ocean's Eleven", "A crew as in Ocean’s 11."),
+            ("12 Monkeys", "A loop as in Twelve Monkeys."),
+            ("Rocky II", "A bout as in Rocky 2."),
+            ("Rocky 2", "A bout as in Rocky Two."),
+            ("9-1-1", "Calls as in 911."),
+        ],
+    )
+    def test_a_title_named_in_another_spelling_is_still_named(self, title, reason):
+        assert _reason(reason, sent_titles=[title]) == ""
 
     @pytest.mark.parametrize(
         "reason",
