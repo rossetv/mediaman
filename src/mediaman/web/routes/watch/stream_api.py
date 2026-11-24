@@ -12,7 +12,8 @@ import contextlib
 import logging
 import sqlite3
 from collections.abc import Callable, Coroutine
-from typing import Annotated, Any, Literal
+from dataclasses import asdict
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
@@ -24,14 +25,25 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.infra import allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
+from mediaman.services.media_meta.plex_quality import (
+    ORIGINAL,
+    QualityId,
+    may_copy,
+    quality_rows,
+    resolve_quality,
+    without_original,
+)
 from mediaman.services.media_meta.plex_stream import (
     StreamGone,
     StreamInfo,
+    StreamManager,
     TooManyStreams,
     get_stream_manager,
 )
 from mediaman.services.media_meta.plex_watch import (
+    PREVIEW_INTERVAL_S,
     PlexError,
+    PlexItem,
     PlexItemNotFound,
     PlexNotConfigured,
     PlexWatch,
@@ -75,7 +87,7 @@ class _StartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", coerce_numbers_to_str=True)
 
     rating_key: str = Field(pattern=r"^[0-9]{1,18}$")
-    quality: Literal["best", "medium", "low"]
+    quality: QualityId
 
 
 class _ProgressRequest(BaseModel):
@@ -110,17 +122,24 @@ def _scanned_library_ids(conn: sqlite3.Connection) -> list[str]:
     return [str(v) for v in libs] if isinstance(libs, list) else []
 
 
-def _gone() -> Response:
+def stream_gone() -> Response:
     return respond_err("gone", status=410)
 
 
-def _plex_failure(exc: PlexError) -> Response:
+def plex_failure(exc: PlexError) -> Response:
     if isinstance(exc, PlexItemNotFound):
         return respond_err("not_found", status=404)
     if isinstance(exc, PlexNotConfigured):
         return respond_err("not_set_up", status=503)
     logger.warning("watch.stream: Plex call failed (%s)", type(exc).__name__)
     return respond_err("unreachable", status=502)
+
+
+def _may_play_original(manager: StreamManager, item: PlexItem) -> bool:
+    media = item.media
+    if media is None or not may_copy(item):
+        return False
+    return manager.copies_video(item.rating_key, f"{media.part_id}:{media.part_size}")
 
 
 @router.post("/api/watch/stream")
@@ -138,13 +157,13 @@ def start_stream(
         if creds is None:
             raise PlexNotConfigured("Plex is not set up")
         plex = PlexWatch(*creds, allowed_hosts=allowed_outbound_hosts(conn))
-        item = plex.get_item(body.rating_key)
+        item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
         if item.type == "movie":
-            info = {
+            info: dict[str, Any] = {
                 "duration_s": item.duration_s,
                 "media_item_id": item.rating_key,
                 "show_rating_key": None,
@@ -155,15 +174,44 @@ def start_stream(
                 "media_item_id": item.parent_rating_key,
                 "show_rating_key": item.grandparent_rating_key,
             }
-        stream_id = get_stream_manager().start(
-            username, body.rating_key, body.quality, item.subtitle_selected, info
+        if item.media is not None and item.preview_count:
+            # Kept on the server for the preview route; none of it is in the answer.
+            info["preview"] = {
+                "part_id": item.media.part_id,
+                "part_size": item.media.part_size,
+                "count": item.preview_count,
+            }
+        manager = get_stream_manager()
+        rows = quality_rows(item, original=_may_play_original(manager, item))
+        quality = resolve_quality(rows, body.quality)
+        stream_id = manager.start(
+            username,
+            body.rating_key,
+            quality,
+            item.subtitle_selected,
+            info,
+            fallback=resolve_quality(without_original(rows), ORIGINAL),
         )
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
     except PlexError as exc:
-        return _plex_failure(exc)
+        return plex_failure(exc)
+    with contextlib.suppress(StreamGone):
+        playing = manager.peek(stream_id, username).quality
+        if playing != quality:
+            quality, rows = playing, without_original(rows)
     return respond_ok(
-        {"stream_id": stream_id, "playlist": f"/api/watch/stream/{stream_id}/index.m3u8"}
+        {
+            "stream_id": stream_id,
+            "playlist": f"/api/watch/stream/{stream_id}/index.m3u8",
+            "quality": quality,
+            "qualities": rows,
+            "markers": [asdict(m) for m in item.markers],
+            "chapters": [asdict(c) for c in item.chapters],
+            "previews": {"interval_s": PREVIEW_INTERVAL_S, "count": item.preview_count}
+            if item.preview_count
+            else None,
+        }
     )
 
 
@@ -172,9 +220,9 @@ def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -
     try:
         text = get_stream_manager().playlist(stream_id, username)
     except StreamGone:
-        return _gone()
+        return stream_gone()
     except PlexError as exc:
-        return _plex_failure(exc)
+        return plex_failure(exc)
     return Response(text, media_type="application/vnd.apple.mpegurl")
 
 
@@ -187,9 +235,9 @@ def stream_segment(
     except ValueError:
         return respond_err("not_found", status=404)
     except StreamGone:
-        return _gone()
+        return stream_gone()
     except PlexError as exc:
-        return _plex_failure(exc)
+        return plex_failure(exc)
     return Response(body, media_type=content_type)
 
 
@@ -269,5 +317,5 @@ def save_watch_progress(
         with contextlib.suppress(StreamGone):
             stream = get_stream_manager().reaped(body.stream_id, username)
             _save(stream, username, body.position_s, body.played_s)
-        return _gone()
+        return stream_gone()
     return respond_ok({"watched": _save(stream, username, body.position_s, body.played_s)})

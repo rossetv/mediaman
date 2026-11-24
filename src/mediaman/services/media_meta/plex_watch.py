@@ -8,6 +8,7 @@ three domain errors below, whose messages never carry a URL or a token.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -25,13 +26,29 @@ logger = logging.getLogger(__name__)
 ItemType = Literal["movie", "episode", "show", "season"]
 _ITEM_TYPES = frozenset({"movie", "episode", "show", "season"})
 
+PREVIEW_INTERVAL_S = 5
+
 _XML_MAX_BYTES = 4 * 1024 * 1024
 _IMAGE_MAX_BYTES = 8 * 1024 * 1024
+_PREVIEW_MAX_BYTES = 256 * 1024
+# A day of frames, so a nonsense duration cannot ask for more.
+_PREVIEW_MAX_COUNT = 17280
+_JPEG_MAGIC = b"\xff\xd8\xff"
 _TIMEOUT: tuple[float, float] = (5.0, 15.0)
 _IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
 _RATING_KEY_RE = re.compile(r"[0-9]{1,18}")
 # Plex image paths are plain: no query, fragment, percent-escapes or dot segments.
 _IMAGE_PATH_RE = re.compile(r"/library/[A-Za-z0-9_\-/]+")
+
+_MAX_MARKERS = 20
+_MAX_CHAPTERS = 200
+_CHAPTER_TITLE_MAX = 120
+_MARKER_KINDS: dict[str, Literal["intro", "credits"]] = {
+    "intro": "intro",
+    "credit": "credits",
+    "credits": "credits",
+}
+_HDR_TRANSFERS = frozenset({"smpte2084", "arib-std-b67"})
 
 
 class PlexError(Exception):
@@ -51,6 +68,35 @@ class PlexItemNotFound(PlexError):
 
 
 @dataclass(frozen=True)
+class PlexMedia:
+    """The item's first version, the one Watch plays."""
+
+    width: int | None = None
+    height: int | None = None
+    resolution: str = ""  # Plex's own class: "4k", "1080", "sd", ...
+    bitrate_kbps: int | None = None
+    plain_h264: bool = False  # 8-bit SDR progressive H.264, which every browser plays
+    part_id: str | None = None  # never send it to a browser
+    part_size: str = ""
+    has_previews: bool = False
+
+
+@dataclass(frozen=True)
+class PlexMarker:
+    kind: Literal["intro", "credits"]
+    start_s: float
+    end_s: float
+    final: bool
+
+
+@dataclass(frozen=True)
+class PlexChapter:
+    title: str
+    start_s: float
+    end_s: float
+
+
+@dataclass(frozen=True)
 class PlexItem:
     type: ItemType
     rating_key: str
@@ -66,6 +112,16 @@ class PlexItem:
     parent_rating_key: str | None = None
     grandparent_rating_key: str | None = None
     grandparent_title: str | None = None
+    media: PlexMedia | None = None
+    markers: tuple[PlexMarker, ...] = ()
+    chapters: tuple[PlexChapter, ...] = ()
+
+    @property
+    def preview_count(self) -> int:
+        """How many preview frames, one every ``PREVIEW_INTERVAL_S``, the player can ask for."""
+        if self.media is None or self.media.part_id is None or not self.media.has_previews:
+            return 0
+        return min(math.ceil(self.duration_s / PREVIEW_INTERVAL_S), _PREVIEW_MAX_COUNT)
 
 
 @dataclass(frozen=True)
@@ -132,6 +188,65 @@ def _subtitle_selected(node: Element) -> bool:
     )
 
 
+def _plain_h264(video: Element) -> bool:
+    return (
+        (video.get("codec") or "").lower() == "h264"
+        and video.get("bitDepth") == "8"
+        and video.get("chromaSubsampling", "4:2:0") == "4:2:0"
+        and video.get("scanType", "progressive") == "progressive"
+        and (video.get("colorTrc") or "").lower() not in _HDR_TRANSFERS
+        and video.get("DOVIPresent", "0") != "1"
+    )
+
+
+def _media(node: Element) -> PlexMedia | None:
+    media = node.find("Media")
+    if media is None:
+        return None
+    part = media.find("Part")
+    part_id = part.get("id", "") if part is not None else ""
+    videos = [s for s in media.findall("Part/Stream") if s.get("streamType") == "1"]
+    return PlexMedia(
+        width=_int(media.get("width")),
+        height=_int(media.get("height")),
+        resolution=(media.get("videoResolution") or "").lower(),
+        bitrate_kbps=_int(media.get("bitrate")),
+        plain_h264=bool(videos) and all(_plain_h264(v) for v in videos),
+        part_id=part_id if _RATING_KEY_RE.fullmatch(part_id) else None,
+        part_size=(part.get("size") or "") if part is not None else "",
+        has_previews=part is not None and "sd" in (part.get("indexes") or "").split(","),
+    )
+
+
+def _span(node: Element, duration_s: int) -> tuple[float, float] | None:
+    """(start, end) in seconds inside the item, or None for one that cannot be drawn."""
+    start, end = _int(node.get("startTimeOffset")), _int(node.get("endTimeOffset"))
+    if start is None or end is None:
+        return None
+    start, end = max(start, 0), min(end, duration_s * 1000)
+    return (start / 1000, end / 1000) if start < end else None
+
+
+def _markers(node: Element, duration_s: int) -> tuple[PlexMarker, ...]:
+    found = []
+    for marker in node.findall("Marker"):
+        kind = _MARKER_KINDS.get(marker.get("type", ""))
+        span = _span(marker, duration_s)
+        if kind is not None and span is not None:
+            found.append(PlexMarker(kind, *span, final=marker.get("final") == "1"))
+    return tuple(sorted(found, key=lambda m: (m.start_s, m.end_s))[:_MAX_MARKERS])
+
+
+def _chapters(node: Element, duration_s: int) -> tuple[PlexChapter, ...]:
+    found = []
+    for number, chapter in enumerate(node.findall("Chapter"), 1):
+        span = _span(chapter, duration_s)
+        if span is not None:
+            title = " ".join((chapter.get("tag") or "").split())[:_CHAPTER_TITLE_MAX]
+            found.append(PlexChapter(title or f"Chapter {number}", *span))
+    return tuple(sorted(found, key=lambda c: (c.start_s, c.end_s))[:_MAX_CHAPTERS])
+
+
 def _episode(node: Element, container: Element) -> PlexEpisode:
     return PlexEpisode(
         rating_key=node.get("ratingKey", ""),
@@ -169,13 +284,20 @@ class PlexWatch:
             allowed_hosts=allowed_hosts,
         )
 
-    def _get(self, path: str, *, max_bytes: int = _XML_MAX_BYTES) -> requests.Response:
+    def _get(
+        self,
+        path: str,
+        *,
+        max_bytes: int = _XML_MAX_BYTES,
+        expected_content_type: str | None = None,
+    ) -> requests.Response:
         try:
             return self._http.get(
                 f"{self._base}{path}",
                 headers={"X-Plex-Token": self._token},
                 max_bytes=max_bytes,
                 retry=False,
+                expected_content_type=expected_content_type,
             )
         except SafeHTTPError as exc:
             if exc.status_code == 404:
@@ -204,9 +326,9 @@ class PlexWatch:
         """Raise PlexUnavailable unless the server answers its identity request."""
         self._get("/identity", max_bytes=_XML_MAX_BYTES).close()
 
-    def _metadata(self, rating_key: str) -> tuple[Element, Element]:
+    def _metadata(self, rating_key: str, query: str = "") -> tuple[Element, Element]:
         """Return (container, item node) for one rating key."""
-        container = self._xml(f"/library/metadata/{_check_key(rating_key)}")
+        container = self._xml(f"/library/metadata/{_check_key(rating_key)}{query}")
         node = next((n for n in container if n.tag in ("Video", "Directory")), None)
         if node is None or node.get("type") not in _ITEM_TYPES:
             raise PlexItemNotFound("Item not found in Plex")
@@ -216,17 +338,20 @@ class PlexWatch:
         container = self._xml(f"/library/metadata/{_check_key(rating_key)}/children")
         return container, [n for n in container if n.tag in ("Video", "Directory")]
 
-    def get_item(self, rating_key: str) -> PlexItem:
-        container, node = self._metadata(rating_key)
+    def get_item(self, rating_key: str, *, marks: bool = False) -> PlexItem:
+        """One item; with *marks*, also the intro and credits markers and chapters Plex has for it."""
+        query = "?includeMarkers=1&includeChapters=1" if marks else ""
+        container, node = self._metadata(rating_key, query)
         item_type: ItemType = node.get("type")  # type: ignore[assignment]  # checked in _metadata
         is_episode = item_type == "episode"
+        duration_s = _seconds(node.get("duration"))
         return PlexItem(
             type=item_type,
             rating_key=node.get("ratingKey", str(rating_key)),
             title=node.get("title", ""),
             summary=node.get("summary", ""),
             year=_int(node.get("year")),
-            duration_s=_seconds(node.get("duration")),
+            duration_s=duration_s,
             library_section_id=node.get("librarySectionID", container.get("librarySectionID", "")),
             thumb=node.get("thumb"),
             subtitle_selected=_subtitle_selected(node),
@@ -235,6 +360,9 @@ class PlexWatch:
             parent_rating_key=node.get("parentRatingKey") if is_episode else None,
             grandparent_rating_key=node.get("grandparentRatingKey") if is_episode else None,
             grandparent_title=node.get("grandparentTitle") if is_episode else None,
+            media=_media(node),
+            markers=_markers(node, duration_s) if marks else (),
+            chapters=_chapters(node, duration_s) if marks else (),
         )
 
     def _seasons(self, show_key: str) -> list[PlexSeason]:
@@ -311,5 +439,19 @@ class PlexWatch:
         try:
             content_type = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
             return resp.content, content_type if content_type in _IMAGE_TYPES else "image/jpeg"
+        finally:
+            resp.close()
+
+    def fetch_preview(self, part_id: str, offset_ms: int) -> bytes:
+        """The JPEG preview frame Plex already has for this moment of a file."""
+        resp = self._get(
+            f"/library/parts/{_check_key(part_id)}/indexes/sd/{int(offset_ms)}",
+            max_bytes=_PREVIEW_MAX_BYTES,
+            expected_content_type="image/jpeg",
+        )
+        try:
+            if not resp.content.startswith(_JPEG_MAGIC):
+                raise PlexUnavailable("Plex sent a preview that is not a JPEG")
+            return resp.content
         finally:
             resp.close()

@@ -64,6 +64,7 @@ class FakePlex:
         self.decided: set[str] = set()
         self.child_read: set[str] = set()
         self.fail_decisions = 0
+        self.decision = b"<MediaContainer/>"
         self.child_playlist = CHILD_PLAYLIST
         self.sessions: list[dict] = []
         self.unreachable = False
@@ -95,7 +96,7 @@ class FakePlex:
                 self.fail_decisions -= 1
                 return FakeResponse(500)
             self.decided.add(session)
-            return FakeResponse(200, b"<MediaContainer/>")
+            return FakeResponse(200, self.decision)
         if path == f"{TRANSCODE}/start.m3u8":
             if self.on_start:
                 self.on_start(session)
@@ -750,3 +751,118 @@ def test_a_two_hour_pause_still_credits_the_whole_viewing(manager, clock):
     clock.now += 120
 
     assert manager.get(second, "alice").elapsed_s >= 5 * 60
+
+
+def _decision(video: str = "copy", extra: str = "") -> bytes:
+    return (
+        '<MediaContainer><Video><Media selected="1"><Part decision="transcode">'
+        f'<Stream streamType="1" decision="{video}"/><Stream streamType="2" decision="transcode"/>'
+        f"{extra}</Part></Media></Video></MediaContainer>"
+    ).encode()
+
+
+def test_an_original_plex_copies_is_asked_for_without_a_size_or_bitrate(manager, plex):
+    plex.decision = _decision()
+
+    stream_id = _start(manager, quality="original", fallback="720p-4000")
+
+    assert manager.get(stream_id, "alice").quality == "original"
+    for call in plex.calls_to("decision") + plex.calls_to("start.m3u8"):
+        assert call["params"]["directStream"] == "1"
+        assert not {"videoResolution", "maxVideoBitrate"} & call["params"].keys()
+
+
+def _not_copied(plex):
+    plex.decision = _decision("transcode")
+
+
+def _unservable(plex):
+    plex.decision = _decision()
+    playlist = CHILD_PLAYLIST.replace("#EXTINF:8", '#EXT-X-MAP:URI="header"\n#EXTINF:8')
+    plex.child_playlist = playlist
+    plex.on_call = lambda path: (
+        setattr(plex, "child_playlist", CHILD_PLAYLIST) if path.endswith("/stop") else None
+    )
+
+
+def _start_fails(plex):
+    plex.decision = _decision()
+    plex.fail_decisions = 1
+
+
+@pytest.mark.parametrize("failure", [_not_copied, _unservable, _start_fails])
+def test_an_original_that_fails_starts_the_fallback_and_gives_its_session_back(
+    manager, plex, failure
+):
+    failure(plex)
+
+    stream_id = _start(manager, quality="original", fallback="720p-4000")
+
+    assert manager.get(stream_id, "alice").quality == "720p-4000"
+    last = plex.calls_to("start.m3u8")[-1]["params"]
+    assert (last["videoResolution"], last["maxVideoBitrate"]) == ("1280x720", "4000")
+    first = plex.calls_to("decision")[0]["params"]["session"]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [first]
+
+
+OTHER_VERSION = b'<Media><Part><Stream streamType="1" codec="hevc"/></Part></Media>'
+
+
+@pytest.mark.parametrize(
+    ("body", "copied"),
+    [
+        (_decision(), True),
+        (_decision("transcode"), False),
+        (_decision(extra='<Stream streamType="3" decision="burn"/>'), False),
+        (_decision().replace(b"<Video>", b"<Video>" + OTHER_VERSION), True),
+        (b"<MediaContainer/>", False),
+        (b"not xml", False),
+        (b'<!DOCTYPE a [<!ENTITY b "c">]><MediaContainer>&b;</MediaContainer>', False),
+    ],
+    ids=["copy", "transcode", "burned", "other version", "no media", "unreadable", "entities"],
+)
+def test_the_decision_says_whether_the_video_is_copied(manager, plex, body, copied):
+    plex.decision = body
+
+    assert manager.copies_video("123", "file") is copied
+
+    assert plex.calls_to("start.m3u8") == []
+    assert [c["method"] for c in plex.calls] == ["GET"]
+
+
+def test_the_copy_verdict_is_asked_once_per_file_until_it_is_old(manager, plex, clock):
+    plex.decision = _decision()
+    for _ in range(3):
+        assert manager.copies_video("123", "file") is True
+    assert len(plex.calls_to("decision")) == 1
+
+    plex.decision = _decision("transcode")
+    assert manager.copies_video("123", "replaced file") is False
+    clock.now += 3601
+    assert manager.copies_video("123", "file") is False
+
+
+def test_a_failed_question_is_no_copy_and_is_asked_again(manager, plex):
+    plex.decision = _decision()
+    plex.fail_decisions = 1
+
+    assert manager.copies_video("123", "file") is False
+    assert manager.copies_video("123", "file") is True
+
+
+def test_peeking_at_a_stream_does_not_keep_it_from_being_reaped(manager, clock):
+    stream_id = _start(manager)
+    clock.now += 170
+    assert manager.peek(stream_id, "alice").rating_key == "123"
+    clock.now += 170
+
+    assert manager.reap(clock.now) == 1
+    with pytest.raises(StreamGone):
+        manager.peek(stream_id, "alice")
+
+
+def test_someone_elses_stream_cannot_be_peeked_at(manager):
+    stream_id = _start(manager, user="alice")
+
+    with pytest.raises(StreamGone):
+        manager.peek(stream_id, "bob")

@@ -24,7 +24,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
+from xml.etree.ElementTree import ParseError
 
+import defusedxml.ElementTree as ET
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -36,6 +38,7 @@ from mediaman.services.infra.http.streaming import (
     _read_capped,
     _SizeCapExceeded,
 )
+from mediaman.services.media_meta.plex_quality import ORIGINAL, QUALITY_PRESETS
 from mediaman.services.media_meta.plex_watch import (
     _RATING_KEY_RE,
     PlexError,
@@ -44,13 +47,6 @@ from mediaman.services.media_meta.plex_watch import (
 )
 
 logger = logging.getLogger(__name__)
-
-#: ``(videoResolution, maxVideoBitrate kbps)``; Plex keeps the aspect ratio within the box.
-QUALITY_PRESETS: dict[str, tuple[str, int]] = {
-    "best": ("1920x1080", 8000),
-    "medium": ("1280x720", 4000),
-    "low": ("854x480", 1500),
-}
 
 SESSION_PREFIX = "mediaman-"
 IDLE_TIMEOUT_SECONDS = 180.0
@@ -77,6 +73,8 @@ VIEWING_KEEP_SECONDS = 24 * 3600.0
 # How long a reaped stream is remembered, so a stop or progress beacon that lost the race with
 # the reaper still saves the position.
 REAPED_KEEP_SECONDS = 600.0
+# How long Plex's word on whether it would copy a file's video is kept.
+COPY_VERDICT_KEEP_SECONDS = 3600.0
 
 MAX_STREAMS_PER_USER = 3
 MAX_STREAMS_TOTAL = 20
@@ -180,6 +178,8 @@ class StreamManager:
         self._viewings: dict[tuple[str, str], tuple[float, float]] = {}
         # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
+        # (rating_key, file) -> (when Plex was asked, whether it would copy the video).
+        self._copies: dict[tuple[str, str], tuple[float, bool]] = {}
 
     def start(
         self,
@@ -188,16 +188,20 @@ class StreamManager:
         quality: str,
         burn_subtitles: bool,
         info: Mapping[str, Any] | None = None,
+        *,
+        fallback: str | None = None,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
         A failed start is retried once with a fresh session, since Plex intermittently refuses
-        a start right after another one for the same item. The user's other streams of the same
-        item are stopped first, since the player starts a new one on a quality change or restart.
+        a start right after another one for the same item. An original that Plex would not copy
+        or could not start is retried as the *fallback* quality. The user's other streams of the
+        same item are stopped first, since the player starts a new one on a quality change or
+        restart.
         Raises ``ValueError`` for an unknown quality or a malformed rating key, and
         ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
-        if quality not in QUALITY_PRESETS:
+        if quality not in QUALITY_PRESETS and quality != ORIGINAL:
             raise ValueError(f"unknown quality {quality!r}")
         if not _RATING_KEY_RE.fullmatch(rating_key):
             raise ValueError("rating key must be numeric")
@@ -221,6 +225,8 @@ class StreamManager:
                 if attempt == 1 or self._clock() >= deadline:
                     raise
                 logger.info("plex_stream: start failed, retrying once")
+                if quality == ORIGINAL and fallback is not None:
+                    quality = fallback
             except BaseException:
                 # Whatever failed, the Plex session may already be open: give it back.
                 self._call_quietly("stop", session_id)
@@ -314,6 +320,54 @@ class StreamManager:
             info=dict(stream.info),
             elapsed_s=self._clock() - stream.viewing_started,
         )
+
+    def peek(self, stream_id: str, user: str) -> StreamInfo:
+        """As ``get``, without counting as use of the stream, so an idle one still ends on time."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise StreamGone("stream is gone")
+            return StreamInfo(
+                rating_key=stream.rating_key,
+                quality=stream.quality,
+                info=dict(stream.info),
+                elapsed_s=stream.last_access - stream.viewing_started,
+            )
+
+    def copies_video(self, rating_key: str, file: str) -> bool:
+        """Whether Plex would send this item's video as it is, remembered per *file* for a while.
+
+        Only asks Plex for its decision, which opens nothing. False when Plex cannot say.
+        """
+        if not _RATING_KEY_RE.fullmatch(rating_key):
+            return False
+        now = self._clock()
+        with self._lock:
+            asked_at, verdict = self._copies.get((rating_key, file), (0.0, None))
+        if verdict is not None and now - asked_at <= COPY_VERDICT_KEEP_SECONDS:
+            return verdict
+        session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
+        try:
+            base, token = self._creds()
+            body = self._get(
+                base,
+                token,
+                f"{_TRANSCODE}/decision",
+                op="decision",
+                params=_session_params(session_id, rating_key, ORIGINAL, False),
+                extra_headers={"X-Plex-Session-Identifier": session_id},
+                max_bytes=_PLAYLIST_MAX_BYTES,
+                timeout=_QUIET_TIMEOUT,
+            )
+        except PlexError:
+            return False
+        verdict = _video_copied(body)
+        with self._lock:
+            self._copies = {
+                k: v for k, v in self._copies.items() if now - v[0] <= COPY_VERDICT_KEEP_SECONDS
+            }
+            self._copies[(rating_key, file)] = (now, verdict)
+        return verdict
 
     def reaped(self, stream_id: str, user: str) -> StreamInfo:
         """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.
@@ -460,21 +514,7 @@ class StreamManager:
         burn_subtitles: bool,
         deadline: float,
     ) -> str:
-        resolution, bitrate = QUALITY_PRESETS[quality]
-        params = {
-            "path": f"/library/metadata/{rating_key}",
-            "protocol": "hls",
-            "directPlay": "0",
-            "directStream": "1",
-            "fastSeek": "1",
-            "mediaIndex": "0",
-            "partIndex": "0",
-            "offset": "0",
-            "videoResolution": resolution,
-            "maxVideoBitrate": str(bitrate),
-            "subtitles": "burn" if burn_subtitles else "none",
-            "session": session_id,
-        }
+        params = _session_params(session_id, rating_key, quality, burn_subtitles)
         session_header = {"X-Plex-Session-Identifier": session_id}
         # start.m3u8 answers 400 unless a decision for the same session came first.
         for action in ("decision", "start.m3u8"):
@@ -488,6 +528,8 @@ class StreamManager:
                 max_bytes=_PLAYLIST_MAX_BYTES,
                 deadline=deadline,
             )
+            if action == "decision" and quality == ORIGINAL and not _video_copied(body):
+                raise PlexUnavailable("Plex would not copy the video")
         variant = next(
             (
                 line.strip()
@@ -500,9 +542,12 @@ class StreamManager:
             raise PlexUnavailable("Plex sent a start playlist without a usable variant")
         child_path = f"{_TRANSCODE}/{variant}"
         # Plex answers 404 for every segment until the child playlist has been read once.
-        self._get(
+        playlist = self._get(
             base, token, child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES, deadline=deadline
         )
+        if quality == ORIGINAL:
+            # A copied video may be packaged in a way mediaman does not serve: know it now.
+            _rewrite_playlist(playlist.decode("utf-8", "replace"), "")
         return child_path
 
     def _call_quietly(self, action: str, session_id: str) -> None:
@@ -592,6 +637,44 @@ class StreamManager:
         except (_SizeCapExceeded, _ContentTypeMismatch):
             logger.warning("plex_stream: %s got an oversized or encoded body", op)
             raise PlexUnavailable("Plex sent an unusable response") from None
+
+
+def _session_params(
+    session_id: str, rating_key: str, quality: str, burn_subtitles: bool
+) -> dict[str, str]:
+    params = {
+        "path": f"/library/metadata/{rating_key}",
+        "protocol": "hls",
+        "directPlay": "0",
+        "directStream": "1",
+        "fastSeek": "1",
+        "mediaIndex": "0",
+        "partIndex": "0",
+        "offset": "0",
+        "subtitles": "burn" if burn_subtitles else "none",
+        "session": session_id,
+    }
+    if quality != ORIGINAL:
+        resolution, bitrate = QUALITY_PRESETS[quality]
+        params |= {"videoResolution": resolution, "maxVideoBitrate": str(bitrate)}
+    return params
+
+
+def _video_copied(body: bytes) -> bool:
+    """True when a decision says the chosen version's video is copied, with nothing burned in."""
+    try:
+        root = ET.fromstring(body)
+    except (ParseError, ValueError):
+        return False
+    media = list(root.iter("Media"))
+    chosen = [m for m in media if m.get("selected") == "1"] or media
+    streams = [s for m in chosen for s in m.iter("Stream")]
+    video = [s for s in streams if s.get("streamType") == "1"]
+    return (
+        bool(video)
+        and all(s.get("decision") == "copy" for s in video)
+        and not any(s.get("decision") == "burn" for s in streams)
+    )
 
 
 def _rewrite_playlist(text: str, stream_id: str) -> str:

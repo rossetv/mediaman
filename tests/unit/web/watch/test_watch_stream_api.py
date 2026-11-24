@@ -18,8 +18,11 @@ from mediaman.db import set_connection
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_stream import StreamManager
 from mediaman.services.media_meta.plex_watch import (
+    PlexChapter,
     PlexItem,
     PlexItemNotFound,
+    PlexMarker,
+    PlexMedia,
     PlexUnavailable,
     PlexWatch,
 )
@@ -38,6 +41,10 @@ CHILD_PLAYLIST = (
     "00000.ts\n"
     "#EXT-X-ENDLIST\n"
 )
+
+MEDIA = "<Video><Media><Part>%s</Part></Media></Video>"
+
+PART_ID = "31415926"
 
 NO_STORE = "no-store, no-transform"
 
@@ -61,6 +68,7 @@ class FakePlex:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.unreachable = False
+        self.video_decision = "copy"
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         self.calls.append({"path": urlsplit(url).path, "params": dict(params or {})})
@@ -70,6 +78,9 @@ class FakePlex:
         session = (params or {}).get("session")
         if path == f"{TRANSCODE}/start.m3u8":
             return FakeResponse(200, f"#EXTM3U\nsession/{session}/base/index.m3u8\n".encode())
+        if path == f"{TRANSCODE}/decision":
+            stream = f'<Stream streamType="1" decision="{self.video_decision}"/>'
+            return FakeResponse(200, f"<MediaContainer>{MEDIA % stream}</MediaContainer>".encode())
         if path.endswith("/base/index.m3u8"):
             return FakeResponse(200, CHILD_PLAYLIST.encode())
         if path.endswith("/base/00000.ts"):
@@ -86,6 +97,21 @@ def _item(key: str) -> PlexItem:
         return PlexItem("show", key, "Show", "", None, 0, "1", None, False)
     if key.startswith("1"):
         return PlexItem("movie", key, "Film", "", 2020, 6000, "1", None, True)
+    if key == "400":
+        return PlexItem(
+            "movie",
+            key,
+            "Detailed",
+            "",
+            2020,
+            6000,
+            "1",
+            None,
+            False,
+            media=PlexMedia(1920, 800, "1080", 11000, True, PART_ID, "987654321", True),
+            markers=(PlexMarker("intro", 5.0, 65.5, False),),
+            chapters=(PlexChapter("One", 0.0, 600.0),),
+        )
     if key.startswith("2"):
         return PlexItem(
             "episode",
@@ -133,7 +159,7 @@ def plex(monkeypatch, clock) -> FakePlex:
         "_manager",
         StreamManager(lambda: (PLEX_URL, TOKEN), session=fake, clock=clock),
     )
-    monkeypatch.setattr(PlexWatch, "get_item", lambda self, key: _item(key))
+    monkeypatch.setattr(PlexWatch, "get_item", lambda self, key, marks: _item(key))
     return fake
 
 
@@ -549,3 +575,61 @@ def test_a_viewers_beacon_reaches_progress_through_the_real_app(
         headers={"Content-Type": "text/plain;charset=UTF-8", "Origin": "http://testserver"},
     )
     assert resp.status_code == 410
+
+
+def test_start_says_what_the_title_offers(alice):
+    body = _start(alice, "400", "auto").json()
+
+    assert body["quality"] == "1080p-8000"
+    assert [r["id"] for r in body["qualities"]][:3] == ["auto", "original", "1080p-10000"]
+    assert body["markers"] == [{"kind": "intro", "start_s": 5.0, "end_s": 65.5, "final": False}]
+    assert body["chapters"] == [{"title": "One", "start_s": 0.0, "end_s": 600.0}]
+    assert body["previews"] == {"interval_s": 5, "count": 1200}
+
+
+def test_start_of_a_title_without_details_offers_the_basic_three_and_nothing_else(alice):
+    body = _start(alice).json()
+
+    assert body["quality"] == "best"
+    assert [r["id"] for r in body["qualities"]] == ["best", "medium", "low"]
+    assert (body["markers"], body["chapters"], body["previews"]) == ([], [], None)
+
+
+def test_the_start_answer_holds_nothing_of_plex(alice, plex):
+    text = _start(alice, "400").text
+
+    for secret in (PART_ID, "987654321", "library", TOKEN, PLEX_HOST, *plex.session_ids()):
+        assert secret not in text
+
+
+def test_an_original_plex_stops_copying_plays_the_best_conversion_and_is_taken_off(alice, plex):
+    assert _start(alice, "400", "original").json()["quality"] == "original"
+    plex.video_decision = "transcode"
+
+    body = _start(alice, "400", "original").json()
+
+    assert body["quality"] == "1080p-10000"
+    assert "original" not in [r["id"] for r in body["qualities"]]
+
+
+def test_original_is_not_offered_when_plex_would_convert_it(alice, plex):
+    plex.video_decision = "transcode"
+
+    body = _start(alice, "400", "720p-4000").json()
+
+    assert body["quality"] == "720p-4000"
+    assert "original" not in [r["id"] for r in body["qualities"]]
+
+
+def test_the_stream_remembers_where_its_preview_frames_are(alice, plex):
+    stream_id = _start(alice, "400").json()["stream_id"]
+
+    info = plex_stream.get_stream_manager().peek(stream_id, "alice").info
+    assert info["preview"] == {"part_id": PART_ID, "part_size": "987654321", "count": 1200}
+
+
+@pytest.mark.parametrize(
+    "quality", [*plex_stream.QUALITY_PRESETS, "auto", "original"], ids=lambda q: q
+)
+def test_start_accepts_every_known_quality(alice, quality):
+    assert _start(alice, "400", quality).status_code == 200
