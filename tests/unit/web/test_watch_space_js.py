@@ -327,7 +327,9 @@ class TestScheduled:
 
     def test_a_title_whose_day_has_come_goes_by_the_admins_route_and_says_a_deletion_runs(self):
         assert _run("keepLate") == {
-            "posts": [["FORM", "/api/media/1/keep", {"duration": "30 days"}]],
+            "posts": [
+                ["FORM", "/api/media/1/keep", {"duration": "30 days", "read_action": "none"}]
+            ],
             "toast": "Already being deleted.",
             "undo": False,
         }

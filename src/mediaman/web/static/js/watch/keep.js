@@ -554,8 +554,10 @@
 
   function send(id, days, undoable) {
     if (undoable) return MM.api.post(KEEP_URL, { media_item_id: id, days: days });
-    return MM.api.postForm('/api/media/' + encodeURIComponent(id) + '/keep',
-      { duration: days === FOREVER ? FOREVER : days + ' days' });
+    var form = { duration: days === FOREVER ? FOREVER : days + ' days' };
+    // A Keep shows on a title with no keep; one made meanwhile must not be shortened.
+    if (days !== FOREVER) form.read_action = 'none';
+    return MM.api.postForm('/api/media/' + encodeURIComponent(id) + '/keep', form);
   }
 
   function started(id) {
