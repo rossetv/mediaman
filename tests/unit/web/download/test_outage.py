@@ -236,12 +236,12 @@ def test_a_film_is_recorded_for_a_file_added_since_it_was_first_seen_queued(
     assert [r["id"] for r in _get(client)["recent"]] == recorded
 
 
-def _show(title: str, *files: int) -> dict[str, object]:
-    """A show of eight-episode seasons, all aired and monitored, with *files* of each."""
+def _show(title: str, *files: int, monitored: bool = True) -> dict[str, object]:
+    """A show of eight-episode seasons, all aired, with *files* of each."""
     seasons = [
         {
             "seasonNumber": n,
-            "monitored": True,
+            "monitored": monitored,
             "statistics": {
                 "episodeFileCount": have,
                 "episodeCount": 8,
@@ -286,3 +286,16 @@ def test_a_recent_show_lacking_an_aired_season_is_there_in_part_until_it_is_whol
     sonarr.get_queue.side_effect = sonarr.get_series.side_effect = None
     sonarr.get_series.return_value = [_show("Half", 8, 8), _show("Whole", 8, 8)]
     assert set(partial().values()) == {False}
+
+
+@pytest.mark.parametrize("monitored", [True, False])
+def test_a_recent_show_is_there_in_part_only_by_seasons_still_wanted(
+    services, client, conn, monitored
+):
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type)"
+            " VALUES ('sonarr:Half', 'Half', 'series')"
+        )
+    services[1].get_series.return_value = [_show("Half", 8, 0, monitored=monitored)]
+    assert [r["partial"] for r in _get(client)["recent"]] == [monitored]

@@ -33,7 +33,7 @@ from mediaman.services.arr.completion import (
 )
 from mediaman.services.arr.fetcher import fetch_arr_queue_result
 from mediaman.services.arr.search_trigger import maybe_trigger_search
-from mediaman.services.arr.state import series_ready
+from mediaman.services.arr.state import _aired_monitored_seasons, season_on_disk
 from mediaman.services.downloads.download_queue.classify import (
     arr_base_urls as _arr_base_urls,
 )
@@ -260,7 +260,11 @@ def _read_unready_shows(
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("Failed to read which shows are complete", exc_info=True)
         return known
-    unready = frozenset(s.get("title") or "" for s in series if not series_ready(s))
+    unready = frozenset(
+        s.get("title") or ""
+        for s in series
+        if not all(season_on_disk(season) for season in _aired_monitored_seasons(s))
+    )
     with _state_lock:
         _unready_shows, _unready_read_at = unready, now
     return unready
