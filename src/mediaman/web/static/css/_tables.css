@@ -49,7 +49,7 @@
   flex-shrink: 0;
   display: block;
 }
-.thumb img { object-fit: cover; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
 .title-cell { font-weight: 500; color: var(--t1); overflow-wrap: anywhere; }
 .title-cell .sub {
   font-size: 12px;
