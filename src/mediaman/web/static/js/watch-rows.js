@@ -113,9 +113,10 @@
     if (whole && direction > 0) ahead = ahead.filter(function (p) { return end(p) > from + EDGE_SLACK; });
     var to = ahead[0];
     if (!to) return;
-    // Back by a lineful: the pill cut off at the start ends the line, unless it is as wide as it.
-    var left = whole && direction < 0 ? Math.min(end(to), start(to)) : start(to);
-    goTo(scroller, Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, left)));
+    // Back by a lineful: to the first pill beside which the one cut off at the start still fits whole. Always
+    // to a pill's start: a line that snaps to one would go on to the next and leave a pill out.
+    if (whole && direction < 0) to = ahead.filter(function (p) { return start(p) >= end(to) - EDGE_SLACK; }).pop() || to;
+    goTo(scroller, Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, start(to))));
   }
 
   function isLine(scroller) {
