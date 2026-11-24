@@ -1,4 +1,4 @@
-"""Tests that a library left out of Settings keeps its due deletions on hold."""
+"""Tests that the due deletions of a library left out of Settings are cancelled."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import pytest
 from mediaman.db import init_db
 from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor
+from mediaman.scanner.phases.upsert import schedule_deletion
+from mediaman.scanner.repository import is_already_scheduled
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -85,7 +87,7 @@ def _audits(conn, media_id):
 
 
 @pytest.mark.parametrize("selected", ['["2"]', "[]", "not json", '{"1": "1"}'])
-def test_a_due_deletion_of_an_unselected_library_is_held(conn, root, selected):
+def test_a_due_deletion_of_an_unselected_library_is_cancelled(conn, root, selected):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
     _select(conn, selected)
 
@@ -93,20 +95,48 @@ def test_a_due_deletion_of_an_unselected_library_is_held(conn, root, selected):
         DeletionExecutor(conn=conn).execute()
 
     assert film.exists()
-    assert _status(conn, "m1") == "pending"
+    assert _status(conn, "m1") is None
     assert _audits(conn, "m1") == ["delete_refused"]
 
 
 @pytest.mark.parametrize("selected", ['["1"]', "[1]"])
-def test_a_held_deletion_goes_ahead_once_its_library_is_selected_again(conn, root, selected):
+def test_a_due_deletion_of_a_selected_library_goes_ahead(conn, root, selected):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
-    _select(conn, "[]")
-    DeletionExecutor(conn=conn).execute()
     _select(conn, selected)
 
     DeletionExecutor(conn=conn).execute()
 
     assert not film.exists()
+
+
+def test_a_library_selected_again_starts_with_a_new_schedule(conn, root):
+    film = _due(conn, "m1", root / "Film" / "film.mkv")
+    _select(conn, "[]")
+    DeletionExecutor(conn=conn).execute()
+    _select(conn, '["1"]')
+
+    DeletionExecutor(conn=conn).execute()
+    assert film.exists()
+
+    assert not is_already_scheduled(conn, "m1")
+    schedule_deletion(conn, media_id="m1", is_reentry=False, grace_days=14, secret_key="k" * 64)
+    DeletionExecutor(conn=conn).execute()
+    assert film.exists()
+
+
+def test_a_part_removed_deletion_of_an_unselected_library_keeps_its_record(conn, root):
+    film = _due(conn, "m1", root / "Film" / "film.mkv")
+    removed = json.dumps({"paths": [str(root / "gone.mkv")], "bytes": 4})
+    conn.execute("UPDATE scheduled_actions SET removed_files = ?", (removed,))
+    _select(conn, "[]")
+
+    for _ in range(2):
+        DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    row = conn.execute("SELECT delete_status, removed_files FROM scheduled_actions").fetchone()
+    assert tuple(row) == ("pending", removed)
+    assert _audits(conn, "m1") == ["delete_refused"]
 
 
 def test_a_dry_run_does_not_list_a_held_deletion(conn, root):

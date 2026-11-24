@@ -1172,19 +1172,7 @@ class DeletionExecutor:
             return [], 0
 
         if not row.library_selected:
-            logger.info(
-                "engine.delete.library_unselected id=%s media_id=%s — its library is not "
-                "selected; leaving the row pending",
-                row.id,
-                row.media_item_id,
-            )
-            _audit_once(
-                self._conn,
-                row,
-                "delete_refused",
-                f"Not deleted yet: {row.title} — its library is not selected in Settings",
-            )
-            repository.mark_delete_status(self._conn, row.id, "pending")
+            self._refuse_unselected(row)
             self._conn.commit()
             return [], 0
 
@@ -1402,6 +1390,37 @@ class DeletionExecutor:
             if other not in closing:
                 repository.mark_delete_status(self._conn, other.id, "pending")
         return closed
+
+    def _refuse_unselected(self, row: DeletionRow) -> None:
+        """Cancel a claimed row whose library is not ticked; one with files removed keeps its record.
+
+        Cancelled rather than left pending, so ticking the library again cannot
+        fire it with no fresh scan, grace and notice.
+        """
+        logger.info(
+            "engine.delete.library_unselected id=%s media_id=%s cancelled=%s — its library is "
+            "not selected",
+            row.id,
+            row.media_item_id,
+            not row.removed_paths,
+        )
+        if row.removed_paths:
+            repository.mark_delete_status(self._conn, row.id, "pending")
+            _audit_once(
+                self._conn,
+                row,
+                "delete_refused",
+                f"Not deleted yet: {row.title} — its library is not selected in Settings",
+            )
+            return
+        repository.delete_scheduled_action(self._conn, row.id)
+        log_audit(
+            self._conn,
+            row.media_item_id,
+            "delete_refused",
+            f"Not deleted: {row.title} — its library is not selected in Settings, so its "
+            "scheduled deletion is cancelled",
+        )
 
     def _cancel_if_kept(self, row: DeletionRow, now_iso: str) -> bool:
         """Cancel a claimed row, logging and auditing why, when a keep the scan honours covers it.
