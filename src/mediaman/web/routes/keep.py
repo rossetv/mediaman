@@ -62,6 +62,10 @@ __all__ = [
 ]
 
 
+class _NotApplied(Exception):
+    """Raised to roll a keep's transaction back when its guarded UPDATE matched no row."""
+
+
 def _consume_keep_token_and_apply(
     conn: sqlite3.Connection,
     *,
@@ -77,27 +81,20 @@ def _consume_keep_token_and_apply(
     The public snooze and the admin "forever" routes both consume the keep token, run their
     guarded UPDATE and write one audit row in a single transaction, so all three land or
     none do. Only the UPDATE and audit detail differ, so they are injected via apply and
-    audit_detail.
+    audit_detail. A keep that is not applied leaves its token unused.
 
     Returns a 409 Response when the token was already consumed (concurrent replay) or the
     guarded UPDATE matched no row (the action advanced since the pre-flight check); None on
     success.
     """
-    consumed = False
-    applied_rowcount = 0
-    with conn:
-        consumed = mark_token_consumed(conn, token, now)
-        if consumed:
-            applied_rowcount = apply()
-            if applied_rowcount > 0:
-                log_audit(conn, verified.media_item_id, audit_action, audit_detail)
-
-    if not consumed:
-        # Token hash was already in keep_tokens_used — concurrent replay.
-        return respond_err("already_processed", status=409)
-    if applied_rowcount == 0:
-        # The scheduled_actions row was already token_used=1, or delete_status
-        # has advanced between our check and here.
+    try:
+        with conn:
+            # False: the token hash was already in keep_tokens_used — concurrent replay. No row
+            # updated: it was already token_used=1, or the deletion began since our check.
+            if not mark_token_consumed(conn, token, now) or apply() == 0:
+                raise _NotApplied
+            log_audit(conn, verified.media_item_id, audit_action, audit_detail)
+    except _NotApplied:
         return respond_err("already_processed", status=409)
     return None
 

@@ -28,6 +28,7 @@ from mediaman.services.scheduled_actions import (
     lookup_verified_action,
     token_hash,
 )
+from mediaman.web.routes import keep as keep_module
 from mediaman.web.routes.keep import (
     _KEEP_GET_LIMITER,
     _KEEP_POST_LIMITER,
@@ -962,6 +963,38 @@ class TestItemKeptMeanwhile:
         assert resp.status_code == 400
         assert "This is being deleted now." in resp.text
         assert self._action_row(conn) == before
+
+    @pytest.mark.parametrize("forever", [False, True])
+    def test_a_keep_that_loses_to_the_deletion_leaves_its_link_for_when_that_fails(
+        self, app_factory, authed_client, conn, monkeypatch, forever
+    ):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        client = authed_client(self._client(conn).app, conn)
+
+        def claimed_meanwhile(route_conn, token_hash):
+            assert claim_due_deletion(route_conn, action_id, datetime.now(UTC).isoformat())
+            route_conn.commit()
+            return False
+
+        def keep():
+            if forever:
+                return client.post(f"/api/keep/{token}/forever").status_code
+            return client.post(
+                f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False
+            ).status_code
+
+        with monkeypatch.context() as patched:
+            patched.setattr(keep_module, "is_keep_token_consumed", claimed_meanwhile)
+            assert keep() == 409
+        conn.execute("UPDATE scheduled_actions SET delete_status = 'pending'")
+        conn.commit()
+
+        assert keep() == (200 if forever else 302)
 
     @pytest.mark.parametrize(("left", "status"), [([], 400), (["/m/b.mkv"], 302)])
     def test_only_a_deletion_that_left_files_can_be_kept(self, conn, left, status):
