@@ -110,19 +110,6 @@ function leavingRowPage(doc) {
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
 }
 
-/* The Watch page's search box and the results it swaps in for the rows. */
-function searchPage(doc) {
-  return build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
-    ['div', { class: 'watch-search' },
-      ['input', { class: 'watch-search__input', id: 'watch-search' }],
-      ['button', { id: 'watch-search-clear', hidden: '' }],
-      ['span', { id: 'watch-search-status' }]],
-    ['div', { id: 'watch-browse' }],
-    ['section', { class: 'watch-results', id: 'watch-results', hidden: '' },
-      ['p', { class: 'watch-results__msg', id: 'watch-results-msg' }],
-      ['div', { class: 'watch-grid', id: 'watch-grid' }]]]);
-}
-
 const scenarios = {
   // Keep the first card of the Leaving soon row, with motion on.
   async cardExit() {
@@ -150,50 +137,6 @@ const scenarios = {
       faded: Math.min(...at('opacity', (v) => v === 0)),
       pinned: card.children.map((c) => c.style.minWidth || ''),
     };
-  },
-
-  // A search that finds nothing.
-  async searchEmpty() {
-    const page = load();
-    page.doc.body.appendChild(searchPage(page.doc));
-    page.run();
-    const input = page.doc.getElementById('watch-search');
-    input.value = 'zzqx';
-    input.listeners.input.forEach((fn) => fn({}));
-    page.timers.pop()();
-    await settle();
-    const msg = page.doc.getElementById('watch-results-msg');
-    return {
-      empty: msg.classList.contains('watch-results__msg--empty'),
-      parts: msg.children.map((c) => c.textContent),
-      status: page.doc.getElementById('watch-search-status').textContent,
-    };
-  },
-
-  // A search that fails, then its Try again.
-  async searchError() {
-    const page = load();
-    let calls = 0;
-    page.ctx.MM.api.get = () => { calls += 1; return Promise.reject(new Error('down')); };
-    page.doc.body.appendChild(searchPage(page.doc));
-    page.run();
-    const input = page.doc.getElementById('watch-search');
-    input.value = 'zzqx';
-    input.listeners.input.forEach((fn) => fn({}));
-    page.timers.pop()();
-    await settle();
-    const msg = page.doc.getElementById('watch-results-msg');
-    const out = {
-      error: msg.classList.contains('watch-results__msg--error'),
-      alert: msg.getAttribute('role'),
-      line: msg.children[0] && msg.children[0].textContent,
-      status: page.doc.getElementById('watch-search-status').textContent,
-    };
-    click(page.doc, msg.querySelector('button'));
-    await settle();
-    out.retried = calls === 2;
-    out.focus = page.doc.activeElement === input;
-    return out;
   },
 
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.

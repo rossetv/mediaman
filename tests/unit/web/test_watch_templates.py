@@ -6,6 +6,7 @@ import itertools
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 
 import jinja2
 import pytest
@@ -229,6 +230,13 @@ def test_leaving_badge_wording(days: int, text: str) -> None:
         rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days, keep_id="m1")]}]
     )
     assert f">{text}<" in html
+
+
+@pytest.mark.parametrize(("days", "now"), [(0, True), (1, True), (2, False)])
+def test_only_what_leaves_today_or_tomorrow_stands_out(days: int, now: bool) -> None:
+    html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
+    assert "watch-badge--leaving" in html
+    assert ("watch-badge--leaving-now" in html) is now
 
 
 def test_keep_button_only_for_cards_with_a_keep_id() -> None:
@@ -840,6 +848,27 @@ def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
 
     assert open_panels(_watch(q="orchard")) == (True, False)
     assert open_panels(_watch(q="")) == (False, True)
+    for key in ("genre", "person"):
+        asked = SimpleNamespace(query_params={key: "28"})
+        assert open_panels(_watch(request=asked)) == (True, False)
+
+
+def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
+    scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
+    place = {name: n for n, name in enumerate(scripts)}
+
+    assert scripts[0] == "watch/core"
+    assert place["watch/address"] == 1
+    for first, then in [
+        ("keep", "search"),
+        ("search", "browse"),
+        ("rows-load", "grid"),
+        ("grid", "explore"),
+        ("search", "explore"),
+    ]:
+        assert place[f"watch/{first}"] < place[f"watch/{then}"]
+    # It starts them all and opens what the address names.
+    assert place["watch"] > place["watch/explore"]
 
 
 @pytest.mark.parametrize(
@@ -888,8 +917,8 @@ def test_a_four_line_card_title_sits_on_at_least_half_dark() -> None:
     assert _scrim_at("_watch.css", ".watch-card__poster::after", 67) >= 50
 
 
-def test_the_hint_under_an_empty_search_is_centred_though_the_spare_grid_sits_between() -> None:
-    body = _declarations_of("_watch_search.css", ".watch-results__msg--empty ~ .results-hint")
+def test_the_hint_under_an_empty_search_is_centred() -> None:
+    body = _declarations_of("_watch_search.css", ".results-empty + .results-hint")
 
     assert "margin: 12px auto 0" in body and "justify-content: center" in body
 

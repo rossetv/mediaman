@@ -51,14 +51,6 @@ def test_the_kept_line_is_marked_kept_until_undo() -> None:
     assert out["undone"]["text"].startswith("Leaving in 3 days")
 
 
-def test_an_empty_search_shows_a_hint_and_reads_out_only_the_line() -> None:
-    out = _run("searchEmpty")
-    assert out["empty"] is True
-    assert out["parts"][1] == "No matches for “zzqx”"
-    assert out["parts"][2] != ""
-    assert out["status"] == "No matches for “zzqx”"
-
-
 def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_content() -> None:
     out = _run("cardExit")
     # The whole exit fits --dur-slow (250ms); the slot starts closing at 0.6 of it.
@@ -66,14 +58,6 @@ def test_a_kept_card_closes_its_slot_while_it_fades_without_squashing_its_conten
     assert out["lastOpen"] == 0.6
     assert out["lastOpen"] < out["faded"] <= 1
     assert all(width == "20px" for width in out["pinned"])
-
-
-def test_a_failed_search_says_so_in_one_alert_line_and_still_read_out() -> None:
-    out = _run("searchError")
-    assert (out["error"], out["alert"]) == (True, "alert")
-    assert out["line"] == "Couldn’t search just now."
-    assert out["status"] == "Couldn’t search just now."
-    assert (out["retried"], out["focus"]) == (True, True)
 
 
 def test_a_swap_stacks_both_nodes_while_they_cross_fade_then_leaves_only_the_new_one() -> None:

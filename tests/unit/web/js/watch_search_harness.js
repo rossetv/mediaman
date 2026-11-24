@@ -6,35 +6,73 @@ const path = require('path');
 const vm = require('vm');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/watch');
-const { makeDocument, build, click, settle } = require('./fake_dom');
+const { Node, makeDocument, build, click, settle } = require('./fake_dom');
 
 const LIB = { ref: 'movie-1', title: 'Orchard Keepers', href: '/watch/movie/1', subtitle: 'Movie', keep_id: '7', leaving_days: 3 };
 const TM = { ref: 'tmdb-movie-9', kind: 'movie', title: 'Orchard Road', year: 2020, href: null, download_state: 'queued' };
 
-/* A page with the Watch search shell; every request waits until the scenario answers it. */
-function load(data, opened = '') {
+const GENRES = [
+  { id: 'action', name: 'Action', aliases: ['martial arts'], types: ['movie', 'tv'], poster_urls: ['/api/watch/img/tmdb/a.jpg'] },
+  { id: 'science-fiction', name: 'Science Fiction', aliases: ['sci-fi', 'scifi'], types: ['movie', 'tv'], poster_urls: [] },
+  { id: 'horror', name: 'Horror', aliases: ['scary'], types: ['movie'], poster_urls: [] },
+  { id: 'news', name: 'News', aliases: [], types: ['tv'], poster_urls: [] },
+];
+const DECADES = ['2020s', '2010s', '1990s'];
+
+Node.prototype.scrollIntoView = function () {};
+
+/* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once. */
+function load(data, opened = '', at = null) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
   const events = [];
-  const viewHandlers = [];
+  const on = {};
   const urls = [];
-  const loc = { pathname: '/watch', search: '', hash: '' };
+  const grids = [];
+  const tab = { entries: [{ url: at || '/watch' + (opened ? '?q=' + opened : ''), state: null }], index: 0 };
+  const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
+  const fire = (type, e) => (on[type] || []).slice().forEach((fn) => fn(e || {}));
+  const go = (by) => {
+    if (!tab.entries[tab.index + by]) return;
+    tab.index += by;
+    fire('popstate');
+  };
   doc.dispatchEvent = (e) => events.push({ type: e.type, q: e.detail.q });
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, Error, URLSearchParams, parseFloat,
-    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-    clearTimeout: () => {},
+    document: doc, console, JSON, Array, Object, String, Math, Promise, Error, Infinity, URLSearchParams, parseFloat,
+    setTimeout: (fn, ms) => { if (!ms) { setImmediate(fn); return -1; } timers.push({ fn, ms, on: true }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].on = false; },
+    setInterval: () => 0,
+    clearInterval: () => {},
     AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
-    getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
+    getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
     matchMedia: () => ({ matches: true }),
-    location: loc,
-    history: { state: null, replaceState: (_s, _t, url) => urls.push(url) },
-    addEventListener: (t, fn) => { if (t === 'mm:watch-view') viewHandlers.push(fn); },
+    innerHeight: 800,
+    scrollY: 0,
+    scrollTo: (o) => { ctx.scrollY = o.top; },
+    sessionStorage: { getItem: () => null, setItem() {} },
+    location: {
+      get pathname() { return here().pathname; },
+      get search() { return here().search; },
+      get hash() { return here().hash; },
+    },
+    history: {
+      get state() { return tab.entries[tab.index].state; },
+      pushState(state, _t, url) {
+        tab.entries = tab.entries.slice(0, tab.index + 1).concat({ url, state });
+        tab.index++;
+      },
+      replaceState(state, _t, url) { tab.entries[tab.index] = { url, state }; urls.push(url); },
+      go: (by) => setImmediate(() => go(by)),
+    },
+    addEventListener: (t, fn) => { (on[t] = on[t] || []).push(fn); },
+    removeEventListener() {},
     MM: {
       api: {
-        get: (url) => new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); }),
+        get: (url) => (url === '/api/watch/explore' ? Promise.resolve({ tmdb_configured: true, genres: GENRES, decades: DECADES })
+          : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
         messageOf: (_e, fallback) => fallback,
       },
     },
@@ -43,23 +81,56 @@ function load(data, opened = '') {
   vm.createContext(ctx);
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { class: 'watch-search' },
-      ['input', { id: 'watch-search', class: 'watch-search__input' }],
-      ['button', { id: 'watch-search-clear', hidden: '' }],
-      ['span', { id: 'watch-search-status' }]],
+      ['span', { id: 'watch-search-token', hidden: '' }],
+      ['span', { class: 'watch-search__field' }, ['span', { id: 'watch-search-hint' }, 'Search films and shows'],
+        ['input', { id: 'watch-search', class: 'watch-search__input', value: opened }]],
+      ['button', { id: 'watch-search-clear' }]],
+    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
+    ['div', { id: 'watch-sheet' }],
+    ['span', { id: 'watch-search-status' }],
+    ['div', { id: 'watch-veil' }],
     ['div', { id: 'watch-browse' }],
-    ['section', { id: 'watch-results' }, ['p', { id: 'watch-results-msg' }], ['div', { id: 'watch-grid' }]],
+    ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
-  // The server opens on the results when the address has a search; otherwise the rows are on view.
-  doc.getElementById('watch-results').hidden = !opened;
-  doc.getElementById('watch-browse').hidden = !!opened;
-  doc.getElementById('watch-search').value = opened;
-  ['../core/dom.js', 'core.js', 'keep.js', 'search.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
-  ctx.MMWatch.search.init();
-  const input = doc.getElementById('watch-search');
   const $ = (id) => doc.getElementById(id);
+  // The server opens on the results when the address has a search; otherwise the rows are on view.
+  $('watch-results').hidden = !opened && !/genre=|person=/.test(at || '');
+  $('watch-browse').hidden = !$('watch-results').hidden;
+  $('watch-search-token').hidden = true;
+  const input = $('watch-search');
+  input.value = opened;
+  ['focus', 'blur'].forEach((type) => {
+    const plain = Node.prototype[type];
+    input[type] = () => {
+      const was = doc.activeElement === input;
+      plain.call(input);
+      if (was !== (type === 'focus')) (input.listeners[type] || []).forEach((fn) => fn({}));
+    };
+  });
+  input.select = () => {};
+  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', 'explore.js']
+    .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
+  ctx.MMWatch.grid = {
+    list(host, opts) {
+      const g = { opts, set: [], stopped: false, busy: 0, titles: [] };
+      const add = (got) => { g.titles = got.cards.map((c) => c.textContent); g.next = got.next; };
+      opts.fetchPage(opts.next).then(add, () => { g.failed = true; });
+      grids.push(g);
+      return {
+        set: (content, how) => { g.set.push([content.cards.length, content.next, how.move]); if (content.cards.length) add(content); },
+        busy: () => { g.busy++; },
+        stop: () => { g.stopped = true; },
+      };
+    },
+  };
+  ctx.MMWatch.search.init();
+  ctx.MMWatch.address.start();
   return {
-    ctx, doc, input, calls, events, urls, timers, loc, viewHandlers, $,
-    results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'),
+    ctx, doc, input, calls, events, urls, timers, tab, grids, $, fire,
+    results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'), sheet: $('watch-sheet'),
+    url: () => tab.entries[tab.index].url,
+    shown: () => [$('watch-browse'), $('watch-results')].filter((n) => !n.hidden).map((n) => n.id.slice(6)).join(),
     type(value) {
       input.value = value;
       input.listeners.input.forEach((fn) => fn({}));
@@ -67,18 +138,37 @@ function load(data, opened = '') {
     // Type and let the debounce fire.
     async search(value) {
       this.type(value);
-      this.timers[this.timers.length - 1].fn();
+      this.wait();
       await settle();
     },
+    // What is still waiting for its time.
+    wait() { timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); },
+    async back() { go(-1); await settle(); },
+    key(key, more) {
+      const e = { key, target: input, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
+      input.listeners.keydown.forEach((fn) => fn(e));
+      return e.defaultPrevented;
+    },
+    press: (node) => doc.querySelector('.watch-search').listeners.mousedown.forEach((fn) => fn({ target: node || input, preventDefault() {} })),
     async answer(urlPart, payload) {
       calls.filter((c) => c.url.includes(urlPart) && !c.done).forEach((c) => { c.done = true; c.resolve(payload); });
       await settle();
     },
     titles(sel) { return doc.querySelectorAll(sel).map((c) => c.querySelector('.watch-card__title').textContent); },
     heads: () => doc.querySelectorAll('.results-group__title').map((h) => h.textContent),
+    suggested: () => doc.querySelectorAll('.watch-suggestion').map((n) => n.querySelector('.watch-suggestion__text').children.map((c) => c.textContent).join(' | ')),
+    line: () => { const n = doc.querySelector('.watch-results__line'); return n && n.textContent; },
   };
 }
 
+/* A page whose categories are in. */
+async function ready(...args) {
+  const p = load(...args);
+  await settle();
+  return p;
+}
+
+const MARA = { person_id: 9001, name: 'Mara Ellison', job: 'Actor', profile_url: '/api/watch/img/tmdb/w185/p.jpg', known_for: ['Salt'] };
 const ADMIN = { is_admin: true, view: 'rows', tmdb_configured: true, settings_tmdb_href: '/settings#setg-integrations' };
 const VIEWER = { is_admin: false, view: 'rows', tmdb_configured: false, settings_tmdb_href: '/settings#setg-integrations' };
 
@@ -91,7 +181,7 @@ const scenarios = {
     await p.answer('/api/watch/search?', { items: [LIB] });
     out.afterLibrary = {
       heads: p.heads(),
-      libraryRefs: p.doc.querySelectorAll('[data-title-ref]').map((c) => c.getAttribute('data-title-ref')),
+      libraryRefs: p.doc.querySelectorAll('.watch-card [data-title-ref]').map((c) => c.getAttribute('data-title-ref')),
       keepButtons: p.doc.querySelectorAll('[data-watch-keep]').length,
       skeleton: p.doc.querySelectorAll('.watch-card--skel').length > 0,
       shown: p.results.hidden === false && p.browse.hidden === true,
@@ -160,18 +250,18 @@ const scenarios = {
     const both = load(ADMIN);
     await both.search('zzqx');
     await both.answer('/api/watch/search?', { items: [] });
-    const pending = both.doc.getElementById('watch-results-msg').textContent;
+    const pending = both.line();
     await both.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
-    const msg = both.doc.getElementById('watch-results-msg');
     const onlyTmdb = load(ADMIN);
     await onlyTmdb.search('orchard');
     await onlyTmdb.answer('/api/watch/search?', { items: [] });
     await onlyTmdb.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
     return {
       whileWaiting: pending,
-      line: msg.querySelector('.watch-results__line').textContent,
+      line: both.line(),
+      help: both.doc.querySelector('.watch-results__hint').textContent !== '',
       status: both.status.textContent,
-      tmdbOnly: { msg: onlyTmdb.doc.getElementById('watch-results-msg').textContent, heads: onlyTmdb.heads() },
+      tmdbOnly: { line: onlyTmdb.line(), heads: onlyTmdb.heads() },
     };
   },
 
@@ -195,7 +285,7 @@ const scenarios = {
       const link = hint && hint.querySelector('a');
       out.empty = out.empty || {};
       out.empty[name] = {
-        line: none.doc.querySelector('.watch-results__line').textContent,
+        line: none.line(),
         text: hint && hint.textContent, href: link && link.href,
       };
     }
@@ -214,7 +304,7 @@ const scenarios = {
     await p.search('orchard');
     await p.answer('/api/watch/search?', { items: [LIB] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
-    const marked = p.doc.querySelectorAll('[data-title-ref]');
+    const marked = p.doc.querySelectorAll('.watch-card [data-title-ref]');
     return {
       tags: marked.map((n) => n.tagName),
       refs: marked.map((n) => n.getAttribute('data-title-ref')),
@@ -235,10 +325,8 @@ const scenarios = {
     retry.focus();
     click(tmdb.doc, retry);
     await settle();
-    out.whileLoading = tmdb.doc.activeElement === retry;
     await tmdb.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
     out.tmdbOk = active(tmdb);
-    out.tmdbOkInGroup = tmdb.doc.querySelectorAll('.results-group')[1].contains(tmdb.doc.activeElement);
     out.headingFocusable = tmdb.doc.activeElement.tabIndex;
 
     const again = load(ADMIN);
@@ -275,10 +363,10 @@ const scenarios = {
     await p.search('orchard');
     p.calls.forEach((c) => c.reject(new Error('502')));
     await settle();
-    const msg = p.$('watch-results-msg');
+    const msg = p.doc.querySelector('.results-fail');
     const out = {
       text: msg.textContent, alerts: p.doc.querySelectorAll('[role="alert"]').length,
-      groups: p.doc.querySelectorAll('.results-group').length, status: p.status.textContent,
+      groups: p.heads().length, status: p.status.textContent,
       buttons: p.doc.querySelectorAll('button').filter((b) => b.textContent === 'Try again').length,
     };
     const before = p.calls.length;
@@ -300,108 +388,90 @@ const scenarios = {
     p.calls.filter((c) => c.url.includes('/tmdb'))[0].reject(new Error('502'));
     await settle();
     const none = p.doc.querySelector('.results-none');
-    const group = p.doc.querySelector('.results-group');
+    const rows = p.doc.querySelector('.results-grid').children;
     return {
       waiting: waiting === null,
       status: p.status.textContent,
       line: none && none.textContent,
-      above: none !== null && group !== null && p.doc.querySelector('.results-groups').childNodes[0].contains(none),
+      above: rows[0] === none && rows.length === 3,
       heads: p.heads(),
       alerts: p.doc.querySelectorAll('[role="alert"]').length,
     };
   },
 
-  // The rows and the results trade places by fading: out over --dur-fast, then in; reversing mid-fade stays clean.
+  // The rows fade and shrink behind the results, which are there at once; clearing half-way brings them back.
   async viewFade() {
     const out = {};
-    const p = load(ADMIN);
-    p.ctx.matchMedia = () => ({ matches: false });
-    const anims = [];
-    const animate = (node) => (keyframes, opts) => {
-      const a = { node, keyframes, opts, cancelled: false, cancel() { this.cancelled = true; } };
-      anims.push(a);
-      return a;
-    };
-    p.browse.animate = animate('browse');
-    p.results.animate = animate('results');
-    await p.search('orchard');
-    await p.answer('/api/watch/search?', { items: [LIB] });
-    out.during = { browse: p.browse.hidden === true, results: p.results.hidden, anims: anims.map((a) => [a.node, a.opts.duration]) };
-    anims[0].onfinish();
-    out.after = { browse: p.browse.hidden === true, results: p.results.hidden, fadeIn: p.results.classList.contains('fade-in'), cancelled: anims[0].cancelled };
-    // Back to the rows, and reversed before the fade ends.
-    p.type('');
-    out.clearing = { anims: anims.length, node: anims[1].node, duration: anims[1].opts.duration };
-    p.type('orchard');
-    p.timers[p.timers.length - 1].fn();
-    await p.answer('/api/watch/search?', { items: [LIB] });
-    out.reversed = { results: p.results.hidden, browse: p.browse.hidden === true, cancelled: anims[1].cancelled, anims: anims.length };
-    anims[1].onfinish && anims[1].onfinish();
-    out.afterStale = { results: p.results.hidden, browse: p.browse.hidden === true };
-
-    // Typing then clearing at once never leaves the results up.
-    const q = load(ADMIN);
-    q.ctx.matchMedia = () => ({ matches: false });
-    const more = [];
-    q.browse.animate = (k, o) => { const a = { cancel() { this.cancelled = true; } }; more.push(a); return a; };
-    q.results.animate = q.browse.animate;
-    await q.search('orchard');
-    await q.answer('/api/watch/search?', { items: [LIB] });
-    q.type('');
-    out.quick = { browse: q.browse.hidden === true, results: q.results.hidden, cancelled: more[0].cancelled };
-    // Reduced motion: a cut, nothing animated.
-    const r = load(ADMIN);
-    let ran = 0;
-    r.browse.animate = () => { ran++; return {}; };
-    await r.search('orchard');
-    await r.answer('/api/watch/search?', { items: [LIB] });
-    out.reduced = { ran, browse: r.browse.hidden === true, results: r.results.hidden };
+    const p = await ready(ADMIN);
+    const finish = withMotion(p);
+    try {
+      const state = () => [p.shown(), p.browse.classList.contains('is-off')];
+      p.type('orchard');
+      out.during = state();
+      p.timers.filter((t) => t.on && t.ms === 150).forEach((t) => { t.on = false; t.fn(); });
+      out.after = state();
+      p.type('');
+      out.back = state();
+      // Cleared before the rows are gone: nothing hides them later.
+      p.type('orchard');
+      p.type('');
+      p.wait();
+      await settle();
+      out.quick = state();
+      finish();
+      await settle();
+      out.left = p.doc.querySelectorAll('.results-page').length;
+    } finally {
+      delete Node.prototype.animate;
+    }
+    const still = await ready(ADMIN);
+    still.type('orchard');
+    out.reduced = [still.shown(), still.browse.classList.contains('is-off')];
     return out;
   },
 
-  // Results replace each other with a cross-fade; whatever order the queries and replies come in, the end is one clean view.
+  // Whatever order the queries and replies come in, and however fast, the end is one clean view.
   async settledAfterFade() {
-    const live = [];
-    // Motion is on once the first results are up: every fade runs until the scenario ends it.
-    const animate = function () { const a = { cancel() {} }; live.push(a); return a; };
-    const finish = () => live.splice(0).forEach((a) => a.onfinish && a.onfinish());
     const page = async () => {
       const p = load(ADMIN);
       await p.search('orchard');
       await p.answer('/api/watch/search?', { items: [LIB] });
       await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
-      p.ctx.matchMedia = () => ({ matches: false });
       return p;
     };
     const view = (p) => ({
-      heads: p.heads(), titles: p.doc.querySelectorAll('.watch-card__title').map((t) => t.textContent), skeleton: p.doc.querySelectorAll('.watch-card--skel').length,
-      stacks: p.results.children.filter((n) => n.style.display === 'grid').length, msg: p.$('watch-results-msg').textContent,
+      heads: p.heads(), titles: p.titles('.watch-card'), skeleton: p.doc.querySelectorAll('.watch-card--skel').length, pages: p.doc.querySelectorAll('.results-page').length,
+      leaving: p.doc.querySelectorAll('.results-ghosts').reduce((n, g) => n + g.children.length, 0), line: p.line(),
     });
     const out = {};
-    const proto = require('./fake_dom').Node.prototype;
-    proto.animate = animate;
+    const a = await page();
+    const finish = withMotion(a);
     try {
       // Nothing matches while the old results are still fading out.
-      const a = await page();
       await a.search('zzqx');
       await a.answer('/api/watch/search?', { items: [] });
       await a.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
       finish();
       await settle();
       out.nothing = view(a);
-
-      // The next query lands before the last fade is over.
-      const b = await page();
+    } finally {
+      delete Node.prototype.animate;
+    }
+    const b = await page();
+    const end = withMotion(b);
+    try {
+      // The next query lands before the last one's posters are in place.
       await b.search('tallow');
-      await b.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Tallow' }] });
+      await b.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-2', title: 'Tallow' }] });
       await b.search('harrow');
-      await b.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Harrow' }] });
+      await b.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-3', title: 'Harrow' }] });
       await b.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
-      finish();
+      out.midway = b.doc.querySelectorAll('.results-ghosts').some((g) => g.querySelectorAll('[data-title-ref], [data-watch-keep]').length > 0);
+      end();
       await settle();
       out.chained = view(b);
     } finally {
-      delete proto.animate;
+      delete Node.prototype.animate;
     }
     return out;
   },
@@ -418,9 +488,7 @@ const scenarios = {
 
   // Clearing goes back to the rows, keeps focus in the field and takes ?q= off the address.
   async clear() {
-    const p = load(ADMIN);
-    p.loc.search = '?foo=1';
-    p.loc.hash = '#title=movie-2';
+    const p = load(ADMIN, '', '/watch?foo=1#title=movie-2');
     await p.search('orchard');
     const withQ = p.urls[p.urls.length - 1];
     await p.answer('/api/watch/search?', { items: [LIB] });
@@ -430,7 +498,7 @@ const scenarios = {
     return {
       withQ, url: p.urls[p.urls.length - 1], value: p.input.value, focus: p.doc.activeElement === p.input,
       browse: p.browse.hidden === false, results: p.results.hidden, status: p.status.textContent,
-      groups: p.doc.querySelectorAll('.results-group').length,
+      groups: p.heads().length, length: p.tab.entries.length,
     };
   },
 
@@ -461,6 +529,14 @@ const scenarios = {
     return p.calls.length;
   },
 
+  // Only what leaves today or tomorrow is urgent.
+  async leaving() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [0, 1, 2].map((d) => ({ ...LIB, ref: 'movie-1' + d, leaving_days: d })) });
+    return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => b.classList.contains('watch-badge--leaving-now'));
+  },
+
   // A library result carries its mark and its More; one outside the library neither.
   async marks() {
     const p = load(ADMIN);
@@ -477,7 +553,7 @@ const scenarios = {
     const out = {
       urls: p.calls.map((c) => c.url),
       before: { results: p.results.hidden, browse: p.browse.hidden, skeleton: p.doc.querySelectorAll('.watch-card--skel').length > 0 },
-      clear: p.$('watch-search-clear').hidden,
+      clear: p.doc.querySelector('.watch-search').classList.contains('has-value'),
     };
     await p.answer('/api/watch/search?', { items: [LIB] });
     out.after = { results: p.results.hidden, browse: p.browse.hidden, titles: p.doc.querySelectorAll('.watch-card__title').map((t) => t.textContent) };
@@ -489,7 +565,7 @@ const scenarios = {
     const none = load(ADMIN, 'zzqx');
     await none.answer('/api/watch/search?', { items: [] });
     await none.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
-    out.none = { skeleton: none.doc.querySelectorAll('.watch-card--skel').length, line: none.doc.querySelector('.watch-results__line').textContent };
+    out.none = { skeleton: none.doc.querySelectorAll('.watch-card--skel').length, line: none.line() };
     return out;
   },
 
@@ -514,36 +590,284 @@ const scenarios = {
     };
   },
 
-  // A new search eases over the old results without the old ones starting their fade-in again; a group
-  // that arrives later fades in over its skeleton instead of popping in.
-  async swaps() {
+  // A poster both searches found is the same node before and after, so it never blinks; one whose state changed is drawn anew.
+  async kept() {
     const p = load(ADMIN);
-    await p.search('tallow');
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    const card = (ref) => p.doc.querySelectorAll('.watch-card').filter((c) => c.querySelector('[data-title-ref="' + ref + '"]'))[0];
+    const before = [card('movie-1'), card('tmdb-movie-9')];
+    await p.search('orchard r');
+    const out = { waiting: card('movie-1') === before[0], dimmed: p.doc.querySelector('.results-grid').getAttribute('aria-busy') };
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-4', title: 'Orchard Rise' }, LIB] });
+    // TMDB has not answered: what it said before and still fits stays.
+    out.early = [p.titles('.watch-card'), card('tmdb-movie-9') === before[1]];
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...TM, download_state: 'downloading', download_pct: 4 }] });
+    out.same = card('movie-1') === before[0];
+    out.redrawn = card('tmdb-movie-9').querySelector('.watch-badge--state').textContent;
+    out.titles = p.titles('.watch-card');
+    return out;
+  },
+
+  // Categories are suggested on the keystroke itself; people and titles as soon as the server names them.
+  async suggestions() {
+    const p = await ready(ADMIN);
+    p.type('act');
+    const out = { atOnce: p.suggested(), calls: p.calls.length, expanded: p.input.getAttribute('aria-expanded') };
+    await p.search('mar');
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, ref: 'movie-8', title: 'Marrow' }] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], people: [MARA] });
+    out.named = p.suggested();
+    p.type('mara');
+    out.known = p.suggested();
+    // A phrase that asks for a kind and an order.
+    p.type('best action movies');
+    out.phrase = p.suggested();
+    // Other words for a category, but not from their first letters.
+    p.type('scary');
+    out.alias = p.suggested();
+    p.type('mart');
+    out.begun = p.suggested()[0];
+    return out;
+  },
+
+  // "popular action movies" lists the category's own titles with whatever matched, each once.
+  async phraseResults() {
+    const p = await ready(ADMIN);
+    await p.search('popular action movies');
+    const out = { urls: p.calls.map((c) => c.url) };
     await p.answer('/api/watch/search?', { items: [LIB] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
-    const finish = withMotion(p);
-    try {
-      const oldView = p.doc.querySelector('.results-groups');
-      const easing = oldView.querySelectorAll('.fade-in').length;
-      await p.search('harrow');
-      await p.answer('/api/watch/search?', { items: [LIB] });
-      const out = { easing, oldStill: oldView.querySelectorAll('.fade-in').length };
-      // TMDB answers later: its skeleton and its group share one cell while they cross.
-      const slot = p.doc.querySelectorAll('.results-groups')[p.doc.querySelectorAll('.results-groups').length - 1].children[1];
-      out.slotBefore = slot.querySelectorAll('.watch-card--skel').length > 0;
-      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
-      const stack = slot.children[0];
-      out.crossing = {
-        grid: stack.style.display, parts: stack.children.length,
-        skeletonInert: stack.children[0].hasAttribute('inert'), cards: stack.children[1].querySelectorAll('.watch-card').length,
-      };
-      finish();
-      await settle();
-      out.settled = { children: slot.children.length, skeleton: slot.querySelectorAll('.watch-card--skel').length, cards: slot.querySelectorAll('.watch-card').length, fadeIn: slot.querySelectorAll('.fade-in').length };
-      return out;
-    } finally {
-      delete require('./fake_dom').Node.prototype.animate;
-    }
+    out.waiting = p.doc.querySelector('.watch-search').classList.contains('is-pending');
+    await p.answer('/api/watch/explore?', { items: [
+      { ...TM, ref: 'tmdb-movie-1', title: 'Orchard Keepers', in_library: true, library_ref: 'movie-1' },
+      { ...TM, ref: 'tmdb-movie-2', title: 'Held', in_library: true, library_ref: 'movie-2' },
+      { ...TM, ref: 'tmdb-movie-3', title: 'Not held', download_state: null },
+    ] });
+    out.titles = p.titles('.watch-card');
+    out.counts = p.doc.querySelectorAll('.results-group__count').map((c) => c.textContent);
+    out.status = p.status.textContent;
+    // Nothing matched by name and the list failed: that is a failure, not an empty answer.
+    const q = await ready(ADMIN);
+    await q.search('action');
+    await q.answer('/api/watch/search?', { items: [] });
+    await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    q.calls.filter((c) => c.url.includes('explore'))[0].reject(new Error('502'));
+    await settle();
+    out.failed = [q.doc.querySelectorAll('.results-fail').length, q.line()];
+    return out;
+  },
+
+  // Arrows move one highlight; Esc drops it, then the text, then the sheet; Enter opens what is highlighted.
+  async keys() {
+    const p = await ready(ADMIN);
+    const marked = () => p.doc.querySelectorAll('.is-picked').map((n) => n.id + '=' + n.getAttribute('aria-selected'));
+    p.press();
+    p.input.focus();
+    await settle();
+    const out = { open: [p.sheet.classList.contains('is-on'), p.sheet.inert, p.browse.inert, p.input.getAttribute('aria-expanded')] };
+    p.key('ArrowDown');
+    out.tile = [marked(), p.input.getAttribute('aria-activedescendant')];
+    p.key('Escape');
+    out.dropped = [marked(), p.sheet.classList.contains('is-on')];
+    p.key('Escape');
+    out.closed = [p.sheet.classList.contains('is-on'), p.browse.inert, p.doc.activeElement === p.input];
+    p.input.focus();
+    out.script = p.sheet.classList.contains('is-on'); // focus put here by a script opens nothing
+    await p.search('act');
+    p.key('ArrowDown');
+    out.row = marked();
+    p.key('ArrowUp');
+    out.none = marked();
+    p.key('Escape');
+    out.cleared = [p.input.value, p.shown(), p.doc.activeElement === p.input];
+    await p.search('act');
+    p.key('ArrowDown');
+    p.doc.querySelector('.is-picked').click = function () { click(p.doc, this); };
+    p.key('Enter');
+    await settle();
+    out.opened = p.url();
+    return out;
+  },
+
+  // "/" goes to the field, but not from another field, with a modifier or behind a dialog.
+  async slash() {
+    const p = await ready(ADMIN);
+    const press = (more, from) => {
+      p.input.blur();
+      if (from) from.focus();
+      const e = { key: '/', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
+      p.doc.listeners.keydown.forEach((fn) => fn(e));
+      return p.doc.activeElement === p.input;
+    };
+    const other = p.doc.body.appendChild(p.doc.createElement('textarea'));
+    const out = { plain: press({}), sheet: p.sheet.classList.contains('is-on'), modified: press({ metaKey: true }), field: press({}, other) };
+    const dialog = p.doc.body.appendChild(p.doc.createElement('div'));
+    dialog.setAttribute('aria-modal', 'true');
+    out.dialog = press({});
+    return out;
+  },
+
+  // Nothing to browse without TMDB: the field opens no sheet and suggests no category.
+  async noSheet() {
+    const p = await ready({ ...ADMIN, tmdb_configured: false });
+    p.press();
+    p.input.focus();
+    const out = { sheet: p.sheet.classList.contains('is-on') };
+    p.type('action');
+    out.suggested = p.suggested();
+    const l = await ready({ ...ADMIN, view: 'list' });
+    l.press();
+    out.list = l.sheet.classList.contains('is-on');
+    return out;
+  },
+
+  // A category opened from a search: Back is the search again, and forward of it nothing is lost.
+  async categoryAndBack() {
+    const p = await ready(ADMIN);
+    await p.search('action');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    await p.answer('/api/watch/explore?', { items: [] });
+    click(p.doc, p.doc.querySelector('.watch-suggestion--category'));
+    await settle();
+    const token = () => { const t = p.$('watch-search-token'); return t.hidden ? null : t.textContent; };
+    const out = {
+      url: p.url(), entries: p.tab.entries.length, value: p.input.value, token: token(), shown: p.shown(),
+      title: p.doc.querySelector('.explore-title').textContent, cards: p.heads(),
+    };
+    await p.back();
+    out.back = { url: p.url(), value: p.input.value, token: token(), titles: p.titles('.watch-card'), explore: p.doc.querySelector('.explore') !== null, stopped: p.grids[0].stopped };
+    return out;
+  },
+
+  // Typing on a category's page searches in a new entry, so Back returns to the category; the cross goes to the rows.
+  async typeOnCategory() {
+    const p = await ready(ADMIN, '', '/watch?genre=action&sort=newest');
+    const out = { first: [p.url(), p.grids.length, p.calls.map((c) => c.url), p.shown()] };
+    p.type('o');
+    out.typed = [p.url(), p.tab.entries.length, p.doc.querySelector('.explore') !== null, p.$('watch-search-token').hidden];
+    await p.search('orchard');
+    out.more = [p.url(), p.tab.entries.length];
+    await p.back();
+    out.back = [p.url(), p.input.value, p.doc.querySelector('.explore') !== null, p.$('watch-search-token').hidden];
+    click(p.doc, p.$('watch-search-clear'));
+    await settle();
+    out.cleared = [p.url(), p.shown(), p.$('watch-search-token').hidden];
+    return out;
+  },
+
+  // The filters change the address in place and ask for the first page in the new order; the last one pressed wins.
+  async filters() {
+    const p = await ready(ADMIN, '', '/watch?genre=action');
+    const said = () => p.doc.querySelector('.explore-facts').textContent;
+    const choose = (v) => click(p.doc, p.doc.querySelectorAll('.explore-seg__item').filter((b) => b.getAttribute('data-value') === v)[0]);
+    const out = { before: said() };
+    const page = (title, total) => ({ tmdb_configured: true, genre: GENRES[0], items: [{ ...TM, title }], total, next_page: 2 });
+    await p.answer('explore?genre=action', page('One', 1280));
+    out.loaded = [said(), p.grids[0].titles.length, p.grids[0].next];
+    choose('movie');
+    choose('top_rated');
+    out.asked = p.calls.slice(1).map((c) => c.url);
+    out.address = [p.url(), p.tab.entries.length];
+    const [first, second] = p.calls.slice(1);
+    second.resolve(page('Two', 7));
+    await settle();
+    first.resolve(page('Late', 9));
+    await settle();
+    out.set = p.grids[0].set;
+    out.said = said();
+    out.pressed = p.doc.querySelectorAll('.explore-seg__item').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent);
+    // A failure leaves the asking to the grid, which says so and offers to try again.
+    choose('newest');
+    p.calls[3].reject(new Error('502'));
+    await settle();
+    out.failed = p.grids[0].set[1];
+    // The same choice again asks for nothing.
+    choose('newest');
+    out.again = p.calls.length;
+    return out;
+  },
+
+  // Only films or only TV: there is no kind to choose, and one in the address that it has not is not asked for.
+  async oneKind() {
+    const p = await ready(ADMIN);
+    p.press();
+    await settle();
+    click(p.doc, p.$('watch-option-genre-horror'));
+    await settle();
+    const type = p.doc.querySelectorAll('.explore-seg').filter((n) => n.getAttribute('aria-label') === 'Type')[0];
+    return { hidden: type.hidden === true, says: p.doc.querySelector('.explore-facts').textContent, url: p.calls[0].url };
+  },
+
+  // A person: what the library holds under its own heading, then the rest, whatever page they come on.
+  async person() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    const item = (n, held) => ({ ...TM, ref: 'tmdb-movie-' + n, title: 'T' + n, in_library: held });
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: { ...MARA, photo_url: '/api/watch/img/tmdb/w342/p.jpg' }, items: [item(1, true), item(2, true)], total: 5, in_library: 3, next_page: 2 });
+    const out = {
+      title: p.doc.querySelector('.explore-title').textContent, facts: p.doc.querySelector('.explore-facts').textContent,
+      token: p.doc.querySelector('.watch-search__name').textContent, letters: p.doc.querySelector('.explore-photo').children[0].textContent, first: p.grids[0].titles, status: p.status.textContent,
+      photo: p.doc.querySelector('.explore-photo img').src,
+    };
+    const more = p.grids[0].opts.fetchPage(2);
+    await p.answer('person/9001?page=2', { tmdb_configured: true, person: MARA, items: [item(3, true), item(4, false), item(5, false)], total: 5, in_library: 3, next_page: null });
+    out.second = (await more).cards.map((c) => c.textContent);
+    // Asked for again, it is in memory.
+    p.ctx.MMWatch.explore.person('9001', 1);
+    out.calls = p.calls.length;
+    return out;
+  },
+
+  // Esc and the page's Back leave the way Back does; the Browse half of the switch goes to the rows.
+  async leaveCategory() {
+    const out = {};
+    const esc = (p, prevented) => p.fire('keydown', { key: 'Escape', defaultPrevented: !!prevented, preventDefault() {} });
+    const linked = await ready(ADMIN, '', '/watch?genre=action&type=tv');
+    esc(linked, true); // a menu's own
+    out.menus = linked.url();
+    esc(linked);
+    await settle();
+    out.linked = [linked.url(), linked.tab.entries.length, linked.shown(), linked.grids[0].stopped];
+    const opened = await ready(ADMIN);
+    opened.press();
+    await settle();
+    click(opened.doc, opened.$('watch-option-genre-action'));
+    await settle();
+    const at = [opened.url(), opened.tab.index];
+    click(opened.doc, opened.doc.querySelector('.explore-back'));
+    await settle();
+    out.opened = [at, opened.url(), opened.tab.index, opened.shown()];
+    const away = await ready(ADMIN, '', '/watch?person=9001');
+    click(away.doc, away.doc.querySelector('[data-view="rows"]'));
+    await settle();
+    out.away = [away.url(), away.shown(), away.$('watch-search-token').hidden];
+    return out;
+  },
+
+  // The list view opened over a category, as list.js does: the category is shut, and Back opens it again.
+  async listOverCategory() {
+    const p = await ready(ADMIN, '', '/watch?genre=action');
+    const { address } = p.ctx.MMWatch;
+    const say = (view) => p.fire('mm:watch-view', { detail: { view } });
+    address.layer({ name: 'list', depth: 5, params: ['view'], read: (h) => h.params.get('view'), open: () => say('list'), close: () => say('rows') });
+    address.push('list', '/watch?view=list');
+    say('list');
+    const out = { list: [p.grids[0].stopped, p.results.hidden, address.value('explore')] };
+    // What is typed there stays there when Back leads to what the address opens by itself.
+    p.input.value = 'lantern';
+    await p.back();
+    out.back = [p.url(), p.grids.length, p.results.hidden, p.input.value, p.calls.filter((c) => c.url.includes('search')).length];
+    return out;
+  },
+
+  // What was typed, read as a category.
+  async phrases() {
+    const p = await ready(ADMIN);
+    const read = (text) => { const r = p.ctx.MMWatch.explore.parse(text); return [r.genres.map((g) => g.id).join(), r.exact, r.type, r.sort, r.decade]; };
+    return ['popular action movies', 'sci-fi', 'sci fi shows', 'newest 90s horror', 'action films from the 2010s', 'tv', 'new', 'horror series', 'zzqx', 'a']
+      .map(read);
   },
 
   // In the list view the field only announces what was typed; no search runs.
@@ -558,18 +882,18 @@ const scenarios = {
     out.cleared = p.events[p.events.length - 1];
     // Switching to the rows: the same field searches again.
     const r = load({ ...ADMIN, view: 'list' });
-    r.viewHandlers.forEach((fn) => fn({ detail: { view: 'rows' } }));
+    r.fire('mm:watch-view', { detail: { view: 'rows' } });
     await r.search('lantern');
     out.afterSwitch = { events: r.events.length, calls: r.calls.length, placeholder: r.input.placeholder };
     return out;
   },
 };
 
-// Motion on: every fade runs until finish() ends it.
+// Motion on: every move runs until finish() ends it.
 function withMotion(p) {
   const live = [];
   p.ctx.matchMedia = () => ({ matches: false });
-  require('./fake_dom').Node.prototype.animate = function () { const a = { cancel() {} }; live.push(a); return a; };
+  Node.prototype.animate = function () { const a = { playState: 'running', cancel() {} }; live.push(a); return a; };
   return () => live.splice(0).forEach((a) => a.onfinish && a.onfinish());
 }
 

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
+{% import "_watch_space.html" as space %}
 
 {% block title %}Watch · Mediaman{% endblock %}
 
@@ -9,8 +10,13 @@
 {% block head %}
 <link rel="stylesheet" href="/static/css/_watch_browse.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_search.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_grid.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
-{% if is_admin %}<link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">{% endif %}
+{% if is_admin %}
+<link rel="stylesheet" href="/static/css/_watch_list.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_space.css?v={{ static_v }}">
+{% endif %}
 {% endblock %}
 
 {% macro row_section(row) -%}
@@ -51,11 +57,11 @@
   {% if is_admin %}
   <p class="watch-empty__text">
     Your library is empty.
-    {% if tmdb_configured %}Scan it from the dashboard, or search above for something to download.
-    {% else %}Pick the libraries to scan in Settings, then scan from the dashboard. Connect TMDB there too to search for titles to download.{% endif %}
+    {% if tmdb_configured %}Scan it from Storage, at the top, or search above for something to download.
+    {% else %}Pick the libraries to scan in Settings, then scan from Storage, at the top. Connect TMDB there too to search for titles to download.{% endif %}
   </p>
   <div class="watch-actions">
-    <a class="btn btn--lg watch-btn--play" href="/">Go to the dashboard</a>
+    <a class="btn btn--lg watch-btn--play" href="/watch#storage">Open Storage</a>
     <a class="btn btn--lg watch-btn--grey" href="/settings">Open Settings</a>
   </div>
   {% else %}
@@ -66,25 +72,42 @@
 
 {% block content %}
 {% set list_view = is_admin and view == "list" %}
-{# A search in the address opens on its results, so the rows never show first. #}
-{% set on_results = q and not list_view %}
+{# A search, a category or a person in the address opens on its results, so the rows never show first. #}
+{% set asked = request.query_params if request else {} %}
+{% set on_results = not list_view and (q or asked.get("genre") or asked.get("person")) %}
 <div class="watch-page" id="watch-page">
   <div class="watch-top" id="watch-top">
-    <div class="watch-search" role="search">
-      {{ icon("i-magnifying-glass", "watch-search__icon") }}
-      <span class="search-spinner watch-search__spinner" aria-hidden="true"></span>
-      {% set search_label = "Search your library" if list_view else "Search films and shows" %}
-      <input id="watch-search" class="watch-search__input" type="search" placeholder="{{ search_label }}" aria-label="{{ search_label }}" autocomplete="off" spellcheck="false"{% if q %} value="{{ q }}"{% endif %}>
-      <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search"{% if not q %} hidden{% endif %}>{{ icon("i-xmark") }}</button>
+    {% set search_label = "Search your library" if list_view else "Search films and shows" %}
+    <div class="watch-search{% if q %} has-value is-open{% endif %}" role="search">
+      <span class="watch-search__halo"></span>
+      <span class="watch-search__pill" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="watch-search__lens" aria-hidden="true"><svg viewBox="0 0 22 22" focusable="false"><circle class="watch-search__ring" cx="9.5" cy="9.5" r="6.6"/><circle class="watch-search__arc" cx="9.5" cy="9.5" r="6.6"/><line class="watch-search__handle" x1="14.4" y1="14.4" x2="19" y2="19"/></svg></span>
+      <div class="watch-search__row">
+        <span class="watch-search__token" id="watch-search-token" hidden></span>
+        <span class="watch-search__field">
+          {# Stands in for the placeholder, which cannot move. #}
+          <span class="watch-search__ph" id="watch-search-hint" aria-hidden="true">{{ search_label }}</span>
+          <input id="watch-search" class="watch-search__input" type="search" role="combobox" placeholder="{{ search_label }}" aria-label="{{ search_label }}" aria-autocomplete="list" aria-expanded="false" aria-controls="watch-sheet" autocomplete="off" spellcheck="false"{% if q %} value="{{ q }}"{% endif %}>
+        </span>
+      </div>
+      <span class="watch-search__end">
+        <kbd class="watch-search__key watch-search__key--slash" aria-hidden="true">/</kbd>
+        <kbd class="watch-search__key watch-search__key--esc" aria-hidden="true">esc</kbd>
+        <button type="button" class="watch-search__clear" id="watch-search-clear" aria-label="Clear search">{{ icon("i-xmark") }}</button>
+      </span>
     </div>
     {% if is_admin %}
+    {{ space.meter() }}
     <nav class="watch-viewtoggle" id="watch-viewtoggle" aria-label="View">
       <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}>{{ icon("i-table-cells-large") }}<span class="watch-viewtoggle__label">Browse</span></a>
       <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}>{{ icon("i-list") }}<span class="watch-viewtoggle__label">List</span></a>
     </nav>
     {% endif %}
+    {# Filled by watch/search.js: ways to find something, before anything is typed. #}
+    <div class="watch-sheet" id="watch-sheet" role="listbox" aria-label="Ways to find something to watch" tabindex="-1" inert></div>
     <p class="sr-only" id="watch-search-status" role="status"></p>
   </div>
+  <div class="watch-veil" id="watch-veil"></div>
 
   <div id="watch-browse"{% if list_view or on_results %} hidden{% endif %}>
     {% if watch_error %}
@@ -151,11 +174,7 @@
       {% endif %}
     </div>
   </div>
-
-  <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}>
-    <p class="watch-results__msg" id="watch-results-msg"></p>
-    <div class="watch-grid" id="watch-grid"></div>
-  </section>
+  <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}></section>
 
   {% if is_admin %}
   <section class="watch-list" id="watch-list" aria-label="Library list"{% if not list_view %} hidden{% endif %}>{% if list_view %}{% with q=list_q %}{% include "_watch_list.html" %}{% endwith %}{% endif %}</section>
@@ -169,16 +188,22 @@
 
 <script type="application/json" id="watch-page-data">{{ page_data | tojson }}</script>
 <script src="/static/js/watch/core.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/address.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/keep.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/marks.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/search.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/rows-load.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/grid.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/detail.js?v={{ static_v }}" defer></script>
 {% if is_admin %}
 <script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/list.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/space.js?v={{ static_v }}" defer></script>
 {% endif %}
+<script src="/static/js/watch/explore.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch-rows.js?v={{ static_v }}" defer></script>
 {% endblock %}
+
+{% block overlays %}{% if is_admin %}{{ space.panel() }}{% endif %}{% endblock %}

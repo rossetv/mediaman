@@ -1,4 +1,5 @@
-"""The Watch page's two-group search, run under node against a fake DOM."""
+"""The Watch page's search bar, its results and the category and person pages, run under
+node against a fake DOM."""
 
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ def _run(scenario: str) -> dict:
 
 def test_the_library_group_shows_before_tmdb_answers_and_tmdb_fills_its_own_place() -> None:
     out = _run("libraryFirst")
-    assert out["debounce"] == 350
+    assert out["debounce"] == 200
     assert out["urls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
     early = out["afterLibrary"]
     assert early["heads"] == ["In your library", "Available to download"]
@@ -56,10 +57,11 @@ def test_a_failed_tmdb_group_keeps_the_library_and_retries_alone() -> None:
 
 def test_nothing_found_shows_only_when_both_groups_are_empty() -> None:
     out = _run("nothing")
-    assert out["whileWaiting"] == ""
+    assert out["whileWaiting"] is None
+    assert out["help"] is True
     assert out["line"] == "No matches for “zzqx”"
     assert out["status"] == "No matches for “zzqx”"
-    assert out["tmdbOnly"] == {"msg": "", "heads": ["Available to download"]}
+    assert out["tmdbOnly"] == {"line": None, "heads": ["Available to download"]}
 
 
 def test_without_tmdb_the_hint_links_for_admins_and_never_says_tmdb_to_viewers() -> None:
@@ -93,6 +95,7 @@ def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -
     assert out["url"] == "/watch?foo=1#title=movie-2"
     assert (out["value"], out["focus"], out["browse"], out["results"]) == ("", True, True, True)
     assert (out["status"], out["groups"]) == ("", 0)
+    assert out["length"] == 1  # typing and clearing add nothing for Back to undo
 
 
 def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
@@ -114,9 +117,7 @@ def test_search_cards_put_the_title_ref_on_the_link_so_focus_can_return_to_it() 
 
 def test_after_a_retry_focus_goes_to_the_rebuilt_group() -> None:
     out = _run("retryFocus")
-    assert out["whileLoading"] is True  # nothing to focus yet: the skeleton has no heading
     assert out["tmdbOk"] == "results-group__title|Available to download"
-    assert out["tmdbOkInGroup"] is True
     assert out["headingFocusable"] == -1
     assert out["failedAgain"] is True
     assert out["library"] == "results-group__title|In your library"
@@ -141,30 +142,29 @@ def test_an_empty_library_with_tmdb_down_says_so_in_the_status_and_above_the_err
     assert out["alerts"] == 1
 
 
-def test_the_rows_and_results_fade_out_then_in_and_can_be_interrupted() -> None:
+def test_the_results_are_there_at_once_while_the_rows_leave_and_clearing_brings_them_back() -> None:
     out = _run("viewFade")
-    # The rows fade out over --dur-fast; nothing is hidden until that ends.
-    assert out["during"] == {"browse": False, "results": True, "anims": [["browse", 150]]}
-    assert out["after"] == {"browse": True, "results": False, "fadeIn": True, "cancelled": True}
-    assert out["clearing"] == {"anims": 2, "node": "results", "duration": 150}
-    # Typing again before the fade ends puts the results back with no flash of the rows.
-    assert out["reversed"] == {"results": False, "browse": True, "cancelled": True, "anims": 2}
-    assert out["afterStale"] == {"results": False, "browse": True}
-    assert out["quick"] == {"browse": False, "results": True, "cancelled": True}
-    assert out["reduced"] == {"ran": 0, "browse": True, "results": False}
+    assert out["during"] == ["browse,results", True]
+    assert out["after"] == ["results", False]
+    assert out["back"] == ["browse", False]
+    # Cleared half-way: the timer that would have hidden the rows is off.
+    assert out["quick"] == ["browse", False]
+    assert out["left"] == 0
+    assert out["reduced"] == ["results", False]
 
 
-def test_a_new_search_while_the_last_results_fade_out_ends_in_one_clean_view() -> None:
+def test_a_new_search_while_the_last_results_leave_ends_in_one_clean_view() -> None:
     out = _run("settledAfterFade")
-    # No match: the line, and no groups or placeholders left behind from the fade.
-    assert out["nothing"]["heads"] == []
-    assert out["nothing"]["skeleton"] == 0
-    assert out["nothing"]["stacks"] == 0
-    assert out["nothing"]["msg"].startswith("No matches for “zzqx”")
-    # Two searches in a row: only the last one's results stand.
-    assert out["chained"]["titles"] == ["Harrow"]
-    assert out["chained"]["heads"] == ["In your library"]
-    assert (out["chained"]["skeleton"], out["chained"]["stacks"]) == (0, 0)
+    clean = {"skeleton": 0, "pages": 1, "leaving": 0}
+    assert out["nothing"] == {"heads": [], "titles": [], "line": "No matches for “zzqx”", **clean}
+    # What is leaving is a picture: nothing finds a title or a Keep button in it.
+    assert out["midway"] is False
+    assert out["chained"] == {
+        "heads": ["In your library"],
+        "titles": ["Harrow"],
+        "line": None,
+        **clean,
+    }
 
 
 def test_enter_searches_at_once_and_on_a_phone_puts_the_keyboard_away() -> None:
@@ -182,7 +182,7 @@ def test_a_search_in_the_address_opens_on_its_results_with_the_rows_never_shown(
     out = _run("openedOnResults")
     assert out["urls"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
     assert out["before"] == {"results": False, "browse": True, "skeleton": True}
-    assert out["clear"] is False
+    assert out["clear"] is True
     assert out["after"] == {"results": False, "browse": True, "titles": ["Orchard Keepers"]}
     assert out["cleared"] == {"results": True, "browse": False}
     assert out["none"] == {"skeleton": 0, "line": "No matches for “zzqx”"}
@@ -195,14 +195,162 @@ def test_a_download_badge_names_its_percentage_and_a_part_owned_title_is_in_the_
     assert out["classes"][2].endswith("watch-badge--in")
 
 
-def test_a_later_group_crosses_over_its_skeleton_and_old_results_do_not_fade_in_again() -> None:
-    out = _run("swaps")
-    # Moving a node restarts its CSS animation, so the old view must be rid of .fade-in first.
-    assert out["easing"] > 0
-    assert out["oldStill"] == 0
-    assert out["slotBefore"] is True
-    assert out["crossing"] == {"grid": "grid", "parts": 2, "skeletonInert": True, "cards": 1}
-    assert out["settled"] == {"children": 1, "skeleton": 0, "cards": 1, "fadeIn": 0}
+def test_a_poster_both_searches_found_stays_and_one_whose_state_changed_is_drawn_anew() -> None:
+    out = _run("kept")
+    assert out["waiting"] is True
+    assert out["dimmed"] == "true"
+    # TMDB has not answered yet: what it said before and still fits is not taken away.
+    assert out["early"] == [["Orchard Rise", "Orchard Keepers", "Orchard Road"], True]
+    assert out["same"] is True
+    assert out["redrawn"] == "Downloading 4%"
+    assert out["titles"] == ["Orchard Rise", "Orchard Keepers", "Orchard Road"]
+
+
+def test_categories_are_suggested_on_the_keystroke_and_people_once_they_are_known() -> None:
+    out = _run("suggestions")
+    assert out["atOnce"] == [
+        "Action | Category · Popular",
+        "Action | Category · Top rated",
+        "Action | Category · Newest",
+    ]
+    assert out["calls"] == 0
+    assert out["expanded"] == "true"
+    assert out["named"] == ["Mara Ellison | Actor · Salt", "Marrow | Movie"]
+    assert out["known"] == ["Mara Ellison | Actor · Salt"]
+    assert out["phrase"][0] == "Action movies | Category · Top rated"
+    assert out["alias"][0] == "Horror | Category · Popular"
+    assert out["begun"] == "Action | Category · Popular"
+
+
+def test_a_phrase_that_names_a_category_lists_its_titles_each_once() -> None:
+    out = _run("phraseResults")
+    assert out["urls"][2] == "/api/watch/explore?genre=action&type=movie"
+    assert out["waiting"] is True
+    assert out["titles"] == ["Orchard Keepers", "Held", "Not held"]
+    assert out["counts"] == ["2 titles", "1 title"]
+    assert out["status"].startswith("2 in your library, 1 available to download")
+    assert out["failed"] == [1, None]
+
+
+def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:
+    out = _run("keys")
+    assert out["open"] == [True, False, True, "true"]
+    assert out["tile"] == [["watch-option-genre-action=true"], "watch-option-genre-action"]
+    assert out["dropped"] == [[], True]
+    assert out["closed"] == [False, False, False]
+    assert out["script"] is False
+    assert out["row"] == ["watch-option-c-action=true"]
+    assert out["none"] == []
+    assert out["cleared"] == ["", "browse", True]
+    assert out["opened"] == "/watch?genre=action"
+
+
+def test_slash_goes_to_the_field_but_not_from_a_field_or_behind_a_dialog() -> None:
+    out = _run("slash")
+    assert (out["plain"], out["sheet"]) == (True, True)
+    assert (out["modified"], out["field"], out["dialog"]) == (False, False, False)
+
+
+def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:
+    assert _run("noSheet") == {"sheet": False, "suggested": [], "list": False}
+
+
+def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
+    out = _run("categoryAndBack")
+    assert (out["url"], out["entries"]) == ("/watch?genre=action", 2)
+    assert (out["value"], out["token"], out["title"]) == ("", "Action", "Action")
+    assert out["shown"] == "results"
+    assert out["cards"] == []  # nothing of the search is left beside it
+    # Its results stand again before the server has answered.
+    assert out["back"] == {
+        "url": "/watch?q=action",
+        "value": "action",
+        "token": None,
+        "titles": ["Orchard Keepers", "Orchard Road"],
+        "explore": False,
+        "stopped": True,
+    }
+
+
+def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_rows() -> None:
+    out = _run("typeOnCategory")
+    genre = "/watch?genre=action&sort=newest"
+    assert out["first"] == [genre, 1, ["/api/watch/explore?genre=action&sort=newest"], "results"]
+    assert out["typed"] == ["/watch?q=o", 2, False, True]
+    assert out["more"] == ["/watch?q=orchard", 2]
+    assert out["back"] == [genre, "", True, False]
+    assert out["cleared"] == ["/watch", "browse", True]
+
+
+def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins() -> None:
+    out = _run("filters")
+    assert out["before"] == "Popular movies and TV"
+    assert out["loaded"] == ["Popular movies and TV · 1,280 titles", 1, 2]
+    assert out["asked"] == [
+        "/api/watch/explore?genre=action&type=movie",
+        "/api/watch/explore?genre=action&type=movie&sort=top_rated",
+    ]
+    assert out["address"] == ["/watch?genre=action&type=movie&sort=top_rated", 1]
+    assert out["set"][0] == [1, 2, True]
+    assert out["said"] == "Top rated movies · 7 titles"  # not the late answer's 9
+    assert out["pressed"] == ["Movies", "Top rated"]
+    # After a failure the grid asks for that page itself, and says what is wrong.
+    assert out["failed"] == [0, 1, False]
+    assert out["again"] == 4
+
+
+def test_a_category_of_films_alone_offers_no_kind_to_choose() -> None:
+    out = _run("oneKind")
+    assert out["hidden"] is True
+    assert out["says"] == "Popular movies"
+    assert out["url"] == "/api/watch/explore?genre=horror"
+
+
+def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading() -> None:
+    out = _run("person")
+    assert (out["title"], out["token"]) == ("Mara Ellison", "Mara Ellison")
+    assert out["letters"] == "ME"  # under the photo, for when it does not load
+    assert out["facts"] == "Actor · 3 in your library, 2 more"
+    assert out["status"] == "Mara Ellison, 5 titles"
+    assert out["photo"] == "/api/watch/img/tmdb/w342/p.jpg"
+    assert [t.split("Movie")[0] for t in out["first"]] == ["In your library3 titles", "T1", "T2"]
+    # The heading that was printed on the first page is not printed again on the second.
+    assert [t.split("Movie")[0] for t in out["second"]] == [
+        "T3",
+        "Available to download2 titles",
+        "T4Queued",
+        "T5Queued",
+    ]
+    assert out["calls"] == 2
+
+
+def test_esc_back_and_the_browse_switch_leave_a_category() -> None:
+    out = _run("leaveCategory")
+    assert out["menus"] == "/watch?genre=action&type=tv"
+    assert out["linked"] == ["/watch", 1, "browse", True]
+    assert out["opened"] == [["/watch?genre=action", 1], "/watch", 0, "browse"]
+    assert out["away"] == ["/watch", "browse", True]
+
+
+def test_the_list_opened_over_a_category_shuts_it_and_back_opens_it_again() -> None:
+    out = _run("listOverCategory")
+    assert out["list"] == [True, True, None]
+    assert out["back"] == ["/watch?genre=action", 2, False, "", 0]
+
+
+def test_what_is_typed_is_read_as_a_category_a_kind_an_order_and_a_decade() -> None:
+    assert _run("phrases") == [
+        ["action", "action", "movie", "popular", None],
+        ["science-fiction", "science-fiction", "all", "popular", None],
+        ["science-fiction", "science-fiction", "tv", "popular", None],
+        ["horror", "horror", "all", "newest", "1990s"],
+        ["action", "action", "movie", "popular", "2010s"],
+        ["", None, "tv", "popular", None],
+        ["news", None, "all", "newest", None],
+        ["horror", "horror", "all", "popular", None],  # horror has no TV of its own
+        ["", None, "all", "popular", None],
+        ["", None, "all", "popular", None],
+    ]
 
 
 def test_an_enter_held_down_or_ending_a_composition_searches_nothing() -> None:
@@ -211,3 +359,7 @@ def test_an_enter_held_down_or_ending_a_composition_searches_nothing() -> None:
 
 def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
     assert _run("marks") == [["movie/1", True, 1, 1], [None, False, 0, 0]]
+
+
+def test_a_result_that_leaves_today_or_tomorrow_is_marked_urgent_and_a_later_one_is_not() -> None:
+    assert _run("leaving") == [True, True, False]

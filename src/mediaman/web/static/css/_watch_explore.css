@@ -1,0 +1,49 @@
+/* Watch page: a category's or a person's own page, in the results' place. */
+
+.explore-back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: -12px 0 4px -8px; padding: 0 12px 0 6px; border-radius: var(--r-pill); color: var(--t2); font-size: 14px; transition: color var(--dur-fast) var(--ease-out); }
+.explore-back > .ico { font-size: 14px; transition: transform var(--dur) var(--ease-spring); }
+.explore-back:active { opacity: .6; }
+@media (hover: hover) {
+  .explore-back:hover { color: var(--t1); }
+  .explore-back:hover > .ico { transform: translateX(-3px); }
+}
+
+.explore-head { display: flex; align-items: center; gap: 24px; margin-bottom: 28px; }
+.explore-head__text { min-width: 0; }
+.explore-title { width: fit-content; max-width: 100%; min-height: 1.1em; font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; overflow-wrap: anywhere; transform-origin: 0 0; }
+.explore-title:focus { outline: none; }
+.explore-facts { min-height: 1.47em; margin-top: 6px; font-size: 15px; color: var(--t2); }
+.explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
+/* Who it is, until the answer is in. */
+.explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
+
+/* The filters go sideways where they do not fit. */
+.explore-filters { display: flex; gap: 12px; margin: 0 calc(-1 * var(--pad)) 24px; padding: 3px var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
+.explore-filters::-webkit-scrollbar { display: none; }
+.explore-seg { position: relative; display: flex; flex: none; padding: 0 3px; border-radius: var(--r-pill); background: var(--s2); }
+.explore-seg__item { position: relative; height: 44px; padding: 0 16px; border-radius: var(--r-pill); color: var(--t2); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.explore-seg__item:is(:hover, [aria-pressed="true"]) { color: var(--t1); }
+.explore-seg__item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.explore-seg__thumb { position: absolute; inset: 4px 0; border-radius: var(--r-pill); background: var(--s4); transform-origin: 0 50%; }
+.explore-seg__label { position: relative; }
+.explore-years { position: relative; flex: none; }
+.explore-years__select { height: 44px; padding: 0 34px 0 16px; border: 0; border-radius: var(--r-pill); background: var(--s2); color: var(--t2); font: 500 14px var(--font-text); appearance: none; -webkit-appearance: none; cursor: pointer; transition: color var(--dur-fast) var(--ease-out); }
+.explore-years__select:hover { color: var(--t1); }
+.explore-years__select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.explore-years > .ico { position: absolute; right: 13px; top: 16px; font-size: 12px; color: var(--t3); pointer-events: none; }
+
+@media (max-width: 599.98px) {
+  .explore-head { gap: 16px; margin-bottom: 22px; }
+  .explore-title { font-size: 28px; }
+  .explore-facts { font-size: 14px; }
+  .explore-photo.watch-face { width: 88px; height: 88px; font-size: 32px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .explore-back > .ico { transform: none !important; }
+}
+@media (forced-colors: active) {
+  .explore-seg,
+  .explore-years__select { border: 1px solid ButtonText; }
+  .explore-seg__thumb { background: Highlight; }
+  .explore-seg__item[aria-pressed="true"] > .explore-seg__label { forced-color-adjust: none; color: HighlightText; }
+}
