@@ -92,6 +92,7 @@ async function load(opts = {}) {
       serverRow('leaving', 'Leaving soon', [51, 52].map((n) => libraryCard(n, { keep: String(n) })), 2),
       ['div', { id: 'watch-discover-slot' }],
       serverRow('movies', 'Movies', range(1, 31).map((n) => libraryCard(n)), 32, 'c30')]],
+    ...(opts.viewer ? [] : [['section', { id: 'watch-list', hidden: '' }]]),
     ...server,
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]));
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify({ is_admin: false, tmdb_configured: true, grids: opts.grids || GRIDS, grid: opts.grid || null })]));
@@ -315,8 +316,8 @@ const scenarios = {
 
   // Both a search and a row in the address: the search has the page. An unknown row or order: none.
   async odd() {
-    const at = async (url) => { const p = await load({ url }); return p.grid() && [p.grid().title, p.grid().sort]; };
-    return { search: await at('/watch?all=movies&q=x'), list: await at('/watch?view=list&all=movies'), genre: await at('/watch?genre=action&all=movies'),
+    const at = async (url, more) => { const p = await load({ url, ...more }); return p.grid() && [p.grid().title, p.grid().sort]; };
+    return { search: await at('/watch?all=movies&q=x'), list: await at('/watch?view=list&all=movies'), viewer: await at('/watch?view=list&all=movies', { viewer: true }), genre: await at('/watch?genre=action&all=movies'),
       unknown: await at('/watch?all=films'), inherited: await at('/watch?all=constructor'), order: await at('/watch?all=continue&sort=newest') };
   },
 

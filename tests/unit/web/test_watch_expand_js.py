@@ -121,6 +121,7 @@ def test_an_address_that_asks_for_something_else_or_for_nothing_known_opens_no_g
     assert _run("odd") == {
         "search": None,
         "list": None,
+        "viewer": ["Movies", "Recently added"],
         "genre": None,
         "unknown": None,
         "inherited": None,

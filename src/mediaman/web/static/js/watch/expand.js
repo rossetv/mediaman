@@ -267,9 +267,9 @@
     return sort && sort !== sortOf(id, null) ? id + ' ' + sort : id;
   }
 
-  /* Something that takes the rows' place, and the grid's. */
+  /* Something that takes the rows' place, and the grid's. Only an admin's page has the List. */
   function elsewhere(params) {
-    return params.get('view') === 'list' || !!(params.get('q') || '').trim() || !!params.get('genre') || !!params.get('person');
+    return (params.get('view') === 'list' && !!core.byId('watch-list')) || !!(params.get('q') || '').trim() || !!params.get('genre') || !!params.get('person');
   }
 
   function start() {
