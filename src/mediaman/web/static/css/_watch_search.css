@@ -292,6 +292,8 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-suggestions { flex-direction: row; gap: 8px; margin: -4px calc(-1 * var(--pad)); padding: 4px var(--pad); overflow-x: auto; scrollbar-width: none; scroll-padding-inline: var(--pad); }
   .watch-suggestions::-webkit-scrollbar { display: none; }
   .watch-suggestion { flex: none; gap: 10px; width: auto; max-width: min(300px, 82vw); height: 52px; padding: 0 16px 0 7px; border-radius: 26px; background: var(--s2); }
+  /* Two stand on a phone's screen. */
+  .watch-suggestion--person { max-width: min(190px, 46vw); }
   .watch-suggestion > .watch-suggestion__go,
   .watch-suggestions__bar,
   .watch-suggestion--title,
