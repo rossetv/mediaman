@@ -52,25 +52,25 @@
   "scan_timezone": settings.get('scan_timezone', 'UTC')
 } | tojson | safe }}</script>
 {# Core helpers must load before the settings modules. #}
-<script src="/static/js/core/api.js" defer></script>
-<script src="/static/js/core/reauth.js" defer></script>
-<script src="/static/js/core/dom.js" defer></script>
-<script src="/static/js/core/modal.js" defer></script>
-<script src="/static/js/show-password.js" defer></script>
+<script src="/static/js/core/api.js?v={{ static_v }}" defer></script>
+<script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
+<script src="/static/js/core/dom.js?v={{ static_v }}" defer></script>
+<script src="/static/js/core/modal.js?v={{ static_v }}" defer></script>
+<script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
 {# Settings modules — order matters: the savebar/overview/disk-thresholds
    /toggles modules must register on the MM namespace before general.js
    orchestrates them inside init(). #}
-<script src="/static/js/settings/savebar.js" defer></script>
-<script src="/static/js/settings/disk_thresholds.js" defer></script>
-<script src="/static/js/settings/overview.js" defer></script>
-<script src="/static/js/settings/toggles.js" defer></script>
-<script src="/static/js/settings/general.js" defer></script>
-<script src="/static/js/settings/integrations.js" defer></script>
-<script src="/static/js/settings/rows.js" defer></script>
-<script src="/static/js/settings/users.js" defer></script>
-<script src="/static/js/settings/newsletter.js" defer></script>
+<script src="/static/js/settings/savebar.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/disk_thresholds.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/overview.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/toggles.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/general.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/integrations.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/rows.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/users.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/newsletter.js?v={{ static_v }}" defer></script>
 {# Page bootstrap — wires DOMContentLoaded → MM.settings.<area>.init().
    Lives in an external file because the strict script-src CSP rejects
    page-level inline <script> without a nonce. #}
-<script src="/static/js/settings.js" defer></script>
+<script src="/static/js/settings.js?v={{ static_v }}" defer></script>
 {% endblock %}

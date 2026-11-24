@@ -2,7 +2,7 @@
 
 {% block title %}Unsubscribe · Mediaman{% endblock %}
 
-{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css?v={{ static_v }}">{% endblock %}
 
 {% block content %}
 <div class="login-page">
@@ -21,5 +21,5 @@
     <p class="unsub-note">Changed your mind? Close this page and nothing changes.</p>
   </div>
 </div>
-<script src="/static/js/submit-guard.js" defer></script>
+<script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>
 {% endblock %}

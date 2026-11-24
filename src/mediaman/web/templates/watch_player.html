@@ -8,8 +8,8 @@
 {% block title %}{{ item.title }} · Mediaman{% endblock %}
 
 {% block head %}
-  <script src="/static/vendor/hls/hls.min.js" defer></script>
-  <script src="/static/js/player.js" defer></script>
+  <script src="/static/vendor/hls/hls.min.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/player.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
 {% block content %}

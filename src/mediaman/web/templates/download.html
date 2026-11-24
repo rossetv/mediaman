@@ -211,7 +211,7 @@
   "download_state": (item.download_state or ""),
   "notify_by_email": (true if item.email else false)
 } | tojson }}</script>
-<script src="/static/js/downloads/build_dom.js" defer></script>
-<script src="/static/js/download.js" defer></script>
+<script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
+<script src="/static/js/download.js?v={{ static_v }}" defer></script>
 {% endif %}
 {% endblock %}

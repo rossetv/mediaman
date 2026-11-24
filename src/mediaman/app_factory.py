@@ -17,17 +17,20 @@ The bootstrap helpers themselves live under mediaman.bootstrap:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sys
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 from mediaman.bootstrap.crypto import bootstrap_crypto
 from mediaman.bootstrap.data_dir import DataDirNotWritableError
@@ -44,6 +47,31 @@ logger = logging.getLogger(__name__)
 _STREAM_REAP_INTERVAL_SECONDS = 30.0
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
+
+
+def _static_version(static_dir: Path) -> str:
+    """A short digest of every file under *static_dir*, so a changed asset gets a new URL."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in static_dir.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(static_dir).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """Serve /static with ``Cache-Control: no-cache`` on the 200 and the 304.
+
+    Asset URLs carry no version, so a browser must check the ETag on every
+    load instead of reusing a stale copy after an update; an unchanged file
+    still costs only a 304.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 
 
@@ -430,9 +458,13 @@ def create_app() -> FastAPI:
     register_error_pages(app)
 
     if _STATIC_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+        app.mount("/static", _RevalidatedStaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+    # Templates link assets as ``?v={{ static_v }}``; computed once, not per request.
+    app.state.templates.env.globals["static_v"] = (
+        _static_version(_STATIC_DIR) if _STATIC_DIR.is_dir() else ""
+    )
 
     _register_routers(app)
     _register_probes(app)

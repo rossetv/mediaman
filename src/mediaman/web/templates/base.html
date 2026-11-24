@@ -13,38 +13,38 @@
        Order: tokens first, then _base.css (reset + layout primitives),
        then concern-specific files. Cascade follows source order, so
        later rules win when specificity is equal. -->
-  <link rel="stylesheet" href="/static/fonts/fontawesome/css/all.min.css">
-  <link rel="stylesheet" href="/static/css/_tokens.css">
-  <link rel="stylesheet" href="/static/css/_base.css">
-  <link rel="stylesheet" href="/static/css/_forms.css">
-  <link rel="stylesheet" href="/static/css/_search.css">
-  <link rel="stylesheet" href="/static/css/_tables.css">
-  <link rel="stylesheet" href="/static/css/_storage.css">
-  <link rel="stylesheet" href="/static/css/_history.css">
-  <link rel="stylesheet" href="/static/css/_modal.css">
-  <link rel="stylesheet" href="/static/css/_login.css">
-  <link rel="stylesheet" href="/static/css/_nav.css">
-  <link rel="stylesheet" href="/static/css/_buttons.css">
-  <link rel="stylesheet" href="/static/css/_tiles.css">
-  <link rel="stylesheet" href="/static/css/_dl.css">
-  <link rel="stylesheet" href="/static/css/_download_page.css">
-  <link rel="stylesheet" href="/static/css/_settings.css">
-  <link rel="stylesheet" href="/static/css/_settings_pg.css">
-  <link rel="stylesheet" href="/static/css/_settings_pg_panels.css">
-  <link rel="stylesheet" href="/static/css/_keep.css">
-  <link rel="stylesheet" href="/static/css/_ui_feedback.css">
-  <link rel="stylesheet" href="/static/css/_watch.css">
-  <link rel="stylesheet" href="/static/css/_player.css">
-  <link rel="stylesheet" href="/static/css/_utilities.css">
-  <script src="/static/js/core/api.js" defer></script>
-  <script src="/static/js/core/dom.js" defer></script>
-  <script src="/static/js/core/modal.js" defer></script>
-  <script src="/static/js/modal-a11y.js" defer></script>
-  <script src="/static/js/ui-feedback.js" defer></script>
-  <script src="/static/js/snooze-menu.js" defer></script>
-  <script src="/static/js/nav.js" defer></script>
-  <script src="/static/js/dl-poster.js" defer></script>
-  <script src="/static/js/broken-poster.js" defer></script>
+  <link rel="stylesheet" href="/static/fonts/fontawesome/css/all.min.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_tokens.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_base.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_forms.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_search.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_tables.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_storage.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_history.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_nav.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_buttons.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_tiles.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_dl.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_download_page.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_settings.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_settings_pg.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_settings_pg_panels.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_keep.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_ui_feedback.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_watch.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_player.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_utilities.css?v={{ static_v }}">
+  <script src="/static/js/core/api.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/core/dom.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/core/modal.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/modal-a11y.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/ui-feedback.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/snooze-menu.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/nav.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/dl-poster.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/broken-poster.js?v={{ static_v }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body data-page="{{ nav_active or '' }}">

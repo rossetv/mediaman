@@ -192,7 +192,7 @@ def test_each_row_is_a_keyboard_reachable_region_named_after_its_title() -> None
 
 
 def test_watch_page_loads_the_row_script_from_a_file() -> None:
-    assert '<script src="/static/js/watch-rows.js" defer></script>' in _watch()
+    assert '<script src="/static/js/watch-rows.js?v=" defer></script>' in _watch()
 
 
 @pytest.mark.parametrize(
@@ -349,7 +349,7 @@ def test_pages_have_no_inline_script_or_style() -> None:
         found = _Inspect()
         found.feed(html)
         assert (found.inline_scripts, found.style_attrs, found.style_tags) == (0, 0, 0)
-        assert 'src="/static/js/watch.js"' in html
+        assert 'src="/static/js/watch.js?v="' in html
 
 
 def test_base_links_the_watch_and_player_styles() -> None:
@@ -431,7 +431,7 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
 def test_title_pages_load_the_poster_fade_script(page):
     name, ctx = page
 
-    assert 'src="/static/js/watch-rows.js"' in _render(name, **ctx)
+    assert 'src="/static/js/watch-rows.js?v="' in _render(name, **ctx)
 
 
 @pytest.mark.parametrize(
