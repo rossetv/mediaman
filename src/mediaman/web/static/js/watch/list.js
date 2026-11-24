@@ -253,6 +253,10 @@
   /* Give way to what *then* shows: *nodes* fade out over it while it fades in, so the page is
      never empty between them. Out of the flow first, they neither move nor push what comes. */
   function giveWay(nodes, then) {
+    // Out of the flow they leave the page without what stands below them, which can be too
+    // short for where it is scrolled.
+    var y = window.scrollY;
+    var tall = document.documentElement.scrollHeight;
     endLeaving();
     var lifted = [];
     nodes.forEach(function (n) {
@@ -267,7 +271,7 @@
         fade.onfinish = null;
         n.hidden = true;
         n.removeAttribute('inert');
-        Object.assign(n.style, { position: '', top: '', left: '', right: '' });
+        Object.assign(n.style, { position: '', top: '', left: '', right: '', paddingBottom: '' });
         fade.cancel();
       }
       fade.onfinish = function () {
@@ -276,7 +280,11 @@
       };
       _leaving.push(end);
     });
-    var y = window.scrollY;
+    var lost = tall - document.documentElement.scrollHeight;
+    if (lost > 0 && lifted.length) {
+      lifted.forEach(function (n) { n.style.paddingBottom = parseFloat(getComputedStyle(n).paddingBottom) + lost + 'px'; });
+      window.scrollTo(0, y);
+    }
     then();
     // Where the page went to its top, they stay where they were on the screen.
     if (window.scrollY !== y) lifted.forEach(function (n) { n.style.top = parseFloat(n.style.top) + window.scrollY - y + 'px'; });

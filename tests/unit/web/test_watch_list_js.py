@@ -340,6 +340,10 @@ def test_the_list_is_out_of_the_way_before_the_search_shows_its_results() -> Non
     assert (out["end"], out["browse"]) == ("hidden false ", False)
 
 
+def test_the_list_stays_where_it_was_on_screen_as_the_page_it_leaves_gets_short() -> None:
+    assert _run("listLeftOnAShortPage") == {"top": "0px", "y": 300, "padding": ""}
+
+
 def test_rows_a_category_page_s_end_brings_back_do_not_flash_under_the_list() -> None:
     assert _run("categoryToList") == {"browse": False, "list": True, "faded": 0}
 

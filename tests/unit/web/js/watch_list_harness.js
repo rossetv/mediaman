@@ -1342,6 +1342,25 @@ const scenarios = {
     return { ...out, end: look(), browse: !p.doc.getElementById('watch-browse').hidden };
   },
 
+  // The page the list leaves is too short for where it was scrolled, so it goes up as the list is lifted.
+  async listLeftOnAShortPage() {
+    const anims = [];
+    Node.prototype.animate = function () { const a = { cancel() {} }; anims.push(a); return a; };
+    const p = load({ list: true, motion: true });
+    const list = p.doc.getElementById('watch-list');
+    const up = () => list.style.position === 'absolute' && list.style.paddingBottom !== '112px';
+    let y = 300;
+    Object.defineProperty(p.ctx, 'scrollY', { get: () => (up() ? (y = 204) : y) });
+    Object.defineProperty(p.doc.documentElement, 'scrollHeight', { get: () => (up() ? (y = 204, 904) : 1000) });
+    p.ctx.scrollTo = (x, to) => { y = to; };
+    p.ctx.getComputedStyle = () => ({ paddingBottom: '16px', getPropertyValue: () => '' });
+    click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    await settle();
+    const out = { top: list.style.top, y: p.ctx.scrollY };
+    anims.forEach((a) => a.onfinish && a.onfinish());
+    return { ...out, padding: list.style.paddingBottom };
+  },
+
   // A category's page closes as its address is left, which puts the rows back.
   async categoryToList() {
     let faded = 0;
