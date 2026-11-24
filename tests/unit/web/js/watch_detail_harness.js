@@ -163,6 +163,13 @@ function load(opts = {}) {
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify({ is_admin: !!opts.admin })]));
   doc.getElementById('watch-detail').appendChild(
     parseTemplate(doc, fs.readFileSync(path.join(WEB, 'templates/_watch_detail.html'), 'utf8')));
+  /* Pictures load as they are asked for, unless the scenario settles them itself. */
+  if (opts.pictures !== 'pending') {
+    ['art', 'fill', 'poster'].map((name) => doc.getElementById('ttl').querySelector('[data-ttl-part="' + name + '"]')).forEach((img) => {
+      const set = img.setAttribute.bind(img);
+      img.setAttribute = (k, v) => { set(k, v); if (k === 'src') settlePicture(img, opts.pictures || 'wide'); };
+    });
+  }
   doc.dispatchEvent = (e) => {
     if (e.type === 'mm:title-changed') events.push(e.detail);
     (doc.listeners[e.type] || []).forEach((fn) => fn(e));
@@ -1076,7 +1083,7 @@ const scenarios = {
       plex: ['wide'], tmdb: ['failed', 'wide'], poster: ['failed', 'failed'],
       unfit: ['narrow', 'wide'], unfitBoth: ['narrow', 'narrow'],
     })) {
-      const p = load({ routes: { '/api/watch/title/movie-120': film } });
+      const p = load({ pictures: 'pending', routes: { '/api/watch/title/movie-120': film } });
       p.run();
       p.ctx.MMWatch.detail.open('movie-120', {});
       await settle();
@@ -1085,6 +1092,34 @@ const scenarios = {
       steps.forEach((how) => settlePicture(art, how));
       out[name] = { first, end: hero(p) };
     }
+    return out;
+  },
+
+  // When the buttons come and whether the head is short, for a title whose pictures all fail
+  // before the wait is over, after it, or show.
+  async headHeight() {
+    const out = {};
+    for (const [name, steps] of Object.entries({
+      none: ['failed', 'failed'], slow: ['wait', 'failed', 'failed'], wide: ['wide'],
+    })) {
+      const p = load({ pictures: 'pending', routes: { '/api/watch/title/movie-120': Object.assign({}, LIB_MOVIE, { poster_url: null }) } });
+      p.run();
+      p.ctx.MMWatch.detail.open('movie-120', {});
+      await settle();
+      const look = () => ({ buttons: !!primary(p), short: p.ttl().classList.contains('is-short'), late: p.ttl().classList.contains('is-late') });
+      const looks = [look()];
+      steps.forEach((how) => {
+        if (how === 'wait') p.timers.filter((t) => t.fn && t.ms === 400).forEach((t) => t.fn());
+        else settlePicture(p.q('[data-ttl-part="art"]'), how);
+        looks.push(look());
+      });
+      out[name] = looks;
+    }
+    const gone = load({ routes: {} });
+    gone.run();
+    gone.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    out.failed = gone.ttl().classList.contains('is-short');
     return out;
   },
 

@@ -1,7 +1,7 @@
 /* Watch page: the title detail overlay (#ttl, filled by watch/detail.js).
    Desktop: a 980px sheet over a blurred dim layer, grown out of the card
    that opened it. Below 700px: a full-screen sheet that rises. Motion is
-   transform and opacity only. */
+   transform and opacity only, but for a short hero that grows for its trailer. */
 
 html.has-ttl { overflow: hidden; }
 /* Menus and dialogs opened from inside the overlay sit above it. */
@@ -94,10 +94,13 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .ttl__art { object-position: 50% 25%; }
 .ttl__fill { filter: blur(40px) brightness(.7); transform: scale(1.2); }
-/* With no picture at all: a short head. The trailer still gets the full height. */
-.ttl:not(.is-trailer) .ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
-  min-height: 0;
-  padding-top: 72px;
+/* A title with no picture: a short head. Its height is settled before the buttons
+   can be pressed (.is-short), and only the trailer changes it, by easing. */
+.ttl.is-short .ttl__hero { padding-top: 72px; }
+.ttl.is-short:not(.is-trailer) .ttl__hero { min-height: 190px; }
+.ttl.is-short.has-played .ttl__hero { transition: min-height var(--dur-slow) var(--ease-out); }
+.ttl.is-short .ttl__poster { display: none; }
+.ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden]))) {
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--s1) 80%);
 }
 /* With no wide picture the poster stands beside the title, whole and at its own shape. */
@@ -174,7 +177,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
-/* The trailer takes the hero's box, so nothing below it moves. */
+/* The trailer takes the hero's box, so nothing below it moves (a short hero grows first). */
 .ttl__player {
   position: absolute;
   inset: 0;
@@ -374,6 +377,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-leaving .ttl__sheet { animation-name: ttl-sheet-down; animation-timing-function: cubic-bezier(.4, 0, 1, 1); }
   .ttl__hero { min-height: min(56.25vw, 62vh); gap: 16px; padding: 64px 20px 14px; }
   .ttl__poster { width: min(140px, 24vw, 30vh); border-radius: var(--r-sm); }
+  /* Too late for the buttons to move, so only its blurred copy shows: beside it a
+     title can take another line. */
+  .ttl.is-late .ttl__poster { display: none; }
   .ttl__close { top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
   .ttl__head { gap: 6px; }
   .ttl__kind { font-size: 11px; }
@@ -421,4 +427,5 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) linear both !important; }
   .ttl.is-leaving .ttl__sheet,
   .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
+  .ttl.is-short.has-played .ttl__hero { transition: none; }
 }

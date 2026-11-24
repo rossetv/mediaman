@@ -713,13 +713,17 @@ def test_the_shade_on_a_small_title_hero_keeps_close_to_the_text() -> None:
 
 
 def test_a_title_with_no_picture_has_a_short_hero_until_its_trailer_plays() -> None:
-    body = _declarations_of(
-        "_watch_detail.css",
-        ".ttl:not(.is-trailer) .ttl__hero:has(> .ttl__hero-skel[hidden])"
-        ":not(:has(> img:not([hidden])))",
-    )
+    short = _declarations_of("_watch_detail.css", ".ttl.is-short:not(.is-trailer) .ttl__hero")
+    eased = ".ttl.is-short.has-played .ttl__hero"
+    bare = ".ttl__hero:has(> .ttl__hero-skel[hidden]):not(:has(> img:not([hidden])))"
 
-    assert "min-height: 0" in body and "var(--hero-hi)" in body
+    assert "min-height: 190px" in short
+    assert "var(--hero-hi)" in _declarations_of("_watch_detail.css", bare)
+    assert "transition: min-height" in _declarations_of("_watch_detail.css", eased)
+    phone = _in_media("_watch_detail.css", "(max-width: 699.98px)")
+    assert "display: none" in _declarations_in(phone, ".ttl.is-late .ttl__poster")
+    still = _in_media("_watch_detail.css", "prefers-reduced-motion")
+    assert "transition: none" in _declarations_in(still, eased)
 
 
 def test_the_certificate_sits_8px_after_the_text_before_it() -> None:

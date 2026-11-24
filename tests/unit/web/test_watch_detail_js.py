@@ -545,6 +545,18 @@ def test_art_that_is_no_wide_picture_gives_way_to_the_backdrop_before_the_poster
     }
 
 
+def test_the_heads_height_is_settled_before_the_buttons_come_and_stays() -> None:
+    out = _run("headHeight")
+    waiting = {"buttons": False, "short": False, "late": False}
+    tall = {"buttons": True, "short": False, "late": False}
+    late = {"buttons": True, "short": False, "late": True}
+
+    assert out["none"] == [waiting, waiting, {"buttons": True, "short": True, "late": False}]
+    assert out["slow"] == [waiting, late, late, late]
+    assert out["wide"] == [waiting, tall]
+    assert out["failed"] is True
+
+
 def test_a_title_outside_the_library_never_stretches_its_poster() -> None:
     out = _run("picturesOutsideTheLibrary")
 
