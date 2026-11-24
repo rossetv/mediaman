@@ -126,6 +126,28 @@ class TestDiskUsageForPaths:
         assert agg["total_bytes"] == 4_600 + 13_000
         assert agg["used_bytes"] == 221 + 209
 
+    def test_two_equal_big_drives_with_different_free_space_are_both_counted(
+        self, tmp_path, mocker
+    ):
+        """0.1% of a 16 TB drive is 16 GB: a nearly full drive and an empty one are two."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tb = 1000**4
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        for d in (a, b):
+            d.mkdir()
+        readings = {
+            str(a): usage(16 * tb, 16 * tb, 0),
+            str(b): usage(16 * tb, 16 * tb - 10 * 10**9, 10 * 10**9),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(a), str(b)])
+
+        assert agg["total_bytes"] == 32 * tb
+
     def test_same_disk_paths_counted_once(self, tmp_path, mocker):
         """Two library folders on one physical drive must not double-count."""
         from collections import namedtuple

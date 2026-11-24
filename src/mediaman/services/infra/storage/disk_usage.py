@@ -19,11 +19,15 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# 0.1% of a multi-terabyte drive is gigabytes, enough to fold two real drives into one.
+_FREE_TOLERANCE_CAP = 256 * 1024 * 1024
+
+
 def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
     """Sum ``shutil.disk_usage`` across *paths*, counting each disk once.
 
     Two paths are one disk when their totals are equal and their free bytes
-    differ by under 0.1% of the total.  The device id is left out of the
+    differ by under 0.1% of the total, at most 256 MiB.  The device id is left out of the
     comparison on purpose: one filesystem can show several ids (btrfs
     subvolumes, NFS mounts), and container binds can put two drives behind a
     single id.  The free bytes get a tolerance because they move between two
@@ -43,7 +47,8 @@ def _accumulate_unique_disks(paths: Iterable[str]) -> dict[str, int]:
             logger.debug("disk_usage failed for %s — skipping", p)
             continue
         if any(
-            usage.total == total_seen and abs(usage.free - free_seen) <= usage.total * 0.001
+            usage.total == total_seen
+            and abs(usage.free - free_seen) <= min(usage.total * 0.001, _FREE_TOLERANCE_CAP)
             for total_seen, free_seen in seen
         ):
             continue
