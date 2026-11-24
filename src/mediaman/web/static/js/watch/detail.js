@@ -937,7 +937,6 @@
     }
     dl.addEventListener('click', submitDownload);
     actions.appendChild(dl);
-    if (seasonPickable(d)) under.appendChild(seasonPick(d));
     if (!k.busy) labelDownload(dl, d);
     if (k.error) {
       var err = el('p', 'ttl__error');
@@ -950,6 +949,7 @@
       err.appendChild(again);
       under.appendChild(err);
     }
+    if (seasonPickable(d)) under.appendChild(seasonPick(d));
   }
 
   function labelDownload(dl, d) {

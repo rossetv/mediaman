@@ -815,6 +815,19 @@ const scenarios = {
   },
 
   // A show's download fails; its picked seasons are then changed (or not), and it is redrawn.
+  async downloadErrorPlace() {
+    const p = load({
+      routes: { '/api/watch/title/tmdb-tv-90': TV_DL },
+      posted: { '/api/search/download': new APIError(502, 'sonarr_failed', 'Sonarr did not answer.') },
+    });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    click(p.doc, p.q('[data-ttl-act="primary"]'));
+    await settle();
+    return p.q('[data-ttl-part="under"]').children.map((n) => n.className);
+  },
+
   async downloadErrorThenPicks() {
     const run = async (press) => {
       const p = load({

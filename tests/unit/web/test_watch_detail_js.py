@@ -240,6 +240,10 @@ def test_a_failed_download_shows_the_reason_inline_and_try_again_sends_it_again(
     assert out["events"] == []
 
 
+def test_a_download_error_stands_above_the_list_of_seasons() -> None:
+    assert _run("downloadErrorPlace") == ["ttl__error", "season-pick"]
+
+
 def test_a_download_error_goes_when_the_picked_seasons_change_and_keeps_its_space() -> None:
     out = _run("downloadErrorThenPicks")
     gone = {"before": "shown", "after": "held", "focusKept": True, "reopened": "none"}
