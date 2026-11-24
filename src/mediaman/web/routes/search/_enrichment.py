@@ -27,7 +27,7 @@ from mediaman.services.arr.state import (
     annotate_download_states,
 )
 from mediaman.services.infra import SafeHTTPError, disk_cache
-from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
+from mediaman.services.media_meta.omdb import get_omdb_key, lookup_ratings
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import TmdbUnavailable
 from mediaman.web.repository.search import (
@@ -142,8 +142,8 @@ _ENRICH_BUDGET_SECONDS = 6.0
 # fan-out: a ``(tmdb_id, media_type)`` key and the result dicts sharing it.
 _RatingsKeyGroup = tuple[tuple[int, str], list[dict[str, object]]]
 # What a single ratings future resolves to: the key, its group, and the
-# ratings dict fetched from OMDb (empty on a fetch failure).
-_RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, str]]
+# ratings dict fetched from OMDb (None when OMDb gave no answer).
+_RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, str] | None]
 
 
 def _apply_ratings(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
@@ -175,15 +175,15 @@ def _fetch_ratings_for_group(
     key_group: _RatingsKeyGroup, omdb_key: str | None
 ) -> _RatingsFetchResult:
     """Fetch OMDb ratings for one miss group on the enrichment pool. Returns (key, group,
-    data); data is empty on any fetch failure so a single bad lookup cannot abort the
-    fan-out.
+    data); data is None when OMDb gave no answer, so a single bad lookup cannot abort the
+    fan-out and is not cached as "no ratings".
     """
     key, group = key_group
     probe = group[0]
     try:
         year_raw = probe.get("year")
         year_int: int | None = year_raw if isinstance(year_raw, int) else None
-        data: dict[str, str] = fetch_ratings(
+        data: dict[str, str] | None = lookup_ratings(
             str(probe["title"]),
             year_int,
             str(probe["media_type"]),
@@ -191,7 +191,7 @@ def _fetch_ratings_for_group(
         )
     except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
         logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
-        data = {}
+        data = None
     return key, group, data
 
 
@@ -208,6 +208,8 @@ def _drain_futures(
             try:
                 key, group, data = fut.result()
             except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
+                continue
+            if data is None:
                 continue
             rt = data.get("rt")
             imdb = data.get("imdb")

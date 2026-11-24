@@ -160,7 +160,7 @@ def tmdb(monkeypatch, conn):
     fake = FakeTmdb()
     monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: fake)
     monkeypatch.setattr(_discover, "_cache", lambda: DictCache())
-    monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: {})
+    monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {})
     return fake
 
 
@@ -433,7 +433,7 @@ class TestTmdbTitle:
     ):
         monkeypatch.setattr(
             catalog_api,
-            "fetch_ratings",
+            "lookup_ratings",
             lambda *_a, **_k: {"imdb": "7.1", "rt": "92%", "metascore": "81"},
         )
 
@@ -559,7 +559,7 @@ class TestTmdbTitle:
         # Nothing is remembered of OMDb's answers, so only the limit can refuse the second ask.
         monkeypatch.setattr(catalog_api, "upsert_ratings_cache", lambda *_a, **_k: None)
         asked = []
-        monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: asked.append(1) or {})
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
 
         for _ in range(2):
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
@@ -570,7 +570,7 @@ class TestTmdbTitle:
         self, viewer, tmdb, arr, conn, monkeypatch
     ):
         asked = []
-        monkeypatch.setattr(catalog_api, "fetch_ratings", lambda *_a, **_k: asked.append(1) or {})
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1) or {})
 
         for _ in range(3):
             assert viewer.get("/api/watch/title/tmdb-movie-12").status_code == 200
@@ -582,6 +582,49 @@ class TestTmdbTitle:
         viewer.get("/api/watch/title/tmdb-movie-12")
 
         assert len(asked) == 2
+
+    def _hold_ratings(self, conn, fetched_at):
+        conn.execute(
+            "INSERT INTO ratings_cache (tmdb_id, media_type, imdb_rating, rt_rating, metascore,"
+            " fetched_at) VALUES (12, 'movie', '7.1', '92%', '81', ?)",
+            (fetched_at,),
+        )
+        conn.commit()
+
+    def test_an_omdb_that_gives_no_answer_keeps_the_ratings_held_and_caches_nothing_new(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        old = (now_utc() - timedelta(days=40)).isoformat()
+        self._hold_ratings(conn, old)
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: None)
+
+        body = viewer.get("/api/watch/title/tmdb-movie-12").json()
+
+        row = conn.execute(
+            "SELECT imdb_rating, rt_rating, fetched_at FROM ratings_cache"
+        ).fetchone()
+        assert (row["imdb_rating"], row["rt_rating"], row["fetched_at"]) == ("7.1", "92%", old)
+        assert body["ratings"]["imdb"] == "7.1"
+
+    def test_an_omdb_answer_of_no_ratings_does_not_wipe_the_ratings_held(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        self._hold_ratings(conn, (now_utc() - timedelta(days=40)).isoformat())
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: {})
+
+        viewer.get("/api/watch/title/tmdb-movie-12")
+
+        row = conn.execute("SELECT imdb_rating, rt_rating, metascore FROM ratings_cache").fetchone()
+        assert (row["imdb_rating"], row["rt_rating"], row["metascore"]) == ("7.1", "92%", "81")
+
+    def test_an_omdb_that_gives_no_answer_is_not_remembered_as_no_ratings(
+        self, viewer, tmdb, arr, conn, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: None)
+
+        viewer.get("/api/watch/title/tmdb-movie-12")
+
+        assert conn.execute("SELECT COUNT(*) FROM ratings_cache").fetchone()[0] == 0
 
 
 class TestShowsSonarrDoesNotTrack:

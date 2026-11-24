@@ -520,7 +520,7 @@ class TestEnrichRatingsHelpers:
 
         group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune", "year": 2021}]
         with patch.object(
-            _enrichment, "fetch_ratings", return_value={"rt": "83%", "imdb": "8.0"}
+            _enrichment, "lookup_ratings", return_value={"rt": "83%", "imdb": "8.0"}
         ) as mock_fetch:
             key, returned_group, data = _fetch_ratings_for_group(
                 ((1, "movie"), group), omdb_key="k"
@@ -532,7 +532,7 @@ class TestEnrichRatingsHelpers:
         # The OMDb key is threaded through explicitly, not closed over.
         assert mock_fetch.call_args.kwargs["omdb_key"] == "k"
 
-    def test_fetch_for_group_degrades_to_empty_on_failure(self):
+    def test_fetch_for_group_degrades_to_no_answer_on_failure(self):
         from mediaman.services.infra import SafeHTTPError
         from mediaman.web.routes.search import _enrichment
         from mediaman.web.routes.search._enrichment import _fetch_ratings_for_group
@@ -540,16 +540,27 @@ class TestEnrichRatingsHelpers:
         group = [{"tmdb_id": 9, "media_type": "movie", "title": "Boom", "year": 2000}]
         with patch.object(
             _enrichment,
-            "fetch_ratings",
+            "lookup_ratings",
             side_effect=SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"),
         ):
             key, returned_group, data = _fetch_ratings_for_group(
                 ((9, "movie"), group), omdb_key="k"
             )
 
-        # A single bad lookup must not raise — it degrades to empty data.
+        # A single bad lookup must not raise; it is no answer, which is not "no ratings".
         assert key == (9, "movie")
-        assert data == {}
+        assert data is None
+
+    def test_drain_futures_writes_nothing_for_a_lookup_that_got_no_answer(self):
+        from concurrent.futures import Future
+
+        from mediaman.web.routes.search._enrichment import _drain_futures
+
+        group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune"}]
+        fut: Future = Future()
+        fut.set_result(((1, "movie"), group, None))
+
+        assert _drain_futures([fut], now_iso="2026-05-14T00:00:00") == []
 
     def test_drain_futures_applies_results_and_returns_writes(self):
         from concurrent.futures import Future

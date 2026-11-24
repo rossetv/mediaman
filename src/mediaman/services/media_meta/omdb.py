@@ -68,6 +68,28 @@ def fetch_ratings(
 ) -> dict[str, str]:
     """Return OMDb ratings (any subset of imdb, rt, metascore); never raises.
 
+    Empty when OMDb has none and when it could not be asked; see :func:`lookup_ratings`
+    to tell the two apart.
+    """
+    return (
+        lookup_ratings(title, year, media_type, conn=conn, secret_key=secret_key, omdb_key=omdb_key)
+        or {}
+    )
+
+
+def lookup_ratings(
+    title: str,
+    year: int | None,
+    media_type: str,
+    *,
+    conn: sqlite3.Connection | None = None,
+    secret_key: str | None = None,
+    omdb_key: str | None = None,
+) -> dict[str, str] | None:
+    """Return OMDb ratings (any subset of imdb, rt, metascore), an empty dict when OMDb
+    answered that it has none, and None when it gave no answer (no key, a timeout, a bad
+    reply, a spent quota); never raises.
+
     Pass either omdb_key (preferred from thread-pool workers, since conn must not cross
     threads) or conn plus secret_key to read the key in place.
     """
@@ -76,7 +98,7 @@ def fetch_ratings(
             raise TypeError("fetch_ratings requires either omdb_key= or both conn= and secret_key=")
         omdb_key = get_omdb_key(conn, secret_key)
     if not omdb_key:
-        return {}
+        return None
 
     # Attach log scrubbing for this key value before any network call.
     _attach_scrub_filters(omdb_key)
@@ -98,9 +120,13 @@ def fetch_ratings(
         # KeyError is not caught: ``resp.json()`` never raises it, so
         # swallowing it would mask a real bug in the caller or the
         # client internals.
-        return {}
-    if not isinstance(data, dict) or data.get("Response") != "True":
-        return {}
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("Response") != "True":
+        # Only "not found" is an answer; a spent quota or a bad key says nothing of the title.
+        error = data.get("Error")
+        return {} if isinstance(error, str) and "not found" in error.lower() else None
 
     out: dict[str, str] = {}
     imdb = data.get("imdbRating")

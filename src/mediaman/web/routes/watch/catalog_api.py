@@ -28,7 +28,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
-from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
+from mediaman.services.media_meta.omdb import get_omdb_key, lookup_ratings
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -156,18 +156,24 @@ def _ratings(
 ) -> dict[str, str]:
     """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
     none when OMDb has no key or would be asked and *allow_fetch* says no. An answer with
-    nothing in it is cached too, for a shorter time."""
+    nothing in it is cached too, for a shorter time, but only when OMDb answered: a timeout
+    or a spent quota caches nothing and leaves the ratings already held (old ones are shown
+    in its place)."""
     media_type = "movie" if kind == "movie" else "tv"
     now = now_utc()
+    stale: dict[str, str] = {}
     for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
         cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
         found = {k: v for k, v in cached.items() if v}
         if row.fetched_at >= (now - (_RATINGS_TTL if found else _NO_RATINGS_TTL)).isoformat():
             return found
+        stale = found
     omdb_key = get_omdb_key(conn, secret_key)
     if not omdb_key or not allow_fetch():
-        return {}
-    data = fetch_ratings(title, year, media_type, omdb_key=omdb_key)
+        return stale
+    data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
+    if data is None:
+        return stale
     try:
         upsert_ratings_cache(
             conn,
@@ -184,7 +190,7 @@ def _ratings(
         )
     except sqlite3.Error:
         logger.warning("watch: ratings_cache write failed", exc_info=True)
-    return data
+    return {**stale, **data}
 
 
 def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:

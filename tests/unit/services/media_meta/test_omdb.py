@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.media_meta.omdb import fetch_ratings
+from mediaman.services.media_meta.omdb import fetch_ratings, lookup_ratings
 
 
 @pytest.fixture
@@ -123,3 +123,44 @@ class TestFetchRatings:
         assert fetch_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key) == {
             "imdb": "8.0"
         }
+
+
+class TestLookupRatings:
+    """None means OMDb gave no answer; an empty dict means it answered that it has none."""
+
+    def _lookup(self, conn, secret_key):
+        return lookup_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key)
+
+    def test_no_key_is_no_answer(self, conn, secret_key):
+        assert self._lookup(conn, secret_key) is None
+
+    def test_a_timeout_is_no_answer(self, conn, secret_key, fake_http):
+        import requests
+
+        _set_key(conn, "plain-key")
+        fake_http.raise_on("GET", requests.Timeout("timeout"))
+        assert self._lookup(conn, secret_key) is None
+
+    def test_a_non_json_body_is_no_answer(self, conn, secret_key, fake_http, fake_response):
+        _set_key(conn, "plain-key")
+        resp = fake_response(text="not json")
+        resp.json = lambda: (_ for _ in ()).throw(ValueError("not json"))
+        fake_http.queue("GET", resp)
+        assert self._lookup(conn, secret_key) is None
+
+    @pytest.mark.parametrize("error", ["Request limit reached!", "Invalid API key!"])
+    def test_a_spent_quota_or_bad_key_is_no_answer(
+        self, conn, secret_key, fake_http, fake_response, error
+    ):
+        _set_key(conn, "plain-key")
+        fake_http.queue("GET", fake_response(json_data={"Response": "False", "Error": error}))
+        assert self._lookup(conn, secret_key) is None
+
+    def test_a_title_it_does_not_know_is_an_answer_of_no_ratings(
+        self, conn, secret_key, fake_http, fake_response
+    ):
+        _set_key(conn, "plain-key")
+        fake_http.queue(
+            "GET", fake_response(json_data={"Response": "False", "Error": "Movie not found!"})
+        )
+        assert self._lookup(conn, secret_key) == {}
