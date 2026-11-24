@@ -280,3 +280,7 @@ def test_a_card_comes_back_to_a_grid_that_is_opening_and_not_to_one_that_closes(
     out = _run("bringsWhileMoving")
     assert out["opening"] == {**OPEN, "n": 12, "left": 0}
     assert out["closing"] == {**ROWS, "n": 0, "left": 0}
+
+
+def test_closing_to_a_row_that_went_with_its_last_card_gives_the_search_the_focus() -> None:
+    assert _run("closesWithNoRow") == "watch-search"

@@ -169,6 +169,10 @@ def test_the_undo_of_a_keep_focuses_the_keep_that_is_shown() -> None:
     assert out["closed"] == {**grid, "where": "row", "same": False, "things": None}
 
 
+def test_closing_to_a_row_that_now_shows_whole_focuses_its_cards() -> None:
+    assert _run("closedWhole") == ["watch-row__scroll", True, None]
+
+
 def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_count():
     assert _run("underAPanel") == {
         "href": "/watch?all=continue",

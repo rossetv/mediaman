@@ -630,6 +630,18 @@ const scenarios = {
     return { opening: go(false), closing: go(true) };
   },
 
+  // The only card dismissed takes its row along: with no row to go back to, the search has the focus.
+  async closesWithNoRow() {
+    const p = load();
+    p.doc.querySelector('.watch-top').appendChild(build(p.doc, ['input', { id: 'watch-search' }]));
+    p.rows[0].querySelector('.watch-card__link').focus();
+    p.grid.open(p.opts());
+    p.rows[0].remove();
+    p.doc.activeElement.blur();
+    p.grid.close();
+    return p.focus();
+  },
+
   async rowThatIsGone() {
     const p = load({ motion: true });
     p.grid.open(p.opts());

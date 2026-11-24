@@ -390,6 +390,21 @@ Object.assign(scenarios, {
     const reopen = async (p) => { p.press(p.doc.querySelector('.watch-all__back')); await p.settle(); };
     return { inGrid: await go(), opening: await go((p) => { const b = p.doc.getElementById('watch-browse'); b.hidden = false; b.setAttribute('inert', ''); }, true), fromPreview: await go(null, true), closed: await go(reopen) };
   },
+
+  // Opened by its heading, left with so few cards that the row shows whole: the heading is no link to focus any more.
+  async closedWhole() {
+    const p = await load();
+    await p.open('continue');
+    for (const n of [41, 42, 43, 44, 45]) {
+      p.doc.querySelectorAll('.watch-card').filter((c) => c.getAttribute('data-dismiss-ref') === 'movie-' + n)
+        .forEach((c) => p.ctx.MMWatch.keep.fromRow(c, c.closest('.watch-row'), false, '[data-watch-more]'));
+    }
+    p.doc.activeElement.blur();
+    p.press(p.doc.querySelector('.watch-all__back'));
+    await p.settle();
+    const on = p.doc.activeElement;
+    return [on.className, p.row('continue').contains(on), on.getAttribute('href')];
+  },
 });
 
 const name = process.argv[2];

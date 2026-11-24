@@ -1197,7 +1197,7 @@
   }
 
   /* The card the person was on, if the row shows it; else what had the focus
-     when the grid opened; else the row's heading. */
+     when the grid opened; else the row's heading, or the search when the row is gone. */
   function focusRows(opts, key) {
     var row = rowOf(opts);
     say('Back to all rows.');
@@ -1210,8 +1210,11 @@
         return true;
       });
     }
-    if (to && !shownNow(to)) to = null;
+    // Fewer cards than when it opened: a row that now shows whole has no link in its heading.
+    if (row && watch.expand) watch.expand.row(row);
+    if (to && (!shownNow(to) || to.matches('a:not([href])'))) to = null;
     if (!to && row) to = row.querySelector('.watch-row__title a[href]') || row.querySelector('.watch-row__scroll');
+    if (!to) to = core.byId('watch-search');
     if (to) to.focus({ preventScroll: true });
   }
 
