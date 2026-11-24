@@ -250,6 +250,79 @@ CREATE TABLE IF NOT EXISTS suggestions (
     because_of TEXT
 );
 
+-- One person's own AI picks. Apart from suggestions, whose rows everyone sees.
+CREATE TABLE IF NOT EXISTS user_picks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    year INTEGER,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER,
+    imdb_id TEXT,
+    description TEXT,
+    reason TEXT,
+    -- JSON list of the titles this person played that led to the pick.
+    because_of TEXT,
+    poster_url TEXT,
+    trailer_url TEXT,
+    rating REAL,
+    rt_rating TEXT,
+    tagline TEXT,
+    runtime INTEGER,
+    genres TEXT,
+    cast_json TEXT,
+    director TEXT,
+    trailer_key TEXT,
+    imdb_rating TEXT,
+    metascore TEXT,
+    backdrop_url TEXT,
+    -- 1 when plays in Plex's own apps were among what the batch was made from.
+    uses_plex INTEGER NOT NULL DEFAULT 0,
+    batch_id TEXT NOT NULL,
+    downloaded_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (username, batch_id, media_type, tmdb_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_picks_user_batch ON user_picks(username, batch_id);
+
+-- Each try at making one person's picks, for their refresh wait and the daily cap.
+CREATE TABLE IF NOT EXISTS user_pick_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_pick_runs_user ON user_pick_runs(username, started_at);
+CREATE INDEX IF NOT EXISTS idx_user_pick_runs_started ON user_pick_runs(started_at);
+
+-- The Plex account a person linked as their own, and their plays in Plex's apps.
+CREATE TABLE IF NOT EXISTS plex_links (
+    username TEXT PRIMARY KEY REFERENCES admin_users(username) ON DELETE CASCADE,
+    plex_account_id INTEGER NOT NULL UNIQUE,
+    server_account_id INTEGER NOT NULL UNIQUE,
+    plex_name TEXT NOT NULL,
+    server_id TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    last_read_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS plex_plays (
+    username TEXT NOT NULL REFERENCES plex_links(username) ON DELETE CASCADE,
+    history_key TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    show_title TEXT,
+    show_rating_key TEXT,
+    season_number INTEGER,
+    episode_number INTEGER,
+    rating_key TEXT,
+    viewed_at TEXT NOT NULL,
+    PRIMARY KEY (username, history_key)
+);
+CREATE INDEX IF NOT EXISTS idx_plex_plays_user_viewed ON plex_plays(username, viewed_at);
+
 CREATE TABLE IF NOT EXISTS ratings_cache (
     tmdb_id INTEGER NOT NULL,
     media_type TEXT NOT NULL,
