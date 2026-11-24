@@ -456,3 +456,10 @@ def test_what_the_keyboard_opens_over_the_cards_closes_a_preview_and_its_trailer
 
 def test_a_card_pressed_still_hands_its_preview_over_when_the_page_is_told_first() -> None:
     assert _run("pressedThenTold") is True
+
+
+def test_what_the_storage_panel_schedules_or_clears_is_in_the_next_preview_and_the_open_one() -> (
+    None
+):
+    leaving = ["Season 3 leaves in 3 days", True]
+    assert _run("scheduled") == {"before": leaving, "cleared": [None, False], "open": leaving}

@@ -1214,6 +1214,9 @@
     if (e.detail.phase === 'done') keptOrUndone(e.detail.id);
   });
 
+  /* A scan, or deletions cleared: no title is named. */
+  document.addEventListener('mm:watch-scheduled', function () { keptOrUndone(''); });
+
   document.addEventListener('mm:watch-marked', function (e) { unkeep(e.detail.ref); });
 
   watch.preview = { close: viewChanged };

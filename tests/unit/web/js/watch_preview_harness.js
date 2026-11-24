@@ -960,6 +960,27 @@ const scenarios = {
     h.link('film').click();
     return h.doc.querySelector('.pv').classList.contains('is-handed');
   },
+  /* Deletions scheduled or cleared in the storage panel: the next preview and the open one. */
+  async scheduled() {
+    const three = { days: 3, keep_id: '203', season: 3 };
+    const reply = (seasons) => ({ ...FILM, ref: 'show-2', kind: 'show', library_ref: 'show-2', title: 'The Long Coast', keep_allowed: true, leaving_seasons: seasons });
+    const says = (h) => [h.text('.pv__leaving'), !!h.pv().querySelector('.pv__keep')];
+    const h = load({ api: { 'show-2': reply([three]) } });
+    const told = () => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-scheduled', {}));
+    await h.rest('wholeShow', 900);
+    const out = { before: says(h) };
+    h.away();
+    await h.pass(1000);
+    h.answers['show-2'] = reply([]);
+    told();
+    await h.rest('wholeShow', 900);
+    out.cleared = says(h);
+    h.answers['show-2'] = reply([three]);
+    told();
+    await h.pass(50);
+    out.open = says(h);
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => { process.stdout.write(JSON.stringify(out)); }, (err) => {
