@@ -3,8 +3,8 @@
 Two stores live under ``<data_dir>/watch_cache``: ``meta`` holds JSON values (TMDB
 lookups) and ``img`` holds image bytes with a small info dict (mime type and the like).
 Each entry is one file named by the SHA-256 of its key, so no caller text reaches the
-filesystem: a JSON header line (fetch time and info) followed by the payload, written to
-a temp file and moved into place so a reader never sees half an entry.
+filesystem: a JSON header line (fetch time, info and a random id) followed by the
+payload, written to a temp file and moved into place so a reader never sees half an entry.
 
 ``Store.get_or_fetch`` answers at once while an entry is fresh. Once stale (but within
 ``stale_s``) it still answers with the old value and refreshes it once in the background,
@@ -36,6 +36,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import tempfile
 import threading
 import time
@@ -128,7 +129,8 @@ class Store[T]:
         if hold_s is None:
             hold_s = BACKOFF_S
         path = self._path(directory, key)
-        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief, hold_s)
+        cached = self._read(path)
+        hit = self._hit(key, path, cached, fresh_s, stale_s, fetch, brief, hold_s)
         if hit is not None:
             return hit[0]
         error = _backoff((self.name, key))
@@ -136,7 +138,7 @@ class Store[T]:
             raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
-        return self._fetch_once(key, path, fetch, brief, hold_s)
+        return self._fetch_once(key, path, fetch, brief, hold_s, _stamp(cached))
 
     def peek(
         self,
@@ -154,11 +156,12 @@ class Store[T]:
         if directory is None:
             return None
         path = self._path(directory, key)
-        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief, BACKOFF_S)
+        cached = self._read(path)
+        hit = self._hit(key, path, cached, fresh_s, stale_s, fetch, brief, BACKOFF_S)
         if hit is not None:
             return hit[0]
         if _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch, brief, BACKOFF_S)
+            self._refresh(key, path, fetch, brief, BACKOFF_S, _stamp(cached))
         return None
 
     def _dir(self) -> Path | None:
@@ -172,25 +175,26 @@ class Store[T]:
         self,
         key: str,
         path: Path,
+        cached: tuple[float, T, bytes] | None,
         fresh_s: float,
         stale_s: float,
         fetch: Callable[[], T],
         brief: bool,
         hold_s: float,
     ) -> tuple[T] | None:
-        """(value,) of an entry younger than *stale_s*, refreshed in the background once
+        """(value,) of a *cached* entry younger than *stale_s*, refreshed in the background once
         older than *fresh_s*; None when there is none."""
-        cached = self._read(path)
         if cached is None or cached[0] >= stale_s:
             return None
-        age, value = cached
+        age, value, stamp = cached
         with contextlib.suppress(OSError):
             os.utime(path)
         if age >= fresh_s and _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch, brief, hold_s)
+            self._refresh(key, path, fetch, brief, hold_s, stamp)
         return (value,)
 
-    def _read(self, path: Path) -> tuple[float, T] | None:
+    def _read(self, path: Path) -> tuple[float, T, bytes] | None:
+        """(age, value, stamp) of the entry; two writes carry different stamps."""
         try:
             raw = path.read_bytes()
         except OSError:
@@ -198,7 +202,7 @@ class Store[T]:
         try:
             header, payload = raw.split(b"\n", 1)
             head = json.loads(header)
-            return time.time() - float(head["t"]), self._decode(payload, head["i"])
+            return time.time() - float(head["t"]), self._decode(payload, head["i"]), header
         except (ValueError, KeyError, TypeError):
             logger.warning("Dropping an unreadable %s cache entry %s", self.name, path.name)
             with contextlib.suppress(OSError):
@@ -206,13 +210,19 @@ class Store[T]:
             return None
 
     def _fetch_once(
-        self, key: str, path: Path, fetch: Callable[[], T], brief: bool, hold_s: float
+        self,
+        key: str,
+        path: Path,
+        fetch: Callable[[], T],
+        brief: bool,
+        hold_s: float,
+        seen: bytes | None,
     ) -> T:
         flight = (self.name, key)
         while True:
             future, owner = _claim(flight)
             if owner:
-                return self._fill(flight, future, path, fetch, brief, hold_s)
+                return self._fill(flight, future, path, fetch, brief, hold_s, seen)
             try:
                 result: T = future.result(BRIEF_WAIT_S if brief else WAIT_S)
             except TimeoutError as exc:
@@ -239,16 +249,25 @@ class Store[T]:
         fetch: Callable[[], T],
         brief: bool,
         hold_s: float,
+        seen: bytes | None,
     ) -> T:
         """Fetch into the claimed *future* and store the value; the future is always
-        settled, so no waiter is left blocked."""
+        settled, so no waiter is left blocked. Nothing is fetched when another fetch, ended
+        before the claim, has stored an entry other than the one *seen* or failed and is held."""
         try:
+            held = _backoff(flight)
+            if held is not None:
+                raise _bare(held)
+            cached = self._read(path)
+            if cached is not None and cached[2] != seen:
+                future.set_result(cached[1])
+                return cached[1]
             value = fetch()
         except Exception as exc:
             with _guard:
                 # Before the waiters wake: one that fetches anew must not join this again.
                 _inflight.pop(flight, None)
-                if not brief:
+                if not brief and flight not in _failed:
                     if len(_failed) >= _BACKOFF_MAX_KEYS:
                         _failed.clear()
                     _failed[flight] = (time.monotonic() + hold_s, _bare(exc))
@@ -267,7 +286,13 @@ class Store[T]:
                     del _inflight[flight]
 
     def _refresh(
-        self, key: str, path: Path, fetch: Callable[[], T], brief: bool, hold_s: float
+        self,
+        key: str,
+        path: Path,
+        fetch: Callable[[], T],
+        brief: bool,
+        hold_s: float,
+        seen: bytes | None,
     ) -> None:
         flight = (self.name, key)
         with _guard:
@@ -275,20 +300,16 @@ class Store[T]:
             if flight in _inflight or flight in _queued:
                 return
             _queued.add(flight)
-        queued_at = time.time()
 
         def run() -> None:
             # Claimed only now: a caller who needs the key meanwhile fetches it at once.
             with _guard:
                 _queued.discard(flight)
-            cached = self._read(path)
-            if cached is not None and cached[0] < time.time() - queued_at:
-                return
             future, owner = _claim(flight)
             if not owner:
                 return
             try:
-                self._fill(flight, future, path, fetch, brief, hold_s)
+                self._fill(flight, future, path, fetch, brief, hold_s, seen)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 
@@ -303,7 +324,8 @@ class Store[T]:
 
     def _write(self, path: Path, value: T) -> None:
         payload, info = self._encode(value)
-        header = json.dumps({"t": time.time(), "i": info}).encode()
+        # The clock alone can give two writes the same time.
+        header = json.dumps({"t": time.time(), "i": info, "n": secrets.token_urlsafe(3)}).encode()
         entry = header + b"\n" + payload
         temp: str | None = None
         try:
@@ -354,6 +376,10 @@ class Store[T]:
             logger.debug("Sweeping the %s cache failed", self.name, exc_info=True)
         finally:
             self._sweep_lock.release()
+
+
+def _stamp[T](cached: tuple[float, T, bytes] | None) -> bytes | None:
+    return None if cached is None else cached[2]
 
 
 def _entries(directory: Path) -> list[tuple[float, int, Path]]:

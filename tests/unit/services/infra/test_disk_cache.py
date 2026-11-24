@@ -158,7 +158,17 @@ def test_a_refused_miss_does_not_fetch_and_a_hit_is_not_asked():
     assert store.get_or_fetch("k", DAY, DAY, fetch, allow_fetch=never) == "v"
 
 
-def test_concurrent_misses_share_one_fetch():
+def test_concurrent_misses_share_one_fetch(monkeypatch):
+    claim = disk_cache._claim
+    joined = threading.Event()
+
+    def noting_claim(flight):
+        future, owner = claim(flight)
+        if not owner:
+            joined.set()
+        return future, owner
+
+    monkeypatch.setattr(disk_cache, "_claim", noting_claim)
     started = threading.Event()
     release = threading.Event()
     calls = []
@@ -178,12 +188,134 @@ def test_concurrent_misses_share_one_fetch():
         target=lambda: results.append(store.get_or_fetch("k", DAY, DAY, slow))
     )
     second.start()
+    assert joined.wait(5)
     release.set()
     first.join(5)
     second.join(5)
 
     assert results == ["v", "v"]
     assert len(calls) == 1
+
+
+def test_a_caller_whose_miss_was_stored_before_it_could_fetch_shares_that_value():
+    store = disk_cache.meta()
+    other, late = Fetcher("v"), Fetcher("again")
+
+    def while_another_fetches():
+        # Asked after the miss was read and before the fetch is claimed.
+        return store.get_or_fetch("k", DAY, DAY, other) == "v"
+
+    value = store.get_or_fetch("k", DAY, DAY, late, allow_fetch=while_another_fetches)
+
+    assert value == "v"
+    assert (other.calls, late.calls) == (1, 0)
+
+
+def test_a_caller_whose_key_failed_before_it_could_fetch_does_not_ask_again():
+    store = disk_cache.meta()
+    late = Fetcher("again")
+
+    def while_another_fails():
+        with pytest.raises(RuntimeError):
+            store.get_or_fetch("k", DAY, DAY, Fetcher(RuntimeError("down")))
+        return True
+
+    with pytest.raises(RuntimeError, match="down"):
+        store.get_or_fetch("k", DAY, DAY, late, allow_fetch=while_another_fails)
+    assert late.calls == 0
+
+
+def test_a_refresh_whose_key_was_stored_before_it_could_fetch_does_not_ask_again(monkeypatch):
+    store = disk_cache.meta()
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    other, late = Fetcher("new"), Fetcher("again")
+    claim = disk_cache._claim
+
+    def claim_after_another(flight):
+        monkeypatch.setattr(disk_cache, "_claim", claim)
+        store.get_or_fetch("k", 0.0, 0.0, other)
+        return claim(flight)
+
+    monkeypatch.setattr(disk_cache, "_claim", claim_after_another)
+
+    assert store.get_or_fetch("k", 0.0, DAY, late) == "old"
+    assert store.get_or_fetch("k", DAY, DAY, late) == "new"
+    assert (other.calls, late.calls) == (1, 0)
+
+
+def test_a_caller_that_asked_while_the_value_was_being_written_shares_it(monkeypatch):
+    store = disk_cache.meta()
+    other, late = Fetcher("v"), Fetcher("again")
+    writing, release = threading.Event(), threading.Event()
+    replace = os.replace
+
+    def held_replace(source, target):
+        writing.set()
+        release.wait(5)
+        replace(source, target)
+
+    monkeypatch.setattr(disk_cache.os, "replace", held_replace)
+    first = threading.Thread(target=lambda: store.get_or_fetch("k", DAY, DAY, other), daemon=True)
+    first.start()
+    assert writing.wait(5)
+
+    def once_written():
+        release.set()
+        first.join(5)
+        return not first.is_alive()
+
+    assert store.get_or_fetch("k", DAY, DAY, late, allow_fetch=once_written) == "v"
+    assert (other.calls, late.calls) == (1, 0)
+
+
+def test_an_entry_stored_before_the_ask_is_not_new_however_long_it_takes_to_decode(monkeypatch):
+    store = disk_cache.meta()
+    now = [1000.0]
+    monkeypatch.setattr(disk_cache.time, "time", lambda: now[0])
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    decode = store._decode
+
+    def slow_decode(payload, info):
+        now[0] += 5
+        return decode(payload, info)
+
+    monkeypatch.setattr(store, "_decode", slow_decode)
+
+    assert store.get_or_fetch("k", 0, 0, Fetcher("new")) == "new"
+
+
+@pytest.mark.parametrize("later", [1000.0, 900.0], ids=["same instant", "clock set back"])
+def test_a_value_stored_by_another_is_new_whatever_the_clock_says(monkeypatch, later):
+    store = disk_cache.meta()
+    now = [1000.0]
+    monkeypatch.setattr(disk_cache.time, "time", lambda: now[0])
+    store.get_or_fetch("k", DAY, DAY, Fetcher("old"))
+    other, late = Fetcher("new"), Fetcher("again")
+
+    def while_another_fetches():
+        now[0] = later
+        return store.get_or_fetch("k", 0, -DAY, other) == "new"
+
+    assert store.get_or_fetch("k", 0, 0, late, allow_fetch=while_another_fetches) == "new"
+    assert (other.calls, late.calls) == (1, 0)
+
+
+def test_a_held_failure_raised_again_is_held_no_longer(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(disk_cache.time, "monotonic", lambda: now[0])
+    store = disk_cache.meta()
+
+    def while_another_fails():
+        with pytest.raises(RuntimeError):
+            store.get_or_fetch("k", DAY, DAY, Fetcher(RuntimeError("down")), hold_s=60)
+        now[0] += 50
+        return True
+
+    with pytest.raises(RuntimeError):
+        store.get_or_fetch("k", DAY, DAY, Fetcher("early"), allow_fetch=while_another_fails)
+
+    now[0] += 11
+    assert store.get_or_fetch("k", DAY, DAY, Fetcher("back")) == "back"
 
 
 def test_an_unreadable_entry_is_refetched(cache):
