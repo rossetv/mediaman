@@ -12,7 +12,12 @@
 .explore-head__text { min-width: 0; }
 .explore-title { width: fit-content; max-width: 100%; min-height: 1.1em; font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; overflow-wrap: anywhere; transform-origin: 0 0; }
 .explore-title:focus { outline: none; }
-.explore-facts { min-height: 1.47em; line-height: 1.47; margin-top: 6px; font-size: 15px; color: var(--t2); }
+.explore-facts { min-height: 1.47em; margin-top: 6px; font-size: 15px; color: var(--t2); }
+/* The total comes later and may wrap: room for it from the start. */
+.explore-facts[data-room] { display: grid; }
+.explore-facts[data-room] > span,
+.explore-facts[data-room]::after { grid-area: 1 / 1; }
+.explore-facts[data-room]::after { content: attr(data-room); visibility: hidden; }
 .explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
 /* Who it is, until the answer is in. */
 .explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
@@ -43,10 +48,9 @@
 .explore-years > .ico { position: absolute; right: 13px; top: 16px; font-size: 12px; color: var(--t3); pointer-events: none; }
 
 @media (max-width: 599.98px) {
-  .explore-head { gap: 16px; margin-bottom: 14px; }
+  .explore-head { gap: 16px; margin-bottom: 22px; }
   .explore-title { font-size: 28px; }
-  /* Two lines: the total that comes later may wrap. */
-  .explore-facts { min-height: 2.94em; font-size: 14px; }
+  .explore-facts { font-size: 14px; }
   .explore-photo.watch-face { width: 88px; height: 88px; font-size: 32px; }
 }
 @media (prefers-reduced-motion: reduce) {

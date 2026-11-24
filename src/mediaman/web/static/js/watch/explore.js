@@ -315,6 +315,13 @@
     var asked = 0;
     f.title.textContent = name;
 
+    function facts(total) {
+      // The answer may say less than was made room for.
+      if (typeof total !== 'number') f.facts.setAttribute('data-room', words(filter.where === 'library' ? 1000 : 10000));
+      f.facts.textContent = '';
+      f.facts.appendChild(el('span', '', words(total)));
+    }
+
     function words(total) {
       var kind = known && known.types.length === 1 ? known.types[0] : filter.type;
       return sortName(filter.sort) + ' ' + TYPE_WORDS[kind] + (filter.decade ? ' of the ' + filter.decade : '') +
@@ -339,7 +346,8 @@
             gone(f, mine.list, 'Category not found', 'There is no such category.');
             stage().token({ icon: icon(want.id), name: 'Category' });
           }
-          if (open === mine) reveal();
+          // Its failure is shown; which filters are offered is still not known.
+          if (open === mine) f.host.classList.remove('is-unknown');
           throw err;
         });
       }
@@ -354,7 +362,7 @@
         filter.decade = '';
         years.choose('');
         address.replace('explore', address.url(query(filter)));
-        f.facts.textContent = words();
+        facts();
       }
       of.decade = '';
     }
@@ -369,7 +377,7 @@
       if (reply.genre) settleTypes(reply.genre);
       settleWhere(reply.library);
       reveal();
-      f.facts.textContent = words(reply.total);
+      facts(reply.total);
       say.page(f.title.textContent + ', ' + f.facts.textContent);
     }
 
@@ -388,10 +396,11 @@
     }
 
     /* Offered once the library's own genres are known. A link may come before
-       that. Once drawn, the line above the grid neither comes nor gives up its place. */
+       that. Once drawn, neither the choice nor the line above the grid comes or
+       gives up its place. */
     function settleWhere(library) {
       if (!library) return;
-      if (library.ready) bars.where.hidden = false;
+      if (!drawn) bars.where.hidden = !library.ready;
       var early = !library.ready && filter.where === 'library';
       if (early && !gathering && !drawn) {
         gathering = el('p', 'results-hint explore-gathering');
@@ -414,7 +423,7 @@
     function change(key, value) {
       filter[key] = value;
       address.replace('explore', address.url(query(filter)));
-      f.facts.textContent = words();
+      facts();
       if (gathering && filter.where !== 'library') {
         gathering.remove();
         gathering = null;
@@ -441,19 +450,17 @@
     bars.type = segments('Type', TYPES, filter.type, function (v) { change('type', v); });
     bars.sort = segments('Order', SORTS, filter.sort, function (v) { change('sort', v); });
     bars.where = segments('Where', WHERES, filter.where, function (v) { change('where', v); });
-    bars.where.hidden = true;
     filters.appendChild(bars.type);
     filters.appendChild(bars.sort);
+    filters.appendChild(bars.where);
     var years = yearsMenu(filter.decade, function (v) { change('decade', v); });
     filters.appendChild(years.node);
-    // Last: it may come later, and nothing after it moves.
-    filters.appendChild(bars.where);
     // Their places are held until it is known which are offered, and whether a line pushes the grid down.
     filters.classList.add('is-unknown');
     f.host.classList.toggle('is-unknown', filter.where === 'library');
     f.node.appendChild(filters);
     f.node.appendChild(f.host);
-    f.facts.textContent = words();
+    facts();
     stage().open(f.node, name, { icon: icon(want.id), name: name });
     stage().grow(f.title, from);
     stage().rise(f.facts, 60);

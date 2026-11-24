@@ -1202,6 +1202,14 @@ const scenarios = {
     await known(p, cats(false));
     out.any.push(seen(p));
 
+    const facts = p.doc.querySelector('.explore-facts');
+    out.room = [facts.textContent, facts.getAttribute('data-room')];
+    // Drawn without it, the choice of where does not push the years aside later.
+    const where = () => p.doc.querySelectorAll('.explore-seg').filter((n) => n.getAttribute('aria-label') === 'Where')[0];
+    out.late = [where().hidden];
+    await p.answer('explore?genre=action', reply(true));
+    out.late.push(where().hidden);
+
     const held = load(ADMIN, '', '/watch?genre=action&where=library', null);
     out.library = [seen(held)];
     await known(held, cats(false));
