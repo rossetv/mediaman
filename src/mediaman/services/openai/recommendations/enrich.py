@@ -116,7 +116,7 @@ def _spelling(title: object) -> str:
 
 def _main_titles(title: str) -> set[str]:
     """The spellings *title* has when it is cut where a subtitle can begin."""
-    return {_spelling(title[: m.start()]) for m in _SUBTITLE_RE.finditer(title) if m.start()}
+    return {_spelling(title[: m.start()]) for m in _SUBTITLE_RE.finditer(title)}
 
 
 def _pick_result(

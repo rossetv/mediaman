@@ -322,6 +322,7 @@ class TestWhichPicksAreKept:
             ("Birdman", {"title": "Birdman or (The Unexpected Virtue of Ignorance)"}),
             ("Star Wars", {"title": "Star Wars: Episode IV - A New Hope"}),
             ("Borat: Cultural Learnings", {"title": "Borat"}),
+            ("Borat", {"title": "Borat (Cultural Learnings)"}),
             ("Andor", {"name": "Andor \u2013 A Story"}),
         ],
     )
