@@ -1303,7 +1303,13 @@
     if (place >= 0 && rows[place].inert) {
       var left = liveRows(list);
       var to = left[Math.min(place, left.length - 1)];
-      if (to) to.querySelector('.watch-keep').focus({ preventScroll: true });
+      if (!to) return;
+      var button = to.querySelector('.watch-keep');
+      button.focus({ preventScroll: true });
+      // keep.js brings the next one into view itself.
+      if (!watch.keep.isBusy(rows[place].getAttribute('data-id'))) {
+        button.scrollIntoView({ block: 'nearest', behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+      }
     }
   }
 

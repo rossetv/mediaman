@@ -903,9 +903,10 @@ const scenarios = {
     return { rows, next: p.heads(), focused: p.focused(), pressed: p.seg('tv').getAttribute('aria-pressed') };
   },
   // With reduced motion the next Keep is brought into view at once; a refresh that lands then leaves it be.
-  async keepRevealed() {
-    const p = await page();
+  async keepRevealed(motion = false) {
+    const p = await page(undefined, undefined, { motion });
     await p.open();
+    if (motion) Node.prototype.animate = function () { return { cancel() {} }; };
     const seen = [];
     Node.prototype.scrollIntoView = function (o) { seen.push([this.getAttribute('data-watch-keep'), o.behavior]); };
     p.server.holding = '/api/dashboard';
@@ -917,6 +918,24 @@ const scenarios = {
     await settle();
     await p.refresh();
     return { seen, rows: p.rows(), same: p.doc.activeElement === next && next.isConnected, focused: p.focused() };
+  },
+  // The same while the rows still slide.
+  keepRevealedMoving: () => scenarios.keepRevealed(true),
+  // A refresh takes the row of the focused button away while the rows still slide.
+  async focusRevealed() {
+    const p = await page(['1', '2', '3', '4'].map((id) => row(id)), undefined, { motion: true });
+    await p.open();
+    Node.prototype.animate = function () { return { cancel() {} }; };
+    p.server.holding = '/api/dashboard';
+    await p.keep('1', '7');
+    const seen = [];
+    Node.prototype.scrollIntoView = function (o) { seen.push([this.getAttribute('data-watch-keep'), o.block, o.behavior]); };
+    p.server.rows = p.server.rows.filter((r) => r.media_item_id !== '2');
+    p.server.holding = null;
+    p.server.held.splice(0).forEach((h) => h.go());
+    await settle();
+    await p.refresh();
+    return { seen, focused: p.focused() };
   },
   // The focus of a failed keep: from the menu, and moved on meanwhile.
   async failedFocus() {

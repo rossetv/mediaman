@@ -301,6 +301,20 @@ class TestScheduled:
             "focused": "Keep Film 2",
         }
 
+    def test_so_it_does_while_the_rows_still_slide(self):
+        assert _run("keepRevealedMoving") == {
+            "seen": [["2", "smooth"]],
+            "rows": ["2", "3", "9"],
+            "same": True,
+            "focused": "Keep Film 2",
+        }
+
+    def test_a_refresh_that_takes_the_focused_row_brings_the_next_keep_into_view(self):
+        assert _run("focusRevealed") == {
+            "seen": [["3", "nearest", "smooth"]],
+            "focused": "Keep Film 3",
+        }
+
     def test_an_overdue_title_kept_leaves_the_count_of_those_leaving(self):
         assert _run("keepLateCount") == {
             "rows": ["2"],
