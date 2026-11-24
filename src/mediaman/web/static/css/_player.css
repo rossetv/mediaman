@@ -549,8 +549,41 @@
   .player-upnext { left: 12px; right: 12px; width: auto; bottom: 148px; max-width: none; }
 }
 
+/* The narrowest phones: every control keeps its height and its place in the row. */
+@media (max-width: 350px) {
+  .player-controls { gap: 0; }
+  .player-controls .player-btn { min-width: 38px; }
+}
+
 /* A phone on its side: the next-episode card keeps to the right. */
 @media (max-height: 420px) {
   .player-frame { width: 176px; }
   .player-upnext { left: auto; width: 300px; }
+}
+
+/* Forced colours drop the fills that draw the bar and the edges of the rest. */
+@media (forced-colors: active) {
+  .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }
+  .player-seek-buffered { background: GrayText; }
+  .player-seek-played { background: Highlight; }
+  .player-band { background: LinkText; }
+  .player-gap { top: -4px; height: calc(100% + 8px); }
+  .player-volume-slider { forced-color-adjust: none; }
+  .player-volume-slider::-webkit-slider-runnable-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }
+  .player-volume-slider::-moz-range-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }
+  .player-volume-slider::-webkit-slider-thumb { background: CanvasText; }
+  .player-volume-slider::-moz-range-thumb { background: CanvasText; }
+  .player-gap,
+  .player-seek-hover,
+  .player-seek-thumb { background: CanvasText; }
+  .player-back,
+  .player-pill::before,
+  .player-menu,
+  .player-card,
+  .player-frame,
+  .player-bubble-text { border: 1px solid CanvasText; }
+  .player-pill::before,
+  .player-bubble-text { background: Canvas; }
+  .player-menu-item:hover,
+  .player-menu-item:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
 }
