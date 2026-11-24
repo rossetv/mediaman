@@ -6,6 +6,7 @@
  *    step through every row) so a row can be linked to; closing drops it.
  *  - Closing plays the exit animation before the row folds; with reduced motion
  *    it folds at once. Opening is a CSS animation, which reduced motion shortens.
+ *  - What lies below a row slides with it, over the same time as the row's own animation.
  *  - "Copy details" copies the labels and values the row shows.
  */
 (function () {
@@ -25,18 +26,40 @@
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
   }
 
+  /* Slide what follows the row in the list, and the list on the page, along with its details. */
+  function slideBelow(row, body, closing) {
+    if (!body.animate || reduceMotion()) return [];
+    var style = window.getComputedStyle(body);
+    var away = 'translateY(' + -body.offsetHeight + 'px)';
+    var below = [];
+    [row, row.parentNode].forEach(function (from) {
+      for (var n = from.nextElementSibling; n; n = n.nextElementSibling) below.push(n);
+    });
+    return below.map(function (n) {
+      return n.animate({ transform: closing ? ['none', away] : [away, 'none'] }, {
+        duration: parseFloat(style.animationDuration) * 1000,
+        easing: style.animationTimingFunction,
+        fill: closing ? 'forwards' : 'none',
+        composite: 'add'
+      });
+    });
+  }
+
   function fold(row) {
     var body = row.querySelector('.hist-body');
     var done = false;
+    var slides = [];
     function finish() {
       if (done) return;
       done = true;
       row.classList.remove('is-closing');
       row.removeAttribute('open');
+      slides.forEach(function (a) { a.cancel(); });
       syncAddress(row);
     }
     if (!body || reduceMotion()) return finish();
     row.classList.add('is-closing');
+    slides = slideBelow(row, body, true);
     body.addEventListener('animationend', finish, { once: true });
     window.setTimeout(finish, CLOSE_FALLBACK_MS);
   }
@@ -91,6 +114,11 @@
         fold(row);
       } else if (row.classList.contains('is-closing')) {
         e.preventDefault();
+      } else {
+        /* Open by the next frame, and not yet painted. */
+        window.requestAnimationFrame(function () {
+          if (row.open) slideBelow(row, row.querySelector('.hist-body'), false);
+        });
       }
     });
 

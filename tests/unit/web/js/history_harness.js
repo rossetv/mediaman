@@ -11,7 +11,7 @@ const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
 function run(scenario) {
   const doc = makeDocument();
   doc.readyState = 'complete';
-  const reduced = scenario === 'reduced';
+  const reduced = scenario.endsWith('reduced');
   const timers = [];
   const toasts = [];
   const copied = [];
@@ -22,6 +22,8 @@ function run(scenario) {
     },
     matchMedia: () => ({ matches: reduced }),
     setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    requestAnimationFrame: (fn) => timers.push(fn),
+    getComputedStyle: () => ({ animationDuration: '0.2s', animationTimingFunction: 'ease' }),
     isSecureContext: true,
     UIFeedback: { toast: (m) => toasts.push(m), error: (m) => toasts.push('error: ' + m) },
   };
@@ -46,6 +48,24 @@ function run(scenario) {
     list.appendChild(r);
   });
   doc.body.appendChild(list);
+  const after = build(doc, ['div', { class: 'pagination' }]);
+  doc.body.appendChild(after);
+  const moves = [];
+  const watch = (name, el) => {
+    el.animate = (frames, opts) => {
+      const move = { name, from: frames.transform[0], to: frames.transform[1], ms: opts.duration, cancelled: false };
+      moves.push(move);
+      return { cancel: () => { move.cancelled = true; } };
+    };
+  };
+  watch('first', rows[0]);
+  watch('second', rows[1]);
+  watch('after', after);
+  rows.forEach((r) => {
+    const body = r.querySelector('.hist-body');
+    body.animate = () => {};
+    Object.defineProperty(body, 'offsetHeight', { get: () => 300 });
+  });
   vm.runInContext(fs.readFileSync(path.join(JS, 'history.js'), 'utf8'), ctx);
 
   const sum = (r) => r.querySelector('.hist-sum');
@@ -56,14 +76,18 @@ function run(scenario) {
     click(doc, sum(rows[0]));
     out.afterClick = state(rows[0]);
     out.url = win.location.href;
+    out.moving = moves.map((m) => ({ ...m }));
     timers.forEach((t) => t());
+    out.moves = moves;
     out.settled = state(rows[0]);
     out.urlAfter = win.location.href;
   }
-  if (scenario === 'open') {
+  if (scenario === 'open' || scenario === 'open-reduced') {
     out.prevented = clickPrevented(doc, sum(rows[1]));
     rows[1].setAttribute('open', '');
     (list.listeners.toggle || []).forEach((fn) => fn({ target: rows[1] }));
+    timers.forEach((t) => t());
+    out.moves = moves;
     out.url = win.location.href;
   }
   if (scenario === 'copy') {

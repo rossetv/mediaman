@@ -42,3 +42,21 @@ def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open
     assert out["copied"] == ["Who: admin\nIP address: 1.2.3.4"]
     assert out["toasts"] == ["Details copied"]
     assert out["stillOpen"] is True
+
+
+def test_what_is_below_slides_up_with_a_closing_row_and_is_let_go_once_it_has_folded() -> None:
+    out = _run("close")
+    slide = {"from": "none", "to": "translateY(-300px)", "ms": 200}
+    assert out["moving"] == [{"name": n, **slide, "cancelled": False} for n in ("second", "after")]
+    assert all(m["cancelled"] for m in out["moves"])
+
+
+def test_what_is_below_an_opening_row_slides_down_from_where_it_was() -> None:
+    out = _run("open")
+    assert [(m["name"], m["from"], m["to"]) for m in out["moves"]] == [
+        ("after", "translateY(-300px)", "none")
+    ]
+
+
+def test_reduced_motion_slides_nothing() -> None:
+    assert _run("reduced")["moves"] == _run("open-reduced")["moves"] == []
