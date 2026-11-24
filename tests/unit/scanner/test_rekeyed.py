@@ -570,3 +570,19 @@ class TestProgress:
         assert delete_user(conn, 2, "amy")
 
         assert conn.execute("SELECT count(*) FROM pruned_progress").fetchone()[0] == 0
+
+
+def test_the_library_keeps_how_many_episodes_a_season_has(conn):
+    _sync(
+        conn,
+        films=_FILM,
+        seasons=[*_SHOW, _season("empty", 1, episodes=()), _season("show", 2, episodes=(1, 2, 3))],
+    )
+
+    counts = conn.execute("SELECT id, episode_count FROM media_items").fetchall()
+    assert {r["id"]: r["episode_count"] for r in counts} == {
+        "f1": None,
+        "show-s1": 2,
+        "empty-s1": None,
+        "show-s2": 3,
+    }
