@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -215,3 +216,104 @@ class TestCrashAfterRemoval:
 
         assert _status(conn) is None
         assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [5]
+
+
+def _crash_before_booking(conn, monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(DeletionExecutor, "_settle", lambda *a, **k: (_ for _ in ()).throw(_Crash))
+        with pytest.raises(_Crash):
+            DeletionExecutor(conn=conn).execute()
+    conn.rollback()
+
+
+class TestNewCopyAfterAnUnbookedRemoval:
+    @pytest.fixture
+    def film(self, conn, two_parts):
+        """The due movie as a single file, with another film beside its folder."""
+        cd1, cd2 = two_parts
+        cd2.unlink()
+        (cd1.parent.parent / "other.mkv").write_bytes(b"x")
+        self._track(conn, cd1)
+        return cd1
+
+    @staticmethod
+    def _track(conn, *paths):
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = 'm1'",
+            (json.dumps([{"path": str(p), "size": 4} for p in paths]),),
+        )
+        conn.commit()
+
+    def _assert_booked_and_spared(self, conn, new_copy):
+        assert new_copy.read_bytes() == b"a new copy"
+        assert _status(conn) is None
+        assert [r["space_reclaimed_bytes"] for r in _actions(conn, "deleted")] == [4]
+
+    @pytest.mark.parametrize("status", ["deleting", "pending"])
+    def test_a_film_downloaded_again_is_kept_and_its_old_removal_booked(
+        self, conn, film, monkeypatch, status
+    ):
+        _crash_before_booking(conn, monkeypatch)
+        conn.execute("UPDATE scheduled_actions SET delete_status = ?", (status,))
+        film.parent.mkdir(exist_ok=True)
+        film.write_bytes(b"a new copy")
+        radarr = MagicMock()
+
+        DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        self._assert_booked_and_spared(conn, film)
+        assert radarr.mock_calls == []
+
+    def test_a_film_downloaded_again_under_another_name_is_kept_too(self, conn, film, monkeypatch):
+        _crash_before_booking(conn, monkeypatch)
+        new_copy = film.with_name("Movie 2160p.mkv")
+        new_copy.parent.mkdir(exist_ok=True)
+        new_copy.write_bytes(b"a new copy")
+        self._track(conn, new_copy)
+        recover_stuck_deletions(conn, book=False)
+
+        DeletionExecutor(conn=conn).execute()
+
+        self._assert_booked_and_spared(conn, new_copy)
+
+    def test_a_film_that_comes_back_once_claimed_is_kept(self, conn, film, monkeypatch):
+        _crash_before_booking(conn, monkeypatch)
+        recover_stuck_deletions(conn, book=False)
+        real = DeletionExecutor._cancel_if_kept
+
+        def claimed(self, row, now_iso):
+            film.parent.mkdir(exist_ok=True)
+            film.write_bytes(b"a new copy")
+            return real(self, row, now_iso)
+
+        monkeypatch.setattr(DeletionExecutor, "_cancel_if_kept", claimed)
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        self._assert_booked_and_spared(conn, film)
+
+    def test_a_folder_also_due_does_not_take_the_new_copy_inside_it(self, conn, film, monkeypatch):
+        _crash_before_booking(conn, monkeypatch)
+        recover_stuck_deletions(conn, book=False)
+        root = film.parent.parent
+        film.parent.mkdir(exist_ok=True)
+        film.write_bytes(b"a new copy")
+        insert_media_item(conn, id="m2", plex_rating_key="m2", file_path=str(root))
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = 'm2'",
+            (json.dumps([{"path": str(root / "other.mkv"), "size": 1}]),),
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="m2",
+            action="scheduled_deletion",
+            token="tok-m2",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+        conn.commit()
+
+        DeletionExecutor(conn=conn).execute()
+
+        self._assert_booked_and_spared(conn, film)

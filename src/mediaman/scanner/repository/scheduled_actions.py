@@ -56,6 +56,7 @@ __all__ = [
     "delete_actions_for_media_items",
     "delete_scheduled_action",
     "fetch_already_scheduled_media_ids",
+    "fetch_deletion",
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_pending_deletions",
@@ -108,6 +109,8 @@ class DeletionRow:
     removed_bytes: int = 0
     # The tracked size of each removed path; a record written without one has none.
     removed_sizes: dict[str, int] = field(default_factory=dict)
+    # Tracked paths the last pass left to remove; None when its record does not say.
+    left_paths: frozenset[str] | None = None
 
 
 _DELETION_COLUMNS = (
@@ -129,24 +132,33 @@ def _parse_tracked_files(raw: str | None) -> list[dict[str, Any]] | None:
     return value if isinstance(value, list) else None
 
 
-def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int, dict[str, int]]:
-    """Return the recorded removed paths, bytes and sizes, or nothing when missing or malformed."""
+@dataclass(frozen=True, slots=True)
+class _RemovedFiles:
+    paths: frozenset[str] = frozenset()
+    removed_bytes: int = 0
+    sizes: dict[str, int] = field(default_factory=dict)
+    left: frozenset[str] | None = None
+
+
+def _parse_removed_files(raw: str | None) -> _RemovedFiles:
+    """Return the record of removed files, or an empty one when missing or malformed."""
     if raw is None:
-        return frozenset(), 0, {}
+        return _RemovedFiles()
     try:
         value = json.loads(raw)
         paths = value["paths"]
         removed_bytes = value["bytes"]
     except (TypeError, ValueError, KeyError):
         logger.warning("scheduled_actions.removed_files is malformed; treating it as empty")
-        return frozenset(), 0, {}
+        return _RemovedFiles()
     if not isinstance(paths, list) or not isinstance(removed_bytes, int):
-        return frozenset(), 0, {}
+        return _RemovedFiles()
     removed = frozenset(p for p in paths if isinstance(p, str))
     sizes = value.get("sizes")
     if not isinstance(sizes, dict):
         sizes = {}
-    return (
+    left = value.get("left")
+    return _RemovedFiles(
         removed,
         removed_bytes,
         {
@@ -154,6 +166,7 @@ def _parse_removed_files(raw: str | None) -> tuple[frozenset[str], int, dict[str
             for path, size in sizes.items()
             if path in removed and isinstance(size, int) and not isinstance(size, bool)
         },
+        frozenset(p for p in left if isinstance(p, str)) if isinstance(left, list) else None,
     )
 
 
@@ -163,15 +176,18 @@ def record_removed_files(
     paths: Collection[str],
     removed_bytes: int,
     sizes: Mapping[str, int],
+    left: Collection[str],
 ) -> None:
     """Store what this deletion has removed so far, so a later pass can finish it.
 
-    *sizes* gives the tracked size of each removed path that has one.
+    *sizes* gives the tracked size of each removed path that has one; *left*
+    holds the tracked paths still to remove.
     """
     record = {
         "paths": sorted(paths),
         "bytes": removed_bytes,
         "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+        "left": sorted(left),
     }
     conn.execute(
         "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
@@ -180,7 +196,7 @@ def record_removed_files(
 
 
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
-    removed_paths, removed_bytes, removed_sizes = _parse_removed_files(row["removed_files"])
+    removed = _parse_removed_files(row["removed_files"])
     return DeletionRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -196,9 +212,10 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         tmdb_id=row["tmdb_id"],
         tvdb_id=row["tvdb_id"],
         tracked_files=_parse_tracked_files(row["tracked_files"]),
-        removed_paths=removed_paths,
-        removed_bytes=removed_bytes,
-        removed_sizes=removed_sizes,
+        removed_paths=removed.paths,
+        removed_bytes=removed.removed_bytes,
+        removed_sizes=removed.sizes,
+        left_paths=removed.left,
     )
 
 
@@ -242,6 +259,19 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
     ).fetchall()
     due = [_row_to_deletion_row(row) for row in rows]
     return sorted(due, key=lambda row: (_normalised(row.file_path or ""), row.id))
+
+
+def fetch_deletion(conn: sqlite3.Connection, action_id: int) -> DeletionRow | None:
+    """Return the deletion row as it is now, or None when it is gone."""
+    # rationale: the interpolated column list is a fixed string; every value is bound
+    row = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        "WHERE sa.id = ?",
+        (action_id,),
+    ).fetchone()
+    return _row_to_deletion_row(row) if row else None
 
 
 def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -> bool:

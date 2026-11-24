@@ -39,6 +39,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     cancel_kept_deletion,
     claim_due_deletion,
     claim_due_deletions_under,
+    fetch_deletion,
     fetch_media_held_outside_pass,
     fetch_tracked_paths_in_folders,
     is_claimed_deletion,
@@ -746,6 +747,22 @@ def _unavailable_for(row: DeletionRow, allowed_roots: list[str]) -> str | None:
     return None
 
 
+def _new_copy(row: DeletionRow) -> bool:
+    """Return True when the disk holds a copy of *row*'s item that came after its removal began.
+
+    A file this deletion removed is there again, or its item tracks a file
+    that was not among those still to remove.
+    """
+    if any(os.path.lexists(path) for path in row.removed_paths):
+        return True
+    if not row.removed_paths or row.left_paths is None:
+        return False
+    known = row.removed_paths | row.left_paths
+    return any(
+        str(Path(path)) not in known and os.path.lexists(path) for path in _tracked_paths(row) or []
+    )
+
+
 # Audit rows about a folder rather than an item carry this prefix and the
 # folder, so each folder's row is deduped on its own.
 _FOLDER_AUDIT_ID = "_delete_root:"
@@ -912,7 +929,7 @@ class DeletionExecutor:
                     len(rows),
                 )
         else:
-            for row in rows:
+            for row in self._book_replaced(rows, now.isoformat()):
                 closed, freed = self._delete_one(row, allowed_roots, now.isoformat())
                 deleted_count += len(closed)
                 reclaimed_bytes += freed
@@ -924,6 +941,39 @@ class DeletionExecutor:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
+
+    def _book_replaced(self, rows: list[DeletionRow], now_iso: str) -> list[DeletionRow]:
+        """Book each row whose item has a new copy on disk; return the other rows.
+
+        The notice was for the copy already removed, so the new one starts
+        afresh: nothing is removed, and Radarr/Sonarr keep monitoring it.
+        Runs over every row first, as a row may close with another's.
+        """
+        others = []
+        for row in rows:
+            if not _new_copy(row):
+                others.append(row)
+                continue
+            if claim_due_deletion(self._conn, row.id, now_iso) and not self._cancel_if_kept(
+                row, now_iso
+            ):
+                logger.warning(
+                    "engine.delete.new_copy id=%s media_id=%s path=%r — a new copy is on disk; "
+                    "booking the removal of the old one and leaving it",
+                    row.id,
+                    row.media_item_id,
+                    row.file_path,
+                )
+                log_audit(
+                    self._conn,
+                    row.media_item_id,
+                    "delete_refused",
+                    f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
+                    "of the old one is recorded",
+                )
+                _book_deleted(self._conn, row, "Deleted (recovered)", row.removed_bytes or None)
+            self._conn.commit()
+        return others
 
     def _delete_one(
         self,
@@ -955,7 +1005,6 @@ class DeletionExecutor:
         each closes once all its own files are gone. They go back to pending
         if the removal fails, or if a keep or clear made after the claim stops it.
         """
-        path = row.file_path or ""
         # Read the disk before the claim opens a write transaction, so a hung
         # mount cannot hold the database lock.
         unavailable = _unavailable_for(row, allowed_roots)
@@ -971,6 +1020,10 @@ class DeletionExecutor:
         if self._cancel_if_kept(row, now_iso):
             self._conn.commit()
             return [], 0
+
+        # A row that closed with another's removal may hold a newer record.
+        row = fetch_deletion(self._conn, row.id) or row
+        path = row.file_path or ""
 
         if not path.strip():
             logger.error(
@@ -1026,9 +1079,20 @@ class DeletionExecutor:
         # The mount may have dropped since the check before the claim, and
         # removing a target that is gone does nothing: check its root again.
         unavailable = _unavailable_for(row, allowed_roots)
+        replaced = [claimed.id for claimed in (row, *co_located) if _new_copy(claimed)]
+        if replaced:
+            logger.warning(
+                "engine.delete.new_copy_after_claim id=%s path=%r replaced_rows=%s — a new copy "
+                "is on disk; leaving the files",
+                row.id,
+                path,
+                replaced,
+            )
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
-        if not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable):
+        if replaced or not self._still_removable(
+            row, co_located, path, now_iso, unavailable=unavailable
+        ):
             for claimed in (row, *co_located):
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -1082,7 +1146,8 @@ class DeletionExecutor:
         """
         removed = {str(Path(path)) for path in result.removed}
         for done in closing:
-            gone = {str(Path(path)) for path in _tracked_paths(done) or []} & removed
+            own = {str(Path(path)) for path in _tracked_paths(done) or []}
+            gone = own & removed
             freed = result.bytes_freed if done is row else 0
             if gone or freed:
                 record_removed_files(
@@ -1091,6 +1156,7 @@ class DeletionExecutor:
                     done.removed_paths | gone,
                     done.removed_bytes + freed,
                     {**done.removed_sizes, **_tracked_sizes(done)},
+                    own - gone - done.removed_paths,
                 )
 
     def _settle(
