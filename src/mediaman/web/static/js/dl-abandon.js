@@ -9,7 +9,7 @@
 // our own server, treating them as untrusted in the DOM layer makes
 // future additions safe by default.
 //
-// Requires: core/api.js (MM.api), core/dom.js (MM.dom).
+// Requires: core/api.js (MM.api), core/dom.js (MM.dom), downloads/build_dom.js.
 
 (function () {
   'use strict';
@@ -34,6 +34,13 @@
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;
+      /* The focus goes back to the button that opened this; a poll may have taken it away. */
+      setTimeout(function () {
+        var active = document.activeElement;
+        if (!current && (!active || active === document.body || modal.contains(active))) {
+          MM.downloads.buildDom.focusHeading();
+        }
+      }, 0);
     },
   });
 
@@ -178,6 +185,8 @@
     }
 
     var dlId = current.dlId;
+    var message = current.upcoming ? 'Stopped tracking ' + current.title
+      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + current.title;
     inflight[dlId] = true;
     showConfirmState();
 
@@ -190,6 +199,7 @@
         delete inflight[dlId];
         if (showsThis()) close();
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+        window.UIFeedback.toast(message, { variant: 'success' });
       })
       .catch(function (err) {
         delete inflight[dlId];

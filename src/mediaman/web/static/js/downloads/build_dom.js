@@ -29,6 +29,8 @@
  *   MM.downloads.buildDom.buildEpisodeRow(ep)
  *   MM.downloads.buildDom.syncEpisodes(card, item)  add, refresh or remove the episodes button and list
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
+ *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
+ *   MM.downloads.buildDom.passFocus(el)             move focus on from an element that is about to go
  *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
  *   MM.downloads.buildDom.collapse(el, done)       shrink it away, then call done
  *   MM.downloads.buildDom.collapseAway(el)          shrink it away, then remove it
@@ -44,6 +46,29 @@
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
+  function focusHeading() {
+    var h1 = document.querySelector('#dl-root h1');
+    if (!h1) return;
+    h1.setAttribute('tabindex', '-1');
+    h1.focus({ preventScroll: true });
+  }
+
+  /* Focus inside what is about to go moves on: from an abandon button to the one
+     of the next row or the one before, else to the top of the page. */
+  function passFocus(node) {
+    var active = document.activeElement;
+    if (!active || !node.contains(active)) return;
+    var row = active.closest('[data-abandon-trigger]') && node.closest('.dl-compact, .dl-upcoming-row');
+    var dirs = ['nextElementSibling', 'previousElementSibling'];
+    for (var i = 0; row && i < dirs.length; i++) {
+      for (var at = row[dirs[i]]; at; at = at[dirs[i]]) {
+        var btn = !isCollapsing(at) && at.querySelector('[data-abandon-trigger]');
+        if (btn) { btn.focus(); return; }
+      }
+    }
+    focusHeading();
+  }
+
   var FOLD_PROPS = ['opacity', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'];
 
   /* Open or close an element in place: its height, padding and margins run
@@ -55,6 +80,7 @@
     if (running && running.open === open) return;
     var token = { open: open };
     el._dlFold = token;
+    if (!open) passFocus(el);
 
     function finish() {
       if (el._dlFold !== token) return;
@@ -63,6 +89,7 @@
       el.classList.remove('dl-fold');
       el.classList.remove('is-folded');
       el.style.height = '';
+      if (!open) passFocus(el);
       if (done) done();
     }
     function onEnd(e) {
@@ -433,7 +460,10 @@
     var wrap = host.querySelector('.' + wrapClass);
     var want = canAbandonHere() && !!item.abandon_visible;
     if (!want) {
-      if (wrap) wrap.parentNode.removeChild(wrap);
+      if (wrap) {
+        passFocus(wrap);
+        wrap.parentNode.removeChild(wrap);
+      }
       if (!isHero) host.classList.remove('dl-row--has-abandon');
       return;
     }
@@ -507,7 +537,10 @@
     }
 
     if (!episodes.length) {
-      if (toggle) toggle.parentNode.removeChild(toggle);
+      if (toggle) {
+        passFocus(toggle);
+        toggle.parentNode.removeChild(toggle);
+      }
       if (list) list.parentNode.removeChild(list);
       return;
     }
@@ -641,7 +674,10 @@
   function markHeld(card) {
     card.classList.add('is-held');
     var hint = card.querySelector('[data-v="search-hint"]');
-    if (hint) hint.hidden = true;
+    if (hint) {
+      passFocus(hint);
+      hint.hidden = true;
+    }
     if (card.classList.contains('dl-hero')) { updateEtaStat(card, ''); return; }
     var eta = card.querySelector('[data-v="eta"]');
     if (eta) eta.textContent = '';
@@ -765,6 +801,8 @@
     buildEpisodeRow:      buildEpisodeRow,
     syncEpisodes:         syncEpisodes,
     syncAbandon:          syncAbandon,
+    focusHeading:         focusHeading,
+    passFocus:            passFocus,
     reveal:               function (el)              { fold(el, true); },
     collapse:             function (el, done)        { fold(el, false, done); },
     collapseAway:         collapseAway,

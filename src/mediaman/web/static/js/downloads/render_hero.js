@@ -31,6 +31,7 @@
     var hint = d.q('[data-v="search-hint"]', card);
     if (!hint) return;
     if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
+      d.passFocus(hint);
       hint.hidden = true;
       return;
     }
@@ -54,6 +55,7 @@
     }
     d.setText(text, item.search_hint || '');
     sep.hidden = !item.search_hint || !item.arr_link;
+    if (!item.arr_link) d.passFocus(a);
     a.hidden = !item.arr_link;
     if (item.arr_link) {
       a.href = item.arr_link;

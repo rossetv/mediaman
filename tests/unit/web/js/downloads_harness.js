@@ -203,7 +203,7 @@ function abandonRig() {
   };
   h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
-  h.ctx.UIFeedback = { error() { rig.errors += 1; } };
+  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast() {} };
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');

@@ -215,3 +215,17 @@ def test_a_page_that_hears_nothing_says_so_and_goes_on_asking() -> None:
     assert out["backAgain"] == live
     # a poll the hidden tab was waiting for does not hold up the next
     assert out["shownAgain"] == [7, 0]
+
+
+def test_after_an_abandon_the_page_says_so_and_the_focus_is_on_something() -> None:
+    stuck = {"state": "searching", "abandon_visible": True}
+    out = _run(
+        "abandoned",
+        hero=_item("h", **stuck),
+        queue=[_item("q1", **stuck), _item("q2", **stuck)],
+        upcoming=[_item("u")],
+    )
+    assert out["on"] == ["q2", "H1", "H1", "H1", "q4"]
+    assert [variant for _, variant in out["toasts"]] == ["success"] * 5
+    for (text, _), title in zip(out["toasts"], ["Tq1", "Tq2", "Th", "Tu", "Tq3"], strict=True):
+        assert title in text

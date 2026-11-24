@@ -29,6 +29,13 @@ Object.defineProperty(Node.prototype, 'dataset', {
     });
   },
 });
+Node.prototype.matches = (function (matches) {
+  return function (sel) {
+    const heading = sel.match(/^(.*?)\s*\bh(\d)$/);
+    if (!heading) return matches.call(this, sel);
+    return this.tagName === 'H' + heading[2] && (!heading[1] || !!this.parentNode.closest(heading[1]));
+  };
+})(Node.prototype.matches);
 Node.prototype.removeChild = function (c) { c.remove(); return c; };
 Node.prototype.replaceChildren = function () { [...this.childNodes].forEach((c) => c.remove()); };
 Node.prototype.remove = (function (remove) {
@@ -204,6 +211,48 @@ const scenarios = {
     p.doc.hidden = false; p.doc.listeners.visibilitychange.forEach((f) => f()); await settle();
     out.shownAgain = [calls.length, look()[1]];
     return out;
+  },
+
+  // a person abandons a row, the last row, the hero's search and something coming soon, from
+  // the keyboard; `on` is where each leaves them
+  async abandoned() {
+    const posts = [];
+    const p = page(spec, { post: (url, body) => new Promise((resolve) => posts.push({ body, resolve })) });
+    const stuck = (id, extra) => item(id, { state: 'searching', abandon_visible: true, ...extra });
+    const on = () => {
+      const a = p.doc.activeElement;
+      return a.getAttribute('data-abandon-trigger') === null ? a.tagName : a.getAttribute('data-dl-id');
+    };
+    const tick = async () => { p.timers.splice(0).forEach((t) => t.fn()); await settle(); };
+    const press = async (id) => {
+      const trigger = p.qa('[data-abandon-trigger]').find((b) => b.getAttribute('data-dl-id') === id);
+      trigger.focus();
+      click(p.doc, trigger);
+      await tick();
+      const confirm = p.q('[data-abandon-confirm]');
+      confirm.focus();
+      click(p.doc, confirm);
+    };
+    const finish = async () => { posts[posts.length - 1].resolve({}); await settle(); await tick(); };
+    const out = { on: [] };
+    const poll = (hero, rows, upcoming) => p.upd({ hero, queue: rows.map((id) => stuck(id)), upcoming: (upcoming || []).map((id) => item(id)) });
+
+    await press('q1'); await finish(); poll(stuck('h'), ['q2'], ['u']);
+    out.on.push(on());
+    // the poll that drops the row comes before the answer does
+    await press('q2'); poll(stuck('h'), [], ['u']); await finish();
+    out.on.push(on());
+    await press('h'); await finish(); poll(item('h'), [], ['u']);
+    out.on.push(on());
+    await press('u'); await finish(); poll(item('h'), []);
+    out.on.push(on());
+    // someone who has moved on is left where they are
+    p.upd({ hero: item('h'), queue: [stuck('q3'), stuck('q4')] });
+    await press('q3'); await finish();
+    p.qa('[data-abandon-trigger]').find((b) => b.getAttribute('data-dl-id') === 'q4').focus();
+    p.upd({ hero: item('h'), queue: [stuck('q4')] });
+    out.on.push(on());
+    return { ...out, toasts: p.ctx.toasts };
   },
 
   // everything coming soon gives way to something else in one poll

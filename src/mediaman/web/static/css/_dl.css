@@ -317,6 +317,9 @@
 .dl-ep-status-pill.downloading { background: var(--rgba-accent-chip); color: var(--accent); }
 .dl-ep-status-pill.queued { background: var(--rgba-warning-bg); color: var(--warning); }
 
+/* The heading takes the focus of a row that went; the ring is as wide as its words. */
+#dl-root h1 { width: fit-content; }
+
 /* Recently added (downloads page bottom) */
 .dl-recent-section { margin-top: var(--section); }
 .dl-recent-header {
