@@ -351,6 +351,36 @@ def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading
     ]
 
 
+def test_a_persons_page_says_what_the_cards_of_a_cast_say() -> None:
+    out = _run("personAbout")
+    told = {
+        "born": "Born 1950, died 2019, aged 69",
+        "bio": "A long life.",
+        "known": [["movie-1", "Salt"], ["tmdb-movie-9", "Road"]],
+        "hidden": [False, False, False],
+        "skeletons": 0,
+    }
+    assert (out["told"], out["again"], out["retried"]) == (told, told, told)
+    waiting = out["waiting"]
+    assert (waiting["hidden"], waiting["skeletons"] > 0) == ([False, False, False], True)
+
+
+def test_a_persons_story_opens_only_where_it_is_cut() -> None:
+    out = _run("personAbout")
+    assert out["more"] == [
+        ["More", "false", False, False],
+        ["Less", "true", False, True],
+        ["More", "false", False, False],
+    ]
+    assert out["short"] is True
+
+
+def test_nothing_stands_where_nothing_is_known_of_a_person() -> None:
+    out = _run("personAbout")
+    for state in ("bare", "failed"):
+        assert (out[state]["hidden"], out[state]["skeletons"]) == ([True, True, True], 0)
+
+
 def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
     out = _run("person")
     assert out["kept"] == [2, ["known_for", "person"]]

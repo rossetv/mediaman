@@ -614,6 +614,128 @@
 
   /* ── A person ── */
 
+  function born(p) {
+    var year = String(p.birthday || '').slice(0, 4);
+    var end = String(p.deathday || '').slice(0, 4);
+    var age = typeof p.age === 'number' ? p.age : null;
+    return [
+      year && 'Born ' + year,
+      end && (year ? 'died ' : 'Died ') + end,
+      age !== null && (end ? 'aged ' : 'age ') + age
+    ].filter(Boolean).join(', ');
+  }
+
+  function line(width) {
+    var s = el('span', 'skel skel--line');
+    s.style.width = width;
+    return s;
+  }
+
+  function knownPoster(t) {
+    var a = el('a', 'cast-card__poster');
+    a.setAttribute('data-title-ref', t.library_ref || t.ref);
+    a.setAttribute('data-title', t.title);
+    a.href = core.safePath(t.href) || '#title=' + encodeURIComponent(t.library_ref || t.ref);
+    a.title = t.title;
+    a.setAttribute('aria-label', t.title);
+    a.appendChild(el('span', 'cast-card__poster-name', t.title));
+    var src = core.safePath(t.poster_url);
+    if (src) {
+      var img = el('img');
+      img.alt = '';
+      img.setAttribute('data-broken-on-error', '');
+      img.src = src;
+      a.appendChild(img);
+    }
+    return a;
+  }
+
+  /* What is said of a person on page *f*, its room held until it is known. What
+     stands below slides when that room changes. */
+  function aboutPerson(f) {
+    var years = el('p', 'explore-born');
+    var story = el('div', 'explore-story');
+    var bio = el('p', 'explore-bio');
+    var more = el('button', 'explore-more', 'More');
+    var known = el('div', 'explore-known');
+    var posters = el('div', 'cast-card__posters');
+    var drawn = null; // what it says, as JSON
+    more.type = 'button';
+    bio.id = 'explore-bio';
+    more.setAttribute('aria-controls', bio.id);
+    more.setAttribute('aria-expanded', 'false');
+    story.appendChild(bio);
+    story.appendChild(more);
+    known.appendChild(el('p', 'cast-card__label', 'Known for'));
+    known.appendChild(posters);
+    f.text.appendChild(years);
+    f.head.appendChild(story);
+    f.head.appendChild(known);
+    years.appendChild(line('130px'));
+    ['100%', '96%', '64%'].forEach(function (w) { bio.appendChild(line(w)); });
+    for (var i = 0; i < 4; i++) posters.appendChild(el('span', 'cast-card__poster skel'));
+    more.classList.add('is-unknown');
+    known.setAttribute('aria-hidden', 'true');
+
+    function moving(change) {
+      var nodes = [f.text, more, known, f.host];
+      var was = nodes.map(function (n) { return n.getBoundingClientRect().top; });
+      var tall = bio.offsetHeight;
+      change();
+      if (core.reduceMotion() || !f.host.animate) return;
+      var how = { duration: core.tokenMs('--dur', 250), easing: 'cubic-bezier(.2, .8, .2, 1)' };
+      nodes.forEach(function (n, at) {
+        var by = was[at] - n.getBoundingClientRect().top;
+        if (n.getClientRects().length && Math.abs(by) >= 1) n.animate([{ transform: 'translateY(' + by + 'px)' }, { transform: 'none' }], how);
+      });
+      // The rest of the text comes out from under what slides away.
+      if (bio.classList.contains('is-whole')) bio.animate([{ clipPath: 'inset(0 0 ' + Math.max(0, bio.offsetHeight - tall) + 'px)' }, { clipPath: 'inset(0)' }], how);
+    }
+
+    /* Open, it keeps its way back. */
+    function fit() {
+      if (drawn && !bio.classList.contains('is-whole')) more.hidden = !(bio.scrollHeight > bio.clientHeight + 1);
+    }
+
+    more.addEventListener('click', function () {
+      moving(function () {
+        var whole = bio.classList.toggle('is-whole');
+        more.textContent = whole ? 'Less' : 'More';
+        more.setAttribute('aria-expanded', whole ? 'true' : 'false');
+        fit();
+      });
+    });
+    if (window.ResizeObserver) new window.ResizeObserver(fit).observe(bio);
+
+    return {
+      /* *of*: { person, known_for }, or null where nothing can be had now; *beside*
+         writes the rest of the heading in the same breath. */
+      draw: function (of, beside) {
+        var key = of && JSON.stringify(of);
+        moving(function () {
+          if (beside) beside();
+          if (drawn && (!of || key === drawn)) return;
+          drawn = key;
+          var p = (of && of.person) || {};
+          years.textContent = born(p);
+          years.hidden = !years.textContent;
+          bio.textContent = p.biography || '';
+          bio.classList.remove('is-whole');
+          more.textContent = 'More';
+          more.setAttribute('aria-expanded', 'false');
+          more.classList.remove('is-unknown');
+          story.hidden = !p.biography;
+          posters.textContent = '';
+          ((of && of.known_for) || []).slice(0, 4).forEach(function (t) { posters.appendChild(knownPoster(t)); });
+          known.hidden = !posters.children.length;
+          known.removeAttribute('aria-hidden');
+          f.head.classList.add('is-told');
+          fit();
+        });
+      }
+    };
+  }
+
   function showPerson(who, from) {
     drop();
     var f = frame();
@@ -630,14 +752,17 @@
     f.facts.textContent = who.job || '';
     f.node.classList.toggle('is-unknown', !who.name);
     f.node.appendChild(f.host);
+    var about = aboutPerson(f);
 
     function learn(reply) {
-      if (reply.tmdb_configured === false || !reply.person) { mine.list.stop(); notSetUp(f); return; }
+      if (reply.tmdb_configured === false || !reply.person) { about.draw(null); mine.list.stop(); notSetUp(f); return; }
       var p = reply.person;
       var more = Math.max(0, reply.total - reply.in_library);
-      f.node.classList.remove('is-unknown');
-      f.title.textContent = p.name;
-      f.facts.textContent = [p.job, reply.in_library + ' in your library, ' + more + ' more'].filter(Boolean).join(' · ');
+      about.draw(persons.get(id), function () {
+        f.node.classList.remove('is-unknown');
+        f.title.textContent = p.name;
+        f.facts.textContent = [p.job, reply.in_library + ' in your library, ' + more + ' more'].filter(Boolean).join(' · ');
+      });
       sharpen(p.photo_url || p.profile_url);
       if (!who.name) {
         stage().token({ face: p.profile_url, name: p.name, person: p.name });
@@ -700,6 +825,7 @@
         return cards.length || !next ? { cards: cards, next: next } : fetchPage(next);
       }, function (err) {
         if (open === mine && page === 1) {
+          about.draw(null);
           if (err && err.status === 404) gone(f, mine.list, 'Person not found', 'There is nobody to show here.');
           else if (!f.title.textContent) {
             f.node.classList.remove('is-unknown');
@@ -711,6 +837,7 @@
     }
 
     stage().open(f.node, who.name || 'Person', { face: who.profile_url || '', name: who.name || 'Person', person: who.name });
+    if (persons.has(id)) about.draw(persons.get(id));
     stage().grow(photo, from);
     stage().rise(f.text, 60);
     open = mine;

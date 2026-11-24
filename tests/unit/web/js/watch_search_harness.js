@@ -889,6 +889,52 @@ const scenarios = {
     return out;
   },
 
+  // What is said of a person: its room held, then their own, and nothing where there is none.
+  async personAbout() {
+    const said = (p) => ({
+      born: p.doc.querySelector('.explore-born').textContent, bio: p.doc.querySelector('.explore-bio').textContent,
+      known: p.doc.querySelectorAll('.explore-known a').map((a) => [a.getAttribute('data-title-ref'), a.getAttribute('aria-label')]),
+      hidden: ['born', 'story', 'known'].map((k) => p.doc.querySelector('.explore-' + k).hidden === true),
+      skeletons: p.doc.querySelectorAll('.explore-head .skel').length,
+    });
+    const more = (p) => p.doc.querySelector('.explore-more');
+    const told = { ...MARA, birthday: '1950-02-01', deathday: '2019-11-02', age: 69, biography: 'A long life.' };
+    const known = [{ ...TM, library_ref: 'movie-1', title: 'Salt' }, { ...TM, title: 'Road' }];
+    const reply = (person, known_for) => ({ tmdb_configured: true, person, known_for, items: [TM], total: 1, in_library: 0, next_page: null });
+    const out = {};
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    out.waiting = said(p);
+    const bio = p.doc.querySelector('.explore-bio');
+    bio.clientHeight = 69;
+    bio.scrollHeight = 140;
+    await p.answer('/api/watch/person/9001', reply(told, known));
+    out.told = said(p);
+    const button = () => [more(p).textContent, more(p).getAttribute('aria-expanded'), more(p).hidden === true, bio.classList.contains('is-whole')];
+    out.more = [button()];
+    click(p.doc, more(p));
+    out.more.push(button());
+    click(p.doc, more(p));
+    out.more.push(button());
+    // Known by now, it is there at once.
+    p.ctx.MMWatch.address.push(null, '/watch');
+    p.ctx.MMWatch.explore.openPerson(MARA, null);
+    out.again = said(p);
+    const short = await ready(ADMIN, '', '/watch?person=9001');
+    await short.answer('/api/watch/person/9001', reply(told, known));
+    out.short = more(short).hidden === true;
+    const bare = await ready(ADMIN, '', '/watch?person=9001');
+    await bare.answer('/api/watch/person/9001', reply({ ...MARA, birthday: null, deathday: null, age: null, biography: '' }, []));
+    out.bare = said(bare);
+    const failed = await ready(ADMIN, '', '/watch?person=9001');
+    failed.calls[0].reject(new Error('502'));
+    await settle();
+    out.failed = said(failed);
+    click(failed.doc, failed.doc.querySelector('.grid-fail__retry'));
+    await failed.answer('/api/watch/person/9001', reply(told, known));
+    out.retried = said(failed);
+    return out;
+  },
+
   // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
   async personPages() {
     const p = await ready(ADMIN, '', '/watch?person=9001');

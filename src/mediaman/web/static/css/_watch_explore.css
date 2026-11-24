@@ -19,6 +19,37 @@
 .explore-facts[data-room]::after { grid-area: 1 / 1; }
 .explore-facts[data-room]::after { content: attr(data-room); visibility: hidden; }
 .explore-photo.watch-face { width: 128px; height: 128px; font-size: 46px; transform-origin: 0 0; transition: none; }
+/* A person: what is said of them stands beside the photo where there is room, under it on a phone. */
+.explore--person .explore-head { display: grid; grid-template-columns: auto minmax(0, 640px) auto; grid-template-rows: auto 1fr; gap: 10px 24px; justify-content: start; align-items: start; }
+.explore--person .explore-photo { grid-row: 1 / 3; }
+.explore--person .explore-head:has(> .explore-story[hidden]) > .explore-head__text { grid-row: 1 / 3; align-self: center; }
+.explore-born { min-height: 1.47em; margin-top: 2px; font-size: 14px; color: var(--t3); }
+.explore-story { grid-area: 2 / 2; max-width: 68ch; }
+.explore-bio { font-size: 15px; line-height: 23px; color: var(--t2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.explore-bio.is-whole,
+.explore-bio:has(> .skel) { display: block; }
+.explore-bio > .skel--line { height: 11px; margin: 6px 0; }
+.explore-born > .skel--line { height: 10px; margin: 5px 0; }
+.explore-more { min-width: 44px; min-height: 44px; margin: -8px 0 -14px -8px; padding: 0 8px; border-radius: var(--r-pill); color: var(--accent); font-size: 14px; font-weight: 500; text-align: left; }
+.explore-more.is-unknown { visibility: hidden; }
+.explore-more:hover { color: var(--accent-hi); }
+.explore-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+.explore-known { grid-area: 1 / 3 / 3; width: 344px; margin-left: 24px; }
+.explore-known > .cast-card__label { margin-bottom: 8px; }
+a.cast-card__poster:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a.cast-card__poster:active { transform: scale(.98); }
+@media (hover: hover) { a.cast-card__poster:hover { transform: scale(1.04); } }
+.explore-head.is-told > :is(.explore-story, .explore-known),
+.explore-head.is-told .explore-born { animation: cast-in var(--dur) var(--ease-out); }
+@media (max-width: 1099.98px) {
+  .explore-known { grid-area: 3 / 2; width: min(344px, 100%); margin: 6px 0 0; }
+}
+@media (max-width: 599.98px) {
+  .explore--person .explore-head { grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; }
+  .explore--person .explore-head > :is(.explore-photo, .explore-head__text) { grid-row: 1 !important; align-self: center; }
+  .explore-story { grid-area: 2 / 1 / 3 / 3; }
+  .explore-known { grid-area: 3 / 1 / 4 / 3; width: min(264px, 100%); margin: 0; }
+}
 /* Who it is, until the answer is in. */
 .explore.is-unknown .explore-title { width: min(260px, 50vw); border-radius: var(--r-sm); background: var(--s2); }
 
@@ -57,7 +88,8 @@
   .explore-photo.watch-face { width: 88px; height: 88px; font-size: 32px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .explore-back > .ico { transform: none !important; }
+  .explore-back > .ico,
+  a.cast-card__poster:is(:hover, :active) { transform: none !important; }
 }
 @media (forced-colors: active) {
   .explore-seg,
