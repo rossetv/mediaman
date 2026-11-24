@@ -491,6 +491,7 @@
 .watch-badge--watched > .ico { flex: none; font-size: 13px; }
 .watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
 .watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
+/* Not drawn on a narrow card; still read out. */
 @media (max-width: 1279.98px) {
   .watch-card__wide { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
 }

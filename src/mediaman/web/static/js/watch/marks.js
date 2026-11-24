@@ -148,7 +148,7 @@
       if (old) old.remove();
       if (p[1]) poster.appendChild(p[1]);
     });
-    card.querySelector('.watch-card__sub').textContent = text;
+    core.caption(card.querySelector('.watch-card__sub'), text);
   }
 
   /* A watched title has nothing left to watch. */

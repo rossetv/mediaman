@@ -162,6 +162,18 @@ const scenarios = {
     return p.cards().map((c) => { p.open(c); return p.menu(); });
   },
 
+  // What a caption draws on a narrow card, and all it says.
+  async captions() {
+    const p = load(watchPage([row('lib', [FILM()])]));
+    const sub = p.doc.querySelector('.watch-card__sub');
+    return JSON.parse(process.argv[3]).map((text) => {
+      p.ctx.MMWatch.core.caption(sub, text);
+      const said = sub.textContent;
+      sub.querySelectorAll('.watch-card__wide').forEach((n) => n.remove());
+      return [said, sub.textContent];
+    });
+  },
+
   // A film marked from its card, then Undo.
   async markFilm() {
     const p = load(watchPage([row('lib', [FILM()]), row('rec', [FILM(), card('movie/9', 'Other', 'Movie')])]));

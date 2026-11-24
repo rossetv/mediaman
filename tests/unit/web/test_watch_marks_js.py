@@ -42,6 +42,33 @@ def test_a_film_marked_shows_it_on_all_its_cards_and_undo_puts_them_back() -> No
     assert out["toasts"][0] == "Marked Fieldwork as watched."
 
 
+NARROW = {
+    "Movie": "Movie",
+    "Movie · 2026": "Movie · 2026",
+    "Movie · 1 h 30 min left": "1 h 30 min left",
+    "Movie · 2026 · 31 min left": "31 min left",
+    "Anime · 1 season": "1 season",
+    "TV · 10 seasons · 3 left": "3 left",
+    "S2 · E4 · 12 min left": "S2 E4 · 12 min",
+    "S2 · E4": "S2 · E4",
+    "Season 2": "Season 2",
+    "": "",
+}
+
+
+def test_a_narrow_card_s_caption_draws_what_fits_on_a_line_and_says_the_rest() -> None:
+    out = _run("captions", json.dumps(list(NARROW)))
+    assert dict(out) == NARROW
+
+
+@pytest.mark.parametrize("text", NARROW)
+def test_the_page_draws_the_captions_the_script_draws(text: str) -> None:
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
+    html = str(env.get_template("_watch_card.html").module.caption(text))
+    assert re.sub(r"<span[^>]*>|</span>", "", html) == text
+    assert re.sub(r"<span[^>]*>.*?</span>", "", html) == NARROW[text]
+
+
 def test_a_mark_with_nothing_in_continue_watching_does_not_load_the_page_again() -> None:
     assert _run("markFilm")["fetched"] == []
 

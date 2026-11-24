@@ -77,6 +77,21 @@
 <button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}">{{ icon("i-eye") }}<span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ label }}</span><span class="watch-mark-btn__on">Watched</span></span></button>
 {%- endmacro %}
 
+{# A card's caption. What a narrow card has no room for is still read out, not drawn:
+   watch/core.js builds the same. #}
+{% macro caption(text) -%}
+  {%- set parts = text.split(" · ") -%}
+  {%- set last = parts|last -%}
+  {%- macro wide(words) -%}<span class="watch-card__wide">{{ words }}</span>{%- endmacro -%}
+  {%- if parts[0] in ("Movie", "TV", "Anime") and parts|length > 1 and not last.isdigit() -%}
+    {{ wide(parts[:-1]|join(" · ") ~ " · ") }}{{ last }}
+  {%- elif parts|length == 3 and parts[1].startswith("E") and last.endswith(" left") -%}
+    {{ parts[0] }}{{ wide(" ·") }} {{ parts[1] }} · {{ last[:-5] }}{{ wide(" left") }}
+  {%- else -%}
+    {{ text }}
+  {%- endif -%}
+{%- endmacro %}
+
 {# One poster card; *keep* adds the Keep button (the Leaving soon row only, so
    the other rows' cards keep one height). A successful Keep removes the card
    from the Leaving soon row and the badge from any other card with the same
@@ -93,7 +108,8 @@
       {% if item.watched %}{{ watched_badge() }}{% endif %}
       {% if item.progress_pct %}<progress class="watch-bar" max="100" value="{{ item.progress_pct }}" aria-hidden="true"></progress>{% endif %}
     </span>
-    <span class="watch-card__sub">{{ item.subtitle }}{% if item.minutes_left and not (item.subtitle or '').endswith(' left') %} · {{ dur(item.minutes_left) }} left{% endif %}</span>
+    {% set said = item.subtitle or "" %}
+    <span class="watch-card__sub">{{ caption(said ~ ((" · " ~ dur(item.minutes_left) ~ " left") if item.minutes_left and not said.endswith(" left") else "")) }}</span>
   </a>
   {% if item.mark_key %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
   {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title ~ (', ' ~ item.subtitle if item.kind == 'season' else '')) }}{% endif %}

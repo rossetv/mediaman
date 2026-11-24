@@ -225,6 +225,24 @@
     return mark && MARK_RE.test(mark) ? mark : '';
   }
 
+  /* Put *text* in a card's caption, as _watch_card.html's caption macro does. */
+  function caption(node, text) {
+    function words(s) { node.appendChild(document.createTextNode(s)); }
+    function wide(s) { node.appendChild(el('span', 'watch-card__wide', s)); }
+    var parts = text.split(' · ');
+    var last = parts[parts.length - 1];
+    node.textContent = '';
+    if (/^(Movie|TV|Anime)$/.test(parts[0]) && parts.length > 1 && !/^\d+$/.test(last)) {
+      wide(parts.slice(0, -1).join(' · ') + ' · ');
+      words(last);
+    } else if (parts.length === 3 && /^E/.test(parts[1]) && / left$/.test(last)) {
+      words(parts[0]);
+      wide(' ·');
+      words(' ' + parts[1] + ' · ' + last.slice(0, -5));
+      wide(' left');
+    } else words(text);
+  }
+
   /* The mark on a poster. */
   function watchedBadge() {
     var badge = el('span', 'watch-badge watch-badge--watched');
@@ -284,6 +302,7 @@
   window.MMWatch = window.MMWatch || {};
   window.MMWatch.core = {
     markOf: markOf,
+    caption: caption,
     watchedBadge: watchedBadge,
     addMarks: addMarks,
     markAction: markAction,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import re
+from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
@@ -437,6 +438,12 @@ def test_base_links_the_watch_and_player_styles() -> None:
     assert "/static/css/_player.css" in html
 
 
+def _captions(html: str) -> list[str]:
+    """What each card's caption says to anyone who reads it out, whatever is drawn of it."""
+    found = re.findall(r'<span class="watch-card__sub">(.*?)</span>\s*</a>', html, re.S)
+    return [unescape(re.sub(r"<[^>]+>", "", caption)) for caption in found]
+
+
 @pytest.mark.parametrize("minutes", [60, 120, 180])
 @pytest.mark.parametrize(("kind", "lead"), [("movie", "Movie"), ("show", "S2 · E4")])
 def test_exact_hour_time_left_is_said_once(minutes, kind, lead):
@@ -445,13 +452,15 @@ def test_exact_hour_time_left_is_said_once(minutes, kind, lead):
 
     html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
 
-    assert html.count(f"{hours} left") == 1
+    assert _captions(html) == [f"{lead} · {hours} left"]
 
 
 def test_card_without_time_in_its_caption_gets_it_appended():
     item = _card(subtitle="Movie", minutes_left=120)
 
-    assert "Movie · 2 h left" in _watch(rows=[{"title": "Continue watching", "items": [item]}])
+    html = _watch(rows=[{"title": "Continue watching", "items": [item]}])
+
+    assert _captions(html) == ["Movie · 2 h left"]
 
 
 def test_leaving_badge_has_a_short_wording():
