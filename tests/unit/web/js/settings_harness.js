@@ -618,9 +618,16 @@ const scenarios = {
     const main = h.add('main', { id: 'main' });
     const add = h.add('button', { id: 'btn-add-user' });
     const dialog = h.add('input', { id: 'dialog' });
+    const form = h.add('form', { id: 'add-user-form', hidden: true });
+    h.add('input', { id: 'new-username', value: '' }, form);
+    h.add('input', { id: 'new-user-password', value: '' }, form);
+    const submit = h.add('button', { id: 'btn-submit-add-user' }, form);
+    h.add('span', { id: 'create-user-result' }, form);
     h.ctx.MM.api = {
       get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer', email: '' }] }),
       patch: () => Promise.resolve({ email: 'new@x.example' }),
+      post: () => Promise.resolve({}),
+      messageOf: () => 'x',
     };
     h.ctx.MM.reauth = { run: (f) => {
       const opener = h.doc.activeElement;
@@ -649,6 +656,13 @@ const scenarios = {
     row.querySelector('[data-user-action="delete"]').fire('click');
     await h.flush(); h.drain();
     out.delete = h.doc.activeElement === add;
+    add.fire('click');
+    h.doc.getElementById('new-username').value = 'casey';
+    h.doc.getElementById('new-user-password').value = 'a-long-new-password';
+    main.focus();
+    form.fire('submit');
+    await h.flush();
+    out.addUser = h.doc.activeElement === submit;
     return out;
   },
 

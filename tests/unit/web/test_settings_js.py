@@ -178,6 +178,7 @@ def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
         "email": True,
         "role": True,
         "delete": True,
+        "addUser": True,
     }
 
 
