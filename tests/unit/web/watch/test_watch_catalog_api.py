@@ -690,8 +690,6 @@ class TestTmdbTitle:
         assert _enrichment._paused_until == 0.0
 
     def test_three_titles_in_a_row_without_an_answer_pause_omdb_for_all(self, monkeypatch):
-        asked = []
-        monkeypatch.setattr(catalog_api, "lookup_ratings", lambda *_a, **_k: asked.append(1))
         for tmdb_id in range(3):
             catalog_api._pause_title((tmdb_id, "movie"))
 
@@ -704,6 +702,24 @@ class TestTmdbTitle:
         catalog_api._pause_title((5, "movie"))
 
         assert not catalog_api._title_is_paused((99, "movie"))
+
+    def test_ratings_resets_the_run_of_titles_without_an_answer_when_omdb_answers(
+        self, conn, monkeypatch
+    ):
+        asked = []
+
+        def lookup(title, *_a, **_k):
+            asked.append(title)
+            return {"imdb": "7.0"} if title == "answered" else None
+
+        monkeypatch.setattr(catalog_api, "get_omdb_key", lambda *_a: "omdb-key")
+        monkeypatch.setattr(catalog_api, "is_key_refused", lambda _key: False)
+        monkeypatch.setattr(catalog_api, "lookup_ratings", lookup)
+
+        for tmdb_id, title in enumerate(["a", "b", "answered", "c", "new"], start=1):
+            catalog_api._ratings(conn, "secret", "movie", tmdb_id, title, None, lambda: True)
+
+        assert asked[-1] == "new"
 
     def test_the_title_pause_map_holds_up_under_threads_when_full(self):
         from concurrent.futures import ThreadPoolExecutor
