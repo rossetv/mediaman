@@ -449,6 +449,14 @@ class TestSchedulerAndMaintenanceActions:
         assert item["title"] == "/mnt/x"
 
 
+def _summaries(html: str) -> list[str]:
+    return re.findall(r"<summary.*?</summary>", html, re.S)
+
+
+def _bodies(html: str) -> list[str]:
+    return re.findall(r'<div class="hist-body">.*?</details>', html, re.S)
+
+
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
 
 
@@ -632,11 +640,15 @@ class TestHistoryBadgesAndSecurityRows:
         )
         security_event(conn, event="user.created", actor="admin", ip="10.0.0.1")
         html = self._page(app_factory, authed_client, conn)
-        assert "Signed in" in html
-        assert "User created" in html
+        lines = " ".join(_summaries(html))
+        assert "Signed in" in lines
+        assert "User created" in lines
+        assert "login.success" not in lines
+        assert "10.0.0.1" not in lines
         assert "ua_hash" not in html
-        assert "login.success" not in html
-        assert "admin from 10.0.0.1" in html
+        assert "abc123" not in html
+        assert "10.0.0.1" in _bodies(html)[1]
+        assert "sec:login.success" in _bodies(html)[1]
 
     def test_security_row_with_spaced_actor_and_unlabelled_event(
         self, app_factory, authed_client, conn
@@ -645,7 +657,10 @@ class TestHistoryBadgesAndSecurityRows:
 
         security_event(conn, event="aes.canary_failed", actor="Jane Doe", ip="10.0.0.2")
         html = self._page(app_factory, authed_client, conn)
-        assert "Jane Doe from 10.0.0.2" in html
+        assert "Jane Doe" not in _summaries(html)[0]
+        assert "10.0.0.2" not in _summaries(html)[0]
+        assert "Jane Doe" in _bodies(html)[0]
+        assert "10.0.0.2" in _bodies(html)[0]
         assert "Aes canary" not in html
 
     def test_filter_pills_use_row_labels(self, app_factory, authed_client, conn):

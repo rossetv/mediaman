@@ -1,0 +1,44 @@
+"""history.js run under node against a fake DOM: rows fold with an animation, copy, link."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+HARNESS = Path(__file__).parent / "js" / "history_harness.js"
+
+
+def _run(scenario: str) -> dict:
+    result = subprocess.run(
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_an_open_row_plays_its_exit_before_it_folds_and_drops_its_link() -> None:
+    out = _run("close")
+    assert out["afterClick"] == {"open": True, "closing": True}
+    assert "event=5" in out["url"]
+    assert out["settled"] == {"open": False, "closing": False}
+    assert out["urlAfter"] == "http://mm.test/history?page=2"
+
+
+def test_reduced_motion_folds_the_row_at_once() -> None:
+    out = _run("reduced")
+    assert out["afterClick"] == {"open": False, "closing": False}
+    assert out["urlAfter"] == "http://mm.test/history?page=2"
+
+
+def test_opening_a_row_is_left_to_the_browser_and_puts_its_id_in_the_address() -> None:
+    out = _run("open")
+    assert out["prevented"] is False
+    assert out["url"] == "http://mm.test/history?page=2&event=6"
+
+
+def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open() -> None:
+    out = _run("copy")
+    assert out["copied"] == ["Who: admin\nIP address: 1.2.3.4"]
+    assert out["toasts"] == ["Details copied"]
+    assert out["stillOpen"] is True

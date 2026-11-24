@@ -25,18 +25,25 @@
   {% if items %}
   <div class="card card--bordered card--hist">
     {% for item in items %}
-    <div class="hist">
-      <div class="hist-date">{{ item.created_at[:16] | replace('T', ' ') }}</div>
-      <div class="hist-msg">
-        <b>{{ item.title }}</b>
-        {% if item.detail %}<span class="hist-type"> · {{ item.detail }}</span>{% endif %}
-        {% if item.space_impact %}<span class="text-muted"> · {{ item.space_impact }}</span>{% endif %}
+    <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
+      <summary class="hist-sum">
+        <span class="hist-date">{{ item.created_at[:16] | replace('T', ' ') }}</span>
+        <span class="hist-msg"><b>{{ item.title }}</b>{% if item.summary %}<span class="hist-type"> · {{ item.summary }}</span>{% endif %}</span>
+        <span class="hist-type hist-pill">
+          {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
+          {{ c.pill(item.action_label, variant=_variant) }}
+        </span>
+        <span class="hist-chev">{{ c.icon("i-chevron-down") }}</span>
+      </summary>
+      <div class="hist-body">
+        <dl class="hist-fields">
+          {% for f in item.fields %}
+          <div class="hist-field"><dt>{{ f.label }}</dt><dd{% if f.empty %} class="is-empty"{% endif %}>{{ f.value }}</dd></div>
+          {% endfor %}
+        </dl>
+        <button type="button" class="btn btn--ghost btn--sm" data-hist-copy>Copy details</button>
       </div>
-      <div class="hist-type">
-        {% set _variant = {'badge-action-deleted': 'stale', 'badge-action-protected': 'kept'}.get(item.badge_class, 'neutral') %}
-        {{ c.pill(item.action_label, variant=_variant) }}
-      </div>
-    </div>
+    </details>
     {% endfor %}
   </div>
 
@@ -75,4 +82,5 @@
 
   <div class="page-bottom-spacer"></div>
 </div>
+<script src="/static/js/history.js?v={{ static_v }}" defer></script>
 {% endblock %}

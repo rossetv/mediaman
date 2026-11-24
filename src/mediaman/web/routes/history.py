@@ -15,11 +15,13 @@ from mediaman.db import get_db
 from mediaman.scanner.repository.audit import (
     AuditRow,
     count_audit_rows,
+    event_page,
     fetch_media_audit_rows,
     fetch_security_audit_rows,
 )
 from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
+from mediaman.web.routes._history_view import describe, scrub_control, split_security_body
 
 logger = logging.getLogger(__name__)
 
@@ -132,18 +134,7 @@ SECURITY_EVENT_LABELS = {
     "user.email_update.rate_limited": "User email change throttled",
 }
 
-_SECURITY_WHO_RE = re.compile(r"^actor=(.+?) ip=(\S+)")
-
 _DELETE_ROOT_PREFIX = "_delete_root:"
-
-_CONTROL_BYTES_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
-
-
-def _scrub_detail(detail: str | None) -> str:
-    """Return detail with terminal-corrupting control bytes removed."""
-    if not detail:
-        return ""
-    return _CONTROL_BYTES_RE.sub("", detail)
 
 
 def _security_label(event: str) -> str:
@@ -152,12 +143,10 @@ def _security_label(event: str) -> str:
     )
 
 
-def _security_detail(detail: str | None) -> str:
+def _security_detail(detail: str | None, actor: str | None) -> str:
     """Return "who from where" for a security row; the raw body is never shown."""
-    m = _SECURITY_WHO_RE.match(_scrub_detail(detail))
-    if not m:
-        return ""
-    return " from ".join(p for p in m.groups() if p != "-")
+    who, ip, _ = split_security_body(scrub_control(detail), actor)
+    return " from ".join(p for p in (who, ip) if p)
 
 
 def _build_item(r: AuditRow) -> dict[str, object]:
@@ -173,7 +162,7 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         if not resolved_title and r.detail:
             resolved_title = title_from_audit_detail(r.detail, strict=True)
             if resolved_title == "Unknown":
-                m = re.search(r"'([^']+)'", r.detail)
+                m = re.search(r"'([^'/\\][^']*)'", r.detail)
                 resolved_title = m.group(1) if m else resolved_title
         title = resolved_title or "Unknown"
         if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
@@ -181,18 +170,36 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         action_label = ACTION_LABELS.get(action, action)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 
+    space_impact = format_bytes(r.space_reclaimed_bytes) if r.space_reclaimed_bytes else ""
+    view = describe(
+        event_id=r.id,
+        action=action,
+        action_label=_security_label(action[4:]) if is_security else action_label,
+        detail=r.detail,
+        actor=r.actor,
+        created_at=r.created_at,
+        is_security=is_security,
+        title=title,
+        media_item_id=r.media_item_id,
+        plex_rating_key=r.plex_rating_key,
+        space_impact=space_impact,
+    )
     return {
         "id": r.id,
         "media_item_id": r.media_item_id,
         "action": action,
         "action_label": action_label,
         "badge_class": badge,
-        "detail": _security_detail(r.detail) if is_security else _scrub_detail(r.detail),
-        "space_impact": format_bytes(r.space_reclaimed_bytes) if r.space_reclaimed_bytes else "",
+        "detail": _security_detail(r.detail, r.actor) if is_security else scrub_control(r.detail),
+        "space_impact": space_impact,
         "created_at": r.created_at,
         "title": title,
         "plex_rating_key": r.plex_rating_key,
         "is_security": is_security,
+        "summary": view.summary,
+        "actor": view.actor,
+        "ip": view.ip,
+        "fields": view.fields,
     }
 
 
@@ -232,6 +239,14 @@ def history_page(request: Request) -> Response:
         page = 1
 
     per_page = _PER_PAGE_DEFAULT
+    open_event = params.get("event", "")
+    open_id = int(open_event) if open_event.isdecimal() and len(open_event) < 19 else None
+    if open_id is not None:
+        found = event_page(conn, action=action_filter, event_id=open_id, per_page=per_page)
+        if found is None:
+            open_id = None
+        else:
+            page = found
     total = count_audit_rows(conn, action_filter)
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, total_pages)
@@ -245,6 +260,7 @@ def history_page(request: Request) -> Response:
             "username": username,
             "nav_active": "history",
             "items": items,
+            "open_id": open_id,
             "action_types": [
                 (at, ACTION_LABELS.get(at, at.replace("_", " ")).capitalize())
                 for at in ACTION_TYPES
