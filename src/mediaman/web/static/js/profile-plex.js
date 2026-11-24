@@ -112,6 +112,7 @@
       var mine = turn;
       MM.api.get('/api/account/plex').then(function (data) {
         if (mine !== turn) return;
+        showMoved(data.moved_at);
         if (data.link) showLink(data.link);
         else if (data.attempt) render(data.attempt);
         else fail(message);
@@ -130,8 +131,13 @@
         stop();
         byId('plex-found').textContent = attempt.name;
         byId('plex-moves').hidden = !attempt.moves;
+        var held = !quiet && MM.dom.focusStillIn(holder);
         show('confirm', quiet);
-        if (attempt.moves && !quiet) announce(byId('plex-status'), SAY.confirm + ' ' + MOVES);
+        if (attempt.moves && !quiet) {
+          announce(byId('plex-status'), SAY.confirm + ' ' + MOVES);
+          /* Not on the button, where a key still held down would accept it unread. */
+          if (held) byId('plex-moves').focus();
+        }
       } else {
         if (attempt.url.indexOf(APPROVAL_PAGE) !== 0) {
           fail('Plex sent an unexpected address. Try again later.');
@@ -142,6 +148,12 @@
         show('waiting', quiet);
         later(POLL_MS);
       }
+    }
+
+    /* Kept over every panel until the person dismisses it or links an account. */
+    function showMoved(iso) {
+      byId('plex-moved').hidden = !iso;
+      if (iso) byId('plex-moved-when').textContent = when(iso);
     }
 
     function showLink(link, quiet) {
@@ -162,6 +174,7 @@
       var mine = turn;
       return MM.api.get('/api/account/plex').then(function (data) {
         if (mine !== turn) return;
+        showMoved(data.moved_at);
         if (data.link) showLink(data.link, quiet);
         else if (data.attempt) render(data.attempt, quiet);
         else show(data.configured ? 'unlinked' : 'unset', quiet);
@@ -201,11 +214,32 @@
     function cancel() {
       stop();
       show('unlinked');
-      /* The sign-in ends by itself when this does not arrive. */
-      MM.api.post('/api/account/plex/cancel').then(function (data) {
+      /* Named, so that arriving late it cannot end a sign-in started since. The sign-in ends by itself when this does not arrive. */
+      MM.api.post('/api/account/plex/cancel', { attempt: attempt.id }).then(function (data) {
         if (!data.signed_out) byId('plex-signout-note').hidden = false;
       }, function () {});
     }
+
+    /* A key held down presses whatever button the focus has moved to. */
+    card.addEventListener('keydown', function (e) {
+      if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();
+    });
+
+    byId('plex-moved-dismiss').addEventListener('click', function () {
+      var button = this;
+      if (isBusy(button)) return;
+      errorLine.textContent = '';
+      busy(button, true);
+      MM.api.delete('/api/account/plex?notice=true').then(function () {
+        busy(button, false);
+        var held = MM.dom.focusStillIn(holder);
+        showMoved(null);
+        if (held && MAIN[current]) byId(MAIN[current]).focus();
+      }, function (err) {
+        busy(button, false);
+        errorLine.textContent = MM.api.messageOf(err, 'Could not dismiss it. Try again.');
+      });
+    });
 
     byId('plex-start').addEventListener('click', function () {
       if (!isBusy(this)) begin(this);
@@ -251,7 +285,7 @@
         busy(button, true);
         MM.api.delete('/api/account/plex').then(function () {
           busy(button, false);
-          if (mine === turn) show('unlinked');
+          if (mine === turn) load();
         }, function (err) {
           busy(button, false);
           errorLine.textContent = MM.api.messageOf(err, 'Could not unlink. Try again.');

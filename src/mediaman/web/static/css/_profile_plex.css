@@ -20,3 +20,6 @@
 }
 .setg-pg .link-danger[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 #plex-others:focus { outline: none; }
+#plex-moves { margin-top: 8px; color: var(--t1); }
+.plex-link-moved { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--hair-strong); border-radius: var(--r-md); }
+.plex-link-moved .plex-link-actions { margin-top: 10px; }

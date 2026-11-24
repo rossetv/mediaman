@@ -34,7 +34,7 @@
 
     <div data-plex-panel="confirm" hidden>
       <p>You signed in to Plex as <strong class="plex-link-name" id="plex-found"></strong>. Is this you?</p>
-      <p id="plex-moves" hidden>This Plex account is linked to another person here; linking moves it to you.</p>
+      <p id="plex-moves" tabindex="-1" hidden>This Plex account is linked to another person here; linking moves it to you.</p>
       <p class="plex-link-fine">Only confirm a sign-in you started yourself.</p>
       <div class="plex-link-actions">
         {{ c.btn("Yes, link it", variant="primary", id="plex-confirm") }}
@@ -55,6 +55,13 @@
       <p class="plex-link-fine">Your plays in Plex apps, in the libraries Mediaman looks after, help choose your recommendations. Continue watching and watched marks stay separate. Plays in Plex count for clean-up for everyone, linked or not.</p>
       <div class="plex-link-actions">
         {{ c.btn("Unlink", variant="danger", id="plex-unlink") }}
+      </div>
+    </div>
+
+    <div class="plex-link-moved" id="plex-moved" hidden>
+      <p>Someone else here signed in to the Plex account you had linked, on <span id="plex-moved-when"></span>, and it moved to them. If it is yours, link it again to take it back.</p>
+      <div class="plex-link-actions">
+        {{ c.btn("Dismiss", variant="ghost", size="sm", id="plex-moved-dismiss") }}
       </div>
     </div>
 

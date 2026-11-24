@@ -75,7 +75,7 @@ def test_unlinking_asks_first() -> None:
     out = _run("unlink")
     assert out["kept"]["shown"] == "linked"
     assert out["after"] == "unlinked"
-    assert out["last"] == "DELETE /api/account/plex"
+    assert out["deleted"] is True
 
 
 def test_an_admin_unlinks_another_person_by_a_named_button() -> None:
@@ -95,6 +95,7 @@ def test_a_move_from_another_person_is_said_before_it_is_made() -> None:
     assert out["untold"] is False
     assert (out["told"]["shown"], out["told"]["notice"]) == ("confirm", True)
     assert "moves it to you" in out["told"]["said"]
+    assert out["told"]["focus"] == "plex-moves"
     assert out["shown"] == "linked"
     assert [call.endswith('"move":true}') for call in out["sent"]] == [False, True]
 
@@ -129,3 +130,25 @@ def test_a_busy_button_keeps_the_focus_and_runs_once() -> None:
 
 def test_the_same_failure_twice_is_announced_twice() -> None:
     assert _run("repeat") == ["Plex is down.", "Plex is down."]
+
+
+def test_a_move_is_read_before_the_button_can_be_pressed() -> None:
+    out = _run("movesFromTheStart")
+    assert (out["shown"], out["focus"]) == ("confirm", "plex-moves")
+
+
+def test_a_key_held_down_presses_nothing_more() -> None:
+    assert _run("heldKey") == [True, True, False, False]
+
+
+def test_a_person_whose_link_moved_sees_it_until_they_dismiss_it() -> None:
+    out = _run("moved")
+    assert out["first"]["note"] is True
+    assert out["first"]["shown"] == "unlinked"
+    assert "1 Mar 2026" in out["first"]["when"]
+    assert out["failed"] == {"note": True, "error": "Unreachable."}
+    assert (out["after"]["note"], out["after"]["focus"]) == (False, "plex-start")
+
+
+def test_a_card_left_open_shows_the_move_once_it_hears_of_it() -> None:
+    assert _run("lostWhileOpen") == {"shown": "unlinked", "note": True}

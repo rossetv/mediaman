@@ -141,12 +141,46 @@ const scenarios = {
     await click('plex-start');
     await tick();
     const untold = !at('plex-moves').hidden;
+    at('plex-confirm').focus();
     answers[START] = [{ attempt: { ...CONFIRM, moves: true } }, {}];
     answers[GET] = [{ configured: true, link: { ...LINK, reading: false }, attempt: null }];
     await click('plex-confirm');
-    const told = { shown: shown(), notice: !at('plex-moves').hidden, said: said[said.length - 1] };
+    const told = { shown: shown(), notice: !at('plex-moves').hidden, said: said[said.length - 1], focus: doc.activeElement.id };
     await click('plex-confirm');
     return { untold, told, shown: shown(), sent: calls.filter((c) => c.startsWith(START + ' ')) };
+  },
+  async movesFromTheStart() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers[CHECK] = [{ attempt: { ...CONFIRM, moves: true } }];
+    await click('plex-start');
+    await tick();
+    return state();
+  },
+  async heldKey() {
+    await load(NONE);
+    return [['Enter', true], [' ', true], ['Enter', false], ['Tab', true]].map(([key, repeat]) => {
+      let stopped = false;
+      card.listeners.keydown.forEach((f) => f({ key, repeat, preventDefault() { stopped = true; } }));
+      return stopped;
+    });
+  },
+  async moved() {
+    await load({ ...NONE, moved_at: '2026-03-01T12:00:00Z' });
+    const first = { shown: shown(), note: !at('plex-moved').hidden, when: at('plex-moved-when').textContent };
+    answers['DELETE /api/account/plex?notice=true'] = [{ error: 'network_error', status: 0, message: 'Unreachable.' }, {}];
+    at('plex-moved-dismiss').focus();
+    await click('plex-moved-dismiss');
+    const failed = { note: !at('plex-moved').hidden, error: at('plex-error').textContent };
+    await click('plex-moved-dismiss');
+    return { first, failed, after: { note: !at('plex-moved').hidden, ...state() } };
+  },
+  async lostWhileOpen() {
+    await load({ configured: true, link: { ...LINK, reading: false }, attempt: null });
+    answers['DELETE /api/account/plex'] = [{}];
+    answers[GET] = [{ ...NONE, moved_at: '2026-03-01T12:00:00Z' }];
+    await click('plex-unlink');
+    return { shown: shown(), note: !at('plex-moved').hidden };
   },
   async failedLoad() {
     answers[GET] = [{ error: 'network_error', status: 0, message: 'Unreachable.' }, NONE];
@@ -234,7 +268,7 @@ const scenarios = {
     await click('plex-cancel');
     answer({ attempt: CONFIRM });
     await flush();
-    return { ...state(), waits: waits(), cancelled: calls.includes('POST /api/account/plex/cancel') };
+    return { ...state(), waits: waits(), cancelled: calls.includes('POST /api/account/plex/cancel {"attempt":"a1"}') };
   },
   async hidden() {
     await load({ configured: true, link: null, attempt: WAITING });
@@ -274,12 +308,13 @@ const scenarios = {
   async unlink() {
     await load({ configured: true, link: { ...LINK, reading: false }, attempt: null });
     answers['DELETE /api/account/plex'] = [{}];
+    answers[GET] = [NONE];
     confirmed = false;
     await click('plex-unlink');
     const kept = { shown: shown(), calls: calls.length };
     confirmed = true;
     await click('plex-unlink');
-    return { kept, after: shown(), last: calls[calls.length - 1] };
+    return { kept, after: shown(), deleted: calls.includes('DELETE /api/account/plex') };
   },
   async others() {
     answers['GET /api/users/plex-links'] = [
