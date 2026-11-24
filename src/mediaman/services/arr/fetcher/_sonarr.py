@@ -294,9 +294,10 @@ def _build_still_searching_cards(
             episodes_raw = []
 
         wanted = _wanted_episodes(series, episodes_raw)
-        is_upcoming, release_label = classify_series_upcoming(
-            series, wanted if episodes_raw else None
-        )
+        seasons = _monitored_seasons(series, episodes_raw)
+        # A series listing no episode may only be waiting for Sonarr to refresh it.
+        none_aired = bool(episodes_raw) and not any(season["aired"] for season in seasons)
+        is_upcoming, release_label = classify_series_upcoming(series, wanted, none_aired=none_aired)
         # Auto-abandon leaves specials alone, so an old one must not age the season it may abandon.
         released_at = compute_series_released_at([e for e in wanted if e.get("seasonNumber") != 0])
 
@@ -319,7 +320,7 @@ def _build_still_searching_cards(
             is_upcoming=is_upcoming,
             release_label=release_label,
         )
-        card["stuck_seasons"] = _monitored_seasons(series, episodes_raw)
+        card["stuck_seasons"] = seasons
         items.append(card)
     return items
 

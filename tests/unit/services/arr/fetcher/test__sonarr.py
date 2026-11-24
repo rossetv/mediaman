@@ -363,6 +363,21 @@ class TestFetchSonarrQueueSearching:
         (card,) = fetch_sonarr_queue(_client(series=[series], episodes=[]))
         assert card["is_upcoming"] is False
 
+    def test_monitored_season_whose_aired_episodes_are_unmonitored_has_aired(self):
+        card = self._card(
+            {2},
+            [
+                {"seasonNumber": 2, "monitored": False, "airDateUtc": "2015-01-01T00:00:00Z"},
+                {"seasonNumber": 2, "monitored": True},
+            ],
+        )
+        assert (card["is_upcoming"], card["release_label"]) == (False, "")
+
+    def test_ended_show_with_an_undated_season_is_still_searching(self):
+        series = _searching_series(status="ended", seasons=[{"seasonNumber": 2, "monitored": True}])
+        (card,) = fetch_sonarr_queue(_client(series=[series], episodes=[{"seasonNumber": 2}]))
+        assert card["is_upcoming"] is False
+
     def test_show_with_a_monitored_aired_season_is_searching(self):
         card = self._card(
             {1, 2}, [{"seasonNumber": 1, "airDateUtc": "2015-01-01T00:00:00Z"}, self._S2_NEXT]
