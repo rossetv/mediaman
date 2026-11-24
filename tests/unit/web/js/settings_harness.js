@@ -964,6 +964,43 @@ const scenarios = {
     return out;
   },
 
+  // The retry after the password dialog sends what the first try did, not what was chosen meanwhile.
+  async retryAfterPassword() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const pills = h.add('div', { id: 'plex-library-pills' }, page);
+    h.add('div', { id: 'disk-threshold-rows' }, page);
+    const bar = h.add('div', { id: 'setg-savebar' });
+    const save = h.add('button', { id: 'btn-save' }, bar);
+    const discard = h.add('button', { id: 'btn-discard' }, bar);
+    const sent = [];
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) }),
+      put: (u, b) => { sent.push(Array.from(b.plex_libraries)); return sent.length === 1 ? Promise.reject({ status: 403 }) : Promise.resolve({ status: 'saved' }); },
+      messageOf: () => 'x',
+    };
+    let accept;
+    const password = new Promise((r) => { accept = r; });
+    h.ctx.MM.reauth = { run: (f) => f().catch(() => password.then(f)) };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    ['disk_thresholds', 'savebar', 'general'].forEach((f) => h.load('settings/' + f + '.js'));
+    const m = h.ctx.MM.settings;
+    m.diskThresholds.init({ selectedLibs: ['1'], diskThresholds: {} });
+    m.savebar.init({ getPayload: m.general.collectSettings });
+    await h.flush();
+    const pill = (id) => pills.querySelector('[data-lib-id="' + id + '"]').fire('click');
+    pill(2);
+    save.fire('click');
+    await h.flush();
+    pill(3);
+    accept();
+    await h.flush();
+    const unsaved = bar.classList.contains('on');
+    discard.fire('click');
+    await h.flush();
+    return { sent, unsaved, discarded: Array.from(m.diskThresholds.getSelectedLibs()) };
+  },
+
   // A library's path and threshold outlive every redraw of the rows, and only what the person cleared is sent as cleared.
   async diskRows() {
     const libs = () => Promise.resolve({ libraries: [1, 2, 3].map((id) => ({ id, title: 'L' + id })) });

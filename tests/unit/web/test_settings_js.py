@@ -268,6 +268,14 @@ def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> No
     assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
 
 
+def test_a_retry_after_the_password_sends_what_was_first_sent() -> None:
+    out = _run("retryAfterPassword")
+    assert out["sent"] == [["1", "2"], ["1", "2"]]
+    # what was chosen while the dialog was open is still unsaved
+    assert out["unsaved"] is True
+    assert out["discarded"] == ["1", "2"]
+
+
 def test_a_library_loses_its_threshold_only_when_the_person_clears_it() -> None:
     out = _run("diskRows")
     a, b = ["/a", "80"], ["/b", "60"]
