@@ -456,7 +456,7 @@ class TestRetryOfAnAddThatLandedLate:
         assert arr.add_movie.call_count + arr.add_series.call_count == 1
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])
-    def test_the_reopened_page_promises_no_email_and_asks_for_none(
+    def test_the_reopened_page_promises_the_email_that_is_waiting(
         self, client, secret_key, media_type
     ):
         arr, token = self._arr(media_type), _token(secret_key, media_type)
@@ -470,7 +470,67 @@ class TestRetryOfAnAddThatLandedLate:
             page = client.get(f"/download/{token}").text
 
         assert '"download_state": "queued"' in page
-        assert "notified by email" not in page
+        assert "notified by email" in page
+        assert self._mails(client) == ["viewer@example.com"]
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_the_email_waits_under_the_ids_the_title_lands_with(
+        self, client, secret_key, media_type
+    ):
+        token = _token(secret_key, media_type)
+        self._post(client, token, media_type, self._arr(media_type))
+
+        row = client.app.state.db.execute(
+            "SELECT service, media_type, tmdb_id, tvdb_id, notified FROM download_notifications"
+        ).fetchone()
+        wanted = {
+            "movie": ("radarr", "movie", 500, None, 0),
+            "tv": ("sonarr", "tv", 500, 999, 0),
+        }
+        assert tuple(row) == wanted[media_type]
+
+    @pytest.mark.parametrize("media_type", ["movie", "tv"])
+    def test_a_retry_after_the_email_went_out_asks_for_no_second_one(
+        self, client, secret_key, media_type
+    ):
+        arr, token = self._arr(media_type), _token(secret_key, media_type)
+        self._post(client, token, media_type, arr)
+        arr.held.append(arr.landed)
+        conn = client.app.state.db
+        with conn:
+            conn.execute("UPDATE download_notifications SET notified = 1")
+
+        assert self._post(client, token, media_type, arr).status_code == 200
+        assert self._mails(client) == ["viewer@example.com"]
+
+    def test_a_retry_the_database_fails_leaves_the_next_one_a_success(self, client, secret_key):
+        arr, token = self._arr("movie"), _token(secret_key, "movie")
+        self._post(client, token, "movie", arr)
+        arr.held.append(arr.landed)
+        conn = client.app.state.db
+        conn.execute(
+            "CREATE TRIGGER no_audit BEFORE INSERT ON audit_log "
+            "BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+        assert self._post(client, token, "movie", arr).status_code == 502
+        conn.execute("DROP TRIGGER no_audit")
+
+        assert self._post(client, token, "movie", arr).status_code == 200
+        assert self._mails(client) == ["viewer@example.com"]
+
+    def test_an_email_that_cannot_be_kept_with_its_note_is_not_kept_at_all(
+        self, client, secret_key
+    ):
+        conn = client.app.state.db
+        conn.execute(
+            "CREATE TRIGGER no_note BEFORE INSERT ON used_download_tokens "
+            "WHEN (SELECT COUNT(*) FROM used_download_tokens) > 0 "
+            "BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+        token = _token(secret_key, "movie")
+
+        assert self._post(client, token, "movie", self._arr("movie")).status_code == 502
+        assert not _consumed(token)
         assert self._mails(client) == []
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])
@@ -504,7 +564,7 @@ class TestRetryOfAnAddThatLandedLate:
         )
 
         assert self._post(client, other, "movie", arr).status_code == 409
-        assert self._mails(client) == []
+        assert self._mails(client) == ["viewer@example.com"]
 
     def test_an_add_that_was_answered_with_a_refusal_is_no_late_landing(self, client, secret_key):
         arr, token = self._arr("movie"), _token(secret_key, "movie")

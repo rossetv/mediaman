@@ -19,6 +19,7 @@ import time
 from mediaman.core.time import now_iso as _now_iso
 from mediaman.web.repository.download import (
     claim_download_token,
+    download_token_claimed,
     purge_expired_download_tokens,
     release_download_token,
 )
@@ -179,10 +180,6 @@ def note_unanswered_add(conn: sqlite3.Connection, token: str, exp: int) -> None:
     claim_download_token(conn, digest=_unanswered_digest(token), exp=exp)
 
 
-def take_unanswered_add(conn: sqlite3.Connection, token: str, exp: int) -> bool:
-    """Whether an earlier add of this link got no answer; forgets it."""
-    digest = _unanswered_digest(token)
-    # A claim is refused only when the note is there.
-    noted = not claim_download_token(conn, digest=digest, exp=exp)
-    release_download_token(conn, digest)
-    return noted
+def add_went_unanswered(conn: sqlite3.Connection, token: str) -> bool:
+    """Whether an earlier add of this link got no answer."""
+    return download_token_claimed(conn, _unanswered_digest(token))

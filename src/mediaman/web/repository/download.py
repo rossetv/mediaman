@@ -55,6 +55,13 @@ def claim_download_token(conn: sqlite3.Connection, *, digest: str, exp: int) -> 
     return cursor.rowcount == 1
 
 
+def download_token_claimed(conn: sqlite3.Connection, digest: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM used_download_tokens WHERE token_hash = ?", (digest,)
+    ).fetchone()
+    return row is not None
+
+
 def release_download_token(conn: sqlite3.Connection, digest: str) -> None:
     with conn:
         conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
@@ -98,6 +105,7 @@ def fetch_suggestion_enrichment(
 __all__ = [
     "SuggestionEnrichment",
     "claim_download_token",
+    "download_token_claimed",
     "fetch_suggestion_enrichment",
     "purge_expired_download_tokens",
     "release_download_token",

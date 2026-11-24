@@ -46,8 +46,8 @@ from ._season import deleted_season, season_on_disk, sonarr_media_id
 from ._tokens import (
     _mark_token_used,
     _unmark_token_used,
+    add_went_unanswered,
     note_unanswered_add,
-    take_unanswered_add,
 )
 from .confirm import drop_arr_cache
 
@@ -93,8 +93,8 @@ def _record_and_respond(
     """Audit, notify, commit, mint a poll token and return the success response; the epilogue
     shared by both submitters.
 
-    email is None when an admin minted the token with no notification email; the
-    notification row is then skipped rather than stored undeliverable.
+    email is None when an admin minted the token with no notification email, or when the
+    email was asked for before: no notification row is recorded then.
     """
     audit_id = title
     if season_number is not None:
@@ -153,17 +153,43 @@ def _held_error(exc: SafeHTTPError, fetched: bool) -> SafeHTTPError:
     return cls(409, exc.body_snippet, exc.url)
 
 
-def _landed_late(payload: DownloadPayload, conn: sqlite3.Connection, exc: SafeHTTPError) -> bool:
-    """Whether *exc* refuses as already there what this link's own earlier add put there.
+def _note_if_unanswered(
+    payload: DownloadPayload,
+    conn: sqlite3.Connection,
+    exc: SafeHTTPError,
+    *,
+    media_type: str,
+    service: str,
+    tvdb_id: int | None = None,
+) -> None:
+    """Ask for the email of an add that got no answer, and note the add for a retry.
 
-    An add that got no answer may land after it was looked for: it is noted here, for the retry.
+    The add may land after it was looked for, and then the page no longer offers the button.
     """
-    if exc.status_code == 0 or exc.status_code >= 500:
+    if exc.status_code != 0 and exc.status_code < 500:
+        return
+    season = payload["season"]
+    with conn:
+        if payload["email"]:
+            record_download_notification(
+                conn,
+                email=payload["email"],
+                title=payload["title"],
+                media_type=media_type,
+                tmdb_id=payload["tmdb_id"],
+                tvdb_id=tvdb_id,
+                service=service,
+                season_number=season.season_number if season else None,
+            )
+        # Commits both: a retry finding the note asks for no second email.
         note_unanswered_add(conn, payload["token"], payload["exp"])
-        return False
+
+
+def _landed_late(payload: DownloadPayload, conn: sqlite3.Connection, exc: SafeHTTPError) -> bool:
+    """Whether *exc* refuses as already there what this link's own earlier add put there."""
     if exc.status_code not in (409, 422) or isinstance(exc, _HeldNotFetched):
         return False
-    return take_unanswered_add(conn, payload["token"], payload["exp"])
+    return add_went_unanswered(conn, payload["token"])
 
 
 def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
@@ -203,15 +229,21 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # Radarr answers 400, not 409, for a movie it holds: take the already-exists path.
         if exc.status_code == 400 and radarr_holds_movie(client, tmdb_id):
             error = _held_error(exc, radarr_fetches_movie(client, tmdb_id))
-        if not (movie_add_landed(error, client, tmdb_id) or _landed_late(payload, conn, error)):
-            if error is exc:
-                raise
-            raise error from exc
+        if not movie_add_landed(error, client, tmdb_id):
+            if not _landed_late(payload, conn, error):
+                _note_if_unanswered(payload, conn, error, media_type="movie", service="radarr")
+                if error is exc:
+                    raise
+                raise error from exc
+            email = None
         outcome = "added"
     if outcome == "bad_entry":
         raise ExistingMovieError("Radarr holds the movie with no usable id")
     logger.info(
-        "Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email
+        "Download token: added movie '%s' (tmdb:%s) to Radarr for %s",
+        title,
+        tmdb_id,
+        payload["email"],
     )
 
     return _record_and_respond(
@@ -329,16 +361,21 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         # Sonarr answers 400, not 409, for a series it tracks: same path.
         if exc.status_code == 400 and sonarr_tracks_series(client, tvdb_id):
             error = _held_error(exc, sonarr_fetches_series(client, tvdb_id))
-        if not (series_add_landed(error, client, tvdb_id) or _landed_late(payload, conn, error)):
-            if error is exc:
-                raise
-            raise error from exc
+        if not series_add_landed(error, client, tvdb_id):
+            if not _landed_late(payload, conn, error):
+                _note_if_unanswered(
+                    payload, conn, error, media_type="tv", service="sonarr", tvdb_id=tvdb_id
+                )
+                if error is exc:
+                    raise
+                raise error from exc
+            email = None
     logger.info(
         "Download token: added series '%s' (tvdb:%s season:%s) to Sonarr for %s",
         title,
         tvdb_id,
         "all" if season_number is None else season_number,
-        email,
+        payload["email"],
     )
 
     return _record_and_respond(
