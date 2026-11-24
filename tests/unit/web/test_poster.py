@@ -8,6 +8,7 @@ import requests
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import (
     insert_admin_user,
+    insert_audit_log,
     insert_media_item,
     insert_settings,
 )
@@ -1299,14 +1300,25 @@ class TestPosterTmdbBackdrop:
         from mediaman.services import watch_catalog
         from mediaman.services.media_meta.tmdb import TmdbClient
         from mediaman.web.auth.session_store import create_session
-        from mediaman.web.routes.poster import sign_poster_url
+        from mediaman.web.routes.poster import sign_poster_url, title_art
 
+        now = [1000.0]
+        timeouts = []
+        monkeypatch.setattr(title_art, "_unanswered", {})
+        monkeypatch.setattr(title_art, "_clock", lambda: now[0])
         client, conn = TestPosterEndpointAuth._build_test_app(self, tmp_path, self._KEY)
         _scan(conn)
         insert_admin_user(conn, username="admin")
         token = create_session(conn, "admin")
 
-        def ask(key, *, details, tmdb=True, signed=False):
+        def ask(
+            key,
+            *,
+            details,
+            tmdb=True,
+            signed=False,
+            tmdb_id_for_tvdb=lambda _c, tvdb: tvdb + 1,
+        ):
             asked = []
 
             def answer(_client, kind, tmdb_id):
@@ -1316,10 +1328,13 @@ class TestPosterTmdbBackdrop:
                 return details
 
             monkeypatch.setattr(watch_catalog, "details", answer)
-            monkeypatch.setattr(watch_catalog, "tmdb_id_for_tvdb", lambda _c, tvdb: tvdb + 1)
-            monkeypatch.setattr(
-                TmdbClient, "from_db", classmethod(lambda *a, **k: object() if tmdb else None)
-            )
+            monkeypatch.setattr(watch_catalog, "tmdb_id_for_tvdb", tmdb_id_for_tvdb)
+
+            def from_db(*_a, timeout=10.0):
+                timeouts.append(timeout)
+                return object() if tmdb else None
+
+            monkeypatch.setattr(TmdbClient, "from_db", from_db)
             if signed:
                 url = sign_poster_url(key, self._KEY) + "&kind=art"
             else:
@@ -1328,6 +1343,8 @@ class TestPosterTmdbBackdrop:
             return client.get(url, follow_redirects=False), asked
 
         ask.conn = conn
+        ask.now = now
+        ask.timeouts = timeouts
         return ask
 
     def _item(self, ask, *, tmdb_id=None, tvdb_id=None, **fields):
@@ -1392,3 +1409,76 @@ class TestPosterTmdbBackdrop:
 
         assert r.status_code == 404
         assert asked == []
+
+    def test_tmdb_is_given_three_seconds_to_answer(self, ask):
+        self._item(ask, id="700", tmdb_id=42)
+
+        ask("700", details={"backdrop_url": self._IMAGE})
+
+        assert ask.timeouts == [3.0]
+
+    def test_a_title_tmdb_gave_no_answer_for_is_asked_again_only_after_five_minutes(self, ask):
+        from mediaman.services.watch_catalog import TmdbUnavailable
+
+        self._item(ask, id="700", tmdb_id=42)
+        self._item(ask, id="701", tmdb_id=43)
+        ask("700", details=TmdbUnavailable("details"))
+
+        ask.now[0] += 299
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+        assert (r.status_code, asked) == (404, [])
+        r, _ = ask("701", details={"backdrop_url": self._IMAGE})
+        assert r.status_code == 302
+
+        ask.now[0] += 1
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+        assert (r.status_code, asked) == (302, [("movie", 42)])
+
+    def test_a_show_tmdb_gave_no_id_for_is_not_asked_again_at_once(self, ask):
+        self._item(
+            ask,
+            id="801",
+            media_type="tv_season",
+            show_rating_key="800",
+            season_number=1,
+            tvdb_id=6,
+        )
+        lookups = []
+        for _ in range(2):
+            r, _asked = ask(
+                "800",
+                details={"backdrop_url": self._IMAGE},
+                tmdb_id_for_tvdb=lambda _c, tvdb: lookups.append(tvdb),
+            )
+            assert r.status_code == 404
+
+        assert lookups == [6]
+
+    def test_with_no_plex_set_up_a_signed_in_caller_still_gets_tmdbs_backdrop(
+        self, ask, monkeypatch
+    ):
+        from mediaman.web.routes import poster
+
+        def plex_asked(*_a):
+            raise AssertionError("Plex was asked")
+
+        monkeypatch.setattr(poster, "_fetch_plex_art", plex_asked)
+        self._item(ask, id="700", tmdb_id=42)
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+
+        assert (r.status_code, r.headers["location"]) == (302, self._IMAGE)
+        assert asked == [("movie", 42)]
+
+    @pytest.mark.parametrize("held_in", [None, 2], ids=["deleted", "library not scanned"])
+    def test_a_title_outside_the_scanned_libraries_is_not_sent_to_tmdb(self, ask, held_in):
+        # Recorded as deleted, so its poster may still be served.
+        insert_audit_log(ask.conn, media_item_id="700", action="deleted")
+        if held_in is not None:
+            key = insert_media_item(ask.conn, id="700", plex_library_id=held_in)
+            ask.conn.execute("UPDATE media_items SET tmdb_id = 42 WHERE id = ?", (key,))
+            ask.conn.commit()
+
+        r, asked = ask("700", details={"backdrop_url": self._IMAGE})
+
+        assert (r.status_code, asked) == (404, [])
