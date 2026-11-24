@@ -449,7 +449,6 @@
   .player-menu,
   .player-card,
   .player-card.is-leaving,
-  .player-ask::backdrop,
   .player-bubble,
   .player-skip { animation: none; }
   /* No moving fill: the number counts down alone. */
@@ -526,6 +525,9 @@
 .player-ask .player-card-title { font-size: 20px; }
 .player-ask .player-card-actions { justify-content: center; gap: 12px; margin-top: 14px; }
 @keyframes player-dim { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .player-ask::backdrop { animation: none; }
+}
 
 @media (min-width: 1920px) {
   .player-title { font-size: 22px; }

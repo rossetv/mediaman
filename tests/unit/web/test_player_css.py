@@ -96,3 +96,18 @@ def test_a_long_menu_scrolls_inside_the_screen() -> None:
     menu = _rule(_text("_player.css"), ".player-menu")
     assert re.search(r"max-height:[^;]*100dvh", menu)
     assert re.search(r"overflow-y:\s*auto", menu)
+
+
+def test_reduced_motion_is_not_overruled_by_a_later_rule() -> None:
+    css = _text("_player.css")
+    stilled = 0
+    for block in re.finditer(r"@media \(prefers-reduced-motion: reduce\) \{(.*?)\n\}", css, re.S):
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block.group(1)):
+            if not re.search(r"(?<![\w-])animation:\s*none", body):
+                continue
+            for selector in re.split(r",\s*", selectors.strip()):
+                stilled += 1
+                for later, rule in re.findall(r"([^{}]+)\{([^{}]*)\}", css[block.end() :]):
+                    if selector in re.split(r",\s*", later.strip()):
+                        assert "animation:" not in rule, selector
+    assert stilled
