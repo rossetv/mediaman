@@ -1,6 +1,7 @@
 /* Modal a11y helpers:
  *
- *   - Tab-focus trap inside any element with data-modal="true"
+ *   - The page behind an open modal is inert, all but the toasts, and Tab goes round
+ *     the modal's own controls: those of the last opened, where one is over another
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
  *   - On open, the element marked data-modal-focus (a control, or a heading with
@@ -20,7 +21,9 @@
  * If the codebase already toggles the class directly, you can call
  * `ModalA11y.onOpened('delete-modal')` after adding the class to fire
  * the focus trap and initial focus, and `ModalA11y.onClosed('delete-modal')`
- * to restore focus to the trigger.
+ * to restore focus to the trigger. Something with a focus of its own calls
+ * `MM.inertPage.hold(node)` as it opens and `MM.inertPage.release(node)` as it closes,
+ * for the inert page and the Tab trap alone.
  */
 (function (global) {
   'use strict';
@@ -33,8 +36,9 @@
     '[contenteditable="true"]'
   ].join(',');
 
-  var registry = {};           // id -> { closeFn, lastTrigger, isOpen }
-  var openStack = [];          // ids in open order
+  var registry = {};           // id -> { closeFn, lastTrigger }
+  var open = [];               // the open modals, in open order
+  var held = [];               // what the last of them has made inert
 
   function getModal(id) { return document.getElementById(id); }
 
@@ -50,6 +54,42 @@
     );
   }
 
+  function topModal() { return open[open.length - 1] || null; }
+
+  /* Makes all that stands outside the modal inert, whatever level of the page the
+     modal is on. Toasts stay in reach; they may stand in what is full screen. A confirm
+     fading out still catches clicks, which what is inert does not. */
+  function shutOut(node, keep) {
+    Array.prototype.forEach.call(node.children, function (child) {
+      if (child.inert || keep.indexOf(child) !== -1) return;
+      if (keep.some(function (k) { return child.contains(k); })) { shutOut(child, keep); return; }
+      child.inert = true;
+      held.push(child);
+    });
+  }
+
+  function settle() {
+    held.forEach(function (node) { node.inert = false; });
+    held = [];
+    if (!open.length) return;
+    var keep = [topModal(), document.getElementById('ui-toast-host')].filter(Boolean);
+    Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
+    shutOut(document.body, keep);
+  }
+
+  function hold(modal) {
+    if (open.indexOf(modal) !== -1) return;
+    open.push(modal);
+    settle();
+  }
+
+  function release(modal) {
+    var at = open.indexOf(modal);
+    if (at === -1) return;
+    open.splice(at, 1);
+    settle();
+  }
+
   function focusFirst(modal) {
     var target = modal.querySelector('[data-modal-focus]:not([disabled])') || getFocusable(modal)[0] || modal;
     if (target && typeof target.focus === 'function') {
@@ -61,40 +101,29 @@
     }
   }
 
+  /* Safari's own step passes over buttons and checkboxes, and out of the modal, so every
+     step is made here. From what is no tab stop itself, such as a heading, it goes on from
+     where that stands. */
   function trapTab(e, modal) {
-    if (e.key !== 'Tab') return;
-    var focusables = getFocusable(modal);
-    if (focusables.length === 0) {
-      e.preventDefault();
-      modal.focus();
-      return;
-    }
-    var first = focusables[0];
-    var last = focusables[focusables.length - 1];
+    if (e.key !== 'Tab' || e.defaultPrevented) return;
+    e.preventDefault();
     var active = document.activeElement;
-    // A marked heading stands before the first control and is no tab stop itself.
-    var onHeading = !!active && active.hasAttribute('data-modal-focus') && focusables.indexOf(active) === -1;
-    if (e.shiftKey && (active === first || onHeading)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (active === last || onHeading)) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  function topModal() {
-    if (!openStack.length) return null;
-    return openStack[openStack.length - 1];
+    var focusables = getFocusable(modal);
+    var stops = Array.prototype.filter.call(modal.querySelectorAll('*'), function (el) {
+      return el === active || focusables.indexOf(el) !== -1;
+    });
+    if (!stops.length) { focusFirst(modal); return; }
+    var at = stops.indexOf(active);
+    if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;
+    else at = (at + 1) % stops.length;
+    stops[at].focus();
   }
 
   function onKeydown(e) {
-    var topId = topModal();
-    if (!topId) return;
-    var modal = getModal(topId);
+    var modal = topModal();
     if (!modal) return;
     if (e.key === 'Escape') {
-      var entry = registry[topId];
+      var entry = registry[modal.id];
       if (entry && typeof entry.closeFn === 'function') {
         e.preventDefault();
         entry.closeFn();
@@ -128,22 +157,25 @@
     if (!modal) return;
     var entry = registry[id] = registry[id] || {};
     entry.lastTrigger = document.activeElement;
-    entry.isOpen = true;
-    if (openStack.indexOf(id) === -1) openStack.push(id);
+    hold(modal);
     // ARIA defaults
     if (!modal.hasAttribute('role')) modal.setAttribute('role', 'dialog');
     if (!modal.hasAttribute('aria-modal')) modal.setAttribute('aria-modal', 'true');
     // Focus something inside
     // Defer one tick so any display/opacity transition has applied
-    setTimeout(function () { focusFirst(modal); }, 0);
+    setTimeout(function () { if (topModal() === modal) focusFirst(modal); }, 0);
   }
 
   function onClosed(id) {
     var entry = registry[id];
     if (!entry) return;
-    entry.isOpen = false;
-    var idx = openStack.indexOf(id);
-    if (idx !== -1) openStack.splice(idx, 1);
+    var modal = getModal(id);
+    release(modal);
+    // What was opened from here, and is still open, hands the focus on to where this one would.
+    open.forEach(function (other) {
+      var over = registry[other.id];
+      if (over && modal.contains(over.lastTrigger)) over.lastTrigger = entry.lastTrigger;
+    });
     if (entry.lastTrigger && typeof entry.lastTrigger.focus === 'function') {
       try { entry.lastTrigger.focus(); } catch (e) { /* ignore */ }
     }
@@ -154,4 +186,6 @@
     onOpened: onOpened,
     onClosed: onClosed
   };
+  global.MM = global.MM || {};
+  global.MM.inertPage = { hold: hold, release: release };
 })(window);

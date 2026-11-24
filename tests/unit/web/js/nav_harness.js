@@ -25,7 +25,8 @@ function page(isPhone) {
   // Only the button of the layout in use has a box.
   $('desktop').getClientRects = () => (media.matches ? [] : [1]);
   $('phone').getClientRects = () => (media.matches ? [1] : []);
-  vm.runInContext(fs.readFileSync(path.join(JS, 'nav.js'), 'utf8'), vm.createContext({ window: win, document: doc }));
+  const ctx = vm.createContext({ window: win, document: doc });
+  ['modal-a11y.js', 'nav.js'].forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
 
   const fire = (type, target, extra) => {
     const e = {
@@ -101,6 +102,17 @@ const scenarios = {
     const held = { inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() };
     p.click('profile-menu');
     return { held, freed: { open: p.open(), inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() } };
+  },
+  // A dialog opens over the sheet, which closes as the focus leaves it for the dialog.
+  dialogOverSheet() {
+    const p = page(true);
+    p.click('phone');
+    const dialog = p.$('main').parentNode.appendChild(build(p.$('main').ownerDocument, ['div', { id: 'dialog' }, ['input', { id: 'password' }]]));
+    p.win.MM.inertPage.hold(dialog);
+    p.fire('focusin', p.$('password'));
+    const over = { open: p.open(), inert: p.inert() };
+    p.win.MM.inertPage.release(dialog);
+    return { over, freed: p.inert() };
   },
   closeButton() {
     const p = page(true);

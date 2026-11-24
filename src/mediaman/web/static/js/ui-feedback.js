@@ -273,10 +273,10 @@
         if (closed) return;
         closed = true;
         open.splice(open.indexOf(cancel), 1);
+        overlay.classList.add('is-leaving');
         if (window.ModalA11y) window.ModalA11y.onClosed(id);
         // The caller gets its answer at once; the dialog fades out behind it.
         resolve(result);
-        overlay.classList.add('is-leaving');
         overlay.classList.remove('is-visible');
         letGo();
         removeAfterExit(overlay);

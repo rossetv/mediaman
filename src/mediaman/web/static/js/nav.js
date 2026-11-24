@@ -15,7 +15,7 @@
 
   var phone = window.matchMedia('(max-width: 699.98px)');
   var opener = null;
-  var held = [];
+  var held = false;
 
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
@@ -29,18 +29,15 @@
   function isOpen() { return menu.hasAttribute('open'); }
 
   function holdPage() {
-    Array.prototype.forEach.call(document.body.children, function (node) {
-      if (node === menu || node.inert) return;
-      node.inert = true;
-      held.push(node);
-    });
+    held = true;
+    window.MM.inertPage.hold(menu);
     document.body.style.overflow = 'hidden';
   }
 
   function releasePage() {
-    if (!held.length) return;
-    held.forEach(function (node) { node.inert = false; });
-    held = [];
+    if (!held) return;
+    held = false;
+    window.MM.inertPage.release(menu);
     document.body.style.overflow = '';
   }
 

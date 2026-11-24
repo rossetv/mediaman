@@ -84,6 +84,16 @@ def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes()
     }
 
 
+def test_a_dialog_over_the_phone_sheet_keeps_the_page_out_of_reach_as_the_sheet_closes() -> None:
+    assert _run("dialogOverSheet") == {
+        "over": {
+            "open": False,
+            "inert": ["top", "phone-top", "profile-menu", "main", "already-inert"],
+        },
+        "freed": ["already-inert"],
+    }
+
+
 def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
     assert _run("closeButton") == {
         "open": False,

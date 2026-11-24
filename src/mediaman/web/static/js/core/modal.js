@@ -27,7 +27,8 @@
  *                          that don't need scroll locking.
  *     useModalA11y       — when false, skips the ModalA11y.register /
  *                          onOpened / onClosed lifecycle (e.g. when the
- *                          modal handles its own ESC + focus management).
+ *                          modal handles its own ESC + focus management);
+ *                          the page behind is out of reach all the same.
  *                          Default: true.
  *     closeSelectors     — array of CSS selectors whose descendants
  *                          should also close the modal on click (in
@@ -120,6 +121,8 @@
       _hideAfterExit();
       modalEl.setAttribute('aria-hidden', 'true');
       if (manageBodyOverflow) document.body.style.overflow = '';
+      // Before onClose, which may hand the focus back to the page.
+      if (!useModalA11y && global.MM.inertPage) global.MM.inertPage.release(modalEl);
 
       if (typeof opts.onClose === 'function') opts.onClose();
 
@@ -140,6 +143,8 @@
 
       if (useModalA11y && global.ModalA11y) {
         global.ModalA11y.onOpened(modalEl.id);
+      } else if (!useModalA11y && global.MM.inertPage) {
+        global.MM.inertPage.hold(modalEl);
       }
 
       if (typeof opts.onOpen === 'function') opts.onOpen(payload);
