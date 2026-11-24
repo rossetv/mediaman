@@ -214,6 +214,10 @@
   .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
 }
 
+/* The toolbar wraps its sort under its pills. */
+@media (min-width: 700px) and (max-width: 747.98px) {
+  .wl-skel__bar { margin-bottom: 63px; }
+}
 /* The summary takes two lines. */
 @media (max-width: 459.98px) {
   .wl-skel__summary { margin-bottom: calc((1lh - 12px) / 2 + 1lh + 22px); }
