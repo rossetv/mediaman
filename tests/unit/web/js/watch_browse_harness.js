@@ -629,6 +629,15 @@ const scenarios = {
     };
   },
 
+  // A first batch of picks from two days has no date: the pill and menu say Latest alone.
+  async undatedFirstBatch() {
+    const p = load({ batches: [{ id: '2026-11-21', label: 'Latest picks', date_label: '' }, ...BATCHES.slice(1)] });
+    await settle();
+    const pill = rec(p.doc).querySelector('[data-picks-menu]');
+    click(p.doc, pill);
+    return { pill: text(pill), label: pill.getAttribute('aria-label'), items: p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item').map(text) };
+  },
+
   // Refresh while cooling down: the server's 429 shows the time left, not an error.
   async refreshCooldown() {
     const next = new Date(Date.now() + 14 * HOUR - 60000).toISOString();

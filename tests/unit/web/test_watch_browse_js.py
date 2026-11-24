@@ -105,6 +105,13 @@ def test_choosing_an_earlier_batch_swaps_the_picks_in_the_same_row() -> None:
     assert "14 Nov" in out["pill"]
 
 
+def test_a_first_batch_without_a_date_says_latest_with_no_dangling_separator() -> None:
+    out = _run("undatedFirstBatch")
+    assert out["items"] == ["Latest", "14 Nov"]
+    assert out["pill"].strip() == "Latest picks"
+    assert out["label"] == "Picks: Latest picks. Choose another batch"
+
+
 def test_refresh_during_the_cooldown_shows_the_time_left_and_no_error() -> None:
     out = _run("refreshCooldown")
     assert out["label"] == "Refresh in 14 h"

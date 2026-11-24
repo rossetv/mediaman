@@ -88,6 +88,8 @@ def _relative_label(batch_date: date | None, index: int, today: date) -> str:
 
 
 def _date_label(batch_id: str) -> str:
+    if not batch_id:
+        return ""
     try:
         return datetime.strptime(batch_id, "%Y-%m-%d").strftime("%-d %b")
     except ValueError:
@@ -102,8 +104,8 @@ def group_into_batches(
     A batch is ``{"id", "label", "date_label", "items"}``; its items are the
     person's own picks followed by the shared ones. The first holds the latest of
     both, unless old, also where one is from an earlier batch, which has them too.
-    The first batch's date is the date of the person's own picks when they come from an
-    earlier batch. A row without a ``batch_id`` falls back to the date of its ``created_at``.
+    The first batch's date is that of its picks, or empty when its own and shared picks
+    are from different days. A row without a ``batch_id`` falls back to the date of its ``created_at``.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
@@ -111,15 +113,17 @@ def group_into_batches(
         group["trending" if row.get("category") == "trending" else "personal"].append(row)
 
     oldest = (today - PICKS_LAST).isoformat()
-    own_from: str | None = None
+    first_id = next(iter(groups), "")
+    taken_from: set[str] = set()
     for latest in list(groups.values())[:1]:
         for kind in latest:
             if latest[kind]:
+                taken_from.add(first_id)
                 continue
             for bid, g in groups.items():
                 if bid >= oldest and g[kind]:
                     latest[kind] = g[kind]
-                    own_from = bid if kind == "personal" else own_from
+                    taken_from.add(bid)
                     break
 
     batches: list[dict[str, object]] = []
@@ -128,8 +132,10 @@ def group_into_batches(
             batch_date: date | None = datetime.strptime(bid, "%Y-%m-%d").date()
         except ValueError:
             batch_date = None
-        # The person's own picks from an earlier batch lead the first, and say their date.
-        shown = own_from if index == 0 and own_from else bid
+        # The first batch may hold picks of two dates: then it names none.
+        shown = bid
+        if index == 0:
+            shown = next(iter(taken_from)) if len(taken_from) == 1 else ""
         batches.append(
             {
                 "id": bid,

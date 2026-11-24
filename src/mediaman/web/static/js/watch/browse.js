@@ -395,6 +395,7 @@
   function againText(left) { return 'Shared picks can be fetched again in ' + left + '.'; }
 
   function batchName(batch, first) {
+    if (!batch.date_label) return first ? 'Latest' : '';
     return first ? 'Latest · ' + batch.date_label : batch.date_label;
   }
 
@@ -407,8 +408,8 @@
     button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-expanded', 'false');
     button.setAttribute('aria-controls', 'watch-picks-menu');
-    button.setAttribute('aria-label', 'Picks: ' + chosen.label + ', ' + chosen.date_label + '. Choose another batch');
-    button.appendChild(el('span', 'row-tool__long', chosen.label + ' · '));
+    button.setAttribute('aria-label', 'Picks: ' + chosen.label + (chosen.date_label ? ', ' + chosen.date_label : '') + '. Choose another batch');
+    button.appendChild(el('span', 'row-tool__long', chosen.label + (chosen.date_label ? ' · ' : '')));
     button.appendChild(document.createTextNode(chosen.date_label));
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     return button;
@@ -596,7 +597,7 @@
   function batchLine(id, payload) {
     var at = payload.batches.map(function (b) { return b.id; }).indexOf(id);
     var date = at < 0 ? '' : payload.batches[at].date_label;
-    var line = watch.grid.group(id, at === 0 ? 'Latest picks · ' + date : 'Picks of ' + date);
+    var line = watch.grid.group(id, at === 0 ? (date ? 'Latest picks · ' + date : 'Latest picks') : 'Picks of ' + date);
     line.insertBefore(core.aiLabel('AI picks'), line.firstChild);
     return line;
   }
