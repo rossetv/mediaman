@@ -27,7 +27,6 @@
     var pill = d.q('.dl-state-pill', row);
     if (pill) {
       pill.className = pill.className.replace(/\bdl-state-(?!pill)\S*/g, '').trim() + ' dl-state-' + item.state;
-      pill.style.fontSize = '9px';
       d.setText(pill, item.state_label || item.state);
     }
     if (hero().updateSearchHint) hero().updateSearchHint(row, item);

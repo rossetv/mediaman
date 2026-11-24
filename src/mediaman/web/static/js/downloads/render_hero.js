@@ -128,9 +128,12 @@
 
     d.syncAbandon(card, item, 'hero');
 
-    /* Update data-dl-id if hero changed */
     if (card.getAttribute('data-dl-id') !== item.id) {
       card.setAttribute('data-dl-id', item.id);
+      /* Another title: its card fades in, from the start when one follows another. */
+      card.classList.remove('is-swapped');
+      void card.offsetWidth;
+      card.classList.add('is-swapped');
     }
   }
 

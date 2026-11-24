@@ -85,7 +85,7 @@
 .dl-state-almost_ready  { background: var(--rgba-success-chip); color: var(--success); }
 .dl-state-ready         { background: var(--rgba-success-bg-hover); color: var(--success); }
 .dl-state-upcoming      { background: var(--rgba-overlay-md); color: var(--t2); }
-.dl-state-pill--xs      { padding: 2px 8px; font-size: 9px; }
+.dl-state-pill--xs      { padding: 2px 8px; }
 
 .dl-search-hint { font-size: 12px; color: var(--t3); margin-top: 6px; }
 .dl-arr-link { color: var(--accent); }
@@ -139,7 +139,6 @@
 .dl-stats b, .dl-hero-pct { color: var(--t1); font-weight: 500; }
 
 /* Compact row */
-.dl-compact { margin-bottom: 8px; }
 .dl-compact-row,
 .dl-row {
   display: grid;
@@ -306,7 +305,7 @@
 .dl-ep-mini-fill { height: 100%; width: var(--fill-pct, 0%); background: var(--accent); transition: width var(--dur-slow) var(--ease-out); }
 .dl-ep-mini-fill.green { background: var(--success); }
 .dl-ep-status-pill {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--r-pill);
@@ -380,6 +379,9 @@
 
 .dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
 @keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }
+.dl-hero.is-swapped > .dl-hero-content,
+.dl-hero.is-swapped > .dl-hero-bg { animation: dl-hero-swap var(--dur-slow) var(--ease-out); }
+@keyframes dl-hero-swap { from { opacity: 0; } }
 
 /* Rows, sections and episode lists that come and go: the script pins the
    height and these carry it, with the padding and margins, to the new size

@@ -234,7 +234,8 @@ def test_after_an_abandon_the_page_says_so_and_the_focus_is_on_something() -> No
 
 def _rule(selector: str) -> str:
     """The declarations of *selector* outside any `@media`."""
-    css = re.sub(r"/\*.*?\*/", "", (WEB / "static/css/_dl.css").read_text(encoding="utf-8"))
+    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     css = re.sub(r"@media [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
     heads = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
     return "".join(body for head, body in heads if selector in [s.strip() for s in head.split(",")])
@@ -247,3 +248,21 @@ def test_the_page_is_held_behind_the_abandon_dialog_and_keeps_its_width() -> Non
 
 def test_the_hero_cannot_be_scrolled_inside_itself() -> None:
     assert re.findall(r"overflow: (\w+)", _rule(".dl-hero"))[-1] == "clip"
+
+
+def test_queue_rows_sit_one_gap_apart() -> None:
+    assert "margin" not in _rule(".dl-compact")
+    assert "gap: 8px" in _rule(".dl-compact-list")
+
+
+def test_the_small_state_pills_are_large_enough_to_read_and_a_poll_leaves_them_so() -> None:
+    for pill in (".dl-state-pill", ".dl-state-pill--xs", ".dl-ep-status-pill"):
+        assert all(int(px) >= 11 for px in re.findall(r"font-size: (\d+)px", _rule(pill)))
+    assert _run("pollLook", hero=_item("h"), queue=[_item("q")])["pill"] == ""
+
+
+def test_a_new_hero_fades_in_and_the_same_one_does_not() -> None:
+    out = _run("pollLook", hero=_item("h"), queue=[_item("q")])
+    assert out["swapped"] == [False, True]
+    for part in (".dl-hero-content", ".dl-hero-bg"):
+        assert "animation: dl-hero-swap var(--dur-slow)" in _rule(f".dl-hero.is-swapped > {part}")

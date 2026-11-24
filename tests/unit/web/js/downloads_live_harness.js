@@ -255,6 +255,17 @@ const scenarios = {
     return { ...out, toasts: p.ctx.toasts };
   },
 
+  // the next poll of the same titles, and one that brings another hero
+  async pollLook() {
+    const p = page(spec);
+    const swapped = () => p.q('.dl-hero').classList.contains('is-swapped');
+    p.upd({ hero: item('h', { progress: 5 }), queue: [item('q', { progress: 5 })] });
+    const same = swapped();
+    const pill = p.q('.dl-state-pill--xs').style.fontSize;
+    p.upd({ hero: item('q'), queue: [] });
+    return { pill, swapped: [same, swapped()] };
+  },
+
   // everything coming soon gives way to something else in one poll
   async upcomingReplaced() {
     const p = page(spec);
