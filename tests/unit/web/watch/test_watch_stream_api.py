@@ -962,3 +962,61 @@ def test_a_fetch_whose_client_left_drops_what_plex_sends_and_gives_its_slot_back
     assert not read_on
     for _ in range(3):
         assert _segment(alice, stream_id).status_code == 200
+
+
+def _three_calls(client, stream_id: str) -> list:
+    place = {"stream_id": stream_id, "position_s": 10, "played_s": 10}
+    return [
+        client.get(f"/api/watch/stream/{stream_id}/index.m3u8"),
+        _segment(client, stream_id),
+        client.post("/api/watch/progress", json=place),
+    ]
+
+
+def test_every_call_of_a_stream_a_newer_start_replaced_says_so(alice):
+    old = _stream(alice)
+    new = _stream(alice)
+
+    for resp in _three_calls(alice, old):
+        assert resp.status_code == 410
+        assert resp.json()["error"] == "replaced"
+        assert resp.headers["cache-control"] == NO_STORE
+    assert [r.status_code for r in _three_calls(alice, new)] == [200] * 3
+
+
+def test_a_start_replaces_nothing_of_another_title_or_another_person(alice, bob):
+    film, bobs = _stream(alice), _stream(bob)
+    _stream(alice, "102")
+
+    for client, stream_id in ((alice, film), (bob, bobs)):
+        assert [r.status_code for r in _three_calls(client, stream_id)] == [200] * 3
+
+
+def test_a_replaced_stream_is_to_anyone_else_like_an_unknown_one(alice, bob):
+    old = _stream(alice)
+    _stream(alice)
+
+    unknown = _three_calls(bob, "no-such-stream")
+    assert [r.content for r in _three_calls(bob, old)] == [r.content for r in unknown]
+    assert {r.json()["error"] for r in unknown} == {"gone"}
+
+
+def test_changing_the_quality_or_reloading_plays_on_whichever_of_stop_and_start_comes_first(alice):
+    first = _stream(alice)
+    assert alice.post(f"/api/watch/stream/{first}/stop").status_code == 204
+    second = _start(alice, quality="low").json()["stream_id"]
+    third = _start(alice, quality="best").json()["stream_id"]
+    assert alice.post(f"/api/watch/stream/{second}/stop").status_code == 204
+
+    assert [r.status_code for r in _three_calls(alice, third)] == [200] * 3
+    assert {r.json()["error"] for r in _three_calls(alice, first)} == {"gone"}
+
+
+def test_a_fetch_under_way_when_its_stream_is_replaced_says_so(alice, held, pool):
+    old = _stream(alice)
+    inside = pool.submit(_segment, alice, old)
+    held.wait_for(1)
+    _stream(alice)
+    held.let_go()
+
+    assert inside.result(5).json()["error"] == "replaced"

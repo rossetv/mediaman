@@ -23,6 +23,7 @@ from mediaman.services.media_meta.plex_stream import (
     MAX_STREAMS_TOTAL,
     StreamGone,
     StreamManager,
+    StreamReplaced,
     TooManyReads,
     TooManyStreams,
     init_stream_manager,
@@ -559,7 +560,9 @@ def test_a_start_that_loses_a_race_for_the_last_slot_gives_its_session_back(mana
     assert last_stop == plex.calls_to("start.m3u8")[loser_index]["params"]["session"]
 
 
-def test_two_starts_of_the_same_item_racing_leave_one_stream_and_stop_the_other(manager, plex):
+def test_of_two_starts_of_the_same_item_racing_the_later_plays_and_the_other_is_stopped(
+    manager, plex
+):
     real_open = manager._open_session
     raced = []
     inner = []
@@ -576,12 +579,12 @@ def test_two_starts_of_the_same_item_racing_leave_one_stream_and_stop_the_other(
     outer = _start(manager)
 
     assert len(manager._streams) == 1
-    assert manager.get(outer, "alice")
-    with pytest.raises(StreamGone):
-        manager.get(inner[0], "alice")
+    assert manager.get(inner[0], "alice")
+    with pytest.raises(StreamReplaced):
+        manager.get(outer, "alice")
     sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
     stopped = [c["params"]["session"] for c in plex.calls_to("stop")]
-    assert stopped == [sessions[1]]
+    assert stopped == [sessions[0]]
 
 
 def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
@@ -1081,3 +1084,48 @@ def test_a_segment_that_trickles_in_is_given_up(manager, plex, clock):
 
     with pytest.raises(PlexUnavailable):
         manager.segment(read, "00001.ts")
+
+
+def test_a_start_that_fails_leaves_the_one_before_gone_and_not_replaced(manager, plex):
+    stream_id = _start(manager)
+    plex.unreachable = True
+    with pytest.raises(PlexUnavailable):
+        _start(manager)
+
+    with pytest.raises(StreamGone) as caught:
+        manager.get(stream_id, "alice")
+    assert not isinstance(caught.value, StreamReplaced)
+
+
+def test_a_failed_start_never_hides_that_another_start_replaced_the_stream(manager, plex):
+    stream_id = _start(manager)
+    real_open = manager._open_session
+    opening = []
+
+    def another_starts_then_this_fails(*args):
+        if opening:
+            return real_open(*args)
+        opening.append(True)
+        _start(manager)
+        raise RuntimeError("failed")
+
+    manager._open_session = another_starts_then_this_fails
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    with pytest.raises(StreamReplaced):
+        manager.get(stream_id, "alice")
+
+
+def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
+    stopped, idle = _start(manager), _start(manager, rating_key="7")
+    manager.stop(stopped, "alice")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    manager.reap()
+    _start(manager)
+    _start(manager, rating_key="7")
+
+    for stream_id in (stopped, idle):
+        with pytest.raises(StreamGone) as caught:
+            manager.get(stream_id, "alice")
+        assert not isinstance(caught.value, StreamReplaced)

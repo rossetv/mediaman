@@ -2,7 +2,8 @@
 
 The browser only ever sees ``/api/watch/stream/<stream_id>/...`` paths. Every stream route
 answers for the person who started the stream; any other id, someone else's included, is
-410 Gone with the same body. Plex errors are mapped to short codes so no Plex address,
+410 Gone with the same body, but for a stream of their own that a newer start of the same title
+replaced, which says so. Plex errors are mapped to short codes so no Plex address,
 session or token reaches a response or a log line.
 """
 
@@ -42,6 +43,7 @@ from mediaman.services.media_meta.plex_stream import (
     StreamGone,
     StreamInfo,
     StreamManager,
+    StreamReplaced,
     TooManyReads,
     TooManyStreams,
     get_stream_manager,
@@ -146,6 +148,10 @@ def stream_gone() -> Response:
     return respond_err("gone", status=410)
 
 
+def _gone_answer(exc: StreamGone) -> Response:
+    return respond_err("replaced", status=410) if isinstance(exc, StreamReplaced) else stream_gone()
+
+
 def plex_failure(exc: PlexError) -> Response:
     if isinstance(exc, PlexItemNotFound):
         return respond_err("not_found", status=404)
@@ -239,8 +245,8 @@ def start_stream(
 def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -> Response:
     try:
         text = get_stream_manager().playlist(stream_id, username)
-    except StreamGone:
-        return stream_gone()
+    except StreamGone as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     return Response(text, media_type="application/vnd.apple.mpegurl")
@@ -299,8 +305,8 @@ async def stream_segment(
         refused = respond_err("rate_limited", status=429)
         refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
         return refused
-    except StreamGone:
-        return stream_gone()
+    except StreamGone as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     finally:
@@ -393,9 +399,9 @@ def save_watch_progress(
     """
     try:
         stream = get_stream_manager().get(body.stream_id, username)
-    except StreamGone:
+    except StreamGone as exc:
         with contextlib.suppress(StreamGone):
             stream = get_stream_manager().reaped(body.stream_id, username)
             _save(stream, username, body.position_s, body.played_s)
-        return stream_gone()
+        return _gone_answer(exc)
     return respond_ok({"watched": _save(stream, username, body.position_s, body.played_s)})
