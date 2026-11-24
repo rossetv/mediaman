@@ -88,3 +88,14 @@ def test_a_refused_cross_site_post_for_a_non_html_caller_keeps_its_text(client):
 
     assert resp.status_code == 403
     assert resp.text == "CSRF: origin mismatch"
+
+
+def test_a_cookie_post_with_no_origin_is_refused_the_same_way(client):
+    client.cookies.set("session_token", "x")
+
+    page = client.post("/login", data={}, headers=_HTML)
+    plain = client.post("/login", data={})
+
+    assert page.status_code == plain.status_code == 403
+    assert "Request blocked" in page.text
+    assert plain.text == "CSRF: origin required for cookie-authenticated requests"
