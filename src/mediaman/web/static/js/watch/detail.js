@@ -2192,7 +2192,7 @@
       if (del.kind !== 'movie') delBtn.setAttribute('aria-haspopup', 'dialog');
       delBtn.addEventListener('click', function () {
         if (del.kind === 'movie') api.confirmDelete(del.id, del.title, { kind: 'movie', size: f.size });
-        else api.pickSeasonDelete(del.show_rk, del.title);
+        else api.pickSeasonDelete(del.show_rk, del.title, (actions.keep_wrapper || {}).seasons);
       });
       foot.appendChild(delBtn);
     }

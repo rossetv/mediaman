@@ -1703,6 +1703,20 @@ const scenarios = {
     return { tagline: await run({}), without: await run({ tagline: null }) };
   },
 
+  // Delete on a show's page opens the season list at the size its seasons take.
+  async adminSeasonDelete() {
+    const calls = [];
+    const facts = Object.assign({}, FACTS, { actions: { keep_wrapper: { id: '3010', is_tv: true, show_rk: '300', seasons: 5 },
+      delete: { kind: 'seasons', show_rk: '300', title: 'Brightwater' } } });
+    const p = load({ admin: true, adminApi: { pickSeasonDelete: (...args) => calls.push(args) },
+      routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': facts } });
+    p.run();
+    p.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    click(p.doc, p.q('[data-ttl-act="admin-delete"]'));
+    return calls;
+  },
+
   async adminFacts() {
     const calls = [];
     let announce = null;
