@@ -191,8 +191,9 @@
     }
 
     var dlId = current.dlId;
-    var message = current.upcoming ? 'Stopped tracking ' + current.title
-      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + current.title;
+    var title = current.title;
+    var message = current.upcoming ? 'Stopped tracking ' + title
+      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + title;
     inflight[dlId] = true;
     showConfirmState();
 
@@ -200,15 +201,19 @@
        runs, so only touch it when it still shows this item. */
     var showsThis = function () { return current && current.dlId === dlId; };
     var endpoint = '/api/downloads/' + encodeURIComponent(dlId) + '/abandon';
+    function finish(text, variant) {
+      if (showsThis()) close();
+      document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+      window.UIFeedback.toast(text, { variant: variant });
+    }
     MM.api.post(endpoint, { seasons: seasons })
       .then(function () {
         delete inflight[dlId];
-        if (showsThis()) close();
-        document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
-        window.UIFeedback.toast(message, { variant: 'success' });
+        finish(message, 'success');
       })
       .catch(function (err) {
         delete inflight[dlId];
+        if (err.status === 404) { finish('Already gone: ' + title, 'info'); return; }
         if (showsThis()) showConfirmState();
         window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
       });

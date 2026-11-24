@@ -201,7 +201,7 @@ function abandonRig() {
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
-  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0 };
+  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
   h.ctx.MM.modal = {
     setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
       open() {},
@@ -212,7 +212,7 @@ function abandonRig() {
   };
   h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
-  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast() {} };
+  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast(text, o) { rig.toasts.push([text, o.variant]); } };
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
@@ -261,6 +261,16 @@ scenarios.abandonSuccess = async function () {
   r.posts[0].resolve({});
   await r.settle();
   return { url: r.posts[0].url, closes: r.closes, refreshes: r.refreshes, errors: r.errors };
+};
+
+// another tab abandoned it first
+scenarios.abandonGone = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  r.confirmClick();
+  r.posts[0].reject(Object.assign(new Error('gone'), { status: 404 }));
+  await r.settle();
+  return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
 };
 
 // A fails after the dialog moved on to B: B's button is left alone

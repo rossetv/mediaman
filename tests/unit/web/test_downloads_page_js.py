@@ -269,6 +269,15 @@ def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None
     assert out["errors"] == 0
 
 
+def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_page() -> None:
+    out = _run("abandonGone")
+    assert (out["closes"], out["refreshes"], out["errors"]) == (1, 1, 0)
+    assert len(out["toasts"]) == 1
+    text, variant = out["toasts"][0]
+    assert "Already gone" in text and "Tm1" in text
+    assert variant == "info"
+
+
 def test_a_failed_abandon_of_one_item_leaves_the_next_dialog_alone() -> None:
     out = _run("abandonStaleFailure")
     assert out["before"] == {"label": "Abandon", "disabled": "false"}
