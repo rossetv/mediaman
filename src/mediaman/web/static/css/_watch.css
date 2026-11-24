@@ -342,6 +342,13 @@
 .watch-banner__bg--art:not([data-broken]) ~ .watch-banner__poster { display: none; }
 .has-poster-fade .watch-banner__bg--fill:not(.is-loaded) ~ .watch-banner__poster { opacity: 0; }
 
+/* With scripts on, a backdrop waits to be known for a wide picture (broken-poster.js),
+   so one that is not never shows. One that had already loaded does not fade in. */
+@media (scripting: enabled) {
+  .watch-banner__bg--art:not([data-fit]) { opacity: 0; }
+}
+.watch-banner__bg--art[data-fit="at-once"] { transition: none; }
+
 /* The next backdrop is on its way: the one that did not fit is not shown. */
 .watch-banner__bg--art[data-retrying] { opacity: 0; transition: none; }
 

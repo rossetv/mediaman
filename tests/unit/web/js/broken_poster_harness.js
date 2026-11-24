@@ -50,6 +50,20 @@ const retries = {
   unfitThenWide: retried(TALL, WIDE), goneThenWide: retried(GONE, WIDE), unfitTwice: retried(TALL, TALL),
   unfitThenGone: retried(TALL, GONE), wide: retried(WIDE), early: retried(TALL, WIDE, true), earlyGone: retried(GONE, WIDE, true),
 };
-process.stdout.write(JSON.stringify({ retries, marks: Object.fromEntries(
+/* The mark of a wide picture that fits, as one image is given picture after picture, and of
+   those the script met on the page. */
+const fit = (img) => ('fit' in img.dataset ? img.dataset.fit : null);
+function reused(img, w, h) {
+  img.naturalWidth = w; img.naturalHeight = h;
+  listeners[w ? 'load' : 'error']({ target: img });
+  return fit(img);
+}
+const again = image(ART, 1920, 1080);
+const fits = {
+  loads: reused(again, ...WIDE), thenTall: reused(again, ...TALL), thenWide: reused(again, ...WIDE), thenGone: reused(again, ...GONE),
+  early: fit(before.earlyWide), earlyTall: fit(before.earlyPortrait), pending: fit(before.pending), poster: fit(events.poster[1]),
+  earlyThenItsEvent: reused(before.earlyWide, ...WIDE),
+};
+process.stdout.write(JSON.stringify({ fits, retries, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
     .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));

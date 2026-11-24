@@ -16,6 +16,8 @@
 
   // An ``<img data-wide-art>`` fills a wide hero. One too square or too small
   // to do that is marked as if it had failed, so the hero shows its stand-in.
+  // One that fits carries ``data-fit``: ``at-once`` when it had loaded before
+  // this script ran, so a page that held it back until now need not fade it in.
   var MIN_ART_RATIO = 1.4;
   var MIN_ART_WIDTH = 700;
 
@@ -26,6 +28,7 @@
   // ``data-next-src`` names one more picture to try before the mark. The image
   // carries ``data-retrying`` until that one has loaded or failed too.
   function fail(img) {
+    delete img.dataset.fit;
     var next = img.dataset.nextSrc;
     if (next) {
       delete img.dataset.nextSrc;
@@ -37,6 +40,15 @@
     img.dataset.broken = '';
   }
 
+  function judge(img, fit) {
+    if (unfit(img)) {
+      fail(img);
+      return;
+    }
+    delete img.dataset.retrying;
+    img.dataset.fit = fit;
+  }
+
   document.addEventListener(
     'load',
     function (event) {
@@ -46,8 +58,8 @@
         target.tagName === 'IMG' &&
         target.hasAttribute('data-wide-art')
       ) {
-        if (unfit(target)) fail(target);
-        else delete target.dataset.retrying;
+        // A picture judged below can still have its load event to come.
+        judge(target, target.dataset.fit || '');
       }
     },
     true,
@@ -83,6 +95,6 @@
   }
   var wide = document.querySelectorAll('img[data-wide-art]');
   for (var j = 0; j < wide.length; j++) {
-    if (wide[j].complete && wide[j].naturalWidth && unfit(wide[j])) fail(wide[j]);
+    if (wide[j].complete && wide[j].naturalWidth) judge(wide[j], 'at-once');
   }
 })();

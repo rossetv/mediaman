@@ -298,6 +298,16 @@ def test_banner_poster_waits_for_the_backdrop_and_every_picture_may_fail() -> No
         assert f".watch-banner__bg--art:not([data-broken]) ~ .watch-banner__{part}" in css
 
 
+def test_with_scripts_on_the_backdrop_waits_to_be_known_for_a_wide_picture() -> None:
+    art = ".watch-banner__bg--art"
+    scripted = _in_media("_watch.css", "(scripting: enabled)")
+
+    assert "opacity: 0" in _declarations_in(scripted, f"{art}:not([data-fit])")
+    # Only there: with scripts off nothing would ever mark it.
+    assert (CSS / "_watch.css").read_text().count(f"{art}:not([data-fit])") == 1
+    assert "transition: none" in _declarations_of("_watch.css", f'{art}[data-fit="at-once"]')
+
+
 def test_not_set_up_links_to_settings_for_admins_only() -> None:
     admin = _watch(watch_error="not_set_up", is_admin=True)
     viewer = _watch(watch_error="not_set_up", is_admin=False)

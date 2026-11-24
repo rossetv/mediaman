@@ -29,6 +29,20 @@ def test_art_too_square_or_too_small_for_a_wide_hero_counts_as_failed() -> None:
     }
 
 
+def test_only_a_picture_that_fits_is_marked_as_one_and_at_once_when_it_had_loaded_before() -> None:
+    assert _run()["fits"] == {
+        "loads": "",
+        "thenTall": None,
+        "thenWide": "",
+        "thenGone": None,
+        "early": "at-once",
+        "earlyThenItsEvent": "at-once",
+        "earlyTall": None,
+        "pending": None,
+        "poster": None,
+    }
+
+
 def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() -> None:
     out = _run()["retries"]
     trying = {"src": "/next.jpg", "marked": False, "retrying": True}
