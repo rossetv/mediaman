@@ -13,7 +13,7 @@
  *   MM.downloads.buildDom.setText(el, txt)         → MM.dom.setText
  *   MM.downloads.buildDom.findByDlId(c, dlId)      → MM.dom.findByAttr(c, 'data-dl-id', dlId)
  *   MM.downloads.buildDom.findByEp(container, label)
- *   MM.downloads.buildDom.buildHero(item)          shared hero card builder
+ *   MM.downloads.buildDom.buildHero(item)          shared hero card builder (item.hero_backdrop fills its background)
  *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState(outage)
@@ -212,6 +212,9 @@
   function buildHero(item) {
     item = item || {};
     var bgUrl = item.poster_url || '';
+    /* The card's blurred background is the wide backdrop when there is one, as in the
+       server-rendered card; the poster stays the poster. */
+    var heroBg = item.hero_backdrop || bgUrl;
     var state  = item.state || '';
 
     /* Root .dl-hero container */
@@ -222,9 +225,9 @@
     /* Background — set via DLPoster.apply (avoids CSS string injection). */
     var bg = document.createElement('div');
     bg.className = 'dl-hero-bg';
-    if (bgUrl) bg.setAttribute('data-bg-url', bgUrl);
+    if (heroBg) bg.setAttribute('data-bg-url', heroBg);
     card.appendChild(bg);
-    if (bgUrl && window.DLPoster) window.DLPoster.apply(bg);
+    if (heroBg && window.DLPoster) window.DLPoster.apply(bg);
 
     /* Overlay */
     var overlay = document.createElement('div');

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from unittest.mock import MagicMock, patch
 
@@ -768,6 +769,27 @@ class TestDownloadPageEmailPromise:
 
         assert "notified by email" not in page
         assert '"notify_by_email": false' in page
+
+
+class TestDownloadPageBackdrop:
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+
+    def test_the_script_is_given_the_wide_backdrop_for_the_card_it_builds(
+        self, app_factory, conn, secret_key
+    ):
+        wide = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+        sid = insert_suggestion(conn, title="Dune", tmdb_id=42, created_at="2026-01-01")
+        with conn:
+            conn.execute("UPDATE suggestions SET backdrop_url = ? WHERE id = ?", (wide, sid))
+
+        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+
+        bootstrap = re.search(r'<script id="page-bootstrap"[^>]*>(.*?)</script>', page, re.S)
+        assert bootstrap is not None
+        assert json.loads(bootstrap.group(1))["backdrop_url"] == wide
 
 
 class TestDownloadPageTrailer:

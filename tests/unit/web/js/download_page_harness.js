@@ -27,7 +27,8 @@ class El {
   get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
   removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; }
-  addEventListener() {}
+  addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  replaceChildren(...cs) { this.children = []; cs.forEach((c) => this.appendChild(c)); }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   matches(sel) {
     let m;
@@ -54,7 +55,11 @@ async function main() {
   add('page-bootstrap', JSON.stringify({
     token: 't', poll_token: 'p', service: 'radarr', tmdb_id: 7, title: 'Film',
     media_type: 'movie', download_state: 'queued',
+    poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+    backdrop_url: 'https://image.tmdb.org/t/p/w1280/wide.jpg',
   }));
+  const button = add('btn-download');
+  add('download-action');
   const wrapper = add('dl-hero-wrapper');
 
   let payload = {};
@@ -63,7 +68,7 @@ async function main() {
     setInterval: (fn) => { ctx.tick = fn; return 1; }, clearInterval() {}, MM: {},
   };
   ctx.window = ctx;
-  ctx.MM.api = { get: () => Promise.resolve(payload), post: () => new Promise(() => {}), APIError: class extends Error {} };
+  ctx.MM.api = { get: () => Promise.resolve(payload), post: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }), APIError: class extends Error {} };
   vm.createContext(ctx);
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   load('core/dom.js');
@@ -91,6 +96,15 @@ async function main() {
   out.arrives = await step({ eta: '5 min' });
   out.changes = await step({ eta: '4 min' });
   out.clears = await step({ eta: '' });
+
+  // pressing Download builds the queued card: wide backdrop behind it, the poster as its poster
+  button.listeners.click[0]();
+  await settle();
+  const built = wrapper.querySelector('.dl-hero');
+  out.queuedCard = {
+    background: built.querySelector('.dl-hero-bg').getAttribute('data-bg-url'),
+    poster: built.querySelector('.dl-hero-poster').querySelector('IMG').src,
+  };
   console.log(JSON.stringify(out));
 }
 

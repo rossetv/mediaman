@@ -2,7 +2,7 @@
  * download.js — behaviour for the per-token download confirm page.
  *
  * Reads server-supplied values from the #page-bootstrap JSON island
- * (token, poll_token, service, tmdb_id, poster_url, title, media_type,
+ * (token, poll_token, service, tmdb_id, poster_url, backdrop_url, title, media_type,
  * download_state, notify_by_email) and drives the download trigger + polling UI. Lives in
  * its own file, not an inline <script>, so the CSP can forbid inline script.
  */
@@ -22,6 +22,7 @@
   var _service = boot.service || '';
   var _tmdbId = boot.tmdb_id || 0;
   var _posterUrl = boot.poster_url || '';
+  var _backdropUrl = boot.backdrop_url || '';
   var _title = boot.title || '';
   var _mediaType = boot.media_type || 'movie';
   var _downloadState = boot.download_state || '';
@@ -57,6 +58,7 @@
           title: _title,
           media_type: _mediaType,
           poster_url: _posterUrl,
+          hero_backdrop: _backdropUrl,
           state: 'searching',
           progress: 0,
           eta: '',
