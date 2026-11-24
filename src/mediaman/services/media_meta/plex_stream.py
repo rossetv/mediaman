@@ -13,6 +13,7 @@ the Plex address, a session URL or the token.
 from __future__ import annotations
 
 import contextlib
+import http.client
 import itertools
 import json
 import logging
@@ -181,8 +182,8 @@ class SegmentRead:
             self.unwanted = True
             self._hang_up()
 
-    def hold(self, sock: socket.socket | None) -> None:
-        """Let ``cancel`` hang up *sock*, or nothing any more when None."""
+    def hold(self, sock: socket.socket) -> None:
+        """Let ``cancel`` hang up *sock*; does so now if the read was cancelled already."""
         with self._lock:
             self._socket = sock
             if self.unwanted:
@@ -198,23 +199,29 @@ class SegmentRead:
 _reading = threading.local()
 
 
+class _ReadResponse(http.client.HTTPResponse):
+    def begin(self) -> None:
+        super().begin()
+        if getattr(_reading, "read", None) is not None:
+            # Whatever Plex says of keeping the connection, it must never serve another request:
+            # the read can hang it up until its body is in.
+            self.will_close = True
+
+
 class _ReadConnection(HTTPConnection):
-    """Lets the read this thread is doing, if any, be cancelled while it waits for Plex."""
+    """Lets the read this thread is doing, if any, be cancelled while it waits for Plex.
+
+    An outbound proxy's connections are not of this kind: there a cancelled read ends at the next
+    chunk of its body.
+    """
+
+    response_class = _ReadResponse
 
     def getresponse(self) -> HTTPResponse:  # type: ignore[override]
         read: SegmentRead | None = getattr(_reading, "read", None)
-        if read is None:
-            return super().getresponse()
-        read.hold(self.sock)
-        kept_alive = True
-        try:
-            response = super().getresponse()
-            kept_alive = self.sock is not None
-            return response
-        finally:
-            # A connection that is kept alive may be someone else's next.
-            if kept_alive:
-                read.hold(None)
+        if read is not None:
+            read.hold(self.sock)
+        return super().getresponse()
 
 
 class _ReadTLSConnection(_ReadConnection, HTTPSConnection):
@@ -540,15 +547,12 @@ class StreamManager:
                 token,
                 path,
                 op="segment",
-                # A connection of its own, which cancelling can hang up whatever it waits for.
-                extra_headers={"Connection": "close"},
                 max_bytes=_SEGMENT_MAX_BYTES,
                 deadline=self._clock() + SEGMENT_DEADLINE_SECONDS,
                 check=still_wanted,
             )
         finally:
             _reading.read = None
-            read.hold(None)
         return body, _CONTENT_TYPES[name.rsplit(".", 1)[1]]
 
     def get(self, stream_id: str, user: str) -> StreamInfo:

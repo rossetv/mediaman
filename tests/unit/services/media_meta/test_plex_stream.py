@@ -6,14 +6,21 @@ import contextlib
 import json
 import logging
 import socket
+import ssl
 import threading
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import anyio
 import anyio.to_thread
 import pytest
 import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_stream import (
@@ -1184,12 +1191,18 @@ def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
 
 
 class SlowPlex:
-    """A real server that answers each segment with *sent*, then nothing until it is closed."""
+    """A real server that gives each request the next of *answers*, and keeps its connections."""
 
-    def __init__(self, sent: bytes) -> None:
-        self._sent = sent
+    def __init__(self, answers: list[bytes], cert: Path | None = None) -> None:
+        self._answers = iter(answers)
+        self._tls = None
+        if cert is not None:
+            self._tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self._tls.load_cert_chain(cert)
         self._listener = socket.create_server(("127.0.0.1", 0))
-        self.url = f"http://plex.test:{self._listener.getsockname()[1]}"
+        scheme = "https" if cert else "http"
+        self.url = f"{scheme}://plex.test:{self._listener.getsockname()[1]}"
+        self.latest: socket.socket
         self.asked = threading.Semaphore(0)
         self.hung_up = threading.Semaphore(0)
         threading.Thread(target=self._accept, daemon=True).start()
@@ -1198,60 +1211,154 @@ class SlowPlex:
         with contextlib.suppress(OSError):
             while True:
                 conn = self._listener.accept()[0]
-                threading.Thread(target=self._answer, args=(conn,), daemon=True).start()
+                threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
 
-    def _answer(self, conn: socket.socket) -> None:
-        with conn:
+    def _serve(self, conn: socket.socket) -> None:
+        with contextlib.suppress(OSError):
             conn.settimeout(10)
-            request = b""
-            while b"\r\n\r\n" not in request:
-                request += conn.recv(65536)
-            closes = b"\r\nConnection: close\r\n" in request
-            conn.sendall(self._sent.replace(b"keep-alive", b"close" if closes else b"keep-alive"))
-            self.asked.release()
-            with contextlib.suppress(OSError):
-                if conn.recv(1) == b"":
-                    self.hung_up.release()
+            if self._tls:
+                conn = self._tls.wrap_socket(conn, server_side=True)
+            with conn:
+                while self._read_request(conn):
+                    conn.sendall(next(self._answers))
+                    self.latest = conn
+                    self.asked.release()
+                self.hung_up.release()
+
+    def _read_request(self, conn: socket.socket) -> bool:
+        request = b""
+        while b"\r\n\r\n" not in request:
+            more = conn.recv(65536)
+            if not more:
+                return False
+            request += more
+        return True
 
     def close(self) -> None:
         self._listener.close()
 
 
-_HEAD = b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\nConnection: keep-alive\r\n\r\n"
+def _answer(body: bytes, length: int | None = None) -> bytes:
+    return b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s" % (
+        len(body) if length is None else length,
+        body,
+    )
 
 
-@pytest.mark.parametrize("sent", [b"", _HEAD + b"some"], ids=["headers", "body"])
-def test_cancelling_a_read_hangs_up_on_plex_whatever_it_waits_for(plex, monkeypatch, caplog, sent):
-    server = SlowPlex(sent)
+@pytest.fixture(scope="module")
+def cert(tmp_path_factory) -> Path:
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "plex.test")])
+    made = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(1)
+        .not_valid_before(datetime(2000, 1, 1, tzinfo=UTC))
+        .not_valid_after(datetime(2100, 1, 1, tzinfo=UTC))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("plex.test")]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    path = tmp_path_factory.mktemp("plex") / "plex.pem"
+    path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        + made.public_bytes(serialization.Encoding.PEM)
+    )
+    return path
+
+
+@pytest.fixture
+def slow_plex(plex, monkeypatch, request):
+    """Start a SlowPlex: ``(server, manager, stream id)``, the stream's segments read from it."""
     monkeypatch.setattr(
         plex_stream,
         "resolve_safe_outbound_url",
         lambda url, **kwargs: (True, "plex.test", ("127.0.0.1",)),
     )
-    manager = StreamManager(lambda: (server.url, TOKEN), session=plex)
-    stream_id = _start(manager)
-    manager._session = StreamManager(lambda: None)._session
-    read = SegmentRead(stream_id, "alice")
+
+    def start(answers: list[bytes], cert: Path | None = None):
+        server = SlowPlex(answers, cert)
+        request.addfinalizer(server.close)
+        manager = StreamManager(lambda: (server.url, TOKEN), session=plex)
+        stream_id = _start(manager)
+        manager._session = StreamManager(lambda: None)._session
+        manager._session.verify = str(cert) if cert else True
+        request.addfinalizer(manager._session.close)
+        return server, manager, stream_id
+
+    return start
+
+
+def _in_thread(call):
+    """Run *call* in a thread; the function returned waits for it and gives back its outcome."""
     outcome = []
 
-    def fetch():
+    def run():
         try:
-            manager.segment(read, "00001.ts")
-        except StreamGone as exc:
+            outcome.append(call())
+        except Exception as exc:
             outcome.append(exc)
 
-    thread = threading.Thread(target=fetch, daemon=True)
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
-    try:
-        assert server.asked.acquire(timeout=5)
-        if sent:
-            time.sleep(0.05)
-        read.cancel()
-        thread.join(2)
-        assert server.hung_up.acquire(timeout=2)
-    finally:
-        server.close()
 
-    assert len(outcome) == 1
-    assert outcome[0].__context__ is None
+    def wait():
+        thread.join(2)
+        assert outcome, "still waiting"
+        return outcome[0]
+
+    return wait
+
+
+@pytest.mark.parametrize("tls", [False, True], ids=["http", "https"])
+@pytest.mark.parametrize(
+    "sent", [b"", _answer(b"some", length=999999)], ids=["headers", "body of a kept connection"]
+)
+def test_cancelling_a_read_hangs_up_on_plex_whatever_it_waits_for(
+    slow_plex, cert, caplog, sent, tls
+):
+    server, manager, stream_id = slow_plex([sent], cert if tls else None)
+    read = SegmentRead(stream_id, "alice")
+    ended = _in_thread(lambda: manager.segment(read, "00001.ts"))
+    assert server.asked.acquire(timeout=5)
+    if sent:
+        # Past the headers, into the wait for the rest of the body.
+        time.sleep(0.05)
+
+    read.cancel()
+
+    outcome = ended()
+    assert isinstance(outcome, StreamGone)
+    assert outcome.__context__ is None
+    assert server.hung_up.acquire(timeout=2)
     assert "could not reach Plex" not in caplog.text
+
+
+def test_a_late_cancel_leaves_the_next_request_of_the_same_thread_alone(slow_plex):
+    _, manager, stream_id = slow_plex([_answer(b"video"), _answer(CHILD_PLAYLIST.encode())])
+    read = SegmentRead(stream_id, "alice")
+    assert manager.segment(read, "00001.ts")[0] == b"video"
+
+    read.cancel()
+
+    assert "#EXTINF" in manager.playlist(stream_id, "alice")
+
+
+def test_a_late_cancel_leaves_another_readers_connection_alone(slow_plex):
+    server, manager, stream_id = slow_plex([_answer(b"video"), _answer(b"some", length=8)])
+    early = SegmentRead(stream_id, "alice")
+    assert manager.segment(early, "00001.ts")[0] == b"video"
+    assert server.asked.acquire(timeout=5)
+    later = _in_thread(lambda: manager.segment(SegmentRead(stream_id, "alice"), "00002.ts"))
+    assert server.asked.acquire(timeout=5)
+
+    early.cancel()
+
+    with contextlib.suppress(OSError):
+        server.latest.sendall(b"rest")
+    assert later()[0] == b"somerest"
