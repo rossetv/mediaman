@@ -1138,10 +1138,10 @@ class DeletionExecutor:
             return [], 0
         # Recovery books a stuck row only from this record, so it is committed
         # before anything else can fail or the process can die.
-        self._commit_record(row, closing, result)
+        unrecorded = self._commit_record(row, closing, result)
         if result.removed:
             _remove_bare_folders(self._conn, row, result.removed, allowed_roots, limits)
-        closed = self._settle(row, closing, co_located, result)
+        closed = self._settle(row, closing, co_located, result, unrecorded)
         # Commit *before* the Radarr/Sonarr unmonitor HTTP calls: the unmonitor
         # is best-effort and a slow response must not hold the write lock.
         self._conn.commit()
@@ -1151,17 +1151,20 @@ class DeletionExecutor:
 
     def _commit_record(
         self, row: DeletionRow, closing: list[DeletionRow], result: TrackedFilesResult
-    ) -> None:
+    ) -> set[int]:
         """Write and commit the record of *result*, trying again on a database error.
 
-        Not rolled back in between: once the files are gone nothing but this
+        Returns the ids of the rows a clear made during the removal left without
+        one. Not rolled back in between: once the files are gone nothing but this
         record says so.
         """
-        for attempt in range(1, _RECORD_ATTEMPTS + 1):
+        attempt = 0
+        while True:
+            attempt += 1
             try:
-                self._record_removal(row, closing, result)
+                unrecorded = self._record_removal(row, closing, result)
                 self._conn.commit()
-                return
+                return unrecorded
             except sqlite3.OperationalError:
                 if attempt == _RECORD_ATTEMPTS:
                     raise
@@ -1174,26 +1177,26 @@ class DeletionExecutor:
 
     def _record_removal(
         self, row: DeletionRow, closing: list[DeletionRow], result: TrackedFilesResult
-    ) -> None:
+    ) -> set[int]:
         """Add what *result* removed to each closing row's record of removed files.
 
         The bytes freed are credited to *row* alone, so the audit total matches
-        what left the disk.
+        what left the disk. Returns the ids of the rows that are gone.
         """
+        unrecorded: set[int] = set()
         for done in closing:
             gone = _own_removed(done, result)
             freed = result.bytes_freed if done is row else 0
-            if gone or freed:
-                record_removed_files(
-                    self._conn,
-                    done.id,
-                    done.removed_paths | gone,
-                    done.removed_bytes + freed,
-                    {**done.removed_sizes, **_tracked_sizes(done)},
-                    {str(Path(path)) for path in tracked_paths(done) or []}
-                    - gone
-                    - done.removed_paths,
-                )
+            if (gone or freed) and not record_removed_files(
+                self._conn,
+                done.id,
+                done.removed_paths | gone,
+                done.removed_bytes + freed,
+                {**done.removed_sizes, **_tracked_sizes(done)},
+                {str(Path(path)) for path in tracked_paths(done) or []} - gone - done.removed_paths,
+            ):
+                unrecorded.add(done.id)
+        return unrecorded
 
     def _settle(
         self,
@@ -1201,6 +1204,7 @@ class DeletionExecutor:
         closing: list[DeletionRow],
         co_located: list[DeletionRow],
         result: TrackedFilesResult,
+        unrecorded: set[int],
     ) -> list[DeletionRow]:
         """Book each closing row whose files are all gone; return the rest to pending.
 
@@ -1208,13 +1212,19 @@ class DeletionExecutor:
         (or a sidecar failed beside one) stays pending; its record of the files
         removed so far lets the pass that finishes it close it. The bytes freed
         are credited to *row* alone, and reach its ``deleted`` audit entry
-        once it closes.
+        once it closes. A row a clear took once its record was written was
+        booked by the clear with that record; one it took before, in
+        *unrecorded*, was booked with what earlier passes freed.
         """
         tracked = {str(Path(path)) for done in closing for path in tracked_paths(done) or []}
         closed: list[DeletionRow] = []
+        # The lock comes before the reads, so no clear lands between them and the booking.
+        if not self._conn.in_transaction:
+            self._conn.execute("BEGIN IMMEDIATE")
         for done in closing:
-            # A clear made during the removal booked what earlier passes freed.
             cleared = fetch_deletion(self._conn, done.id) is None
+            if cleared and done.id not in unrecorded:
+                continue
             space = (0 if cleared else done.removed_bytes) + (
                 result.bytes_freed if done is row else 0
             )

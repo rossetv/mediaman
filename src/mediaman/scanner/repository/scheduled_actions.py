@@ -229,11 +229,11 @@ def record_removed_files(
     removed_bytes: int,
     sizes: Mapping[str, int],
     left: Collection[str],
-) -> None:
+) -> bool:
     """Store what this deletion has removed so far, so a later pass can finish it.
 
     *sizes* gives the tracked size of each removed path that has one; *left*
-    holds the tracked paths still to remove.
+    holds the tracked paths still to remove. Returns False when the row is gone.
     """
     record = {
         "paths": sorted(paths),
@@ -241,10 +241,11 @@ def record_removed_files(
         "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
         "left": sorted(left),
     }
-    conn.execute(
+    cursor = conn.execute(
         "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
         (json.dumps(record), action_id),
     )
+    return cursor.rowcount == 1
 
 
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:

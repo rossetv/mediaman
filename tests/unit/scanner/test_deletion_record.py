@@ -348,3 +348,46 @@ class TestClear:
         assert _booked(conn) == [4]
         assert _action(conn) is None
         assert radarr.mock_calls == []
+
+    def test_a_clear_once_a_part_removal_is_recorded_credits_its_bytes_once(
+        self, conn, db_path, two_parts, monkeypatch
+    ):
+        other, real = init_db(str(db_path)), deletions._remove_bare_folders
+
+        def clear_then_remove(*args):
+            clear_pending_deletions(other)
+            real(*args)
+
+        monkeypatch.setattr(deletions, "_remove_bare_folders", clear_then_remove)
+        _remove_all_but(conn, monkeypatch, "cd2.mkv")
+
+        assert two_parts[1].exists()
+        assert _booked(conn) == [4]
+
+
+class TestRowsSharingAFolder:
+    def test_a_row_part_removed_with_another_closes_later_in_the_same_pass(
+        self, conn, root, monkeypatch
+    ):
+        outer, inner1, inner2 = (
+            root / "Films" / "a.mkv",
+            root / "Films" / "b" / "b1.mkv",
+            root / "Films" / "c" / "b2.mkv",
+        )
+        _due(conn, "m1", str(root / "Films"), outer)
+        _due(conn, "m2", str(inner1), inner1, inner2)
+        real, locked = storage._unlink_regular_file, [inner2]
+
+        def unlink(path, roots):
+            if path in locked:
+                locked.remove(path)
+                raise PermissionError("busy")
+            return real(path, roots)
+
+        monkeypatch.setattr(storage, "_unlink_regular_file", unlink)
+        DeletionExecutor(conn=conn).execute()
+
+        assert not inner2.exists()
+        assert _booked(conn, "m1") == [8]
+        assert _booked(conn, "m2") == [4]
+        assert _action(conn, "m2") is None
