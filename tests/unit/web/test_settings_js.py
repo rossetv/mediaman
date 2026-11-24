@@ -144,6 +144,35 @@ def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
     }
 
 
+def test_an_admin_changes_someones_email_in_their_row() -> None:
+    out = _run("userEmail")
+    assert (out["ownHasButton"], out["shutAtFirst"]) == (False, True)
+    assert out["opened"] == {"open": True, "value": "old@x.example", "focused": True}
+    assert out["refused"] == {
+        "open": True,
+        "value": " ann@x.example ",
+        "msg": "Another user has this address.",
+        "focused": True,
+        "sub": "old@x.example · joined 2026-01-02",
+    }
+    assert out["clearedOnInput"] == ""
+    assert out["cancelled"] == {"open": True, "msg": ""}
+    assert out["sending"] == {"sent": 1, "open": True, "busy": "true"}
+    assert out["saved"] == {
+        "open": False,
+        "sub": "new@x.example · joined 2026-01-02",
+        "focused": True,
+        "sent": ["/api/users/2/email", "ann@x.example"],
+        "busy": None,
+    }
+    assert out["again"] == out["forgotten"] == "new@x.example"
+    assert out["removed"] == {
+        "sub": "No email · joined 2026-01-02",
+        "sent": ["/api/users/2/email", ""],
+        "errors": [],
+    }
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"

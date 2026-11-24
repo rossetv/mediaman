@@ -6,6 +6,7 @@
  *     deletes applied to the rows in place
  *   - Add user form (#add-user-form, #btn-add-user) with its Viewer/Admin switch
  *   - Role change per user (PATCH /api/users/{id}/role + MM.reauth.run)
+ *   - Email per user, in a form in their row (PATCH /api/users/{id}/email + MM.reauth.run)
  *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
  *
  * Cross-module dependencies:
@@ -144,13 +145,7 @@
         meta.appendChild(name);
         var sub = document.createElement('div');
         sub.className = 'usr-sub';
-        var emailPart = user.email ? user.email : 'No email';
-        var joinedPart = user.created_at
-          ? 'joined ' + String(user.created_at).slice(0, 10)
-          : '';
-        sub.textContent = joinedPart
-          ? emailPart + ' · ' + joinedPart
-          : emailPart;
+        paintSub(user, sub);
         meta.appendChild(sub);
         row.appendChild(meta);
 
@@ -160,6 +155,14 @@
         if (user.username !== currentUser) {
           var actions = document.createElement('div');
           actions.className = 'usr-actions';
+
+          var emailBtn = document.createElement('button');
+          emailBtn.type = 'button';
+          emailBtn.className = 'btn btn--ghost btn--sm';
+          emailBtn.dataset.userAction = 'email';
+          emailBtn.textContent = 'Email';
+          emailBtn.setAttribute('aria-label', 'Email: ' + user.username);
+          actions.appendChild(emailBtn);
 
           var roleBtn = document.createElement('button');
           roleBtn.type = 'button';
@@ -183,6 +186,7 @@
           actions.appendChild(del);
 
           row.appendChild(actions);
+          row.appendChild(buildEmailForm(user, emailBtn, sub));
         }
         paintRole(user, roleLabel, roleBtn);
         roleLabel.addEventListener('animationend', function () { roleLabel.classList.remove('is-changed'); });
@@ -190,6 +194,102 @@
       }
 
       function isAdmin(user) { return user.role !== 'viewer'; }
+
+      function paintSub(user, sub) {
+        var emailPart = user.email ? user.email : 'No email';
+        sub.textContent = user.created_at
+          ? emailPart + ' · joined ' + String(user.created_at).slice(0, 10)
+          : emailPart;
+      }
+
+      function buildEmailForm(user, opener, sub) {
+        function make(tag, cls, text) {
+          var el = document.createElement(tag);
+          el.className = cls;
+          if (text) el.textContent = text;
+          return el;
+        }
+        function button(type, cls, text) {
+          var el = make('button', 'btn btn--sm ' + cls, text);
+          el.type = type;
+          return el;
+        }
+
+        var form = make('form', 'inline-form setg-fold usr-email');
+        form.id = 'user-email-' + user.id;
+        form.noValidate = true;
+        form.hidden = true;
+        var inner = make('div', 'setg-fold-inner');
+        var field = make('label', 'fld');
+        field.appendChild(make('span', 'fld-lbl', 'Notification email'));
+        var input = make('input', 'inp');
+        input.type = 'email';
+        input.autocomplete = 'off';
+        input.setAttribute('inputmode', 'email');
+        input.setAttribute('spellcheck', 'false');
+        input.maxLength = 320;
+        field.appendChild(input);
+        field.appendChild(make('span', 'fld-sub', 'Download alerts for ' + user.username + ' go here. Leave empty to turn them off.'));
+        inner.appendChild(field);
+        var actions = make('div', 'inline-form-actions');
+        var cancel = button('button', 'btn--ghost', 'Cancel');
+        var save = button('submit', 'btn--primary', 'Save email');
+        var msg = make('span', 'inline-form-msg');
+        msg.setAttribute('role', 'status');
+        actions.appendChild(cancel);
+        actions.appendChild(save);
+        actions.appendChild(msg);
+        inner.appendChild(actions);
+        form.appendChild(inner);
+
+        // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
+        function isBusy() { return save.getAttribute('aria-disabled') === 'true'; }
+        function say(text, tone) {
+          msg.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
+          msg.textContent = text;
+        }
+        function toggle(open) {
+          opener.setAttribute('aria-expanded', open ? 'true' : 'false');
+          if (open) {
+            input.value = user.email || '';
+            say('');
+            rows.open(form);
+            input.focus();
+            return;
+          }
+          if (MM.dom.focusStillIn(form)) opener.focus();
+          rows.close(form);
+        }
+
+        opener.setAttribute('aria-expanded', 'false');
+        opener.setAttribute('aria-controls', form.id);
+        opener.addEventListener('click', function () { if (!isBusy()) toggle(!rows.isOpen(form)); });
+        cancel.addEventListener('click', function () { if (!isBusy()) toggle(false); });
+        form.addEventListener('input', function () { if (!isBusy()) say(''); });
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          if (isBusy()) return;
+          var email = input.value.trim();
+          save.setAttribute('aria-disabled', 'true');
+          say('Saving…');
+          MM.reauth.run(function () {
+            return MM.api.patch('/api/users/' + user.id + '/email', { email: email });
+          }).then(function (res) {
+            save.removeAttribute('aria-disabled');
+            user.email = res.email;
+            paintSub(user, sub);
+            say('');
+            toggle(false);
+            window.UIFeedback.success(user.username + (user.email ? "'s email is now " + user.email : ' has no email now'));
+          }).catch(function (err) {
+            save.removeAttribute('aria-disabled');
+            if (err && err.error === 'reauth_cancelled') { say(''); return; }
+            say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
+            input.focus();
+          });
+        });
+        return form;
+      }
 
       // A role change updates the row where it is, so focus stays on its button.
       function paintRole(user, pill, btn) {

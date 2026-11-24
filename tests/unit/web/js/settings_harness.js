@@ -538,6 +538,78 @@ const scenarios = {
     };
   },
 
+  // An admin changes someone's email in a form that folds open in their row.
+  async userEmail() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    const sent = [];
+    const errors = [];
+    let answer = () => Promise.resolve({ email: 'new@x.example' });
+    h.ctx.MM.api = {
+      get: () => Promise.resolve({ current: 'ann', users: [
+        { id: 1, username: 'ann', role: 'admin', email: 'ann@x.example' },
+        { id: 2, username: 'bob', role: 'viewer', email: 'old@x.example', created_at: '2026-01-02T03' },
+      ] }),
+      patch: (u, b) => { sent.push([u, b.email]); return answer(); },
+      messageOf: (e) => e.message,
+    };
+    h.ctx.MM.reauth = { run: (f) => f() };
+    h.ctx.UIFeedback.success = () => {};
+    h.ctx.UIFeedback.error = (m) => errors.push(m);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const [own, row] = names(userList, 'usr-row');
+    const btn = row.querySelector('[data-user-action="email"]');
+    const form = row.querySelector('form');
+    const input = form.querySelector('input');
+    const msg = form.querySelector('.inline-form-msg');
+    const save = form.querySelector('[type="submit"]');
+    const open = () => h.ctx.MM.settings.rows.isOpen(form);
+    const sub = () => row.querySelector('.usr-sub').textContent;
+    const out = { ownHasButton: !!own.querySelector('[data-user-action="email"]'), shutAtFirst: !open() };
+    btn.fire('click');
+    out.opened = { open: open(), value: input.value, focused: h.doc.activeElement === input };
+
+    // refused: what was typed stays, with why
+    answer = () => Promise.reject({ error: 'email_taken', message: 'Another user has this address.' });
+    input.value = ' ann@x.example '; input.fire('input');
+    form.fire('submit');
+    await h.flush();
+    out.refused = { open: open(), value: input.value, msg: msg.textContent, focused: h.doc.activeElement === input, sub: sub() };
+    input.fire('input');
+    out.clearedOnInput = msg.textContent;
+
+    // turned away at the password: nothing is said
+    answer = () => Promise.reject({ error: 'reauth_cancelled', message: 'Cancelled' });
+    form.fire('submit');
+    await h.flush();
+    out.cancelled = { open: open(), msg: msg.textContent };
+
+    // while it is sent, a second submit or the button does nothing
+    let done;
+    answer = () => new Promise((r) => { done = r; });
+    const before = sent.length;
+    form.fire('submit'); form.fire('submit'); btn.fire('click');
+    out.sending = { sent: sent.length - before, open: open(), busy: save.getAttribute('aria-disabled') };
+    done({ email: 'new@x.example' });
+    await h.flush(); h.drain();
+    out.saved = { open: open(), sub: sub(), focused: h.doc.activeElement === btn, sent: sent[sent.length - 1], busy: save.getAttribute('aria-disabled') };
+
+    // an empty field takes it away; a cancelled edit is forgotten
+    btn.fire('click');
+    out.again = input.value;
+    input.value = 'typo'; form.querySelector('[type="button"]').fire('click'); h.drain();
+    btn.fire('click');
+    out.forgotten = input.value;
+    answer = () => Promise.resolve({ email: null });
+    input.value = '';
+    form.fire('submit');
+    await h.flush(); h.drain();
+    out.removed = { sub: sub(), sent: sent[sent.length - 1], errors };
+    return out;
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();

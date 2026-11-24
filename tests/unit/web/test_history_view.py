@@ -125,6 +125,18 @@ class TestDetailList:
         assert view.summary == summary
 
     @pytest.mark.parametrize(
+        ("body", "summary"),
+        [
+            ('{"email":"a@x.example","previous":null}', ""),
+            ('{"email":"a@x.example","previous":null,"target_username":"amy"}', "amy"),
+        ],
+        ids=["own", "someone-elses"],
+    )
+    def test_an_email_changed_for_someone_else_names_them_but_no_address(self, body, summary):
+        view = _describe(action="sec:user.email_updated", detail=f"actor=admin ip=1.2.3.4 {body}")
+        assert view.summary == summary
+
+    @pytest.mark.parametrize(
         "stored", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00", "soon"]
     )
     def test_a_time_out_of_range_is_shown_as_stored(self, stored):

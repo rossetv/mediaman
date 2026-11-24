@@ -270,6 +270,7 @@ def set_user_email(
     username: str,
     email: str | None,
     *,
+    allow_subscriber: bool = False,
     audit_actor: str | None = None,
     audit_ip: str = "",
 ) -> None:
@@ -294,8 +295,8 @@ def set_user_email(
     Raises:
         ValueError: the address is malformed.
         EmailTakenError: another user has the address, or *username* is not an
-            admin and the newsletter goes to it. An address kept as it is
-            always passes.
+            admin and the newsletter goes to it, unless *allow_subscriber* says
+            an admin vouches for it. An address kept as it is always passes.
     """
     from mediaman.core.email_validation import validate_email_address
 
@@ -309,7 +310,9 @@ def set_user_email(
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         previous = get_user_email(conn, username)
-        if normalised is not None and _address_is_taken(conn, username, normalised, previous):
+        if normalised is not None and _address_is_taken(
+            conn, username, normalised, previous, allow_subscriber=allow_subscriber
+        ):
             raise EmailTakenError
         conn.execute(
             "UPDATE admin_users SET email = ? WHERE username = ?",
@@ -318,17 +321,25 @@ def set_user_email(
         if audit_actor is not None:
             from mediaman.core.audit import security_event_or_raise
 
+            detail: dict[str, object] = {
+                "cleared": normalised is None,
+                "email": normalised,
+                "previous": previous,
+            }
+            if audit_actor != username:
+                detail["target_username"] = username
             security_event_or_raise(
-                conn,
-                event="user.email_updated",
-                actor=audit_actor,
-                ip=audit_ip,
-                detail={"cleared": normalised is None, "email": normalised, "previous": previous},
+                conn, event="user.email_updated", actor=audit_actor, ip=audit_ip, detail=detail
             )
 
 
 def _address_is_taken(
-    conn: sqlite3.Connection, username: str, email: str, previous: str | None
+    conn: sqlite3.Connection,
+    username: str,
+    email: str,
+    previous: str | None,
+    *,
+    allow_subscriber: bool,
 ) -> bool:
     # Nobody proves an address is theirs, and one person's picks and notices follow it.
     if previous is not None and previous.lower() == email.lower():
@@ -336,9 +347,10 @@ def _address_is_taken(
     row = conn.execute(
         "SELECT EXISTS (SELECT 1 FROM admin_users WHERE email = ? COLLATE NOCASE"
         " AND username != ?)"
-        " OR EXISTS (SELECT 1 FROM subscribers WHERE email = ? COLLATE NOCASE"
+        " OR (NOT ? AND EXISTS (SELECT 1 FROM subscribers WHERE email = ? COLLATE NOCASE"
+        " AND active = 1)"
         " AND EXISTS (SELECT 1 FROM admin_users WHERE username = ? AND role != 'admin'))",
-        (email, username, email, username),
+        (email, username, allow_subscriber, email, username),
     ).fetchone()
     return bool(row[0])
 

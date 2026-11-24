@@ -21,6 +21,7 @@ from mediaman.web.routes.users import (
     _USER_MGMT_LIMITER,
 )
 from mediaman.web.routes.users import router as users_router
+from tests.helpers.factories import insert_admin_user
 
 
 def _app(app_factory, conn):
@@ -177,7 +178,7 @@ class TestAnAddressOfSomeoneElse:
         )
         conn.execute(
             "INSERT INTO subscribers (email, active, created_at)"
-            " VALUES ('reader@example.com', 0, '2026')"
+            " VALUES ('reader@example.com', 1, '2026'), ('left@example.com', 0, '2026')"
         )
         conn.commit()
         return client
@@ -193,6 +194,10 @@ class TestAnAddressOfSomeoneElse:
         assert user.json() == reader.json()
         assert "casey" not in user.text.lower()
         assert get_user_email(conn, "admin") is None
+
+    def test_an_address_that_left_the_newsletter_is_free(self, viewer, conn):
+        assert self._set(viewer, "Left@example.com").status_code == 200
+        assert get_user_email(conn, "admin") == "Left@example.com"
 
     def test_an_admin_may_take_their_own_newsletter_address_but_no_other_users(self, viewer, conn):
         conn.execute("UPDATE admin_users SET role = 'admin' WHERE username = 'admin'")
@@ -222,3 +227,95 @@ class TestAnAddressOfSomeoneElse:
         ]
         assert "one@example.com" in details[0]
         assert "one@example.com" in details[1] and "two@example.com" in details[1]
+
+
+class TestAnAdminSetsSomeoneElses:
+    @pytest.fixture
+    def client(self, app_factory, authed_client, conn):
+        client = _ticketed_client(app_factory, authed_client, conn)
+        conn.execute(
+            "INSERT INTO subscribers (email, active, created_at)"
+            " VALUES ('reader@example.com', 1, '2026')"
+        )
+        conn.commit()
+        return client
+
+    @pytest.fixture
+    def vic(self, client, conn):
+        return insert_admin_user(conn, username="vic", role="viewer")
+
+    def _set(self, client, user_id, email):
+        return client.patch(f"/api/users/{user_id}/email", json={"email": email})
+
+    def test_a_newsletter_readers_address_can_be_given_and_taken_back(self, client, vic, conn):
+        assert self._set(client, vic, " reader@example.com ").status_code == 200
+        assert get_user_email(conn, "vic") == "reader@example.com"
+        assert get_user_email(conn, "admin") is None
+
+        assert self._set(client, vic, "").status_code == 200
+        assert get_user_email(conn, "vic") is None
+
+    def test_an_address_another_user_holds_is_never_given(self, client, vic, conn):
+        set_user_email(conn, "admin", "boss@example.com")
+
+        resp = self._set(client, vic, "BOSS@example.com")
+
+        assert (resp.status_code, resp.json()["error"]) == (409, "email_taken")
+        assert get_user_email(conn, "vic") is None
+
+    def test_an_address_that_is_none_is_refused_and_the_old_one_stays(self, client, vic, conn):
+        set_user_email(conn, "vic", "vic@example.com")
+
+        assert self._set(client, vic, "vic").json()["error"] == "invalid_email"
+        assert get_user_email(conn, "vic") == "vic@example.com"
+
+    def test_the_record_says_whose_it_is_who_changed_it_and_from_what(self, client, vic, conn):
+        set_user_email(conn, "vic", "old@example.com")
+        self._set(client, vic, "new@example.com")
+
+        row = conn.execute(
+            "SELECT actor, detail FROM audit_log WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row["actor"] == "admin"
+        for part in ('"vic"', "old@example.com", "new@example.com"):
+            assert part in row["detail"]
+
+    def test_it_needs_a_recent_password(self, app_factory, authed_client, conn):
+        client = authed_client(_app(app_factory, conn), conn)
+        vic = insert_admin_user(conn, username="vic", role="viewer")
+
+        resp = self._set(client, vic, "vic@example.com")
+
+        assert (resp.status_code, resp.json()["reauth_required"]) == (403, True)
+        assert get_user_email(conn, "vic") is None
+
+    def test_a_viewer_is_told_the_same_whatever_the_user_or_address(self, client, vic, conn):
+        conn.execute("UPDATE admin_users SET role = 'viewer' WHERE username = 'admin'")
+        conn.commit()
+
+        asked = [(vic, "reader@example.com"), (vic, "free@example.com"), (999, "free@example.com")]
+        answers = [self._set(client, *each) for each in asked]
+
+        assert {a.status_code for a in answers} == {403}
+        assert len({a.text for a in answers}) == 1
+        assert get_user_email(conn, "vic") is None
+
+    def test_signed_out_gets_nothing(self, client, vic):
+        assert self._set(TestClient(client.app), vic, "a@example.com").status_code == 401
+
+    def test_nobody_by_that_id_and_your_own_are_refused(self, client, conn):
+        own = conn.execute("SELECT id FROM admin_users WHERE username = 'admin'").fetchone()["id"]
+
+        assert self._set(client, 999, "a@example.com").status_code == 404
+        assert self._set(client, own, "a@example.com").status_code == 400
+        assert get_user_email(conn, "admin") is None
+
+    def test_too_many_changes_are_refused_and_recorded(self, client, vic, conn):
+        while _USER_MGMT_LIMITER.check("admin"):
+            pass
+
+        assert self._set(client, vic, "a@example.com").status_code == 429
+        assert get_user_email(conn, "vic") is None
+        assert conn.execute(
+            "SELECT 1 FROM audit_log WHERE action = 'sec:user.email_update.rate_limited'"
+        ).fetchone()

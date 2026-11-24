@@ -297,6 +297,74 @@ def api_set_my_email(
     return respond_ok()
 
 
+@router.patch("/api/users/{user_id}/email")
+def api_set_user_email(
+    user_id: int,
+    body: UpdateEmailBody,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+    session_token: str | None = Cookie(default=None),
+) -> Response:
+    """Set or clear another user's notification email. Requires a recent reauth ticket, like a
+    role change. A newsletter subscriber's address may be given, another user's never.
+    """
+    conn = get_db()
+    client_ip = get_client_ip(request)
+    if not _USER_MGMT_LIMITER.check(admin):
+        logger.warning(
+            "user.email_update_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
+        security_event(
+            conn,
+            event="user.email_update.rate_limited",
+            actor=admin,
+            ip=client_ip,
+            detail={"target_id": user_id},
+        )
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
+        )
+    if not has_recent_reauth(conn, session_token, admin):
+        logger.warning(
+            "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
+        )
+        return _unauthorised_reauth()
+
+    target_username = find_username_by_user_id(conn, user_id)
+    if target_username is None:
+        return respond_err("not_found", status=404, message="User not found")
+    if target_username == admin:
+        return respond_err(
+            "cannot_change_own_email", status=400, message="Change your own email on your Profile"
+        )
+    try:
+        set_user_email(
+            conn,
+            target_username,
+            body.email,
+            allow_subscriber=True,
+            audit_actor=admin,
+            audit_ip=client_ip,
+        )
+    except ValueError as exc:
+        return respond_err("invalid_email", status=400, message=str(exc))
+    except EmailTakenError:
+        return respond_err("email_taken", status=409, message="Another user has this address.")
+    except sqlite3.Error:
+        logger.exception(
+            "user.email_update failed actor=%s target_id=%d", _sanitise_log_field(admin), user_id
+        )
+        return respond_err("internal_error", status=500, message="Internal error updating email")
+    email = body.email.strip() or None
+    logger.info(
+        "user.email_updated actor=%s target=%s cleared=%s",
+        _sanitise_log_field(admin),
+        _sanitise_log_field(target_username),
+        email is None,
+    )
+    return respond_ok({"email": email})
+
+
 @router.post("/api/users/{user_id}/unlock")
 def api_unlock_user(
     user_id: int,
