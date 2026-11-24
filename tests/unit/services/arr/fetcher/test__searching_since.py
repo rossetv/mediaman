@@ -12,6 +12,10 @@ import requests
 from mediaman.db import init_db
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.arr.fetcher._searching_since import (
+    forget_searching_since,
+    stamp_searching_since,
+)
 from mediaman.services.arr.search_trigger import reset_search_triggers
 from mediaman.services.downloads.download_queue.items import build_unmatched_arr_item
 from tests.helpers.factories import insert_settings
@@ -194,3 +198,74 @@ def test_title_already_searching_at_an_upgrade_starts_its_clock_then(tmp_path, m
     stack.sweep(2 * _DAY)
     stack.radarr.unmonitor_movie.assert_called_once_with(7)
     conn.close()
+
+
+def test_show_re_monitored_right_after_auto_abandon_starts_over(stack):
+    stack.sonarr.get_series.return_value = [_show(1)]
+    stack.sonarr.get_series_by_id.return_value = _show(1)
+    stack.sweep()
+    stack.sweep(15 * _DAY)
+    stack.sweep(timedelta(minutes=5))
+    stack.sonarr.unmonitor_season.assert_called_once_with(3, 1)
+
+
+def _card(added_at):
+    return {"arr_id": 7, "is_upcoming": False, "added_at": added_at}
+
+
+@pytest.mark.parametrize(
+    ("since", "added_at"),
+    [
+        # A reinstalled Arr hands out its ids again, so the add date is the later one.
+        (_START, _START + 5 * _DAY),
+        (_START + 5 * _DAY, _START),
+    ],
+)
+def test_searching_since_is_the_later_of_when_it_was_first_seen_and_when_it_was_added(
+    stack, since, added_at
+):
+    stack.conn.execute(
+        "INSERT INTO arr_searching_since (key, since) VALUES ('radarr:7', ?)", (since.isoformat(),)
+    )
+    card = _card(added_at.timestamp())
+
+    stamp_searching_since(stack.conn, "radarr", [card], complete=True)
+
+    assert card["searching_since"] == max(since, added_at).timestamp()
+
+
+def _refuse_deletes(conn):
+    conn.execute(
+        "CREATE TRIGGER no_delete BEFORE DELETE ON arr_searching_since"
+        " BEGIN SELECT RAISE(ABORT, 'refused'); END"
+    )
+
+
+def test_a_failed_write_of_the_search_clocks_leaves_nothing_half_done_and_the_connection_free(
+    stack,
+):
+    stack.conn.execute(
+        "INSERT INTO arr_searching_since (key, since) VALUES ('radarr:9', ?)",
+        (_START.isoformat(),),
+    )
+    stack.conn.commit()
+    _refuse_deletes(stack.conn)
+
+    stamp_searching_since(stack.conn, "radarr", [_card(0.0)], complete=True)
+
+    assert not stack.conn.in_transaction
+    keys = {r[0] for r in stack.conn.execute("SELECT key FROM arr_searching_since")}
+    assert keys == {"radarr:9"}
+
+
+def test_a_failed_forget_leaves_the_connection_free(stack):
+    stack.conn.execute(
+        "INSERT INTO arr_searching_since (key, since) VALUES ('radarr:7', ?)",
+        (_START.isoformat(),),
+    )
+    stack.conn.commit()
+    _refuse_deletes(stack.conn)
+
+    forget_searching_since(stack.conn, "radarr", 7)
+
+    assert not stack.conn.in_transaction

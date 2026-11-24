@@ -43,14 +43,14 @@ def stamp_searching_since(
         added = {key: now_iso() for key in current - seen.keys()}
         gone = seen.keys() - current if complete else set()
         if added or gone:
-            conn.executemany(
-                "INSERT OR IGNORE INTO arr_searching_since (key, since) VALUES (?, ?)",
-                added.items(),
-            )
-            conn.executemany(
-                "DELETE FROM arr_searching_since WHERE key=?", [(key,) for key in gone]
-            )
-            conn.commit()
+            with conn:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO arr_searching_since (key, since) VALUES (?, ?)",
+                    added.items(),
+                )
+                conn.executemany(
+                    "DELETE FROM arr_searching_since WHERE key=?", [(key,) for key in gone]
+                )
     except sqlite3.DatabaseError:
         logger.warning("Failed to record what %s is searching for", service, exc_info=True)
         return
@@ -66,9 +66,9 @@ def forget_searching_since(conn: sqlite3.Connection, service: str, arr_id: int) 
     """Drop the rows of a title just abandoned, so a re-monitor starts a new search."""
     base = f"{service}:{arr_id}"
     try:
-        conn.execute(
-            "DELETE FROM arr_searching_since WHERE key=? OR key LIKE ?", (base, f"{base}:%")
-        )
-        conn.commit()
+        with conn:
+            conn.execute(
+                "DELETE FROM arr_searching_since WHERE key=? OR key LIKE ?", (base, f"{base}:%")
+            )
     except sqlite3.DatabaseError:
         logger.warning("Failed to forget the search for %s", base, exc_info=True)
