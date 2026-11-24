@@ -430,6 +430,15 @@
     };
   }
 
+  /* Put a kept card back, and scroll its row to it if it is out of sight there. */
+  function backInRow(row, card, undo) {
+    var marks = window.MMWatch.marks;
+    if (!marks || !row.classList.contains('watch-row')) return undo(); // not in a grid
+    var back = null;
+    marks.showInRow(row, card, function () { back = undo(); });
+    return back;
+  }
+
   function seasonShown() {
     var on = document.querySelector('.watch-seasons a.watch-pill.on');
     return on ? on.getAttribute('href') : null;
@@ -498,7 +507,7 @@
       var row = card.closest('[data-watch-leaving-row]');
       if (row) {
         var taken = keepFromRow(card, row, shown, '[data-watch-keep]');
-        undos.push(taken.undo);
+        undos.push(function () { return backInRow(row, card, taken.undo); });
         if (!focus && shown) focus = taken.focus;
         return;
       }
@@ -582,7 +591,7 @@
     if (busy[id]) return;
     var name = titleOf(trigger);
     var undoable = canUndo(trigger, days);
-    var dialog = trigger.closest('.space__panel');
+    var dialog = trigger.closest('.space__panel, #ttl');
     started(id);
     send(id, days, undoable).then(function (data) {
       var moveFocus = focusLost(trigger);
@@ -617,7 +626,7 @@
     var active = document.activeElement;
     if (back && (!active || active === document.body || active === done.focus ||
                  (active.closest && active.closest('.ui-toast')))) {
-      back.focus();
+      moveTo(back);
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
       toast('Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });

@@ -656,5 +656,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint };
+  window.MMWatch.marks = { paint: paint, showInRow: showInRow };
 })();

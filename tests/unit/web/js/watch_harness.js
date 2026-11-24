@@ -76,7 +76,7 @@ function load(opts = {}) {
   doc.dispatchEvent = (e) => told.push([e.type, e.detail.id]);
   ctx.window = ctx;
   vm.createContext(ctx);
-  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
+  return { ctx, doc, toasts, timers, told, run: () => ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js', 'watch/search.js', 'watch/seasons.js', 'watch.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx)) };
 }
 
@@ -114,6 +114,52 @@ function leavingRowPage(doc) {
 }
 
 const scenarios = {
+  // The card an Undo puts back in a row, and where the row is scrolled for it.
+  async undoneCardShown() {
+    const go = async (left, grid) => {
+      const page = load();
+      const body = leavingRowPage(page.doc);
+      page.doc.body.appendChild(body);
+      if (grid) body.querySelector('.watch-row').className = 'watch-all__body';
+      page.run();
+      const scroller = page.doc.querySelector('.watch-row__scroll');
+      const by = [];
+      scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
+      scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
+      const first = page.doc.querySelector('.watch-card');
+      first.getBoundingClientRect = () => ({ top: 0, bottom: 20, left, right: left, width: 0, height: 20 });
+      page.doc.activeElement = page.doc.body;
+      click(page.doc, first.querySelector('[data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const focused = [];
+      first.querySelector('[data-watch-keep]').focus = function (o) { focused.push(!!(o && o.preventScroll)); };
+      page.toasts[0].opts.action.onClick();
+      const out = { back: scroller.children[0] === first, by, focused, snap: scroller.style.scrollSnapType || '' };
+      page.timers.forEach((fn) => fn());
+      return { ...out, after: scroller.style.scrollSnapType || '' };
+    };
+    return { off: await go(-128), inView: await go(20), grid: await go(-128, true) };
+  },
+
+  // The dialog a Keep's toast says it came from, so that Ctrl+Z reaches its Undo.
+  async toastDialog() {
+    const keepOnce = async (where) => {
+      const page = load();
+      page.doc.body.appendChild(build(page.doc, ['div', { class: 'ttl', id: 'ttl' }, ['p', {},
+        ['button', { class: 'watch-keep', 'data-watch-keep': '9', 'aria-label': 'Keep Dune' }, 'Keep']]]));
+      page.doc.body.appendChild(leavingRowPage(page.doc));
+      if (where !== 'page') page.doc.documentElement.classList.add('has-ttl');
+      page.run();
+      click(page.doc, page.doc.querySelector(where === 'details' ? '#ttl [data-watch-keep]' : '.watch-card [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const d = page.toasts[0].opts.dialog;
+      return d ? d.id : null;
+    };
+    return { details: await keepOnce('details'), page: await keepOnce('page') };
+  },
+
   // A finished Keep, a finished Undo and a Keep refused, as they are announced.
   async keepsTold() {
     const page = load();
