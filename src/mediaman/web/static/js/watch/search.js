@@ -366,9 +366,13 @@
     return head;
   }
 
+  function titleCount(n) { return n + (n === 1 ? ' title' : ' titles'); }
+
+  /* A category's name inside a sentence: "action", "TV movie". */
+  function lower(name) { return name.replace(/\S*[a-z]\S*/g, function (word) { return word.toLowerCase(); }); }
+
   function setCount(head, count) {
-    head.querySelector('.results-group__count').textContent =
-      typeof count === 'number' ? count + (count === 1 ? ' title' : ' titles') : '';
+    head.querySelector('.results-group__count').textContent = typeof count === 'number' ? titleCount(count) : '';
   }
 
   function skeleton() {
@@ -498,7 +502,7 @@
     var live = null; // what the results hold: { kind, node, ... }
     var tokened = false;
     var sheetOn = false;
-    var sheetGenres = null; // the genres the sheet was drawn from
+    var sheetOf = null; // the categories and people the sheet was drawn from
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
 
@@ -590,7 +594,7 @@
       return node;
     }
 
-    function tries(list, inSheet) {
+    function tries(list, after) {
       var row = el('div', 'watch-tries');
       list.forEach(function (text, i) {
         var b = el('button', 'watch-try');
@@ -598,15 +602,29 @@
         b.appendChild(MM.dom.icon('i-magnifying-glass'));
         b.appendChild(document.createTextNode(text));
         b.addEventListener('click', function () { fill(text); });
-        if (inSheet) staged(option(b, 'try-' + i), 130 + i * 22);
+        if (after) staged(option(b, 'try-' + i), after + i * 22);
         row.appendChild(b);
       });
       return row;
     }
 
-    function drawSheet(genres) {
-      if (sheetGenres === genres) return;
-      sheetGenres = genres;
+    function personTile(p, i) {
+      var b = option(el('button', 'watch-person'), 'person-' + p.person_id);
+      b.type = 'button';
+      var photo = face(p.profile_url, p.name);
+      b.appendChild(photo);
+      b.appendChild(el('span', 'watch-person__name', p.name));
+      b.appendChild(el('span', 'watch-person__count', titleCount(p.titles)));
+      b.addEventListener('click', function () { explore.openPerson(p, photo); });
+      return staged(b, 130 + i * 22);
+    }
+
+    function drawSheet(all) {
+      if (sheetOf === all) return;
+      sheetOf = all;
+      if (picked && sheet.contains(picked)) pick(null);
+      var genres = all.genres;
+      var folk = all.people.slice(0, 6);
       sheet.textContent = '';
       if (genres.length) {
         var tiles = el('div', 'watch-tiles');
@@ -624,8 +642,16 @@
         sheet.appendChild(el('p', 'watch-sheet__title', 'Browse by category'));
         sheet.appendChild(tiles);
       }
+      if (folk.length) {
+        var who = el('div', 'watch-people');
+        who.setAttribute('role', 'group');
+        who.setAttribute('aria-label', 'People in your library');
+        folk.forEach(function (p, i) { who.appendChild(personTile(p, i)); });
+        sheet.appendChild(el('p', 'watch-sheet__title', 'People in your library'));
+        sheet.appendChild(who);
+      }
       sheet.appendChild(el('p', 'watch-sheet__title', 'Or try'));
-      var row = tries(TRIES, true);
+      var row = tries(TRIES, folk.length ? 190 : 130);
       row.setAttribute('role', 'group');
       row.setAttribute('aria-label', 'Or try');
       sheet.appendChild(row);
@@ -633,13 +659,13 @@
 
     function openSheet(on) {
       on = on && canExplore() && !input.value && !tokened;
-      if (on) explore.categories().then(function (all) { if (all.genres.length || !sheetGenres) drawSheet(all.genres); });
+      if (on) explore.categories().then(function (all) { if (all.genres.length || !sheetOf) drawSheet(all); });
       if (on === sheetOn) return;
       sheetOn = on;
       if (on) {
         var preview = window.MMWatch.preview;
         if (preview && preview.close) preview.close();
-        drawSheet(explore.genres());
+        drawSheet(explore.all());
         sheet.scrollTop = 0;
         setHint('Try “' + EXAMPLES[0] + '”');
       }
@@ -790,6 +816,14 @@
       });
     }
 
+    function personSuggestion(p, sub, typed) {
+      return suggestion('p-' + p.person_id, 'person', {
+        name: p.name, sub: sub, typed: typed,
+        pic: function () { return face(p.profile_url, p.name); },
+        act: function (b) { explore.openPerson(p, b.querySelector('.watch-face')); }
+      });
+    }
+
     function suggestionsFor(q, c) {
       var typed = q.toLowerCase();
       var asked = canExplore() ? explore.parse(q) : { genres: [], words: '' };
@@ -810,15 +844,12 @@
         ['top_rated', 'newest'].forEach(function (sort) {
           if (sort !== asked.sort) list.push(genreSuggestion(cats[0], asked, sort, ''));
         });
+        (cats[0].actors || []).slice(0, 3).forEach(function (p) {
+          list.push(personSuggestion(p, 'In ' + p.titles + ' ' + lower(cats[0].name) + ' titles', ''));
+        });
       }
       who.forEach(function (p) {
-        list.push(suggestion('p-' + p.person_id, 'person', {
-          name: p.name,
-          sub: [p.job].concat((p.known_for || []).slice(0, 2).join(', ')).filter(Boolean).join(' · '),
-          typed: typed,
-          pic: function () { return face(p.profile_url, p.name); },
-          act: function (b) { explore.openPerson(p, b.querySelector('.watch-face')); }
-        }));
+        list.push(personSuggestion(p, [p.job].concat((p.known_for || []).slice(0, 2).join(', ')).filter(Boolean).join(' · '), typed));
       });
       titles(c).filter(function (t) { return t.ref && begins(t.title, typed); }).slice(0, 3).forEach(function (t) {
         list.push(suggestion('t-' + t.ref, 'title', {
@@ -960,7 +991,7 @@
       box.appendChild(el('p', 'watch-results__line', (lone ? 'No matches for “' : 'No title matches “') + q + '”'));
       if (!lone) return box;
       box.appendChild(el('p', 'watch-results__hint', 'Check the spelling, or try a shorter title.'));
-      if (canExplore()) box.appendChild(tries(TRIES_EMPTY, false));
+      if (canExplore()) box.appendChild(tries(TRIES_EMPTY, 0));
       box.look = function () {
         if (!moves(lens)) return;
         lens.animate([

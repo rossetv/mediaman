@@ -501,3 +501,26 @@ def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so()
     assert out["hidden"] == [True, 0]
     assert out["early"] == [True, True]
     assert out["out"] == ["/watch?genre=action", "/api/watch/explore?genre=action", True]
+
+
+def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
+    out = _run("libraryPeople")
+    assert out["heads"] == ["Browse by category", "People in your library", "Or try"]
+    assert len(out["sheet"]) == 6
+    assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
+    assert out["opened"] == ["/watch?person=9001", "Person 1"]
+    assert out["bare"] == ["Browse by category", "Or try"]
+
+
+def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
+    out = _run("libraryPeople")
+    assert out["alone"] == [
+        "Action | Category · Popular",
+        "Action | Category · Top rated",
+        "Action | Category · Newest",
+        "Person 1 | In 4 action titles",
+        "Person 2 | In 3 action titles",
+        "Person 3 | In 2 action titles",
+    ]
+    assert out["none"] == 3
+    assert out["actor"] == ["/watch?person=9001", "Person 1"]

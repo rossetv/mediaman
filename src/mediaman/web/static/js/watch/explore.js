@@ -679,7 +679,7 @@
 
   watch.explore = {
     categories: categories,
-    genres: function () { return held.genres; },
+    all: function () { return held; },
     known: function () { return arrived; },
     parse: parse,
     url: url,

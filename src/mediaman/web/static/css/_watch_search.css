@@ -212,6 +212,16 @@
 .watch-try { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 13px; border-radius: 22px; background: var(--s3); color: var(--t2); font-size: 14px; transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .watch-try > .ico { font-size: 13px; color: var(--t3); }
 .watch-try:is(:hover, .is-picked) { background: var(--s4); color: var(--t1); }
+.watch-people { display: flex; gap: 4px; margin: 0 -6px; padding: 2px 0; overflow-x: auto; scrollbar-width: none; }
+.watch-people::-webkit-scrollbar { display: none; }
+.watch-person { display: flex; flex: 1 0 92px; flex-direction: column; align-items: center; min-width: 0; padding: 8px 4px; border-radius: var(--r-lg); color: var(--t2); font-size: 12px; line-height: 1.25; text-align: center; transition: color var(--dur-fast) var(--ease-out); }
+.watch-person .watch-face { width: 56px; height: 56px; margin-bottom: 7px; font-size: 20px; transition: transform var(--dur-slow) var(--ease-spring); }
+.watch-person__name { max-width: 100%; overflow-wrap: anywhere; }
+.watch-person__count { margin-top: 2px; font-size: 11px; color: var(--t3); }
+.watch-person:is(:hover, .is-picked) { color: var(--t1); }
+.watch-person:is(:hover, .is-picked) .watch-face { transform: scale(1.07); }
+.watch-person:active .watch-face { transform: scale(.97); }
+.watch-person.is-picked { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (max-width: 599.98px) { .watch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* The page settles back behind it. */
@@ -346,6 +356,7 @@
   .watch-search .watch-search__lens,
   .watch-search:hover .watch-search__key--slash,
   .watch-suggestion .watch-face,
+  .watch-person .watch-face,
   .results-fail .ico,
   .watch-tile:active,
   .watch-try:active { transform: none !important; }

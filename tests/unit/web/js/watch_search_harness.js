@@ -1159,6 +1159,36 @@ const scenarios = {
     out.left = left.url();
     return out;
   },
+
+  // The people the library has most of: in the sheet, and those often in a category beside it when it is suggested alone.
+  async libraryPeople() {
+    const who = (n, titles) => ({ person_id: 9000 + n, name: 'Person ' + n, profile_url: null, titles });
+    const people = [1, 2, 3, 4, 5, 6, 7].map((n) => who(n, 9 - n));
+    const genres = [{ ...GENRES[0], actors: [who(1, 4), who(2, 3), who(3, 2)] }, { ...GENRES[1], actors: [] }];
+    const p = await ready(ADMIN, '', null, { tmdb_configured: true, genres, decades: DECADES, people, library: { ready: true } });
+    p.press();
+    await settle();
+    const tiles = () => p.sheet.querySelectorAll('.watch-person').map((n) => n.children[1].textContent);
+    const out = { sheet: tiles(), heads: p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent),
+      first: p.sheet.querySelector('.watch-person').textContent, option: p.sheet.querySelector('.watch-person').getAttribute('role') };
+    click(p.doc, p.$('watch-option-person-9001'));
+    await settle();
+    out.opened = [p.url(), p.doc.querySelector('.explore-title').textContent];
+    const q = await ready(ADMIN, '', null, { tmdb_configured: true, genres, decades: DECADES, people, library: { ready: true } });
+    q.type('action');
+    out.alone = q.suggested();
+    q.type('sci-fi');
+    out.none = q.suggested().length;
+    q.type('action');
+    click(q.doc, q.doc.querySelectorAll('.watch-suggestion--person')[0]);
+    await settle();
+    out.actor = [q.url(), q.doc.querySelector('.explore-title').textContent];
+    const bare = await ready(ADMIN);
+    bare.press();
+    await settle();
+    out.bare = bare.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
+    return out;
+  },
 };
 
 // Motion on: every move runs until finish() ends it.
