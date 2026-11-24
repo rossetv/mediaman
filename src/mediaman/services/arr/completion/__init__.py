@@ -35,6 +35,7 @@ from mediaman.services.arr.completion._verification import (
     _ArrLibraryIndex,
     _batch_insert_completions,
     _check_item_verified,
+    _reset_unchecked,
     record_verified_completions,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "_PosterLookup",
     "_batch_insert_completions",
     "_check_item_verified",
+    "_reset_unchecked",
     "_sync_recent_row",
     "carry_queued_since",
     "cleanup_recent_downloads",

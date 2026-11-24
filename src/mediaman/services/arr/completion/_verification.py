@@ -226,32 +226,32 @@ class _Unchecked:
 _CHECK_AGAIN_AFTER = timedelta(minutes=1)
 _GIVE_UP_AFTER = timedelta(hours=1)
 _MAX_UNCHECKED = 50
-# By database file and dl_id.
-_unchecked: dict[tuple[str, str], _Unchecked] = {}
+# By dl_id.
+_unchecked: dict[str, _Unchecked] = {}
 _unchecked_lock = threading.Lock()
 
 
-def _database_file(conn: sqlite3.Connection) -> str:
-    row = conn.execute("PRAGMA database_list").fetchone()
-    return str(row[2]) if row else ""
+def _reset_unchecked() -> None:
+    with _unchecked_lock:
+        _unchecked.clear()
 
 
-def _take_due(database: str, now: datetime) -> list[_Unchecked]:
+def _take_due(now: datetime) -> list[_Unchecked]:
     """Take out the completions to check again now."""
     with _unchecked_lock:
         due = [
-            key
-            for key, kept in _unchecked.items()
-            if key[0] == database and now - kept.last_tried >= _CHECK_AGAIN_AFTER
+            dl_id
+            for dl_id, kept in _unchecked.items()
+            if now - kept.last_tried >= _CHECK_AGAIN_AFTER
         ]
-        return [_unchecked.pop(key) for key in due]
+        return [_unchecked.pop(dl_id) for dl_id in due]
 
 
-def _keep_unchecked(database: str, kept: list[_Unchecked], now: datetime) -> None:
+def _keep_unchecked(kept: list[_Unchecked], now: datetime) -> None:
     with _unchecked_lock:
         for entry in kept:
             if now - entry.first_tried < _GIVE_UP_AFTER and len(_unchecked) < _MAX_UNCHECKED:
-                _unchecked[(database, entry.item["dl_id"])] = entry
+                _unchecked[entry.item["dl_id"]] = entry
 
 
 def record_verified_completions(
@@ -279,8 +279,7 @@ def record_verified_completions(
     idx = _ArrLibraryIndex(conn, secret_key)
     to_insert: list[tuple[str, str, str, str]] = []
     now = now_utc()
-    database = _database_file(conn)
-    again = _take_due(database, now)
+    again = _take_due(now)
     kept: list[_Unchecked] = []
     silent: set[str] = set()
 
@@ -309,7 +308,7 @@ def record_verified_completions(
 
         to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
 
-    _keep_unchecked(database, kept, now)
+    _keep_unchecked(kept, now)
     # Single batch insert + single commit — per-row commits fsync once each,
     # which dominates the loop cost on a large completion set.
     _batch_insert_completions(conn, to_insert)

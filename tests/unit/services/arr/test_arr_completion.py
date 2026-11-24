@@ -20,6 +20,7 @@ from mediaman.db import init_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.completion import (
     _batch_insert_completions,
+    _reset_unchecked,
     carry_queued_since,
     cleanup_recent_downloads,
     detect_completed,
@@ -28,6 +29,13 @@ from mediaman.services.arr.completion import (
 )
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_recent_download
+
+
+@pytest.fixture(autouse=True)
+def _nothing_unchecked():
+    _reset_unchecked()
+    yield
+    _reset_unchecked()
 
 
 @pytest.fixture
