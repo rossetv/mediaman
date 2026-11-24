@@ -15,6 +15,7 @@ from xml.etree.ElementTree import ParseError
 import requests
 from plexapi.exceptions import PlexApiException
 
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta._plex_types import (
     PlexMovieItem,
     PlexSeasonItem,
@@ -27,6 +28,14 @@ if TYPE_CHECKING:
 from mediaman.services.media_meta.plex import PlexResponseTooLarge
 
 logger = logging.getLogger(__name__)
+
+_HISTORY_ERRORS = (
+    PlexApiException,
+    requests.RequestException,
+    SafeHTTPError,
+    PlexResponseTooLarge,
+    ParseError,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +137,7 @@ class PlexFetcher:
             rating_key = season["plex_rating_key"]
             try:
                 watch_history = self._plex.get_season_watch_history(rating_key)
-            except (PlexApiException, requests.RequestException, PlexResponseTooLarge, ParseError):
+            except _HISTORY_ERRORS:
                 logger.warning(
                     "Failed to fetch watch history for season %s — "
                     "excluding from evaluation this scan but protecting "
@@ -159,7 +168,7 @@ class PlexFetcher:
             rating_key = item["plex_rating_key"]
             try:
                 watch_history = self._plex.get_watch_history(rating_key)
-            except (PlexApiException, requests.RequestException, PlexResponseTooLarge, ParseError):
+            except _HISTORY_ERRORS:
                 logger.warning(
                     "Failed to fetch watch history for item %s — "
                     "excluding from evaluation this scan but protecting "

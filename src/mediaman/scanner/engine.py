@@ -34,6 +34,7 @@ import sqlite3
 from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import ParseError
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -233,7 +234,14 @@ class ScanEngine:
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
-            except (PlexApiException, requests.RequestException, sqlite3.Error):
+            except (
+                PlexApiException,
+                requests.RequestException,
+                SafeHTTPError,
+                ParseError,
+                ValueError,
+                sqlite3.Error,
+            ):
                 # skip-one-bad-library — a fetch failure must not abort other libraries
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
