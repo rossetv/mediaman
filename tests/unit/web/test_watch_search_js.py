@@ -629,3 +629,17 @@ def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
     shut, opened = [False, False, "Clear search"], [True, True, "Close search"]
     # The cross of a search empties it, which opens the sheet again.
     assert _run("sheetHolds") == [shut, opened, [*shut, False], shut, opened]
+
+
+def test_only_words_that_fit_stand_in_the_empty_field() -> None:
+    out = _run("hintFits")
+    assert out["list"] == ["Search", "Search your library"]
+    label = "Search films and shows"
+    # One round of the two examples that are short enough, then it rests.
+    assert out["rows"] == [
+        label,
+        "Try “an actor’s name”",
+        "Try “something scary”",
+        label,
+        label,
+    ]

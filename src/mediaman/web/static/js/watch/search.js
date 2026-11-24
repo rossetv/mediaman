@@ -33,6 +33,7 @@
   var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
   var LABEL = 'Search films and shows';
   var LIST_LABEL = 'Search your library';
+  var SHORT_LABEL = 'Search';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
   var TRIES_EMPTY = ['popular action movies', 'popular comedy movies', 'something scary'];
@@ -555,7 +556,23 @@
       hintText.textContent = text;
     }
 
-    function restHint() { setHint(tokened ? 'Search again' : label()); }
+    function example(i) { return 'Try “' + EXAMPLES[i] + '”'; }
+
+    /* Whether the field shows all of *text*. */
+    function fits(text) {
+      var was = hintText.textContent;
+      hintText.textContent = text;
+      var ok = !(hintText.scrollWidth > hintText.clientWidth);
+      hintText.textContent = was;
+      return ok;
+    }
+
+    function rest() {
+      if (tokened) return 'Search again';
+      return fits(label()) ? label() : SHORT_LABEL;
+    }
+
+    function restHint() { setHint(rest()); }
 
     /* One round of examples once the page has settled, then it rests. */
     function showExamples() {
@@ -564,12 +581,13 @@
       var tick = window.setInterval(function () {
         if (focused() || input.value || tokened || listView) { window.clearInterval(tick); return; }
         if (document.hidden) return;
+        while (n < EXAMPLES.length && !fits(example(n))) n++;
         if (n === EXAMPLES.length) {
           window.clearInterval(tick);
           restHint();
           return;
         }
-        setHint('Try “' + EXAMPLES[n++] + '”');
+        setHint(example(n++));
       }, EXAMPLE_MS);
     }
 
@@ -584,9 +602,9 @@
         token.appendChild(chip);
         if (moves(chip)) chip.animate([{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: spring() });
       }
-      // The words it makes room for do not move a second time.
-      hintText.textContent = tokened ? 'Search again' : label();
       sync();
+      // The words it makes room for do not move a second time.
+      hintText.textContent = rest();
     }
 
     /* ── The sheet ── */
@@ -691,7 +709,7 @@
         if (preview && preview.close) preview.close();
         drawSheet(explore.all(), !explore.known());
         sheet.scrollTop = 0;
-        setHint('Try “' + EXAMPLES[0] + '”');
+        setHint(example(0));
       }
       sheetOn = on;
       page.classList.toggle('is-sheet-on', on);
@@ -1458,6 +1476,7 @@
     }, true);
     input.addEventListener('focus', function () {
       sync();
+      if (listView) restHint();
       if (tabbed) openSheet(true);
     });
     input.addEventListener('blur', function () {
@@ -1533,8 +1552,11 @@
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
     fitSheet();
-    // A narrow window shows no titles among the suggestions.
-    window.addEventListener('resize', sayList);
+    window.addEventListener('resize', function () {
+      // A narrow window shows no titles among the suggestions.
+      sayList();
+      if (!focused()) hintText.textContent = rest();
+    });
 
     /* ── A page in the results' place ── */
 
@@ -1592,6 +1614,7 @@
     });
 
     sync();
+    hintText.textContent = rest();
     sayRole();
     showExamples();
     if (canExplore()) explore.categories();

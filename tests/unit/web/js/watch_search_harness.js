@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, every = () => 0 } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -44,13 +44,13 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     document: doc, console, JSON, Array, Object, String, Math, Promise, Error, Infinity, URLSearchParams, parseFloat,
     setTimeout: (fn, ms) => { if (!ms) { setImmediate(fn); return -1; } timers.push({ fn, ms, on: true }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].on = false; },
-    setInterval: () => 0,
+    setInterval: (fn) => every(fn),
     clearInterval: () => {},
     AbortController: class { constructor() { this.signal = {}; } abort() { this.aborted = true; } },
     Image: class {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', opacity: '1' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: still }),
     innerHeight: 800,
     categories,
     scrollY: 0,
@@ -1436,6 +1436,36 @@ const scenarios = {
     out.push(state());
     click(p.doc, cross);
     out.push(state());
+    return out;
+  },
+
+  // Only words that fit the field stand in it: the label, or one word of it, and the examples that fit.
+  async hintFits() {
+    const out = {};
+    const width = { chars: 18 };
+    const page = (data) => {
+      let tick = null;
+      Object.defineProperties(Node.prototype, {
+        clientWidth: { configurable: true, get() { return width.chars; } },
+        scrollWidth: { configurable: true, get() { return Math.max(width.chars, this.textContent.length); } },
+      });
+      const p = load(data, '', null, undefined, { still: false, every: (fn) => { tick = fn; return 1; } });
+      return { p, tick: () => tick && tick(), hint: () => p.$('watch-search-hint').textContent };
+    };
+    try {
+      const narrow = page({ ...ADMIN, view: 'list' });
+      out.list = [narrow.hint()];
+      width.chars = 40;
+      narrow.p.fire('resize');
+      out.list.push(narrow.hint());
+      width.chars = 24;
+      const rows = page(ADMIN);
+      out.rows = [rows.hint()];
+      for (let i = 0; i < 4; i++) { rows.tick(); out.rows.push(rows.hint()); }
+    } finally {
+      delete Node.prototype.clientWidth;
+      delete Node.prototype.scrollWidth;
+    }
     return out;
   },
 };
