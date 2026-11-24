@@ -398,6 +398,18 @@ def test_people_lead_where_no_title_matches() -> None:
     assert (out["category"]["leads"], out["category"]["empty"]) == (False, 1)
 
 
+def test_people_who_lead_stay_while_more_is_typed() -> None:
+    out = _run("peopleLead")
+    assert [out[state]["leads"] for state in ("asked", "half", "still", "title", "nobody")] == [
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert out["half"]["none"] == ["No title matches “mara”"]
+
+
 def test_results_fade_out_over_the_list_that_is_switched_to() -> None:
     assert _run("listOverResults") == [True, True, 0]
 

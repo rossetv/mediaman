@@ -966,16 +966,31 @@
       glide(live.grid, rows, function () {
         // With no title to show, the people are what was found.
         var lead = rows.some(function (x) { return x.key === NO_TITLE; }) && peopleFor(q, c).length > 0;
-        live.node.classList.toggle('is-people', lead);
         var list = suggestionsFor(q, c, lead);
         var at = picked && picked.id;
         if (list.length || settled) live.node.classList.toggle('has-no-suggestions', !list.length);
         live.side.classList.toggle('is-titles-only', list.every(function (x) { return x.key.charAt(0) === 't'; }));
-        glide(live.list, list);
+        resize(lead, function () { glide(live.list, list, function () { live.node.classList.toggle('is-people', lead); }); });
         sayList();
         // While the person types they are not read out.
         if (c && !settled && !status.textContent) status.textContent = suggestionCount();
         pick(at ? options().filter(function (n) { return n.id === at; })[0] || null : null);
+      });
+    }
+
+    /* Where people come to lead, or no longer do, *change* gives their photos and
+       their words another size: they grow or shrink to it. */
+    function resize(lead, change) {
+      var node = live.node;
+      if (node.classList.contains('is-people') === lead || !moves(node)) { change(); return; }
+      var faces = core.toArray(node.querySelectorAll('.watch-suggestion .watch-face'));
+      var was = faces.map(function (n) { return n.getBoundingClientRect().height; });
+      change();
+      faces.forEach(function (n, i) {
+        var to = n.getBoundingClientRect().height;
+        if (!was[i] || !to || was[i] === to || !node.contains(n)) return;
+        n.animate([{ transform: 'scale(' + was[i] / to + ')', transformOrigin: '0 0' }, { transform: 'none', transformOrigin: '0 0' }], { duration: 300, easing: spring() });
+        play(n.closest('.watch-suggestion').querySelector('.watch-suggestion__text'), [{ opacity: 0 }, { opacity: 1 }], 220);
       });
     }
 
@@ -1229,6 +1244,13 @@
       holdResults();
       // Old results stay, dimmed, until the library answers.
       if (lib.state === 'loading' && live.drawn && !lib.items) {
+        draw(c.q, c, live.rows, false);
+        return;
+      }
+
+      // People who lead are there until a title is.
+      if (!settled && !all.lib.length && !all.out.length && live.node.classList.contains('is-people') && peopleFor(c.q, c).length) {
+        live.grid.removeAttribute('aria-busy');
         draw(c.q, c, live.rows, false);
         return;
       }

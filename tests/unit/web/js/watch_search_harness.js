@@ -961,6 +961,22 @@ const scenarios = {
     out.mixed = look(p);
     await find(p, 'sci', [], []);
     out.category = look(p);
+    // Typed on, they stay while the answers are on their way, and go for a title.
+    await find(p, 'mara', [MARA], []);
+    await p.search('mara e');
+    out.asked = look(p);
+    await p.answer('/api/watch/search?', { items: [] });
+    out.half = look(p);
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], people: [MARA] });
+    out.still = look(p);
+    await p.search('mara el');
+    await p.answer('/api/watch/search?', { items: [{ ...LIB, title: 'Mara Elm' }] });
+    out.title = look(p);
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], people: [] });
+    await find(p, 'mara', [MARA], []);
+    await p.search('zz');
+    await p.answer('/api/watch/search?', { items: [] });
+    out.nobody = look(p);
     return out;
   },
 
