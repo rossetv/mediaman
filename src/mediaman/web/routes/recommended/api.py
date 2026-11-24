@@ -290,7 +290,12 @@ def api_download_recommendation(
 
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
-            return respond_failure(f"'{row.title}' already exists in your library", status=409)
+            already = (
+                f"'{row.title}' is already in Radarr"
+                if row.media_type == "movie"
+                else f"'{row.title}' is already tracked by Sonarr — manage it there"
+            )
+            return respond_failure(already, status=409)
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row.title,

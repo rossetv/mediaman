@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import validate_download_token
 from mediaman.db import set_connection
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.routes.recommended.api import (
@@ -244,3 +245,44 @@ class TestShareTokenCarriesNoEmail:
         assert payload is not None
         assert payload["email"] is None
         assert payload["tmdb"] == 27205
+
+
+class TestDownloadRecommendationAlreadyThere:
+    """An Arr answering 409 says the title is already in the Arr, not on a page."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        reset_download_action_limiter()
+
+    def test_movie_409_names_radarr(self, conn):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
+        client = _make_rec_app(conn)
+        mock_radarr = MagicMock()
+        mock_radarr.add_movie.side_effect = SafeHTTPError(409, "exists", "radarr/api/v3/movie")
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_radarr_from_db",
+            return_value=mock_radarr,
+        ):
+            resp = client.post(f"/api/recommended/{sid}/download")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Inception' is already in Radarr"
+
+    def test_tv_409_names_sonarr(self, conn):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        sid = insert_suggestion(conn, title="Severance", tmdb_id=136315, media_type="tv")
+        client = _make_rec_app(conn)
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        mock_sonarr.add_series.side_effect = SafeHTTPError(409, "exists", "sonarr/api/v3/series")
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_sonarr_from_db",
+            return_value=mock_sonarr,
+        ):
+            resp = client.post(f"/api/recommended/{sid}/download")
+
+        assert resp.status_code == 409
+        assert resp.json()["error"] == "'Severance' is already tracked by Sonarr — manage it there"
