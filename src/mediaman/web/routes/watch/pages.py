@@ -869,6 +869,7 @@ def play_page(
     origin = safe_origin(origin)
     now = now_utc()
     next_episode: dict[str, str] | None = None
+    next_state = "end"
     show_href: str | None = None
     if item.type == "movie":
         if lib.find_movie(conn, libraries, rating_key) is None:
@@ -897,8 +898,10 @@ def play_page(
             following = plex.next_episode(rating_key)
         except PlexError:
             following = None
+            next_state = "unknown"
         if following is not None:
             label = episode_label(following.season_index, following.index)
+            next_state = "next"
             next_episode = {
                 "href": play_href(following.rating_key, origin=_origin_for(origin, following)),
                 "label": f"{label} — {following.title}" if following.title else label,
@@ -927,6 +930,7 @@ def play_page(
             "start_s": start_s,
             "back_href": back_href,
             "next": next_episode,
+            "next_state": next_state,
             "show_href": show_href,
             "leaving": leaving_info(pending, now),
         },

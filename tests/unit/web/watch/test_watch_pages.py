@@ -645,6 +645,22 @@ class TestMoviePage:
 
 
 class TestPlayerPage:
+    @pytest.mark.parametrize(("key", "state"), [("512", "next"), ("522", "end"), ("100", "end")])
+    def test_it_says_whether_another_episode_follows(self, get, key, state):
+        ctx = get(f"/watch/play/{key}").json()
+        assert (ctx["next_state"], ctx["next"] is not None) == (state, state == "next")
+
+    @pytest.mark.parametrize("error", [PlexUnavailable("down"), PlexItemNotFound("gone")])
+    def test_a_next_episode_plex_cannot_give_is_unknown_not_the_end(
+        self, get, plex, monkeypatch, error
+    ):
+        def fail(_key):
+            raise error
+
+        monkeypatch.setattr(plex, "next_episode", fail)
+        ctx = get("/watch/play/512").json()
+        assert (ctx["next_state"], ctx["next"]) == ("unknown", None)
+
     def test_resume_starts_at_the_saved_position(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 
