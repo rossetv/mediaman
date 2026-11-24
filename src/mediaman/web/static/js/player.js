@@ -76,6 +76,8 @@
   var LOST_FIRST_MS = 1000;
   var LOST_MAX_MS = 8000;
   var LOST_FOR_MS = 60000;
+  /* And where the server refuses, or refuses and is lost by turns, for this long. */
+  var NONE_FOR_MS = 2 * LOST_FOR_MS;
   /* The longest a busy server may ask for before it is asked again. */
   var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
@@ -241,7 +243,7 @@
   var starting = false;
   var startsOpen = 0;        // starts not answered yet, dropped ones included
   var ownRival = false;      // one of them may have replaced the stream now playing
-  var busySince = null;      // when the server first refused a request for want of room, while it does
+  var noneSince = null;      // since when no request was taken, refused or lost, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
@@ -572,7 +574,7 @@
     /* What was loaded before is all played. */
     if (lost) countLost();
     stalled = true;
-    if (lost || busySince !== null) return;
+    if (lost || noneSince !== null) return;
     if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
   }
 
@@ -709,13 +711,13 @@
   function waitOut(again, gaveUp) {
     if (!lost) {
       lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
-      endBusy();
       clearTimeout(stallTimer);
       countLost();
       showLost();
     }
     if (lost.over) return;
     lost.again = again;
+    if (noneTooLong()) { giveUp(); return; }
     clearTimeout(lost.tryTimer);
     lost.tryTimer = setTimeout(tryUnattended, lost.wait);
     lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
@@ -746,6 +748,7 @@
   function giveUp() {
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
+    noneSince = null;
     lost.over = true;
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
@@ -800,21 +803,20 @@
     else tryUnattended();
   });
 
-  /* The last request was not refused; from now on a wait is the connection's. */
-  function endBusy() {
-    if (busySince !== null && stalled) stallTimer = setTimeout(stepDown, STALL_MS);
-    busySince = null;
+  /* A request was taken; from now on a wait is the connection's. */
+  function taken() {
+    if (noneSince !== null && stalled) stallTimer = setTimeout(stepDown, STALL_MS);
+    noneSince = null;
   }
 
-  /* Whether it has been so for too long, with nothing left to play. */
-  function busyTooLong() {
+  function noneTooLong() {
     var b = video.buffered;
     for (var i = 0; i < b.length; i++) {
       /* Less is a stall too. */
-      if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) busySince = null;
+      if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) noneSince = null;
     }
-    if (busySince === null) busySince = Date.now();
-    return Date.now() - busySince >= LOST_FOR_MS;
+    if (rolling || noneSince === null) noneSince = Date.now();
+    return Date.now() - noneSince >= NONE_FOR_MS;
   }
 
   /* Whether a proxy, not mediaman, answered: one in front of it says so with these. */
@@ -842,7 +844,7 @@
   function startStream(pos) {
     var gen = ++generation;
     endLost();
-    endBusy();
+    noneSince = null;
     dropAim();
     starting = true;
     pendingStart = pos;
@@ -945,7 +947,7 @@
       xhrSetup: function (xhr, url) {
         if (!/\/seg\//.test(url)) return;
         xhr.addEventListener('readystatechange', function () {
-          if (h === hls && xhr.readyState === 2 && xhr.status === 200) endBusy();
+          if (h === hls && xhr.readyState === 2 && xhr.status === 200) taken();
         });
       },
     });
@@ -963,7 +965,7 @@
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
       if (askedAlone) ownRival = false;
-      endBusy();
+      taken();
       reached();
     });
     h.loadSource(playlist);
@@ -1087,7 +1089,7 @@
     if (status === 429) {
       reached();
       clearTimeout(stallTimer);
-      if (busyTooLong()) { fail(START_ERRORS.rate_limited.text); return; }
+      if (noneTooLong()) { fail(START_ERRORS.rate_limited.text); return; }
       h.stopLoad();
       setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
@@ -1146,7 +1148,7 @@
     generation++;
     starting = false;
     endLost();
-    endBusy();
+    noneSince = null;
     dropAim();
     stopRolling();
     destroyHls();
@@ -1416,7 +1418,7 @@
     lastTime = null;
     stopRolling();
     /* What is wanted now may not be what was refused. */
-    busySince = null;
+    noneSince = null;
     /* A message over a video that can be played is about its end. */
     if (streamId && !starting) {
       if (lost && lost.over) {
@@ -2608,7 +2610,7 @@
     streamId = null;
     generation++;
     endLost();
-    endBusy();
+    noneSince = null;
     dropAim();
     if (switching) showSubtitle(item.subtitle);
     switching = false;

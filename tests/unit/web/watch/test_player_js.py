@@ -1456,6 +1456,16 @@ def test_refusals_on_either_side_of_a_drop_are_not_one_long_one(markup):
     assert out == {"message": None, "starts": 1}
 
 
+@pytest.mark.parametrize("first", ["refused", "lost"])
+@pytest.mark.parametrize("status", [0, 502, 504])
+def test_a_drop_and_a_refusal_by_turns_end_in_a_message(markup, first, status):
+    out = run(markup, "busy_and_lost", plays=f"{first} {status}")
+    busy = {"text": "Too many tries. Wait a moment and try again.", "button": "Try again"}
+    assert out["message"] in (LOST, busy)
+    assert 115 <= out["at"] <= 125
+    assert (out["byItself"], out["again"]) == (0, None)
+
+
 def test_a_refusal_before_a_seek_counts_for_nothing_after_it(markup):
     out = run(markup, "busy_once", plays="back")
     assert (out["message"], out["stops"]) == (None, 0)

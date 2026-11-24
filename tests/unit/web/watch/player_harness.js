@@ -1696,6 +1696,44 @@ const scenarios = {
     return out;
   },
 
+  /* The connection drops, or a proxy answers, and the server refuses, by turns, every 3 s: `first`
+     comes at the start and every other time. */
+  async busy_and_lost(p) {
+    const [first, status] = p.win.serverPlays.split(' ');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const errors = {
+      refused: () => loadError('fragLoadError', 429, null, { 'retry-after': '1' }),
+      lost: () => loadError('fragLoadError', +status),
+    };
+    const order = first === 'refused' ? ['refused', 'lost'] : ['lost', 'refused'];
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    const out = { at: null };
+    let n = 0;
+    for (let t = 0; t < 300 && !messageState(p); t += 3) {
+      if (!h.stopped || !t) h.emit('hlsError', errors[order[n++ % 2]]());
+      if (messageState(p)) out.at = t;
+      else p.tick(3000);
+      await settle();
+    }
+    out.message = messageState(p);
+    out.frame = p.video.readyState === 2 || holdState(p).shown;
+    /* Under the message nothing goes on by itself; a press starts the count over. */
+    const asked = h.loads.length + p.starts().length;
+    p.tick(60000);
+    await settle();
+    out.byItself = h.loads.length + p.starts().length - asked;
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await settle();
+    const last = p.hlsList[p.hlsList.length - 1];
+    last.emit('hlsError', errors.lost());
+    out.again = messageState(p);
+    return out;
+  },
+
   /* Refused for long, paused with enough loaded ahead. */
   async busy_paused(p) {
     await streamPlays(p, 100);
@@ -1725,7 +1763,7 @@ const scenarios = {
     out.playing = messageState(p);
     loadedTo(p, p.video.currentTime);
     if (plays) fire(p.video, 'waiting');
-    for (let i = 0; i < 28; i++) { p.tick(2000); await settle(); refuse(); }
+    for (let i = 0; i < 58; i++) { p.tick(2000); await settle(); refuse(); }
     out.early = messageState(p);
     for (let i = 0; i < 4; i++) { p.tick(2000); await settle(); if (!messageState(p)) refuse(); }
     out.message = messageState(p);
