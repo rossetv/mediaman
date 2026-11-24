@@ -10,6 +10,7 @@ from mediaman.web.auth.password_hash import get_user_email, set_user_email
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
 from mediaman.web.routes.users import (
+    _PASSWORD_CHANGE_LIMITER,
     _SESSIONS_LIST_LIMITER,
     _SESSIONS_REVOKE_LIMITER,
     _USER_MGMT_LIMITER,
@@ -22,6 +23,7 @@ _ORIGIN = {"origin": "http://testserver"}
 @pytest.fixture
 def client(conn, viewer_client):
     _USER_MGMT_LIMITER.reset()
+    _PASSWORD_CHANGE_LIMITER.reset()
     _SESSIONS_LIST_LIMITER.reset()
     _SESSIONS_REVOKE_LIMITER.reset()
     set_connection(conn)
@@ -83,3 +85,25 @@ def test_signing_out_other_devices_is_limited_for_each_person(client, conn):
     assert resp.status_code == 429
     assert validate_session(conn, other) == "viewer"
     assert _SESSIONS_REVOKE_LIMITER.check("boss")
+
+
+@pytest.mark.parametrize(
+    ("limiter", "method", "path", "body"),
+    [
+        (_USER_MGMT_LIMITER, "PATCH", "/api/users/me/email", {"email": "vic@example.com"}),
+        (
+            _PASSWORD_CHANGE_LIMITER,
+            "POST",
+            "/api/users/change-password",
+            {"old_password": "x", "new_password": "y"},
+        ),
+    ],
+)
+def test_a_limit_met_on_your_own_account_says_so_plainly(client, limiter, method, path, body):
+    while limiter.check("viewer"):
+        pass
+
+    resp = client.request(method, path, json=body)
+
+    assert resp.status_code == 429
+    assert resp.json()["message"] == "Too many changes. Wait a while and try again."

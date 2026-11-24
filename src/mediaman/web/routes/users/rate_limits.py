@@ -40,3 +40,6 @@ _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
 )
 _SESSIONS_LIST_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 _SESSIONS_REVOKE_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60, max_per_day=100)
+
+#: Said to a person about their own account. The caps run for a minute or for a day.
+OWN_ACCOUNT_LIMIT_MESSAGE = "Too many changes. Wait a while and try again."

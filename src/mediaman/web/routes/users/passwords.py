@@ -18,6 +18,7 @@ from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
+    OWN_ACCOUNT_LIMIT_MESSAGE,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,18 +40,14 @@ def api_change_password(
     request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):
         logger.warning("password.change_throttled actor=%s scope=actor", _sanitise_log_field(admin))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
     if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
         logger.warning(
             "password.change_throttled actor=%s scope=ip ip=%s",
             _sanitise_log_field(admin),
             request_ip,
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
 
     old_password = body.old_password
     new_password = body.new_password

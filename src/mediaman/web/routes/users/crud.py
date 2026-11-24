@@ -30,7 +30,11 @@ from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
-from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
+from mediaman.web.routes.users.rate_limits import (
+    _USER_CREATE_LIMITER,
+    _USER_MGMT_LIMITER,
+    OWN_ACCOUNT_LIMIT_MESSAGE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -264,9 +268,7 @@ def api_set_my_email(
             actor=admin,
             ip=client_ip,
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
