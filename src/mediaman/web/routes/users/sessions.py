@@ -21,7 +21,11 @@ from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
 from mediaman.web.routes.plex_link import carry_attempt
-from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER, _SESSIONS_REVOKE_LIMITER
+from mediaman.web.routes.users.rate_limits import (
+    _SESSIONS_LIST_LIMITER,
+    _SESSIONS_REVOKE_LIMITER,
+    too_many,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,6 @@ def api_list_sessions(
 
 
 @router.post("/api/users/sessions/revoke-others")
-@rate_limit(_SESSIONS_REVOKE_LIMITER, key="actor")
 def api_revoke_other_sessions(
     request: Request,
     admin: str = Depends(get_current_user),
@@ -70,6 +73,9 @@ def api_revoke_other_sessions(
     """Revoke every session for the signed-in user except the current one. Reauth tickets bound
     to the destroyed sessions are dropped too so they cannot be reused.
     """
+    if not _SESSIONS_REVOKE_LIMITER.check(admin):
+        logger.warning("session.revoke_all_throttled user=%s", _sanitise_log_field(admin))
+        return too_many(_SESSIONS_REVOKE_LIMITER, admin, "Too many tries.")
     conn = get_db()
     # Drop reauth tickets for this user before destroying their sessions
     # so a thief who held a ticket cannot perform one last privileged

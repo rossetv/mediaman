@@ -28,13 +28,12 @@ from mediaman.web.auth.password_hash import (
 from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
-from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.users.rate_limits import (
     _USER_CREATE_LIMITER,
     _USER_MGMT_LIMITER,
-    OWN_ACCOUNT_LIMIT_MESSAGE,
+    too_many,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,7 +73,6 @@ def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]
 
 
 @router.post("/api/users")
-@rate_limit(_USER_CREATE_LIMITER, key="actor")
 def api_create_user(
     request: Request,
     body: _CreateUserBody,
@@ -85,6 +83,10 @@ def api_create_user(
     session cookie cannot mint a permanent account that survives session rotation. The new
     user must choose their own password at first sign-in, since the admin knows this one.
     """
+    reserved = _USER_CREATE_LIMITER.reserve(admin)
+    if reserved is None:
+        logger.warning("user.create_throttled actor=%s", _sanitise_log_field(admin))
+        return too_many(_USER_CREATE_LIMITER, admin, "Too many new users.")
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
@@ -96,18 +98,25 @@ def api_create_user(
     password = body.password
 
     if not username or len(username) < 3 or len(username) > 64:
+        _USER_CREATE_LIMITER.release(admin, reserved)
         return respond_err(
             "invalid_username", status=400, message="Username must be between 3 and 64 characters"
         )
 
     issues = password_issues(password, username=username)
     if issues:
+        _USER_CREATE_LIMITER.release(admin, reserved)
         return respond_err(
             "weak_password",
             status=400,
             message="Password does not meet the strength policy",
             issues=issues,
         )
+
+    # Refused before the costly hash, so that refusals which do not count stay cheap.
+    if any(user["username"] == username for user in list_users(conn)):
+        _USER_CREATE_LIMITER.release(admin, reserved)
+        return respond_failure(f"User '{username}' already exists", status=409)
 
     # Audit fail-closed: write the audit row and the create_user mutation
     # in one transaction so we never have a "user created but no audit
@@ -166,9 +175,7 @@ def api_delete_user(
             ip=client_ip,
             detail={"target_id": user_id},
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return too_many(_USER_MGMT_LIMITER, admin)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.delete_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
@@ -215,9 +222,7 @@ def api_set_user_role(
     conn = get_db()
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return too_many(_USER_MGMT_LIMITER, admin)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.role_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
@@ -261,7 +266,8 @@ def api_set_my_email(
     """
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
+    reserved = _USER_MGMT_LIMITER.reserve(admin)
+    if reserved is None:
         logger.warning("user.email_update_throttled actor=%s", _sanitise_log_field(admin))
         security_event(
             conn,
@@ -269,7 +275,7 @@ def api_set_my_email(
             actor=admin,
             ip=client_ip,
         )
-        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
+        return too_many(_USER_MGMT_LIMITER, admin)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
@@ -279,8 +285,10 @@ def api_set_my_email(
     try:
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("invalid_email", status=400, message=str(exc))
     except EmailTakenError:
+        # Counts, unlike other refused input: it tells that someone else has the address.
         logger.warning("user.email_update_rejected actor=%s", _sanitise_log_field(admin))
         return respond_err(
             "invalid_email",
@@ -310,7 +318,8 @@ def api_set_user_email(
     """
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
+    reserved = _USER_MGMT_LIMITER.reserve(admin)
+    if reserved is None:
         logger.warning(
             "user.email_update_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
         )
@@ -321,9 +330,7 @@ def api_set_user_email(
             ip=client_ip,
             detail={"target_id": user_id},
         )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return too_many(_USER_MGMT_LIMITER, admin)
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(
             "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
@@ -347,8 +354,10 @@ def api_set_user_email(
             audit_ip=client_ip,
         )
     except ValueError as exc:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("invalid_email", status=400, message=str(exc))
     except EmailTakenError:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("email_taken", status=409, message="Another user has this address.")
     except sqlite3.Error:
         logger.exception(
@@ -380,9 +389,7 @@ def api_unlock_user(
     obscures audit trails, and refuses unknown user IDs so existing IDs do not leak.
     """
     if not _USER_MGMT_LIMITER.check(admin):
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+        return too_many(_USER_MGMT_LIMITER, admin)
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning(

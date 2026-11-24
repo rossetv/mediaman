@@ -117,4 +117,4 @@ def test_a_limit_met_on_your_own_account_says_so_plainly(client, limiter, method
     resp = client.request(method, path, json=body)
 
     assert resp.status_code == 429
-    assert resp.json()["message"] == "Too many changes. Wait a while and try again."
+    assert resp.json()["message"] == "Too many changes. Try again in 1 minute."

@@ -19,7 +19,7 @@ from mediaman.web.routes.plex_link import carry_attempt
 from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
-    OWN_ACCOUNT_LIMIT_MESSAGE,
+    too_many,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,34 +40,36 @@ def api_change_password(
     the bcrypt-grade defence behind them.
     """
     request_ip = get_client_ip(request)
-    if not _PASSWORD_CHANGE_LIMITER.check(admin):
+    reserved = _PASSWORD_CHANGE_LIMITER.reserve(admin)
+    if reserved is None:
         logger.warning("password.change_throttled actor=%s scope=actor", _sanitise_log_field(admin))
-        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
-    if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
+        return too_many(_PASSWORD_CHANGE_LIMITER, admin)
+    reserved_ip = _PASSWORD_CHANGE_IP_LIMITER.reserve(request_ip)
+    if reserved_ip is None:
         logger.warning(
             "password.change_throttled actor=%s scope=ip ip=%s",
             _sanitise_log_field(admin),
             request_ip,
         )
-        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
+        return too_many(_PASSWORD_CHANGE_IP_LIMITER, request_ip)
+
+    def refuse_input(error: str, message: str, **extra: object) -> JSONResponse:
+        _PASSWORD_CHANGE_LIMITER.release(admin, reserved)
+        _PASSWORD_CHANGE_IP_LIMITER.release(request_ip, reserved_ip)
+        return respond_err(error, status=400, message=message, **extra)
 
     old_password = body.old_password
     new_password = body.new_password
 
     if new_password == old_password:
-        return respond_err(
-            "same_password", status=400, message="New password must differ from the old password"
-        )
+        return refuse_input("same_password", "New password must differ from the old password")
 
     from mediaman.web.auth.password_policy import password_issues
 
     issues = password_issues(new_password, username=admin)
     if issues:
-        return respond_err(
-            "weak_password",
-            status=400,
-            message="Password does not meet the strength policy",
-            issues=issues,
+        return refuse_input(
+            "weak_password", "Password does not meet the strength policy", issues=issues
         )
 
     conn = get_db()

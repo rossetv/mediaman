@@ -29,7 +29,12 @@ which writes sessions and an audit row on each call.
 
 from __future__ import annotations
 
+import math
+
+from fastapi.responses import JSONResponse
+
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.responses import respond_err
 
 _USER_MGMT_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 _USER_CREATE_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=3600, max_per_day=5)
@@ -41,5 +46,19 @@ _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
 _SESSIONS_LIST_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 _SESSIONS_REVOKE_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60, max_per_day=100)
 
-#: Said to a person about their own account. The caps run for a minute or for a day.
-OWN_ACCOUNT_LIMIT_MESSAGE = "Too many changes. Wait a while and try again."
+
+def _wait_text(seconds: int) -> str:
+    count, unit = seconds, "second"
+    if seconds >= 60:
+        count, unit = math.ceil(seconds / 60), "minute"
+    if count >= 60:
+        count, unit = math.ceil(seconds / 3600), "hour"
+    return f"{count} {unit}{'' if count == 1 else 's'}"
+
+
+def too_many(
+    limiter: ActionRateLimiter, actor: str, what: str = "Too many changes."
+) -> JSONResponse:
+    """The refusal of a try over the limit, with how long *actor* has to wait."""
+    wait = _wait_text(limiter.retry_after(actor))
+    return respond_err("too_many_requests", status=429, message=f"{what} Try again in {wait}.")

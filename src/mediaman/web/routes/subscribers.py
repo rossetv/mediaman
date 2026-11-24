@@ -41,6 +41,7 @@ from mediaman.web.repository.subscribers import (
     try_add_subscriber,
 )
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.users.rate_limits import too_many
 
 
 class _SendNewsletterBody(BaseModel):
@@ -125,13 +126,13 @@ def api_add_subscriber(
     try_add_subscriber (BEGIN IMMEDIATE plus unique-index fallback); the route only maps
     outcomes to HTTP responses.
     """
-    if not _SUBSCRIBER_WRITE_LIMITER.check(username):
+    reserved = _SUBSCRIBER_WRITE_LIMITER.reserve(username)
+    if reserved is None:
         logger.warning("subscriber.add_throttled user=%s", _sanitise_log_field(username))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
-        )
+        return too_many(_SUBSCRIBER_WRITE_LIMITER, username)
     email = email.strip().lower()
     if not _validate_email(email):
+        _SUBSCRIBER_WRITE_LIMITER.release(username, reserved)
         return respond_err("invalid_email", status=422, message="Invalid email address")
 
     conn = get_db()
@@ -142,6 +143,8 @@ def api_add_subscriber(
         logger.exception("subscriber.add failed user=%s", _sanitise_log_field(username))
         return respond_err("internal_error", status=500, message="Couldn't add subscriber.")
 
+    if outcome is not AddSubscriberOutcome.ADDED:
+        _SUBSCRIBER_WRITE_LIMITER.release(username, reserved)
     if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
         return respond_err("already_subscribed", status=409, message="Email already subscribed")
     if outcome is AddSubscriberOutcome.OPTED_OUT:
@@ -170,9 +173,7 @@ def api_remove_subscriber(
 ) -> JSONResponse:
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.remove_throttled user=%s", _sanitise_log_field(username))
-        return respond_err(
-            "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
-        )
+        return too_many(_SUBSCRIBER_WRITE_LIMITER, username)
     conn = get_db()
     email = find_subscriber_by_id(conn, subscriber_id)
     if email is None:
