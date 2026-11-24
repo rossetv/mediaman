@@ -483,6 +483,27 @@ const scenarios = {
     return { opened, history: p.history.slice(), hash: p.loc.hash };
   },
 
+  // Closed after the address alone opened it: which of the title's cards has the focus, where the
+  // first is on its way out and the next is not shown; and a TMDB title that the library holds.
+  async directLinkFocus() {
+    const p = load({ hash: '#title=show-300', routes: { '/api/watch/title/show-300': LIB_SHOW } });
+    const rows = p.doc.querySelector('.watch-rows');
+    const first = rows.querySelector('[data-title-ref="show-300"]');
+    first.closest('.watch-card').classList.add('is-leaving');
+    const unseen = rows.appendChild(build(p.doc, ['a', { 'data-title-ref': 'show-300', id: 'unseen' }]));
+    unseen.getClientRects = () => [];
+    rows.appendChild(build(p.doc, ['a', { 'data-title-ref': 'show-300', id: 'shown' }]));
+    p.run();
+    await settle();
+    p.key('Escape');
+    const t = load({ hash: '#title=tmdb-movie-77', routes: {
+      '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { library_ref: 'movie-120' }), '/api/watch/title/movie-120': LIB_MOVIE } });
+    t.run();
+    await settle();
+    t.key('Escape');
+    return { library: p.doc.activeElement.id, scanned: t.doc.activeElement.getAttribute('data-title-ref') };
+  },
+
   // A person's own pick: what it says, its download, and what the admin is offered.
   async ownPick() {
     let asked = 0;

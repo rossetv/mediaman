@@ -123,6 +123,10 @@ def test_a_direct_link_opens_the_title_and_closing_drops_the_hash_without_histor
     assert out["hash"] == ""
 
 
+def test_a_title_no_card_opened_gives_the_focus_to_one_of_its_cards_that_shows() -> None:
+    assert _run("directLinkFocus") == {"library": "shown", "scanned": "tmdb-movie-77"}
+
+
 def test_an_old_recommendation_link_opens_the_pick() -> None:
     out = _run("oldRecommendationLink")
     assert out["history"][0] == ["replace", "/watch#title=rec-5"]
