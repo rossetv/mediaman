@@ -348,3 +348,23 @@ def test_removing_a_keep_takes_away_the_undo_of_the_keep_it_removes() -> None:
     assert out["messages"] == ["Kept Copperline for 30 days.", "Removed the keep on Copperline."]
     # The retired Undo ran nothing: no unkeep request followed.
     assert out["calls"] == ["/api/watch/keep", "/api/media/m1/unprotect"]
+
+
+def test_a_change_of_what_is_scheduled_brings_the_list_up_to_date_and_keeps_the_focus() -> None:
+    assert _run("scheduledChanged") == {
+        "focus": {"key": "id:m1", "keep": True, "fresh": True},
+        # its row is not in the list any more
+        "gone": "id:m2",
+        "first": "id:m2",
+        "summary": "summary without it",
+        "fetches": ["/watch/list", "/watch/list"],
+    }
+
+
+def test_a_change_of_what_is_scheduled_waits_for_a_list_that_loads_or_is_hidden() -> None:
+    assert _run("scheduledChangedMeanwhile") == {
+        "during": 0,
+        "after": ["/watch/list?type=movie"] * 2,
+        "hidden": 1,
+        "shown": 2,
+    }

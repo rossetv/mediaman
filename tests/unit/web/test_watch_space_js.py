@@ -310,6 +310,46 @@ class TestScheduled:
         assert (out["enabled"], out["focused"]) == (True, True)
 
 
+class TestThePageBehind:
+    def test_a_clear_takes_the_leaving_soon_row_and_the_leaving_badges_and_tells_the_list(self):
+        assert _run("pageAfterClear") == {
+            "cards": [],
+            "row": False,
+            "badges": 0,
+            "told": ["mm:watch-scheduled"],
+            "asked": 0,
+            "inPanel": True,
+        }
+
+    def test_a_scan_puts_new_cards_in_their_places_and_leaves_the_rest_be(self):
+        assert _run("pageAfterScan") == {
+            "cards": ["9", "1", "3", "2"],
+            "same": True,
+            "told": ["mm:watch-scheduled"],
+            "asked": 2,
+            "link": 1,
+        }
+
+    def test_a_scan_brings_the_row_that_was_gone_back_where_the_server_has_it(self):
+        assert _run("rowAfterScan") == {
+            "gone": True,
+            "rows": ["leaving", "recent"],
+            "cards": ["9"],
+            "started": ["watch-row__viewport", "leaving"],
+            "link": "1 · 10 GB to reclaim",
+        }
+
+    def test_the_page_is_asked_for_only_for_new_cards_and_a_keep_outdates_the_answer(self):
+        assert _run("pageAsked") == {"none": 0, "cards": ["1", "2"]}
+
+    def test_a_card_that_goes_from_under_the_focus_hands_it_to_one_that_stays(self):
+        assert _run("pageFocus") == {"cards": ["3"], "focused": "Keep Film 3"}
+
+    def test_the_list_is_told_of_every_keep_that_is_in_and_of_none_that_failed(self):
+        told = ["mm:watch-scheduled"]
+        assert _run("listTold") == {"during": 0, "kept": told, "failed": 1, "mixed": 2}
+
+
 class TestScan:
     def test_keeps_its_icon_and_focus_through_every_state_and_shows_what_it_found(self):
         out = _run("scan")

@@ -633,6 +633,7 @@
     menu: makeMenu,
     fromRow: keepFromRow,
     foldAway: foldAway,
+    growIn: growIn,
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; },
     joinPanel: function (joined) { panel = joined; }

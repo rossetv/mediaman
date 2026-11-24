@@ -155,6 +155,7 @@
      moves whenever a keep starts or ends, and refreshSeq with each refresh: an
      answer asked for before either moved is out of date. */
   var keepsInFlight = 0;
+  var keepSaved = false; // one of them was
   var keepGen = 0;
   var refreshSeq = 0;
   var refreshWaiting = false;
@@ -190,6 +191,7 @@
         if (got[2].data) deleted = got[2].data.items;
       }
       render();
+      if (got[1] && got[1].data) followPage();
       if (lists) loadHeavy();
       if (got.some(function (g) { return g && g.error; })) throw new Error('refresh failed');
       return true;
@@ -317,7 +319,7 @@
 
   /* Beside Leaving soon's heading. */
   function renderRowLink() {
-    var row = document.querySelector('[data-watch-leaving-row]');
+    var row = leavingRow();
     var title = row && row.querySelector('.watch-row__title');
     if (!title || !stats) return;
     var link = row.querySelector('.space-row-link');
@@ -1352,9 +1354,104 @@
     settled: function (saved) {
       keepsInFlight -= 1;
       keepGen += 1;
-      if (keepsInFlight === 0 && (saved || refreshWaiting)) refreshQuietly();
+      keepSaved = keepSaved || saved;
+      if (keepsInFlight > 0) return;
+      if (keepSaved) tellList();
+      if (keepSaved || refreshWaiting) refreshQuietly();
+      keepSaved = false;
     }
   });
+
+  /* ── The page behind ── */
+
+  /* watch/list.js: what is scheduled has changed. */
+  function tellList() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
+
+  function liveCards(row) {
+    return toArray(row.querySelectorAll('.watch-card[data-keep-id]')).filter(function (card) { return !card.classList.contains('is-kept'); });
+  }
+
+  /* The Leaving soon row; one whose last card went is on its way out. */
+  function leavingRow() {
+    return toArray(document.querySelectorAll('.watch-row[data-watch-leaving-row]')).filter(function (row) { return liveCards(row).length; })[0] || null;
+  }
+
+  function idOf(card) { return card.getAttribute('data-keep-id'); }
+
+  /* Bring the rows into line with what is scheduled: a card that is not any
+     more leaves, its Keep would fail; one that is new is read from the
+     server's page. */
+  function followPage() {
+    var ids = {};
+    var wanted = scheduled.filter(function (item) { return item.state === 'leaving'; });
+    wanted.forEach(function (item) { ids[item.media_item_id] = true; });
+    var stale = [];
+    toArray(document.querySelectorAll('[data-watch-leaving-row]')).forEach(function (row) {
+      stale = stale.concat(liveCards(row).filter(function (card) { return !ids[idOf(card)]; }));
+    });
+    // The one with the focus last, so that the focus goes to one that stays.
+    var active = document.activeElement;
+    stale.sort(function (a, b) { return a.contains(active) - b.contains(active); });
+    stale.forEach(function (card) {
+      var had = card.contains(active);
+      var shown = card.getClientRects().length > 0;
+      var to = watch.keep.fromRow(card, card.closest('[data-watch-leaving-row]'), shown, '[data-watch-keep]').focus;
+      if (had && to) core.focusSoftly(to);
+    });
+    toArray(document.querySelectorAll('.watch-card[data-keep-id]')).forEach(function (card) {
+      var badge = card.querySelector('.watch-badge--leaving');
+      if (!badge || ids[idOf(card)] || card.closest('[data-watch-leaving-row]')) return;
+      after(anim(badge, [{ opacity: 1 }, { opacity: 0 }], fast(), 'forwards'), function () { badge.remove(); });
+    });
+    var row = leavingRow();
+    var here = {};
+    if (row) liveCards(row).forEach(function (card) { here[idOf(card)] = true; });
+    if (wanted.every(function (item) { return here[item.media_item_id]; })) return;
+    var seq = refreshSeq;
+    var gen = keepGen;
+    fetch('/watch', { credentials: 'same-origin', headers: { Accept: 'text/html' } }).then(function (resp) {
+      if (!resp.ok || resp.redirected) throw new Error('page ' + resp.status);
+      return resp.text();
+    }).then(function (html) {
+      if (seq !== refreshSeq || gen !== keepGen) return;
+      var now = new DOMParser().parseFromString(html, 'text/html').querySelector('.watch-row[data-watch-leaving-row]');
+      if (now) enterLeaving(now);
+    }).catch(function () {
+      // The panel's list has them; the row does on the next load.
+    });
+  }
+
+  /* The cards of the server's row that the page lacks, in their places, or the row itself. */
+  function enterLeaving(now) {
+    var row = leavingRow();
+    if (!row) {
+      var rows = document.querySelector('.watch-rows');
+      if (!rows) return;
+      row = document.importNode(now, true);
+      var next = null;
+      for (var n = now.nextElementSibling; n && !next; n = n.nextElementSibling) {
+        var id = n.getAttribute('data-row-id');
+        next = n.id ? byId(n.id) : id && rows.querySelector('.watch-row[data-row-id="' + id + '"]');
+      }
+      rows.insertBefore(row, next || null);
+      watch.rows.init(row.querySelector('.watch-row__viewport'));
+      watch.expand.row(row);
+      renderRowLink();
+      if (row.getClientRects().length) watch.keep.growIn(row, false);
+      return;
+    }
+    var scroller = row.querySelector('.watch-row__scroll');
+    var before = null;
+    liveCards(now).reverse().forEach(function (card) {
+      var mine = liveCards(row).filter(function (c) { return idOf(c) === idOf(card); })[0];
+      if (!mine) {
+        mine = document.importNode(card, true);
+        scroller.insertBefore(mine, before);
+        if (mine.getClientRects().length) watch.keep.growIn(mine, true);
+      }
+      before = mine;
+    });
+  }
 
   async function clearScheduled(b) {
     if (b.getAttribute('aria-disabled') === 'true') return;
@@ -1374,6 +1471,7 @@
         text += '; ' + data.already_deleting + (data.already_deleting === 1 ? ' was' : ' were') + ' already being deleted';
       }
       core.toast(text, { variant: 'success', duration: data.already_deleting ? 8000 : undefined });
+      tellList();
       return refresh().catch(function () {
         window.UIFeedback.error('Cleared, but the list could not update. Refresh the page to see it.');
       });
@@ -1530,6 +1628,7 @@
     scanLabel('Scan complete', 'i-check');
     scanSays(took, 'ok');
     live.textContent = 'Scan ' + took.toLowerCase();
+    tellList();
     refresh().then(function () {
       lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
     }, function () {

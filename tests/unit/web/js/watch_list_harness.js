@@ -945,6 +945,50 @@ const scenarios = {
     return { header: a.classList.contains('th-sort'), inert: !!a.closest('[inert]'), old: a === header };
   },
 
+  // What is scheduled changed somewhere else: the totals and dates follow, the focus stays in its row.
+  async scheduledChanged() {
+    const p = load({ list: true });
+    p.serve('/watch/list', { label: 'fresh' }, ROWS);
+    const button = p.row('id:m1').querySelector('.keep-trigger');
+    button.focus();
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const a = p.doc.activeElement;
+    const focus = { key: a.closest('tr').getAttribute('data-row-key'), keep: a.classList.contains('keep-trigger'), fresh: a !== button };
+    const del = p.row('id:m1').querySelector('[data-action="confirm-delete"]');
+    del.focus();
+    p.serve('/watch/list', { label: 'without it' }, ROWS.slice(1));
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const gone = p.doc.activeElement.closest('tr').getAttribute('data-row-key');
+    return { focus, gone, first: p.rowKeys()[0], summary: p.part('summary'), fetches: p.fetches };
+  },
+
+  // It changed while another list was loading, and while the list was hidden.
+  async scheduledChangedMeanwhile() {
+    const p = load({ list: true });
+    const slow = deferred();
+    p.serve('/watch/list?type=movie', { type: 'movie', label: 'movies' }, ROWS.slice(0, 1), slow);
+    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill')[2]);
+    const pill = p.fetches.length;
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    const during = p.fetches.length - pill;
+    slow.resolve();
+    await settle();
+    const after = p.fetches.slice();
+    const q = load({});
+    q.serve('/watch/list', { label: 'one' }, ROWS);
+    const list = q.doc.querySelector('#watch-viewtoggle [data-view="list"]');
+    const rows = q.doc.querySelector('#watch-viewtoggle [data-view="rows"]');
+    click(q.doc, list); await settle();
+    click(q.doc, rows); await settle();
+    q.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const hidden = q.fetches.length;
+    click(q.doc, list); await settle();
+    return { during, after, hidden, shown: q.fetches.length };
+  },
+
   // The sort select reorders in place, from page 1.
   async sort() {
     const p = load({ list: true });

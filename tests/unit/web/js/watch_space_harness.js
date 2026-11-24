@@ -67,6 +67,8 @@ class Server {
     this.holding = null;
     this.fail = {};
     this.scan = { running: false };
+    this.page = null; // what /watch holds
+    this.pages = 0; // how often it was asked for
   }
   stats() {
     const l = this.rows.filter((r) => r.state === 'leaving');
@@ -103,17 +105,21 @@ class Server {
   }
 }
 
+const card = (id) => ['article', { class: 'watch-card', 'data-keep-id': id }, ['a', { class: 'watch-card__link' }],
+  ['button', { class: 'watch-keep', 'data-watch-keep': id, 'aria-label': 'Keep Film ' + id, id: 'card-keep-' + id }]];
+const leavingSection = (...ids) => ['section', { 'data-watch-leaving-row': '', 'data-row-id': 'leaving', class: 'watch-row' }, ['h2', { class: 'watch-row__title' }, 'Leaving soon'],
+  ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll' }, ...ids.map(card)]]];
+const recentSection = () => ['section', { 'data-row-id': 'recent', class: 'watch-row' },
+  ['div', { class: 'watch-row__scroll', id: 'recent-scroll' }, ['article', { class: 'watch-card', 'data-keep-id': '1' }, ['span', { class: 'watch-badge watch-badge--leaving' }, '3 days left']]]];
+
 function markup() {
   const pane = (id) => ['div', { class: 'space-pane', id: 'space-' + id, role: 'tabpanel' }];
   const tab = (id) => ['button', { class: 'space-tab', id: 'space-tab-' + id, 'data-space-tab': id }, id, ['span', { class: 'space-tab__count' }]];
-  const card = (id) => ['article', { class: 'watch-card', 'data-keep-id': id }, ['a', { class: 'watch-card__link' }],
-    ['button', { class: 'watch-keep', 'data-watch-keep': id, 'aria-label': 'Keep Film ' + id, id: 'card-keep-' + id }]];
   return [
     ['header', { id: 'nav' }, ['button', { class: 'space-meter space-meter--phone', 'data-space-open': 'storage', id: 'phone-meter' }]],
     ['main', { id: 'main' },
       ['button', { class: 'space-meter', 'data-space-open': 'storage', id: 'meter', 'aria-busy': 'true' }],
-      ['section', { 'data-watch-leaving-row': '', class: 'watch-row' }, ['h2', { class: 'watch-row__title' }, 'Leaving soon'],
-        ['div', { class: 'watch-row__scroll' }, card('1'), card('2')]],
+      ['div', { class: 'watch-rows' }, leavingSection('1', '2'), recentSection()],
       ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', role: 'menu' },
         ...['7', '30', '90'].map((d) => ['button', { class: 'watch-keep-menu__item', 'data-days': d }, d])]],
     ['div', { class: 'space', id: 'space' },
@@ -163,18 +169,26 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].fn = null; },
     AbortController: class { abort() {} },
-    CustomEvent: class {},
+    CustomEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
+    DOMParser: class { parseFromString() { const d = makeDocument(); d.body.appendChild(build(d, server.page)); return d; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', transitionDuration: '0s', transitionDelay: '0s', display: 'block', transform: 'none', opacity: '1' }),
     matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
     location: { pathname: '/watch', reload() { throw new Error('the page was reloaded'); } },
-    fetch: () => Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) }),
+    fetch: (url) => {
+      if (url !== '/watch') return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
+      const answer = { ok: !!server.page, status: 200, redirected: false, text: () => Promise.resolve('') };
+      server.pages += 1;
+      return server.holding === '/watch' ? new Promise((resolve) => server.held.push({ url, go: () => resolve(answer) })) : Promise.resolve(answer);
+    },
     UIFeedback: { toast: (message, opts) => toasts.push({ message, undo: !!(opts && opts.action), opts }), error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed), dismissConfirm() {} },
     addEventListener(type, fn) { if (type === 'load') ready.push(fn); },
   };
   ctx.window = ctx;
+  const told = [];
+  doc.dispatchEvent = (e) => { told.push(e.type); (doc.listeners[e.type] || []).forEach((fn) => fn(e)); };
   ctx.MM = opts.realApi ? {} : { api: {
     get: (url) => server.request('GET', url), post: (url, body) => server.request('POST', url, body),
     postForm: (url, body) => server.request('FORM', url, body), messageOf: (e, f) => (e && e.message) || f } };
@@ -187,6 +201,9 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   }
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
+  const started = [];
+  ctx.MMWatch.rows = { init: (n) => started.push(n.className) };
+  ctx.MMWatch.expand = { row: (n) => started.push(n.getAttribute('data-row-id')) };
   ['watch/keep.js', 'watch/space.js'].forEach(run);
   function run(file) { vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx); }
   const before = server.calls.length;
@@ -195,7 +212,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   const one = (sel) => doc.querySelector(sel);
   const all = (sel) => doc.querySelectorAll(sel);
   const p = {
-    doc, server, toasts, pushed, $, one, all, before, ctx,
+    doc, server, told, started, toasts, pushed, $, one, all, before, ctx,
     confirm(on) { confirmed = on; },
     layer: () => layer,
     async click(node) { click(doc, node); await settle(); },
@@ -218,6 +235,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       await settle();
     },
     rows: () => all('#space-scheduled .space-item').filter((li) => !li.inert).map((li) => li.getAttribute('data-id')),
+    cards: () => all('[data-row-id="leaving"] .watch-card').filter((c) => !c.classList.contains('is-kept')).map((c) => c.getAttribute('data-keep-id')),
     heads: () => all('.space-layer:not([inert]) .space-heavy__row b').map((b) => b.textContent),
     kind: () => (one('.space-layer:not([inert]) .space-cats') ? 'all' : one('.space-layer:not([inert]) .space-heavy') ? 'list' : 'words'),
     focused: () => doc.activeElement.getAttribute('aria-label') || doc.activeElement.id || doc.activeElement.className,
@@ -422,7 +440,7 @@ const scenarios = {
     await p.open();
     await p.keep('2', '30');
     const kept = { rows: p.rows(), focused: p.focused(), posts: p.posts(), toast: p.last(), meter: p.meter(), link: p.one('.space-row-link').textContent,
-      card: p.all('.watch-card').map((c) => c.getAttribute('data-keep-id')) };
+      card: p.all('[data-row-id="leaving"] .watch-card').map((c) => c.getAttribute('data-keep-id')) };
     const fromPanel = kept.toast.opts.dialog === p.one('.space__panel');
     p.last().opts.action.onClick();
     await settle();
@@ -523,7 +541,7 @@ const scenarios = {
     p.ctx.MMWatch.grid.take = () => null;
     await p.click(p.$('card-keep-2'));
     await p.click(p.one('#watch-keep-menu [data-days="7"]'));
-    return { inGrid, inRow: p.all('.watch-card').length };
+    return { inGrid, inRow: p.cards().length };
   },
   async secondPress() {
     const p = await page();
@@ -572,6 +590,91 @@ const scenarios = {
     p.confirm(true);
     await p.click(b);
     return { declined, posts: p.posts(), rows: p.rows(), toast: p.last().message, focused: p.doc.activeElement.className, meter: p.meter() };
+  },
+  // The page behind follows what is scheduled.
+  async pageAfterClear() {
+    const p = await page(['1', '2'].map((id) => row(id)));
+    await p.open();
+    await p.click(p.one('#space-scheduled .btn--danger'));
+    return { cards: p.cards(), row: p.one('[data-row-id="leaving"]') !== null, badges: p.all('.watch-badge--leaving').length, told: p.told, asked: p.server.pages, inPanel: !!p.doc.activeElement.closest('#space') };
+  },
+  async pageAfterScan() {
+    const p = await page();
+    await p.open();
+    const before = p.all('.watch-card');
+    p.server.rows = ['9', '1', '3', '2'].map((id) => row(id));
+    p.server.page = ['div', { class: 'watch-rows' }, leavingSection('9', '1', '3', '2'), recentSection()];
+    await p.click(p.$('space-scan'));
+    await p.run(3000);
+    return { cards: p.cards(), same: before.every((c) => c.isConnected), told: p.told, asked: p.server.pages, link: p.all('.space-row-link').length };
+  },
+  async rowAfterScan() {
+    const p = await page(['1', '2'].map((id) => row(id)));
+    await p.open();
+    await p.click(p.one('#space-scheduled .btn--danger'));
+    const gone = p.one('[data-row-id="leaving"]') === null;
+    p.server.rows = [row('9')];
+    p.server.page = ['div', { class: 'watch-rows' }, leavingSection('9'), recentSection()];
+    await p.click(p.$('space-scan'));
+    await p.run(3000);
+    return { gone, rows: p.all('.watch-rows .watch-row').map((s) => s.getAttribute('data-row-id')), cards: p.cards(), started: p.started, link: p.one('[data-row-id="leaving"] .space-row-link').textContent };
+  },
+  // Nothing new: the page is not asked for. An answer overtaken by a Keep is dropped.
+  async pageAsked() {
+    const p = await page(['1', '2'].map((id) => row(id)));
+    await p.open();
+    const none = p.server.pages;
+    p.server.page = ['div', { class: 'watch-rows' }, leavingSection('1', '2', '9')];
+    p.server.rows = ['1', '2', '9'].map((id) => row(id));
+    p.server.holding = '/watch';
+    await p.click(p.$('space-scan'));
+    await p.run(3000);
+    p.server.holding = '/api/watch/keep';
+    const held = p.server.held;
+    p.server.held = [];
+    await p.keep('9', '7');
+    held.forEach((h) => h.go());
+    await settle();
+    return { none, cards: p.cards() };
+  },
+  // Two cards go, the first from under the focus, the panel closed.
+  async pageFocus() {
+    const p = await page();
+    await p.open();
+    await p.key('Escape');
+    p.one('[data-row-id="leaving"] .watch-row__scroll').appendChild(build(p.doc, card('3')));
+    p.$('card-keep-1').focus();
+    p.server.rows = p.server.rows.slice(2);
+    p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase: 'done' } });
+    await settle();
+    return { cards: p.cards(), focused: p.focused() };
+  },
+  // The list is told once a keep is in, and not of one that failed.
+  async listTold() {
+    const p = await page();
+    await p.open();
+    p.server.holding = '/api/watch/keep';
+    await p.keep('1', '7');
+    const during = p.told.length;
+    await p.let_go('/api/watch/keep');
+    p.server.holding = null;
+    const kept = p.told.slice();
+    p.server.fail = { '/api/watch/keep': 'Not now' };
+    await p.keep('2', '7');
+    const failed = p.told.length;
+    p.server.fail = { '/api/watch/keep': 'Not now' };
+    // one saved, one failed after it
+    p.server.fail = {};
+    p.server.holding = '/api/watch/keep';
+    await p.keep('2', '7');
+    const saved = p.server.held;
+    p.server.held = [];
+    p.server.fail = { '/api/watch/keep': 'Not now' };
+    await p.keep('3', '7');
+    saved.forEach((h) => h.go());
+    await settle();
+    await p.let_go('/api/watch/keep');
+    return { during, kept, failed, mixed: p.told.length };
   },
   async clearFails() {
     const p = await page(undefined, (s) => { s.fail = { 'clear-scheduled': 'Slow down' }; });

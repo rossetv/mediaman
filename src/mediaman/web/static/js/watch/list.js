@@ -29,6 +29,7 @@
   var _request = 0;   // the newest list fetch; older replies are dropped
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _switch = 0;    // the newest view switch; an older one's fade stops short
+  var _again = false; // what is scheduled changed while a list was loading
   var _stale = false; // an admin action changed the library while the list was hidden
 
   /* ── State and addresses ── */
@@ -213,6 +214,7 @@
       if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
       apply(fresh, opts.focus);
       if (opts.toTop) toTop();
+      if (_again) reload();
     }, function () {
       if (request !== _request) return;
       _asked = null;
@@ -550,6 +552,29 @@
       return;
     }
     refresh([key], d.action);
+  });
+
+  /* The same control in the list coming in, of the row the focus is in. */
+  function sameControl(fresh) {
+    var active = document.activeElement;
+    var find = focusKey(active);
+    if (find) return find(fresh);
+    var row = list.contains(active) ? active.closest('tr[data-row-key]') : null;
+    if (!row) return null;
+    var next = rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]');
+    return next && (active === deleteButton(row) && deleteButton(next) || firstAction(next));
+  }
+
+  /* The list as it is now, its totals and dates too. */
+  function reload() {
+    _again = false;
+    load(stateOf(root()), { focus: sameControl });
+  }
+
+  document.addEventListener('mm:watch-scheduled', function () {
+    if (_view !== 'list' || !root()) _stale = true;
+    else if (_asked) _again = true;
+    else reload();
   });
 
   /* ── Wiring ── */
