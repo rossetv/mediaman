@@ -20,6 +20,7 @@ from tests.helpers.factories import insert_admin_user, insert_media_item, insert
 
 EXPLORE = "/api/watch/explore"
 PERSON = "/api/watch/person/7"
+PEOPLE_A_DAY = explore_api._PERSON_LIMITER._max_per_day
 
 
 @pytest.fixture(autouse=True)
@@ -286,6 +287,29 @@ class TestPerson:
         codes = [viewer.get(f"/api/watch/person/{n}").status_code for n in (7, 7, 8)]
 
         assert codes == [200, 200, 429]
+
+    def test_the_people_one_person_may_look_up_in_a_day_leave_the_cache_to_the_rest(
+        self, viewer, tmdb, tmp_path
+    ):
+        tmdb["/person/7"] = _person(
+            *(
+                _credit(
+                    10**6 + n,
+                    n,
+                    title="A fairly long title " * 2,
+                    release_date="2019-03-01",
+                    poster_path=f"/{'p' * 27}.jpg",
+                    vote_average=7.123,
+                    character="A fairly long part",
+                )
+                for n in range(1000)
+            )
+        )
+        viewer.get(PERSON)
+
+        [largest] = [p.stat().st_size for p in (tmp_path / "watch_cache" / "meta").iterdir()]
+
+        assert largest * PEOPLE_A_DAY < disk_cache.meta().max_bytes / 2
 
     def test_without_tmdb_there_is_no_person_and_no_error(self, viewer, no_tmdb):
         body = viewer.get(PERSON).json()

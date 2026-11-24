@@ -28,8 +28,9 @@ _PERSON_PAGE = 60
 # Apart from the query limit, so looking around does not use up the day's searches. A list
 # of films and TV together asks TMDB twice.
 _EXPLORE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1000)
-# Any person's id can be asked for, and a person's record is the largest thing cached.
-_PERSON_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=1000)
+# Any person's id can be asked for, and a person's record is the largest thing cached: a day's
+# must leave room for the rest of the cache.
+_PERSON_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=400)
 
 _Page = Query(1, ge=1, le=catalog.MAX_PAGE)
 
