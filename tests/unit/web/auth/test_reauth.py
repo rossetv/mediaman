@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -389,3 +390,73 @@ class TestFailedGrantLeavesNothingOpen:
         with pytest.raises(UnicodeEncodeError):
             grant_recent_reauth(conn, "tok", "\ud800")
         assert not conn.in_transaction
+
+
+def _refuse_ticket_deletes(conn):
+    conn.execute(
+        "CREATE TRIGGER no_ticket_delete BEFORE DELETE ON reauth_tickets "
+        "BEGIN SELECT RAISE(ABORT, 'refused'); END"
+    )
+
+
+def _tickets_seen_elsewhere(db_path) -> set[str]:
+    other = sqlite3.connect(str(db_path))
+    try:
+        return {r[0] for r in other.execute("SELECT session_token_hash FROM reauth_tickets")}
+    finally:
+        other.close()
+
+
+def _grant_two(conn) -> None:
+    grant_recent_reauth(conn, "tok-a", "alice")
+    grant_recent_reauth(conn, "tok-b", "alice")
+
+
+class TestRevokesCommitAndRollBack:
+    def test_a_failed_revoke_by_hash_leaves_the_connection_free(self, conn):
+        _grant_two(conn)
+        _refuse_ticket_deletes(conn)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            revoke_reauth_by_hash(conn, _hash_token("tok-a"))
+
+        assert not conn.in_transaction
+
+    def test_a_revoke_by_hash_is_committed_for_other_connections(self, conn, db_path):
+        _grant_two(conn)
+
+        revoke_reauth_by_hash(conn, _hash_token("tok-a"))
+
+        assert _tickets_seen_elsewhere(db_path) == {_hash_token("tok-b")}
+
+    def test_a_failed_expiry_sweep_leaves_the_connection_free(self, conn):
+        _grant_two(conn)
+        _refuse_ticket_deletes(conn)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            cleanup_expired_reauth(conn, "9999-01-01T00:00:00+00:00")
+
+        assert not conn.in_transaction
+
+    def test_an_expiry_sweep_is_committed_for_other_connections(self, conn, db_path):
+        _grant_two(conn)
+
+        assert cleanup_expired_reauth(conn, "9999-01-01T00:00:00+00:00") == 2
+
+        assert _tickets_seen_elsewhere(db_path) == set()
+
+    def test_a_failed_revoke_of_all_a_users_tickets_leaves_the_connection_free(self, conn):
+        _grant_two(conn)
+        _refuse_ticket_deletes(conn)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            revoke_all_reauth_for(conn, "alice")
+
+        assert not conn.in_transaction
+
+    def test_revoking_all_a_users_tickets_is_committed_for_other_connections(self, conn, db_path):
+        _grant_two(conn)
+
+        assert revoke_all_reauth_for(conn, "alice") == 2
+
+        assert _tickets_seen_elsewhere(db_path) == set()
