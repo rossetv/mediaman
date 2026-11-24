@@ -193,6 +193,22 @@ class TestSubmit:
         mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
         assert [m["email"] for m in mails] == ["a@example.com"]
 
+    def test_a_retry_after_the_email_went_out_re_monitors_and_asks_for_no_second_one(
+        self, client, link
+    ):
+        sonarr = _sonarr(None)
+        sonarr.add_series_with_seasons.side_effect = SafeHTTPError(0, "timeout", "sonarr/s")
+        assert _post(client, link, sonarr).status_code == 502
+        sonarr.get_series_by_tvdb.return_value = _series(PART_LEFT)
+        conn = client.app.state.db
+        with conn:
+            conn.execute("UPDATE download_notifications SET notified = 1")
+
+        assert _post(client, link, sonarr).status_code == 200
+        sonarr.remonitor_season.assert_called_once_with(3, 2)
+        mails = conn.execute("SELECT email FROM download_notifications").fetchall()
+        assert [m["email"] for m in mails] == ["a@example.com"]
+
     def test_a_season_with_some_episodes_left_is_fetched(self, client, link):
         sonarr = _sonarr(_series(PART_LEFT))
 

@@ -354,7 +354,11 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
                     sonarr_fetches_series(client, tvdb_id),
                 )
             client.add_series(tvdb_id, title)
-        elif not _remonitor_held_season(client, tvdb_id, season_number):
+        elif _remonitor_held_season(client, tvdb_id, season_number):
+            # The email was asked for with the add that got no answer, and may have gone out.
+            if add_went_unanswered(conn, token):
+                email = None
+        else:
             client.add_series_with_seasons(tvdb_id, title, [season_number])
     except SafeHTTPError as exc:
         error = exc
