@@ -381,7 +381,7 @@ function boot(html, reduced, saved, serverPlays) {
     MM: { api: api },
     UIFeedback: {
       error(text) { toasts.push({ kind: 'error', text: text }); },
-      toast(text, opts) { toasts.push({ kind: (opts && opts.variant) || 'toast', text: text }); },
+      toast(text, opts) { toasts.push({ kind: (opts && opts.variant) || 'toast', text: text, action: opts && opts.action }); },
     },
     localStorage: storeOf(storage),
     sessionStorage: storeOf(session),
@@ -1600,6 +1600,35 @@ const scenarios = {
     await settle();
     out.kept = p.calls.filter((c) => /\/keep$/.test(c.url)).map((c) => c.body);
     return out;
+  },
+
+  /* A title is kept, and the keep undone: here, or (`serverPlays`) once the next episode took over. */
+  async keep_undone(p) {
+    p.pages['/watch/play/502'] = p.pages['/watch/play/503'];
+    await streamPlays(p, 0);
+    p.replies.push(answer('1080p-8000'));
+    click(p.q('[data-next-btn]'));
+    await settle();
+    await streamPlays(p, 0);
+    const trigger = p.q('[data-keep]').querySelector('[data-menu-trigger]');
+    press(trigger);
+    press(p.q('[data-keep-days="7"]'));
+    await settle();
+    if (p.win.serverPlays === 'next') {
+      p.replies.push(answer('1080p-8000'));
+      p.pages['/watch/play/504'] = p.pages['/plain'];
+      click(p.q('[data-next-btn]'));
+      await settle();
+      await streamPlays(p, 0);
+    }
+    /* The toast, and the focus with it, goes as its button is pressed. */
+    doc.activeElement = doc.body;
+    p.toasts.filter((t) => t.action)[0].action.onClick();
+    await settle();
+    return {
+      focus: doc.activeElement === trigger ? 'keep' : doc.activeElement === p.q('[data-play]') ? 'play' : 'nothing',
+      undone: p.calls.filter((c) => /\/unkeep$/.test(c.url)).map((c) => c.body.media_item_id),
+    };
   },
 
   /* A page that cannot take over here is opened instead. */

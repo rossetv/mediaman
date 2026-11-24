@@ -777,6 +777,13 @@ def test_the_next_episode_s_own_keep_works(markup, season):
     assert out["kept"] == [{"media_item_id": "88", "days": 30}]
 
 
+@pytest.mark.parametrize(("where", "focus"), [("here", "keep"), ("next", "play")])
+def test_undoing_a_keep_puts_the_focus_where_it_can_be(markup, season, where, focus):
+    pages = {**season, "/plain": season["/watch/play/504"]}
+    out = run(markup, "keep_undone", plays=where, pages=pages)
+    assert out == {"focus": focus, "undone": ["88"]}
+
+
 @pytest.mark.parametrize("answer", ["redirect", "other"])
 def test_a_page_that_cannot_take_over_is_opened_with_the_old_stream_stopped(markup, answer):
     out = run(markup, "next_falls_back", plays=answer)

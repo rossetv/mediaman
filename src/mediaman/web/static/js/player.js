@@ -1487,7 +1487,8 @@
         keep.appendChild(original);
         keeping = false;
         keepTrigger.setAttribute('aria-busy', 'false');
-        if (moveFocus) keepTrigger.focus();
+        /* The next episode may have taken over, and the pill gone with this one. */
+        if (moveFocus) (root.contains(keepTrigger) ? keepTrigger : els.play).focus();
         undoing = false;
         if (window.UIFeedback) window.UIFeedback.toast('Keep undone', { variant: 'info' });
       }).catch(function (err) {
