@@ -18,6 +18,7 @@ def cache(tmp_path, monkeypatch):
     monkeypatch.setattr(disk_cache, "_root", None)
     monkeypatch.setattr(disk_cache, "_failed", {})
     monkeypatch.setattr(disk_cache, "_inflight", {})
+    monkeypatch.setattr(disk_cache, "_queued", set())
     monkeypatch.setattr(disk_cache, "sync", True)
     disk_cache.init(tmp_path)
     return tmp_path / "watch_cache"
@@ -239,7 +240,7 @@ def test_stale_hits_while_a_refresh_waits_in_the_queue_submit_only_one(monkeypat
     store.get_or_fetch("k", 0, 7 * DAY, fetch)
     pool = HeldPool()
     monkeypatch.setattr(disk_cache, "sync", False)
-    monkeypatch.setattr(disk_cache, "_executor", lambda: pool)
+    monkeypatch.setattr(disk_cache, "_executor", lambda _name: pool)
 
     for _ in range(3):
         assert store.get_or_fetch("k", 0, 7 * DAY, fetch) == "old"
@@ -542,6 +543,88 @@ def test_a_brief_caller_waits_only_a_little_on_one_that_is_not(monkeypatch):
     release.set()
     full.join(5)
     assert answers == ["v"]
+
+
+def test_a_caller_takes_over_a_key_whose_refresh_still_waits_in_the_queue(monkeypatch):
+    store = disk_cache.meta()
+    pool = HeldPool()
+    monkeypatch.setattr(disk_cache, "sync", False)
+    monkeypatch.setattr(disk_cache, "_executor", lambda _name: pool)
+    monkeypatch.setattr(disk_cache, "WAIT_S", 0.01)
+    queued = Fetcher("late")
+    assert store.peek("k", DAY, DAY, queued) is None
+
+    assert store.get_or_fetch("k", DAY, DAY, Fetcher("now")) == "now"
+
+    pool.queued[0]()
+    assert queued.calls == 0
+    assert store.get_or_fetch("k", DAY, DAY, Fetcher()) == "now"
+
+
+def test_nobody_waits_without_end_on_a_fetch_someone_else_began(monkeypatch):
+    store = disk_cache.meta()
+    monkeypatch.setattr(disk_cache, "WAIT_S", 0.01)
+    started, release = threading.Event(), threading.Event()
+
+    def slow():
+        started.set()
+        release.wait(5)
+        return "v"
+
+    first = threading.Thread(target=lambda: store.get_or_fetch("k", DAY, DAY, slow), daemon=True)
+    first.start()
+    assert started.wait(5)
+
+    try:
+        # A caller's rate limit answers as it would: nothing was fetched for it.
+        with pytest.raises(disk_cache.Refused):
+            store.get_or_fetch("k", DAY, DAY, slow)
+    finally:
+        release.set()
+        first.join(5)
+
+
+def test_hung_lookups_do_not_hold_up_the_images(monkeypatch):
+    monkeypatch.setattr(disk_cache, "sync", False)
+    disk_cache.img().get_or_fetch("i", DAY, DAY, lambda: (b"old", {}))
+    release, fetched = threading.Event(), threading.Event()
+
+    def hang():
+        release.wait(5)
+        return "v"
+
+    def fetch_image():
+        fetched.set()
+        return b"new", {}
+
+    try:
+        for n in range(4):
+            disk_cache.meta().peek(f"k{n}", DAY, DAY, hang)
+        disk_cache.img().get_or_fetch("i", 0, DAY, fetch_image)
+        assert fetched.wait(2)
+    finally:
+        release.set()
+
+
+def test_a_failure_is_held_no_longer_than_its_caller_says(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(disk_cache.time, "monotonic", lambda: now[0])
+    fetch = Fetcher(LookupError("down"), "back")
+    store = disk_cache.meta()
+    for _ in range(2):
+        with pytest.raises(LookupError):
+            store.get_or_fetch("k", DAY, DAY, fetch, hold_s=5.0)
+    assert fetch.calls == 1
+
+    now[0] += 5.0
+    assert store.get_or_fetch("k", DAY, DAY, fetch, hold_s=5.0) == "back"
+
+
+def test_a_brief_peek_that_failed_holds_nobody_back():
+    store = disk_cache.meta()
+    assert store.peek("k", DAY, DAY, Fetcher(OSError("slow")), brief=True) is None
+
+    assert store.get_or_fetch("k", DAY, DAY, Fetcher("v")) == "v"
 
 
 def test_a_refresh_begun_briefly_fails_as_brief():

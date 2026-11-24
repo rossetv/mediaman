@@ -8,9 +8,10 @@ a temp file and moved into place so a reader never sees half an entry.
 
 ``Store.get_or_fetch`` answers at once while an entry is fresh. Once stale (but within
 ``stale_s``) it still answers with the old value and refreshes it once in the background,
-on a pool of two threads. On a miss it fetches inline, one fetch per key at a time; a
-second caller waits for the first. A failed fetch is never stored: its exception is
-re-raised for that key for ``BACKOFF_S`` seconds instead of asking upstream again. A
+on the store's own pool of two threads. On a miss it fetches inline, one fetch per key at a
+time; a second caller waits for the first, though never for one still in the pool's queue,
+and no longer than ``WAIT_S``. A failed fetch is never stored: its exception is re-raised for
+that key for *hold_s* seconds (``BACKOFF_S``) instead of asking upstream again. A
 ``brief`` fetch, one that gives up early, is not held that way when it fails, and a caller
 waiting on it whose own fetch is not brief then makes that.
 
@@ -50,7 +51,8 @@ logger = logging.getLogger(__name__)
 Image = tuple[bytes, dict[str, str]]
 
 BACKOFF_S = 60.0
-#: How long a brief caller waits on a fetch someone else began, before TimeoutError.
+#: How long a caller, and a brief one, waits on a fetch someone else began.
+WAIT_S = 10.0
 BRIEF_WAIT_S = 6.0
 _BACKOFF_MAX_KEYS = 1024
 _TMP_MAX_AGE_S = 600.0
@@ -65,11 +67,17 @@ _root: Path | None = None
 _guard = threading.Lock()
 _inflight: dict[tuple[str, str], Future[Any]] = {}
 _failed: dict[tuple[str, str], tuple[float, BaseException]] = {}
-_pool: ThreadPoolExecutor | None = None
+# Refreshes waiting for their store's pool.
+_queued: set[tuple[str, str]] = set()
+_pools: dict[str, ThreadPoolExecutor] = {}
 
 
 class Refused(Exception):
     """A miss was not fetched because ``allow_fetch`` said no (the caller's rate limit)."""
+
+
+class StillFetching(Refused, TimeoutError):
+    """A miss was not fetched because someone else's fetch of it takes too long."""
 
 
 class _BriefFailure(Exception):
@@ -104,18 +112,23 @@ class Store[T]:
         *,
         allow_fetch: Callable[[], bool] | None = None,
         brief: bool = False,
+        hold_s: float | None = None,
     ) -> T:
         """The value for *key*: cached while younger than *fresh_s*, cached and refreshed in
         the background while younger than *stale_s*, else fetched now.
 
         *allow_fetch* is asked only before an inline fetch on a miss; when it answers False
-        this raises ``Refused``. Raises whatever *fetch* raised when there is nothing cached.
+        this raises ``Refused``. Raises whatever *fetch* raised when there is nothing cached,
+        and ``StillFetching`` after waiting too long on someone else's fetch. *hold_s* is how
+        long a failure is raised again without asking.
         """
         directory = self._dir()
         if directory is None:
             return fetch()
+        if hold_s is None:
+            hold_s = BACKOFF_S
         path = self._path(directory, key)
-        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief)
+        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief, hold_s)
         if hit is not None:
             return hit[0]
         error = _backoff((self.name, key))
@@ -123,9 +136,17 @@ class Store[T]:
             raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
-        return self._fetch_once(key, path, fetch, brief)
+        return self._fetch_once(key, path, fetch, brief, hold_s)
 
-    def peek(self, key: str, fresh_s: float, stale_s: float, fetch: Callable[[], T]) -> T | None:
+    def peek(
+        self,
+        key: str,
+        fresh_s: float,
+        stale_s: float,
+        fetch: Callable[[], T],
+        *,
+        brief: bool = False,
+    ) -> T | None:
         """The value for *key* when cached, as ``get_or_fetch`` answers it; on a miss None
         at once, with *fetch* run in the background to fill the entry unless it failed
         within the backoff."""
@@ -133,11 +154,11 @@ class Store[T]:
         if directory is None:
             return None
         path = self._path(directory, key)
-        hit = self._hit(key, path, fresh_s, stale_s, fetch)
+        hit = self._hit(key, path, fresh_s, stale_s, fetch, brief, BACKOFF_S)
         if hit is not None:
             return hit[0]
         if _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch)
+            self._refresh(key, path, fetch, brief, BACKOFF_S)
         return None
 
     def _dir(self) -> Path | None:
@@ -154,7 +175,8 @@ class Store[T]:
         fresh_s: float,
         stale_s: float,
         fetch: Callable[[], T],
-        brief: bool = False,
+        brief: bool,
+        hold_s: float,
     ) -> tuple[T] | None:
         """(value,) of an entry younger than *stale_s*, refreshed in the background once
         older than *fresh_s*; None when there is none."""
@@ -165,7 +187,7 @@ class Store[T]:
         with contextlib.suppress(OSError):
             os.utime(path)
         if age >= fresh_s and _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch, brief)
+            self._refresh(key, path, fetch, brief, hold_s)
         return (value,)
 
     def _read(self, path: Path) -> tuple[float, T] | None:
@@ -183,14 +205,20 @@ class Store[T]:
                 path.unlink()
             return None
 
-    def _fetch_once(self, key: str, path: Path, fetch: Callable[[], T], brief: bool) -> T:
+    def _fetch_once(
+        self, key: str, path: Path, fetch: Callable[[], T], brief: bool, hold_s: float
+    ) -> T:
         flight = (self.name, key)
         while True:
             future, owner = _claim(flight)
             if owner:
-                return self._fill(flight, future, path, fetch, brief)
+                return self._fill(flight, future, path, fetch, brief, hold_s)
             try:
-                result: T = future.result(BRIEF_WAIT_S if brief else None)
+                result: T = future.result(BRIEF_WAIT_S if brief else WAIT_S)
+            except TimeoutError as exc:
+                if not future.done():
+                    raise StillFetching(key) from None
+                error: Exception = exc
             except _BriefFailure as exc:
                 if not brief:
                     continue
@@ -209,7 +237,8 @@ class Store[T]:
         future: Future[Any],
         path: Path,
         fetch: Callable[[], T],
-        brief: bool = False,
+        brief: bool,
+        hold_s: float,
     ) -> T:
         """Fetch into the claimed *future* and store the value; the future is always
         settled, so no waiter is left blocked."""
@@ -222,7 +251,7 @@ class Store[T]:
                 if not brief:
                     if len(_failed) >= _BACKOFF_MAX_KEYS:
                         _failed.clear()
-                    _failed[flight] = (time.monotonic() + BACKOFF_S, _bare(exc))
+                    _failed[flight] = (time.monotonic() + hold_s, _bare(exc))
             future.set_exception(_BriefFailure(exc) if brief else exc)
             raise
         except BaseException as exc:
@@ -237,17 +266,29 @@ class Store[T]:
                 if _inflight.get(flight) is future:
                     del _inflight[flight]
 
-    def _refresh(self, key: str, path: Path, fetch: Callable[[], T], brief: bool = False) -> None:
+    def _refresh(
+        self, key: str, path: Path, fetch: Callable[[], T], brief: bool, hold_s: float
+    ) -> None:
         flight = (self.name, key)
-        # Claimed now, not when the pool gets to it, so stale hits while the refresh
-        # waits in the queue do not queue more of them.
-        future, owner = _claim(flight)
-        if not owner:
-            return
+        with _guard:
+            # Once per key, so stale hits while the refresh waits in the queue add no more.
+            if flight in _inflight or flight in _queued:
+                return
+            _queued.add(flight)
+        queued_at = time.time()
 
         def run() -> None:
+            # Claimed only now: a caller who needs the key meanwhile fetches it at once.
+            with _guard:
+                _queued.discard(flight)
+            cached = self._read(path)
+            if cached is not None and cached[0] < time.time() - queued_at:
+                return
+            future, owner = _claim(flight)
+            if not owner:
+                return
             try:
-                self._fill(flight, future, path, fetch, brief)
+                self._fill(flight, future, path, fetch, brief, hold_s)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 
@@ -255,11 +296,10 @@ class Store[T]:
             run()
             return
         try:
-            _executor().submit(run)
-        except RuntimeError as exc:  # the pool is shut down (interpreter exit)
+            _executor(self.name).submit(run)
+        except RuntimeError:  # the pool is shut down (interpreter exit)
             with _guard:
-                _inflight.pop(flight, None)
-            future.set_exception(exc)
+                _queued.discard(flight)
 
     def _write(self, path: Path, value: T) -> None:
         payload, info = self._encode(value)
@@ -374,12 +414,13 @@ def _bare[E: BaseException](exc: E) -> E:
     return clone
 
 
-def _executor() -> ThreadPoolExecutor:
-    global _pool
+def _executor(store: str) -> ThreadPoolExecutor:
     with _guard:
-        if _pool is None:
-            _pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="disk-cache")
-        return _pool
+        if store not in _pools:
+            _pools[store] = ThreadPoolExecutor(
+                max_workers=2, thread_name_prefix=f"disk-cache-{store}"
+            )
+        return _pools[store]
 
 
 def _encode_json(value: Any) -> tuple[bytes, dict[str, Any]]:
@@ -423,4 +464,14 @@ def init(data_dir: str | Path) -> None:
     _root = root
 
 
-__all__ = ["BACKOFF_S", "Image", "Refused", "Store", "img", "init", "meta", "sync"]
+__all__ = [
+    "BACKOFF_S",
+    "Image",
+    "Refused",
+    "StillFetching",
+    "Store",
+    "img",
+    "init",
+    "meta",
+    "sync",
+]
