@@ -215,11 +215,11 @@
 /* Banner */
 .watch-banner {
   position: relative;
-  height: 420px;
+  min-height: clamp(420px, 27vw, 600px); /* grows for a long title */
   margin-top: 16px;
   display: flex;
   align-items: flex-end;
-  padding: 0 var(--pad) 44px;
+  padding: 24px var(--pad) 44px;
   overflow: hidden;
   background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
 }
@@ -227,7 +227,11 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--bg) 18%, color-mix(in srgb, var(--scrim) 20%, transparent) 60%, transparent);
+  /* Dark enough for the text up to where the title can reach, then eased out with no edge;
+     below, the picture melts into the page. */
+  background:
+    linear-gradient(0deg, var(--bg), color-mix(in srgb, var(--bg) 74%, transparent) 25px, color-mix(in srgb, var(--bg) 45%, transparent) 55px, color-mix(in srgb, var(--bg) 18%, transparent) 90px, transparent 130px),
+    linear-gradient(90deg, color-mix(in srgb, var(--scrim) 94%, transparent), color-mix(in srgb, var(--scrim) 88%, transparent) 24%, color-mix(in srgb, var(--scrim) 70%, transparent) 48%, color-mix(in srgb, var(--scrim) 42%, transparent) 63%, color-mix(in srgb, var(--scrim) 18%, transparent) 78%, color-mix(in srgb, var(--scrim) 5%, transparent) 90%, transparent);
   pointer-events: none;
 }
 .watch-banner__bg {
@@ -236,7 +240,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 75% 30%;
+  object-position: 75% 25%;
 }
 .watch-banner__body {
   position: relative;
@@ -247,7 +251,18 @@
   flex-direction: column;
   gap: 14px;
 }
-.watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t3); }
+/* On a smaller screen a long title runs far over the picture, so the dark follows the text's width. */
+@media (min-width: 600px) and (max-width: 1279.98px) {
+  .watch-banner__body::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -100vh -220px -100px calc(-1 * var(--pad));
+    background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 70%, transparent) calc(100% - 220px), color-mix(in srgb, var(--scrim) 52%, transparent) calc(100% - 165px), color-mix(in srgb, var(--scrim) 25%, transparent) calc(100% - 95px), color-mix(in srgb, var(--scrim) 7%, transparent) calc(100% - 38px), transparent);
+    pointer-events: none;
+  }
+}
+.watch-banner__kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--t2); }
 .watch-banner__title { font-size: 48px; font-weight: 700; letter-spacing: -.02em; line-height: 1.05; overflow-wrap: anywhere; }
 .watch-banner__line { font-size: 15px; color: var(--t2); }
 .watch-banner__line--short { display: none; }
@@ -659,7 +674,15 @@
   .watch-banner { height: auto; min-height: 260px; margin-top: 12px; padding: 168px var(--pad) 20px; }
   /* Above the title, in the room the padding keeps for it. */
   .watch-banner__poster { --banner-poster-w: 88px; right: auto; left: var(--pad); top: 22px; transform: none; border-radius: var(--r-sm); }
-  .watch-banner::after { background: linear-gradient(0deg, var(--bg) 8%, transparent 60%); }
+  /* The picture is clear only above the text, whatever height the text takes. */
+  .watch-banner::after { background: linear-gradient(0deg, var(--bg), transparent 90px); }
+  .watch-banner__body::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: -110px calc(-1 * var(--pad)) -20px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--scrim) 12%, transparent) 20px, color-mix(in srgb, var(--scrim) 34%, transparent) 46px, color-mix(in srgb, var(--scrim) 60%, transparent) 74px, color-mix(in srgb, var(--scrim) 80%, transparent) 110px, color-mix(in srgb, var(--scrim) 88%, transparent));
+  }
   .watch-banner__body { width: 100%; gap: 8px; max-width: none; }
   .watch-banner__kicker { font-size: 11px; }
   .watch-banner__title { font-size: 30px; }
@@ -688,6 +711,15 @@
   }
   .watch-ep__num { font-size: 14px; padding-top: 2px; }
   .watch-ep__state { justify-self: start; align-self: end; }
+}
+
+/* A phone held sideways: a shorter banner that leaves its buttons on screen. */
+@media (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
+  .watch-banner { --banner-poster-w: 124px; min-height: 260px; margin-top: 8px; padding: 16px var(--pad) 18px; }
+  .watch-banner__body { width: auto; max-width: min(560px, calc(100% - var(--banner-poster-w) - 28px)); gap: 8px; }
+  .watch-banner__title { font-size: 28px; }
+  .watch-banner__line { font-size: 13px; }
+  .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; transform: translateY(-50%); }
 }
 
 /* Inline notice above the rows when Plex cannot be reached. */

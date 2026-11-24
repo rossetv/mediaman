@@ -572,3 +572,17 @@ def test_share_centres_its_icon_and_label_together_inside_the_width_it_holds() -
     assert "padding-inline-start: calc(var(--share-icon) + var(--share-gap))" in sizer
     assert "gap: var(--share-gap)" in group
     assert "width: var(--share-icon)" in _declarations_of(sheet, ".ttl__share-group > .fa-solid")
+
+
+def test_the_banner_grows_with_the_screen_and_with_a_long_title() -> None:
+    body = _declarations_of("_watch.css", ".watch-banner")
+
+    assert "min-height: clamp(420px, 27vw, 600px)" in body
+    assert not re.search(r"(?<!-)\bheight: \d+px", body)
+
+
+def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
+    css = (CSS / "_watch.css").read_text(encoding="utf-8")
+    block = re.search(r"@media \(max-height: 500px\)[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", css)
+
+    assert block and "min-height: 260px" in block.group(1)
