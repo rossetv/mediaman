@@ -21,6 +21,7 @@ from mediaman.db import (
 )
 from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
+from mediaman.services.media_meta._plex_session import _scrub_plex_token
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
@@ -234,6 +235,6 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             event="library.sync.failed",
             actor=admin,
             ip=get_client_ip(request),
-            detail={"error": str(exc)[:200]},
+            detail={"error": _scrub_plex_token(str(exc))[:200]},
         )
         return respond_err("sync_failed", status=502, message=_sync_failure_message(exc))
