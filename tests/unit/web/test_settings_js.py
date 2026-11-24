@@ -213,6 +213,12 @@ def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
     }
 
 
+def test_the_password_dialog_for_a_delete_names_the_delete() -> None:
+    words = _run("deleteWords")
+    assert "delete bob" in words["title"]
+    assert "delete" in words["confirmLabel"] and "save" not in json.dumps(words)
+
+
 def test_rate_limited_test_button_says_try_later_not_failed() -> None:
     out = _run("manualRateLimit")
     assert out["button"] == "Try later"

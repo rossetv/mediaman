@@ -756,6 +756,22 @@ const scenarios = {
     return out;
   },
 
+  // The words of the password dialog when a user is deleted.
+  async deleteWords() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }) };
+    let words = null;
+    h.ctx.MM.reauth = { run: (f, w) => { words = w || null; return new Promise(() => {}); } };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    userList.querySelector('[data-user-action="delete"]').fire('click');
+    await h.flush();
+    return words;
+  },
+
   // A throttled service is not counted as not connected.
   async rail() {
     const h = build();
