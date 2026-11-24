@@ -841,6 +841,22 @@ const scenarios = {
     return out;
   },
 
+  // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
+  async personPages() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    const item = (n, held) => ({ ...TM, ref: 'tmdb-movie-' + n, title: 'T' + n, in_library: held, download_state: null });
+    const page = (n, items, next) => p.answer('person/9001' + (n > 1 ? '?page=' + n : ''), { tmdb_configured: true, person: MARA, items, total: 6, in_library: 2, next_page: next });
+    await page(1, [item(1, true), item(2, false)], 2);
+    const more = p.grids[0].opts.fetchPage(2);
+    await page(2, [item(2, false), item(1, true)], 3);
+    await page(3, [item(3, false), item(2, false), item(4, true)], 4);
+    const got = await more;
+    // Kept in memory, pages 2 and 3 are not asked for again; the last is empty and says it is the end.
+    const last = p.grids[0].opts.fetchPage(4);
+    await page(4, [], null);
+    return { first: p.grids[0].titles, cards: got.cards.map((c) => c.textContent), next: got.next, calls: p.calls.length, last: [(await last).cards.length, (await last).next] };
+  },
+
   // Esc and the page's Back leave the way Back does; the Browse half of the switch goes to the rows.
   async leaveCategory() {
     const out = {};

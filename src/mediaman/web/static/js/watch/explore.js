@@ -415,6 +415,7 @@
     var mine = { kind: 'person', id: id };
     var photo = stage().face(who.profile_url, who.name);
     var heads = {};
+    var shown = new Set(); // the titles listed so far
     photo.classList.add('explore-photo');
     f.head.insertBefore(photo, f.text);
     f.node.classList.add('explore--person');
@@ -469,17 +470,22 @@
       return [node];
     }
 
+    /* One page, or the next that has something new. What the library holds comes
+       first; a title of it found later stands where it comes, with its badge. */
     function fetchPage(page) {
       return person(id, page).then(function (reply) {
         if (open === mine && page === 1) learn(reply);
         var cards = [];
         (reply.items || []).forEach(function (item) {
-          cards = cards.concat(item.in_library
-            ? head('lib', 'In your library', reply.in_library)
-            : head('tmdb', 'Available to download', reply.total - reply.in_library));
-          cards.push(watch.search.tmdbCard(item, item.in_library));
+          if (shown.has(item.ref)) return;
+          shown.add(item.ref);
+          var held = item.in_library && !heads.tmdb;
+          if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
+          else if (!item.in_library) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
+          cards.push(watch.search.tmdbCard(item, held));
         });
-        return { cards: cards, next: reply.next_page || null };
+        var next = reply.next_page || null;
+        return cards.length || !next ? { cards: cards, next: next } : fetchPage(next);
       });
     }
 

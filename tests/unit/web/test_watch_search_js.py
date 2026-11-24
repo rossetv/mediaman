@@ -335,6 +335,20 @@ def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading
     assert out["calls"] == 2
 
 
+def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_next() -> None:
+    out = _run("personPages")
+    assert [t.split("Movie")[0] for t in out["first"]] == [
+        "In your library2 titles",
+        "T1",
+        "Available to download4 titles",
+        "T2",
+    ]
+    # Held, but found after the rest had begun: no heading, and its badge says so.
+    assert [t.split("Movie")[0] for t in out["cards"]] == ["T3", "T4In library"]
+    assert (out["next"], out["calls"]) == (4, 4)
+    assert out["last"] == [0, None]
+
+
 def test_esc_back_and_the_browse_switch_leave_a_category() -> None:
     out = _run("leaveCategory")
     assert out["menus"] == "/watch?genre=action&type=tv"
