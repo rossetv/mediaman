@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 
 import requests
 
@@ -37,6 +38,24 @@ _OMDB_SESSION = requests.Session()
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
 logger = logging.getLogger(__name__)
+
+_clock = time.monotonic
+
+# OMDb answers a spent quota, as a bad key, with a refusal; either lasts.
+_REFUSED_PAUSE_SECONDS = 3600.0
+# The key refused and when it may be asked with again; another key is asked at once.
+_refused: tuple[str, float] | None = None
+
+
+def is_key_refused(api_key: str) -> bool:
+    """Whether OMDb lately refused *api_key* (a spent quota or a bad key)."""
+    refused = _refused
+    return refused is not None and refused[0] == api_key and _clock() < refused[1]
+
+
+def _refuse(api_key: str) -> None:
+    global _refused
+    _refused = (api_key, _clock() + _REFUSED_PAUSE_SECONDS)
 
 
 def _attach_scrub_filters(api_key: str) -> None:
@@ -88,7 +107,7 @@ def lookup_ratings(
 ) -> dict[str, str] | None:
     """Return OMDb ratings (any subset of imdb, rt, metascore), an empty dict when OMDb
     answered that it has none, and None when it gave no answer (no key, a timeout, a bad
-    reply, a spent quota); never raises.
+    reply, a spent quota); never raises. A key OMDb refused is not tried again for an hour.
 
     Pass either omdb_key (preferred from thread-pool workers, since conn must not cross
     threads) or conn plus secret_key to read the key in place.
@@ -97,7 +116,7 @@ def lookup_ratings(
         if conn is None or secret_key is None:
             raise TypeError("fetch_ratings requires either omdb_key= or both conn= and secret_key=")
         omdb_key = get_omdb_key(conn, secret_key)
-    if not omdb_key:
+    if not omdb_key or is_key_refused(omdb_key):
         return None
 
     # Attach log scrubbing for this key value before any network call.
@@ -114,7 +133,11 @@ def lookup_ratings(
     try:
         resp = _OMDB_CLIENT.get("/", params=params, timeout=(5.0, 5.0))
         data = resp.json()
-    except (SafeHTTPError, requests.RequestException, ValueError):
+    except SafeHTTPError as exc:
+        if exc.status_code == 401:
+            _refuse(omdb_key)
+        return None
+    except (requests.RequestException, ValueError):
         # ``Response.json`` raises ``json.JSONDecodeError`` (a ValueError
         # subclass, not a RequestException) for malformed bodies.
         # KeyError is not caught: ``resp.json()`` never raises it, so
@@ -125,8 +148,11 @@ def lookup_ratings(
         return None
     if data.get("Response") != "True":
         # Only "not found" is an answer; a spent quota or a bad key says nothing of the title.
-        error = data.get("Error")
-        return {} if isinstance(error, str) and "not found" in error.lower() else None
+        raw_error = data.get("Error")
+        error = raw_error.lower() if isinstance(raw_error, str) else ""
+        if "limit reached" in error or "api key" in error:
+            _refuse(omdb_key)
+        return {} if "not found" in error else None
 
     out: dict[str, str] = {}
     imdb = data.get("imdbRating")

@@ -15,6 +15,7 @@ import contextlib
 import logging
 import re
 import sqlite3
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -28,7 +29,7 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
-from mediaman.services.media_meta.omdb import get_omdb_key, lookup_ratings
+from mediaman.services.media_meta.omdb import get_omdb_key, is_key_refused, lookup_ratings
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -47,6 +48,7 @@ from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_c
 from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
+from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.pages import (
     _episode_row,
@@ -155,7 +157,8 @@ def _ratings(
     allow_fetch: Callable[[], bool],
 ) -> dict[str, str]:
     """OMDb's IMDb, Rotten Tomatoes and Metascore ratings, from the ratings cache when fresh;
-    none when OMDb has no key or would be asked and *allow_fetch* says no. An answer with
+    none when OMDb has no key, is paused, or would be asked and *allow_fetch* says no. The
+    pause after OMDb gives no answer is search's own, so either one spares the other. An answer with
     nothing in it is cached too, for a shorter time, but only when OMDb answered: a timeout
     or a spent quota caches nothing and leaves the ratings already held (old ones are shown
     in its place)."""
@@ -169,10 +172,13 @@ def _ratings(
             return found
         stale = found
     omdb_key = get_omdb_key(conn, secret_key)
-    if not omdb_key or not allow_fetch():
+    if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
+        return stale
+    if not allow_fetch():
         return stale
     data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
     if data is None:
+        _enrichment._paused_until = time.monotonic() + _enrichment._NO_ANSWER_PAUSE_SECONDS
         return stale
     try:
         upsert_ratings_cache(
