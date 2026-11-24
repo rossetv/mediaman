@@ -75,3 +75,10 @@ def test_blue_and_purple_text_keep_aa_on_their_tints_over_every_surface_a_pill_s
         for surface in ("s1", "s2", "s3", "s4"):
             ratio = _contrast(_rgb(_token(text)), _on(_var(body, "background"), surface))
             assert ratio >= 4.5, f"{selector} over --{surface}"
+
+
+def test_a_sign_in_button_s_label_has_air_when_it_takes_two_lines() -> None:
+    body = _body("_login.css", ".login-btn")
+    top = re.search(r"(?<![\w-])padding:\s*(\d+)px", body)
+    assert top and int(top.group(1)) >= 8
+    assert "text-align: center" in body

@@ -86,7 +86,10 @@
   justify-content: center;
   width: 100%;
   min-height: 44px;
-  padding: 0 22px;
+  /* A label that takes two lines on a narrow phone keeps air above and below. */
+  padding: 10px 22px;
+  line-height: 1.25;
+  text-align: center;
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
