@@ -194,6 +194,7 @@ def _load_deleted_items(
 
 def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSummary:
     from mediaman.services.infra import get_aggregate_disk_usage, get_media_path
+    from mediaman.services.infra.storage.disk_reads import media_root_reads
 
     type_rows = conn.execute(
         "SELECT media_type, SUM(file_size_bytes) AS total FROM media_items GROUP BY media_type"
@@ -214,7 +215,9 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSumma
         # container with a custom mount point still sees accurate disk
         # stats in the newsletter, instead of a hard-coded ``/media``
         # which would silently fall through to the file-size fallback.
-        disk = get_aggregate_disk_usage(get_media_path())
+        disk = media_root_reads.read(get_media_path(), get_aggregate_disk_usage)
+        if disk is None:
+            raise OSError("the media folder could not be read in time")
         total_bytes = disk["total_bytes"]
         used_bytes = disk["used_bytes"]
         free_bytes = disk["free_bytes"]
