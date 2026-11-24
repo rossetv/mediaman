@@ -192,6 +192,20 @@ class TestNothingSensitive:
             ("Cookie: a=bbb; c=ddd", ["bbb", "ddd"]),
             ('password="never closed', ["never", "closed"]),
             ("{'token' => 'zzz'}", ["zzz"]),
+            ("sent Bearer abcdefghijklmnop and", ["abcdefghijklmnop"]),
+            ("bearer=hunter", ["hunter"]),
+            ("http://bob:hun/ter@host/x", ["bob", "hun", "ter"]),
+            ("http://bob:/hun/ter@host", ["bob", "hun", "ter"]),
+            ("http://bob:hun/t@er/x@host", ["bob", "hun"]),
+            ("http://a:b/c see http://bob:hun/ter@host", ["bob", "hun", "ter"]),
+            ('tokens="abc", "def" , "ghi"', ["abc", "def", "ghi"]),
+            ("tokens='abc','def'", ["abc", "def"]),
+            (r"\"tokens\":\"abc\", \"def\"", ["abc", "def"]),
+            ('tokens: ["abc", "de]f", "ghi"] end', ["abc", "de]f", "ghi"]),
+            ("{'secrets': ('abc', ['def', 'ghi'])}", ["abc", "def", "ghi"]),
+            ('{"tokens": {"plex": "abc", "x": "def"}, "n": 1}', ["abc", "def"]),
+            ("tokens=[abc, def", ["abc", "def"]),
+            ('Cookie: "a=abc", "b=def"', ["abc", "def"]),
         ],
     )
     def test_every_shape_of_credential_is_hidden(self, text, leaks):
@@ -210,7 +224,47 @@ class TestNothingSensitive:
         assert redact_text(plain) == plain
 
     @pytest.mark.parametrize(
-        "text", ["token", "a.", "token.", '\\"', "token\\", "://", "token ", 'token="', "bearer "]
+        "text",
+        [
+            "Not deleted: The Bearer Bonds",
+            "The Bearer: Redemption (1999)",
+            "term=The+Bearer+Bonds+2",
+            "Bearer%20Bonds%20x",
+            "GET http://plex:32400/photo/@2x and http://[::1]:32400/a@b",
+            '{"key":["abc", "def"]}',
+        ],
+    )
+    def test_text_that_holds_no_credential_is_left_alone(self, text):
+        assert redact_text(text) == text
+
+    def test_what_follows_a_hidden_value_or_list_still_reads(self):
+        assert redact_text('{"token":"abc","title":"Heat"}') == '{"token":[hidden],"title":"Heat"}'
+        assert (
+            redact_text("{'tokens': ['abc', 'def'], 'title': 'Heat'}")
+            == "{'tokens': [hidden], 'title': 'Heat'}"
+        )
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "token",
+            "a.",
+            "token.",
+            '\\"',
+            "token\\",
+            "://",
+            "://a:",
+            "://a:@",
+            "token ",
+            'token="',
+            'token="a",',
+            "token=[",
+            "token=[]",
+            "token=[\\",
+            "bearer ",
+            "bearer a",
+            "bearer%20",
+        ],
     )
     def test_hiding_takes_no_longer_than_the_text_is_long(self, text):
         started = time.process_time()

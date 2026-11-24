@@ -13,6 +13,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import unquote
 
 NOT_RECORDED = "Not recorded"
 _HIDDEN = "[hidden]"
@@ -44,8 +45,18 @@ _AUTH_VALUE_RE = re.compile(
     rf"{_QUOTED}|{_PART}(?:[ \t]++{_PART})?+(?:(?<=[,;])[ \t]*+{_PART})*+", re.I | re.S
 )
 _COOKIE_VALUE_RE = re.compile(rf"{_QUOTED}|{_PART}(?:(?<=[,;])[ \t]*+{_PART})*+", re.S)
-_URL_USERINFO_RE = re.compile(r"""://(?:[^\s/"@]*+@)++""")
-_BEARER_RE = re.compile(r"\b(bearer(?:\s*+[=:]\s*+|\s++|%20|\+))[\w.~+/=%-]++", re.I)
+# What a value that is a list goes on with: another quoted text that is not itself a key.
+_NEXT_ITEM_RE = re.compile(rf"\s*+,\s*+{_QUOTED}(?!\s*+[=:])", re.S)
+_NESTED_RE = re.compile(
+    rf"""{_QUOTED}|(?P<open>[\[({{])|(?P<close>[\])}}])|[^\[\](){{}}"'\\]++|.""", re.S
+)
+# After a colon a password may hold a slash, but a port followed by a path is no password. The
+# first form takes the text whether or not an @ comes, which keeps the search linear.
+_URL_USERINFO_RE = re.compile(
+    r"""://(?:[^\s/"@:\[]*+:(?!\d{1,5}+[/?#])[^\s"@]*+(?P<at>@(?:[^\s/"@]*+@)*+)?+"""
+    r"""|(?P<plain>(?:[^\s/"@]*+@)++))"""
+)
+_BEARER_RE = re.compile(r"\b(bearer(\s*+[=:]\s*+|\s++|%20|\+))([\w.~+/=%-]++)", re.I)
 _LEGACY_BODY_RE = re.compile(r"^actor=(.+?) ip=(\S+)(?: (.*))?$", re.S)
 _KEPT_RE = re.compile(r"Kept (?:for [\w ]+?|forever)(?= by| \(|;|$)")
 _ADDED_RE = re.compile(r"Added '.*' to (Radarr|Sonarr)")
@@ -68,7 +79,7 @@ def redact_text(text: str) -> str:
     """Hide credentials in free text: the value after a credential-looking key, the user and
     password of an address, and a bare bearer value.
     """
-    text = _URL_USERINFO_RE.sub(rf"://{_HIDDEN}@", text)
+    text = _URL_USERINFO_RE.sub(lambda m: f"://{_HIDDEN}@" if m["at"] or m["plain"] else m[0], text)
     out: list[str] = []
     done = pos = 0
     while m := _KEY_RE.search(text, pos):
@@ -81,10 +92,43 @@ def redact_text(text: str) -> str:
             value_re = _AUTH_VALUE_RE
         elif "cookie" in key:
             value_re = _COOKIE_VALUE_RE
-        if value := value_re.match(text, pos):
+        end = _value_end(text, pos, value_re)
+        if end > pos:
             out += (text[done:pos], _HIDDEN)
-            done = pos = value.end()
-    return _BEARER_RE.sub(lambda m: m[1] + _HIDDEN, "".join(out) + text[done:])
+            done = pos = end
+    return _BEARER_RE.sub(_hide_bearer, "".join(out) + text[done:])
+
+
+def _value_end(text: str, pos: int, value_re: re.Pattern[str]) -> int:
+    """Where the value at *pos* ends: a bracketed one at its closing bracket, and a quoted one
+    after the quoted items that follow it.
+    """
+    if text[pos : pos + 1] in ("[", "(", "{"):
+        depth = 0
+        while token := _NESTED_RE.match(text, pos):
+            pos = token.end()
+            depth += bool(token["open"]) - bool(token["close"])
+            if depth == 0:
+                break
+        return pos
+    value = value_re.match(text, pos)
+    if value is None:
+        return pos
+    end = value.end()
+    if value[0][0] in "\"'\\":
+        while item := _NEXT_ITEM_RE.match(text, end):
+            end = item.end()
+    return end
+
+
+def _hide_bearer(m: re.Match[str]) -> str:
+    """Hide what follows "bearer" unless it reads as the next word of a title."""
+    # In a query string a space is written as a plus.
+    value = unquote(m[3].replace("+", " ") if m[2] == "+" else m[3])
+    word = (value.split() or [""])[0].rstrip(".")
+    if "=" in m[2] or len(word) >= 16 or re.search(r"[\d.]", word):
+        return m[1] + _HIDDEN
+    return m[0]
 
 
 def hide_emails(text: str) -> str:
