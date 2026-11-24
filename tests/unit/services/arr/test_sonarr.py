@@ -447,7 +447,6 @@ class TestAddSeriesWithSeasons:
             tvdb_id=999,
             title="Breaking Bad",
             monitored_seasons=[1, 2],
-            search_seasons=[2],
         )
 
         posts = _calls(fake_http, "POST")
@@ -469,7 +468,6 @@ class TestAddSeriesWithSeasons:
                 tvdb_id=0,
                 title="X",
                 monitored_seasons=[],
-                search_seasons=[],
             )
 
 

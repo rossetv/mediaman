@@ -260,12 +260,11 @@ def _submit_tv(
         if body.monitored_seasons is None:
             sonarr.add_series(tvdb_id, body.title)
         else:
-            sonarr.add_series_with_seasons(
-                tvdb_id,
-                body.title,
-                body.monitored_seasons,
-                body.search_seasons or [],
-            )
+            # Sonarr searches every monitored season it is missing files for, so a
+            # season not asked to be searched is not monitored. A show Sonarr already
+            # holds was refused above, so no season of it is held to keep monitored.
+            seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
+            sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return respond_failure("Failed to add to Sonarr", status=502)

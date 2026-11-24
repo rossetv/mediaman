@@ -1363,7 +1363,7 @@ class TestMediaRedownload:
         sonarr = self._sonarr_without_series()
         resp = post({"title": "Severance", "tvdb_id": 999, "season_number": 2}, sonarr=sonarr)
         assert resp.json()["ok"] is True
-        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2], [2])
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2])
         sonarr.remonitor_season.assert_not_called()
 
     @pytest.mark.parametrize("held", [True, False], ids=["remonitored", "added"])

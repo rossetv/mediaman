@@ -288,10 +288,9 @@ class _SonarrMixin:
         tvdb_id: int,
         title: str,
         monitored_seasons: list[int],
-        search_seasons: list[int],
         quality_profile_id: int | None = None,
     ) -> SonarrSeries:
-        """Add a series with an explicit per-season monitor/search plan.
+        """Add a series with only the given seasons monitored.
 
         Seasons listed in *monitored_seasons* are added with
         ``monitored=True``; every other season (including season 0) is
@@ -299,10 +298,8 @@ class _SonarrMixin:
         seasons (``none`` would unmonitor them all after the first scan) and
         Sonarr itself searches the monitored missing episodes once it has
         scanned the series, so no search command is posted here: one sent
-        straight after the add finds no episodes yet.  *search_seasons* is
-        accepted for the callers' sake; what Sonarr searches follows
-        *monitored_seasons* alone, and a monitored season whose files are on
-        disk has nothing missing to search.
+        straight after the add finds no episodes yet. What Sonarr searches
+        follows *monitored_seasons* alone.
         """
         self._require_series("add_series_with_seasons")  # type: ignore[attr-defined]
         if tvdb_id <= 0:
