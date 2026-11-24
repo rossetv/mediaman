@@ -275,6 +275,7 @@ class ScanEngine:
                 for f in fetched.items
             ],
         )
+        repository.carry_stranded_keeps(self._conn)
         for fetched in per_lib_fetches.values():
             self._listed_keys.update(fetched.listed_keys)
         for lib_id, fetched in per_lib_fetches.items():
@@ -373,6 +374,8 @@ class ScanEngine:
         or ``"photo"``) would be scanned as if it were a movie
         collection.
         """
+        repository.carry_stranded_keeps(self._conn)
+        self._conn.commit()
         seen_by_lib: dict[str, set[str]] = {}
         for lib_id in self._library_ids:
             lib_type = self._library_types.get(lib_id)

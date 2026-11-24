@@ -205,6 +205,7 @@ def remove_orphans(
         repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
         orphan_ids = [i for i in unlisted if i not in unbooked]
         repository.save_pruned_keeps(conn, orphan_ids)
+        repository.carry_pruned_keeps(conn, set(orphan_ids))
         repository.save_pruned_show_seasons(conn, set(orphan_ids))
         repository.save_pruned_progress(conn, set(orphan_ids))
         repository.save_pruned_watches(conn, orphan_ids)

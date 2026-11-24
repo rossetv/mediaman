@@ -291,7 +291,7 @@ _KEEP_COLUMNS = "action, scheduled_at, execute_at, token_used, snoozed_at, snooz
 def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
     """Set aside the live keeps of items about to be removed, and forget lapsed ones.
 
-    Run it in the transaction that removes the items.
+    Run it in the transaction that removes the items, and carry_pruned_keeps after it.
     """
     now = now_iso()
     conn.execute("DELETE FROM pruned_keeps WHERE action = 'snoozed' AND execute_at < ?", (now,))
@@ -303,17 +303,6 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
         "WHERE mi.id = ? AND (sa.action = 'protected_forever' "
         "  OR (sa.action = 'snoozed' AND sa.execute_at >= ?))",
         [(media_id, now) for media_id in media_ids],
-    )
-    # A keep the item's new key already holds goes back to the old key alone:
-    # by path, the next new key would take it though it was removed meanwhile.
-    conn.execute(
-        "UPDATE pruned_keeps SET file_path = '' WHERE EXISTS ("
-        "  SELECT 1 FROM media_items mi JOIN scheduled_actions sa ON sa.media_item_id = mi.id "
-        "  WHERE mi.file_path = pruned_keeps.file_path "
-        "    AND mi.season_number IS pruned_keeps.season_number "
-        "    AND sa.action = pruned_keeps.action AND sa.scheduled_at = pruned_keeps.scheduled_at "
-        "    AND sa.execute_at IS pruned_keeps.execute_at "
-        "    AND NOT EXISTS (SELECT 1 FROM pruned_keeps own WHERE own.media_item_id = mi.id))"
     )
 
 
@@ -362,7 +351,10 @@ def fetch_replaced_keep(
 
 
 def restore_keeps(conn: sqlite3.Connection, media_id: str, keeps: list[sqlite3.Row]) -> None:
-    """Put *keeps* of take_pruned_keeps or fetch_replaced_keep on the item and audit each."""
+    """Put *keeps*, of take_pruned_keeps, fetch_replaced_keep or pruned_keeps, on the item.
+
+    Each is audited.
+    """
     # rationale: the interpolated column list is a fixed string; every value is bound
     conn.executemany(  # nosec B608
         f"INSERT INTO scheduled_actions (media_item_id, {_KEEP_COLUMNS}) "

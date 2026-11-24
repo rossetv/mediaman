@@ -90,7 +90,7 @@ class ScanDecision(enum.Enum):
 
     * SCHEDULE — the item is eligible; schedule a deletion.
     * SKIP_GUARD — a protection / already-scheduled guard fired
-      before the evaluator ran.
+      before the evaluator ran, or the same files are kept under another key.
     * SKIP_EVAL — the evaluator declined (too new, watched
       recently, or an evaluator early-skip such as a kept show).
     """
@@ -238,6 +238,8 @@ def _evaluate_scan_item(
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
     if evaluate_fn(f, added_at, f.watch_history) != "schedule_deletion":
         return media_id, ScanDecision.SKIP_EVAL
+    if repository.is_kept_under_another_key(conn, media_id):
+        return media_id, ScanDecision.SKIP_GUARD
     last_watched = last_watched_by_media_item(conn, [media_id]).get(media_id)
     if last_watched is not None and not is_inactive(
         [{"viewed_at": last_watched}], engine._inactivity_days
