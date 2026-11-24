@@ -475,6 +475,24 @@ const scenarios = {
     await p.open();
     return { meter, rows: p.rows() };
   },
+  // The refresh after a keep is still out when the keep is undone.
+  async undoRace() {
+    const p = await page();
+    await p.open();
+    p.server.holding = '/api/dashboard';
+    await p.keep('1', '7');
+    const meter = p.meter();
+    const refresh = p.server.held;
+    p.server.held = [];
+    p.server.holding = '/api/watch/unkeep';
+    p.last().opts.action.onClick();
+    await settle();
+    refresh.forEach((h) => h.go());
+    await settle();
+    const during = p.rows();
+    await p.let_go('/api/watch/unkeep');
+    return { meter, during, after: p.rows() };
+  },
   async keepInAGrid() {
     const p = await page();
     const took = [];

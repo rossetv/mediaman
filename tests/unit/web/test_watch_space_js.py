@@ -252,6 +252,12 @@ class TestScheduled:
         assert "2 leaving" in out["meter"]
         assert out["rows"] == ["2", "3"]
 
+    def test_a_keep_counts_at_once_and_its_refresh_never_takes_away_a_row_undone_meanwhile(self):
+        out = _run("undoRace")
+        assert "2 leaving" in out["meter"]
+        assert out["during"] == ["1", "2", "3"]
+        assert out["after"] == ["1", "2", "3"]
+
     def test_a_card_kept_in_an_open_grid_is_taken_out_by_the_grid(self):
         out = _run("keepInAGrid")
         assert out["inGrid"] == {
