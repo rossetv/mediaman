@@ -106,6 +106,7 @@ _ADDED_COLUMNS = (
     ("delete_intents", "confirmed_at", "TEXT"),
     ("arr_searching_since", "last_seen", "TEXT"),
     ("plex_links", "libraries", "TEXT"),
+    ("plex_links", "last_tried_at", "TEXT"),
     ("plex_plays", "library_id", "TEXT"),
 )
 

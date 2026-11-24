@@ -9,43 +9,50 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-# Left-behind threads that may be alive at once before no more work is started.
-_MAX_LEFT = 4
-
-_left: list[threading.Thread] = []
-_left_lock = threading.Lock()
-
 
 class TookTooLong(Exception):
     """The work was started and left behind, still running."""
 
 
-class TooManyLeft(Exception):
-    """Nothing was started: too much earlier work is still running."""
+class TooBusy(Exception):
+    """Nothing was started: too much other work is still running."""
 
 
-def within[T](seconds: float, work: Callable[[], T]) -> T:
-    """The result of *work*, or what it raised. It must not touch a database connection."""
-    with _left_lock:
-        _left[:] = [t for t in _left if t.is_alive()]
-        if len(_left) >= _MAX_LEFT:
-            raise TooManyLeft
-    results: list[T] = []
-    errors: list[BaseException] = []
+class Pool:
+    """At most *size* calls at once, those left behind included."""
 
-    def run() -> None:
+    def __init__(self, size: int) -> None:
+        self._free = threading.BoundedSemaphore(size)
+
+    def within[T](self, seconds: float, work: Callable[[], T]) -> T:
+        """The result of *work*, or what it raised. It must not touch a database connection."""
+        if not self._free.acquire(blocking=False):
+            raise TooBusy
+        results: list[T] = []
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                results.append(work())
+            except BaseException as exc:  # rationale: handed to the caller, whatever it is.
+                errors.append(exc)
+            finally:
+                self._free.release()
+
+        thread = threading.Thread(target=run, name="plex-link-call", daemon=True)
         try:
-            results.append(work())
-        except BaseException as exc:  # rationale: handed to the caller, whatever it is.
-            errors.append(exc)
+            thread.start()
+        except RuntimeError:
+            self._free.release()
+            raise TooBusy from None
+        thread.join(max(0.0, seconds))
+        if thread.is_alive():
+            raise TookTooLong
+        if errors:
+            raise errors[0]
+        return results[0]
 
-    thread = threading.Thread(target=run, name="plex-link-call", daemon=True)
-    thread.start()
-    thread.join(max(0.0, seconds))
-    if thread.is_alive():
-        with _left_lock:
-            _left.append(thread)
-        raise TookTooLong
-    if errors:
-        raise errors[0]
-    return results[0]
+
+# Apart, so that a Plex server that hangs cannot stop anyone's sign-in at plex.tv.
+PLEX_SERVER = Pool(4)
+PLEX_TV = Pool(8)

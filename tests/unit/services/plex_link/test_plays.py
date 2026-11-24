@@ -11,7 +11,7 @@ import pytest
 from mediaman.crypto import encrypt_value
 from mediaman.db.connection import _add_missing_columns
 from mediaman.services.plex_link import history, repository, sync
-from mediaman.services.plex_link.bounded import TookTooLong, TooManyLeft, within
+from mediaman.services.plex_link.bounded import Pool, TooBusy, TookTooLong
 from mediaman.services.plex_link.plex_tv import PlexIdentity
 from tests.helpers.fake_plex import SERVER, SERVER_ID, FakePlex
 
@@ -360,7 +360,7 @@ def test_a_person_whose_pages_take_too_long_gets_nothing_and_the_next_is_read(
 
 
 def test_a_run_out_of_time_takes_up_next_time_where_it_stopped(
-    plex, conn, secret_key, clock, freezer
+    plex, conn, secret_key, clock, freezer, monkeypatch
 ):
     for name, number in (("amy", 1), ("bob", 2), ("cat", 3)):
         link(conn, name, number)
@@ -373,19 +373,16 @@ def test_a_run_out_of_time_takes_up_next_time_where_it_stopped(
 
     plex.on_call = slow
     plex.history_rows = []
-    sync._PERSON_SECONDS, kept = 1000.0, sync._PERSON_SECONDS
-    try:
-        sync.read_plays(conn, secret_key)
-        assert seen == ["1", "2"]
-        freezer.tick(60)
-        sync.read_plays(conn, secret_key)
-    finally:
-        sync._PERSON_SECONDS = kept
+    monkeypatch.setattr(sync, "_PERSON_SECONDS", 1000.0)
+    sync.read_plays(conn, secret_key)
+    assert seen == ["1", "2"]
+    freezer.tick(60)
+    sync.read_plays(conn, secret_key)
     assert seen[2] == "3"
 
 
 def test_an_answer_that_never_ends_is_left_behind(plex, conn, secret_key, monkeypatch):
-    monkeypatch.setattr(sync, "_PERSON_SECONDS", 0.05)
+    monkeypatch.setattr(sync, "_PERSON_SECONDS", 0.5)
     link(conn, "amy", 4242)
     link(conn, "bob", 99)
     plex.history_rows = [row(1), row(2, account=99)]
@@ -404,16 +401,67 @@ def test_an_answer_that_never_ends_is_left_behind(plex, conn, secret_key, monkey
         over.set()
 
 
-def test_left_behind_work_is_not_piled_up_without_end():
-    over = threading.Event()
+def test_a_pool_counts_the_calls_still_running_and_those_left_behind():
+    pool = Pool(2)
+    over, running = threading.Event(), threading.Event()
     try:
-        for _ in range(4):
-            with pytest.raises(TookTooLong):
-                within(0.01, lambda: over.wait(10))
-        with pytest.raises(TooManyLeft):
-            within(1, lambda: 1)
+        with pytest.raises(TookTooLong):
+            pool.within(0.01, lambda: over.wait(10))
+        waiting = threading.Thread(
+            target=lambda: pool.within(10, lambda: (running.set(), over.wait(10)))
+        )
+        waiting.start()
+        assert running.wait(5)
+        with pytest.raises(TooBusy):
+            pool.within(1, lambda: 1)
     finally:
         over.set()
+    waiting.join(5)
+    assert Pool(1).within(5, lambda: 1) == 1
+
+
+def test_a_call_that_ends_makes_room_again():
+    pool = Pool(1)
+    for _ in range(3):
+        with pytest.raises(ZeroDivisionError):
+            pool.within(5, lambda: 1 / 0)
+        assert pool.within(5, lambda: "done") == "done"
+
+
+def test_people_whose_reads_are_slow_do_not_keep_the_next_from_being_read(
+    plex, conn, secret_key, clock, freezer
+):
+    for number in range(1, 7):
+        link(conn, f"user{number}", number)
+    plex.history_rows = [row(n, account=6, ago=timedelta(minutes=n)) for n in range(1, 4)]
+
+    def slow_for_five(method, where, query):
+        if where.endswith("/history/all") and query["accountID"] != ["6"]:
+            clock.now += sync._PERSON_SECONDS + 1
+
+    plex.on_call = slow_for_five
+    plex.answers[HISTORY] = (200, '<MediaContainer><Video historyKey="h"/></MediaContainer>')
+    sync.read_plays(conn, secret_key)
+    assert titles(conn, "user6") == []
+    plex.answers.clear()
+    freezer.tick(60)
+    sync.read_plays(conn, secret_key)
+    assert len(titles(conn, "user6")) == 3
+
+
+def test_a_turn_that_could_not_start_is_not_counted(plex, conn, secret_key, monkeypatch):
+    link(conn, "amy", 4242)
+    full = Pool(1)
+    monkeypatch.setattr(sync, "PLEX_SERVER", full)
+    monkeypatch.setattr(sync, "read_server_id", lambda _plex: SERVER_ID)
+    over = threading.Event()
+    try:
+        with pytest.raises(TookTooLong):
+            full.within(0.01, lambda: over.wait(10))
+        sync.read_plays(conn, secret_key)
+    finally:
+        over.set()
+    assert repository.get_link(conn, "amy").last_tried_at is None
 
 
 def set_libraries(conn, value: str) -> None:
@@ -470,6 +518,7 @@ def test_plays_held_before_their_library_was_recorded_are_read_again(plex, conn,
     plex.history_rows = [row(1, ago=timedelta(days=90))]
     sync.read_plays(conn, secret_key)
     conn.execute("ALTER TABLE plex_links DROP COLUMN libraries")
+    conn.execute("ALTER TABLE plex_links DROP COLUMN last_tried_at")
     conn.execute("ALTER TABLE plex_plays DROP COLUMN library_id")
     conn.commit()
     _add_missing_columns(conn)

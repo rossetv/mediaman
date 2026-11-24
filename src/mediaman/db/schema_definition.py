@@ -306,7 +306,14 @@ CREATE TABLE IF NOT EXISTS plex_links (
     linked_at TEXT NOT NULL,
     last_read_at TEXT,
     -- JSON list of the Plex libraries the plays held here cover.
-    libraries TEXT
+    libraries TEXT,
+    last_tried_at TEXT
+);
+
+-- When a person's link went to someone else who proved the account theirs, until they dismiss it.
+CREATE TABLE IF NOT EXISTS plex_link_moves (
+    username TEXT PRIMARY KEY REFERENCES admin_users(username) ON DELETE CASCADE,
+    moved_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS plex_plays (

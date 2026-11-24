@@ -35,6 +35,7 @@ class PlexLink:
     last_read_at: str | None
     # The libraries the plays held cover; None before the first read.
     libraries: frozenset[str] | None
+    last_tried_at: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +64,7 @@ def _link(row: sqlite3.Row) -> PlexLink:
         linked_at=row["linked_at"],
         last_read_at=row["last_read_at"],
         libraries=None if covered is None else frozenset(json.loads(covered)),
+        last_tried_at=row["last_tried_at"],
     )
 
 
@@ -82,9 +84,28 @@ def get_link(conn: sqlite3.Connection, username: str) -> PlexLink | None:
 
 
 def list_links(conn: sqlite3.Connection) -> list[PlexLink]:
-    """Every link, the one read longest ago first and one never read before that."""
-    rows = conn.execute("SELECT * FROM plex_links ORDER BY last_read_at, username")
+    """Every link, the one whose turn came longest ago first and one never tried before that."""
+    rows = conn.execute("SELECT * FROM plex_links ORDER BY last_tried_at, last_read_at, username")
     return [_link(r) for r in rows]
+
+
+def set_tried(conn: sqlite3.Connection, username: str, when: str | None) -> None:
+    """Note when *username*'s turn came, so people whose reads fail go to the end of the line."""
+    with conn:
+        conn.execute("UPDATE plex_links SET last_tried_at = ? WHERE username = ?", (when, username))
+
+
+def moved_at(conn: sqlite3.Connection, username: str) -> str | None:
+    """When *username*'s link went to someone else, while they have not dismissed it."""
+    row = conn.execute(
+        "SELECT moved_at FROM plex_link_moves WHERE username = ?", (username,)
+    ).fetchone()
+    return None if row is None else str(row["moved_at"])
+
+
+def dismiss_move(conn: sqlite3.Connection, username: str) -> None:
+    with conn:
+        conn.execute("DELETE FROM plex_link_moves WHERE username = ?", (username,))
 
 
 def linked_users(conn: sqlite3.Connection) -> list[dict[str, object]]:
@@ -131,6 +152,11 @@ def save_link(
             raise AccountClaimed
         for holder in holders:
             _forget(conn, holder["username"], actor=username, ip=ip, reason="moved")
+            conn.execute(
+                "INSERT OR REPLACE INTO plex_link_moves (username, moved_at) VALUES (?, ?)",
+                (holder["username"], now_iso()),
+            )
+        conn.execute("DELETE FROM plex_link_moves WHERE username = ?", (username,))
         conn.execute(
             "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
             " server_id, linked_at) VALUES (?, ?, ?, ?, ?, ?)",

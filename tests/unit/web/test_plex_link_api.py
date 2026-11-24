@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import encrypt_value
 from mediaman.services.plex_link import attempts, repository, sync
+from mediaman.services.plex_link.bounded import Pool, TooBusy, TookTooLong
 from mediaman.services.plex_link.plex_tv import Pin, PlexIdentity, PlexTv
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session
@@ -47,8 +50,15 @@ def reads(monkeypatch):
 
 @pytest.fixture
 def later(monkeypatch):
+    """What was put off: (seconds, work), until it is cancelled."""
     waiting: list[tuple[float, object]] = []
-    monkeypatch.setattr(attempts, "_call_later", lambda s, work: waiting.append((s, work)))
+
+    def call_later(seconds, work):
+        entry = (seconds, work)
+        waiting.append(entry)
+        return SimpleNamespace(cancel=lambda: entry in waiting and waiting.remove(entry))
+
+    monkeypatch.setattr(attempts, "_call_later", call_later)
     return waiting
 
 
@@ -100,6 +110,10 @@ def check(client) -> dict | None:
 
 def confirm(client, attempt: dict, *, move: bool = False):
     return client.post("/api/account/plex", json={"attempt": attempt["id"], "move": move})
+
+
+def cancel(client, attempt: dict):
+    return client.post("/api/account/plex/cancel", json={"attempt": attempt["id"]})
 
 
 def audit(conn) -> list[str]:
@@ -284,7 +298,7 @@ def test_an_attempt_belongs_to_the_session_that_started_it(client_for, plex, con
     for other in (bob, amys_phone):
         assert check(other) is None
         assert confirm(other, attempt).status_code == 409
-        other.post("/api/account/plex/cancel")
+        cancel(other, attempt)
     assert repository.list_links(conn) == []
     assert confirm(amy, attempt).status_code == 200
 
@@ -367,22 +381,78 @@ def test_a_sign_in_nobody_comes_back_to_is_signed_out_when_it_runs_out(
 
 def test_one_cancelled_and_then_approved_is_signed_out_when_it_runs_out(client_for, plex, later):
     amy = client_for("amy")
-    start(amy)
-    amy.post("/api/account/plex/cancel")
+    cancel(amy, start(amy))
     assert plex.signed_out() == 0
     plex.approved = True
     later[0][1]()
     assert plex.signed_out() == 1
 
 
-def test_one_already_signed_out_is_not_asked_about_again(client_for, plex, later):
+def test_nothing_is_put_off_for_a_sign_in_already_signed_out(client_for, plex, later):
+    amy = client_for("amy")
+    start(amy)
+    assert len(later) == 1
+    plex.approved = True
+    check(amy)
+    assert later == []
+
+
+def test_a_last_look_that_fails_is_tried_once_more(client_for, plex, later):
+    start(client_for("amy"))
+    plex.approved = True
+    plex.answers[PIN] = (503, "{}")
+    later.pop()[1]()
+    ((seconds, again),) = later
+    assert 60 <= seconds <= 120
+    del plex.answers[PIN]
+    later.clear()
+    again()
+    assert plex.signed_out() == 1
+    assert later == []
+
+
+def test_a_last_look_that_could_not_start_is_tried_once_more(client_for, plex, later, monkeypatch):
+    start(client_for("amy"))
+    plex.approved = True
+    monkeypatch.setattr(attempts, "PLEX_TV", Pool(0))
+    later.pop()[1]()
+    monkeypatch.setattr(attempts, "PLEX_TV", Pool(1))
+    later.pop()[1]()
+    assert plex.signed_out() == 1
+
+
+def test_a_sign_out_that_failed_is_tried_again_when_the_sign_in_runs_out(client_for, plex, later):
     amy = client_for("amy")
     start(amy)
     plex.approved = True
+    plex.answers["DELETE", f"{TV}/users/signout"] = (500, "{}")
     check(amy)
-    asked = len(plex.calls)
-    later[0][1]()
-    assert len(plex.calls) == asked
+    del plex.answers["DELETE", f"{TV}/users/signout"]
+    later.pop()[1]()
+    assert plex.signed_out() == 2
+    assert later == []
+
+
+def test_a_sign_in_that_was_never_approved_needs_one_last_look_only(client_for, later):
+    start(client_for("amy"))
+    later.pop()[1]()
+    assert later == []
+
+
+def test_cancelling_while_plex_cannot_say_is_not_called_signed_out(client_for, plex):
+    amy = client_for("amy")
+    attempt = start(amy)
+    plex.answers[PIN] = (503, "{}")
+    assert cancel(amy, attempt).json()["signed_out"] is False
+
+
+def test_a_late_cancel_does_not_end_the_next_sign_in(client_for, plex):
+    amy = client_for("amy")
+    first = start(amy)
+    second = start(amy)
+    cancel(amy, first)
+    plex.approved = True
+    assert check(amy)["id"] == second["id"]
 
 
 def test_cancelling_during_a_poll_waits_for_what_it_gets(client_for, plex):
@@ -402,10 +472,10 @@ def test_cancelling_during_a_poll_waits_for_what_it_gets(client_for, plex):
     poll.start()
     assert polled.wait(5)
     answers: list[bool] = []
-    cancel = threading.Thread(target=lambda: answers.append(attempts.discard(attempt)))
-    cancel.start()
+    discard = threading.Thread(target=lambda: answers.append(attempts.discard(attempt)))
+    discard.start()
     go.set()
-    cancel.join(5)
+    discard.join(5)
     poll.join(5)
     assert answers == [True]
     assert plex.paths().count(PIN) == 1
@@ -413,10 +483,10 @@ def test_cancelling_during_a_poll_waits_for_what_it_gets(client_for, plex):
 
 def test_cancelling_says_when_plex_did_not_confirm_the_sign_out(client_for, plex):
     amy = client_for("amy")
-    start(amy)
+    attempt = start(amy)
     plex.approved = True
     plex.answers["DELETE", f"{TV}/users/signout"] = (500, "{}")
-    assert amy.post("/api/account/plex/cancel").json()["signed_out"] is False
+    assert cancel(amy, attempt).json()["signed_out"] is False
 
 
 def test_starting_again_says_when_the_one_before_was_not_signed_out(client_for, plex):
@@ -430,7 +500,7 @@ def test_starting_again_says_when_the_one_before_was_not_signed_out(client_for, 
 def test_an_approval_that_takes_too_long_is_given_up_and_still_signed_out(
     client_for, plex, monkeypatch
 ):
-    monkeypatch.setattr(attempts, "_CHAIN_SECONDS", 0.05)
+    monkeypatch.setattr(attempts, "_CHAIN_SECONDS", 0.5)
     amy = client_for("amy")
     start(amy)
     plex.approved = True
@@ -456,7 +526,6 @@ def test_a_full_house_does_not_cost_a_person_one_of_their_starts(client_for):
     for _ in range(6):
         assert amy.post("/api/account/plex").status_code == 429
     routes._SHARED_START_LIMITER.reset()
-    routes._PRESS_LIMITER.reset()
     for _ in range(5):
         start(amy)
 
@@ -470,11 +539,80 @@ def test_waiting_sign_ins_cannot_use_up_what_starting_one_needs(client_for, plex
     assert PIN not in plex.paths()
 
 
-def test_one_person_cannot_use_up_everyones_starts(client_for):
+def test_one_person_over_their_own_limit_spends_nothing_of_everyones(client_for):
     amy, bob = client_for("amy"), client_for("bob")
     for _ in range(40):
         amy.post("/api/account/plex")
     start(bob)
+    left = 0
+    while routes._SHARED_START_LIMITER.check("everyone"):
+        left += 1
+    assert left == 30 - 5 - 1
+
+
+@pytest.mark.parametrize("size", [0, 1], ids=["busy", "slow"])
+def test_a_pin_that_takes_too_long_is_plex_being_unreachable(client_for, plex, monkeypatch, size):
+    monkeypatch.setattr(attempts, "PLEX_TV", Pool(size))
+    monkeypatch.setattr(attempts, "_PIN_SECONDS", 0.05)
+    amy, over = client_for("amy"), threading.Event()
+
+    def hang(method, where, query):
+        if where.endswith("/pins"):
+            over.wait(3)
+
+    plex.on_call = hang
+    try:
+        assert amy.post("/api/account/plex").status_code == 503
+    finally:
+        over.set()
+
+
+def test_a_plex_server_that_hangs_does_not_stop_a_sign_in_under_way(client_for, plex, monkeypatch):
+    amy = client_for("amy")
+    start(amy)
+    plex.approved = True
+    over = threading.Event()
+    try:
+        for _ in range(8):
+            with contextlib.suppress(TookTooLong, TooBusy):
+                sync.PLEX_SERVER.within(0.01, lambda: over.wait(10))
+        assert check(amy)["state"] == "confirm"
+    finally:
+        over.set()
+
+
+def test_the_person_whose_link_moved_is_told_when_and_not_by_whom_until_they_dismiss_it(
+    client_for, plex, conn
+):
+    bob, amy = client_for("bob"), client_for("amy")
+    linked(conn, "bob")
+    assert bob.get("/api/account/plex").json()["moved_at"] is None
+    start(amy)
+    plex.approved = True
+    confirm(amy, check(amy), move=True)
+    for _ in range(2):
+        told = bob.get("/api/account/plex")
+        assert told.json()["moved_at"] is not None
+        assert "amy" not in told.text.replace("amyplex", "")
+    assert amy.get("/api/account/plex").json()["moved_at"] is None
+
+    amy.delete("/api/account/plex?notice=true")
+    assert bob.get("/api/account/plex").json()["moved_at"] is not None
+    assert repository.get_link(conn, "amy") is not None
+    assert bob.delete("/api/account/plex?notice=true").status_code == 200
+    assert bob.get("/api/account/plex").json()["moved_at"] is None
+
+
+def test_taking_the_account_back_ends_the_notice_and_tells_the_other(client_for, plex, conn):
+    bob, amy = client_for("bob"), client_for("amy")
+    linked(conn, "bob")
+    plex.approved = True
+    for client in (amy, bob):
+        start(client)
+        assert confirm(client, check(client), move=True).status_code == 200
+    bob.delete("/api/account/plex")
+    assert bob.get("/api/account/plex").json()["moved_at"] is None
+    assert amy.get("/api/account/plex").json()["moved_at"] is not None
 
 
 @pytest.mark.parametrize(
@@ -538,9 +676,9 @@ def test_a_failed_sign_out_is_said(client_for, plex):
 
 def test_cancelling_after_approving_signs_the_unused_token_out(client_for, plex, conn):
     amy = client_for("amy")
-    start(amy)
+    attempt = start(amy)
     plex.approved = True
-    assert amy.post("/api/account/plex/cancel").status_code == 200
+    assert cancel(amy, attempt).status_code == 200
     assert plex.signed_out() == 1
     assert check(amy) is None
     assert repository.get_link(conn, "amy") is None

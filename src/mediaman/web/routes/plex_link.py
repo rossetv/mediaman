@@ -23,6 +23,7 @@ from mediaman.services.plex_link.attempts import (
     AttemptStore,
     TooManyAttempts,
     advance,
+    create_pin,
     discard,
 )
 from mediaman.services.plex_link.plex_tv import PlexTv, PlexTvUnavailable
@@ -37,11 +38,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_START_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=3600, max_per_day=20)
+
+class _StartLimiter(ActionRateLimiter):
+    def give_back(self, actor: str) -> None:
+        """Undo the last ``check`` that let *actor* through."""
+        with self._lock:
+            for log in (self._attempts.get(actor), self._daily.get(actor)):
+                if log:
+                    log.pop()
+
+
+_START_LIMITER = _StartLimiter(max_in_window=5, window_seconds=3600, max_per_day=20)
 _CHECK_LIMITER = ActionRateLimiter(max_in_window=40, window_seconds=60)
 _CHANGE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60)
-# One person's presses, so that nobody alone can use up what everyone shares.
-_PRESS_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60)
 # Shared by everyone: what this install may ask of plex.tv. Waiting sign-ins ask often, so
 # starting one has a share of its own that they cannot use up.
 _SHARED_START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
@@ -78,6 +87,11 @@ _STATUS = {
     "expired": 409,
     "too_many_requests": 429,
 }
+
+
+class _CancelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attempt: str = Field(min_length=1, max_length=64)
 
 
 class _PlexLinkBody(BaseModel):
@@ -156,6 +170,7 @@ def api_plex_link(
                 "last_read_at": link.last_read_at,
                 "reading": sync.is_reading(username),
             },
+            "moved_at": None if link else repository.moved_at(conn, username),
             "attempt": None if link or attempt is None else _attempt_view(conn, attempt),
         }
     )
@@ -187,12 +202,10 @@ def api_start_or_confirm(
         )
     if repository.get_link(conn, username) is not None:
         return _refuse("already_linked")
-    # Last what costs the person one of their few starts.
-    if not (
-        _PRESS_LIMITER.check(username)
-        and _SHARED_START_LIMITER.check(_EVERYONE)
-        and _START_LIMITER.check(username)
-    ):
+    if not _START_LIMITER.check(username):
+        return _refuse("too_many_requests")
+    if not _SHARED_START_LIMITER.check(_EVERYONE):
+        _START_LIMITER.give_back(username)
         return _refuse("too_many_requests")
     return _start(conn, request, username, session)
 
@@ -207,7 +220,7 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
             sync.open_history(conn, request.app.state.config.secret_key)
         )
         plex_tv = PlexTv(repository.client_id(conn), _product(conn))
-        pin = plex_tv.create_pin()
+        pin = create_pin(plex_tv)
         attempt = Attempt(
             username=username,
             server_id=server_id,
@@ -296,20 +309,28 @@ def api_check(
 
 @router.post("/api/account/plex/cancel")
 def api_cancel(
-    username: str = Depends(get_current_user), session_token: str | None = Cookie(default=None)
+    body: _CancelBody,
+    username: str = Depends(get_current_user),
+    session_token: str | None = Cookie(default=None),
 ) -> JSONResponse:
     session = hash_token(session_token or "")
     attempt = _attempts.get(session, username)
     signed_out = True
-    if attempt is not None and _attempts.drop(session, attempt):
+    if attempt is not None and attempt.id == body.attempt and _attempts.drop(session, attempt):
         signed_out = discard(attempt)
     return respond_ok({"signed_out": signed_out})
 
 
 @router.delete("/api/account/plex")
-def api_unlink(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_unlink(
+    request: Request, notice: bool = False, username: str = Depends(get_current_user)
+) -> JSONResponse:
+    """Unlink; with ``notice`` only dismiss the word that the link went to someone else."""
     if not _CHANGE_LIMITER.check(username):
         return _refuse("too_many_requests")
+    if notice:
+        repository.dismiss_move(get_db(), username)
+        return respond_ok()
     repository.unlink(get_db(), username, actor=username, ip=get_client_ip(request), reason="self")
     return respond_ok()
 

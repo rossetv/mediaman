@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 
 from mediaman.core.format import log_snippet
-from mediaman.core.time import now_utc, parse_iso_strict_utc
+from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
 from mediaman.db import open_thread_connection
 from mediaman.services.infra import (
     allowed_outbound_hosts,
@@ -18,7 +18,7 @@ from mediaman.services.infra import (
 )
 from mediaman.services.media_meta.plex_watch import PlexError, PlexUnavailable
 from mediaman.services.plex_link import repository
-from mediaman.services.plex_link.bounded import TookTooLong, TooManyLeft, within
+from mediaman.services.plex_link.bounded import PLEX_SERVER, TooBusy, TookTooLong
 from mediaman.services.plex_link.history import PlexHistory
 
 logger = logging.getLogger(__name__)
@@ -51,8 +51,8 @@ def _libraries(conn: sqlite3.Connection) -> set[str]:
 def read_server_id(plex: PlexHistory) -> str:
     """Which server *plex* is; raises PlexUnavailable when it does not say in time."""
     try:
-        return within(_SERVER_ID_SECONDS, plex.server_id)
-    except (TookTooLong, TooManyLeft):
+        return PLEX_SERVER.within(_SERVER_ID_SECONDS, plex.server_id)
+    except (TookTooLong, TooBusy):
         raise PlexUnavailable("Plex took too long to answer") from None
 
 
@@ -82,7 +82,7 @@ def _read_link(
         # A library added since has older plays that were passed over.
         since = oldest
     try:
-        plays = within(
+        plays = PLEX_SERVER.within(
             deadline - time.monotonic(),
             lambda: plex.plays(
                 link.server_account_id,
@@ -93,7 +93,7 @@ def _read_link(
                 deadline=deadline,
             ),
         )
-    except (TookTooLong, TooManyLeft):
+    except TookTooLong:
         raise PlexUnavailable("Plex took too long to send the plays") from None
     repository.save_plays(
         conn, link, plays, libraries=libraries, read_at=now, oldest=oldest, keep=KEEP_PLAYS
@@ -139,11 +139,16 @@ def _read_all(conn: sqlite3.Connection, secret_key: str, username: str | None) -
         if now > deadline:
             logger.warning("plex_link.read_stopped reason=time")
             return
+        repository.set_tried(conn, link.username, now_iso())
         try:
             # A reader of its own: one left behind may still be using the last person's.
             plex = open_history(conn, secret_key)
             person_deadline = min(deadline, now + _PERSON_SECONDS)
             _read_link(conn, plex, server_id, link, libraries, person_deadline)
+        except TooBusy:
+            repository.set_tried(conn, link.username, link.last_tried_at)
+            logger.warning("plex_link.read_stopped reason=busy")
+            return
         except Exception as exc:  # rationale: one person's trouble must not stop the next.
             _give_up(conn, "plex_link.read_failed", link.username, exc)
 
