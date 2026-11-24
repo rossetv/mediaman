@@ -22,7 +22,7 @@
 .form-input,
 .form-select,
 .threshold-input {
-  background: var(--s2);
+  background-color: var(--s2);
   border: 1px solid var(--hair);
   border-radius: var(--r-sm);
   padding: 9px 12px;
@@ -38,14 +38,27 @@
 .form-select:focus,
 .threshold-input:focus {
   border-color: var(--accent);
-  background: var(--s3);
+  background-color: var(--s3);
 }
 @media (max-width: 639.98px) {
   /* 16px stops iOS zooming the page when a field is focused */
   .inp { font-size: 16px; }
 }
+/* Its own chevron: the native arrow ignores the padding and touches the edge. */
 select.inp,
-.form-select { cursor: pointer; padding-right: 32px; }
+.form-select {
+  cursor: pointer;
+  padding-right: 34px;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+/* The chevron's fixed colour could vanish on the person's own palette. */
+@media (forced-colors: active) {
+  select.inp,
+  .form-select { appearance: auto; background-image: none; }
+}
 .form-select--sm { min-width: 140px; }
 .form-select--md { min-width: 200px; }
 
