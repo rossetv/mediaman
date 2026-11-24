@@ -9,6 +9,11 @@
   var APPROVAL_PAGE = 'https://app.plex.tv/auth#?';
   var MOVES = 'This Plex account is linked to another person here; linking moves it to you.';
   var NOT_ANSWERING = 'Plex is slow to answer. Still waiting…';
+  var ASK = {
+    title: 'Confirm it’s you',
+    descText: 'Enter your Mediaman password to link a Plex account.',
+    confirmLabel: 'Continue',
+  };
   /* What focus moves to when a panel replaces the one that held it. */
   var MAIN = {
     unlinked: 'plex-start', waiting: 'plex-open', confirm: 'plex-confirm',
@@ -199,7 +204,7 @@
       errorLine.textContent = '';
       byId('plex-signout-note').hidden = true;
       busy(button, true);
-      MM.reauth.run(function () { return MM.api.post('/api/account/plex'); }).then(function (data) {
+      MM.reauth.run(function () { return MM.api.post('/api/account/plex'); }, ASK).then(function (data) {
         busy(button, false);
         if (mine === turn) render(data.attempt);
       }, function (err) {

@@ -158,3 +158,10 @@ def test_dismissing_where_plex_is_not_set_up_keeps_the_focus_in_the_card() -> No
 
 def test_a_card_left_open_shows_the_move_once_it_hears_of_it() -> None:
     assert _run("lostWhileOpen") == {"shown": "unlinked", "note": True}
+
+
+def test_linking_asks_who_it_is_and_never_speaks_of_saving() -> None:
+    (words,) = _run("asks")
+    assert (words["title"], words["confirmLabel"]) == ("Confirm it’s you", "Continue")
+    assert "Plex" in words["descText"]
+    assert not any("save" in text.lower() for text in words.values())

@@ -61,7 +61,8 @@ ctx.MM.api = {
   get: api('GET'), post: api('POST'), delete: api('DELETE'),
   messageOf: (err, fallback) => err.message || fallback,
 };
-ctx.MM.reauth = { run: (fn) => fn() };
+const asked = [];
+ctx.MM.reauth = { run: (fn, words) => { asked.push(words || null); return fn(); } };
 
 const said = [];
 // Announcements wait 100 ms after clearing their line; everything else waits for tick().
@@ -109,6 +110,13 @@ async function load(first) {
 }
 
 const scenarios = {
+  // the password dialog of linking speaks of linking, not saving
+  async asks() {
+    answers[START] = [{ attempt: WAITING }];
+    await load(NONE);
+    await click('plex-start');
+    return asked;
+  },
   async link() {
     const out = {};
     await load(NONE);
