@@ -1,0 +1,29 @@
+/* FOOT — the last thing on a signed-in page, under the content. */
+
+/* At the bottom of the screen on a page shorter than it. */
+body:has(> .foot) { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; }
+body:has(> .foot) > main { flex: 1 0 auto; }
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px var(--pad);
+  border-top: 1px solid var(--hair);
+  color: var(--t3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.foot-tmdb { flex: none; width: 62px; height: 8px; }
+
+@media (max-width: 699.98px) {
+  .foot {
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+    text-wrap: balance;
+    /* Clear of the bottom tab bar. */
+    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+}
