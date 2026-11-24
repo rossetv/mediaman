@@ -586,8 +586,10 @@
 /* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
 @media (max-width: 599.98px) {
   .watch-card[data-mark] .watch-card__sub { padding-right: 18px; }
-  .watch-more { place-items: center end; padding-right: 8px; }
-  .watch-more::before { inset: 8px 0 8px 16px; }
+  .watch-more { place-items: center end; padding-right: 9px; }
+  .watch-more::before { inset: 8px 2px 8px 14px; }
+  .watch-more:focus-visible { outline: none; }
+  .watch-more:focus-visible::before { opacity: 1; transform: none; outline: 2px solid var(--accent); }
 }
 .watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
 .watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }

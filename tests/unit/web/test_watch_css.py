@@ -140,3 +140,15 @@ def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_say
     assert "clip-path: inset(50%)" in word
     # Out of the reading, the badge would say nothing.
     assert "display: none" not in word
+
+
+def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> None:
+    phone = "max-width: 599.98px"
+    more = _of(".watch-more", phone)
+    _, right, _, left = (int(v) for v in re.findall(r"(\d+)px", _of(".watch-more::before", phone)))
+    dots = int(re.findall(r"font-size: (\d+)px", _of(".watch-more"))[0])
+    edge = int(re.findall(r"padding-right: (\d+)px", more)[0])
+    assert edge + dots / 2 == right + (44 - right - left) / 2
+    assert "outline: none" in _of(".watch-more:focus-visible", phone)
+    ring = _of(".watch-more:focus-visible::before", phone)
+    assert "outline: 2px solid" in ring and "opacity: 1" in ring
