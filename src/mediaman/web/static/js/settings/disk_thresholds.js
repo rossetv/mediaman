@@ -38,6 +38,7 @@
   var DISK_THRESHOLDS = {};
   // What is stored is no object of entries, which keeps every library from being scanned.
   var UNREADABLE = false;
+  var NO_LIBRARIES = 'No libraries found — check Plex URL and token, then reload.';
 
   function markDirty() {
     if (MM.settings.savebar && MM.settings.savebar.markDirty) {
@@ -52,7 +53,7 @@
     if (!PLEX_LIBRARIES.length) {
       var msg = document.createElement('span');
       msg.className = 'fld-sub';
-      msg.textContent = 'No libraries found — check Plex URL and token, then reload.';
+      msg.textContent = NO_LIBRARIES;
       container.appendChild(msg);
       updateLibPillCount();
       return;
@@ -349,15 +350,21 @@
         renderLibraryPills();
         renderDiskRows();
       })
-      .catch(function () {
+      .catch(function (err) {
+        var notSetUp = !!err && err.error === 'plex_not_configured';
         PLEX_LIBRARIES = [];
         LOADED = false;
+        NO_LIBRARIES = notSetUp
+          ? 'Save Plex URL & token, then reload to see libraries.'
+          : 'Could not load Plex libraries — check Plex URL and token, then reload.';
         renderLibraryPills();
         var rows = document.getElementById('disk-threshold-rows');
         if (rows) {
           var note = document.createElement('div');
           note.className = 'fld-sub';
-          note.textContent = 'Could not load Plex libraries; disk thresholds are unchanged.';
+          note.textContent = notSetUp
+            ? 'Paths and thresholds are set here once Plex is.'
+            : 'Could not load Plex libraries; disk thresholds are unchanged.';
           rows.replaceChildren(note);
         }
       });

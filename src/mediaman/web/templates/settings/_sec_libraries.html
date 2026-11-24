@@ -12,7 +12,7 @@
                          sub="Choose the libraries to include in weekly scans. Unselected libraries are ignored.",
                          header_actions=lib_actions, pad=True) %}
     <div class="lib-pills" id="plex-library-pills" role="group" aria-label="Libraries to scan">
-      <span class="fld-sub">Save Plex URL &amp; token, then reload to see libraries.</span>
+      <span class="fld-sub">Loading libraries…</span>
     </div>
   {% endcall %}
 
@@ -20,7 +20,7 @@
                          sub="Filesystem path Mediaman uses to measure disk usage — must match what Plex sees. Scan runs only when usage crosses the threshold.",
                          pad=True) %}
     <div id="disk-threshold-rows">
-      <div class="fld-sub">Select Plex libraries above to configure paths and thresholds.</div>
+      <div class="fld-sub">Loading…</div>
     </div>
   {% endcall %}
 
