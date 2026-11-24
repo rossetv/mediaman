@@ -17,6 +17,8 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.library_api import record_redownload
+from mediaman.web.responses import respond_failure
+from mediaman.web.routes.download._season import season_on_disk
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
@@ -47,18 +49,23 @@ def _redownload_season(
     """Re-monitor and search a season of a series Sonarr still holds, or add the series with
     only that season monitored when Sonarr no longer has it.
 
-    A Library Delete leaves the series in Sonarr, so the lookup comes first. Sonarr errors
-    propagate to the caller.
+    A Library Delete leaves the series in Sonarr, so the lookup comes first. A season Sonarr
+    has complete is a 409. Sonarr errors propagate to the caller.
     """
     existing = client.get_series_by_tvdb(tvdb_id)
     if existing is not None:
         series_id = existing.get("id")
         if series_id is None:
             raise ArrError("Sonarr holds the series with no usable id")
-        was_unmonitored = any(
-            s.get("seasonNumber") == season_number and not s.get("monitored")
-            for s in existing.get("seasons") or []
+        season = next(
+            (s for s in existing.get("seasons") or [] if s.get("seasonNumber") == season_number),
+            None,
         )
+        if season is not None and season_on_disk(season):
+            return respond_failure(
+                f"Season {season_number} of '{title}' already exists in Sonarr", status=409
+            )
+        was_unmonitored = season is not None and not season.get("monitored")
         try:
             client.remonitor_season(int(series_id), season_number)
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):

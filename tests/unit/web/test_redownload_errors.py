@@ -260,3 +260,28 @@ def test_a_held_movie_with_no_id_is_a_failure_and_is_not_added_again(
         resp = _post(_client(app_factory, authed_client, conn), {"title": "Dune", "tmdb_id": 42})
     assert resp.json()["ok"] is False
     radarr.add_movie.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("files", "total", "fetched"), [(8, 8, False), (3, 8, True)], ids=["complete", "part"]
+)
+def test_a_season_complete_on_disk_is_refused_and_one_with_gaps_is_fetched(
+    app_factory, authed_client, conn, files, total, fetched
+):
+    # An unmonitored episode with no file is in the total alone.
+    stats = {"episodeFileCount": files, "episodeCount": files, "totalEpisodeCount": total}
+    series = _series(False)
+    series["seasons"][1]["statistics"] = stats
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.return_value = series
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+
+    assert resp.status_code == (200 if fetched else 409)
+    assert resp.json()["ok"] is fetched
+    assert sonarr.remonitor_season.called is fetched
+    audited = conn.execute("SELECT 1 FROM audit_log WHERE action = 're_downloaded'").fetchall()
+    assert bool(audited) is fetched
