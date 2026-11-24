@@ -943,6 +943,12 @@ const scenarios = {
     out.quiet = toasts.length;
     edit('b');
     out.edited = labels();
+    // the field left for the button reports a change while the press is under way
+    plex.btn.children = [];
+    const pressed = plex.btn.appendChild(h.doc.createTextNode('Test saved'));
+    plex.btn._text = '';
+    plex.input.fire('change');
+    out.textKept = plex.btn.contains(pressed);
     plex.btn.fire('click'); await h.flush();
     out.told = toasts.slice();
     h.drain();

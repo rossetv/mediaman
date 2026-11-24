@@ -264,6 +264,7 @@ def test_a_test_says_it_uses_the_saved_settings_while_its_card_is_edited() -> No
     assert out["quiet"] == 0
     # only the card that was edited
     assert out["edited"] == out["afterTest"] == ["Test saved", "Test"]
+    assert out["textKept"] is True
     assert len(out["told"]) == 1 and "Plex as last saved" in out["told"][0]
 
 

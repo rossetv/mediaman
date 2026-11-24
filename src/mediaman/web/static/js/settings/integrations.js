@@ -79,7 +79,9 @@
 
     paintTests: function () {
       document.querySelectorAll('[data-test-service]').forEach(function (btn) {
-        if (!btn.disabled) btn.textContent = MM.settings.integrations.hasEdits(btn) ? 'Test saved' : 'Test';
+        var label = MM.settings.integrations.hasEdits(btn) ? 'Test saved' : 'Test';
+        // Leaving a field for this button repaints it mid-press, and Safari drops the click if the text is replaced.
+        if (!btn.disabled && btn.textContent !== label) btn.textContent = label;
       });
     },
 
