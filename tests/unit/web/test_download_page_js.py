@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import html
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
+import jinja2
 import pytest
 
 HARNESS = Path(__file__).parent / "js/download_page_harness.js"
@@ -116,15 +119,28 @@ def test_a_title_that_becomes_ready_keeps_its_card_and_its_link() -> None:
 
 
 def test_the_answer_shows_where_the_button_is_and_is_read_out() -> None:
-    html = (
+    page = (
         Path(__file__).resolve().parents[3] / "src/mediaman/web/templates/download.html"
     ).read_text()
-    button, footer = html.index('id="btn-download"'), html.index('class="dl-footer"')
+    button, footer = page.index('id="btn-download"'), page.index('class="dl-footer"')
 
-    assert button < html.index('id="download-result" class="dl-result" role="alert"') < footer
+    assert button < page.index('id="download-result" class="dl-result" role="alert"') < footer
 
 
 def test_a_long_word_wraps_on_the_page_and_on_its_card() -> None:
     css = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_download_page.css"
 
     assert ".dl-content,\n#dl-hero-wrapper { overflow-wrap: anywhere; }" in css.read_text()
+
+
+def test_the_built_card_says_what_the_server_drawn_one_says() -> None:
+    templates = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates), autoescape=True)
+    title = {"title": "Film", "media_type": "movie", "state": "searching", "progress": 0}
+    item = {**title, "notify_by_email": True, "download_state": "queued"}
+    page = env.get_template("download.html").render(state="confirm", item=item, hero_item=title)
+    drawn = re.search(r'id="dl-hint"[^>]*>(.*?)</div>', page, re.S)
+
+    assert drawn
+    words = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", drawn[1])).split())
+    assert " ".join(_run("hint")["hint"].split()) == words

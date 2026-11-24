@@ -173,6 +173,13 @@ const SCENARIOS = {
     const second = await press(p);
     return { first, failed, second, done: seen(p) };
   },
+  async hint() {
+    const p = page({ download_state: '', poll_token: '', notify_by_email: true });
+    p.ctx.MM.api.get = () => new Promise(() => {});
+    p.load('download.js');
+    await press(p);
+    return { hint: seen(p).hint };
+  },
   async card() {
     const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
     p.ctx.MM.api.get = () => new Promise(() => {});
