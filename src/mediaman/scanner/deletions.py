@@ -145,7 +145,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
       ``deleted`` cleanup: write the audit entry (crediting the recorded
       bytes) and drop the row. Folders left holding only artwork do not
       count as files. If a keep or snooze was written over the row during
-      the removal, the keep stands: audit that the media is gone and reset
+      the removal, the keep stands: reset
       to ``pending``; the live pass then books what was removed.
     * Files absent **but** one not recorded as removed was NOT within the
       configured delete roots (an operator changed ``MEDIAMAN_DELETE_ROOTS`` between
@@ -246,14 +246,6 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
                 row.action,
-            )
-            rk = row.plex_rating_key
-            log_audit(
-                conn,
-                row.media_item_id,
-                "media_missing",
-                f"Files gone (recovered): {row.title} — kept while it was being deleted"
-                + (f" [rk:{rk}]" if rk else ""),
             )
             repository.mark_delete_status(conn, row.id, "pending")
         elif not book:
