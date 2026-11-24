@@ -1,0 +1,19 @@
+{# The wide picture behind a title, and the poster that stands in for it. *art*: backdrop_url,
+   next_backdrop_url (tried when that is no wide picture) and poster_url, any of them missing. #}
+{% macro pictures(art) -%}
+{% if art.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ art.backdrop_url }}" alt=""{% if art.next_backdrop_url %} data-next-src="{{ art.next_backdrop_url }}"{% endif %} data-wide-art data-broken-on-error>{% endif %}
+{# Lazy and hidden until no backdrop loads that is a wide picture, so the browser only then asks for the poster. #}
+{% if art.poster_url %}
+<img class="watch-banner__bg watch-banner__bg--fill" src="{{ art.poster_url }}" alt="" loading="lazy" data-broken-on-error>
+<img class="watch-banner__poster" src="{{ art.poster_url }}" alt="" loading="lazy" data-broken-on-error>
+{% endif %}
+{%- endmacro %}
+
+{% macro title(text) -%}
+<h1 class="watch-banner__title{% if text|length > 80 %} watch-banner__title--longest{% elif text|length > 40 %} watch-banner__title--long{% endif %}">{{ text }}</h1>
+{%- endmacro %}
+
+{# The same behind a film's or a show's own page: *poster_url* also names its wide pictures. #}
+{% macro page_pictures(poster_url) -%}
+{% if poster_url %}{{ pictures({"backdrop_url": poster_url ~ "?kind=art", "next_backdrop_url": poster_url ~ "?kind=art&source=tmdb", "poster_url": poster_url}) }}{% endif %}
+{%- endmacro %}

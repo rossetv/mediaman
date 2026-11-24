@@ -395,6 +395,38 @@ def test_movie_page_shows_facts_primary_and_leaving_line() -> None:
     assert "Leaving in 1 day" in html and 'data-watch-keep="m9"' in html
 
 
+@pytest.mark.parametrize(
+    ("name", "ctx"),
+    [
+        ("watch_show.html", _show_ctx(show={**_show_ctx()["show"], "poster_url": "/api/poster/7"})),
+        (
+            "watch_movie.html",
+            _movie_ctx(movie={**_movie_ctx()["movie"], "poster_url": "/api/poster/7"}),
+        ),
+    ],
+)
+def test_a_title_s_own_page_shows_its_wide_picture_and_its_poster_only_without_one(
+    name: str, ctx: dict
+) -> None:
+    page = _Tree(_render(name, **ctx))
+    pictures = [a for tag, a, _in in page.found if tag == "img" and "/api/poster/" in a["src"]]
+    art, fill, poster = pictures
+    assert "data-wide-art" in art and "data-broken-on-error" in art
+    assert art["src"] == "/api/poster/7?kind=art"
+    assert art["data-next-src"] == "/api/poster/7?kind=art&source=tmdb"
+    for img in (fill, poster):
+        assert (img["src"], img["loading"]) == ("/api/poster/7", "lazy")
+
+
+def test_a_show_s_season_tabs_stand_with_its_episodes_and_not_on_the_picture() -> None:
+    html = _render("watch_show.html", **_show_ctx())
+    banner = html.split('<section class="watch-banner"', 1)[1].split("</section>", 1)[0]
+    assert "watch-btn--play" in banner
+    assert "watch-pill" not in banner
+    # Outside what a season's tab swaps.
+    assert "watch-pill" not in html.split('<section class="watch-episodes"', 1)[1]
+
+
 def test_movie_page_not_available() -> None:
     html = _render("watch_movie.html", not_available=True, back_href="/watch")
     assert "No longer available" in html

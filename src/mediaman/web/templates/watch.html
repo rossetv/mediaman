@@ -2,6 +2,7 @@
 {% from "_components.html" import icon %}
 {% import "_watch_card.html" as w %}
 {% import "_watch_all.html" as g %}
+{% import "_watch_hero.html" as hero %}
 {% import "_watch_space.html" as space %}
 
 {% block title %}Watch · Mediaman{% endblock %}
@@ -118,15 +119,10 @@
     {% else %}
     {% if banner %}
     <section class="watch-banner" aria-label="Featured"{% if banner.dismiss_ref %} data-dismiss-ref="{{ banner.dismiss_ref }}"{% endif %}>
-      {% if banner.backdrop_url %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ banner.backdrop_url }}" alt=""{% if banner.next_backdrop_url %} data-next-src="{{ banner.next_backdrop_url }}"{% endif %} data-wide-art data-broken-on-error>{% endif %}
-      {# Lazy and hidden until no backdrop loads that is a wide picture, so the browser only then asks for the poster. #}
-      {% if banner.poster_url %}
-      <img class="watch-banner__bg watch-banner__bg--fill" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
-      <img class="watch-banner__poster" src="{{ banner.poster_url }}" alt="" loading="lazy" data-broken-on-error>
-      {% endif %}
+      {{ hero.pictures(banner) }}
       <div class="watch-banner__body">
         {% if banner.kicker %}<span class="watch-banner__kicker">{{ banner.kicker }}</span>{% endif %}
-        <h1 class="watch-banner__title{% if banner.title|length > 80 %} watch-banner__title--longest{% elif banner.title|length > 40 %} watch-banner__title--long{% endif %}">{{ banner.title }}</h1>
+        {{ hero.title(banner.title) }}
         {% if banner.line %}
         <p class="watch-banner__line watch-banner__line--long">{{ banner.line }}</p>
         <p class="watch-banner__line watch-banner__line--short">{{ banner.line_short or banner.line }}</p>
