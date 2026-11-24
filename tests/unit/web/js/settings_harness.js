@@ -840,6 +840,7 @@ const scenarios = {
     await h.flush();
     const again = row.querySelector('[data-user-action="role"]');
     return {
+      busy: btn.getAttribute('aria-disabled') === 'true',
       sameRow: userList.querySelector('.usr-row') === row,
       pill: row.querySelector('.pill').textContent,
       button: again.textContent,
@@ -973,6 +974,38 @@ const scenarios = {
     form.fire('submit');
     await h.flush();
     out.addUser = h.doc.activeElement === submit;
+    return out;
+  },
+
+  // A user's role or deletion is sent once, from a button that keeps the focus, and cancelling the password leaves it there.
+  async rowActions() {
+    const h = build();
+    h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+    const userList = h.add('div', { id: 'user-list' });
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'ann', users: [{ id: 2, username: 'bob', role: 'viewer' }] }), messageOf: () => 'x' };
+    let cancel;
+    let runs = 0;
+    h.ctx.MM.reauth = { run: () => { runs += 1; return new Promise((_, no) => { cancel = () => no({ error: 'reauth_cancelled' }); }); } };
+    h.ctx.UIFeedback.confirm = () => Promise.resolve(true);
+    h.ctx.MM.settings.users.init();
+    await h.flush();
+    const out = {};
+    for (const action of ['role', 'delete']) {
+      const btn = userList.querySelector('[data-user-action="' + action + '"]');
+      const before = btn.textContent;
+      runs = 0;
+      btn.focus();
+      btn.fire('click');
+      await h.flush();
+      // the browser takes the focus from a disabled button
+      const dropped = btn.disabled;
+      const busy = btn.getAttribute('aria-disabled');
+      btn.fire('click');
+      await h.flush();
+      cancel();
+      await h.flush();
+      out[action] = { dropped, busy, runs, again: btn.getAttribute('aria-disabled'), label: btn.textContent === before };
+    }
     return out;
   },
 

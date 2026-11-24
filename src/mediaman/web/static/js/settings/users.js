@@ -244,8 +244,6 @@
         inner.appendChild(actions);
         form.appendChild(inner);
 
-        // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
-        function isBusy() { return save.getAttribute('aria-disabled') === 'true'; }
         function say(text, tone) {
           msg.className = 'inline-form-msg' + (tone ? ' ' + tone : '');
           msg.textContent = text;
@@ -266,34 +264,34 @@
         opener.setAttribute('aria-expanded', 'false');
         opener.setAttribute('aria-controls', form.id);
         opener.addEventListener('click', function () {
-          if (isBusy()) return;
+          if (isBusy(save)) return;
           holdFocus(opener);
           toggle(!rows.isOpen(form));
         });
         cancel.addEventListener('click', function () {
-          if (isBusy()) return;
+          if (isBusy(save)) return;
           holdFocus(cancel, form);
           toggle(false);
         });
-        form.addEventListener('input', function () { if (!isBusy()) say(''); });
+        form.addEventListener('input', function () { if (!isBusy(save)) say(''); });
         form.addEventListener('submit', function (e) {
           e.preventDefault();
-          if (isBusy()) return;
+          if (isBusy(save)) return;
           var email = input.value.trim();
           holdFocus(save, form);
-          save.setAttribute('aria-disabled', 'true');
+          setBusy(save, true);
           say('Saving…');
           MM.reauth.run(function () {
             return MM.api.patch('/api/users/' + user.id + '/email', { email: email });
           }).then(function (res) {
-            save.removeAttribute('aria-disabled');
+            setBusy(save, false);
             user.email = res.email;
             paintSub(user, sub);
             say('');
             toggle(false);
             window.UIFeedback.success(user.username + (user.email ? "'s email is now " + user.email : ' has no email now'));
           }).catch(function (err) {
-            save.removeAttribute('aria-disabled');
+            setBusy(save, false);
             if (err && err.error === 'reauth_cancelled') { say(''); return; }
             say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
             input.focus();
@@ -312,10 +310,17 @@
         btn.setAttribute('aria-label', btn.textContent + ': ' + user.username);
       }
 
+      // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
+      function isBusy(btn) { return btn.getAttribute('aria-disabled') === 'true'; }
+      function setBusy(btn, busy) {
+        if (busy) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled');
+      }
+
       function changeRoleFlow(user, role, btn, changed) {
+        if (isBusy(btn)) return;
         var label = btn.textContent;
         holdFocus(btn);
-        btn.disabled = true;
+        setBusy(btn, true);
         btn.textContent = 'Saving…';
         btn.setAttribute('aria-label', 'Saving…: ' + user.username);
         MM.reauth.run(function () {
@@ -326,7 +331,7 @@
           function apply() {
             var keepFocus = MM.dom.focusStillIn(btn);
             user.role = role;
-            btn.disabled = false;
+            setBusy(btn, false);
             changed();
             if (keepFocus) btn.focus();
           }
@@ -334,7 +339,7 @@
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
           var keepFocus = MM.dom.focusStillIn(btn);
-          btn.disabled = false;
+          setBusy(btn, false);
           btn.textContent = label;
           btn.setAttribute('aria-label', label + ': ' + user.username);
           if (keepFocus) btn.focus();
@@ -349,6 +354,7 @@
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
       function deleteUserFlow(user, row, btn) {
+        if (isBusy(btn)) return;
         holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
@@ -357,7 +363,7 @@
           confirmVariant: 'danger',
         }).then(function (ok) {
           if (!ok) return;
-          btn.disabled = true;
+          setBusy(btn, true);
           btn.textContent = 'Deleting…';
           btn.setAttribute('aria-label', 'Deleting…: ' + user.username);
           MM.reauth.run(function () {
@@ -374,7 +380,7 @@
             window.UIFeedback.success('Deleted ' + user.username);
           }).catch(function (err) {
             var keepFocus = MM.dom.focusStillIn(btn);
-            btn.disabled = false;
+            setBusy(btn, false);
             btn.textContent = 'Delete';
             btn.setAttribute('aria-label', 'Delete: ' + user.username);
             if (keepFocus) btn.focus();

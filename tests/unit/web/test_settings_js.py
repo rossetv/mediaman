@@ -202,6 +202,7 @@ def test_role_change_updates_the_row_in_place_and_keeps_focus() -> None:
         "button": "Make viewer",
         "focused": True,
         "disabled": False,
+        "busy": False,
     }
 
 
@@ -241,6 +242,11 @@ def test_focus_comes_back_after_a_change_whose_button_took_none() -> None:
         "delete": True,
         "addUser": True,
     }
+
+
+def test_a_role_change_or_delete_is_sent_once_from_a_button_that_keeps_the_focus() -> None:
+    once = {"dropped": False, "busy": "true", "runs": 1, "again": None, "label": True}
+    assert _run("rowActions") == {"role": once, "delete": once}
 
 
 def test_the_password_dialog_for_a_delete_names_the_delete() -> None:

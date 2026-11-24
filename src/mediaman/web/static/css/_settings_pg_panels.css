@@ -424,6 +424,9 @@
 }
 .setg-pg .link-danger:hover { background: var(--rgba-danger-bg-soft); }
 
+/* A pressed button that is working keeps the focus, so it is dimmed instead of disabled. */
+.setg-pg .usr-row [aria-disabled="true"] { opacity: .55; cursor: progress; }
+
 /* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
 .setg-pg .sub-row.is-entering,
 .setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
