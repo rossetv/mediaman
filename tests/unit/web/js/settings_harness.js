@@ -533,7 +533,6 @@ const scenarios = {
     h.doc.getElementById('account-old-password').value = 'old';
     h.doc.getElementById('account-new-password').value = 'a-long-enough-password';
     h.doc.getElementById('account-confirm-password').value = 'a-long-enough-password';
-    msg.textContent = 'Working';
     form.fire('submit');
     oldPw.fire('input');
     const whileSending = { text: msg.textContent, disabled: submit.getAttribute('aria-disabled') === 'true' };

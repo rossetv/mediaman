@@ -146,7 +146,7 @@ def test_form_message_clears_when_the_person_types_again() -> None:
 def test_account_message_clears_on_edit_but_not_while_sending() -> None:
     out = _run("accountClearOnInput")
     assert out["shown"] and out["afterInput"] == ""
-    assert out["whileSending"] == {"text": "Working", "disabled": True}
+    assert out["whileSending"] == {"text": "Updating…", "disabled": True}
 
 
 def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
