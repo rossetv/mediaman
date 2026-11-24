@@ -390,7 +390,7 @@ const scenarios = {
   async disks() {
     const one = storage().disks[0];
     const p = await page(undefined, (s) => {
-      s.storage = storage({ disks: [{ ...one, path: '/media/movies', over_threshold: true }, { ...one, path: '/media/<b>', readable: false }] });
+      s.storage = storage({ disks: [{ ...one, path: '/media/movies', over_threshold: true }, { ...one, path: '/media/tv' }, { ...one, path: '/media/<b>', readable: false }] });
     });
     await p.click(p.$('meter'));
     const mixed = await page(undefined, (s) => { s.storage = storage({ disks: [{ ...one, threshold_shared: false }] }); });

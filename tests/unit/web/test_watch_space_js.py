@@ -177,10 +177,11 @@ class TestStorage:
         assert _run("disks") == {
             "list": [
                 "/media/movies1.4 TB free of 8 TB · above 90%",
+                "/media/tv1.4 TB free of 8 TB",
                 "/media/<b>Can’t be read",
             ],
             "tick": False,
-            "line": "81% full, 1 disk can’t be read, above your 90% limit on /media/movies",
+            "line": "81% full overall, 1 disk can’t be read, above your 90% limit on /media/movies",
             "mixedTick": False,
         }
 

@@ -869,7 +869,7 @@
     add(n, document.createTextNode(trim(s.free)), el('small', '', 'free of ' + trim(s.total)));
     var p = pressure();
     var readable = s.disks.filter(function (d) { return d.readable; }).length;
-    var text = p.level ? p.pct + '% full'
+    var text = p.level ? p.pct + '% full' + (readable > 1 ? ' overall' : '')
       : trim(s.used) + ' used, ' + p.pct + '%' + (readable > 1 ? ' across ' + readable + ' disks' : '');
     var unread = s.disks.length - readable;
     if (unread) text += ', ' + plural(unread, 'disk') + ' can’t be read';
