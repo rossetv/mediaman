@@ -446,7 +446,7 @@
 
   /* The two Refresh buttons: the person's own picks, and the shared ones. */
   var REFRESH = {
-    own: { attr: 'data-own-refresh', name: 'Refresh my picks', busy: 'Making your picks' },
+    own: { attr: 'data-own-refresh', name: 'Refresh my picks', busy: 'Making your picks', narrow: { ready: 'My picks', busy: 'Making…' } },
     shared: { attr: 'data-picks-refresh', name: 'Refresh shared', busy: 'Refreshing shared picks' }
   };
 
@@ -457,6 +457,7 @@
     button.type = 'button';
     button.setAttribute(REFRESH[kind].attr, '');
     button.setAttribute('data-widest', 'Refresh in 59\u00a0min');
+    if (REFRESH[kind].narrow) button.setAttribute('data-narrow', REFRESH[kind].narrow.busy);
     return button;
   }
 
@@ -480,6 +481,7 @@
     var shown = el('span', 'row-tool__face');
     shown.appendChild(icon(face[0]));
     shown.appendChild(el('span', 'row-tool__long', face[1]));
+    if (words.narrow) shown.setAttribute('data-narrow', words.narrow[state] || left);
     button.appendChild(shown);
     // The clock counts down by itself; once it runs out Refresh is back.
     if (state === 'cooldown') timers[kind] = setTimeout(function () { if (kind === 'own') drawOwn(); else setRefresh(kind, 'cooldown', nextAt); }, 60000);

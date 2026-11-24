@@ -861,6 +861,17 @@ const scenarios = {
     return { ...out, posts: p.calls.filter((c) => /^POST/.test(c)).length };
   },
 
+  // On a phone Refresh of the own picks keeps a word; the shared one is its icon alone.
+  async ownNarrow() {
+    const at = async (mine) => {
+      const p = load({ mine, admin: true });
+      await settle();
+      const said = (attr) => p.doc.querySelector('[' + attr + '] .row-tool__face').getAttribute('data-narrow');
+      return { own: said('data-own-refresh'), shared: said('data-picks-refresh') };
+    };
+    return { ready: await at(MINE.ready), wait: await at(MINE.wait), busy: await at(MINE.running) };
+  },
+
   // The session ran out before the rows loaded: off to the login page, not a "Couldn't load".
   async loggedOutOnLoad() {
     const p = load({ routes: {

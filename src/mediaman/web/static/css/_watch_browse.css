@@ -125,7 +125,7 @@
 /* Every face of Refresh is laid over the widest one, so it never changes width. */
 .row-tool--refresh { display: inline-grid; place-items: center; }
 .row-tool__face { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 7px; }
-.row-tool--refresh::before { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: 19px; }
+.row-tool--refresh::before { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: 22px; }
 .row-tool.is-busy { cursor: progress; }
 .row-tool.is-busy .ico { animation: spin 1s linear infinite; }
 .row-tool:not([aria-disabled="true"]):active { background: var(--s4); color: var(--t1); }
@@ -143,6 +143,8 @@
   .watch-row__head { gap: 8px; }
   .watch-row__tools { gap: 2px; }
   .row-tool { padding: 0 10px; }
+  .row-tool--refresh[data-narrow]::before { display: block; content: attr(data-narrow); }
+  .row-tool__face[data-narrow]::after { content: attr(data-narrow); }
 }
 
 /* Under Recommended's heading: what the picks are, and the person's own Refresh. Two lines of
@@ -153,8 +155,19 @@
 .rec-line__text { min-width: 0; flex: 0 1 auto; font-size: 13px; line-height: 1.3; color: var(--t2); }
 .rec-line > .row-tool { flex: none; margin-left: auto; }
 @media (min-width: 700px) { .rec-line > .row-tool { margin-left: 4px; } }
-@media (max-width: 699.98px) { .watch-page { --rec-line-h: 44px; } }
+/* Below 700px the tools are 44px tall: a gap keeps this Refresh off the one over it. */
+@media (max-width: 699.98px) {
+  .watch-page { --rec-line-h: 52px; }
+  .rec-line { padding-top: 8px; }
+}
 @media (max-width: 599.98px) { .rec-line { gap: 8px; margin-bottom: 10px; } }
+/* On the narrowest phones it is three lines of text. */
+@media (max-width: 359.98px) {
+  .watch-page { --rec-line-h: 56px; }
+  .rec-line > .ai-label > .ico { display: none; }
+  .rec-line > .ai-label { padding-inline: 7px; }
+  .rec-line__text { font-size: 12px; }
+}
 /* A pick's caption. */
 .watch-card__cap { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
 .watch-card__cap > .watch-card__sub { flex: 1; min-width: 0; }

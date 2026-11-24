@@ -277,6 +277,18 @@ def test_the_day_s_limit_is_no_longer_told_once_its_wait_is_over() -> None:
     assert out["posts"] == 1
 
 
+def test_on_a_phone_the_own_refresh_has_a_word_the_shared_one_has_not() -> None:
+    out = _run("ownNarrow")
+    assert {k: v["own"] for k, v in out.items()} == {
+        "ready": "My picks",
+        "wait": "6\u00a0days",
+        "busy": "Making…",
+    }
+    assert {v["shared"] for v in out.values()} == {None}
+    css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
+    assert ".row-tool__face[data-narrow]::after { content: attr(data-narrow)" in css
+
+
 def test_keep_from_leaving_soon_offers_undo_and_moves_focus_to_the_next_keep() -> None:
     out = _run("keepFromRow")
     assert out["gone"] is True
