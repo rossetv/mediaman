@@ -534,10 +534,19 @@ class TestLibraryPlexDidNotAnswerFor:
 
         assert runner.scan_end(summary) == ("error", runner.SCAN_FAILED_NO_LIBRARY)
 
-    def test_a_disk_limit_left_out_is_not_told_again_for_a_scan_that_does_not_ask(self, conn):
-        runner._audit_left_out(conn, "libraries_left_out", {"1": "why"}, {})
+    def test_a_disk_limit_left_out_is_not_told_again_by_a_scan_started_by_hand(self, conn):
+        self._scan_with_limits(conn, {"1": "x"})
 
-        self._scan(conn, {})
-        runner._audit_left_out(conn, "libraries_left_out", {"1": "why"}, {})
+        status, said = runner.scan_end(self._scan(conn, {}))
 
+        assert status == "done"
+        assert "its disk limit in Settings cannot be read" in said
         assert len(self._told(conn)) == 1
+
+    def test_a_scan_started_by_hand_leaves_out_a_library_whose_limit_cannot_be_read(self, conn):
+        limits = {"1": "x", "2": {"path": "/", "threshold": 1000}}
+        with patch("mediaman.scanner.runner._say_what_was_left_out") as said:
+            _set_setting(conn, "disk_thresholds", limits)
+            self._scan(conn, {})
+
+        assert said.call_args.args[2] == ["2"]
