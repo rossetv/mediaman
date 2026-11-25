@@ -229,11 +229,11 @@ function load(opts = {}) {
     UIFeedback: { toast: (message, o) => toasts.push({ message, o }) },
     MM: { api: {
       APIError,
-      get: (url) => {
+      get: (url, o) => {
         gets.push(url);
         const r = routes[url];
         if (r instanceof Error) return Promise.reject(r);
-        if (typeof r === 'function') return r();
+        if (typeof r === 'function') return r(o);
         return r ? Promise.resolve(JSON.parse(JSON.stringify(r))) : Promise.reject(new APIError(404, 'not_found'));
       },
       post: (url, body) => {
@@ -1758,40 +1758,45 @@ const scenarios = {
       ratings: p.text('.ttl__ratings') };
   },
 
-  /* Ratings that are still to come: their room is held, what came with the title keeps its place, and another title's page is let be. */
+  /* Ratings that are still to come: what came with the title keeps its place, and another title's page is let be.
+     Those not here yet stand in a line of their own, out of which a rating that came is drawn. */
   async lateRatings() {
     const asked = '/api/watch/title/movie-120/ratings';
     const page = async (ratings) => {
-      let answer = null;
-      const p = load({ routes: { '/api/watch/title/movie-120': { ...LIB_MOVIE, ratings, ratings_pending: true },
+      const answers = [];
+      const p = load({ routes: { '/api/watch/title/movie-120': { ...LIB_MOVIE, ratings, ratings_pending: true, cast: [{ name: 'Mara Ellison', character: 'Ines', profile_url: null, person_id: 9001 }] },
         '/api/watch/title/tmdb-movie-77': { ...MOVIE_DL, ratings: { imdb: '5.0', rt: null, tmdb: null, metascore: null }, ratings_pending: false },
-        [asked]: () => new Promise((resolve, reject) => { answer = { resolve, reject }; }) } });
+        [asked]: (o) => new Promise((resolve, reject) => { answers.push({ resolve, reject, signal: (o && o.signal) || {} }); }) } });
       p.run();
       p.ctx.MMWatch.detail.open('movie-120', {});
       await settle();
-      const box = p.q('[data-ttl-part="ratings"]');
-      const texts = (row) => row.children.map((n) => n.textContent);
-      return { p, answer: () => answer, look: () => ({ room: texts(box.children[0]), shown: box.children[1].children.filter((n) => !n.classList.contains('skel')).map((n) => n.textContent),
-        waiting: box.children[1].querySelectorAll('.skel').length }) };
+      const texts = (nodes) => nodes.map((n) => n.textContent);
+      return { p, answers, look: () => ({ shown: texts(p.ttl().querySelectorAll('[data-rating]')), line: !!p.q('[data-ttl-part="ratings"]'),
+        waiting: texts(p.ttl().querySelectorAll('.ttl__ratings-wait .skel')) }) };
     };
     const early = { imdb: null, rt: null, tmdb: 7.4, metascore: null };
     const came = await page(early);
     const out = { before: came.look(), asked: came.p.gets.filter((g) => g === asked).length };
-    came.answer().resolve({ ok: true, ratings: { imdb: '8.3', rt: '91%', tmdb: 7.4, metascore: null } });
+    came.answers[0].resolve({ ok: true, ratings: { imdb: '8.3', rt: '91%', tmdb: 7.4, metascore: null } });
     await settle();
     out.after = came.look();
     const none = await page(early);
-    none.answer().reject(new APIError(502, 'x'));
+    none.answers[0].reject(new APIError(502, 'x'));
     await settle();
     out.failed = none.look();
+    const empty = await page({ ...early, tmdb: null });
+    out.held = empty.look();
+    empty.answers[0].resolve({ ok: true, ratings: {} });
+    await settle();
+    out.empty = empty.look();
     const old = await page({ ...early, imdb: '8.1' });
-    old.answer().resolve({ ok: true, ratings: { imdb: '8.2', rt: null, tmdb: 7.4, metascore: '70' } });
+    old.answers[0].resolve({ ok: true, ratings: { imdb: '8.2', rt: null, tmdb: 7.4, metascore: '70' } });
     await settle();
     out.renewed = old.look().shown;
     const moved = await page(early);
     moved.p.ctx.MMWatch.detail.open('tmdb-movie-77', {});
     await settle();
-    moved.answer().resolve({ ok: true, ratings: { imdb: '8.3', rt: null, tmdb: 7.4, metascore: null } });
+    moved.answers[0].resolve({ ok: true, ratings: { imdb: '8.3', rt: null, tmdb: 7.4, metascore: null } });
     await settle();
     out.moved = moved.p.text('.ttl__ratings');
     out.others = moved.p.gets.filter((g) => /ratings$/.test(g));

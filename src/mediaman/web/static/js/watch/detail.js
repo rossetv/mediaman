@@ -262,7 +262,7 @@
       checkedAt: 0,
       openedAs: ref,     // a title scanned meanwhile goes on under its library ref
       marksAsked: 0,
-      ratings: null,     // those that come after the title: { early, came, asked }; early came with it
+      ratings: null,     // those that come after the title: { early, came, asked }; early came with it, asked is the request
       keepComes: null,   // where the focus waits for a Keep button
       ctrl: null,
       seq: ++seq
@@ -1007,7 +1007,7 @@
       g.setAttribute('aria-hidden', 'true');
       p.appendChild(g);
     }
-    p.appendChild(document.createTextNode(text));
+    p.appendChild(el('span', '', text));
     return p;
   }
 
@@ -1022,76 +1022,79 @@
     return row;
   }
 
-  /* What is not here yet, its room held; *hidden*: the room alone. */
-  function pillsToCome(row, keys, hidden) {
+  /* What is not here yet, as far as there is room on the line. */
+  function pillsToCome(keys) {
+    var wait = el('div', 'ttl__ratings-wait');
+    wait.setAttribute('aria-hidden', 'true');
     Object.keys(WIDEST).forEach(function (key) {
       if (keys.indexOf(key) > -1) return;
-      var p = row.appendChild(ratingPill(key, WIDEST[key]));
-      p.className = 'ttl-rating' + (hidden ? '' : ' skel');
+      var p = wait.appendChild(ratingPill(key, WIDEST[key]));
+      p.className = 'ttl-rating skel';
       p.removeAttribute('data-rating');
-      p.setAttribute('aria-hidden', 'true');
-      p.style.color = 'transparent';
-      toArray(p.children).forEach(function (g) { g.style.visibility = 'hidden'; });
     });
-    return row;
+    return wait;
   }
 
   function ratingsRow(d) {
     var r = d.ratings || {};
-    if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: false };
-    if (!cur.ratings) return ratingKeys(r).length ? pillsRow(ratingKeys(r), r) : null;
-    // Over the room for all of them, so that none that comes, or does not, moves the page.
-    var box = el('div');
-    box.setAttribute('data-ttl-part', 'ratings');
-    box.style.display = 'grid';
-    box.style.alignItems = 'start'; // on fewer lines than the room, a pill keeps its height
-    var early = ratingKeys(cur.ratings.early);
-    var room = pillsToCome(pillsRow(early, cur.ratings.early), early, true);
-    room.setAttribute('aria-hidden', 'true');
-    room.style.visibility = 'hidden';
-    var row = lateRow(r);
-    [room, row].forEach(function (layer) {
-      layer.style.gridArea = '1 / 1';
-      box.appendChild(layer);
-    });
-    return box;
-  }
-
-  /* What was here first keeps its place. */
-  function lateRow(r) {
+    if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: null };
     var w = cur.ratings;
+    if (!w) return ratingKeys(r).length ? pillsRow(ratingKeys(r), r) : null;
+    // What was here first keeps its place.
     var early = ratingKeys(w.early);
     var all = Object.assign({}, w.early);
     [r, w.came || {}].forEach(function (more) {
       ratingKeys(more).forEach(function (key) { all[key] = more[key]; });
     });
     var keys = early.concat(ratingKeys(all).filter(function (key) { return early.indexOf(key) === -1; }));
+    if (w.came && !keys.length) return null;
     var row = pillsRow(keys, all);
-    return w.came ? row : pillsToCome(row, keys, false);
+    row.setAttribute('data-ttl-part', 'ratings');
+    if (!w.came) row.appendChild(pillsToCome(keys));
+    return row;
   }
 
   /* Ratings that take their time are asked for once the title is on show. */
   function askRatings(c) {
     var w = c.ratings;
     if (!w || w.asked) return;
-    w.asked = true;
+    var asked = w.asked = new AbortController();
     function take(ratings) {
-      if (c !== cur || !isOpen) {
-        w.asked = false; // for when the title is come back to
-        return;
-      }
+      if (w.asked !== asked || c !== cur || !isOpen) return;
       w.came = ratings;
-      var box = part('ratings');
-      if (!box) return;
-      var was = box.children[1];
-      var row = lateRow(c.data.ratings || {});
-      row.style.gridArea = '1 / 1';
+      var was = part('ratings');
+      if (was) drawRatings(was, ratingsRow(c.data));
+    }
+    get(apiUrl(c.ref) + '/ratings', asked).then(function (reply) { take((reply && reply.ratings) || {}); }, function () { take({}); });
+  }
+
+  /* Those that came in the place held for them. What follows is slid to where more lines, or none,
+     put it, or stays where it is when they are out of sight above. */
+  function drawRatings(was, row) {
+    var below = followers(was);
+    function swap() {
+      if (!row) { was.remove(); return; }
+      was.replaceWith(row);
       toArray(row.children).forEach(function (p) {
         if (!was.querySelector('[data-rating="' + p.getAttribute('data-rating') + '"]')) core.fadeIn(p);
       });
-      was.replaceWith(row);
     }
-    get(apiUrl(c.ref) + '/ratings').then(function (reply) { take((reply && reply.ratings) || {}); }, function () { take({}); });
+    if (below.length && was.getBoundingClientRect().bottom < root.getBoundingClientRect().top) {
+      holdStill(function () { return below[0]; }, swap);
+      return;
+    }
+    var slide = core.flip(below);
+    swap();
+    slide();
+  }
+
+  /* What stands after *node* in the body, by its largest parts. */
+  function followers(node) {
+    var out = [];
+    for (; node && node !== body; node = node.parentNode) {
+      for (var n = node.nextElementSibling; n; n = n.nextElementSibling) out.push(n);
+    }
+    return out;
   }
 
   /* ── Focus ── */

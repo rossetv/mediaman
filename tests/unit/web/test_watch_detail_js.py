@@ -1087,14 +1087,20 @@ def test_the_director_leads_to_their_titles_and_back() -> None:
     }
 
 
-def test_ratings_that_come_late_move_nothing_and_reach_no_other_title() -> None:
+def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other_title() -> None:
     out = _run("lateRatings")
-    room = ["★TMDB 7.4", "★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
-    assert out["before"] == {"room": room, "shown": ["★TMDB 7.4"], "waiting": 3}
+    waiting = ["★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
+    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": waiting}
     assert out["asked"] == 1
     shown = ["★TMDB 7.4", "★IMDb 8.3", "🍅RT 91%"]
-    assert out["after"] == {"room": room, "shown": shown, "waiting": 0}
-    assert out["failed"] == {"room": room, "shown": ["★TMDB 7.4"], "waiting": 0}
+    assert out["after"] == {"shown": shown, "line": True, "waiting": []}
+    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": []}
     assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
     assert out["moved"] == "★IMDb 5.0"
     assert out["others"] == ["/api/watch/title/movie-120/ratings"]
+
+
+def test_no_place_is_left_for_ratings_when_none_came() -> None:
+    out = _run("lateRatings")
+    assert (out["held"]["line"], len(out["held"]["waiting"])) == (True, 3)
+    assert out["empty"] == {"shown": [], "line": False, "waiting": []}
