@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated
-
-if TYPE_CHECKING:
-    import sqlite3
+from typing import Annotated
 
 import requests
 from fastapi import APIRouter, Depends, Path, Query, Request
@@ -161,7 +159,7 @@ def _already_there(row: SuggestionDetail) -> JSONResponse:
     already = (
         f"'{row.title}' is already in Radarr"
         if row.media_type == "movie"
-        else f"'{row.title}' is already tracked by Sonarr — manage it there"
+        else f"'{row.title}' has already been added"
     )
     return respond_failure(already, status=409)
 
@@ -244,14 +242,14 @@ def _add_rec_to_sonarr(
     """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
-        return respond_failure("Sonarr not configured", status=200)
+        return respond_failure("Downloads aren't set up for shows", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Sonarr", status=200)
+        return respond_failure("No TMDB ID for this show", status=200)
     safe_title = _sanitise_title(row.title)
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
-        return respond_failure("Show not found in Sonarr lookup", status=200)
+        return respond_failure("The download service doesn't know this show", status=200)
     # Filter for the entry whose tmdbId matches the requested id — Sonarr may
     # return results in a different order on different instances.
     matched = next(
@@ -259,7 +257,7 @@ def _add_rec_to_sonarr(
         None,
     )
     if matched is None:
-        return respond_failure("No matching TMDB entry in Sonarr lookup", status=200)
+        return respond_failure("No matching TMDB entry for this show", status=200)
     raw_tvdb_id = matched.get("tvdbId")
     if not raw_tvdb_id:
         return respond_failure("No TVDB ID found for this show", status=200)
@@ -288,8 +286,12 @@ def _add_rec_to_sonarr(
             email=notify_email,
         )
         if resp.status_code < 400:
-            with conn:
-                mark()
+            try:
+                with conn:
+                    mark()
+            except sqlite3.Error:
+                # The seasons were asked for, whatever is known of the recommendation.
+                logger.exception("'%s' could not be marked downloaded", safe_title)
         return resp
     seasons = picks.to_add()
     if seasons is not None and not seasons:
@@ -330,7 +332,7 @@ def _add_rec_to_sonarr(
                 service="sonarr",
                 username=actor,
             )
-    return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Sonarr"})
+    return JSONResponse({"ok": True, "message": f"'{safe_title}' is asked for"})
 
 
 @router.post("/api/recommended/{recommendation_id}/download")
@@ -388,7 +390,7 @@ def _download(
         return respond_failure("Recommendation not found", status=404)
 
     if not row.tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Radarr/Sonarr", status=200)
+        return respond_failure("No TMDB ID -- cannot be downloaded", status=200)
 
     # Resolve the username to the notification email once (``None`` when unset) and hand
     # the resolved value to the helpers.

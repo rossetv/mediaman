@@ -503,11 +503,11 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
 def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says_more() -> None:
     out = _run("downloadShowTracked")
     tracked = out["tracked"]
-    assert tracked["at409"] == {"primary": "Already in Sonarr", "retry": False}
+    assert tracked["at409"] == {"primary": "Already added", "retry": False}
     assert tracked["gets"].count("/api/watch/title/tmdb-tv-90") == 2
-    assert (tracked["refetched"], tracked["retry"]) == ("Already in Sonarr", False)
+    assert (tracked["refetched"], tracked["retry"]) == ("Already added", False)
     assert tracked["events"] == []
-    assert (tracked["polls"], tracked["reopened"]) == (0, "Already in Sonarr")
+    assert (tracked["polls"], tracked["reopened"]) == (0, "Already added")
     # Queued, coming in or all there: the panel and every card say it, once, before any reopening.
     event = {"ref": "tmdb-tv-90", "title": "Hollow Pines", "kind": "show", "year": 2026}
     for name, state, pct, text, polls in (
@@ -516,13 +516,13 @@ def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says
         ("allThere", "in_library", None, "In library", 0),
     ):
         run = out[name]
-        assert run["at409"]["primary"] == "Already in Sonarr", name
+        assert run["at409"]["primary"] == "Already added", name
         assert (run["refetched"], run["reopened"]) == (text, text), name
         assert run["events"] == [{**event, "download_state": state, "download_pct": pct}], name
         assert run["polls"] == polls, name
         assert run["reopenedEvents"] == run["events"], name
     # The title asked for again is in the library: it opens as the library show.
-    assert out["inLibrary"]["at409"]["primary"] == "Already in Sonarr"
+    assert out["inLibrary"]["at409"]["primary"] == "Already added"
     assert out["inLibrary"]["refetched"] == "Resume S2 · E4"
     assert out["inLibrary"]["events"] == [
         {**event, "download_state": "in_library", "download_pct": None}
@@ -533,7 +533,7 @@ def test_already_there_is_dropped_on_reopening_once_the_arr_answers() -> None:
     out = _run("trackedReopened")
     for kind, tracked, download in (
         ("movie", "Already in Radarr", "Download"),
-        ("show", "Already in Sonarr", "Download 2 seasons"),
+        ("show", "Already added", "Download 2 seasons"),
     ):
         assert out[kind]["gone"] == [tracked, download], kind
         assert out[kind]["noAnswer"] == [tracked, tracked], kind
@@ -625,8 +625,8 @@ def test_a_season_that_is_refused_says_why_and_cannot_be_asked_for() -> None:
     assert [c[1:] for c in refused["chips"]] == [
         ["Leaving soon", False],
         ["Deleted", False],
-        ["Not in Sonarr yet", False],
-        ["Off in Sonarr", False],
+        ["Can’t be asked for yet", False],
+        ["Downloads are off", False],
     ]
     for word in ("Keep", "bring back", "list", "Ask an admin"):
         assert word in refused["why"]
@@ -646,7 +646,7 @@ def test_seasons_are_asked_for_once_and_only_the_one_that_failed_again() -> None
     assert half["chips"] == [
         ["3", "Asked for", False],
         ["4", "8 episodes", True],
-        ["5", "Off in Sonarr", False],
+        ["5", "Downloads are off", False],
     ]
     assert half["said"].startswith("Added season 3. Couldn’t add season 4.")
     assert (half["error"], half["gets"]) == (True, 2)
@@ -673,7 +673,34 @@ def test_what_is_said_of_seasons_asked_for_is_what_is_known() -> None:
     noted = out["unrecorded"]
     assert "could not be noted" in noted["said"]
     assert (noted["bad"], noted["retry"], noted["chip"]) == (True, True, "Asked for")
-    assert out["first"] == {"primary": "Already in Sonarr", "error": False}
+    assert out["first"] == {"primary": "Already added", "error": False}
+
+
+def test_what_another_request_is_said_to_ask_for_is_said_no_longer_than_it_is_so() -> None:
+    out = _run("seasonsUnsure")
+    said = "Already being asked for."
+    assert out["taken"] == [said, said, said]
+    assert out["nothing"] == out["unreached"] == [said, said, ""]
+
+
+def test_a_download_refused_season_by_season_says_so_of_each() -> None:
+    assert _run("seasonsUnsure")["each"] == {
+        "said": "Season 1 is leaving.Try again",
+        "retry": True,
+        "top": None,
+        "primary": "Already added",
+        "toasts": 0,
+        "chip": "Leaving soon",
+    }
+
+
+def test_no_answer_is_told_from_one_that_says_nothing() -> None:
+    again = "Try again"
+    assert _run("seasonsUnsure")["worded"] == [
+        "No answer came." + again,
+        "That didn’t work." + again,
+        "That didn’t work." + again,
+    ]
 
 
 def test_a_toast_of_seasons_that_partly_failed_is_no_success() -> None:
@@ -689,6 +716,7 @@ def test_without_sonarr_nothing_is_offered_and_nothing_read_again() -> None:
 def test_a_reading_older_than_an_asking_changes_nothing() -> None:
     out = _run("seasonsOlderReading")
     assert out["library"] == [["3", "Asked for", False]]
+    assert out["marks"] == [[["3", "Asked for", False]], [["3", "8 episodes", True]]]
     assert out["notified"] == ["Asked for", "Asked for"]
     assert out["polled"] == out["refused"] == ["Asked for", "Asked for"]
 
@@ -701,7 +729,89 @@ def test_seasons_whose_states_are_to_come_are_read_again_so_often_and_the_page_s
     assert (comes["go"], comes["still"]) == ("Pick seasons", True)
     assert never["asks"] == 6
     assert never["press"] == {"label": "Check again", "busy": "Checking…"}
-    assert never["go"] != "Checking…"  # the reading came to an end
+    assert never["go"] == "Check again"  # the reading came to an end
+
+
+def test_a_check_shows_a_while_goes_on_while_sonarr_is_asked_and_says_what_came_of_it() -> None:
+    out = _run("seasonsChecked")
+    assert out["unknown"] == {
+        "at": "Checking…",
+        "waits": True,
+        "go": "Check again",
+        "said": "Still can’t tell what can be asked for.",
+    }
+    assert out["back"]["said"] == "1 season can be asked for."
+    assert out["failed"] == {"go": "Check again", "said": out["unknown"]["said"]}
+    # Not there at once: it is still being asked, and that is read again.
+    assert out["pending"]["during"] == ["Checking…", True, 2000]
+    assert (out["pending"]["go"], out["pending"]["said"]) == ("Pick seasons", out["back"]["said"])
+
+
+def test_an_answer_that_is_no_success_is_brought_into_view() -> None:
+    out = _run("seasonsRevealed")
+    assert out["refused"] == [["ttl__error", "nearest", "smooth"]]
+    assert out["still"] == [["ttl__error", "nearest", "auto"]]
+    assert out["asked"] == []
+    assert out["download"] == [["ttl__error", "nearest", "smooth"]]
+    assert out["lost"] == "Couldn't add Hollow Pines: No answer came.Try again"
+
+
+def test_the_error_keeps_its_room_while_what_failed_is_asked_for_again() -> None:
+    assert _run("seasonsRevealed")["again"] == {"lines": 1, "inert": True, "after": ["Added."]}
+
+
+def test_without_sonarr_a_season_still_to_come_is_not_ticked_as_if_it_were_out() -> None:
+    out = _run("seasonsDown")
+    assert out["primary"] == "Download 2 seasons"
+    assert out["chips"] == [
+        ["1", "8 episodes", True],
+        ["2", "8 episodes", True],
+        ["3", "Out 31 Jan 2999", True],
+        ["4", "Not out yet", True],
+    ]
+
+
+def test_the_seasons_are_headed_by_what_they_are() -> None:
+    out = _run("seasonsNamed")
+    # One that has its pill above is no other season.
+    assert out["partly"] == ["Missing episodes", "Missing episodes"]
+    assert out["more"] == ["More seasons", "More seasons"]
+
+
+def test_what_is_to_be_asked_for_says_when_it_comes_and_what_starts_with_it() -> None:
+    out = _run("seasonsSummed")
+    assert out["both"] == "2 seasons will be downloaded · 1 when it is out"
+    assert out["later"] == "1 season will be downloaded when it is out"
+    assert out["starts"] == "1 season will be downloaded · Season 3 and Specials start too"
+    assert out["named"] == "2 seasons will be downloaded · Specials start too"
+    assert out["none"] == "No seasons picked"
+    assert out["on"] == "1 season will be downloaded"
+
+
+def test_a_season_that_is_refused_shows_the_lock_whatever_is_here_of_it() -> None:
+    assert _run("seasonsLocked") == [["none", "i-lock"], ["none", "i-lock"]]
+
+
+def test_no_season_names_sonarr() -> None:
+    out = _run("seasonStates")["refused"]
+    assert "Sonarr" not in out["why"] + str(out["chips"])
+
+
+def test_all_below_the_actions_slides_once_as_the_line_under_them_comes() -> None:
+    out = _run("seasonsSlide")
+    assert out["moved"]["ttl__overview"] == out["moved"]["season-pick__head"] == [-35]
+    assert out["moved"]["season-pick__summary"] == [-35]
+    assert out["moved"]["ttl__after"] == [-45]
+    assert out["chips"] == [[-35], [-35], [-35]]
+    # Out of sight above, what is in view stays.
+    assert (out["scrolled"], out["slidThen"]) == (35, 0)
+
+
+def test_a_season_that_joins_the_others_takes_the_place_of_none() -> None:
+    out = _run("seasonsJoined")
+    assert out["numbers"] == ["2", "3", "4"]
+    assert out["kept"] == [True, True]
+    assert out["focus"] == "3"
 
 
 def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
@@ -718,7 +828,7 @@ def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
     out = _run("tvBlocked")
     assert out["tracked"] == {
         "primary": {
-            "text": "Already in Sonarr",
+            "text": "Already added",
             "cls": "dl-state dl-state--done",
             "disabled": False,
         },

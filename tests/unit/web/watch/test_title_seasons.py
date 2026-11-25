@@ -153,6 +153,22 @@ def test_a_season_that_would_start_others_of_a_show_that_is_off_is_not_a_viewers
     )
 
 
+@pytest.mark.parametrize(
+    ("username", "monitored", "starts"),
+    [("boss", False, [1, 3]), ("boss", True, None), ("amy", False, None)],
+)
+def test_an_admin_alone_is_told_which_seasons_asking_would_start(
+    people, username, monitored, starts
+):
+    seasons = [_sonarr_season(1, monitored=True), _sonarr_season(2)]
+    page = _page(1, 2)
+
+    view = _view(*seasons, _sonarr_season(3, monitored=True), monitored=monitored)
+    _fill(people, page, view, username)
+
+    assert page.get("also_starts") == starts
+
+
 def test_a_season_sonarr_gave_in_a_shape_that_cannot_be_read_has_no_status(people):
     found = _fill(people, _page(1, 2), _view(_sonarr_season(1), odd=[77]))
 

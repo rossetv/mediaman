@@ -4,11 +4,13 @@ Both libraries are pulled whole on each build, which is too slow to repeat on ev
 discover row, search and title open. A download started from Watch calls
 ``invalidate()`` so the next answer shows it queued rather than the held state.
 A service that cannot be reached counts as empty: its titles carry no download state.
+A Sonarr that gave no answer is asked again sooner, alone and behind the page.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 import threading
 import time
@@ -46,10 +48,13 @@ from mediaman.services.infra import SafeHTTPError
 logger = logging.getLogger(__name__)
 
 TTL_S = 30.0
+#: How long a Sonarr that gave no answer is left alone, and how long a page waits for it then.
+RETRY_S = 5.0
+RETRY_WAIT_S = 1.0
 _ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error, ValueError)
 
 _lock = threading.Lock()
-_memo: dict[str, tuple[float, ArrView]] = {}
+_memo: dict[str, _Held] = {}
 # Bumped by invalidate(), so a build that started before it is not kept.
 _generation = [0]
 # The build in progress for each generation; a caller of the same generation waits for
@@ -131,6 +136,14 @@ class ArrView:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _Held:
+    view: ArrView
+    until: float
+    #: When Sonarr is asked again; never where it answered.
+    again: float
+
+
 def _client(
     build: Callable[[sqlite3.Connection, str], ArrClient | None],
     conn: sqlite3.Connection,
@@ -210,26 +223,32 @@ def arr_view(
 ) -> ArrView:
     """The held view, or one built now. With *wait_s* a view not there by then goes on being
     built in the background, and an empty one that answers for neither service comes back; one
-    is built there at a time, however often the view is dropped meanwhile."""
+    is built there at a time, however often the view is dropped meanwhile. A Sonarr asked again is
+    asked there too, and what is held comes back without *wait_s* when it is slow."""
+    late = ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
     with _lock:
-        held = _memo.get("arr")
-        if held is not None and held[0] > clock():
-            return held[1]
+        held, now = _memo.get("arr"), clock()
+        if held is not None and held.until <= now:
+            held = None
+        if held is not None and now < held.again:
+            return held.view
+        if held is not None and wait_s is None:
+            late, wait_s = held.view, RETRY_WAIT_S
         generation = _generation[0]
         future = _building.get(generation)
         owner = future is None
         if future is None:
             if wait_s is not None and any(not behind.done() for behind in _background):
-                return ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
+                return late
             future = _building[generation] = Future()
             if wait_s is not None:
                 _background[:] = [future]
     if owner:
         try:
             # Built here: the connection is this thread's own.
-            radarr = _client(arr_build.build_radarr_from_db, conn, secret_key)
+            radarr = None if held else _client(arr_build.build_radarr_from_db, conn, secret_key)
             sonarr = _client(arr_build.build_sonarr_from_db, conn, secret_key)
-            args = (future, generation, radarr, sonarr, clock)
+            args = (future, generation, radarr, sonarr, clock, held)
             if wait_s is None:
                 _build(*args)
             else:
@@ -239,7 +258,7 @@ def arr_view(
     try:
         return future.result(wait_s)
     except TimeoutError:
-        return ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
+        return late
 
 
 def _build(
@@ -248,30 +267,38 @@ def _build(
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
     clock: Callable[[], float],
+    held: _Held | None,
 ) -> None:
+    """Build the view; with *held* from what that has of Radarr."""
     try:
         radarr, radarr_answered = _radarr(radarr_client)
         sonarr = _sonarr(sonarr_client)
     except BaseException as exc:
         _failed(future, generation, exc)
         return
+    caches: ArrCaches = {**radarr, **sonarr.caches}
+    radarr_set_up = radarr_client is not None
+    if held is not None:
+        caches = {**held.view.caches, **sonarr.caches}
+        radarr_answered = "radarr" in held.view.answering
+        radarr_set_up = "radarr" not in held.view.not_set_up
     answering = frozenset(
         name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr.answered)) if ok
     )
-    clients = (("radarr", radarr_client), ("sonarr", sonarr_client))
-    view = ArrView(
-        {**radarr, **sonarr.caches},
-        answering,
-        frozenset(name for name, client in clients if client is None),
-        generation,
-        sonarr.queue,
-        sonarr.odd_shows,
-    )
+    set_up = (("radarr", radarr_set_up), ("sonarr", sonarr_client is not None))
+    not_set_up = frozenset(name for name, ok in set_up if not ok)
+    view = ArrView(caches, answering, not_set_up, generation, sonarr.queue, sonarr.odd_shows)
+    known = "sonarr" in answering | not_set_up
     with _lock:
         if _building.get(generation) is future:
             del _building[generation]
             if _generation[0] == generation:
-                _memo["arr"] = (clock() + TTL_S, view)
+                now = clock()
+                _memo["arr"] = _Held(
+                    view,
+                    held.until if held else now + TTL_S,
+                    math.inf if known else now + RETRY_S,
+                )
     future.set_result(view)
 
 

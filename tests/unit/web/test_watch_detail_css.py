@@ -213,3 +213,22 @@ def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
     assert "overflow: hidden" in line
+
+
+def test_what_waits_for_room_comes_at_once_where_nothing_moves() -> None:
+    for line in (
+        ".season-pick__why.fade-in",
+        ".season-pick__out > .fade-in",
+        ".ttl__under > .fade-in",
+    ):
+        assert "animation-delay: var(--dur)" in _of(line)
+        assert "animation-delay: 0s" in _of(line, "prefers-reduced-motion")
+    # An error kept for its room alone is not seen.
+    assert "opacity: 0" in _of(".ttl__error[inert]") and "opacity: 0" in _of(".ttl__note[inert]")
+
+
+def test_a_season_that_cannot_be_asked_for_has_no_box() -> None:
+    assert _of('.season-chip[data-state="some"] .season-chip__box') == ""
+    assert "border-color: transparent" in _of(
+        '.season-chip[aria-disabled="true"] .season-chip__box'
+    )

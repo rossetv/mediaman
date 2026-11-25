@@ -516,7 +516,7 @@ def test_a_title_radarr_or_sonarr_has_files_of_is_not_offered_for_download() -> 
 
 
 def test_a_show_partly_there_offers_what_its_title_page_does() -> None:
-    assert _run("partlyHeld") == ["Pick seasons", "In Sonarr", "In library"]
+    assert _run("partlyHeld") == ["Pick seasons", "Already added", "In library"]
 
 
 def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:

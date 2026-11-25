@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.watch_catalog import _arr
 
 SERIES = {
@@ -122,3 +123,83 @@ def test_odd_answers_of_sonarr_are_skipped_and_the_show_is_known_to_have_some(mo
         78: ([1], False),
         79: ([], False),
     }
+
+
+class _Down:
+    """A Sonarr that gives no answer until it is *up*."""
+
+    def __init__(self, monkeypatch):
+        self.up = False
+        self.asked = 0
+        self.movies = 0
+        self.slow: threading.Event | None = None
+        self.waited_out = False
+        monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: self)
+        radarr = SimpleNamespace(get_movies=self._get_movies, get_queue=lambda: [])
+        monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
+
+    def _get_movies(self):
+        self.movies += 1
+        return [{"tmdbId": 7, "hasFile": False, "monitored": True}]
+
+    def get_series(self):
+        self.asked += 1
+        if self.slow is not None:
+            self.slow.wait(5)
+            self.waited_out = True
+        if not self.up:
+            raise SafeHTTPError(status_code=503, body_snippet="", url="http://sonarr.invalid")
+        return [SERIES]
+
+    def get_queue(self):
+        return []
+
+
+def test_a_sonarr_that_gave_no_answer_is_asked_again_seconds_later_and_alone(monkeypatch):
+    sonarr, now = _Down(monkeypatch), [1000.0]
+
+    def view(wait_s=None):
+        return catalog.arr_view(None, "k", clock=lambda: now[0], wait_s=wait_s)
+
+    assert not view().answers_for("tv")
+    now[0] += 4
+    sonarr.up = True
+    for _ in range(20):
+        assert not view(5).answers_for("tv")
+    assert sonarr.asked == 1
+
+    now[0] += 2
+    assert view(5).answers_for("tv")
+    assert view(5).state("movie", 7) == ("queued", 0)
+    assert view(5).answers_for("movie")
+    assert (sonarr.asked, sonarr.movies) == (2, 1)
+    # Radarr's is as old as it was, so all is read anew thirty seconds after that.
+    now[0] += 25
+    view()
+    assert (sonarr.asked, sonarr.movies) == (3, 2)
+
+
+def test_a_sonarr_that_stays_down_is_left_alone_for_seconds_after_each_try(monkeypatch):
+    sonarr, now = _Down(monkeypatch), [1000.0]
+
+    for _ in range(29):
+        catalog.arr_view(None, "k", clock=lambda: now[0])
+        now[0] += 1
+
+    assert sonarr.asked == 6
+
+
+def test_a_page_is_not_held_up_by_a_sonarr_that_is_asked_again(monkeypatch):
+    monkeypatch.setattr(_arr, "RETRY_WAIT_S", 0.01)
+    sonarr, now = _Down(monkeypatch), [1000.0]
+    catalog.arr_view(None, "k", clock=lambda: now[0])
+    now[0] += 6
+    sonarr.slow = threading.Event()
+
+    try:
+        for _ in range(3):
+            held = catalog.arr_view(None, "k", clock=lambda: now[0])
+            assert held.state("movie", 7) == ("queued", 0)
+        assert (sonarr.asked, sonarr.waited_out) == (2, False)
+    finally:
+        sonarr.slow.set()

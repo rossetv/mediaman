@@ -80,7 +80,8 @@ def no_season() -> JSONResponse:
 
 def seasons_not_listed(exc: SeasonsNotListed, asked: Sequence[int]) -> JSONResponse:
     """The refusal of seasons Sonarr does not list: the person's own pick, not a fault."""
-    message = str(exc)
+    names = _names(exc.seasons)
+    message = f"{names[0].upper()}{names[1:]} can't be asked for yet."
     if set(asked) - set(exc.seasons):
         message += " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
     return respond_failure(message, status=422)
@@ -187,9 +188,13 @@ def _add_all(
     request = _Request(conn, show, wanted, get_user_role(conn, actor) == "admin")
     results: dict[int, Result] = {}
     started: set[int] = set()
-    answering = True
+    answering = recording = True
     try:
         for number in wanted:
+            # A record that failed waited long to be written, and the next would too.
+            if not recording:
+                results[number] = "failed"
+                continue
             result = request.judge(series, number)
             was_removed = request.was_removed(number)
             change = SeriesChange()
@@ -212,7 +217,7 @@ def _add_all(
                     )
                 except sqlite3.Error:
                     logger.exception("Season %s of %s could not be recorded", number, show)
-                    result, refusal = "unrecorded", None
+                    result, refusal, recording = "unrecorded", None, False
                 if refusal is not None:
                     if result == "asked":
                         sonarr.take_back_season(series_id, number, change)
@@ -224,6 +229,7 @@ def _add_all(
                     )
                 except sqlite3.Error:
                     logger.exception("Started seasons %s could not be recorded", sorted(also))
+                    recording = False
             if change.left_on or (result in ("asked", "unrecorded") and change.series):
                 started |= also
             results[number] = result
@@ -267,11 +273,15 @@ def _gave_no_answer(exc: Exception) -> bool:
     return isinstance(exc, requests.RequestException)
 
 
+_SHOW_OFF = (
+    "can't be asked for: downloads are off for this show, and turning them on would start other"
+    " seasons"
+)
 # What each result says of its seasons, after their names: for one, and for more.
 _SAID: tuple[tuple[Result, str, str], ...] = (
     ("already_asked", "is already on its way", "are already on their way"),
     ("held", "is already here", "are already here"),
-    ("not_listed", "isn't in Sonarr's listing", "aren't in Sonarr's listing"),
+    ("not_listed", "can't be asked for yet", "can't be asked for yet"),
     (
         "leaving",
         "is about to be deleted: keep it first",
@@ -284,14 +294,14 @@ _SAID: tuple[tuple[Result, str, str], ...] = (
     ),
     (
         "show_unmonitored",
-        "can't be added: the show is off in Sonarr, and turning it on would start other seasons",
-        "can't be added: the show is off in Sonarr, and turning it on would start other seasons",
+        _SHOW_OFF,
+        _SHOW_OFF,
     ),
-    ("failed", "couldn't be added: try again", "couldn't be added: try again"),
+    ("failed", "couldn't be added", "couldn't be added"),
     (
         "unrecorded",
-        "is asked for, but mediaman couldn't note it: try again",
-        "are asked for, but mediaman couldn't note it: try again",
+        "is asked for, but mediaman couldn't note it",
+        "are asked for, but mediaman couldn't note it",
     ),
 )
 # The answer when no season is here or on its way, by the first result there is.
@@ -316,14 +326,15 @@ def _answer(title: str, results: dict[int, Result], started: Sequence[int]) -> J
     said = []
     if "asked" in found:
         added = [n for n, result in results.items() if result == "asked"]
-        said.append(f"Added {_names(added)} of '{title}' to Sonarr.")
+        names, verb = _names(added), "is" if len(added) == 1 else "are"
+        said.append(f"{names[0].upper()}{names[1:]} of '{title}' {verb} asked for.")
     for result, one, more in _SAID:
         if numbers := [n for n, r in results.items() if r == result]:
             names = _names(numbers)
             verb = one if len(numbers) == 1 else more
             said.append(f"{names[0].upper()}{names[1:]} {verb}.")
     if started:
-        said.append(f"The show was off in Sonarr, so {_names(started)} started too.")
+        said.append(f"Downloads were off for this show, so {_names(started)} started too.")
     message = " ".join(said)
     told = {
         "seasons": [{"number": n, "result": result} for n, result in results.items()],

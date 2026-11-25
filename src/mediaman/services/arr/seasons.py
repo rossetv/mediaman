@@ -122,7 +122,7 @@ def show_seasons(
     """The state of each season Sonarr lists of *series*; *air_dates* is when each first airs
     as TMDB has it, by number."""
     seasons, whole = readable_seasons(series)
-    # A show just added has no episodes counted yet, which says nothing of what has aired.
+    # A show just added has no episodes counted yet, which says nothing of what has aired; TMDB does.
     counted = any(_season_stats(s).get("totalEpisodeCount") for s in seasons)
     series_id = series.get("id")
     states = {}
@@ -173,7 +173,7 @@ def _status(
         return in_queue
     if _season_stats(season).get("episodeFileCount"):
         return "partly_held"
-    if counted and _is_not_out(season, air_date):
+    if (counted or is_still_to_air(air_date)) and _is_not_out(season, air_date):
         return "not_out"
     return "asked" if is_asked(series, season) else "not_asked"
 
