@@ -38,6 +38,7 @@ from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.rekeyed import cancel_kept_deletion, is_kept_deletion
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
+    audit_lost_removal,
     await_rescan,
     book_deletion,
     book_removed_files,
@@ -388,6 +389,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
             )
+            audit_lost_removal(conn, row)
             book_deletion(
                 conn, row, "Deleted (recovered)", row.removed_bytes or None, unmonitor=True
             )
@@ -1369,6 +1371,7 @@ class DeletionExecutor:
                         f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
                         "of the old one is recorded",
                     )
+                audit_lost_removal(self._conn, row)
                 book_deletion(
                     self._conn,
                     row,
@@ -1481,6 +1484,7 @@ class DeletionExecutor:
                 "delete_failed_permanent",
                 f"Permanent delete error: {row.title} — empty file_path, action parked",
             )
+            audit_lost_removal(self._conn, row)
             repository.delete_scheduled_action(self._conn, row.id)
             self._conn.commit()
             return [], 0
@@ -1722,6 +1726,7 @@ class DeletionExecutor:
             row.id,
             row.media_item_id,
         )
+        audit_lost_removal(self._conn, row)
         finished = is_fully_removed(row)
         if row.removed_paths:
             book_deletion(self._conn, row, "Deleted", row.removed_bytes or None, unmonitor=finished)
@@ -1743,6 +1748,7 @@ class DeletionExecutor:
         """
         if not cancel_kept_deletion(self._conn, row.id, now_iso):
             return False
+        audit_lost_removal(self._conn, row)
         if row.removed_paths:
             book_deletion(self._conn, row, "Deleted", row.removed_bytes or None)
         if is_fully_removed(row):

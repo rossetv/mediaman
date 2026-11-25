@@ -56,6 +56,7 @@ __all__ = [
     "ClearedDeletions",
     "DeletionRow",
     "OldMark",
+    "audit_lost_removal",
     "await_rescan",
     "book_deletion",
     "book_removed_files",
@@ -647,6 +648,43 @@ def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) ->
     )
 
 
+def audit_lost_removal(conn: sqlite3.Connection, row: DeletionRow) -> None:
+    """Audit that *row*, about to be dropped, is all that tells of a removal it may have made."""
+    if not row.removal_intent:
+        return
+    logger.warning(
+        "engine.delete.removal_lost id=%s media_id=%s path=%r — what its removal took is not known",
+        row.id,
+        row.media_item_id,
+        row.file_path,
+    )
+    log_audit(
+        conn,
+        row.media_item_id,
+        "delete_incomplete",
+        f"Not deleted: {row.title} — its removal was cut off, and nothing records what it took",
+    )
+
+
+def _audit_lost_removals(
+    conn: sqlite3.Connection, where: str, params: Sequence[object] = ()
+) -> None:
+    """Run audit_lost_removal for each row the fixed condition *where* drops.
+
+    One being removed now is left out: the pass tells what it took.
+    """
+    # rationale: the interpolated fragments are fixed strings; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} FROM scheduled_actions sa "
+        "LEFT JOIN media_items mi ON mi.id = sa.media_item_id "
+        f"WHERE sa.id IN (SELECT id FROM scheduled_actions WHERE {where}) "
+        f"  AND {_HAS_INTENT} AND sa.delete_status IS NOT 'deleting'",
+        params,
+    ).fetchall()
+    for row in rows:
+        audit_lost_removal(conn, _row_to_deletion_row(row))
+
+
 def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
 
@@ -957,6 +995,7 @@ def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: s
         (show_rating_key,),
     ).fetchone()
     book_removed_files_where(conn, where, (show_rating_key,))
+    _audit_lost_removals(conn, where, (show_rating_key,))
     conn.execute(  # nosec B608
         f"DELETE FROM scheduled_actions WHERE {where} "
         "AND (delete_status IS NULL OR delete_status != 'deleting')",
@@ -981,6 +1020,7 @@ def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> 
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
+        _audit_lost_removals(conn, f"media_item_id IN ({placeholders})", chunk)
         # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         conn.execute(  # nosec B608
             f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
@@ -1051,15 +1091,17 @@ def clear_pending_deletions(
                 "  AND delete_status = 'deleting'"
             ).fetchone()[0]
         )
+        dropped = (
+            "action='scheduled_deletion' AND token_used=0 "
+            f"AND id NOT IN ({','.join('?' * len(finished))})"
+        )
+        waiting_ids = [row.id for row, _ in finished]
+        _audit_lost_removals(conn, dropped, waiting_ids)
         for row, _ in unbooked:
             if not is_fully_removed(row):
                 book_deletion(conn, row, "Deleted", row.removed_bytes or None)
         # rationale: only "?" placeholders are interpolated; every value is bound
-        conn.execute(  # nosec B608
-            "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0 "
-            f"AND id NOT IN ({','.join('?' * len(finished))})",
-            [row.id for row, _ in finished],
-        )
+        conn.execute(f"DELETE FROM scheduled_actions WHERE {dropped}", waiting_ids)  # nosec B608
         if audit_actor is not None:
             from mediaman.core.audit import security_event_or_raise
 

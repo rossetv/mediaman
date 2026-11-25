@@ -273,6 +273,13 @@ def _die_at_the_removal(conn, monkeypatch):
     conn.rollback()
 
 
+def _lost(conn):
+    return conn.execute(
+        "SELECT COUNT(*) FROM audit_log WHERE media_item_id = 'm1' "
+        "AND action = 'delete_incomplete' AND detail LIKE '%cut off%'"
+    ).fetchone()[0]
+
+
 class TestRemovalWithNoRecordedOutcome:
     @pytest.mark.parametrize("recovered_at_startup", [True, False])
     @pytest.mark.parametrize("name", ["film.mkv", "Film 2160p.mkv"])
@@ -530,6 +537,74 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert len(locked) >= 3
         assert not any(locked)
+
+    @pytest.mark.parametrize(
+        "lost", ["pruned", "cleared", "show kept", "unticked", "kept", "parked"]
+    )
+    def test_one_dropped_with_its_row_is_told(self, conn, root, film, monkeypatch, lost):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        if lost == "pruned":
+            _scan(conn, root).sync_library()
+        elif lost == "cleared":
+            clear_pending_deletions(conn)
+        elif lost == "show kept":
+            conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+            delete_show_scheduled_deletions(conn, "show")
+        else:
+            if lost == "parked":
+                conn.execute("UPDATE media_items SET file_path = ''")
+            elif lost == "unticked":
+                conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+            else:
+                conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+                insert_kept_show(conn, show_rating_key="show", action="protected_forever")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+
+        assert _action(conn) is None
+        assert _lost(conn) == 1
+
+    @pytest.mark.parametrize("copy_back", [False, True])
+    def test_one_booked_with_what_went_before_is_told(self, conn, two_parts, copy_back):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": str(cd2 if copy_back else cd1), "size": 4}]),),
+        )
+        conn.commit()
+        cd2.unlink()
+        cd2.parent.rmdir()
+        if not copy_back:
+            cd1.unlink()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _lost(conn) == 1
+
+    @pytest.mark.parametrize("ticked", [True, False])
+    def test_a_row_dropped_with_no_removal_begun_is_not_told(self, conn, film, ticked):
+        if ticked:
+            clear_pending_deletions(conn)
+        else:
+            conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+
+        assert _action(conn) is None
+        assert _lost(conn) == 0
+
+    def test_a_removal_running_now_is_not_told_as_lost(self, conn, film, monkeypatch):
+        _die_at_the_removal(conn, monkeypatch)
+
+        clear_pending_deletions(conn)
+
+        assert _lost(conn) == 0
 
 
 class TestNothingLeftToRemove:
