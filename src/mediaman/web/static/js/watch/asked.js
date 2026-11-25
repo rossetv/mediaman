@@ -328,7 +328,7 @@
     dueOwn = !!own;
     due = setTimeout(function () {
       dueOwn = false;
-      if (asking) again = { own: own };
+      if (asking) again = { own: own || !!(again && again.own) };
       else refresh();
     }, own ? ms : Math.max(ms, askedAt + AGAIN_MS - Date.now(), 0));
   }

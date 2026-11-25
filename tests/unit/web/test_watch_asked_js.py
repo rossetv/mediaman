@@ -89,7 +89,7 @@ def test_a_mark_or_an_undo_of_the_persons_own_waits_for_no_earlier_asking() -> N
 
 def test_an_answer_from_before_an_undo_does_not_take_the_card_away() -> None:
     stays = [["movie-1", "movie-2"]] * 2
-    assert _run("undone_in_flight") == {"early": stays, "late": stays}
+    assert _run("undone_in_flight") == {"early": stays, "late": stays, "shown": stays}
 
 
 def test_a_title_that_comes_while_the_page_is_open_goes_first_lit_and_is_said() -> None:
