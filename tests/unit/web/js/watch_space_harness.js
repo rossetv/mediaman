@@ -18,6 +18,8 @@ const classes = Object.getOwnPropertyDescriptor(Node.prototype, 'classList').get
 Object.defineProperty(Node.prototype, 'classList', {
   get() { return Object.assign(classes.call(this), { 0: this.className.split(/\s+/)[0] }); },
 });
+Object.defineProperty(Node.prototype, 'lastElementChild', { get() { return this.children[this.children.length - 1] || null; } });
+Node.prototype.replaceChildren = function (...kids) { this.textContent = ''; kids.forEach((k) => this.appendChild(k)); };
 Node.prototype.scrollIntoView = function () {};
 Node.prototype.focus = function () {
   if (!this.isConnected || this.closest('[inert]') || this.closest('#space') && this.ownerDocument.getElementById('space').hidden) return;
@@ -51,7 +53,7 @@ function row(id, over) {
 }
 
 function title(name, bytes, over) {
-  return { id: name, ref: 'movie-1', title: name, plex_rating_key: '1', file_size: Math.round(bytes / GB) + ' GB', file_size_bytes: bytes, season_count: null,
+  return { id: name, ref: 'movie-' + name.toLowerCase(), title: name, plex_rating_key: '1', file_size: Math.round(bytes / GB) + ' GB', file_size_bytes: bytes, season_count: null,
     last_watched: '', protected: false, deletion_days: null, ...over };
 }
 
@@ -163,6 +165,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   const timers = [];
   const intervals = new Map();
   const ready = [];
+  const listening = {}; // on the window
   const address = {
     layer(def) { layer = def; },
     url: (_params, hash) => '#' + hash,
@@ -182,8 +185,8 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     DOMParser: class { parseFromString() { const d = makeDocument(); d.body.appendChild(build(d, server.page)); return d; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', transitionDuration: '0s', transitionDelay: '0s', display: 'block', transform: 'none', opacity: '1' }),
     URLSearchParams,
-    DOMMatrix: class { constructor() { this.m41 = 48; this.m42 = 0; } },
-    removeEventListener() {},
+    DOMMatrix: class { constructor(text) { this.m41 = 48; this.m42 = 0; this.a = text && text.scale || 1; } },
+    removeEventListener(type, fn) { listening[type] = (listening[type] || []).filter((f) => f !== fn); },
     matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
@@ -197,8 +200,8 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       server.pages += 1;
       return server.holding === '/watch' ? new Promise((resolve) => server.held.push({ url, go: () => resolve(answer) })) : Promise.resolve(answer);
     },
-    UIFeedback: { toast: (message, opts) => toasts.push({ message, undo: !!(opts && opts.action), opts }), error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed), dismissConfirm() {} },
-    addEventListener(type, fn) { if (type === 'load') ready.push(fn); },
+    UIFeedback: { toast: (message, opts) => { const t = { message, undo: !!(opts && opts.action), opts }; toasts.push(t); return t; }, dismiss(t) { t.dismissed = true; }, error: (message) => toasts.push({ message, error: true }), confirm: () => Promise.resolve(confirmed), dismissConfirm() {} },
+    addEventListener(type, fn) { if (type === 'load') ready.push(fn); else (listening[type] = listening[type] || []).push(fn); },
   };
   ctx.window = ctx;
   const told = [];
@@ -215,13 +218,15 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
   const opened = [];
+  const shown = [];
   if (opts.list) {
     doc.body.appendChild(build(doc, ['section', { id: 'watch-list' }, ['div', { 'data-list-part': 'results' }, ...opts.list.map(([ref, name]) =>
-      ['tr', {}, ['td', {}, ['div', { class: 'thumb' }]], ['td', {}, ['a', { class: 'wl-title', 'data-title-ref': ref }, name]]])]]));
+      ['tr', {}, ['td', {}, ['div', { class: 'thumb' }, ['img', {}]]], ['td', {}, ['a', { class: 'wl-title', 'data-title-ref': ref }, name]]])]]));
     $('watch-list').hidden = true;
     ctx.MMWatch.list = {
       plainClick: (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey),
       open(href, hooks) { const o = { href, ...hooks, off: 0 }; opened.push(o); return () => { o.off += 1; }; },
+      show(href) { shown.push(href); },
     };
   }
   const started = [];
@@ -235,7 +240,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   const one = (sel) => doc.querySelector(sel);
   const all = (sel) => doc.querySelectorAll(sel);
   const p = {
-    doc, server, told, opened, assigned, started, toasts, pushed, $, one, all, before, ctx,
+    doc, server, told, opened, shown, assigned, started, toasts, pushed, $, one, all, before, ctx,
     confirm(on) { confirmed = on; },
     layer: () => layer,
     async click(node) { click(doc, node); await settle(); },
@@ -247,6 +252,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
       await settle();
     },
     async run(ms) { timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); },
+    press(type, e) { (listening[type] || []).slice().forEach((fn) => fn({ type, ...e })); },
     second() { intervals.forEach((i) => { if (i.ms === 1000) i.fn(); }); },
     async let_go(url) { const mine = server.held.filter((h) => h.url.includes(url)); server.held = server.held.filter((h) => !mine.includes(h)); mine.forEach((h) => h.go()); await settle(); },
     async open(name = 'scheduled') { await p.click($('meter')); await p.click($('space-tab-' + name)); },
@@ -277,11 +283,34 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
 const seeAll = (p, extra) => { const all = p.one('.space-layer:not([inert]) .space-all'); let stopped = false; click(p.doc, all, { preventDefault() { stopped = true; }, ...extra }); return stopped; };
 const inAir = (p) => p.all('.space-flight .space-flight__name').map((n) => n.textContent);
 async function onMovies(opts) {
-  const p = await page(undefined, (s) => { s.library.movie[1].ref = 'movie-2'; }, { list: [['movie-1', 'Big in full'], ['movie-7', 'Other']], ...opts });
+  const p = await page(undefined, undefined, { list: [['movie-big', 'Big in full'], ['movie-7', 'Other']], ...opts });
   await p.click(p.$('meter'));
   await p.click(p.seg('movies'));
   await settle();
   return p;
+}
+
+/* Where *node* stands. */
+function place(node, left, top, width, height = 20) {
+  node.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height });
+}
+/* On the way to the list, the titles in the air. */
+async function flying(before, list) {
+  Node.prototype.animate = function () { return {}; };
+  const p = await onMovies({ motion: true, ...(list ? { list } : {}) });
+  const look = p.ctx.getComputedStyle;
+  p.ctx.getComputedStyle = (n) => Object.assign(look(n), { fontSize: '16px', transform: n && n.style && n.style.transform || 'none' });
+  if (before) before(p);
+  seeAll(p);
+  p.opened[0].leave();
+  p.layer().close('push');
+  p.$('watch-list').hidden = false;
+  p.opened[0].arrive();
+  return p;
+}
+function back(p) {
+  p.$('watch-list').setAttribute('inert', ''); // on its way out
+  p.layer().open('storage', 'pop');
 }
 
 const scenarios = {
@@ -291,8 +320,48 @@ const scenarios = {
     const before = p.opened.length;
     const plain = [seeAll(p), seeAll(p)];
     const href = p.opened.map((o) => o.href);
+    return { kept, before, plain, href };
+  },
+  async seeAllFails() {
+    const p = await onMovies();
+    const all = p.one('.space-layer:not([inert]) .space-all');
+    const busy = () => all.getAttribute('aria-busy');
+    seeAll(p);
+    const asked = busy();
     p.opened[0].fail();
-    return { kept, before, plain, href, assigned: p.assigned };
+    const after = { open: p.layer() && !p.$('space').inert, busy: busy(), assigned: p.assigned, said: p.last().message, label: p.last().opts.action.label };
+    p.last().opts.action.onClick();
+    const again = { asked: p.opened.length, busy: busy(), focused: p.doc.activeElement === all };
+    p.opened[1].fail();
+    seeAll(p);
+    const gone = p.last().dismissed;
+    p.opened[2].fail();
+    p.layer().close('pop');
+    p.last().opts.action.onClick();
+    return { asked, after, again, gone, closed: [p.opened.length, p.shown] };
+  },
+  /* What takes the person elsewhere while the list is on its way. */
+  async seeAllLeft() {
+    const of = async (act) => {
+      const p = await onMovies();
+      seeAll(p);
+      await act(p);
+      return [p.opened[0].off, p.all('.space-all').filter((a) => a.getAttribute('aria-busy')).length];
+    };
+    return {
+      escape: await of((p) => p.key('Escape')),
+      tab: await of((p) => p.click(p.$('space-tab-scheduled'))),
+      segment: await of((p) => p.click(p.seg('tv'))),
+      all: await of((p) => p.click(p.one('.space-layer:not([inert]) .space-back'))),
+      refresh: await of((p) => { p.server.storage = storage({ free: '1.3 TB' }); return p.refresh(); }),
+    };
+  },
+  async seeAllOther() {
+    const p = await onMovies();
+    seeAll(p);
+    await p.fire(p.seg('tv'), 'focus');
+    seeAll(p);
+    return { hrefs: p.opened.map((o) => o.href), off: p.opened.map((o) => o.off) };
   },
   async seeAllCalledOff() {
     const p = await onMovies();
@@ -330,7 +399,104 @@ const scenarios = {
     await settle();
     const ahead = shown();
     await p.run(262); // the length of the flight
-    return { there, back, ahead, focus, landed: shown() };
+    return { there, back, ahead, focus, landed: shown(), eager: p.one('#watch-list .thumb img').loading };
+  },
+  /* Back while the titles are on their way: from where they are, and at once. */
+  async flightTurned() {
+    const p = await flying();
+    const [pic, name] = ['pic', 'name'].map((k) => p.one('.space-flight__' + k));
+    place(pic, 500, 300, 40);
+    place(name, 560, 310, 60);
+    name.style.transform = { scale: 2 };
+    const moves = [];
+    Node.prototype.animate = function (frames, opts) { moves.push([this.className, frames[0].transform, opts.delay]); return {}; };
+    back(p);
+    return moves.filter(([cls]) => cls.includes('space-flight__it'));
+  },
+  /* Forward while the list is still on its way out: it is inert, not hidden. */
+  async flightForwardSoon() {
+    const p = await flying();
+    back(p);
+    p.ctx.location.search = '?view=list';
+    p.$('meter').focus();
+    const list = p.$('watch-list');
+    p.layer().close('pop');
+    list.removeAttribute('inert');
+    await settle();
+    return { air: inAir(p), focused: p.focused() };
+  },
+  async flightEnds() {
+    const after = async (act) => {
+      const p = await flying();
+      await act(p);
+      return [inAir(p).length, p.one('#watch-list .wl-title').style.opacity];
+    };
+    return {
+      wheel: await after((p) => p.press('wheel')),
+      key: await after((p) => p.press('keydown', { key: 'PageDown' })),
+      back: await after((p) => p.press('keydown', { key: 'Alt', altKey: true })),
+      opened: await after((p) => p.click(p.$('meter'))),
+      closed: await after(async (p) => { back(p); p.layer().close('pop'); }),
+    };
+  },
+  /* Only what stands clear of the bars is drawn, and no row the panel cuts off. */
+  async flightClipped() {
+    const p = await flying((q) => {
+      const tabs = q.doc.createElement('nav');
+      tabs.className = 'nav-tabs';
+      q.doc.body.appendChild(tabs);
+      place(tabs, 0, 800, 390);
+      place(q.$('space-storage'), 0, 0, 390, 100);
+      const pics = q.all('.space-layer:not([inert]) .space-mini');
+      place(pics[0], 0, 60, 30, 40);
+      place(pics[1], 0, 61, 30, 40);
+    }, [['movie-big', 'Big in full'], ['movie-small', 'Small']]);
+    return { clip: p.one('.space-flight').style.clipPath, air: inAir(p) };
+  },
+  /* What changed on the server is drawn once the titles have landed: the heaviest titles, asked for
+     before they took off; then what the panel says, asked for on the way. */
+  async flightHolds() {
+    const rows = (p) => p.all('.space-heavy__row').filter((a) => !a.inert).map((a) => a.querySelector('b').textContent);
+    const landed = async (p) => {
+      await p.run(262); // the length of the flight
+      await p.run(0);
+      await settle();
+    };
+    const p = await flying();
+    back(p);
+    await landed(p);
+    p.server.holding = '/api/library';
+    p.server.library.movie = [title('Small', 40 * GB), title('New', 30 * GB)];
+    await p.refresh();
+    await settle();
+    const small = p.all('.space-heavy__row').find((a) => a.textContent.includes('Small'));
+    small.focus();
+    await p.run(0);
+    p.$('watch-list').removeAttribute('inert');
+    seeAll(p);
+    p.opened[1].leave();
+    p.opened[1].arrive();
+    await p.let_go('/api/library');
+    const during = [rows(p), inAir(p).length];
+    await landed(p);
+    const heaviest = { during, after: rows(p), same: p.all('.space-heavy__row').some((a) => a === small && !a.inert), focused: p.doc.activeElement === small };
+
+    const q = await flying();
+    q.server.storage = storage({ movies_label: '3.7 TB' });
+    back(q);
+    await settle();
+    const said = () => q.one('.space-fig__n').textContent.includes('3.7 TB');
+    const before = [said(), q.one('.space-heavy__row b').style.opacity];
+    await landed(q);
+    return { heaviest, panel: { before, after: said() } };
+  },
+  async keptWhileClosed() {
+    const p = await onMovies();
+    await p.click(p.$('close'));
+    p.server.library.movie[0].protected = true;
+    await p.refresh();
+    p.layer().open('storage', 'pop');
+    return p.all('.space-layer:not([inert]) .space-tag--kept').length;
   },
   async flightsReduced() {
     const faded = [];
