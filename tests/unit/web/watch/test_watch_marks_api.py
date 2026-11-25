@@ -266,7 +266,7 @@ class TestAShowMarkedBeforeItJoined:
     def test_a_mark_taken_back_on_a_special_leaves_the_show(self, client, conn, joined, plex):
         _season(conn, "509", "500", "The Long Coast", 0)
         client.delete("/api/watch/watched/season/509")
-        assert _watched(conn) == {"show-500"}
+        assert _title_marks(conn) == {("tv", 44): 2}
 
 
 class TestUndo:

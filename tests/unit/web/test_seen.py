@@ -271,13 +271,14 @@ class TestJoiningTheLibrary:
         _season(conn, 2, ["521"])
         assert _show(conn).watched
         assert lib.seen_refs(conn, "aoife", LIBS) == {"show-500"}
+        assert lib.seen_refs(conn, "cian", LIBS) == set()
+        assert seen_titles.with_covered(conn, "cian", LIBS, "500", {}) == {}
 
         _season(conn, 3, ["531", "532"])
 
         show = _show(conn)
         assert [show.seasons[n].watched for n in (1, 2, 3)] == [True, True, False]
         assert (show.watched, show.left) == (False, 2)
-        assert not _show(conn, "cian").watched
         assert conn.execute("SELECT count(*) FROM watch_progress").fetchone()[0] == 0
 
     def test_a_show_known_by_its_tvdb_id_is_matched_by_the_tmdb_id_found_for_it(self, client, conn):
