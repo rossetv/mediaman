@@ -187,7 +187,10 @@ def _make(
             conn,
             portrait=_portrait(plays, ratings, told, previous),
             levels=told.levels,
-            may_ask=same_link and ends_at - clock() >= _MIX_SECONDS,
+            may_ask=same_link
+            # Not once the person is gone, nor for someone made anew under their name.
+            and user_picks.is_unfinished(conn, username, run_id)
+            and ends_at - clock() >= _MIX_SECONDS,
             secret_key=secret_key,
         )
 

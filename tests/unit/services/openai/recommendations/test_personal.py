@@ -478,6 +478,25 @@ class TestTaste:
         _make(conn, "amy")
         assert ["heists" in prompt for prompt in openai.prompts] == [True, False]
 
+    @pytest.mark.parametrize("made_anew", [False, True])
+    def test_nothing_of_a_person_removed_during_the_first_call_is_sent_again(
+        self, conn, openai, known, monkeypatch, made_anew
+    ):
+        real = personal.generate_personal
+
+        def remove_meanwhile(*args, **kwargs):
+            items = real(*args, **kwargs)
+            conn.execute("DELETE FROM admin_users WHERE username = 'amy'")
+            if made_anew:
+                _person(conn, "amy")
+            conn.commit()
+            return items
+
+        monkeypatch.setattr(personal, "generate_personal", remove_meanwhile)
+        openai.items = [_pick("New")]
+        _make(conn, "amy")
+        assert len(openai.prompts) == 1
+
     def test_plays_of_a_plex_account_unlinked_during_the_first_call_are_not_sent_again(
         self, conn, openai, known, monkeypatch
     ):
