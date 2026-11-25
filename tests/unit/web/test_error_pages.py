@@ -92,6 +92,18 @@ def test_text_sent_with_no_utf8_form_is_a_bad_request(client):
     assert resp.status_code == 400
 
 
+def test_text_with_no_utf8_form_is_refused_in_words_the_pages_show(client):
+    resp = client.post(
+        "/api/stored",
+        content=b'{"word": "half \\ud800 a pair"}',
+        headers={"content-type": "application/json"},
+    )
+
+    said = "The request holds a character that cannot be used."
+    # MM.api.messageOf reads ``message``; the Settings save bar reads ``detail``.
+    assert resp.json() == {"ok": False, "error": said, "message": said, "detail": said}
+
+
 def test_any_other_encoding_fault_is_still_a_crash(client):
     assert client.get("/api/latin").status_code == 500
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import cast
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp
 
 from mediaman.web.middleware.security_headers import SecurityHeadersMiddleware
+from mediaman.web.responses import respond_failure
 
 _MESSAGES = {
     403: ("Request blocked", "That request did not come from this site, so it was refused."),
@@ -98,6 +99,18 @@ def refusal(request: Request, body: bytes) -> Response:
     return Response(status_code=403, content=body)
 
 
+_UNUSABLE_TEXT = "The request holds a character that cannot be used."
+
+
+class _UnusableText(Exception):
+    """A JSON body holds text with no UTF-8 form."""
+
+
+async def _unusable_text(request: Request, exc: Exception) -> Response:
+    """The app's usual failure, so its pages show the words; ``detail`` for those that read it."""
+    return respond_failure(_UNUSABLE_TEXT, status=400, detail=_UNUSABLE_TEXT)
+
+
 async def refuse_text_with_no_utf8_form(request: Request) -> None:
     """Refuse with a 400 a JSON body holding text that has no UTF-8 form, as half of a
     surrogate pair has not.
@@ -115,12 +128,11 @@ async def refuse_text_with_no_utf8_form(request: Request) -> None:
     try:
         json.dumps(body, ensure_ascii=False).encode("utf-8")
     except UnicodeEncodeError:
-        raise HTTPException(
-            status_code=400, detail="The request holds a character that cannot be used."
-        ) from None
+        raise _UnusableText from None
 
 
 def register_error_pages(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_exception)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(_UnusableText, _unusable_text)
     app.add_exception_handler(Exception, _server_error)
