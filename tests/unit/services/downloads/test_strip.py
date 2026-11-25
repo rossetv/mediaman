@@ -95,9 +95,57 @@ def test_the_item_on_top_of_the_downloads_page_is_in_the_row_too():
     assert [i.key for i in items] == ["radarr:A", "radarr:B"]
 
 
-def test_two_films_of_one_title_are_two_items():
-    items = collect(_data(_raw(tmdb_id=7), _raw(tmdb_id=8)), (), _NOW)
+def test_two_films_of_one_title_are_two_items_with_no_id_known():
+    items = collect(_data(_raw(), _raw()), (), _NOW)
     assert len({i.key for i in items}) == 2
+
+
+@pytest.mark.parametrize("ids", [(7, 8), (8, 7)])
+def test_two_films_of_one_title_keep_their_keys_in_whichever_order(ids):
+    first = {i.tmdb_id: i.key for i in collect(_data(_raw(tmdb_id=7), _raw(tmdb_id=8)), (), _NOW)}
+    raws = [_raw(tmdb_id=i) for i in ids]
+    assert {i.tmdb_id: i.key for i in collect(_data(*raws), (), _NOW)} == first
+
+
+def test_of_two_films_of_one_title_gone_at_once_none_is_guessed_to_be_the_one_done():
+    before = collect(_data(_raw(tmdb_id=7), _raw(tmdb_id=8)), (), _NOW)
+    [ready] = collect(_data(recent=[_done("radarr:Ember Coast", 1)]), before, _NOW)
+    assert ready.tmdb_id is None
+    still = [_done("radarr:Ember Coast", 1)]
+    left = collect(_data(_raw(tmdb_id=8), recent=still), before, _NOW)
+    assert {i.tmdb_id: i.state for i in left} == {7: "ready", 8: "downloading"}
+    assert [i.tmdb_id for i in collect(_data(recent=still), left, _NOW)] == [7]
+
+
+def test_a_title_whose_id_becomes_known_is_not_held_beside_itself():
+    before = collect(_data(_raw()), (), _NOW)
+    items = collect(_data(_raw(tmdb_id=7), unreachable=["Radarr"]), before, _NOW)
+    assert [i.tmdb_id for i in items] == [7]
+
+
+_RELEASE = "a8f1c2d9e07b44-[IndexerTag]"
+
+
+def test_a_release_only_nzbget_holds_is_told_by_neither_its_name_nor_its_title():
+    items = collect(_data(_raw(_RELEASE, title=_RELEASE)), (), _NOW)
+    told = str(payload(Answer(Strip(tuple(items)), 0.0)))
+    assert "a8f1c2d9e07b44" not in told
+    assert "IndexerTag" not in told
+    assert items[0].title == strip.UNNAMED
+
+
+def test_a_release_with_a_readable_name_keeps_its_title():
+    [item] = collect(_data(_raw("Ember.Coast.2024.1080p.x264-GRP", title="Ember Coast")), (), _NOW)
+    assert item.title == "Ember Coast"
+    assert "GRP" not in str(payload(Answer(Strip((item,)), 0.0)))
+
+
+def test_such_a_release_keeps_its_card_while_nzbget_is_away_and_when_it_is_done():
+    before = collect(_data(_raw(_RELEASE, title=_RELEASE)), (), _NOW)
+    [held] = collect(_data(unreachable=["NZBGet"]), before, _NOW)
+    assert (held.key, held.held) == (before[0].key, True)
+    [ready] = collect(_data(recent=[_done(_RELEASE, 1, title=_RELEASE)]), before, _NOW)
+    assert (ready.key, ready.state, ready.title) == (before[0].key, "ready", strip.UNNAMED)
 
 
 def test_a_finished_one_is_ready_for_a_minute_and_then_gone():
@@ -116,10 +164,11 @@ def test_a_finished_one_keeps_its_place_and_the_title_it_was_known_by():
     after = collect(
         _data(_raw("radarr:A", tmdb_id=1), recent=[_done("radarr:Ember Coast", 1)]), before, _NOW
     )
-    assert [(i.key, i.state, i.tmdb_id) for i in after] == [
-        ("radarr:A", "downloading", 1),
-        ("radarr:Ember Coast", "ready", 2),
+    assert [(i.title, i.state, i.tmdb_id) for i in after] == [
+        ("A", "downloading", 1),
+        ("Ember Coast", "ready", 2),
     ]
+    assert [i.key for i in after] == [i.key for i in before]
 
 
 def test_a_show_that_lacks_episodes_does_not_say_it_is_all_there():

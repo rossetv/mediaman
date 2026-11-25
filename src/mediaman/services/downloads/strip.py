@@ -10,11 +10,13 @@ from __future__ import annotations
 import logging
 import math
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
+from hashlib import blake2b
 from typing import Literal
 
 from mediaman.core.time import parse_iso_utc
@@ -34,6 +36,8 @@ MAX_ITEMS = 20
 STUCK_AFTER_SEARCHES = 9
 
 STALE_LINE = "Can't check downloads"
+# For a release whose name says nothing that a person could read.
+UNNAMED = "A download"
 
 State = Literal["downloading", "almost_ready", "queued", "searching", "stuck", "ready"]
 
@@ -46,6 +50,7 @@ _RANK: dict[State, int] = {
     "searching": 2,
     "stuck": 2,
 }
+_KEY_SALT = secrets.token_bytes(16)
 _ETA = re.compile(r"~(?:(\d+) hr )?(\d+) (min|sec) remaining")
 
 
@@ -67,6 +72,9 @@ class StripItem:
     poster_url: str = ""
     art_url: str = ""
     tmdb_id: int | None = None
+    #: What the queue knows it by: for what only NZBGet holds, the release's own name, which
+    #: is told to nobody.
+    dl_id: str = ""
     #: The title it opens, None when not known.
     ref: str | None = None
     href: str = "/downloads"
@@ -117,20 +125,45 @@ def _kind_of(item: Mapping[str, object]) -> Literal["movie", "show"]:
     return "movie" if item.get("media_type") == "movie" else "show"
 
 
+def _is_arr(dl_id: str) -> bool:
+    return dl_id.startswith(("radarr:", "sonarr:"))
+
+
+def _key_of(dl_id: str, tmdb_id: int | None) -> str:
+    """What a page tells the item by. By its TMDB id where that is known, since two films may
+    share the title an id is made of."""
+    if not _is_arr(dl_id):
+        name = dl_id.encode(errors="replace")
+        return "nzb-" + blake2b(name, key=_KEY_SALT, digest_size=12).hexdigest()
+    return f"{dl_id.partition(':')[0]}::{tmdb_id}" if tmdb_id else dl_id
+
+
+def _title_of(item: Mapping[str, object]) -> str:
+    """Its title; of a release whose name has nothing to strip, which may be no title at all,
+    a plain word."""
+    dl_id, title = _text(item.get("id")), _text(item.get("title"))
+    if _is_arr(dl_id):
+        return title
+    whole = dl_id.replace(".", " ").replace("_", " ").strip().rstrip("- ")
+    return UNNAMED if title in ("", whole) else title
+
+
 def _current(item: Mapping[str, object]) -> StripItem:
     state = _state_of(item)
+    dl_id, tmdb_id = _text(item.get("id")), _int(item.get("tmdb_id")) or None
     # "Searched 12x · next attempt in ~4h"
     hint = _text(item.get("search_hint")).partition(" · ")[2] if state == "stuck" else ""
     return StripItem(
-        key=_text(item.get("id")),
-        title=_text(item.get("title")),
+        key=_key_of(dl_id, tmdb_id),
+        dl_id=dl_id,
+        title=_title_of(item),
         kind=_kind_of(item),
         state=state,
         percent=max(0, min(100, _int(item.get("progress")))) if state in _ACTIVE else 0,
         minutes_left=_minutes_left(item.get("eta")) if state == "downloading" else None,
         line=hint,
         poster_url=_text(item.get("poster_url")),
-        tmdb_id=_int(item.get("tmdb_id")) or None,
+        tmdb_id=tmdb_id,
     )
 
 
@@ -145,9 +178,11 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
     left = READY_S - max(0.0, (now - done).total_seconds())
     if left <= 0:
         return None
+    dl_id, tmdb_id = _text(item.get("id")), before.tmdb_id if before else None
     return StripItem(
-        key=_text(item.get("id")),
-        title=_text(item.get("title")),
+        key=_key_of(dl_id, tmdb_id),
+        dl_id=dl_id,
+        title=_title_of(item),
         kind=_kind_of(item),
         state="ready",
         percent=100,
@@ -155,12 +190,21 @@ def _ready(item: Mapping[str, object], before: StripItem | None, now: datetime) 
         ready_seconds=math.ceil(left),
         poster_url=_text(item.get("poster_url")) or (before.poster_url if before else ""),
         art_url=before.art_url if before else "",
-        tmdb_id=before.tmdb_id if before else None,
+        tmdb_id=tmdb_id,
     )
 
 
-def _service_of(key: str) -> str:
-    return {"radarr": "Radarr", "sonarr": "Sonarr"}.get(key.partition(":")[0], "NZBGet")
+def _service_of(dl_id: str) -> str:
+    return dl_id.partition(":")[0].capitalize() if _is_arr(dl_id) else "NZBGet"
+
+
+def _was(
+    dl_id: str, before: Sequence[StripItem], found: Mapping[str, StripItem]
+) -> StripItem | None:
+    """The one of *before* that is done; None when two of its title could be it."""
+    gone = [i for i in before if i.dl_id == dl_id and i.key not in found]
+    ready = [i for i in gone if i.state == "ready"] or gone
+    return ready[0] if len(ready) == 1 else None
 
 
 def collect(data: DownloadsResponse, before: Sequence[StripItem], now: datetime) -> list[StripItem]:
@@ -172,23 +216,26 @@ def collect(data: DownloadsResponse, before: Sequence[StripItem], now: datetime)
     found: dict[str, StripItem] = {}
     for raw in [*([data["hero"]] if data["hero"] else []), *data["queue"]]:
         item = _current(raw)
-        # The ids are made of the title, which two films may share.
         if item.key in found:
-            item = replace(item, key=f"{item.key}#{item.tmdb_id or len(found)}")
+            item = replace(item, key=f"{item.key}#{len(found)}")
         was = known.get(item.key)
         lost = "NZBGet" in down and item.state in ("searching", "stuck")
         if lost and was and was.state in ("downloading", "almost_ready", "queued"):
             item = replace(was, held=True)
         found[item.key] = item
+    live = {item.dl_id for item in found.values()}
     done = {_text(raw.get("id")) for raw in data["recent"]}
     for raw in data["recent"]:
-        ready = _ready(raw, known.get(_text(raw.get("id"))), now)
+        ready = _ready(raw, _was(_text(raw.get("id")), before, found), now)
         if ready is not None:
             found.setdefault(ready.key, ready)
     for key, was in known.items():
-        if was.state == "ready" or key in found or key in done:
+        if was.state == "ready" or key in found or was.dl_id in done:
             continue
-        if _service_of(key) in down:
+        # Listed now that its TMDB id is known.
+        if was.tmdb_id is None and was.dl_id in live:
+            continue
+        if _service_of(was.dl_id) in down:
             found[key] = replace(was, held=True)
     place = {key: n for n, key in enumerate(known)}
     return sorted(found.values(), key=lambda i: (_RANK[i.state], place.get(i.key, len(place))))
