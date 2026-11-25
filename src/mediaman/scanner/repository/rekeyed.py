@@ -239,12 +239,15 @@ def note_listing(
     listed: Collection[str],
     touched: Collection[str],
     since: str,
+    *,
+    trusted: bool = True,
 ) -> None:
     """Note which titles of a library Plex lists, as it was read in the run begun at *since*.
 
-    One whose history failed is stored by no run, but is listed. Of one in *touched*
-    that is not, nothing is known. A copy of one that is not listed, scheduled in
-    this run as if both were, is left to the next.
+    One whose history failed is stored by no run, but is listed. Of one that is
+    not, nothing is known if it is in *touched*, or if the list is not *trusted*:
+    one too short to remove anything by. A copy of one that is not listed,
+    scheduled in this run as if both were, is left to the next.
     """
     for row in conn.execute(
         "SELECT id, unlisted, last_scanned_at FROM media_items WHERE plex_library_id = ?",
@@ -256,7 +259,7 @@ def note_listing(
                     "UPDATE media_items SET unlisted = 0, last_scanned_at = ? WHERE id = ?",
                     (now_iso(), row["id"]),
                 )
-        elif not row["unlisted"] and row["id"] not in touched:
+        elif trusted and not row["unlisted"] and row["id"] not in touched:
             conn.execute("UPDATE media_items SET unlisted = 1 WHERE id = ?", (row["id"],))
             _unschedule_copies(conn, row["id"], since)
 

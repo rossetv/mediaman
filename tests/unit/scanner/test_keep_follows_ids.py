@@ -773,9 +773,13 @@ def test_one_an_older_version_stored_is_not_deleted_while_the_kept_ones_library_
 
 
 @pytest.fixture
-def not_removed(monkeypatch):
-    """No list is trusted enough to remove what it lacks."""
-    monkeypatch.setattr(delete, "_resolve_prune_libs", lambda *_: set())
+def not_removed(conn, monkeypatch):
+    """What a list lacks stays, as an item does whose deletion is not booked yet."""
+    monkeypatch.setattr(
+        delete.repository,
+        "fetch_unbooked_media_ids",
+        lambda _: {row["id"] for row in conn.execute("SELECT id FROM media_items")},
+    )
 
 
 class TestUnlistedButNotRemoved:
@@ -837,6 +841,18 @@ class TestUnlistedButNotRemoved:
         _keep(conn, "old")
 
         delete.remove_orphans(conn, set(), {1, 2}, listed_since=since)
+
+        assert not rekeyed.is_kept_under_another_key(conn, "new")
+
+    @_season("film new")
+    def test_a_list_too_short_to_trust_tells_of_no_title_that_plex_lists_it_no_more(
+        self, conn, freezer, library
+    ):
+        library.sync("old", "new")
+        _keep(conn, "old")
+        freezer.tick(60)
+
+        delete.remove_orphans(conn, set(), {1}, listed_since=datetime.now(UTC).isoformat())
 
         assert not rekeyed.is_kept_under_another_key(conn, "new")
 

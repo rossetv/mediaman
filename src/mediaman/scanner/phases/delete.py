@@ -162,7 +162,8 @@ def remove_orphans(
     An item whose deletion removed files that are not booked yet stays until
     that is done: its rows are the only record of them.
 
-    Which items are listed is noted whether or not any is removed.
+    Which items are listed is noted whether or not any is removed; that one is
+    listed no more, only from a list trusted enough to remove it.
 
     An item another run saw, or anyone scheduled or kept, after the run began
     stays too: the run's list may be from before the item came to Plex.
@@ -181,19 +182,20 @@ def remove_orphans(
     if not scanned_libs:
         return 0
 
+    previous_count = repository.count_items_in_libraries(conn, list(scanned_libs))
+    current_count = len(seen_keys)
+
+    reason = None if confirmed else _suspicious_reason(current_count, previous_count)
+    prune_libs = _resolve_prune_libs(conn, scanned_libs, reason, current_count, previous_count)
     with conn:
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
         since = listed_since or now_iso()
         touched = repository.fetch_ids_touched_since(conn, since)
         for library_id in scanned_libs:
-            note_listing(conn, library_id, seen_keys, touched, since)
-
-    previous_count = repository.count_items_in_libraries(conn, list(scanned_libs))
-    current_count = len(seen_keys)
-
-    reason = None if confirmed else _suspicious_reason(current_count, previous_count)
-    prune_libs = _resolve_prune_libs(conn, scanned_libs, reason, current_count, previous_count)
+            note_listing(
+                conn, library_id, seen_keys, touched, since, trusted=library_id in prune_libs
+            )
     if not prune_libs:
         return 0
 
