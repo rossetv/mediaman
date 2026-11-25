@@ -1176,6 +1176,37 @@ def _wait_until(condition) -> None:
     pytest.fail("never came true")
 
 
+def test_a_start_held_open_past_the_beginning_of_a_later_one_makes_way_for_it(manager, plex):
+    real_open = manager._open_session
+    outer, inner = [], []
+    second_opens, first_stored = threading.Event(), threading.Event()
+
+    def open_in_turn(*args):
+        if not outer:
+            outer.append(True)
+            later.start()
+            assert second_opens.wait(5)
+        else:
+            second_opens.set()
+            assert first_stored.wait(5)
+        return real_open(*args)
+
+    later = threading.Thread(target=lambda: inner.append(_start(manager)), daemon=True)
+    manager._open_session = open_in_turn
+
+    first = _start(manager)
+    assert manager.get(first, "alice")
+    first_stored.set()
+    later.join(5)
+
+    assert manager.get(inner[0], "alice")
+    with pytest.raises(StreamReplaced):
+        manager.get(first, "alice")
+    sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [sessions[0]]
+    assert len(manager._streams) == 1
+
+
 def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
     stopped, idle = _start(manager), _start(manager, rating_key="7")
     manager.stop(stopped, "alice")
