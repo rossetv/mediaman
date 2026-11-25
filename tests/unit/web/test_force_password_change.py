@@ -125,6 +125,30 @@ def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:
     assert reach and 15 + 2 * int(reach.group(1)) >= 44
 
 
+def _rule(css: str, selector: str) -> str:
+    found = re.search(rf"^\s*{re.escape(selector)} \{{([^}}]*)\}}", css, re.M)
+    assert found, selector
+    return found[1]
+
+
+def test_a_field_the_browser_filled_in_keeps_the_eye_in_sight() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    # its pale blue is as light as the eye, and so is the text it puts on a dark one
+    assert "color-scheme: dark" in _rule(login, ".login-page")
+    filled = _rule(password, ".pwd-box > .inp:autofill")
+    assert "box-shadow: inset" in filled and "-webkit-text-fill-color" in filled
+
+
+def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    forced = password.split("@media (forced-colors: active)", 1)[1]
+    # a focused field's own rule is the stronger one
+    assert ".pwd-box > .inp:focus ~ .pwd-eye .cut { stroke: Canvas; }" in forced
+    assert "border: 1px solid transparent" in _rule(login, ".login-btn")
+
+
 def _page(**context) -> str:
     from fastapi.templating import Jinja2Templates
     from starlette.requests import Request
@@ -219,6 +243,8 @@ def test_the_page_works_without_scripts_and_holds_one_form_for_a_password_manage
         "confirm_password": "new-password",
     }
     assert 'method="post" action="/force-password-change"' in form
+    # what password-form.js wires, and the field it fills as the form is sent
+    assert "data-password-form" in form.split(">", 1)[0]
     assert 'data-again="new_password"' in inputs[-1]
     # the script alone takes the second field away
     assert not any(re.search(r"\bhidden\b(?!=)", tag) for tag in inputs if "aria-hidden" not in tag)
