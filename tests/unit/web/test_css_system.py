@@ -86,12 +86,9 @@ def test_every_control_is_44px_on_phones_and_tablets_with_the_bottom_nav() -> No
     controls = {
         ".btn": "min-height",
         ".btn--icon": "min-width",
-        ".keep-trigger": "min-height",
-        ".page-btn": "min-width",
         ".link-danger": "min-height",
         ".btn-test": "min-height",
         ".keep-dur-btn": "min-height",
-        ".snooze-option": "min-height",
     }
     for control, prop in controls.items():
         hit = [
@@ -348,6 +345,18 @@ def test_danger_text_keeps_aa_contrast_on_every_red_tint_over_the_dark_surfaces(
             bg = tuple(c * alpha + u * (1 - alpha) for c, u in zip(rgb, under, strict=True))
             hi, lo = sorted((_luminance(fg), _luminance(bg)), reverse=True)
             assert (hi + 0.05) / (lo + 0.05) >= 4.5, f"--danger-text on {tint} over --{surface}"
+
+
+def test_ready_to_watch_keeps_aa_contrast_over_a_white_picture() -> None:
+    css = _text(CSS_DIR / "_watch_downloading.css")
+    (line,) = [body for heads, body in _rules(css) if ".dw.is-ready .dw__line" in heads]
+    part = re.search(r"color-mix\(in srgb, var\(--success\) (\d+)%, var\(--t1\)\)", line)
+    share = int(part.group(1)) / 100 if part else 1.0
+    fg = tuple(c * share + 255 * (1 - share) for c in _hex(_token("success")))
+    # The scrim over the picture is thinnest where the words end.
+    scrim = int(re.search(r"var\(--scrim\) (\d+)%, transparent\) 55%", css).group(1)) / 100
+    bg = (255 * (1 - scrim),) * 3
+    assert (_luminance(fg) + 0.05) / (_luminance(bg) + 0.05) >= 4.5
 
 
 def test_a_leaving_confirm_dialog_keeps_catching_clicks() -> None:

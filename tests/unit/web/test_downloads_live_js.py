@@ -484,3 +484,7 @@ def test_on_a_phone_a_hero_that_changes_height_keeps_its_top_where_it_is() -> No
     assert "flex: none" in _in_media(phone, ".dl-hero-info")
     # the old card's ground goes on under it while the card grows
     assert "min-height: 100%" in _rule(".dl-hero-ghost__card")
+
+
+def test_the_ring_is_told_by_the_page_s_own_polls_and_of_those_that_fail() -> None:
+    assert _run("ring") == [1, "lost", 2]

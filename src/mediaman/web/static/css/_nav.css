@@ -22,8 +22,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
-.brand,
-.nav-brand {
+.brand {
   font-family: var(--font-text);
   font-size: 19px;
   font-weight: 600;
@@ -31,9 +30,7 @@
   color: var(--t1);
 }
 .brand b,
-.brand span,
-.nav-brand b,
-.nav-brand span { font-weight: 600; color: var(--accent); }
+.brand span { font-weight: 600; color: var(--accent); }
 .nav-glass .brand { line-height: 44px; }
 
 .nav-back,
@@ -143,9 +140,11 @@
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), --ring var(--dur-slow) var(--ease-out);
 }
+.profile-ring.is-set { transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
 .profile-ring.is-on { opacity: 1; transform: none; }
 .profile-ring.is-ready { --ring-tone: var(--success); }
 .profile-ring.is-waiting { --ring-tone: var(--warning); }
+.profile-ring.is-lost { --ring-tone: var(--t3); }
 .profile-count {
   position: absolute;
   right: -9px;
@@ -240,6 +239,7 @@
 .profile-note[hidden] { display: none; }
 .profile-note.is-ready { color: var(--success); }
 .profile-note.is-waiting { color: var(--warning); }
+.profile-note.is-lost { color: var(--t3); }
 .profile-note > i { width: 44px; height: 4px; border-radius: var(--r-xxs); background: var(--rgba-overlay-lg); overflow: hidden; }
 .profile-note > i::before { content: ""; display: block; height: 100%; width: calc(var(--ring) * 1%); border-radius: inherit; background: currentColor; }
 .profile-item--danger,

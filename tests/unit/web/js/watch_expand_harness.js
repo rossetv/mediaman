@@ -1,4 +1,4 @@
-// Runs the rows that grow into grids (watch/expand.js and browse.js, on the real address.js, grid.js and rows-load.js)
+// Runs the rows that grow into grids (watch/expand.js, browse.js and library.js, on the real address.js, grid.js and rows-load.js)
 // against the fake DOM and a fake history, with reduced motion unless a scenario allows it, and prints the outcome of one scenario as JSON.
 // Usage: node watch_expand_harness.js <scenario>
 'use strict';
@@ -50,7 +50,7 @@ function serverRow(id, title, cards, total, next) {
     ['div', viewport, ['div', { class: 'watch-row__scroll', 'aria-label': title }, ...cards]]];
 }
 
-const GRIDS = { 'continue': 'Continue watching', leaving: 'Leaving soon', movies: 'Movies', tv: 'TV',
+const GRIDS = { library: 'All titles', 'continue': 'Continue watching', leaving: 'Leaving soon', movies: 'Movies', tv: 'TV',
   recommended: 'Recommended for you', trending: 'Trending this week', popular_movies: 'Popular movies' };
 
 const tmdb = (n, kind = 'movie') => ({ ref: 'tmdb-' + (kind === 'movie' ? 'movie' : 'tv') + '-' + n, kind, title: 'T' + n, year: 2026 });
@@ -59,6 +59,9 @@ const BATCHES = [{ id: 'b3', label: 'Latest picks', date_label: '23 Nov' }, { id
 const recommended = (batch, items, next) => ({ ok: true, enabled: true, batch, batches: BATCHES, items, next_batch: next,
   my_refresh: { available: false, reason: 'not_enough_plays', next_available_at: null, running: false } });
 const film = (n, title) => ({ kind: 'movie', title: title || 'Film ' + n, subtitle: 'Movie', href: '/watch/movie/' + n, mark_kind: 'movie', mark_key: String(n) });
+
+const COUNTS = { '': 40, movies: 32, tv: 6, anime: 2, unseen: 3, kept: 1, stale: 0 };
+const titles = (type, ns, next, total = 32) => ({ type, items: ns.map((n) => ({ ...film(n), key: 'id:' + n })), next, total, counts: COUNTS, fact: null });
 
 async function load(opts = {}) {
   const doc = makeDocument();
@@ -75,30 +78,33 @@ async function load(opts = {}) {
     '/api/watch/recommended?batch=b1&start=b3': () => recommended('b1', [pick(4)], null),
     '/api/watch/library/movies/row?after=c30': () => ({ items: [film(31)], next: null, total: 32 }),
     '/api/watch/library/movies/row?after=c30&limit=60': () => ({ items: [film(31), film(32)], next: null, total: 32 }),
-    '/api/watch/library/movies/row?after=&limit=60&sort=az': () => ({ items: [film(9), film(1)], next: 'z', total: 32 }),
-    '/api/watch/library/movies/row?after=&limit=60&sort=year': () => ({ items: [film(5), film(3)], next: 'y', total: 32 }),
-    '/api/watch/library/movies/row?after=y&limit=60&sort=year': () => ({ items: [film(7)], next: null, total: 32 }),
-    '/api/watch/library/movies/row?after=&limit=60&sort=unwatched': () => ({ items: [film(4), film(6)], next: null, total: 32 }),
-    '/api/watch/library/movies/row?after=&limit=60': () => ({ items: [film(1), film(2)], next: null, total: 32 }),
-    '/api/watch/library/movies/row?after=z&limit=60&sort=az': () => ({ items: [], next: null, total: 32 }),
+    '/api/watch/library/library/row?limit=60&type=movies': () => titles('movies', range(1, 33), null),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=az': () => titles('movies', [9, 1], 'z'),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=az&after=z': () => titles('movies', [], null),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=year': () => titles('movies', [5, 3], 'y'),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=year&after=y': () => titles('movies', [7], null),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=unwatched': () => titles('movies', [4, 6], null),
+    '/api/watch/library/library/row?limit=60&type=unseen': () => titles('unseen', [2, 8, 3], null, 3),
+    '/api/watch/library/library/row?limit=60&type=unseen&sort=az': () => titles('unseen', [3, 2], null, 3),
+    '/api/watch/library/library/row?limit=60': () => titles('', [1, 2, 90], null, 40),
+    '/api/watch/library/library/row?limit=60&type=kept&sort=size': () => titles('kept', [6], null, 1),
+    '/api/watch/library/library/row?limit=60&type=movies&sort=size': () => titles('movies', [6, 5], null),
     ...opts.routes,
   };
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
     ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title', id: 'watch-all-title' }],
-      ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
+      ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]], ['div', { class: 'watch-all__bar' }],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }, ...opts.server.map((n) => libraryCard(n))], ['div', { class: 'grid-tail' }]]]] : [];
   doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' }, ['input', { id: 'watch-search' }],
-    ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']],
     ['div', { id: 'watch-browse', ...(opts.server ? { hidden: '' } : {}) }, ['div', { class: 'watch-rows' },
       serverRow('continue', 'Continue watching', [['The Zebra', 41], ['Orchard', 42], ['An Apple', 43], ['Éclair', 44], ['Fig', 45], ['Gnu', 46]]
         .map(([title, n]) => libraryCard(n, { title, dismiss: 'movie-' + n })), 6),
       serverRow('leaving', 'Leaving soon', [51, 52].map((n) => libraryCard(n, { keep: String(n) })), 2),
       ['div', { id: 'watch-discover-slot' }],
       serverRow('movies', 'Movies', range(1, 31).map((n) => libraryCard(n)), 32, 'c30')]],
-    ...(opts.viewer ? [] : [['section', { id: 'watch-list', hidden: '' }]]),
     ...server,
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' }, ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]));
-  doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify({ is_admin: false, tmdb_configured: true, grids: opts.grids || GRIDS, grid: opts.grid || null })]));
+  doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' }, JSON.stringify({ is_admin: !!opts.admin, tmdb_configured: true, grids: opts.grids || GRIDS, grid: opts.grid || null })]));
   doc.createRange = () => ({ selectNodeContents() {}, getBoundingClientRect: () => ({ top: 0, bottom: 0, left: 0, width: 0, height: 0 }) });
   const get = (url) => {
     calls.push(url);
@@ -112,7 +118,7 @@ async function load(opts = {}) {
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn) => { setImmediate(fn); return 1; }, clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', visibility: 'visible', display: 'block', paddingLeft: '0', paddingRight: '0', gridTemplateColumns: '1px 1px 1px' }),
-    matchMedia: () => ({ matches: !opts.motion }),
+    matchMedia: (q) => ({ matches: /coarse/.test(q) ? !!opts.touch : !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: 900, innerWidth: 1280, scrollY: 0, scrollTo() {}, scrollBy() {},
@@ -131,7 +137,7 @@ async function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js', 'watch/library.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f }));
   if (opts.beforeStart) await settle();
   ctx.MMWatch.address.start();
@@ -156,7 +162,7 @@ async function load(opts = {}) {
       title: text('.watch-all__title'), count: text('.watch-all__count'), sort: text('.watch-all__value'),
       things: all.querySelector('.watch-grid').children.map((n) => (n.classList.contains('watch-card') ? n.querySelector('.watch-card__title').textContent
         : n.classList.contains('grid-group') ? '[' + n.textContent + ']' : '(skel)')),
-      tail: text('.grid-tail'),
+      tail: text('.grid-tail'), filters: all.querySelectorAll('[data-grid-filter]').map((a) => a.textContent + (a.getAttribute('aria-current') ? '*' : '')),
     } : null;
   };
   p.choose = async (value) => {
@@ -167,6 +173,13 @@ async function load(opts = {}) {
     click(doc, items.find((i) => i.getAttribute('data-value') === value));
     await p.settle();
     return labels;
+  };
+  p.filter = async (value) => {
+    const chip = p.doc.querySelectorAll('[data-grid-filter]').find((a) => a.getAttribute('data-grid-filter') === value);
+    chip.focus();
+    const prevented = press(chip);
+    await p.settle();
+    return prevented;
   };
   p.scroll = async (id, left) => {
     const scroller = p.row(id).querySelector('.watch-row__scroll');
@@ -192,7 +205,7 @@ const scenarios = {
     await p.settle();
     const open = p.grid();
     const out = { label, prevented, at: p.at(), title: open.title, count: open.count, sort: open.sort, n: open.things.length, last: open.things.slice(-2), tail: open.tail,
-      rows: p.doc.getElementById('watch-browse').hidden, calls: p.calls.filter((c) => /limit=60/.test(c)) };
+      rows: p.doc.getElementById('watch-browse').hidden, calls: p.calls.filter((c) => /limit=60/.test(c)), filters: open.filters };
     p.press(p.doc.querySelector('.watch-all__back'));
     await p.settle();
     return { ...out, back: { at: p.at(), grid: p.grid(), rows: !p.doc.getElementById('watch-browse').hidden, focus: p.doc.activeElement === link } };
@@ -228,6 +241,100 @@ const scenarios = {
     const forward = p.grid().things;
     const plain = await load({ url: '/watch?all=continue&sort=unwatched' });
     return { seen, forward, link: link.grid().sort, other: plain.grid().sort };
+  },
+
+  // The filters: chosen, chosen again, beside an order, and the way back.
+  async filters() {
+    const p = await load();
+    await p.open('movies');
+    const prevented = await p.filter('unseen');
+    const unseen = { at: p.at(), ...p.grid(), focus: p.doc.activeElement.getAttribute('data-grid-filter'), say: p.doc.querySelectorAll('[role="status"]').map((n) => n.textContent).filter((t) => /All titles/.test(t)).pop() };
+    await p.choose('az');
+    const sorted = { at: p.at(), things: p.grid().things };
+    await p.filter('unseen');
+    const failed = { at: p.at(), filters: p.grid().filters };
+    await p.choose('added');
+    await p.filter('unseen');
+    const off = { at: p.at(), filters: p.grid().filters };
+    const tab = p.press(p.doc.querySelectorAll('[data-grid-filter]')[1], { metaKey: true });
+    await p.step(-1);
+    const back = { at: p.at(), grid: p.grid() };
+    await p.step(1);
+    return { prevented, unseen, sorted, failed, off, tab, back, forward: { at: p.at(), filters: p.grid().filters } };
+  },
+
+  // The chosen filter stands in sight as the grid opens, where they scroll.
+  async chosenInSight() {
+    const own = Node.prototype.getBoundingClientRect;
+    const went = [];
+    const scrollTo = Node.prototype.scrollTo;
+    Node.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('watch-all__filters')) return { left: 0, right: 390, width: 390, top: 0, bottom: 44, height: 44 };
+      const n = this.hasAttribute('data-grid-filter') ? this.parentNode.querySelectorAll('[data-grid-filter]').indexOf(this) : 0;
+      return { left: n * 100, right: n * 100 + 90, width: 90, top: 0, bottom: 44, height: 44 };
+    };
+    Node.prototype.scrollTo = function (o) { if (this.classList.contains('watch-all__filters')) went.push([o.left, o.behavior]); };
+    try {
+      await load({ admin: true, url: '/watch?all=library&type=kept&sort=size', motion: true });
+      return went;
+    } finally { Node.prototype.getBoundingClientRect = own; Node.prototype.scrollTo = scrollTo; }
+  },
+
+  // An empty filter leads back to All, and its link goes with it.
+  async emptyFilter() {
+    const none = () => ({ ...titles('unseen', [], null, 0), empty: { title: 'None', link: 'Show all titles', href: '/watch?all=library', filter: '' } });
+    const p = await load({ routes: { '/api/watch/library/library/row?limit=60&type=unseen': none } });
+    await p.open('movies');
+    await p.filter('unseen');
+    const link = p.doc.querySelector('.grid-empty__link');
+    const says = link.textContent;
+    link.focus();
+    p.press(link);
+    await p.settle();
+    return { says, at: p.at(), things: p.grid().things, focus: p.doc.activeElement.getAttribute('data-grid-filter'), chip: p.doc.activeElement.classList.contains('fpill') };
+  },
+
+  // A filter or an order chosen while the posters still travel is taken; on the way back it is not.
+  async whileItOpens() {
+    const run = async (act) => {
+      const p = await load({ motion: true });
+      Node.prototype.animate = () => ({ cancel() {}, onfinish: null });
+      try {
+        await p.open('movies');
+        const moving = p.ctx.MMWatch.grid.moving();
+        await act(p);
+        return { moving, at: p.at(), still: p.ctx.MMWatch.grid.moving(), things: p.grid() && p.grid().things.slice(0, 2) };
+      } finally { delete Node.prototype.animate; }
+    };
+    return { filter: await run((p) => p.filter('unseen')), sort: await run((p) => p.choose('az')),
+      leaving: await run(async (p) => { p.ctx.MMWatch.grid.rest(); p.ctx.MMWatch.grid.close(); await p.filter('unseen'); }) };
+  },
+
+  // An admin's link to an admin's filter and order, and the menu's own heading for those.
+  async admins() {
+    const p = await load({ admin: true, url: '/watch?all=library&type=kept&sort=size' });
+    p.fire('scroll');
+    await p.settle();
+    const open = p.grid();
+    return { things: open.things, sort: open.sort, filters: open.filters, labels: await p.choose('added') };
+  },
+
+  // Opened with its first page in hand, from what stands over the page.
+  async handedOver() {
+    const p = await load({ admin: true });
+    p.ctx.MMWatch.expand.library('size', 'movies', { still: true, ready: titles('movies', [6, 5], null, 2) });
+    const at = { at: p.at(), things: p.grid().things, calls: p.calls.filter((c) => /library/.test(c)).length };
+    p.press(p.doc.querySelector('.watch-all__back'));
+    await p.settle();
+    return { ...at, back: p.at() };
+  },
+
+  // The first page that could not be had is asked for again, and says so where that fails.
+  async firstPageFails() {
+    const p = await load({ routes: { '/api/watch/library/library/row?limit=60&type=movies': () => { throw Object.assign(new Error('no'), { status: 500 }); } } });
+    await p.open('movies');
+    await p.settle();
+    return { n: p.grid().things.filter((t) => t !== '(skel)').length, tail: p.grid().tail };
   },
 
   // A row that is all on the page is put in order there.
@@ -391,15 +498,15 @@ const scenarios = {
 
   // A click that is for a new tab, or for a row nobody knows, is the browser's.
   async otherClicks() {
-    const p = await load({ grids: { movies: 'Movies' } });
+    const p = await load({ grids: { library: 'All titles' } });
     const link = p.row('movies').querySelector('.row-open');
     return { tab: p.press(link, { metaKey: true }), unknown: p.press(p.row('continue').querySelector('.row-open')), grid: p.grid(), at: p.at() };
   },
 
   // A shared link: the server's cards stay the same nodes, and it goes on from its cursor.
   async cold() {
-    const p = await load({ url: '/watch?all=movies', server: [1, 2, 3], grid: { id: 'movies', total: 5, next: 'k' },
-      routes: { '/api/watch/library/movies/row?after=k&limit=60': () => ({ items: [film(4), film(5)], next: null, total: 5 }) }, early: true });
+    const p = await load({ url: '/watch?all=movies', server: [1, 2, 3], grid: { id: 'library', total: 5, next: 'k', counts: COUNTS, fact: null },
+      routes: { '/api/watch/library/library/row?limit=60&type=movies&after=k': () => titles('movies', [4, 5], null, 5) }, early: true });
     const node = p.doc.querySelector('.watch-all .watch-card');
     await p.settle();
     const open = p.grid();
@@ -436,7 +543,7 @@ const scenarios = {
     const left = { grid: p.grid(), rows: !p.doc.getElementById('watch-browse').hidden };
     await p.step(-1);
     const back = { at: p.at(), title: p.grid().title };
-    p.press(p.doc.querySelector('#watch-viewtoggle [data-view="rows"]'));
+    p.press(p.doc.querySelector('.watch-all__back'));
     await p.settle();
     return { left, back, browse: { at: p.at(), grid: p.grid(), rows: !p.doc.getElementById('watch-browse').hidden } };
   },
@@ -444,7 +551,7 @@ const scenarios = {
   // Both a search and a row in the address: the search has the page. An unknown row or order: none.
   async odd() {
     const at = async (url, more) => { const p = await load({ url, ...more }); return p.grid() && [p.grid().title, p.grid().sort]; };
-    return { search: await at('/watch?all=movies&q=x'), list: await at('/watch?view=list&all=movies'), viewer: await at('/watch?view=list&all=movies', { viewer: true }), genre: await at('/watch?genre=action&all=movies'),
+    return { search: await at('/watch?all=movies&q=x'), adminsOrder: await at('/watch?all=library&sort=size'), adminsFilter: await at('/watch?all=library&type=kept'), genre: await at('/watch?genre=action&all=movies'),
       unknown: await at('/watch?all=films'), inherited: await at('/watch?all=constructor'), order: await at('/watch?all=continue&sort=newest') };
   },
 

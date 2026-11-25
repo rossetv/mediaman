@@ -1,7 +1,7 @@
 /* Watch: the storage meter and its panel, for admins: what fills the disks, what
  * is scheduled for deletion, what went, and Scan now. Asked for once the page has
  * loaded, so a slow disk never holds it up. Needs watch/core.js, watch/address.js
- * and watch/keep.js; the way to the list, watch/list.js.
+ * and watch/keep.js; the way to All titles, watch/library.js.
  */
 (function () {
   'use strict';
@@ -487,7 +487,7 @@
     },
     open: function (name, how) {
       if (isOpen) { setTab(name, true); return; }
-      var from = how === 'pop' && listNode && !listNode.hidden && listNode.hasAttribute('inert') ? takeOff(listSpots()) : null;
+      var from = how === 'pop' && gridNode() && !gridNode().hidden && gridNode().hasAttribute('inert') ? takeOff(gridSpots()) : null;
       // Back to the panel: address.js puts the focus where it was, if that is still there.
       if (how !== 'pop') opener = null;
       show(name, how !== 'pop');
@@ -500,25 +500,29 @@
       }
     },
     close: function (how) {
-      // Forward to the list: it has the focus, and its place once the page is back at its scroll.
-      var ahead = how === 'pop' && listNode && (listNode.hidden || listNode.hasAttribute('inert')) && new URLSearchParams(window.location.search).get('view') === 'list';
+      // Forward to All titles: it has the focus, and its place once the page is back at its scroll.
+      var ahead = how === 'pop' && gridNode() && (gridNode().hidden || gridNode().hasAttribute('inert')) && new URLSearchParams(window.location.search).get('all') === 'library';
       var from = ahead ? takeOff(panelSpots()) : null;
       hide(ahead || how === 'push');
-      if (ahead) Promise.resolve().then(function () { if (!listNode.hidden) arrive(from); });
+      if (ahead) Promise.resolve().then(function () {
+        watch.grid.rest();
+        if (!gridNode().hidden) arrive(from);
+      });
     }
   });
 
-  /* ── To the list and back ── */
+  /* ── To All titles and back ── */
 
-  var listNode = byId('watch-list');
-  var going = null; // the list asked for, while it is on its way: its href, and off(), which calls it off
+  function gridNode() { return byId('watch-all'); }
+
+  var going = null; // the titles asked for, while it is on its way: its href, and off(), which calls it off
   var sorry = null; // the toast that says it could not be had
   var landing = null; // ends the flight in the air
   var flying = []; // what is in it
   var waiting = []; // what came meanwhile and would draw the panel again under it
 
   function seeAll(all, e) {
-    if (!watch.list || !watch.list.plainClick(e)) return;
+    if (!watch.library || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     goTo(all.href);
   }
@@ -531,15 +535,15 @@
     var from = null;
     var mine = going = { href: href };
     markBusy();
-    mine.off = watch.list.open(href, {
+    mine.off = watch.library.open(href, {
       leave: function () { goingOver(); from = takeOff(panelSpots()); },
       arrive: function () { arrive(from); },
       fail: function () {
         goingOver();
-        sorry = window.UIFeedback.toast('Couldn’t load the list.', { variant: 'error', action: {
+        sorry = window.UIFeedback.toast('Couldn’t load the titles.', { variant: 'error', action: {
           label: 'Try again',
           onClick: function () {
-            if (!isOpen) { watch.list.show(href); return; }
+            if (!isOpen) { watch.library.show(href); return; }
             var all = panes.storage.querySelector('.space-layer:not([inert]) .space-all');
             if (all) all.focus({ preventScroll: true });
             goTo(href);
@@ -554,7 +558,7 @@
     markBusy();
   }
 
-  /* The person goes elsewhere: the list is no longer wanted. */
+  /* The person goes elsewhere: All titles is no longer wanted. */
   function stay() {
     if (!going) return;
     var off = going.off;
@@ -569,7 +573,7 @@
     });
   }
 
-  /* Where each title stands: in the panel's list, and in the list view. A row the panel cuts off
+  /* Where each title stands: in the panel's list, and in All titles. A row the panel cuts off
      is left to it: it would fly over what cuts it. */
   function panelSpots() {
     if (tab !== 'storage') return [];
@@ -584,12 +588,12 @@
     });
   }
 
-  function listRows() { return toArray(listNode.querySelectorAll('[data-list-part="results"]:not([inert]) tr')); }
+  function gridCards() { return gridNode() ? toArray(gridNode().querySelectorAll('.watch-card:not(.is-gone)')) : []; }
 
-  function listSpots() {
-    return listRows().map(function (tr) {
-      var name = tr.querySelector('a.wl-title');
-      return name && { ref: name.getAttribute('data-title-ref'), pic: tr.querySelector('.thumb'), name: name, row: tr };
+  function gridSpots() {
+    return gridCards().map(function (card) {
+      var link = card.querySelector('[data-title-ref]');
+      return link && { ref: link.getAttribute('data-title-ref'), pic: card.querySelector('.watch-card__poster'), name: card.querySelector('.watch-card__title'), row: card };
     }).filter(Boolean);
   }
 
@@ -618,11 +622,11 @@
   }
 
   function arrive(from) {
-    var flown = fly(from, listSpots, listNode);
+    var flown = fly(from, gridSpots, gridNode());
     if (core.reduceMotion()) return;
-    listRows().forEach(function (tr) {
-      if (flown.indexOf(tr) >= 0 || !tr.animate) return;
-      tr.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+    gridCards().forEach(function (card) {
+      if (flown.indexOf(card) >= 0 || !card.animate || card.getBoundingClientRect().top > window.innerHeight) return;
+      card.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
         { duration: dur(), delay: fast(), easing: core.token('--ease-out', 'ease-out'), fill: 'backwards' });
     });
   }
@@ -1314,7 +1318,7 @@
     var total = got ? got.total : count(k);
     if (total <= (got ? got.items.length : HEAVIEST)) return;
     var all = el('a', 'space-all');
-    all.href = '/watch?view=list&type=' + TYPES[k].list + '&sort=size_desc';
+    all.href = '/watch?all=library&type=' + k + '&sort=size';
     h.append(add(all, document.createTextNode('See all ' + total + ' by size'), MM.dom.icon('i-chevron-right')));
     if (going && going.href === all.href) all.setAttribute('aria-busy', 'true');
   }
@@ -1645,7 +1649,7 @@
       keepGen += 1;
       keepSaved = keepSaved || saved;
       if (keepsInFlight > 0) return;
-      if (keepSaved) tellList();
+      if (keepSaved) tellScheduled();
       if (keepSaved || refreshWaiting) refreshQuietly();
       keepSaved = false;
     }
@@ -1653,8 +1657,8 @@
 
   /* ── The page behind ── */
 
-  /* watch/list.js: what is scheduled has changed. */
-  function tellList() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
+  /* watch/library.js: what is scheduled has changed. */
+  function tellScheduled() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
 
   /* Not those on their way out, of the row (is-kept) or of an open grid. */
   function liveCards(row) {
@@ -1773,7 +1777,7 @@
         text += '; ' + data.already_deleting + (data.already_deleting === 1 ? ' was' : ' were') + ' already being deleted';
       }
       core.toast(text, { variant: 'success', duration: data.already_deleting ? 8000 : undefined });
-      tellList();
+      tellScheduled();
       return refresh().catch(function () {
         window.UIFeedback.error('Cleared, but the list could not update. Refresh the page to see it.');
       });
@@ -1963,7 +1967,7 @@
     says('');
     var said = 'Scan ' + took.replace('F', 'f');
     live.textContent = said;
-    tellList();
+    tellScheduled();
     refresh().then(function () {
       tellClosed(said, look);
       if (!reason) lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);

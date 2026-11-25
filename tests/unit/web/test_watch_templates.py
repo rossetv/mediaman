@@ -807,22 +807,6 @@ def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
     assert block and "min-height: 260px" in block.group(1)
 
 
-def test_a_list_poster_of_any_shape_fills_its_frame() -> None:
-    body = _declarations_of("_tables.css", ".thumb img")
-
-    assert "width: 100%" in body and "height: 100%" in body and "object-fit: cover" in body
-
-
-def test_the_list_actions_column_hugs_its_buttons() -> None:
-    assert "width: 1%" in _declarations_of("_watch_list.css", ".wl-table .col-act")
-
-
-def test_the_dash_of_an_unscheduled_title_is_hidden_on_phone_cards() -> None:
-    rules = dict(_phone_rules("_watch_list.css"))
-
-    assert "display: none" in rules[".wl-del--none > [aria-hidden]"]
-
-
 @pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
 def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
     body = _declarations_of("_watch.css", f"{place} > .watch-bar")

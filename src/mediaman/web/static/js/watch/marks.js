@@ -2,7 +2,7 @@
  * of a pick. One More menu serves every card, a toggle every film, episode, season and
  * show that has one, and each change can be undone from its toast. What a change means
  * for the rest of the page is read from the server's own page. Needs watch/core.js,
- * watch/keep.js and ratings.js; on window.MMWatch.marks.
+ * watch/keep.js and ratings.js, and for an admin's All titles watch/library.js; on window.MMWatch.marks.
  */
 (function () {
   'use strict';
@@ -325,7 +325,7 @@
       });
     }
     if (!lost) return;
-    var to = fresh ? fresh.querySelector('.watch-btn--play') : byId('watch-search');
+    var to = fresh ? fresh.querySelector('.watch-btn--play') : core.spareFocus();
     if (to) to.focus({ preventScroll: true });
   }
 
@@ -885,6 +885,7 @@
   var menuNode = null;
   var moreMenu = null;
   var fillRating = null;
+  var keeping = null; // the card whose menu is opened at how long to keep it
 
   function menuItem(act, iconName, label) {
     var item = el('button', 'watch-keep-menu__item');
@@ -901,12 +902,15 @@
     var card = trigger.closest('.watch-card');
     var mark = card.getAttribute('data-mark');
     menuNode.textContent = '';
+    var library = window.MMWatch.library;
+    if (library && library.durations(card, keeping === card ? menuNode : null, menuItem)) return;
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
     fillRating(refOf(card), card.querySelector('.watch-card__link'));
     if (likeRef(refOf(card), card.querySelector('.watch-card__link'))) menuNode.appendChild(menuItem('like', 'i-sparkles', 'Find more like this'));
     if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
     if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
+    if (library) library.menu(card, menuNode, menuItem);
   }
 
   function choose(trigger, item) {
@@ -917,6 +921,12 @@
       window.MMWatch.search.like(likeRef(refOf(card), card.querySelector('.watch-card__link')), titleOf(card), poster && poster.getAttribute('src'));
     } else if (act === 'dismiss') {
       dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
+    } else if (act === 'keep-for') {
+      keeping = card;
+      moreMenu.open(trigger);
+      keeping = null;
+    } else if (/^admin-/.test(act)) {
+      window.MMWatch.library.act(card, act, item);
     } else if (act === 'details') {
       card.querySelector('.watch-card__link').click();
     } else {
@@ -936,7 +946,7 @@
       canOpen: function (trigger) { return trigger.getAttribute('aria-disabled') !== 'true'; },
       fill: fillMenu,
       choose: choose,
-      spare: function () { return byId('watch-search'); }
+      spare: core.spareFocus
     });
   }
 

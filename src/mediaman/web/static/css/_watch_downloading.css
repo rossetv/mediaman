@@ -35,6 +35,9 @@
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 599.98px) { .dlx__count { margin-left: 0; } }
+.dlx__notes { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-slow) var(--ease-out); }
+.dlx__notes.is-on { grid-template-rows: 1fr; }
+.dlx__notes > div { min-height: 0; overflow: hidden; }
 .dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); }
 .dlx__note[hidden] { display: none; }
 .dlx__note > .ico { flex: none; align-self: center; }
@@ -46,6 +49,8 @@
   .dlx .watch-row__scroll > .dw.is-sole { width: calc(100cqi - 2 * var(--pad)); }
 }
 .dlx .watch-row__arrow { top: 36px; }
+/* watch-rows.js sets its own snapping inline. */
+.watch-row__scroll.is-still { scroll-snap-type: none !important; }
 
 .dw { transition: --p 1s var(--ease-out), width var(--dur-slow) var(--ease-out); }
 .dw.is-leaving { pointer-events: none; }
@@ -108,7 +113,7 @@
 /* Two lines of it on the narrowest phones, or it would lose when it is tried again. */
 .dw.is-stuck .dw__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .dw.is-looking .dw__line { color: var(--warning); }
-.dw.is-ready .dw__line { color: var(--success); }
+.dw.is-ready .dw__line { color: color-mix(in srgb, var(--success) 50%, var(--t1)); }
 
 .dw__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--rgba-overlay-lg); }
 .dw__bar i {

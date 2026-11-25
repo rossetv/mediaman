@@ -44,6 +44,7 @@ def services(monkeypatch):
     def clear():
         _reset_previous_queue()
         strip.shared.clear()
+        strip.on_page.clear()
         clear_library_index()
         invalidate()
 
@@ -51,18 +52,7 @@ def services(monkeypatch):
     radarr, sonarr, nzbget = MagicMock(), MagicMock(), MagicMock()
     for client in (radarr, sonarr, nzbget):
         client.get_queue.return_value = []
-    radarr.get_movies.return_value = [_movie(11, "Ember Coast"), _movie(12, "Dry Harbour")]
-    radarr.get_queue.return_value = [
-        {
-            "movie": movie,
-            "title": movie["title"],
-            "status": "downloading",
-            "size": 1000,
-            "sizeleft": 600,
-            "downloadId": str(movie["id"]),
-        }
-        for movie in radarr.get_movies.return_value
-    ]
+    _queue((radarr,), [_movie(11, "Ember Coast"), _movie(12, "Dry Harbour")])
     sonarr.get_series.return_value = []
     nzbget.get_status.return_value = {}
     for target, client in (
@@ -89,6 +79,38 @@ def viewer(app_factory, conn):
     client = TestClient(app)
     client.cookies.set("session_token", create_session(conn, "guest"))
     return client
+
+
+@pytest.fixture
+def asked(monkeypatch):
+    """What TMDB told before, by its id, and whom it is asked of; an exception is raised."""
+    held: dict[int, object] = {}
+    ids: list[int] = []
+
+    def held_details(_kind, tmdb_id):
+        ids.append(tmdb_id)
+        if isinstance(held.get(tmdb_id), Exception):
+            raise held[tmdb_id]
+        return held.get(tmdb_id)
+
+    monkeypatch.setattr("mediaman.services.watch_catalog.held_details", held_details)
+    return held, ids
+
+
+def _queue(services, movies):
+    radarr = services[0]
+    radarr.get_movies.return_value = movies
+    radarr.get_queue.return_value = [
+        {
+            "movie": movie,
+            "title": movie["title"],
+            "status": "downloading",
+            "size": 1000,
+            "sizeleft": 600,
+            "downloadId": str(movie["id"]),
+        }
+        for movie in movies
+    ]
 
 
 def _get(client):
@@ -180,3 +202,60 @@ def test_a_session_left_alone_too_long_ends_for_this_too(services, viewer, conn)
     )
     conn.commit()
     assert _get(viewer).status_code == 401
+
+
+def test_a_title_radarr_has_no_picture_of_gets_those_tmdb_told_of(services, viewer, asked):
+    held, ids = asked
+    _queue(services, [_movie(11, "Ember Coast", images=[]), _movie(12, "Dry Harbour")])
+    held[11] = {"poster_url": "/api/watch/img/tmdb/w342/a.jpg", "backdrop_url": "/art/b.jpg"}
+    ember, harbour = _get(viewer).json()["items"]
+    assert (ember["poster_url"], ember["art_url"]) == (
+        "/api/watch/img/tmdb/w342/a.jpg",
+        "/art/b.jpg",
+    )
+    assert harbour["poster_url"] == "/api/watch/img/tmdb/w342/p12.jpg"
+    assert ids == [11]
+
+
+def test_only_what_is_shown_is_looked_up(services, viewer, asked):
+    over = strip.MAX_ITEMS + 5
+    _queue(services, [_movie(n, f"Film No{n}", images=[]) for n in range(100, 100 + over)])
+    body = _get(viewer).json()
+    assert body["summary"]["total"] == over
+    assert len(asked[1]) == strip.MAX_ITEMS
+
+
+def test_a_title_whose_lookup_fails_takes_no_other_down(services, viewer, asked):
+    _queue(services, [_movie(11, "Ember Coast", images=[]), _movie(12, "Dry Harbour")])
+    asked[0][11] = AttributeError("malformed")
+    resp = _get(viewer)
+    assert resp.status_code == 200
+    ember, harbour = resp.json()["items"]
+    assert (ember["ref"], ember["poster_url"]) == ("tmdb-movie-11", "")
+    assert harbour["art_url"] == "/api/watch/img/tmdb/w1280/f12.jpg"
+
+
+def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_more(
+    services, viewer
+):
+    radarr, sonarr, _ = services
+    told = viewer.get("/api/downloads").json()["strip"]
+    asked = (radarr.get_queue.call_count, radarr.get_movies.call_count)
+    assert asked[0] == 1
+    assert told["summary"] == {"total": 2, "active": 2, "waiting": 0, "ready": 0, "percent": 40}
+    # Who and what they are the page knows already; a viewer is told no more by this.
+    assert told["items"] == []
+    # As prompt as the page: the next poll has what it found, with no held answer before it.
+    _queue(services, [_movie(11, "Ember Coast")])
+    again = viewer.get("/api/downloads").json()
+    assert again["strip"]["summary"]["total"] == 1
+    assert radarr.get_queue.call_count == 2
+    assert _get(viewer).json()["summary"] == again["strip"]["summary"]
+
+
+def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_as_it_was(services, viewer):
+    before = viewer.get("/api/downloads").json()["strip"]
+    services[0].get_queue.side_effect = requests.ConnectionError("down")
+    after = viewer.get("/api/downloads").json()["strip"]
+    assert after["summary"] == before["summary"]
+    assert after["outage"] == "Can't reach Radarr"

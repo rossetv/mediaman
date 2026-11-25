@@ -49,63 +49,9 @@
 .btn.is-error { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .btn.is-success { background: var(--rgba-success-bg); color: var(--success); }
 
-/* Watch list keep/kept trigger — single pill. The whole button opens the
- * snooze-dropdown so there is no default-duration trap door; duration is
- * always an explicit choice from the menu. */
-.keep-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
-  background: var(--rgba-accent-bg);
-  color: var(--accent-text);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: -.01em;
-  border: 0;
-  border-radius: var(--r-pill);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out),
-              transform var(--dur-fast) var(--ease-out);
-}
-.keep-trigger:hover { background: var(--rgba-accent-bg-hover); }
-.keep-trigger:active { transform: scale(.97); }
-.keep-trigger__chev {
-  font-size: 9px;
-  transition: transform var(--dur-fast) var(--ease-out);
-  margin-left: 1px;
-}
-.keep-wrapper.is-open .keep-trigger__chev { transform: rotate(180deg); }
-.keep-trigger__tick {
-  font-size: 11px;
-}
-
-/* Kept variant — success green */
-.keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
-.keep-trigger--kept:hover { background: var(--rgba-success-bg-hover); }
-
 /* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed.
    ui-feedback.js now emits `.btn.btn--accent-soft` / `.btn.btn--danger`
    / `.btn.btn--ghost` — use those instead. */
-
-/* The menu caret beside a keep button: a small accent-soft button. */
-.btn-sm-caret {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  min-height: 32px;
-  padding: 0 8px;
-  font-size: 10px;
-  border-radius: var(--r-pill);
-  background: var(--rgba-accent-bg);
-  color: var(--accent-text);
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.btn-sm-caret:hover { background: var(--rgba-accent-bg-hover); }
 
 .pill {
   padding: 3px 10px;
@@ -160,12 +106,9 @@
 /* Touch targets: 44px on every button up to the width where the bottom nav
    gives way to the top nav. */
 @media (max-width: 699.98px) {
-  .fpill,
   .btn,
-  .keep-trigger,
-  .btn-sm-caret { min-height: 44px; }
-  .btn.btn--icon,
-  .btn-sm-caret { min-width: 44px; min-height: 44px; }
+  .fpill { min-height: 44px; }
+  .btn.btn--icon { min-width: 44px; min-height: 44px; }
   /* Links inside empty-state text get a larger hit area without moving the text. */
   .empty p a { position: relative; }
   .empty p a::after { content: ""; position: absolute; inset: -14px -6px; }
@@ -179,7 +122,5 @@
 
 /* The system's colours: an edge where the fill was, and the choice that is on. */
 @media (forced-colors: active) {
-  .keep-trigger,
-  .btn-sm-caret { border: 1px solid ButtonText; }
   .fpill.on { forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }

@@ -183,6 +183,17 @@ def test_the_back_link_goes_back_in_place_but_still_opens_a_new_tab() -> None:
     assert _run("backLink") == {"newTab": [0, False], "plain": [1, True]}
 
 
+def test_the_first_page_that_came_during_a_sort_is_put_in_once_the_sort_has_failed() -> None:
+    out = _run("sortWhileTheFirstPageComes")
+    assert out["fails"]["refs"] >= 20
+    assert out["fails"]["stood"] == [20]  # told once its cards stand
+    assert (out["fails"]["before"], out["fails"]["label"]) == (12, "Sort: Recently added")
+    # The order asked for has the last word.
+    assert (out["comes"]["refs"], out["comes"]["label"]) == (2, "Sort: A to Z")
+    # Neither came: what stands stays, and the rest is asked for as a page.
+    assert out["bothFail"]["refs"] == 13
+
+
 def test_sorting_shows_the_last_order_asked_for_and_a_failure_puts_the_name_back() -> None:
     out = _run("sorts")
     assert out["waiting"] == ["Sort: A to Z", "true"]
@@ -377,6 +388,25 @@ def test_closing_to_a_row_that_went_with_its_last_card_gives_the_search_the_focu
     assert _run("closesWithNoRow") == "watch-search"
 
 
+def test_leaving_all_titles_gives_the_focus_to_its_link_and_never_to_the_field_by_touch() -> None:
+    assert _run("closesToTheLink") == {
+        "mouse": "watch-all-link",
+        "touch": "watch-all-link",
+        "search": "watch-search",
+        "searchTouch": "watch-all-link",
+        "bare": "main-content",
+        "bareTouch": "main-content",
+        # Out of sight, the next Tab would jump to it.
+        "below": "main-content",
+    }
+
+
+def test_all_titles_opened_by_its_address_goes_back_to_where_its_link_stands() -> None:
+    out = _run("backToTheLink")
+    assert out["still"] == [3000 - (800 - 20) / 2, "watch-all-link"]
+    assert out["moving"] == out["still"]
+
+
 def test_the_open_grid_asked_for_again_stays_as_it_is_or_takes_the_order_asked_for() -> None:
     out = _run("opensAgain")
     assert out["same"] == [True, 700]
@@ -408,3 +438,20 @@ def test_forward_leaves_a_grid_scrolled_on_into_to_grow_back_and_back_puts_its_r
     assert out["shallow"] == {"placed": True, "moving": True, "y": 60}
     assert out["still"]["placed"] is False
     assert out["closed"] == {"y": 777, "left": 450}
+
+
+def test_a_title_with_no_heading_to_go_to_fades_with_the_rest() -> None:
+    assert _run("titleAlone") == {"opens": [0, 1], "closes": [1, 0]}
+
+
+def test_a_grid_that_opens_on_nothing_asks_at_once_and_holds_the_place_of_what_comes() -> None:
+    out = _run("firstPage")
+    assert out["asked"] == [""]
+    # Enough to fill the screen, 800 px high, in five columns, from the first frame on.
+    assert out["first"] == [15, 0]
+    assert out["lead"] == [0]
+    assert out["count"] == "\u00a0"
+    assert out["moving"] == [15, 0]
+    assert out["rested"] == [0, 3]
+    # Nothing goes blank in between.
+    assert (out["boxFades"], out["wordsFade"]) == (False, True)

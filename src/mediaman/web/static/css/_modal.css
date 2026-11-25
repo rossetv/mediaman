@@ -145,7 +145,6 @@
 /* 44px targets below 700px, and on touch screens wider than that (tablets). */
 @media (pointer: coarse), (max-width: 699.98px) {
   .keep-dur-btn,
-  .snooze-option,
   .keep-dialog .btn--sm { min-height: 44px; }
   /* The label is the tap target for its checkbox: the whole row height, out to the details. */
   .keep-season-item { padding-top: 0; padding-bottom: 0; }

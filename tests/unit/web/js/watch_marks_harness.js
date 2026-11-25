@@ -92,7 +92,7 @@ function load(page, opts = {}) {
     clearTimeout(id) { if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: (q) => ({ matches: !/coarse/.test(q) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -626,13 +626,17 @@ const scenarios = {
   // The last card of Continue watching goes; after its row stand an anchor, a placeholder and the next row.
   async dismissLast() {
     const strip = (id, spec) => ['section', { id }, ['div', { class: 'watch-row__scroll', ...spec }]];
-    const run = async (after) => {
+    const run = async (after, touch) => {
       const p = load(watchPage([row('continue', [CONTINUE[0]]), ['div', { id: 'watch-asked', hidden: '' }], strip('skel', {}), ...after]));
+      if (touch) {
+        p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }]));
+        p.ctx.matchMedia = () => ({ matches: true });
+      }
       await p.pick(p.cards()[0], 'dismiss');
       const at = p.doc.activeElement;
       return at.id || at.closest('section').id;
     };
-    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]) };
+    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]), touch: await run([], true) };
   },
   async dismissInGrid() {
     const p = load(watchPage([row('cont', CONTINUE), ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE]]));

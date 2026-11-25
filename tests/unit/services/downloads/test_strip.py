@@ -237,6 +237,10 @@ def test_a_long_list_is_cut_and_still_counted():
     assert out["summary"]["total"] == strip.MAX_ITEMS + 5
 
 
+def test_a_page_is_told_how_old_the_answer_is():
+    assert payload(Answer(Strip(), 2.5))["age_ms"] == 2500
+
+
 def test_an_answer_held_too_long_says_it_is_how_things_were_and_drops_what_was_ready():
     items = (
         _item("a", "downloading", 10),
@@ -327,3 +331,39 @@ def test_the_page_is_not_drawn_from_an_answer_of_long_ago():
     assert shared.last() is not None
     clock.now += strip.STALE_S + 1
     assert shared.last() is None
+
+
+def test_what_another_has_read_stands_unless_it_is_older_than_what_stands():
+    clock = _Clock()
+    shared = Shared(clock)
+
+    def of(name):
+        return lambda _before: Strip((_item(name, "queued"),))
+
+    began = shared.now()
+    clock.now += 1
+    shared.offer(of("later"), shared.now())
+    assert shared.offer(of("older"), began).strip.items[0].key == "later"
+    # No wait: the next one read stands at once.
+    assert shared.offer(of("next"), shared.now()).strip.items[0].key == "next"
+    assert shared.offer(lambda _b: 1 / 0, shared.now()).strip.items[0].key == "next"
+
+
+def test_what_nobody_looked_at_for_a_while_is_not_held_for_a_service_that_is_down():
+    clock = _Clock()
+    shared = Shared(clock)
+    shared.offer(lambda _b: Strip((_item("a", "queued"),)), shared.now())
+    clock.now += strip.STALE_S + 1
+    seen = []
+    shared.offer(lambda before: seen.append(before) or Strip(), shared.now())
+    assert seen == [Strip()]
+
+
+def test_what_is_offered_while_one_is_being_made_is_left_and_nobody_waits():
+    shared = Shared(_Clock())
+
+    def make(_before):
+        assert shared.offer(lambda _b: pytest.fail("made twice"), shared.now()) is None
+        return Strip()
+
+    shared.offer(make, shared.now())

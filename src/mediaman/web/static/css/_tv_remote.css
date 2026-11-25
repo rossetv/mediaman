@@ -209,18 +209,21 @@ html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bott
 @media (min-width: 700px) {
   body:has(> .tv-mini:not([hidden])) .ui-toast-host { --toast-bottom: 88px; }
   body:has(> .tv-mini:not([hidden])):has(.setg-rail) .ui-toast-host { --toast-bottom: 160px; }
+  /* The search's sheet stands clear of it; a keyboard has it covered already. */
+  body:has(> .tv-mini:not([hidden])) .watch-sheet { max-height: min(var(--seen, 100dvh) - 88px, 100dvh - 160px); }
 }
 /* A title's page is over the whole page, and the bar over it. */
 html.has-ttl .tv-mini { z-index: calc(var(--z-modal) + 1); bottom: max(16px, env(safe-area-inset-bottom)); }
 html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-padding-bottom: 98px; }
 @media (max-width: 699.98px) {
-  .tv-mini { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); width: calc(100% - 16px); gap: 4px; padding: 8px 4px 10px 8px; border-radius: 12px; }
+  .tv-mini { bottom: calc(var(--foot) + 8px); width: calc(100% - 16px); gap: 4px; padding: 8px 4px 10px 8px; border-radius: 12px; }
   .tv-mini .player-btn--skip { display: none; }
   .tv-mini__pic { width: 60px; height: 36px; }
-  html:has(.tv-mini:not([hidden])) { scroll-padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); }
-  body:has(> .tv-mini:not([hidden])):has(.setg-pg .savebar.on) .tv-mini { bottom: calc(var(--savebar-h, 73px) + 72px + env(safe-area-inset-bottom, 0px)); }
-  html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 148px + env(safe-area-inset-bottom, 0px)); }
-  body:has(> .tv-mini:not([hidden])):has(.watch-search) .ui-toast-host { bottom: calc(148px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - var(--nav-h) - 160px); }
+  html:has(.tv-mini:not([hidden])) { scroll-padding-bottom: calc(var(--foot) + 84px); }
+  body:has(> .tv-mini:not([hidden])):has(.setg-pg .savebar.on) .tv-mini { bottom: calc(var(--savebar-h, 73px) + var(--foot) + 8px); }
+  html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--foot) + 84px); }
+  body:has(> .tv-mini:not([hidden])):has(.watch-search) .ui-toast-host { bottom: calc(var(--foot) + 76px); max-height: calc(100dvh - var(--foot) - 100px); }
+  body:has(> .tv-mini:not([hidden])) .watch-sheet { max-height: min(var(--seen, 100dvh) - 84px - var(--foot), 100dvh - 160px - var(--foot)); }
   html.has-ttl .tv-mini { bottom: max(8px, env(safe-area-inset-bottom)); }
 }
 /* A phone on its side: in the right half, beside the buttons of what the page opens on. */
@@ -234,7 +237,7 @@ html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-pad
 @media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
   .tv-mini__pic { display: none; }
 }
-/* With the tab bar too those buttons are at the right. */
+/* With the bar at the foot too those buttons are at the right. */
 @media (max-height: 520px) and (max-width: 699.98px) {
   .tv-mini { left: max(8px, env(safe-area-inset-left)); right: auto; width: calc(100% - 236px); }
 }

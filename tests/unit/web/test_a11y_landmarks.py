@@ -107,18 +107,6 @@ def test_keep_page_posters_use_empty_alt():
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
-def test_watch_list_uses_empty_alt_posters():
-    """The list view's thumbnails sit beside the title as text, so the poster
-    img is decorative: alt is empty and the title is never repeated in it."""
-    lst = _tpl("_watch_list.html")
-    assert 'alt="{{ item.show_title }}"' not in lst
-    assert 'alt="{{ item.title }}"' not in lst
-    thumb_imgs = [line for line in lst.splitlines() if "/api/poster/" in line and "<img" in line]
-    assert thumb_imgs, "list view must render poster thumbnails"
-    for line in thumb_imgs:
-        assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
-
-
 def test_components_warns_about_safe_filter():
     """Macros use ``|safe`` for trusted slots. The header
     comment must warn future contributors to escape user-supplied
@@ -126,26 +114,6 @@ def test_components_warns_about_safe_filter():
     comps = _tpl("_components.html")
     assert "SECURITY" in comps
     assert "user-supplied" in comps
-
-
-def test_watch_list_table_sort_uses_links():
-    """<th onclick=...> is not keyboard-activatable. Each sortable header
-    wraps its content in a real link carrying the sort column, and the
-    header carries aria-sort so AT can announce the current sort state."""
-    lst = _tpl("_watch_list.html")
-    assert "onclick=" not in lst
-    assert lst.count('class="th-sort"') == 1  # one macro, used for each sortable header
-    for col in ("name", "size", "watched", "deletion"):
-        assert f'"{col}"' in lst
-    assert 'data-sort-col="{{ col }}"' in lst
-    assert "aria-sort=" in lst
-
-
-def test_library_table_sort_button_styled():
-    """The .th-sort control must visually match the cell — the
-    rule sets are what guarantees that."""
-    css = _css()
-    assert ".tbl thead th.sortable .th-sort" in css
 
 
 def test_title_detail_labelled_by_visible_title():

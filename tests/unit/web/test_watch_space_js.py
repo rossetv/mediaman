@@ -181,7 +181,7 @@ class TestStorage:
         assert out["focused"] == "Back to all space"
 
     def test_the_whole_list_is_a_press_away_while_the_heaviest_load_and_after_they_fail(self):
-        every = ["See all 312 by size", "/watch?view=list&type=movie&sort=size_desc"]
+        every = ["See all 312 by size", "/watch?all=library&type=movies&sort=size"]
         assert _run("seeAllMeanwhile") == {
             "loading": [False, every, False, None],
             "failed": [True, every, True, None],
@@ -745,7 +745,7 @@ def test_the_panel_never_reloads_the_page():
 class TestSeeAll:
     def test_stays_a_link_for_a_modified_click(self):
         out = _run("seeAll")
-        href = "/watch?view=list&type=movie&sort=size_desc"
+        href = "/watch?all=library&type=movies&sort=size"
         assert (out["kept"], out["before"]) == ([False] * 4, 0)
         assert (out["plain"], out["href"]) == ([True, True], [href])
 
@@ -756,7 +756,7 @@ class TestSeeAll:
             "open": True,
             "busy": None,
             "assigned": [],
-            "said": "Couldn’t load the list.",
+            "said": "Couldn’t load the titles.",
             "label": "Try again",
         }
         assert out["again"] == {"asked": 2, "busy": "true", "focused": True}
@@ -765,7 +765,7 @@ class TestSeeAll:
         assert _run("seeAllFails")["gone"] is True
 
     def test_trying_again_once_the_panel_has_closed_shows_the_list_at_once(self):
-        href = "/watch?view=list&type=movie&sort=size_desc"
+        href = "/watch?all=library&type=movies&sort=size"
         assert _run("seeAllFails")["closed"] == [3, [href]]
 
     @pytest.mark.parametrize("way", ["escape", "tab", "segment", "all"])
@@ -842,7 +842,7 @@ class TestSeeAll:
 
     def test_with_reduced_motion_the_list_only_fades_in(self):
         out = _run("flightsReduced")
-        assert (out["air"], out["faded"]) == ([], [["watch-list", ["opacity"]]])
+        assert (out["air"], out["faded"]) == ([], [["watch-all", ["opacity"]]])
 
     def test_keeps_the_focus_when_the_panel_is_brought_up_to_date(self):
         assert "space-all" in _run("focusKept")

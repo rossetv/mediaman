@@ -72,7 +72,7 @@ function load(opts = {}) {
     ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll', tabindex: '0' }]]];
   doc.body.appendChild(build(doc, ['div', { class: 'nav-glass' }]));
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
-    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
+    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]], ['div', { class: 'watch-all__bar' }],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }]]]] : [];
   doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['div', { id: 'watch-browse' }, row('Movies'), row('TV')], ...server]));
@@ -99,7 +99,7 @@ function load(opts = {}) {
     clearTimeout: () => {},
     getComputedStyle: (n) => ({ getPropertyValue: () => '', display: 'block', visibility: 'visible', paddingLeft: '0', fontSize: '20px', transform: n.mid || 'none', opacity: '0.4',
       gridTemplateColumns: '200px 200px 200px 200px 200px' }),
-    matchMedia: () => ({ matches: !opts.motion }),
+    matchMedia: (q) => ({ matches: /coarse/.test(q) ? !!opts.touch : !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
@@ -472,6 +472,40 @@ const scenarios = {
     gives.az.no(new Error('no'));
     await settle();
     return { waiting, late, done, chosen, failed: [label(p), p.refs(), p.toasts.length, p.doc.querySelector('.watch-all__body').getAttribute('aria-busy')] };
+  },
+
+  // Another order asked for while the first page is on its way, which comes before that order fails or is in.
+  async sortWhileTheFirstPageComes() {
+    const go = async (lands, page) => {
+      const p = load();
+      let first; let order;
+      const stood = [];
+      p.grid.open(p.opts({
+        waiting: true, sort: sortOf(() => new Promise((ok, no) => { order = { ok, no }; })),
+        later: () => new Promise((ok, no) => { first = { ok, no }; }),
+        fetchPage: () => Promise.resolve({ cards: [40].map(p.card), next: null }),
+      }));
+      pressSort(p, 'az');
+      if (page) first.ok({ cards: range(1, 21).map(p.card), next: 'c', total: 60, placed: () => stood.push(p.refs().length) });
+      else first.no(new Error('no'));
+      await settle();
+      const before = p.refs().length;
+      await lands(() => order, p);
+      await settle();
+      return { before, refs: p.refs().length, label: label(p), stood };
+    };
+    const fails = (order) => order().no(new Error('no'));
+    return {
+      fails: await go(fails, true),
+      // And a third that fails after it.
+      comes: await go(async (order, p) => {
+        order().ok({ cards: [9, 8].map(p.card), next: null, total: 2 });
+        await settle();
+        pressSort(p, 'year');
+        order().no(new Error('no'));
+      }, true),
+      bothFail: await go(fails, false),
+    };
   },
 
   async sortAnswersAfterLeaving() {
@@ -870,6 +904,75 @@ const scenarios = {
     p.doc.activeElement.blur();
     p.grid.close();
     return p.focus();
+  },
+
+  // All titles, opened by its address or from the search, has no row to go back to.
+  async closesToTheLink() {
+    const end = (opts, how, linkAt) => {
+      const p = load(opts);
+      p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }, ['input', { id: 'watch-search' }]]));
+      if (opts.link) p.browse.appendChild(build(p.doc, ['p', {}, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']]));
+      if (linkAt) p.doc.querySelector('.watch-all-link').getBoundingClientRect = () => ({ left: 0, right: 100, top: linkAt, bottom: linkAt + 20, width: 100, height: 20 });
+      p.grid.open(p.opts({ id: 'library', row: () => null, ...how }));
+      p.doc.activeElement.blur();
+      p.grid.close();
+      return p.focus();
+    };
+    const from = { fromSearch: true };
+    return { mouse: end({ link: true }, {}), touch: end({ link: true, touch: true }, {}), search: end({ link: true }, from),
+      searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}), below: end({ link: true }, {}, 3000) };
+  },
+
+  // Opened by its address there is no place to go back to but where the link stands.
+  async backToTheLink() {
+    const end = (motion) => {
+      const p = load({ motion });
+      const link = p.browse.appendChild(build(p.doc, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']));
+      link.getBoundingClientRect = () => ({ left: 20, right: 120, top: 3000 - win.y, bottom: 3020 - win.y, width: 100, height: 20 });
+      p.grid.open(p.opts({ id: 'library', row: () => null, instant: true }));
+      p.grid.close();
+      p.finish();
+      return [win.y, p.focus()];
+    };
+    return { still: end(false), moving: end(true) };
+  },
+
+  // With no heading on the screen to come from or go to, the title fades alone.
+  async titleAlone() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts({ id: 'library', title: 'All titles', row: () => null }));
+    const title = p.doc.querySelector('.watch-all__title');
+    const last = () => { const f = p.anims.filter((a) => a.node === title).pop().frames; return f.map((x) => Number(x.opacity)); };
+    const opens = last();
+    p.finish();
+    p.grid.close();
+    return { opens, closes: last() };
+  },
+
+  // Nothing to show yet: its place is held and the page asked for at once, and put in once nothing moves.
+  async firstPage() {
+    const p = load({ motion: true });
+    const asked = [];
+    let give;
+    p.grid.open(p.opts({ id: 'library', row: () => null, cards: [], next: '', total: null, filter: { label: 'Show', value: '', href: () => '/watch', options: [], counts: null },
+      sort: { label: 'Sort', value: 'a', options: [{ id: 'a', label: 'A' }] }, fetchPage: (next) => { asked.push(next); return new Promise((go) => { give = go; }); } }));
+    const grid = p.doc.querySelector('.watch-all .watch-grid');
+    const look = () => [grid.querySelectorAll('.watch-card--skel').length, grid.querySelectorAll('.watch-card').length];
+    const count = p.doc.querySelector('.watch-all__count');
+    const skel = grid.querySelector('.watch-card--skel');
+    const out = { asked: asked.slice(), first: look(), count: count.textContent, lead: p.anims.filter((a) => a.node === skel).map((a) => a.opts.delay) };
+    give({ cards: [1, 2, 3].map(p.card), next: null, total: 3 });
+    await settle();
+    out.moving = look();
+    const before = p.anims.length;
+    p.finish();
+    await settle();
+    out.rested = look();
+    const card = grid.querySelector('.watch-card');
+    const since = p.anims.slice(before).map((a) => a.node);
+    out.boxFades = since.indexOf(card) >= 0;
+    out.wordsFade = since.indexOf(card.querySelector('.watch-card__sub')) >= 0;
+    return out;
   },
 
   async rowThatIsGone() {
