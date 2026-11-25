@@ -551,6 +551,72 @@ def test_a_card_drawn_from_an_older_answer_says_what_was_rated_and_marked_since(
     assert out["undone"] == [False, False, False]
 
 
+def test_a_mark_is_told_once_with_every_ref_of_its_title_and_the_library_s_first() -> None:
+    refs = ["movie-1", "tmdb-movie-10"]
+    assert [(d["ref"], sorted(d["refs"])) for d in _run("toldOnce")] == [("movie-1", refs)] * 2
+
+
+def test_a_mark_that_changed_nothing_has_no_undo() -> None:
+    assert _run("seenAgain") == [False, True]
+
+
+def test_a_late_card_follows_an_undo_and_is_left_alone_once_a_part_was_marked() -> None:
+    assert _run("lateAfter") == {"undone": False, "whole": True, "part": False}
+
+
+def test_a_finger_that_slides_from_the_thumb_to_a_level_gives_it_as_it_is_let_go() -> None:
+    out = _run("slides")
+    assert out["open"] is True
+    # The click that ends the slide is not a press on the thumb.
+    assert out["sent"] == [["PUT /api/watch/ratings/tmdb-movie-10 2"], True]
+    assert out["given"] == ["2", False]
+    assert out["again"] is True
+
+
+def test_a_slide_the_browser_takes_over_gives_nothing() -> None:
+    assert _run("slideTaken") == []
+
+
+def test_a_finger_that_stays_on_the_thumb_opens_the_levels_and_leaves_them_open() -> None:
+    assert _run("holds") == {
+        "early": False,
+        "held": True,
+        "stays": True,
+        "calls": [],
+        "left": False,
+        "tapped": True,
+    }
+
+
+def test_tab_and_a_press_off_the_card_fold_the_levels() -> None:
+    assert _run("folds") == {"opened": True, "tab": [False, True], "on": True, "off": False}
+
+
+def test_the_keys_reach_every_button_of_a_touch_screen_s_panel_and_leave_it() -> None:
+    out = _run("panelKeys")
+    like = "I like it!"
+    assert out["arrows"] == ["eye!", "x!", "eye!", "x!", "eye!", like, "eye!", like]
+    # Out of the panel Tab is the browser's own, from the thumb.
+    assert out["tabs"] == ["x!", like, "x!", "eye!", "x!", "eye!", "thumb"]
+    assert out["back"] == ["thumb"]
+    assert (out["eye"], out["calls"]) == ("eye!", ["POST /api/watch/watched/movie/1"])
+
+
+def test_escape_closes_the_menu_over_a_panel_before_the_panel() -> None:
+    assert _run("panelMenu") == [True, False]
+
+
+def test_a_card_s_one_tab_stop_is_its_first_button_there_is() -> None:
+    assert _run("toolStop") == [["thumb", ""], ["eye", ""], ["more", ""]]
+
+
+def test_a_kept_page_reads_the_levels_of_the_cards_that_near_the_screen_once_for_all() -> None:
+    out = _run("keptPage")
+    assert out["unasked"] == 0
+    assert out["first"] == [["tmdb-movie-10,tmdb-movie-20"], 1, ["-1", "-1", "1"]]
+    assert out["then"] == [["tmdb-movie-30"], ["-1", "-1", "-1", "-1"]]
+
+
 def test_a_part_marked_takes_the_undo_of_its_whole_show_away_and_no_other_title_s() -> None:
     out = _run("partAfterWhole")
     assert out["before"] == []

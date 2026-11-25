@@ -226,6 +226,17 @@ const scenarios = {
     return { path, tab, short: p.focus().slice(6) };
   },
 
+  // A row's card with its levels open, as the row opens as a grid.
+  async copiedTools() {
+    const p = load();
+    const card = p.rows[0].querySelector('.watch-card');
+    card.appendChild(build(p.doc, ['div', { class: 'card-tools' }, ...['thumb', 'eye', 'x'].map((n) => ['button', { class: 'card-tool', 'data-n': n, tabindex: n === 'thumb' ? '0' : '-1' }])]));
+    const closed = [];
+    p.ctx.MMWatch.cardTools = { close: (c) => closed.push(c === card) };
+    p.grid.open(p.opts());
+    return { closed: closed.includes(true), stops: p.all().querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex')) };
+  },
+
   async jumpLoadsUntilThere() {
     const p = lone({ cards: ['a', 1, 2] }, [{ cards: ['b', 3], next: 'p1' }, { cards: ['c', 4], next: 'p2' }, { cards: ['d', 5], next: 'p3' }, { cards: ['e', 6], next: null }]);
     // The end is far off: only the jump asks for more.

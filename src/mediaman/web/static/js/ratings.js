@@ -11,7 +11,8 @@
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
  *   MM.ratings.read(refs)        asks for those not known, in one request
  *   MM.ratings.know(ref, level, others)   what a page was drawn with: ref is tmdb-movie-<id> or
- *     tmdb-tv-<id>, others more refs of the same title
+ *     tmdb-tv-<id>, others more refs of the same title. Where another level is known, the
+ *     server is asked which is the newer.
  *   MM.ratings.set(ref, level)   rates, or with null takes the rating back; undefined does nothing
  *   MM.ratings.thumb(level, on)  a new thumb as an svg
  *   MM.ratings.LEVELS            [{ level, name, said }]
@@ -86,6 +87,7 @@
      known; `sure` is whether the server said it, `tried` what it may have stored unheard. */
 
   var states = {}; // by ref
+  var byKey = {}; // by title, more than one only while a change of it is out
   var sets = [];
 
   function stateOf(ref) {
@@ -94,18 +96,29 @@
     var m = /^tmdb-(movie|tv)-0*([1-9][0-9]*)$/.exec(ref);
     var key = m ? m[1] + '-' + m[2] : '';
     s = (key && withKey(key)) || {
-      key: key, refs: [], want: null, saved: null, rateable: undefined, known: false, askAgain: false,
+      key: '', refs: [], want: null, saved: null, rateable: undefined, known: false, askAgain: false,
       busy: false, asking: false, lost: false, rev: 0,
       before: undefined, sure: false, tried: [], pressed: null, from: null,
     };
+    if (key) setKey(s, key);
     s.refs.push(ref);
     states[ref] = s;
     return s;
   }
 
   function withKey(key, except) {
-    return Object.keys(states).map(function (ref) { return states[ref]; })
-      .filter(function (s) { return s !== except && s.key === key; })[0];
+    return (byKey[key] || []).filter(function (s) { return s !== except; })[0];
+  }
+
+  function leaveKey(s) {
+    if (s.key) byKey[s.key].splice(byKey[s.key].indexOf(s), 1);
+  }
+
+  function setKey(s, key) {
+    if (s.key === key) return;
+    leaveKey(s);
+    s.key = key;
+    (byKey[key] = byKey[key] || []).push(s);
   }
 
   function setsOf(s) {
@@ -130,6 +143,7 @@
 
   /* The refs of *other* now name *s*. */
   function join(s, other) {
+    leaveKey(other);
     other.refs.forEach(function (ref) { states[ref] = s; });
     s.refs = s.refs.concat(other.refs);
   }
@@ -139,6 +153,10 @@
     if (!s.known && !s.busy) {
       s.want = s.saved = level;
       s.known = s.rateable = true;
+    } else if (!s.busy && s.saved !== level) {
+      // Drawn from a newer answer, or from an older one.
+      doubt(s);
+      read([ref]);
     }
     others.forEach(function (other) {
       var o = states[other];
@@ -198,7 +216,7 @@
       s.rateable = true;
       s.rev += 1;
       s.lost = false;
-      s.key = data.media_type + '-' + data.tmdb_id;
+      setKey(s, data.media_type + '-' + data.tmdb_id);
       var other = withKey(s.key, s);
       // One whose own change is out joins when that has settled.
       if (other && !other.busy) join(s, other);

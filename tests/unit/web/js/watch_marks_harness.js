@@ -71,13 +71,19 @@ function load(page, opts = {}) {
   doc.body.appendChild(build(doc, page));
   const calls = [];
   const toasts = [];
-  const events = [];
+  const events = []; // every ref a mark was told by
+  const told = [];
+  const win = {};
+  let nears = null; // what the cards on their way to the screen are told to
   const fetched = [];
   doc.dispatchEvent = (e) => {
     if (e.type === 'mm:rating') doc.listeners['mm:rating'].forEach((fn) => fn(e));
     else if (e.type === 'mm:watch-continue') continues.push(doc.querySelectorAll('.watch-card').map((c) => c.getAttribute('data-dismiss-ref'))
       .filter((ref) => ref && ctx.MMWatch.marks.continues(ref)));
-    else events.push(e.detail.ref);
+    else {
+      events.push(...e.detail.refs);
+      told.push(e.detail);
+    }
   };
   const continues = []; // what stands in Continue watching, each time a title has left or joined it
   const gone = [];
@@ -93,13 +99,14 @@ function load(page, opts = {}) {
   };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, parseInt,
-    setTimeout: (fn, ms) => { if (opts.hold && ms === (opts.hold === true ? 650 : opts.hold)) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
-    clearTimeout(id) { if (id) held[id - 1] = null; },
+    setTimeout: (fn, ms) => { if (opts.clock) return opts.clock.set(fn, ms); if (opts.hold && ms === (opts.hold === true ? 650 : opts.hold)) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
+    clearTimeout(id) { if (opts.clock) opts.clock.drop(id); else if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: (query) => ({ matches: !(opts.touch && /hover/.test(query)) }),
     requestAnimationFrame: (fn) => fn(),
-    performance: { now: () => 1e6 },
+    performance: { now: () => 1e6 + (opts.clock ? opts.clock.now : 0) },
+    IntersectionObserver: class { constructor(fn) { this.seen = new Set(); nears = (cards) => fn(cards.filter((c) => this.seen.has(c)).map((target) => ({ target, isIntersecting: true })), this); } observe(c) { this.seen.add(c); } unobserve(c) { this.seen.delete(c); } disconnect() { this.seen.clear(); } },
     Number,
     Date,
     innerHeight: 900,
@@ -120,7 +127,8 @@ function load(page, opts = {}) {
     },
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { watchers.add(this); } disconnect() { watchers.delete(this); } },
     MM: { api: { get: call('GET'), post: call('POST'), put: (url, body) => call('PUT')(url + (body ? ' ' + body.level : '')), delete: call('DELETE'), messageOf: (_e, f) => f } },
-    addEventListener() {},
+    addEventListener: (t, fn) => { (win[t] = win[t] || []).push(fn); },
+    removeEventListener: (t, fn) => { win[t] = (win[t] || []).filter((f) => f !== fn); },
     scrollBy() {},
   };
   ctx.window = ctx;
@@ -132,7 +140,7 @@ function load(page, opts = {}) {
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
     gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); }, added(n) { [...watchers].forEach((w) => w.fn([{ addedNodes: [n] }])); },
-    ctx, started, doc, calls, toasts, events, continues, fetched, cards,
+    ctx, win, told, near: (cards) => nears(cards), started, doc, calls, toasts, events, continues, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
     marks: (id) => cards(id).map((c) => c.getAttribute('data-mark')),
@@ -207,6 +215,34 @@ function clickThumb(doc, b) {
   if (!stopped) doc.listeners.click.forEach((fn) => fn(e));
 }
 
+/* Timers that run as the scenario moves the time on. */
+function clock() {
+  const c = { now: 0, due: [], n: 0, set: (fn, ms) => { c.due.push({ fn, at: c.now + (ms || 0), id: ++c.n }); return c.n; }, drop: (id) => { c.due = c.due.filter((t) => t.id !== id); },
+    async pass(ms) {
+      c.now += ms;
+      for (let t; (t = c.due.filter((d) => d.at <= c.now).sort((a, b) => a.at - b.at)[0]);) { c.drop(t.id); t.fn(); await settle(); }
+    } };
+  return c;
+}
+const send = (fns, e) => (fns || []).slice().forEach((fn) => fn({ preventDefault() {}, stopImmediatePropagation() {}, stopPropagation() {}, ...e }));
+
+/* One film on a touch screen, its levels 50px each from 200px down, pressed by a finger. */
+function finger() {
+  const c = clock();
+  const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { touch: true, clock: c, api: { [RATE + '2']: FILM_10, [RATE + '1']: FILM_10 } });
+  const film = p.cards()[0];
+  const button = film.querySelector('[data-card-rate]');
+  const own = Node.prototype.getBoundingClientRect;
+  Node.prototype.getBoundingClientRect = function () {
+    const i = this.classList.contains('rate__b') ? this.parentNode.querySelectorAll('.rate__b').indexOf(this) : -1;
+    return i < 0 ? own.call(this) : { top: 200 + i * 50, bottom: 250 + i * 50, left: 0, right: 40, width: 40, height: 50 };
+  };
+  Node.prototype.click = function () { clickThumb(p.doc, this); };
+  const at = (y) => ({ pointerType: 'touch', pointerId: 1, isPrimary: true, clientX: 20, clientY: y, target: button });
+  return { p, c, film, button, isOpen: () => film.classList.contains('is-lifted'), down: () => send(p.doc.listeners.pointerdown, at(400)), move: (y) => send(p.win.pointermove, { type: 'pointermove', ...at(y) }),
+    up: (type) => send(p.win['pointer' + (type || 'up')], { type: 'pointer' + (type || 'up'), ...at(400) }), tap: () => click(p.doc, button, { detail: 1 }) };
+}
+
 /* A level, the worst first. */
 async function thumb(p, c, i) {
   p.open(c);
@@ -229,7 +265,7 @@ const scenarios = {
   // A pick that is not in the library, and one that is: rated and marked from its card.
   async pickMenu() {
     const p = load(watchPage([row('picks', [card('', 'Wanted', 'Movie · 2024', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' }), ...PICKS().slice(0, 1)]), row('found', [card('', 'Wanted', 'Movie · 2024', { ref: 'tmdb-movie-50', tmdb: '50' })])]), {
-      api: { 'PUT /api/watch/ratings/tmdb-movie-50 1': { ok: true, media_type: 'movie', tmdb_id: 50 }, 'PUT /api/watch/seen/tmdb-movie-50': { ok: true, watched: true } } });
+      api: { 'PUT /api/watch/ratings/tmdb-movie-50 1': { ok: true, media_type: 'movie', tmdb_id: 50 }, 'PUT /api/watch/seen/tmdb-movie-50': { ok: true, watched: true, changed: 1 } } });
     const [wanted, held, found] = p.cards();
     await thumb(p, wanted, 2);
     await p.pick(wanted, 'mark');
@@ -282,6 +318,181 @@ const scenarios = {
     const before = p.gone.slice();
     await p.pick(p.cards()[1], 'mark');
     return { before, after: p.gone };
+  },
+
+  // A mark of a title that its refs name in the library and outside it.
+  async toldOnce() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })]), row('picks', [card('', 'Fieldwork', 'Movie', { ref: 'tmdb-movie-10', tmdb: '10' })])]));
+    await p.pick(p.cards('lib')[0], 'mark');
+    await p.pick(p.cards('picks')[0], 'mark');
+    return p.told;
+  },
+
+  // Marked though it was marked so already, as another tab may have done; and for the first time.
+  async seenAgain() {
+    const go = async (changed) => {
+      const p = load(watchPage([row('found', [card('', 'Wanted', 'Movie', { ref: 'tmdb-movie-50', tmdb: '50' })])]), { api: { 'PUT /api/watch/seen/tmdb-movie-50': { ok: true, watched: true, changed } } });
+      await p.pick(p.cards()[0], 'mark');
+      return !!p.toasts[0].undo;
+    };
+    return [await go(0), await go(1)];
+  },
+
+  // A card drawn from an answer from before an Undo, and one of a show a part of which was then marked.
+  async lateAfter() {
+    const bring = (p, tmdb, watched) => {
+      const late = p.doc.querySelector('.watch-row__scroll').appendChild(build(p.doc, card('', 'Late', 'Movie', { ref: 'rec-5', pick: 'rec-5', tmdb, watched })));
+      p.added(late);
+      return !!late.querySelector('.watch-badge--watched');
+    };
+    const film = load(watchPage([row('lib', [card('', 'Wanted', 'Movie', { ref: 'tmdb-movie-50', tmdb: '50' })])]));
+    await film.pick(film.cards()[0], 'mark');
+    await film.undo();
+    const show = load(watchPage([row('lib', [card('show/2', 'Brightwater', 'TV', { tmdb: '20' }), card('season/21', 'Brightwater', 'Season 1', { ref: 'show-2' })])]));
+    await show.pick(show.cards()[0], 'mark');
+    const whole = bring(show, '20', false);
+    await show.pick(show.cards()[1], 'mark');
+    return { undone: bring(film, '50', true), whole, part: bring(show, '20', false) };
+  },
+
+  // A finger down on the thumb, over the levels and up, then the click a browser sends after it.
+  async slides() {
+    const f = finger();
+    f.down();
+    f.move(380);
+    const open = f.isOpen();
+    f.move(210);
+    await f.c.pass(700);
+    f.up();
+    f.tap();
+    const sent = [f.p.calls.slice(), f.isOpen()];
+    await f.c.pass(600);
+    const given = [f.film.getAttribute('data-level'), f.isOpen()];
+    f.tap();
+    return { open, sent, given, again: f.isOpen() };
+  },
+
+  // The scroller takes the finger over a level.
+  async slideTaken() {
+    const f = finger();
+    f.down();
+    f.move(210);
+    f.up('cancel');
+    return f.p.calls;
+  },
+
+  // A finger that stays down; let go, the levels stay to be pressed. And one that goes at once.
+  async holds() {
+    const f = finger();
+    f.down();
+    await f.c.pass(210);
+    const early = f.isOpen();
+    await f.c.pass(500);
+    const held = f.isOpen();
+    f.up();
+    f.tap();
+    const short = finger();
+    short.down();
+    short.up();
+    await short.c.pass(500);
+    const left = short.isOpen();
+    short.tap();
+    return { early, held, stays: f.isOpen(), calls: f.p.calls, left, tapped: short.isOpen() };
+  },
+
+  // What folds the levels on a mouse screen, where the poster has no other buttons: Tab, and a press off the card.
+  async folds() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/4', 'Other', 'Movie')])]));
+    const rects = Node.prototype.getClientRects;
+    Node.prototype.getClientRects = function () { return this.closest('.card-over__col') ? [] : rects.call(this); };
+    const [film, other] = p.cards();
+    const button = film.querySelector('[data-card-rate]');
+    const isOpen = () => film.classList.contains('is-lifted');
+    click(p.doc, button, { detail: 0 });
+    const opened = isOpen();
+    send(p.doc.listeners.keydown, { key: 'Tab', target: p.doc.activeElement });
+    const tab = [isOpen(), p.doc.activeElement === button];
+    p.open(film);
+    send(p.doc.listeners.pointerdown, { target: film.querySelector('.card-over__scrim') });
+    const on = isOpen();
+    send(p.doc.listeners.pointerdown, { target: other });
+    return { opened, tab, on, off: isOpen() };
+  },
+
+  // The keys in a touch screen's panel: from the levels to the buttons beside them, and back.
+  async panelKeys() {
+    const p = load(watchPage([row('cont', [card('movie/1', 'Fieldwork', 'Movie', { dismiss: 'movie-1', tmdb: '10' })])]), { touch: true });
+    const button = p.doc.querySelector('[data-card-rate]');
+    const start = () => { if (!p.cards()[0].classList.contains('is-lifted')) click(p.doc, button, { detail: 0 }); };
+    const at = () => { const a = p.doc.activeElement; return a === button ? 'thumb' : a.hasAttribute('data-watch-dismiss') ? 'x' : a.hasAttribute('data-mark-toggle') ? 'eye' : a.getAttribute('aria-label'); };
+    const go = (...keys) => keys.map((k) => {
+      let own = true;
+      send(p.doc.listeners.keydown, { key: k.replace('+', ''), shiftKey: k[0] === '+', target: p.doc.activeElement, preventDefault() { own = false; } });
+      return at() + (own ? '' : '!');
+    });
+    start();
+    const arrows = go('ArrowLeft', 'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowRight', 'ArrowLeft', 'ArrowLeft');
+    const tabs = go('Tab', '+Tab', 'Tab', 'Tab', '+Tab', 'Tab', 'Tab');
+    start();
+    const back = go('+Tab');
+    start();
+    const eye = go('ArrowLeft')[0];
+    click(p.doc, p.doc.activeElement, { detail: 0 });
+    await settle();
+    return { arrows, tabs, back, eye, calls: p.calls };
+  },
+
+  // The More menu stands over a touch screen's panel: Escape is its own before the panel's.
+  async panelMenu() {
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { touch: true });
+    const film = p.cards()[0];
+    p.open(film);
+    const inMenu = p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-keep-menu' }, ['button', {}]])).children[0];
+    const out = [inMenu, film.querySelector('.card-over__b')].map((target) => {
+      send(p.doc.listeners.keydown, { key: 'Escape', target });
+      return film.classList.contains('is-lifted');
+    });
+    return out;
+  },
+
+  // A card whose thumb goes, as its title cannot be rated, then its eye; a card the arrow keys alone reach.
+  async toolStop() {
+    const p = load(watchPage([row('lib', [card('', 'Wanted', 'Movie', { ref: 'tmdb-movie-10', tmdb: '10' }), card('', 'Wanted', 'Movie', { ref: 'rec-1', pick: 'rec-1', tmdb: '10' })])]),
+      { hold: true, api: { 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level: null, rateable: false } } }), [RATE + '1']: 500, 'PUT /api/watch/seen/tmdb-movie-10': () => Promise.reject(Object.assign(new Error('x'), { status: 409, error: 'no_tmdb_id' })) } });
+    const tools = p.cards().map((c) => c.querySelector('.card-tools'));
+    tools[0].appendChild(build(p.doc, ['button', { class: 'card-tool card-tool--more' }, ['svg', {}]]));
+    tools[0].children.slice(1).concat(tools[1].children).forEach((b) => b.setAttribute('tabindex', '-1'));
+    const stops = () => tools.map((t) => t.children.filter((b) => b.getAttribute('tabindex') !== '-1').map((b) => b.className.split('--')[1]).join());
+    const out = [stops()];
+    await thumb(p, p.cards()[0], 2);
+    out.push(stops());
+    await p.pick(p.cards()[0], 'mark');
+    return out.concat([stops()]);
+  },
+
+  // A page the browser kept, with a card far off it: its level is read once it nears, as a copy of it made since.
+  async keptPage() {
+    const reads = [];
+    const p = load(watchPage([row('lib', [10, 20, 30].map((n) => card('movie/' + n, 'Film', 'Movie', { tmdb: String(n), level: 1 })))]), { hold: true,
+      api: Object.fromEntries([['tmdb-movie-10,tmdb-movie-20', [10, 20]], ['tmdb-movie-30', [30]]].map(([refs, ids]) => ['GET /api/watch/ratings?refs=' + encodeURIComponent(refs),
+        () => { reads.push(refs); return { ratings: Object.fromEntries(ids.map((n) => ['tmdb-movie-' + n, { level: -1, rateable: true }])) }; }])) });
+    const [near, next, far] = p.cards();
+    send(p.win.pageshow, { persisted: false });
+    send(p.win.pageshow, { persisted: true });
+    await settle();
+    const unasked = reads.length;
+    let looked = 0;
+    const find = p.doc.querySelectorAll;
+    p.doc.querySelectorAll = (sel) => { if (sel === '.watch-card[data-tmdb-ref]') looked++; return find(sel); };
+    p.near([near, next]);
+    await settle();
+    p.doc.querySelectorAll = find;
+    const first = [reads.slice(), looked, p.cards().map((c) => c.getAttribute('data-level'))];
+    const copy = far.parentNode.appendChild(far.cloneNode(true));
+    p.added(copy);
+    p.near([copy]);
+    await settle();
+    return { unasked, first, then: [reads.slice(1), p.cards().map((c) => c.getAttribute('data-level'))] };
   },
 
   // Two strong noes undone in the order they were given.

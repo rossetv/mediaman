@@ -280,6 +280,19 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
 }
 
 const scenarios = {
+  // A title read again says whether it is watched, on its eye too.
+  async eyeReadAgain() {
+    const p = load();
+    const eye = (watched) => build(p.doc, ['button', { class: 'card-tool', 'data-mark-toggle': 'movie/1', 'aria-pressed': String(watched), title: watched ? 'Mark as not watched' : 'Mark as watched' }]);
+    const own = p.row('id:m1').appendChild(eye(false));
+    const plain = p.ctx.MMWatch.search.card;
+    p.ctx.MMWatch.search.card = (it) => { const c = plain(it); c.appendChild(eye(true)); return c; };
+    p.serve(ROWS);
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    return [own.getAttribute('aria-pressed'), own.getAttribute('title')];
+  },
+
   async keepScheduled() {
     const p = load();
     const kept = ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r));
@@ -1383,7 +1396,7 @@ const scenarios = {
   async marked() {
     const p = load();
     p.serve(ROWS.map((r) => ({ ...r, sub: 'other' })), { fact: 'counted' });
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1', refs: ['movie-1'] } });
     await settle();
     return { fact: p.bar.fact, sub: p.row('id:m1').querySelector('.watch-card__sub').textContent };
   },

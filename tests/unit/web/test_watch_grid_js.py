@@ -88,6 +88,10 @@ def test_arrow_keys_go_by_card_and_by_line_to_the_nearest_column() -> None:
     assert out["short"] == "7"
 
 
+def test_a_card_is_copied_with_its_levels_folded_and_one_tab_stop_for_its_buttons() -> None:
+    assert _run("copiedTools") == {"closed": True, "stops": [None, "-1", "-1"]}
+
+
 def test_a_jump_loads_until_its_line_is_there_and_gives_in_to_the_persons_scroll() -> None:
     out = _run("jumpLoadsUntilThere")
     assert (out["before"], out["asked"]) == (1, 2)

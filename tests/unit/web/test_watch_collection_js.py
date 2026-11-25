@@ -57,6 +57,10 @@ def test_a_film_opens_its_page_and_back_finds_its_card() -> None:
     assert out["back"] is True
 
 
+def test_a_card_s_buttons_are_reached_with_the_arrow_down_and_are_no_tab_stops() -> None:
+    assert _run("tools") == {"stops": 0, "at": True, "own": False}
+
+
 def test_the_arrow_keys_go_along_the_row_and_stop_at_its_ends() -> None:
     assert _run("keys") == [
         "film-tmdb-movie-3",

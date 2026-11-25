@@ -6,6 +6,7 @@
  *
  *   close(card)      fold what *card*, or any card, has open
  *   faceOf(button, ref)  draw on a thumb button how the title is rated
+ *   moveStop(card)   bring its buttons' Tab stop to the first there is
  *   SHOW_MS          how long a level just given is looked at before it folds
  *
  * Needs watch/core.js and ratings.js; on window.MMWatch.cardTools.
@@ -29,6 +30,7 @@
 
   if (!ratings) return;
 
+  var nearing = null; // sees the cards to be read again
   var open = null; // { card, thumb, over, set, picked, opened }
   var dwell = null;
   var leaving = null;
@@ -67,7 +69,18 @@
     if (!thumb) return;
     faceOf(thumb, refOf(card));
     thumb.hidden = ratings.canRate(refOf(card)) === false;
+    moveStop(card);
     thumb.setAttribute('aria-label', 'Rate ' + titleOf(card) + (level ? ': ' + nameOf(level) : ''));
+  }
+
+  /* The buttons' one Tab stop, where the card has one, is the first of them there is. */
+  function moveStop(card) {
+    var tools = toArray(card.querySelectorAll('.card-tool'));
+    var first = tools.filter(function (b) { return !b.hidden; })[0];
+    var stop = tools.filter(function (b) { return b.getAttribute('tabindex') !== '-1'; })[0];
+    if (!first || !stop || first === stop) return;
+    stop.setAttribute('tabindex', '-1');
+    first.removeAttribute('tabindex');
   }
 
   /* A card that has come onto the page: what it was drawn with is taken as known, and it then
@@ -79,6 +92,7 @@
       var refs = [card.getAttribute('data-dismiss-ref'), link && link.getAttribute('data-title-ref'), link && link.getAttribute('data-pick-ref')];
       ratings.know(ref, Number(card.getAttribute('data-level')) || null, refs.filter(Boolean));
       paint(card);
+      if (nearing) nearing.observe(card);
     }
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
   }
@@ -88,20 +102,40 @@
     toArray(root.querySelectorAll('.watch-card')).forEach(adopt);
   }
 
+  function ratedCards() { return toArray(document.querySelectorAll('.watch-card[data-tmdb-ref]')); }
+
+  function paintAll(refs) {
+    ratedCards().forEach(function (card) { if (refs.has(refOf(card))) paint(card); });
+  }
+
+  var told = null; // the refs of one answer, whose cards are looked up once
+
   document.addEventListener('mm:rating', function (e) {
     var d = e.detail;
-    var own = d.tmdbId ? 'tmdb-' + d.mediaType + '-' + d.tmdbId : '';
-    toArray(document.querySelectorAll('.watch-card[data-tmdb-ref]')).forEach(function (card) {
-      if (refOf(card) === own || d.refs.indexOf(refOf(card)) >= 0) paint(card);
-    });
+    if (d.phase !== 'read') paintAll(new Set(d.refs));
+    else if (told) d.refs.forEach(function (ref) { told.add(ref); });
+    else {
+      told = new Set(d.refs);
+      Promise.resolve().then(function () {
+        var all = told;
+        told = null;
+        paintAll(all);
+      });
+    }
     if (open && d.from === open.set.node && d.phase === 'pending') picked(d.level);
   });
 
-  // A page the browser kept comes back with the levels it left with.
+  // A page the browser kept comes back with the levels it left with: each card's is read again
+  // as it nears the screen.
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
-    ratings.read(toArray(document.querySelectorAll('.watch-card[data-tmdb-ref]')).map(refOf)
-      .filter(function (ref, i, all) { return all.indexOf(ref) === i; }));
+    if (nearing) nearing.disconnect();
+    nearing = new IntersectionObserver(function (entries, seer) {
+      var near = entries.filter(function (n) { return n.isIntersecting; }).map(function (n) { return n.target; });
+      near.forEach(function (card) { seer.unobserve(card); });
+      ratings.read(near.map(refOf));
+    }, { rootMargin: '50%' });
+    ratedCards().forEach(function (card) { nearing.observe(card); });
   });
 
   new MutationObserver(function (changes) {
@@ -131,10 +165,11 @@
     shut();
     var over = el('div', 'card-over');
     over.appendChild(el('span', 'card-over__scrim'));
-    var column = over.appendChild(el('div', 'card-over__col'));
+    var column = el('div', 'card-over__col');
     toArray(card.querySelectorAll('.card-tool:not([data-card-rate])')).reverse().forEach(function (b) { column.appendChild(copyTool(b)); });
     var set = ratings.mount(refOf(card), { variant: 'lift', label: 'Your rating of ' + titleOf(card) });
     over.appendChild(set.node);
+    over.appendChild(column);
     card.appendChild(over);
     open = { card: card, thumb: thumbOf(card), over: over, set: set, opened: performance.now(), timer: null };
     void over.offsetWidth; // so that it rises
@@ -324,19 +359,38 @@
   document.addEventListener('contextmenu', function (e) { if (!mouse() && thumbAt(e.target)) e.preventDefault(); });
 
   /* ── Keys ──
-     Left and right go between a card's buttons, up to the card and down to its Keep. Before the
-     row's, the grid's and Details' own keys. */
+     Left and right go between a card's buttons, up to the card and down to its Keep. In a touch
+     screen's panel Tab and the arrows also go from the levels to the buttons beside them and back.
+     Before the row's, the grid's and Details' own keys. */
+
+  /* Where *e* takes the focus in the open panel: null to leave it, undefined for the levels' own keys. */
+  function inPanel(e) {
+    var column = toArray(open.over.querySelectorAll('.card-over__b')).filter(function (b) { return b.getClientRects().length > 0; });
+    var i = column.indexOf(e.target);
+    var levels = { focus: open.set.enter };
+    if (e.key === 'Tab') return i === 0 && e.shiftKey ? levels : column[e.shiftKey ? i - 1 : i + 1] || null;
+    if (e.shiftKey || !column.length) return undefined;
+    if (i < 0) return e.key === 'ArrowLeft' ? column[column.length - 1] : undefined; // the eye
+    return { ArrowUp: column[(i - 1 + column.length) % column.length], ArrowDown: column[(i + 1) % column.length], ArrowLeft: levels, ArrowRight: levels }[e.key];
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey || !e.target || !e.target.closest) return;
-    if (open && e.key === 'Escape') {
+    if (open && e.key === 'Escape' && !e.target.closest('.watch-keep-menu')) {
       e.preventDefault();
       e.stopImmediatePropagation();
       shut(open.card.contains(document.activeElement));
       return;
     }
-    if (open && e.key === 'Tab' && open.over.contains(e.target)) {
-      shut(true); // Tab goes on from the thumb
+    if (open && open.over.contains(e.target)) {
+      var next = inPanel(e);
+      if (next === null) shut(true); // Tab goes on from the thumb
+      else if (next) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        open.set.pointAt(null);
+        next.focus({ preventScroll: true });
+      }
       return;
     }
     var tool = e.target.closest('.card-tool');
@@ -360,6 +414,7 @@
   window.MMWatch.cardTools = {
     close: function (card) { if (open && (!card || open.card === card)) shut(); },
     faceOf: faceOf,
+    moveStop: moveStop,
     SHOW_MS: SHOW_MS
   };
 })();

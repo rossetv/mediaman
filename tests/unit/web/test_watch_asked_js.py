@@ -77,7 +77,10 @@ def test_a_title_leaves_once_watched_after_a_moment_and_comes_back_with_an_undo(
 
 
 def test_a_card_just_marked_shows_its_mark_before_it_goes() -> None:
-    assert _run("marked")["gets"] == [1, 2]
+    out = _run("marked")
+    assert out["gets"] == [1, 2]
+    # By whichever of its refs the row holds it.
+    assert out["by"] == [0, 1]
 
 
 def test_a_mark_or_an_undo_of_the_persons_own_waits_for_no_earlier_asking() -> None:

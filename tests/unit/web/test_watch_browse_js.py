@@ -557,6 +557,10 @@ def test_a_discover_card_is_rated_and_marked_by_the_library_s_title_or_tmdb_s_an
     ]
 
 
+def test_the_buttons_of_a_card_are_one_tab_stop() -> None:
+    assert _run("cardStop") == [None, "-1"]
+
+
 def test_a_pick_has_its_thumb_and_eye_whether_the_library_holds_it_or_not() -> None:
     caption = ["watch-card__lead", "watch-card__tail"]
     assert _run("pickMore") == [
