@@ -268,7 +268,7 @@ def test_a_dismissed_tv_gives_the_bar_to_another_that_plays() -> None:
     assert out["ended"] == {"shown": True, "says": "Playing on Bedroom TV"}
 
 
-def test_a_tv_that_starts_after_another_was_lost_is_found_when_the_page_is_looked_at_again() -> None:
+def test_a_tv_that_starts_after_another_was_lost_is_found_on_looking_again() -> None:
     assert _run("anotherStarts") == {"before": False, "after": True}
 
 
