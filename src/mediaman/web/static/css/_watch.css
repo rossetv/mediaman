@@ -982,7 +982,9 @@
   .watch-pill.on { background: Highlight; }
   .watch-keep::before { border: 1px solid ButtonText; }
   .ai-label { border: 1px solid CanvasText; }
-  .watch-badge--leaving { background: Canvas; outline: 1px solid CanvasText; }
+  .watch-badge__short,
+  .watch-badge__tiny::after,
+  .watch-badge__least::after { background: Canvas; outline: 1px solid CanvasText; outline-offset: -1px; }
   .watch-badge--watched { background: Canvas; border-color: CanvasText; }
   .watch-mark[aria-pressed="true"],
   .watch-mark-btn[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }

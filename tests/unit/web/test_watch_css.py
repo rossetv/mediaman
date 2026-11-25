@@ -136,7 +136,12 @@ def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None
 
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
-    assert "outline: 1px solid CanvasText" in _of(".watch-badge--leaving", FORCED)
+    # Round its words, inside the window that would cut it off, and not over the poster's width.
+    for pill in (".watch-badge__short", ".watch-badge__tiny::after", ".watch-badge__least::after"):
+        drawn = _of(pill, FORCED)
+        assert "outline: 1px solid CanvasText" in drawn and "outline-offset: -1px" in drawn
+        assert "background: Canvas" in drawn
+    assert not _of(".watch-badge--leaving", FORCED)
 
 
 def test_a_caption_is_shortened_on_a_phone_alone() -> None:

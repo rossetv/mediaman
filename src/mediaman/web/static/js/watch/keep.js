@@ -373,7 +373,7 @@
     var host = state.host || card.querySelector('.watch-card__poster');
     if (host) host.insertBefore(node, state.before && state.before.parentNode === host ? state.before : null);
     stopFade(node);
-    core.fadeIn(node);
+    if (!reduceMotion()) core.fadeIn(node);
     return true;
   }
 

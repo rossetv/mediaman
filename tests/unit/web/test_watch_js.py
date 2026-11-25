@@ -127,7 +127,7 @@ def test_a_seasons_badge_fades_as_the_next_takes_its_place_and_an_undo_takes_the
     assert (sorted(moving["undone"]), moving["cancelled"]) == (back, True)
     assert sorted(moving["after"]) == back
     assert moving["end"] == [["S1", False, True]]
-    assert out["still"]["during"] == [["S2", False, True]]
+    assert out["still"]["during"] == [["S2", False, False]]
 
 
 def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
