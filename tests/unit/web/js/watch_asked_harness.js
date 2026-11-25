@@ -93,7 +93,7 @@ function load(answer, opts = {}) {
 }
 
 const KINDS = [
-  ready(1, 0), ready(2, 1), ready(3, 3), ready(4, 14), ready(5, 2, { leaving_days: 4 }),
+  ready(1, 0), ready(2, 1), ready(3, 3), ready(4, 14), ready(5, 2, { leaving_days: 4 }), ready(12, 1, { started: true }),
   item(6, 'arriving'), item(7, 'downloading', { download_state: 'downloading' }), item(8, 'queued'),
   item(9, 'coming', { release_date: '2026-12-14' }), item(10, 'coming', { release_date: '2027-03-01' }), item(11, 'coming'),
 ];

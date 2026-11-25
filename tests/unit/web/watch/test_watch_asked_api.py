@@ -341,6 +341,42 @@ class TestWatched:
 
         assert _titles(aoife) == []
 
+    def test_what_they_have_begun_comes_after_what_they_have_not(self, aoife, conn):
+        _film(conn, "101", "Begun", 11, added=_ago(days=1))
+        _film(conn, "102", "Untouched", 12, added=_ago(days=9))
+        _season(conn, "501", "500", 1, "Coast", 77)
+        for title, tmdb_id in (("Begun", 11), ("Untouched", 12)):
+            _ask(conn, title, tmdb_id)
+        _ask(conn, "Coast", tvdb_id=77)
+        mark_watched(conn, "aoife", [MarkTarget("501e1", "501", "500", 100.0)], now=NOW)
+        conn.execute(
+            "INSERT INTO watch_progress (username, rating_key, media_item_id, position_s,"
+            " duration_s, watched, updated_at) VALUES ('aoife', '101', '101', 900, 3600, 0, ?)",
+            (NOW.isoformat(),),
+        )
+        conn.commit()
+
+        items = _body(aoife)["items"]
+        assert [(i["title"], i["started"]) for i in items] == [
+            ("Untouched", False),
+            ("Begun", True),
+            ("Coast", True),
+        ]
+
+    def test_the_season_after_one_they_have_seen_is_not_begun(self, aoife, conn):
+        _season(conn, "501", "500", 1, "Coast", 77)
+        _season(conn, "502", "500", 2, "Coast", 77)
+        _ask(conn, "Coast", tvdb_id=77)
+        mark_watched(
+            conn,
+            "aoife",
+            [MarkTarget(f"501{e}", "501", "500", 100.0) for e in ("e1", "e2")],
+            now=NOW,
+        )
+        conn.commit()
+
+        assert [i["started"] for i in _body(aoife)["items"]] == [False]
+
 
 class TestOnItsWay:
     def test_what_is_there_comes_first_then_downloads_then_what_is_not_out(

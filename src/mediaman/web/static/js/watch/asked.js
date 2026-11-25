@@ -38,10 +38,10 @@
 
   function midnight(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime(); }
 
-  /* Days since *item* came, by the person's own calendar; null when long ago or unknown. */
+  /* Days since *item* came, by the person's own calendar; null when long ago, unknown or begun since. */
   function daysHere(item) {
     var at = new Date(item.arrived_at || NaN);
-    if (item.state !== 'ready' || isNaN(at.getTime())) return null;
+    if (item.state !== 'ready' || item.started || isNaN(at.getTime())) return null;
     var days = Math.max(0, Math.round((midnight(new Date(Date.now())) - midnight(at)) / DAY_MS));
     return days < NEW_DAYS ? days : null;
   }
@@ -64,7 +64,7 @@
   function says(item) {
     var days = daysHere(item);
     if (days !== null) return ['Arrived ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago'), null];
-    if (item.state === 'ready') return ['Ready to watch', 'i-play'];
+    if (item.state === 'ready') return [item.started ? 'Started' : 'Ready to watch', 'i-play'];
     if (item.state === 'arriving') return ['Almost ready', 'i-clock-regular'];
     if (item.state === 'downloading') return ['Downloading', 'i-arrow-down'];
     if (item.state === 'queued') return ['Looking for it', 'i-magnifying-glass'];

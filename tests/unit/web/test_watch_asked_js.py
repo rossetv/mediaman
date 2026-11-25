@@ -31,6 +31,7 @@ def test_each_title_says_where_it_is_and_one_that_just_came_is_marked() -> None:
         "Arrived 3 days ago",
         "Ready to watch",
         "Arrived 2 days ago",
+        "Started",
         "Almost ready",
         "Downloading",
         "Looking for it",
@@ -38,9 +39,9 @@ def test_each_title_says_where_it_is_and_one_that_just_came_is_marked() -> None:
         "Coming 1 Mar 2027",
         "Not out yet",
     ]
-    assert out["states"][:5] == ["new", "new", "new", "ready", "new"]
+    assert out["states"][:6] == ["new", "new", "new", "ready", "new", "ready"]
     # One that is leaving has that badge in its place.
-    assert out["news"] == [True, True, True, *[False] * 8]
+    assert out["news"] == [True, True, True, *[False] * 9]
     assert out["leaves"] == ["Dec14", "Mar1"]
     assert (out["skeleton"], out["before"]) == (False, "next")
     assert (out["title"], out["line"]) == ("You asked for these", "and haven’t watched them yet")

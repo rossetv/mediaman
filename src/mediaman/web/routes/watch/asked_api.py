@@ -33,9 +33,10 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import asked
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.catalog_api import held_fields
-from mediaman.web.routes.watch.pages import movie_subtitle, poster_url, show_subtitle
+from mediaman.web.routes.watch.pages import movie_subtitle, poster_url, resumable, show_subtitle
 
 router = APIRouter()
 
@@ -54,8 +55,8 @@ _ORDER = get_args(State)
 @router.get("/api/watch/asked")
 def api_watch_asked(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     """``items`` are cards as of a discover row, each with its ``state`` (ready, arriving: there
-    but not yet in Plex, downloading, queued or coming), ``arrived_at`` of a ready one and
-    ``release_date`` of one that is coming, None when unknown. ``complete`` is False when Radarr
+    but not yet in Plex, downloading, queued or coming), ``started`` and ``arrived_at`` of a
+    ready one and ``release_date`` of one that is coming, None when unknown. ``complete`` is False when Radarr
     or Sonarr, set up, did not answer, so that some on their way may be missing."""
     if not _LIMITER.check(username):
         return respond_err("too_many_requests", status=429)
@@ -220,10 +221,14 @@ class _Row:
         if kind == "movie":
             title = self.held.movies[key]
             subtitle = movie_subtitle(title)
+            started = resumable(get_progress(self.conn, self.username, [key]).get(key))
             tmdb_id = title.tmdb_id or request.tmdb_id
         else:
             title = self.held.shows[key]
-            subtitle = show_subtitle(title, self.held.seen_shows.get(key))
+            seen = self.held.seen_shows.get(key, lib.ShowSeen())
+            subtitle = show_subtitle(title, seen)
+            # Not by a season seen to its end: the next one, just come, is new.
+            started = any(s.seen and not s.watched for s in seen.seasons.values())
             tmdb_id = request.tmdb_id
         added_at = parse_iso_strict_utc(title.added_at)
         return {
@@ -243,6 +248,7 @@ class _Row:
             "key": _key(kind, tmdb_id, ref),
             "subtitle": subtitle,
             "state": "ready",
+            "started": started,
             "arrived_at": added_at.isoformat() if added_at else None,
             "release_date": None,
         }
@@ -278,6 +284,7 @@ class _Row:
             "key": _key(kind, tmdb_id, ref),
             "subtitle": None,
             "state": state,
+            "started": False,
             "arrived_at": None,
             "release_date": release_date.date().isoformat() if release_date else None,
         }
@@ -296,9 +303,9 @@ def _key(kind: str, tmdb_id: int | None, ref: str) -> str:
     return f"{'movie' if kind == 'movie' else 'tv'}-{tmdb_id}" if tmdb_id else ref
 
 
-def _place(item: dict[str, Any]) -> tuple[int, float, str]:
-    """Where a card stands: ready ones by when they came, the newest first, coming ones by when
-    they do, those with no date last."""
+def _place(item: dict[str, Any]) -> tuple[int, bool, float, str]:
+    """Where a card stands: ready ones by when they came, the newest first and those begun last,
+    coming ones by when they do, those with no date last."""
     when = 0.0
     if item["state"] == "ready":
         arrived = parse_iso_utc(item["arrived_at"])
@@ -306,7 +313,7 @@ def _place(item: dict[str, Any]) -> tuple[int, float, str]:
     elif item["state"] == "coming":
         out = parse_iso_utc(item["release_date"])
         when = out.timestamp() if out else float("inf")
-    return _ORDER.index(item["state"]), when, item["title"].casefold()
+    return _ORDER.index(item["state"]), item["started"], when, item["title"].casefold()
 
 
 __all__ = ["router"]
