@@ -5,7 +5,8 @@
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
- *   - A stored secret whose field is emptied is removed only once confirmed
+ *   - A stored secret whose field is emptied is removed only once confirmed,
+ *     and one whose mask was edited is kept
  *   - What a save whose answer was lost may have stored stays unsaved until
  *     Save or Discard has asked the server what it has
  *   - Discard-confirm via UIFeedback, then the last saved values put back
@@ -214,6 +215,34 @@
     });
   }
 
+  // Asterisks alone, or the mask with something typed before or after it.
+  function isMaskEdit(value) {
+    return /^\*+$|^\*{4}|\*{4}$/.test(value.trim());
+  }
+
+  // Puts back each secret whose mask was edited, and says so: what is stored cannot be had back once replaced.
+  function putBackMasks() {
+    var back = {};
+    settingsControls().forEach(function (el) {
+      if (isSecret(el.id) && el.value !== saved.values[el.id] && isMaskEdit(el.value)) back[el.id] = saved.values[el.id];
+    });
+    var keys = Object.keys(back);
+    if (!keys.length) return false;
+    put(back);
+    window.UIFeedback.toast(
+      'Nothing new was entered for ' + inWords(keys.map(fieldLabel)) + ', so ' +
+      (keys.length > 1 ? 'they stay as they were.' : 'it stays as it was.'),
+      { duration: 8000 }
+    );
+    return true;
+  }
+
+  // A caret inside the mask would add what is typed to it.
+  function selectMask(el) {
+    if (!el || el.value !== MASKED_SECRET || !isSecret(el.id)) return;
+    if (el.selectionStart !== 0 || el.selectionEnd !== el.value.length) el.select();
+  }
+
   function clearedSecrets(sent) {
     return changedKeys(saved, sent).filter(function (key) { return isSecret(key) && sent.values[key] === ''; });
   }
@@ -333,12 +362,17 @@
     [/must include a host/i, 'needs a server name after http:// or https://.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
+    [/asterisks/i, 'cannot be the asterisks that stand for the saved one.'],
     [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
     [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
     [/integer/i, 'must be a whole number.'],
     [/timezone/i, 'is not a time zone mediaman knows.'],
     [/must be one of/i, 'is not one of the choices offered.'],
   ];
+
+  function inWords(names) {
+    return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  }
 
   // The label a person sees for a setting, or its key in words when the page has none.
   function fieldLabel(key) {
@@ -400,6 +434,9 @@
     document.addEventListener('change', function (e) {
       if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
+
+    document.addEventListener('focusin', function (e) { selectMask(e.target); });
+    document.addEventListener('selectionchange', function () { selectMask(document.activeElement); });
 
     function setSaveError(msg) {
       if (savebar) savebar.classList.add('is-error');
@@ -483,6 +520,10 @@
 
     function runSave(fromKeyboard) {
       if (!saveBtn) return;
+      if (putBackMasks()) {
+        markDirty();
+        if (!savebar.classList.contains('on')) { settleAfterHide(fromKeyboard); return; }
+      }
       var hadFocus = startAsking();
       saveBtn.textContent = 'Saving…';
       emptyBlankSecrets();
