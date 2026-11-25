@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner import deletions
+from mediaman.scanner import deletions, repository
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.services.infra.storage import deletion as storage
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from mediaman.web.repository import seen_titles, watch_library
+from mediaman.web.repository.ratings import RatedTitle, find_user_id
+from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
+from tests.helpers.factories import insert_admin_user, insert_media_item, insert_scheduled_action
+
+NOW = datetime(2026, 1, 25, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -336,3 +342,44 @@ class TestNewCopyAfterAnUnbookedRemoval:
         DeletionExecutor(conn=conn).execute()
 
         self._assert_booked_and_spared(conn, film)
+
+
+def test_what_a_person_marked_watched_outlives_the_deletion_of_the_title(
+    conn, tmp_path, monkeypatch
+):
+    root = tmp_path / "movies"
+    film = root / "Brightwater" / "Brightwater.mkv"
+    film.parent.mkdir(parents=True)
+    film.write_bytes(b"x")
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+    insert_admin_user(conn, username="aoife", role="viewer")
+    insert_media_item(conn, id="m1", plex_rating_key="m1", file_path=str(film))
+    conn.execute(
+        "UPDATE media_items SET tmdb_id = 603, tracked_files = ?",
+        (json.dumps([{"path": str(film), "size": 1}]),),
+    )
+    conn.commit()
+    mark_watched(conn, "aoife", [MarkTarget("m1", "m1", None, 0)], NOW)
+    title = RatedTitle("movie", 603)
+    seen_titles.mark(conn, find_user_id(conn, "aoife"), title, None, NOW, in_library=True)
+    insert_scheduled_action(
+        conn,
+        media_item_id="m1",
+        action="scheduled_deletion",
+        token="tok-m1",
+        execute_at="2020-01-01",
+        delete_status="pending",
+    )
+    conn.commit()
+
+    DeletionExecutor(conn=conn).execute()
+
+    assert not film.exists()
+    repository.save_pruned_progress(conn, {"m1"})
+    conn.execute("DELETE FROM scheduled_actions")
+    repository.delete_media_items(conn, ["m1"])
+    insert_media_item(conn, id="m2", plex_rating_key="m2", file_path=str(film))
+    conn.execute("UPDATE media_items SET tmdb_id = 603")
+    repository.restore_progress(conn)
+    assert conn.execute("SELECT count(*) FROM watch_progress").fetchone()[0] == 0
+    assert watch_library.seen_refs(conn, "aoife", ["1"]) == {"movie-m2"}

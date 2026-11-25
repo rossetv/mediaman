@@ -78,10 +78,10 @@ const scenarios = {
   async levels() {
     const p = load();
     const all = {};
-    for (const variant of ['plain', 'grid', 'strip', 'menu']) {
+    for (const variant of ['plain', 'grid', 'lift']) {
       const set = p.R.mount('movie-' + variant.length + variant, { variant });
       all[variant] = [set.line.textContent];
-      [0, 1, 2, 3, 3].forEach((i) => { p.press(set, i); all[variant].push(set.line.textContent); });
+      (variant === 'lift' ? [3, 2, 1, 0, 0] : [0, 1, 2, 3, 3]).forEach((i) => { p.press(set, i); all[variant].push(set.line.textContent); });
     }
     return all;
   },
@@ -93,13 +93,34 @@ const scenarios = {
     p.press(set, 3);
     const on = pops();
     p.press(set, 3);
-    return { on, off: pops() };
+    const back = () => set.node.querySelectorAll('button').map((b) => b.classList.contains('back'));
+    const off = pops();
+    const taken = back();
+    p.press(set, 3);
+    return { on, off, taken, again: back() };
+  },
+
+  // Where the highlight slides from, for each press and for one that fails.
+  async slides() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(-1) });
+    const from = () => set.node.getAttribute('data-from');
+    const out = [from()];
+    [3, 0, 0, 2].forEach((i) => { p.press(set, i); out.push(from()); });
+    await p.title(7);
+    await p.title(7);
+    p.press(set, 3);
+    out.push(from());
+    await p.refuse();
+    return out.concat(from());
   },
 
   async fails() {
     const p = load();
     const set = p.R.mount('movie-1');
-    const other = p.R.mount('movie-1', { variant: 'menu' });
+    const other = p.R.mount('movie-1', { variant: 'grid' });
     await p.go();
     await p.ratings({ 'movie-1': lv(-1) });
     p.press(set, 3);
@@ -201,7 +222,7 @@ const scenarios = {
     await p.ratings({ 'movie-1': lv(null) });
     p.press(set, 3);
     await p.refuse();
-    const later = p.R.mount('movie-1', { variant: 'menu' });
+    const later = p.R.mount('movie-1', { variant: 'lift' });
     return { later: p.look(later), set: p.look(set), log: p.log.slice(2) };
   },
 
@@ -382,7 +403,7 @@ const scenarios = {
   // A set that has gone; another title is then saved.
   async destroyed() {
     const p = load();
-    const gone = p.R.mount('movie-2', { variant: 'menu' });
+    const gone = p.R.mount('movie-2', { variant: 'lift' });
     const set = p.R.mount('movie-1');
     await p.go();
     await p.ratings({ 'movie-1': lv(null), 'movie-2': lv(null) });
@@ -422,7 +443,108 @@ const scenarios = {
       return [g.getAttribute('role'), g.getAttribute('aria-label'), b.getAttribute('role'), b.getAttribute('aria-label'),
         b.getAttribute('aria-pressed'), b.getAttribute('aria-checked'), b.getAttribute('tabindex'), set.line.getAttribute('role')];
     };
-    return { plain: of('plain'), menu: of('menu') };
+    return { plain: of('plain'), lift: of('lift') };
+  },
+
+  // What a page was drawn with: known unasked under each of its refs, not over a press, and not over what is known.
+  async known() {
+    const p = load();
+    const library = p.R.mount('movie-1');
+    const pressed = p.R.mount('tmdb-movie-8');
+    p.press(pressed, 0);
+    p.R.know('tmdb-movie-7', 1, ['movie-1', 'rec-2']);
+    p.R.know('tmdb-movie-8', 2, []);
+    const drawn = [p.R.get('movie-1'), p.R.get('rec-2'), p.look(library).on, p.look(pressed).on];
+    p.R.set('tmdb-movie-7', 2);
+    p.R.know('tmdb-movie-7', -1, ['movie-1']);
+    return { drawn, pending: [p.R.get('movie-1'), p.look(library).on], refs: p.events.filter((e) => e.ref === 'tmdb-movie-7').pop().refs.sort() };
+  },
+
+  // Not over a press on its way, of the title or of another ref of it, and not joined to another title.
+  async knownBusy() {
+    const p = load();
+    p.press(p.R.mount('tmdb-movie-8'), 0);
+    p.R.know('tmdb-movie-8', 2, []);
+    const own = p.R.get('tmdb-movie-8');
+    p.press(p.R.mount('movie-9'), 3);
+    p.R.know('tmdb-movie-9', 1, ['movie-9']);
+    const other = [p.R.get('movie-9'), p.R.get('tmdb-movie-9')];
+    const q = load();
+    q.press(q.R.mount('movie-5'), 3);
+    await q.title(5, null);
+    q.R.know('tmdb-movie-7', -1, ['movie-5']);
+    return { own, other, joined: [q.R.get('movie-5'), q.R.get('tmdb-movie-7')], asked: p.log.filter((l) => /^GET.*tmdb-movie-8/.test(l)).length };
+  },
+
+  // Cards that say another level than is known: newer, from another tab, then older ones again, and the same.
+  async newer() {
+    const p = load();
+    p.R.know('tmdb-movie-7', 1, []);
+    const set = p.R.mount('tmdb-movie-7');
+    await p.go();
+    const asked = [];
+    const draw = async (level, server) => {
+      p.log.length = 0;
+      p.R.know('tmdb-movie-7', level, []);
+      await p.go();
+      asked.push(p.log.length);
+      if (p.log.length) await p.ratings({ 'tmdb-movie-7': lv(server) });
+      return [p.R.get('tmdb-movie-7'), p.look(set).on];
+    };
+    const out = [await draw(1), await draw(-1, -1), await draw(1, -1), await draw(-1)];
+    p.press(set, 3);
+    p.R.know('tmdb-movie-7', 1, []);
+    await p.go();
+    const pressed = p.log.filter((l) => /^GET/.test(l)).length;
+    await p.title(7, -1);
+    await p.go();
+    return { out, asked, pressed, own: await draw(-1, 2) };
+  },
+
+  // Two refs the first save shows to be of one title, which a second save finds joined.
+  async joinedOnce() {
+    const p = load();
+    p.R.know('tmdb-movie-7', 1, []);
+    const set = p.R.mount('movie-1');
+    for (const i of [3, 0]) {
+      p.press(set, i);
+      p.swap();
+      await p.title(7, 1);
+    }
+    return p.events.filter((e) => e.phase === 'saved').pop().refs;
+  },
+
+  // How many states are gone through for each title of a page, and whether its refs still name one state.
+  async manyKnown() {
+    const p = load();
+    let gone = 0;
+    const keys = (o) => { const all = Object.keys(o); gone += all.length; return all; };
+    p.ctx.Object = new Proxy(Object, { get: (o, k) => (k === 'keys' ? keys : o[k]) });
+    for (let i = 1; i <= 200; i++) p.R.know('tmdb-movie-' + i, 1, ['movie-' + i]);
+    const told = gone;
+    p.R.know('tmdb-movie-0200', 1, []);
+    p.R.set('tmdb-movie-200', 2);
+    return { told, same: [p.R.get('tmdb-movie-0200'), p.R.get('movie-200')] };
+  },
+
+  // What the name by the levels says as the person goes over them, presses and goes back.
+  async pointed() {
+    const p = load();
+    const set = p.R.mount('movie-1', { variant: 'lift' });
+    const b = set.node.querySelectorAll('.rate__b');
+    const name = set.node.querySelector('.rate__name');
+    const look = () => [name.classList.contains('is-on') && name.textContent, set.node.style['--at'], b.findIndex((n) => n.classList.contains('is-at'))];
+    const out = [look()];
+    const step = (fn) => { fn(); out.push(look()); };
+    step(() => set.pointAt(b[2]));
+    step(() => set.pointAt(b[0]));
+    step(() => p.press(set, 0));
+    step(() => set.pointAt(b[0]));
+    step(() => set.pointAt(b[1]));
+    step(() => set.pointAt(b[0]));
+    step(() => p.press(set, 0));
+    step(() => set.pointAt(null));
+    return out;
   },
 
   // An Undo from elsewhere, and a set that is gone.

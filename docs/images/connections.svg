@@ -47,12 +47,12 @@
 <rect class="core" x="290" y="182" width="250" height="266" rx="12"/>
 <text class="c" x="415" y="298" text-anchor="middle">mediaman</text>
 <text class="s" x="415" y="322" text-anchor="middle">one container, uid 1000</text>
-<text class="s" x="415" y="340" text-anchor="middle">scan, web UI, newsletter</text>
+<text class="s" x="415" y="340" text-anchor="middle">web UI, scan, newsletter</text>
 
 <!-- left services -->
 <g>
   <rect class="card" x="32" y="182" width="196" height="56" rx="10"/>
-  <text class="n" x="48" y="205">Plex</text><text class="s" x="48" y="224">library and watch history</text>
+  <text class="n" x="48" y="205">Plex</text><text class="s" x="48" y="224">library, video, history</text>
   <rect class="opt" x="32" y="252" width="196" height="56" rx="10"/>
   <text class="n" x="48" y="275">Radarr</text><text class="s" x="212" y="275" text-anchor="end">optional</text><text class="s" x="48" y="294">movies: add, search, delete</text>
   <rect class="opt" x="32" y="322" width="196" height="56" rx="10"/>
@@ -76,7 +76,7 @@
   <rect class="opt" x="602" y="322" width="196" height="56" rx="10"/>
   <text class="n" x="618" y="345">OMDb</text><text class="s" x="782" y="345" text-anchor="end">optional</text><text class="s" x="618" y="364">ratings</text>
   <rect class="opt" x="602" y="392" width="196" height="56" rx="10"/>
-  <text class="n" x="618" y="415">OpenAI</text><text class="s" x="782" y="415" text-anchor="end">optional</text><text class="s" x="618" y="434">recommendations</text>
+  <text class="n" x="618" y="415">OpenAI</text><text class="s" x="782" y="415" text-anchor="end">optional</text><text class="s" x="618" y="434">picks, AI search</text>
 </g>
 <g>
   <path class="line" d="M540 210 H600"/><path class="head" d="M594 205 L600 210 L594 215"/>

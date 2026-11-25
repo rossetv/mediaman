@@ -32,7 +32,6 @@ from mediaman.services.arr.state import (
     compute_download_state,
     season_on_disk,
 )
-from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.notifications import has_unsent_notification, requested_tvdb_id
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import (
@@ -50,6 +49,7 @@ from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_PHOTO_PATH_RE = re.compile(r"/[A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp)")
 
 logger = logging.getLogger(__name__)
 
@@ -173,18 +173,29 @@ def _distinct(names: list[str]) -> list[str]:
     return [name for name in seen.values() if name]
 
 
-def _coerce_cast(value: object) -> list[dict[str, str]]:
-    """Return value as name and character pairs, dropping an entry with no plain-string name."""
+def _photo_url(path: object) -> str | None:
+    """TMDB's address of the photo a stored cast entry names; None for what is no image name."""
+    if not isinstance(path, str) or not _PHOTO_PATH_RE.fullmatch(path):
+        return None
+    return f"https://image.tmdb.org/t/p/w185{path}"
+
+
+def _coerce_cast(value: object) -> list[dict[str, str | None]]:
+    """Return value as names, characters and photos, dropping an entry with no plain-string name."""
     if not isinstance(value, list):
         return []
-    members = []
+    members: list[dict[str, str | None]] = []
     for entry in value:
         if not isinstance(entry, dict):
             continue
         name, character = entry.get("name"), entry.get("character")
         if isinstance(name, str) and name:
             members.append(
-                {"name": name, "character": character if isinstance(character, str) else ""}
+                {
+                    "name": name,
+                    "character": character if isinstance(character, str) else "",
+                    "photo_url": _photo_url(entry.get("profile_path")),
+                }
             )
     return members
 
@@ -412,45 +423,24 @@ def _resolve_download_state(
         logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
 
-def _build_hero_context(
-    item: dict[str, object], tmdb_id: int | None, secret_key: str
-) -> tuple[object, object]:
-    """Build the hero item and poll token when the item is already queued.
-
-    Returns (hero_item, poll_token); both are None when not applicable.
+def _poll_token(item: dict[str, object], tmdb_id: int | None, secret_key: str) -> str | None:
+    """A short-lived token for a title on its way, so the page can ask how it goes without
+    giving the polling endpoint the long-lived download token.
     """
-    if item["download_state"] != "queued":
-        return None, None
-    service = "radarr" if item["media_type"] == "movie" else "sonarr"
-    hero_title = cast(str, item["title"])
-    hero_media_type = cast(str, item["media_type"])
-    hero_poster = cast("str | None", item.get("poster_url")) or ""
-    hero_item = build_item(
-        dl_id=f"{service}:{hero_title}",
-        title=hero_title,
-        media_type=hero_media_type,
-        poster_url=hero_poster,
-        state="searching",
-        progress=0,
-        eta="",
-        size_done="",
-        size_total="",
+    if item["download_state"] != ACTION_QUEUED or not tmdb_id:
+        return None
+    title = cast(str, item["title"])
+    is_movie = item["media_type"] == "movie"
+    return generate_poll_token(
+        media_item_id=(
+            f"radarr:{title}"
+            if is_movie
+            else sonarr_media_id(title, cast("int | None", item["season_number"]))
+        ),
+        service="radarr" if is_movie else "sonarr",
+        tmdb_id=tmdb_id,
+        secret_key=secret_key,
     )
-    # Mint a short-lived poll token so the page can start polling immediately
-    # without exposing the long-lived download token to the polling endpoint.
-    poll_token = None
-    if tmdb_id:
-        poll_token = generate_poll_token(
-            media_item_id=(
-                sonarr_media_id(hero_title, cast("int | None", item["season_number"]))
-                if service == "sonarr"
-                else f"radarr:{hero_title}"
-            ),
-            service=service,
-            tmdb_id=tmdb_id,
-            secret_key=secret_key,
-        )
-    return hero_item, poll_token
 
 
 @router.get("/download/{token}", response_class=HTMLResponse)
@@ -507,8 +497,6 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             season_number=season.season_number if season else None,
         )
 
-    hero_item, poll_token = _build_hero_context(item, tmdb_id, config.secret_key)
-
     return templates.TemplateResponse(
         request,
         "download.html",
@@ -516,8 +504,6 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "state": "confirm",
             "item": item,
             "token": token,
-            "poll_token": poll_token,
-            "hero_item": hero_item,
-            "hero_backdrop": item["backdrop_url"],
+            "poll_token": _poll_token(item, tmdb_id, config.secret_key),
         },
     )

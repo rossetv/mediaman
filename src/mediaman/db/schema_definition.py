@@ -448,6 +448,23 @@ CREATE TABLE IF NOT EXISTS user_ratings (
     PRIMARY KEY (user_id, media_type, tmdb_id)
 );
 
+-- The films and shows a person marked watched, by TMDB id. A show is marked up to a season: whole
+-- seasons, but of those in episodes (JSON, their numbers by season) only these. partly is 1 once
+-- some of it was taken back.
+CREATE TABLE IF NOT EXISTS user_seen_titles (
+    user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    tmdb_id INTEGER NOT NULL,
+    through_season INTEGER CHECK ((media_type = 'tv') = (through_season IS NOT NULL)),
+    episodes TEXT,
+    partly INTEGER NOT NULL DEFAULT 0,
+    in_library INTEGER NOT NULL DEFAULT 0,
+    title TEXT,
+    year INTEGER,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, media_type, tmdb_id)
+);
+
 -- The films and seasons a person was asked to rate at the end, each once. season_number is 0
 -- for a film: a NULL would let it be stored twice.
 CREATE TABLE IF NOT EXISTS user_rating_asks (

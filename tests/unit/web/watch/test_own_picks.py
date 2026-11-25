@@ -234,6 +234,13 @@ class TestRatedRow:
         picks(1, 3)
         assert _titles(people["amy"]) == ["S3"]
 
+    def test_only_someone_who_rated_fewer_than_five_titles_rated_few(self, people, picks):
+        picks(1, 1, 2, 3, 4)
+        assert people["amy"].get("/api/watch/recommended").json()["few_ratings"] is True
+        picks(-1, 5)
+        assert people["amy"].get("/api/watch/recommended").json()["few_ratings"] is False
+        assert people["bob"].get("/api/watch/recommended").json()["few_ratings"] is True
+
     def test_a_title_rated_down_comes_last_in_its_own_batch(self, people, picks):
         picks(-1, 30, 1)
         assert _titles(people["amy"]) == ["S3", "A3"]

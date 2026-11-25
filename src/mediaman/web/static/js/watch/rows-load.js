@@ -14,6 +14,9 @@
  * moving. opts.took() is called after each page, opts.lost(told) when one could
  * not be had; told: the person was told.
  *
+ * MMWatch.rowsLoad.add(viewport, card) takes in a card that came some other way,
+ * so that no page brings its title again; false when the row holds it already.
+ *
  * Cards laid out otherwise than in a sideways strip come with opts.view:
  *   scroller        the node that holds the cards
  *   near()          whether the last card is near the screen
@@ -67,15 +70,16 @@
   }
 
   /* A filter that lets each card through once: the same key, the same TMDB
-     title, or the same title, kind and year where neither ids nor refs can tell. */
+     title, or the same title, kind and year where neither ids nor refs can tell.
+     A card with no ref goes by data-key alone; one with neither always passes. */
   function onlyNew() {
     var keys = new Set();
     var ids = new Set();
     var names = new Map();
     return function isNew(card) {
       var link = card.querySelector('[data-title-ref]');
-      if (!link) return true;
-      var key = keyOf(card);
+      var key = keyOf(card) || card.getAttribute('data-key');
+      if (!link) return !key || !keys.has(key) && !!keys.add(key);
       var id = tmdbOf(link);
       if (keys.has(key) || (id && ids.has(id))) return false;
       var source = sourceOf(link.getAttribute('data-title-ref'));
@@ -349,7 +353,13 @@
         if (state === 'idle') load();
         return state === 'loading';
       },
-      check: schedule
+      check: schedule,
+      add: function (card) {
+        if (!isNew(card)) return false;
+        cards.add(card);
+        awake.add(card);
+        return true;
+      }
     };
     rows.set(viewport, row);
     settle(next === null ? 'done' : 'idle');
@@ -363,5 +373,10 @@
     if (row) row.forward();
   }
 
-  window.MMWatch.rowsLoad = { start: start, forward: forward, keyOf: keyOf };
+  function add(viewport, card) {
+    var row = rows.get(viewport);
+    return !row || row.add(card);
+  }
+
+  window.MMWatch.rowsLoad = { start: start, forward: forward, add: add, keyOf: keyOf };
 })();

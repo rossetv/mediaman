@@ -1,22 +1,19 @@
 {% extends "base.html" %}
-{% from "_components.html" import icon %}
+{% import "_share.html" as share %}
 
 {% block title %}Unsubscribe · Mediaman{% endblock %}
 
-{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css?v={{ static_v }}">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">{% endblock %}
+
+{% block nav %}{{ share.bar() }}{% endblock %}
 
 {% block content %}
-<div class="login-page">
-  <div class="login-card unsub-card">
-    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
-    {% if success %}
-    <div class="unsub-icon unsub-icon--success">{{ icon("i-circle-check-regular") }}</div>
-    {% else %}
-    <div class="unsub-icon unsub-icon--error">{{ icon("i-circle-xmark-regular") }}</div>
-    {% endif %}
-    <h1 class="unsub-title">{% if success %}Unsubscribed{% else %}Couldn't unsubscribe{% endif %}</h1>
-    <p class="unsub-msg">{{ message }}</p>
-    <p class="unsub-note">You can close this page.</p>
-  </div>
-</div>
+{% if limited %}
+{{ share.limited(retry=request.method == "GET") }}
+<script src="/static/js/share.js?v={{ static_v }}" defer></script>
+{% elif success %}
+{{ share.notice("good", "Unsubscribed", message, "You can close this page.") }}
+{% else %}
+{{ share.notice("broken", "Could not unsubscribe", message, "The link in the latest mail will work.") }}
+{% endif %}
 {% endblock %}

@@ -182,6 +182,56 @@ class TestOlderBatches:
         assert "refresh" not in older
 
 
+class TestOwnMarks:
+    @pytest.fixture
+    def rows(self, conn, viewer):
+        insert_user_pick(conn, "viewer", title="Mine", tmdb_id=5, batch_id="2099-01-02")
+        insert_suggestion(conn, title="Shared", tmdb_id=6, batch_id="2099-01-02")
+        insert_admin_user(conn, username="cian", role="viewer")
+        conn.commit()
+
+    @staticmethod
+    def _user(conn, name):
+        return conn.execute("SELECT id FROM admin_users WHERE username = ?", (name,)).fetchone()[0]
+
+    def _mark(self, conn, tmdb_id, name="viewer"):
+        conn.execute(
+            "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, seen_at)"
+            " VALUES (?, 'movie', ?, '2026')",
+            (self._user(conn, name), tmdb_id),
+        )
+        conn.commit()
+
+    @pytest.mark.parametrize(("tmdb_id", "left"), [(5, ["Shared"]), (6, ["Mine"])])
+    def test_a_pick_marked_watched_is_gone_the_next_time(self, viewer, conn, rows, tmdb_id, left):
+        self._mark(conn, tmdb_id)
+
+        assert [i["title"] for i in _get(viewer)["items"]] == left
+
+    def test_anothers_mark_and_rating_change_nothing(self, viewer, conn, rows):
+        self._mark(conn, 5, "cian")
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, updated_at)"
+            " VALUES (?, 'movie', 6, -2, '2026')",
+            (self._user(conn, "cian"),),
+        )
+        conn.commit()
+
+        cards = [(i["title"], i["level"], i["watched"]) for i in _get(viewer)["items"]]
+        assert cards == [("Mine", None, False), ("Shared", None, False)]
+
+    def test_a_pick_carries_what_it_is_rated_by(self, viewer, conn, rows):
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, updated_at)"
+            " VALUES (?, 'movie', 5, 1, '2026')",
+            (self._user(conn, "viewer"),),
+        )
+        conn.commit()
+
+        mine = _get(viewer)["items"][0]
+        assert (mine["tmdb_ref"], mine["level"]) == ("tmdb-movie-5", 1)
+
+
 class TestCards:
     def test_a_pick_carries_its_ref_reason_and_proxied_poster(self, viewer, conn):
         rec_id = insert_suggestion(

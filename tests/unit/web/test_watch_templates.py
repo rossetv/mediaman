@@ -64,6 +64,16 @@ def _watch(**over: object) -> str:
     return _render("watch.html", **ctx)
 
 
+def test_the_play_on_sheet_and_its_symbols_are_there_before_what_opens_it() -> None:
+    state = SimpleNamespace(username="maren", google_cast=False)
+    html = _watch(request=SimpleNamespace(state=state, query_params={}))
+    for once in ('id="play-on-tv"', "/watch/play-on.js", "/_play_on.css"):
+        assert html.count(once) == 1, once
+    assert html.index("/watch/play-on.js") < html.index("/watch/airplay.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/detail.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/preview.js")
+
+
 def _show_ctx(**over: object) -> dict:
     ctx: dict = {
         "show": {
@@ -278,6 +288,31 @@ def test_only_what_leaves_by_tomorrow_stands_out(days: int, now: bool) -> None:
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
     assert "watch-badge--leaving" in html
     assert ("watch-badge--leaving-now" in html) is now
+
+
+@pytest.mark.parametrize(
+    ("over", "classes"),
+    [
+        ({}, "watch-card"),
+        ({"tmdb_ref": "tmdb-movie-7"}, "watch-card has-tools"),
+        ({"admin": {"key": 1}}, "watch-card has-tools"),
+        (
+            {
+                "tmdb_ref": "tmdb-movie-7",
+                "mark_kind": "episode",
+                "mark_key": 9,
+                "dismiss_ref": "show-2",
+            },
+            "watch-card has-tools has-three-tools",
+        ),
+    ],
+)
+def test_a_card_says_by_its_class_how_many_buttons_stand_under_it(over: dict, classes: str) -> None:
+    html = _watch(rows=[{"title": "Rows", "items": [_card(**over)]}])
+    card = re.search(r'<article class="([^"]*)"', html)
+    assert card and card[1] == classes
+    shown = html.count('class="card-tool card-tool--')
+    assert ("has-tools" in classes) == (shown > 0) and ("has-three-tools" in classes) == (shown > 2)
 
 
 def test_keep_button_only_for_cards_with_a_keep_id() -> None:
@@ -797,22 +832,6 @@ def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
     assert block and "min-height: 260px" in block.group(1)
 
 
-def test_a_list_poster_of_any_shape_fills_its_frame() -> None:
-    body = _declarations_of("_tables.css", ".thumb img")
-
-    assert "width: 100%" in body and "height: 100%" in body and "object-fit: cover" in body
-
-
-def test_the_list_actions_column_hugs_its_buttons() -> None:
-    assert "width: 1%" in _declarations_of("_watch_list.css", ".wl-table .col-act")
-
-
-def test_the_dash_of_an_unscheduled_title_is_hidden_on_phone_cards() -> None:
-    rules = dict(_phone_rules("_watch_list.css"))
-
-    assert "display: none" in rules[".wl-del--none > [aria-hidden]"]
-
-
 @pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
 def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
     body = _declarations_of("_watch.css", f"{place} > .watch-bar")
@@ -846,7 +865,6 @@ def _declarations_in(rules: str, selector: str) -> str:
     [
         ("_watch.css", ".watch-banner__poster"),
         ("_watch_detail.css", ".ttl__poster"),
-        ("_download_page.css", ".dl-cinema__poster"),
     ],
 )
 def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, poster: str) -> None:
@@ -1007,6 +1025,7 @@ def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
 
 def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
     scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
+    scripts.remove("watch/play-on")  # every page's own, before them
     place = {name: n for n, name in enumerate(scripts)}
 
     assert scripts[0] == "watch/core"
@@ -1123,11 +1142,38 @@ _BANNER = {
 }
 
 
-def test_a_card_has_one_more_button_named_after_it_only_when_it_can_be_marked() -> None:
+def test_a_card_has_its_eye_only_when_it_can_be_marked() -> None:
     tree = _Tree(_watch(rows=[{"title": "Movies", "items": [_marked(), _card()]}]))
-    [more] = tree.having("data-watch-more")
-    assert (more["aria-label"], more["aria-haspopup"]) == ("More for Brightwater", "menu")
+    [eye] = tree.having("data-mark-toggle")
+    assert (eye["data-mark-toggle"], eye["aria-pressed"]) == ("movie/1", "false")
+    assert not tree.having("data-watch-more") and not tree.having("data-card-rate")
     assert [c.get("data-mark") for c in tree.having("data-keep-id")] == ["movie/1", None]
+
+
+def test_a_card_is_drawn_with_the_person_s_rating_and_mark_and_one_tab_stop() -> None:
+    items = [
+        _marked(tmdb_ref="tmdb-movie-6", level=-2, watched=True),
+        _card(mark_kind=None, mark_key=None, tmdb_ref="tmdb-tv-7", level=None),
+    ]
+    html = _watch(rows=[{"title": "Movies", "items": items}])
+    tree = _Tree(html)
+    thumbs = tree.having("data-card-rate")
+    assert [t["aria-label"] for t in thumbs] == ["Rate Brightwater: Strong no", "Rate Brightwater"]
+    assert "is-down" in thumbs[0]["class"] and "rate-th--down is-on" in html
+    eyes = tree.having("data-mark-toggle")
+    assert [(e["data-mark-toggle"], e["aria-pressed"], e["aria-label"]) for e in eyes] == [
+        ("movie/1", "true", "Mark as watched"),
+        ("tmdb-tv-7", "false", "Mark show as watched"),
+    ]
+    assert [c.get("data-level") for c in tree.having("data-tmdb-ref")] == ["-2", None]
+    assert [b.get("tabindex") for b in (*thumbs, *eyes)] == [None, None, "-1", "-1"]
+
+
+def test_a_card_s_thumb_is_the_one_the_script_draws() -> None:
+    script = (TEMPLATES.parent / "static" / "js" / "ratings.js").read_text(encoding="utf-8")
+    hand = "".join(re.findall(r"'(M3 11[^']*|M8\.4[^']*|l-1\.1[^']*)'", script))
+    html = _watch(rows=[{"title": "Movies", "items": [_marked(tmdb_ref="tmdb-movie-6", level=1)]}])
+    assert f'<path d="{hand}"/><path class="ink" d="{hand}"/>' in html
 
 
 def test_a_watched_poster_says_so_in_words_and_not_with_the_tick_of_in_library() -> None:
@@ -1143,8 +1189,8 @@ def test_dismiss_is_offered_by_a_continue_watching_card_and_its_banner_alone() -
     rows = [{"title": "Continue watching", "items": [item]}]
     tree = _Tree(_watch(banner=_BANNER, rows=rows))
     assert [a["data-dismiss-ref"] for a in tree.having("data-dismiss-ref")] == ["movie-1"] * 2
-    [button] = tree.having("data-watch-dismiss")
-    assert button["aria-label"] == "Dismiss Salt & Iron from Continue watching"
+    labels = [b["aria-label"] for b in tree.having("data-watch-dismiss")]
+    assert labels == [f"Dismiss {t} from Continue watching" for t in ("Salt & Iron", "Brightwater")]
 
     other = _Tree(
         _watch(

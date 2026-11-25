@@ -1,6 +1,6 @@
 /* MODALS — the keep-dialog that extends protection windows, on the shared
-   modal backdrop and sheet. Owns `.modal-backdrop`/`.modal-sheet`,
-   `.detail-modal-cast` and `.keep-dialog*`. */
+   modal backdrop and sheet. Owns `.modal-backdrop`/`.modal-sheet`
+   and `.keep-dialog*`. */
 
 .modal-backdrop {
   position: fixed;
@@ -49,55 +49,6 @@
   .modal-backdrop > .modal-sheet,
   .keep-dialog-overlay > .keep-dialog { animation: none; }
 }
-.type-pill {
-  display: inline-flex;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--rgba-accent-chip);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .03em;
-  text-transform: uppercase;
-}
-.type-pill--movie { background: var(--rgba-orange-bg); color: var(--orange); }
-.meta-text { color: var(--t2); font-size: 13px; }
-.rating-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: var(--r-pill);
-  font-size: 12px;
-  font-weight: 600;
-}
-.rating-pill.r-tmdb { background: rgba(255,159,10,.15); color: var(--orange); }
-.rating-pill.r-imdb { background: var(--rgba-warning-bg); color: var(--warning); }
-.rating-pill.r-rt   { background: var(--rgba-danger-bg); color: var(--danger-text); }
-.rating-pill.r-meta { background: rgba(48,209,88,.15); color: var(--success); }
-
-.detail-modal-cast {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  gap: 12px;
-}
-.cast-item { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
-.cast-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: var(--s3);
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--t2);
-  overflow: hidden;
-}
-.cast-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.cast-name { font-size: 12px; font-weight: 500; line-height: 1.3; }
-.cast-char { font-size: 11px; color: var(--t3); line-height: 1.3; }
-
 .modal-actions {
   display: flex;
   gap: 8px;
@@ -194,7 +145,6 @@
 /* 44px targets below 700px, and on touch screens wider than that (tablets). */
 @media (pointer: coarse), (max-width: 699.98px) {
   .keep-dur-btn,
-  .snooze-option,
   .keep-dialog .btn--sm { min-height: 44px; }
   /* The label is the tap target for its checkbox: the whole row height, out to the details. */
   .keep-season-item { padding-top: 0; padding-bottom: 0; }

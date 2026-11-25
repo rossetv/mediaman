@@ -37,8 +37,9 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import search_assist as repo
 from mediaman.web.repository import watch_library as lib
-from mediaman.web.repository.ratings import levels_for
+from mediaman.web.repository.seen_titles import PersonMarks, person_marks
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.watch.card_marks import CardMarks, card_marks, marked, tmdb_ref
 from mediaman.web.routes.watch.catalog_api import _arr, held_fields
 from mediaman.web.routes.watch.pages import play_href, poster_url
 
@@ -564,15 +565,16 @@ def _done(
     index = _index(conn, client)
     arr = _arr(request, conn)
     held = held_fields(conn, username, libraries)
-    levels = levels_for(conn, user_id)
+    own = person_marks(conn, username)
+    marks = card_marks(own, client)
 
     def cards(answer: dict[str, Any]) -> list[dict[str, object]]:
         kept = [
             (level < 0, t)
             for t in answer["titles"]
-            if (level := levels.get((t["media_type"], t["tmdb_id"]), 0)) != -2
+            if (level := own.levels.get((t["media_type"], t["tmdb_id"]), 0)) != -2
         ]
-        found = [_card(t, index, arr, held) for _, t in sorted(kept, key=lambda k: k[0])]
+        found = [_card(t, index, arr, held, marks) for _, t in sorted(kept, key=lambda k: k[0])]
         return [c for c in found if c is not None]
 
     shown = cards(stored)
@@ -596,6 +598,7 @@ def _card(
     index: catalog.LibraryIndex,
     arr: catalog.ArrView,
     held: Callable[[str | None], dict[str, object]],
+    marks: CardMarks,
 ) -> dict[str, object] | None:
     card = catalog.tmdb_card(
         {
@@ -614,8 +617,7 @@ def _card(
     ref = cast(str | None, card["library_ref"])
     film = ref.removeprefix("movie-") if ref and ref.startswith("movie-") else None
     return {
-        **card,
-        **held(ref),
+        **marked({**card, **held(ref)}, marks),
         "minutes": title["minutes"],
         "season_count": title["season_count"],
         "genre": title["genre"],
@@ -645,13 +647,13 @@ def api_tonight(
     if not _TONIGHT_LIMITER.check(username):
         return _too_many()
     index = _index(conn, client)
-    levels = levels_for(conn, user_id)
+    own = person_marks(conn, username)
     plays = person_plays(conn, username)
     found = tonight.evening(
         client,
-        _candidates(conn, username, index, levels, {(p.kind, p.tmdb_id) for p in plays}),
+        _candidates(conn, username, index, own, {(p.kind, p.tmdb_id) for p in plays}),
         tonight.known_titles(conn),
-        _enjoyed(conn, user_id, plays, levels),
+        _enjoyed(conn, user_id, plays, own.levels),
         minutes,
         skip=skip,
     )
@@ -670,7 +672,7 @@ def _candidates(
     conn: sqlite3.Connection,
     username: str,
     index: catalog.LibraryIndex,
-    levels: dict[tuple[str, int], int],
+    own: PersonMarks,
     played: set[tuple[str, int | None]],
 ) -> list[tonight.Candidate]:
     libraries = lib.scanned_library_ids(conn)
@@ -686,12 +688,13 @@ def _candidates(
         if s.key in seasons
     ]
     return [
-        tonight.Candidate(ref, keys[ref], title, year, episodes, levels.get(keys[ref], 0))
+        tonight.Candidate(ref, keys[ref], title, year, episodes, own.levels.get(keys[ref], 0))
         for ref, title, year, episodes in titles
         if ref in keys
         and ref not in begun
         and keys[ref] not in played
-        and levels.get(keys[ref]) != -2
+        and keys[ref] not in own.seen
+        and own.levels.get(keys[ref]) != -2
     ]
 
 
@@ -722,4 +725,6 @@ def _tonight_card(c: tonight.Candidate) -> dict[str, object]:
         "reason": c.reason,
         "poster_url": poster_url(key),
         "href": catalog.library_href(c.ref),
+        "tmdb_ref": tmdb_ref(c.key),
+        "level": c.level or None,
     }

@@ -20,14 +20,12 @@
   <link rel="stylesheet" href="/static/css/_tokens.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_base.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_forms.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_tables.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_history.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_nav.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_buttons.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tiles.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_hero.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_dl.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_download_page.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_settings.css?v={{ static_v }}">
@@ -41,27 +39,31 @@
   <link rel="stylesheet" href="/static/css/_watch.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_player.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tv_remote.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_play_on.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_utilities.css?v={{ static_v }}">
   <script src="/static/js/core/api.js?v={{ static_v }}" defer></script>
   <script src="/static/js/core/dom.js?v={{ static_v }}" defer></script>
   <script src="/static/js/core/modal.js?v={{ static_v }}" defer></script>
   <script src="/static/js/modal-a11y.js?v={{ static_v }}" defer></script>
   <script src="/static/js/ui-feedback.js?v={{ static_v }}" defer></script>
-  <script src="/static/js/snooze-menu.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/downloading.js?v={{ static_v }}" defer></script>
   <script src="/static/js/nav.js?v={{ static_v }}" defer></script>
   <script src="/static/js/dl-poster.js?v={{ static_v }}" defer></script>
   <script src="/static/js/broken-poster.js?v={{ static_v }}" defer></script>
+  <script src="/static/js/watch/play-on.js?v={{ static_v }}" defer></script>
+  {% block cast_sender %}{% if request is defined and request.state and request.state.google_cast %}<script src="/static/js/watch/cast-sender.js?v={{ static_v }}" defer></script>{% endif %}{% endblock %}
   <script src="/static/js/tv-remote.js?v={{ static_v }}" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body data-page="{{ nav_active or '' }}">
+{% set cast_on = request is defined and request.state and request.state.google_cast and request.state.google_cast_account %}
+<body data-page="{{ nav_active or '' }}"{% if cast_on %} data-cast-account="{{ request.state.google_cast_account() }}"{% endif %}>
   {% include "_icons.html" %}
   <a class="skip-link" href="#main-content">Skip to content</a>
   {% block nav %}{% endblock %}
   <main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
-  {% if request is defined and request.state and request.state.username is defined %}{% include "_tv_remote.html" %}{% endif %}
+  {% if request is defined and request.state and request.state.username is defined %}{% include "_play_on.html" %}{% include "_tv_remote.html" %}{% endif %}
   {% block overlays %}{% endblock %}
 </body>
 </html>

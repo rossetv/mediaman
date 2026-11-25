@@ -536,6 +536,27 @@ class TestTaste:
         _make(conn, "amy")
         assert _titles(conn, "amy") == ["Fine", "Meh"]
 
+    @pytest.mark.parametrize("ai_history", [0, 1])
+    def test_a_title_marked_watched_is_not_picked_and_the_model_is_not_told_of_it(
+        self, conn, openai, ai_history
+    ):
+        conn.execute("UPDATE admin_users SET ai_history = ?", (ai_history,))
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        for name, title, tmdb_id in (("amy", "Marked", 71), ("bob", "Bobs Marked", 72)):
+            conn.execute(
+                "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, title, seen_at)"
+                " VALUES (?, 'movie', ?, ?, '2026')",
+                (self._id(conn, name), tmdb_id, title),
+            )
+        conn.commit()
+        openai.items = [_pick("Marked"), _pick("Bobs Marked"), _pick("Fine")]
+
+        _make(conn, "amy")
+
+        assert set(_titles(conn, "amy")) == {"Bobs Marked", "Fine"}
+        # Only what the model itself named is put to it again.
+        assert "Marked" not in openai.prompts[0]
+
     def test_a_title_rated_while_the_model_thinks_is_left_out(self, conn, openai, monkeypatch):
         _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
         real = personal.generate_personal

@@ -1,7 +1,7 @@
-/* Watch: the other films of a film's collection, the last part of its detail, and the dialog
+/* Watch: the other films of a film's collection, above the cast in its detail, and the dialog
  * that asks for those that are missing, on MMWatch.collection. The row comes after the title
  * is on show. The films are asked for one after another, also once the dialog is closed.
- * Needs watch/core.js; uses watch/browse.js for the cards, watch-rows.js for the arrows and
+ * Needs watch/core.js and watch/keep.js; uses watch/browse.js for the cards, watch-rows.js for the arrows and
  * watch/detail.js, which holds the overlay and calls into().
  */
 (function () {
@@ -23,15 +23,16 @@
   /* How long after the dialog opened, or a run ended, the rest of a press can still come. */
   var DOUBLE_CLICK_MS = 600;
   var OUT = [['held', 'Already in the library'], ['requested', 'Already asked for'], ['unreleased', 'Not out yet'],
-    ['undated', 'No release date yet'], ['unavailable', 'Radarr can’t be asked right now']];
+    ['undated', 'No release date yet'], ['unavailable', 'Can’t be checked right now']];
 
   /* A limit of a minute or of the day: the server does not say which. */
   var WHEN = 'try again in a minute, or tomorrow if the day’s limit is reached.';
 
   var known = {};   // by the ref of a title: its collection, { name, films }
+  var without = {}; // the refs of the films known to be in none
   var lefts = {};   // by the ref of a title: where its row was left
   var asked = {};   // by the ref of a film: when it was asked for here
-  var view = null;  // the row last drawn: { ref, coll, holder, node, cards, scroller, stale, at, gen }
+  var view = null;  // the row last drawn: { ref, coll, holder, node, cards, scroller, stale, at, gen, waits }
   var line = Promise.resolve(); // the films asked for, one after another
 
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
@@ -60,17 +61,63 @@
   /* ── The row ── */
 
   /* Put the row of the film *ref* at the end of *body*: at once where its collection is
-     known, else once it is. *kind*: what the title is. */
-  function into(body, ref, kind) {
+     known, else once it is, its place held meanwhile when it is *expected* to be in one.
+     *kind*: what the title is. */
+  function into(body, ref, kind, expected) {
     if (kind !== 'movie') return;
     var holder = el('div', 'ttl__collsec');
     holder.hidden = true;
     body.appendChild(holder);
     var same = view && view.ref === ref;
-    if (!same) view = { ref: ref, coll: collOf(ref), holder: null, node: null, cards: [], scroller: null, stale: true, at: 0, gen: 0 };
+    if (!same) view = { ref: ref, coll: collOf(ref), holder: null, node: null, cards: [], scroller: null, stale: true, at: 0, gen: 0, waits: !!expected && !without[ref] };
     view.holder = holder;
     if (view.coll) show();
+    else if (view.waits) holdPlace(holder);
     if (view.stale || Date.now() - view.at > FRESH_MS) ask(view);
+  }
+
+  function holdPlace(holder) {
+    var skel = el('div', 'coll-skel');
+    skel.setAttribute('aria-hidden', 'true');
+    var head = el('div', 'coll__head');
+    var words = el('div', 'coll__words');
+    words.appendChild(el('span', 'skel skel--line coll-skel__title'));
+    words.appendChild(el('span', 'skel skel--line coll-skel__name'));
+    head.appendChild(words);
+    skel.appendChild(head);
+    var row = el('div', 'watch-row__scroll');
+    for (var i = 0; i < 8; i++) {
+      var card = el('div', 'watch-card--skel');
+      card.appendChild(el('span', 'skel skel--poster'));
+      card.appendChild(el('span', 'skel skel--line'));
+      row.appendChild(card);
+    }
+    var viewport = el('div', 'watch-row__viewport');
+    viewport.appendChild(row);
+    skel.appendChild(viewport);
+    holder.hidden = false;
+    holder.appendChild(skel);
+  }
+
+  /* What holds the row's place while the film *ref* loads; null for one not known to be in a collection. */
+  function skeleton(ref) {
+    if (without[ref] || !collOf(ref)) return null;
+    var holder = el('div', 'ttl__collsec');
+    holdPlace(holder);
+    return holder;
+  }
+
+  /* Ease *holder* from the height *from* it had, so what is under it does not jump. */
+  function ease(holder, from) {
+    if (!holder.animate || core.reduceMotion()) return;
+    if (!from) {
+      watch.keep.growIn(holder, false);
+      return;
+    }
+    var to = holder.offsetHeight;
+    if (to === from) return;
+    var frame = function (h) { return { height: h + 'px', overflow: 'clip' }; };
+    holder.animate([frame(from), frame(to)], { duration: core.tokenMs('--dur-slow', 250), easing: core.token('--ease-out', 'ease-out') });
   }
 
   function ask(v) {
@@ -80,8 +127,16 @@
     window.MM.api.get('/api/watch/title/' + encodeURIComponent(v.ref) + '/collection').then(function (coll) {
       if (gen === v.gen) take(v, coll && Array.isArray(coll.films) && coll.films.length > 1 ? coll : null);
     }, function () {
-      if (gen === v.gen) v.stale = true; // what is known stays
+      if (gen !== v.gen) return;
+      v.stale = true; // what is known stays
+      letGo(v);
     });
+  }
+
+  /* No films came to the place held for them. */
+  function letGo(v) {
+    if (v.waits && !v.coll && v.holder.isConnected) watch.keep.foldAway(v.holder);
+    v.waits = false;
   }
 
   function take(v, coll) {
@@ -89,15 +144,23 @@
       coll.films = coll.films.filter(function (f) { return f && watch.browse.card(f); });
       coll.films.forEach(inGrace);
       known[v.ref] = coll;
+      delete without[v.ref];
     } else {
       delete known[v.ref];
+      without[v.ref] = true;
     }
     var was = v.coll;
     v.coll = coll;
     if (v !== view || !v.holder.isConnected) {
       v.node = null;
+      v.waits = false;
       return;
     }
+    if (!coll && v.waits) {
+      letGo(v);
+      return;
+    }
+    v.waits = false;
     if (!coll) {
       if (v.holder.contains(document.activeElement)) title().focus({ preventScroll: true });
       v.node = null;
@@ -110,9 +173,11 @@
       return;
     }
     v.node = null;
+    var height = v.holder.offsetHeight;
     v.holder.textContent = '';
     show();
     core.fadeIn(v.holder);
+    ease(v.holder, height);
   }
 
   function refOf(film) { return film.ref; }
@@ -161,7 +226,8 @@
     v.button.setAttribute('data-ttl-act', 'collection');
     v.button.setAttribute('aria-haspopup', 'dialog');
     v.button.appendChild(icon('i-download'));
-    v.button.appendChild(el('span'));
+    v.button.appendChild(el('span', 'coll__get-full'));
+    v.button.appendChild(el('span', 'coll__get-brief'));
     v.button.addEventListener('click', function () {
       v.button.focus({ preventScroll: true }); // Safari leaves a pressed button without it
       openDialog(v);
@@ -189,8 +255,7 @@
   function cardOf(v, film) {
     var card = watch.browse.card(film);
     card.setAttribute('role', 'listitem');
-    var more = card.querySelector('.watch-more');
-    if (more) more.remove(); // each opens its own page, which has all that menu has
+    core.toArray(card.querySelectorAll('.card-tool')).forEach(function (b) { b.tabIndex = -1; });
     var link = linkOf(card);
     link.setAttribute('data-ttl-act', 'film-' + film.ref);
     link.tabIndex = -1;
@@ -254,6 +319,14 @@
   function alongRow(v, e) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     var i = v.cards.findIndex(function (c) { return c.contains(e.target); });
+    if (i >= 0 && e.key === 'ArrowDown' && e.target === linkOf(v.cards[i])) {
+      var tool = core.controlIn(v.cards[i], '.card-tool');
+      if (tool && tool !== e.target) {
+        e.preventDefault();
+        tool.focus({ preventScroll: true });
+      }
+      return;
+    }
     var to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1
       : e.key === 'Home' ? 0 : e.key === 'End' ? v.cards.length - 1 : -2;
     if (i < 0 || to === -2) return;
@@ -293,7 +366,8 @@
     var gone = !n && !busy;
     if (gone && v.button === document.activeElement) v.title.focus({ preventScroll: true });
     v.button.hidden = gone;
-    v.button.querySelector('span').textContent = text;
+    v.button.querySelector('.coll__get-full').textContent = text;
+    v.button.querySelector('.coll__get-brief').textContent = busy ? text : 'Get ' + n + ' missing';
   }
 
   /* ── The dialog ── */
@@ -645,7 +719,7 @@
     }).then(function () { done(item, 'Queued'); }, function (err) {
       if (j.run !== run) return;
       if (err && err.status === 409) {
-        done(item, 'Already in Radarr');
+        done(item, 'Already added');
         return;
       }
       run.limited = !!err && err.status === 429 && /^too many/i.test(err.message || '');
@@ -735,5 +809,5 @@
     document.addEventListener(name, function () { if (view) view.stale = true; });
   });
 
-  watch.collection = { into: into };
+  watch.collection = { into: into, skeleton: skeleton };
 })();

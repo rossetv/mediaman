@@ -3,6 +3,7 @@
  *   list(host, opts)   a grid that loads as it is scrolled (watch/rows-load.js)
  *   open(opts), close(opts), leave()   the layer a row grows into, which holds one
  *   take(card, control)   a card kept or dismissed in it leaves
+ *   setBar(bar)   the counts of the filters over it, and the line under them
  *   bring(card)   one that is back in its row is back in that row's grid
  *
  * Opening, each poster on the screen travels from the row to its place in the
@@ -26,6 +27,8 @@
   var AWAKE_SCREENS = 3; // cards further off than this have their posters unloaded
   var HEARD_MS = 3000; // how long what a grid says of itself as it opens is left to be heard
   var JUMP_MS = 4000; // a jump whose next page takes longer is not awaited any more
+  var POSTER = 1.5; // its height, of its width
+  var SAID = '.watch-card__poster > :not(img), .watch-card__sub, .card-tools';
   var SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
 
   /* ── Cards ── */
@@ -35,7 +38,7 @@
   /* What a card is known by in a row and in the grid. */
   function keyOf(card) {
     var link = linkOf(card);
-    return watch.rowsLoad.keyOf(card) || (link ? link.getAttribute('href') : null);
+    return watch.rowsLoad.keyOf(card) || card.getAttribute('data-key') || (link ? link.getAttribute('href') : null);
   }
 
   function isCard(node) { return node.classList.contains('watch-card'); }
@@ -53,10 +56,14 @@
   }
 
   function copy(card) {
+    if (watch.cardTools) watch.cardTools.close(card);
     var twin = wake(card.cloneNode(true));
     toArray(twin.querySelectorAll('.is-previewed')).forEach(function (n) { n.classList.remove('is-previewed'); });
     // A row has its own keys (watch-rows.js), the grid the Tab order.
     toArray(twin.querySelectorAll('[tabindex]')).forEach(function (n) { n.removeAttribute('tabindex'); });
+    toArray(twin.querySelectorAll('.card-over, .card-flier, .card-lights, .card-barend, .watch-badge--unwatched')).forEach(function (n) { n.remove(); });
+    twin.classList.remove('is-lifted', 'is-quiet', 'has-focus', 'is-on-tools');
+    toArray(twin.querySelectorAll('.card-tool')).slice(1).forEach(function (n) { n.tabIndex = -1; });
     toArray(twin.querySelectorAll('[aria-expanded]')).forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
     return twin;
   }
@@ -95,13 +102,16 @@
     var total = opts.total === undefined ? null : opts.total;
     var fetchPage = opts.fetchPage;
     var empty = opts.empty || { title: 'Nothing here yet' };
-    var held = false; // nothing loads while the layer moves
+    var held = false; // nothing loads, and nothing is put in, while the layer moves
+    var freed = []; // what waits for that to end
+    var inPlace = false; // the first page comes in where its place was held
     var wanted = null; // the group a jump is on its way to
     var wantedAt = 0; // when its next page was asked for
     var lead = null; // the card that leads the screen, kept there over a resize
     var width = window.innerWidth;
     var loader = null;
     var status = null;
+    var waiting = !!opts.waiting; // what stands is not yet known to be all there is
     var marks = new Map(); // where each card and dated line taken out stood: a mark in its place, by it
 
     host.classList.add('watch-grid-host');
@@ -156,7 +166,8 @@
           if (isCard(node)) last++;
           else if (node.hasAttribute('data-group')) last = 0;
         });
-        return (n - last % n) % n + 2 * n;
+        var lines = inPlace ? Math.ceil((window.innerHeight - grid.getBoundingClientRect().top) / (grid.clientWidth / n * POSTER)) : 0;
+        return (n - last % n) % n + Math.max(2, lines) * n;
       },
       range: function (all) {
         var vh = window.innerHeight;
@@ -203,12 +214,16 @@
       fresh.forEach(function (card) {
         var r = card.getBoundingClientRect();
         if (!card.animate || r.top > window.innerHeight || r.bottom < 0) return;
-        animate(card, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], {
+        var how = {
           duration: core.tokenMs('--dur-slow', 250),
           delay: Math.min(120, Math.round((r.left - left) / Math.max(1, r.width)) * 14),
           fill: 'backwards'
-        });
+        };
+        if (!inPlace) animate(card, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], how);
+        // Its box stood there already: only what it says comes in.
+        else toArray(card.querySelectorAll(SAID)).forEach(function (node) { animate(node, [{ opacity: 0 }, { opacity: 1 }], how); });
       });
+      inPlace = false;
     }
 
     function ending() {
@@ -225,27 +240,42 @@
       if (empty.link) {
         var link = el('a', 'grid-empty__link', empty.link);
         link.setAttribute('href', core.safePath(empty.href) || '/watch');
-        link.setAttribute('data-grid-back', '');
+        if (empty.filter !== undefined) link.setAttribute('data-grid-filter', empty.filter);
+        else if (!/#/.test(empty.href)) link.setAttribute('data-grid-back', '');
         box.appendChild(link);
       }
       tail.replaceChildren(box);
     }
 
+    /* A page that comes while the layer moves is put in once it rests. page.placed: called as it is. */
+    function askPage(next) {
+      function rested(end) {
+        return function (got) {
+          return held ? new Promise(function (go) { freed.push(go); }).then(function () { return end(got); }) : end(got);
+        };
+      }
+      return fetchPage(next).then(rested(function (page) {
+        if (page.placed) page.placed();
+        return page;
+      }), rested(function (err) { throw err; }));
+    }
+
     function begin(next) {
       if (next === undefined) next = null;
-      loader = watch.rowsLoad.start(host, { title: title, next: next, fetchPage: fetchPage, view: view });
-      if (next === null) ending();
+      loader = watch.rowsLoad.start(host, { title: title, next: next, fetchPage: askPage, view: view });
+      if (next === null && !waiting) ending();
+      waiting = false;
     }
 
     /* ── Other contents ── */
 
-    /* Put *content* ({ cards, next, fetchPage, total }) in place of what stands.
+    /* Put *content* ({ cards, next, fetchPage, total, placed: called once it stands }) in place of what stands.
        how.move: what is on the screen before and after travels, from where it
        is if it was moving; the rest leaves and arrives. how.stay: the page does not
        scroll back to its start. A title that was here
-       keeps its node, so its poster never blinks. */
+       keeps its node, so its poster never blinks; opts.refresh(card, fresh) has it say what is new. */
     function set(content, how) {
-      var moves = how && how.move && !core.reduceMotion();
+      var moves = how && how.move && !core.reduceMotion() && !!grid.animate;
       var before = new Map();
       var old = new Map();
       cards().forEach(function (card) { old.set(keyOf(card), card); });
@@ -254,6 +284,7 @@
       wanted = null;
       lead = null;
       if (content.total !== undefined) total = content.total;
+      if (content.empty) empty = content.empty;
       if (content.fetchPage) fetchPage = content.fetchPage;
       grid.classList.remove('is-static');
       grid.removeAttribute('aria-busy');
@@ -266,12 +297,14 @@
         if (kept) {
           (kept.getAnimations ? kept.getAnimations() : []).forEach(function (a) { a.cancel(); });
           old.delete(keyOf(node));
+          if (opts.refresh && kept !== node) opts.refresh(kept, node);
         }
         grid.appendChild(wake(kept || node));
       });
-      var by = host.getBoundingClientRect().top - clearTop();
+      var by = (opts.start || host).getBoundingClientRect().top - clearTop();
       if (by < 0 && !(how && how.stay)) scrollPage(window.scrollY + by);
       begin(content.next);
+      if (content.placed) content.placed();
       if (moves) travel(before, old);
     }
 
@@ -589,10 +622,17 @@
       groupNow: groupNow,
       toCome: toCome,
       next: function () { return loader.next(); },
+      setTotal: function (n) { total = n; },
       enter: enter,
+      more: function () {
+        inPlace = true;
+        loader.more();
+      },
       hold: function (on) {
         held = on;
-        if (!on) loader.check();
+        if (on) return;
+        freed.splice(0).forEach(function (go) { go(); });
+        loader.check();
       },
       stop: function () {
         loader.stop();
@@ -622,7 +662,7 @@
 
   var html = document.documentElement;
   var dom = null; // the layer's own nodes
-  var now = null; // what it holds: { opts, list, value }
+  var now = null; // what it holds: { opts, list, value, filter }
   var move = null; // what moves: { to, gridY, tracks, token }
   var place = null; // the rows as they were: { y, lefts, focus }
   var lastY = 0;
@@ -651,13 +691,14 @@
       head.appendChild(names);
       head.appendChild(el('div', 'watch-all__tools'));
       all.appendChild(head);
+      all.appendChild(el('div', 'watch-all__bar'));
       all.appendChild(el('div', 'watch-all__body'));
       browse.parentNode.insertBefore(all, browse.nextSibling);
     }
     var part = function (name) { return all.querySelector('.watch-all__' + name); };
     dom = {
       all: all, head: part('head'), back: part('back'), title: part('title'),
-      count: part('count'), tools: part('tools'), body: part('body'),
+      count: part('count'), tools: part('tools'), bar: part('bar'), body: part('body'),
       status: page.appendChild(el('p', 'sr-only')),
       menu: page.appendChild(el('div', 'watch-keep-menu rec-menu watch-all__menu'))
     };
@@ -672,6 +713,17 @@
       spare: function () { return dom.title; }
     });
     all.addEventListener('click', function (e) {
+      var chip = e.target.closest && e.target.closest('[data-grid-filter]');
+      if (chip && plainClick(e) && now && now.opts.filter) {
+        e.preventDefault();
+        var id = chip.getAttribute('data-grid-filter');
+        // The link of an empty filter goes with it.
+        var stays = dom.bar.contains(chip) ? chip : dom.bar.querySelector('[data-grid-filter="' + id + '"]') || chip;
+        stays.focus({ preventScroll: true }); // as Safari does not on a click
+        if (move && move.to === 'grid') settle();
+        if (!move) ask(now.value, id === now.filter ? '' : id);
+        return;
+      }
       var link = e.target.closest && e.target.closest('.watch-all__back, [data-grid-back]');
       if (!link || !plainClick(e) || !now) return;
       e.preventDefault();
@@ -724,8 +776,9 @@
     var o = now.opts;
     dom.title.textContent = o.title;
     setTotal(o.total);
+    drawBar();
     dom.tools.replaceChildren();
-    if (!o.sort || o.total === 0) return;
+    if (!o.sort || (o.total === 0 && !o.filter)) return;
     var button = el('button', 'row-tool');
     button.type = 'button';
     button.id = 'watch-all-sort';
@@ -737,6 +790,70 @@
     button.appendChild(icon('i-chevron-down', 'row-tool__chev'));
     dom.tools.appendChild(button);
     labelSort();
+  }
+
+  /* ── The filters, and what stands under them ── */
+
+  /* The markup of _watch_all.html. A filter that is there stays the same node, and keeps the focus. */
+  function drawBar() {
+    var filter = now.opts.filter;
+    var box = dom.bar.querySelector('.watch-all__filters');
+    if (!filter) { dom.bar.replaceChildren(); return; }
+    if (!box) {
+      box = dom.bar.appendChild(el('div', 'watch-all__filters'));
+      box.setAttribute('role', 'group');
+      box.setAttribute('aria-label', filter.label);
+      filter.options.forEach(function (o, i) {
+        if (o.admin && !filter.options[i - 1].admin) {
+          var lock = box.appendChild(el('span', 'watch-all__lock'));
+          lock.setAttribute('role', 'img');
+          lock.setAttribute('aria-label', 'Admins only');
+          lock.appendChild(icon('i-lock'));
+        }
+        var chip = box.appendChild(el('a', 'fpill', o.label));
+        chip.setAttribute('data-grid-filter', o.id);
+        chip.appendChild(el('small', null, ''));
+      });
+    }
+    toArray(box.querySelectorAll('[data-grid-filter]')).forEach(function (chip) {
+      var id = chip.getAttribute('data-grid-filter');
+      var on = id === now.filter;
+      chip.setAttribute('href', filter.href(id, now.value));
+      chip.classList.toggle('on', on);
+      if (on) chip.setAttribute('aria-current', 'true');
+      else chip.removeAttribute('aria-current');
+      if (filter.counts) chip.querySelector('small').textContent = String(filter.counts[id]);
+    });
+    var fact = dom.bar.querySelector('.watch-all__fact');
+    if (!filter.fact) { if (fact) fact.remove(); return; }
+    if (!fact) fact = dom.bar.appendChild(el('p', 'watch-all__fact'));
+    if (fact.textContent !== filter.fact) fact.textContent = filter.fact;
+  }
+
+  /* The counts and the line as they are now, of the filter the grid shows. */
+  function setBar(bar) {
+    if (!now || !now.opts.filter || bar.type !== now.filter) return;
+    now.opts.filter.counts = bar.counts;
+    now.opts.filter.fact = bar.fact;
+    now.opts.total = bar.total;
+    now.list.setTotal(bar.total);
+    setTotal(bar.total);
+    drawBar();
+  }
+
+  /* Bring the chosen filter into sight where they scroll. */
+  function showFilter(atOnce) {
+    var box = dom.bar.querySelector('.watch-all__filters');
+    var on = box && box.querySelector('.on');
+    if (!on || !box.scrollTo) return;
+    var a = box.getBoundingClientRect();
+    var b = on.getBoundingClientRect();
+    if (b.left >= a.left && b.right <= a.right) return;
+    box.scrollTo({ left: box.scrollLeft + b.left - a.left - (a.width - b.width) / 2, behavior: atOnce || core.reduceMotion() ? 'auto' : 'smooth' });
+  }
+
+  function filterNow() {
+    return now.opts.filter && now.opts.filter.options.filter(function (o) { return o.id === now.filter; })[0];
   }
 
   /* What to choose from, once it is known. */
@@ -767,13 +884,19 @@
   }
 
   function setTotal(n) {
-    dom.count.textContent = typeof n === 'number' && n > 0 ? plural(n) : '';
+    // Not known yet, its place is held.
+    dom.count.textContent = typeof n === 'number' && n > 0 ? plural(n) : n === null && now.opts.filter ? '\u00a0' : '';
   }
 
   function fillMenu() {
     dom.menu.setAttribute('aria-label', now.opts.sort.label);
     dom.menu.replaceChildren();
-    options().forEach(function (o) {
+    options().forEach(function (o, i, all) {
+      if (o.admin && !all[i - 1].admin) {
+        var label = dom.menu.appendChild(el('p', 'watch-menu-label'));
+        label.appendChild(icon('i-lock'));
+        label.appendChild(document.createTextNode('Admins only'));
+      }
       var item = el('button', 'watch-keep-menu__item');
       item.type = 'button';
       item.setAttribute('role', 'menuitemradio');
@@ -788,7 +911,8 @@
 
   function choose(id) {
     var mine = now;
-    if (!mine || move) return;
+    if (!mine || (move && move.to === 'rows')) return;
+    settle();
     var sort = mine.opts.sort;
     if (sort.jump) {
       mine.value = id;
@@ -797,34 +921,51 @@
       mine.list.jump(id);
       return;
     }
-    if (id === mine.value) return;
-    if (!mine.asked) mine.shown = mine.value;
+    ask(id, mine.filter);
+  }
+
+  /* The open grid in the order *id* and of the filter *of*. */
+  function ask(id, of) {
+    var mine = now;
+    var sort = mine.opts.sort;
+    var filtered = of !== mine.filter;
+    if (id === mine.value && !filtered) return;
+    if (!mine.asked) mine.shown = { value: mine.value, filter: mine.filter };
     var asked = mine.asked = {};
-    mine.value = id;
-    labelSort();
-    mine.list.busy(true);
-    function undo() {
-      mine.value = mine.shown;
+    function become(value, filter) {
+      mine.value = value;
+      mine.filter = filter;
       labelSort();
+      drawBar();
+      showFilter();
     }
-    Promise.resolve(sort.choose(id)).then(function (content) {
+    become(id, of);
+    mine.list.busy(true);
+    function undo() { become(mine.shown.value, mine.shown.filter); }
+    Promise.resolve(sort.choose(id, of)).then(function (content) {
       if (now !== mine || mine.asked !== asked) return;
       mine.asked = null;
       mine.list.busy(false);
       // Left meanwhile: the grid on its way out stays as it is.
       if (move) { undo(); return; }
-      if (content.total !== undefined) setTotal(content.total);
+      if (content.total !== undefined) {
+        mine.opts.total = content.total;
+        setTotal(content.total);
+      }
+      if (content.bar) setBar(content.bar);
       mine.fills++;
       mine.list.set(content, { move: true });
       stuck();
-      if (sort.chosen) sort.chosen(id);
-      say(mine.opts.title + ', ' + sort.label + ': ' + optionNow().label + '.');
+      if (sort.chosen) sort.chosen(id, of);
+      say(mine.opts.title + (filterNow() ? ', ' + filterNow().label + ', ' + plural(content.total) : '') +
+        ', ' + sort.label + ': ' + optionNow().label + '.');
     }, function () {
       if (now !== mine || mine.asked !== asked) return;
       mine.asked = null;
       mine.list.busy(false);
       undo();
-      core.toast('Couldn’t change the order. Try again in a moment.', { variant: 'error' });
+      if (mine.late) mine.late();
+      core.toast('Couldn’t change the ' + (filtered ? 'filter' : 'order') + '. Try again in a moment.', { variant: 'error' });
     });
   }
 
@@ -975,6 +1116,8 @@
     });
   }
 
+  function allLink() { return toArray(browse.querySelectorAll('.watch-all-link')).filter(shownNow)[0] || null; }
+
   function placeFromLink(opts) {
     var back = arriving();
     if (back) {
@@ -983,13 +1126,13 @@
         return { node: s, left: (section && back.rows[section.getAttribute('data-row-id')]) || 0 };
       }) };
     }
-    var row = rowOf(opts);
-    if (!row) return { y: 0, lefts: [], focus: null };
+    var to = rowOf(opts) || (opts.id === 'library' && allLink());
+    if (!to) return { y: 0, lefts: [], focus: null };
     var keep = window.scrollY;
     dom.all.style.display = 'none';
     unpin(browse);
     scrollPage(0);
-    var r = row.getBoundingClientRect();
+    var r = to.getBoundingClientRect();
     var y = Math.max(0, r.top - (window.innerHeight - r.height) / 2);
     dom.all.style.display = '';
     scrollPage(keep);
@@ -1093,11 +1236,12 @@
     }
     toArray(now.list.node.querySelectorAll('.grid-group, .watch-card--skel')).forEach(function (n) {
       var r = n.getBoundingClientRect();
-      if (r.top < vh && r.bottom > 0) side(n, 0, 0, 120);
+      if (r.top < vh && r.bottom > 0) side(n, 0, 0, n.classList.contains('watch-card--skel') ? 0 : 120);
     });
     side(dom.back, 10, 0, 100);
     side(dom.count, -8, 0, 140);
     side(dom.tools.firstElementChild, 10, 0, 140);
+    toArray(dom.bar.children).forEach(function (node) { side(node, 0, -8, 120); });
     side(now.list.tail.firstElementChild, 0, 12, 140);
 
     heading(row, add, travel);
@@ -1124,12 +1268,25 @@
     return out;
   }
 
+  function titleAlone() {
+    return { node: dom.title, rows: { transform: 'translate(-8px, 0px)', opacity: 0 }, grid: { transform: NONE, opacity: 1 }, open: IN_MS, close: OUT_MS, openAfter: 100, closeAfter: 0 };
+  }
+
   /* The row's heading becomes the header's title. */
   function heading(row, add, travel) {
     var from = row && (row.querySelector('[data-row-title]') || row.querySelector('.watch-row__title'));
-    if (!from) return;
-    var a = wordsRect(from);
-    if (a.bottom <= 0 || a.top >= window.innerHeight) return;
+    var a = from && wordsRect(from);
+    if (!a || a.bottom <= 0 || a.top >= window.innerHeight) {
+      // It comes from nowhere on the screen, and goes there.
+      add(titleAlone());
+      return;
+    }
+    if (from.textContent.trim() !== dom.title.textContent.trim()) {
+      // Two different names: one gives way to the other.
+      add({ node: from, rows: { transform: NONE, opacity: 1 }, grid: { transform: NONE, opacity: 0 }, open: OUT_MS, close: IN_MS, openAfter: 0, closeAfter: 60 });
+      add(titleAlone());
+      return;
+    }
     var b = wordsRect(dom.title);
     var box = dom.title.getBoundingClientRect();
     var size = parseFloat(getComputedStyle(from).fontSize) / parseFloat(getComputedStyle(dom.title).fontSize);
@@ -1211,6 +1368,7 @@
       browse.hidden = true;
       stuck();
       now.list.hold(false);
+      if (now.late) now.late();
     } else {
       empty();
     }
@@ -1265,15 +1423,32 @@
     }
     // The server draws the first page of a shared link; anything later replaces it.
     if (cards) dom.body.replaceChildren();
-    now = { opts: opts, value: opts.sort ? opts.sort.value : null, list: null, asked: null, shown: null, jumped: false, fills: 0 };
+    now = { opts: opts, value: opts.sort ? opts.sort.value : null, filter: opts.filter ? opts.filter.value : null, list: null, asked: null, shown: null, jumped: false, fills: 0, late: null };
     now.list = list(dom.body, {
       title: opts.title, cards: cards, next: opts.next, fetchPage: opts.fetchPage,
       total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/watch' },
-      clearTop: headBottom,
+      clearTop: headBottom, start: dom.bar, waiting: opts.waiting, refresh: opts.refresh,
       say: function (text) { if (Date.now() - saidAt > HEARD_MS) say(text); },
       took: fitSort
     });
     drawHead();
+    if (opts.later) follow(now);
+  }
+
+  /* What the grid was opened without, put in once it is in and nothing moves. One filled
+     otherwise by then has no need of it; one that was to be and could not still has. */
+  function follow(mine) {
+    function put(content) {
+      if (now !== mine || mine.fills) return;
+      if (move || mine.asked) { mine.late = function () { put(content); }; return; }
+      mine.late = null;
+      // Asked for again as a page, which says so where it fails.
+      if (!content) content = { cards: mine.list.cards(), next: '' };
+      mine.fills++;
+      if (content.bar) setBar(content.bar);
+      mine.list.set(content, { move: true, stay: true });
+    }
+    mine.opts.later().then(put, function () { put(null); });
   }
 
   function announce() {
@@ -1285,8 +1460,13 @@
 
   /* The open grid is asked for in another order. A sort that jumps has none. */
   function resorted(opts) {
-    return !!now.opts.sort && !!opts.sort && !opts.sort.jump && opts.sort.value !== now.value;
+    return !!now.opts.sort && !!opts.sort && !opts.sort.jump &&
+      (opts.sort.value !== now.value || (!!opts.filter && opts.filter.value !== now.filter));
   }
+
+  /* With nothing to show yet the first page is asked for at once, and its place is held, once
+     there is a layout to count the columns of. */
+  function firstPage(opts) { if (opts.next === '' && !now.list.count()) now.list.more(); }
 
   /* Says whether the page stands where it should: scrolled on into before, the
      grid grows back to there first. */
@@ -1303,7 +1483,7 @@
     }
     settle();
     if (now && now.opts.id === opts.id) {
-      if (resorted(opts)) choose(opts.sort.value);
+      if (resorted(opts)) ask(opts.sort.value, opts.filter ? opts.filter.value : now.filter);
       return true;
     }
     var fromRows = !browse.hidden && !now;
@@ -1314,9 +1494,11 @@
     var first = fromRows && !opts.instant && !back ? firstSeen(rowOf(opts)) : null;
     var y = window.scrollY;
     fill(opts);
-    if (!fromRows || opts.instant || deep || core.reduceMotion() || !dom.all.animate) {
+    if (!fromRows || opts.instant || opts.still || deep || core.reduceMotion() || !dom.all.animate) {
       browse.hidden = true;
       dom.all.hidden = false;
+      showFilter(true);
+      firstPage(opts);
       scrollPage(opts.instant ? y : Math.min(y, headScroll()));
       aim(first);
       announce();
@@ -1328,6 +1510,8 @@
     aim(first);
     lastY = window.scrollY;
     dom.head.classList.remove('is-stuck');
+    showFilter(true);
+    firstPage(opts);
     move = { to: 'grid', gridY: window.scrollY, tracks: null, token: null };
     move.tracks = measure(opts);
     play('grid');
@@ -1375,7 +1559,8 @@
   }
 
   /* The card the person was on, if the row shows it; else what had the focus
-     when the grid opened; else the row's heading, or the search when the row is gone. */
+     when the grid opened; else the row's heading. All titles has no row: the search it was
+     opened from, or the link to it where that is in sight; nothing that is not takes it. */
   function focusRows(opts, key) {
     var row = rowOf(opts);
     say('Back to all rows.');
@@ -1392,7 +1577,13 @@
     if (row && watch.expand) watch.expand.row(row);
     if (to && (!shownNow(to) || to.matches('a:not([href])'))) to = null;
     if (!to && row) to = row.querySelector('.watch-row__title a[href]') || row.querySelector('.watch-row__scroll');
-    if (!to) to = core.byId('watch-search');
+    if (!to && opts.fromSearch && !core.coarsePointer()) to = core.spareFocus();
+    if (!to && opts.id === 'library') {
+      var link = allLink();
+      var at = link && link.getBoundingClientRect();
+      to = at && at.bottom > 0 && at.top < window.innerHeight ? link : core.byId('main-content');
+    }
+    if (!to) to = core.spareFocus();
     if (to) to.focus({ preventScroll: true });
   }
 
@@ -1469,6 +1660,9 @@
     leave: leave,
     take: take,
     bring: bring,
+    setBar: setBar,
+    rest: function () { settle(); },
+    shows: function (id) { return now && now.opts.id === id && !(move && move.to === 'rows') ? { sort: now.value, filter: now.filter } : null; },
     setTotal: function (n) { if (now) setTotal(n); },
     setSort: function (sort) { if (now) setSort(sort); },
     isOpen: function () { return !!now && !(move && move.to === 'rows'); },

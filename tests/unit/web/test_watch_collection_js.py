@@ -18,7 +18,7 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> None:
+def test_the_row_comes_once_it_is_known_with_the_film_on_show_marked() -> None:
     out = _run("row")
     assert out["waiting"] is True
     assert out["gets"] == ["/api/watch/title/tmdb-movie-2/collection"]
@@ -27,11 +27,24 @@ def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> N
     assert (out["here"], out["current"]) == (["Film 2"], "true")
     assert out["name"] == "The Saga · 7 films · 1 in the library"
     assert out["stops"] == [-1, 0, -1, -1, -1, -1, -1]
-    assert out["get"] == "Download the missing 3"
+    assert (out["get"], out["brief"]) == ("Download the missing 3", "Get 3 missing")
 
 
 def test_there_is_no_row_where_there_is_nothing_to_show() -> None:
     assert _run("nothing") == {"none": False, "alone": False, "failed": False, "show": 0}
+
+
+def test_the_place_of_the_films_is_held_until_they_are_known() -> None:
+    out = _run("expected")
+    for got in out.values():
+        assert (got["before"], got["held"], got["again"]) == (False, [True, True, "true"], True)
+        assert got["skeleton"] is False
+    assert [(g["films"], g["shown"], g["next"]) for g in out.values()] == [
+        # Only a film known to be in one has its place held the next time, while it loads.
+        (7, True, True),
+        (0, False, False),
+        (0, False, False),
+    ]
 
 
 def test_a_film_opens_its_page_and_back_finds_its_card() -> None:
@@ -42,6 +55,10 @@ def test_a_film_opens_its_page_and_back_finds_its_card() -> None:
     assert out["top"] == "ttl-title"
     assert out["atOnce"] == ["Film 3"]
     assert out["back"] is True
+
+
+def test_a_card_s_buttons_are_reached_with_the_arrow_down_and_are_no_tab_stops() -> None:
+    assert _run("tools") == {"stops": 0, "at": True, "own": False}
 
 
 def test_the_arrow_keys_go_along_the_row_and_stop_at_its_ends() -> None:
@@ -60,6 +77,10 @@ def test_the_row_stays_as_it_is_when_its_title_is_drawn_again_and_follows_a_mark
 
 def test_nothing_is_offered_where_none_is_missing() -> None:
     assert _run("noneMissing") == {"row": True, "get": None}
+
+
+def test_a_film_that_cannot_be_checked_is_left_out_in_plain_words() -> None:
+    assert _run("unavailable") == ["Can’t be checked right now: Film 1"]
 
 
 def test_the_dialog_lists_what_is_missing_and_says_what_is_left_out_and_why() -> None:
@@ -107,8 +128,8 @@ def test_each_film_added_is_told_to_the_page_as_a_single_download_is() -> None:
 def test_a_failure_is_told_at_its_film_and_only_that_one_is_tried_again() -> None:
     out = _run("partial")
     assert out["rows"] == [
-        "Film 2: 2002 · Already in Radarr",
-        "Film 3: 2003 · Failed to add to Radarr",
+        "Film 2: 2002 · Already added",
+        "Film 3: 2003 · It didn't work",
         "Film 4: 2004 · Queued",
     ]
     assert out["said"] == "2 of 3 films are queued. 1 was not."
@@ -235,7 +256,7 @@ def test_what_failed_is_still_told_when_the_dialog_is_opened_again() -> None:
     assert out["spins"] is True
     assert out["rows"] == [
         "Film 2: 2002 · Queued",
-        "Film 3: 2003 · Failed to add to Radarr",
+        "Film 3: 2003 · It didn't work",
         "Film 4: 2004 · Queued",
     ]
     assert (out["said"], out["go"]) == (

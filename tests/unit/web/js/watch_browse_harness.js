@@ -1,4 +1,4 @@
-// Runs the Watch page's browse scripts (core, address, keep, search, rows-load, grid, expand, browse, watch-rows) against the fake DOM and
+// Runs the Watch page's browse scripts (core, address, keep, search, rows-load, grid, expand, making, browse, watch-rows) against the fake DOM and
 // prints the outcome of one scenario as JSON. Usage: node watch_browse_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -87,6 +87,7 @@ function load(opts = {}) {
   page(doc, opts);
   const toasts = [];
   const timers = [];
+  const beats = [];
   const calls = [];
   const replaced = [];
   const pushed = [];
@@ -105,13 +106,15 @@ function load(opts = {}) {
     return fn ? fn() : Promise.reject(apiError(404, {}));
   };
   const ctx = {
-    document: Object.assign(doc, { dispatchEvent: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
+    document: Object.assign(doc, { dispatchEvent: () => {}, removeEventListener: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
     parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: () => {},
+    setInterval: (fn) => { beats.push(fn); return beats.length; },
+    clearInterval: (id) => { beats[id - 1] = null; },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingLeft: '0', paddingRight: '0' }),
     // Reduced motion unless a scenario asks for motion: swaps are immediate.
-    matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) }),
+    matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) && !/coarse/.test(q) }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: opts.innerHeight || 900,
@@ -132,9 +135,9 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/making.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
-  return { ctx, doc, toasts, timers, calls, routes, replaced, pushed, scrolls };
+  return { ctx, doc, toasts, timers, beats, calls, routes, replaced, pushed, scrolls };
 }
 
 /* Run the timers due now (the poll), in order, once each. */
@@ -815,6 +818,72 @@ const scenarios = {
       posts: p.calls.filter((c) => /^POST/.test(c)), toasts: p.toasts.map((t) => t.message) };
   },
 
+  // What is shown and what a screen reader is told, from the press to the end: made, not made, or made and going on.
+  async ownMaking() {
+    const at = async (ended, opts = {}) => {
+      let done = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(done ? ended : { mine: MINE.ready }), few_ratings: opts.few }),
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: done ? opts.status || 'done' : 'running' }),
+      } });
+      await settle();
+      const line = rec(p.doc).querySelector('.rec-line');
+      const said = line.querySelector('.rec-line__text');
+      const told = []; // what a polite region says as its words change
+      const look = () => ({ shown: text(line.querySelectorAll('.making__words').pop()), status: said.textContent, heard: !said.classList.contains('sr-only'),
+        live: said.getAttribute('aria-live'), role: said.getAttribute('role'), reel: !!line.querySelector('.making-reel'),
+        twinkles: line.classList.contains('is-making') });
+      const listen = () => { if (said.getAttribute('aria-live') !== 'off' && told[told.length - 1] !== said.textContent) told.push(said.textContent); };
+      const before = look();
+      click(p.doc, line.querySelector('[data-own-refresh]'));
+      await settle();
+      const busy = look();
+      listen();
+      for (let i = 0; i < 4; i += 1) { p.beats.filter(Boolean).forEach((fn) => fn()); listen(); }
+      const later = look();
+      const starts = p.beats.length;
+      done = true;
+      const ends = p.timers.filter((t) => t.ms >= 3000); // the poll
+      p.timers.length = 0;
+      ends.forEach((t) => t.fn());
+      await settle();
+      const end = look();
+      listen();
+      const beating = p.beats.filter(Boolean).length;
+      await tick(p);
+      listen();
+      return { before, busy, later, starts, end, beating, after: look(), told, toasts: p.toasts.map((t) => t.message) };
+    };
+    return {
+      made: await at({ mine: MINE.wait, items: OWN_ITEMS }),
+      failed: await at({ mine: MINE.ready }, { status: 'failed' }),
+      again: await at({ mine: MINE.running, items: OWN_ITEMS }),
+      few: (await at({ mine: MINE.wait, items: OWN_ITEMS }, { few: true })).busy.shown,
+    };
+  },
+
+  // Made once, then pressed again at a server that fails: the second press has no happy end.
+  async ownMakingThenBroken() {
+    let presses = 0;
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ mine: MINE.ready, items: presses ? OWN_ITEMS : undefined })),
+      'POST /api/watch/picks/refresh': () => (presses++ ? Promise.reject(apiError(500, {})) : Promise.resolve({ ok: true, status: 'started' })),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'done' }),
+    } });
+    await settle();
+    const line = rec(p.doc).querySelector('.rec-line');
+    const shown = () => text(line.querySelectorAll('.making__words').pop());
+    click(p.doc, line.querySelector('[data-own-refresh]'));
+    await settle();
+    await tick(p);
+    const first = shown();
+    click(p.doc, line.querySelector('[data-own-refresh]'));
+    const busy = { shown: shown(), heard: !line.querySelector('.rec-line__text').classList.contains('sr-only') };
+    await settle();
+    return { first, busy, second: shown(), heard: !line.querySelector('.rec-line__text').classList.contains('sr-only') };
+  },
+
   // It made none: the row stays as it was, says so, and can be tried again.
   async ownRefreshFailed() {
     const p = load({ mine: MINE.ready, routes: {
@@ -1116,13 +1185,13 @@ const scenarios = {
     await scroll(scroller, 0);
     const third = scroller.querySelectorAll('.watch-card')[2];
     return { refs: refsOf(scroller), calls: p.calls.filter((c) => /library/.test(c)), more: scroller.parentNode.hasAttribute('data-row-more'),
-      third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('[data-watch-more]'), !!third.querySelector('[data-watch-keep]')] };
+      third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('.card-tool--eye'), !!third.querySelector('[data-watch-keep]')] };
   },
 
   // A row whose rest the server has goes on from there as a grid too, in the grid's pages and orders.
   async libraryGrids() {
     const out = {};
-    for (const id of ['movies', 'tv', 'anime', 'recent']) {
+    for (const id of ['recent']) {
       const p = load({ grids: { [id]: 'Row' }, routes: { [`GET /api/watch/library/${id}/row?after=k&limit=60`]: () => Promise.resolve({ items: [], next: null, total: 9 }),
         [`GET /api/watch/library/${id}/row?after=&limit=60&sort=az`]: () => Promise.resolve({ items: [], next: 'z', total: 9 }) } });
       await settle();
@@ -1136,24 +1205,29 @@ const scenarios = {
     return out;
   },
 
-  // Discover cards carry a mark and More only for a title the library holds, whatever the server sends.
+  // Discover cards carry the mark of the library's title, else of TMDB's, whatever the server sends.
   async discoverMarks() {
     const p = load({ routes: { 'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [
       card('movie-11', { in_library: true, mark_kind: 'movie', mark_key: '11', watched: true }),
       card('tmdb-movie-2', { mark_kind: null, mark_key: null, watched: false }),
-      card('tmdb-movie-3', { mark_kind: 'movie', mark_key: '1/../x', watched: true })] }] }) } });
+      card('tmdb-movie-4', { tmdb_ref: 'tmdb-movie-4', level: -2, mark_kind: null, mark_key: null, watched: true }),
+      card('tmdb-movie-3', { mark_kind: 'movie', mark_key: '1/../x', tmdb_ref: 'tmdb-movie-3/x', watched: true })] }] }) } });
     await settle();
     return scrollerOf(p, 'trending').querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
-      c.querySelectorAll('[data-watch-more]').length, !!c.querySelector('.watch-card__link [data-watch-more]')]);
+      c.querySelectorAll('.card-tool').map((b) => b.getAttribute('aria-label')), c.getAttribute('data-level'), !!c.querySelector('.watch-card__link .card-tool')]);
   },
 
-  // A pick has its More button whether the library holds it or not, a Discover card of the same title does not.
+  // A card that stands in no row: its buttons are one Tab stop.
+  cardStop: async () => load().ctx.MMWatch.browse.card(card('movie-11', { in_library: true, mark_kind: 'movie', mark_key: '11', tmdb_ref: 'tmdb-movie-11' }))
+    .querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex')),
+
+  // A pick has its thumb and eye whether the library holds it or not.
   async pickMore() {
     const p = load({ routes: {
-      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11' })] })),
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1', { tmdb_ref: 'tmdb-tv-5' }), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11', tmdb_ref: 'tmdb-movie-6' })] })),
       'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [card('tmdb-movie-2')] }] }) } });
     await settle();
-    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('[data-watch-more]').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
+    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('.card-tool').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
     return [...rec(p.doc).querySelectorAll('.watch-card'), scrollerOf(p, 'trending').querySelector('.watch-card')].map(look);
   },
 

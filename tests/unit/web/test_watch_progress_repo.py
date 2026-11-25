@@ -441,3 +441,33 @@ def test_a_failed_save_leaves_no_transaction_open(users):
     with pytest.raises(sqlite3.IntegrityError):
         _save(users, username="ghost")
     assert not users.in_transaction
+
+
+def test_undoing_a_mark_that_made_a_row_leaves_a_play_since(users):
+    [change] = mark_watched(users, "aoife", [MarkTarget("m1", "m1", None, 0)], NOON)
+    save_progress(
+        users,
+        username="aoife",
+        rating_key="m1",
+        media_item_id="m1",
+        show_rating_key=None,
+        position_s=600,
+        duration_s=6000,
+        played_s=20,
+        now=NOON + timedelta(minutes=1),
+    )
+
+    restore_marks(users, "aoife", [change])
+
+    assert get_progress(users, "aoife", ["m1"])["m1"].position_s == 600
+    assert change.new
+
+
+def test_undoing_a_mark_leaves_a_row_that_was_there_though_empty(users):
+    target = MarkTarget("m1", "m1", None, 0)
+    mark_watched(users, "aoife", [target], NOON)
+    unmark_watched(users, "aoife", "movie", "m1")
+
+    restore_marks(users, "aoife", mark_watched(users, "aoife", [target], NOON))
+
+    assert list(get_progress(users, "aoife", ["m1"])) == ["m1"]

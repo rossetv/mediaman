@@ -46,8 +46,8 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     )
     # no other rule sets it to a size of its own
     assert css.count("scroll-padding-bottom") == 1
-    # on a phone the bar stands on the tab bar
-    below = "calc(64px + env(safe-area-inset-bottom, 0px))"
+    # on a phone the bar stands on the one at the foot
+    below = "var(--foot)"
     phone = css[css.index(f".setg-pg .savebar {{ bottom: {below};") :]
     assert f"html:has(.setg-pg .savebar.on) {{ --savebar-below: {below}; }}" in phone
 
@@ -212,8 +212,8 @@ def test_scrolled_into_view_controls_clear_the_sticky_bars() -> None:
     rules = re.findall(r"html:has\(\.setg-pg\)\s*\{([^{}]*)\}", css)
     assert len(rules) == 2
     assert all("scroll-padding-top" in body for body in rules)
-    # the phone rule reaches past the top bar and the chip strip (48 + 65 px)
-    assert "48px + 65px" in rules[1]
+    # the phone rule reaches past the top bar and the chip strip (65 px)
+    assert "var(--nav-h) + 65px" in rules[1]
 
 
 def test_blocks_add_no_scroll_margin_on_top_of_the_page_scroll_padding() -> None:

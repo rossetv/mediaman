@@ -9,7 +9,7 @@ from typing import Literal
 import requests as _requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from mediaman.core.audit import log_audit
 from mediaman.db import get_db
@@ -27,6 +27,12 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download.confirm import drop_arr_cache
+from mediaman.web.routes.search._seasons import (
+    SeasonPicks,
+    add_to_tracked_show,
+    no_season,
+    seasons_not_listed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,19 +115,14 @@ def _release_download(
         _download_dedup.pop((username, tmdb_id, media_type, seasons_token), None)
 
 
-class _DownloadRequest(BaseModel):
-    """Body schema for POST /api/search/download. extra="forbid" turns unknown keys into a 422,
-    media_type is limited to the two handled values, the title to 256 chars and the season
-    lists to 100 entries to refuse flood payloads.
+class _DownloadRequest(SeasonPicks):
+    """Body schema for POST /api/search/download. media_type is limited to the two handled
+    values and the title to 256 chars.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     media_type: Literal["movie", "tv"]
     tmdb_id: int = Field(ge=1)
     title: str = Field(max_length=256)
-    monitored_seasons: list[int] | None = Field(default=None, max_length=100)
-    search_seasons: list[int] | None = Field(default=None, max_length=100)
 
 
 def _resolve_admin_email(conn: sqlite3.Connection, admin: str) -> str | None:
@@ -160,7 +161,9 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
             body.media_type,
             seasons_token,
         )
-        return respond_failure("Duplicate request — wait a moment before retrying", status=429)
+        return respond_failure(
+            "Duplicate request — wait a moment before retrying", status=429, duplicate=True
+        )
     return None
 
 
@@ -173,13 +176,15 @@ def _submit_movie(
 ) -> JSONResponse:
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
-        return respond_failure("Radarr not configured", status=503)
+        return respond_failure("Downloads aren't set up for movies", status=503)
     try:
         outcome = add_or_remonitor_movie(radarr, body.tmdb_id, body.title)
         if outcome == "already_tracked":
-            return respond_failure(f"'{body.title}' is already in Radarr", status=409)
+            return respond_failure(f"'{body.title}' has already been added", status=409)
         if outcome == "bad_entry":
-            return respond_failure("Radarr entry is in an unexpected state", status=502)
+            return respond_failure(
+                "The download service has this movie, but not in a way that can be used", status=502
+            )
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
         # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
         # responses, RequestException covers transport failures, ValueError
@@ -188,7 +193,7 @@ def _submit_movie(
         # ``except Exception`` would silently swallow programming bugs.
         if not (isinstance(exc, SafeHTTPError) and movie_add_landed(exc, radarr, body.tmdb_id)):
             logger.exception("Failed to add movie")
-            return respond_failure("Failed to add to Radarr", status=502)
+            return respond_failure("The download service didn't take it.", status=502)
     with conn:
         if notify_email is not None:
             _record_dn(
@@ -212,7 +217,7 @@ def _submit_movie(
             f"Added '{body.title}' to Radarr by {actor}",
             actor=actor,
         )
-    return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
+    return JSONResponse({"ok": True, "message": f"'{body.title}' is asked for"})
 
 
 def _resolve_tvdb_id(
@@ -222,9 +227,9 @@ def _resolve_tvdb_id(
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except (SafeHTTPError, _requests.RequestException, ArrError):
         logger.exception("Sonarr lookup failed")
-        return None, respond_failure("Sonarr lookup failed", status=502)
+        return None, respond_failure("The download service didn't answer.", status=502)
     if not lookup:
-        return None, respond_failure("Series not found in Sonarr lookup", status=404)
+        return None, respond_failure("The download service doesn't know this show", status=404)
     tvdb_id_raw = lookup.get("tvdbId")
     if not isinstance(tvdb_id_raw, int) or tvdb_id_raw <= 0:
         return None, respond_failure("No TVDB ID for this series", status=422)
@@ -240,7 +245,7 @@ def _submit_tv(
 ) -> JSONResponse:
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
-        return respond_failure("Sonarr not configured", status=503)
+        return respond_failure("Downloads aren't set up for shows", status=503)
     tvdb_id, err = _resolve_tvdb_id(sonarr, body)
     if err is not None:
         return err
@@ -254,37 +259,41 @@ def _submit_tv(
             "Sonarr get_series failed during duplicate check — refusing to proceed",
             exc_info=True,
         )
+        return respond_failure("The download service didn't answer.", status=503)
+    if already_tracked and not body.search_seasons:
         return respond_failure(
-            "Cannot verify series status — Sonarr unreachable, please retry", status=503
-        )
-    if already_tracked:
-        return respond_failure(
-            f"'{body.title}' is already tracked by Sonarr — manage it there",
+            f"'{body.title}' has already been added",
             status=409,
         )
-    # Sonarr searches every monitored season it is missing files for, so a season not
-    # asked to be searched is not monitored. A show Sonarr already holds was refused
-    # above, so no season of it is held to keep monitored.
-    seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
+    if already_tracked:
+        try:
+            return add_to_tracked_show(
+                conn,
+                sonarr,
+                tmdb_id=body.tmdb_id,
+                tvdb_id=tvdb_id,
+                title=body.title,
+                numbers=body.search_seasons or (),
+                actor=actor,
+                email=notify_email,
+            )
+        except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
+            logger.exception("Failed to read the series")
+            return respond_failure("The download service didn't take it.", status=502)
+    seasons = body.to_add()
     if seasons is not None and not seasons:
-        return respond_failure("Pick at least one season", status=400)
+        return no_season()
     try:
         if seasons is None:
             sonarr.add_series(tvdb_id, body.title)
         else:
             sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
     except SeasonsNotListed as exc:
-        # The person's own pick, not a fault: nothing was added, and not "already there".
-        message = str(exc)
-        if set(seasons or []) - set(exc.seasons):
-            message += (
-                " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
-            )
-        return respond_failure(message, status=422)
+        return seasons_not_listed(exc, seasons or [])
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
         if not (isinstance(exc, SafeHTTPError) and series_add_landed(exc, sonarr, tvdb_id)):
             logger.exception("Failed to add series")
-            return respond_failure("Failed to add to Sonarr", status=502)
+            return respond_failure("The download service didn't take it.", status=502)
     with conn:
         if notify_email is not None:
             _record_dn(
@@ -309,7 +318,7 @@ def _submit_tv(
             f"Added '{body.title}' to Sonarr by {actor}",
             actor=actor,
         )
-    return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
+    return JSONResponse({"ok": True, "message": f"'{body.title}' is asked for"})
 
 
 @router.post("/api/search/download")

@@ -3,6 +3,8 @@ does not load the script that calls an admin-only endpoint; an admin sees them a
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 import mediaman
+from mediaman.services.downloads import strip
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
 from tests.helpers.factories import insert_admin_user
@@ -142,3 +145,16 @@ def test_an_outage_is_shown_to_every_role_and_never_as_all_caught_up(make_client
 
     assert "All caught up" not in html
     assert "reach Radarr and Sonarr" in html
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_ring_on_the_downloads_page_begins_with_what_the_page_was_drawn_from(make_client, role):
+    strip.on_page.clear()
+    page, polled = _get_downloads(make_client(downloads_router, role))
+
+    island = re.search(r'id="downloads-page-data">(.*?)</script>', page.text, re.S)
+    assert island
+    drawn = json.loads(island[1])["downloading"]
+    assert drawn["summary"]["total"] > 0
+    assert drawn["items"] == []
+    assert drawn["summary"] == polled.json()["strip"]["summary"]

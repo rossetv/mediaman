@@ -1,4 +1,4 @@
-// Runs watch/core.js, keep.js, ratings.js, marks.js and preview.js against the fake DOM and a fake clock, and prints one
+// Runs watch/core.js, keep.js, ratings.js, card-tools.js, marks.js and preview.js against the fake DOM and a fake clock, and prints one
 // scenario's outcome as JSON. Usage: node watch_preview_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -45,7 +45,7 @@ function card(id, title, over = {}) {
         ...(over.leaving ? [['span', { class: 'watch-badge watch-badge--leaving' }, ['span', { class: 'watch-badge__long' }, over.leaving]]] : []),
         ...(over.pct ? [['progress', { class: 'watch-bar', value: String(over.pct) }]] : [])],
       ['span', { class: 'watch-card__sub' }, over.sub || 'Movie']],
-    ['button', { class: 'watch-more', 'data-watch-more': '' }]];
+    ['div', { class: 'card-tools' }, ['button', { class: 'card-tool' }]]];
 }
 
 const CARDS = [
@@ -138,7 +138,8 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
+  if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/card-tools.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
   });
@@ -170,7 +171,8 @@ function load(opts = {}) {
     },
     link: (id) => doc.querySelector('#' + id + ' .watch-card__link'),
     x: 0,
-    over(target, e) { h.x += 7; fire(doc, 'pointermove', { target, pointerType: 'mouse', clientX: h.x, clientY: 5, buttons: 0, ...e }); },
+    // On a card's picture, unless it is said to be on its caption.
+    over(target, e) { h.x += 7; if (target.matches && target.matches('.watch-card__link')) target = target.querySelector('.watch-card__poster'); fire(doc, 'pointermove', { target, pointerType: 'mouse', clientX: h.x, clientY: 5, buttons: 0, ...e }); },
     /* Two close moves, then stillness: the mouse comes to rest. */
     async rest(id, ms) { h.over(h.link(id)); h.over(h.link(id), { clientX: h.x - 6 }); await h.pass(ms === undefined ? 600 : ms); },
     /* What an observer of the page is told of a change made to it. */
@@ -201,56 +203,119 @@ async function trailer(opts) {
   return h;
 }
 
-/* A click that goes no further up than where it is stopped. */
-function clickThumb(doc, b) {
-  let stopped = false;
-  const e = { target: b, preventDefault() {}, stopPropagation() { stopped = true; } };
-  for (let n = b; n && !stopped; n = n.parentNode) (n.listeners.click || []).forEach((fn) => fn(e));
-  if (!stopped) doc.listeners.click.forEach((fn) => fn(e));
-}
-
-/* What the Rate button shows: its strip open or not, the thumb's side, and what is said. */
+/* What the Rate button shows: its levels open or not, the thumb's side, and what is said. */
 function rateLook(h) {
   const b = h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0];
-  return [h.pv().querySelector('.pv__actions').classList.contains('is-rating'), ['is-up', 'is-down'].filter((c) => b.classList.contains(c)).join(), h.text('.pv__said'), b.hidden];
+  return [h.pv().querySelector('.rate--lift').classList.contains('is-open'), ['is-up', 'is-down'].filter((c) => b.classList.contains(c)).join(), h.text('.pv__said'), b.hidden];
 }
 function pressRate(h) { h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0].click(); }
 
 const scenarios = {
+  async playOn() {
+    const on = async (id, opts) => {
+      const h = load(opts);
+      await h.rest(id);
+      const b = h.pv().querySelector('[data-play-on]');
+      return b && [b.getAttribute('data-play-on'), b.getAttribute('tabindex')];
+    };
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const dialog = h.doc.createElement('dialog');
+    dialog.className = 'play-on';
+    dialog.setAttribute('open', '');
+    dialog.addEventListener('keydown', (ev) => ev.stopPropagation());
+    h.doc.body.appendChild(dialog);
+    const e = h.key('Escape', dialog);
+    return { film: await on('film', { tvs: true }), next: await on('going', { tvs: true }), outside: await on('outside', { tvs: true }), without: await on('film', {}), underSheet: [e.defaultPrevented, h.title()] };
+  },
+  // The episode Play plays is another once the title is marked; a sheet that is open goes on with its own.
+  async playOnMarked() {
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const on = () => h.pv().querySelectorAll('[data-play-on]').map((b) => b.getAttribute('data-play-on'));
+    const mark = async (href) => {
+      h.answers['movie-1'] = { ...FILM, play: { ...FILM.play, href } };
+      h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1', refs: ['movie-1'] } }));
+      await h.pass(50);
+      return on();
+    };
+    const same = h.pv().querySelector('[data-play-on]');
+    const out = { unmoved: (await mark('/watch/play/1')) && h.pv().querySelector('[data-play-on]') === same };
+    out.moved = await mark('/watch/play/2');
+    h.pv().querySelector('[data-play-on]').setAttribute('aria-expanded', 'true');
+    out.sheetOpen = await mark('/watch/play/3');
+    return out;
+  },
+  // What is done in the sheet, and the remote over the preview.
+  async playOnOver() {
+    const out = {};
+    for (const how of ['input', 'scroll']) {
+      const h = load({ tvs: true });
+      await h.rest('film');
+      const dialog = h.doc.createElement('dialog');
+      dialog.className = 'play-on';
+      const field = dialog.appendChild(h.doc.createElement('input'));
+      h.doc.body.appendChild(dialog);
+      h.fire(h.doc, how, { target: how === 'input' ? field : dialog });
+      await h.pass(50);
+      out[how] = h.title();
+    }
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const remote = h.doc.body.appendChild(h.doc.createElement('div'));
+    remote.id = 'tv-remote';
+    const e = h.key('Escape', remote);
+    h.changed();
+    await h.pass(50);
+    return { ...out, escape: e.stopped, under: h.title() };
+  },
   async rate() {
     const h = load({ ratings: true });
     await h.rest('film');
     const out = { first: rateLook(h), stops: h.pv().querySelectorAll('a, button').filter((n) => n.getAttribute('tabindex') !== '-1').length };
     pressRate(h);
     out.open = rateLook(h)[0];
-    h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
-    await h.pass(50);
+    h.pv().querySelectorAll('.rate--lift .rate__b')[0].click();
+    await h.pass(500);
     out.loved = rateLook(h);
-    pressRate(h);
-    h.fire(h.pv().querySelector('.pv__body'), 'mouseleave');
-    out.left = rateLook(h)[0];
-    h.pv().querySelector('[data-preview-more]').click();
-    out.menu = h.doc.querySelectorAll('.pv-menu .rate__b').map((b) => b.getAttribute('aria-checked'));
-    clickThumb(h.doc, h.doc.querySelectorAll('.pv-menu .rate__b')[1]);
-    await h.pass(600);
-    out.looked = h.doc.querySelector('.pv-menu').classList.contains('is-open');
     await h.pass(100);
-    out.shut = h.doc.querySelector('.pv-menu').classList.contains('is-open');
+    out.folded = rateLook(h)[0];
+    pressRate(h);
+    out.levels = h.pv().querySelectorAll('.rate__b').map((b) => b.getAttribute('aria-checked'));
+    h.fire(h.pv().querySelector('.rate--lift'), 'mouseleave');
+    await h.pass(300);
+    h.fire(h.pv().querySelector('.rate--lift'), 'mouseenter');
+    await h.pass(1000);
+    out.back = rateLook(h)[0];
+    h.fire(h.pv().querySelector('.rate--lift'), 'mouseleave');
+    await h.pass(500);
+    out.left = rateLook(h)[0];
+    const rest = h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0];
+    h.fire(rest, 'mouseenter');
+    await h.pass(100);
+    out.crossed = rateLook(h)[0];
+    await h.pass(100);
+    out.rested = rateLook(h)[0];
+    pressRate(h); // which has just opened by itself
+    out.own = rateLook(h)[0];
+    h.pv().querySelectorAll('.rate__b')[2].click();
+    await h.pass(50);
     return { ...out, after: rateLook(h), rates: h.rates, title: h.title() };
   },
-  /* The strip opened again while the save is on its way. */
+  /* The levels opened again while the save is on its way. */
   async stripAgain() {
     const save = {};
     const h = load({ ratings: true, saving: new Promise((r) => { save.done = r; }) });
     await h.rest('film');
     pressRate(h);
-    h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+    h.pv().querySelectorAll('.rate__b')[0].click();
+    await h.pass(700);
     pressRate(h);
     save.done({ media_type: 'movie', tmdb_id: 1 });
     await h.pass(50);
     return [h.rates.length, rateLook(h)[0]];
   },
-  /* The strip opened before the reply is there. */
+  /* The levels opened before the reply is there. */
   async stripEarly() {
     const h = load({ ratings: true, api: { 'movie-1': undefined } });
     await h.rest('film', 900);
@@ -271,7 +336,7 @@ const scenarios = {
     await h.pass(1500);
     return [open, sets];
   },
-  /* A pick whose card has no TMDB title, and a film the server says cannot be rated while its strip is open. */
+  /* A pick whose card has no TMDB title, and a film the server says cannot be rated while its levels are open. */
   async cannotRate() {
     const pick = load({ ratings: true, api: { 'rec-5': FILM } });
     await pick.rest('pick', 900);
@@ -311,11 +376,30 @@ const scenarios = {
       const h = load({ ratings: true, noRating: true });
       await h.rest('film');
       pressRate(h);
-      h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+      h.pv().querySelectorAll('.rate__b')[0].click();
       if (away) h.winFire('pagehide');
       await settle();
       out.push([h.toasts.length, away ? null : rateLook(h).slice(1, 3)]);
     }
+    return out;
+  },
+  /* The mouse on a card's caption, over its open levels, and on its picture once a level was given. */
+  async offPicture() {
+    const out = [];
+    const on = async (change) => {
+      const h = load();
+      const card = h.doc.querySelector('#film');
+      const at = change(card) || h.link('film');
+      h.over(at);
+      h.over(at, { clientX: h.x - 6 });
+      await h.pass(900);
+      out.push(h.title());
+    };
+    await on((card) => card.querySelector('.watch-card__sub'));
+    await on((card) => card.querySelector('.card-tool'));
+    await on((card) => card.classList.add('is-lifted'));
+    await on((card) => card.classList.add('is-quiet'));
+    await on(() => null);
     return out;
   },
   async passing() {
@@ -390,12 +474,20 @@ const scenarios = {
     await h.rest('other', 900);
     return { soon, later: h.gets.slice() };
   },
+  // A mark told by several refs, the library's not the first, while the preview is open.
+  async markedByRefs() {
+    const h = load();
+    await h.rest('film');
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'tmdb-movie-1', refs: ['tmdb-movie-1', 'movie-1'] } }));
+    await h.pass(1000);
+    return h.gets.length;
+  },
   async cached() {
     const h = load();
     const again = async () => { h.away(); await h.pass(1000); await h.rest('film'); return h.gets.length; };
     await h.rest('film');
     const out = { first: h.gets.length, second: await again() };
-    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1' } }));
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1', refs: ['movie-1'] } }));
     out.marked = await again();
     h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:title-changed', { detail: { ref: 'movie-1' } }));
     out.changed = await again();
@@ -619,7 +711,7 @@ const scenarios = {
     h.away();
     await h.pass(1000);
     out.pinned = h.title();
-    h.doc.querySelector('.pv-menu [data-act="mark"]').click();
+    h.doc.querySelector('.pv__eye').click();
     menu();
     h.doc.querySelector('.pv-menu [data-act="dismiss"]').click();
     out.asked = asked;
@@ -1164,7 +1256,7 @@ const scenarios = {
   async marked() {
     const going = { ...FILM, play: { label: 'Resume', href: '/watch/play/1?resume=1', progress_pct: 28, minutes_left: 83 } };
     const says = (h) => [h.text('.pv__first'), h.pv().querySelector('.pv__first').getAttribute('href'), h.pv().querySelectorAll('.pv__meta')[1].textContent, h.pv().querySelectorAll('.pv__progress').length];
-    const mark = (h, ref) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref } }));
+    const mark = (h, ref) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref, refs: [ref] } }));
     const out = {};
     let h = load({ api: { 'movie-1': going } });
     const poster = h.link('film').querySelector('.watch-card__poster');

@@ -96,8 +96,10 @@ def test_rate_limited_login_keeps_the_escaped_username_and_never_the_password(cl
 
 def test_text_stays_readable_and_phone_inputs_do_not_trigger_zoom():
     css = _WEB / "static" / "css"
-    note = (css / "_unsubscribe.css").read_text().split(".unsub-note {")[1].split("}")[0]
-    assert "var(--t3)" in note
+    share = (css / "_share.css").read_text()
+    text = share.split(".share-note p {")[1].split("}")[0]
+    small = share.split(".share-note .share-note__small {")[1].split("}")[0]
+    assert "var(--t2)" in text and "color" not in small
     for name, selector in (("_forms.css", ".inp"), ("_settings_pg.css", ".setg-pg .inp")):
         text = (css / name).read_text()
         pattern = (
@@ -136,9 +138,7 @@ def test_unsubscribe_pages_open_with_the_wordmark_and_the_button_names_its_busy_
     templates = Jinja2Templates(directory=str(_WEB / "templates"))
     for name, ctx in _UNSUB_PAGES:
         html = templates.get_template(name).render(ctx)
-        assert html.index("unsub-brand") < html.index("unsub-title")
-        if "unsub-icon" in html:
-            assert html.index("unsub-brand") < html.index("unsub-icon")
+        assert html.index('class="brand"') < html.index("share-note__mark") < html.index("<h1")
     confirm = templates.get_template(_UNSUB_PAGES[0][0]).render(_UNSUB_PAGES[0][1])
     assert 'data-busy-label="Unsubscribing…"' in confirm
     css = (_WEB / "static" / "css" / "_unsubscribe.css").read_text()

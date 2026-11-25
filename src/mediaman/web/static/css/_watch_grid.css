@@ -149,6 +149,85 @@
   .watch-all__tools .row-tool .ico:not(.row-tool__chev) { display: none; }
 }
 
+/* ── All titles: its filters, and the line under them ── */
+
+.watch-all__filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--pad) 6px;
+  overflow-x: auto;
+  scroll-padding-inline: var(--pad);
+  scrollbar-width: none;
+}
+.watch-all__filters::-webkit-scrollbar { display: none; }
+.watch-all__filters > .fpill {
+  position: relative;
+  flex: none;
+  gap: 7px;
+  min-height: 36px;
+  background: var(--rgba-overlay-sm);
+  text-decoration: none;
+  transition: background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.watch-all__filters > .fpill::after { content: ""; position: absolute; inset: -4px 0; }
+.watch-all__filters > .fpill:hover { background: var(--rgba-overlay-lg); }
+.watch-all__filters > .fpill.on { background: var(--t1); color: #000; }
+.watch-all__filters > .fpill:active { transform: scale(.96); }
+.watch-all__filters > .fpill:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.watch-all__filters > .fpill.on:focus-visible { outline-offset: 2px; }
+.watch-all__filters > .fpill > small { min-width: 2ch; font-size: 12px; opacity: .72; font-variant-numeric: tabular-nums; }
+.watch-all__lock { flex: none; display: inline-flex; align-items: center; gap: 12px; margin: 0 4px 0 6px; font-size: 12px; color: var(--t3); }
+.watch-all__lock::before { content: ""; width: 1px; height: 20px; background: var(--hair-strong); }
+.watch-all__fact { padding: 4px var(--pad) 10px; font-size: 13px; line-height: 1.4; color: var(--t3); font-variant-numeric: tabular-nums; }
+.watch-all__count { font-variant-numeric: tabular-nums; }
+@media (max-width: 699.98px) {
+  .watch-all__filters > .fpill { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .watch-all__filters > .fpill:active { transform: none; }
+}
+
+/* A caption that stands out. */
+.watch-card[data-tone] .watch-card__sub { color: var(--danger-text); }
+.watch-card[data-tone="soon"] .watch-card__sub { color: var(--orange); }
+.watch-card__sub { font-variant-numeric: tabular-nums; }
+/* An admin's change of it is on its way. */
+.watch-card .watch-card__sub > .btn-spinner { width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+.watch-card.is-working .watch-card__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-card.is-working .watch-card__poster > img { opacity: .5; }
+/* One Watch cannot open does not look as if it could. */
+.watch-card__link:not([href]) { cursor: default; }
+.watch-card__link:not([href]):hover .watch-card__poster { transform: none; box-shadow: none; }
+
+/* What only an admin has, in a menu. */
+.watch-menu-label { flex: none; display: flex; align-items: center; gap: 6px; padding: 10px 14px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--t3); }
+.watch-menu-facts { flex: none; max-width: 258px; padding: 0 14px 6px; font-size: 12px; line-height: 1.4; color: var(--t2); text-wrap: pretty; }
+.watch-keep-menu__item.is-danger { color: var(--danger-text); }
+.watch-more-menu .watch-keep-menu__item.is-danger > .ico { color: inherit; }
+
+/* The way in, beside the name of the library's rows. */
+.watch-all-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--t2);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.watch-all-link::before { content: ""; position: absolute; inset: -14px -10px; }
+.watch-all-link .ico { font-size: 10px; transition: transform var(--dur) var(--ease-out); }
+.watch-all-link:hover { color: var(--t1); }
+.watch-all-link:hover .ico { transform: translateX(3px); }
+.watch-all-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: var(--r-xs); color: var(--t1); }
+@media (prefers-reduced-motion: reduce) {
+  .watch-all-link:hover .ico { transform: none; }
+}
+
 /* ── While it moves ── */
 
 #watch-browse.is-pinned,
@@ -169,6 +248,9 @@ html.is-grid-moving .watch-card__link:hover .watch-card__poster { transform: non
   .watch-all__glass { opacity: 1; background: Canvas; border-bottom-color: CanvasText; }
   .watch-all__tools .row-tool { border: 1px solid ButtonText; }
   .grid-fail { border: 1px solid CanvasText; }
-  .grid-group::after { background: CanvasText; }
+  .grid-group::after,
+  .watch-all__lock::before { background: CanvasText; }
+  .watch-all__filters > .fpill { border: 1px solid ButtonText; }
+  .watch-all__filters > .fpill.on { background: Highlight; color: HighlightText; }
   .watch-grid-host .watch-card--skel .skel { border: 1px solid GrayText; }
 }

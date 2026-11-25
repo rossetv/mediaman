@@ -41,14 +41,6 @@ def _links(html: str) -> list[str]:
     return re.findall(r'<a\b[^>]*\bhref="([^"]+)"', html)
 
 
-def _desktop_links(html: str) -> list[str]:
-    return _links(html.split('<nav class="nav-links"')[1].split("</nav>")[0])
-
-
-def _tabbar(html: str) -> str:
-    return html.split('<nav class="nav-tabs"')[1].split("</nav>")[0]
-
-
 def _menu(html: str) -> str:
     return html.split('id="profile-menu"')[1]
 
@@ -67,13 +59,13 @@ def _buttons(html: str) -> list[str]:
     return re.findall(r'<button[^>]*class="profile-btn[^>]*>', html)
 
 
-def test_a_viewer_gets_watch_and_downloads_and_a_menu_of_what_they_may_open():
+def test_a_viewer_gets_the_way_back_to_watch_and_a_menu_of_what_they_may_open():
     html = _render("viewer")
 
-    assert _desktop_links(html) == ["/watch", "/downloads"]
-    assert _links(_tabbar(html)) == ["/watch", "/downloads"]
+    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/watch"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
+        ("/downloads", "Downloads"),
         ("/history", "History"),
         ("/api/auth/logout", "Log out"),
     ]
@@ -81,13 +73,15 @@ def test_a_viewer_gets_watch_and_downloads_and_a_menu_of_what_they_may_open():
 
 
 @pytest.mark.parametrize("role", ["admin", None])
-def test_an_admin_and_a_missing_role_find_history_and_settings_in_the_menu_not_the_nav(role):
+def test_an_admin_and_a_missing_role_find_settings_too_in_the_menu_and_nothing_more_in_the_bar(
+    role,
+):
     html = _render(role)
 
-    assert _desktop_links(html) == ["/watch", "/downloads"]
-    assert _links(_tabbar(html)) == ["/watch", "/downloads"]
+    assert set(_links(_bar_of(html).split("<noscript>")[0])) == {"/watch"}
     assert _menu_items(html) == [
         ("/account", "Profile"),
+        ("/downloads", "Downloads"),
         ("/history", "History"),
         ("/settings", "Settings"),
         ("/api/auth/logout", "Log out"),
@@ -103,34 +97,50 @@ def _watch_bar(role: str, **ctx: object) -> str:
     return template.render(request=_request(role), **ctx)
 
 
-def test_on_watch_one_bar_holds_the_search_the_storage_and_the_views_in_reading_order():
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_no_page_has_a_menu_of_links_in_its_bar_or_at_its_foot(role):
+    for html in (_render(role), _watch_bar(role, is_admin=role == "admin", view="rows", q="")):
+        assert "<nav" not in html
+        assert re.search(r'<div class="nav-foot" aria-hidden="true"></div>', html)
+
+
+def test_without_scripts_downloads_is_still_a_link_in_every_bar():
+    for html in (_render("viewer"), _watch_bar("viewer", is_admin=False, view="rows", q="")):
+        assert re.search(r'<noscript><a [^>]*href="/downloads">', _bar_of(html))
+
+
+def test_on_watch_one_bar_holds_the_search_and_the_storage_in_reading_order():
     html = _watch_bar("admin", is_admin=True, view="rows", q="")
 
-    order = ("nav-links", 'id="watch-search"', "space-meter", "watch-viewtoggle", "profile-btn")
+    order = ('class="brand"', 'id="watch-search"', "space-meter", "profile-btn")
     places = [_bar_of(html).index(part) for part in order]
     assert places == sorted(places)
     assert len(_buttons(html)) == 1
-    assert "nav-topbar" not in html
+    assert "nav-back" not in html
 
 
-def test_a_viewer_s_bar_on_watch_has_the_search_and_neither_storage_nor_views():
+def test_a_viewer_s_bar_on_watch_has_the_search_and_no_storage():
     bar = _bar_of(_watch_bar("viewer", is_admin=False, view="rows", q=""))
 
     assert 'id="watch-search"' in bar
-    for part in ("space-meter", "watch-viewtoggle", "has-toggle"):
-        assert part not in bar
+    assert "space-meter" not in bar
 
 
-def test_no_other_page_s_bar_has_the_search():
+@pytest.mark.parametrize(
+    ("role", "view"), [("admin", "rows"), ("admin", "list"), ("viewer", "rows")]
+)
+def test_nobody_is_offered_two_views_of_watch(role, view):
+    html = _watch_bar(role, is_admin=role == "admin", view=view, q="")
+
+    assert "data-view" not in html and "view=list" not in html
+
+
+def test_every_other_page_s_bar_has_the_way_back_to_watch_and_no_search():
     html = _render("admin", path="/downloads", is_admin=True)
 
     assert "watch-search" not in html and "space-meter" not in html
-    assert "nav-topbar-title" in html
-
-
-@pytest.mark.parametrize("role", ["admin", "viewer"])
-def test_the_phone_bar_is_its_links_and_no_more_button(role):
-    assert "<button" not in _tabbar(_render(role))
+    (back,) = re.findall(r'<a class="nav-back" href="/watch">(.*?)</a>', _bar_of(html))
+    assert back.endswith("Watch")
 
 
 def test_a_page_can_fill_the_middle_and_the_end_of_the_desktop_bar():
@@ -145,7 +155,9 @@ def test_a_page_can_fill_the_middle_and_the_end_of_the_desktop_bar():
     html = env.from_string('{% include "extra.html" %}').render(request=_request("viewer"))
 
     bar = html.split('<header class="nav-glass">')[1].split("</header>")[0]
-    places = [bar.index(part) for part in ("</nav>", "middle /watch", ">end<", "profile-btn")]
+    places = [
+        bar.index(part) for part in ('class="brand"', "middle /watch", ">end<", "profile-btn")
+    ]
     assert places == sorted(places)
 
 
@@ -157,17 +169,23 @@ def test_log_out_is_a_posted_form():
     assert 'method="post"' in form
 
 
-def test_both_layouts_have_a_button_that_names_the_person_and_opens_the_menu():
+def test_one_button_at_every_width_names_the_person_and_opens_the_menu():
     html = _render("viewer", username="robin.ashdown")
-    buttons = _buttons(html)
+    (button,) = _buttons(html)
 
-    assert len(buttons) == 2
-    for button in buttons:
-        assert 'aria-haspopup="menu"' in button
-        assert 'aria-expanded="false"' in button
-        assert 'aria-label="Profile menu, robin.ashdown"' in button
-        controlled = re.search(r'aria-controls="([^"]+)"', button).group(1)
-        assert re.search(rf'id="{controlled}" role="menu"', html)
+    assert 'aria-haspopup="menu"' in button
+    assert 'aria-expanded="false"' in button
+    assert 'aria-label="Profile menu, robin.ashdown"' in button
+    controlled = re.search(r'aria-controls="([^"]+)"', button).group(1)
+    assert re.search(rf'id="{controlled}" role="menu"', html)
+
+
+def test_the_ring_and_the_count_are_read_to_nobody_and_the_menu_s_note_waits_for_its_script():
+    html = _render("viewer")
+
+    for part in ("profile-ring", "profile-count"):
+        assert re.search(rf'<span class="{part}" aria-hidden="true"></span>', html)
+    assert re.search(r'id="profile-note" hidden>', _menu(html))
 
 
 def test_the_phone_sheet_s_close_button_is_named_and_is_no_menu_item():
@@ -182,7 +200,7 @@ def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
     items = _menu(_render("admin")).split('role="menu"')[1]
     tags = re.findall(r"<(?:a|button)\b[^>]*>", items)
 
-    assert len(tags) == 4
+    assert len(tags) == 5
     assert all('role="menuitem"' in t and 'tabindex="-1"' in t for t in tags)
 
 
@@ -192,6 +210,7 @@ def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
         ("settings", "/settings", "Settings"),
         ("history", "/history", "History"),
         ("account", "/account", "Profile"),
+        ("downloads", "/downloads", "Downloads"),
     ],
 )
 def test_a_page_of_the_menu_marks_the_avatar_and_its_item(active, href, title):
@@ -201,14 +220,13 @@ def test_a_page_of_the_menu_marks_the_avatar_and_its_item(active, href, title):
         assert 'class="profile-btn on"' in button
         assert f'aria-label="Profile menu, robin, {title} is open"' in button
     assert re.findall(r'href="([^"]+)" aria-current="page"', html) == [href]
-    assert "nav-btn on" not in html and "nav-tab on" not in html
 
 
 def test_the_menu_shows_the_person_s_picture_wherever_it_shows_them_and_reads_it_to_nobody():
     html = _render("viewer", avatar_url="/api/avatars/3?v=a&b")
 
     pictures = re.findall(r'<span class="avatar[^>]*aria-hidden="true"><img ([^>]*)>', html)
-    assert len(pictures) == 3
+    assert len(pictures) == 2
     assert all('src="/api/avatars/3?v=a&amp;b" alt=""' in picture for picture in pictures)
 
 
@@ -267,19 +285,18 @@ def test_unknown_role_gets_the_viewer_menu():
 
 
 @pytest.mark.parametrize("path", ["/watch", "/watch/show/abc", "/watch/play/42"])
-def test_watch_pages_highlight_watch_without_nav_active(path):
+def test_watch_pages_mark_the_way_home_without_nav_active(path):
     html = _render("viewer", path=path)
 
-    assert re.search(r'<a href="/watch"\s+class="nav-btn on" aria-current="page"', html)
     assert re.search(
-        r'class="nav-tab on" href="/watch" aria-label="Watch" aria-current="page"', html
+        r'<a class="brand" href="/watch" aria-label="mediaman, home" aria-current="page"', html
     )
 
 
-def test_a_path_that_only_starts_like_watch_highlights_nothing():
+def test_a_path_that_only_starts_like_watch_marks_nothing():
     html = _render("admin", path="/watching")
 
-    assert "nav-btn on" not in html
+    assert "aria-current" not in html
 
 
 def test_nav_renders_without_a_request():

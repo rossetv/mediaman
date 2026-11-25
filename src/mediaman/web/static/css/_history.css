@@ -404,7 +404,7 @@ body[data-page="history"] { overflow-x: clip; }
   .hx .ph { padding: 24px 0 8px; }
   .hx .ph h1 { font-size: 32px; }
   .hx .ph p { font-size: 15px; margin-top: 6px; }
-  .hx-tools { top: 48px; padding-block: 8px; }
+  .hx-tools { padding-block: 8px; }
   .hx-search input,
   .hx-chip { height: 44px; }
   .hx-search input { font-size: 16px; padding-left: calc(26px + 1em); }

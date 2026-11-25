@@ -18,7 +18,8 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -39,6 +40,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
     PlexItemNotFound,
+    PlexSeason,
     is_in_libraries,
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
@@ -52,16 +54,24 @@ from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email, get_user_role
+from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
 from mediaman.web.repository.library_query import TitleSearch, protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
-from mediaman.web.repository.watch_progress import get_progress, show_progress
+from mediaman.web.repository.watch_progress import WatchProgress, get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.browse_api import library_items
+from mediaman.web.routes.watch.card_marks import (
+    card_marks,
+    latest_season_out,
+    marked,
+    title_key,
+    tmdb_ref,
+)
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
@@ -75,6 +85,11 @@ from mediaman.web.routes.watch.pages import (
     resumable,
     season_fields,
     seasons_leaving,
+)
+from mediaman.web.routes.watch.title_seasons import (
+    begin_arr_view,
+    fill_season_status,
+    missing_seasons,
 )
 
 logger = logging.getLogger(__name__)
@@ -159,6 +174,7 @@ def api_watch_search_tmdb(
     index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     arr = _arr(request, conn)
     cards = [card for item in found if (card := catalog.tmdb_card(item, index, arr)) is not None]
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
     refs = dict.fromkeys(cast(str, c["library_ref"]) for c in cards if c["in_library"])
     search = TitleSearch(conn, term)
     held = [
@@ -170,7 +186,11 @@ def api_watch_search_tmdb(
     return respond_ok(
         {
             "tmdb_configured": True,
-            "items": [card for card in cards if not card["in_library"]],
+            "items": [
+                marked({**card, **lib.mark_fields(None, set())}, marks)
+                for card in cards
+                if not card["in_library"]
+            ],
             "held": library_items(conn, username, libraries, held),
             "people": catalog.people(found),
         }
@@ -208,8 +228,14 @@ def api_watch_discover(
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     cards = _discover_cards(request, conn, client, username, [items for _, _, items in shelves])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
     rows = [
-        {"id": shelf_id, "title": title, "items": row_cards, "next_page": 2}
+        {
+            "id": shelf_id,
+            "title": title,
+            "items": [marked(card, marks) for card in row_cards],
+            "next_page": 2,
+        }
         for (shelf_id, title, _), row_cards in zip(shelves, cards, strict=True)
     ]
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
@@ -276,7 +302,9 @@ def _discover_page(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    [items] = _discover_cards(request, conn, client, username, [found])
+    [cards] = _discover_cards(request, conn, client, username, [found])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
+    items = [marked(card, marks) for card in cards]
     return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
@@ -398,6 +426,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "in_library": False,
         "library_ref": None,
         **lib.mark_fields(None, set()),
+        "tmdb_ref": None,
         "title": "",
         "year": None,
         "year_end": None,
@@ -415,6 +444,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "ratings": {"imdb": None, "rt": None, "tmdb": None, "metascore": None},
         "ratings_pending": False,
         "cast": [],
+        "in_collection": False,
         "trailer_key": None,
         "reason": None,
         "ai_pick": False,
@@ -425,6 +455,10 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "keep_allowed": False,
         "seasons": [],
         "episodes": [],
+        "more_seasons": [],
+        "seasons_pending": False,
+        "also_starts": [],
+        "seasons_request": None,
         "download": None,
         "tmdb_configured": tmdb_configured,
     }
@@ -474,6 +508,8 @@ def _fill_fields(
             out[name] = fields[name]
     for name in ("title", "overview", "poster_url"):
         out[name] = out[name] or fields[name]
+    # Held details may be from before the collection was.
+    out["in_collection"] = fields.get("collection_id") is not None
     out["trailer_key"] = validate_youtube_id(fields["trailer_key"])
     media_type = "movie" if kind == "movie" else "tv"
     held, fresh = _held_ratings(conn, media_type, tmdb_id)
@@ -500,8 +536,11 @@ def _movie_title(
         in_library=True, library_ref=ref, title=movie.title, poster_url=poster_url(movie.key)
     )
     progress = get_progress(conn, username, [movie.key]).get(movie.key)
-    seen = progress is not None and progress.seen
+    seen = (progress is not None and progress.seen) or (
+        movie.key in seen_titles.seen_films(conn, username, libraries)
+    )
     out.update(lib.mark_fields(ref, {ref} if seen else set()))
+    out["tmdb_ref"] = tmdb_ref(title_key("movie", movie.tmdb_id))
     try:
         item = open_plex(request, conn).get_item(movie.key)
     except PlexError:
@@ -551,6 +590,105 @@ def _show_tmdb_id(
     )
 
 
+def _held_show_tmdb_id(conn: sqlite3.Connection, listed: lib.LibraryShow) -> int | None:
+    """As ``_show_tmdb_id``, from what is held: neither Sonarr nor TMDB is asked."""
+    own, _year = catalog.library_ids(conn).get(f"show-{listed.key}", (None, None))
+    if own or not listed.tvdb_id:
+        return own
+    return catalog.held_tmdb_id_for_tvdb(listed.tvdb_id)
+
+
+def _is_described(season: PlexSeason, episodes: Sequence[PlexEpisode]) -> bool:
+    return bool(season.summary) and all(e.summary and e.aired for e in episodes)
+
+
+def _tmdb_season(
+    client: TmdbClient, tmdb_id: int, number: int, episodes: Sequence[PlexEpisode], *, wait: bool
+) -> dict[str, Any] | None:
+    """What TMDB says of the season, with only the episodes it has at the same number as Plex;
+    None when it has none so, or no answer. Raises as ``catalog.season`` when it is not to
+    *wait*."""
+    try:
+        found = catalog.season(client, tmdb_id, number, wait=wait)
+    except catalog.TmdbUnavailable:
+        return None
+    if not found:
+        return None
+    told = found["episodes"]
+    own_dates = _single([e.aired for e in episodes]) & _single([t["aired"] for t in told.values()])
+    pairs = [(e, told[str(e.index)]) for e in episodes if str(e.index) in told]
+    same = {str(e.index): t for e, t in pairs if _is_same_episode(e, t, own_dates)}
+    if not same:
+        return None
+    # A season in another order still has an episode or two in their place by chance.
+    compared = sum(bool((e.title and t["title"]) or (e.aired and t["aired"])) for e, t in pairs)
+    about = found if len(same) * 2 > compared else {"overview": "", "aired": None}
+    return {"overview": about["overview"], "aired": about["aired"], "episodes": same}
+
+
+def _single(dates: Sequence[str | None]) -> set[str]:
+    """The dates that stand there once."""
+    return {d for d, times in Counter(dates).items() if d and times == 1}
+
+
+_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+# "Episode 4", "Chapter Two", "Part III", as ``catalog.normalise_title`` leaves them.
+_NUMBERED_RE = re.compile(
+    rf"\w+ (?:\d+|[ivx]+|{_UNITS}|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen"
+    rf"|eighteen|nineteen|(?:{_TENS})(?: (?:{_UNITS}))?)"
+)
+
+
+def _is_same_episode(
+    episode: PlexEpisode, told: Mapping[str, Any], own_dates: Collection[str]
+) -> bool:
+    """Shows are ordered in more than one way: one number can be two episodes. *own_dates*: those
+    of one episode alone."""
+    same_date = episode.aired == told["aired"]
+    if same_date and episode.aired in own_dates:
+        return True
+    name = catalog.normalise_title(episode.title)
+    if not name or name != catalog.normalise_title(told["title"]):
+        return False
+    # "Episode 4" is the fourth in every order.
+    numbered = _NUMBERED_RE.fullmatch(name) is not None
+    return same_date or not (numbered and episode.aired and told["aired"])
+
+
+def _season_about(
+    season: PlexSeason, episodes: Sequence[PlexEpisode], found: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The season's own words and first year, from Plex, else from TMDB (*found*)."""
+    dates = [e.aired for e in episodes if e.aired]
+    aired = min(dates) if dates else found["aired"] if found else None
+    return {
+        "summary": season.summary or (found["overview"] if found else ""),
+        "year": int(aired[:4]) if aired else None,
+    }
+
+
+def _described_rows(
+    episodes: Sequence[PlexEpisode],
+    progress: Mapping[str, WatchProgress],
+    origin: str,
+    found: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """The rows of a season, each with its description and air date, as ``_season_about``."""
+    told = found["episodes"] if found else {}
+    rows = []
+    for e in episodes:
+        theirs = told.get(str(e.index), {})
+        rows.append(
+            {
+                **_episode_row(e, progress.get(e.rating_key), origin),
+                "summary": e.summary or theirs.get("overview", ""),
+                "aired": e.aired or theirs.get("aired"),
+            }
+        )
+    return rows
+
+
 def _show_title(
     request: Request,
     conn: sqlite3.Connection,
@@ -571,6 +709,9 @@ def _show_title(
     )
     counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
     out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
+    out["tmdb_ref"] = tmdb_ref(title_key("tv", listed.tmdb_id))
+    tmdb_seasons: list[dict[str, Any]] = []
+    arr_view = begin_arr_view(conn, request.app.state.config.secret_key)
     origin = f"/watch#title={ref}"
     try:
         plex = open_plex(request, conn)
@@ -584,7 +725,9 @@ def _show_title(
                 episodes_cache[season_key] = plex.get_season_episodes(season_key)
             return episodes_cache[season_key]
 
-        progress = show_progress(conn, username, listed.key)
+        progress = seen_titles.with_covered(
+            conn, username, libraries, listed.key, show_progress(conn, username, listed.key)
+        )
         primary, primary_season = _primary_episode(
             plex, show, progress, episodes_of, origin, counted
         )
@@ -616,15 +759,16 @@ def _show_title(
                     "name": s.title or f"Season {s.index}",
                     "episode_count": len(episodes_cache[s.rating_key])
                     if s.rating_key in episodes_cache
-                    else None,
+                    else s.episode_count,
                     "in_library": True,
                     "selected": s is selected,
                     "key": s.rating_key,
                     "watched": season_watched[s.rating_key],
+                    **_season_about(s, episodes_cache.get(s.rating_key, ()), None),
                 }
                 for s in show.seasons
             ],
-            episodes=[_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+            episodes=_described_rows(episodes, progress, origin, None),
         )
     fill_show_leaving(out, conn, libraries, listed.key, is_admin)
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
@@ -638,6 +782,29 @@ def _show_title(
             for season in out["seasons"]:
                 if season["episode_count"] is None:
                     season["episode_count"] = counts.get(season["number"])
+            if show is not None and selected is not None:
+                found = None
+                if not _is_described(selected, episodes):
+                    try:
+                        found = _tmdb_season(client, tmdb_id, selected.index, episodes, wait=False)
+                    except disk_cache.Refused:
+                        out["words_pending"] = True
+                for season in out["seasons"]:
+                    if season["selected"]:
+                        season.update(_season_about(selected, episodes, found))
+                out["episodes"] = _described_rows(episodes, progress, origin, found)
+            tmdb_seasons = fields["tmdb_seasons"]
+            if show is not None:
+                out["more_seasons"] = missing_seasons(out["seasons"], tmdb_seasons)
+    fill_season_status(
+        out,
+        conn,
+        arr_view(),
+        username,
+        tmdb_id=tmdb_id,
+        tvdb_id=listed.tvdb_id,
+        tmdb_seasons=tmdb_seasons,
+    )
     return out
 
 
@@ -698,6 +865,14 @@ def _title_of_fields(
     if library_ref is not None:
         seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
         out.update(in_library=True, library_ref=library_ref, **lib.mark_fields(library_ref, seen))
+    own = seen_titles.person_marks(conn, username)
+    title = (kind, tmdb_id)
+    out["tmdb_ref"] = tmdb_ref(title)
+    if title in own.seen and library_ref is None:
+        latest = latest_season_out(fields, now_utc().date()) if kind == "tv" else None
+        out["watched"] = title not in own.partly and (
+            latest is None or latest <= (own.seen[title] or 0)
+        )
     if kind == "tv":
         held = arr.seasons_with_files(tmdb_id)
         out["seasons"] = [
@@ -710,6 +885,16 @@ def _title_of_fields(
             }
             for s in fields["tmdb_seasons"]
         ]
+        fill_season_status(
+            out,
+            conn,
+            arr,
+            username,
+            tmdb_id=tmdb_id,
+            tvdb_id=fields["tvdb_id"],
+            tmdb_seasons=fields["tmdb_seasons"],
+            download_url=download_url,
+        )
         if library_ref is None:
             out["sonarr_tracked"] = arr.sonarr_tracked(tmdb_id)
     if library_ref is None:
@@ -993,7 +1178,9 @@ def api_watch_title_collection(
     if collection is None or len(collection["films"]) < 2:
         return nothing
     films = collection["films"]
-    [cards] = _discover_cards(request, conn, client, username, [films])
+    [found_cards] = _discover_cards(request, conn, client, username, [films])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
+    cards = [marked(card, marks) for card in found_cards]
     answered = _arr(request, conn).answers_for("movie")
     shown = []
     for film, card in zip(films, cards, strict=True):
@@ -1027,15 +1214,21 @@ def _why_not_to_request(
 
 @router.get("/api/watch/title/{ref}/season/{number}")
 def api_watch_title_season(
-    ref: str, number: int, request: Request, username: str = Depends(get_current_user)
+    ref: str,
+    number: int,
+    request: Request,
+    words: bool = False,
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """The episodes of one season of a library show, with this person's progress."""
+    """The episodes of one season of a library show, with this person's progress. TMDB is waited
+    for only when asked for its *words* too; else ``words_pending`` says that it may have some."""
     if not REF_RE.fullmatch(ref) or not ref.startswith("show-") or not 0 <= number <= 9999:
         return _not_found()
     key = ref.removeprefix("show-")
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
-    if lib.find_show(conn, libraries, key) is None:
+    listed = lib.find_show(conn, libraries, key)
+    if listed is None:
         return _not_found()
     try:
         plex = open_plex(request, conn)
@@ -1050,13 +1243,34 @@ def api_watch_title_season(
         return _not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
-    progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
+    client = _tmdb_client(request, conn)
+    found, pending = None, False
+    if client is not None and not _is_described(season, episodes):
+        tmdb_id = (
+            _show_tmdb_id(request, conn, client, listed)
+            if words
+            else _held_show_tmdb_id(conn, listed)
+        )
+        # Who knows a show by its TVDB id alone is yet to be asked.
+        pending = tmdb_id is None and not words and bool(listed.tvdb_id)
+        if tmdb_id is not None:
+            try:
+                found = _tmdb_season(client, tmdb_id, number, episodes, wait=words)
+            except disk_cache.Refused:
+                pending = not words
+    # What was seen or marked during the wait counts.
+    progress = seen_titles.with_covered(
+        conn, username, libraries, key, show_progress(conn, username, key)
+    )
     return respond_ok(
         {
             "key": season.rating_key,
             "watched": _season_watched(episodes, progress, None, number),
-            "episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+            **_season_about(season, episodes, found),
+            "episode_count": len(episodes),
+            "episodes": _described_rows(episodes, progress, origin, found),
+            "words_pending": pending,
         }
     )
 

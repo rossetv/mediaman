@@ -2,9 +2,10 @@
  * title. It works from what every poster card carries
  * (.watch-card__link, data-title-ref or a Continue watching card's
  * data-dismiss-ref), so a row or grid that draws cards needs nothing more.
- * It is for the mouse alone: nothing is in it that the card, its More menu and
- * the title detail do not offer a keyboard, a touch screen or a screen reader.
- * Needs watch/core.js, watch/keep.js, watch/marks.js, watch/detail.js and ratings.js.
+ * It is for the mouse alone: a keyboard, a touch screen or a screen reader has what is in it
+ * from the card and the title detail. Find more like this is in the detail alone, which a
+ * Continue watching card, as it plays, does not open.
+ * Needs watch/core.js, watch/keep.js, watch/card-tools.js, watch/marks.js, watch/detail.js and ratings.js.
  */
 (function () {
   'use strict';
@@ -38,6 +39,9 @@
   var HOLD_MS = 1500;       // how long the detail keeps the preview's picture, at most
   var FAILED_FOR_MS = 60000;
   var KEPT_FOR_MS = 300000; // what a title says of its progress and download goes stale
+  var DWELL_MS = 130;       // a mouse resting on the thumb
+  var OWN_CLICK_MS = 500;   // a press on it once it has opened by itself
+  var LOWER_MS = 420;       // a mouse off the levels
   var HELD = 100;           // titles remembered
   var SLACK_MS = 60;        // past a motion's own length, for one a busy page starts late
 
@@ -72,7 +76,7 @@
   /* Something is open over the cards (the detail, a dialog or a menu), or a grid carries them. */
   function covered() {
     return detailOpen() || document.documentElement.classList.contains('is-grid-moving') ||
-      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open');
+      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open, .play-on[open], #tv-remote:not([hidden])');
   }
 
   /* ── What a card says ── */
@@ -169,14 +173,14 @@
     });
   }
 
-  /* The title *ref* has changed, or any has: what was said of it, or is on its way, is from before.
+  /* The title of *refs* has changed, or any has: what was said of it, or is on its way, is from before.
      Returns the preview open of it that is to say it again. */
-  function outOfDate(ref) {
-    if (ref) unkeep(ref);
+  function outOfDate(refs) {
+    if (refs) refs.forEach(unkeep);
     else kept.clear();
     if (flight) flight.stale = true;
     var p = live;
-    if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return null;
+    if (!p || !p.data || !p.data.library_ref || (refs && refs.indexOf(p.data.library_ref) < 0)) return null;
     if (!armed) return p;
     close(p); // the one request is the next card's
     return null;
@@ -184,7 +188,8 @@
 
   /* A Keep or an Undo has finished: it offers none until it is known again what leaves. */
   function keptOrUndone(id) {
-    var p = outOfDate(keptBy.get(String(id)));
+    var ref = keptBy.get(String(id));
+    var p = outOfDate(ref && [ref]);
     if (!p) return;
     sayAgain(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
     ask(askedOf(p.link)).then(function (data) {
@@ -195,8 +200,8 @@
   }
 
   /* Marked as watched or not, or that undone. */
-  function marked(ref) {
-    var p = outOfDate(ref);
+  function marked(refs) {
+    var p = outOfDate(refs);
     if (!p) return;
     ask(askedOf(p.link)).then(function (data) {
       if (live === p) sayAgain(p, data);
@@ -669,6 +674,16 @@
       p.actions.appendChild(first);
     }
     p.actions.appendChild(el('span', 'pv__gap'));
+    var plays = p.card.plays ? p.card.href : d && d.in_library && d.play && safePath(d.play.href);
+    if (plays && window.MM.playOn) {
+      // Its sheet may be open, which goes on with what it was opened for.
+      if (!p.playOn || p.plays !== plays && p.playOn.getAttribute('aria-expanded') !== 'true') {
+        p.plays = plays;
+        p.playOn = window.MM.playOn.button(plays, 'btn watch-btn--grey pv__round');
+        p.playOn.setAttribute('tabindex', '-1');
+      }
+      p.actions.appendChild(p.playOn);
+    }
     p.trailerButton = null;
     if (d && trailerKey(d)) {
       p.trailerButton = p.actions.appendChild(round('', 'i-film'));
@@ -676,6 +691,8 @@
       p.trailerButton.addEventListener('click', function () { pressTrailer(p); });
       faceTrailer(p);
     }
+    p.eye = p.eye || eye(p);
+    if (p.eye) p.actions.appendChild(p.eye);
     if (p.rating) p.actions.appendChild(p.rate);
     // Kept through every redraw: its menu may be open.
     p.more = p.more || moreButton();
@@ -684,32 +701,88 @@
       p.keep = p.keep || keepTrigger(p);
       p.actions.appendChild(p.keep);
     }
-    if (p.rating) p.actions.appendChild(p.strip);
   }
 
-  /* ── Rate ──
-     A press opens the four thumbs over the buttons; they fold away once one is
-     pressed, or the mouse has gone back up to the picture. */
+  /* ── Rate and mark ──
+     A mouse that rests on the thumb, or a press, has the four rise over the picture, as they
+     do over a card. */
 
   function rating(p) {
-    p.rating = window.MM.ratings.mount(p.card.ref, { variant: 'strip' });
+    p.rating = window.MM.ratings.mount(p.card.ref, { variant: 'lift' });
     p.rating.line.classList.add('pv__said');
-    p.strip = el('div', 'pv__strip');
-    p.strip.appendChild(p.rating.node);
-    core.toArray(p.strip.querySelectorAll('button')).forEach(function (b) { b.setAttribute('tabindex', '-1'); });
+    p.lift = p.n.appendChild(el('div', 'pv__lift'));
+    p.lift.appendChild(p.rating.node);
     p.rate = round('Rate');
-    p.rate.addEventListener('click', function () { p.actions.classList.add('is-rating'); });
-    p.body.addEventListener('mouseleave', function () { p.actions.classList.remove('is-rating'); });
+    var opened = 0;
+    p.rate.addEventListener('click', function () {
+      if (now() - opened < OWN_CLICK_MS) return;
+      if (lifted(p)) lower(p);
+      else lift(p);
+    });
+    p.rate.addEventListener('mouseenter', function () {
+      clearTimeout(p.dwell);
+      p.dwell = setTimeout(function () {
+        if (lifted(p) || live !== p) return;
+        opened = now();
+        lift(p);
+      }, DWELL_MS);
+    });
+    p.rate.addEventListener('mouseleave', function () { clearTimeout(p.dwell); });
+    [p.rate, p.rating.node].forEach(function (n) {
+      n.addEventListener('mouseenter', function () { clearTimeout(p.lowering); });
+      n.addEventListener('mouseleave', function () {
+        clearTimeout(p.lowering);
+        p.lowering = setTimeout(function () { lower(p); }, LOWER_MS);
+      });
+    });
     faceRate(p);
   }
 
+  function lifted(p) { return p.rating.node.classList.contains('is-open'); }
+
+  function lift(p) {
+    var x = 0;
+    var y = 0;
+    for (var n = p.rate; n && n !== p.n; n = n.offsetParent) {
+      x += n.offsetLeft;
+      y += n.offsetTop;
+    }
+    p.lift.style.left = x + (p.rate.offsetWidth - 44) / 2 + 'px';
+    p.lift.style.top = y - 180 - 8 + 'px';
+    void p.lift.offsetWidth;
+    p.rating.node.classList.add('is-open');
+  }
+
+  function lower(p) {
+    clearTimeout(p.lowering);
+    p.rating.node.classList.remove('is-open');
+    p.rating.pointAt(null);
+  }
+
+  /* The eye: what the card's own does. */
+  function eye(p) {
+    var card = cardOf(p.link);
+    var mark = card && card.getAttribute('data-mark');
+    if (!mark) return null;
+    var b = round(core.markLabel(mark), 'i-eye');
+    b.classList.add('pv__eye');
+    b.setAttribute('data-mark-toggle', mark);
+    b.setAttribute('data-mark-name', p.card.title + whichOf(p));
+    b.setAttribute('data-mark-ref', p.card.ref);
+    b.setAttribute('aria-pressed', seen(p) ? 'true' : 'false');
+    b.setAttribute('title', core.markAction(seen(p)));
+    return b;
+  }
+
+  function whichOf(p) {
+    var which = /^(S\d+ · E\d+|Season \d+)/.exec(p.card.sub);
+    return which ? ', ' + which[1] : '';
+  }
+
   function faceRate(p) {
-    var level = window.MM.ratings.get(p.card.ref) || null;
     p.rate.hidden = window.MM.ratings.canRate(p.card.ref) === false;
-    p.rate.classList.toggle('is-up', level > 0);
-    p.rate.classList.toggle('is-down', level < 0);
-    p.rate.textContent = '';
-    p.rate.appendChild(window.MM.ratings.thumb(level || 1, !!level));
+    if (p.rate.hidden) lower(p);
+    watch.cardTools.faceOf(p.rate, p.card.ref);
   }
 
   function moreButton() {
@@ -758,7 +831,7 @@
     if (!d.download) return null;
     var state = stateOf(p);
     if (state) return pill(state);
-    if (d.sonarr_tracked) return pill('In Sonarr');
+    if (d.sonarr_tracked) return pill('Already added');
     var seasons = wanted(d);
     if (seasons && !seasons.length) return pill('In library');
     if (!d.download.request) return null;
@@ -835,7 +908,7 @@
   /* A press on the picture or the words is a press on the card. */
   function pressed(p, e) {
     // A press that redrew its button has left a target that is in nothing.
-    if (e.target.closest('button, .btn, .pv__strip') || !p.n.contains(e.target)) return;
+    if (e.target.closest('button, .btn') || !p.n.contains(e.target)) return;
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // the picture is a real link
     e.preventDefault();
     p.link.click();
@@ -937,7 +1010,6 @@
 
   var menuNode = null;
   var menu = null;
-  var fillRating = null;
 
   function item(act, iconName, label) {
     var b = el('button', 'watch-keep-menu__item');
@@ -957,11 +1029,8 @@
     menuNode.textContent = '';
     if (!live) return;
     var card = cardOf(live.link);
-    var mark = /^(movie|episode|season|show)\//.exec((card && card.getAttribute('data-mark')) || '');
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
-    if (fillRating) fillRating(live.card.ref, live.link);
     if (watch.marks && watch.marks.likeRef(live.card.ref, live.link)) item('like', 'i-sparkles', 'Find more like this');
-    if (mark) item('mark', 'i-eye', core.markAction(seen(live)).replace('Mark ', mark[1] === 'movie' ? 'Mark ' : 'Mark ' + mark[1] + ' '));
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');
     if (keepIdOf(live)) item('keep', 'i-clock', 'Keep' + (leavingOf(live).season === null ? '' : ' Season ' + leavingOf(live).season));
     item('details', 'i-circle-info', 'Details');
@@ -992,12 +1061,6 @@
       setTrailers(on);
       if (on) planTrailer(p);
       else stopTrailer(p);
-    } else if (act === 'mark') {
-      var which = /^(S\d+ · E\d+|Season \d+)/.exec(p.card.sub);
-      press({
-        'data-mark-toggle': card.getAttribute('data-mark'), 'aria-pressed': seen(p) ? 'true' : 'false',
-        'data-mark-name': p.card.title + (which ? ', ' + which[1] : ''), 'data-mark-ref': p.card.ref
-      });
     } else if (act === 'dismiss') {
       close(p);
       press({ 'data-watch-dismiss': card.getAttribute('data-dismiss-ref'), 'data-mark-name': p.card.title });
@@ -1029,12 +1092,11 @@
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
     (document.getElementById('watch-page') || document.body).appendChild(menuNode);
-    if (watch.marks) fillRating = watch.marks.menuRating(menuNode, function () { menu.close(true); });
     menu = watch.keep.menu(menuNode, {
       trigger: '[data-preview-more]',
       fill: fillMenu,
       choose: choose,
-      spare: function () { return document.getElementById('watch-search'); }
+      spare: core.spareFocus
     });
   }
 
@@ -1174,7 +1236,9 @@
         if (live && !pinned(live)) close(live);
       }, GRACE_MS);
     }
-    if (!link || !refOf(link)) {
+    // From the picture alone, and not once a level was given or while the levels are over it.
+    var of = link && target.closest('.watch-card__poster') ? cardOf(link) : null;
+    if (!of || !refOf(link) || of.classList.contains('is-lifted') || of.classList.contains('is-quiet')) {
       disarm();
       return;
     }
@@ -1210,7 +1274,7 @@
     if (live) close(live);
   });
   document.addEventListener('scroll', function (e) {
-    if (e.target.closest && e.target.closest('.watch-keep-menu')) return;
+    if (e.target.closest && e.target.closest('.watch-keep-menu, .play-on')) return;
     scrolledAt = now();
     fadeLive();
   }, { capture: true, passive: true });
@@ -1219,7 +1283,9 @@
     viewChanged();
     core.toArray(document.querySelectorAll('.pv__held')).forEach(function (n) { n.remove(); });
   });
-  document.addEventListener('input', fadeLive);
+  document.addEventListener('input', function (e) {
+    if (!e.target.closest('.play-on')) fadeLive();
+  });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) return;
     disarm();
@@ -1287,9 +1353,12 @@
 
   document.addEventListener('mm:rating', function (e) {
     if (!live || !live.rating || e.detail.refs.indexOf(live.card.ref) < 0) return;
-    if (e.detail.phase === 'pending' && e.detail.from === live.rating.node) live.actions.classList.remove('is-rating');
-    faceRate(live);
-    if (live.rate.hidden) live.actions.classList.remove('is-rating');
+    var p = live;
+    if (e.detail.phase === 'pending' && e.detail.from === p.rating.node) {
+      clearTimeout(p.lowering);
+      p.lowering = setTimeout(function () { lower(p); }, watch.cardTools.SHOW_MS);
+    }
+    faceRate(p);
   });
 
   document.addEventListener('mm:watch-kept', function (e) { keptOrUndone(e.detail.id); });
@@ -1301,7 +1370,7 @@
   /* A scan, or deletions cleared: no title is named. */
   document.addEventListener('mm:watch-scheduled', function () { keptOrUndone(''); });
 
-  document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.ref); });
+  document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.refs); });
 
   watch.preview = { close: viewChanged };
 })();

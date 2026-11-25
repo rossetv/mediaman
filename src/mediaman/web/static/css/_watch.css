@@ -98,48 +98,6 @@
 }
 .watch-search__clear:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
 
-/* The Browse / List switch, for admins. */
-.watch-viewtoggle {
-  flex: none;
-  display: inline-flex;
-  padding: 0 3px;
-  border-radius: var(--r-pill);
-  background: var(--s2);
-}
-.watch-viewtoggle__btn {
-  position: relative;
-  isolation: isolate;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 16px;
-  border-radius: var(--r-pill);
-  color: var(--t2);
-  font-size: 14px;
-  font-weight: 500;
-  transition: color var(--dur-fast) var(--ease-out);
-}
-.watch-viewtoggle__btn::before {
-  content: "";
-  position: absolute;
-  inset: 4px 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--s4);
-  opacity: 0;
-  transform: scale(.9);
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-.watch-viewtoggle__btn:hover,
-.watch-viewtoggle__btn[aria-current="page"] { color: var(--t1); }
-.watch-viewtoggle__btn[aria-current="page"]::before { opacity: 1; transform: none; }
-.watch-viewtoggle__btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.watch-viewtoggle__btn > .ico { font-size: 13px; }
-@media (prefers-reduced-motion: reduce) {
-  .watch-viewtoggle__btn::before { transform: none; }
-}
-
 /* Dividers between groups of rows ("Discover", "Your library"). */
 .watch-group-label {
   display: flex;
@@ -418,7 +376,7 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out), padding-bottom var(--dur) var(--ease-out);
 }
 /* A shadow alone does not show on the black page, so a hovered poster also
    lifts a little and takes a hairline ring. The row's block padding leaves
@@ -508,7 +466,8 @@
 .watch-badge__least::after { display: inline-block; }
 .watch-badge__long + .watch-badge__short { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
-.watch-badge--watched {
+.watch-badge--watched,
+.watch-badge--unwatched {
   right: 8px;
   display: flex;
   align-items: center;
@@ -517,9 +476,10 @@
   border: 1px solid color-mix(in srgb, var(--t1) 28%, transparent);
   font-weight: 600;
 }
-.watch-badge--watched > .ico { flex: none; font-size: 13px; }
+:is(.watch-badge--watched, .watch-badge--unwatched) > .ico { flex: none; font-size: 13px; }
 .watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
-.watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
+/* Leaving is the first of them and Watched the last: watch/card-tools.js puts one that comes later in its place. */
+.watch-card__poster > :is(.watch-badge--leaving, .watch-badge--state, .watch-badge--new) ~ .watch-badge--watched { top: 36px; }
 /* A caption of two parts is one line. Where both do not fit, the lines are laid out from the foot up
    and the one that shows is the tail; the lead is clipped and still read out. So it is inside a tail of two. */
 .watch-card__sub:has(> .watch-card__lead),
@@ -557,7 +517,7 @@
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); max-width: calc(100% - 12px); }
   .watch-badge--leaving { --badge-pad: 3px 7px; --badge-r: var(--r-md); left: 6px; right: 6px; max-width: none; padding: 0; }
   .watch-badge--watched { right: 6px; gap: 4px; }
-  .watch-badge--watched > .ico { font-size: 12px; }
+  :is(.watch-badge--watched, .watch-badge--unwatched) > .ico { font-size: 12px; }
 }
 @media (max-width: 359.98px) {
   .watch-badge--watched { gap: 0; }
@@ -581,51 +541,6 @@
 }
 .ai-label > .ico { font-size: 12px; }
 
-/* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
-   percentage is of the card's width, so it finds the poster's foot at every size. */
-.watch-card { position: relative; }
-.watch-card:has(> .watch-more) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
-.watch-more {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: -8px;
-  margin-top: calc(150% - 8px);
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  color: var(--t3);
-  font-size: 14px;
-  transition: color var(--dur-fast) var(--ease-out);
-  isolation: isolate;
-}
-.watch-more::before {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  z-index: -1;
-  border-radius: 50%;
-  background: var(--s4);
-  opacity: 0;
-  transform: scale(.85);
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-.watch-more:hover,
-.watch-more[aria-expanded="true"] { color: var(--t1); }
-.watch-more:hover::before,
-.watch-more[aria-expanded="true"]::before { opacity: 1; transform: none; }
-.watch-more:active::before { opacity: 1; transform: scale(.92); }
-.watch-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; color: var(--t1); }
-.watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
-/* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
-@media (max-width: 599.98px) {
-  .watch-card:has(> .watch-more) .watch-card__sub { padding-right: 18px; }
-  .watch-more { place-items: center end; padding-right: 7px; }
-  .watch-more::before { inset: 8px 2px 8px 14px; }
-  .watch-more:focus-visible { outline: none; }
-  .watch-more:focus-visible::before { opacity: 1; transform: none; outline: 2px solid var(--accent); }
-}
 .watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
 .watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
 
@@ -634,6 +549,7 @@
 .eye-open { display: var(--eye-open, inline); }
 .eye-seen { display: var(--eye-seen, none); }
 .watch-badge--watched,
+.watch-badge--unwatched,
 .watch-pill__mark,
 .watch-mark[aria-pressed="true"],
 .watch-mark-btn__on { --eye-open: none; --eye-seen: inline; }
@@ -944,9 +860,9 @@
   .watch-banner__line { font-size: 13px; }
   .watch-banner__poster { --banner-poster-w: 124px; right: var(--pad); left: auto; top: 50%; max-height: calc(100% - 72px); transform: translateY(-50%); }
 }
-/* One that has the tab bar too: the dark beside the text, not above it. */
+/* One that has the bar at the foot too: the dark beside the text, not above it. */
 @media (max-width: 699.98px) and (max-height: 500px) and (orientation: landscape) and (min-aspect-ratio: 4 / 3) {
-  /* Its tab bar leaves little height, so the buttons stand beside the text, at its top, in place of
+  /* That bar leaves little height, so the buttons stand beside the text, at its top, in place of
      the poster: however long the title, they stay on screen. */
   .watch-banner { min-height: 0; margin-top: 0; padding-block: 12px 14px; }
   .watch-banner__poster { display: none; }
@@ -968,9 +884,7 @@
   .watch-banner__bg { display: none; }
   /* With no picture there is nothing to leave room for. */
   .watch-banner:has(> .watch-banner__bg--art:not([data-broken])) { min-height: 0; padding-top: 24px; }
-  .watch-viewtoggle__btn[aria-current="page"],
   .watch-pill.on { forced-color-adjust: none; color: HighlightText; }
-  .watch-viewtoggle__btn[aria-current="page"]::before,
   .watch-pill.on { background: Highlight; }
   .watch-keep::before { border: 1px solid ButtonText; }
   .ai-label { border: 1px solid CanvasText; }
@@ -1024,7 +938,6 @@
   .watch-pill:active,
   .watch-ep:active,
   .watch-keep:active,
-  .watch-more::before,
   .watch-mark:active::before,
   .watch-btn--play:active,
   .watch-btn--grey:active { transform: none; }

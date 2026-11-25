@@ -415,6 +415,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
+    from mediaman.web.routes.downloads_strip import router as downloads_strip_router
     from mediaman.web.routes.force_password_change import router as force_pw_router
     from mediaman.web.routes.history import router as history_router
     from mediaman.web.routes.keep import router as keep_router
@@ -430,11 +431,13 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.scan import router as scan_router
     from mediaman.web.routes.search import router as search_router
     from mediaman.web.routes.search.assist import router as search_assist_router
+    from mediaman.web.routes.seen import router as seen_router
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.tv import router as tv_router
     from mediaman.web.routes.tv_page import router as tv_page_router
     from mediaman.web.routes.users import router as users_router
+    from mediaman.web.routes.watch.asked_api import router as watch_asked_api_router
     from mediaman.web.routes.watch.browse_api import router as watch_browse_api_router
     from mediaman.web.routes.watch.catalog_api import router as watch_catalog_api_router
     from mediaman.web.routes.watch.explore_api import router as watch_explore_api_router
@@ -453,6 +456,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(dashboard_router)
     app.include_router(download_router)
     app.include_router(downloads_router)
+    app.include_router(downloads_strip_router)
     app.include_router(history_router)
     app.include_router(keep_router)
     app.include_router(library_router)
@@ -480,10 +484,12 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
     app.include_router(ratings_router)
+    app.include_router(seen_router)
     app.include_router(watch_library_row_api_router)
     app.include_router(watch_image_api_router)
     app.include_router(watch_catalog_api_router)
     app.include_router(watch_recommended_api_router)
+    app.include_router(watch_asked_api_router)
     app.include_router(watch_list_page_router)
     app.include_router(watch_explore_api_router)
     app.include_router(watch_title_preview_api_router)

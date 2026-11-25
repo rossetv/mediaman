@@ -9,7 +9,10 @@ keyboard-accessible table sort.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from pathlib import Path
+
+from mediaman.web.routes.keep import _lengths
 
 REPO = Path(__file__).resolve().parents[3]
 TEMPLATES = REPO / "src/mediaman/web/templates"
@@ -79,46 +82,28 @@ def test_login_page_has_h1():
 
 def test_keep_page_active_state_has_h1():
     keep = _tpl("keep.html")
-    # The active, already_kept and deleting states each rebuild an
-    # h1.item-title; the expired state uses the secondary variant.
-    assert keep.count('<h1 class="item-title">') == 3  # active, already_kept, deleting
-    assert '<h1 class="item-title item-title--secondary">' in keep  # expired
+    # The states with a title share one heading.
+    assert "{{ share.heading(item.heading) }}" in keep
+    assert "<h1 " in _tpl("_share.html").split("macro heading")[1].split("endmacro")[0]
 
 
 def test_download_page_has_h1():
-    """Download.html had no h1. The cinematic title is an
-    h1, the queued state has an sr-only h1, and expired state has its
-    own h1."""
+    """The title is an h1 in every state that has one, and the pages
+    with only something to say have their own."""
     dl = _tpl("download.html")
-    assert '<h1 class="dl-cinema-title">' in dl
-    assert '<h1 class="sr-only">{{ hero_item.title }}</h1>' in dl
-    assert '<h1 class="dl-expired-title">' in dl
+    assert "{{ share.heading(item.title or '') }}" in dl
+    assert "share.notice(" in dl and "share.limited(" in dl
+    assert "<h1>{{ title }}</h1>" in _tpl("_share.html")
 
 
 def test_keep_page_posters_use_empty_alt():
     """The visible title is rendered immediately below the
     poster, so the poster's alt text must be empty (decorative) — not
     ``alt={{ item.title }}`` which would double-announce."""
-    keep = _tpl("keep.html")
-    assert 'alt="{{ item.title }}"' not in keep
-    # All three poster <img> blocks use alt="".
-    poster_imgs = [
-        line for line in keep.splitlines() if "{{ poster_url }}" in line and "<img" in line
-    ]
+    assert "<img" not in _tpl("keep.html")
+    poster_imgs = [line for line in _tpl("_share.html").splitlines() if "<img" in line]
     assert len(poster_imgs) >= 3
     for line in poster_imgs:
-        assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
-
-
-def test_watch_list_uses_empty_alt_posters():
-    """The list view's thumbnails sit beside the title as text, so the poster
-    img is decorative: alt is empty and the title is never repeated in it."""
-    lst = _tpl("_watch_list.html")
-    assert 'alt="{{ item.show_title }}"' not in lst
-    assert 'alt="{{ item.title }}"' not in lst
-    thumb_imgs = [line for line in lst.splitlines() if "/api/poster/" in line and "<img" in line]
-    assert thumb_imgs, "list view must render poster thumbnails"
-    for line in thumb_imgs:
         assert 'alt=""' in line, f"poster <img> must have empty alt: {line}"
 
 
@@ -129,26 +114,6 @@ def test_components_warns_about_safe_filter():
     comps = _tpl("_components.html")
     assert "SECURITY" in comps
     assert "user-supplied" in comps
-
-
-def test_watch_list_table_sort_uses_links():
-    """<th onclick=...> is not keyboard-activatable. Each sortable header
-    wraps its content in a real link carrying the sort column, and the
-    header carries aria-sort so AT can announce the current sort state."""
-    lst = _tpl("_watch_list.html")
-    assert "onclick=" not in lst
-    assert lst.count('class="th-sort"') == 1  # one macro, used for each sortable header
-    for col in ("name", "size", "watched", "deletion"):
-        assert f'"{col}"' in lst
-    assert 'data-sort-col="{{ col }}"' in lst
-    assert "aria-sort=" in lst
-
-
-def test_library_table_sort_button_styled():
-    """The .th-sort control must visually match the cell — the
-    rule sets are what guarantees that."""
-    css = _css()
-    assert ".tbl thead th.sortable .th-sort" in css
 
 
 def test_title_detail_labelled_by_visible_title():
@@ -181,6 +146,9 @@ def test_keep_page_does_not_offer_forever_button():
     assert 'value="forever"' not in keep
     # And the admin-only label is gone.
     assert 'Keep <span class="duration">forever</span>' not in keep
+    # The lengths come from the route, which leaves it out.
+    now = datetime(2026, 11, 25, 12, tzinfo=UTC)
+    assert "forever" not in [length["duration"] for length in _lengths(now, now)]
 
 
 def test_settings_save_status_is_a_live_region():

@@ -550,3 +550,31 @@ class TestTmdbWait:
         monkeypatch.setattr(_gate.gate, "_free", 0)
 
         assert viewer.get(path).status_code == 429
+
+
+def test_every_list_marks_what_this_person_marked_and_rated_and_no_one_elses(viewer, conn, tmdb):
+    tmdb["/discover/movie"] = _movies(11, 12)
+    tmdb["/person/7"] = _person(_credit(11, 900, media_type="movie", title="Film 11"))
+    insert_admin_user(conn, username="cian", role="viewer")
+    for name, tmdb_id, level in (("viewer", 11, 2), ("cian", 12, -2)):
+        user = conn.execute("SELECT id FROM admin_users WHERE username = ?", (name,)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, seen_at)"
+            " VALUES (?, 'movie', ?, '2026')",
+            (user, tmdb_id),
+        )
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, updated_at)"
+            " VALUES (?, 'movie', ?, ?, '2026')",
+            (user, tmdb_id, level),
+        )
+    conn.commit()
+
+    listed = viewer.get(EXPLORE, params={"genre": "horror"}).json()["items"]
+    person = viewer.get(PERSON).json()["items"]
+
+    assert {i["tmdb_ref"]: (i["watched"], i["level"]) for i in listed} == {
+        "tmdb-movie-11": (True, 2),
+        "tmdb-movie-12": (False, None),
+    }
+    assert [(i["watched"], i["level"]) for i in person] == [(True, 2)]

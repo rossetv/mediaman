@@ -76,7 +76,7 @@
   /* Spacing & nav */
   --pad:     clamp(20px,4vw,40px);
   --section: clamp(36px,6vw,72px);
-  /* nav-glass height. The compact .nav-topbar hardcodes 48px. */
+  /* What the bar takes at the top of the window; none on a phone, where it goes with the page (_nav.css). */
   --nav-h:   52px;
 
   /* Motion — quick, ease-out; _base.css switches it off under reduced motion. */
@@ -121,7 +121,7 @@
      .12 is the canonical destructive chip background per existing usage. */
   --rgba-danger-bg: rgba(255,69,58,.12);
 
-  /* Warning (yellow) chip background — .pill--queued, .snoozed-badge,
+  /* Warning (yellow) chip background — .pill--queued and
      .dl-state-searching. .18 matches the chip-pill convention used across
      the orange/purple/yellow semantic tints. */
   --rgba-warning-bg: rgba(255,214,10,.18);

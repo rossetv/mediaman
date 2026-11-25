@@ -23,7 +23,7 @@ button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 
 .cast-face { position: relative; display: grid; place-items: center; flex: none; width: 100%; height: 100%; overflow: hidden; border-radius: 50%; background: var(--s3); color: var(--t2); font-weight: 600; }
 .cast-face > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
-.cast-face:has(> img:not([data-broken])) > .cast-face__letters { visibility: hidden; }
+.cast-face > img:not([data-broken]) ~ .cast-face__letters { visibility: hidden; }
 
 /* ── The card ── */
 
@@ -84,7 +84,7 @@ button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 .cast-card__poster:first-child { grid-column: 1; }
 .cast-card__poster > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cast-card__poster-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; padding: 0 4px; font-size: 10.5px; line-height: 13px; color: var(--t2); overflow-wrap: anywhere; }
-.cast-card__poster:has(> img:not([data-broken])) > .cast-card__poster-name { visibility: hidden; }
+.cast-card__poster > img:not([data-broken]) ~ .cast-card__poster-name { visibility: hidden; }
 button.cast-card__poster:hover { transform: scale(1.04); }
 button.cast-card__poster:active { transform: scale(.98); }
 .cast-card__known.is-none > .cast-card__label { visibility: hidden; }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Container, Mapping
 from datetime import date, datetime
 
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
@@ -102,6 +102,7 @@ def group_into_batches(
     recommendations: list[dict[str, object]],
     today: date,
     levels: Mapping[tuple[str, int], int] | None = None,
+    seen: Container[tuple[str, int]] = (),
 ) -> list[dict[str, object]]:
     """Group recommendations by batch, newest first, every batch kept.
 
@@ -111,9 +112,10 @@ def group_into_batches(
     The first batch's date is that of its picks, or empty when its own and shared picks
     are from different days. A row without a ``batch_id`` falls back to the date of its ``created_at``.
 
-    *levels* are the person's ratings. The grouping does not depend on them, so that a row
-    read in parts stays whole when a title is rated in between: a batch may be left with
-    no items, and the first with some is named as the latest.
+    *levels* are the person's ratings, and *seen* the titles they marked watched. The grouping
+    does not depend on them, so that a row read in parts stays whole when a title is rated or
+    marked in between: a batch may be left with no items, and the first with some is named as
+    the latest.
     """
     groups: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for row in recommendations:
@@ -135,7 +137,7 @@ def group_into_batches(
             batch_date: date | None = datetime.strptime(bid, "%Y-%m-%d").date()
         except ValueError:
             batch_date = None
-        items = suggestible(group["personal"] + group["trending"], levels or {})
+        items = suggestible(group["personal"] + group["trending"], levels or {}, seen)
         # The first batch may hold picks of two dates: then it names none.
         dates = {_batch_of(row) for row in items} if index == 0 else {bid}
         batches.append(

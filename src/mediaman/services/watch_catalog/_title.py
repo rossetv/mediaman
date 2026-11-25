@@ -73,6 +73,7 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
             "episode_count": s.get("episode_count")
             if isinstance(s.get("episode_count"), int)
             else None,
+            "air_date": s.get("air_date") if isinstance(s.get("air_date"), str) else None,
         }
         for s in dicts(details.get("seasons"))
         if isinstance(s.get("season_number"), int) and s["season_number"] > 0

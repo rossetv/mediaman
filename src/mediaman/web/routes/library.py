@@ -1,4 +1,4 @@
-"""Library page routes (GET /library, a redirect to the Watch list view).
+"""Library page routes (GET /library, a redirect to All titles on Watch).
 
 The JSON API lives in mediaman.web.routes.library_api. Query helpers and shared constants
 live in mediaman.web.repository.library_query so library_api can import them without a
@@ -6,8 +6,6 @@ peer-route import; this module re-exports them for external importers (tests, ap
 """
 
 from __future__ import annotations
-
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
@@ -47,43 +45,15 @@ from mediaman.web.repository.library_query import (
 from mediaman.web.repository.library_query import (
     type_css as type_css,
 )
+from mediaman.web.routes.watch.list_page import address_of
 
 router = APIRouter()
 
 
-def _is_count(text: str, most: int) -> bool:
-    # The length is checked before int(), which takes only so many digits.
-    return (
-        len(text) <= len(str(most))
-        and text.isascii()
-        and text.isdecimal()
-        and 1 <= int(text) <= most
-    )
-
-
 @router.get("/library")
-def library_page(
-    request: Request,
-    q: str = "",
-    type: str = "",
-    sort: str = "",
-    page: str = "",
-    per_page: str = "",
-) -> Response:
-    """Send the old library page to the Watch list view, keeping the filters that are valid."""
+def library_page(request: Request) -> Response:
+    """Send the old library page to All titles, keeping the filters there are."""
     resolved = resolve_admin_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    params = {"view": "list"}
-    q = q.strip()[:MAX_SEARCH_TERM_LEN]
-    if q:
-        params["q"] = q
-    if type in VALID_TYPES:
-        params["type"] = type
-    if sort in VALID_SORTS:
-        params["sort"] = sort
-    if _is_count(page, 100_000):
-        params["page"] = page
-    if _is_count(per_page, 100):
-        params["per_page"] = per_page
-    return RedirectResponse(f"/watch?{urlencode(params)}", status_code=302)
+    return RedirectResponse(address_of(request.query_params), status_code=302)

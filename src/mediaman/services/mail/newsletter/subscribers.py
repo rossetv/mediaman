@@ -16,7 +16,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.watch_catalog import SeenTitles
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
-from .render import _build_subject
+from .render import _build_subject, render_to_fit
 
 if TYPE_CHECKING:
     from jinja2 import Template as _JinjaTemplate
@@ -184,10 +184,10 @@ def _render_for_subscriber(
     secret_key: str,
     dry_run: bool,
     template: _JinjaTemplate,
-) -> tuple[str, str]:
+) -> tuple[str, str, list[ScheduledNewsletterItem]]:
     """Mint per-subscriber tokens on shallow copies of the items (so URLs do not bleed
-    between subscribers) and render the HTML. Returns the HTML and the unsubscribe URL
-    in it ("" without a base URL). No side effects, no DB access.
+    between subscribers) and render the HTML. Returns the HTML, the unsubscribe URL
+    in it ("" without a base URL) and the scheduled items it names. No side effects, no DB access.
     """
     unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
     # The email is encoded inside the signed token — no need to expose it
@@ -209,7 +209,8 @@ def _render_for_subscriber(
     _mint_deleted_tokens(subscriber_deleted, email=email, base_url=base_url, secret_key=secret_key)
     _mint_rec_tokens(subscriber_this_week, email=email, base_url=base_url, secret_key=secret_key)
 
-    html = template.render(
+    html, listed = render_to_fit(
+        template,
         report_date=report_date,
         storage=storage,
         reclaimed_week=reclaimed_week,
@@ -223,7 +224,7 @@ def _render_for_subscriber(
         base_url=base_url,
         unsubscribe_url=unsub_url,
     )
-    return html, unsub_url
+    return html, unsub_url, listed
 
 
 def _send_to_subscribers(
@@ -248,8 +249,8 @@ def _send_to_subscribers(
 ) -> list[str]:
     """Render and send to each subscriber, returning the addresses that succeeded.
 
-    With *conn*, a per-subscriber delivery record is persisted for every scheduled item
-    so notified=1 is set only when every active subscriber succeeded. A subscriber's copy
+    With *conn*, a per-subscriber delivery record is persisted for every scheduled item their
+    mail names, so notified=1 is set only when every active subscriber succeeded. A subscriber's copy
     holds their own picks (*own_picks*, by address) beside the shared ones. On a later attempt a
     subscriber's copy leaves out the items already delivered to them, and is skipped when
     that leaves no scheduled item and no recommendation to report.
@@ -275,8 +276,7 @@ def _send_to_subscribers(
         ]
         if (scheduled_items or own_picks) and not items and not recs:
             continue  # all was delivered, or only others have picks: nothing is worth an email
-        scheduled_action_ids = _action_ids(items)
-        html, unsub_url = _render_for_subscriber(
+        html, unsub_url, listed = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,
             this_week_items=recs,
@@ -291,6 +291,8 @@ def _send_to_subscribers(
             dry_run=dry_run,
             template=template,
         )
+        # An item the mail had no room for waits for the next one.
+        scheduled_action_ids = _action_ids(listed)
         try:
             mailgun.send(
                 to=email,

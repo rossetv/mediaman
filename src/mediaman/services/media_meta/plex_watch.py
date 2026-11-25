@@ -11,6 +11,7 @@ import logging
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 from xml.etree.ElementTree import Element, ParseError
 
@@ -135,6 +136,8 @@ class PlexSeason:
     rating_key: str
     index: int
     title: str
+    summary: str = ""
+    episode_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,8 @@ class PlexEpisode:
     thumb: str | None
     season_index: int | None = None
     season_rating_key: str | None = None
+    summary: str = ""
+    aired: str | None = None  # ISO date
 
 
 def is_in_libraries(item: PlexItem | PlexShow, allowed_section_ids: Collection[str | int]) -> bool:
@@ -176,6 +181,13 @@ def _int(value: str | None) -> int | None:
 
 def _seconds(ms: str | None) -> int:
     return round((_int(ms) or 0) / 1000)
+
+
+def _iso_date(value: str | None) -> str | None:
+    try:
+        return date.fromisoformat(value).isoformat() if value else None
+    except ValueError:
+        return None
 
 
 def _check_key(rating_key: str) -> str:
@@ -263,6 +275,8 @@ def _episode(node: Element, container: Element) -> PlexEpisode:
         thumb=node.get("thumb"),
         season_index=_int(node.get("parentIndex", container.get("parentIndex"))),
         season_rating_key=node.get("parentRatingKey"),
+        summary=node.get("summary", "").strip(),
+        aired=_iso_date(node.get("originallyAvailableAt")),
     )
 
 
@@ -379,7 +393,15 @@ class PlexWatch:
         for n in nodes:
             index = _int(n.get("index"))
             if n.get("type") == "season" and index:
-                seasons.append(PlexSeason(n.get("ratingKey", ""), index, n.get("title", "")))
+                seasons.append(
+                    PlexSeason(
+                        rating_key=n.get("ratingKey", ""),
+                        index=index,
+                        title=n.get("title", ""),
+                        summary=n.get("summary", "").strip(),
+                        episode_count=_int(n.get("leafCount")),
+                    )
+                )
         return sorted(seasons, key=lambda s: s.index)
 
     def get_show(self, show_key: str) -> PlexShow:

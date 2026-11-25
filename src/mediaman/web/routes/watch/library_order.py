@@ -47,12 +47,12 @@ def is_place(text: str) -> bool:
     return lib.parse_cursor(text.partition(".")[0]) is not None
 
 
-def library_page[T: lib.LibraryMovie | lib.LibraryShow](
+def library_page[T: lib.Orderable](
     conn: sqlite3.Connection,
     username: str,
     libraries: list[str],
     entries: Sequence[T],
-    order: lib.RowOrder,
+    order: lib.TitleOrder,
     limit: int,
     after: str = "",
 ) -> tuple[list[T], str | None]:

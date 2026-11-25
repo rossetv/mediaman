@@ -58,7 +58,6 @@ def test_white_text_keeps_aa_on_a_primary_button_under_the_pointer() -> None:
     for sheet, button, under in (
         ("_buttons.css", ".btn--primary", ":hover"),
         ("_login.css", ".login-btn", ":hover"),
-        ("_download_page.css", ".btn-download-hero", ':not([aria-disabled="true"]):hover'),
     ):
         for state in ("", under):
             fill = _rgb(_token(_var(_body(sheet, button + state), "background")))
@@ -70,8 +69,6 @@ def test_blue_and_purple_text_keep_aa_on_their_tints_over_every_surface_a_pill_s
         ".pill--tv": "accent-text",
         ".pill--anime": "purple-text",
         ".btn--accent-soft": "accent-text",
-        ".keep-trigger": "accent-text",
-        ".btn-sm-caret": "accent-text",
     }
     for selector, text in wearers.items():
         body = _body("_buttons.css", selector)
