@@ -344,6 +344,102 @@ class TestKeptTitleMoves:
         assert _is_kept(conn, kept, "new")
 
 
+@_season("season new")
+class TestSeasonOfAKeptShowMoves:
+    """One season goes to another library, under a new key of its show; another stays."""
+
+    @pytest.fixture
+    def show(self, conn, library):
+        library.places["stays"] = "stays"
+        library.folder("stays").mkdir()
+        library.file("stays").write_bytes(b"data")
+        library.ids["stays"] = library.ids["old"] | {
+            "show_rating_key": "show-old",
+            "season_number": 2,
+        }
+        return library
+
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("lists", [[], [["stays"]]], ids=str)
+    def test_its_files_stay_and_its_new_show_gets_no_keep(self, conn, freezer, show, lists, run):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        for keys in lists:
+            freezer.tick(60)
+            show.sync(*keys)
+        show.file("old").unlink()
+
+        for days in (0, 1, 40, 1, 0):
+            freezer.tick(timedelta(days=days, seconds=60))
+            getattr(show, "scan" if not days else run)("stays", "new")
+            assert "scheduled_deletion" not in _actions(conn, "new")
+
+        assert show.file("new").exists()
+        assert not _is_kept(conn, "show", "new")
+
+    def test_one_already_due_is_not_deleted_once_plex_lists_the_old_one_no_more(
+        self, conn, freezer, show, not_removed
+    ):
+        show.sync("old", "stays", "new")
+        _keep_show(conn)
+        _schedule(conn, "new")
+
+        freezer.tick(60)
+        show.scan("stays", "new")
+
+        assert show.file("new").exists()
+
+    def test_one_listed_beside_the_old_one_is_scheduled(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("old", "stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    def test_another_season_of_its_new_show_is_scheduled(self, conn, freezer, show):
+        show.elsewhere.add("newer")
+        show.ids["newer"] |= {"show_rating_key": "show-new", "season_number": 3}
+        show.sync("old", "stays")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("stays", "new", "newer")
+
+        assert _actions(conn, "new") == []
+        assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    def test_it_is_scheduled_once_the_old_one_is_back_in_its_library(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        freezer.tick(60)
+        show.scan("stays", "new")
+        show.ids["newer"] |= {"show_rating_key": "show-old"}
+
+        for _ in range(2):
+            freezer.tick(60)
+            show.scan("newer", "stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    def test_it_is_scheduled_once_the_shows_keep_is_removed(self, conn, freezer, show):
+        show.sync("old", "stays")
+        _keep_show(conn)
+        freezer.tick(60)
+        show.scan("stays", "new")
+        with conn:
+            conn.execute("DELETE FROM kept_shows")
+            log_audit(conn, "show-old", "removed_show_keep", "removed", actor="admin")
+
+        freezer.tick(60)
+        show.scan("stays", "new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+
 class TestRemovedKeep:
     @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
     @_season("season", "film new", "season new")
@@ -831,18 +927,6 @@ class TestUnlistedButNotRemoved:
 
         freezer.tick(60)
         library.scan("old", "new")
-
-        assert _actions(conn, "new") == ["scheduled_deletion"]
-
-    @_season("season new")
-    def test_a_kept_show_with_a_season_listed_is_listed(self, conn, freezer, library, not_removed):
-        library.ids["newer"] |= {"show_rating_key": "show-old", "season_number": 2}
-        library.sync("old", "newer", "new")
-        _keep_show(conn)
-
-        for _ in range(2):
-            freezer.tick(60)
-            library.scan("newer", "new")
 
         assert _actions(conn, "new") == ["scheduled_deletion"]
 

@@ -634,10 +634,11 @@ _LIVE_KEEP = "(ks.action = 'protected_forever' OR ks.execute_at > ?)"
 
 
 def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
-    """Return the live keeps of the other keys of the show of *season*.
+    """Return the live keeps of the other keys of the show of *season*, and of the season itself.
 
-    Such a key has a season where this one has it, or its ids: in another library,
-    only if it may be the same show.
+    A key of its show has a season where this one has it, or its ids: in another
+    library, only if it may be the same show. The season alone may have come from
+    a show whose other seasons stay.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
@@ -654,7 +655,41 @@ def _other_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sql
         own, other = fetch_title(conn, row["own_id"]), fetch_title(conn, row["other_id"])
         if own is not None and other is not None and not _is_another_title(other, own):
             keeps.append(row)
-    return keeps + _other_show_keeps_by_ids(conn, season)
+    return keeps + _other_show_keeps_by_ids(conn, season) + _season_show_keeps(conn, season)
+
+
+def _season_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
+    """Return the live keeps of the other shows that have a copy of *season*, or had it last.
+
+    A show had it last while none with the season's ids and number is in the
+    library the show's own was in.
+    """
+    show_keys = {copy["show_rating_key"] for copy in copies(conn, season)}
+    if season["show_rating_key"] and is_film_or_numbered(season):
+        ids = title_ids(season)
+        for gone in conn.execute(
+            "SELECT * FROM pruned_show_seasons WHERE season_number IS ? "
+            "AND (tvdb_id IS NOT NULL OR tmdb_id IS NOT NULL)",
+            (season["season_number"],),
+        ).fetchall():
+            if ids_match(_pruned_ids(gone), ids) and (
+                gone["plex_library_id"] == season["plex_library_id"]
+                or not any(
+                    title["plex_library_id"] == gone["plex_library_id"]
+                    for title in _films_or_seasons_with_ids(conn, ids, season["season_number"])
+                )
+            ):
+                show_keys.add(gone["show_rating_key"])
+    keeps = []
+    for show_key in show_keys - {None, "", season["show_rating_key"]}:
+        # rationale: the interpolated condition is a fixed string; every value is bound
+        keep = conn.execute(  # nosec B608
+            f"SELECT ks.* FROM kept_shows ks WHERE ks.show_rating_key = ? AND {_LIVE_KEEP}",
+            (show_key, now_iso()),
+        ).fetchone()
+        if keep is not None:
+            keeps.append(keep)
+    return keeps
 
 
 def _other_show_keeps_by_ids(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sqlite3.Row]:
