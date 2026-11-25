@@ -121,7 +121,7 @@
      .12 is the canonical destructive chip background per existing usage. */
   --rgba-danger-bg: rgba(255,69,58,.12);
 
-  /* Warning (yellow) chip background — .pill--queued, .snoozed-badge,
+  /* Warning (yellow) chip background — .pill--queued and
      .dl-state-searching. .18 matches the chip-pill convention used across
      the orange/purple/yellow semantic tints. */
   --rgba-warning-bg: rgba(255,214,10,.18);

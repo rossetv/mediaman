@@ -237,7 +237,7 @@ html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-pad
 @media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
   .tv-mini__pic { display: none; }
 }
-/* With the tab bar too those buttons are at the right. */
+/* With the bar at the foot too those buttons are at the right. */
 @media (max-height: 520px) and (max-width: 699.98px) {
   .tv-mini { left: max(8px, env(safe-area-inset-left)); right: auto; width: calc(100% - 236px); }
 }
