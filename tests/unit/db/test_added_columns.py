@@ -435,3 +435,39 @@ def test_a_kept_season_an_older_version_set_aside_is_given_back_by_its_match(tmp
     kept = conn.execute("SELECT media_item_id FROM scheduled_actions").fetchall()
     assert [row["media_item_id"] for row in kept] == ["new"]
     conn.close()
+
+
+_FILM = (
+    "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+    " added_at, file_path, file_size_bytes, last_scanned_at)"
+    " VALUES (?, 'T', 'movie', 1, ?, '2020', ?, 5, ?)"
+)
+
+
+def test_an_item_an_older_version_stored_is_first_listed_when_it_was_last_seen(tmp_path):
+    """Before or after the column came: an older version may run again and store more."""
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS)
+    old.execute(_FILM, ("before", "before", "/m/a.mkv", "2026-01-01"))
+    old.commit()
+    old.close()
+    conn = init_db(path)
+    conn.execute(_FILM, ("after", "after", "/m/b.mkv", "2026-02-02"))
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+        " added_at, file_path, file_size_bytes, last_scanned_at, first_listed_at)"
+        " VALUES ('own', 'T', 'movie', 1, 'own', '2020', '/m/c.mkv', 5, '2026-03-03', '2025')"
+    )
+    conn.commit()
+    conn.close()
+
+    conn = init_db(path)
+
+    rows = conn.execute("SELECT id, first_listed_at FROM media_items ORDER BY id").fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("after", "2026-02-02"),
+        ("before", "2026-01-01"),
+        ("own", "2025"),
+    ]
+    conn.close()

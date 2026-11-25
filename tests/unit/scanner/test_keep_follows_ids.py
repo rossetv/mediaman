@@ -750,6 +750,28 @@ class TestLibraryNotRead:
         assert library.file("new").exists()
 
 
+@pytest.mark.parametrize(
+    ("library", "kept_in"), [("film new", "1"), ("season new", "2")], indirect=["library"]
+)
+def test_one_an_older_version_stored_is_not_deleted_while_the_kept_ones_library_is_not_read(
+    conn, db_path, freezer, library, kept_in
+):
+    library.sync("old")
+    _keep(conn, "old")
+    library.down = {kept_in}
+    freezer.tick(60)
+    library.scan("new")
+    with conn:
+        conn.execute("UPDATE media_items SET first_listed_at = NULL")
+    _schedule(conn, "new")
+    init_db(str(db_path)).close()
+
+    freezer.tick(60)
+    library.scan("new")
+
+    assert library.file("new").exists()
+
+
 @pytest.fixture
 def not_removed(monkeypatch):
     """No list is trusted enough to remove what it lacks."""

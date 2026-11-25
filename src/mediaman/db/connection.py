@@ -150,6 +150,16 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
 
 
+def _fill_first_listed(conn: sqlite3.Connection) -> None:
+    """Take an item stored without it as first listed when it was last seen.
+
+    At every start: an older version that runs again stores items without it.
+    """
+    conn.execute(
+        "UPDATE media_items SET first_listed_at = last_scanned_at WHERE first_listed_at IS NULL"
+    )
+
+
 def _take_over_plays(conn: sqlite3.Connection) -> None:
     """Fill played_titles from the plays of a database made before it."""
     rows = conn.execute(
@@ -190,6 +200,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
         conn.executescript(_ADDED_INDEXES)
+        _fill_first_listed(conn)
         _take_over_plays(conn)
         conn.commit()
     except Exception:
