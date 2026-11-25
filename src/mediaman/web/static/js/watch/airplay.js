@@ -5,16 +5,43 @@
  * short silent clip, since Safari opens its list of TVs only for something that can play. Nothing
  * is asked of mediaman and nothing stops here before the person has chosen one.
  *
+ * On a page without a player it only says whether there is a TV, and leads to the player.
+ *
  * Requires: play-on.js. player.js follows what plays.
  */
 (function (global) {
   'use strict';
 
   var MM = global.MM;
+  if (!MM || !MM.playOn) return;
   var root = document.getElementById('player');
-  if (!MM || !MM.playOn || !root) return;
   var el = document.createElement('video');
   if (!global.WebKitPlaybackTargetAvailabilityEvent || !el.webkitShowPlaybackTargetPicker) return;
+
+  var nearby = false;
+  el.addEventListener('webkitplaybacktargetavailabilitychanged', function (e) {
+    nearby = e.availability === 'available';
+    MM.playOn.changed();
+  });
+
+  var way = {
+    id: 'airplay',
+    label: 'AirPlay',
+    sub: 'Apple TV and TVs with AirPlay',
+    icon: 'play-on-airplay',
+    available: function () { return nearby; },
+  };
+
+  if (!root) {
+    el.className = 'sr-only';
+    el.tabIndex = -1;
+    el.preload = 'none';
+    el.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(el);
+    way.leads = true;
+    MM.playOn.register(way);
+    return;
+  }
 
   var CLIP = '/static/video/airplay.mp4';
   var CHOOSE_MS = 90000;     // a TV chosen later was not chosen here
@@ -23,7 +50,6 @@
   var ARRIVE_MS = 10000;
   var GONE_MS = 1500;
 
-  var nearby = false;
   var choosing = null;       // {what, resolve, reject, timer} while the list is open
   var play = null;           // what plays on the TV, or is about to
   var loading = false;
@@ -153,11 +179,6 @@
     }, ms);
   }
 
-  el.addEventListener('webkitplaybacktargetavailabilitychanged', function (e) {
-    nearby = e.availability === 'available';
-    MM.playOn.changed();
-  });
-
   el.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', function () {
     if (onTv() && choosing && !play) begin();
     else if (onTv()) arriving = false;
@@ -176,11 +197,7 @@
     return /iPad/.test(ua) || global.navigator.maxTouchPoints > 1 ? 'iPadOS' : 'Safari';
   }
 
-  MM.playOn.register({
-    id: 'airplay',
-    label: 'AirPlay',
-    sub: 'Apple TV and TVs with AirPlay',
-    icon: 'play-on-airplay',
+  MM.playOn.register(Object.assign(way, {
     available: function () { return nearby || !!play; },
     chooser: {
       title: 'Your device shows its own list now',
@@ -188,5 +205,5 @@
     },
     hereNote: 'If the sound stays on the TV, choose this device in the AirPlay list.',
     start: start,
-  });
+  }));
 })(window);

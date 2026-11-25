@@ -66,6 +66,8 @@
 .play-on__say code { font: inherit; font-weight: 500; color: var(--t1); }
 .play-on__say .btn { margin-top: 10px; }
 .play-on__say .btn + .btn { margin-left: 8px; }
+/* The box is in the button's own grey. */
+.play-on__say .btn--secondary { background: var(--s5); }
 .play-on__say .btn,
 .play-on__pair .btn { min-height: 44px; }
 .play-on__wait { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 12px; font-size: 14px; color: var(--t2); }

@@ -11,18 +11,21 @@
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
  *   MM.playOn.open(button, host) the sheet, by the button
  *   MM.playOn.button(href, className) the button of a title on a page without a player, by the
- *                                address it plays at; it lists TVs alone
+ *                                address it plays at
  *
- * A way: {id, label, sub, icon, available(), chooser, start(what), look?, again?}. Its start is
- * called in the press itself, since the browser shows its list of TVs for a press alone.
+ * A way: {id, label, sub, icon, available(), chooser, start(what), asks?, looking?, trouble?, look?, again?, release?,
+ * leads?}. Its start is called in the press itself, since the browser shows its list of TVs for a
+ * press alone; asks() says whether it will. looking() is true while it is not known yet whether it
+ * is available, and trouble() says why it is not, as {title, line}. One that `leads` needs the player, which is opened.
  *
  * A host is the page's own player, or a page that has none:
  *   what()        {rating_key, position_s, quality, subtitle, autoplay, asked_s}
  *   on()          optional: null, or the id of what plays it now ('tv-5', a way's)
- *   before(tv)    optional: what plays is stopped and its place saved; a promise of the place
+ *   before(tv)    optional, of the TV or the way: what plays is stopped and its place saved; a promise of the place
  *   failed()      optional: nothing came of it; it plays on as before, or what it says
- *   started(tv)   optional: a TV plays it
- *   startWay(way) optional: plays it by a way of the browser's; a promise
+ *   started(tv)   optional: a TV plays it, or the way {id, name}
+ *   startWay(way) optional: plays it by a way of the browser's; a promise. Without it a way plays
+ *                 it by itself, with no page to follow it
  *   here()        optional: bring it back to this device
  *
  * The TVs are those of GET /api/tvs. Where mediaman has no such route there are none.
@@ -33,11 +36,19 @@
   'use strict';
 
   var MM = global.MM;
+  if (MM.playOn) return;
   var TVS = '/api/tvs';
   var TV_ICON = 'play-on-tv'; // of _play_on.html
   var ON_TV_KEY = 'mediaman.watch.onTv';
+  var CAST_URL = '/api/cast/stream';
   var LOOK_MS = 5000;
   var START_WAIT_MS = 125000;
+  /* A TV just paired is heard of with its next question. */
+  var FRESH_MS = 6000;
+  var FRESH_EVERY_MS = 800;
+  /* An older TV says only as it begins whether it can play the film. */
+  var BEGIN_EVERY_MS = 1000;
+  var BEGIN_WAIT_MS = 60000;
   var LEAVE_MS = 300;
   var NAME_MAX = 30;          // a longer one does not stand in a sentence
   var DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,8 +89,18 @@
 
   function now() { return Date.now(); }
 
+  /* What a way says of itself; one that fails says nothing. */
+  function told(way, member) {
+    try { return !!(way[member] && way[member]()); } catch (e) { return false; }
+  }
+
   function usable() {
-    return ways.filter(function (w) { return w.available(); });
+    return ways.filter(function (w) { return told(w, 'available'); });
+  }
+
+  /* Those that are, may come to be, or say why they are not. */
+  function listed() {
+    return ways.filter(function (w) { return told(w, 'available') || told(w, 'looking') || told(w, 'trouble'); });
   }
 
   function hasTvs() { return !absent && (tvs !== null || lost); }
@@ -87,9 +108,9 @@
 
   function changed() {
     listeners.forEach(function (fn) { fn(any()); });
-    MM.dom.qa('[data-play-on-title]').forEach(function (b) { b.hidden = !hasTvs(); });
-    /* What is being typed there is left alone. */
-    if (sheet && !sheet.pairing) draw();
+    MM.dom.qa('[data-play-on-title]').forEach(function (b) { b.hidden = !any(); });
+    /* What is being typed there is left alone, and so is what the pointer may be on. */
+    if (sheet && !sheet.pairing) draw(true);
   }
 
   /* ---- the TVs ---------------------------------------------------------- */
@@ -129,6 +150,7 @@
     try { return global.localStorage.getItem(ON_TV_KEY) !== null; } catch (e) { return true; }
   }
 
+  function tvUrl(tv) { return TVS + '/' + encodeURIComponent(tv.id); }
   function idOf(tv) { return 'tv-' + tv.id; }
   function isOlder(tv) { return tv.kind === 'older'; }
 
@@ -178,6 +200,14 @@
     var code = err && err.error;
     if (code === 'in_use') return busy(tv);
     if (isOlder(tv) && (code === 'tv_off' || code === 'unreachable')) return notOpen(tv);
+    if (code === 'cant_play') {
+      return {
+        id: idOf(tv),
+        title: short(tv) + ' can’t play this one',
+        line: ['Its picture is in a form older TVs refuse, and converting it failed. Try another TV, or watch here.' + (left || '')],
+        bad: true,
+      };
+    }
     var line = code === 'tv_off' ? 'It stopped answering. Check it still shows mediaman, then choose it again.'
       : err && err.data && err.data.message || FAILED[code] || 'Choose it again in a moment.';
     return {
@@ -202,13 +232,38 @@
     }
   }
 
-  /* `confirm` is the person's yes to taking the TV from somebody. */
-  function startTv(tv, confirm) {
+  function later(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
+
+  /* Asked again for a while where the TV was paired a moment ago: until it next asks, it is off. */
+  function askPlay(tv, what, signal, freshUntil, wanted) {
+    return MM.api.post(tvUrl(tv) + '/play', what, { signal: signal }).catch(function (err) {
+      if (!err || err.error !== 'tv_off' || now() >= freshUntil || !wanted()) throw err;
+      return later(FRESH_EVERY_MS).then(function () { return askPlay(tv, what, signal, freshUntil, wanted); });
+    });
+  }
+
+  /* Settles as an older TV has begun; rejects where it cannot play it. */
+  function begun(tv, wanted, until) {
+    var play = tv.play;
+    if (!play || !wanted() || now() > until) return Promise.resolve(tv);
+    if (play.state === 'failed') {
+      stopTv(tv).catch(function () { /* it plays nothing */ });
+      return Promise.reject({ error: play.error === 'tv' ? 'cant_play' : play.error });
+    }
+    if (play.state !== 'starting' && play.state !== 'loading') return Promise.resolve(tv);
+    return later(BEGIN_EVERY_MS).then(function () {
+      return MM.api.get(tvUrl(tv)).then(function (data) { return data.tv; }, function () { return tv; });
+    }).then(function (heard) { return begun(heard, wanted, until); });
+  }
+
+  /* `confirm` is the person's yes to taking the TV from somebody; `freshUntil`: just paired. */
+  function startTv(tv, confirm, freshUntil) {
     if (wait) return;
     var mine = ++asking;
     var host = sheet.host;
     var stopper = new AbortController();
     var late;
+    function wanted() { return mine === asking; }
     say = null;
     limit = false;
     wait = idOf(tv);
@@ -220,9 +275,12 @@
       if (confirm) what.confirm = true;
       late = setTimeout(function () { stopper.abort(); }, START_WAIT_MS);
       remember(true);
-      return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/play', what, { signal: stopper.signal });
+      return askPlay(tv, what, stopper.signal, freshUntil || 0, wanted);
     }).then(function (data) {
       clearTimeout(late);
+      if (!isOlder(tv) || !data.tv) return data;
+      return begun(data.tv, wanted, now() + BEGIN_WAIT_MS).then(function (heard) { return { tv: heard }; });
+    }).then(function (data) {
       if (mine !== asking) {
         /* Called off too late not to begin: that play is stopped, and nothing the TV has since. */
         if (data.tv && data.tv.play) stopTv(data.tv).catch(function () { /* it is over */ });
@@ -248,7 +306,7 @@
   function stopTv(tv) {
     var body = { kind: 'stop' };
     if (tv.play.play_id) body.play_id = tv.play.play_id;
-    return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/commands', body);
+    return MM.api.post(tvUrl(tv) + '/commands', body);
   }
 
   function cancel() {
@@ -267,10 +325,17 @@
 
   function startWay(way) {
     if (wait) return;
+    var host = sheet.host;
+    if (way.leads) {
+      close();
+      global.location.href = playerOf(host.what().rating_key) + '#play-on';
+      return;
+    }
     var mine = ++asking;
+    var by = host.startWay || function (w, chosen) { return startAlone(w, chosen, host, function () { return mine === asking; }); };
     limit = false;
-    say = way.chooser ? { id: way.id, title: way.chooser.title, line: [way.chooser.line] } : null;
-    var playing = sheet.host.startWay(way, function () {
+    say = way.chooser && (!way.asks || told(way, 'asks')) ? { id: way.id, title: way.chooser.title, line: [way.chooser.line] } : null;
+    var playing = by(way, function () {
       /* The person has chosen a TV in the browser's own list. */
       if (mine !== asking) return;
       say = null;
@@ -300,6 +365,100 @@
       }
       draw();
     });
+  }
+
+  function playerOf(key) { return '/watch/play/' + encodeURIComponent(key) + '?resume=1'; }
+
+  /* What the player's own page says of a title: its words, its place and what follows it. */
+  function titleOf(key) {
+    return fetch(playerOf(key), { credentials: 'same-origin' }).then(function (resp) { return resp.text(); }).then(function (html) {
+      var el = new DOMParser().parseFromString(html, 'text/html').getElementById('player');
+      var item = JSON.parse(el.getAttribute('data-item'));
+      var next = JSON.parse(el.getAttribute('data-next') || 'null');
+      var after = next && /^\/watch\/play\/([0-9]+)/.exec(next.href);
+      return {
+        item: item,
+        image: el.getAttribute('data-show-href') ? '/api/watch/thumb/' + key : '/api/poster/' + key + '?kind=art',
+        place: parseFloat(el.getAttribute('data-start-s')) || 0,
+        next: after ? { rating_key: after[1], label: next.label } : null,
+      };
+    });
+  }
+
+  /* Plays it by a way where no player is: the way keeps its place from then on. */
+  function startAlone(way, chosen, host, wanted) {
+    var what = host.what();
+    var began = now();
+    var about = { rating_key: what.rating_key, title: '', subtitle: '', duration_s: 0, image: '' };
+    var kept = null;
+    var streamId = null;
+    function cancelled() { return Object.assign(new Error('cancelled'), { code: 'cancelled' }); }
+    function endStream() {
+      if (streamId) MM.api.post('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop').catch(function () { /* it ends by itself */ });
+      streamId = null;
+    }
+    return way.start({
+      title: about,
+      position_s: what.position_s || 0,
+      open: function () {
+        if (!wanted()) return Promise.reject(cancelled());
+        chosen();
+        var place;
+        var told;
+        return Promise.all([titleOf(what.rating_key), host.before ? host.before(way) : undefined]).then(function (both) {
+          if (!wanted()) throw cancelled();
+          told = both[0];
+          place = [both[1], what.position_s, told.place].filter(function (s) { return typeof s === 'number'; })[0];
+          var body = {
+            rating_key: what.rating_key, quality: what.quality || 'auto', page: pageName(),
+            asked_s: (now() - began) / 1000,
+          };
+          if (what.subtitle) body.subtitle = what.subtitle;
+          return MM.api.post(CAST_URL, body);
+        }).then(function (data) {
+          streamId = data.stream_id;
+          if (!wanted()) throw cancelled();
+          kept = {
+            quality: data.quality, subtitle: what.subtitle || null, played_s: 0, given: { subtitle: data.subtitle || null, subtitle_tracks: data.subtitle_tracks || [] },
+            markers: data.markers || [], chapters: data.chapters || [],
+            next: told.next,
+          };
+          about = {
+            rating_key: what.rating_key, title: told.item.title, subtitle: told.item.subtitle,
+            duration_s: told.item.duration_s, image: told.image,
+          };
+          return {
+            stream_id: data.stream_id, url: global.location.origin + data.url, position_s: place,
+            duration_s: data.duration_s, paused: false, title: about,
+          };
+        }).catch(function (err) {
+          endStream();
+          throw err.code ? err : Object.assign(new Error('failed'), { code: err.error || 'failed' });
+        });
+      },
+    }).then(function (play) {
+      if (!wanted()) {
+        play.stop();
+        throw cancelled();
+      }
+      if (play.keep) play.keep(kept);
+      play.leave();
+      var on = { id: way.id, name: play.name || way.label };
+      setTimeout(function () {
+        if (host.started) host.started(on);
+        else if (MM.tvRemote) MM.tvRemote.open(way.id);
+      }, 0);
+    }, function (err) {
+      endStream();
+      if (host.failed) err.left = host.failed();
+      throw err;
+    });
+  }
+
+  function pageName() {
+    return Array.prototype.map.call(global.crypto.getRandomValues(new Uint8Array(12)), function (b) {
+      return (b < 16 ? '0' : '') + b.toString(16);
+    }).join('');
   }
 
   /* ---- building the sheet ----------------------------------------------- */
@@ -379,7 +538,7 @@
     text.appendChild(document.createTextNode(' '));
     if (o.sub) text.appendChild(el('small', '', o.sub));
     var end = el('span', 'play-on__end');
-    if (o.starting) end.appendChild(ring());
+    if (o.starting || o.looks) end.appendChild(ring());
     else if (o.on) end.appendChild(MM.dom.icon('i-check'));
     else if (o.more) end.appendChild(MM.dom.icon('i-chevron-right'));
     b.appendChild(icon);
@@ -417,11 +576,49 @@
     });
   }
 
+  function wayRow(list, way, on) {
+    var here = on === way.id;
+    var there = told(way, 'available');
+    var looks = !there && told(way, 'looking');
+    var trouble = !there && told(way, 'trouble') ? way.trouble() : null;
+    var none = !there && !looks && !trouble && !here && wait !== way.id;
+    row(list, {
+      id: way.id, icon: way.icon, name: way.label, on: here, starting: wait === way.id, looks: looks, off: none, more: !none,
+      sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : looks ? 'Looking for TVs…' : none ? 'No TV found' : way.sub,
+    }, function () {
+      if (here) {
+        close();
+      } else if (trouble || none) {
+        say = trouble ? { id: way.id, title: trouble.title, line: [trouble.line], bad: true } : null;
+        if (way.look) way.look();
+        draw();
+      } else {
+        startWay(way);
+      }
+    });
+  }
+
+  /* What there is to play on, as it stood when the sheet opened: what comes meanwhile is last, what
+     goes stays, so that no row moves from under a press. */
+  function rowsOf(known, found) {
+    known.forEach(function (tv) { sheet.rows[idOf(tv)] = { tv: tv }; });
+    found.forEach(function (way) { sheet.rows[way.id] = { way: way }; });
+    Object.keys(sheet.rows).forEach(function (id) {
+      var one = sheet.rows[id];
+      if (one.tv && known.indexOf(one.tv) === -1) one.tv = Object.assign({}, one.tv, { on: false, busy: false });
+    });
+    var off = function (tv) { return !tv.on && !tv.busy; };
+    var now = known.filter(function (tv) { return !off(tv); }).map(idOf)
+      .concat(found.map(function (way) { return way.id; }), known.filter(off).map(idOf));
+    sheet.order = sheet.order.concat(now.filter(function (id) { return sheet.order.indexOf(id) === -1; }));
+    return sheet.order.map(function (id) { return sheet.rows[id]; });
+  }
+
   function panel(body) {
     var host = sheet.host;
     var on = host.on ? host.on() : null;
     var known = tvs || [];
-    var found = host.startWay ? usable() : [];
+    var found = listed();
     var first = !tvs && !lost && !absent;
     body.appendChild(head('Play on'));
     var list = el('ul', 'play-on__list');
@@ -435,18 +632,10 @@
       close();
       if ((on || wait) && host.here) host.here();
     });
-    known.filter(function (tv) { return tv.on || tv.busy; }).forEach(function (tv) { tvRow(list, tv, on); });
-    found.forEach(function (way) {
-      var here = on === way.id;
-      row(list, {
-        id: way.id, icon: way.icon, name: way.label, on: here, starting: wait === way.id, more: true,
-        sub: here ? 'Playing here now' : wait === way.id ? 'Starting…' : way.sub,
-      }, function () {
-        if (here) close();
-        else startWay(way);
-      });
+    rowsOf(known, found).forEach(function (one) {
+      if (one.tv) tvRow(list, one.tv, on);
+      else wayRow(list, one.way, on);
     });
-    known.filter(function (tv) { return !tv.on && !tv.busy; }).forEach(function (tv) { tvRow(list, tv, on); });
 
     if (first) {
       var looks = el('div', 'play-on__wait');
@@ -569,6 +758,7 @@
     draw();
     MM.api.post(TVS + '/pair', confirm ? { code: p.code, confirm: true } : { code: p.code }).then(function (data) {
       p.tv = data.tv;
+      p.freshUntil = now() + FRESH_MS;
       look();
     }, function (err) {
       var kind = err && err.error;
@@ -637,7 +827,7 @@
       if (!sheet || sheet.pairing !== p) return;
       var tv = (tvs || []).filter(function (t) { return t.id === p.tv.id; })[0] || { id: p.tv.id, name: name };
       sheet.pairing = null;
-      startTv(tv, false);
+      startTv(tv, false, p.freshUntil);
       focusKey(idOf(tv));
     });
   }
@@ -650,9 +840,12 @@
     return !!to;
   }
 
-  function draw() {
+  /* `held`: not for a press, so the sheet keeps its place and height. */
+  function draw(held) {
     if (!sheet) return;
     var node = sheet.node;
+    if (held) node.style.height = node.offsetHeight + 'px';
+    else node.style.height = '';
     var at = document.activeElement;
     var key = at && node.contains(at) && at.getAttribute('data-key');
     var body = el('div', 'play-on__body');
@@ -664,13 +857,13 @@
     node.scrollTop = top;
     /* A row that is gone gives the focus to the sheet, never to the page behind it. */
     if (key && !focusKey(key)) node.focus({ preventScroll: true });
-    place();
+    if (!held) place();
   }
 
   /* By its button; below 700 px the stylesheet makes it a sheet at the bottom. */
   function place() {
-    /* Its button may be gone meanwhile, with the card it was on. */
-    if (!sheet || !sheet.btn.isConnected) return;
+    /* Its button may be gone meanwhile, with the card it was on or for the remote's: it stays. */
+    if (!sheet || !sheet.btn.isConnected || !sheet.btn.getClientRects().length) return;
     var s = sheet.node.style;
     s.left = s.top = s.bottom = s.maxHeight = '';
     if (global.innerWidth < 700) return;
@@ -695,7 +888,10 @@
     var node = el('dialog', 'play-on');
     node.setAttribute('aria-labelledby', 'play-on-title');
     node.tabIndex = -1;
-    sheet = { node: node, btn: btn, host: host, pairing: null };
+    ways.forEach(function (w) {
+      try { if (w.look) w.look(); } catch (e) { /* it is not there */ }
+    });
+    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [] };
     say = null;
     limit = false;
     document.body.appendChild(node);
@@ -720,7 +916,6 @@
     });
     node.addEventListener('close', closed);
     global.addEventListener('resize', place);
-    ways.forEach(function (w) { if (w.look) w.look(); });
     look();
     poll = setInterval(function () { if (!document.hidden && !absent) look(); }, LOOK_MS);
   }
@@ -768,6 +963,13 @@
     return height >= 1080 ? 'best' : height >= 720 ? 'medium' : 'low';
   }
 
+  function castNow(key) {
+    var sender = MM.castSender;
+    var plays = sender && sender.now && sender.now();
+    return !!plays && String(plays.rating_key) === key;
+  }
+  function castHolds(key) { return castNow(key) || !!(MM.castSender && MM.castSender.holds && MM.castSender.holds(key)); }
+
   function titleButton(href, className) {
     var key = (/^\/watch\/play\/([0-9]+)/.exec(href) || [])[1];
     var b = button(className);
@@ -777,9 +979,12 @@
     b.setAttribute('data-play-on-title', '');
     b.setAttribute('aria-haspopup', 'dialog');
     b.setAttribute('aria-expanded', 'false');
-    b.setAttribute('aria-label', 'Play on a TV');
-    b.setAttribute('title', 'Play on a TV');
-    b.hidden = !hasTvs();
+    b.setAttribute('data-play-on-key', key);
+    var plays = !!(MM.tvRemote && MM.tvRemote.plays && MM.tvRemote.plays(key));
+    b.classList.toggle('is-on', plays);
+    b.setAttribute('aria-label', plays ? 'Playing on a TV' : 'Play on a TV');
+    b.setAttribute('title', plays ? 'Playing on a TV' : 'Play on a TV');
+    b.hidden = !any();
     b.appendChild(MM.dom.icon(TV_ICON, 'ico--tv'));
     b.addEventListener('click', function () {
       open(b, {
@@ -792,13 +997,16 @@
         before: function () { pressed = now(); },
         on: function () {
           var tv = tvWith(key);
-          return tv ? idOf(tv) : null;
+          return tv ? idOf(tv) : castHolds(key) ? 'cast' : null;
         },
         here: function () {
           var tv = tvWith(key);
-          function go() { global.location.href = '/watch/play/' + key + '?resume=1'; }
+          function go() { global.location.href = playerOf(key); }
           if (wait) cancel();
           else if (tv) stopTv(tv).then(go, go);
+          else if (castNow(key)) MM.castSender.stop().then(go, go);
+          /* Of another tab, or not found yet: the player asks. */
+          else if (castHolds(key)) go();
         },
       });
     });

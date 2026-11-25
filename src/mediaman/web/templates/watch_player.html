@@ -8,10 +8,8 @@
 
 {% block head %}
   <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_play_on.css?v={{ static_v }}">
   <script src="/static/vendor/hls/hls.min.js?v={{ static_v }}" defer></script>
   <script src="/static/js/ratings.js?v={{ static_v }}" defer></script>
-  <script src="/static/js/watch/play-on.js?v={{ static_v }}" defer></script>
   <script src="/static/js/watch/airplay.js?v={{ static_v }}" defer></script>
   {% if request is defined and request.state.google_cast %}<script src="/static/js/watch/cast-sender.js?v={{ static_v }}" defer></script>{% endif %}
   <script src="/static/js/player.js?v={{ static_v }}" defer></script>
@@ -21,7 +19,6 @@
 {% block cast_sender %}{% endblock %}
 
 {% block content %}
-{% include "_play_on.html" %}
 <div class="player" id="player"
      data-item='{{ item|tojson }}'
      data-qualities='{{ (qualities or [])|tojson }}'
@@ -231,6 +228,8 @@
 
   <div class="player-card player-message" data-message role="alert" hidden>
     <p class="player-card-title" data-message-text></p>
+    <p class="player-card-line" data-message-line hidden></p>
+    <div class="player-card-actions" data-message-acts hidden></div>
     <div class="player-card-actions">
       <button type="button" class="player-pill player-pill--primary" data-retry hidden>Try again</button>
       <a class="player-pill" href="{{ back_href }}" data-back>Back</a>

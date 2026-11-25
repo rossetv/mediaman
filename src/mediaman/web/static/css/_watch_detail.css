@@ -303,8 +303,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__actions .watch-mark-btn__faces .ico { font-size: 13px; }
 .ttl__actions .skel--pill { flex: none; }
 .ttl__actions > .btn.ttl__play-on { flex: 0 0 44px; min-width: 44px; width: 44px; height: 44px; padding: 0; border-radius: 50%; }
-.ttl__actions > .btn.ttl__play-on[hidden] { display: none; }
-.ttl__actions > .ttl__play-on > .ico { width: 19px; height: 19px; font-size: 19px; }
+.ttl__actions > .btn.ttl__play-on > .ico { width: 1.35em; height: 1.35em; font-size: 19px; }
+.ttl__actions > .ttl__play-on.is-on { color: var(--accent-hi); }
 @media (max-width: 699.98px) {
   .ttl__actions > .watch-btn--play:has(+ .ttl__play-on:not([hidden])) { flex-basis: calc(100% - 54px); }
 }

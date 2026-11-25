@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -88,3 +91,66 @@ def test_the_page_has_the_sender_only_where_it_may_load_googles(conn, path) -> N
 )
 def test_no_other_page_has_it_from_the_base(conn, path, stored) -> None:
     assert SCRIPT not in _scripts(path, conn, stored)
+
+
+def _page(conn, path: str, stored: str, username: str | None) -> str:
+    set_connection(conn)
+    conn.execute("DELETE FROM settings WHERE key = 'google_cast_enabled'")
+    insert_settings(conn, google_cast_enabled=stored)
+    app = FastAPI()
+    app.state.config = SimpleNamespace(secret_key="k" * 64)
+    app.add_middleware(SecurityHeadersMiddleware)
+    templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+    @app.get(path)
+    def page(request: Request):
+        # As the session guard does, inside the middleware that writes the mark.
+        if username:
+            request.state.username = username
+        return templates.TemplateResponse(request, "base.html", {"static_v": "1"})
+
+    return TestClient(app).get(path).text
+
+
+def _mark(html: str) -> str | None:
+    found = re.search(r'<body[^>]*\bdata-cast-account="([^"]*)"', html)
+    return found.group(1) if found else None
+
+
+def test_the_page_says_whose_it_is_without_saying_who(conn) -> None:
+    mine = _mark(_page(conn, "/watch", "true", "maren"))
+    assert mine
+    assert re.fullmatch(r"[0-9a-f]{32}", mine)
+    assert _mark(_page(conn, "/downloads", "true", "maren")) == mine
+    assert _mark(_page(conn, "/watch", "true", "tobias")) not in (None, "", mine)
+
+
+@pytest.mark.parametrize(
+    ("path", "stored", "username", "mark"),
+    [
+        ("/watch", "true", None, ""),
+        ("/watch", "false", "maren", None),
+        ("/settings", "true", "maren", None),
+    ],
+)
+def test_no_page_without_a_cast_or_a_person_is_marked(conn, path, stored, username, mark) -> None:
+    assert _mark(_page(conn, path, stored, username)) == mark
+
+
+def test_the_settings_words_hold_both_states_of_the_switch(app, authed_client, conn) -> None:
+    """They follow the press, before anything is saved, so the page needs both."""
+    html = authed_client(app, conn).get("/settings").text
+    assert 'class="tv-lets-off">What turning it on lets in:' in html
+    assert 'class="tv-lets-on">On. What this lets in:' in html
+
+
+def test_an_admin_is_told_how_far_googles_script_reaches(app, authed_client, conn) -> None:
+    html = authed_client(app, conn).get("/settings").text
+    told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
+    for said in (
+        "see and do all that the person signed in there can",
+        "the address they open mediaman at",
+        "the film’s title and a ticket",
+        "Turning it off stops no Chromecast",
+    ):
+        assert said in told
