@@ -1072,11 +1072,10 @@
     stage.className = '';
     if (!moves || !shown) return;
     stage.className = 'in';
-    leaving.innerHTML = stage.innerHTML.replace(/ (id|style)="[^"]*"/g, '');
-    if (dressed) {
-      var picture = leaving.getElementsByTagName('div')[0];
-      if (picture) picture.style.backgroundImage = dressed;
-    }
+    // The nodes themselves, with what was set on them; their ids are the new page's.
+    while (stage.firstChild) leaving.appendChild(stage.firstChild);
+    var nodes = leaving.getElementsByTagName('*');
+    for (var i = 0; i < nodes.length; i++) nodes[i].removeAttribute('id');
     leftTimer = setTimeout(function () { leaving.innerHTML = ''; }, 250);
   }
 

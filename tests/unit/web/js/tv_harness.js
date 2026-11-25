@@ -21,7 +21,7 @@ function tv({ kept = null, plays = true } = {}) {
   const element = () => ({
     innerHTML: '', className: '', style: {}, attrs: {}, children: [], on: {},
     setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k] === undefined ? null : this.attrs[k]; },
-    removeAttribute(k) { delete this.attrs[k]; if (k === 'src') this.gone = true; },
+    removeAttribute(k) { delete this.attrs[k]; if (k === 'id') this.id = ''; if (k === 'src') this.gone = true; },
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
     appendChild(n) { this.children.push(n); return n; },
     getElementsByTagName: () => [],
@@ -44,7 +44,21 @@ function tv({ kept = null, plays = true } = {}) {
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
   nodes.s = element();
-  nodes.o = element();
+  // The page before: what was drawn on the stage, moved with the nodes it had.
+  nodes.o = Object.assign(element(), {
+    held: [],
+    appendChild(page) { this.innerHTML = page.html; this.held = page.nodes; drawn(''); },
+    getElementsByTagName() { return this.held; },
+  });
+  let html = '';
+  const drawn = (text) => {
+    html = text;
+    Object.keys(nodes).forEach((id) => { if (!['v', 's', 'o'].includes(id)) delete nodes[id]; });
+  };
+  Object.defineProperty(nodes.s, 'innerHTML', { get: () => html, set: drawn });
+  Object.defineProperty(nodes.s, 'firstChild', {
+    get: () => (html ? { html, nodes: Object.keys(nodes).filter((id) => !['v', 's', 'o'].includes(id)).map((id) => nodes[id]) } : null),
+  });
   const body = Object.assign(element(), { attrs: { 'data-base': 'https://mediaman.example', 'data-hls': '/hls.js' } });
   // What is drawn on the page is found by its id while it is drawn.
   const document = {
@@ -112,6 +126,7 @@ function tv({ kept = null, plays = true } = {}) {
     point: (id, x) => document.onmousemove({ target: { nodeType: 3, parentNode: document.getElementById(id) }, clientX: x, clientY: 0 }),
     click: (id) => document.onclick({ target: document.getElementById(id) }),
     left: () => nodes.o.innerHTML,
+    leaving: () => nodes.o.held.map((n) => [n.id, n.style]),
     entering: () => nodes.s.className,
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
     html: () => nodes.s.innerHTML,
@@ -390,7 +405,7 @@ const scenarios = {
   },
   async pages() {
     const t = await playing();
-    const out = { toPlay: [t.left().includes('is starting it') || t.entering(), /\b(id|style)=/.test(t.left())] };
+    const out = { toPlay: [t.left().includes('is starting it') || t.entering(), t.leaving().some((n) => n[0])] };
     await t.step(1000);
     out.cleared = t.left();
     t.key(OK);
@@ -403,11 +418,19 @@ const scenarios = {
     t.now = null;
     for (let i = 0; i < 12 && !t.says().includes('is ready'); i += 1) await t.step(100);
     left = t.left();
-    out.idle = [at, t.entering(), left.includes('Windfall'), /\b(id|style)=/.test(left)];
+    out.idle = [at, t.entering(), left.includes('Windfall'), t.leaving().some((n) => n[0])];
     t.answers.poll = ready({ name: 'Den' });
     await t.step(3500);
     out.renamed = [t.says().includes('Den is ready'), t.left(), t.entering()];
     return out;
+  },
+  // the controls of a film as its page leaves
+  async barLeaves() {
+    const t = await playing({ chapters: [{ start_s: 720 }, { start_s: 1440 }] });
+    t.now = film({ chapters: t.now.chapters, state: 'upnext', url: null });
+    for (let i = 0; i < 12 && !t.left(); i += 1) await t.step(100);
+    const styles = t.leaving().map((n) => n[1]);
+    return { width: styles.map((x) => x.width).filter(Boolean), left: styles.map((x) => x.left).filter(Boolean), ids: t.leaving().filter((n) => n[0]).length };
   },
   async pointer() {
     const t = tv({ kept: 'old' });

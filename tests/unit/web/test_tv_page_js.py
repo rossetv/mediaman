@@ -191,6 +191,13 @@ def test_a_page_gives_way_to_the_next_and_a_page_that_stays_does_not_move() -> N
     assert out["renamed"] == [True, "", ""]
 
 
+def test_the_bar_of_a_film_that_leaves_stays_where_it_was() -> None:
+    out = _run("barLeaves")
+    assert len(out["width"]) == 1 and 3 < float(out["width"][0].rstrip("%")) < 5
+    assert out["left"] == ["25.00%", "50.00%"]
+    assert out["ids"] == 0
+
+
 def test_the_one_focus_follows_a_pointer_a_key_and_tab() -> None:
     out = _run("pointer")
     assert out["first"] == ["b f", "b", "b0"]
