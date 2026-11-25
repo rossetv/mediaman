@@ -61,8 +61,26 @@ def test_the_card_reached_with_end_stays_where_it_is_as_more_load_after_it() -> 
     assert (out["back"], out["keys"]) == (False, False)
 
 
+def test_a_row_the_keys_leave_settles_at_a_card_s_start_before_it_snaps_again() -> None:
+    out = _run("letGo")
+    assert out["leaving"] == {"left": 500, "to": 540, "snaps": False}
+    assert out["settled"] == {"left": 540, "to": None, "snaps": True}
+    assert out["reduced"] == {"left": 540, "to": None, "snaps": True}
+
+
+def test_a_row_does_not_settle_under_the_focus_or_a_finger() -> None:
+    out = _run("letGo")
+    # Pressed while it settles: the card stays under the pointer.
+    assert out["back"] == {"left": 500, "to": None, "snaps": False}
+    # Another window has the keys: the focus comes back to where it was.
+    assert out["away"] == {"left": 500, "to": None, "snaps": False}
+    assert out["held"] is False
+    assert out["lifted"] == {"left": 333, "to": 324, "snaps": False}
+    assert out["after"] == {"left": 324, "to": None, "snaps": True}
+
+
 def test_cards_that_load_or_leave_neither_add_a_tab_stop_nor_lose_the_row() -> None:
     out = _run("comeAndGo")
     assert out["loaded"] == {"at": "link 4", "stops": [], "end": "link 8"}
     assert out["taken"] == ["row"]
-    assert out["again"] == "link 6"
+    assert out["again"] == "link 5"

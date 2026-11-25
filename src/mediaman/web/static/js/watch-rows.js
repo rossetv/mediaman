@@ -190,6 +190,8 @@
   function rove(scroller) {
     var last = null; // the card that had the focus
     var checking = null;
+    var settling = null; // the wait for the row to rest before it snaps again
+    var touched = false;
 
     function cards() {
       return Array.prototype.filter.call(scroller.children, function (node) {
@@ -203,12 +205,39 @@
        cards come after the focused one, and move it. */
     function snap(on) { scroller.style.scrollSnapType = on ? '' : 'none'; }
 
+    /* Snapping comes back with the row at a card's start, or browsers would jump to one. *again*:
+       a second try, so a row that cannot get there snaps as it is. */
+    function release(again) {
+      wait(null);
+      if (scroller.style.scrollSnapType !== 'none') return;
+      var max = scroller.scrollWidth - scroller.clientWidth;
+      var pad = parseFloat(getComputedStyle(scroller).paddingLeft);
+      var at = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
+      var to = cards().map(function (c) { return Math.max(0, Math.min(max, c.offsetLeft - pad)); })
+        .reduce(function (best, left) { return Math.abs(left - at) < Math.abs(best - at) ? left : best; }, max);
+      if (!again && Math.abs(to - at) > EDGE_SLACK) goTo(scroller, to);
+      if (again || !heading.has(scroller)) snap(true);
+      else wait(function () { release(true); }, CHECK_MS);
+    }
+
+    function wait(fn, ms) {
+      clearTimeout(settling);
+      settling = fn && setTimeout(fn, ms);
+    }
+
+    /* The focus is here again: the row stays where it is. */
+    function stay() {
+      if (!settling) return;
+      wait(null);
+      goTo(scroller, scroller.scrollLeft, true);
+    }
+
     function sync() {
       controls(scroller).forEach(function (node) { if (node.getAttribute('tabindex') !== '-1') node.tabIndex = -1; });
       var active = document.activeElement;
       var inside = active !== scroller && scroller.contains(active);
       scroller.tabIndex = inside ? -1 : 0;
-      if (!inside) snap(true);
+      if (!inside && !settling) release();
     }
 
     /* Safari can drop a smooth scroll that others ran into: look again once they are over. */
@@ -254,13 +283,15 @@
       }
       last = e.target.closest('.watch-card, .watch-row__more');
       scroller.tabIndex = -1;
-      snap(!e.target.matches(':focus-visible'));
+      stay();
+      if (e.target.matches(':focus-visible')) snap(false);
     });
     scroller.addEventListener('focusout', function (e) {
       if (e.target !== scroller) e.target.removeAttribute('aria-describedby');
       if (scroller.contains(e.relatedTarget)) return;
       scroller.tabIndex = 0;
-      snap(true);
+      // Still there when the whole window lost it, and it comes back to the same card.
+      if (document.activeElement !== e.target) release();
     });
 
     scroller.addEventListener('keydown', function (e) {
@@ -286,6 +317,12 @@
 
     ['touchstart', 'wheel'].forEach(function (name) {
       scroller.addEventListener(name, function () { clearTimeout(checking); }, { passive: true });
+    });
+    function rest() { if (settling && !touched) wait(function () { settle(scroller); release(); }, SETTLE_MS); }
+    scroller.addEventListener('scroll', rest, { passive: true });
+    scroller.addEventListener('touchstart', function () { touched = true; if (settling) wait(function () {}, SETTLE_MS); }, { passive: true });
+    ['touchend', 'touchcancel'].forEach(function (name) {
+      scroller.addEventListener(name, function () { touched = false; rest(); }, { passive: true });
     });
     new MutationObserver(sync).observe(scroller, { childList: true });
     sync();
