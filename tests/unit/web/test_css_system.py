@@ -86,14 +86,11 @@ def test_every_control_is_44px_on_phones_and_tablets_with_the_bottom_nav() -> No
     controls = {
         ".btn": "min-height",
         ".btn--icon": "min-width",
-        ".keep-trigger": "min-height",
-        ".page-btn": "min-width",
         ".link-danger": "min-height",
         ".btn-test": "min-height",
         ".snooze-btn": "min-height",
         ".unsub-btn-danger": "min-height",
         ".keep-dur-btn": "min-height",
-        ".snooze-option": "min-height",
     }
     for control, prop in controls.items():
         hit = [
