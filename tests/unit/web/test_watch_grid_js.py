@@ -430,3 +430,20 @@ def test_forward_leaves_a_grid_scrolled_on_into_to_grow_back_and_back_puts_its_r
     assert out["shallow"] == {"placed": True, "moving": True, "y": 60}
     assert out["still"]["placed"] is False
     assert out["closed"] == {"y": 777, "left": 450}
+
+
+def test_a_title_with_no_heading_to_go_to_fades_with_the_rest() -> None:
+    assert _run("titleAlone") == {"opens": [0, 1], "closes": [1, 0]}
+
+
+def test_a_grid_that_opens_on_nothing_asks_at_once_and_holds_the_place_of_what_comes() -> None:
+    out = _run("firstPage")
+    assert out["asked"] == [""]
+    # Enough to fill the screen, 800 px high, in five columns, from the first frame on.
+    assert out["first"] == [15, 0]
+    assert out["lead"] == [0]
+    assert out["count"] == "\u00a0"
+    assert out["moving"] == [15, 0]
+    assert out["rested"] == [0, 3]
+    # Nothing goes blank in between.
+    assert (out["boxFades"], out["wordsFade"]) == (False, True)

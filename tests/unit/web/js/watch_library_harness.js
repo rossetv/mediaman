@@ -1144,6 +1144,8 @@ const scenarios = {
     press(p, 'id:m1', 'delete');
     await settle();
     const open = link(p);
+    // It opens saying so, before its titles have come; a filter's are not known yet.
+    const opens = ['', 'kept'].map((type) => p.make({ sort: 'added', type, ready: null, row: null, drawn: null }).total);
     const closed = start({ closed: true });
     const gone = async (rows) => { closed.serve(rows); await closed.ctx.MMWatch.admin.confirmDelete('42', 'Dune'); await settle(); return link(closed); };
     const one = await gone(ROWS.slice(3));
@@ -1162,7 +1164,7 @@ const scenarios = {
     await settle();
     wait.resolve();
     await settle();
-    return { open, one, none, scanned, late: link(late), heard: closed.heard };
+    return { open, opens, one, none, scanned, late: link(late), heard: closed.heard };
   },
 
   async detailCalls() {

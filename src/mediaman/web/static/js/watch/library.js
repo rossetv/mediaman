@@ -110,7 +110,7 @@
   function sayTotal(got) {
     if (got.asked < counted || !got.counts) return;
     counted = got.asked;
-    var n = got.counts[''];
+    var n = data.library_total = got.counts[''];
     toArray(document.querySelectorAll('.watch-all-link')).forEach(function (link) {
       link.hidden = !n;
       link.querySelector('span').textContent = 'All ' + (n === 1 ? '1 title' : n + ' titles');
@@ -175,7 +175,7 @@
       fetchPage: pages(at.sort, at.type, empty),
       empty: empty,
       refresh: refresh,
-      total: got ? got.total : null,
+      total: got ? got.total : at.type ? null : data.library_total || null,
       filter: {
         label: 'Show', value: at.type, href: href,
         options: FILTERS.filter(function (f) { return isAdmin || !f[2]; }).map(function (f) { return { id: f[0], label: f[1], admin: !!f[2] }; }),

@@ -263,6 +263,23 @@ const scenarios = {
     return { prevented, unseen, sorted, failed, off, tab, back, forward: { at: p.at(), filters: p.grid().filters } };
   },
 
+  // The chosen filter stands in sight as the grid opens, where they scroll.
+  async chosenInSight() {
+    const own = Node.prototype.getBoundingClientRect;
+    const went = [];
+    const scrollTo = Node.prototype.scrollTo;
+    Node.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('watch-all__filters')) return { left: 0, right: 390, width: 390, top: 0, bottom: 44, height: 44 };
+      const n = this.hasAttribute('data-grid-filter') ? this.parentNode.querySelectorAll('[data-grid-filter]').indexOf(this) : 0;
+      return { left: n * 100, right: n * 100 + 90, width: 90, top: 0, bottom: 44, height: 44 };
+    };
+    Node.prototype.scrollTo = function (o) { if (this.classList.contains('watch-all__filters')) went.push([o.left, o.behavior]); };
+    try {
+      await load({ admin: true, url: '/watch?all=library&type=kept&sort=size', motion: true });
+      return went;
+    } finally { Node.prototype.getBoundingClientRect = own; Node.prototype.scrollTo = scrollTo; }
+  },
+
   // An empty filter leads back to All, and its link goes with it.
   async emptyFilter() {
     const none = () => ({ ...titles('unseen', [], null, 0), empty: { title: 'None', link: 'Show all titles', href: '/watch?all=library', filter: '' } });

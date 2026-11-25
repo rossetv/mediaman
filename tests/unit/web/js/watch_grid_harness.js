@@ -922,6 +922,44 @@ const scenarios = {
       searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}) };
   },
 
+  // With no heading on the screen to come from or go to, the title fades alone.
+  async titleAlone() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts({ id: 'library', title: 'All titles', row: () => null }));
+    const title = p.doc.querySelector('.watch-all__title');
+    const last = () => { const f = p.anims.filter((a) => a.node === title).pop().frames; return f.map((x) => Number(x.opacity)); };
+    const opens = last();
+    p.finish();
+    p.grid.close();
+    return { opens, closes: last() };
+  },
+
+  // Nothing to show yet: its place is held and the page asked for at once, and put in once nothing moves.
+  async firstPage() {
+    const p = load({ motion: true });
+    const asked = [];
+    let give;
+    p.grid.open(p.opts({ id: 'library', row: () => null, cards: [], next: '', total: null, filter: { label: 'Show', value: '', href: () => '/watch', options: [], counts: null },
+      sort: { label: 'Sort', value: 'a', options: [{ id: 'a', label: 'A' }] }, fetchPage: (next) => { asked.push(next); return new Promise((go) => { give = go; }); } }));
+    const grid = p.doc.querySelector('.watch-all .watch-grid');
+    const look = () => [grid.querySelectorAll('.watch-card--skel').length, grid.querySelectorAll('.watch-card').length];
+    const count = p.doc.querySelector('.watch-all__count');
+    const skel = grid.querySelector('.watch-card--skel');
+    const out = { asked: asked.slice(), first: look(), count: count.textContent, lead: p.anims.filter((a) => a.node === skel).map((a) => a.opts.delay) };
+    give({ cards: [1, 2, 3].map(p.card), next: null, total: 3 });
+    await settle();
+    out.moving = look();
+    const before = p.anims.length;
+    p.finish();
+    await settle();
+    out.rested = look();
+    const card = grid.querySelector('.watch-card');
+    const since = p.anims.slice(before).map((a) => a.node);
+    out.boxFades = since.indexOf(card) >= 0;
+    out.wordsFade = since.indexOf(card.querySelector('.watch-card__sub')) >= 0;
+    return out;
+  },
+
   async rowThatIsGone() {
     const p = load({ motion: true });
     p.grid.open(p.opts());

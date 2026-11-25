@@ -27,6 +27,8 @@
   var AWAKE_SCREENS = 3; // cards further off than this have their posters unloaded
   var HEARD_MS = 3000; // how long what a grid says of itself as it opens is left to be heard
   var JUMP_MS = 4000; // a jump whose next page takes longer is not awaited any more
+  var POSTER = 1.5; // its height, of its width
+  var SAID = '.watch-card__poster > :not(img), .watch-card__sub, .watch-more';
   var SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
 
   /* ── Cards ── */
@@ -96,7 +98,9 @@
     var total = opts.total === undefined ? null : opts.total;
     var fetchPage = opts.fetchPage;
     var empty = opts.empty || { title: 'Nothing here yet' };
-    var held = false; // nothing loads while the layer moves
+    var held = false; // nothing loads, and nothing is put in, while the layer moves
+    var freed = []; // what waits for that to end
+    var inPlace = false; // the first page comes in where its place was held
     var wanted = null; // the group a jump is on its way to
     var wantedAt = 0; // when its next page was asked for
     var lead = null; // the card that leads the screen, kept there over a resize
@@ -158,7 +162,8 @@
           if (isCard(node)) last++;
           else if (node.hasAttribute('data-group')) last = 0;
         });
-        return (n - last % n) % n + 2 * n;
+        var lines = inPlace ? Math.ceil((window.innerHeight - grid.getBoundingClientRect().top) / (grid.clientWidth / n * POSTER)) : 0;
+        return (n - last % n) % n + Math.max(2, lines) * n;
       },
       range: function (all) {
         var vh = window.innerHeight;
@@ -205,12 +210,16 @@
       fresh.forEach(function (card) {
         var r = card.getBoundingClientRect();
         if (!card.animate || r.top > window.innerHeight || r.bottom < 0) return;
-        animate(card, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], {
+        var how = {
           duration: core.tokenMs('--dur-slow', 250),
           delay: Math.min(120, Math.round((r.left - left) / Math.max(1, r.width)) * 14),
           fill: 'backwards'
-        });
+        };
+        if (!inPlace) animate(card, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], how);
+        // Its box stood there already: only what it says comes in.
+        else toArray(card.querySelectorAll(SAID)).forEach(function (node) { animate(node, [{ opacity: 0 }, { opacity: 1 }], how); });
       });
+      inPlace = false;
     }
 
     function ending() {
@@ -234,9 +243,19 @@
       tail.replaceChildren(box);
     }
 
+    /* A page that comes while the layer moves is put in once it rests. */
+    function askPage(next) {
+      function rested(end) {
+        return function (got) {
+          return held ? new Promise(function (go) { freed.push(go); }).then(function () { return end(got); }) : end(got);
+        };
+      }
+      return fetchPage(next).then(rested(function (page) { return page; }), rested(function (err) { throw err; }));
+    }
+
     function begin(next) {
       if (next === undefined) next = null;
-      loader = watch.rowsLoad.start(host, { title: title, next: next, fetchPage: fetchPage, view: view });
+      loader = watch.rowsLoad.start(host, { title: title, next: next, fetchPage: askPage, view: view });
       if (next === null && !waiting) ending();
       waiting = false;
     }
@@ -598,9 +617,15 @@
       next: function () { return loader.next(); },
       setTotal: function (n) { total = n; },
       enter: enter,
+      more: function () {
+        inPlace = true;
+        loader.more();
+      },
       hold: function (on) {
         held = on;
-        if (!on) loader.check();
+        if (on) return;
+        freed.splice(0).forEach(function (go) { go(); });
+        loader.check();
       },
       stop: function () {
         loader.stop();
@@ -810,14 +835,14 @@
   }
 
   /* Bring the chosen filter into sight where they scroll. */
-  function showFilter() {
+  function showFilter(atOnce) {
     var box = dom.bar.querySelector('.watch-all__filters');
     var on = box && box.querySelector('.on');
     if (!on || !box.scrollTo) return;
     var a = box.getBoundingClientRect();
     var b = on.getBoundingClientRect();
     if (b.left >= a.left && b.right <= a.right) return;
-    box.scrollTo({ left: box.scrollLeft + b.left - a.left - (a.width - b.width) / 2, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+    box.scrollTo({ left: box.scrollLeft + b.left - a.left - (a.width - b.width) / 2, behavior: atOnce || core.reduceMotion() ? 'auto' : 'smooth' });
   }
 
   function filterNow() {
@@ -852,7 +877,8 @@
   }
 
   function setTotal(n) {
-    dom.count.textContent = typeof n === 'number' && n > 0 ? plural(n) : '';
+    // Not known yet, its place is held.
+    dom.count.textContent = typeof n === 'number' && n > 0 ? plural(n) : n === null && now.opts.filter ? '\u00a0' : '';
   }
 
   function fillMenu() {
@@ -1201,7 +1227,7 @@
     }
     toArray(now.list.node.querySelectorAll('.grid-group, .watch-card--skel')).forEach(function (n) {
       var r = n.getBoundingClientRect();
-      if (r.top < vh && r.bottom > 0) side(n, 0, 0, 120);
+      if (r.top < vh && r.bottom > 0) side(n, 0, 0, n.classList.contains('watch-card--skel') ? 0 : 120);
     });
     side(dom.back, 10, 0, 100);
     side(dom.count, -8, 0, 140);
@@ -1233,16 +1259,23 @@
     return out;
   }
 
+  function titleAlone() {
+    return { node: dom.title, rows: { transform: 'translate(-8px, 0px)', opacity: 0 }, grid: { transform: NONE, opacity: 1 }, open: IN_MS, close: OUT_MS, openAfter: 100, closeAfter: 0 };
+  }
+
   /* The row's heading becomes the header's title. */
   function heading(row, add, travel) {
     var from = row && (row.querySelector('[data-row-title]') || row.querySelector('.watch-row__title'));
-    if (!from) return;
-    var a = wordsRect(from);
-    if (a.bottom <= 0 || a.top >= window.innerHeight) return;
+    var a = from && wordsRect(from);
+    if (!a || a.bottom <= 0 || a.top >= window.innerHeight) {
+      // It comes from nowhere on the screen, and goes there.
+      add(titleAlone());
+      return;
+    }
     if (from.textContent.trim() !== dom.title.textContent.trim()) {
       // Two different names: one gives way to the other.
       add({ node: from, rows: { transform: NONE, opacity: 1 }, grid: { transform: NONE, opacity: 0 }, open: OUT_MS, close: IN_MS, openAfter: 0, closeAfter: 60 });
-      add({ node: dom.title, rows: { transform: 'translate(-8px, 0px)', opacity: 0 }, grid: { transform: NONE, opacity: 1 }, open: IN_MS, close: OUT_MS, openAfter: 100, closeAfter: 0 });
+      add(titleAlone());
       return;
     }
     var b = wordsRect(dom.title);
@@ -1422,6 +1455,10 @@
       (opts.sort.value !== now.value || (!!opts.filter && opts.filter.value !== now.filter));
   }
 
+  /* With nothing to show yet the first page is asked for at once, and its place is held, once
+     there is a layout to count the columns of. */
+  function firstPage(opts) { if (opts.next === '' && !now.list.count()) now.list.more(); }
+
   /* Says whether the page stands where it should: scrolled on into before, the
      grid grows back to there first. */
   function open(opts) {
@@ -1451,6 +1488,8 @@
     if (!fromRows || opts.instant || opts.still || deep || core.reduceMotion() || !dom.all.animate) {
       browse.hidden = true;
       dom.all.hidden = false;
+      showFilter(true);
+      firstPage(opts);
       scrollPage(opts.instant ? y : Math.min(y, headScroll()));
       aim(first);
       announce();
@@ -1462,6 +1501,8 @@
     aim(first);
     lastY = window.scrollY;
     dom.head.classList.remove('is-stuck');
+    showFilter(true);
+    firstPage(opts);
     move = { to: 'grid', gridY: window.scrollY, tracks: null, token: null };
     move.tracks = measure(opts);
     play('grid');

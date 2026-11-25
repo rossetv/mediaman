@@ -416,3 +416,7 @@ def test_a_filter_or_order_chosen_while_the_grid_still_opens_is_taken() -> None:
         ["Film 9", "Film 1"],
     )
     assert out["leaving"]["at"] == "/watch?all=library&type=movies"
+
+
+def test_a_filter_opened_by_its_address_is_brought_into_sight_at_once() -> None:
+    assert _run("chosenInSight") == [[350, "auto"]]

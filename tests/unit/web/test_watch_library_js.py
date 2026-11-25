@@ -704,6 +704,7 @@ def test_how_many_titles_there_are_follows_what_is_deleted_and_scanned_wherever_
 ):
     out = _run("totals")
     assert out["open"] == ["All 3 titles", False]
+    assert out["opens"] == [3, None]
     assert out["one"] == ["All 1 title", False]
     assert out["none"][1] is True
     assert out["scanned"] == ["All 4 titles", False]
