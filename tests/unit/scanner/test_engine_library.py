@@ -1212,6 +1212,40 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         assert conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
         assert (own.exists(), shared.exists()) == (True, True)
 
+    def test_a_deletion_that_waits_for_a_kept_title_of_a_gone_library_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, shared])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "is kept" in said[0][0]
+        assert "certain" not in said[0][0]
+
+    @pytest.mark.parametrize("kept", [True, False])
+    def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
+        self, conn, mock_plex, freezer, kept
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, shared])
+        if kept:
+            self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert shared.exists() is kept
+
     def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
         self, conn, mock_plex, freezer
     ):

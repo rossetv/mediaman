@@ -1180,6 +1180,7 @@ class _Title(NamedTuple):
     is_film: bool
     ids: Ids
     files: set[str]
+    is_kept: bool
 
     def may_be(self, other: _Title) -> bool:
         return self.is_film == other.is_film and (
@@ -1191,7 +1192,13 @@ def _title(conn: sqlite3.Connection, media_id: str) -> _Title | None:
     title = fetch_title(conn, media_id)
     if title is None:
         return None
-    return _Title(title["media_type"] == "movie", title_ids(title), title_files(title))
+    return _Title(
+        title["media_type"] == "movie",
+        title_ids(title),
+        title_files(title),
+        repository.is_protected(conn, media_id)
+        or repository.is_show_kept_pure(conn, title["show_rating_key"]),
+    )
 
 
 class DeletionExecutor:
@@ -1382,12 +1389,14 @@ class DeletionExecutor:
 
     def _must_wait(self, row: DeletionRow) -> bool:
         """Return True while what Plex answered does not tell whether *row*'s item may go."""
-        if row.library_id in self._unread_libraries:
-            return True
+        return row.library_id in self._unread_libraries or bool(self._gone_twins(row))
+
+    def _gone_twins(self, row: DeletionRow) -> list[_Title]:
+        """Return the titles of libraries Plex does not list that *row*'s item may be."""
         if not self._gone_titles:
-            return False
+            return []
         own = _title(self._conn, row.media_item_id)
-        return own is not None and any(own.may_be(gone) for gone in self._gone_titles)
+        return [gone for gone in self._gone_titles if own is not None and own.may_be(gone)]
 
     def _book_over(
         self, rows: list[DeletionRow], allowed_roots: list[str], now_iso: str
@@ -1535,12 +1544,18 @@ class DeletionExecutor:
             )
             repository.mark_delete_status(self._conn, row.id, "pending")
             if row.library_id not in self._unread_libraries:
+                waits = (
+                    "a kept title of a library Plex does not list now; the deletion waits "
+                    "while that one is kept"
+                    if any(gone.is_kept for gone in self._gone_twins(row))
+                    else "a title of a library Plex does not list now; the deletion waits "
+                    "until that is certain"
+                )
                 _audit_once(
                     self._conn,
                     row,
                     "delete_awaiting_scan",
-                    f"Not deleted yet: {row.title} — it may be a title of a library Plex does "
-                    "not list now; the deletion waits until that is certain",
+                    f"Not deleted yet: {row.title} — it may be {waits}",
                 )
             self._conn.commit()
             return [], 0
