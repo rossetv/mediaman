@@ -644,7 +644,7 @@
 
     /* The field stays between what is on either side, however large a person has text;
        where that leaves too little, or cuts the meter's figure, the meter drops the words
-       beside its figure, and then that too, till the width changes. */
+       beside its figure, and then that too, till the width or the words change. */
     function fitBetween() {
       if (short()) bar.classList.add('is-snug');
       if (short()) bar.classList.add('is-tight');
@@ -2063,7 +2063,15 @@
     }
     bar.addEventListener('focusin', sync);
     bar.addEventListener('focusout', function () { setTimeout(sync); });
-    phone.addEventListener('change', place);
+    // WebKit still has the old width as it tells of a resize.
+    phone.addEventListener('change', function () {
+      place();
+      window.requestAnimationFrame(fitAgain);
+    });
+    // Words that grow in a meter as wide as it can be do not change its size.
+    if (meter && window.MutationObserver) {
+      new window.MutationObserver(fitAgain).observe(meter, { childList: true, characterData: true, subtree: true });
+    }
     place();
 
     /* ── A page in the results' place ── */
