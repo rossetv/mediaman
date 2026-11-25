@@ -141,7 +141,7 @@
               btn.disabled = false;
               btn.textContent = 'Remove';
               btn.setAttribute('aria-label', 'Remove: ' + s.email);
-              if (keepFocus) btn.focus();
+              if (keepFocus) btn.focus({ preventScroll: true });
               window.UIFeedback.error(MM.api.messageOf(err, "Couldn't remove subscriber."));
             });
         });
@@ -177,7 +177,7 @@
             // Disabling the focused button drops focus to the body; give it back unless the person moved on.
             var keepFocus = MM.dom.focusStillIn(addSubBtn);
             addSubBtn.disabled = false; addSubBtn.textContent = addSubLabel;
-            if (keepFocus) addSubBtn.focus();
+            if (keepFocus) addSubBtn.focus({ preventScroll: true });
           });
       }
 

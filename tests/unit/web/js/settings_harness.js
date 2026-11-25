@@ -247,12 +247,13 @@ const scenarios = {
     const afterOpacity = { present: !!rows[1].parentNode, done };
     rows[1].fire('transitionend', { propertyName: 'height' });
     const focusOnNext = h.doc.activeElement === rows[2].children[0];
+    const noScroll = !!(rows[2].children[0].lastFocusOpts && rows[2].children[0].lastFocusOpts.preventScroll);
     // a second row, left to the timeout fallback
     rows[2].children[0].focus();
     h.ctx.MM.settings.rows.leave(rows[2], { focusSelector: '.link-danger' });
     h.timers.forEach((t) => t.fn());
     return {
-      afterOpacity, afterHeight: { present: !!rows[1].parentNode, done }, focusOnNext,
+      afterOpacity, afterHeight: { present: !!rows[1].parentNode, done }, focusOnNext, noScroll,
       fallbackRemoved: !rows[2].parentNode, focusOnPrev: h.doc.activeElement === rows[0].children[0],
     };
   },

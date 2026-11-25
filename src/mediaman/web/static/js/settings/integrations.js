@@ -198,7 +198,7 @@
               var keepFocus = MM.dom.focusStillIn(btn);
               btn.disabled = false;
               self.paintTests();
-              if (keepFocus) btn.focus();
+              if (keepFocus) btn.focus({ preventScroll: true });
             }, 1600);
           });
       }
@@ -233,7 +233,7 @@
             setTimeout(function () {
               var keepFocus = MM.dom.focusStillIn(syncBtn);
               syncBtn.textContent = orig; syncBtn.disabled = false;
-              if (keepFocus) syncBtn.focus();
+              if (keepFocus) syncBtn.focus({ preventScroll: true });
             }, 1800);
           });
       });

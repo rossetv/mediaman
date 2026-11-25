@@ -32,6 +32,8 @@ def test_leaving_row_goes_when_its_height_closes_and_hands_focus_on() -> None:
     assert out["afterOpacity"] == {"present": True, "done": 0}
     assert out["afterHeight"] == {"present": False, "done": 1}
     assert out["focusOnNext"] is True
+    # the focus handed on must not scroll the page
+    assert out["noScroll"] is True
     # with no transition event at all the row still goes, and focus goes to the row before
     assert out["fallbackRemoved"] is True
     assert out["focusOnPrev"] is True

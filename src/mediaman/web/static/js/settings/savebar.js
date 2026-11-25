@@ -523,7 +523,7 @@
     function reenable(hadFocus) {
       saveBtn.disabled = false;
       if (discardBtn) discardBtn.disabled = false;
-      if (hadFocus && focusLost()) saveBtn.focus();
+      if (hadFocus && focusLost()) saveBtn.focus({ preventScroll: true });
     }
 
     // Nothing in the bar answers while the server is asked. Returns whether the focus was in it,
