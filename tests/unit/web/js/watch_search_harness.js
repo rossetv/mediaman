@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {} } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -100,6 +100,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       },
     },
   };
+  if (downloading) ctx.MM.downloading = downloading;
   ctx.window = ctx;
   vm.createContext(ctx);
   doc.body.appendChild(build(doc, ['header', { class: 'nav-glass wbar' },
@@ -115,7 +116,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['button', { class: 'profile-btn', id: 'profile' }]]));
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { id: 'watch-veil' }],
-    ['div', { id: 'watch-browse' }],
+    ['div', { id: 'watch-browse' }, ['div', { id: 'watch-downloading' }]],
     ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   const $ = (id) => doc.getElementById(id);
@@ -135,7 +136,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     };
   });
   input.select = () => {};
-  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js']
+  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js', ...(downloading ? ['downloading.js'] : [])]
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
   ctx.MMWatch.grid = {
@@ -1228,6 +1229,41 @@ const scenarios = {
     const last = p.grids[0].opts.fetchPage(4);
     await page(4, [], null);
     return { first: p.grids[0].titles, cards: got.cards.map((c) => c.textContent), next: got.next, calls: p.calls.length, last: [(await last).cards.length, (await last).next] };
+  },
+
+  // What is downloading leads what was found, from what the page knows already.
+  async downloading() {
+    const items = [
+      { key: 'r::1', title: 'The Órchard Gate', kind: 'movie', state: 'downloading', percent: 42, minutes_left: 14, ref: TM.ref, href: '/watch#title=' + TM.ref, poster_url: '' },
+      { key: 's::2', title: 'Salt', kind: 'show', state: 'queued', percent: 0, ref: null, href: '/downloads', poster_url: '' },
+    ];
+    let tell = null;
+    const strip = { items };
+    const p = load(ADMIN, '', null, undefined, { downloading: { last: () => strip, subscribe(fn) { tell = fn; } } });
+    const look = () => p.results.querySelectorAll('.results-dl').map((n) => [n.querySelector('b').textContent, n.querySelector('small').textContent, n.getAttribute('data-title-ref'), n.getAttribute('href')]);
+    p.type('orchard');
+    const out = { typed: look(), calls: p.calls.length };
+    await p.search('orchard');
+    out.asked = p.calls.map((c) => c.url);
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    out.heads = p.heads();
+    out.status = p.status.textContent;
+    strip.items = [{ ...items[0], percent: 50 }, items[1]];
+    tell();
+    out.later = look()[0][1];
+    strip.items = [items[1]];
+    tell();
+    out.done = [look(), p.heads()];
+    await p.search('salt');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out.alone = [look(), p.heads(), /No (title )?match/.test(p.results.textContent)];
+    strip.items = [];
+    tell();
+    out.gone = [look(), /No match/.test(p.results.textContent)];
+    out.calls = [out.calls, p.calls.length];
+    return out;
   },
 
   // Esc and the page's Back leave the way Back does.

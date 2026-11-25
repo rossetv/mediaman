@@ -36,6 +36,7 @@
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
   var NO_TITLE = 'no-title'; // the line under people who were found alone
+  var NOTHING = 'nothing-'; // what stands where nothing was found at all
   var TRIES_EMPTY = ['popular action movies', 'popular comedy movies', 'something scary'];
   var LENS = 'M10.5 4a6.5 6.5 0 100 13 6.5 6.5 0 000-13M15.5 15.5L20 20';
   var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null, like: null };
@@ -608,6 +609,8 @@
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
     var ai = window.MMWatch.ask || null;
+    var downloads = window.MMWatch.downloading || null;
+    var shownDownloads = ''; // those of them the search was last drawn with
     var evening = null; // Tonight, once drawn
     var asking = null; // the place of a question over the results
     var ordinary = null; // what parts it from them
@@ -1303,10 +1306,50 @@
       return all;
     }
 
+    /* What is downloading with *q* in its name, as the page knows it already: nobody is asked. */
+    function downloadsFor(q) {
+      var state = downloads && window.MM.downloading.last();
+      var typed = folded(q);
+      return state && typed ? state.items.filter(function (item) { return folded(item.title).indexOf(typed) !== -1; }) : [];
+    }
+
+    function downloadRows(list) {
+      return [headRow('dl', 'Downloading', list.length)].concat(list.map(function (item) {
+        var ref = downloads.ref(item);
+        var poster = downloads.picture(item.poster_url);
+        return {
+          key: 'dl-' + item.key,
+          sig: JSON.stringify([item.title, ref, downloads.href(item), poster]),
+          make: function () {
+            var link = el('a', 'results-dl');
+            link.setAttribute('href', downloads.href(item));
+            if (ref) {
+              link.setAttribute('data-title-ref', ref);
+              link.setAttribute('data-title', item.title);
+              link.setAttribute('data-kind', item.kind === 'movie' ? 'movie' : 'show');
+            }
+            link.appendChild(small(poster));
+            var text = link.appendChild(el('span', 'results-dl__text'));
+            text.appendChild(el('b', null, item.title));
+            text.appendChild(el('small'));
+            return link;
+          },
+          update: function (node) { node.querySelector('small').textContent = downloads.line(item); }
+        };
+      }));
+    }
+
+    function withDownloads(q, rows) {
+      var list = downloadsFor(q);
+      if (!list.length) return rows;
+      return downloadRows(list).concat(rows.filter(function (x) { return x.key !== NO_TITLE && x.key.indexOf(NOTHING) !== 0; }));
+    }
+
     /* The suggestions for *q*, and *rows* in the grid, which moves with them.
        Their column goes only once it is known to stay empty. */
     function draw(q, c, rows, settled) {
       live.rows = rows;
+      rows = withDownloads(q, rows);
       glide(live.grid, rows, function () {
         // With no title to show, the people are what was found.
         var lead = rows.some(function (x) { return x.key === NO_TITLE; }) && peopleFor(q, c).length > 0;
@@ -1523,8 +1566,8 @@
 
     function askHint() { return asking && asking.item && asking.offered() ? 'Press Return to ask AI' : ''; }
 
-    function readOut(c, all) {
-      var parts = [];
+    function readOut(c, all, coming) {
+      var parts = coming ? [coming + ' downloading'] : [];
       if (c.lib.state === 'ok' && all.lib.length) parts.push((all.total > all.lib.length ? all.lib.length + ' of ' : '') + all.total + ' in your library');
       if (all.out.length) parts.push(all.out.length + ' available to download');
       status.textContent = [parts.length
@@ -1572,15 +1615,18 @@
        up the moment it arrives; TMDB fills its own place when it does. */
     function paint(c) {
       if (current !== c) return;
+      if (downloads) shownDownloads = downloadsOf(c.q);
       var lib = c.lib;
       var tmdb = c.tmdb;
       var cat = c.cat ? c.cat.state : 'ok';
       var all = gather(c);
       var tmdbQuiet = tmdb.state === 'unconfigured' || (tmdb.state === 'ok' && !tmdb.items.length);
       var settled = lib.state !== 'loading' && tmdb.state !== 'loading' && cat !== 'loading';
+      var coming = downloadsFor(c.q);
+      all.out = all.out.filter(function (x) { return !coming.some(function (item) { return downloads.ref(item) === x.item.ref; }); });
       setPending(!settled);
 
-      if (settled && !all.lib.length && !all.out.length) {
+      if (settled && !all.lib.length && !all.out.length && !coming.length) {
         if (lib.state === 'failed' && (tmdbQuiet || tmdb.state === 'failed')) { showFailed(SEARCH_FAILED); return; }
         if (lib.state === 'ok' && tmdbQuiet && cat === 'failed') { showFailed(SEARCH_FAILED); return; }
         if (lib.state === 'ok' && tmdbQuiet && !suggestionsFor(c.q, c).length) {
@@ -1627,7 +1673,7 @@
         if (peopleFor(c.q, c).length) {
           rows.push({ key: NO_TITLE, sig: c.q, make: function () { return el('p', 'results-none', 'No title matches “' + c.q + '”'); } });
         } else {
-          rows.push(plain('nothing-' + c.q, function () { return nothing(c.q, false); }));
+          rows.push(plain(NOTHING + c.q, function () { return nothing(c.q, false); }));
         }
       }
       // Said once there is a library result to put it under.
@@ -1641,7 +1687,7 @@
       refocus(c, 'tmdb', tmdb);
       if (settled) {
         last = c;
-        readOut(c, all);
+        readOut(c, all, coming.length);
       }
     }
 
@@ -2000,6 +2046,17 @@
       head: groupHead,
       data: data
     };
+
+    function downloadsOf(q) { return JSON.stringify(downloadsFor(q)); }
+
+    // They come in, or are there, while the search is on show.
+    if (downloads) {
+      window.MM.downloading.subscribe(function () {
+        var c = current;
+        if (!c || view !== 'results' || shownDownloads === downloadsOf(c.q)) return;
+        paint(c);
+      });
+    }
 
     address.layer({
       name: 'search',

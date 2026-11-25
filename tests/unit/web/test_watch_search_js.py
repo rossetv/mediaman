@@ -1289,3 +1289,21 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
     assert out["arrived"] == []
     assert out["typed"] == ["salt"]
     assert out["entered"] == ["orchard"]
+
+
+def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
+    out = _run("downloading")
+    gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/watch#title=tmdb-movie-9"]
+    salt = ["Salt", "Queued", None, "/downloads"]
+    # Shown as it is typed, before anything is asked, and nothing is asked for it.
+    assert out["typed"] == [gate]
+    assert out["calls"] == [0, 4]
+    assert out["asked"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
+    # The title is there once, not again among those to download.
+    assert out["heads"] == ["Downloading", "In your library"]
+    assert out["status"].startswith("1 downloading, 1 in your library")
+    assert out["later"] == "50% · 14 min left"
+    assert out["done"] == [[], ["In your library", "Available to download"]]
+    # Found alone, it is not said that nothing matches.
+    assert out["alone"] == [[salt], ["Downloading"], False]
+    assert out["gone"] == [[], True]
