@@ -174,6 +174,8 @@ def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     assert "max-width: 100%" in mark and "height: auto" in mark
     assert "aspect-ratio: 4.4316 / 1.0211" in mark
     assert "min-width: 0" in _rule(login, ".login-brand a")
+    # A grid item is no narrower than its content unless told, so the card would not narrow.
+    assert "min-width: 0" in _rule(login, ".login-card")
 
 
 def test_the_top_bar_s_name_keeps_its_width() -> None:

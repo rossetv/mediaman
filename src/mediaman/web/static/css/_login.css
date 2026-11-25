@@ -28,6 +28,8 @@
   z-index: 1;
   width: 100%;
   max-width: 420px;
+  /* A grid item: else as wide as the name, which then cannot narrow with the screen. */
+  min-width: 0;
   background: rgba(29,29,31,.7);
   -webkit-backdrop-filter: saturate(180%) blur(40px);
   backdrop-filter: saturate(180%) blur(40px);
