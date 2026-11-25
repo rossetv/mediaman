@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from mediaman.config import Config
+from mediaman.db import get_db
 from mediaman.main import create_app
 from mediaman.services.cast import tickets
 from mediaman.services.cast.tickets import TICKET_SECONDS, TicketStore
@@ -468,6 +469,12 @@ def test_a_tvs_first_read_gives_it_the_longer_idle_time(alice, tv, clock, addres
     clock.now += TV_IDLE_TIMEOUT_SECONDS - 1
     assert plex_stream.get_stream_manager().reap() == 0
     assert tv.get(url).status_code == 200
+
+
+def test_a_sign_out_elsewhere_while_a_stream_starts_leaves_the_start(alice, tv, conn, plex):
+    other = create_session(conn, "alice")
+    plex.on_start = lambda: destroy_session(get_db(), other)
+    assert tv.get(_cast(alice)["url"]).status_code == 200
 
 
 def test_a_start_beaten_by_a_later_one_is_told_so(alice, plex):

@@ -92,7 +92,9 @@ def start_cast(
     return _guarded_start(
         body,
         username,
-        lambda manager, began: _start(request, body, username, session_hash, manager, began),
+        lambda manager, began: _start(
+            request, body, username, session_hash, manager, began, check=True
+        ),
     )
 
 
@@ -107,7 +109,12 @@ def _start(
     session_hash: str,
     manager: StreamManager,
     began: float,
+    *,
+    check: bool = False,
 ) -> Response:
+    """*check* refuses what the session no longer holds once it has started; a TV's start has
+    checks of its own.
+    """
     conn = get_db()
     try:
         plex = _open_plex(request, conn)
@@ -149,6 +156,11 @@ def _start(
         if ticket is None:
             raise StreamGone("stream is gone")
         manager.allow(stream_id, username, partial(_is_good, ticket))
+        # After `allow`, so that the reaper sees what ends the session from here on.
+        if check and not _is_good(ticket):
+            store.drop(token)
+            manager.end(stream_id, username)
+            return respond_err("not_authenticated", status=401)
     except StreamGone as exc:
         # A later start of the title took its place meanwhile.
         store.drop(token)
