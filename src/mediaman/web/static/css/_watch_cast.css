@@ -18,6 +18,8 @@ button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 }
 /* The photo stays in the strip, still and at its own size: the card's starts and ends exactly on it. */
 .ttl-cast__item.is-out > .ttl-cast__avatar { transform: none !important; transition: none; }
+/* Flying home, it is seen once: in the air. */
+.ttl-cast__item.is-away > .ttl-cast__avatar { visibility: hidden; }
 
 .cast-face { position: relative; display: grid; place-items: center; flex: none; width: 100%; height: 100%; overflow: hidden; border-radius: 50%; background: var(--s3); color: var(--t2); font-weight: 600; }
 .cast-face > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; }
@@ -43,8 +45,11 @@ button.ttl-cast__item:active .ttl-cast__avatar { transform: scale(.96); }
 .cast-card__shadow { position: absolute; inset: 0; border-radius: var(--r-lg); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card), 0 0 60px 8px color-mix(in srgb, var(--scrim) 60%, transparent); opacity: 0; transition: opacity .1s linear; }
 .cast-card.is-open > .cast-card__shadow { opacity: 1; transition: opacity var(--dur) var(--ease-out) .1s; }
 /* Closed, only the photo: 88px of it, 18px in. */
-.cast-card__shell { position: relative; display: grid; overflow: hidden; border-radius: var(--r-lg); background: var(--s2); clip-path: inset(18px var(--clip-right) var(--clip-bottom) 18px round 50px); transition: clip-path var(--dur) var(--ease-out); will-change: clip-path; }
+.cast-card__shell { position: relative; display: grid; overflow: hidden; border-radius: var(--r-lg); clip-path: inset(18px var(--clip-right) var(--clip-bottom) 18px round 50px); transition: clip-path var(--dur) var(--ease-out); will-change: clip-path; }
+/* Gone before the card's photo lands, or it would stand as a dark rim between the two. */
+.cast-card__shell::before { content: ""; position: absolute; z-index: -1; inset: 0; background: var(--s2); opacity: 0; transition: opacity .1s linear; }
 .cast-card.is-open > .cast-card__shell { clip-path: inset(0 0 0 0 round var(--r-lg)); transition-duration: calc(var(--dur-fast) * 2); }
+.cast-card.is-open > .cast-card__shell::before { opacity: 1; transition-duration: .06s; }
 
 .cast-card__pane { grid-area: 1 / 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 18px; cursor: pointer; transition: opacity var(--dur) var(--ease-out); }
 .cast-card__pane.is-old { opacity: 0; pointer-events: none; transition: opacity .16s linear; }
@@ -119,5 +124,6 @@ button.cast-card__poster:active { transform: scale(.98); }
   .cast-card__shell,
   .cast-card .in,
   .cast-card .is-arriving { clip-path: none !important; opacity: 1 !important; transform: none !important; }
-  .cast-card__shadow { opacity: 1; }
+  .cast-card__shadow,
+  .cast-card__shell::before { opacity: 1; }
 }

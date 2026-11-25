@@ -133,8 +133,8 @@ def test_people_who_come_under_a_still_pointer_by_a_scroll_open_no_card() -> Non
     assert _run("scrolled") == {"soon": None, "still": None, "then": True}
 
 
-def test_a_photo_called_home_midway_flies_on_until_it_is_home() -> None:
-    assert _run("turnedRound") == [1, 2, 1, True, 0, False]
+def test_a_photo_called_home_midway_flies_on_and_is_seen_in_the_row_once_home() -> None:
+    assert _run("turnedRound") == [1, 2, 1, True, True, 0, False, False]
 
 
 def test_a_person_the_pointer_left_before_the_next_frame_opens_no_card() -> None:
