@@ -22,8 +22,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
-.brand,
-.nav-brand {
+.brand {
   font-family: var(--font-text);
   font-size: 19px;
   font-weight: 600;
@@ -31,9 +30,7 @@
   color: var(--t1);
 }
 .brand b,
-.brand span,
-.nav-brand b,
-.nav-brand span { font-weight: 600; color: var(--accent); }
+.brand span { font-weight: 600; color: var(--accent); }
 .nav-glass .brand { line-height: 44px; }
 
 .nav-back,

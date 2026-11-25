@@ -1135,7 +1135,7 @@
       var name = el('span', 'keep-season-name', seasonName(s));
       row.appendChild(name);
       row.appendChild(seasonDetails(s));
-      /* A kept season gets no Delete, as a kept row gets none in the list. */
+      /* A kept season gets no Delete. */
       if (s.kept || data.show_kept) {
         row.appendChild(el('span', 'pill pill--kept', 'Kept'));
       } else {
