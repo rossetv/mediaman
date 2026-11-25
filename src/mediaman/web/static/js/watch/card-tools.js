@@ -69,8 +69,16 @@
     else card.removeAttribute('data-level');
     if (!thumb) return;
     faceOf(thumb, refOf(card));
-    thumb.hidden = ratings.canRate(refOf(card)) === false;
+    var gone = ratings.canRate(refOf(card)) === false;
+    var active = document.activeElement;
+    var had = gone && !thumb.hidden && (active === thumb || (open && open.card === card && open.over.contains(active)));
+    thumb.hidden = gone;
     moveStop(card);
+    if (had) {
+      if (open && open.card === card) shut();
+      var next = toArray(card.querySelectorAll('.card-tool')).filter(function (b) { return !b.hidden && b.getClientRects().length > 0; })[0];
+      (next || card.querySelector('.watch-card__link')).focus({ preventScroll: true });
+    }
     thumb.setAttribute('aria-label', 'Rate ' + titleOf(card) + (level ? ': ' + nameOf(level) : ''));
   }
 

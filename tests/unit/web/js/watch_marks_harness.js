@@ -795,6 +795,27 @@ const scenarios = {
     return out.concat([p.doc.activeElement === film.querySelector('.card-tool--eye')]);
   },
 
+  // The server says a title cannot be rated while its thumb, then one of its levels, has the focus.
+  async thumbGoes() {
+    const go = async (focus) => {
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]),
+        { hold: true, api: { 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level: null, rateable: false } } }) } });
+      const film = p.cards()[0];
+      focus(p, film);
+      const before = p.doc.activeElement.className;
+      // A copy drawn from a newer answer has the title asked about again.
+      const copy = film.parentNode.appendChild(build(p.doc, FILM({ tmdb: '10', level: 1 })));
+      p.added(copy);
+      await settle();
+      const a = p.doc.activeElement;
+      return [before, film.querySelector('[data-card-rate]').hidden, a === film.querySelector('.card-tool--eye') ? 'eye' : a.className || a.tagName];
+    };
+    return [
+      await go((p, film) => film.querySelector('[data-card-rate]').focus()),
+      await go((p, film) => { const t = film.querySelector('[data-card-rate]'); t.focus(); click(p.doc, t, { detail: 0 }); }),
+    ];
+  },
+
   // A far card taken off the page, to be put back elsewhere.
   async farCardTaken() {
     const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(500)]]));

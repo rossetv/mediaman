@@ -445,6 +445,13 @@ def test_a_far_card_keeps_its_buttons_while_it_holds_the_focus_and_takes_it_back
     assert _run("farCardRefocused") == [False, True, True]
 
 
+def test_a_thumb_that_goes_while_it_or_its_levels_hold_the_focus_hands_it_to_the_eye() -> None:
+    thumb, level = _run("thumbGoes")
+    assert thumb == ["card-tool card-tool--thumb", True, "eye"]
+    assert "rate__b" in level[0]
+    assert level[1:] == [True, "eye"]
+
+
 def test_a_far_card_taken_off_the_page_no_longer_hides_its_buttons() -> None:
     assert _run("farCardTaken") == [True, False]
 
