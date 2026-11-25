@@ -13,6 +13,7 @@
   var APPROVE = 'Approve mediaman in the Plex tab. This page updates by itself.';
   var BLOCKED = 'Your browser did not open the Plex tab. Open Plex here and approve mediaman. This page updates by itself.';
   var CLOSED = 'The tab was closed before Plex opened. Open Plex here and approve mediaman. This page updates by itself.';
+  var READY = 'Plex is ready. Open it here and approve mediaman. This page updates by itself.';
   var WAIT = 'Waiting for Plex…';
   var STILL_WAIT = 'Not approved yet. If you closed the Plex tab, open Plex again.';
   var CANCELLED = 'Cancelled, not linked.';
@@ -105,8 +106,17 @@
     /* The start that has not been answered. */
     var underway = null;
     var passwordUntil = 0;
+    var hintAsked = 0;
+    var limitedUntil = 0;
+    /* The last password was refused unread, so the next gets no tab of its own. */
+    var passwordLimited = false;
+    /* The last start, until the server is done with it: a late answer to one takes the place of the next. */
+    var lastStart = Promise.resolve();
     passwordGoodFor(Number(card.getAttribute('data-password-good-for')) || 0);
     var sizing = null;
+    /* Whether the next change answers a press, and what it is to bring into view. */
+    var pressed = false;
+    var reveal = null;
     var checking = null;
     var waitWords = WAIT;
     var justLinked = false;
@@ -122,7 +132,23 @@
     }
 
     function passwordGoodFor(seconds) {
+      hintAsked += 1;
       passwordUntil = Date.now() + (seconds - MARGIN_S) * 1000;
+    }
+
+    function hear(data) {
+      passwordGoodFor(data.password_good_for);
+      limitedUntil = Date.now() + data.start_in * 1000;
+    }
+
+    /* Not by MM.api, which leaves the page when signed out: a glance at it must not lose what was typed. */
+    function refreshHint() {
+      var mine = hintAsked += 1;
+      fetch('/api/account/plex', { credentials: 'same-origin' }).then(function (resp) {
+        return resp.ok ? resp.json() : null;
+      }).then(function (data) {
+        if (data && mine === hintAsked) hear(data);
+      }).catch(function () {});
     }
 
     /* Runs a change of what the card holds, and lets its height follow. */
@@ -132,7 +158,8 @@
       if (sizing) sizing.cancel();
       sizing = null;
       var to = card.offsetHeight;
-      if (from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      if (from === to) { bringIn(); return; }
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { bringIn(); return; }
       var tokens = getComputedStyle(document.documentElement);
       var mine = sizing = card.animate(
         [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
@@ -141,10 +168,14 @@
       mine.onfinish = function () {
         if (sizing !== mine) return;
         sizing = null;
-        /* What took the focus may have had no room on the page yet. */
-        var at = document.activeElement;
-        if (card.contains(at)) at.scrollIntoView({ block: 'nearest' });
+        bringIn();
       };
+    }
+
+    function bringIn() {
+      var at = reveal;
+      reveal = null;
+      if (at && !MM.dom.inView(at)) at.scrollIntoView({ block: 'nearest' });
     }
 
     function closeTab() {
@@ -194,6 +225,8 @@
     function swap(name, quiet) {
       var held = !quiet && MM.dom.focusStillIn(holder);
       var changed = name !== current;
+      var answers = pressed;
+      pressed = false;
       current = name;
       card.removeAttribute('aria-busy');
       errorLine.textContent = '';
@@ -207,7 +240,11 @@
               : name === 'linked' && justLinked ? 'Your Plex account ' + byId('plex-done-name').textContent + ' is linked.'
                 : SAY[name] || '');
       }
-      if (held && MAIN[name]) byId(MAIN[name]).focus();
+      if (held && MAIN[name]) {
+        var main = byId(MAIN[name]);
+        main.focus({ preventScroll: true });
+        if (answers) reveal = main;
+      }
     }
 
     function fail(message, reload) {
@@ -274,7 +311,7 @@
         if (attempt.moves && !quiet) {
           announce(byId('plex-status'), SAY.confirm + ' ' + MOVES);
           /* Not on the button, where a key still held down would accept it unread. */
-          if (held) byId('plex-moves').focus();
+          if (held) byId('plex-moves').focus({ preventScroll: true });
         }
       } else {
         if (attempt.url.indexOf(APPROVAL_PAGE) !== 0) {
@@ -289,7 +326,7 @@
           if (underway) {
             sentTab = tab;
             tab = null;
-            if (!sentTab) offer(BLOCKED, false);
+            if (!sentTab) offer(underway.limited ? READY : BLOCKED, false);
             else if (!sendTab(sentTab, attempt.url)) offer(CLOSED, false);
           }
         }
@@ -331,6 +368,7 @@
       var mine = turn;
       return MM.api.get('/api/account/plex').then(function (data) {
         if (mine !== turn) return;
+        hear(data);
         showMoved(data.moved_at);
         if (data.link) showLink(data.link, quiet);
         else if (data.attempt) render(data.attempt, quiet);
@@ -351,23 +389,29 @@
     }
 
     /* The press that gives the password may open the tab; the answer to it may not. */
-    function withPassword() {
+    function withPassword(start) {
       return new Promise(function (resolve, reject) {
         var cancelled = false;
+        start.asking = true;
         MM.reauth.openModal({
           title: ASK.title,
           descText: ASK.descText,
           confirmLabel: ASK.confirmLabel,
           onSubmit: function (pw) {
+            if (start.cancelled) return Promise.resolve({ ok: false, error: 'This was cancelled. Close this and link again.' });
             closeTab();
-            tab = openTab();
+            start.asking = false;
+            start.limited = passwordLimited || Date.now() < limitedUntil;
+            tab = start.limited ? null : openTab();
             opening(true);
             return MM.api.post('/api/auth/reauth', { password: pw }).then(function (data) {
+              passwordLimited = false;
               passwordGoodFor(data.expires_in_seconds);
-              if (!cancelled) resolve(MM.api.post('/api/account/plex'));
+              if (!cancelled) resolve(post(start));
               return { ok: true };
             }, function (err) {
-              if (!cancelled) { closeTab(); opening(false); }
+              passwordLimited = err.status === 429;
+              if (!cancelled && !start.cancelled) { closeTab(); opening(false); start.asking = true; }
               return { ok: false, error: MM.api.messageOf(err, 'Could not check the password. Try again.') };
             });
           },
@@ -379,36 +423,50 @@
       });
     }
 
+    /* Waits for the start before it, which the server ends when it was cancelled. */
+    function post(start) {
+      var sent = lastStart.then(function () {
+        if (start.cancelled) throw { error: 'cancelled' };
+        return MM.api.post('/api/account/plex');
+      });
+      lastStart = sent.then(function (data) {
+        return start.cancelled ? giveUp(data.attempt.id) : null;
+      }, function () {});
+      return sent;
+    }
+
     function begin(button) {
       if (underway) return;
       stop();
+      pressed = true;
       var mine = turn;
       errorLine.textContent = '';
       byId('plex-note').textContent = '';
       eased(function () { byId('plex-signout-note').hidden = true; });
       justLinked = false;
-      var start = underway = { button: button, label: button.textContent, cancelled: false };
+      var start = underway = { button: button, label: button.textContent, cancelled: false, asking: false, limited: Date.now() < limitedUntil };
       function settle() { if (underway === start) settled(); }
       function first() {
-        tab = openTab();
+        tab = start.limited ? null : openTab();
         opening(true);
-        return MM.api.post('/api/account/plex').then(null, function (err) {
+        return post(start).then(null, function (err) {
           if (mine !== turn || !(err.status === 403 && err.data && err.data.reauth_required)) throw err;
           passwordUntil = 0;
           closeTab();
           opening(false);
-          return withPassword();
+          return withPassword(start);
         });
       }
       /* Asked first where it is due: a tab opened before would cover the question. */
-      (Date.now() < passwordUntil ? first() : withPassword()).then(function (data) {
+      (Date.now() < passwordUntil ? first() : withPassword(start)).then(function (data) {
         if (mine === turn) render(data.attempt);
-        else if (start.cancelled) giveUp(data.attempt.id);
         settle();
       }, function (err) {
         settle();
         if (mine !== turn) return;
         stop();
+        if (err.status === 429) limitedUntil = Date.now() + 60000;
+        if (err.error !== 'reauth_cancelled') refreshHint();
         if (err.error === 'reauth_cancelled') { sayCancelled(); return; }
         if (err.error === 'already_linked') { recover(err.message); return; }
         if (err.error === 'plex_not_set_up') { show('unset'); return; }
@@ -418,27 +476,29 @@
 
     /* Named, so that arriving late it cannot end a sign-in started since. The sign-in ends by itself when this does not arrive. */
     function giveUp(id) {
-      MM.api.post('/api/account/plex/cancel', { attempt: id }).then(function (data) {
+      return MM.api.post('/api/account/plex/cancel', { attempt: id }).then(function (data) {
         if (!data.signed_out) eased(function () { byId('plex-signout-note').hidden = false; });
       }, function () {});
     }
 
     function cancel() {
       stop();
+      pressed = true;
       if (sentTab) sentTab.close();
       sentTab = null;
       sayCancelled();
-      giveUp(attempt.id);
+      lastStart = giveUp(attempt.id);
     }
 
     function cancelOpening() {
       if (!underway) return;
       underway.cancelled = true;
+      pressed = true;
       stop();
       var held = MM.dom.focusStillIn(holder);
       settled();
       sayCancelled();
-      if (held) byId('plex-start').focus();
+      if (held) byId('plex-start').focus({ preventScroll: true });
     }
 
     /* A key held down presses whatever button the focus has moved to. */
@@ -467,7 +527,7 @@
     });
     byId('plex-retry').addEventListener('click', function () {
       if (isBusy(this)) return;
-      if (reloads) load(); else begin(this);
+      if (reloads) { pressed = true; load(); } else begin(this);
     });
     byId('plex-start-stop').addEventListener('click', cancelOpening);
     byId('plex-retry-stop').addEventListener('click', cancelOpening);
@@ -486,6 +546,7 @@
         if (mine !== turn) return;
         if (data.attempt) { render(data.attempt); return; }
         justLinked = true;
+        pressed = true;
         load();
       }, function (err) {
         busy(button, false);
@@ -511,6 +572,7 @@
         busy(button, true);
         MM.api.delete('/api/account/plex').then(function () {
           busy(button, false);
+          pressed = true;
           if (mine === turn) load();
         }, function (err) {
           busy(button, false);
@@ -520,17 +582,36 @@
     });
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden || current !== 'waiting') return;
+      if (document.hidden) return;
+      refreshHint();
+      if (current !== 'waiting') return;
       waitWords = STILL_WAIT;
       check();
     });
     /* A Plex window beside this one hides nothing. */
     window.addEventListener('focus', function () {
+      refreshHint();
       if (current === 'waiting' && !checking) check();
+    });
+    document.addEventListener('mm:reauth', refreshHint);
+    /* An answer that never comes, as when signed out, must not leave a tab that waits for it. */
+    window.addEventListener('pagehide', function () {
+      if (tab) tab.close();
     });
     /* Restored from the back/forward cache, the card may be long out of date. */
     window.addEventListener('pageshow', function (e) {
-      if (e.persisted) { stop(); justLinked = false; load(true); }
+      if (!e.persisted) return;
+      refreshHint();
+      /* A password being asked for is still for the person to give. */
+      if (underway && underway.asking) return;
+      if (underway) {
+        underway.cancelled = true;
+        settled();
+      }
+      lastStart = Promise.resolve();
+      stop();
+      justLinked = false;
+      load(true);
     });
 
     load(true);

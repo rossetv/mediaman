@@ -279,3 +279,67 @@ def test_the_card_eases_to_each_states_height_unless_motion_is_unwelcome() -> No
     out = _run("heights")
     assert out["out"][-1:] == [["300px", "160px", 250]]
     assert out["calm"] == []
+
+
+def test_a_tab_never_outlives_a_page_that_goes_to_sign_in() -> None:
+    out = _run("sessionEnded")
+    assert (out["before"], out["gone"]) == (False, True)
+    # back from the page's cache, the old dialog opens nothing more
+    assert (out["tabs"], out["late"]) == (1, False)
+    assert (out["label"], out["shown"]) == ("Link Plex account", "unlinked")
+
+
+def test_a_password_dialog_kept_by_the_pages_cache_still_links() -> None:
+    out = _run("frozenDialog")
+    assert out == {"asked": 1, "tabs": [{**OPEN, "went": [PLEX]}], "shown": "waiting"}
+
+
+def test_a_start_that_was_never_answered_does_not_hold_up_the_next() -> None:
+    assert _run("stuckStart") == {"first": True, "shown": "waiting", "tabs": 2}
+
+
+def test_a_password_given_elsewhere_is_not_asked_for_again() -> None:
+    out = _run("freshHint")
+    assert out == {"out": [0, "waiting"] * 3, "due": 1}
+
+
+def test_a_late_hint_does_not_undo_a_password_given_since() -> None:
+    assert _run("staleHint") == 1
+
+
+def test_a_second_start_waits_until_the_cancelled_one_is_ended() -> None:
+    out = _run("race")
+    assert out["held"] == 1
+    assert out["ending"] == {"starts": 1, "cancel": True}
+    assert (out["starts"], out["shown"]) == (2, "waiting")
+    assert [tab["went"] for tab in out["tabs"]] == [[], [PLEX + "2"]]
+
+
+def test_a_start_cancelled_while_it_waits_is_never_sent() -> None:
+    assert _run("raceCancelledTwice") == {"starts": 1, "shown": "unlinked", "open": 0}
+
+
+def test_the_page_scrolls_only_for_a_press_and_only_to_what_is_out_of_view() -> None:
+    out = _run("scroll")
+    assert out["press"] == {"early": 0, "after": ["plex-open"]}
+    assert out["wording"] == {"eased": ["160px", "180px", 250], "scrolled": []}
+    assert out["background"] == {"shown": "confirm", "focus": "plex-confirm", "scrolled": []}
+    assert out["inView"] == []
+    assert out["calm"] == ["plex-open"]
+
+
+def test_a_new_change_of_height_ends_the_one_before_it() -> None:
+    assert _run("ease") == {"cancelled": True, "scrolledByOld": [], "last": False}
+
+
+def test_a_press_known_to_be_over_the_limit_opens_no_tab() -> None:
+    assert _run("limited") == {"known": {"tabs": 0, "text": "Too many."}, "over": 1}
+    ready = _run("limitedReady")
+    assert ready["tabs"] == 0
+    assert "browser" not in ready["lead"]
+
+
+def test_a_password_after_one_over_the_limit_opens_no_tab() -> None:
+    out = _run("limitedPassword")
+    assert [tab["closed"] for tab in out["tabs"]] == [True]
+    assert out["shown"] == "waiting"

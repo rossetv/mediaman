@@ -76,9 +76,24 @@ const tabsNow = () => tabs.map((t) => ({ opener: t.opener, closed: t.closed, wen
 let calm = false;
 let clock = 0;
 const moves = [];
-const HEIGHTS = { loading: 40, unlinked: 300, waiting: 160, failed: 90 };
+const HEIGHTS = {
+  loading: 40, unlinked: 300, failed: 90, confirm: 120,
+  get waiting() { return at('plex-wait').textContent.startsWith('Not') ? 180 : 160; },
+};
 Object.defineProperty(card, 'offsetHeight', { get: () => HEIGHTS[shown()] || 0 });
-card.animate = (frames, how) => { moves.push([frames[0].height, frames[1].height, how.duration]); return { cancel() {} }; };
+const runs = [];
+card.animate = (frames, how) => {
+  moves.push([frames[0].height, frames[1].height, how.duration]);
+  const run = { cancelled: false, cancel() { run.cancelled = true; } };
+  runs.push(run);
+  return run;
+};
+const scrolled = [];
+let inView = true;
+let hint = null;
+let hints = 0;
+doc.createElement('i').constructor.prototype.scrollIntoView = function () { scrolled.push(this.id); };
+ctx.fetch = () => { hints += 1; return Promise.resolve({ ok: hint !== null, json: () => Promise.resolve(hint) }); };
 card.setAttribute('data-password-good-for', '300');
 ctx.Date = class extends Date { static now() { return clock * 1000; } };
 ctx.matchMedia = () => ({ matches: calm });
@@ -86,6 +101,7 @@ ctx.getComputedStyle = () => ({ getPropertyValue: (n) => (n === '--dur-slow' ? '
 ctx.window = ctx;
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(WEB, 'static/js/core/dom.js'), 'utf8'), ctx);
+ctx.MM.dom.inView = () => inView;
 ctx.MM.api = {
   get: api('GET'), post: api('POST'), delete: api('DELETE'),
   messageOf: (err, fallback) => err.message || fallback,
@@ -127,7 +143,7 @@ const WAITING = {
   id: 'a1', state: 'waiting', signed_out: true, app: 'mediaman (h)', url: 'https://app.plex.tv/auth#?code=x',
 };
 const CONFIRM = { id: 'a1', state: 'confirm', name: '<b>amy</b>', signed_out: true };
-const NONE = { configured: true, link: null, attempt: null };
+const NONE = { configured: true, start_in: 0, link: null, attempt: null };
 const BOB = { id: 3, username: '<i>bob</i>', linked_at: '2026-03-01T12:00:00Z' };
 const CAT = { id: 4, username: 'cat', linked_at: '2026-03-01T12:00:00Z' };
 const LINK = { name: 'amy', linked_at: '2026-03-01T12:00:00Z', last_read_at: null, reading: true };
@@ -137,7 +153,8 @@ answers['POST /api/account/plex/cancel'] = [{ signed_out: true }];
 at('plex-start').textContent = 'Link Plex account';
 
 async function load(first) {
-  answers[GET] = [first];
+  const good = Number(card.getAttribute('data-password-good-for'));
+  answers[GET] = [{ password_good_for: good, start_in: 0, ...first }];
   vm.runInContext(fs.readFileSync(path.join(WEB, 'static/js/profile-plex.js'), 'utf8'), ctx);
   await flush();
 }
@@ -386,6 +403,185 @@ const scenarios = {
     await flush();
     out.cancelled = { label: at('plex-start').textContent, starts: calls.filter((c) => c === START).length };
     return out;
+  },
+  async sessionEnded() {
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers['POST /api/auth/reauth'] = [new Promise(() => {}), { expires_in_seconds: 300 }];
+    await click('plex-start');
+    press(() => asked[0].onSubmit('pw'));
+    const before = tabs[0].closed;
+    listeners.pagehide({});
+    const gone = tabs[0].closed;
+    listeners.pageshow({ persisted: true });
+    await flush();
+    const late = await press(() => asked[0].onSubmit('pw'));
+    return { before, gone, tabs: tabs.length, late: late.ok, label: at('plex-start').textContent, shown: shown() };
+  },
+  async frozenDialog() {
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers['POST /api/auth/reauth'] = [{ expires_in_seconds: 300 }];
+    await click('plex-start');
+    await click('plex-start');
+    listeners.pagehide({});
+    listeners.pageshow({ persisted: true });
+    await flush();
+    press(() => asked[0].onSubmit('pw'));
+    await flush();
+    return { asked: asked.length, tabs: tabsNow(), shown: shown() };
+  },
+  async stuckStart() {
+    await load(NONE);
+    answers[START] = [new Promise(() => {}), { attempt: WAITING }];
+    await click('plex-start');
+    listeners.pagehide({});
+    listeners.pageshow({ persisted: true });
+    await flush();
+    await click('plex-start');
+    return { first: tabs[0].closed, shown: shown(), tabs: tabs.length };
+  },
+  async freshHint() {
+    const out = [];
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    for (const fire of [
+      () => listeners.focus(),
+      () => doc.listeners.visibilitychange.forEach((f) => f()),
+      () => doc.listeners['mm:reauth'].forEach((f) => f()),
+    ]) {
+      hint = { password_good_for: 0, start_in: 0 };
+      listeners.focus();
+      await flush();
+      hint = { password_good_for: 300, start_in: 0 };
+      fire();
+      await flush();
+      answers[START] = [{ attempt: WAITING }];
+      await click('plex-start');
+      out.push(asked.length, shown());
+      await click('plex-cancel');
+    }
+    hint = { password_good_for: 0, start_in: 0 };
+    listeners.focus();
+    await flush();
+    await click('plex-start');
+    return { out, due: asked.length };
+  },
+  async staleHint() {
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    let answer;
+    ctx.fetch = () => new Promise((r) => { answer = r; });
+    listeners.focus();
+    answers['POST /api/auth/reauth'] = [{ expires_in_seconds: 300 }];
+    answers[START] = [{ attempt: WAITING }];
+    await click('plex-start');
+    press(() => asked[0].onSubmit('pw'));
+    await flush();
+    answer({ ok: true, json: () => Promise.resolve({ password_good_for: 0, start_in: 0 }) });
+    await flush();
+    await click('plex-cancel');
+    await click('plex-start');
+    return asked.length;
+  },
+  async race() {
+    await load(NONE);
+    let answer;
+    answers[START] = [new Promise((r) => { answer = r; }), { attempt: { ...WAITING, id: 'a2', url: WAITING.url + '2' } }];
+    let ended;
+    answers['POST /api/account/plex/cancel'] = [new Promise((r) => { ended = r; })];
+    await click('plex-start');
+    await click('plex-start-stop');
+    await click('plex-start');
+    const held = calls.filter((c) => c === START).length;
+    answer({ attempt: WAITING });
+    await flush();
+    const ending = { starts: calls.filter((c) => c === START).length, cancel: calls.includes('POST /api/account/plex/cancel {"attempt":"a1"}') };
+    ended({ signed_out: true });
+    await flush();
+    return { held, ending, tabs: tabsNow(), shown: shown(), starts: calls.filter((c) => c === START).length };
+  },
+  async raceCancelledTwice() {
+    await load(NONE);
+    let answer;
+    answers[START] = [new Promise((r) => { answer = r; }), { attempt: WAITING }];
+    await click('plex-start');
+    await click('plex-start-stop');
+    await click('plex-start');
+    await click('plex-start-stop');
+    answer({ attempt: WAITING });
+    await flush();
+    return { starts: calls.filter((c) => c === START).length, shown: shown(), open: tabs.filter((t) => !t.closed).length };
+  },
+  async scroll() {
+    const out = {};
+    inView = false;
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers[CHECK] = [{ attempt: WAITING }, { attempt: CONFIRM }];
+    at('plex-start').focus();
+    await click('plex-start');
+    const early = scrolled.length;
+    runs[runs.length - 1].onfinish();
+    out.press = { early, after: scrolled.splice(0) };
+    doc.listeners.visibilitychange.forEach((f) => f());
+    await flush();
+    const n = moves.length;
+    runs[runs.length - 1].onfinish();
+    out.wording = { eased: moves[n - 1], scrolled: scrolled.splice(0) };
+    await tick();
+    runs[runs.length - 1].onfinish();
+    out.background = { shown: shown(), focus: doc.activeElement.id, scrolled: scrolled.splice(0) };
+    inView = true;
+    calm = true;
+    await click('plex-decline');
+    out.inView = scrolled.splice(0);
+    inView = false;
+    await click('plex-start');
+    out.calm = scrolled.slice();
+    return out;
+  },
+  async ease() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    await click('plex-start');
+    const first = runs[runs.length - 1];
+    inView = false;
+    await click('plex-cancel');
+    const running = runs[runs.length - 1];
+    first.onfinish();
+    return { cancelled: first.cancelled, scrolledByOld: scrolled.slice(), last: running.cancelled };
+  },
+  async limited() {
+    const out = {};
+    await load({ ...NONE, password_good_for: 300, start_in: 60 });
+    answers[START] = [{ error: 'too_many_requests', status: 429, message: 'Too many.' }];
+    await click('plex-start');
+    out.known = { tabs: tabs.length, text: at('plex-failed').textContent };
+    answers[START] = [{ attempt: WAITING }];
+    clock = 61;
+    await click('plex-retry');
+    out.over = tabs.length;
+    return out;
+  },
+  async limitedReady() {
+    await load({ ...NONE, password_good_for: 300, start_in: 60 });
+    answers[START] = [{ attempt: WAITING }];
+    await click('plex-start');
+    return { tabs: tabs.length, lead: at('plex-lead').textContent };
+  },
+  async limitedPassword() {
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    answers['POST /api/auth/reauth'] = [{ error: 'too_many_requests', status: 429 }, { expires_in_seconds: 300 }];
+    answers[START] = [{ attempt: WAITING }];
+    await click('plex-start');
+    await press(() => asked[0].onSubmit('pw'));
+    await press(() => asked[0].onSubmit('pw'));
+    await flush();
+    return { tabs: tabsNow(), shown: shown() };
   },
   async heights() {
     await load(NONE);

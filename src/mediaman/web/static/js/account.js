@@ -28,6 +28,14 @@
     }
   }
 
+  // The Plex card asks for a password only where one is due.
+  function confirmed(action) {
+    function tell() { document.dispatchEvent(new Event('mm:reauth')); }
+    var run = MM.reauth.run(action);
+    run.then(tell, tell);
+    return run;
+  }
+
   // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
   function setBusy(button, busy) {
     if (busy) button.setAttribute('aria-disabled', 'true');
@@ -85,7 +93,7 @@
       setBusy(submit, true);
       result.textContent = 'Updating…';
       reveal(result);
-      MM.reauth.run(function () {
+      confirmed(function () {
         return MM.api.post('/api/users/change-password', {
           old_password: oldPw,
           new_password: newPw,
@@ -133,7 +141,7 @@
       setBusy(submit, true);
       say('Saving…');
       reveal(result);
-      MM.reauth.run(function () {
+      confirmed(function () {
         return MM.api.patch('/api/users/me/email', { email: email });
       }).then(function () {
         setBusy(submit, false);
@@ -211,7 +219,7 @@
       setBusy(revoke, true);
       say('Signing out…');
       reveal(result);
-      MM.reauth.run(function () {
+      confirmed(function () {
         return MM.api.post('/api/users/sessions/revoke-others');
       }).then(function () {
         answer(result, revoke.parentNode, 'Signed out everywhere else.', 'ok');
