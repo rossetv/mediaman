@@ -1012,6 +1012,7 @@ class TestLastWatched:
                 [0, 2],
                 [
                     {"season_number": 2},
+                    {"season_number": 2, "tmdb_id": 7},
                     {"file_path": "/tv/elsewhere"},
                     {"file_path": ""},
                     {"tmdb_id": 8},

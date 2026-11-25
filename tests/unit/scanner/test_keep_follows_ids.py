@@ -1206,6 +1206,152 @@ def _schedule_due(conn, media_id):
         )
 
 
+@pytest.fixture
+def same_files(library):
+    """Two files that each key lists in another order, so under another path, with no id."""
+    one, two = library.file("old"), library.file("new")
+    for key, files in (("old", [one, two]), ("new", [two, one])):
+        library.ids[key] = {
+            "file_path": str(files[0] if library.kind == "film" else files[0].parent),
+            "tracked_files": [{"path": str(file), "size": 4} for file in files],
+            "tmdb_id": None,
+            "tvdb_id": None,
+        }
+    return library
+
+
+def _both_files_exist(library):
+    return library.file("old").exists() and library.file("new").exists()
+
+
+class TestSameFilesUnderAnotherPath:
+    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @_SEQUENCES
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_a_kept_title_is_kept_under_its_new_key(self, conn, freezer, same_files, lists, run):
+        same_files.sync("old")
+        _keep(conn, "old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        _run_until_settled(conn, freezer, same_files, run)
+
+        assert _both_files_exist(same_files)
+        assert _actions(conn, "new") == ["protected_forever"]
+
+    @pytest.mark.parametrize("gone", ["removed", "unlisted"])
+    @_season("season new", "film new")
+    def test_one_already_due_is_not_deleted(self, conn, freezer, same_files, gone, request):
+        if gone == "unlisted":
+            request.getfixturevalue("not_removed")
+        same_files.sync("old", "new")
+        _keep(conn, "old")
+        _schedule(conn, "new")
+
+        freezer.tick(60)
+        same_files.scan("new")
+
+        assert _both_files_exist(same_files)
+
+    @_season("season new", "film new")
+    def test_one_listed_beside_the_kept_one_is_not_scheduled(self, conn, freezer, same_files):
+        same_files.sync("old")
+        _keep(conn, "old")
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("old", "new")
+
+        assert _actions(conn, "new") == []
+
+    @_SEQUENCES
+    @_season("season", "season new")
+    def test_a_kept_shows_season_is_kept_under_its_new_key(self, conn, freezer, same_files, lists):
+        same_files.sync("old")
+        _keep_show(conn)
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        _run_until_settled(conn, freezer, same_files, "scan")
+
+        assert _both_files_exist(same_files)
+        assert _is_kept(conn, "show", "new")
+
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_season(*_MOVES, *_FILM_MOVES)
+    def test_one_watched_lately_is_not_scheduled(self, conn, freezer, same_files, lists):
+        same_files.watched = {"old": _NOW - timedelta(days=1)}
+        same_files.sync("old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("new")
+
+        assert _actions(conn, "new") == []
+
+    @pytest.mark.parametrize("why", ["kept", "watched"])
+    @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
+    @_season("season", "season new")
+    def test_another_season_with_one_of_its_files_is_scheduled(
+        self, conn, freezer, same_files, lists, why
+    ):
+        same_files.ids["new"]["season_number"] = 2
+        same_files.watched = {"old": _NOW - timedelta(days=1)} if why == "watched" else {}
+        same_files.sync("old")
+        if why == "kept":
+            _keep(conn, "old")
+        for keys in lists:
+            freezer.tick(60)
+            same_files.sync(*keys)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("new")
+
+        assert _actions(conn, "new") == ["scheduled_deletion"]
+
+    @pytest.mark.parametrize("gone_first", [True, False])
+    @pytest.mark.parametrize("like", ["old", "new"])
+    @_season("film new", "season new")
+    def test_a_keep_removed_from_the_new_key_is_not_given_to_the_next(
+        self, conn, freezer, same_files, monkeypatch, gone_first, like
+    ):
+        same_files.ids["newer"] = dict(same_files.ids[like])
+        same_files.sync("old")
+        _keep(conn, "old")
+        if gone_first:
+            freezer.tick(60)
+            same_files.sync()
+        freezer.tick(60)
+        same_files.scan("new")
+        assert _actions(conn, "new") == ["protected_forever"]
+        _remove_keep(conn, "new", monkeypatch)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("newer")
+
+        assert _actions(conn, "newer") == ["scheduled_deletion"]
+
+    @_season("season", "season new")
+    def test_a_kept_shows_season_listed_beside_its_old_key_is_not_scheduled(
+        self, conn, freezer, same_files
+    ):
+        same_files.sync("old")
+        _keep_show(conn)
+
+        for _ in range(2):
+            freezer.tick(60)
+            same_files.scan("old", "new")
+
+        assert _actions(conn, "new") == []
+
+
 class TestWatchedLately:
     @pytest.mark.parametrize("run", ["sync", "scan"])
     @_SEQUENCES

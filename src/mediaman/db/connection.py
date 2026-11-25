@@ -130,6 +130,9 @@ _ADDED_COLUMNS = (
     ("pruned_watches", "last_tvdb_id", "INTEGER"),
     ("pruned_keeps", "given_to", "TEXT"),
     ("pruned_show_seasons", "given_to", "TEXT"),
+    ("pruned_keeps", "tracked_files", "TEXT"),
+    ("pruned_show_seasons", "tracked_files", "TEXT"),
+    ("pruned_watches", "tracked_files", "TEXT"),
 )
 
 # Not in SCHEMA, which runs before an older table has these columns.

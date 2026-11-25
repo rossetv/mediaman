@@ -11,10 +11,13 @@ from mediaman.scanner.repository.rekeyed import (
     LATEST_WATCH,
     copies,
     fetch_title,
+    file_places,
+    files_json,
     ids_conflict,
     ids_match,
     is_film_or_numbered,
     other_keys,
+    pruned_files,
     title_files,
     title_ids,
 )
@@ -113,23 +116,26 @@ def carry_last_watched(
         ]
     ]
     tvdb_id, tmdb_id = title_ids(title)
+    places = file_places(title_files(title))
+    # An empty list would have the whole table read.
+    by_file = f" OR file_path IN ({','.join('?' * len(places))})" if places else ""
     watches += [
         gone["last_watched_at"]
-        for gone in conn.execute(
+        # rationale: only "?" placeholders are interpolated; every value is bound
+        for gone in conn.execute(  # nosec B608
             "SELECT * FROM pruned_watches WHERE media_item_id = ? "
             "OR (file_path = ? AND file_path != '' AND season_number IS ?) "
             "OR (COALESCE(tvdb_id, last_tvdb_id) = ? AND season_number IS ?) "
-            "OR (COALESCE(tmdb_id, last_tmdb_id) = ? AND season_number IS ?)",
+            f"OR (COALESCE(tmdb_id, last_tmdb_id) = ? AND season_number IS ?){by_file}",
             (
                 media_id,
                 *(title["file_path"], title["season_number"]),
                 *(tvdb_id, title["season_number"]),
                 *(tmdb_id, title["season_number"]),
+                *places,
             ),
         ).fetchall()
-        if gone["media_item_id"] == media_id
-        or _was_there(conn, gone, title)
-        or _was_a_copy(conn, gone, title)
+        if gone["media_item_id"] == media_id or _was_the_title(conn, gone, title)
     ]
     latest = max(watches, default="")
     if latest:
@@ -138,6 +144,18 @@ def carry_last_watched(
             " WHERE id = ?",
             (latest, media_id),
         )
+
+
+def _was_the_title(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches, under another key, was *title*.
+
+    It was of its season, and at its place, a copy of it, or had a file of its own.
+    """
+    return gone["season_number"] == title["season_number"] and (
+        _was_there(conn, gone, title)
+        or _was_a_copy(conn, gone, title)
+        or not pruned_files(gone).isdisjoint(title_files(title))
+    )
 
 
 def _was_a_copy(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
@@ -182,9 +200,9 @@ def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) ->
     conn.executemany(  # nosec B608
         "INSERT OR REPLACE INTO pruned_watches"
         " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_tmdb_id,"
-        " last_tvdb_id, last_watched_at)"
+        " last_tvdb_id, last_watched_at, tracked_files)"
         " SELECT o.id, o.file_path, o.season_number, o.show_title, o.tmdb_id, o.tvdb_id,"
-        f" o.last_tmdb_id, o.last_tvdb_id, {LATEST_WATCH} FROM media_items o"
+        f" o.last_tmdb_id, o.last_tvdb_id, {LATEST_WATCH}, ? FROM media_items o"
         f" WHERE o.id = ? AND {LATEST_WATCH} != ''",
-        [(media_id,) for media_id in media_ids],
+        [(files_json(fetch_title(conn, media_id)), media_id) for media_id in media_ids],
     )
