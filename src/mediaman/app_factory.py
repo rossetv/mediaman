@@ -357,6 +357,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.account import router as account_router
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.avatars import router as avatars_router
+    from mediaman.web.routes.cast import router as cast_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
@@ -413,6 +414,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_pages_router)
     app.include_router(watch_browse_api_router)
     app.include_router(watch_stream_api_router)
+    app.include_router(cast_router)
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
     app.include_router(ratings_router)

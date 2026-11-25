@@ -51,6 +51,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/watch/stream/{stream_id}/seg/{name}"),
         ("POST", "/api/watch/stream/{stream_id}/stop"),
         ("POST", "/api/watch/progress"),
+        ("POST", "/api/cast/stream"),
         ("GET", "/api/watch/stream/{stream_id}/preview/{n}"),
         ("POST", "/api/watch/dismissed/{ref}"),
         ("DELETE", "/api/watch/dismissed/{ref}"),
@@ -145,6 +146,19 @@ def _matched_template(request: Request) -> str | None:
     return None
 
 
+def is_ticket_route(request: Request) -> bool:
+    """True when a ticket in the address, and no session, will authorise *request*.
+
+    A TV may send the cookie of the person who cast to it, which checking would end, since the
+    TV's browser and address are not the ones the session is bound to.
+    """
+    # Walking the routes is slow; the match alone decides.
+    if "/api/cast/" not in request.scope["path"]:
+        return False
+    template = _matched_template(request)
+    return template is not None and template.startswith("/api/cast/{ticket}/")
+
+
 def _viewer_may_reach(method: str, template: str | None) -> bool:
     """True when a non-admin may reach the route *template* with *method*."""
     if template is None:
@@ -160,6 +174,9 @@ class ViewerGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         token = request.cookies.get("session_token")
         if not token:
+            return await call_next(request)
+
+        if is_ticket_route(request):
             return await call_next(request)
 
         template = _matched_template(request)

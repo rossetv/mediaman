@@ -82,7 +82,7 @@ docker exec -it mediaman mediaman-create-user --role viewer   # --role viewer|ad
 A reverse proxy or CDN in front of mediaman must not buffer or cache the video. mediaman sends `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` on stream responses; with nginx, also turn buffering off and allow long timeouts:
 
 ```nginx
-location /api/watch/stream/ {
+location ~ ^/api/(watch/stream|cast)/ {
     proxy_pass http://mediaman:8282;
     proxy_buffering off;
     proxy_read_timeout 1h;
@@ -90,7 +90,9 @@ location /api/watch/stream/ {
 }
 ```
 
-Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
+The proxy's own access log keeps the addresses TVs read streams at, which play without signing in for up to 6 hours. To leave them out, add `access_log off;` to the block, or turn off the log for `/api/cast/` in another proxy.
+
+Limits: iPhone and iPad need iOS 17.1 or later. In the browser there is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
 
 ## Environment
 
