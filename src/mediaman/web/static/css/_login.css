@@ -39,6 +39,8 @@
 .login-brand { display: flex; min-height: 1.47em; margin-bottom: 4px; font-size: 32px; }
 /* A flex item is no narrower than its content unless told: so the name can narrow with the card. */
 .login-brand a { display: inline-flex; align-items: center; min-width: 0; color: inherit; }
+/* In the card it cannot wrap as words do, so under a large text zoom it narrows to the card instead. */
+.login-brand .wordmark { max-width: 100%; height: auto; aspect-ratio: 4.4316 / 1.0211; }
 /* The name draws itself once, media and then man, as the sign-in page opens. */
 @media (prefers-reduced-motion: no-preference) {
   .login-brand--drawn .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
