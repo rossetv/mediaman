@@ -17,7 +17,7 @@ Object.defineProperty(Node.prototype, 'hidden', {
 function load() {
   const doc = makeDocument();
   const events = [];
-  doc.dispatchEvent = (e) => events.push({ phase: e.detail.phase, ref: e.detail.ref, refs: e.detail.refs, level: e.detail.level, was: e.detail.was });
+  doc.dispatchEvent = (e) => events.push({ phase: e.detail.phase, ref: e.detail.ref, refs: e.detail.refs, level: e.detail.level, was: e.detail.was === undefined ? 'unknown' : e.detail.was });
   const out = []; // requests not answered yet
   const log = [];
   const listeners = {};
@@ -47,7 +47,7 @@ function load() {
     ctx, events, log, go, answer, listeners, R: ctx.MM.ratings,
     swap: () => out.reverse(),
     ratings: (map) => answer({ ok: true, ratings: map }),
-    title: (id, type = 'movie') => answer({ ok: true, media_type: type, tmdb_id: id }),
+    title: (id, was) => answer({ ok: true, media_type: 'movie', tmdb_id: id, was }),
     fail: () => answer({ ok: false, error: 'http_500' }, 500),
     refuse: () => answer({ ok: false, error: 'too_many_requests' }, 429),
     press: (set, i) => click(doc, set.node.querySelectorAll('button')[i]),
@@ -299,6 +299,99 @@ const scenarios = {
     const during = p.look(set).on;
     await p.refuse();
     return { during, after: p.look(set).on };
+  },
+
+  // Pressed before the first read answers, with 2 stored. What each event says the level was.
+  async unread() {
+    const wases = (p) => p.events.map((e) => [e.phase, e.level, e.was]);
+    const run = async (steps) => {
+      const p = load();
+      const set = p.R.mount('movie-1');
+      await p.go();
+      p.press(set, 0);
+      p.swap(); // the save is answered before the read
+      await steps(p, set);
+      return wases(p);
+    };
+    return {
+      saved: await run((p) => p.title(7, 2)),
+      noRead: await run(async (p) => { p.swap(); await p.refuse(); await p.title(7, 2); }),
+      quick: await run(async (p, set) => { p.press(set, 2); p.press(set, 0); p.press(set, 1); await p.title(7, 2); p.swap(); await p.title(7, -2); }),
+      // Stored, its answer lost, and the read after it answers what was stored.
+      lost: await run(async (p) => { await p.fail(); await p.ratings({ 'movie-1': lv(null) }); await p.ratings({ 'movie-1': lv(-2) }); }),
+      lostAgain: await run(async (p, set) => { await p.fail(); await p.refuse(); p.press(set, 0); p.swap(); await p.title(7, -2); }),
+      lostNotHeld: await run(async (p, set) => { await p.fail(); await p.refuse(); p.press(set, 0); p.swap(); await p.title(7, 2); }),
+    };
+  },
+
+  // The level was known: the save's answer is lost, as is the read after it, and it is saved at the next press.
+  async knownLost() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(1) });
+    p.press(set, 0);
+    await p.fail();
+    await p.fail();
+    p.press(set, 0);
+    await p.title(7, -2);
+    return p.events.map((e) => [e.phase, e.level, e.was]);
+  },
+
+  // Saved, then pressed on at once to one that is lost and to one saved after.
+  async laterLost() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(1) });
+    p.press(set, 3); p.press(set, 1);
+    await p.title(7, 1);
+    await p.fail();
+    await p.fail();
+    p.press(set, 0);
+    await p.title(7, -1);
+    return p.events.map((e) => [e.phase, e.level, e.was]).pop();
+  },
+
+  // Stored though its answer was lost, read so, then changed.
+  async lostThenRead() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(1) });
+    p.press(set, 0);
+    await p.fail();
+    await p.ratings({ 'movie-1': lv(-2) });
+    p.press(set, 3);
+    await p.title(7, -2);
+    return p.events.map((e) => [e.phase, e.level, e.was]).pop();
+  },
+
+  // An Undo of which the level before is not known.
+  async undoUnknown() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    p.press(set, 0);
+    await p.fail();
+    p.log.length = 0;
+    p.R.set('movie-1', undefined);
+    await p.go();
+    return { log: p.log, on: p.look(set).on };
+  },
+
+  // A set that has gone; another title is then saved.
+  async destroyed() {
+    const p = load();
+    const gone = p.R.mount('movie-2', { variant: 'menu' });
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(null), 'movie-2': lv(null) });
+    gone.destroy();
+    gone.destroy();
+    p.log.length = 0;
+    p.press(set, 3);
+    await p.title(7);
+    return p.log;
   },
 
   async kept() {
