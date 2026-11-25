@@ -36,9 +36,9 @@ from ._shape import tmdb_id_of, tmdb_image_url, tmdb_kind
 TYPES = ("all", "movie", "tv")
 SORTS = ("popular", "top_rated", "newest")
 _FIRST_DECADE = 1930
-# As many as a page of TMDB's, and of those the most that one is made from: two of each
-# kind where they come evenly, and some that hold next to nothing.
-_MERGED_PAGE = 20
+# As many as a page of TMDB's of each kind, and of those the most that one is made from:
+# three of one and two of the other, and one that holds next to nothing.
+_MERGED_PAGE = 40
 _MERGED_READS = 6
 # The titles a place names: all of a page of TMDB's and of the one before.
 _PLACE_MAX = 40
@@ -205,6 +205,7 @@ class _Walk:
         self.page = 1
         self.shown: list[int] = []
         self.total = 0
+        self.reads = 0
         self.ended = False
         self._end = MAX_PAGE
         self._held: list[dict[str, Any]] = []
@@ -213,6 +214,7 @@ class _Walk:
         return not self.ended and not self._held
 
     def next_page(self) -> None:
+        self.reads += 1
         got = self._read(self.page)
         self.total = got["total"]
         self._end = min(got["pages"], MAX_PAGE)
@@ -249,7 +251,7 @@ def _merged(
 ) -> tuple[list[dict[str, Any]], int, str | None]:
     """The page of *kinds* in one order that comes after *after*, how many titles there are,
     and the next *after*. A page reads no more of TMDB's pages the further on it is, and one
-    that cannot be had now ends it early."""
+    that cannot be had now ends it early. One without a title ends the list."""
 
     def rank(item: Mapping[str, Any]) -> tuple[float, str]:
         if sort == "top_rated":
@@ -261,13 +263,18 @@ def _merged(
         for walk, place in zip(walks, after.split(","), strict=True):
             walk.page, *walk.shown = map(int, place.split("-"))
     items: list[dict[str, Any]] = []
-    reads = 0
+    giving = list(walks)
     while len(items) < _MERGED_PAGE:
-        need = next((walk for walk in walks if walk.needs_page()), None)
-        if need is not None:
-            if reads == _MERGED_READS:
-                break
-            reads += 1
+        needy = [walk for walk in giving if walk.needs_page()]
+        if needy:
+            # By turns, so that one kind's pages without a title leave reads for the other.
+            need = min(needy, key=lambda walk: walk.reads)
+            if sum(walk.reads for walk in walks) == _MERGED_READS:
+                if items:
+                    break
+                # Pages without one new title: the other kind's titles do not wait for it.
+                giving.remove(need)
+                continue
             try:
                 need.next_page()
             except (TmdbUnavailable, disk_cache.Refused):
@@ -275,11 +282,11 @@ def _merged(
                     raise
                 break
             continue
-        heads = [(head, walk) for walk in walks if (head := walk.head()) is not None]
+        heads = [(head, walk) for walk in giving if (head := walk.head()) is not None]
         if not heads:
             break
         items.append(max(heads, key=lambda h: rank(h[0]))[1].take())
-    more = not all(walk.ended for walk in walks)
+    more = items and not all(walk.ended for walk in walks)
     next_after = ",".join(walk.place() for walk in walks) if more else None
     return items, sum(walk.total for walk in walks), next_after
 
