@@ -28,10 +28,11 @@
 .nav-links {
   display: flex;
   gap: 4px;
-  margin-left: 4px;
+  margin-left: 1px;
   flex: 1;
-  /* overflow-x also clips vertically: fill the bar's height so a link's
-     focus ring has room above and below. */
+  /* overflow-x clips on every side: the padding, and filling the bar's height,
+     give a link's focus ring its room. */
+  padding: 0 3px;
   align-self: stretch;
   align-items: center;
   overflow-x: auto;
