@@ -673,6 +673,10 @@ def test_a_gentle_scroll_on_a_busy_page_opens_it_once_and_never_runs_back_on_the
     assert _run("busyPage") == {"steps": ["draw movie-1", "end", "open"], "back": False}
 
 
+def test_with_less_motion_a_notched_wheel_opens_the_page_at_its_first_notch() -> None:
+    assert _run("plainNotches") == [[True, 1]] * 3
+
+
 def test_opened_plainly_the_rest_of_its_scroll_does_not_scroll_the_page_and_the_next_one_does() -> (
     None
 ):
