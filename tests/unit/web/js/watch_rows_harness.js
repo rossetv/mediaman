@@ -165,6 +165,8 @@ function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
       timers.splice(0).forEach((t) => t.fn());
     },
     blur: () => fire(doc.activeElement, 'focusout', { relatedTarget: null }),
+    scrolled: () => fire(scroller, 'scroll'),
+    prev: () => scroller.parentNode.classList.contains('has-prev'),
     snaps: () => scroller.style.scrollSnapType !== 'none',
     click: (n) => {
       pressed = true;
@@ -192,6 +194,18 @@ const scenarios = {
     r.scroller.scrollLeft = 2 * (100 + GAP);
     r.enter();
     return { before, inside, moved, after, back, scrolled: r.at(), skeleton: row(0, { skeleton: true }).stops() };
+  },
+
+  // The first card folds away, and the row, which snaps, follows the next one a few pixels.
+  firstGoes() {
+    const r = row(6);
+    const step = (left) => { r.scroller.scrollLeft = left; r.scrolled(); return r.prev(); };
+    const before = [step(0), step(6)];
+    r.scroller.children[0].classList.add('is-kept');
+    Object.defineProperty(r.scroller.children[1], 'offsetLeft', { configurable: true, value: PAD + 6 });
+    const going = [step(6), step(6 + 100 + GAP)];
+    r.take(r.scroller.children[0]);
+    return { before, going, gone: [step(0), step(6)] };
   },
 
   keys() {

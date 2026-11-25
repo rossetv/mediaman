@@ -1,0 +1,257 @@
+/* WHAT PLAYS ON A TV — the small bar on every page, and the remote it opens.
+   Both draw with the player's own buttons, pills, seek bar and cards. */
+
+/* ── the remote ── */
+.tv-rem {
+  --player-glass: color-mix(in srgb, var(--s2) 80%, transparent);
+  --player-glass-hover: color-mix(in srgb, var(--s3) 85%, transparent);
+  --player-t2: color-mix(in srgb, var(--t1) 90%, transparent);
+  --player-top: max(26px, env(safe-area-inset-top));
+  --player-foot: max(14px, env(safe-area-inset-bottom));
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 10);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+  color: var(--t1);
+  user-select: none;
+  -webkit-user-select: none;
+  animation: tv-fade var(--dur) var(--ease-out);
+}
+.tv-rem.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.tv-rem:focus { outline: none; }
+html.has-tv-remote { overflow: hidden; }
+.tv-rem__bg { position: absolute; inset: 0; opacity: .22; pointer-events: none; overflow: hidden; }
+.tv-rem__bg img, .tv-rem__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tv-rem__bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, var(--bg) 22%, transparent 70%); }
+.tv-rem .player-top { position: relative; flex: none; flex-wrap: nowrap; padding-bottom: 12px; background: none; }
+.tv-rem__play-on .ico--tv { width: 1.35em; height: 1.35em; }
+.tv-rem__play-on.is-on { color: var(--accent-hi); }
+.tv-rem .player-titles:not(:has(.player-subtitle:not([hidden]))) { min-height: 44px; justify-content: center; padding-top: 0; }
+.tv-rem__mid { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 32px; }
+.tv-rem__art { position: relative; flex: none; width: min(640px, 100%, 62vh); aspect-ratio: 16/9; border-radius: 18px; overflow: hidden; background: var(--s1); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); transition: opacity var(--dur) var(--ease-out); animation: tv-art var(--dur-slow) var(--ease-out); }
+/* What stands there until there is a picture, or where there is none. */
+.tv-rem__art > .ico, .tv-mini__pic > .ico { position: absolute; left: 50%; top: 50%; translate: -50% -50%; color: var(--t3); }
+.tv-rem__art > .ico { width: 56px; height: 56px; }
+.tv-mini__pic > .ico { width: 20px; height: 20px; }
+.tv-rem__art img, .tv-mini__pic img { position: relative; }
+.tv-rem__say, .tv-rem .player-bottom { animation: tv-rise var(--dur-slow) var(--ease-out); }
+.tv-rem.is-paused .tv-rem__art { opacity: .72; }
+.tv-rem.is-gone .tv-rem__art { opacity: .4; filter: grayscale(.6); }
+.tv-rem.is-load .tv-rem__art::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
+.tv-rem__ring { position: absolute; z-index: 1; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border: 3px solid color-mix(in srgb, var(--t1) 25%, transparent); border-top-color: var(--t1); border-radius: 50%; animation: player-spin .9s linear infinite; }
+.tv-rem__say { max-width: 560px; text-align: center; transition: opacity var(--dur) var(--ease-out); }
+.tv-rem__on { font-size: 15px; font-weight: 500; color: var(--accent-hi); text-wrap: balance; overflow-wrap: anywhere; }
+.tv-rem__on .ico { width: 20px; height: 20px; vertical-align: -.3em; margin-right: 8px; }
+.tv-rem.is-gone .tv-rem__on { color: var(--t2); }
+.tv-rem__hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
+.tv-rem .player-bottom { position: relative; flex: none; padding-top: 20px; background: none; }
+.tv-rem .player-pill { gap: 8px; }
+/* Larger text takes a second line rather than run over its pill. */
+.tv-rem__end .player-pill, .tv-rem .player-card .player-pill { height: auto; min-height: 44px; padding-block: 8px; white-space: normal; text-wrap: balance; line-height: 1.25; }
+.tv-rem .player-pill .ico { font-size: 14px; }
+.tv-rem .player-volume { min-width: 0; }
+.tv-rem .player-volume-slider { display: block; }
+.tv-rem .player-bubble { animation: none; }
+.tv-rem__vol-no { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
+.tv-rem__end { display: flex; gap: 8px; }
+.tv-rem__danger { color: var(--danger-soft); }
+.tv-rem .is-dead { opacity: .4; pointer-events: none; }
+.tv-rem__brk, .tv-rem .only-s { display: none; }
+.tv-rem__dim { position: absolute; inset: 0; z-index: 4; background: color-mix(in srgb, var(--scrim) 60%, transparent); animation: tv-fade var(--dur) var(--ease-out); }
+/* The way out stays above what is dimmed. */
+.tv-rem.is-asking .player-top { z-index: 5; }
+.tv-rem .player-card { z-index: 5; }
+.tv-rem .player-card-line { -webkit-line-clamp: 4; }
+.tv-rem .player-message { position: fixed; }
+.tv-rem .player-upnext { bottom: 100%; background: var(--s2); }
+.tv-rem .player-upnext.is-leaving, .tv-rem .player-message.is-leaving, .tv-po.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.tv-rem__dim.is-leaving, .tv-po-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+
+@keyframes tv-fade { from { opacity: 0; } }
+@keyframes tv-fade-out { to { opacity: 0; } }
+@keyframes tv-art { from { opacity: .2; transform: scale(1.5); } }
+@keyframes tv-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tv-sink { to { opacity: 0; transform: translateY(8px); } }
+
+@media (max-width: 899.98px) {
+  .tv-rem__mid { gap: 18px; padding: 0 20px; }
+  .tv-rem__art { width: min(100%, 520px); }
+  /* Up next stands where this is said. */
+  .tv-rem.is-upnext .tv-rem__say { opacity: 0; }
+  .tv-rem .player-bottom { width: 100%; padding: 14px max(20px, calc(50% - 280px)) max(18px, env(safe-area-inset-bottom)); }
+  .tv-rem .player-controls { flex-wrap: wrap; justify-content: center; gap: 4px 10px; }
+  .tv-rem .player-spacer { display: none; }
+  .tv-rem .only-s { display: inline; }
+  .tv-rem__brk { display: block; flex-basis: 100%; height: 0; }
+  .tv-rem [data-back10] { order: 1; }
+  .tv-rem [data-play] { order: 2; }
+  .tv-rem [data-fwd10] { order: 3; }
+  .tv-rem .b1 { order: 4; }
+  .tv-rem .player-volume { order: 5; flex: 1 1 100%; justify-content: center; min-height: 44px; }
+  .tv-rem .b2 { order: 6; }
+  .tv-rem .opt { order: 7; }
+  .tv-rem .b3 { order: 8; height: 8px; }
+  .tv-rem__end { order: 9; flex: 1 1 100%; }
+  .tv-rem .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
+  .tv-rem .player-btn--skip { min-width: 72px; font-size: 32px; }
+  .tv-rem [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  .tv-rem [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
+  .tv-rem .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
+  .tv-rem .player-volume-slider { flex: 1; max-width: 380px; }
+  .tv-rem .opt .player-chapter-name { display: none; }
+  .tv-rem__end { flex-wrap: wrap; }
+  .tv-rem__end .player-pill { flex: 1; min-height: 52px; min-width: 120px; }
+  .tv-rem .player-upnext { left: 0; right: 0; width: min(360px, calc(100% - 40px)); margin-inline: auto; }
+}
+@media (max-width: 600px) {
+  .tv-rem { --player-top: max(12px, env(safe-area-inset-top)); }
+  .tv-rem .player-top { padding-bottom: 0; }
+  .tv-rem__art { border-radius: 14px; }
+  .tv-rem .player-bottom { padding-inline: 20px; }
+  .tv-rem .opt.player-pill { flex: 1 1 auto; max-width: 50%; padding: 0 12px; }
+  .tv-rem .opt .ico { display: none; }
+}
+@media (max-width: 350px) {
+  .tv-rem .player-controls .player-btn:not([data-fullscreen]) { min-width: 44px; }
+  .tv-rem__end .tv-rem__danger { flex: 0 0 auto; min-width: 72px; }
+}
+/* A short phone: the picture gives way so that every control is on the screen. */
+@media (max-width: 600px) and (max-height: 680px) {
+  .tv-rem__art { width: min(100%, 32vh); }
+}
+/* A phone on its side: the words alone, beside no picture, so every control is on the screen. */
+@media (max-height: 520px) {
+  .tv-rem__art { display: none; }
+  .tv-rem .player-subtitle { transition: opacity var(--dur) var(--ease-out); }
+  .tv-rem.is-upnext :is(.tv-rem__say, .player-subtitle) { opacity: 0; }
+  /* One line, in the empty middle. */
+  .tv-rem .player-upnext { --card-y: 10px; left: 0; right: 0; width: min(640px, calc(100% - 40px)); margin-inline: auto; padding-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 0 16px; align-items: center; }
+  .tv-rem .player-upnext .player-card-line { -webkit-line-clamp: 1; }
+  .tv-rem .player-upnext .player-card-actions { grid-area: 1 / 2 / 3 / 3; margin: 0; flex-wrap: nowrap; }
+}
+@media (max-width: 899.98px) and (max-height: 520px) {
+  .tv-rem .player-bottom { padding: 8px 20px max(10px, env(safe-area-inset-bottom)); }
+  .tv-rem .b1, .tv-rem .b3 { display: none; }
+  .tv-rem .player-volume { flex: 0 1 300px; }
+  .tv-rem .player-top { padding-bottom: 0; }
+  .tv-rem [data-play] { width: 56px; height: 56px; }
+  .tv-rem__end { flex: 0 0 auto; }
+  .tv-rem .opt.player-pill, .tv-rem__end .player-pill { flex: none; min-height: 44px; min-width: 0; }
+}
+
+/* ── a menu of the remote; below 700px a sheet ── */
+.tv-po-veil { position: fixed; inset: 0; z-index: 6; }
+.tv-po { position: fixed; z-index: 7; width: 372px; max-width: calc(100vw - 24px); max-height: min(620px, calc(100dvh - 110px)); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border-radius: var(--r-lg); background: var(--s2); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); animation: tv-rise var(--dur) var(--ease-out); }
+.tv-po__head { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 0 0 12px; font-size: 15px; font-weight: 600; }
+.tv-po__head > span { flex: 1; min-width: 0; }
+.tv-po__head button { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--t2); font-size: 15px; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
+.tv-po__head button:hover { color: var(--t1); background: var(--hair); }
+.tv-po .player-menu-item { width: 100%; }
+.tv-po__note { padding: 8px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t2); }
+@media (max-width: 699.98px) {
+  .tv-po-veil { background: color-mix(in srgb, var(--scrim) 55%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: tv-fade var(--dur) var(--ease-out); }
+  .tv-po { left: 0; right: 0; bottom: 0; width: 100%; max-width: none; max-height: 86dvh; padding: 8px 12px max(24px, env(safe-area-inset-bottom)); border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .tv-po::before { content: ""; display: block; width: 36px; height: 4px; margin: 4px auto; border-radius: 9px; background: var(--hair-strong); }
+}
+
+/* ── the small bar ── */
+.tv-mini {
+  position: fixed;
+  z-index: calc(var(--z-nav) - 1);
+  left: 0;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: min(760px, calc(100% - 32px));
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--s2) 94%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  overflow: hidden;
+  animation: tv-mini-in var(--dur-slow) var(--ease-out);
+}
+.tv-mini.is-leaving { animation: tv-mini-out var(--dur) var(--ease-out) forwards; pointer-events: none; }
+@keyframes tv-mini-in { from { opacity: 0; transform: translateY(24px); } }
+@keyframes tv-mini-out { to { opacity: 0; transform: translateY(24px); } }
+.tv-mini__open { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; text-align: left; border-radius: 8px; }
+/* All of the bar that is no other button opens the remote; the others stand above it. */
+.tv-mini__open::before { content: ""; position: absolute; inset: 0; }
+.tv-mini__open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tv-mini__pic { position: relative; flex: none; width: 72px; height: 42px; border-radius: 7px; overflow: hidden; background: var(--s3); }
+.tv-mini__pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tv-mini__t { flex: 1; min-width: 0; font-size: 14px; line-height: 1.35; }
+.tv-mini__t b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-mini__t > span { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--accent-hi); white-space: nowrap; }
+.tv-mini__t em { min-width: 0; font-style: normal; overflow: hidden; text-overflow: ellipsis; }
+.tv-mini.is-bad .tv-mini__t > span { color: var(--danger-text); }
+.tv-mini__t .ico { flex: none; width: 15px; height: 15px; }
+.tv-mini .player-btn { position: relative; font-size: 18px; border-radius: 50%; }
+.tv-mini .player-btn:hover { background: var(--hair); }
+.tv-mini .player-btn--skip { font-size: 24px; }
+.tv-mini .tv-mini__other { font-size: 13px; color: var(--t2); font-variant-numeric: tabular-nums; }
+.tv-mini__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--hair-strong); pointer-events: none; }
+.tv-mini__bar i { display: block; height: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; }
+
+/* What the bar stands over can be scrolled clear of it, and the toasts and a save bar stay clear. */
+body:has(> .tv-mini:not([hidden], .is-leaving)) { padding-bottom: 82px; }
+html:has(.tv-mini:not([hidden])) { scroll-padding-bottom: 90px; }
+body:has(> .tv-mini:not([hidden])):has(.setg-pg .savebar.on) .tv-mini { bottom: calc(var(--savebar-h, 73px) + 8px); }
+html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 90px); }
+@media (min-width: 700px) {
+  body:has(> .tv-mini:not([hidden])) .ui-toast-host { --toast-bottom: 88px; }
+  body:has(> .tv-mini:not([hidden])):has(.setg-rail) .ui-toast-host { --toast-bottom: 160px; }
+}
+/* A title's page is over the whole page, and the bar over it. */
+html.has-ttl .tv-mini { z-index: calc(var(--z-modal) + 1); bottom: max(16px, env(safe-area-inset-bottom)); }
+html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-padding-bottom: 98px; }
+@media (max-width: 699.98px) {
+  .tv-mini { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); width: calc(100% - 16px); gap: 4px; padding: 8px 4px 10px 8px; border-radius: 12px; }
+  .tv-mini .player-btn--skip { display: none; }
+  .tv-mini__pic { width: 60px; height: 36px; }
+  html:has(.tv-mini:not([hidden])) { scroll-padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px)); }
+  body:has(> .tv-mini:not([hidden])):has(.setg-pg .savebar.on) .tv-mini { bottom: calc(var(--savebar-h, 73px) + 72px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 148px + env(safe-area-inset-bottom, 0px)); }
+  body:has(> .tv-mini:not([hidden])):has(.watch-search) .ui-toast-host { bottom: calc(148px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - var(--nav-h) - 160px); }
+  html.has-ttl .tv-mini { bottom: max(8px, env(safe-area-inset-bottom)); }
+}
+/* A phone on its side: in the right half, beside the buttons of what the page opens on. */
+@media (max-height: 520px) and (min-width: 700px) {
+  .tv-mini { left: auto; right: max(16px, env(safe-area-inset-right)); width: min(380px, calc(100% - 490px)); gap: 6px; }
+  .tv-mini .player-btn--skip { display: none; }
+  body:has(> .tv-mini:not([hidden])) .watch-banner .watch-actions { max-width: max(432px, calc(100vw - 404px - var(--pad))); }
+  body:has(> .tv-mini:not([hidden])) .watch-banner .watch-banner__dismiss { flex: none; width: 44px; min-width: 44px; padding: 0; }
+  body:has(> .tv-mini:not([hidden])) .watch-banner__dismiss > span { display: none; }
+}
+@media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
+  .tv-mini__pic { display: none; }
+}
+/* With the tab bar too those buttons are at the right. */
+@media (max-height: 520px) and (max-width: 699.98px) {
+  .tv-mini { left: max(8px, env(safe-area-inset-left)); right: auto; width: calc(100% - 236px); }
+}
+/* Over the remote a toast is under its title, where no control of it is. */
+body:has(> .tv-rem:not([hidden])) .ui-toast-host {
+  --toast-top: calc(max(26px, env(safe-area-inset-top)) + 60px);
+  top: var(--toast-top);
+  bottom: auto;
+  justify-content: flex-start;
+  max-height: calc(100dvh - var(--toast-top) - 130px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,
+  .tv-po, .tv-po-veil, .tv-po.is-leaving, .tv-po-veil.is-leaving, .tv-rem__dim.is-leaving, .tv-rem .player-message.is-leaving, .tv-rem .player-upnext.is-leaving, .tv-mini, .tv-mini.is-leaving { animation: none; }
+  .tv-rem__ring, .tv-mini .player-btn-ring, .tv-rem .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
+}
+@media (forced-colors: active) {
+  .tv-mini, .tv-po { border: 1px solid CanvasText; }
+  .tv-mini__bar i { background: Highlight; forced-color-adjust: none; }
+}

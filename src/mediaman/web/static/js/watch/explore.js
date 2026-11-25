@@ -19,7 +19,7 @@
   var TYPES = [['all', 'All'], ['movie', 'Movies'], ['tv', 'TV']];
   var WHERES = [['anywhere', 'Anywhere'], ['library', 'In library']];
   var TYPE_WORDS = { all: 'movies and TV', movie: 'movies', tv: 'TV' };
-  var OWN = { q: null, view: null, all: null, page: null, per_page: null, genre: null, type: null, sort: null, where: null, decade: null, person: null };
+  var OWN = { q: null, view: null, all: null, page: null, per_page: null, genre: null, type: null, sort: null, where: null, decade: null, person: null, like: null };
   var NO_FIT = { title: 'Nothing fits these choices', text: 'Widen one of them to see more.' };
   var ALIAS_CHARS = 4;
   var FAILED = 'Couldn’t load the titles.';

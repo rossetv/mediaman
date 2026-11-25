@@ -6,9 +6,10 @@ import contextlib
 import http.client
 import io
 import ipaddress
+import re
 import socket
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Protocol, cast
 
 from mediaman.services.dlna.addresses import ALLOWED_PORTS, check_address, own_networks
@@ -21,6 +22,7 @@ _SEARCHES = 3
 _SPARE_BODY_SECONDS = 1.0
 _MAX_DATAGRAMS = 16
 _SSDP_PORT = 1900
+_UDN = re.compile(r"uuid:[A-Za-z0-9:._-]{1,190}")
 
 _GONE = "The TV is not answering. It may be off or on another network."
 _TOO_BIG = "The TV's answer was too big."
@@ -200,13 +202,7 @@ class Wire:
         *usable* raises for a URL that is not allowed.
         """
         address = self.check(address)
-        message = (
-            "M-SEARCH * HTTP/1.1\r\n"
-            f"HOST: {address}:{_SSDP_PORT}\r\n"
-            'MAN: "ssdp:discover"\r\n'
-            "MX: 1\r\n"
-            "ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n"
-        ).encode("ascii")
+        message = _search(address, "urn:schemas-upnp-org:device:MediaRenderer:1")
         refusal: TvRefused | TvBadAnswer | None = None
         datagrams = 0
         sock: Socket | None = None
@@ -239,13 +235,71 @@ class Wire:
                     sock.close()
         raise refusal or TvUnreachable(_GONE)
 
+    def search_for(
+        self, udn: str, addresses: Iterable[str], usable: Callable[[str, str], object]
+    ) -> tuple[str, str]:
+        """Ask each of *addresses* whether it is the device *udn*, which alone is to answer.
+
+        Returns the address that says so and its first *usable* location.
+        """
+        own = self._networks()
+        asked = []
+        for address in addresses:
+            with contextlib.suppress(TvRefused):
+                asked.append(check_address(address, own))
+        if not _UDN.fullmatch(udn):
+            raise TvUnreachable(_GONE)
+        datagrams = 0
+        sock: Socket | None = None
+        try:
+            sock = self._open_udp()
+            for _ in range(_SEARCHES):
+                remaining = self.deadline(_MAX_SECONDS / _SEARCHES)
+                for address in asked:
+                    sock.settimeout(remaining())
+                    # An address nobody has can be refused at once.
+                    with contextlib.suppress(OSError):
+                        sock.sendto(_search(address, udn), (address, _SSDP_PORT))
+                with contextlib.suppress(TimeoutError):
+                    while datagrams < _MAX_DATAGRAMS:
+                        sock.settimeout(remaining())
+                        data, sender = sock.recvfrom(2048)
+                        datagrams += 1
+                        location = _location(data) if sender[0] in asked else None
+                        if location is None or _header(data, "usn").partition("::")[0] != udn:
+                            continue
+                        with contextlib.suppress(TvRefused, TvBadAnswer):
+                            usable(location, sender[0])
+                            return sender[0], location
+        except OSError as exc:
+            raise TvUnreachable(_GONE) from exc
+        finally:
+            if sock is not None:
+                with contextlib.suppress(OSError):
+                    sock.close()
+        raise TvUnreachable(_GONE)
+
+
+def _search(address: str, target: str) -> bytes:
+    return (
+        "M-SEARCH * HTTP/1.1\r\n"
+        f"HOST: {address}:{_SSDP_PORT}\r\n"
+        'MAN: "ssdp:discover"\r\n'
+        "MX: 1\r\n"
+        f"ST: {target}\r\n\r\n"
+    ).encode("ascii")
+
 
 def _location(datagram: bytes) -> str | None:
     lines = datagram.decode("latin-1").split("\r\n")
     if lines[0].split(" ")[:2] != ["HTTP/1.1", "200"]:
         return None
-    for line in lines[1:]:
+    return _header(datagram, "location") or None
+
+
+def _header(datagram: bytes, wanted: str) -> str:
+    for line in datagram.decode("latin-1").split("\r\n")[1:]:
         name, _, value = line.partition(":")
-        if name.strip().lower() == "location":
+        if name.strip().lower() == wanted:
             return value.strip()
-    return None
+    return ""

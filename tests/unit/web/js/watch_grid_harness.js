@@ -74,7 +74,7 @@ function load(opts = {}) {
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
     ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }]]]] : [];
-  doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' }, ['div', { class: 'watch-top' }],
+  doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['div', { id: 'watch-browse' }, row('Movies'), row('TV')], ...server]));
   const rows = doc.querySelectorAll('.watch-row');
   (opts.cards || range(1, 13)).forEach((n) => rows[0].querySelector('.watch-row__scroll').appendChild(posterCard(doc, n, { far: opts.far === n })));
@@ -127,7 +127,7 @@ function load(opts = {}) {
     for (let a = e.target; a; a = a.parentNode) (a.listeners.keydown || []).forEach((fn) => fn(e));
     (doc.listeners.keydown || []).forEach((fn) => fn(e)); fire('keydown', e); return e; };
   p.finish = () => anims.slice().forEach((a) => { if (!a.cancelled && !a.done) { a.done = true; if (a.onfinish) a.onfinish(); } });
-  p.leftovers = () => doc.querySelectorAll('.is-track, .is-flyer, .is-flown, .is-under, .is-pinned, .watch-ride, .is-ghost, [inert]').length;
+  p.leftovers = () => doc.querySelectorAll('.is-track, .is-flyer, .is-flown, .is-under, .is-pinned, .watch-ride, [inert]').length;
   p.state = () => ({ browse: shown(p.browse), all: !!p.all() && shown(p.all()), moving: grid.moving(), open: grid.isOpen() });
   return p;
 }
@@ -729,6 +729,104 @@ const scenarios = {
     return out;
   },
 
+  // Picks under their dates, in the grid alone: the last of a date takes its line along and the first back has it again,
+  // each in its place, whatever came after and in whatever order they come back.
+  async datedOut() {
+    const seq = (p) => p.grid.querySelector('.watch-grid').children.filter((n) => !n.classList.contains('watch-card--skel'))
+      .map((n) => (n.getAttribute('data-group') || Number(n.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6))));
+    const start = (motion) => {
+      const p = load({ motion });
+      const dates = ['b1', 'b2', 'b3'];
+      const list = [p.grid.group('b1', 'Picks of b1'), p.card(1), p.card(2), p.grid.group('b2', 'Picks of b2'), p.card(3)];
+      p.grid.open(p.opts({ total: null, cards: list, next: 'n', fetchPage: () => Promise.resolve({ cards: [p.grid.group('b3', 'Picks of b3'), p.card(4)], next: null }),
+        sort: { label: 'Jump to', value: 'b1', jump: true, options: dates.map((id) => ({ id, label: id })) } }));
+      p.take = (n) => p.grid.take(p.doc.querySelectorAll('.watch-all .watch-card').find((c) => c.querySelector('[data-title-ref="movie-' + n + '"]')), '.watch-card__link');
+      p.seq = () => seq({ grid: p.all() });
+      p.jumps = () => { click(p.doc, p.doc.querySelector('#watch-all-sort')); const ids = p.doc.querySelectorAll('#watch-all-menu [data-value]').map((i) => i.getAttribute('data-value')); p.key('Escape'); return ids; };
+      return p;
+    };
+    const p = start();
+    const took = [p.take(2)];
+    const one = p.seq();
+    pressSort(p, 'b1'); // named until the date has gone
+    took.push(p.take(1));
+    const gone = { label: label(p) };
+    took.push(p.take(3));
+    gone.seq = p.seq();
+    await settle();
+    const loaded = { seq: p.seq(), jumps: p.jumps() };
+    const sort = p.doc.querySelector('#watch-all-sort');
+    const alone = (setup) => {
+      setup();
+      const before = p.doc.activeElement;
+      const last = p.take(4);
+      const now = { none: p.seq(), hidden: !!sort.hidden, menu: p.doc.querySelector('#watch-all-menu').classList.contains('is-open'), focus: p.focus(), kept: p.doc.activeElement === before };
+      last.undo();
+      return { ...now, back: !!sort.hidden };
+    };
+    const out = { one, gone, loaded,
+      onButton: alone(() => sort.focus()),
+      inMenu: alone(() => { click(p.doc, sort); p.doc.querySelector('#watch-all-menu .watch-keep-menu__item').focus(); }),
+      elsewhere: alone(() => p.doc.querySelector('.watch-all__back').focus()) };
+    took[2].undo();
+    took[1].undo();
+    out.first = p.seq();
+    took[0].undo();
+    out.back = { seq: p.seq(), jumps: p.jumps() };
+    const q = start(true);
+    q.finish();
+    const line = q.doc.querySelector('.grid-group[data-group="b2"]');
+    const undo = q.take(3).undo;
+    out.fades = line.classList.contains('is-gone') && q.anims.some((a) => a.node === line && a.frames[1].opacity === 0);
+    q.finish();
+    out.faded = q.doc.body.contains(line);
+    undo();
+    q.finish();
+    out.seen = [q.seq().slice(0, 5), line.hasAttribute('inert'), line.className, line.style.top + line.style.width + line.style.paddingTop];
+    return out;
+  },
+
+  // A pick that had left its row as See all opened: back, it stands at its place under its date, whatever has been taken out of
+  // the grid, and so of the row, since; then that comes back too, each with one line of its date. *more*: a page to come.
+  async bringsDated() {
+    const go = (row, gridOf, n, takes = [], more = {}) => {
+      const p = load({ cards: row.map((r) => r[0]) });
+      const scroller = p.rows[0].querySelector('.watch-row__scroll');
+      const order = scroller.children;
+      const cardIn = (nodes, id) => nodes.find((c) => c.querySelector('[data-title-ref="movie-' + id + '"]'));
+      const places = {};
+      const tag = (c, id, batch, at) => { c.setAttribute('data-batch', batch); c.setAttribute('data-place', at); };
+      row.forEach(([id, batch], i) => { places[id] = row.slice(0, i).filter((r) => r[1] === batch).length; tag(order[i], id, batch, places[id]); });
+      const line = (c) => p.grid.group(c.getAttribute('data-batch'), c.getAttribute('data-batch'));
+      const make = (g) => { if (typeof g === 'string') return p.grid.group(g, g); const c = p.card(g[0]); tag(c, g[0], g[1], places[g[0]] || 0); return c; };
+      const rowBack = (id) => { const c = cardIn(order, id); scroller.insertBefore(c, order.slice(order.indexOf(c)).find((o) => o !== c && o.parentNode === scroller) || null); return c; };
+      cardIn(order, n).remove();
+      p.grid.open(p.opts({ total: null, cards: gridOf.map(make), line, dates: () => ['a', 'b', 'c', 'd'], fetchPage: () => new Promise(() => {}), ...more }));
+      const grid = p.doc.querySelector('.watch-all .watch-grid');
+      const seq = () => grid.children.filter((c) => !c.classList.contains('watch-card--skel')).map((c) => c.getAttribute('data-group') || Number(c.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6)));
+      const taken = takes.map((id) => { const t = p.grid.take(cardIn(grid.children, id), '.watch-card__link'); cardIn(order, id).remove(); return () => { t.undo(); p.grid.bring(rowBack(id)); }; });
+      const twin = p.grid.bring(rowBack(n));
+      const out = [!!twin && twin === cardIn(grid.children, n), seq()];
+      taken.forEach((undo) => undo());
+      return out.concat([seq()]);
+    };
+    const row = [[1, 'a'], [2, 'a'], [3, 'a'], [4, 'b'], [5, 'c']];
+    return {
+      middle: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b'], 'c', [5, 'c'], 'd', [6, 'd']], 2),
+      firstOfDate: go(row, ['a', [2, 'a'], [3, 'a'], 'b', [4, 'b']], 1),
+      aloneFirst: go([[1, 'a'], [4, 'b']], ['b', [4, 'b']], 1),
+      aloneBetween: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4),
+      aloneLast: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'b', [4, 'b']], 5, [4], { next: 'd' }),
+      aloneAfterTaken: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4, [3, 5]),
+      dateTaken: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b']], 2, [1, 3]),
+      dateTakenBack: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b']], 2, [3, 1]),
+      onlyMarkOfDate: go([[9, 'a'], [1, 'b'], [2, 'b'], [5, 'c']], ['a', [9, 'a'], 'b', [2, 'b'], 'c', [5, 'c']], 1, [2]),
+      afterAMark: go([[1, 'a'], [3, 'a'], [4, 'b'], [5, 'c']], ['a', [1, 'a'], [3, 'a'], 'c', [5, 'c']], 4, [3]),
+      allOut: go([[1, 'a'], [2, 'b']], ['b', [2, 'b']], 1, [2]),
+      toCome: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a']], 4, [], { next: 'b' }),
+    };
+  },
+
   // Two seasons of one show in the row: each is a card, and comes back as itself.
   async bringsSeasons() {
     const p = load({ cards: [1, 1, 2] });
@@ -765,7 +863,7 @@ const scenarios = {
   // The only card dismissed takes its row along: with no row to go back to, the search has the focus.
   async closesWithNoRow() {
     const p = load();
-    p.doc.querySelector('.watch-top').appendChild(build(p.doc, ['input', { id: 'watch-search' }]));
+    p.doc.body.appendChild(build(p.doc, ['input', { id: 'watch-search' }]));
     p.rows[0].querySelector('.watch-card__link').focus();
     p.grid.open(p.opts());
     p.rows[0].remove();

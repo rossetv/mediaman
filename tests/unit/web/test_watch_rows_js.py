@@ -37,6 +37,12 @@ def test_a_row_is_one_tab_stop_that_leads_to_the_card_last_on_or_the_first_in_si
     assert out["skeleton"] == []
 
 
+def test_a_first_card_on_its_way_out_is_none_to_go_back_to() -> None:
+    out = _run("firstGoes")
+    assert out["before"] == out["gone"] == [False, True]
+    assert out["going"] == [False, True]
+
+
 def test_the_keys_of_a_row_are_said_once_on_the_way_in() -> None:
     out = _run("oneStop")
     assert out["inside"]["described"] == "watch-row-keys"

@@ -147,7 +147,12 @@
 
   function refresh(viewport, scroller) {
     var max = scroller.scrollWidth - scroller.clientWidth;
-    viewport.classList.toggle('has-prev', scroller.scrollLeft > EDGE_SLACK);
+    // A first card on its way out is not one to go back to.
+    var first = scroller.querySelector('.watch-card:not(.is-kept)');
+    var leads = scroller.children[0];
+    var start = first && leads && leads.classList.contains('is-kept')
+      ? first.offsetLeft - parseFloat(getComputedStyle(scroller).paddingLeft) : 0;
+    viewport.classList.toggle('has-prev', scroller.scrollLeft > start + EDGE_SLACK);
     // data-row-more: more cards will load past the last one.
     viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK || viewport.hasAttribute('data-row-more'));
   }

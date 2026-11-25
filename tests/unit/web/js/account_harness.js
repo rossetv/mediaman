@@ -28,7 +28,8 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 // On screen, between the page's bars, unless a scenario says otherwise.
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
-function page(api) {
+// `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
+function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
@@ -43,6 +44,18 @@ function page(api) {
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
     ['div', {},
       ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]]));
+  if (ai) {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
+    doc.getElementById('account-ai').hidden = true;
+  }
+  if (tvs) {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-tvs', 'data-me': 'amy' }, ['ul', { class: 'dev-list' }]]));
+    doc.getElementById('account-tvs').hidden = true;
+  }
+  if (tvs === 'admin') {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-tvs-all' }, ['ul', { class: 'dev-list' }]]));
+    doc.getElementById('account-tvs-all').hidden = true;
+  }
   const $ = (id) => doc.getElementById(id);
   let resets = 0;
   $('account-password-form').reset = () => { resets += 1; ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; }); };
@@ -50,20 +63,23 @@ function page(api) {
   $('account-email').value = $('account-email').defaultValue = 'was@example.com';
   ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; });
   const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f, words) => { asked.push(words); return f(); } } };
+  const dropped = [];
+  MM.tvRemote = { drop: (id) => dropped.push(id) };
   const asked = [];
   const toasts = [];
-  const UIFeedback = { toast: (text) => toasts.push(text), error: (text) => toasts.push('error: ' + text) };
+  const UIFeedback = { toast: (text) => toasts.push(text), error: (text) => toasts.push('error: ' + text), confirm: (words) => { asked.push(words); return Promise.resolve(yes); } };
   const timers = [];
   const setTimeout = (fn) => timers.push(fn);
   class FixedDate extends Date { static now() { return NOW; } }
   // A top bar of 64px and a bottom bar of 72px.
   const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
   const told = [];
+  const session = { 'mm.watch.ask': 'a question', other: 'x' };
   doc.dispatchEvent = (e) => { told.push(e.type); };
-  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }) }, Date: FixedDate, Event, getComputedStyle });
+  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
   ['core/dom.js', 'settings/rows.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
-    $, told, asked, toasts,
+    $, dropped, told, asked, toasts, session,
     wait: () => timers.splice(0).forEach((fn) => fn()),
     resets: () => resets,
     key: (id, key) => $(id).listeners.keydown.forEach((fn) => fn({ key })),
@@ -81,7 +97,77 @@ function page(api) {
   };
 }
 
+const tvOf = (id, name, more) => ({ id, name, on: false, paired_at: '2026-03-12T09:00:00Z', last_seen_at: at(-30), ...more });
+// The TV lists' answers by address; the rest of the page gets none.
+const tvApi = (mine, all, more) => ({
+  get: (url) => (url === '/api/tvs' ? Promise.resolve({ tvs: mine }) : url === '/api/tvs/all' ? Promise.resolve({ tvs: all }) : Promise.resolve({ sessions: [] })),
+  ...more,
+});
+const tvRows = (p, id = 'account-tvs') => p.$(id).querySelector('.dev-list').children;
+const buttonOf = (row, words) => row.querySelectorAll('button').find((b) => b.textContent === words);
+const push = (button) => button.listeners.click.forEach((fn) => fn({}));
+
 const scenarios = {
+  async tvs() {
+    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) }), tvOf(4, 'Kitchen TV', { kind: 'older' })], []), { tvs: 'viewer' });
+    await settle();
+    const none = page(tvApi([], []), { tvs: 'viewer' });
+    await settle();
+    return { hidden: p.$('account-tvs').hidden, rows: tvRows(p).map((r) => r.querySelector('.me-txt').children.map((c) => c.textContent)), none: none.$('account-tvs').hidden };
+  },
+  async tvsOfAll() {
+    const all = [tvOf(1, 'Mine', { owner: 'amy', kind: 'page' }), tvOf(2, 'Theirs', { owner: 'bob', kind: 'page' }), tvOf(3, 'Older', { owner: null, kind: 'older' })];
+    const p = page(tvApi([tvOf(1, 'Mine')], all), { tvs: 'admin', yes: false });
+    await settle();
+    push(buttonOf(tvRows(p, 'account-tvs-all')[0], 'Unpair'));
+    await settle();
+    return { rows: tvRows(p, 'account-tvs-all').map((r) => r.textContent), asked: p.asked, left: tvRows(p, 'account-tvs-all').length };
+  },
+  async tvRename() {
+    const sent = [];
+    let answer = () => Promise.reject({ error: 'x' });
+    const p = page(tvApi([tvOf(1, 'TV')], [], { patch: (url, body) => { sent.push([url, body]); return answer(body); } }), { tvs: 'viewer' });
+    await settle();
+    Node.prototype.select = () => {};
+    const row = tvRows(p)[0];
+    push(buttonOf(row, 'Rename'));
+    const form = row.querySelector('form');
+    const input = row.querySelector('input');
+    const submit = () => form.listeners.submit.forEach((fn) => fn({ preventDefault() {} }));
+    input.value = '  ';
+    submit();
+    const empty = [sent.length, input.getAttribute('aria-invalid')];
+    input.value = ' Den ';
+    submit();
+    submit();
+    await settle();
+    const failed = [sent.length, p.toasts.splice(0), Boolean(row.querySelector('form'))];
+    answer = (body) => Promise.resolve({ tv: { id: 1, name: body.name } });
+    submit();
+    await settle();
+    return { empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
+  },
+  async tvUnpair() {
+    const sent = [];
+    let answer = () => Promise.reject({ status: 500 });
+    const p = page(tvApi([tvOf(1, 'A'), tvOf(2, 'B')], [], { delete: (url) => { sent.push(url); return answer(); } }), { tvs: 'viewer' });
+    await settle();
+    const press = async () => {
+      push(buttonOf(tvRows(p)[0], 'Unpair'));
+      await settle();
+      p.wait();
+    };
+    await press();
+    const failed = [tvRows(p).length, p.toasts.splice(0)];
+    const kept = p.dropped.length;
+    answer = () => Promise.resolve({ ok: true });
+    await press();
+    const one = [tvRows(p).length, p.$('account-tvs').hidden, p.toasts.splice(0)];
+    // already unpaired by someone else
+    answer = () => Promise.reject({ status: 404 });
+    await press();
+    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
+  },
   async sessions() {
     const here = session(9, { current: true });
     let list = [session(5), here, session(-1)];
@@ -116,11 +202,12 @@ const scenarios = {
       const button = p.button(1);
       button.focus();
       for (let i = 0; i < 2; i += 1) button.listeners.click.forEach((fn) => fn({}));
-      const busy = button.textContent;
+      const busy = [button.textContent, button.style.width, button.getAttribute('aria-label')];
       await settle();
       return busy;
     };
     const busy = await push();
+    const labelAfter = p.button(1).getAttribute('aria-label');
     const refused = { rows: p.rows().length, says: p.button(1).textContent, toasts: p.toasts.splice(0), focusKept: p.$('account-sessions').children[1].contains(p.active()) };
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     await push();
@@ -130,7 +217,40 @@ const scenarios = {
     const gone = { rows: p.rows().length, toasts: p.toasts.splice(0), onNext: p.button(1) === p.active(), why: !p.$('account-revoke-why').hidden };
     p.toasts.length = 0;
     await push();
-    return { own: Boolean(own), label, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
+    return { own: Boolean(own), label, labelAfter, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
+  },
+  // the first list, asked before a new password, is answered after the one asked since
+  async lateList() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const p = page({ get: () => new Promise((give, fail) => gives.push({ give, fail })), post: () => Promise.resolve({ ok: true }) });
+    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.fire('account-password-form', 'submit');
+    await settle();
+    gives[1].give({ sessions: [here] });
+    await settle();
+    gives[0].give({ sessions: [here, session(5), session(5)] });
+    await settle();
+    return p.rows().length;
+  },
+  // a list asked before a device was signed out still holds it
+  async listBeforeSignOut() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const other = session(5);
+    const p = page({
+      get: () => new Promise((give) => gives.push(give)),
+      post: () => Promise.resolve({ ok: true }), delete: () => Promise.resolve({ ok: true }),
+    });
+    gives[0]({ sessions: [here, other, session(5)] });
+    await settle();
+    p.press('account-revoke-others');
+    await settle();
+    p.button(1).listeners.click.forEach((fn) => fn({}));
+    await settle();
+    gives[1]({ sessions: [here, other] });
+    await settle();
+    return p.rows().length;
   },
   async passwordFold() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });
@@ -200,7 +320,7 @@ const scenarios = {
     const whileSending = p.focused();
     p.fire('account-password-form', 'input');
     const working = p.say('account-password-result').concat(p.$('account-submit-password').textContent);
-    revealed.splice(0, 1);
+    const revealedSending = revealed.splice(0);
     await settle();
     const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, toasts: p.toasts, shut: p.$('account-password-form').hidden, resets: p.resets() };
     out.revealed = revealed.splice(0);
@@ -211,7 +331,7 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     out.revealedRefusal = revealed.splice(0);
     p.fire('account-password-form', 'input');
-    return { ...out, revealedEmptied: revealed.splice(0) };
+    return { ...out, revealedSending, revealedEmptied: revealed.splice(0) };
   },
   // for each form, what an answer brings into view when the reader is still there (with the keyboard on what is around
   // the button too, as Safari leaves a clicked one), has scrolled its status out of view or under a bar, or has the keyboard in something else
@@ -372,6 +492,64 @@ const scenarios = {
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     const cancelled = await save('vic@example.com');
     return { sent, focus, saved, typed, removed, refused, cancelled };
+  },
+  // the switch as first drawn, pressed twice at once, refused, and with its answer lost
+  async history() {
+    const stored = { enabled: true, available: true };
+    const sent = [];
+    let put = (body) => { stored.enabled = body.enabled; return Promise.resolve({}); };
+    let get = () => Promise.resolve({ ...stored });
+    const p = page({
+      get: (url) => (url === '/api/search/assist/history' ? get() : Promise.resolve({ sessions: [] })),
+      put: (url, body) => { sent.push([url, body.enabled]); return put(body); },
+    }, { ai: true });
+    const hiddenAtFirst = p.$('account-ai').hidden;
+    await settle();
+    const state = () => [p.$('account-history').getAttribute('aria-checked'), p.$('account-history').classList.contains('on')];
+    const push = async () => {
+      p.press('account-history');
+      p.press('account-history');
+      const during = state();
+      await settle();
+      return { during, after: state(), toasts: p.toasts.splice(0), focused: p.focused(), busy: p.$('account-history').getAttribute('aria-disabled') };
+    };
+    const first = { hiddenAtFirst, hidden: p.$('account-ai').hidden, state: state() };
+    const off = await push();
+    const good = put;
+    put = () => Promise.reject(new Error('No luck'));
+    const refused = await push();
+    get = () => Promise.reject(new Error('gone'));
+    const offline = await push();
+    get = () => Promise.resolve({ ...stored });
+    put = (body) => { good(body); return Promise.reject(new Error('lost')); };
+    const lost = await push();
+    return { first, off, refused, offline, lost, sent };
+  },
+  async historyHidden() {
+    const hidden = async (get) => {
+      const p = page({ get: (url) => (url === '/api/search/assist/history' ? get() : Promise.resolve({ sessions: [] })) }, { ai: true });
+      await settle();
+      return p.$('account-ai').hidden;
+    };
+    return [await hidden(() => Promise.resolve({ enabled: true, available: false })), await hidden(() => Promise.reject(new Error('x')))];
+  },
+  async clearSearches() {
+    const run = async (yes, answer) => {
+      const sent = [];
+      const p = page({
+        get: (url) => Promise.resolve(url === '/api/search/assist/history' ? { enabled: true, available: true } : { sessions: [] }),
+        delete: (url) => { sent.push(url); return answer(); },
+      }, { ai: true, yes });
+      await settle();
+      p.press('account-clear-searches');
+      await settle();
+      return { asked: p.asked.length, sent, left: Object.keys(p.session), toasts: p.toasts, says: p.$('account-clear-searches').textContent, busy: p.$('account-clear-searches').getAttribute('aria-disabled') };
+    };
+    return {
+      no: await run(false, () => Promise.resolve({})),
+      yes: await run(true, () => Promise.resolve({})),
+      failed: await run(true, () => Promise.reject(new Error('No luck'))),
+    };
   },
 };
 

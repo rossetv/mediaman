@@ -27,7 +27,8 @@ def _hash(token: str) -> str:
 class Ticket:
     stream_id: str
     user: str
-    #: Hash of the session that started the stream, as the sessions table keys it.
+    #: Hash of the session that started the stream, as the sessions table keys it, or of the
+    #: token of the paired TV it was started for, as the TVs table does.
     session_hash: str
     expires: float
 

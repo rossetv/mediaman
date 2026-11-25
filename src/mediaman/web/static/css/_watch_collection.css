@@ -1,0 +1,153 @@
+/* Watch page: the films of a film's collection above the cast in its detail, and the dialog that
+   asks for the missing ones (watch/collection.js). */
+
+/* ── The row: to the sheet's edges, which its cards scroll under ── */
+
+.ttl__collsec { --pad: 32px; --watch-card-w: 128px; --watch-gap: 14px; margin-inline: calc(-1 * var(--pad)); min-width: 0; }
+.ttl__collsec[hidden] { display: none; }
+.coll__head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-inline: var(--pad); margin-bottom: 14px; }
+.coll__words { flex: 1 1 220px; min-width: 0; min-height: 44px; display: flex; flex-direction: column; justify-content: center; }
+.coll__words > .ttl__sec-title { margin-bottom: 2px; }
+.coll__name { font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
+.coll__get { flex: none; min-height: 44px; padding-inline: 18px; font-size: 14px; }
+.coll__get[hidden],
+.coll__get-brief { display: none; }
+.coll .is-here .watch-card__poster { outline: 2px solid var(--t1); outline-offset: 2px; }
+/* The link's own ring goes round it all. */
+.coll .is-here .watch-card__link:focus-visible .watch-card__poster { outline: none; }
+.coll__here { font-size: 12px; font-weight: 600; color: var(--t1); margin-top: -4px; }
+.coll .watch-row__scroll { padding-top: 8px; margin-top: -8px; }
+.coll-skel .watch-row__scroll { overflow: hidden; }
+/* The line under the film on show: "This film". */
+.coll-skel .watch-card--skel:first-child::after { content: ""; height: 14px; }
+.coll-skel__title { width: 110px; height: 16px; }
+.coll-skel__name { width: 190px; max-width: 70%; height: 10px; margin-top: 10px; }
+@media (max-width: 699.98px) {
+  .ttl__collsec { --pad: 20px; --watch-card-w: 112px; --watch-gap: 10px; }
+  /* The button on the heading's line, and what they are all of under both. */
+  .coll__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }
+  .coll__words { display: contents; }
+  .coll__words > :first-child { align-content: center; min-height: 44px; margin: 0; }
+  .coll__words > :last-child { grid-area: 2 / 1 / auto / -1; min-height: 1lh; }
+  .coll-skel .coll__words { font-size: 13px; }
+  .coll-skel__title.skel { margin-block: 14px; min-height: 0; }
+  .coll-skel__name.skel { margin-block: calc((1lh - 10px) / 2); min-height: 0; }
+  .coll__get { padding-inline: 14px; }
+  .coll__get-full { display: none; }
+  .coll__get-brief { display: inline; }
+}
+
+/* ── The dialog ── */
+
+.coll-dialog .keep-dialog { overflow: hidden; }
+.coll-dialog .keep-dialog h3 { margin-bottom: 2px; }
+.coll-dialog__under { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.coll-dialog__lead { flex: 1; min-width: 0; font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
+.coll-dialog__body { flex: 0 1 auto; min-height: 0; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; }
+.coll-dialog__all { flex: none; }
+.coll-dialog__all:disabled { visibility: hidden; }
+.coll-dialog__body { --above: 0px; --below: 0px; scroll-padding-block: 32px; -webkit-mask-image: linear-gradient(transparent, #000 var(--above), #000 calc(100% - var(--below)), transparent); mask-image: linear-gradient(transparent, #000 var(--above), #000 calc(100% - var(--below)), transparent); }
+.coll-dialog__body.has-above { --above: 32px; }
+.coll-dialog__body.has-below { --below: 32px; }
+.coll-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.coll-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--s1);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.coll-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coll-item input {
+  appearance: none;
+  -webkit-appearance: none;
+  grid-area: 1 / 1;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1.5px solid var(--t3);
+  border-radius: var(--r-xs);
+  background: var(--s1);
+  cursor: inherit;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.coll-item input:checked { background: var(--accent-cta); border-color: var(--accent-cta); }
+.coll-item input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--t1);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.coll-item input:focus-visible { outline: none; }
+.coll-item__mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+.coll-item__sign { grid-area: 1 / 1; display: grid; place-items: center; font-size: 18px; color: var(--t3); pointer-events: none; }
+.coll-item__sign > .btn-spinner { width: 18px; height: 18px; margin: 0; color: var(--t1); }
+.coll-item.is-locked input { opacity: 0; }
+.coll-item:has(input:disabled) { cursor: default; }
+.coll-item__poster { flex: none; width: 32px; aspect-ratio: 2 / 3; border-radius: var(--r-xxs); overflow: hidden; background: linear-gradient(160deg, var(--s4), var(--s3)); }
+.coll-item__poster > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.coll-item__poster > img[data-broken] { visibility: hidden; }
+.coll-item__poster,
+.coll-item__words { transition: opacity var(--dur-fast) var(--ease-out); }
+.coll-item.is-off :is(.coll-item__poster, .coll-item__words) { opacity: .6; }
+.coll-item__words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.coll-item__name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.coll-item__sub { min-height: 1lh; font-size: 12px; line-height: 1.35; color: var(--t2); overflow-wrap: anywhere; }
+.coll-item.is-done :is(.coll-item__sign, .coll-item__sub) { color: var(--success); }
+.coll-item.is-failed :is(.coll-item__sign, .coll-item__sub) { color: var(--danger-text); }
+.coll-out { margin-top: 14px; padding: 0 4px 4px; font-size: 13px; line-height: 1.45; color: var(--t2); }
+.coll-out[hidden] { display: none; }
+.coll-out > h4 { margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--t1); }
+.coll-out > p { overflow-wrap: anywhere; }
+.coll-out > p + p { margin-top: 4px; }
+.coll-out b { font-weight: 500; color: var(--t1); }
+/* Its line is there before it says something, so that nothing moves. */
+.coll-dialog__said { flex: none; min-height: 1lh; margin-top: 8px; font-size: 13px; line-height: 1.4; color: var(--t2); }
+.coll-dialog .keep-dialog-actions { justify-content: flex-end; margin-top: 10px; }
+.coll-dialog .keep-dialog-actions .btn { min-height: 44px; }
+.coll-dialog .keep-dialog-actions .btn[hidden] { display: none; }
+.coll-dialog .keep-dialog-actions .btn--primary { min-width: 132px; }
+@media (hover: hover) { .coll-item:not(:has(input:disabled)):hover { background: var(--s3); } }
+@media (max-width: 479.98px) {
+  .coll-dialog .keep-dialog { padding: 20px; }
+  .coll-dialog .keep-dialog-actions .btn { flex: 1 1 auto; }
+}
+/* A phone on its side: room for the list, between what it is of and its buttons. */
+@media (max-height: 460px) {
+  .coll-dialog .keep-dialog { padding-block: 14px; }
+  .coll-dialog__under { margin-bottom: 8px; }
+  .coll-dialog__lead { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coll-dialog__said { margin-top: 2px; }
+  .coll-dialog .keep-dialog-actions { margin-top: 2px; }
+}
+/* Too short for a list that scrolls by itself: all of it does. */
+@media (max-height: 300px) {
+  .coll-dialog .keep-dialog { overflow-y: auto; }
+  .coll-dialog__body { flex-shrink: 0; max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+}
+@media (forced-colors: active) {
+  .coll .is-here .watch-card__poster { outline: 3px solid Highlight; outline-offset: 2px; }
+  .coll-item { border: 1px solid CanvasText; }
+  .coll-item input { appearance: auto; -webkit-appearance: auto; }
+  .coll-item input:checked::after { content: none; }
+}

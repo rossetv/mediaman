@@ -23,6 +23,7 @@
         {% include "settings/_sec_libraries.html" %}
         {% include "settings/_sec_cleanup.html" %}
         {% include "settings/_sec_integrations.html" %}
+        {% include "settings/_sec_tvs.html" %}
         {% include "settings/_sec_newsletter.html" %}
         {% include "settings/_sec_users.html" %}
       </div>
@@ -66,6 +67,7 @@
 <script src="/static/js/settings/integrations.js?v={{ static_v }}" defer></script>
 <script src="/static/js/settings/rows.js?v={{ static_v }}" defer></script>
 <script src="/static/js/settings/users.js?v={{ static_v }}" defer></script>
+<script src="/static/js/settings/tvs.js?v={{ static_v }}" defer></script>
 <script src="/static/js/settings/newsletter.js?v={{ static_v }}" defer></script>
 {# Page bootstrap — wires DOMContentLoaded → MM.settings.<area>.init().
    Lives in an external file because the strict script-src CSP rejects

@@ -336,6 +336,8 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "dry_run": True,
         "suggestions_enabled": False,
         "openai_model": "gpt-6-luna",
+        "ai_questions_per_day": 35,
+        "ai_everyone_per_day": 0,
     }
 
     # URL fields validated for http(s) scheme.
@@ -1418,6 +1420,48 @@ class TestAutoAbandonSetting:
             assert response.status_code == 422, (
                 f"{key} should be rejected (422) after removal from SettingsUpdate"
             )
+
+
+class TestAiLimits:
+    @pytest.mark.parametrize(
+        ("stored", "shown"),
+        [
+            ({}, (20, 100)),
+            ({"ai_questions_per_day": "abc", "ai_everyone_per_day": ""}, (20, 100)),
+            ({"ai_questions_per_day": "-4", "ai_everyone_per_day": "99999"}, (0, 500)),
+            ({"ai_questions_per_day": "0", "ai_everyone_per_day": "7"}, (0, 7)),
+        ],
+    )
+    def test_the_page_shows_the_limits_in_force(
+        self, app_factory, authed_client, conn, templates_stub, stored, shown
+    ):
+        insert_settings(conn, **stored)
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        found = authed_client(app, conn).get("/settings").json()["settings"]
+        assert (found["ai_questions_per_day"], found["ai_everyone_per_day"]) == shown
+
+    @pytest.mark.parametrize(
+        ("key", "high"), [("ai_questions_per_day", 200), ("ai_everyone_per_day", 500)]
+    )
+    @pytest.mark.parametrize("value", [-1, "high + 1", "", "ten", 1.5])
+    def test_a_limit_out_of_bounds_or_no_whole_number_is_refused(
+        self, app_factory, authed_client, conn, key, high, value
+    ):
+        client = _client(app_factory, authed_client, conn)
+        value = high + 1 if value == "high + 1" else value
+        assert client.put("/api/settings", json={key: value}).status_code == 422
+        assert client.put("/api/settings", json={key: high}).status_code == 200
+        assert client.get("/api/settings").json()[key] == high
+
+    def test_a_change_of_a_limit_is_in_the_history_and_asks_for_no_password(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
+        assert client.put("/api/settings", json={"ai_questions_per_day": 0}).status_code == 200
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:settings.write'"
+        ).fetchone()
+        assert "ai_questions_per_day" in row["detail"]
 
 
 class TestSettingsPageDayValues:

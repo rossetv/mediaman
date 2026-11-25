@@ -18,7 +18,17 @@ python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-[`README.md`](README.md) covers running the app: the Docker image, environment variables and creating the first admin.
+To run what you are working on:
+
+```bash
+mkdir -p data
+[ -f mediaman.key ] || openssl rand -hex 32 > mediaman.key   # reuse one key
+export MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" MEDIAMAN_DATA_DIR=./data MEDIAMAN_FORCE_SECURE_COOKIES=false
+mediaman-create-user   # once
+mediaman               # serves http://127.0.0.1:8282
+```
+
+The [install guide](docs/install.md) covers running it for real: Docker, environment variables and the services it connects to.
 
 ## Required local checks
 

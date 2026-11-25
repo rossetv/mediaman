@@ -320,6 +320,14 @@ class TmdbClient:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             raise
 
+    def season(self, tmdb_id: int, number: int) -> dict[str, Any]:
+        """Return the raw payload of a show's season with its episodes. Raises as
+        find_by_tvdb does, and ValueError for a payload that is no season's."""
+        payload = self._get(f"/tv/{tmdb_id}/season/{number}")
+        if not isinstance(payload, dict) or not isinstance(payload.get("episodes"), list):
+            raise ValueError("season answered without its episodes")
+        return payload
+
     def find_by_tvdb(self, tvdb_id: int) -> int | None:
         """Return the TMDB TV id for a TVDB id via /find, or None when TMDB has no match.
 
@@ -355,6 +363,18 @@ class TmdbClient:
         payload = self._get(f"/person/{person_id}", {"append_to_response": "combined_credits"})
         if not isinstance(payload, dict) or not payload.get("name"):
             raise ValueError("person answered without a name")
+        return payload
+
+    def collection(self, collection_id: int) -> dict[str, Any]:
+        """Return a film collection's raw payload. Raises as find_by_tvdb does, and ValueError
+        for a payload that is no collection's."""
+        payload = self._get(f"/collection/{collection_id}")
+        if (
+            not isinstance(payload, dict)
+            or not payload.get("name")
+            or not isinstance(payload.get("parts"), list)
+        ):
+            raise ValueError("collection answered without its films")
         return payload
 
     # The implementations live in _tmdb_shapes; they are re-bound

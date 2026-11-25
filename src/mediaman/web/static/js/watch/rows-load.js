@@ -113,9 +113,9 @@
     var view = opts.view || null;
     var scroller = view ? view.scroller : viewport.querySelector('.watch-row__scroll');
     var isNew = onlyNew();
-    var cards = [];
+    var cards = new Set();
     core.toArray(scroller.querySelectorAll('.watch-card')).forEach(function (card) {
-      if (isNew(card)) cards.push(card);
+      if (isNew(card)) cards.add(card);
       else card.remove();
     });
     var next = opts.next === undefined ? null : opts.next;
@@ -129,8 +129,11 @@
     var stopped = false;
     var awake = new Set(cards);
 
+    function present() { return core.toArray(scroller.children).filter(function (node) { return cards.has(node); }); }
+
     function step() {
-      return cards.length > 1 ? cards[1].offsetLeft - cards[0].offsetLeft : 0;
+      var here = present();
+      return here.length > 1 ? here[1].offsetLeft - here[0].offsetLeft : 0;
     }
 
     /* Whether the end of the cards, not of what stands after them, is near. */
@@ -249,7 +252,7 @@
         var held = tail.shift();
         if (held) held.replaceWith(card);
         else scroller.appendChild(card);
-        cards.push(card);
+        cards.add(card);
         awake.add(card);
       });
       sweep();
@@ -277,21 +280,25 @@
 
     /* ── Posters near and far ── */
 
-    function inStrip() {
+    function inStrip(here) {
       var width = step();
       if (!width) return null;
       var seen = scroller.clientWidth;
       return [
         Math.max(0, Math.floor((scroller.scrollLeft - AWAKE_VIEWS * seen) / width)),
-        Math.min(cards.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * seen) / width))
+        Math.min(here.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * seen) / width))
       ];
     }
 
     function sweep() {
-      var range = view ? view.range(cards) : inStrip();
+      var here = present();
+      var range = view ? view.range(here) : inStrip(here);
       if (!range) return;
-      var keep = new Set(cards.slice(range[0], range[1]));
-      awake.forEach(function (card) { if (!keep.has(card)) unload(card); });
+      var keep = new Set(here.slice(range[0], range[1]));
+      awake.forEach(function (card) {
+        if (card.parentNode !== scroller) keep.add(card); // an Undo may put it back, where nothing would wake it
+        else if (!keep.has(card)) unload(card);
+      });
       keep.forEach(function (card) { if (!awake.has(card)) reload(card); });
       awake = keep;
     }

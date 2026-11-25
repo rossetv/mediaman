@@ -1,7 +1,8 @@
 {# The title detail overlay at #title=<ref>. watch/detail.js fills it from
-   /api/watch/title/<ref>; nothing here carries a title's data. #}
+   /api/watch/title/<ref>; nothing here carries a title's data. The page behind it is made inert,
+   so it is no aria-modal, which would hide the bar of what plays on a TV from a screen reader. #}
 {% from "_components.html" import icon %}
-<div class="ttl" id="ttl" role="dialog" aria-modal="true" aria-labelledby="ttl-title" hidden>
+<div class="ttl" id="ttl" role="dialog" aria-labelledby="ttl-title" hidden>
   <div class="ttl__scrim" data-ttl-close></div>
   <div class="ttl__sheet">
     <div class="ttl__bar">

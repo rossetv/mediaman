@@ -8,14 +8,17 @@ minimal app is a faithful substitute.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from mediaman.db import set_connection
 from mediaman.web import (
     BodySizeLimitMiddleware,
     SecurityHeadersMiddleware,
     register_security_middleware,
 )
+from tests.helpers.factories import insert_settings
 
 
 def _build_app() -> FastAPI:
@@ -1095,3 +1098,93 @@ class TestObscure405:
         # Non-/api path should still see a real 405.
         resp = c.delete("/page")
         assert resp.status_code == 405
+
+
+class TestGoogleCastScripts:
+    """Google's Cast script is allowed only where an admin has turned Chromecast on."""
+
+    _PAGES = ("/watch", "/watch/play/101", "/watch/show/7", "/downloads")
+    _ELSEWHERE = (
+        "/",
+        "/login",
+        "/settings",
+        "/account",
+        "/history",
+        "/watching",
+        "/api/watch/progress",
+    )
+
+    def _csp(self, path: str) -> str:
+        response = TestClient(_build_app()).get(path)
+        return response.headers["Content-Security-Policy"]
+
+    def _today(self, csp: str) -> str:
+        nonce = csp.split("'nonce-", 1)[1].split("'", 1)[0]
+        return (
+            f"script-src 'self' 'nonce-{nonce}'; style-src 'self' 'nonce-{nonce}'; "
+            "style-src-attr 'unsafe-inline'; default-src 'self'; "
+            "img-src 'self' data: blob: https://image.tmdb.org https://i.ytimg.com "
+            "https://www.gravatar.com https://mediacover.radarr.video "
+            "https://mediacover.sonarr.video https://artworks.thetvdb.com; "
+            "connect-src 'self'; media-src 'self' blob:; "
+            "frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; "
+            "object-src 'none'; base-uri 'self'; form-action 'self'"
+        )
+
+    @pytest.mark.parametrize("path", _PAGES)
+    def test_off_unless_turned_on(self, conn, path):
+        set_connection(conn)
+        csp = self._csp(path)
+        assert csp == self._today(csp)
+
+    @pytest.mark.parametrize(
+        "stored", ["false", "0", "1", '"true"', "yes", "", "{"], ids=lambda v: v or "empty"
+    )
+    def test_any_value_but_true_is_off(self, conn, stored):
+        set_connection(conn)
+        insert_settings(conn, google_cast_enabled=stored)
+        csp = self._csp("/watch")
+        assert csp == self._today(csp)
+
+    def test_a_setting_that_cannot_be_read_is_off(self, conn):
+        set_connection(conn)
+        insert_settings(conn, google_cast_enabled="true")
+        assert "gstatic" in self._csp("/watch")
+        conn.execute("DROP TABLE settings")
+        csp = self._csp("/watch")
+        assert csp == self._today(csp)
+
+    @pytest.mark.parametrize("path", _PAGES)
+    def test_on_adds_three_script_sources_and_nothing_else(self, conn, path):
+        set_connection(conn)
+        insert_settings(conn, google_cast_enabled="true")
+        csp = self._csp(path)
+        added = (
+            " https://www.gstatic.com/cv/js/sender/v1/cast_sender.js"
+            " https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_framework.js"
+            " https://www.gstatic.com/eureka/clank/"
+        )
+        assert csp.count(added) == 1
+        assert csp.startswith("script-src 'self' 'nonce-")
+        assert csp.split("; ", 1)[0].endswith(added)
+        without = csp.replace(added, "")
+        assert without == self._today(without)
+
+    @pytest.mark.parametrize("path", _ELSEWHERE)
+    def test_on_changes_no_other_page(self, conn, path):
+        set_connection(conn)
+        insert_settings(conn, google_cast_enabled="true")
+        csp = self._csp(path)
+        assert csp == self._today(csp)
+
+    @pytest.mark.parametrize(("stored", "told"), [("true", True), ("false", False)])
+    def test_the_page_is_told_what_its_header_allows(self, conn, stored, told):
+        set_connection(conn)
+        insert_settings(conn, google_cast_enabled=stored)
+        app = _build_app()
+
+        @app.get("/watch/told")
+        def _told(request: Request) -> dict:
+            return {"cast": request.state.google_cast}
+
+        assert TestClient(app).get("/watch/told").json() == {"cast": told}

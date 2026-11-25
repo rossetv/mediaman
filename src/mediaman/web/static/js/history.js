@@ -5,12 +5,13 @@
  *    nears the end, or by a button for the keyboard. An event is listed once, whatever arrives.
  *  - Search and filters are kept in the address: a new one is a step Back undoes, typing on is not.
  *    `date` is a name (today, yesterday, week, month) or two days, `2026-11-01..2026-11-25`, of the
- *    reader's own zone; the server is asked for the moments they begin and end at.
+ *    reader's own zone; the server is asked for the moments they begin and end at,
+ *    and for `since` and `until` as an address names them.
  *  - Only the last question's answer is shown: a slower one before it is dropped.
  *  - Each row is a <details>. Opening one keeps `?event=<id>` in the address (replaceState, so
  *    Back does not step through every row). What lies below a row slides along with it, and the
  *    edge of its card moves with them; with reduced motion it opens and folds at once.
- *  - Times are shown in the reader's zone, the details with the UTC time beside it.
+ *  - Times are shown in the reader's zone; the details copied hold the UTC time too.
  */
 (function () {
   'use strict';
@@ -19,7 +20,9 @@
   var TYPING_MS = 180;
   var SLOW_MS = 600;
   var DAY_MS = 864e5;
-  var KEYS = ['q', 'user', 'action', 'title', 'date'];
+  var MAX = { title: 1000, user: 300 };
+  var KEYS = ['q', 'user', 'action', 'title', 'date', 'since', 'until'];
+  var MOMENT = /^[12]\d{3}-\d\d-\d\d(T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?)?$/;
   var DATES = { today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'Last 30 days' };
   var NAMES = { user: 'User', action: 'Action', title: 'Title', date: 'Date' };
 
@@ -155,6 +158,16 @@
     return ends[0] ? 'From ' + ends[0] : 'Until ' + ends[1];
   }
 
+  /* The day a moment of the address falls on: the one written, or the reader's own. */
+  function momentDay(text, isEnd) {
+    var at = localDay(text) || new Date(/T.*(Z|[+-]\d\d:\d\d)$/.test(text) ? text : text + 'Z');
+    return dayText(isEnd && text.length > 10 ? new Date(at - 1) : at);
+  }
+
+  function momentsLabel(since, until) {
+    return dateLabel((since && momentDay(since)) + '..' + (until && momentDay(until, true)));
+  }
+
   function start(root, data) {
     var MM = window.MM;
     var icon = MM.dom.icon;
@@ -172,8 +185,8 @@
     var menu = q('.hx-menu');
     var veil = q('.hx-veil');
 
-    var faces = {};
-    data.people.forEach(function (p) { faces[p.username] = p.avatar; });
+    var people = Object.create(null); // by what stands for them in the address
+    data.people.forEach(function (p) { people[p.value] = p; });
 
     var F = {};            // what is searched and filtered by
     var cursor = null;     // where the next page begins
@@ -188,38 +201,61 @@
     var typed = null;      // the timer of the search being typed
     var typing = false;    // the address's step is already this search's
     var menuOf = null;     // the filter whose menu is open
-    var titles = {};       // the titles seen, to choose from
+    var titlesOf = null;   // the last titles to choose from, and the question they answer
     var menuAsked = 0;
+    var at = '';           // the address listed, without its hash
+
+    function here() {
+      var url = new URL(window.location.href);
+      return url.pathname + url.search;
+    }
+
+    function go(method) {
+      window.history[method](null, '', address());
+      at = here();
+    }
 
     function filtered() { return KEYS.some(function (k) { return !!F[k]; }); }
 
     /* --- the address --- */
 
+    /* Whether the address's moments include one this page does not read, as the server may have. */
     function readAddress() {
+      var unread = false;
       var p = new URL(window.location.href).searchParams;
-      KEYS.forEach(function (k) { F[k] = (p.get(k) || '').trim().slice(0, 200); });
+      KEYS.forEach(function (k) {
+        var text = p.get(k) || '';
+        /* A stored title may begin or end with a tab. */
+        F[k] = (k === 'title' ? text.replace(/^ +| +$/g, '') : text.trim()).slice(0, MAX[k] || 200);
+      });
       if (!data.admin) F.user = '';
       if (F.date && !moments(F.date, new Date())) F.date = '';
+      /* A date named in the address stands for both ends. */
+      ['since', 'until'].forEach(function (k) {
+        var text = p.get(k) || '';
+        F[k] = !F.date && MOMENT.test(text) && localDay(text.slice(0, 10)) && !isNaN(new Date(text)) ? text : '';
+        if (text && !F[k]) unread = true;
+      });
       opened = p.get('event');
-      return p;
+      return unread;
     }
 
-    function address() {
+    function address(withoutEvent) {
       var p = new URLSearchParams();
       KEYS.forEach(function (k) { if (F[k]) p.set(k, F[k]); });
-      if (opened) p.set('event', opened);
+      if (opened && !withoutEvent) p.set('event', opened);
       var text = p.toString();
       return '/history' + (text ? '?' + text : '');
     }
 
-    function query(extra) {
+    function query(extra, path) {
       var p = new URLSearchParams();
-      ['q', 'user', 'action', 'title'].forEach(function (k) { if (F[k]) p.set(k, F[k]); });
+      ['q', 'user', 'action', 'title', 'since', 'until'].forEach(function (k) { if (F[k]) p.set(k, F[k]); });
       var when = F.date ? moments(F.date, new Date()) : null;
       Object.keys(when || {}).forEach(function (k) { p.set(k, when[k]); });
       Object.keys(extra || {}).forEach(function (k) { p.set(k, extra[k]); });
       var text = p.toString();
-      return '/api/history' + (text ? '?' + text : '');
+      return '/api/history' + (path || '') + (text ? '?' + text : '');
     }
 
     /* --- a row --- */
@@ -262,15 +298,33 @@
       return span;
     }
 
+    /* A former user's name, unless it is an address. */
+    function formerName(name) { return name === '[hidden]' || name.indexOf('@') >= 0 ? '' : name; }
+
     /* Who a line names. A name typed or an address is never on it. */
     function whoOf(item) {
-      var unsigned = item.action === 'sec:login.failed' || item.action === 'sec:subscriber.opted_out' ||
-        (item.action === 'sec:user.unlocked' && item.actor === 'cli');
-      if (!item.actor) return { name: 'mediaman' };
-      if (item.avatar) return { name: item.actor, known: true };
+      var who = item.who;
+      if (who.kind === 'account') return { name: who.name };
+      if (who.kind === 'former') return { name: formerName(who.name), gone: true };
       if (item.action === 'sec:login.failed') return { name: '', unsigned: true };
-      if (unsigned) return { name: item.action === 'sec:user.unlocked' ? 'the command line' : 'a subscriber', unsigned: true };
-      return { name: item.actor.indexOf('@') >= 0 ? '' : item.actor, gone: true };
+      if (item.action === 'sec:subscriber.opted_out') return { name: 'a subscriber', unsigned: true };
+      if (item.action === 'sec:user.unlocked' && item.actor) return { name: 'the command line', unsigned: true };
+      return { name: 'mediaman' };
+    }
+
+    /* Whom a value of the address stands for, also one no longer among the people. */
+    function person(value) {
+      return people[value] || { value: value, username: value.replace(/^~former:/, ''), kind: 'former', avatar: null };
+    }
+
+    function nameOf(p) {
+      if (p.kind !== 'former') return p.username;
+      var name = formerName(p.username);
+      return name ? name + ' (former)' : 'A former user';
+    }
+
+    function faceOf(p) {
+      return face(p.kind === 'system' ? '' : p.kind === 'former' ? formerName(p.username) || '?' : p.username, p.avatar);
     }
 
     function deedOf(item) {
@@ -297,11 +351,16 @@
         if (/failed|throttled|rate_limited/.test(event)) { out.kind = 'bad'; out.icon = 'i-triangle-exclamation'; }
         out.verb = deed || '';
         out.object = '';
+        if (event === 'newsletter.sent') {
+          var sent = /^(\d+) sent$/.exec(out.sub);
+          if (sent) out.sub = 'To ' + sent[1] + (sent[1] === '1' ? ' person' : ' people');
+        }
         if (!deed) out.label = item.line_title;
         else if (NAMED.indexOf(event) >= 0 && item.summary) { out.object = item.summary; out.sub = ''; }
       } else if (act) {
         out.verb = act[0];
         out.kind = act[1];
+        if (item.space_impact && out.sub === item.space_impact) out.sub += ' freed';
         out.icon = act[2];
         if (item.action.indexOf('delete_root') === 0) out.object = 'delete folder';
       }
@@ -319,7 +378,7 @@
       }
       if (item.action === 'sec:login.failed') {
         put(marked('span', 'Sign-in failed for'));
-        put(faces[item.actor] !== undefined ? marked('b', item.actor) : marked('span', 'an unknown name'));
+        put(people[item.actor] && people[item.actor].kind === 'account' ? marked('b', item.actor) : marked('span', 'an unknown name'));
         return line;
       }
       if (data.admin) {
@@ -345,12 +404,9 @@
 
     function clock(at) { return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 
-    function fullTime(text, stored) {
-      var at = new Date(text);
-      if (isNaN(at)) return stored;
-      return at.toLocaleString('en-GB', {
-        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
-      }) + ' (' + stored + ')';
+    function fullTime(at) {
+      return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' +
+        at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
     function hasTitle(item) {
@@ -375,17 +431,20 @@
       var time = el(at ? 'time' : 'span', 'hist-date', at ? clock(at) : String(item.created_at).slice(0, 16));
       if (at) {
         time.setAttribute('datetime', at.toISOString());
-        time.setAttribute('title', fullTime(at.toISOString(), timeField(item).value));
+        time.setAttribute('title', fullTime(at) + ' (' + timeField(item).value + ')');
       }
       row.appendChild(el('summary', 'hist-sum', [
-        el('span', 'hx-who', [face(who.name === 'mediaman' && !item.actor ? '' : who.name || '?', item.avatar, who.unsigned), act]),
+        el('span', 'hx-who', [face(item.who.kind === 'system' ? '' : who.name || '?', item.avatar, who.unsigned), act]),
         msg, time, el('span', 'hist-chev', icon('i-chevron-down'))
       ]));
 
       var fields = el('dl', 'hist-fields');
       item.fields.forEach(function (f) {
-        var dd = el('dd', f.empty ? 'is-empty' : '', f.at ? fullTime(f.at, f.value) : f.value);
-        if (item.progress && f.label === 'Stopped at') {
+        if (f.empty) return;
+        var moment = f.at ? new Date(f.at) : NaN;
+        var dd = el('dd', '', isNaN(moment) ? f.value : fullTime(moment));
+        if (!isNaN(moment)) dd.setAttribute('title', f.value);
+        if (item.progress && f.key === 'progress') {
           var done = el('i');
           done.style.width = Math.round(item.progress.fraction * 100) + '%';
           dd.appendChild(el('span', 'hx-bar', done));
@@ -394,8 +453,8 @@
       });
       var acts = el('div', 'hx-acts', button('btn btn--ghost btn--sm', 'Copy details', { 'data-hist-copy': '' }));
       if (hasTitle(item)) acts.appendChild(button('btn btn--ghost btn--sm', 'Only this title', { 'data-title': item.line_title }));
-      if (data.admin && who.known) {
-        acts.appendChild(button('btn btn--ghost btn--sm', 'Only ' + (item.actor.length > 22 ? 'this user' : item.actor), { 'data-user': item.actor }));
+      if (data.admin && item.who.kind !== 'system' && who.name) {
+        acts.appendChild(button('btn btn--ghost btn--sm', 'Only ' + (who.name.length > 22 ? 'this user' : who.name), { 'data-user': item.who.value }));
       }
       row.appendChild(el('div', 'hist-body', [fields, acts]));
       return row;
@@ -422,7 +481,6 @@
         if (Object.prototype.hasOwnProperty.call(seen, id)) return;
         seen[id] = true;
         lastRow = item;
-        if (hasTitle(item)) titles[item.line_title] = true;
         var name = dayName(momentOf(item));
         var day = list.lastElementChild;
         if (!day || day.getAttribute('data-day') !== name.join('|')) {
@@ -487,9 +545,10 @@
     function words() {
       var w = [];
       if (F.q) w.push('“' + F.q + '”');
-      if (F.user) w.push(F.user);
+      if (F.user) w.push(nameOf(person(F.user)));
       if (F.action) w.push(actionLabel(F.action).toLowerCase());
       if (F.title) w.push('“' + F.title + '”');
+      if (F.since || F.until) w.push(momentsLabel(F.since, F.until));
       if (F.date) w.push(DATES[F.date] ? DATES[F.date].toLowerCase() : dateLabel(F.date));
       return w.join(', ');
     }
@@ -504,6 +563,16 @@
       empty(list);
       seen = {};
       lastRow = null;
+    }
+
+    /* The way to the newest events, when the list begins at a later page than the first. */
+    function linkNewest(page) {
+      var link = q('.hx-newest', root);
+      if (link) link.remove();
+      if (!(page > 1)) return;
+      link = el('a', 'hx-newest', 'Show the newest');
+      link.setAttribute('href', address(true));
+      sum.appendChild(link);
     }
 
     function show(page) {
@@ -536,8 +605,9 @@
         if (row.scrollIntoView) row.scrollIntoView({ block: 'center', behavior: 'auto' });
       } else if (opened) {
         opened = null;
-        window.history.replaceState(null, '', address());
+        go('replaceState');
       }
+      linkNewest(page.page);
       near();
     }
 
@@ -574,9 +644,8 @@
     function load(now) {
       var me = ask();
       var slow = null;
-      var newest = q('.hx-newest', root);
       cursor = null;
-      if (newest && !opened) newest.remove();
+      linkNewest(1);
       if (now) skeleton();
       else {
         list.classList.add('is-old');
@@ -586,11 +655,20 @@
       return MM.api.get(query(extra), { signal: me.signal }).then(function (res) {
         window.clearTimeout(slow);
         if (me.n !== asked) return;
-        show({ items: res.items, cursor: res.next_cursor, total: res.total });
+        show({ items: res.items, cursor: res.next_cursor, total: res.total, page: res.page });
         tellEverything();
       }, function () {
         window.clearTimeout(slow);
         if (me.n === asked) failed();
+      });
+    }
+
+    /* The button goes, so its focus waits on the list and then takes what came. */
+    function retry() {
+      list.focus({ preventScroll: true });
+      load(true).then(function () {
+        var next = q('.hist-sum', list) || q('button', list);
+        if (document.activeElement === list && next) next.focus({ preventScroll: true });
       });
     }
 
@@ -616,16 +694,20 @@
         var held = more.contains(document.activeElement);
         foot();
         if (rows.length) said.textContent = rows.length + ' more event' + (rows.length === 1 ? '' : 's') + (cursor ? '' : ', the last');
-        if ((byHand || held) && rows.length) rows[0].querySelector('.hist-sum').focus({ preventScroll: !byHand });
+        var sums = MM.dom.qa('.hist-sum', list);
+        var next = rows.length ? rows[0].querySelector('.hist-sum') : sums[sums.length - 1];
+        if ((byHand || held) && next) next.focus({ preventScroll: !byHand });
         near();
       }, function () {
         if (me.n !== asked) return;
         loadingMore = false;
+        var held = more.contains(document.activeElement);
         empty(more);
         var fail = el('div', 'hx-fail', [el('span', '', 'The earlier events did not load.'),
           button('btn btn--secondary btn--sm', 'Try again', { 'data-hist-more': '' })]);
         fail.setAttribute('role', 'alert');
         more.appendChild(fail);
+        if (held) q('button', fail).focus({ preventScroll: true });
       });
     }
 
@@ -642,7 +724,9 @@
     }
 
     function chipLabel(k) {
+      if (k === 'date' && (F.since || F.until)) return momentsLabel(F.since, F.until);
       if (!F[k]) return '';
+      if (k === 'user') return nameOf(person(F.user));
       return k === 'action' ? actionLabel(F[k]) : k === 'date' ? dateLabel(F[k]) : F[k];
     }
 
@@ -655,7 +739,7 @@
         var open = button('hx-chip__open', [], {
           'data-menu': k, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': NAMES[k] + (label ? ': ' + label : '')
         });
-        if (k === 'user' && F.user) open.appendChild(face(F.user, faces[F.user]));
+        if (k === 'user' && F.user) open.appendChild(faceOf(person(F.user)));
         open.appendChild(el('span', '', label || NAMES[k]));
         open.appendChild(icon('i-chevron-down'));
         var chip = el('span', 'hx-chip' + (label ? ' is-set' : ''), open);
@@ -685,7 +769,7 @@
       window.clearTimeout(typed);
       typed = null;
       opened = null;
-      window.history[sameStep ? 'replaceState' : 'pushState'](null, '', address());
+      go(sameStep ? 'replaceState' : 'pushState');
       chips();
       toTop();
       load(false);
@@ -694,8 +778,10 @@
     function choose(k, value) {
       typing = false;
       F[k] = value;
+      if (k === 'date') { F.since = ''; F.until = ''; }
       closeMenu(true);
       change(false);
+      focusChip(k);
     }
 
     function clearAll() {
@@ -718,7 +804,8 @@
 
     /* --- a filter's menu --- */
 
-    function phone() { return window.innerWidth < 700; }
+    /* The filter's menu is a sheet, as the styles have it. */
+    function phone() { return window.innerWidth < 700 || window.innerHeight < 520; }
 
     function option(k, value, kids) {
       var o = button('hx-opt', kids, { role: 'menuitemradio', 'aria-checked': String(F[k] === value), 'data-k': k, 'data-v': value });
@@ -726,56 +813,146 @@
       return o;
     }
 
+    function countOf(n) {
+      var small = el('small');
+      if (n != null) small.textContent = n.toLocaleString('en-GB');
+      return small;
+    }
+
     function userOptions() {
       return data.people.map(function (p) {
-        return option('user', p.username, [face(p.username, p.avatar), el('span', 'n', p.username + (p.username === data.me ? ' (you)' : ''))]);
+        var you = p.kind === 'account' && p.username === data.me ? ' (you)' : '';
+        return option('user', p.value, [faceOf(p), el('span', 'n', nameOf(p) + you), countOf()]);
       });
     }
 
     function actionOptions() {
       return data.actions.map(function (a) {
-        return option('action', a[0], [el('span', 'k', icon(FILTER_ICONS[a[0]] || 'i-gear')), el('span', 'n', a[1])]);
+        return option('action', a[0], [el('span', 'k', icon(FILTER_ICONS[a[0]] || 'i-gear')), el('span', 'n', a[1]), countOf()]);
       });
     }
 
-    function titleOptions(names) {
-      return names.map(function (t) { return option('title', t, el('span', 'n', t)); });
-    }
-
-    function sorted(set) {
-      return Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'en-GB'); });
-    }
-
-    /* The title menu: what is listed, and what the server finds by the text typed. */
-    function fillTitles(scroll, none, field) {
-      var find = field.value.trim().slice(0, 200);
-      var low = find.toLowerCase();
-      function fill(set, done) {
-        var names = sorted(set).filter(function (t) { return t.toLowerCase().indexOf(low) >= 0; });
-        MM.dom.qa('.hx-opt', scroll).forEach(function (o) { o.remove(); });
-        titleOptions(names).forEach(function (o) { scroll.insertBefore(o, none); });
-        none.hidden = !done || names.length > 0;
-      }
+    /* A menu's choices with their counts, unless another menu was opened since. */
+    function askMenu(k, extra, then, fail) {
       menuAsked += 1;
       var me = menuAsked;
-      var set = {};
-      Object.keys(titles).forEach(function (t) { set[t] = true; });
-      if (F.title) set[F.title] = true;
-      fill(set, false);
-      window.setTimeout(function () {
-        if (me !== menuAsked || menuOf !== 'title') return;
-        var p = new URLSearchParams({ per_page: '100' });
-        if (find) p.set('title', find);
-        MM.api.get('/api/history?' + p).then(function (res) {
-          if (me !== menuAsked || menuOf !== 'title') return;
-          res.items.forEach(function (item) { if (hasTitle(item)) { titles[item.line_title] = true; set[item.line_title] = true; } });
-          var active = document.activeElement;
-          var at = active && active.getAttribute('data-k') === 'title' ? active.getAttribute('data-v') : null;
-          fill(set, true);
-          var same = at && MM.dom.findByAttr(scroll, 'data-v', at);
-          if (same) same.focus({ preventScroll: true });
-        }, function () { if (me === menuAsked) fill(set, true); });
-      }, find ? TYPING_MS : 0);
+      var ifStill = function (fn) {
+        return function (res) { if (me === menuAsked && menuOf === k) fn(res); };
+      };
+      MM.api.get(query(Object.assign({ menu: k }, extra), '/menu')).then(ifStill(then), ifStill(fail || function () {}));
+    }
+
+    /* The choices stand already: only their counts are new. */
+    function fillCounts(k, scroll) {
+      askMenu(k, {}, function (res) {
+        res.options.forEach(function (o) {
+          var row = MM.dom.findByAttr(scroll, 'data-v', o.value);
+          if (!row) return;
+          var small = row.querySelector('small');
+          small.textContent = o.count.toLocaleString('en-GB');
+          small.classList.add('hx-in');
+        });
+      });
+    }
+
+    /* The titles with the most events, of those the text typed is in: at once of those this menu
+       has had, then of all. */
+    function titleMenu(scroll, field) {
+      var none = el('p', 'hx-none');
+      var known = titlesOf && titlesOf.question === query() ? titlesOf.options : [];
+      var wait = null;
+      none.setAttribute('role', 'status');
+
+      function rows() { return MM.dom.qa('.hx-opt', scroll); }
+
+      function show(options) {
+        var active = document.activeElement;
+        var at = active && scroll.contains(active) ? active.getAttribute('data-v') : null;
+        var top = scroll.scrollTop;
+        empty(scroll);
+        options.forEach(function (o) {
+          scroll.appendChild(option('title', o.value, [el('span', 'n', o.label), countOf(o.count)]));
+        });
+        scroll.appendChild(none);
+        none.hidden = true;
+        scroll.scrollTop = top;
+        var same = at && MM.dom.findByAttr(scroll, 'data-v', at);
+        if (same) same.focus({ preventScroll: true });
+        else if (at) field.focus({ preventScroll: true });
+      }
+
+      function say(text) {
+        none.textContent = text;
+        none.hidden = !text;
+      }
+
+      function keep(options) {
+        options.forEach(function (o) {
+          if (!known.some(function (k) { return k.value === o.value; })) known = known.concat(o);
+        });
+      }
+
+      function failed(byHand) {
+        MM.dom.qa('.hx-opt-skel', scroll).forEach(function (s) { s.remove(); });
+        say('The titles did not load.');
+        var again = button('btn btn--secondary btn--sm', 'Try again', { 'data-titles-retry': '' });
+        none.appendChild(again);
+        if (byHand) again.focus({ preventScroll: true });
+      }
+
+      function look(byHand) {
+        var find = field.value.trim().slice(0, 200);
+        var low = find.toLowerCase();
+        var ask = function () {
+          if (!scroll.isConnected) return;
+          askMenu('title', find ? { find: find } : {}, function (res) {
+            var held = byHand && none.contains(document.activeElement);
+            if (!find) {
+              titlesOf = { question: query(), options: res.options };
+              known = res.options;
+            }
+            keep(res.options);
+            show(res.options);
+            say(res.options.length ? (res.more ? 'These have the most events. Type to find others.' : '') : find ? 'No title by that name.' : 'No titles yet.');
+            if (held) (q('.hx-opt', scroll) || menu).focus({ preventScroll: true });
+          }, function () { failed(byHand && none.contains(document.activeElement)); });
+        };
+        window.clearTimeout(wait);
+        menuAsked += 1;
+        if (byHand) { ask(); return; }
+        if (!find && titlesOf && titlesOf.question === query()) show(titlesOf.options);
+        else if (known.length) {
+          var held = known.filter(function (o) { return o.label.toLowerCase().indexOf(low) >= 0; });
+          show(held);
+          if (!held.length) scroll.appendChild(el('div', 'hx-opt-skel is-late', el('i', 'skel')));
+        }
+        else {
+          show([]);
+          for (var i = 0; i < 8; i++) scroll.appendChild(el('div', 'hx-opt-skel', el('i', 'skel')));
+        }
+        if (find) wait = window.setTimeout(ask, TYPING_MS);
+        else ask();
+      }
+
+      var clear = q('.hx-x', menu);
+      clear.addEventListener('click', function () {
+        field.value = '';
+        field.focus();
+        typedIn();
+      });
+      none.addEventListener('click', function (e) {
+        var again = e.target.closest('[data-titles-retry]');
+        if (!again) return;
+        /* Safari focuses no button that is clicked. */
+        again.focus({ preventScroll: true });
+        look(true);
+      });
+      function typedIn() {
+        field.parentNode.classList.toggle('has-q', !!field.value);
+        look();
+      }
+      field.addEventListener('input', typedIn);
+      look();
     }
 
     function dateForm(scroll) {
@@ -814,6 +991,7 @@
       menuAsked += 1;
       empty(menu);
       menu.setAttribute('aria-label', NAMES[k]);
+      menu.classList.toggle('hx-menu--titles', k === 'title');
       menu.appendChild(el('div', 'hx-menu__h', [el('span', '', NAMES[k]), button('', icon('i-xmark'), { 'aria-label': 'Close', 'data-menu-close': '' })]));
       var find = null;
       if (k === 'title') {
@@ -822,7 +1000,7 @@
         find.setAttribute('placeholder', 'Find a title');
         find.setAttribute('aria-label', 'Find a title');
         find.setAttribute('maxlength', '200');
-        menu.appendChild(el('div', 'hx-menu__f', find));
+        menu.appendChild(el('div', 'hx-menu__f', [find, button('hx-x', icon('i-xmark'), { 'aria-label': 'Clear' })]));
       }
       var scroll = el('div', 'hx-menu__scroll');
       scroll.setAttribute('role', 'menu');
@@ -831,13 +1009,9 @@
       if (k === 'user') userOptions().forEach(function (o) { scroll.appendChild(o); });
       if (k === 'action') actionOptions().forEach(function (o) { scroll.appendChild(o); });
       if (k === 'date') dateForm(scroll);
+      if (k === 'user' || k === 'action') fillCounts(k, scroll);
       if (find) {
-        var none = el('p', 'hx-none', 'No title by that name.');
-        none.hidden = true;
-        none.setAttribute('role', 'status');
-        scroll.appendChild(none);
-        find.addEventListener('input', function () { fillTitles(scroll, none, find); });
-        fillTitles(scroll, none, find);
+        titleMenu(scroll, find);
       }
       var r = btn.getBoundingClientRect();
       var left = Math.max(12, Math.min(r.left, document.documentElement.clientWidth - 312));
@@ -868,18 +1042,25 @@
     function menuKeys(e) {
       if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
       if (e.key === 'Tab') {
-        var stops = MM.dom.qa('button, input', menu).filter(function (n) { return n.getClientRects().length; });
-        var edge = e.shiftKey ? stops[0] : stops[stops.length - 1];
-        if (document.activeElement === edge || document.activeElement === menu) {
-          e.preventDefault();
-          (e.shiftKey ? stops[stops.length - 1] : stops[0]).focus();
-        }
+        var stops = MM.dom.qa('button, input', menu).filter(function (n) {
+          return n.getClientRects().length && window.getComputedStyle(n).visibility !== 'hidden';
+        });
+        /* Safari's own step passes over buttons, and out of the menu. */
+        e.preventDefault();
+        var at = stops.indexOf(document.activeElement);
+        if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;
+        else at = (at + 1) % stops.length;
+        stops[at].focus();
         return;
       }
-      if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || (e.target.getAttribute && e.target.getAttribute('type') === 'date')) return;
-      var opts = MM.dom.qa('.hx-opt', menu);
+      var edge = e.key === 'Home' || e.key === 'End';
+      var inField = e.target.tagName === 'INPUT';
+      if (!edge && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (inField && (edge || e.target.getAttribute('type') === 'date')) return;
+      var opts = MM.dom.qa('.hx-opt', menu).filter(function (o) { return !o.hidden; });
       if (!opts.length) return;
       e.preventDefault();
+      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus(); return; }
       var down = e.key === 'ArrowDown';
       var i = opts.indexOf(document.activeElement);
       opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus();
@@ -894,7 +1075,7 @@
       if (row.open) opened = id;
       else if (opened === id) opened = null;
       else return;
-      window.history.replaceState(null, '', address());
+      go('replaceState');
     }
 
     /* Slide what follows the row, up to the page's end, along with its details. */
@@ -944,7 +1125,9 @@
 
     function onCopy(btn) {
       var text = Array.prototype.map.call(btn.closest('.hist').querySelectorAll('.hist-field'), function (f) {
-        return f.querySelector('dt').textContent + ': ' + f.querySelector('dd').textContent;
+        var dd = f.querySelector('dd');
+        var utc = dd.getAttribute('title');
+        return f.querySelector('dt').textContent + ': ' + dd.textContent + (utc ? ' (' + utc + ')' : '');
       }).join('\n');
       copyText(text).then(function () {
         btn.focus();
@@ -979,14 +1162,16 @@
       else if ((b = e.target.closest('[data-clear]'))) {
         var k = b.getAttribute('data-clear');
         choose(k, '');
-        focusChip(k);
       } else if ((b = e.target.closest('[data-title]'))) choose('title', b.getAttribute('data-title'));
       else if ((b = e.target.closest('[data-user]'))) choose('user', b.getAttribute('data-user'));
       else if (e.target.closest('[data-hist-clear]')) clearAll();
-      else if (e.target.closest('[data-hist-retry]')) load(true);
+      else if (e.target.closest('[data-hist-retry]')) retry();
       else if (e.target.closest('[data-hist-more]')) {
         var failing = q('.hx-fail', more);
-        if (failing) foot();
+        if (failing) {
+          foot();
+          q('[data-hist-more]', more).focus({ preventScroll: true });
+        }
         loadMore(true);
       } else if (e.target.closest('.hx-x')) {
         input.value = '';
@@ -1041,10 +1226,13 @@
       near();
     }, { passive: true });
     window.addEventListener('resize', function () {
-      if (!menuOf || !phone()) closeMenu(false);
+      if (phone()) menu.style.maxHeight = '';
+      else closeMenu(false);
       near();
     });
     window.addEventListener('popstate', function () {
+      if (here() === at) return;
+      at = here();
       window.clearTimeout(typed);
       typing = false;
       closeMenu(false);
@@ -1054,14 +1242,16 @@
       load(false);
     });
 
-    var p = readAddress();
+    at = here();
+    var unread = readAddress();
     /* The server's words for what it filtered by, where the address has them. */
     ['q', 'user', 'action', 'title'].forEach(function (k) { F[k] = data.filters[k] || ''; });
     input.value = F.q;
     chips();
-    if (F.date || p.get('since') || p.get('until')) load(true);
+    if (unread) go('replaceState');
+    if (F.date || unread) load(true);
     else {
-      show({ items: data.items, cursor: data.cursor, total: data.total });
+      show({ items: data.items, cursor: data.cursor, total: data.total, page: data.page });
       tellEverything();
     }
   }

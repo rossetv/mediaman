@@ -179,6 +179,34 @@ const scenarios = {
     out.none = go(false, null, 1);
     return out;
   },
+  // A title's page, and the bar of what plays on a TV, which is shown, under a dialog, and hidden.
+  tvBar() {
+    const p = page();
+    const button = (id) => ['button', { id }, id];
+    p.doc.body.append(
+      build(p.doc, ['section', { id: 'tv-mini' }, button('remote'), button('pause')]),
+      build(p.doc, ['div', { id: 'ttl' }, button('shut'), button('watch')]));
+    const go = (n, shiftKey) => { const out = []; for (let i = 0; i < n; i++) { p.key('Tab', { shiftKey }); out.push(p.focused()); } return out; };
+    p.$('remote').focus();
+    const other = p.setup('plain', { useModalA11y: false });
+    other.open();
+    const out = { otherDialog: p.inert().includes('tv-mini') };
+    other.close();
+    p.ctx.MM.inertPage.hold(p.$('ttl'));
+    out.inert = p.inert().filter((id) => id !== 'closed-panel');
+    p.$('shut').focus();
+    out.tab = go(4);
+    out.back = go(2, true);
+    const m = p.setup('low');
+    m.open();
+    out.under = p.inert().includes('tv-mini');
+    out.underTab = go(3);
+    m.close();
+    p.$('tv-mini').hidden = true;
+    p.$('shut').focus();
+    out.hidden = go(2);
+    return out;
+  },
   tabInPlain() {
     const p = page();
     p.setup('plain', { useModalA11y: false }).open();
@@ -199,6 +227,23 @@ const scenarios = {
     const out = [p.focused()];
     for (let i = 0; i < 4; i++) { p.key('Tab'); out.push(p.focused()); }
     return out;
+  },
+  // A group of radios between two buttons: none checked, one checked, and one with the keyboard.
+  radios() {
+    const p = page();
+    p.$('card').textContent = '';
+    const radio = (id, name) => ['input', { type: 'radio', name, id }];
+    p.$('card').append(...[['button', { id: 'before' }], radio('a1', 'a'), radio('a2', 'a'), radio('a3', 'a'), radio('b1', 'b'), ['button', { id: 'after' }]].map((n) => build(p.doc, n)));
+    p.setup('low').open();
+    const go = (from, shiftKey) => {
+      p.$(from).focus();
+      const out = [];
+      for (let i = 0; i < 4; i += 1) { p.key('Tab', { shiftKey }); out.push(p.focused()); }
+      return out;
+    };
+    const none = go('before');
+    p.$('a3').checked = true;
+    return { none, checked: go('before'), back: go('before', true), from: go('a1') };
   },
   // A confirm closed once it has left the page, over a dialog and alone.
   goneFromThePage() {

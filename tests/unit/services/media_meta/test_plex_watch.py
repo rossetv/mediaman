@@ -186,6 +186,26 @@ def test_season_episodes_come_back_in_order() -> None:
     assert episodes[0].thumb == "/library/metadata/200/thumb/1"
 
 
+def test_a_season_and_its_episodes_come_with_plexs_own_words_dates_and_count() -> None:
+    routes = _show_routes()
+    routes["/library/metadata/10/children"] = _container(
+        '<Directory ratingKey="11" type="season" index="1" summary=" A start. " leafCount="9"/>'
+        '<Directory ratingKey="12" type="season" index="2" leafCount="x"/>'
+    )
+    routes["/library/metadata/11/children"] = _container(
+        '<Video ratingKey="1" type="episode" index="1" summary="It begins. " '
+        'originallyAvailableAt="2008-01-20"/>'
+        '<Video ratingKey="2" type="episode" index="2" originallyAvailableAt="2008"/>'
+    )
+    watch, _ = _watch(routes)
+
+    seasons = watch.get_show("10").seasons
+    episodes = watch.get_season_episodes("11")
+
+    assert [(s.summary, s.episode_count) for s in seasons] == [("A start.", 9), ("", None)]
+    assert [(e.summary, e.aired) for e in episodes] == [("It begins.", "2008-01-20"), ("", None)]
+
+
 def _next_routes(episode_key: str, season: int, season_key: str) -> dict[str, _Resp | Exception]:
     routes = _show_routes()
     routes[f"/library/metadata/{episode_key}"] = _container(
