@@ -4405,7 +4405,7 @@ const scenarios = {
     const asks = () => p.calls.filter((c) => /ratings\/ask/.test(c.url)).length;
     const saves = () => p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body.position_s);
     const look = () => ({
-      card: !gone(card), asks: asks(), at: p.win.location.href, said: p.q('[data-rate-status]').textContent,
+      card: !gone(card), idle: (card.querySelector('.rate__line') || card).textContent, asks: asks(), at: p.win.location.href, said: p.q('[data-rate-status]').textContent,
       paused: p.video.paused, upnext: !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]')),
     });
     const thumb = () => card.querySelectorAll('.rate__b')[3];
@@ -4444,7 +4444,7 @@ const scenarios = {
     const focus = doc.activeElement;
     await on(2);
     out.in = Object.assign(look(), {
-      saves: saves(), focus: doc.activeElement === focus, idle: p.root.classList.contains('is-idle'),
+      saves: saves(), focus: doc.activeElement === focus, quiet: p.root.classList.contains('is-idle'),
       beside: card.classList.contains('player-rate--beside'), plays: p.video.plays,
     });
     if (what === 'hidden') { await on(12); out.hidden = look(); doc.visibilityState = 'visible'; await on(1); }

@@ -5,6 +5,7 @@
  *     node for plain and grid, for the caller to place for strip and menu. Both are
  *     hidden while the title cannot be rated. 'menu' is for inside a role=menu: its
  *     buttons are menu items and out of the tab order.
+ *     `again`: in a grid, the question may be put again, so the words do not say it is the last.
  *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while never known
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
  *   MM.ratings.read(refs)        asks for those not known, in one request
@@ -333,7 +334,7 @@
     function sayLine(s) {
       var l = levelOf(s.want);
       var bold = '';
-      var text = IDLE[variant];
+      var text = opts && opts.again ? IDLE.plain : IDLE[variant];
       if (set.error) text = set.error;
       else if (inMenu) text = l ? l.name : text;
       else if (variant === 'strip' && !touched) text = IDLE.strip;

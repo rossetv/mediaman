@@ -3039,7 +3039,7 @@
     els.rateTitle.textContent = text;
     els.rateSet.textContent = '';
     ratingRef = held.ref;
-    rating = MM.ratings.mount(held.ref, { variant: 'grid' });
+    rating = MM.ratings.mount(held.ref, { variant: 'grid', again: overCredits });
     els.rateSet.appendChild(rating.node);
     /* A small window shows no names. */
     els.rateSet.querySelectorAll('button').forEach(function (b) { b.setAttribute('title', b.getAttribute('aria-label')); });

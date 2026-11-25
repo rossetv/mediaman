@@ -1989,7 +1989,7 @@ def test_the_question_comes_as_the_last_credits_begin_and_the_film_plays_on(film
     assert (seen["paused"], seen["at"]) == (False, "/watch/play/1")
     # The place was saved in the credits first; the person and the controls are left alone.
     assert seen["saves"][-1] >= 2700
-    assert (seen["focus"], seen["idle"], seen["beside"]) == (True, True, True)
+    assert (seen["focus"], seen["quiet"], seen["beside"]) == (True, True, True)
 
 
 def test_the_place_saved_as_the_credits_begin_is_never_rounded_to_before_them(film):
@@ -2101,6 +2101,9 @@ def test_a_scene_after_the_credits_is_left_alone_and_the_question_waits_for_the_
 def test_left_alone_in_the_credits_the_question_goes_and_comes_at_the_end(film):
     out = in_credits(film, "idle")
     assert (out["nearly"]["card"], out["gone"]["card"]) == (True, False)
+    # Only at the end is it the last time.
+    assert out["nearly"]["idle"] == "Only you see this."
+    assert out["end"]["idle"] == "Only you see this. You won’t be asked again."
     assert (out["after"]["card"], out["after"]["paused"]) == (False, False)
     assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
 
