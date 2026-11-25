@@ -20,7 +20,9 @@
   var SEARCH_URL = '/api/watch/search?q=';
   var LEFT_RE = / · [^·]* left$/;
   var EYE = '.card-tool--eye';
-  var RATED_MS = 650; // how long a rating is looked at before what it was given in goes
+  var RATED_MS = 900; // how long a rating is looked at, and comes down, before what it was given in goes
+  var RATED_STILL_MS = 650; // with nothing moving
+  var MARKED_MS = 600; // how long a mark is looked at before its card leaves Continue watching or moves on there
   var STRONG_NO = -2;
 
   var page = byId('watch-page');
@@ -129,9 +131,16 @@
 
   /* ── Drawing a mark ── */
 
+  /* How far an eye that waits for its answer has shut, from 0 to 1. */
+  function shutOf(button) {
+    var drawn = /^matrix\((?:[^,]+,){3}([^,]+)/.exec(getComputedStyle(button.querySelector('.ico') || button).transform);
+    return drawn ? 1 - Math.min(1, Math.max(0, Number(drawn[1]))) : 0;
+  }
+
   function setToggle(button, watched) {
     var now = watched ? 'true' : 'false';
     if (button.getAttribute('aria-pressed') !== now && button.matches('.card-tool, .card-over__b, .pv__eye')) {
+      button.style.setProperty('--shut', String(shutOf(button)));
       button.classList.remove('is-blink');
       void button.offsetWidth;
       button.classList.add('is-blink');
@@ -190,7 +199,7 @@
   function endBar(poster, bar) {
     var rail = el('span', 'card-barend');
     rail.appendChild(el('i')).style.setProperty('--from', String((Number(bar.value) || 0) / 100));
-    ghost(poster, rail, 480);
+    ghost(poster, rail, 560);
   }
 
   /* The lights go down and come up. */
@@ -348,9 +357,68 @@
     if (cards.length) tellContinue(ref);
   }
 
-  /* The card moves on to what the server now has in its place. */
+  /* A card of Continue watching shows that it was watched. Returns whether one does. */
+  function showWatched(ref, mark, done) {
+    return continueCards(document, ref).filter(function (card) {
+      if ((done.part && markOf(card) !== mark) || core.reduceMotion() || !card.getClientRects().length) return false;
+      var poster = card.querySelector('.watch-card__poster');
+      var bar = poster.querySelector('.watch-bar');
+      var own = markOf(card);
+      lights(card);
+      if (!bar) return true;
+      endBar(poster, bar);
+      bar.remove();
+      done.undos.push(function () {
+        if (markOf(card) === own && !poster.querySelector('.watch-bar')) poster.appendChild(bar);
+      });
+      return true;
+    }).length > 0;
+  }
+
+  function pictureOf(card) {
+    var img = card.querySelector('.watch-card__poster img');
+    return img ? img.getAttribute('src') : '';
+  }
+
+  var OWN_ATTRS = ['class', 'style', 'tabindex', 'aria-pressed', 'data-level']; // of the page, not of what is drawn
+
+  function syncAttrs(node, to) {
+    to.getAttributeNames().forEach(function (name) {
+      if (OWN_ATTRS.indexOf(name) < 0) node.setAttribute(name, to.getAttribute(name));
+    });
+  }
+
+  /* Draw *card* as *to* is, with its picture and its buttons where they are. */
+  function redraw(card, to) {
+    card.getAttributeNames().forEach(function (name) {
+      if (/^data-(keep|leaving)-/.test(name) && !to.hasAttribute(name)) card.removeAttribute(name);
+    });
+    syncAttrs(card, to);
+    syncAttrs(card.querySelector('.watch-card__link'), to.querySelector('.watch-card__link'));
+    replacePart(card.querySelector('.watch-card__poster'), to.querySelector('.watch-card__poster'), '.watch-badge--leaving');
+    replacePart(card.querySelector('.watch-card__poster'), to.querySelector('.watch-card__poster'), '.watch-bar');
+    replacePart(card.querySelector('.watch-card__link'), to.querySelector('.watch-card__link'), '.watch-card__sub');
+    core.fadeIn(card.querySelector('.watch-card__sub'));
+    var tools = to.querySelectorAll('.card-tool');
+    toArray(card.querySelectorAll('.card-tool')).forEach(function (b, i) { syncAttrs(b, tools[i]); });
+  }
+
+  /* The card moves on to what the server now has in its place: where it stands, if the picture is the same. */
   function replaceCard(card, fresh, done) {
     closeMenu(card);
+    if (pictureOf(card) === pictureOf(fresh) && card.querySelectorAll('.card-tool').length === fresh.querySelectorAll('.card-tool').length) {
+      var was = card.cloneNode(true);
+      redraw(card, fresh);
+      var eye = card.querySelector(EYE);
+      if (eye) setToggle(eye, fresh.querySelector(EYE).getAttribute('aria-pressed') === 'true');
+      done.rows = true;
+      done.undos.push(function () {
+        if (!document.body.contains(card) || card.classList.contains('is-kept') || markOf(card) !== markOf(fresh)) return;
+        closeMenu(card);
+        redraw(card, was);
+      });
+      return;
+    }
     var lost = focusLost(card);
     card.replaceWith(fresh);
     core.fadeIn(fresh);
@@ -661,7 +729,8 @@
       if (done.part) tmdbOf(ref).forEach(function (tmdb) { delete said[tmdb]; });
       done.undos = paint(mark, watched);
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
-      if (watched && !done.part) leaveContinue(ref, done);
+      var shown = watched && showWatched(ref, mark, done);
+      latest[ref] = done;
       var opts = { variant: 'success', dialog: detailsShown() };
       if (data.changed) {
         offered[mark] = { ref: ref, whole: !done.part };
@@ -670,7 +739,12 @@
       tell(mark, 'Marked ' + name + ' as ' + (watched ? 'watched.' : 'not watched.'), opts);
       setBusy(mark, false);
       announce(mark, ref);
-      if (!tmdb) follow(ref, done);
+      var goOn = function () {
+        if (latest[ref] !== done) return; // a later change of it says what stands there
+        if (watched && !done.part) leaveContinue(ref, done);
+        if (!tmdb) follow(ref, done);
+      };
+      if (shown) setTimeout(goOn, MARKED_MS); else goOn();
     }, function (err) {
       setBusy(mark, false);
       var held = err && err.error === 'in_library' && err.data ? err.data.mark_kind + '/' + err.data.mark_key : '';
@@ -921,7 +995,7 @@
       noes = without(noes, d);
       if (d.level === STRONG_NO) {
         noes.push(d);
-        setTimeout(function () { saidNo(d); }, RATED_MS);
+        setTimeout(function () { saidNo(d); }, core.reduceMotion() ? RATED_STILL_MS : RATED_MS);
       } else {
         backInPicks(d);
       }

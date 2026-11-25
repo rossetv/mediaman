@@ -269,10 +269,9 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .rate--lift.is-open .rate__b > .rate-th { opacity: 1; animation: lift-grow var(--dur-spring) var(--ease-pop) calc(var(--i) * 28ms) backwards; }
   .card-tool--eye.is-blink > .ico,
   .card-over__b.is-blink > .ico,
-  .pv__eye.is-blink > .ico { animation: eye-blink calc(var(--dur) * 2.1) var(--ease-out); }
-  .is-blink[aria-pressed="true"] { animation: eye-shuts calc(var(--dur) * 2.1) linear; }
-  .is-blink[aria-pressed="false"] { animation: eye-opens calc(var(--dur) * 2.1) linear; }
-.card-flier .halo { display: none; }
+  .pv__eye.is-blink > .ico { animation: eye-blink calc(var(--dur) * 2.1) var(--ease-out) var(--from-shut); }
+  .is-blink[aria-pressed="true"] { animation: eye-shuts calc(var(--dur) * 2.1) linear var(--from-shut); }
+  .is-blink[aria-pressed="false"] { animation: eye-opens calc(var(--dur) * 2.1) linear var(--from-shut); }
   .card-lights { animation: card-lights calc(var(--dur) * 3.1) ease-in-out; }
   .watch-badge--watched.is-new { animation: badge-drop calc(var(--dur) * 2.1) var(--ease-pop) calc(var(--dur) * .9) backwards; }
   .watch-badge--unwatched { animation: badge-lift calc(var(--dur) * .8) ease-in forwards; }
@@ -284,6 +283,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-barend { display: none; }
   .watch-card.is-lifted > .card-over,
   .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
+  /* One that waited for its answer shut goes on from there. */
+  .is-blink { --from-shut: calc(var(--dur) * -.85 * var(--shut, 0)); }
   .watch-card:has(> .card-tools:hover) .watch-card__link[href] > .watch-card__poster,
   .card-tool > :is(.ico, .rate-th) { transform: none !important; }
 }
@@ -293,6 +294,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   78% { transform: scale(1.22, 1.16); }
 }
 /* Its other face comes while it is shut. */
+  .card-barend { animation: bar-away var(--dur-fast) var(--ease-out) calc(var(--dur) * 2.2) forwards; }
 @keyframes eye-shuts { 0%, 42% { --eye-open: inline; --eye-seen: none; } 43%, 100% { --eye-open: none; --eye-seen: inline; } }
 @keyframes eye-opens { 0%, 42% { --eye-open: none; --eye-seen: inline; } 43%, 100% { --eye-open: inline; --eye-seen: none; } }
 @keyframes card-lights { 38% { opacity: .62; } }
@@ -317,6 +319,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .rate--lift .rate__set { background: ButtonFace; }
   .rate--lift .rate__b.is-at:not(.is-on) { --b-bg: ButtonFace; color: Highlight; }
   .rate__puck { forced-color-adjust: none; background: Highlight; }
+@keyframes bar-away { to { opacity: 0; } }
   .rate__puck:not(.is-up, .is-down) { visibility: hidden; }
   .rate__name > span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
   .watch-badge--unwatched { display: none; }

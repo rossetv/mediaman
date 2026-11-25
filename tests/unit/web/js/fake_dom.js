@@ -71,6 +71,7 @@ class Node {
   }
   get tabIndex() { return this.hasAttribute('tabindex') ? Number(this.attrs.tabindex) : -1; }
   set tabIndex(v) { this.attrs.tabindex = String(v); }
+  getAttributeNames() { return Object.keys(this.attrs); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   hasAttribute(k) { return k in this.attrs; }

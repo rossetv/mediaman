@@ -376,7 +376,7 @@
   overflow: hidden;
   border-radius: var(--r-md);
   background: linear-gradient(160deg, var(--s4), var(--s1));
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), filter var(--dur-fast) var(--ease-out), padding-bottom var(--dur) var(--ease-out);
 }
 /* A shadow alone does not show on the black page, so a hovered poster also
    lifts a little and takes a hairline ring. The row's block padding leaves
@@ -548,6 +548,7 @@
 .eye-open { display: var(--eye-open, inline); }
 .eye-seen { display: var(--eye-seen, none); }
 .watch-badge--watched,
+.watch-badge--unwatched,
 .watch-pill__mark,
 .watch-mark[aria-pressed="true"],
 .watch-mark-btn__on { --eye-open: none; --eye-seen: inline; }

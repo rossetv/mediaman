@@ -31,7 +31,7 @@ function card(mark, title, sub, over = {}) {
   return ['article', { class: 'watch-card', ...(tmdb ? { 'data-tmdb-ref': tmdb } : {}), ...(over.level ? { 'data-level': over.level } : {}), ...(eye ? { 'data-mark': eye } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
     ['a', { class: 'watch-card__link', ...(ref && !over.dismiss ? { 'data-title-ref': ref } : {}),
       ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie', 'data-tmdb-id': over.tmdb || '' } : {}) },
-      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, title],
+      ['span', { class: 'watch-card__poster' }, ...(over.img ? [['img', { src: over.img }]] : []), ['span', { class: 'watch-card__title' }, title],
         ...(over.watched ? [['span', { class: 'watch-badge watch-badge--watched' }, 'Watched']] : []),
         ...(over.bar ? [['progress', { class: 'watch-bar' }]] : [])],
       ['span', { class: 'watch-card__sub' }, sub]],
@@ -102,8 +102,8 @@ function load(page, opts = {}) {
     setTimeout: (fn, ms) => { if (opts.clock) return opts.clock.set(fn, ms); if (opts.hold && ms === (opts.hold === true ? 650 : opts.hold)) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
     clearTimeout(id) { if (opts.clock) opts.clock.drop(id); else if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
-    getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: (query) => ({ matches: /coarse/.test(query) ? !!opts.touch : !(opts.touch && /hover/.test(query)) }),
+    getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0', transform: opts.drawn || 'none' }),
+    matchMedia: (query) => ({ matches: opts.motion && /reduced-motion/.test(query) ? false : /coarse/.test(query) ? !!opts.touch : !(opts.touch && /hover/.test(query)) }),
     requestAnimationFrame: (fn) => fn(),
     performance: { now: () => 1e6 + (opts.clock ? opts.clock.now : 0) },
     IntersectionObserver: class { constructor(fn) { this.seen = new Set(); nears = (cards) => fn(cards.filter((c) => this.seen.has(c)).map((target) => ({ target, isIntersecting: true })), this); } observe(c) { this.seen.add(c); } unobserve(c) { this.seen.delete(c); } disconnect() { this.seen.clear(); } },
@@ -251,6 +251,109 @@ async function thumb(p, c, i) {
 }
 
 const scenarios = {
+  // With motion, a mark in Continue watching is looked at before its card goes, or moves on where it stands.
+  async markSeen() {
+    const go = async (i, next) => {
+      const c = clock();
+      const cards = [CONTINUE[0], card('episode/22', 'Brightwater', 'S1 · E2 · 12 min left', { dismiss: 'show-2', bar: true, img: '/two' }), CONTINUE[2]];
+      const p = load(watchPage([row('cont', cards)]), { clock: c, motion: true, next: (n, calls) => watchPage([row('cont', /undo=1|^DELETE/.test(calls[calls.length - 1]) ? cards : next)]) });
+      const node = p.cards()[i];
+      await p.pick(node, 'mark');
+      return { p, c, node, shown: () => [p.marks(), !!node.querySelector('.card-lights'), !!node.querySelector('.card-barend'), !!node.querySelector('.watch-bar')] };
+    };
+    const film = await go(0, CONTINUE.slice(1));
+    const out = { film: [film.shown()] };
+    await film.c.pass(599);
+    out.film.push(film.p.marks());
+    await film.c.pass(1);
+    out.film.push(film.p.marks());
+    await film.p.undo();
+    out.film.push([film.p.marks(), !!film.node.querySelector('.watch-bar')]);
+
+    const early = await go(0, CONTINUE.slice(1));
+    await early.c.pass(100);
+    await early.p.undo();
+    await early.c.pass(2000);
+    out.early = [early.p.marks(), !!early.node.querySelector('.watch-bar')];
+
+    const again = await go(0, CONTINUE.slice(1));
+    await again.c.pass(100);
+    await again.p.pick(again.node, 'mark');
+    await again.c.pass(2000);
+    out.again = [again.p.calls, again.p.marks()];
+
+    const moved = (over) => [CONTINUE[0], card('episode/23', 'Brightwater', 'S1 · E3', { dismiss: 'show-2', img: '/two', ...over }), CONTINUE[2]];
+    const look = (e) => [e.p.marks()[1], e.p.cards()[1] === e.node, e.node.querySelector('.watch-card__sub').textContent, e.node.querySelector('.card-tool--eye').getAttribute('aria-pressed'), !!e.node.querySelector('.watch-bar')];
+    const episode = await go(1, moved());
+    const img = episode.node.querySelector('img');
+    out.episode = [episode.shown().slice(1)];
+    await episode.c.pass(599);
+    out.episode.push(look(episode));
+    await episode.c.pass(1);
+    out.episode.push(look(episode), [episode.node.querySelector('img') === img, episode.p.focus(), episode.node.querySelector('.card-tool--eye') === episode.p.doc.activeElement]);
+    await episode.p.undo();
+    await episode.c.pass(2000);
+    out.episode.push(look(episode));
+
+    const other = await go(1, moved({ img: '/three' }));
+    await other.c.pass(600);
+    out.other = [other.p.marks()[1], other.p.cards()[1] === other.node];
+    return out;
+  },
+
+  // A mark whose answer took so long that its eye had shut, and one answered at once.
+  async lateEye() {
+    const go = async (drawn) => {
+      const p = load(watchPage([row('lib', [FILM()])]), { drawn });
+      await p.pick(p.cards()[0], 'mark');
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      return [eye.classList.contains('is-blink'), Number(eye.style['--shut']).toFixed(2)];
+    };
+    return { shut: await go('matrix(1, 0, 0, 0.06, 0, 0)'), open: await go('none'), raised: await go('matrix(1.18, 0, 0, 1.18, 0, 0)') };
+  },
+
+  // The levels fold after a love, whose ring and sparks stand past their edge.
+  async foldAfterLove() {
+    const c = clock();
+    const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]), { clock: c, motion: true, api: { [RATE + '2']: FILM_10 } });
+    const film = p.cards()[0];
+    await thumb(p, film, 3);
+    const pops = () => film.querySelectorAll('.card-over .pop').length;
+    const before = [pops(), p.doc.getElementById('lib').classList.contains('has-lifted'), film.querySelector('[data-card-rate]').className];
+    await c.pass(560);
+    return { before, folding: [film.querySelectorAll('.card-over').length, pops(), p.doc.getElementById('lib').classList.contains('has-lifted')] };
+  },
+
+  // How long a pick given a strong no stays, with motion and without.
+  async noStays() {
+    const go = async (motion, at) => {
+      const c = clock();
+      const p = rated({}, { clock: c, motion });
+      await thumb(p, p.cards('picks')[1], 0);
+      await c.pass(at - 1);
+      const before = p.marks('picks');
+      await c.pass(1);
+      return [before, p.marks('picks')];
+    };
+    return { moving: await go(true, 900), still: await go(false, 650) };
+  },
+
+  // A card that leaves its row and one that comes back are not cut at their edges; a row that goes is.
+  async leavesWhole() {
+    const styles = [];
+    Node.prototype.animate = function () { styles.push([this.tagName, this.style.overflow || '']); const a = { cancel() {} }; Promise.resolve().then(() => a.onfinish && a.onfinish()); return a; };
+    const go = async (cards) => {
+      const p = load(watchPage([row('cont', cards)]), { motion: true, next: watchPage([row('cont', cards.slice(1))]) });
+      await p.pick(p.cards()[0], 'dismiss');
+      await p.undo();
+    };
+    await go(CONTINUE);
+    const card = styles.splice(0);
+    await go(CONTINUE.slice(0, 1));
+    delete Node.prototype.animate;
+    return { card, row: styles.slice(0, 1) };
+  },
+
   // A rating from a card: a level, then the same one taken back.
   async menuRating() {
     const p = rated();

@@ -335,6 +335,59 @@ def test_marking_in_continue_watching_goes_on_to_the_next_episode_or_takes_the_c
     assert out["last"] == ["movie/1", "movie/3"]
 
 
+def test_with_motion_a_mark_is_seen_before_its_card_goes_or_moves_on_where_it_stands() -> None:
+    out = _run("markSeen")
+    cards = ["movie/1", "episode/22", "movie/3"]
+    # The lights and the bar's run, in place of the bar; gone after that; back with its bar.
+    assert out["film"] == [
+        [cards, True, True, False],
+        cards,
+        cards[1:],
+        [cards, True],
+    ]
+    # An Undo, or another press, before it has gone: it stays.
+    assert out["early"] == [cards, True]
+    assert out["again"] == [
+        ["POST /api/watch/watched/movie/1", "DELETE /api/watch/watched/movie/1"],
+        cards,
+    ]
+    # The same card, picture, button and focus.
+    assert out["episode"] == [
+        [True, True, False],
+        ["episode/22", True, "S1 · E2 · 12 min left", "true", False],
+        ["episode/23", True, "S1 · E3", "false", False],
+        [True, "episode/23", True],
+        ["episode/22", True, "S1 · E2 · 12 min left", "false", True],
+    ]
+    assert out["other"] == ["episode/23", False]
+
+
+def test_an_eye_that_waited_for_its_answer_shut_goes_on_from_there() -> None:
+    assert _run("lateEye") == {
+        "shut": [True, "0.94"],
+        "open": [True, "0.00"],
+        "raised": [True, "0.00"],
+    }
+
+
+def test_the_levels_fold_from_their_own_edge_after_a_love() -> None:
+    out = _run("foldAfterLove")
+    assert out["before"] == [1, True, "card-tool card-tool--thumb is-up is-double"]
+    assert out["folding"] == [1, 0, False]
+
+
+def test_a_pick_given_a_strong_no_stays_until_its_thumb_has_come_down() -> None:
+    out = _run("noStays")
+    for before, after in (out["moving"], out["still"]):
+        assert (before, after) == (["movie/8", "movie/1", "movie/9"], ["movie/8", "movie/9"])
+
+
+def test_a_card_that_leaves_its_row_is_not_cut_at_its_edges_and_a_row_is() -> None:
+    out = _run("leavesWhole")
+    assert out["card"] == [["ARTICLE", ""], ["ARTICLE", ""]]
+    assert out["row"] == [["SECTION", "hidden"]]
+
+
 def test_a_mark_undone_before_the_page_answers_moves_nothing() -> None:
     assert _run("undoneFirst") == ["movie/1", "episode/22", "movie/3"]
 
