@@ -262,6 +262,13 @@ def test_a_rows_offer_covers_no_heading_and_no_words_of_see_all_on_a_phone() -> 
     )
 
 
+def test_the_words_of_see_all_keep_their_colour_under_the_pointer_in_forced_colours() -> None:
+    browse = SHEET.with_name("_watch_browse.css")
+    for state in ("", ":hover", ":active"):
+        rules = _of(f".row-open[href]{state} .row-open__cue", FORCED, browse)
+        assert "color: LinkText" in rules
+
+
 def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
     cast = SHEET.with_name("_watch_cast.css")
     for media in (None, "prefers-reduced-motion"):

@@ -1689,6 +1689,17 @@ const scenarios = {
   // What stands for a title while it loads: for an admin the facts card, and how far it was watched as its card says.
   async loadingPlaces() {
     const pending = () => new Promise(() => {});
+    const onTrending = (admin, inLibrary, leaving) => {
+      const p = load({ admin, adminApi: {}, routes: { '/api/watch/title/tmdb-movie-77': pending } });
+      const link = p.doc.querySelector('[data-title-ref="tmdb-movie-77"]');
+      const card = link.closest('.watch-card');
+      if (inLibrary) link.setAttribute('data-in-library', '');
+      if (leaving) card.appendChild(build(p.doc, ['span', { class: 'watch-badge--leaving' }]));
+      p.run();
+      click(p.doc, link);
+      return [p.ttl().querySelectorAll('.ttl-facts__skel').length, p.q('.ttl__actions').children.length,
+        p.ttl().querySelectorAll('.ttl__keep-skel').length, p.ttl().querySelectorAll('.ttl__leaving').length];
+    };
     const run = (ref, admin, begun) => {
       const p = load({ admin, adminApi: {}, routes: { ['/api/watch/title/' + ref]: pending } });
       const card = p.doc.querySelector('.watch-card');
@@ -1697,7 +1708,8 @@ const scenarios = {
       p.ctx.MMWatch.detail.open(ref, { title: 'X', origin: card });
       return [p.ttl().querySelectorAll('.ttl-facts .ttl-facts__skel').length, p.q('.ttl__lead').querySelectorAll('.ttl__progress').length];
     };
-    return { admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true) };
+    return { admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true),
+      trending: [onTrending(true, true), onTrending(true, false), onTrending(false, true, true), onTrending(true, true, true)] };
   },
 
   // The title is loaded again after a Keep while another season than the server's own is on

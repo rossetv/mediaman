@@ -80,6 +80,13 @@ def test_a_card_just_marked_shows_its_mark_before_it_goes() -> None:
     assert _run("marked")["gets"] == [1, 2]
 
 
+def test_a_mark_or_an_undo_of_the_persons_own_waits_for_no_earlier_asking() -> None:
+    out = _run("own_marks")
+    assert out["keys"] == [["movie-2", "movie-3"], ["movie-3"], ["movie-2", "movie-3"]]
+    # What else calls for a look still waits.
+    assert out["others"] == [0, 1]
+
+
 def test_a_title_that_comes_while_the_page_is_open_goes_first_lit_and_is_said() -> None:
     out = _run("arrives")
     assert (out["gets"], out["keys"], out["lit"]) == (2, ["movie-2", "movie-1"], ["movie-2"])

@@ -89,8 +89,8 @@ def test_what_one_account_plays_is_not_there_for_another_in_the_same_browser() -
     out = _run("account")
     assert out["seen"] == [[None, None, False, None]] * 2
     assert (out["scripts"], out["posts"], out["ended"]) == ([0, 0, 0], [], [])
-    # It is left as it was for the first.
-    assert out["same"] is True
+    assert out["left"] == []
+    # What a tab of the first has noted since is not read for another.
     assert out["kept"] == {"played_s": 10}
 
 
@@ -115,6 +115,29 @@ def test_signing_out_forgets_it_and_the_tv_and_its_stream_are_left_to_themselves
 def test_the_sign_in_page_opened_by_somebody_signed_in_changes_nothing(page: str) -> None:
     out = _run("signIn")[f"{page} in"]
     assert (out["stored"], out["gone"], out["ended"], out["posts"]) == (2, [], [], [])
+    assert out["now"] is (page == "keeper")
+
+
+@pytest.mark.parametrize(("page", "gone"), [("player", ["stopped"]), ("keeper", [])])
+def test_a_tab_lets_go_when_someone_else_signs_in_and_the_tv_and_its_stream_are_left(
+    page: str, gone: list[str]
+) -> None:
+    assert _run("signedInOver")[f"{page} other"] == {
+        "stored": 0,
+        "gone": gone,
+        "ended": [],
+        "posts": [],
+        "now": False,
+    }
+
+
+@pytest.mark.parametrize("page", ["player", "keeper"])
+@pytest.mark.parametrize("who", ["same", "empty", "nobody"])
+def test_a_tab_goes_on_when_a_page_of_the_same_person_or_of_nobody_is_opened(
+    page: str, who: str
+) -> None:
+    out = _run("signedInOver")[f"{page} {who}"]
+    assert (out["stored"], out["gone"], out["ended"]) == (2, [], [])
     assert out["now"] is (page == "keeper")
 
 
@@ -804,6 +827,21 @@ def test_what_waits_for_a_press_is_taken_up_as_it_was(kind: str, now: list[Any])
     assert (out["now"][:3], out["ended"], out["loads"]) == (now, [], 1)
 
 
+@pytest.mark.parametrize(
+    ("kind", "state"), [("count", "upnext"), ("cancelled", "upnext"), ("still", "still")]
+)
+@pytest.mark.parametrize("reply", ["saved", "refused"])
+def test_stop_answers_on_a_page_that_took_the_wait_over(kind: str, state: str, reply: str) -> None:
+    assert _run("stopsTakenOver")[f"{kind} {reply}"] == {
+        "state": state,
+        "said": reply == "saved",
+        "at": True,
+        "ended": [True],
+        "now": None,
+        "record": False,
+    }
+
+
 def test_a_question_nobody_answered_is_over_on_the_next_page_too() -> None:
     out = _run("waits")["asked"]
     assert (out["now"], out["ended"]) == (None, [True])
@@ -851,6 +889,12 @@ def test_a_play_left_as_it_changed_its_stream_is_opened_again_once() -> None:
     assert out["now"] == ["st9", "playing", "best", "102"]
     assert (out["going"], out["loads"]) == (True, 2)
     assert (out["after"], out["ended"]) == (None, [True])
+
+
+def test_a_play_left_as_it_changed_is_not_opened_again_once_a_save_was_taken() -> None:
+    out = _run("leftChangingInTime")
+    assert out["taken"] == {"asked": 0, "loads": 1, "ended": [True]}
+    assert out["outage"] == {"asked": 1, "loads": 2, "ended": []}
 
 
 def test_a_script_that_throws_leaves_stop_and_pause_working() -> None:

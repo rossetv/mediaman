@@ -513,6 +513,58 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
     assert out["upnext"] == ["9002", 0]
 
 
+@cache
+def _called_off() -> dict:
+    return _run("calledOff")
+
+
+START, STOP_NEW, STOP_OLD = "tvs/8/play", "tvs/8/commands stop p8", "tvs/7/commands stop p1"
+
+
+def test_what_is_called_off_is_stopped_before_the_page_is_left() -> None:
+    out = _called_off()
+    assert out["stopSent"] == [START, STOP_NEW]
+    assert out["unanswered"] == [START, STOP_NEW, STOP_OLD, "go"]
+
+
+def test_what_the_new_tv_took_before_the_page_heard_is_brought_here_the_same() -> None:
+    assert _called_off()["given"] == [START, STOP_NEW, STOP_OLD, "go"]
+
+
+def test_an_older_tv_that_is_called_off_is_stopped_without_its_next_word() -> None:
+    assert _called_off()["begun"] == [[START, STOP_NEW, "go"], "/watch/play/9001?resume=1"]
+
+
+def test_a_start_refused_as_it_is_called_off_is_waited_for_no_longer_and_not_said() -> None:
+    assert _called_off()["refused"] == [[START, STOP_OLD, "go"], []]
+
+
+def test_a_start_that_is_not_answered_is_waited_for_ten_seconds() -> None:
+    before, after = _called_off()["limit"]
+    assert before == [START]
+    assert after == [START, STOP_OLD, "go"]
+
+
+def test_a_chromecast_that_is_starting_is_waited_for_once_it_is_chosen() -> None:
+    out = _called_off()
+    waiting, over = out["cast"]
+    assert waiting == []
+    assert over == [STOP_OLD, "go"]
+    assert out["unchosen"] == [STOP_OLD, "go"]
+
+
+def test_the_remote_says_it_waits_and_takes_no_second_press() -> None:
+    assert _called_off()["waits"] == {
+        "did": [START],
+        "says": ["Bringing it here", "Stopping the TV that was starting."],
+        "ring": True,
+        "dead": [True, True],
+        "focus": True,
+        "bar": "Bringing it here",
+        "sheets": 0,
+    }
+
+
 def test_a_titles_button_says_whether_a_tv_plays_it() -> None:
     assert _run("paintsTitles") == [
         [True, "Playing on a TV", False, True],

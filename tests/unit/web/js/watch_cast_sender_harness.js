@@ -370,15 +370,17 @@ const scenarios = {
     first.play.keep({ quality: 'low' });
     await w.clock.advance(10000);
     first.close();
-    const stored = JSON.stringify(w.storage);
+    const stored = Object.assign({}, w.storage);
     const other = await open(w, { player: true, account: 'bb22' });
     const otherRoom = await open(w, { account: 'bb22' });
     await w.clock.advance(11000);
+    const left = Object.keys(w.storage);
+    Object.assign(w.storage, stored);
     const unknown = await open(w, { player: true, account: null });
     const seen = [other, unknown].map((p) => [p.way.again('101'), p.way.release('101'), p.sender.holds('101'), p.sender.now()]);
-    const out = { seen, scripts: [other, otherRoom, unknown].map((p) => p.scripts.length), posts: otherRoom.posts, ended: w.tv.ended.slice(), same: JSON.stringify(w.storage) === stored };
+    const out = { seen, scripts: [other, otherRoom, unknown].map((p) => p.scripts.length), posts: otherRoom.posts, ended: w.tv.ended.slice(), left };
     // Nor is what is kept beside it read for another.
-    w.storage[RECORD] = JSON.stringify(Object.assign(JSON.parse(w.storage[RECORD]), { account: 'bb22' }));
+    w.storage[RECORD] = JSON.stringify(Object.assign(JSON.parse(stored[RECORD]), { account: 'bb22' }));
     out.kept = (await other.way.again('101')).stream.keep;
     return out;
   },
@@ -1015,6 +1017,27 @@ const scenarios = {
     await w.clock.advance(60000);
     return Object.assign(out, { followed: !!found, saves, after: keeper.posts.length, posts: player.posts, record: !!w.storage[RECORD] });
   },
+  // A page is opened in another tab: somebody else's, the same person's, or nobody's.
+  async signedInOver() {
+    const out = {};
+    for (const kind of ['player', 'keeper']) {
+      for (const [who, account] of [['other', 'bb22'], ['same', 'aa11'], ['empty', ''], ['nobody', null]]) {
+        const w = world();
+        const first = await casting(w);
+        first.play.keep({ quality: 'low' });
+        let page = first;
+        if (kind === 'keeper') { first.close(); page = await open(w); await w.clock.advance(1000); }
+        page.posts.length = 0;
+        const before = JSON.stringify(w.storage);
+        await open(w, { account, joins: false });
+        if (JSON.stringify(w.storage) !== before) page.listeners.storage({ key: RECORD, newValue: w.storage[RECORD] || null });
+        const posts = places(page);
+        await w.clock.advance(6000);
+        out[kind + ' ' + who] = { stored: Object.keys(w.storage).length, gone: first.gone, ended: w.tv.ended, posts, now: !!page.sender.now() };
+      }
+    }
+    return out;
+  },
   // A page with no player, opened while the TV plays.
   async keeper() {
     const w = world();
@@ -1374,6 +1397,31 @@ const scenarios = {
     }
     return out;
   },
+  // Stop is pressed on a page that took the wait over; the server saves the end, or refuses.
+  async stopsTakenOver() {
+    const out = {};
+    for (const kind of ['count', 'cancelled', 'still']) {
+      for (const reply of ['saved', 'refused']) {
+        const w = world();
+        const page = await casting(w);
+        page.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+        page.play.leave();
+        await w.clock.advance(1000);
+        if (kind === 'still') await w.clock.advance(2 * 3600 * 1000);
+        w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
+        await settle();
+        if (kind === 'cancelled') page.sender.cancel();
+        page.close();
+        const next = await open(w);
+        if (reply === 'refused') next.replies['/api/watch/stream/st1/stop'] = { status: 502 };
+        await w.clock.advance(500);
+        const before = next.sender.now();
+        const said = await next.sender.stop();
+        out[kind + ' ' + reply] = { state: before && before.state, said: said.saved, at: said.position_s === before.position_s, ended: w.tv.ended, now: next.sender.now(), record: RECORD in w.storage };
+      }
+    }
+    return out;
+  },
   // A page that only looks, while the page that has it changes its stream or has just seen it end.
   async looksOnly() {
     const out = {};
@@ -1396,6 +1444,30 @@ const scenarios = {
       const other = await open(w);
       await w.clock.advance(4000);
       out[kind] = { now: !!other.sender.now(), ended: w.tv.ended, posts: places(other).map((x) => x[0]), record: RECORD in w.storage };
+    }
+    return out;
+  },
+  // A page was left as it changed its stream; the server takes the old one's saves, then ends it.
+  async leftChangingInTime() {
+    const out = {};
+    for (const [name, first] of [['taken', null], ['outage', { status: 502 }]]) {
+      const w = world();
+      const page = await casting(w);
+      page.play.keep({ quality: 'best' });
+      page.play.leave();
+      await w.clock.advance(1000);
+      page.replies['/api/cast/stream'] = () => new Promise(() => {});
+      page.sender.start({ quality: 'low' });
+      await settle();
+      page.close();
+      const other = await open(w);
+      other.replies['/api/watch/progress'] = first;
+      await w.clock.advance(1000);
+      let asked = 0;
+      other.replies['/api/cast/stream'] = () => { asked += 1; return Promise.resolve({ stream_id: 'st9', url: '/api/cast/t9/index.m3u8', duration_s: 2000 }); };
+      other.replies['/api/watch/progress'] = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410 }) : Promise.resolve({}));
+      await w.clock.advance(11000);
+      out[name] = { asked, loads: w.tv.loads.length, ended: w.tv.ended };
     }
     return out;
   },
