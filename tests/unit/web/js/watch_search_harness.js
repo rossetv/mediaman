@@ -593,6 +593,17 @@ const scenarios = {
     return [p.url(), p.input.value, p.shown(), p.tab.entries.length, p.calls.filter((c) => c.url.includes('search?')).map((c) => c.url.split('=')[1])];
   },
 
+  // The same over a category's page, which takes the field when the step lands.
+  async emptiedAndTypedOnCategory() {
+    const p = await ready(ADMIN, '', '/watch?genre=action');
+    await p.search('orchard');
+    p.type('');
+    p.type('lantern');
+    await settle();
+    await settle();
+    return [p.url(), p.input.value, p.shown(), p.$('watch-search-token').hidden];
+  },
+
   // Of a show, the badge is of its season, and no Keep comes with it.
   async leavingSeason() {
     const p = load(ADMIN);

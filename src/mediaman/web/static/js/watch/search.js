@@ -1759,12 +1759,21 @@
       },
       close: function (how) {
         var again = emptied && input.value.trim();
+        var text = input.value;
         setEmptied(false);
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
         // Typed since, it is a search of its own in the entry the step led to.
         if (again) {
-          setTimeout(function () { if (current && current.q === input.value.trim()) syncUrl(current.q); });
+          setTimeout(function () {
+            // A page the step led to took the field.
+            if (view === 'page' && !input.value) {
+              input.value = text;
+              typed(true);
+            } else if (current && current.q === input.value.trim()) {
+              syncUrl(current.q);
+            }
+          });
           return;
         }
         stop();

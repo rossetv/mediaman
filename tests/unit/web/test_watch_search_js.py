@@ -135,6 +135,10 @@ def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
     ]
 
 
+def test_what_was_typed_over_an_emptied_search_outlives_the_step_back_to_a_category() -> None:
+    assert _run("emptiedAndTypedOnCategory") == ["/watch?q=lantern", "lantern", "results", True]
+
+
 def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_keep() -> None:
     rest = ["9", None, 0]
     assert _run("leavingSeason") == [
