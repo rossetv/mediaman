@@ -676,6 +676,7 @@ def test_a_trailer_plays_on_over_the_page_until_the_person_scrolls_presses_keys_
         "on": {"same": True, "film": True, "muted": False},
         "scrolled": [True, False, False],
         "pressed": [True, False, False],
+        "keyed": [True, False, False],
         "ended": [False, False, False],
         "left": [False, False],
     }

@@ -1576,6 +1576,7 @@
       if (page().scrollTop > 8) melt();
     }, { passive: true });
     page().addEventListener('pointerdown', melt);
+    page().addEventListener('click', melt, true); // a key that presses something too
   }
 
   /* A press anywhere takes it the rest of the way. */

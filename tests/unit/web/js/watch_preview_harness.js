@@ -1545,6 +1545,7 @@ const scenarios = {
       on: scrolled.on,
       scrolled: scrolled.after,
       pressed: (await run((h) => h.fire(h.ttl, 'pointerdown'))).after,
+      keyed: (await run((h) => h.fire(h.ttl, 'click', { detail: 0 }))).after,
       ended: (await run((h) => h.message({ event: 'onStateChange', info: 0 }))).after,
       left: (await run((h) => h.ctx.MMWatch.preview.letGo())).after.slice(1),
     };
