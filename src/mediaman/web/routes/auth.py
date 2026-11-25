@@ -167,7 +167,7 @@ def login_submit(
     next_page: str = Query(default="", alias="next"),
 ) -> Response:
     client_ip = get_client_ip(request)
-    # The database and the form shown again take only text that has a UTF-8 form.
+    # The name is looked up and shown again as UTF-8.
     username = username.encode("utf-8", "replace").decode()
     # Counted before the check, so that guesses sent at once cannot all slip under the limit;
     # a success takes back its own count only.
