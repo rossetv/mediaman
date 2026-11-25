@@ -1,6 +1,6 @@
 /* Watch: the rows grow into grids, on MMWatch.expand. A row's heading is a link
- * to its grid (?all=<row>); three screens along the same row a pill offers the
- * same. Whatever opens one is in the address, so a shared link does too.
+ * to its grid (?all=<row>); three screens along the same row it draws the eye.
+ * Whatever opens one is in the address, so a shared link does too.
  * What a row's grid holds comes from its source:
  *
  *   source(id, function (at) { return what MMWatch.grid.open takes; })
@@ -103,16 +103,17 @@
     return box;
   }
 
-  function offer(section, id) {
-    var button = el('button', 'row-offer');
-    button.type = 'button';
-    button.setAttribute('data-row-open', id);
-    button.setAttribute('data-grid-fade', '');
-    button.appendChild(icon('i-table-cells-large'));
-    button.appendChild(el('span', 'row-offer__text'));
-    var box = section.querySelector('.watch-row__head');
-    box.insertBefore(button, box.querySelector('.watch-row__tools'));
-    return button;
+  /* How many there are, between See all's words and its arrow. */
+  function counted(section) {
+    var cue = section.querySelector('.row-open__cue');
+    if (!cue || cue.querySelector('.row-open__end')) return;
+    var words = el('span', 'row-open__words');
+    var end = el('span', 'row-open__end');
+    end.appendChild(el('span', 'row-open__total'));
+    end.appendChild(cue.querySelector('.ico'));
+    words.appendChild(cue.querySelector('.row-open__word'));
+    words.appendChild(end);
+    cue.appendChild(words);
   }
 
   /* See all is there only where something is off the screen. */
@@ -132,17 +133,16 @@
     } else {
       link.removeAttribute('href');
       link.removeAttribute('aria-label');
-      hideOffer(section);
+      withdraw(section);
     }
-    var text = section.querySelector('.row-offer__text');
-    if (text) text.textContent = total === null ? 'Keep going in a grid' : 'See all ' + total + ' in a grid';
+    link.querySelector('.row-open__total').textContent = total === null ? '' : total;
   }
 
   var started = new WeakSet();
 
   /* Start *section*'s heading, or look again after its cards were swapped for others. */
   function row(section) {
-    if (!section.querySelector('.row-offer') && section.querySelector('.row-open')) offer(section, section.getAttribute('data-row-id'));
+    counted(section);
     var scroller = scrollerOf(section);
     if (scroller && !started.has(scroller)) {
       started.add(scroller);
@@ -161,14 +161,31 @@
 
   var travelled = new WeakMap(); // how far each row was scrolled since another was
   var lefts = new WeakMap();
+  var called = {}; // the rows whose heading has moved, by id
 
-  function offerOf(section) { return section.querySelector('.row-offer'); }
+  function offer(section) {
+    var link = section.querySelector('.row-open');
+    if (!link) return;
+    link.classList.add('is-offered');
+    var id = link.getAttribute('data-row-open');
+    if (own(called, id)) return;
+    called[id] = true;
+    link.classList.add('is-calling');
+  }
 
-  function hideOffer(section) {
-    var button = offerOf(section);
-    if (button) button.classList.remove('is-on');
+  /* A heading still moving comes to rest by itself. */
+  function withdraw(section) {
+    var link = section.querySelector('.row-open');
+    if (link) link.classList.remove('is-offered');
     travelled.set(section, 0);
   }
+
+  // Cancelled when the page is hidden, or it would move again on its return.
+  ['animationend', 'animationcancel'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      e.target.classList.remove('is-calling');
+    });
+  });
 
   function rowScrolled(scroller) {
     var section = scroller.closest('[data-row-id]');
@@ -178,13 +195,16 @@
     // Put back by the page itself, not scrolled by the person.
     if (grid.moving() || grid.isOpen()) return;
     if (by > 1) {
-      toArray(browse.querySelectorAll('[data-row-id]')).forEach(function (other) { if (other !== section) hideOffer(other); });
+      toArray(browse.querySelectorAll('[data-row-id]')).forEach(function (other) { if (other !== section) withdraw(other); });
+    }
+    if (scroller.scrollLeft <= EDGE) {
+      withdraw(section);
+      return;
     }
     var sum = (travelled.get(section) || 0) + by;
     travelled.set(section, sum);
     if (sum < OFFER_SCREENS * scroller.clientWidth - OFFER_LESS || section.hasAttribute('data-row-whole')) return;
-    var button = offerOf(section);
-    if (button) button.classList.add('is-on');
+    offer(section);
   }
 
   document.addEventListener('scroll', function (e) {
@@ -245,6 +265,8 @@
 
   function show(id, sort, how) {
     var section = rowOf(id);
+    var link = section && section.querySelector('.row-open');
+    if (link) link.classList.remove('is-calling'); // the grid measures its title at rest
     var made = (own(sources, id) ? sources[id] : whole)({
       id: id, sort: sort, row: section,
       drawn: how.drawn ? drawn : null,
@@ -258,7 +280,7 @@
     }, made, { sort: withSort(id, made.sort, sort) }));
     // A card kept or dismissed in there leaves it as it leaves the row.
     document.querySelector('.watch-all__body').toggleAttribute('data-watch-leaving-row', id === 'leaving');
-    if (section) setTimeout(function () { hideOffer(section); }, core.tokenMs('--dur-fast', 150));
+    if (section) setTimeout(function () { withdraw(section); }, core.tokenMs('--dur-fast', 150));
     return placed;
   }
 

@@ -46,7 +46,7 @@ function serverRow(id, title, cards, total, next) {
   return ['section', { class: 'watch-row', 'data-row-id': id, 'data-row-total': String(total), ...(id === 'leaving' ? { 'data-watch-leaving-row': '' } : {}) },
     ['div', { class: 'watch-row__head' }, ['h2', { class: 'watch-row__title' },
       ['a', { class: 'row-open', href: '/watch?all=' + id, 'data-row-open': id }, ['span', { 'data-row-title': '' }, title],
-        ['span', { class: 'row-open__cue', 'data-grid-fade': '' }, 'See all']]]],
+        ['span', { class: 'row-open__cue', 'data-grid-fade': '' }, ['span', { class: 'row-open__word' }, 'See all'], ['svg', { class: 'ico' }]]]]],
     ['div', viewport, ['div', { class: 'watch-row__scroll', 'aria-label': title }, ...cards]]];
 }
 
@@ -174,7 +174,10 @@ async function load(opts = {}) {
     doc.listeners.scroll.forEach((fn) => fn({ target: scroller }));
     await settle();
   };
-  p.offer = (id) => p.row(id).querySelector('.row-offer').classList.contains('is-on');
+  p.link = (id) => p.row(id).querySelector('.row-open');
+  p.offer = (id) => p.link(id).classList.contains('is-offered');
+  p.call = (id) => p.link(id).classList.contains('is-calling');
+  p.animation = (type, node) => (doc.listeners[type] || []).forEach((fn) => fn({ target: node }));
   return p;
 }
 
@@ -290,18 +293,70 @@ const scenarios = {
     const p = await load();
     const seen = [];
     for (const left of [800, 1600, 2400]) { await p.scroll('movies', left); seen.push(p.offer('movies')); }
-    const text = p.row('movies').querySelector('.row-offer__text').textContent;
-    const endless = p.row('trending').querySelector('.row-offer__text').textContent;
+    const cue = (id) => p.link(id).querySelector('.row-open__cue');
+    const text = cue('movies').textContent;
+    const endless = cue('trending').textContent;
+    const label = p.link('movies').getAttribute('aria-label');
+    const ways = p.row('movies').querySelectorAll('[data-row-open]').length;
     await p.scroll('continue', 100);
     const taken = p.offer('movies');
     await p.scroll('movies', 1600);
     const again = p.offer('movies');
-    await p.scroll('movies', 0);
-    await p.scroll('movies', 800);
+    await p.scroll('movies', 3200);
     const back = p.offer('movies');
-    p.press(p.row('movies').querySelector('.row-offer'));
+    const prevented = p.press(cue('movies').querySelector('.row-open__word'));
     await p.settle();
-    return { seen, text, endless, taken, again, back, at: p.at(), title: p.grid().title, left: p.offer('movies') };
+    return { seen, text, endless, label, ways, taken, again, back, prevented, at: p.at(), title: p.grid().title, left: p.offer('movies') };
+  },
+
+  // The heading moves once for each row; the offer itself comes back without it.
+  async calledOnce() {
+    const p = await load();
+    const deep = async (id) => { for (const left of [800, 1600, 2400]) await p.scroll(id, left); };
+    const look = () => [p.offer('movies'), p.call('movies')];
+    const seen = [];
+    await deep('movies');
+    seen.push(look());
+    // What ends inside the heading is not the heading's own motion.
+    p.animation('animationend', p.link('movies').querySelector('.row-open__word'));
+    seen.push(look());
+    p.animation('animationend', p.link('movies'));
+    seen.push(look());
+    await p.scroll('movies', 0);
+    seen.push(look());
+    await deep('movies');
+    seen.push(look());
+    await deep('popular_movies');
+    return { seen, other: [p.offer('popular_movies'), p.call('popular_movies')] };
+  },
+
+  // Gone back to the row's start while its heading moves; a page hidden meanwhile; a grid opened meanwhile.
+  async calledOff() {
+    const deep = async () => { const p = await load(); for (const left of [800, 1600, 2400]) await p.scroll('movies', left); return p; };
+    const look = (p) => [p.offer('movies'), p.call('movies')];
+    const p = await deep();
+    await p.scroll('movies', 0);
+    const back = look(p);
+    const q = await deep();
+    q.animation('animationcancel', q.link('movies'));
+    const hidden = look(q);
+    const r = await deep();
+    r.press(r.link('movies'));
+    const pressed = r.call('movies');
+    await r.step(-1);
+    return { back, hidden, pressed, closed: look(r) };
+  },
+
+  // However far its few cards are scrolled, a row that is all there offers nothing; cards that leave take it back.
+  async offeredWhole() {
+    const p = await load();
+    for (const left of [800, 1600, 2400, 3200]) await p.scroll('leaving', left);
+    const whole = p.offer('leaving');
+    for (const left of [800, 1600, 2400]) await p.scroll('continue', left);
+    const before = p.offer('continue');
+    p.row('continue').querySelectorAll('.watch-card').slice(3).forEach((c) => c.remove());
+    p.ctx.MMWatch.expand.row(p.row('continue'));
+    return { whole, before, after: p.offer('continue') };
   },
 
   // A click that is for a new tab, or for a row nobody knows, is the browser's.
@@ -378,7 +433,7 @@ const scenarios = {
     row.querySelector('.watch-card').setAttribute('inert', '');
     p.ctx.MMWatch.expand.row(row);
     const link = row.querySelector('.row-open');
-    return { href: link.getAttribute('href'), label: link.getAttribute('aria-label'), cue: !link.querySelector('.row-open__cue').hidden, offer: row.querySelector('.row-offer__text').textContent };
+    return { href: link.getAttribute('href'), label: link.getAttribute('aria-label'), cue: !link.querySelector('.row-open__cue').hidden, offer: link.querySelector('.row-open__cue').textContent };
   },
 
   // A card kept or dismissed in the grid leaves it, and the row, and comes back to both.

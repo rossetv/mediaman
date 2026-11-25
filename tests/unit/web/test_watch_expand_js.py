@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
 HARNESS = Path(__file__).parent / "js" / "watch_expand_harness.js"
+BROWSE = (
+    Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_browse.css"
+).read_text(encoding="utf-8")
 
 
 def _run(scenario: str):
@@ -124,9 +128,54 @@ def test_a_row_that_is_all_on_the_screen_offers_no_grid() -> None:
 def test_three_screens_of_one_row_bring_the_offer_and_another_row_takes_it_away() -> None:
     out = _run("offered")
     assert out["seen"] == [False, False, True]
-    assert (out["text"], out["endless"]) == ("See all 32 in a grid", "Keep going in a grid")
+    assert (out["text"], out["endless"]) == ("See all32", "See all")
+    assert (out["label"], out["ways"]) == ("Movies, see all 32", 1)
     assert (out["taken"], out["again"], out["back"]) == (False, False, True)
+    assert out["prevented"] is True
     assert (out["at"], out["title"], out["left"]) == ("/watch?all=movies", "Movies", False)
+
+
+def test_a_row_s_heading_moves_once_and_its_offer_comes_back_still() -> None:
+    out = _run("calledOnce")
+    still = [True, False]
+    assert out["seen"] == [[True, True], [True, True], still, [False, False], still]
+    assert out["other"] == [True, True]
+
+
+def test_going_back_takes_the_offer_and_lets_the_heading_settle_and_a_grid_stops_it() -> None:
+    assert _run("calledOff") == {
+        "back": [False, True],
+        "hidden": [True, False],
+        "pressed": False,
+        "closed": [False, False],
+    }
+
+
+def test_a_row_with_nothing_more_to_see_makes_no_offer() -> None:
+    assert _run("offeredWhole") == {"whole": False, "before": True, "after": False}
+
+
+def _keyframes(name: str) -> str:
+    return re.findall(rf"@keyframes {name} \{{((?:[^{{}}]*\{{[^{{}}]*\}})*)", BROWSE)[0]
+
+
+def test_the_heading_moves_nothing_else_and_only_where_motion_is_welcome() -> None:
+    start = BROWSE.index("@media (prefers-reduced-motion: no-preference)")
+    moving = re.match(r"[^{]*\{((?:[^{}]*\{[^{}]*\})*)", BROWSE[start:])
+    assert moving
+    assert BROWSE.count(".is-calling") == moving.group(1).count(".is-calling") > 0
+    names = set(re.findall(r"animation: ([\w-]+)", moving.group(1)))
+    assert names
+    for name in names:
+        # Never a size or a place, which would move the row under it.
+        assert set(re.findall(r"([\w-]+):", _keyframes(name))) <= {"transform", "opacity"}
+    assert "infinite" not in moving.group(1)
+    # The class that plays it goes with the heading's own motion, so nothing in it lasts longer.
+    times = {
+        sel.strip(): sum(float(t) for t in re.findall(r"([\d.]+)s\b", body))
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", moving.group(1))
+    }
+    assert times[".row-open.is-calling"] == max(times.values())
 
 
 def test_a_click_for_a_new_tab_or_on_an_unknown_row_is_the_browser_s() -> None:
@@ -231,5 +280,5 @@ def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_cou
         "href": "/watch?all=continue",
         "label": "Continue watching, see all 5",
         "cue": True,
-        "offer": "See all 5 in a grid",
+        "offer": "See all5",
     }
