@@ -56,6 +56,11 @@ class TestSecurityHeadersMiddleware:
         # posters from shifting CDNs we can't enumerate).
         assert "img-src 'self' data: blob: https:" in csp
 
+    @pytest.mark.parametrize("path", ["/downloads", "/watch"])
+    def test_the_apps_own_pages_keep_the_usual_referrer_policy(self, path):
+        resp = TestClient(_build_app()).get(path)
+        assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
     def test_csp_allows_media_from_self_and_blob_only(self):
         csp = TestClient(_build_app()).get("/ping").headers["Content-Security-Policy"]
         directives = {d.split(" ", 1)[0]: d for d in csp.split("; ")}

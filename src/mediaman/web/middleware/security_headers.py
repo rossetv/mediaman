@@ -172,6 +172,9 @@ _STATIC_HEADERS: dict[str, str] = {
     "Cross-Origin-Opener-Policy": "same-origin",
 }
 
+# The pages a mailed or shared link opens: their address is the link.
+_LINK_PAGES = ("/keep/", "/download/", "/unsubscribe")
+
 # HSTS — 2 years, includeSubDomains. ``preload`` is set conservatively only
 # when the operator opts in via env var; submitting to the HSTS preload
 # list is a one-way door and should be an explicit decision.
@@ -252,6 +255,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         request.state.google_cast_account = partial(_cast_account, request)
 
         response = await call_next(request)
+        path = request.url.path
+        if path.startswith(_LINK_PAGES):
+            response.headers.setdefault("Referrer-Policy", "no-referrer")
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
         response.headers.setdefault(
@@ -270,7 +276,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # ``setdefault`` means any handler that deliberately sets its own
         # Cache-Control is left untouched (e.g. poster proxy endpoints
         # that want a longer cache lifetime).
-        path = request.url.path
         response.headers.setdefault(
             "Cache-Control", "no-cache" if path.startswith("/static/") else "no-store, private"
         )
