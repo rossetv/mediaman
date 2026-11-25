@@ -243,6 +243,10 @@ def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:
     assert out["out"]["href"] == "/login"
 
 
+def test_a_session_lost_while_own_picks_are_made_goes_to_login() -> None:
+    assert _run("ownLoggedOut") == [["/login", 0, 0]] * 2
+
+
 def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() -> None:
     out = _run("ownRunningAtLoad")
     assert out["made"]["busy"].startswith("Making yours")

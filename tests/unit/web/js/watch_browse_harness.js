@@ -855,6 +855,22 @@ const scenarios = {
     };
   },
 
+  // The session ran out while the picks are made.
+  async ownLoggedOut() {
+    const at = async (status) => {
+      const p = load({ mine: MINE.ready, routes: {
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.reject(apiError(status, {})),
+      } });
+      await settle();
+      click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+      await settle();
+      await tick(p);
+      return [p.ctx.location.href, p.toasts.length, p.timers.length];
+    };
+    return [await at(401), await at(403)];
+  },
+
   // Found being made when the page loads, by the scan or an earlier press: the end is followed, and
   // an old failure is not told as this one's when there are new picks.
   async ownRunningAtLoad() {
