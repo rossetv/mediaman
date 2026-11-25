@@ -2481,6 +2481,24 @@ scenarios.thumbs = async () => {
   return out;
 };
 
+// The focus goes from a title's page to the bar of what plays on a TV, then behind the page.
+scenarios.tvBar = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE } });
+  p.doc.body.append(build(p.doc, ['section', { id: 'tv-mini' }, ['button', { id: 'tv-pause' }, 'Pause']]));
+  p.run();
+  p.ctx.MMWatch.detail.open('movie-120', { push: true });
+  await settle();
+  const go = (n) => { n.focus(); (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: n })); };
+  go(p.doc.getElementById('tv-pause'));
+  const out = { bar: p.doc.activeElement.id };
+  go(p.doc.querySelector('[data-title-ref]'));
+  out.behind = p.doc.activeElement.id;
+  go(p.doc.getElementById('tv-pause'));
+  p.key('Escape');
+  out.closed = p.ttl().classList.contains('is-leaving');
+  return out;
+};
+
 // *rateable* unknown: the answer comes after the wait is over.
 scenarios.thumbsNone = async () => {
   const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };

@@ -2573,16 +2573,17 @@
   /* ── Keys and focus ── */
 
   /* Elsewhere focus may go while the overlay is open: menus, dialogs and
-     toasts opened over it. */
+     toasts opened over it, and the bar of what plays on a TV. */
   function allowedOutside(node) {
     return !!(node && node.closest &&
-      node.closest('[role="menu"], [role="dialog"], [role="alertdialog"], .modal-backdrop, .ui-toast, .ui-toast-host'));
+      node.closest('[role="menu"], [role="dialog"], [role="alertdialog"], .modal-backdrop, .ui-toast, .ui-toast-host, #tv-mini'));
   }
 
   document.addEventListener('keydown', function (e) {
     if (!isOpen) return;
     var target = e.target;
-    var inside = root.contains(target) || target === document.body || target === document.documentElement || !target;
+    var inside = root.contains(target) || target === document.body || target === document.documentElement || !target ||
+      !!target.closest('#tv-mini');
     if (e.key === 'Escape') {
       if (e.defaultPrevented || !inside) return;
       e.preventDefault();

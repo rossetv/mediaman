@@ -622,6 +622,13 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     assert "watch-search-status" not in overlay
 
 
+def test_a_titles_page_does_not_hide_the_bar_of_a_tv_from_a_screen_reader():
+    tag = re.search(r'<div class="ttl"[^>]*>', _watch())
+    assert tag is not None
+    assert 'role="dialog"' in tag.group(0)
+    assert "aria-modal" not in tag.group(0)
+
+
 def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
     field = re.search(r'<input id="watch-search"[^>]*>', _watch())
     assert field is not None

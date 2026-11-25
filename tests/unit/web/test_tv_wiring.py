@@ -168,6 +168,20 @@ def test_a_page_of_another_origin_is_not_let_send_the_header(tv):
     assert resp.status_code >= 400
 
 
+@pytest.mark.parametrize("path", ["/account", "/pair"])
+def test_a_page_of_someone_signed_in_holds_the_remote_once(amy, path):
+    page = amy.get(path, follow_redirects=False).text
+    assert page.count('id="tv-mini"') == page.count('id="tv-remote"') == 1
+    assert "/static/js/tv-remote.js" in page and "/static/css/_tv_remote.css" in page
+
+
+@pytest.mark.parametrize("path", ["/login", "/tv"])
+def test_a_page_of_nobody_holds_no_remote(whole, path):
+    page = TestClient(whole).get(path)
+    assert page.status_code == 200
+    assert 'id="tv-remote"' not in page.text
+
+
 @pytest.mark.parametrize("flagged", [False, True])
 def test_the_tvs_own_page_opens_with_any_cookie_and_ends_no_session(tv, amy, home, conn, flagged):
     set_must_change_password(conn, "amy", flagged)
