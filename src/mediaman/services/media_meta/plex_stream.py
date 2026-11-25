@@ -75,8 +75,7 @@ _PLAYLIST_MAX_BYTES = 4 * 1024 * 1024
 # How long after a user last touched an item a new stream of it still counts as the same viewing,
 # so the time the player has already played carries over a restart, even after a long pause.
 VIEWING_KEEP_SECONDS = 24 * 3600.0
-# How long a reaped stream is remembered, so a stop or progress beacon that lost the race with
-# the reaper still saves the position.
+# How long a stop or progress beacon that lost the race with the reaper still saves the position.
 REAPED_KEEP_SECONDS = 600.0
 # How long Plex's word on whether it would copy a file's video is kept.
 COPY_VERDICT_KEEP_SECONDS = 3600.0
@@ -131,7 +130,7 @@ class StreamGone(Exception):
 
 
 class StreamReplaced(StreamGone):
-    """The same user has started the same item anew, so this stream made way."""
+    """The same user has started the same item anew, so this stream made way or stays ended."""
 
 
 class _Unservable(PlexUnavailable):
@@ -325,7 +324,7 @@ class StreamManager:
         self._issued: set[str] = set()
         # (user, rating_key) -> the viewing.
         self._viewings: dict[tuple[str, str], _Viewing] = {}
-        # stream id -> (when it was reaped, the stream), kept for REAPED_KEEP_SECONDS.
+        # stream id -> (when it was reaped, the stream), kept as long as a viewing.
         self._reaped: dict[str, tuple[float, _Stream]] = {}
         # stream id -> (when a newer start of its item dropped it, its user and item, that start),
         # kept as long as a viewing.
@@ -582,6 +581,11 @@ class StreamManager:
 
     def _gone(self, stream_id: str, user: str) -> StreamGone:
         """Why *user* has no such stream; the lock must be held."""
+        _, reaped = self._reaped.get(stream_id, (0.0, None))
+        if reaped is not None and reaped.user == user:
+            since = self._viewings.get(reaped.item)
+            if since is not None and since.started > reaped.order:
+                return StreamReplaced("a newer stream of the item was started since")
         _, item, order = self._replaced.get(stream_id, (0.0, ("", ""), 0))
         viewing = self._viewings.get(item)
         # A start that fails replaces nothing.
@@ -687,7 +691,7 @@ class StreamManager:
             self._reaped = {
                 sid: kept
                 for sid, kept in self._reaped.items()
-                if now - kept[0] <= REAPED_KEEP_SECONDS
+                if now - kept[0] <= VIEWING_KEEP_SECONDS
             }
             self._reaped.update((sid, (now, s)) for sid, s in zip(idle, stopped, strict=True))
             live = [s.session_id for s in self._streams.values()]

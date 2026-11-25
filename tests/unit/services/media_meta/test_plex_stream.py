@@ -1207,18 +1207,78 @@ def test_a_start_held_open_past_the_beginning_of_a_later_one_makes_way_for_it(ma
     assert len(manager._streams) == 1
 
 
-def test_a_stopped_or_reaped_stream_is_gone_and_not_replaced(manager, clock):
-    stopped, idle = _start(manager), _start(manager, rating_key="7")
+def test_a_stopped_stream_is_gone_and_not_replaced(manager):
+    stopped = _start(manager)
     manager.stop(stopped, "alice")
+    _start(manager)
+
+    assert not _is_replaced(manager, stopped)
+
+
+def _is_replaced(manager, stream_id, user="alice") -> bool:
+    with pytest.raises(StreamGone) as caught:
+        manager.get(stream_id, user)
+    return isinstance(caught.value, StreamReplaced)
+
+
+def _reap_one_idle(manager, clock) -> None:
     clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
+
+
+def test_a_reaped_stream_is_replaced_once_the_item_was_started_anew(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.REAPED_KEEP_SECONDS + 1
+    manager.reap()
+    later = _start(manager)
+
+    assert _is_replaced(manager, idle)
+    manager.stop(later, "alice")
+    assert _is_replaced(manager, idle)
+    assert not _is_replaced(manager, idle, "bob")
+
+
+def test_a_reaped_stream_is_only_gone_where_its_person_has_not_started_the_item_since(
+    manager, clock
+):
+    _start(manager)
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    _start(manager, rating_key="7")
+    _start(manager, user="bob")
+
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_only_gone_while_a_start_of_the_item_opens_and_after_it_failed(
+    manager, plex, clock
+):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    seen = []
+
+    def look_then_fail(*args):
+        seen.append(_is_replaced(manager, idle))
+        raise RuntimeError("failed")
+
+    manager._open_session = look_then_fail
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    assert seen == [False]
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_forgotten_once_its_viewing_is_over(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.VIEWING_KEEP_SECONDS + 1
     manager.reap()
     _start(manager)
-    _start(manager, rating_key="7")
 
-    for stream_id in (stopped, idle):
-        with pytest.raises(StreamGone) as caught:
-            manager.get(stream_id, "alice")
-        assert not isinstance(caught.value, StreamReplaced)
+    assert not _is_replaced(manager, idle)
+    assert not manager._reaped
 
 
 class SlowPlex:
