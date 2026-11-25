@@ -1041,7 +1041,7 @@ class TestTwinInAGoneLibrary:
             "AND action = 'delete_awaiting_scan'"
         ).fetchall()
         assert len(said) == 1
-        assert "until that is certain" in said[0][0]
+        assert "it may be a title of a library Plex does not list now" in said[0][0]
 
     def test_one_that_shares_a_file_spelled_another_way_waits(self, conn, mock_plex):
         conn.execute(
@@ -1281,7 +1281,7 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
             "AND action = 'delete_awaiting_scan'"
         ).fetchall()
         assert len(said) == 1
-        assert "until that watch is too long ago" in said[0][0]
+        assert "it has a file of a title watched lately" in said[0][0]
         assert "certain" not in said[0][0]
 
     @pytest.mark.parametrize("kept", [True, False])

@@ -764,6 +764,9 @@ class TestGoneLibraryAsShipped(_GoneLibrary):
         self._scan(12, every=self._WEEK)
 
         assert (own.exists(), shared.exists(), other.exists()) == (True, True, True)
+        said = self._said("20")
+        assert said
+        assert all("while" in why and "does not list its library" in why for why in said)
 
     @pytest.mark.parametrize("run", ["run_scan", "sync_library"])
     def test_it_is_still_noted_since_when_it_is_gone_until_plex_lists_it_again(self, run):

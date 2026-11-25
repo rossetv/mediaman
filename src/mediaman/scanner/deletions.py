@@ -1179,6 +1179,10 @@ def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: 
 
 # What the history says of a title whose keep or watch holds a file: the deletion waits for it.
 _GONE = "Plex lists no more"
+# What it says of a title of a library Plex does not list now.
+_WAITS_FOR_LIBRARY = (
+    "the deletion waits while mediaman still has that one and Plex does not list its library"
+)
 
 
 class _Title(NamedTuple):
@@ -1267,7 +1271,7 @@ class DeletionExecutor:
         """Run the deletion pass; the items of *unread_libraries* (Plex ids) wait.
 
         So does an item that may be one of *gone_libraries*, those with items stored
-        that Plex does not list: until their items are removed, what keeps them
+        that Plex does not list: while their items are stored, what keeps them
         has not come to it. And one with a file that a keep or a late watch of a
         title removed from the library still holds: a title listed with that file
         may be one the keep or the watch is never given to.
@@ -1450,25 +1454,22 @@ class DeletionExecutor:
         return [gone for gone in self._gone_titles if own is not None and own.may_be(gone)]
 
     def _why_it_waits(self, row: DeletionRow) -> str:
-        """Say which title Plex does not list holds *row* back, and until when."""
+        """Say which title Plex does not list holds *row* back, and for how long."""
         twins = self._gone_twins(row)
         if any(gone.is_kept for gone in twins):
             return (
-                "it may be a kept title of a library Plex does not list now; the deletion "
-                "waits while that one is kept"
+                "it may be a title that is kept in a library Plex does not list now; "
+                f"{_WAITS_FOR_LIBRARY}"
             )
         files = set(map(os.path.normpath, tracked_paths(row) or []))
         # Only a file of its own makes a watch hold: the watch of a copy with other files does not.
         if any(gone.is_watched_lately and not gone.files.isdisjoint(files) for gone in twins):
             return (
                 "it has a file of a title watched lately in a library Plex does not list now; "
-                "the deletion waits until that watch is too long ago"
+                f"{_WAITS_FOR_LIBRARY}"
             )
         if twins:
-            return (
-                "it may be a title of a library Plex does not list now; the deletion waits "
-                "until that is certain"
-            )
+            return f"it may be a title of a library Plex does not list now; {_WAITS_FOR_LIBRARY}"
         if self._held_by(row):
             return (
                 f"one of its files is of a kept title {_GONE}; the deletion waits while that "
