@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 import secrets
 import threading
@@ -30,6 +31,8 @@ from mediaman.web.responses import respond_err
 from mediaman.web.routes.cast import _is_good, _read_ticket, _refused, _stream_lives
 from mediaman.web.routes.older_reach import are_on
 from mediaman.web.routes.watch.stream_api import _read_segment, _StreamRoute, plex_failure
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(route_class=_StreamRoute)
 
@@ -85,6 +88,8 @@ class _Feed:
     """What a TV was sent of a stream, as of its latest request."""
 
     open: int = 0
+    #: The number of its latest request.
+    latest: int = 0
     done: bool = False
     broke_off: bool = False
 
@@ -138,6 +143,11 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
         # Nobody knows the length.
         del response.headers["content-length"]
         return response
+    feed = _feed(held.stream_id)
+    feed.latest += 1
+    number = feed.latest
+    # Until it goes on, whatever happens to it.
+    feed.done, feed.broke_off = False, True
     try:
         parts = await run_in_threadpool(segments, held.stream_id, held.user)
     except StreamGone:
@@ -147,28 +157,30 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
     names = [name for name, _ in parts[int(match[1]) :]]
     if not names:
         return _refused(request)
-    feed = _feed(held.stream_id)
     if feed.open >= _MAX_OPEN:
         return respond_err("rate_limited", status=429)
-    feed.done = feed.broke_off = False
+    if feed.latest == number:
+        feed.broke_off = False
     return StreamingResponse(
-        _film(request, held, names, feed), media_type="video/mpeg", headers=headers
+        _film(request, held, names, feed, number), media_type="video/mpeg", headers=headers
     )
 
 
 async def _film(
-    request: Request, held: Ticket, names: list[str], feed: _Feed
+    request: Request, held: Ticket, names: list[str], feed: _Feed, number: int
 ) -> AsyncIterator[bytes]:
     feed.open += 1
     try:
         for name in names:
             body = await _segment(request, held, name)
             if body is None:
-                feed.broke_off = True
-                return
+                break
             for start in range(0, len(body), _CHUNK):
                 yield body[start : start + _CHUNK]
-        feed.done = True
+        else:
+            feed.done = feed.latest == number or feed.done
+            return
+        feed.broke_off = feed.latest == number or feed.broke_off
     finally:
         feed.open -= 1
 
@@ -176,11 +188,15 @@ async def _film(
 async def _segment(request: Request, held: Ticket, name: str) -> bytes | None:
     for wait in _WAITS:
         await asyncio.sleep(wait)
-        if not await run_in_threadpool(_may_go_on, held):
-            return None
         try:
+            if not await run_in_threadpool(_may_go_on, held):
+                return None
             answer = await _read_segment(request, held.stream_id, held.user, name)
         except StreamGone:
+            return None
+        # Whatever it is, the TV must not take it for the end of the film.
+        except Exception as exc:
+            logger.warning("older tv: could not read a segment (%s)", type(exc).__name__)
             return None
         if answer.status_code == 200:
             return bytes(answer.body)

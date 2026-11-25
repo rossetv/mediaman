@@ -202,6 +202,43 @@ def test_a_film_that_broke_off_is_told_from_one_sent_whole(tv, ticket, film):
     assert older_stream.sent(_stream()) == (True, False)
 
 
+def test_a_film_that_fails_in_any_way_broke_off(tv, ticket, monkeypatch):
+    async def fails(*args):
+        raise RuntimeError("no database")
+
+    monkeypatch.setattr(older_stream, "_read_segment", fails)
+    assert tv.get(_from(ticket)).content == b""
+    assert older_stream.sent(_stream()) == (False, True)
+
+
+def test_a_film_that_cannot_be_opened_again_broke_off(tv, ticket, film):
+    tv.get(_from(ticket))
+    film.playlist = "nothing"
+    assert tv.get(_from(ticket)).status_code == 502
+    assert older_stream.sent(_stream()) == (False, True)
+
+
+def test_a_tv_that_hangs_up_broke_nothing_off(ticket, app):
+    with TestClient(app).stream("GET", _from(ticket)) as resp:
+        next(resp.iter_raw())
+    assert older_stream.sent(_stream())[1] is False
+
+
+def test_an_earlier_request_that_fails_says_nothing_of_the_latest(tv, ticket, monkeypatch):
+    real = older_stream._read_segment
+
+    async def fails_while_another_reads(request, stream_id, user, name):
+        if name == "00001.ts":
+            feed = older_stream._feeds[stream_id]
+            feed.latest += 1
+            raise RuntimeError("x")
+        return await real(request, stream_id, user, name)
+
+    monkeypatch.setattr(older_stream, "_read_segment", fails_while_another_reads)
+    tv.get(_from(ticket))
+    assert older_stream.sent(_stream()) == (False, False)
+
+
 def test_a_stream_that_is_no_mpeg_ts_is_not_sent_as_one(tv, ticket, film):
     film.playlist = PLAYLIST.replace(".ts", ".m4s")
     assert tv.get(_from(ticket)).status_code == 502
