@@ -59,7 +59,8 @@
     return n;
   }
 
-  function hand() { return svg('path', { d: HAND }); }
+  /* Its outline, and the fill drawn into it while it is on. */
+  function hand() { return [svg('path', { d: HAND }), svg('path', { 'class': 'ink', d: HAND })]; }
 
   function thumb(level, on) {
     var two = Math.abs(level) === 2;
@@ -69,11 +70,11 @@
       'aria-hidden': 'true',
       focusable: 'false',
     }, two ? [
-      svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, [hand()])]),
+      svg('g', { transform: 'translate(10.5 -2.8) scale(.92)' }, [svg('g', { 'class': 'b' }, hand())]),
       svg('g', { transform: 'translate(0 2)' }, [
-        svg('g', { 'class': 'f' }, [svg('g', { 'class': 'halo' }, [hand()]), hand()]),
+        svg('g', { 'class': 'f' }, [svg('g', { 'class': 'halo' }, [svg('path', { d: HAND })])].concat(hand())),
       ]),
-    ] : [svg('g', { 'class': 'f' }, [hand()])]);
+    ] : [svg('g', { 'class': 'f' }, hand())]);
   }
 
   /* ── The levels ──
@@ -297,15 +298,17 @@
 
     var touched = false;
     var lineKey = null;
+    var at = -1; // the thumb shown as on
 
     var buttons = LEVELS.map(function (l) {
-      var b = el('button', 'rate__b ' + (l.level > 0 ? 'is-up' : 'is-down'));
+      var b = el('button', 'rate__b ' + (l.level > 0 ? 'is-up' : 'is-down') + (Math.abs(l.level) === 2 ? ' is-double' : ''));
       b.type = 'button';
       b.setAttribute('aria-label', l.name);
       if (inMenu) {
         b.setAttribute('role', 'menuitemcheckbox');
         b.setAttribute('tabindex', '-1');
       }
+      b.appendChild(el('span', 'rate__hl'));
       b.appendChild(thumb(l.level));
       if (!inMenu) {
         var name = el('span', variant === 'grid' ? 'rate__lab' : 'rate__tip', l.name);
@@ -323,12 +326,19 @@
       var next = s.want === level ? null : level;
       touched = true;
       line.setAttribute('aria-live', 'polite');
-      buttons.forEach(function (o) { o.classList.remove('pop'); });
+      buttons.forEach(function (o) { o.classList.remove('pop', 'back'); });
       change(ref, next, node);
-      if (next !== null) {
-        void b.offsetWidth; // so that the same thumb pops again
-        b.classList.add('pop');
-      }
+      void b.offsetWidth; // so that the same thumb moves again
+      b.classList.add(next === null ? 'back' : 'pop');
+    }
+
+    /* The highlight slides from the thumb it was on; from none, or to none, it comes or goes
+       where it is. */
+    function moveTo(now) {
+      if (now === at) return;
+      if (at < 0 || now < 0) node.removeAttribute('data-from');
+      else node.setAttribute('data-from', String(at));
+      at = now;
     }
 
     function sayLine(s) {
@@ -355,6 +365,7 @@
       var s = stateOf(ref);
       node.hidden = line.hidden = s.rateable === false;
       node.classList.toggle('has', s.want !== null);
+      moveTo(LEVELS.indexOf(levelOf(s.want)));
       buttons.forEach(function (b, i) {
         var on = LEVELS[i].level === s.want;
         b.classList.toggle('is-on', on);

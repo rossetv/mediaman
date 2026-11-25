@@ -4,11 +4,13 @@ server whose answers come when the scenario says."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
 HARNESS = Path(__file__).parent / "js" / "ratings_harness.js"
+CSS = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_ratings.css"
 
 
 def _run(scenario: str) -> Any:
@@ -17,6 +19,19 @@ def _run(scenario: str) -> Any:
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
+
+
+def _rules() -> list[tuple[str, str, str]]:
+    """The (media query, selectors, declarations) of the thumbs' stylesheet, without its frames."""
+    css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    css = re.sub(r"@keyframes [^{]+\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", css)
+    found = []
+    for query, inside, head, body in re.findall(
+        r"@media ([^{]+)\{((?:[^{}]*\{[^{}]*\})*)\s*\}|([^{}]+)\{([^{}]*)\}", css
+    ):
+        rules = re.findall(r"([^{}]+)\{([^{}]*)\}", inside) if query else [(head, body)]
+        found += [(query, h.strip(), b) for h, b in rules]
+    return found
 
 
 def test_a_second_press_on_the_rating_shown_takes_it_back() -> None:
@@ -55,7 +70,30 @@ def test_each_place_says_the_approved_words_for_each_level_and_for_none() -> Non
 
 
 def test_a_thumb_pops_when_it_rates_and_not_when_it_is_taken_back() -> None:
-    assert _run("pop") == {"on": [False, False, False, True], "off": [False] * 4}
+    out = _run("pop")
+    assert (out["on"], out["off"]) == ([False, False, False, True], [False] * 4)
+
+
+def test_a_thumb_taken_back_moves_in_its_own_way() -> None:
+    out = _run("pop")
+    assert (out["taken"], out["again"]) == ([False, False, False, True], [False] * 4)
+
+
+def test_the_highlight_slides_between_levels_and_comes_and_goes_where_there_was_none() -> None:
+    assert _run("slides") == [None, "1", "3", None, None, "2", "3"]
+
+
+def test_a_thumb_answers_a_hover_only_where_a_pointer_hovers() -> None:
+    hovered = [media for media, head, _ in _rules() if ":hover" in head]
+    assert {m for m in hovered if "hover: hover" not in m} == {"(forced-colors: active) "}
+
+
+def test_reduced_motion_leaves_the_thumbs_only_colour_and_fill() -> None:
+    moves = re.compile(r"(?<![-\w])(?:animation|translate|scale|transform):(?! none)")
+    moving = [(media, head) for media, head, body in _rules() if moves.search(body)]
+    still = [head for media, head in moving if "no-preference" not in media]
+    assert [h for h in still if ".rate__tip" not in h and ".rate__line" not in h] == []
+    assert len(moving) > len(still)
 
 
 def test_a_rating_that_was_not_saved_goes_back_everywhere_and_says_so() -> None:
