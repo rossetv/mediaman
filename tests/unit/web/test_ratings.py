@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 import mediaman
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.infra import disk_cache
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.csrf import CSRFOriginMiddleware
 from mediaman.web.repository import ratings as repo
@@ -34,10 +35,16 @@ class FakeTmdb:
     def __init__(self):
         self.titles = {}
         self.down = False
+        self.held = True
+        self.takes_s = 0.0
+        self.clock = 0.0
 
-    def details(self, _client, kind, tmdb_id, **_kwargs):
+    def details(self, _client, kind, tmdb_id, *, allow_fetch=None, **_kwargs):
+        self.clock += self.takes_s
         if self.down:
             raise catalog.TmdbUnavailable("down")
+        if not self.held and allow_fetch is not None and not allow_fetch():
+            raise disk_cache.Refused("not held")
         if (kind, tmdb_id) not in self.titles:
             raise catalog.TitleNotFound("gone")
         return {"tmdb_seasons": [], **self.titles[kind, tmdb_id]}
@@ -48,6 +55,7 @@ def tmdb(monkeypatch):
     fake = FakeTmdb()
     monkeypatch.setattr(routes.TmdbClient, "from_db", lambda *_a, **_k: object())
     monkeypatch.setattr(routes.catalog, "details", fake.details)
+    monkeypatch.setattr(routes, "monotonic", lambda: fake.clock, raising=False)
     monkeypatch.setattr(routes, "now_utc", lambda: NOW)
     return fake
 
@@ -296,6 +304,22 @@ class TestAsking:
         for count in (None, 2):
             tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 1, "episode_count": count}]}
             assert _ask(client, "512")["ask"] is (count == 2)
+
+    def test_a_season_whose_length_is_not_held_is_asked_of_too(self, client, conn, tmdb):
+        tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 1, "episode_count": 2}]}
+        tmdb.held = False
+        _finish(conn, "512", show="500", item="501")
+        assert _ask(client, "512")["ask"]
+
+    def test_an_answer_that_comes_after_the_player_has_gone_leaves_the_question(
+        self, client, conn, tmdb
+    ):
+        tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 1, "episode_count": 2}]}
+        _finish(conn, "512", show="500", item="501")
+        tmdb.takes_s = 1.6
+        assert not _ask(client, "512")["ask"]
+        tmdb.takes_s = 1.4
+        assert _ask(client, "512")["ask"]
 
     def test_a_special_is_not_asked_of(self, client, conn, tmdb):
         tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 0, "episode_count": 1}]}

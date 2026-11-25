@@ -23,6 +23,7 @@ import os
 import socket
 import sqlite3
 import threading
+from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 
@@ -39,6 +40,17 @@ def _configure_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys=ON")
+
+
+@contextlib.contextmanager
+def write_transaction(conn: sqlite3.Connection) -> Iterator[None]:
+    """One write transaction, or a part of the one the caller has open."""
+    if conn.in_transaction:
+        yield
+        return
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        yield
 
 
 # The removed migration runner stamped PRAGMA user_version; today's code

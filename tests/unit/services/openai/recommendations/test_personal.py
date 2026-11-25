@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -332,6 +333,20 @@ class TestMaking:
 
         assert _titles(conn, "amy") == ["Earlier"]
         assert conn.execute("SELECT status FROM user_pick_runs").fetchone()[0] == "failed"
+
+    @pytest.mark.parametrize(("found", "suggested"), [([], 0), (["Film 1", "Film 2"], 2)])
+    def test_a_run_that_gives_nothing_logs_its_counts_and_names_nothing(
+        self, conn, openai, caplog, found, suggested
+    ):
+        _plays(conn, "amy", *(f"Film {n}" for n in range(5)))
+        openai.items = [_pick(title) for title in found]
+
+        with caplog.at_level(logging.WARNING, logger="mediaman"):
+            assert _make(conn, "amy") == 0
+
+        [said] = [r for r in caplog.records if r.name == personal.__name__]
+        assert said.args == (5, suggested)
+        assert "Film" not in said.getMessage() and "amy" not in said.getMessage()
 
     def test_only_the_servers_owner_has_the_servers_stars_sent(self, conn, openai):
         plex = MagicMock()

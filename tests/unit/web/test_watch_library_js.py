@@ -713,6 +713,13 @@ def test_an_answer_from_before_a_mark_does_not_draw_it_away() -> None:
     assert out["look"] == {"busy": False, "label": "Movie", "held": None}
 
 
+def test_a_mark_just_made_stands_on_its_card_whatever_the_row_read_after_it_says() -> None:
+    assert _run("markedOtherwise") == [
+        ["true", "Mark as not watched", True, "read"],
+        ["false", "Mark as watched", False, "read"],
+    ]
+
+
 def test_a_mark_takes_the_focus_nowhere() -> None:
     assert _run("markedMeanwhile")["focus"] is True
 

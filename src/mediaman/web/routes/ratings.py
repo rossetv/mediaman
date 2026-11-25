@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable
+from time import monotonic
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -40,6 +41,8 @@ _READ_LIMITER = ActionRateLimiter(max_in_window=240, window_seconds=60)
 _MAX_REFS = 100
 # A worker thread waits for the answer.
 _TMDB_TIMEOUT_S = 3.0
+# The player waits two seconds at least for a question; one put later is never seen.
+_ASK_WITHIN_S = 1.5
 
 
 class _RatingRequest(BaseModel):
@@ -236,10 +239,13 @@ def api_rating_ask(
         if end is None or not end.last:
             return nothing
         season = end.number
+        began = monotonic()
         try:
-            fields = title_details(request, conn, title, ask=False)
+            fields = title_details(request, conn, title, ask=True)
         except catalog.TitleNotFound:
             fields = None
+        if monotonic() - began > _ASK_WITHIN_S:
+            return nothing
         # The last episode held may not be the season's: not while it is still on air.
         total = next(
             (
