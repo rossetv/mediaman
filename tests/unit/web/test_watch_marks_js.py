@@ -548,6 +548,18 @@ def test_a_level_not_saved_over_a_strong_no_leaves_that_to_stand_with_its_own_un
         assert out["last"] == "PUT /api/watch/ratings/movie-1 1"
 
 
+def test_a_rating_stored_though_its_answer_was_lost_is_followed_once_the_server_says_so() -> None:
+    gone = "Fieldwork is gone from your picks. Search still finds it."
+    stays = "Couldn’t bring Fieldwork back. It stays out of your picks."
+    strong_no, undo = _run("answerLost")
+    for out in (strong_no, undo):
+        assert out["gone"] == ["movie/8", "movie/9"]
+        assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+    assert strong_no["told"] == [gone]
+    assert undo["told"] == [gone, stays]
+    assert undo["dismissed"] == [gone, stays]
+
+
 def test_a_menu_opened_again_is_not_shut_for_the_rating_before() -> None:
     assert _run("menuAgain") is True
 

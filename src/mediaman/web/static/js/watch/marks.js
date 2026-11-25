@@ -613,7 +613,7 @@
   /* ── A strong no takes the title out of the picks ── */
 
   var goneTitles = []; // { title, undos, toast }: each title that has left them, to come back if rated otherwise
-  var noes = []; // each strong no saved, as it was told
+  var noes = []; // each strong no given, as it was told
   var restored = []; // the titles brought back by a change not yet saved
 
   /* Whether *a* and *b*, each with refs, mediaType and tmdbId, are one title. */
@@ -715,7 +715,11 @@
   document.addEventListener('mm:rating', function (e) {
     var d = e.detail;
     if (d.phase === 'pending') {
-      if (d.level !== STRONG_NO && backInPicks(d)) restored.push(d);
+      if (d.level === STRONG_NO) {
+        if (!of(noes, d)) noes.push(d); // it may be saved and its answer lost
+      } else if (backInPicks(d)) {
+        restored.push(d);
+      }
     } else if (d.phase === 'saved') {
       restored = without(restored, d);
       noes = without(noes, d);
@@ -727,15 +731,19 @@
       }
     } else if (d.phase === 'read') {
       // Asked after a save of which nothing was heard.
-      if (d.level !== STRONG_NO) backInPicks(d);
-      else if (of(noes, d)) saidNo(of(noes, d));
+      if (d.level !== STRONG_NO) {
+        noes = without(noes, d);
+        backInPicks(d);
+      } else if (of(noes, d)) {
+        saidNo(of(noes, d));
+      }
     } else if (d.phase === 'failed') {
       var again = d.level === STRONG_NO && of(restored, d) ? leavePicks(d) : null;
       restored = without(restored, d);
       // The strong no still stands, and may have been passed over while another level was shown.
       if (!again && d.level === STRONG_NO && of(noes, d)) saidNo(of(noes, d));
       var where = d.from && d.from.closest('.watch-keep-menu, .pv');
-      if (again) core.toast('Couldn’t bring ' + again.name + ' back. It stays out of your picks.', { variant: 'error' });
+      if (again) again.toast = window.UIFeedback.toast('Couldn’t bring ' + again.name + ' back. It stays out of your picks.', { variant: 'error' });
       // The menu or preview that would say so has gone.
       else if (!d.from || (d.from.matches('.rate--menu, .rate--strip') &&
           !(where && document.body.contains(where) && where.matches('.is-open:not(.is-fading):not(.is-handed)')))) {

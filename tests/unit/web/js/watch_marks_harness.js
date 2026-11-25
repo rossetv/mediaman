@@ -313,6 +313,28 @@ const scenarios = {
     return out;
   },
 
+  // A save is stored and its answer lost: a strong no's, or that of the Undo of one. The server is asked after each.
+  async answerLost() {
+    const go = async (lost) => {
+      let level = 1;
+      const save = (to) => () => {
+        level = to;
+        return to === lost ? Promise.reject(Object.assign(new Error('http'), { status: 500 })) : FILM_10;
+      };
+      const p = rated({ [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
+      p.ctx.MM.ratings.read(['movie-1']);
+      await settle();
+      await thumb(p, p.cards('picks')[1], 0);
+      p.pass();
+      await settle();
+      const gone = p.marks('picks');
+      p.toasts.filter((t) => t.undo).forEach((t) => t.undo());
+      await settle();
+      return { gone, back: p.marks('picks'), told: p.toasts.map((t) => t.message), dismissed: p.gone };
+    };
+    return [await go(-2), await go(1)];
+  },
+
   // The menu opened again on another card before the time to shut it for the first is up.
   async menuAgain() {
     const p = rated({}, { hold: true });
