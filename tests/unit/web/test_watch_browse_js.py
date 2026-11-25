@@ -511,8 +511,10 @@ def test_a_pick_has_its_more_button_whether_the_library_holds_it_or_not() -> Non
 
 
 def test_the_grid_of_the_picks_dates_a_pick_back_in_its_row_as_the_others() -> None:
-    heading, line, same = _run("pickBackInGrid")
-    assert heading == line and same is True
+    out = _run("pickBackInGrid")
+    latest = out["dates"][0]
+    assert (out["group"], out["same"]) == ([latest, latest], True)
+    assert out["places"] == [[latest, "0"], [latest, "1"]]
 
 
 def test_the_discover_rows_keep_their_scroll_when_they_take_the_skeletons_place() -> None:

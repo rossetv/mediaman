@@ -511,6 +511,13 @@ def test_a_pick_that_is_not_in_the_library_is_rated_and_opened_from_its_menu_and
     }
 
 
+def test_strong_noes_undone_in_the_order_they_were_given_stand_as_they_did() -> None:
+    assert _run("strongNoesUndone") == {
+        "gone": ["movie/9"],
+        "back": ["movie/8", "movie/1", "movie/9"],
+    }
+
+
 def test_a_strong_no_undone_in_see_all_gives_the_focus_to_the_card_there() -> None:
     assert _run("strongNoUndoneInGrid") is True
 
@@ -548,6 +555,14 @@ def test_a_pick_rated_in_details_goes_behind_it_and_closing_lands_on_the_next() 
     }
 
 
+def test_a_pick_rated_in_details_over_see_all_leaves_the_focus_on_the_next_not_the_heading() -> (
+    None
+):
+    assert _run("strongNoInDetails", "watch-all-title")["closed"] == "movie/8"
+    # What else has the focus keeps it.
+    assert _run("strongNoInDetails", "elsewhere")["closed"] == "title"
+
+
 def test_a_strong_no_that_was_not_saved_takes_nothing_out_and_is_said() -> None:
     assert _run("ratingFails") == {
         "picks": ["movie/8", "movie/1", "movie/9"],
@@ -577,6 +592,31 @@ def test_a_rating_stored_though_its_answer_was_lost_is_followed_once_the_server_
     assert strong_no["told"] == [gone]
     assert undo["told"] == [gone, stays]
     assert undo["dismissed"] == [gone, stays]
+
+
+def test_a_rating_that_fails_at_once_keeps_the_menu_open_with_why() -> None:
+    assert _run("menuFails") == [True, "Your rating wasn’t saved. Try again.", 0]
+
+
+def test_a_title_that_cannot_be_rated_shows_no_thumbs_or_says_so_in_their_place() -> None:
+    assert _run("cannotRate") == {
+        "pick": 0,
+        "said": "This title can’t be rated.",
+        "focus": "Mark as watched",
+    }
+
+
+def test_undo_over_details_lands_on_the_thumb_of_that_title_alone_and_else_on_the_heading() -> None:
+    same = ["rate-1", "rate--2", "rate-1", "rate-1"]
+    assert _run("undoInDetails") == [*same, "H2", "H2", "H2"]
+
+
+def test_a_strong_no_over_a_level_not_known_offers_no_undo() -> None:
+    assert _run("unknownBefore") == [["movie/8", "movie/9"], False]
+
+
+def test_a_menu_that_has_closed_leaves_no_rating_behind() -> None:
+    assert _run("menuSets") == [1, 0]
 
 
 def test_a_menu_opened_again_is_not_shut_for_the_rating_before() -> None:

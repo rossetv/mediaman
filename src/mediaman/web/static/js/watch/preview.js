@@ -314,7 +314,7 @@
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
     shell.appendChild(posterCopy(p));
-    if (window.MM.ratings) rating(p);
+    if (watch.marks && watch.marks.canRate(p.card.ref, link)) rating(p);
     n.addEventListener('mousedown', function (e) { e.preventDefault(); }); // the focus stays where it was
     n.addEventListener('focusin', function (e) {
       if (!e.target.hasAttribute('data-watch-keep')) focusCard(p);
@@ -959,7 +959,7 @@
     var card = cardOf(live.link);
     var mark = /^(movie|episode|season|show)\//.exec((card && card.getAttribute('data-mark')) || '');
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
-    if (fillRating) fillRating(live.card.ref);
+    if (fillRating) fillRating(live.card.ref, live.link);
     if (mark) item('mark', 'i-eye', core.markAction(seen(live)).replace('Mark ', mark[1] === 'movie' ? 'Mark ' : 'Mark ' + mark[1] + ' '));
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');
     if (keepIdOf(live)) item('keep', 'i-clock', 'Keep' + (leavingOf(live).season === null ? '' : ' Season ' + leavingOf(live).season));
@@ -1285,6 +1285,7 @@
     if (!live || !live.rating || e.detail.refs.indexOf(live.card.ref) < 0) return;
     if (e.detail.phase === 'pending' && e.detail.from === live.rating.node) live.actions.classList.remove('is-rating');
     faceRate(live);
+    if (live.rate.hidden) live.actions.classList.remove('is-rating');
   });
 
   document.addEventListener('mm:watch-kept', function (e) { keptOrUndone(e.detail.id); });

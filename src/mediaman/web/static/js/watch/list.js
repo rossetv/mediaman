@@ -379,7 +379,7 @@
     var rowsOff = browse.hidden;
     if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
     var here = _asked || (root() && !_stale ? wanted() : null); // what is shown, or on its way
-    if (view === 'list' && !(here && same(current, here))) load(current, {});
+    if (view === 'list' && !(here && same(current, here))) load(current, { focus: sameControl });
     // Leaving a category's page brings the rows back: they were not on view, so they do not fade.
     if (view === 'list' && rowsOff) browse.hidden = true;
     giveWay([view === 'list' ? browse : list], function () {
@@ -610,7 +610,9 @@
       play();
       if (next) handOn(row, focusTarget(next));
       if (hadFocus && next) core.focusSoftly(focusTarget(next));
-      if (!tbody.querySelector('tr') && !_asked) load(stateOf(root()), {});
+      if (!tbody.querySelector('tr') && !_asked) {
+        load(stateOf(root()), { focus: function (fresh) { return hadFocus && focusIsFree() ? firstTitle(fresh) : null; } });
+      }
     }
     if (core.reduceMotion()) { gone(); return; }
     row.classList.add('is-leaving');
@@ -842,14 +844,17 @@
     refresh([key], d);
   });
 
-  /* The same control in the list coming in, of the row the focus is in, or else the filter that is on. */
+  /* The same control in the list coming in, of the row the focus is in, or the first title where that
+     has gone, or else the filter that is on. */
   function sameControl(fresh) {
     var active = document.activeElement;
     if (!list.contains(active)) return null;
     var find = focusKey(active);
     var row = active.closest('tr[data-row-key]');
-    var next = row && (rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]'));
-    return (find ? find(fresh) : next && focusTarget(next, active === deleteButton(row) ? 'delete' : null)) ||
+    var same = row && rowByKey(row.getAttribute('data-row-key'), fresh);
+    var next = same || (row && fresh.querySelector('tr[data-row-key]'));
+    var title = next && (!same || active.matches('a.wl-title')) && next.querySelector('a.wl-title');
+    return (find ? find(fresh) : title || (next && focusTarget(next, active === deleteButton(row) ? 'delete' : null))) ||
       fresh.querySelector('.fpill.on');
   }
 

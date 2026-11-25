@@ -28,7 +28,7 @@ def test_a_second_press_on_the_rating_shown_takes_it_back() -> None:
     assert out["after"]["line"] == "Only you see this."
     assert out["log"] == ["GET ?refs=movie-1", "DELETE /movie-1"]
     assert [(e["phase"], e["level"], e["was"]) for e in out["events"]] == [
-        ("read", 1, None),
+        ("read", 1, "unknown"),
         ("pending", None, 1),
         ("saved", None, 1),
     ]
@@ -79,7 +79,7 @@ def test_quick_presses_are_sent_one_at_a_time_and_the_last_one_wins() -> None:
     # A failure that a later press has overtaken shows nothing.
     assert out["log"][2:] == ["PUT /movie-1 -1", "PUT /movie-1 1"]
     assert (out["look"]["on"], out["look"]["bad"]) == ([2], False)
-    assert out["saved"] == [["saved", -2, 2], ["saved", 1, -2]]
+    assert out["saved"] == [["saved", -2, None], ["saved", 1, -2]]
 
 
 def test_a_double_press_ends_with_no_rating_on_the_page_and_the_server() -> None:
@@ -169,6 +169,58 @@ def test_a_refused_press_is_read_again_while_the_same_title_is_being_saved_elsew
 
 def test_a_read_that_lands_during_a_save_shows_only_if_the_save_is_refused() -> None:
     assert _run("readDuringSave") == {"during": [3], "after": [2]}
+
+
+def test_a_press_before_the_read_answers_is_told_the_level_the_server_replaced() -> None:
+    out = _run("unread")
+    assert out["saved"][:2] == [["pending", -2, "unknown"], ["saved", -2, 2]]
+    assert out["noRead"][-1] == ["saved", -2, 2]
+
+
+def test_quick_presses_are_told_the_level_before_the_first_of_them() -> None:
+    quick = [e for e in _run("unread")["quick"] if e[0] != "read"]
+    assert quick == [
+        ["pending", -2, "unknown"],
+        ["pending", 1, "unknown"],
+        ["pending", -2, "unknown"],
+        ["pending", -1, "unknown"],
+        ["saved", -1, 2],
+    ]
+
+
+def test_a_lost_save_read_again_is_never_told_as_the_level_before() -> None:
+    out = _run("unread")
+    assert [e[0] for e in out["lost"]] == ["pending", "failed", "read"]
+    assert [e[2] for e in out["lost"]] == ["unknown"] * 3
+    # The replaced level is the lost save's own: what was before it is not known.
+    assert out["lostAgain"][-1] == ["saved", -2, "unknown"]
+    assert out["lostNotHeld"][-1] == ["saved", -2, 2]
+
+
+def test_a_level_known_before_a_lost_save_is_still_the_level_before_it() -> None:
+    assert _run("knownLost") == [
+        ["read", 1, "unknown"],
+        ["pending", -2, 1],
+        ["failed", 1, 1],
+        ["pending", -2, 1],
+        ["saved", -2, 1],
+    ]
+
+
+def test_a_save_after_one_that_was_lost_is_told_the_last_saved_level() -> None:
+    assert _run("laterLost") == ["saved", -2, 2]
+
+
+def test_a_lost_save_that_was_read_as_stored_is_the_level_before_the_next() -> None:
+    assert _run("lostThenRead") == ["saved", 2, -2]
+
+
+def test_an_undo_to_a_level_that_is_not_known_changes_nothing() -> None:
+    assert _run("undoUnknown")["log"] == []
+
+
+def test_a_set_that_is_gone_is_not_read_again_after_a_save() -> None:
+    assert _run("destroyed") == ["PUT /movie-1 2"]
 
 
 def test_a_page_the_browser_kept_reads_its_ratings_again() -> None:

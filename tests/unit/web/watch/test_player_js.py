@@ -1897,6 +1897,13 @@ def test_a_rating_still_on_its_way_is_sent_again_to_outlive_the_page(film):
     }
 
 
+def test_a_title_that_turns_out_not_to_be_rateable_is_not_asked_about(film):
+    out = rating(film, "unrateable")["ended"]
+    assert (out["card"], out["said"], out["at"]) == (False, "", "/watch/movie/501")
+    out = in_credits(film, "unrateable")["after"]
+    assert (out["card"], out["paused"], out["at"]) == (False, False, "/watch/play/1")
+
+
 def test_the_question_leaves_the_system_s_own_player(film):
     assert rating(film, "native")["mode"] == "inline"
 
@@ -1942,6 +1949,41 @@ def test_the_next_episode_is_never_met_by_the_question(markup, what):
         assert (out["ended"]["asks"], out["mode"]) == (0, "fullscreen")
 
 
+def test_with_no_room_for_both_cards_the_question_waits_for_the_other_to_go(markup):
+    out = rating(markup, "tightCancel")
+    assert (out["ended"]["card"], out["ended"]["asks"], out["ended"]["said"]) == (False, 0, "")
+    assert (out["cancelled"]["card"], out["cancelled"]["asks"]) == (True, 1)
+
+
+@pytest.mark.parametrize("what", ["tightCountdown", "tightSeek"])
+def test_with_no_room_the_next_episode_or_a_seek_spends_no_question(markup, what):
+    assert rating(markup, what)["cancelled"]["asks"] == 0
+
+
+def test_a_save_that_took_most_of_the_wait_leaves_no_time_to_spend_the_question(film):
+    out = rating(film, "late")["ended"]
+    assert (out["asks"], out["at"]) == (0, "/watch/movie/501")
+
+
+@pytest.mark.parametrize(("what", "asks"), [("hidden", 0), ("hiddenAnswer", 1)])
+def test_a_film_that_ends_in_a_hidden_page_waits_for_it_to_be_seen(film, what, asks):
+    out = rating(film, what)
+    assert (out["hidden"]["card"], out["hidden"]["asks"]) == (False, asks)
+    assert out["hidden"]["at"] == "/watch/play/1"
+    assert (out["back"]["card"], out["back"]["asks"]) == (True, 1)
+    assert out["late"] == "/watch/movie/501"
+
+
+def test_a_film_played_again_before_the_page_is_seen_is_not_asked_about(film):
+    out = rating(film, "hiddenReplay")["back"]
+    assert (out["card"], out["asks"], out["at"]) == (False, 0, "/watch/play/1")
+
+
+def test_a_season_that_ends_in_a_hidden_page_asks_nothing(markup):
+    out = rating(markup, "hidden")
+    assert (out["hidden"]["asks"], out["back"]["asks"]) == (0, 0)
+
+
 def test_escape_is_the_next_episode_s_card_s_unless_the_question_has_the_focus(markup):
     out = rating(markup, "escape")["after"]
     assert (out["card"], out["upnext"]) == (True, False)
@@ -1952,3 +1994,199 @@ def test_escape_is_the_next_episode_s_card_s_unless_the_question_has_the_focus(m
 def test_the_question_gives_way_to_are_you_still_watching(markup):
     out = rating(markup, "stillWatching")
     assert (out["ended"]["card"], out["after"]["card"], out["dialog"]) == (True, False, True)
+
+
+def in_credits(markup: Path, what: str) -> Any:
+    return run(markup, "credits", saved={}, plays=what)
+
+
+def test_the_question_comes_as_the_last_credits_begin_and_the_film_plays_on(film):
+    out = in_credits(film, "asked")
+    assert (out["before"]["card"], out["before"]["asks"]) == (False, 0)
+    seen = out["in"]
+    assert (seen["card"], seen["asks"], seen["said"]) == (True, 1, "How was Low Water?")
+    assert (seen["paused"], seen["at"]) == (False, "/watch/play/1")
+    # The place was saved in the credits first; the person and the controls are left alone.
+    assert seen["saves"][-1] >= 2700
+    assert (seen["focus"], seen["quiet"], seen["beside"]) == (True, True, True)
+
+
+def test_the_place_saved_as_the_credits_begin_is_never_rounded_to_before_them(film):
+    assert in_credits(film, "fraction")["in"]["saves"][0] >= 2700.92
+
+
+@pytest.mark.parametrize("what", ["early", "notFinal", "native", "picture"])
+def test_without_credits_to_go_by_or_with_the_picture_elsewhere_the_credits_ask_nothing(film, what):
+    out = in_credits(film, what)
+    assert (out["in"]["card"], out["in"]["asks"]) == (False, 0)
+    assert out["end"]["asks"] == 1
+
+
+def test_back_from_the_system_s_own_player_the_credits_ask(film):
+    out = in_credits(film, "native")
+    assert (out["native"]["card"], out["after"]["card"]) == (False, True)
+
+
+def test_scrubbing_over_the_credits_asks_nothing_and_playing_into_them_still_does(film):
+    out = in_credits(film, "scrubbed")
+    assert (out["passed"]["asks"], out["back"]["asks"]) == (0, 0)
+    assert (out["after"]["card"], out["after"]["asks"]) == (True, 1)
+
+
+def test_a_film_resumed_in_its_credits_is_asked_about_once_they_have_played_a_while(film):
+    out = in_credits(film, "resumed")
+    assert (out["passed"]["asks"], out["after"]["card"], out["after"]["asks"]) == (0, True, 1)
+
+
+@pytest.mark.parametrize("what", ["rebuffer", "seekOn", "alone"])
+def test_the_question_outlasts_what_happens_within_the_credits(film, what):
+    after = in_credits(film, what)["after"]
+    assert (after["card"], after["asks"], after["at"]) == (True, 1, "/watch/play/1")
+
+
+@pytest.mark.parametrize("what", ["seekBack", "arrowBack"])
+def test_going_back_before_the_credits_takes_the_question_away_for_good(film, what):
+    out = in_credits(film, what)
+    assert out.get("back", out["after"])["card"] is False
+    assert (out["after"]["card"], out["end"]["asks"]) == (False, 1)
+    assert out["end"]["at"] == "/watch/movie/501"
+
+
+def test_a_question_that_comes_after_a_step_back_is_put_when_the_credits_play(film):
+    out = in_credits(film, "seekWhileAsked")
+    assert (out["back"]["card"], out["back"]["asks"]) == (False, 1)
+    assert (out["after"]["card"], out["after"]["asks"]) == (True, 1)
+
+
+def test_a_step_back_before_the_place_is_saved_spends_no_question(film):
+    out = in_credits(film, "seekWhileSaved")
+    assert (out["back"]["card"], out["back"]["asks"]) == (False, 0)
+    assert (out["after"]["card"], out["after"]["asks"]) == (True, 1)
+
+
+def test_a_film_that_ends_while_the_server_is_asked_is_asked_once(film):
+    out = in_credits(film, "endWhileAsked")
+    assert (out["in"]["card"], out["end"]["card"], out["end"]["asks"]) == (False, True, 1)
+
+
+def test_the_arrows_move_between_the_thumbs_and_leave_the_film_alone(film):
+    out = in_credits(film, "arrowOnThumb")
+    assert (out["left"], out["right"], out["moved"]) == (True, True, 0)
+    assert out["after"]["card"] is True
+
+
+def test_a_rating_in_the_credits_closes_the_card_and_they_go_on(film):
+    out = in_credits(film, "rated")
+    assert (out["rated"]["card"], out["rated"]["paused"]) == (False, False)
+    assert out["rated"]["at"] == "/watch/play/1"
+    # Nothing is left to wait for at the end.
+    assert (out["end"]["asks"], out["end"]["at"]) == (1, "/watch/movie/501")
+
+
+@pytest.mark.parametrize("what", ["close", "escape"])
+def test_closing_the_question_in_the_credits_neither_stops_nor_leaves(film, what):
+    out = in_credits(film, what)
+    assert (out["after"]["card"], out["after"]["paused"]) == (False, False)
+    assert out["after"]["at"] == "/watch/play/1"
+    assert (out["end"]["card"], out["end"]["asks"]) == (False, 1)
+
+
+def test_the_level_given_is_there_to_be_named_until_it_is_taken_back(film):
+    out = in_credits(film, "levels")
+    assert (out["name"], out["none"], out["rated"]) == ("I love it", "", False)
+
+
+def test_the_question_steps_over_a_skip_button_that_it_meets(film):
+    out = in_credits(film, "meets")
+    assert (out["above"], out["beside"]) == (True, False)
+
+
+def test_space_after_a_click_on_a_thumb_is_the_film_s(film):
+    out = in_credits(film, "spaceAfterClick")
+    assert (out["level"], out["after"]["paused"]) == (0, True)
+
+
+@pytest.mark.parametrize("what", ["asked", "stillOpen"])
+def test_the_question_still_open_at_the_end_waits_as_ever_and_leads_on(film, what):
+    out = in_credits(film, what)
+    assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
+    assert (out["nine"]["card"], out["late"]["at"]) == (True, "/watch/movie/501")
+
+
+def test_a_question_put_at_the_end_is_not_taken_back_into_the_credits(film):
+    out = in_credits(film, "endCard")
+    assert (out["end"]["card"], out["sought"]["card"]) == (True, False)
+    assert out["late"]["at"] == "/watch/play/1"
+
+
+@pytest.mark.parametrize("what", ["scene", "sceneSkip"])
+def test_a_scene_after_the_credits_is_left_alone_and_the_question_waits_for_the_end(film, what):
+    out = in_credits(film, what)
+    assert out["in"]["card"] is True
+    assert (out["scene"]["card"], out["scene"]["paused"]) == (False, False)
+    assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
+
+
+def test_left_alone_in_the_credits_the_question_goes_and_comes_at_the_end(film):
+    out = in_credits(film, "idle")
+    assert (out["nearly"]["card"], out["gone"]["card"]) == (True, False)
+    # Only at the end is it the last time.
+    assert out["nearly"]["idle"] == "Only you see this."
+    assert out["end"]["idle"] == "Only you see this. You won’t be asked again."
+    assert (out["after"]["card"], out["after"]["paused"]) == (False, False)
+    assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
+
+
+@pytest.mark.parametrize("what", ["idleFocus", "idleHover", "idleHidden", "idleTouch"])
+def test_the_question_stays_while_somebody_is_at_it_or_nobody_can_see_it(film, what):
+    out = in_credits(film, what)
+    assert out["nearly"]["card"] is True
+    assert out["after"]["card"] is (what != "idleHover")
+
+
+def test_a_pause_is_no_time_that_the_question_was_left_alone_for(film):
+    out = in_credits(film, "idlePaused")
+    assert (out["paused"]["card"], out["after"]["card"]) == (True, False)
+
+
+def test_a_rating_given_before_the_scene_is_not_asked_for_again(film):
+    out = in_credits(film, "sceneRated")
+    assert out["scene"]["card"] is False
+    assert (out["end"]["card"], out["end"]["at"]) == (False, "/watch/movie/501")
+
+
+def test_the_credits_ask_nothing_in_a_hidden_page_and_at_once_on_return(film):
+    out = in_credits(film, "hidden")
+    assert (out["hidden"]["card"], out["hidden"]["asks"]) == (False, 0)
+    assert (out["after"]["card"], out["after"]["asks"]) == (True, 1)
+    # Gone back before the credits, the way into them is to be played again.
+    assert in_credits(film, "hiddenBack")["after"]["asks"] == 0
+
+
+def test_a_seek_from_the_end_back_into_the_credits_calls_the_way_out_off(film):
+    out = in_credits(film, "endSeek")
+    assert (out["sought"]["card"], out["soughtLate"]["at"]) == (True, "/watch/play/1")
+
+
+@pytest.mark.parametrize(("what", "asks"), [("askFails", 2), ("saveFails", 1), ("refused", 2)])
+def test_what_the_credits_could_not_ask_is_asked_once_more_at_the_end(film, what, asks):
+    out = in_credits(film, what)
+    assert out["in"]["card"] is False
+    assert (out["end"]["card"], out["end"]["asks"]) == (True, asks)
+
+
+def test_the_question_open_at_a_season_s_end_leaves_the_countdown_as_it_is(markup):
+    out = in_credits(markup, "asked")
+    assert (out["end"]["card"], out["end"]["upnext"], out["end"]["asks"]) == (True, True, 1)
+    assert (out["nine"]["card"], out["nine"]["upnext"]) == (True, True)
+    assert (out["late"]["card"], out["went"]) == (False, True)
+
+
+def test_the_question_open_with_autoplay_off_stays_beside_the_next_episode(markup):
+    out = run(markup, "credits", saved={}, plays="noAutoplay")
+    assert (out["late"]["card"], out["late"]["upnext"], out["went"]) == (True, True, False)
+
+
+def test_the_question_open_gives_way_to_are_you_still_watching(markup):
+    out = in_credits(markup, "stillWatching")["end"]
+    assert (out["dialog"], out["card"]) == (True, False)

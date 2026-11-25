@@ -96,7 +96,7 @@ function load(opts = {}) {
   const api = {
     put(url, body) { rates.push([url, body.level]); if (opts.saving) return opts.saving; return opts.noRating ? Promise.reject(new Error('down')) : Promise.resolve({ media_type: 'movie', tmdb_id: 1 }); },
     get(url, o) {
-      if (/ratings/.test(url)) return Promise.resolve({ ratings: { 'movie-1': { level: opts.level || null, rateable: !opts.unrateable } } });
+      if (/ratings/.test(url)) return opts.reading || Promise.resolve({ ratings: { 'movie-1': { level: opts.level || null, rateable: !opts.unrateable } } });
       const ref = url.replace('/api/watch/preview/', '');
       gets.push(ref);
       const answer = answers[ref];
@@ -270,6 +270,32 @@ const scenarios = {
     h.away();
     await h.pass(1500);
     return [open, sets];
+  },
+  /* A pick whose card has no TMDB title, and a film the server says cannot be rated while its strip is open. */
+  async cannotRate() {
+    const pick = load({ ratings: true, api: { 'rec-5': FILM } });
+    await pick.rest('pick', 900);
+    const asked = {};
+    const h = load({ ratings: true, reading: new Promise((r) => { asked.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    asked.done({ ratings: { 'movie-1': { level: null, rateable: false } } });
+    await h.pass(50);
+    h.away();
+    await h.pass(1500);
+    await h.rest('film');
+    const rate = (p) => p.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate').length;
+    return { pick: rate(pick), again: rate(h) };
+  },
+  async stripNotRateable() {
+    const asked = {};
+    const h = load({ ratings: true, reading: new Promise((r) => { asked.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    asked.done({ ratings: { 'movie-1': { level: null, rateable: false } } });
+    await h.pass(50);
+    const look = rateLook(h);
+    return [look[0], look[3]];
   },
   async ratedBefore() {
     const h = load({ ratings: true, level: -1 });

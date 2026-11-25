@@ -136,6 +136,7 @@ class TestRating:
     def test_each_level_is_kept_with_the_librarys_own_name(self, client, conn):
         for level in (-2, -1, 1, 2):
             answer = _rate(client, "movie-100", level).json()
+            del answer["was"]
             assert answer == {"ok": True, "media_type": "movie", "tmdb_id": 603, "level": level}
             assert _stored(conn) == [("movie", 603, level, "Brightwater", 2019)]
 
@@ -145,6 +146,15 @@ class TestRating:
         assert [r[2] for r in _stored(conn)] == [-1]
         assert client.delete(f"{BASE}/movie-100").json()["level"] is None
         assert _stored(conn) == []
+
+    def test_each_change_answers_the_level_it_replaced_of_that_person_alone(self, as_user):
+        mine, theirs = as_user("aoife"), as_user("cian")
+        _rate(theirs, "movie-100", 1)
+        assert _rate(mine, "movie-100", 2).json()["was"] is None
+        assert _rate(mine, "movie-100", -2).json()["was"] == 2
+        assert mine.delete(f"{BASE}/movie-100").json()["was"] == -2
+        assert mine.delete(f"{BASE}/movie-100").json()["was"] is None
+        assert theirs.delete(f"{BASE}/movie-100").json()["was"] == 1
 
     def test_any_other_level_is_refused(self, client, conn):
         for level in (0, 3, 1.5, "2", None):

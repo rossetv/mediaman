@@ -49,6 +49,7 @@ def _save(
     position=0.0,
     duration=6000.0,
     played=0.0,
+    credits=None,
     now=NOON,
 ):
     return save_progress(
@@ -60,6 +61,7 @@ def _save(
         position_s=position,
         duration_s=duration,
         played_s=played,
+        credits_s=credits,
         now=now,
     )
 
@@ -75,6 +77,20 @@ class TestWatched:
         assert _save(users, position=5399.0) is False
         assert _save(users, position=5400.0) is True
         assert get_progress(users, "aoife", ["m1"])["m1"].watched is True
+
+    def test_reaching_the_credits_marks_watched(self, users):
+        assert _save(users, position=4999.0, credits=5000.0) is False
+        assert _save(users, position=5000.0, credits=5000.0) is True
+        assert get_progress(users, "aoife", ["m1"])["m1"].seen is True
+
+    def test_credits_after_ninety_percent_do_not_put_watched_off(self, users):
+        assert _save(users, position=5400.0, credits=5800.0) is True
+
+    def test_credits_leave_the_played_time_cleanup_asks_for_as_it_was(self, users):
+        _save(users, duration=300.0, position=200.0, credits=200.0, played=269.0)
+        assert _credited(users, "m1") is None
+        _save(users, duration=300.0, position=200.0, credits=200.0, played=270.0)
+        assert _credited(users, "m1") is not None
 
     def test_playing_a_watched_item_from_the_start_makes_it_in_progress(self, users):
         _save(users, position=5900.0)

@@ -9,6 +9,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HARNESS = Path(__file__).parent / "js" / "watch_list_harness.js"
 
 
@@ -441,6 +443,12 @@ def test_the_last_row_leaving_while_a_filter_loads_does_not_replace_that_filter(
     out = _run("lastRowLeavesWhileLoading")
     assert (out["keys"], out["summary"]) == (["id:m3"], "summary kept")
     assert out["history"] == [["push", "/watch?view=list&type=kept"]]
+
+
+def test_the_last_row_leaves_the_focus_to_the_filter_that_is_on() -> None:
+    out = _run("lastRowFocus")
+    assert (out["keys"], out["there"]) == ([], True)
+    assert "fpill" in out["on"]
 
 
 def test_focus_after_a_sort_header_lands_on_the_rows_coming_in() -> None:
@@ -902,6 +910,12 @@ def test_forward_to_a_list_whose_focused_row_was_deleted_focuses_its_first_title
     assert out["left"] == {"focus": "Big", "said": "1 title"}
     assert out["late"] == {"focus": "Big", "said": "1 title"}
     assert (out["own"], out["ownLate"]) == ("watch-search", "watch-search")
+
+
+@pytest.mark.parametrize(("on", "to"), [("deleted", "Big"), ("other", "Dune"), ("held", "Big")])
+def test_a_list_read_again_as_forward_shows_it_keeps_the_focus(on: str, to: str) -> None:
+    text, there, in_row = _run("forwardToStale")[on]["after"]
+    assert (text, there, in_row) == (to, True, True)
 
 
 def test_forward_to_a_list_takes_the_focus_from_what_is_hidden_now() -> None:

@@ -11,9 +11,9 @@
 .coll__name { font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
 .coll__get { flex: none; min-height: 44px; padding-inline: 18px; font-size: 14px; }
 .coll__get[hidden] { display: none; }
-.coll .watch-card[data-mark] .watch-card__sub { padding-right: 0; }
-.watch-row__scroll > .watch-card.is-here { scroll-snap-align: center; }
 .coll .is-here .watch-card__poster { outline: 2px solid var(--t1); outline-offset: 2px; }
+/* The link's own ring goes round it all. */
+.coll .is-here .watch-card__link:focus-visible .watch-card__poster { outline: none; }
 .coll__here { font-size: 12px; font-weight: 600; color: var(--t1); margin-top: -4px; }
 .coll .watch-row__scroll { padding-top: 8px; margin-top: -8px; }
 @media (max-width: 699.98px) {
@@ -25,8 +25,14 @@
 
 .coll-dialog .keep-dialog { overflow: hidden; }
 .coll-dialog .keep-dialog h3 { margin-bottom: 2px; }
-.coll-dialog__lead { margin-bottom: 14px; font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
+.coll-dialog__under { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.coll-dialog__lead { flex: 1; min-width: 0; font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
 .coll-dialog__body { flex: 0 1 auto; min-height: 0; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; }
+.coll-dialog__all { flex: none; }
+.coll-dialog__all:disabled { visibility: hidden; }
+.coll-dialog__body { --above: 0px; --below: 0px; scroll-padding-block: 32px; -webkit-mask-image: linear-gradient(transparent, #000 var(--above), #000 calc(100% - var(--below)), transparent); mask-image: linear-gradient(transparent, #000 var(--above), #000 calc(100% - var(--below)), transparent); }
+.coll-dialog__body.has-above { --above: 32px; }
+.coll-dialog__body.has-below { --below: 32px; }
 .coll-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .coll-item {
   display: flex;
@@ -40,7 +46,32 @@
   transition: background-color var(--dur-fast) var(--ease-out);
 }
 .coll-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
-.coll-item input { grid-area: 1 / 1; width: 20px; height: 20px; margin: 0; accent-color: var(--accent-cta); cursor: inherit; transition: opacity var(--dur-fast) var(--ease-out); }
+.coll-item input {
+  appearance: none;
+  -webkit-appearance: none;
+  grid-area: 1 / 1;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1.5px solid var(--t3);
+  border-radius: var(--r-xs);
+  background: var(--s1);
+  cursor: inherit;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.coll-item input:checked { background: var(--accent-cta); border-color: var(--accent-cta); }
+.coll-item input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--t1);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .coll-item input:focus-visible { outline: none; }
 .coll-item__mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
 .coll-item__sign { grid-area: 1 / 1; display: grid; place-items: center; font-size: 18px; color: var(--t3); pointer-events: none; }
@@ -83,13 +114,24 @@
 @media (hover: hover) { .coll-item:not(:has(input:disabled)):hover { background: var(--s3); } }
 @media (max-width: 479.98px) {
   .coll-dialog .keep-dialog { padding: 20px; }
-  .coll-dialog .keep-dialog-actions .btn { flex: 1 1 0; }
+  .coll-dialog .keep-dialog-actions .btn { flex: 1 1 auto; }
 }
+/* A phone on its side: room for the list, between what it is of and its buttons. */
 @media (max-height: 460px) {
+  .coll-dialog .keep-dialog { padding-block: 14px; }
+  .coll-dialog__under { margin-bottom: 8px; }
+  .coll-dialog__lead { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coll-dialog__said { margin-top: 2px; }
+  .coll-dialog .keep-dialog-actions { margin-top: 2px; }
+}
+/* Too short for a list that scrolls by itself: all of it does. */
+@media (max-height: 300px) {
   .coll-dialog .keep-dialog { overflow-y: auto; }
-  .coll-dialog__body { flex-shrink: 0; max-height: none; overflow: visible; }
+  .coll-dialog__body { flex-shrink: 0; max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
 }
 @media (forced-colors: active) {
   .coll .is-here .watch-card__poster { outline: 3px solid Highlight; outline-offset: 2px; }
   .coll-item { border: 1px solid CanvasText; }
+  .coll-item input { appearance: auto; -webkit-appearance: auto; }
+  .coll-item input:checked::after { content: none; }
 }

@@ -130,6 +130,10 @@ class TestPanel:
         out = _run("backFocus")
         assert out == {"lost": "Storage", "kept": "Scheduled for deletion, 3 titles"}
 
+    def test_see_all_keeps_the_focus_as_other_titles_come_and_gives_it_up_only_as_it_goes(self):
+        back = "Back to all space"
+        assert _run("seeAllKeepsFocus") == {"drawn": [True, "all"], "back": back, "none": back}
+
     def test_back_from_the_list_finds_see_all_drawn_again_meanwhile_with_the_focus(self):
         assert _run("backFocusSeeAll") == {"drawn": True, "focus": True, "left": True}
 

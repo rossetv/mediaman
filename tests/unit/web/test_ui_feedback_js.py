@@ -121,3 +121,7 @@ def test_the_undo_shortcut_is_told_and_pressed_for_the_newest_undo_and_no_other_
     }
     assert out["undos"]["told"] == [["Undo", None], ["Undo (Ctrl+Z)", "Control+Z Meta+Z"]]
     assert out["undos"]["pressed"] == ["Undo"]
+
+
+def test_the_undo_that_answers_the_shortcut_once_a_newer_one_has_gone_is_told_with_it() -> None:
+    assert _run("shortcutPassesOn") == [["c"], ["b"], ["b"], ["b"]]

@@ -62,9 +62,15 @@ def find_user_id(conn: sqlite3.Connection, username: str) -> int | None:
 
 def set_level(
     conn: sqlite3.Connection, user_id: int, title: RatedTitle, level: int, now: datetime
-) -> None:
-    """Rate *title* or change its rating. A name already held is kept when *title* has none."""
+) -> int | None:
+    """Rate *title* or change its rating; returns the level it replaced. A name already held is
+    kept when *title* has none."""
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT level FROM user_ratings WHERE user_id = ? AND media_type = ? AND tmdb_id = ?",
+            (user_id, title.media_type, title.tmdb_id),
+        ).fetchone()
         conn.execute(
             "INSERT INTO user_ratings"
             " (user_id, media_type, tmdb_id, level, title, year, updated_at)"
@@ -82,14 +88,18 @@ def set_level(
                 _iso(now),
             ),
         )
+    return row["level"] if row else None
 
 
-def clear_level(conn: sqlite3.Connection, user_id: int, title: RatedTitle) -> None:
+def clear_level(conn: sqlite3.Connection, user_id: int, title: RatedTitle) -> int | None:
+    """Take the rating of *title* back; returns the level it had."""
     with conn:
-        conn.execute(
-            "DELETE FROM user_ratings WHERE user_id = ? AND media_type = ? AND tmdb_id = ?",
+        rows = conn.execute(
+            "DELETE FROM user_ratings WHERE user_id = ? AND media_type = ? AND tmdb_id = ?"
+            " RETURNING level",
             (user_id, title.media_type, title.tmdb_id),
-        )
+        ).fetchall()
+    return rows[0]["level"] if rows else None
 
 
 def claim_ask(

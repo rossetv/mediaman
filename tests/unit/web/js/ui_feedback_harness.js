@@ -245,5 +245,22 @@ function shortcut(labels) {
   return { told, pressed };
 }
 const shortcuts = () => ({ other: shortcut(['Try again']), undoThenOther: shortcut(['Undo', 'Try again']), undos: shortcut(['Undo', 'Undo']) });
-const scenarios = { pressed, shortcuts, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+/* Of three stacked Undos, those on view that are told with the shortcut, at first and as the newest one of them each time is
+   used, then goes by itself; and the same when an older one goes. */
+function shortcutPassesOn() {
+  const { doc, ui } = page();
+  const toasts = ['a', 'b', 'c'].map((name) => ui.toast(name, { action: { label: 'Undo', onClick() {} } }));
+  const told = () => doc.querySelectorAll('.ui-toast:not(.is-leaving) .ui-toast__action')
+    .filter((b) => b.getAttribute('aria-keyshortcuts') && b.getAttribute('aria-label') === 'Undo (Ctrl+Z)').map((b) => b.parentNode.querySelector('.ui-toast__msg').textContent);
+  const out = [told()];
+  toasts[2].querySelector('.ui-toast__action').listeners.click.forEach((fn) => fn({}));
+  out.push(told());
+  ui.dismiss(toasts[0]);
+  out.push(told());
+  const last = ui.toast('d', { action: { label: 'Undo', onClick() {} } });
+  ui.dismiss(last);
+  out.push(told());
+  return out;
+}
+const scenarios = { pressed, shortcutPassesOn, shortcuts, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

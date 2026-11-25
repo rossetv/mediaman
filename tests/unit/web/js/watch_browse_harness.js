@@ -1169,7 +1169,8 @@ const scenarios = {
     const first = rec(p.doc).querySelector('.watch-card');
     click(p.doc, open);
     const heading = made.cards[0];
-    return [heading.getAttribute('data-group'), made.line(first).getAttribute('data-group'), made.line(first).textContent === heading.textContent];
+    return { group: [heading, made.line(first)].map((n) => n.getAttribute('data-group')), same: made.line(first).textContent === heading.textContent, dates: made.dates(),
+      places: rec(p.doc).querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-batch'), c.getAttribute('data-place')]) };
   },
 
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.

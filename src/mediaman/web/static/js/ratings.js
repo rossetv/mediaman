@@ -5,16 +5,18 @@
  *     node for plain and grid, for the caller to place for strip and menu. Both are
  *     hidden while the title cannot be rated. 'menu' is for inside a role=menu: its
  *     buttons are menu items and out of the tab order.
+ *     `again`: in a grid, the question may be put again, so the words do not say it is the last.
  *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while never known
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
  *   MM.ratings.read(refs)        asks for those not known, in one request
- *   MM.ratings.set(ref, level)   rates, or with null takes the rating back
+ *   MM.ratings.set(ref, level)   rates, or with null takes the rating back; undefined does nothing
  *   MM.ratings.thumb(level, on)  a new thumb as an svg
  *   MM.ratings.LEVELS            [{ level, name, said }]
  *
  * Told to the document as `mm:rating`, with detail { phase, ref, refs, level, was, from,
  * mediaType, tmdbId }: phase is 'read', 'pending', 'saved' or 'failed' (level is then back
- * to was, what was last saved), refs every ref known to name the title, from the set's node.
+ * to was, what was last saved), was the level before, undefined while not known (there is
+ * then nothing to undo to), refs every ref known to name the title, from the set's node.
  *
  * Requires: core/api.js.
  */
@@ -76,7 +78,9 @@
 
   /* ── The levels ──
      A title has one state however many refs name it: `want` is shown, `saved` is what
-     the server holds, as far as is known. One request of a title is out at a time. */
+     the server holds, as far as is known. One request of a title is out at a time.
+     `before` is the level before the first press not settled yet, undefined while not
+     known; `sure` is whether the server said it, `tried` what it may have stored unheard. */
 
   var states = {}; // by ref
   var sets = [];
@@ -88,7 +92,8 @@
     var key = m ? m[1] + '-' + m[2] : '';
     s = (key && withKey(key)) || {
       key: key, refs: [], want: null, saved: null, rateable: undefined, known: false, askAgain: false,
-      busy: false, asking: false, lost: false, rev: 0, pressed: null, from: null,
+      busy: false, asking: false, lost: false, rev: 0,
+      before: undefined, sure: false, tried: [], pressed: null, from: null,
     };
     s.refs.push(ref);
     states[ref] = s;
@@ -142,23 +147,29 @@
 
   function change(ref, level, from) {
     var s = stateOf(ref);
-    var was = s.want;
-    if (level === was) return;
+    if (level === s.want || level === undefined) return;
+    if (!s.busy && !s.tried.length) {
+      s.before = s.known && !s.askAgain ? s.saved : undefined;
+      s.sure = false;
+    }
     s.want = level;
     setError(s, '');
     s.pressed = ref;
     s.from = from || null;
-    tell(s, 'pending', was, ref);
+    tell(s, 'pending', s.before, ref);
     if (!s.busy) send(s);
   }
 
   function send(s) {
     var level = s.want;
     var ref = s.pressed;
-    var was = s.saved;
     var url = URL + '/' + encodeURIComponent(ref);
     s.busy = true;
     (level === null ? MM.api.delete(url) : MM.api.put(url, { level: level })).then(function (data) {
+      // A level it stored unheard is not the one before.
+      if (!s.sure && data.was !== undefined && s.tried.indexOf(data.was) < 0) s.before = data.was;
+      s.sure = true;
+      s.tried = [];
       s.saved = level;
       s.known = true;
       s.askAgain = false;
@@ -172,11 +183,14 @@
       if (s.want !== level) { send(s); return; }
       s.busy = false;
       setError(s, '');
-      tell(s, 'saved', was, ref);
+      tell(s, 'saved', s.before, ref);
       doubtOthers(s);
     }, function (err) {
       // Without the server's word, it may have saved it.
-      if (!(err.status >= 400 && err.status < 500)) s.lost = true;
+      if (!(err.status >= 400 && err.status < 500)) {
+        s.lost = true;
+        s.tried.push(level);
+      }
       if (s.want !== level) { send(s); return; }
       failed(s, err, ref);
     });
@@ -186,6 +200,8 @@
     var other = s.key && withKey(s.key, s);
     var again = s.lost ? [ref] : [];
     s.busy = false;
+    if (s.sure) s.before = s.saved;
+    s.sure = false;
     if (s.lost) doubt(s);
     s.lost = false;
     if (other && other.busy) {
@@ -200,7 +216,7 @@
     }
     s.want = s.saved;
     setError(s, err.error === 'no_tmdb_id' ? MM.api.messageOf(err, NOT_SAVED) : NOT_SAVED);
-    tell(s, 'failed', s.saved, ref);
+    tell(s, 'failed', s.known ? s.saved : undefined, ref);
     read(again);
   }
 
@@ -233,15 +249,17 @@
         if (states[a.ref] !== s) return;
         if (s.rev !== a.rev) { read([a.ref]); return; }
         var got = data.ratings[a.ref];
+        var was = s.known ? s.want : undefined;
         s.known = true;
         s.askAgain = false;
         s.rateable = !!got && got.rateable;
         s.saved = got ? got.level : null;
         if (s.busy) return;
-        var was = s.want;
+        var shown = s.want;
         s.want = s.saved;
+        s.tried = [];
         s.from = null;
-        if (s.want !== was) setError(s, ''); // saved after all, or changed elsewhere
+        if (s.want !== shown) setError(s, ''); // saved after all, or changed elsewhere
         tell(s, 'read', was, a.ref);
       });
     }, function () {
@@ -316,7 +334,7 @@
     function sayLine(s) {
       var l = levelOf(s.want);
       var bold = '';
-      var text = IDLE[variant];
+      var text = opts && opts.again ? IDLE.plain : IDLE[variant];
       if (set.error) text = set.error;
       else if (inMenu) text = l ? l.name : text;
       else if (variant === 'strip' && !touched) text = IDLE.strip;

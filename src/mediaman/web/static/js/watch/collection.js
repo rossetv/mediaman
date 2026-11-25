@@ -20,13 +20,13 @@
   var GRACE_MS = 30000;
   /* How long what is known of a row on show is not asked for again. */
   var FRESH_MS = 60000;
-  /* How long after the dialog opened the rest of a double click can still come. */
+  /* How long after the dialog opened, or a run ended, the rest of a press can still come. */
   var DOUBLE_CLICK_MS = 600;
   var OUT = [['held', 'Already in the library'], ['requested', 'Already asked for'], ['unreleased', 'Not out yet'],
     ['undated', 'No release date yet'], ['unavailable', 'Radarr can’t be asked right now']];
 
-  // Of a minute or of the day: the server does not say which.
-  var LIMIT = 'Not asked yet, the download limit is reached. Try again later';
+  /* A limit of a minute or of the day: the server does not say which. */
+  var WHEN = 'try again in a minute, or tomorrow if the day’s limit is reached.';
 
   var known = {};   // by the ref of a title: its collection, { name, films }
   var lefts = {};   // by the ref of a title: where its row was left
@@ -238,7 +238,12 @@
   /* The film of the title in the middle of the row, which alone scrolls. */
   function toHere(v) { v.scroller.scrollLeft = middleFor(v, cardHere(v)); }
 
-  function middleFor(v, card) { return card.offsetLeft - (v.scroller.clientWidth - card.offsetWidth) / 2; }
+  /* Where the row has *card* in its middle; its start where that shows the whole card. */
+  function middleFor(v, card) {
+    var end = v.scroller.clientWidth - parseFloat(getComputedStyle(v.scroller).paddingRight);
+    if (card.offsetLeft + card.offsetWidth <= end) return 0;
+    return card.offsetLeft - (v.scroller.clientWidth - card.offsetWidth) / 2;
+  }
 
   /* The row is one Tab stop, which the arrow keys move. */
   function stopAt(v, link) {
@@ -293,7 +298,8 @@
 
   /* ── The dialog ── */
 
-  var job = null;    // { coll, items: [{ film, on, state, note }], busy, count, at }
+  var jobs = {};     // by the name of a collection: the last job of it
+  var job = null;    // the one under way or shown: { coll, items: [{ film, on, state, note }], busy, count, at, run, text, endedAt }
   var dialog = null; // its parts, once built
   var openedAt = 0;
 
@@ -318,7 +324,19 @@
     d.title.setAttribute('data-modal-focus', '');
     d.lead = el('p', 'coll-dialog__lead');
     d.lead.id = 'coll-dialog-lead';
+    d.all = button('season-pick__all coll-dialog__all');
+    d.all.addEventListener('click', function () {
+      if (job.busy) return;
+      var on = ticked(job).length < left(job).length;
+      left(job).forEach(function (i) { i.on = on; });
+      sync();
+    });
+    var under = el('div', 'coll-dialog__under');
+    under.appendChild(d.lead);
+    under.appendChild(d.all);
     d.body = el('div', 'coll-dialog__body');
+    d.body.addEventListener('scroll', edges, { passive: true });
+    window.addEventListener('resize', edges);
     d.list = el('ul', 'coll-list');
     d.out = el('div', 'coll-out');
     d.said = el('p', 'coll-dialog__said');
@@ -330,7 +348,7 @@
     actions.appendChild(d.go);
     d.body.appendChild(d.list);
     d.body.appendChild(d.out);
-    [d.title, d.lead, d.body, d.said, actions].forEach(function (n) { card.appendChild(n); });
+    [d.title, under, d.body, d.said, actions].forEach(function (n) { card.appendChild(n); });
     d.root.appendChild(card);
     // The rest of a double click on what opened it neither closes it nor answers it.
     d.root.addEventListener('click', function (e) {
@@ -353,8 +371,10 @@
       }
     });
     d.cancel.addEventListener('click', function () { d.modal.close(); });
+    // Held down, the key that pressed it does not press what it says next.
+    d.go.addEventListener('keydown', function (e) { if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault(); });
     d.go.addEventListener('click', function (e) {
-      if (e.detail > 1 || d.go.getAttribute('aria-disabled') === 'true') return;
+      if (e.detail > 1 || d.go.getAttribute('aria-disabled') === 'true' || Date.now() - job.endedAt < DOUBLE_CLICK_MS) return;
       if (left(job).length) start(job);
       else d.modal.close();
     });
@@ -366,18 +386,45 @@
 
   function ticked(j) { return left(j).filter(function (i) { return i.on; }); }
 
+  function fresh(film) { return { film: film, on: true, state: '', note: '' }; }
+
+  /* What there is to do for *coll*, with the failures of the job before; null for nothing. */
+  function jobOf(coll) {
+    var films = missing(coll);
+    if (!films.length) return null;
+    var before = jobs[coll.name];
+    var old = {};
+    if (before) before.items.forEach(function (i) { old[i.film.ref] = i; });
+    function unsettled(f) {
+      var i = old[f.ref];
+      return !!i && !i.had && (i.state === 'failed' || i.state === 'unasked');
+    }
+    if (!films.some(unsettled)) return { coll: coll, busy: false, count: 0, at: 0, items: films.map(fresh) };
+    before.coll = coll;
+    before.items = coll.films.map(function (f) {
+      var i = old[f.ref];
+      if (f.can_request) {
+        if (i && i.state !== 'done') {
+          i.film = f;
+          i.had = null;
+          return i;
+        }
+        return fresh(f);
+      }
+      return i && i.state === 'done' && !i.had ? i : null;
+    }).filter(Boolean);
+    return before;
+  }
+
   function openDialog(v) {
     if (job && job.busy && job.coll.name !== v.coll.name) {
       core.toast('Still adding the films of ' + job.coll.name + '. Try again in a moment.');
       return;
     }
     if (!(job && job.busy)) {
-      var films = missing(v.coll);
-      if (!films.length) return;
-      job = {
-        coll: v.coll, busy: false, count: 0, at: 0,
-        items: films.map(function (f) { return { film: f, on: true, state: '', note: '' }; })
-      };
+      var next = jobOf(v.coll);
+      if (!next) return;
+      job = jobs[v.coll.name] = next;
     }
     dialog = dialog || build();
     fill();
@@ -385,13 +432,14 @@
     openedAt = Date.now();
     dialog.modal.open();
     dialog.body.scrollTop = 0;
+    edges();
   }
 
   function fill() {
     var d = dialog;
     d.title.textContent = job.items.length === 1 ? 'Download the missing film' : 'Download the missing films';
     d.lead.textContent = job.coll.name;
-    d.said.textContent = '';
+    d.said.textContent = job.text || '';
     d.list.textContent = '';
     d.list.setAttribute('aria-label', 'Films to download');
     job.items.forEach(function (item) { d.list.appendChild(rowOf(item)); });
@@ -430,6 +478,7 @@
     mark.appendChild(item.box);
     item.sign = el('span', 'coll-item__sign');
     item.sign.setAttribute('aria-hidden', 'true');
+    item.shown = '';
     mark.appendChild(item.sign);
     row.appendChild(mark);
     var poster = el('span', 'coll-item__poster');
@@ -480,12 +529,22 @@
     var tried = job.items.some(function (i) { return i.state; });
     d.go.textContent = job.busy ? 'Adding ' + Math.min(job.count, job.at + 1) + ' of ' + job.count + '…'
       : !rest ? 'Done'
-      : !n ? 'Pick films' : (tried ? 'Try again: download ' : 'Download ') + n;
+      : !n ? 'Pick films' : (tried ? 'Try again with ' : 'Download ') + n;
     if (job.busy || (rest && !n)) d.go.setAttribute('aria-disabled', 'true');
     else d.go.removeAttribute('aria-disabled');
+    d.all.textContent = n < rest ? 'Select all' : 'Select none';
+    d.all.disabled = job.busy || rest < 2;
     d.cancel.textContent = tried ? 'Close' : 'Cancel';
     d.cancel.hidden = !rest;
     d.root.classList.toggle('is-busy', job.busy);
+  }
+
+  /* Where the list goes on out of sight, it fades. */
+  function edges() {
+    var b = dialog && dialog.body;
+    if (!b) return;
+    b.classList.toggle('has-above', b.scrollTop > 1);
+    b.classList.toggle('has-below', b.scrollTop < b.scrollHeight - b.clientHeight - 1);
   }
 
   /* The film being added, in the dialog's list. */
@@ -497,7 +556,10 @@
     else if (row.bottom > box.bottom) dialog.body.scrollTop += row.bottom - box.bottom;
   }
 
-  function say(text) { if (dialog) dialog.said.textContent = text; }
+  function say(j, text) {
+    j.text = text;
+    if (dialog && job === j) dialog.said.textContent = text;
+  }
 
   /* ── Asking ── */
 
@@ -507,19 +569,38 @@
     j.busy = true;
     j.count = items.length;
     j.at = 0;
-    j.limited = false;
+    var run = j.run = { limited: false };
     items.forEach(function (item) {
       item.state = 'wait';
       item.note = 'Waiting';
     });
-    say(items.length > 1 ? 'Keep this page open until all ' + items.length + ' are added.' : '');
+    say(j, items.length > 1 ? 'Keep this page open until all ' + items.length + ' are added.' : '');
     update();
     line = items.reduce(function (before, item) {
-      return before.then(function () { return askFor(j, item); });
-    }, line).then(function () { finish(j, items); });
+      return before.then(function () { return askFor(j, item, run); });
+    }, line).then(function () { if (j.run === run) finish(j, items); });
   }
 
   function waits() { return !!job && job.busy && job.items.some(function (i) { return i.state === 'wait'; }); }
+
+  /* Asked as a request finds the session over and goes to sign in: no more can be added, and
+     the page is not to be held back. */
+  var hasUnsaved = window.MM.api.hasUnsavedChanges;
+  window.MM.api.hasUnsavedChanges = function () {
+    stop();
+    return hasUnsaved();
+  };
+
+  function stop() {
+    var j = job;
+    if (!j || !j.busy) return;
+    j.run = null; // an answer still to come starts nothing more
+    j.busy = false;
+    j.items.forEach(function (i) { if (i.state === 'wait' || i.state === 'asking') unaskedAgain(i); });
+    line = Promise.resolve();
+    say(j, 'You were signed out. Sign in to add the rest.');
+    update();
+  }
 
   function askToStay(e) {
     if (!waits()) return;
@@ -535,7 +616,13 @@
     if (view && view.node && view.coll) label(view);
   }
 
-  function askFor(j, item) {
+  function unaskedAgain(item) {
+    item.state = 'unasked';
+    item.note = 'Not asked yet';
+  }
+
+  function askFor(j, item, run) {
+    if (j.run !== run) return null;
     var f = item.film;
     if (item.had) {
       item.state = 'done';
@@ -544,9 +631,8 @@
       update();
       return null;
     }
-    if (j.limited) {
-      item.state = 'failed';
-      item.note = LIMIT;
+    if (run.limited) {
+      unaskedAgain(item);
       update();
       return null;
     }
@@ -557,16 +643,20 @@
     return window.MM.api.post('/api/search/download', {
       media_type: 'movie', tmdb_id: Number(f.ref.replace('tmdb-movie-', '')), title: f.title
     }).then(function () { done(item, 'Queued'); }, function (err) {
+      if (j.run !== run) return;
       if (err && err.status === 409) {
         done(item, 'Already in Radarr');
         return;
       }
+      run.limited = !!err && err.status === 429 && /^too many/i.test(err.message || '');
+      if (run.limited) {
+        unaskedAgain(item);
+        return;
+      }
       item.state = 'failed';
-      j.limited = !!err && err.status === 429 && /^too many/i.test(err.message || '');
-      item.note = j.limited ? LIMIT
-        : window.MM.api.messageOf(err, 'Something went wrong. Try again.');
+      item.note = window.MM.api.messageOf(err, 'Something went wrong. Try again.');
     }).then(function () {
-      j.at += 1;
+      if (j.run === run) j.at += 1;
       update();
     });
   }
@@ -598,14 +688,24 @@
 
   function finish(j, items) {
     var got = items.filter(function (i) { return i.state === 'done'; }).length;
-    var not = items.length - got;
+    var unasked = items.filter(function (i) { return i.state === 'unasked'; }).length;
+    var failed = items.length - got - unasked;
     j.busy = false;
-    var queued = items.some(function (i) { return i.had; }) ? 'queued or in the library. ' : 'queued. ';
-    var text = !not ? (got === 1 ? items[0].film.title + ' is ' : got + ' films are ') + queued.trim()
-      : got ? got + ' of ' + items.length + ' films are ' + queued + plural(not, 'was', 'were') + ' not.'
-      : items.length === 1 ? items[0].film.title + ' was not queued.' : 'None of the ' + items.length + ' films was queued.';
-    if (dialog && dialog.open && job === j) say(text);
-    else core.toast(text, { variant: not ? 'error' : 'success' });
+    var queued = items.some(function (i) { return i.had; }) ? 'queued or in the library.' : 'queued.';
+    var name = items[0].film.title;
+    var words = [];
+    if (got) words.push((items.length === 1 ? name + ' is ' : got === items.length ? got + ' films are '
+      : got + ' of ' + items.length + (got === 1 ? ' films is ' : ' films are ')) + queued);
+    if (failed) words.push(got ? plural(failed, 'was', 'were') + ' not.'
+      : items.length === 1 ? name + ' was not queued.'
+      : failed === items.length ? 'None of the ' + failed + ' films was queued.'
+      : plural(failed, 'film was', 'films were') + ' not queued.');
+    if (unasked) words.push((items.length === 1 ? name + ' is' : got || failed ? plural(unasked, 'is', 'are')
+      : unasked + ' films are') + ' not asked for yet: ' + WHEN);
+    var text = words.join(' ');
+    say(j, text);
+    j.endedAt = Date.now();
+    if (!(dialog && dialog.open && job === j)) core.toast(text, { variant: failed ? 'error' : unasked ? 'info' : 'success' });
     update();
   }
 

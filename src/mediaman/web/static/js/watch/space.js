@@ -1149,10 +1149,16 @@
     if (!isOpen || !Z.stage || !Z.stage.isConnected) return;
     if (act === k) {
       var back = Z.stage.querySelector('.space-layer:not([inert]) .space-back');
-      var had = back && document.activeElement && Z.stage.contains(document.activeElement);
+      var was = document.activeElement;
+      var had = back && was && Z.stage.contains(was);
       stage(0);
       var now = document.activeElement;
-      if (had && (!Z.stage.contains(now) || now.closest('[inert]'))) focusBack();
+      if (had && (!Z.stage.contains(now) || now.closest('[inert]'))) {
+        // Drawn again with the list; a list that is all there has none.
+        var all = was.classList.contains('space-all') && Z.stage.querySelector('.space-layer:not([inert]) .space-all');
+        if (all) all.focus({ preventScroll: true });
+        else focusBack();
+      }
     } else if (!act) {
       peek(Z.stage.querySelector('.space-layer:not([inert]) .space-peek[data-k="' + k + '"]'), k);
     }
