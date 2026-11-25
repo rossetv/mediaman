@@ -314,6 +314,10 @@ class TestWatchRows:
         [show] = rows["TV"]
         said = [show[k] for k in ("leaving_days", "leaving_season", "leaving_id", "keep_id")]
         assert said == [2, 2, "502", None]
+        assert show["leaving_seasons"] == [
+            {"season": 2, "days": 2, "id": "502"},
+            {"season": 1, "days": 6, "id": "501"},
+        ]
 
     def test_items_outside_scanned_libraries_appear_nowhere(self, get, conn):
         _schedule(conn, "900", 1)

@@ -230,7 +230,7 @@ def held_fields(
         season = seasons.get(ref or "")
         return {
             **lib.mark_fields(ref, seen),
-            "leaving_days": season["days"] if season else found["days"],
+            "leaving_days": season[0]["days"] if season else found["days"],
             "keep_id": found["keep_id"],
             **season_fields(season),
         }

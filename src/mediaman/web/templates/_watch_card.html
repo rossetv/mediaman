@@ -114,7 +114,7 @@
    from the Leaving soon row and the badge from any other card with the same
    keep id. #}
 {% macro card(item, keep=false) -%}
-<article class="watch-card" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}>
+<article class="watch-card" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}" data-leaving-seasons="{{ (item.leaving_seasons or [])|tojson|forceescape }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}>
   {% set ref = title_ref(item) %}
   <a class="watch-card__link" href="{{ item.href }}"{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">

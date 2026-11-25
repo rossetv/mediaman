@@ -530,6 +530,9 @@ class TestThePageBehind:
             "inPanel": True,
         }
 
+    def test_a_season_off_the_list_gives_its_badge_up_to_the_next_that_leaves(self):
+        assert _run("seasonOffTheList") == ["S2 in 5"]
+
     def test_a_scan_puts_new_cards_in_their_places_and_leaves_the_rest_be(self):
         assert _run("pageAfterScan") == {
             "cards": ["9", "1", "3", "2"],

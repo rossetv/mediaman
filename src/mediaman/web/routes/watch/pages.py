@@ -225,21 +225,28 @@ def leaving_info(pending: lib.PendingDeletion | None, now: datetime) -> dict[str
 
 def seasons_leaving(
     pending: Sequence[lib.PendingDeletion], now: datetime
-) -> dict[str, dict[str, Any]]:
-    """By show key, the first season of the show to leave; *pending* is soonest first."""
-    found: dict[str, dict[str, Any]] = {}
+) -> dict[str, list[dict[str, Any]]]:
+    """By show key, the seasons of the show that are leaving, soonest first as *pending* is."""
+    found: dict[str, list[dict[str, Any]]] = {}
     for p in pending:
         info = leaving_info(p, now)
         if info is not None and p.show_key is not None and p.season_number is not None:
-            found.setdefault(p.show_key, {**info, "season": p.season_number})
+            season = {"season": p.season_number, "days": info["days"], "id": info["keep_id"]}
+            found.setdefault(p.show_key, []).append(season)
     return found
 
 
-def season_fields(found: Mapping[str, Any] | None) -> dict[str, Any]:
-    """What a show's card says of its leaving season: which, and the item whose Keep ends it."""
-    if found is None:
+def season_fields(seasons: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """What a show's card says of its leaving seasons: the first, the item whose Keep ends it,
+    and them all, for the next one once that is kept."""
+    if not seasons:
         return {}
-    return {"leaving_season": found["season"], "leaving_id": found["keep_id"]}
+    first = seasons[0]
+    return {
+        "leaving_season": first["season"],
+        "leaving_id": first["id"],
+        "leaving_seasons": seasons,
+    }
 
 
 def card(
@@ -253,14 +260,14 @@ def card(
     minutes_left: int | None = None,
     watched: bool = False,
     leaving: dict[str, Any] | None = None,
-    season_leaving: dict[str, Any] | None = None,
+    season_leaving: list[dict[str, Any]] | None = None,
     mark: tuple[str, str] | None = None,
     dismiss_ref: str | None = None,
 ) -> dict[str, Any]:
     """One card; *mark* is the (kind, key) its Watched toggle marks, *season_leaving* the
-    season of a show that is leaving, which the card says and offers no Keep of."""
-    if season_leaving is not None:
-        leaving = {"days": season_leaving["days"], "keep_id": None}
+    seasons of a show that are leaving, which the card says and offers no Keep of."""
+    if season_leaving:
+        leaving = {"days": season_leaving[0]["days"], "keep_id": None}
     mark_kind, mark_key = mark or (None, None)
     return {
         "kind": kind,
@@ -316,7 +323,7 @@ def show_subtitle(show: lib.LibraryShow, seen: lib.ShowSeen | None = None) -> st
 def show_card(
     show: lib.LibraryShow,
     seen: lib.ShowSeen | None = None,
-    season_leaving: dict[str, Any] | None = None,
+    season_leaving: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """A show's card; *seen* is how much of it this person has seen."""
     return card(

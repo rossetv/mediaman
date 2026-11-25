@@ -1431,9 +1431,10 @@
       var to = watch.keep.fromRow(card, card.closest('[data-watch-leaving-row]'), shown, '[data-watch-keep]').focus;
       if (had && to) core.focusSoftly(to);
     });
-    toArray(document.querySelectorAll('.watch-card[data-keep-id], .watch-card[data-leaving-id]')).forEach(function (card) {
+    toArray(document.querySelectorAll('.watch-card[data-leaving-id]')).forEach(function (card) { watch.keep.seasonsLeaving(card, ids); });
+    toArray(document.querySelectorAll('.watch-card[data-keep-id]')).forEach(function (card) {
       var badge = card.querySelector('.watch-badge--leaving');
-      if (!badge || ids[card.getAttribute('data-leaving-id') || idOf(card)] || card.closest('[data-watch-leaving-row]')) return;
+      if (!badge || ids[idOf(card)] || card.closest('[data-watch-leaving-row]')) return;
       after(anim(badge, [{ opacity: 1 }, { opacity: 0 }], fast(), 'forwards'), function () { badge.remove(); });
     });
     var row = leavingRow();

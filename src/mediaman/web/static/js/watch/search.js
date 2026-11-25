@@ -90,11 +90,17 @@
     return badge;
   }
 
+  /* Which of a show's seasons leave, and the one its badge is of. */
+  function setLeaving(card, item) {
+    card.setAttribute('data-leaving-id', item.leaving_id);
+    card.setAttribute('data-leaving-seasons', JSON.stringify(item.leaving_seasons || []));
+  }
+
   /* A library title's card; its link carries the ref: it is what takes focus
      back when the detail closes. */
   function libraryCard(item) {
     var card = el('article', 'watch-card');
-    if (item.leaving_id) card.setAttribute('data-leaving-id', item.leaving_id);
+    if (item.leaving_id) setLeaving(card, item);
     else card.setAttribute('data-keep-id', item.keep_id || '');
 
     var link = el('a', 'watch-card__link');
@@ -166,7 +172,7 @@
   function buildTmdbCard(item, plain) {
     var card = el('article', 'watch-card');
     if (item.keep_id) card.setAttribute('data-keep-id', item.keep_id);
-    if (item.leaving_id) card.setAttribute('data-leaving-id', item.leaving_id);
+    if (item.leaving_id) setLeaving(card, item);
 
     var link = el('a', 'watch-card__link');
     link.setAttribute('data-title-ref', item.ref || '');
@@ -1795,5 +1801,5 @@
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, isHeld: isHeld, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
 })();

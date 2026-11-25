@@ -146,10 +146,14 @@ const scenarios = {
   async seasonKept() {
     const page = load();
     page.doc.body.appendChild(leavingRowPage(page.doc));
-    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100' },
+    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100', 'data-leaving-seasons': '[{"id":"1100"}]' },
       ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-badge--leaving' }, 'S2']]]));
+    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100',
+      'data-leaving-seasons': JSON.stringify([{ id: '1100', season: 1, days: 2 }, { id: '1101', season: 2, days: 5 }]) },
+      ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-badge--leaving' }, 'S1']]]]));
     page.run();
-    const badges = () => page.doc.querySelectorAll('[data-leaving-id] .watch-badge--leaving').length;
+    page.ctx.MMWatch.search = { leavingBadge: (item) => build(page.doc, ['span', { class: 'watch-badge--leaving' }, 'S' + item.leaving_season + ' in ' + item.leaving_days]) };
+    const badges = () => page.doc.querySelectorAll('[data-leaving-id] .watch-badge--leaving').map((n) => n.textContent);
     click(page.doc, page.doc.querySelector('.watch-row [data-watch-keep]'));
     click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
     await settle();
