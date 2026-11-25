@@ -1520,12 +1520,42 @@ def test_a_server_that_answers_light_requests_is_slow_and_not_lost(markup):
 @pytest.mark.parametrize("chosen", ["auto", "1080p-8000"])
 @pytest.mark.parametrize("light", ["answered", "silent", "silent bytes"])
 def test_a_long_stall_is_a_drop_only_where_nothing_at_all_comes(markup, chosen, light):
-    out = run(markup, "stalled_silent", plays=light, saved={"mediaman.watch.quality": chosen})
+    plays = light if "bytes" in light else f"{light} none"
+    saved = {"mediaman.watch.quality": chosen}
+    out = run(markup, "stalled_silent", plays=f"{plays} 0", saved=saved)
     if light == "silent":
         assert out == {"starts": 1, "destroyed": False, "notice": NOTICE_LOST}
         return
     steps = chosen == "auto"
     assert (out["starts"], out["destroyed"], out["notice"]) == (2 if steps else 1, steps, None)
+
+
+@pytest.mark.parametrize(
+    "chosen", ["1080p-8000", "original", pytest.param("auto", id="lowest step")]
+)
+@pytest.mark.parametrize("after", [12000, 41000])
+def test_a_silence_that_begins_late_in_a_stall_is_a_drop(markup, chosen, after):
+    saved = {"mediaman.watch.quality": chosen}
+    for light, notice in (("silent", NOTICE_LOST), ("answered", None)):
+        out = run(markup, "stalled_silent", plays=f"{light} none {after}", saved=saved)
+        assert out == {"starts": 1, "destroyed": False, "notice": notice}
+
+
+@pytest.mark.parametrize("chosen", ["auto", "1080p-8000"])
+@pytest.mark.parametrize("after", ["0 seek", "21000 seek", "0 seeks"])
+def test_a_wait_after_a_seek_is_a_drop_only_where_nothing_at_all_comes(markup, chosen, after):
+    saved = {"mediaman.watch.quality": chosen}
+    for light, notice in (("silent", NOTICE_LOST), ("silent bytes", None), ("answered", None)):
+        plays = light if "bytes" in light else f"{light} none"
+        out = run(markup, "stalled_silent", plays=f"{plays} {after}", saved=saved)
+        # It says nothing of the quality, whichever way.
+        assert out == {"starts": 1, "destroyed": False, "notice": notice}
+
+
+@pytest.mark.parametrize("way", ["refused", "lost"])
+def test_a_wait_gone_silent_once_a_refusal_or_a_drop_is_over_is_a_drop(markup, way):
+    out = run(markup, "seek_then_silent", plays=way)
+    assert out == {"before": None, "notice": NOTICE_LOST, "starts": 1}
 
 
 @pytest.mark.parametrize("what", ["start", "playlist"])

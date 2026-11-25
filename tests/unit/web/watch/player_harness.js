@@ -314,8 +314,9 @@ function boot(html, reduced, saved, serverPlays, came) {
   /* The page starts its first stream as soon as it loads; a scenario may still change the reply. */
   const replies = [{ ok: { stream_id: 's1', playlist: '/p1', quality: 'best' } }];
   /* `stop` set to [] leaves stops unanswered; `answer` answers the starts no reply is set for;
-     `light` is what becomes of light requests: 'answered', 'gateway' by a proxy, or 'silent'. */
-  const held = { stop: null, answer: null, light: 'answered' };
+     `light` is what becomes of light requests: 'answered', 'gateway' by a proxy, or 'silent';
+     `lights` is what was asked with. */
+  const held = { stop: null, answer: null, light: 'answered', lights: [] };
   const api = {
     post(url, body) {
       calls.push({ url: url, body: body });
@@ -336,6 +337,7 @@ function boot(html, reduced, saved, serverPlays, came) {
   /* The other pages: what each address answers, or 'hangs'. */
   const pages = {};
   function fetchLight(opts) {
+    held.lights.push(opts);
     if (held.light !== 'silent') return Promise.resolve({ status: held.light === 'gateway' ? 504 : 200 });
     return new Promise((r, reject) => opts.signal.addEventListener('abort', () => reject(new Error('aborted'))));
   }
@@ -1290,6 +1292,7 @@ const scenarios = {
     fire(p.video, 'waiting');
     h.emit('hlsError', error());
     const fail = failingLoads(h, error);
+    p.held.light = 'gateway';
     const out = {};
     await failFor(p, 55000, fail);
     out.before = messageState(p);
@@ -1590,21 +1593,93 @@ const scenarios = {
     return Object.assign(out, { starts: p.starts().length });
   },
 
-  /* The video runs dry and stays so, with nothing said by hls.js. */
+  /* The video runs dry and stays so, or waits after a seek, with nothing said by hls.js; light
+     requests are answered at first, for as long as told, and then as told. */
   async stalled_silent(p) {
-    p.replies[0] = answer('1080p-8000');
+    const [light, bytes, after, seek] = p.win.serverPlays.split(' ');
+    p.replies[0] = answer(after > 0 && !seek ? '480p-1500' : '1080p-8000');
     p.held.answer = (body) => answer(body.quality);
     await streamPlays(p, 100);
     playOn(p, 5);
     const h = p.hlsList[0];
-    const [light, bytes] = p.win.serverPlays.split(' ');
-    p.held.light = light;
+    if (seek) {
+      p.video.currentTime = 2000;
+      fire(p.video, 'seeking');
+    }
     p.video.readyState = 2;
     fire(p.video, 'waiting');
+    if (seek === 'seeks') fire(p.video, 'seeking');
+    await pass(p, +after);
+    p.held.light = light;
     await pass(p, 12000);
-    if (bytes) accept(h);
+    if (bytes === 'bytes') accept(h);
     await pass(p, 4000);
     return { starts: p.starts().length, destroyed: h.destroyed, notice: noticeOf(p) };
+  },
+
+  async light_request(p) {
+    await streamPlays(p, 100);
+    p.hlsList[0].emit('hlsError', Object.assign(loadError('fragLoadTimeOut'), { response: undefined }));
+    await settle();
+    return p.held.lights.map((o) => o.credentials);
+  },
+
+  /* A wait that outlasts a refusal, or a drop, after a seek: nothing more comes, and nothing is said. */
+  async seek_then_silent(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    p.video.currentTime = 2000;
+    fire(p.video, 'seeking');
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    if (p.win.serverPlays === 'refused') {
+      h.emit('hlsError', loadError('fragLoadError', 429, null, { 'retry-after': '2' }));
+      await pass(p, 2500);
+      accept(h);
+    } else {
+      h.emit('hlsError', loadError('fragLoadError', 0));
+      await pass(p, 1500);
+      h.emit('hlsFragLoaded');
+    }
+    const out = { before: noticeOf(p) };
+    p.held.light = 'silent';
+    await pass(p, 16000);
+    return Object.assign(out, { notice: noticeOf(p), starts: p.starts().length });
+  },
+
+  /* The message of a lost connection is up, and the server comes back with no word from the
+     browser; before that, for a while, the page is not looked at, or is left. */
+  async back_unsaid(p) {
+    const way = p.win.serverPlays;
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const error = () => loadError('fragLoadError', 0);
+    p.held.light = 'gateway';
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    h.emit('hlsError', error());
+    await failFor(p, 65000, failingLoads(h, error));
+    const out = { message: messageState(p) };
+    let asked = p.held.lights.length;
+    await pass(p, 91000);
+    out.asked = p.held.lights.length - asked;
+    const loads = h.loads.length;
+    if (way === 'hidden') doc.visibilityState = 'hidden';
+    if (way === 'left') p.leave();
+    if (way === 'again') press(p.q('[data-retry]'));
+    if (way === 'asleep') p.sleep(3 * 3600000);
+    p.held.light = 'answered';
+    asked = p.held.lights.length;
+    await pass(p, 40000);
+    out.then = { tried: h.loads.length - loads, message: messageState(p) };
+    out.askedThen = p.held.lights.length - asked;
+    if (way !== 'hidden') return out;
+    doc.visibilityState = 'visible';
+    await pass(p, 40000);
+    out.seen = { tried: h.loads.length - loads, message: messageState(p) };
+    return out;
   },
 
   /* The start, or its playlist, is not answered: by a slow server, or where nothing is. */
@@ -1778,6 +1853,38 @@ const scenarios = {
     await settle();
     out.button = messageState(p).button;
     return out;
+  },
+
+  /* Playing somewhere else, after saves here; then, if told, the same again from Play here. */
+  async replaced_after_save(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.tick(10000);
+    await settle();
+    if (p.win.serverPlays === 'beacon') {
+      playOn(p, 5);
+      doc.visibilityState = 'hidden';
+      fire(doc, 'visibilitychange');
+      doc.visibilityState = 'visible';
+    }
+    playOn(p, 5);
+    const replace = () => p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced' }));
+    p.held.answer = (body) => answer(body.quality);
+    p.pages['/watch/play/1'] = p.pages['/elsewhere'];
+    replace();
+    await settle();
+    press(p.q('[data-retry]'));
+    await settle();
+    const at = () => p.hlsList[p.hlsList.length - 1].config.startPosition;
+    const out = [at()];
+    if (p.win.serverPlays !== 'twice') return out;
+    await streamPlays(p, out[0]);
+    playOn(p, 5);
+    replace();
+    await settle();
+    press(p.q('[data-retry]'));
+    await settle();
+    return out.concat(at());
   },
 
   /* A stream this page itself replaced says so: by a save under way as the quality changes, or by

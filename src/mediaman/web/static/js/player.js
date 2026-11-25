@@ -523,7 +523,7 @@
     swapNotice = null;
     override = null;
     stalls = 0;
-    clearTimeout(stallTimer);
+    stopWatching();
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
@@ -576,34 +576,54 @@
 
   /* ---- automatic quality ---------------------------------------------- */
 
-  var stallTimer = null;
+  var waitTimer = null;
+
+  function stopWatching() {
+    clearTimeout(waitTimer);
+    waitTimer = null;
+  }
 
   function stopRolling() {
     rolling = false;
-    clearTimeout(stallTimer);
+    stopWatching();
     stalled = false;
   }
 
   /* The buffer ran dry while the video was playing on its own: a seek or a
      start that has to wait says nothing about the quality. */
   function noteStall() {
-    if (!rolling || swapping) return;
+    if (swapping) return;
+    if (!rolling) {
+      if (waitTimer === null) watchWait();
+      return;
+    }
     stopRolling();
     /* What was loaded before is all played. */
     if (lost) countLost();
     if (noneSince !== null) noneSince = Date.now();
     stalled = true;
     if (lost || noneSince !== null) return;
-    if (quality !== 'auto' || !countSlow()) stallTimer = setTimeout(stalledLong, STALL_MS);
+    if (quality !== 'auto' || !countSlow()) watchWait();
   }
 
-  /* Slow, or a drop that says nothing. */
-  function stalledLong() {
+  /* While the picture waits it is looked at every so often: a connection may be slow, or drop
+     and say nothing. */
+  function watchWait() {
+    stopWatching();
+    if (lost || noneSince !== null) return;
+    waitTimer = setTimeout(lookAtWait, STALL_MS);
+  }
+
+  function lookAtWait() {
     var h = hls;
+    var since = waitingSince;
+    var waits = function () { return h && h === hls && since !== null && since === waitingSince && !swapping; };
+    waitTimer = null;
+    if (!waits()) return;
     ifReached(function () {
-      if (h === hls && stalled) stepDown();
+      if (waits() && !(stalled && stepDown())) watchWait();
     }, function () {
-      if (h === hls && stalled) loseLoads(h, 'segment');
+      if (waits()) loseLoads(h, 'segment');
     });
   }
 
@@ -749,7 +769,7 @@
       countLost();
       showNotice();
     }
-    clearTimeout(stallTimer);
+    stopWatching();
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);
@@ -861,6 +881,7 @@
       video.pause();
     }
     endLost();
+    watchWait();
   }
 
   /* What the picture has waited for long enough to be told; asks again when it will have. */
@@ -910,8 +931,9 @@
 
   /* A request was taken; from now on a wait is the connection's. */
   function taken() {
-    if (noneSince !== null && stalled) stallTimer = setTimeout(stalledLong, STALL_MS);
+    var refused = noneSince !== null;
     noneSince = null;
+    if (refused) watchWait();
     showNotice();
   }
 
@@ -1222,7 +1244,7 @@
        calls the error fatal; for one the network lost, after waits of its own. */
     if (status === 429) {
       reached();
-      clearTimeout(stallTimer);
+      stopWatching();
       if (noneTooLong()) { fail(MSG_BUSY); return; }
       h.stopLoad();
       setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
@@ -1518,7 +1540,7 @@
   video.addEventListener('playing', function () {
     hasPlayed = true;
     startedAt = null;
-    clearTimeout(stallTimer);
+    stopWatching();
     stalled = false;
     if (streamId) {
       good = streamChoice;
@@ -1578,6 +1600,8 @@
         tryAtOnce();
       }
     }
+    /* A wait that a seek begins again may not be said again. */
+    watchWait();
   });
   video.addEventListener('seeked', function () {
     settleStart();
