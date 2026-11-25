@@ -132,6 +132,39 @@ const scenarios = {
     await push();
     return { own: Boolean(own), label, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
   },
+  // the first list, asked before a new password, is answered after the one asked since
+  async lateList() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const p = page({ get: () => new Promise((give, fail) => gives.push({ give, fail })), post: () => Promise.resolve({ ok: true }) });
+    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.fire('account-password-form', 'submit');
+    await settle();
+    gives[1].give({ sessions: [here] });
+    await settle();
+    gives[0].give({ sessions: [here, session(5), session(5)] });
+    await settle();
+    return p.rows().length;
+  },
+  // a list asked before a device was signed out still holds it
+  async listBeforeSignOut() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const other = session(5);
+    const p = page({
+      get: () => new Promise((give) => gives.push(give)),
+      post: () => Promise.resolve({ ok: true }), delete: () => Promise.resolve({ ok: true }),
+    });
+    gives[0]({ sessions: [here, other, session(5)] });
+    await settle();
+    p.press('account-revoke-others');
+    await settle();
+    p.button(1).listeners.click.forEach((fn) => fn({}));
+    await settle();
+    gives[1]({ sessions: [here, other] });
+    await settle();
+    return p.rows().length;
+  },
   async passwordFold() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });
     await settle();

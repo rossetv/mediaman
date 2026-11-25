@@ -291,6 +291,9 @@
     /* The rows on show by the session each is of. */
     var rows = {};
     var loaded = false;
+    /* Only the list asked for last is shown, without what was signed out since it was asked. */
+    var asked = 0;
+    var gone = {};
 
     function el(tag, cls, text) {
       var node = document.createElement(tag);
@@ -348,9 +351,11 @@
     }
 
     function load() {
+      var mine = asked += 1;
       return MM.api.get('/api/users/sessions').then(function (data) {
+        if (mine !== asked) return;
         // A sign-in that ran out stays listed until it is next used.
-        var live = data.sessions.filter(function (s) { return new Date(s.expires_at) > Date.now(); });
+        var live = data.sessions.filter(function (s) { return new Date(s.expires_at) > Date.now() && !gone[keyOf(s)]; });
         live.sort(function (a, b) { return Number(b.current || false) - Number(a.current || false); });
         if (!loaded) list.textContent = '';
         loaded = true;
@@ -366,6 +371,7 @@
         Object.keys(rows).forEach(function (key) { if (!still[key]) drop(key); });
         tellAlone();
       }).catch(function () {
+        if (mine !== asked) return;
         rows = {};
         loaded = false;
         list.textContent = '';
@@ -373,7 +379,9 @@
         // They can still be ended without being listed.
         revoke.disabled = false;
         why.hidden = true;
-      }).then(function () { list.removeAttribute('aria-busy'); });
+      }).then(function () {
+        if (mine === asked) list.removeAttribute('aria-busy');
+      });
     }
 
     function signOut(s, row, button) {
@@ -382,6 +390,7 @@
       confirmed('sign out a device', function () {
         return MM.api.delete('/api/users/sessions/' + encodeURIComponent(s.public_id));
       }).then(function () {
+        gone[keyOf(s)] = true;
         done('Signed out ' + nameOf(s) + '.');
         // The list may have been loaded afresh meanwhile, without it.
         if (rows[keyOf(s)] !== row) return;

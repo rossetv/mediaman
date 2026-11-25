@@ -84,6 +84,14 @@ def test_a_device_signed_out_leaves_the_list_and_hands_the_focus_on() -> None:
     }
 
 
+def test_only_the_list_of_sign_ins_asked_last_is_shown() -> None:
+    assert _run("lateList") == 1
+
+
+def test_a_list_asked_before_a_device_was_signed_out_does_not_bring_it_back() -> None:
+    assert _run("listBeforeSignOut") == 1
+
+
 def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_when_shut() -> None:
     out = _run("passwordFold")
     assert out["shut"][:2] == [True, "false"]
