@@ -46,6 +46,7 @@ function load(answer, opts = {}) {
     MM: { api: { get: () => {
       api.gets += 1;
       if (api.answer instanceof Error) return Promise.reject(api.answer);
+      if (api.held) return new Promise((r) => api.held.push(r));
       return Promise.resolve(JSON.parse(JSON.stringify(Object.assign({ complete: true }, api.answer))));
     } } },
     MMWatch: {},
@@ -256,6 +257,46 @@ const scenarios = {
     t.standing.add('movie-1');
     t.fire('mm:watch-continue');
     return { ...at, alone, left: t.left };
+  },
+  async replaced() {
+    const t = load({ items: [ready(1, 0)] });
+    await settle();
+    const row = t.row();
+    await t.answer({ items: [ready(2, 0)] });
+    t.fire('visibilitychange');
+    await t.pass(6000);
+    return { keys: t.keys(), same: t.row() === row, left: t.left };
+  },
+  async in_flight() {
+    // Marked while a slow asking is on its way; its answer, from before the mark, comes after *wait*.
+    const run = async (wait) => {
+      const t = load({ items: [ready(1, 0), ready(2, 1)] });
+      await settle();
+      await t.pass(60000);
+      t.api.held = [];
+      t.fire('visibilitychange');
+      await t.pass(0);
+      const reply = t.api.held[0];
+      t.api.held = null;
+      t.fire('mm:watch-marked');
+      await t.pass(wait);
+      await t.answer({ items: [ready(2, 1)] });
+      reply({ complete: true, items: [ready(1, 0), ready(2, 1)] });
+      await settle();
+      const stale = t.keys();
+      await t.pass(6000);
+      return { stale, keys: t.keys(), gets: t.api.gets };
+    };
+    return { soon: await run(1000), late: await run(8000) };
+  },
+  async grid_failed() {
+    const t = load(new Error('down'));
+    await settle();
+    const grid = t.source();
+    const failed = await grid.fetchPage(grid.next).then(() => false, () => true);
+    await t.answer({ items: [ready(1, 0)] });
+    const page = await grid.fetchPage(grid.next);
+    return { failed, then: page.cards.length };
   },
   async grid_first() {
     const t = load({ items: [ready(1, 0), ready(2, 1)] });

@@ -32,7 +32,9 @@
   var section = null;
   var known = []; // what the server last said
   var items = []; // as they are shown
-  var timer = null;
+  var timer = null; // of the next look at what is on its way
+  var due = null; // the timer of an asking that something called for
+  var again = false; // it came due while one was on its way
   var askedAt = 0;
   var asking = null;
 
@@ -192,11 +194,12 @@
     items = fresh;
     var wanted = fresh.slice(0, ROW_MAX);
     var here = {};
+    var over = [];
     var play = core.flip(cardsShown());
     cardsShown().forEach(function (node) {
       var key = node.getAttribute('data-asked');
       if (wanted.some(function (item) { return item.key === key; })) here[key] = node;
-      else drop(node);
+      else over.push(node);
     });
     var arrived = [];
     var order = wanted.map(function (item) {
@@ -215,6 +218,8 @@
       if (item.state === 'ready' && before[item.key] && before[item.key].state !== 'ready') arrived.push([made, item]);
       return made;
     }).filter(Boolean);
+    // Not before the new ones stand: the last card of a row takes the row with it.
+    over.forEach(drop);
     var now = cardsShown();
     if (order.some(function (node, i) { return now[i] !== node; })) {
       var focus = document.activeElement;
@@ -286,23 +291,37 @@
   function later() {
     clearTimeout(timer);
     var moving = items.some(function (item) { return item.state === 'downloading' || item.state === 'arriving'; });
-    if (moving) timer = setTimeout(function () { if (document.hidden) later(); else ask(); }, POLL_MS);
+    if (moving) timer = setTimeout(function () { if (document.hidden) later(); else refresh(); }, POLL_MS);
+  }
+
+  function settled() {
+    asking = null;
+    later();
+    if (again) soon(0);
+    again = false;
   }
 
   function ask() {
     if (asking) return asking;
     askedAt = Date.now();
-    asking = window.MM.api.get(ASKED_URL).then(take, function () { if (!section) noRow(); }).then(function () {
-      asking = null;
-      later();
+    asking = window.MM.api.get(ASKED_URL).then(take).then(settled, function (err) {
+      if (!section) noRow();
+      settled();
+      throw err;
     });
     return asking;
   }
 
-  /* Ask again *ms* from now, or once the last asking is long enough ago. */
+  function refresh() { ask().catch(function () { /* it stays as it is until something asks again */ }); }
+
+  /* Ask again *ms* from now, or once the last asking is long enough ago. One on
+     its way may have been answered before what called for this. */
   function soon(ms) {
-    clearTimeout(timer);
-    timer = setTimeout(ask, Math.max(ms, askedAt + AGAIN_MS - Date.now(), 0));
+    clearTimeout(due);
+    due = setTimeout(function () {
+      if (asking) again = true;
+      else refresh();
+    }, Math.max(ms, askedAt + AGAIN_MS - Date.now(), 0));
   }
 
   /* ── Its grid ── */
@@ -327,5 +346,5 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) soon(0); });
   window.addEventListener('pageshow', function (e) { if (e.persisted) soon(0); });
 
-  ask();
+  refresh();
 })();

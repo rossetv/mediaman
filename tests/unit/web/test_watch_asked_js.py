@@ -140,3 +140,17 @@ def test_with_all_of_it_in_continue_watching_there_is_no_row() -> None:
 def test_a_grid_opened_before_the_row_is_there_waits_for_it() -> None:
     out = _run("grid_first")
     assert (out["first"], out["then"], out["next"], out["gets"]) == (0, 2, None, 1)
+
+
+def test_a_grid_that_did_not_load_says_so_and_can_be_tried_again() -> None:
+    assert _run("grid_failed") == {"failed": True, "then": 1}
+
+
+def test_a_row_whose_titles_are_all_replaced_stays() -> None:
+    assert _run("replaced") == {"keys": ["movie-2"], "same": True, "left": ["movie-1"]}
+
+
+def test_a_mark_made_while_an_answer_is_on_its_way_is_not_lost() -> None:
+    out = _run("in_flight")
+    late = {"stale": ["movie-1", "movie-2"], "keys": ["movie-2"], "gets": 3}
+    assert out == {"soon": late, "late": late}
