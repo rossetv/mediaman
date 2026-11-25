@@ -865,6 +865,15 @@ def test_integration_card_body_folds_open_and_shut() -> None:
     assert out["closed"] == {"hidden": True, "expanded": "false"}
 
 
+def test_a_panel_opened_into_view_folds_on_until_the_page_is_still() -> None:
+    # Safari lays a resting panel's fields out anew, and jumps to a focused one off screen.
+    out = _run("openInViewRests")
+    assert out["unfolded"] == {"moving": True, "scrolled": [["p", "nearest", "smooth"]]}
+    assert out["scrolling"] is True
+    assert out["still"] is False
+    assert out["closing"] == {"moving": True, "shut": True}
+
+
 def test_every_focus_handed_back_after_a_request_keeps_the_page_still() -> None:
     js = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/js/settings"
     after_a_request = {

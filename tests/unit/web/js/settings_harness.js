@@ -152,6 +152,7 @@ function build() {
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Set, TextEncoder, Event: class { constructor(t) { this.type = t; } },
     setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
+    requestAnimationFrame: (fn) => { const t = { fn, ms: 16 }; timers.push(t); return t; },
     clearTimeout: (t) => { if (timers.includes(t)) timers.splice(timers.indexOf(t), 1); }, MM: {}, UIFeedback: {},
     matchMedia: () => ({ matches: false }),
     getComputedStyle: () => ({ scrollPaddingTop: '125px', scrollPaddingBottom: '72px' }),
@@ -2295,6 +2296,35 @@ const scenarios = {
     const during = { label: pill().textContent, changed: pill().classList.contains('is-changed') };
     h.timers.splice(0).forEach((t) => t.fn());
     return { during, after: { label: pill().textContent, changed: pill().classList.contains('is-changed') } };
+  },
+
+  // A panel opened into view stays a folding panel until the page has stopped scrolling to it,
+  // then rests; a close begun meanwhile is not cut short.
+  async openInViewRests() {
+    const h = build();
+    h.load('settings/rows.js');
+    const page = h.add('div', { className: 'setg-pg' });
+    const panel = h.add('div', { id: 'p', className: 'setg-fold', hidden: true }, page);
+    const rows = h.ctx.MM.settings.rows;
+    h.ctx.scrollY = 0;
+    const frame = (y) => {
+      h.ctx.scrollY = y;
+      h.timers.filter((t) => t.ms === 16).forEach((t) => { h.timers.splice(h.timers.indexOf(t), 1); t.fn(); });
+    };
+    const moving = () => panel.classList.contains('is-moving');
+    rows.openInView(panel);
+    panel.fire('transitionend', { propertyName: 'grid-template-rows' });
+    const unfolded = { moving: moving(), scrolled: h.doc.revealed.slice() };
+    [20, 60, 90].forEach(frame);
+    const scrolling = moving();
+    [90, 90, 90, 90].forEach(frame);
+    const still = moving();
+    rows.openInView(panel);
+    panel.fire('transitionend', { propertyName: 'grid-template-rows' });
+    rows.close(panel);
+    [90, 90, 90, 90].forEach(frame);
+    const closing = { moving: moving(), shut: panel.classList.contains('is-shut') };
+    return { unfolded, scrolling, still, closing };
   },
 
   // Opening an integration card folds its body open instead of popping it.
