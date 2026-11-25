@@ -128,6 +128,26 @@ main:focus { outline: none; }
 /* Add to a node render code has just inserted so it eases in. */
 .fade-in { animation: fade-in var(--dur) var(--ease-out) backwards; }
 
+/* A <details> that MM.dom.fold opens and shuts smoothly. */
+.fold-more { margin-top: 4px; }
+.fold-more > summary {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px;
+  font-size: 14px; color: var(--t1);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.fold-more > summary::-webkit-details-marker { display: none; }
+.fold-more > summary > .ico { color: var(--t3); transition: transform var(--dur) var(--ease-out); }
+.fold-more > summary:hover > .ico { color: var(--t1); }
+.fold-more[open]:not(.is-shutting) > summary > .ico { transform: rotate(180deg); }
+.fold-more[open] > :not(summary) { animation: fade-in var(--dur) var(--ease-out); }
+.fold-more-head { margin-top: 8px; color: var(--t2); }
+.fold-more-head:first-of-type { margin-top: 0; }
+.fold-more-list { margin: 2px 0 0; padding-left: 18px; list-style: disc; }
+.fold-more-list li + li { margin-top: 2px; }
+
 /* Pages swap with a clean cut, not `@view-transition { navigation: auto }`:
    Chrome intermittently shows the cross-fade's first frame as pure white. */
 
