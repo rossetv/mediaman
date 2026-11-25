@@ -243,7 +243,7 @@
 
     /* ── Other contents ── */
 
-    /* Put *content* ({ cards, next, fetchPage, total }) in place of what stands.
+    /* Put *content* ({ cards, next, fetchPage, total, placed: called once it stands }) in place of what stands.
        how.move: what is on the screen before and after travels, from where it
        is if it was moving; the rest leaves and arrives. how.stay: the page does not
        scroll back to its start. A title that was here
@@ -278,6 +278,7 @@
       var by = (opts.start || host).getBoundingClientRect().top - clearTop();
       if (by < 0 && !(how && how.stay)) scrollPage(window.scrollY + by);
       begin(content.next);
+      if (content.placed) content.placed();
       if (moves) travel(before, old);
     }
 
@@ -926,6 +927,7 @@
       mine.asked = null;
       mine.list.busy(false);
       undo();
+      if (mine.late) mine.late();
       core.toast('Couldn’t change the ' + (filtered ? 'filter' : 'order') + '. Try again in a moment.', { variant: 'error' });
     });
   }
@@ -1387,20 +1389,20 @@
     if (opts.later) follow(now);
   }
 
-  /* What the grid was opened without, put in once it is in and nothing moves. */
+  /* What the grid was opened without, put in once it is in and nothing moves. One filled
+     otherwise by then has no need of it; one that was to be and could not still has. */
   function follow(mine) {
     function put(content) {
-      if (now !== mine || mine.asked || mine.fills) return;
-      if (move) { mine.late = function () { put(content); }; return; }
+      if (now !== mine || mine.fills) return;
+      if (move || mine.asked) { mine.late = function () { put(content); }; return; }
       mine.late = null;
+      // Asked for again as a page, which says so where it fails.
+      if (!content) content = { cards: mine.list.cards(), next: '' };
       mine.fills++;
       if (content.bar) setBar(content.bar);
       mine.list.set(content, { move: true, stay: true });
     }
-    mine.opts.later().then(put, function () {
-      // Asked for again as a page, which says so where it fails.
-      put({ cards: mine.list.cards(), next: '' });
-    });
+    mine.opts.later().then(put, function () { put(null); });
   }
 
   function announce() {

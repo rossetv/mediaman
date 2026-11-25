@@ -474,6 +474,40 @@ const scenarios = {
     return { waiting, late, done, chosen, failed: [label(p), p.refs(), p.toasts.length, p.doc.querySelector('.watch-all__body').getAttribute('aria-busy')] };
   },
 
+  // Another order asked for while the first page is on its way, which comes before that order fails or is in.
+  async sortWhileTheFirstPageComes() {
+    const go = async (lands, page) => {
+      const p = load();
+      let first; let order;
+      const stood = [];
+      p.grid.open(p.opts({
+        waiting: true, sort: sortOf(() => new Promise((ok, no) => { order = { ok, no }; })),
+        later: () => new Promise((ok, no) => { first = { ok, no }; }),
+        fetchPage: () => Promise.resolve({ cards: [40].map(p.card), next: null }),
+      }));
+      pressSort(p, 'az');
+      if (page) first.ok({ cards: range(1, 21).map(p.card), next: 'c', total: 60, placed: () => stood.push(p.refs().length) });
+      else first.no(new Error('no'));
+      await settle();
+      const before = p.refs().length;
+      await lands(() => order, p);
+      await settle();
+      return { before, refs: p.refs().length, label: label(p), stood };
+    };
+    const fails = (order) => order().no(new Error('no'));
+    return {
+      fails: await go(fails, true),
+      // And a third that fails after it.
+      comes: await go(async (order, p) => {
+        order().ok({ cards: [9, 8].map(p.card), next: null, total: 2 });
+        await settle();
+        pressSort(p, 'year');
+        order().no(new Error('no'));
+      }, true),
+      bothFail: await go(fails, false),
+    };
+  },
+
   async sortAnswersAfterLeaving() {
     const p = load({ motion: true });
     let give;

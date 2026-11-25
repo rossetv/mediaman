@@ -105,7 +105,16 @@
   var changed = {}; // at which of them each title was changed last
 
   function ask(sort, type, more) {
-    return window.MM.api.get(URL + '?limit=' + PAGE + (type ? '&type=' + type : '') + (sort === 'added' ? '' : '&sort=' + sort) + (more || ''));
+    var asked = version;
+    return window.MM.api.get(URL + '?limit=' + PAGE + (type ? '&type=' + type : '') + (sort === 'added' ? '' : '&sort=' + sort) + (more || ''))
+      .then(function (got) { return Object.assign(got, { asked: asked }); });
+  }
+
+  function isOld(got, key) { return changed[key] > got.asked; }
+
+  /* Read again each title of *got*, which stands now, that was read before a change to it was saved. */
+  function readChanged(got) {
+    got.items.forEach(function (item) { if (isOld(got, item.key)) setTimeout(function () { readAgain(item.key, {}); }); });
   }
 
   function barOf(got) { return { type: got.type, counts: got.counts, fact: got.fact, total: got.total }; }
@@ -113,13 +122,11 @@
   /* *empty*, of the grid the pages are for: what it says with nothing in it is told by the first of them. */
   function pages(sort, type, empty) {
     return function (after) {
-      var asked = version;
       return ask(sort, type, after ? '&after=' + encodeURIComponent(after) : '').then(function (got) {
         var now = grid.shows('library');
         if (now && now.sort === sort) grid.setBar(barOf(got));
         if (empty) Object.assign(empty, got.empty);
-        // Read before a change was saved, it may not say so.
-        got.items.forEach(function (item) { if (changed[item.key] > asked) setTimeout(function () { readAgain(item.key, {}); }); });
+        readChanged(got);
         return { cards: got.items.map(build), next: got.next, total: got.total };
       });
     };
@@ -131,7 +138,7 @@
   }
 
   function made(got, page) {
-    return { cards: got.items.map(build), next: got.next, total: got.total, bar: barOf(got), fetchPage: page, empty: got.empty };
+    return { cards: got.items.map(build), next: got.next, total: got.total, bar: barOf(got), fetchPage: page, empty: got.empty, placed: function () { readChanged(got); } };
   }
 
   function href(type, sort) {
@@ -155,8 +162,10 @@
       sort: { label: 'Sort', choose: content }
     };
     if (at.drawn) opts.next = at.drawn.next;
-    else if (at.ready) Object.assign(opts, { cards: at.ready.items.map(build), next: at.ready.next });
-    else if (at.row && at.sort === 'added') {
+    else if (at.ready) {
+      Object.assign(opts, { cards: at.ready.items.map(build), next: at.ready.next });
+      readChanged(at.ready);
+    } else if (at.row && at.sort === 'added') {
       // The row's own cards travel; the rest of the first page, and its facts, come after them.
       opts.cards = at.cards();
       opts.next = null;
@@ -212,6 +221,9 @@
       /* The dialog's Remove all clears the show's and every season's keep. */
       if (a.unkeep === 'dialog') admin.keep(a);
       else admin.removeKeep(a, a.id);
+    } else if (!a['delete']) {
+      // Kept while its menu was open.
+      window.UIFeedback.toast(a.title + ' is kept now, so it can’t be deleted.');
     } else if (a['delete'].id === undefined) {
       admin.pickSeasonDelete(a['delete'].show_rk, a.title, a.seasons || 0);
     } else {
@@ -278,10 +290,9 @@
   function readAgain(key, d) {
     var now = grid.shows('library');
     if (!now) return Promise.resolve();
-    var asked = version;
     return ask(now.sort, now.filter, '&only=' + encodeURIComponent(key)).then(function (got) {
       var still = grid.shows('library');
-      if (!still || asked !== version && changed[key] > asked) return;
+      if (!still || isOld(got, key)) return;
       if (still.sort === now.sort && still.filter === now.filter) grid.setBar(barOf(got));
       cardsOf(key).forEach(function (card) {
         if (got.items.length) refresh(card, build(got.items[0]));
@@ -338,7 +349,8 @@
         var still = grid.shows('library');
         if (!still || still.sort !== now.sort || still.filter !== now.filter) return;
         grid.setBar(barOf(got));
-        got.items.forEach(function (item) { cardsOf(item.key).forEach(function (card) { refresh(card, build(item)); }); });
+        // One changed since has been read again by itself.
+        got.items.forEach(function (item) { if (!isOld(got, item.key)) cardsOf(item.key).forEach(function (card) { refresh(card, build(item)); }); });
         left -= got.items.length;
         if (left > 0 && got.next) next(got.next);
       }, function () {});

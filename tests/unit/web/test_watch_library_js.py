@@ -592,6 +592,32 @@ def test_a_page_read_before_a_change_has_the_title_read_again() -> None:
     assert _run("pageFromBeforeAChange") == ["/api/watch/library/library/row?limit=60&only=id%3Am1"]
 
 
+def test_a_first_page_read_before_a_change_has_the_title_read_again() -> None:
+    again = ["/api/watch/library/library/row?limit=60&only=id%3Am1"]
+    assert _run("firstPageFromBeforeAChange") == {
+        "sorted": again,
+        "heldBack": again,
+        "unchanged": ["/api/watch/library/library/row?limit=60&sort=size"],
+        "opened": again,
+    }
+
+
+def test_a_schedule_read_before_a_change_leaves_the_changed_title_as_it_is() -> None:
+    assert _run("scheduledBeforeAChange") == [True, True]
+
+
+def test_an_older_read_of_a_title_that_lands_after_a_newer_one_says_nothing() -> None:
+    assert _run("readsOutOfOrder") == [[True, "second"], [True, "second"]]
+
+
+def test_delete_of_a_title_kept_while_its_menu_was_open_says_so_and_deletes_nothing() -> None:
+    out = _run("deleteOfOneKeptMeanwhile")
+    assert (out["calls"], out["confirms"]) == ([], 0)
+    (told,) = out["told"]
+    assert "Glass Harbour" in told
+    assert "kept" in told
+
+
 def test_a_change_made_while_the_grid_is_closed_reads_nothing() -> None:
     assert _run("doneOutOfSight") == {"reads": [], "errors": []}
 

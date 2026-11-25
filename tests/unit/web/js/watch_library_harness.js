@@ -1333,6 +1333,89 @@ const scenarios = {
     return p.reads.slice(before);
   },
 
+  // As above, of the first page: filled anew, opened with it, and held back while the grid moves.
+  async firstPageFromBeforeAChange() {
+    const change = (p) => ['busy', 'done'].forEach((phase) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action: 'keep', id: 'm1', showRk: '' } })));
+    const go = async (asks) => {
+      const p = load();
+      const wait = deferred();
+      p.serve(ROWS, {}, wait);
+      return asks(p, wait);
+    };
+    const since = async (p, act) => { const n = p.reads.length; await act(); await settle(); return p.reads.slice(n); };
+    return {
+      sorted: await go(async (p, wait) => {
+        const asked = p.source.sort.choose('size', '');
+        change(p);
+        return since(p, async () => { wait.resolve(); (await asked).placed(); });
+      }),
+      heldBack: await go(async (p, wait) => {
+        const asked = p.source.sort.choose('size', '');
+        wait.resolve();
+        const content = await asked;
+        change(p);
+        await settle();
+        return since(p, async () => content.placed());
+      }),
+      unchanged: await go(async (p, wait) => {
+        change(p);
+        wait.resolve();
+        await settle();
+        return since(p, async () => (await p.source.sort.choose('size', '')).placed());
+      }),
+      opened: await go(async (p, wait) => {
+        let ready = null;
+        p.ctx.MMWatch.expand.library = (_sort, _type, how) => { ready = how.ready; };
+        p.ctx.setTimeout = () => 1; // the titles are in before it is left without them
+        p.ctx.MMWatch.library.open('/watch?all=library', { leave() {}, arrive() {}, fail() {} });
+        change(p);
+        wait.resolve();
+        await settle();
+        p.ctx.setTimeout = (fn) => { fn(); return 1; };
+        return since(p, async () => p.make({ sort: 'added', type: '', ready, cards: () => [] }));
+      }),
+    };
+  },
+
+  // Each card that stands is read again for a schedule; one changed meanwhile keeps what it says.
+  async scheduledBeforeAChange() {
+    const p = load();
+    const wait = deferred();
+    p.serve(ROWS, {}, wait);
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-scheduled', {}));
+    p.serve(ROWS.map((r) => (r.id === 'm2' ? { ...r, kept: true } : r)));
+    press(p, 'id:m2', 'keep', 'forever');
+    await settle();
+    const before = keptNow(p, 'id:m2');
+    wait.resolve();
+    await settle();
+    return [before, keptNow(p, 'id:m2')];
+  },
+
+  // Two changes of one title, each read again after it; the first read lands last.
+  async readsOutOfOrder() {
+    const p = load();
+    const done = (action) => ['busy', 'done'].forEach((phase) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action, id: 'm2', showRk: '' } })));
+    const first = deferred();
+    p.serve(ROWS, { fact: 'first' }, first);
+    done('unkeep');
+    p.serve(ROWS.map((r) => (r.id === 'm2' ? { ...r, kept: true } : r)), { fact: 'second' });
+    done('keep');
+    await settle();
+    const second = [keptNow(p, 'id:m2'), p.bar.fact];
+    first.resolve();
+    await settle();
+    return [second, [keptNow(p, 'id:m2'), p.bar.fact]];
+  },
+
+  // Kept while its menu, which has Delete, was open.
+  async deleteOfOneKeptMeanwhile() {
+    const p = load();
+    press(p, 'id:m3', 'delete');
+    await settle();
+    return { calls: p.calls, confirms: p.confirms.length, told: p.toasts.map((t) => t.message) };
+  },
+
   // Done while the grid is closed: nothing is read, and nothing is left busy.
   async doneOutOfSight() {
     const p = load({ closed: true });
