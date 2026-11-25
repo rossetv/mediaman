@@ -197,9 +197,11 @@ def test_single_shadow_token():
     """
     css = _css()
     assert "--shadow-card:" in css
-    box_shadows = re.findall(r"box-shadow:\s*([^;]+);", css)
+    rules = re.findall(r"([^{}]+)\{([^{}]*)\}", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
     tokens = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", css))
-    for value in box_shadows:
+    for selector, value in (
+        (sel, v) for sel, body in rules for v in re.findall(r"box-shadow:\s*([^;]+);", body)
+    ):
         v = value.strip()
         # A shadow token is held to the same rule as a literal.
         v = re.sub(r"^var\((--glow-[\w-]+)\)$", lambda m: tokens[m.group(1)].strip(), v)
@@ -213,7 +215,9 @@ def test_single_shadow_token():
         is_hero_poster = "rgba(0,0,0,.6) 0 20px 40px" in v
         # A field a browser filled in is painted over in its own surface colour with an
         # inset spread: no offset, no blur, so nothing lifts.
-        is_autofill_paint = bool(re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", v))
+        is_autofill_paint = ":autofill" in selector and bool(
+            re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", v)
+        )
         assert is_glow or is_hero_poster or is_autofill_paint, (
             f"unexpected box-shadow literal: {v!r}"
         )
