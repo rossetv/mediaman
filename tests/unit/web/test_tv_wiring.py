@@ -166,3 +166,15 @@ def test_a_page_of_another_origin_is_not_let_send_the_header(tv):
     )
     assert not any(name.startswith("access-control") for name in resp.headers)
     assert resp.status_code >= 400
+
+
+@pytest.mark.parametrize("flagged", [False, True])
+def test_the_tvs_own_page_opens_with_any_cookie_and_ends_no_session(tv, amy, home, conn, flagged):
+    set_must_change_password(conn, "amy", flagged)
+    session = create_session(conn, "amy", user_agent="a phone", client_ip="testclient")
+    tv.client.cookies.set("session_token", session)
+    tv.client.headers["User-Agent"] = "a TV"
+    (before,) = conn.execute("SELECT COUNT(*) FROM admin_sessions").fetchone()
+    assert tv.client.get("/tv", follow_redirects=False).status_code == 200
+    (after,) = conn.execute("SELECT COUNT(*) FROM admin_sessions").fetchone()
+    assert after == before

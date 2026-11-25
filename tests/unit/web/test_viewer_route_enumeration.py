@@ -39,6 +39,8 @@ _VIEWER_MAY_REACH = {
     ("POST", "/api/watch/stream/{stream_id}/stop"),
     ("POST", "/api/watch/progress"),
     ("POST", "/api/cast/stream"),
+    ("GET", "/tv"),
+    ("GET", "/pair"),
     ("POST", "/api/tvs/pair"),
     ("GET", "/api/tvs"),
     ("GET", "/api/tvs/{tv_id}"),

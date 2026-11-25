@@ -377,6 +377,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.tv import router as tv_router
+    from mediaman.web.routes.tv_page import router as tv_page_router
     from mediaman.web.routes.users import router as users_router
     from mediaman.web.routes.watch.browse_api import router as watch_browse_api_router
     from mediaman.web.routes.watch.catalog_api import router as watch_catalog_api_router
@@ -417,6 +418,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_stream_api_router)
     app.include_router(cast_router)
     app.include_router(tv_router)
+    app.include_router(tv_page_router)
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
     app.include_router(ratings_router)
