@@ -676,6 +676,7 @@ const scenarios = {
     return {
       texts: badges.map((b) => b.textContent),
       said: badges.map((b) => b.querySelectorAll('.sr-only').map((n) => n.textContent)),
+      owned: p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, download_state: 'in_library' }).querySelector('.watch-badge--state').className,
     };
   },
 
