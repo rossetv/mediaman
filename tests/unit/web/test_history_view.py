@@ -421,7 +421,8 @@ class TestPage:
         assert re.findall(r"<details[^>]* open>", html) == [
             f'<details class="hist" id="event-{ids[0]}" data-event="{ids[0]}" open>'
         ]
-        assert "Page 2 of 2" in html
+        assert re.findall(r'data-event="(\d+)"', html)[-1] == str(ids[0])
+        assert 'rel="next"' not in html
         hidden = client.get(f"/history?action=kept&event={ids[0]}").text
         assert not re.findall(r"<details[^>]* open>", hidden)
 
