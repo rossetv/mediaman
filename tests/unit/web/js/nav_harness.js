@@ -201,9 +201,9 @@ const scenarios = {
     const p = page(false, { subscribe(fn) { tell = fn; } });
     const set = {};
     ['ring', 'profile-note'].forEach((id) => { p.$(id).style.setProperty = (k, v) => { set[id] = v; }; });
-    const on = (id) => ['is-on', 'is-ready', 'is-waiting'].filter((c) => p.$(id).classList.contains(c));
-    const at = (active, waiting, ready, percent) => {
-      tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent } });
+    const on = (id) => ['is-on', 'is-ready', 'is-waiting', 'is-lost'].filter((c) => p.$(id).classList.contains(c));
+    const at = (active, waiting, ready, percent, lost) => {
+      tell({ summary: { total: active + waiting + ready, active, waiting, ready, percent }, lost: !!lost });
       const note = p.$('profile-note');
       return {
         name: p.$('button').getAttribute('aria-label'), ring: on('ring'), filled: set.ring,
@@ -211,7 +211,7 @@ const scenarios = {
         note: note.hidden ? null : note.textContent, tone: on('profile-note'), bar: note.querySelectorAll('i').length,
       };
     };
-    return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), over: at(0, 0, 0, 0) };
+    return { none: at(0, 0, 0, 0), one: at(1, 0, 0, 42), many: at(2, 2, 0, 40), mixed: at(2, 1, 1, 57), ready: at(0, 1, 1, 100), waiting: at(0, 3, 0, 0), lost: at(2, 1, 1, 57, true), found: at(2, 2, 0, 40), over: at(0, 0, 0, 0, true) };
   },
   // Nothing tells of downloads: the rest of the bar works.
   noDownloads() {

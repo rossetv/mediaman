@@ -185,7 +185,11 @@ def test_the_ring_the_count_and_the_menu_say_how_what_is_downloading_stands() ->
             ", 3 waiting",
             0,
         ),
+        # What it last was is not told as what it is.
+        "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None, ", Not updating", 0),
+        "found": (", 4 downloading", ["is-on"], 40, None, ", 40% · 4", 1),
     }
+    assert out["lost"]["tone"] == ["is-lost"]
     assert [out[key]["tone"] for key in ("mixed", "ready", "waiting")] == [
         [],
         ["is-ready"],

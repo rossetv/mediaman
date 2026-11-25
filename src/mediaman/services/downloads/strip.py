@@ -313,6 +313,28 @@ class Shared:
             if self._strip is not None and self._clock() < self._next_at:
                 return self._answer()
             self._making = True
+        return self._make(make)
+
+    def offer(self, make: Callable[[Strip], Strip], asked_at: float) -> Answer | None:
+        """What stands once *make* has made it of what was read from *asked_at* on, unless it is
+        being made or was since. Nobody is waited for; None when nothing is known."""
+        with self._lock:
+            mine = not self._making and (self._strip is None or asked_at >= self._made_at)
+            if not mine:
+                return None if self._strip is None else self._answer()
+            if asked_at - self._made_at > STALE_S:
+                self._strip = None  # nobody looked meanwhile: what it held may be long gone
+            self._making = True
+        try:
+            return self._make(make)
+        except Unavailable:
+            return None
+
+    def now(self) -> float:
+        return self._clock()
+
+    def _make(self, make: Callable[[Strip], Strip]) -> Answer:
+        with self._lock:
             before = self._strip or Strip()
         made = None
         try:
@@ -348,3 +370,5 @@ class Shared:
 
 
 shared = Shared()
+#: The same of what the Downloads page reads, with no titles looked up for it.
+on_page = Shared()

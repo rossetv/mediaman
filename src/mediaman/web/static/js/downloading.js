@@ -6,8 +6,11 @@
  *                  The first one starts the asking.
  *   last()         the same, or null.
  *   now()          ask soon: something was just asked for.
+ *   hear(answer), lose()   on the Downloads page, whose own asking brings the
+ *                  answer, without its items, so that nothing is asked here.
  *
- * lost: mediaman itself has stopped answering, and the rest is as it last was.
+ * lost: mediaman itself has stopped answering, and the rest is as it last was;
+ * signedOut: because nobody is signed in any more.
  */
 (function () {
   'use strict';
@@ -33,6 +36,8 @@
   var age = 0; // how old the answer was as it came
   var started = false;
   var ended = false;
+  var island = document.getElementById('downloads-page-data');
+  var fed = !!island;
 
   function tell() {
     readers.slice().forEach(function (fn) {
@@ -49,7 +54,7 @@
   function wait(ms) {
     clearTimeout(timer);
     timer = null;
-    if (ended || document.hidden) return;
+    if (fed || ended || document.hidden) return;
     timer = setTimeout(ask, ms);
   }
 
@@ -66,13 +71,22 @@
     return age < HOLD_MS ? Math.max(SOON_MS, HOLD_MS - age) : BUSY_MS;
   }
 
+  function lose(how) {
+    if (!state || (state.lost && !how)) return;
+    state = Object.assign({}, state, { lost: true }, how);
+    tell();
+  }
+
+  function hear(data) { if (take(data)) tell(); }
+
   function failed(err) {
-    if (err && (err.status === 401 || err.status === 403)) { ended = true; return; }
-    failures += 1;
-    if (failures === LOST_AFTER && state) {
-      state = Object.assign({}, state, { lost: true });
-      tell();
+    if (err && (err.status === 401 || err.status === 403)) {
+      ended = true;
+      lose({ signedOut: true });
+      return;
     }
+    failures += 1;
+    if (failures === LOST_AFTER) lose();
     wait(Math.min(FAIL_MS * Math.pow(2, failures - 1), FAIL_MAX_MS));
   }
 
@@ -110,21 +124,25 @@
     });
   }
 
-  /* The Watch page comes with the answer it was drawn from. */
+  /* The Watch page and Downloads come with the answer they were drawn from. */
   function drawn() {
-    var island = document.getElementById('watch-page-data');
-    try { return JSON.parse(island.textContent).downloading; } catch (e) { return null; }
+    var from = island || document.getElementById('watch-page-data');
+    try { return JSON.parse(from.textContent).downloading; } catch (e) { return null; }
   }
 
   function start() {
     started = true;
     // It may be half a minute old, so it is only what is shown first.
     wait(take(drawn()) ? SOON_MS : 0);
+    if (fed) return;
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         wait(0);
         if (inFlight) inFlight.abort();
-      } else if (inFlight) again = true;
+        return;
+      }
+      ended = false; // signed in again elsewhere, maybe
+      if (inFlight) again = true;
       else wait(0);
     });
     ['mm:title-changed', 'mediaman:poll:now'].forEach(function (name) {
@@ -151,6 +169,8 @@
   window.MM.downloading = {
     subscribe: subscribe,
     last: function () { return state; },
-    now: now
+    now: now,
+    hear: hear,
+    lose: function () { lose(); }
   };
 })();

@@ -214,7 +214,7 @@
     var outage = state.lost ? 'Can’t reach mediaman' : state.outage.replace("'", '’');
     var held = state.lost || list.some(function (item) { return item.held; });
     words.note.hidden = !outage;
-    setText(words.noteText, outage ? outage + ' right now.' + (held ? ' This is how it last was.' : '') : '');
+    setText(words.noteText, outage ? (state.signedOut ? 'You’re signed out.' : outage + ' right now.') + (held ? ' This is how it last was.' : '') : '');
   }
 
   /* The cards in the order of *list*, moving only those out of place. */

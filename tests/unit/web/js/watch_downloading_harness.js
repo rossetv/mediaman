@@ -44,6 +44,7 @@ function load(answers, opts = {}) {
       ['div', { class: 'dlx', id: 'watch-downloading', hidden: '' }],
       ['section', { class: 'watch-row', 'data-row-id': 'recent' }, ['div', { class: 'watch-row__viewport' },
         ['div', { class: 'watch-row__scroll' }, recentCard('movie-1', 'Salt'), recentCard('movie-2', 'Fieldwork')]]]],
+    ...(opts.fed ? [['script', { id: 'downloads-page-data' }, JSON.stringify({ downloading: opts.fed })]] : []),
     ...(opts.drawn ? [['script', { id: 'watch-page-data' }, JSON.stringify({ downloading: opts.drawn })]] : [])]));
   const bare = doc.createElement;
   const styled = (el) => { if (opts.still === false) el.animate = () => ({}); el.style = { set: {}, setProperty(k, v) { this.set[k] = v; }, removeProperty(k) { delete this.set[k]; } }; return el; };
@@ -340,7 +341,33 @@ const scenarios = {
   async signedOut() {
     const p = load([answer([item('A')]), 401]);
     await p.step(600000);
-    return { asks: p.asks, at: p.at(), cards: p.cards(), note: p.note() };
+    const heldBack = p.card('A').classList.contains('is-held');
+    const first = { asks: p.asks, at: p.at(), cards: p.cards(), note: p.note(), held: heldBack };
+    const shown = async () => { p.hide(true); p.hide(false); await p.step(600000); return [p.asks, p.note()]; };
+    first.shownAgain = await shown();
+    p.answers = [answer([item('A')])];
+    p.hide(true);
+    p.hide(false);
+    await p.step(10);
+    first.signedIn = [p.note(), p.card('A').classList.contains('is-held')];
+    return first;
+  },
+  // On the Downloads page the page's own asking brings it, and nothing is asked here.
+  async fed() {
+    const p = load([answer([item('A')])], { fed: answer([item('A')]) });
+    const got = [];
+    p.MM.downloading.subscribe((state) => got.push([state.summary.total, state.lost]));
+    await p.step(600000);
+    p.hide(true);
+    p.hide(false);
+    p.MM.downloading.now();
+    await p.step(600000);
+    p.MM.downloading.hear(answer([item('A'), item('B')]));
+    p.MM.downloading.lose();
+    p.MM.downloading.lose();
+    p.MM.downloading.hear(null);
+    p.MM.downloading.hear(answer([]));
+    return { asks: p.asks, got };
   },
   async outage() {
     const p = load([answer([item('A', { held: true }), item('B')], "Can't reach Radarr"), answer([item('B')], "Can't reach Radarr"), answer([item('B')])]);

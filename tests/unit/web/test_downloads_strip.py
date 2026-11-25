@@ -44,6 +44,7 @@ def services(monkeypatch):
     def clear():
         _reset_previous_queue()
         strip.shared.clear()
+        strip.on_page.clear()
         clear_library_index()
         invalidate()
 
@@ -232,3 +233,29 @@ def test_a_title_whose_lookup_fails_takes_no_other_down(services, viewer, asked)
     ember, harbour = resp.json()["items"]
     assert (ember["ref"], ember["poster_url"]) == ("tmdb-movie-11", "")
     assert harbour["art_url"] == "/api/watch/img/tmdb/w1280/f12.jpg"
+
+
+def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_more(
+    services, viewer
+):
+    radarr, sonarr, _ = services
+    told = viewer.get("/api/downloads").json()["strip"]
+    asked = (radarr.get_queue.call_count, radarr.get_movies.call_count)
+    assert asked[0] == 1
+    assert told["summary"] == {"total": 2, "active": 2, "waiting": 0, "ready": 0, "percent": 40}
+    # Who and what they are the page knows already; a viewer is told no more by this.
+    assert told["items"] == []
+    # As prompt as the page: the next poll has what it found, with no held answer before it.
+    _queue(services, [_movie(11, "Ember Coast")])
+    again = viewer.get("/api/downloads").json()
+    assert again["strip"]["summary"]["total"] == 1
+    assert radarr.get_queue.call_count == 2
+    assert _get(viewer).json()["summary"] == again["strip"]["summary"]
+
+
+def test_a_service_that_stops_answering_leaves_the_ring_on_downloads_as_it_was(services, viewer):
+    before = viewer.get("/api/downloads").json()["strip"]
+    services[0].get_queue.side_effect = requests.ConnectionError("down")
+    after = viewer.get("/api/downloads").json()["strip"]
+    assert after["summary"] == before["summary"]
+    assert after["outage"] == "Can't reach Radarr"

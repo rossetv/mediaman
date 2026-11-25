@@ -174,8 +174,25 @@ def test_a_title_taken_out_of_the_row_is_not_put_back(out) -> None:
     assert out["loaderHoldsIt"] == {"recent": ["Salt"], "cards": ["A"]}
 
 
-def test_signed_out_it_stops_and_leaves_the_page_where_it_is(out) -> None:
-    assert out["signedOut"] == {"asks": 2, "at": "start", "cards": ["A"], "note": None}
+def test_signed_out_it_stops_says_so_and_leaves_the_page_where_it_is(out) -> None:
+    note = "You’re signed out. This is how it last was."
+    assert out["signedOut"] == {
+        "asks": 2,
+        "at": "start",
+        "cards": ["A"],
+        "note": note,
+        "held": True,
+        # Asked once more as the tab is shown again, and goes on when signed in again.
+        "shownAgain": [3, note],
+        "signedIn": [None, False],
+    }
+
+
+def test_on_the_downloads_page_the_ring_is_told_and_asks_nothing(out) -> None:
+    assert out["fed"] == {
+        "asks": 0,
+        "got": [[1, False], [2, False], [2, True], [0, False]],
+    }
 
 
 def test_a_new_card_takes_its_place_and_leaves_the_focus(out) -> None:
