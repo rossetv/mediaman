@@ -269,8 +269,8 @@ def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -
 
 def test_a_level_s_name_stays_in_its_card_beside_the_levels() -> None:
     name = _of(".rate__name > span", sheet=CARDS)
-    assert "nowrap" not in name
-    room = int(re.findall(r"max-width: calc\(100cqi - (\d+)px\)", name)[0])
+    assert "nowrap" not in name and "max-width: 100%" in name
+    room = int(re.findall(r"width: calc\(100cqi - (\d+)px\)", _of(".rate__name", sheet=CARDS))[0])
     levels = _of(".rate--lift", sheet=CARDS)
     taken = sum(int(re.findall(rf"{side}: (\d+)px", levels)[0]) for side in ("right", " width"))
     gap = int(re.findall(r"right: calc\(100% \+ (\d+)px\)", _of(".rate__name", sheet=CARDS))[0])
@@ -306,14 +306,33 @@ def test_the_preview_s_eye_is_filled_once_watched_as_the_panel_s_is() -> None:
 def test_the_icons_under_a_card_do_not_outgrow_their_circles_with_the_text() -> None:
     for icon in (".card-tool > .ico", ".card-over__b > .ico"):
         assert re.search(r"width: [\d.]+px; height: \d+px", _of(icon, sheet=CARDS))
-    assert "overflow-wrap: anywhere" in _of(".rate__name > span", sheet=CARDS)
+
+
+# "removed", the widest word of a level's name, is 3.97em in the system font at its boldest.
+WIDEST_WORD_EM = 3.97
+
+
+def test_a_level_s_name_breaks_between_words_alone_and_goes_where_one_does_not_fit() -> None:
+    css = re.sub(r"/\*.*?\*/", "", CARDS.read_text(encoding="utf-8"), flags=re.S)
+    words = "".join(re.findall(r"\.rate__name > span \{([^{}]*)\}", css))
+    assert "overflow-wrap: normal" in words
+    assert not re.search(r"anywhere|break-word|break-all|hyphens: auto", words)
+    # Its room is measured in its own size, so a name too big for it goes as the text grows.
+    assert "container-type: inline-size" in _of(".rate__name", sheet=CARDS)
+    assert "font-size" not in words
+    sized = [_of(".rate__name", sheet=CARDS), _of(".card-over .rate__name", FINGER, CARDS)]
+    assert all("font-size" in rule for rule in sized)
+    gone = re.search(
+        r"@container \(width < ([\d.]+)em\) \{\s*\.rate__name > span \{ visibility: hidden", css
+    )
+    assert gone and float(gone.group(1)) >= WIDEST_WORD_EM
 
 
 def test_forced_colours_keep_the_level_given_readable_under_the_pointer() -> None:
     assert "color: HighlightText" in _of(".rate--lift .rate__b.is-on", FORCED, CARDS)
     hover = ".watch-card .card-tool--thumb:is(.is-up, .is-down):hover"
     assert "color: Highlight" in _of(hover, FORCED, CARDS)
-    assert "padding-inline: 5px" in _of(".card-over .rate__name > span", FORCED, CARDS)
+    assert "padding-inline: 5px" in _of(".card-over .rate__name", FORCED, CARDS)
 
 
 def test_a_card_s_title_eases_down_as_its_bar_goes() -> None:
