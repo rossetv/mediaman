@@ -42,6 +42,8 @@ _PER_PERSON = {
     "user_avatars": "(user_id, kind, choice, updated_at) VALUES (?, 'drawn', 3, '2026')",
     "user_ratings": "(user_id, media_type, tmdb_id, level, updated_at)"
     " VALUES (?, 'movie', 7, 2, '2026')",
+    "user_seen_titles": "(user_id, media_type, tmdb_id, through_season, seen_at)"
+    " VALUES (?, 'tv', 7, 2, '2026')",
     "user_rating_asks": "(user_id, media_type, tmdb_id, asked_at) VALUES (?, 'movie', 7, '2026')",
     "user_searches": "(user_id, phrase_key, phrase, searched_at) VALUES (?, 'a', 'A', '2026')",
     "user_ai_phrases": "(user_id, phrases, made_at) VALUES (?, '[]', '2026')",
@@ -168,6 +170,21 @@ def test_what_is_kept_for_a_person_goes_with_the_person_alone(conn):
         assert [r[0] for r in conn.execute(f"SELECT user_id FROM {table}")] == [2], table
 
 
+def test_an_older_version_still_ends_a_person_on_the_new_database(old_path):
+    conn = init_db(old_path)
+    conn.execute(f"INSERT INTO user_seen_titles {_PER_PERSON['user_seen_titles']}", (1,))
+    conn.commit()
+    conn.close()
+    conn = sqlite3.connect(old_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.executescript(_OLD_TABLES)
+
+    conn.execute("DELETE FROM admin_users WHERE username = 'amy'")
+
+    assert conn.execute("SELECT count(*) FROM user_seen_titles").fetchone()[0] == 0
+    conn.close()
+
+
 def test_the_audit_log_keeps_the_rows_of_a_deleted_person(conn):
     conn.execute(
         "INSERT INTO audit_log (media_item_id, action, created_at, actor, actor_id)"
@@ -185,6 +202,9 @@ def test_the_audit_log_keeps_the_rows_of_a_deleted_person(conn):
         ("user_ratings", "VALUES (1, 'movie', 7, 0, NULL, NULL, '2026')"),
         ("user_ratings", "VALUES (1, 'movie', 7, 3, NULL, NULL, '2026')"),
         ("user_ratings", "VALUES (1, 'music', 7, 1, NULL, NULL, '2026')"),
+        ("user_seen_titles", "VALUES (1, 'music', 7, NULL, 0, NULL, NULL, '2026')"),
+        ("user_seen_titles", "VALUES (1, 'movie', 7, 2, 0, NULL, NULL, '2026')"),
+        ("user_seen_titles", "VALUES (1, 'tv', 7, NULL, 0, NULL, NULL, '2026')"),
         ("user_avatars", "VALUES (1, 'drawn', NULL, NULL, '2026')"),
         ("user_avatars", "VALUES (1, 'upload', NULL, NULL, '2026')"),
         ("user_avatars", "VALUES (1, 'upload', 2, 'a.png', '2026')"),

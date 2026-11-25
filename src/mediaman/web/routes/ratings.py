@@ -55,15 +55,15 @@ def _user_id(username: Annotated[str, Depends(get_current_user)]) -> int:
     return user_id
 
 
-_UserId = Annotated[int, Depends(_user_id)]
-_Username = Annotated[str, Depends(get_current_user)]
+UserId = Annotated[int, Depends(_user_id)]
+Username = Annotated[str, Depends(get_current_user)]
 
 
-def _not_found() -> JSONResponse:
+def not_found() -> JSONResponse:
     return respond_err("not_found", status=404)
 
 
-def _rate_limited() -> JSONResponse:
+def rate_limited() -> JSONResponse:
     return respond_err(
         "too_many_requests", status=429, message="Too many changes at once — slow down"
     )
@@ -75,7 +75,7 @@ def _no_tmdb_id() -> JSONResponse:
     )
 
 
-def _titles(
+def named_titles(
     conn: sqlite3.Connection, username: str, refs: Iterable[str]
 ) -> dict[str, RatedTitle | None]:
     """The titles *refs* name, from what is stored here; None for one with no TMDB id. A ref that
@@ -103,11 +103,16 @@ def _titles(
     return found
 
 
-def _details(
-    request: Request, conn: sqlite3.Connection, title: RatedTitle, *, ask: bool
+def title_details(
+    request: Request,
+    conn: sqlite3.Connection,
+    title: RatedTitle,
+    *,
+    ask: bool,
+    anew: bool = False,
 ) -> dict[str, Any] | None:
-    """TMDB's fields of *title*, asking it only with *ask*; None when there is no answer. Raises
-    TitleNotFound."""
+    """TMDB's fields of *title*, asking it only with *ask* and whatever is held with *anew*;
+    None when there is no answer. Raises TitleNotFound."""
     client = TmdbClient.from_db(
         conn, request.app.state.config.secret_key, timeout=_TMDB_TIMEOUT_S, retry=False
     )
@@ -115,7 +120,12 @@ def _details(
         return None
     try:
         return catalog.details(
-            client, title.media_type, title.tmdb_id, allow_fetch=lambda: ask, brief=True
+            client,
+            title.media_type,
+            title.tmdb_id,
+            allow_fetch=lambda: ask,
+            brief=True,
+            anew=anew,
         )
     except catalog.TitleNotFound:
         raise
@@ -135,10 +145,10 @@ def _answer(title: RatedTitle, level: int | None, was: int | None) -> JSONRespon
 
 
 @router.get("/api/watch/ratings")
-def api_ratings(user_id: _UserId, username: _Username, refs: str = "") -> JSONResponse:
+def api_ratings(user_id: UserId, username: Username, refs: str = "") -> JSONResponse:
     """This person's rating of each title of *refs*, separated by commas."""
     if not _READ_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     asked = refs.split(",")
     if len(asked) > _MAX_REFS:
         return respond_err("too_many_titles", status=400)
@@ -151,7 +161,7 @@ def api_ratings(user_id: _UserId, username: _Username, refs: str = "") -> JSONRe
                     "level": levels.get((title.media_type, title.tmdb_id)) if title else None,
                     "rateable": title is not None,
                 }
-                for ref, title in _titles(conn, username, asked).items()
+                for ref, title in named_titles(conn, username, asked).items()
             }
         }
     )
@@ -159,22 +169,22 @@ def api_ratings(user_id: _UserId, username: _Username, refs: str = "") -> JSONRe
 
 @router.put("/api/watch/ratings/{ref}")
 def api_rate(
-    ref: str, body: _RatingRequest, request: Request, user_id: _UserId, username: _Username
+    ref: str, body: _RatingRequest, request: Request, user_id: UserId, username: Username
 ) -> JSONResponse:
     if not _CHANGE_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     conn = get_db()
-    found = _titles(conn, username, [ref])
+    found = named_titles(conn, username, [ref])
     if ref not in found:
-        return _not_found()
+        return not_found()
     title = found[ref]
     if title is None:
         return _no_tmdb_id()
     if title.title is None:
         try:
-            fields = _details(request, conn, title, ask=True)
+            fields = title_details(request, conn, title, ask=True)
         except catalog.TitleNotFound:
-            return _not_found()
+            return not_found()
         if fields is not None:
             title = RatedTitle(
                 title.media_type, title.tmdb_id, fields["title"] or None, fields["year"]
@@ -184,13 +194,13 @@ def api_rate(
 
 
 @router.delete("/api/watch/ratings/{ref}")
-def api_unrate(ref: str, user_id: _UserId, username: _Username) -> JSONResponse:
+def api_unrate(ref: str, user_id: UserId, username: Username) -> JSONResponse:
     if not _CHANGE_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     conn = get_db()
-    found = _titles(conn, username, [ref])
+    found = named_titles(conn, username, [ref])
     if ref not in found:
-        return _not_found()
+        return not_found()
     title = found[ref]
     if title is None:
         return _no_tmdb_id()
@@ -200,16 +210,16 @@ def api_unrate(ref: str, user_id: _UserId, username: _Username) -> JSONResponse:
 
 @router.post("/api/watch/ratings/ask/{rating_key}")
 def api_rating_ask(
-    rating_key: str, request: Request, user_id: _UserId, username: _Username
+    rating_key: str, request: Request, user_id: UserId, username: Username
 ) -> JSONResponse:
     """Whether to ask this person, who just finished the movie or episode, what they thought.
 
     Said once of a film and of a season; a question that is ignored is not put again.
     """
     if not _CHANGE_LIMITER.check(username):
-        return _rate_limited()
+        return rate_limited()
     if not is_valid_key(rating_key):
-        return _not_found()
+        return not_found()
     conn = get_db()
     nothing = respond_ok({"ask": False})
     played = get_progress(conn, username, [rating_key]).get(rating_key)
@@ -217,7 +227,7 @@ def api_rating_ask(
         return nothing
     show_key = played.show_rating_key
     ref = f"show-{show_key}" if show_key else f"movie-{rating_key}"
-    title = _titles(conn, username, [ref]).get(ref)
+    title = named_titles(conn, username, [ref]).get(ref)
     if title is None:
         return nothing
     season = 0
@@ -227,7 +237,7 @@ def api_rating_ask(
             return nothing
         season = end.number
         try:
-            fields = _details(request, conn, title, ask=False)
+            fields = title_details(request, conn, title, ask=False)
         except catalog.TitleNotFound:
             fields = None
         # The last episode held may not be the season's: not while it is still on air.
@@ -255,4 +265,12 @@ def api_rating_ask(
     )
 
 
-__all__ = ["router"]
+__all__ = [
+    "UserId",
+    "Username",
+    "named_titles",
+    "not_found",
+    "rate_limited",
+    "router",
+    "title_details",
+]
