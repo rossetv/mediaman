@@ -3914,7 +3914,7 @@
     var line = on ? LOST_LINES[!tv ? (away.play.quiet ? 'quiet' : 'way') : tv.kind === 'older' ? 'older' : 'tv'] : '';
     if (on === lostShown) {
       /* Back but silent, or gone again: the same card, with the words that are true now. */
-      if (on && els.messageLine.textContent === lostLine) els.messageLine.textContent = lostLine = line;
+      if (on && line !== lostLine && els.messageLine.textContent === lostLine) els.messageLine.textContent = lostLine = line;
       return;
     }
     lostShown = on;

@@ -2839,6 +2839,10 @@ def test_a_way_whose_tv_is_back_and_silent_says_how_long_it_is_waited_for(markup
     assert out["lostAgain"]["line"] == CARD
 
 
+def test_a_lost_card_redrawn_with_the_same_words_is_not_written_again(markup):
+    assert elsewhere(markup, "away_lost_way", "quiet")["rewrites"] == 0
+
+
 def test_a_way_that_lets_go_of_a_silent_tv_says_it_may_still_play(markup):
     out = elsewhere(markup, "away_gone", "silent")
     assert out["message"]["text"] == "Den stopped answering"

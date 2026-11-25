@@ -5123,6 +5123,13 @@ const scenarios = {
       fire(way.media, 'waiting');
       await settle();
       out.lostAgain = messageState(p);
+      // Nothing new to say: the alert's words are left alone, so they are not read out again.
+      const line = p.q('[data-message-line]');
+      let text = line.textContent;
+      out.rewrites = 0;
+      Object.defineProperty(line, 'textContent', { configurable: true, get: () => text, set: (v) => { out.rewrites++; text = v; } });
+      fire(way.media, 'waiting');
+      await settle();
     }
     if (how === 'found') {
       let reached = null;
