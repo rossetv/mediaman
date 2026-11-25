@@ -966,3 +966,10 @@ def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
 
 def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
     assert _run("barCovers") == [106, 52]
+
+
+def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
+    out = _run("barTucksOnPurpose")
+    # Far down, back up, then by 1, 6 and 7 in all.
+    assert out["out"] == [True, False, False, False, True]
+    assert (out["frames"], out["after"]) == (1, True)

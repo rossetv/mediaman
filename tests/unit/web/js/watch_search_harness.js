@@ -31,6 +31,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   const on = {};
   const urls = [];
   const grids = [];
+  const mutated = [];
   const tab = { entries: [{ url: at || '/watch' + (opened ? '?q=' + opened : ''), state: null }], index: 0 };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, e) => (on[type] || []).slice().forEach((fn) => fn(e || {}));
@@ -59,6 +60,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       };
     },
     innerWidth: width,
+    requestAnimationFrame: (fn) => fn(),
+    MutationObserver: class { constructor(fn) { mutated.push(fn); } observe() {} disconnect() {} },
     ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { observed.push(this.fn); } disconnect() {} },
     innerHeight: 800,
     categories,
@@ -167,6 +170,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   ctx.MMWatch.search.init();
   ctx.MMWatch.address.start();
   return {
+    mutate: () => mutated.forEach((fn) => fn([])),
     ctx, doc, input, calls, events, urls, timers, tab, grids, $, fire,
     results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'), sheet: $('watch-sheet'),
     url: () => tab.entries[tab.index].url,
@@ -2015,6 +2019,54 @@ scenarios.barTucksOverSeeAll = async () => {
   const p = load(ADMIN, '', null, undefined, { width: 768 });
   p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
   return [0, 400, 200, 60, 4].map((y) => scrollTo(p, y));
+};
+// Whatever brought the field's line there, See all scrolled down has none over its header.
+scenarios.barLeavesSeeAllFree = async () => {
+  const seeAll = async (y, width = 390) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const all = p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
+    if (y) scrollTo(p, y);
+    return [p, all];
+  };
+  const out = {};
+  const [a] = await seeAll(400);
+  const bar = a.doc.querySelector('.wbar');
+  a.input.focus();
+  bar.listeners.focusin.forEach((fn) => fn({ target: a.input }));
+  out.focused = tucked(a);
+  a.input.blur();
+  (bar.listeners.focusout || []).forEach((fn) => fn({ target: a.input }));
+  await settle();
+  out.left = tucked(a);
+  const [b] = await seeAll(400);
+  b.ctx.innerWidth = 768;
+  b.fire('width');
+  out.turned = tucked(b);
+  // Forward: the rows had the line, and the grid opens where it was scrolled.
+  const c = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(c, 600);
+  scrollTo(c, 500);
+  out.rows = tucked(c);
+  c.$('watch-page').appendChild(build(c.doc, ['section', { id: 'watch-all' }]));
+  out.forward = scrollTo(c, 300);
+  const d = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(d, 600);
+  scrollTo(d, 500);
+  d.$('watch-page').appendChild(build(d.doc, ['section', { id: 'watch-all' }]));
+  d.mutate();
+  out.opened = tucked(d);
+  return out;
+};
+// Less than a person means: a pixel or two down, one event after another in a frame.
+scenarios.barTucksOnPurpose = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  const out = [300, 100, 101, 106, 107].map((y) => scrollTo(p, y));
+  let frames = 0;
+  let run = null;
+  p.ctx.requestAnimationFrame = (fn) => { frames++; run = fn; };
+  [500, 600, 700].forEach((y) => { p.ctx.scrollY = y; p.fire('scroll'); });
+  if (run) run();
+  return { out, frames, after: tucked(p) };
 };
 scenarios.barSheetHolds = async () => {
   const p = await ready(ADMIN, '', null, undefined, { width: 768 });

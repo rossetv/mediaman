@@ -633,6 +633,7 @@
     var toggle = byId('watch-viewtoggle');
     var meter = bar.querySelector('.space-meter');
     var scrolled = window.scrollY;
+    var framed = false;
 
     /* The open field would cover the meter. */
     function makeRoom() {
@@ -651,7 +652,7 @@
       if (phone.matches && toggle) bar.appendChild(toggle);
       // Moving a node takes the focus off it.
       if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
-      bar.classList.remove('is-tucked');
+      tuck(false);
     }
 
     function onLine(node) { return box.contains(node) || (!!toggle && toggle.contains(node)); }
@@ -660,16 +661,21 @@
 
     /* Below 1100px the field's line goes while the page is scrolled down, and comes back on
        the way up; over the See all view, whose own header is there, at the top alone. */
-    function onScroll() {
+    function settleLine(by) {
       var y = window.scrollY;
-      var by = y - scrolled;
-      // Slow steps up add up.
-      if (by > 0 || by < -6) scrolled = y;
       var all = byId('watch-all');
-      var top = all && !all.hidden ? 8 : 80;
-      if (sheetOn || wide.matches || y < top || onLine(document.activeElement)) tuck(false);
-      else if (by > 0) tuck(true);
-      else if (by < -6 && top === 80) tuck(false);
+      var grid = !!all && !all.hidden;
+      if (sheetOn || wide.matches || y < (grid ? 8 : 80) || onLine(document.activeElement)) tuck(false);
+      else if (by > 6) tuck(true);
+      else if (by < -6 && !grid) tuck(false);
+    }
+
+    function onScroll() {
+      framed = false;
+      var by = window.scrollY - scrolled;
+      // Slow steps add up.
+      if (Math.abs(by) > 6) scrolled = window.scrollY;
+      settleLine(by);
     }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
@@ -1775,7 +1781,11 @@
     });
     // Its words arrive after the page, and change.
     if (meter && window.ResizeObserver) new window.ResizeObserver(makeRoom).observe(meter);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', function () {
+      if (framed) return;
+      framed = true;
+      window.requestAnimationFrame(onScroll);
+    }, { passive: true });
     bar.addEventListener('focusin', function (e) {
       if (onLine(e.target)) tuck(false);
     });
