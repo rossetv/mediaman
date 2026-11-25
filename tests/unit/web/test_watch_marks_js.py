@@ -431,6 +431,10 @@ def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -
     ]
 
 
+def test_a_far_card_taken_off_the_page_no_longer_hides_its_buttons() -> None:
+    assert _run("farCardTaken") == [True, False]
+
+
 def test_a_reader_is_told_that_the_level_given_is_taken_back_by_a_press() -> None:
     hint = ["Press again to take it back", True]
     assert _run("levelsSaid") == [

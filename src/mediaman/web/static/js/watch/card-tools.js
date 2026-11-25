@@ -106,9 +106,14 @@
     entries.forEach(function (n) { n.target.classList.toggle('is-far', !n.isIntersecting); });
   }, { rootMargin: '100% 0px' }) : null;
 
+  function letGo(card) {
+    inSight.unobserve(card);
+    card.classList.remove('is-far');
+  }
+
   function forget(root) {
-    if (root.matches && root.matches('.watch-card')) inSight.unobserve(root);
-    toArray(root.querySelectorAll('.watch-card')).forEach(function (card) { inSight.unobserve(card); });
+    if (root.matches && root.matches('.watch-card')) letGo(root);
+    toArray(root.querySelectorAll('.watch-card')).forEach(letGo);
   }
 
   /* Of a poster's badges Leaving is the first and Watched the last, which is how CSS tells what

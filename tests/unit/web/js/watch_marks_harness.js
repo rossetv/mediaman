@@ -731,6 +731,18 @@ const scenarios = {
     return out;
   },
 
+  // A far card taken off the page, to be put back elsewhere.
+  async farCardTaken() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM()]]));
+    const film = p.cards()[0];
+    const seer = p.seers.filter((s) => s.margin)[0];
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const before = film.classList.contains('is-far');
+    film.remove();
+    p.removed(film);
+    return [before, film.classList.contains('is-far')];
+  },
+
   // A page the browser kept, with a card far off it: its level is read once it nears, as a copy of it made since.
   async keptPage() {
     const reads = [];
