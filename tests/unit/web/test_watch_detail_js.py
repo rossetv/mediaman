@@ -656,6 +656,9 @@ def test_seasons_are_asked_for_once_and_only_the_one_that_failed_again() -> None
 def test_a_refused_season_offers_no_retry_and_one_that_failed_does() -> None:
     out = _run("seasonsRefused")
     assert out["refused"] == {"said": "Season 4 is leaving.", "retry": False}
+    taken = out["taken"]
+    assert (taken["chip"][1], taken["retry"]) == ("Asked for", True)
+    assert "Season 4 is asked for" in taken["said"] and "Couldn" not in taken["said"]
     assert out["unread"] == ["4", "Leaving soon", False]
     assert out["failed"]["retry"] is True
     assert "Sonarr did not answer." in out["failed"]["said"]

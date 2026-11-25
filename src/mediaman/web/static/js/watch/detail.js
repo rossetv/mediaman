@@ -924,7 +924,7 @@
       lead.appendChild(facts.aside);
     }
     body.appendChild(lead);
-    if (/^tmdb-tv-/.test(cur.ref) || (cur.kind === 'show' && !/^show-/.test(cur.ref))) {
+    if (!held && (cur.kind === 'show' || /^tmdb-tv-/.test(cur.ref))) {
       var some = el('section', 'ttl__askseasons');
       some.setAttribute('aria-hidden', 'true');
       some.appendChild(skel('skel--line ttl__sec-skel'));
@@ -2154,8 +2154,25 @@
       redrawActions(c.ref);
       schedulePoll(POLL_MS);
     }
+    noteTaken(c);
     drawSeasons();
     scheduleSeasons();
+  }
+
+  /* What failed may have reached Sonarr all the same: then that is what is said. */
+  function noteTaken(c) {
+    var ask = c.ask;
+    if (!ask || !ask.failed || !ask.failed.length) return;
+    function names(list) { return list.map(seasonName).join(', '); }
+    var failed = allSeasons(c.data).filter(function (s) { return ask.failed.indexOf(s.number) >= 0; });
+    var taken = failed.filter(function (s) { return comes(s) || held(s); });
+    if (!taken.length) return;
+    var not = failed.filter(function (s) { return taken.indexOf(s) < 0; });
+    var text = names(taken) + (taken.length === 1 ? ' is' : ' are') + ' asked for, but mediaman couldn’t note it.' +
+      (not.length ? ' Couldn’t add ' + names(not) + '.' : '');
+    if (text === ask.text) return;
+    c.ask = { busy: false, text: text, bad: true, failed: ask.failed };
+    statusEl.textContent = text;
   }
 
   /* Read again soon while the states are still to come, and now and then while one moves or nobody could tell. */

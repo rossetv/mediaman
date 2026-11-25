@@ -223,7 +223,7 @@ def _resolve_tvdb_id(
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except (SafeHTTPError, _requests.RequestException, ArrError):
         logger.exception("Sonarr lookup failed")
-        return None, respond_failure("Sonarr lookup failed", status=502)
+        return None, respond_failure("Sonarr didn't answer.", status=502)
     if not lookup:
         return None, respond_failure("Series not found in Sonarr lookup", status=404)
     tvdb_id_raw = lookup.get("tvdbId")

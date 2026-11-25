@@ -1562,7 +1562,19 @@ const scenarios = {
     click(p.doc, p.q('[data-ttl-act="ask-seasons"]'));
     await settle();
     const unread = chipsOf(p)[3];
-    return { unread, refused: await run(refused), failed: await run(new APIError(502, 'sonarr_failed', 'Sonarr did not answer.')) };
+    // Sonarr took the season, and what mediaman keeps of it could not be written.
+    const l = load({ routes: { '/api/watch/title/tmdb-tv-90': asked('tmdb-tv-90', {}) }, posted: { '/api/search/download': new APIError(500, 'http_500') } });
+    l.run();
+    l.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    const took = asked('tmdb-tv-90', {});
+    took.seasons[3] = one(4, 'asked', { asked: true });
+    l.routes['/api/watch/title/tmdb-tv-90'] = took;
+    click(l.doc, l.q('.season-chip[data-season="4"]'));
+    click(l.doc, l.q('[data-ttl-act="ask-seasons"]'));
+    await settle();
+    const taken = { chip: chipsOf(l)[3], said: l.text('.season-pick__out'), retry: !!l.q('[data-ttl-act="ask-again"]') };
+    return { taken, unread, refused: await run(refused), failed: await run(new APIError(502, 'sonarr_failed', 'Sonarr did not answer.')) };
   },
 
   // The states are still to come, then there; or they never come.
