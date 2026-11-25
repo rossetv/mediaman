@@ -1489,6 +1489,11 @@ const scenarios = {
     out.tracked = await run('tmdb-tv-90', asked('tmdb-tv-90', {}));
     out.queued = await run('tmdb-tv-90', asked('tmdb-tv-90', { state: 'queued', answered: true }));
     out.pick = await run('pick-9', asked('pick-9', { state: 'downloading', pct: 10 }));
+    const all = LIB_SHOW.seasons.map((s) => Object.assign({}, s, { status: 'held', asked: false, askable: false, refusal: null }));
+    const whole = load({ routes: { '/api/watch/title/show-300': Object.assign({}, LIB_SHOW, { seasons: all, more_seasons: [], seasons_pending: false, seasons_request: ASK }) } });
+    whole.run();
+    await openCard(whole, 'show-300');
+    out.whole = { list: !!whole.q('.ttl__askseasons'), link: !!whole.q('.ttl__season-more') };
     out.held = await run('show-300', Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: false,
       seasons: LIB_SHOW.seasons.map((s) => Object.assign({}, s, { status: 'held', asked: false, askable: false, refusal: null })),
       more_seasons: [one(4, 'not_out', { asked: true }), one(3, 'not_asked', { askable: true })] }));
@@ -1547,7 +1552,17 @@ const scenarios = {
     };
     const refused = new APIError(409, 'leaving', 'Season 4 is leaving.');
     refused.data = { message: 'Season 4 is leaving.', seasons: [{ number: 4, result: 'leaving' }] };
-    return { refused: await run(refused), failed: await run(new APIError(502, 'sonarr_failed', 'Sonarr did not answer.')) };
+    // Refused, and the reading of the title after it fails.
+    const p = load({ routes: { '/api/watch/title/tmdb-tv-90': asked('tmdb-tv-90', {}) }, posted: { '/api/search/download': refused } });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    p.routes['/api/watch/title/tmdb-tv-90'] = new APIError(0, 'network_error');
+    click(p.doc, p.q('.season-chip[data-season="4"]'));
+    click(p.doc, p.q('[data-ttl-act="ask-seasons"]'));
+    await settle();
+    const unread = chipsOf(p)[3];
+    return { unread, refused: await run(refused), failed: await run(new APIError(502, 'sonarr_failed', 'Sonarr did not answer.')) };
   },
 
   // The states are still to come, then there; or they never come.
@@ -1563,7 +1578,7 @@ const scenarios = {
       } } });
       p.run();
       await openCard(p, 'show-300');
-      const first = chipsOf(p)[2];
+      const first = chipsOf(p)[0];
       const list = p.q('.watch-episodes');
       const waits = [];
       for (let i = 0; i < 8; i += 1) {
@@ -1572,15 +1587,23 @@ const scenarios = {
         due.forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
         await settle();
       }
-      return { first, last: chipsOf(p)[2], asks: n, go: p.q('.season-pick__go').hidden ? null : p.q('.season-pick__go').textContent.trim(), still: list === p.q('.watch-episodes') };
+      const press = {};
+      if (!comes) {
+        press.label = p.q('.season-pick__go').textContent.trim();
+        click(p.doc, p.q('.season-pick__go'));
+        press.busy = p.q('.season-pick__go').textContent.trim();
+        n -= 1;
+        await settle();
+      }
+      return { press, first, last: chipsOf(p)[0], asks: n, go: p.q('.season-pick__go').hidden ? null : p.q('.season-pick__go').textContent.trim(), still: list === p.q('.watch-episodes') };
     };
     return { comes: await run(true), never: await run(false) };
   },
 
   // A show that is a pick, wanted whole and in part.
   async pickSeasons() {
-    const run = async (press) => {
-      const data = Object.assign({}, TV_DL, { ref: 'pick-9', seasons: [1, 2, 3].map((n) => one(n, 'not_asked', { askable: true })),
+    const run = async (press, last) => {
+      const data = Object.assign({}, TV_DL, { ref: 'pick-9', seasons: [1, 2, 3].map((n) => one(n, n === 3 && last || 'not_asked', { askable: true })),
         seasons_request: { url: '/api/watch/picks/9/download', body: {} },
         download: { state: null, service: 'sonarr', tmdb_id: 90, request: { url: '/api/watch/picks/9/download' } } });
       const p = load({ routes: { '/api/watch/title/pick-9': data } });
@@ -1593,7 +1616,8 @@ const scenarios = {
       await settle();
       return { body: p.posts[0].body || null, go, primary: primary(p).text };
     };
-    return { whole: await run(null), part: await run('.season-chip[data-season="2"]') };
+    return { whole: await run(null), part: await run('.season-chip[data-season="2"]'),
+      out: await run(null, 'not_out'), withComing: await run('.season-chip[data-season="3"]', 'not_out') };
   },
 
   async tvBlocked() {

@@ -924,7 +924,7 @@
       lead.appendChild(facts.aside);
     }
     body.appendChild(lead);
-    if (cur.kind === 'show' || /^(show|tmdb-tv)-/.test(cur.ref)) {
+    if (/^tmdb-tv-/.test(cur.ref) || (cur.kind === 'show' && !/^show-/.test(cur.ref))) {
       var some = el('section', 'ttl__askseasons');
       some.setAttribute('aria-hidden', 'true');
       some.appendChild(skel('skel--line ttl__sec-skel'));
@@ -1187,10 +1187,10 @@
       main.appendChild(credit);
     }
     body.appendChild(lead);
-    var seasons = seasonsSection(d);
-    if (seasons) body.appendChild(seasons);
+    if (!d.in_library) placeSeasons();
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
+    if (d.in_library) placeSeasons();
     if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind, d.in_collection);
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
     if (hasFacts(cur)) renderFacts(false);
@@ -1582,13 +1582,13 @@
     return !!d.seasons_request && s.askable === true;
   }
 
-  /* With the Download button all are ticked to begin with, else none. */
+  /* With the Download button those that are out are ticked to begin with, else none. */
   function picksOf(d) {
     var whole = offersDownload(d);
     if (!cur.picks || cur.picksFor !== whole) {
       cur.picks = {};
       cur.picksFor = whole;
-      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s)) cur.picks[s.number] = true; });
+      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s) && s.status !== 'not_out') cur.picks[s.number] = true; });
     }
     return cur.picks;
   }
@@ -1746,13 +1746,44 @@
     return { name: 'none', icon: 'i-check', text: count || (s.status || canPick(d, s) ? '' : 'Not here') };
   }
 
+  /* The seasons the section names: of a show in the library, those not wholly here. */
+  function listed(d) {
+    return d.kind === 'movie' ? [] : allSeasons(d).filter(function (s) { return !d.in_library || !held(s); });
+  }
+
+  function placeSeasons() {
+    var wrap = listed(cur.data).length ? body.appendChild(seasonsSection(cur.data)) : null;
+    // A show's episodes come first; the line of them says what there is below.
+    linkSeasons(wrap);
+  }
+
+  /* On the line that says how many episodes a season has, so that no episode moves for it. */
+  function linkSeasons(wrap) {
+    var line = body.querySelector('.ttl__season:not(.is-gone) .ttl__season-line');
+    if (!line) return;
+    var link = line.querySelector('.ttl__season-more');
+    if (!wrap) {
+      if (link) link.remove();
+      return;
+    }
+    if (!link) {
+      link = button('ttl__season-more', 'More seasons');
+      link.setAttribute('data-ttl-act', 'to-seasons');
+      link.addEventListener('click', function () {
+        var sec = body.querySelector('.ttl__askseasons');
+        sec.querySelector('#ttl-pick-label').focus({ preventScroll: true });
+        root.scrollTo({ top: sheet.offsetTop + sec.offsetTop - bar.offsetHeight - 8, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+      });
+      core.fadeIn(line.appendChild(link));
+    }
+  }
+
   function seasonsSection(d) {
-    if (d.kind === 'movie' || !allSeasons(d).length) return null;
     var wrap = el('section', 'ttl__askseasons season-pick');
     wrap.setAttribute('role', 'group');
     wrap.setAttribute('aria-labelledby', 'ttl-pick-label');
     var head = el('div', 'season-pick__head');
-    var label = el('h3', 'ttl__sec-title', 'Seasons');
+    var label = el('h3', 'ttl__sec-title', d.in_library ? 'More seasons' : 'Seasons');
     label.id = 'ttl-pick-label';
     label.setAttribute('tabindex', '-1');
     head.appendChild(label);
@@ -1769,7 +1800,7 @@
     var summary = el('p', 'season-pick__summary');
     summary.setAttribute('aria-live', 'polite');
     words.appendChild(summary);
-    words.appendChild(el('p', 'season-pick__why'));
+    hide(words.appendChild(el('p', 'season-pick__why')), true);
     foot.appendChild(words);
     var go = button('btn btn--lg watch-btn--grey season-pick__go');
     go.setAttribute('data-ttl-act', 'ask-seasons');
@@ -1833,7 +1864,7 @@
 
   /* The section as the title on show now is, changed in place. Says whether a tick changed. */
   function fillSeasons(wrap, d, first) {
-    var seasons = allSeasons(d);
+    var seasons = listed(d);
     var list = wrap.querySelector('.season-pick__list');
     var picks = picksOf(d);
     var changed = false;
@@ -1885,8 +1916,11 @@
     var parts = [];
     function part(n, after) { if (n) parts.push([plural(n, 'season', 'seasons'), after]); }
     part(pickedSeasons(d).length, ' will be added and searched');
-    part(seasons.filter(held).length, ' already in library');
-    part(seasons.filter(comes).length, ' on the way');
+    // What is to be asked for stands alone beside its button, so that ticking adds no line.
+    if (!parts.length || offersDownload(d)) {
+      part(seasons.filter(held).length, ' already in library');
+      part(seasons.filter(comes).length, ' on the way');
+    }
     var said = parts.map(function (p) { return p.join(''); }).join(' · ') || (open.length ? 'No seasons picked' : '');
     if (summary.textContent !== said) {
       summary.textContent = parts.length ? '' : said;
@@ -1897,8 +1931,12 @@
       });
     }
     var why = wrap.querySelector('.season-pick__why');
-    why.textContent = whyNot(d, seasons);
-    hide(why, !why.textContent);
+    var told = whyNot(d, seasons);
+    if (why.textContent !== told) {
+      why.textContent = told;
+      hide(why, !told);
+      core.fadeIn(why);
+    }
   }
 
   /* Why seasons that are not here cannot be asked for. */
@@ -1931,7 +1969,7 @@
     if (!shown && document.activeElement === go) wrap.querySelector('#ttl-pick-label').focus({ preventScroll: true });
     hide(go, !shown);
     var n = pickedSeasons(d).length;
-    var label = ask.busy ? 'Adding…' : lost ? 'Check again' : n ? 'Download ' + plural(n, 'season', 'seasons') : 'Pick seasons';
+    var label = ask.checks ? 'Checking…' : ask.busy ? 'Adding…' : lost ? 'Check again' : n ? 'Download ' + plural(n, 'season', 'seasons') : 'Pick seasons';
     if (go.textContent !== label) {
       go.textContent = '';
       if (ask.busy) go.appendChild(el('span', 'btn-spinner')).setAttribute('aria-hidden', 'true');
@@ -1965,13 +2003,26 @@
 
   function drawSeasons() {
     if (!isOpen || !cur || !cur.data) return;
-    var wrap = root.querySelector('.ttl__askseasons');
-    if (wrap && wrap.querySelector('.season-pick__list')) {
-      var key = focusKey();
-      slideBelow(wrap, function () { fillSeasons(wrap, cur.data, false); });
-      if (key && !byAct(key)) wrap.querySelector('#ttl-pick-label').focus({ preventScroll: true });
-      else if (key && !wrap.contains(document.activeElement) && focusKey() !== key) restoreFocus(key);
-    }
+    var wrap = body.querySelector('.ttl__askseasons');
+    var key = focusKey();
+    var label = wrap && document.activeElement === wrap.querySelector('#ttl-pick-label');
+    var before = wrap || body.querySelector('.ttl__seasonsec');
+    if (!before) return;
+    slideBelow(before, function () {
+      if (!listed(cur.data).length) {
+        if (wrap) wrap.remove();
+        wrap = null;
+      } else if (wrap) {
+        fillSeasons(wrap, cur.data, false);
+      } else {
+        before.after(seasonsSection(cur.data));
+        wrap = before.nextElementSibling;
+        core.fadeIn(wrap);
+      }
+      linkSeasons(wrap);
+    });
+    if ((key && !byAct(key)) || (label && !wrap)) (wrap ? wrap.querySelector('#ttl-pick-label') : titleEl).focus({ preventScroll: true });
+    else if (key && focusKey() !== key) restoreFocus(key);
   }
 
   /* What stands below slides as the section grows or shrinks, and once the section is out of
@@ -1996,6 +2047,8 @@
     if (!numbers.length) {
       if (!unknown(d)) return;
       c.pendingAsks = 0;
+      c.ask = { busy: true, checks: true };
+      drawSeasons();
       readSeasons(c);
       return;
     }
@@ -2065,11 +2118,15 @@
     var ref = c.ref;
     var asks = c.asks;
     get(apiUrl(ref)).then(function (data) {
+      if (c.ask && c.ask.checks) c.ask = null;
       if (c !== cur || !isOpen || c.ref !== ref) return;
       if (asks !== c.asks) { scheduleSeasons(); return; }
       takeSeasons(c, data);
     }).catch(function () {
-      if (c === cur && isOpen && c.ref === ref) scheduleSeasons();
+      if (c.ask && c.ask.checks) c.ask = null;
+      if (c !== cur || !isOpen || c.ref !== ref) return;
+      drawSeasons();
+      scheduleSeasons();
     });
   }
 
@@ -2101,7 +2158,7 @@
     scheduleSeasons();
   }
 
-  /* Read again soon while the states are still to come, and now and then while one moves. */
+  /* Read again soon while the states are still to come, and now and then while one moves or nobody could tell. */
   function scheduleSeasons() {
     clearTimeout(seasonTimer);
     var c = cur;
@@ -2109,7 +2166,7 @@
     var wait = 0;
     if (c.data.seasons_pending) {
       if (c.pendingAsks < PENDING_ASKS) wait = PENDING_MS;
-    } else if (allSeasons(c.data).some(function (s) { return s.status === 'downloading' || s.status === 'queued'; })) {
+    } else if (unknown(c.data) || allSeasons(c.data).some(function (s) { return s.status === 'downloading' || s.status === 'queued'; })) {
       wait = POLL_SLOW_MS;
     }
     if (!wait) return;
@@ -2134,8 +2191,8 @@
     if (seasonPickable(d)) {
       ticked = pickedSeasons(d);
       if (!ticked.length) return;
-      // A pick wanted whole is asked for as the whole show, with what is still to be announced.
-      if (req.body || ticked.length < d.seasons.length) {
+      // A pick with all ticked that can be is asked for as the whole show, with what is still to be announced.
+      if (req.body || d.seasons.some(function (s) { return canPick(d, s) && ticked.indexOf(s.number) < 0; })) {
         payload = Object.assign({}, payload);
         payload.monitored_seasons = ticked.concat(d.seasons.filter(function (s) { return s.in_library; }).map(function (s) { return s.number; }));
         payload.search_seasons = ticked;
@@ -2707,7 +2764,9 @@
     var name = s ? seasonName(s) : 'Season';
     var panel = el('div', 'ttl__season');
     var box = el('div', 'ttl__season-about');
-    box.appendChild(el('p', 'ttl__season-facts', seasonFacts(about, episodes)));
+    var line = el('div', 'ttl__season-line');
+    line.appendChild(el('p', 'ttl__season-facts', seasonFacts(about, episodes)));
+    box.appendChild(line);
     sayOfSeason(box, about, name);
     panel.appendChild(box);
     panel.appendChild(episodeList(episodes, name + ' episodes'));
@@ -2997,6 +3056,7 @@
     still = still || sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
     holdStill(function () { return still; }, function () {
       crossfade(sec.querySelector('.ttl__season'), fresh);
+      linkSeasons(body.querySelector('.ttl__askseasons'));
       if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
         redrawActions(c.ref);
         if (hasFacts(c)) renderFacts(false);

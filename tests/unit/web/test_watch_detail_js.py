@@ -408,7 +408,7 @@ def test_a_films_collection_stands_above_its_cast_and_its_place_is_held() -> Non
     bare = ["ttl__lead", "ttl__castsec"]
     assert out["film"] == {"loading": bare, "drawn": held}
     assert out["lone"] == {"loading": bare, "drawn": bare}
-    show = ["ttl__lead", "ttl__askseasons", "ttl__seasonsec", "ttl__castsec"]
+    show = ["ttl__lead", "ttl__seasonsec", "ttl__castsec"]
     assert out["show"] == {"loading": show, "drawn": show}
 
 
@@ -612,9 +612,9 @@ def test_every_show_lists_its_seasons_with_the_state_of_each() -> None:
         ["4", "8 episodes", True],
     ]
     assert out["tracked"] == out["queued"] == out["pick"] == rows
+    # Of a show in the library, those not wholly here alone.
+    assert out["whole"] == {"list": False, "link": False}
     assert out["held"] == [
-        ["1", "In library", False],
-        ["2", "In library", False],
         ["3", "8 episodes", True],
         ["4", "Not out yet · asked for", False],
     ]
@@ -643,7 +643,7 @@ def test_seasons_are_asked_for_once_and_only_the_one_that_failed_again() -> None
         ["/api/search/download", {**body, "search_seasons": [4]}],
     ]
     half = out["half"]
-    assert half["chips"][2:] == [
+    assert half["chips"] == [
         ["3", "Asked for", False],
         ["4", "8 episodes", True],
         ["5", "Off in Sonarr", False],
@@ -656,6 +656,7 @@ def test_seasons_are_asked_for_once_and_only_the_one_that_failed_again() -> None
 def test_a_refused_season_offers_no_retry_and_one_that_failed_does() -> None:
     out = _run("seasonsRefused")
     assert out["refused"] == {"said": "Season 4 is leaving.", "retry": False}
+    assert out["unread"] == ["4", "Leaving soon", False]
     assert out["failed"]["retry"] is True
     assert "Sonarr did not answer." in out["failed"]["said"]
 
@@ -666,7 +667,8 @@ def test_seasons_whose_states_are_to_come_are_read_again_so_often_and_the_page_s
     assert comes["first"] == ["3", "Checking…", False]
     assert (comes["last"], comes["asks"]) == (["3", "8 episodes", True], 3)
     assert (comes["go"], comes["still"]) == ("Pick seasons", True)
-    assert (never["asks"], never["go"]) == (6, "Check again")
+    assert never["asks"] == 6
+    assert never["press"] == {"label": "Check again", "busy": "Checking…"}
 
 
 def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
@@ -674,6 +676,9 @@ def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
     assert (out["whole"]["body"], out["whole"]["go"]) == (None, True)
     assert out["part"]["body"] == {"monitored_seasons": [1, 3], "search_seasons": [1, 3]}
     assert out["part"]["primary"] == "Queued"
+    # One that is not out is not ticked to begin with; ticked by hand, the show is wanted whole.
+    assert out["out"]["body"]["search_seasons"] == [1, 2]
+    assert out["withComing"]["body"] is None
 
 
 def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
