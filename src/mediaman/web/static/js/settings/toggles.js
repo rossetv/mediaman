@@ -6,8 +6,10 @@
  *   - Integration-card collapse/expand (`<[data-intg-toggle]>` headers)
  *   - Secret-reveal buttons (`<button.inp-reveal>` flips type=password)
  *   - Rail scroll-spy (highlights the active section in `.setg-rail`)
+ *   - The fold of what the AI recommendations send to OpenAI
  *
  * Cross-module dependencies:
+ *   MM.dom.fold                     — opens and shuts that fold
  *   MM.settings.rows                — folds an integration card's body open and shut
  *   MM.settings.savebar.markDirty   — invoked when a toggle flips so the
  *                                     savebar appears.
@@ -162,6 +164,8 @@
     wireIntegrationCards();
     wireSecretReveals();
     wireRailScrollSpy();
+    var more = document.getElementById('setg-ai-more');
+    if (more) MM.dom.fold(more, document.getElementById('setg-ai-more-toggle'));
   }
 
   MM.settings.toggles = {

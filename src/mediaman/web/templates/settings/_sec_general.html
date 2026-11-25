@@ -78,12 +78,43 @@
 
   {% call c.setg_card(title="AI features", sub="GPT-powered recommendations surfaced in newsletters and on Watch.") %}
     {% set sugg_on = settings.get('suggestions_enabled', True) not in (False, 'false', 'False', 0, '0') %}
-    {% call c.setg_row("AI recommendations", "Picks for each person from the titles they played, and new and popular ones for everyone, using your OpenAI key. OpenAI gets the titles each person played, the picks they had before and the Plex stars of the server’s owner, and, unless the person turns off the use of their history, their searches, ratings, requests and how their plays went; never a name. Disabling hides the picks entirely.") %}
-      <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0" aria-label="AI recommendations"
-            data-toggle data-target="suggestions_enabled"
-            aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
-      <input type="hidden" id="suggestions_enabled" value="{{ 'true' if sugg_on else 'false' }}">
-    {% endcall %}
+    {# Hand-made rather than setg_row: the fold comes after the switch, so on a phone the switch stays by its words. #}
+    <div class="setg-row">
+      <div>
+        <div class="setg-row-lbl">AI recommendations</div>
+        <div class="setg-row-sub"><p id="setg-ai-sub">OpenAI makes picks for each person, and new and popular picks for everyone, using your key. It never gets an account name. Turning this off stops both kinds of picks, but people can still ask in search.</p></div>
+      </div>
+      <div>
+        <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0" aria-label="AI recommendations" aria-describedby="setg-ai-sub"
+              data-toggle data-target="suggestions_enabled"
+              aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
+        <input type="hidden" id="suggestions_enabled" value="{{ 'true' if sugg_on else 'false' }}">
+      </div>
+      <details class="setg-row-sub fold-more" id="setg-ai-more">
+        <summary id="setg-ai-more-toggle">What OpenAI gets {{ c.icon("i-chevron-down") }}</summary>
+        <div>
+          <p class="fold-more-head">Always:</p>
+          <ul class="fold-more-list">
+            <li>The titles each person played. That includes plays in Plex’s own apps once they link their Plex account.</li>
+            <li>Their recent picks.</li>
+            <li>The titles OpenAI suggested before, with their year, description and reason, for it to choose from.</li>
+            <li>The Plex server owner’s stars in Plex, once they link their Plex account. No one else’s stars.</li>
+            <li>When someone asks in search, their question, or the title and year they want more like.</li>
+            <li>When they narrow an answer, their choice and the titles it already gave.</li>
+          </ul>
+          <p class="fold-more-head">Only for people with Use my history on, in their Profile:</p>
+          <ul class="fold-more-list">
+            <li>For picks, their searches, ratings and requests, and how their plays went: finished, watched again or stopped part way.</li>
+            <li>For questions in search, and the daily phrases to try there, their searches, plays, and the titles they liked and disliked.</li>
+          </ul>
+          <p class="fold-more-head">Never:</p>
+          <ul class="fold-more-list">
+            <li>An account name.</li>
+            <li>A title marked as watched but not played.</li>
+          </ul>
+        </div>
+      </details>
+    </div>
   {% endcall %}
 
 {% endcall %}

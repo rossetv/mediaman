@@ -634,6 +634,8 @@
     var toggle = document.getElementById('account-history');
     var clear = document.getElementById('account-clear-searches');
     if (!section || !toggle || !clear) return;
+    var more = document.getElementById('account-history-more');
+    if (more) MM.dom.fold(more, document.getElementById('account-history-more-toggle'));
     var HISTORY = '/api/search/assist/history';
     var on = false;
 

@@ -1,26 +1,12 @@
 /* Plex account card of the Profile page. */
 .plex-link p,
 .plex-link li { font-size: 14px; line-height: 1.5; color: var(--t2); max-width: 64ch; }
-.plex-link-more { margin-top: 4px; }
-.plex-link-more > summary {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 44px;
-  font-size: 14px; color: var(--t1);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-  list-style: none;
-}
-.plex-link-more > summary::-webkit-details-marker { display: none; }
-.plex-link-more > summary > .ico { color: var(--t3); transition: transform var(--dur) var(--ease-out); }
-.plex-link-more > summary:hover > .ico { color: var(--t1); }
-.plex-link-more[open]:not(.is-shutting) > summary > .ico { transform: rotate(180deg); }
-.plex-link-more[open] > .plex-link-terms { animation: plex-panel-in var(--dur) var(--ease-out); }
 .plex-link-terms { margin: 10px 0 4px; padding-left: 18px; list-style: disc; }
 .plex-link .plex-link-terms li { max-width: none; }
-.plex-link-more > .plex-link-terms { margin-bottom: 0; padding-bottom: 4px; }
+.fold-more > .plex-link-terms { margin-bottom: 0; padding-bottom: 4px; }
 .plex-link-terms li + li { margin-top: 4px; }
 .plex-link .plex-link-fine { font-size: 13px; color: var(--t3); margin-top: 10px; }
-.plex-link-more + .plex-link-fine { margin-top: 0; }
+.fold-more + .plex-link-fine { margin-top: 0; }
 .plex-link-name { color: var(--t1); font-weight: 600; overflow-wrap: anywhere; }
 .plex-link-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .plex-link #plex-start, .plex-link #plex-retry { min-width: 12em; }
@@ -54,9 +40,7 @@
 @keyframes plex-done-in { from { opacity: 0; transform: scale(.6); } }
 @media (prefers-reduced-motion: reduce) {
   .plex-link [data-plex-panel],
-  .plex-link-done:not([hidden]) .ico,
-  .plex-link-more[open] > .plex-link-terms { animation: none; }
-  .plex-link-more > summary > .ico { transition: none; }
+  .plex-link-done:not([hidden]) .ico { animation: none; }
 }
 .setg-pg .link-danger[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
 #plex-moves { margin-top: 8px; color: var(--t1); }
