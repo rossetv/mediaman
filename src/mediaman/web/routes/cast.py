@@ -155,7 +155,7 @@ def _start(
     try:
         if ticket is None:
             raise StreamGone("stream is gone")
-        manager.allow(stream_id, username, partial(_is_good, ticket))
+        manager.allow(stream_id, username, partial(_holds, token))
         # After `allow`, so that the reaper sees what ends the session from here on.
         if check and not _is_good(ticket):
             store.drop(token)
@@ -205,6 +205,12 @@ def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
 
 def _is_good(ticket: Ticket) -> bool:
     return not get_ticket_store().expired(ticket) and _may_still_watch(get_db(), ticket)
+
+
+def _holds(token: str) -> bool:
+    """Whether the ticket *token* is still good, read again since a sign-in may have moved it."""
+    ticket = get_ticket_store().read(token)
+    return ticket is not None and _is_good(ticket)
 
 
 def _read_ticket(request: Request, token: str) -> Ticket | Response:

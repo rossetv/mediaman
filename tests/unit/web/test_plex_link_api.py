@@ -22,6 +22,7 @@ from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes import plex_link as routes
+from mediaman.web.routes.auth import router as auth_router
 from mediaman.web.routes.users import router as users_router
 from tests.helpers.fake_plex import SERVER, SERVER_ID, TOKEN, FakePlex
 
@@ -346,6 +347,20 @@ def test_a_sign_in_under_way_outlives_a_new_session_token(
     at_expiry()
     assert plex.signed_out() == 1
     assert routes._attempts._attempts == {}
+
+
+def test_a_sign_in_under_way_outlives_signing_in_again(client_for, app, conn, templates_stub):
+    app.include_router(auth_router)
+    app.state.templates = templates_stub
+    create_user(conn, "amy", "first pass 12345", enforce_policy=False, role="viewer")
+    amy = client_for("amy")
+    attempt = start(amy)
+    resp = amy.post(
+        "/login", data={"username": "amy", "password": "first pass 12345"}, follow_redirects=False
+    )
+    assert resp.status_code == 302
+    amy = TestClient(app, cookies={"session_token": resp.cookies["session_token"]})
+    assert check(amy)["id"] == attempt["id"]
 
 
 def test_an_attempt_is_not_handed_to_another_user_of_the_same_session(later):
