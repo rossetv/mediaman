@@ -574,7 +574,7 @@
     }
     p.body.textContent = '';
     p.body.appendChild(head);
-    p.actions = p.body.appendChild(el('div', 'pv__actions'));
+    p.actions = p.body.appendChild(el('div', (p.actions && p.actions.className) || 'pv__actions'));
     actions(p);
     if (p.rating) p.body.appendChild(p.rating.line);
     if (!d && p.card.pick) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
@@ -1283,7 +1283,7 @@
 
   document.addEventListener('mm:rating', function (e) {
     if (!live || !live.rating || e.detail.refs.indexOf(live.card.ref) < 0) return;
-    if (e.detail.from === live.rating.node) live.actions.classList.remove('is-rating');
+    if (e.detail.phase === 'pending' && e.detail.from === live.rating.node) live.actions.classList.remove('is-rating');
     faceRate(live);
   });
 

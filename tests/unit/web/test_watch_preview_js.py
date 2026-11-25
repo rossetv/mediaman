@@ -544,3 +544,15 @@ def test_rate_shows_a_rating_from_before_and_is_not_there_for_a_title_that_canno
 def test_a_rating_that_fails_is_said_in_the_preview_or_in_a_toast_once_that_has_gone() -> None:
     said = "Your rating wasn’t saved. Try again."
     assert _run("rateFails") == [[0, ["", said]], [1, None]]
+
+
+def test_a_strip_opened_again_stays_open_as_the_level_is_saved() -> None:
+    assert _run("stripAgain") == [1, True]
+
+
+def test_a_strip_opened_before_the_reply_stays_open_as_it_comes() -> None:
+    assert _run("stripEarly") == ["A field.", True]
+
+
+def test_a_preview_that_has_gone_leaves_no_rating_behind() -> None:
+    assert _run("setsLeft") == [1, 0]

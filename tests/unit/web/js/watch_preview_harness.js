@@ -94,7 +94,7 @@ function load(opts = {}) {
   const answers = { 'movie-1': FILM, 'movie-2': { ...FILM, ref: 'movie-2', library_ref: 'movie-2', title: 'Orbit' }, 'movie-3': FILM, 'tmdb-movie-9': OUTSIDE, ...opts.api };
   const store = { ...opts.store };
   const api = {
-    put(url, body) { rates.push([url, body.level]); return opts.noRating ? Promise.reject(new Error('down')) : Promise.resolve({ media_type: 'movie', tmdb_id: 1 }); },
+    put(url, body) { rates.push([url, body.level]); if (opts.saving) return opts.saving; return opts.noRating ? Promise.reject(new Error('down')) : Promise.resolve({ media_type: 'movie', tmdb_id: 1 }); },
     get(url, o) {
       if (/ratings/.test(url)) return Promise.resolve({ ratings: { 'movie-1': { level: opts.level || null, rateable: !opts.unrateable } } });
       const ref = url.replace('/api/watch/preview/', '');
@@ -237,6 +237,39 @@ const scenarios = {
     await h.pass(100);
     out.shut = h.doc.querySelector('.pv-menu').classList.contains('is-open');
     return { ...out, after: rateLook(h), rates: h.rates, title: h.title() };
+  },
+  /* The strip opened again while the save is on its way. */
+  async stripAgain() {
+    const save = {};
+    const h = load({ ratings: true, saving: new Promise((r) => { save.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+    pressRate(h);
+    save.done({ media_type: 'movie', tmdb_id: 1 });
+    await h.pass(50);
+    return [h.rates.length, rateLook(h)[0]];
+  },
+  /* The strip opened before the reply is there. */
+  async stripEarly() {
+    const h = load({ ratings: true, api: { 'movie-1': undefined } });
+    await h.rest('film', 900);
+    pressRate(h);
+    h.waiting['movie-1'](FILM);
+    await h.pass(50);
+    return [h.text('.pv__text'), rateLook(h)[0]];
+  },
+  /* How many sets a page that has shown previews still paints. */
+  async setsLeft() {
+    const h = load({ ratings: true });
+    let sets = 0;
+    const mount = h.ctx.MM.ratings.mount;
+    h.ctx.MM.ratings.mount = (ref, o) => { const set = mount(ref, o); const own = set.destroy; sets += 1; set.destroy = () => { sets -= 1; own(); }; return set; };
+    await h.rest('film');
+    const open = sets;
+    h.away();
+    await h.pass(1500);
+    return [open, sets];
   },
   async ratedBefore() {
     const h = load({ ratings: true, level: -1 });

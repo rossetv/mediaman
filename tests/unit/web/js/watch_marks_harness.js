@@ -73,6 +73,7 @@ function load(page, opts = {}) {
     else events.push(e.detail.ref);
   };
   const gone = [];
+  const held = []; // the timers of a rating just given, with opts.hold
   const watchers = new Set();
   const call = (method) => (url) => {
     calls.push(method + ' ' + url);
@@ -80,12 +81,12 @@ function load(page, opts = {}) {
     if (typeof answer === 'function') answer = answer();
     if (answer instanceof Promise) return answer;
     if (typeof answer === 'number') return Promise.reject(Object.assign(new Error('http'), { status: answer }));
-    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST' });
+    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST', ratings: {} });
   };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, parseInt,
-    setTimeout: (fn) => { fn(); return 0; },
-    clearTimeout() {},
+    setTimeout: (fn, ms) => { if (opts.hold && ms === 650) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
+    clearTimeout(id) { if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
     matchMedia: () => ({ matches: true }),
@@ -119,7 +120,7 @@ function load(page, opts = {}) {
   const started = [];
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
-    gone, changed() { [...watchers].forEach((w) => w.fn([])); },
+    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); },
     ctx, started, doc, calls, toasts, events, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
@@ -178,11 +179,12 @@ function pieces(node, kind = '') {
 const PICKS = () => [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }), card('movie/9', 'After', 'Movie', { pick: 'rec-9', tmdb: '90' })];
 const RATE = 'PUT /api/watch/ratings/movie-1 ';
 const FILM_10 = { ok: true, media_type: 'movie', tmdb_id: 10 };
-function rated(api) {
+function rated(api, opts) {
   return load(watchPage([row('picks', PICKS()), row('lib', [FILM()])]), {
-    api: { [RATE + '-2']: FILM_10, [RATE + '1']: FILM_10, 'DELETE /api/watch/ratings/movie-1': FILM_10, ...api },
+    api: { [RATE + '-2']: FILM_10, [RATE + '1']: FILM_10, 'DELETE /api/watch/ratings/movie-1': FILM_10, ...api }, ...opts,
   });
 }
+
 /* A click that goes no further up than where it is stopped. */
 function clickThumb(doc, b) {
   let stopped = false;
@@ -281,6 +283,44 @@ const scenarios = {
     const p = rated({ [RATE + '-2']: 500 });
     await thumb(p, p.cards('picks')[1], 0);
     return { picks: p.marks('picks'), toasts: p.toasts.map((t) => t.message) };
+  },
+
+  // A strong no is saved, and another level pressed before it has left; that is not saved, before its time is up or after,
+  // or the server does not say, and is asked.
+  async otherLevelFails() {
+    const out = [];
+    for (const [after, status] of [[false, 409], [true, 409], [true, 500], [false, 500]]) {
+      const no = later();
+      let level = null;
+      const save = (to) => () => { level = to; return FILM_10; };
+      const p = rated({ [RATE + '2']: () => no.answer.then(() => Promise.reject(Object.assign(new Error('http'), { status }))),
+        [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
+      await thumb(p, p.cards('picks')[1], 2);
+      p.pass();
+      await thumb(p, p.cards('picks')[1], 0);
+      await thumb(p, p.cards('picks')[1], 3);
+      if (after) p.pass();
+      const before = p.marks('picks').length;
+      no.send();
+      await settle();
+      p.pass();
+      const told = p.toasts.map((t) => t.message);
+      const gone = p.marks('picks');
+      p.toasts.filter((t) => t.undo).forEach((t) => t.undo());
+      await settle();
+      out.push({ before, told, gone, back: p.marks('picks'), last: p.calls.filter((c) => /^PUT/.test(c)).pop() });
+    }
+    return out;
+  },
+
+  // The menu opened again on another card before the time to shut it for the first is up.
+  async menuAgain() {
+    const p = rated({}, { hold: true });
+    await thumb(p, p.cards('lib')[0], 2);
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
+    p.open(p.cards('picks')[0]);
+    p.pass();
+    return p.doc.querySelector('#watch-more-menu').classList.contains('is-open');
   },
 
   async undoFails() {

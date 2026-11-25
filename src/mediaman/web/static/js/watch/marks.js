@@ -613,6 +613,8 @@
   /* ── A strong no takes the title out of the picks ── */
 
   var goneTitles = []; // { title, undos, toast }: each title that has left them, to come back if rated otherwise
+  var noes = []; // each strong no saved, as it was told
+  var restored = []; // the titles brought back by a change not yet saved
 
   /* Whether *a* and *b*, each with refs, mediaType and tmdbId, are one title. */
   function sameTitle(a, b) {
@@ -681,8 +683,14 @@
     return left;
   }
 
+  function of(list, title) { return list.filter(function (t) { return sameTitle(t, title); })[0]; }
+
+  function without(list, title) { return list.filter(function (t) { return !sameTitle(t, title); }); }
+
+  /* Returns whether it had left them. */
   function backInPicks(title) {
-    goneTitles.filter(function (left) { return sameTitle(left.title, title); }).forEach(function (left) {
+    var mine = goneTitles.filter(function (left) { return sameTitle(left.title, title); });
+    mine.forEach(function (left) {
       goneTitles.splice(goneTitles.indexOf(left), 1);
       if (left.toast) window.UIFeedback.dismiss(left.toast);
       var cards = left.undos.reverse().map(function (fn) { return fn(); });
@@ -690,6 +698,7 @@
       var shown = cards.filter(function (card) { return canFocus(card); })[0];
       if (shown) refocus(controlIn(shown));
     });
+    return mine.length > 0;
   }
 
   function saidNo(title) {
@@ -705,12 +714,26 @@
 
   document.addEventListener('mm:rating', function (e) {
     var d = e.detail;
-    if (d.phase === 'saved' && d.level === STRONG_NO) {
-      setTimeout(function () { saidNo(d); }, RATED_MS);
-    } else if (d.phase === 'pending' || d.phase === 'saved') {
+    if (d.phase === 'pending') {
+      if (d.level !== STRONG_NO && backInPicks(d)) restored.push(d);
+    } else if (d.phase === 'saved') {
+      restored = without(restored, d);
+      noes = without(noes, d);
+      if (d.level === STRONG_NO) {
+        noes.push(d);
+        setTimeout(function () { saidNo(d); }, RATED_MS);
+      } else {
+        backInPicks(d);
+      }
+    } else if (d.phase === 'read') {
+      // Asked after a save of which nothing was heard.
       if (d.level !== STRONG_NO) backInPicks(d);
+      else if (of(noes, d)) saidNo(of(noes, d));
     } else if (d.phase === 'failed') {
-      var again = d.level === STRONG_NO ? leavePicks(d) : null;
+      var again = d.level === STRONG_NO && of(restored, d) ? leavePicks(d) : null;
+      restored = without(restored, d);
+      // The strong no still stands, and may have been passed over while another level was shown.
+      if (!again && d.level === STRONG_NO && of(noes, d)) saidNo(of(noes, d));
       var where = d.from && d.from.closest('.watch-keep-menu, .pv');
       if (again) core.toast('Couldn’t bring ' + again.name + ' back. It stays out of your picks.', { variant: 'error' });
       // The menu or preview that would say so has gone.

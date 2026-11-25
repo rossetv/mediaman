@@ -536,6 +536,22 @@ def test_a_strong_no_that_was_not_saved_takes_nothing_out_and_is_said() -> None:
     }
 
 
+def test_a_level_not_saved_over_a_strong_no_leaves_that_to_stand_with_its_own_undo() -> None:
+    for out in _run("otherLevelFails"):
+        assert out["before"] == 3
+        assert sorted(out["told"]) == [
+            "Fieldwork is gone from your picks. Search still finds it.",
+            "Your rating wasn’t saved. Try again.",
+        ]
+        assert out["gone"] == ["movie/8", "movie/9"]
+        assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+        assert out["last"] == "PUT /api/watch/ratings/movie-1 1"
+
+
+def test_a_menu_opened_again_is_not_shut_for_the_rating_before() -> None:
+    assert _run("menuAgain") is True
+
+
 def test_an_undo_that_is_refused_takes_the_pick_out_again() -> None:
     out = _run("undoFails")
     assert out["now"] == ["movie/8", "movie/1", "movie/9"]
