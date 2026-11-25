@@ -120,6 +120,9 @@
       window.addEventListener('load', function () {
         if (!on() && window.history.state && window.history.state.trailer) window.history.back();
       });
+    } else {
+      /* Left from a trailer whose entry a Back of more than one skipped. */
+      window.history.scrollRestoration = 'auto';
     }
 
     hero.addEventListener('click', function (e) {
