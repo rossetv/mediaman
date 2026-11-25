@@ -1,6 +1,5 @@
-/* LOGIN — sign-in screen, the force-password-change variant, the
-   inline error message strip used on those pages, and the password
-   policy/strength widgets (`.fpc-*`, `.policy-issues`). */
+/* LOGIN — sign-in screen, the force-password-change variant and
+   the inline error message strip used on those pages. */
 
 .login-page {
   min-height: 100vh;
@@ -9,6 +8,7 @@
   padding: 40px 20px;
   position: relative;
   overflow: hidden;
+  color-scheme: dark;
 }
 .login-page::before {
   content: "";
@@ -43,7 +43,7 @@
   letter-spacing: -.03em;
   margin-bottom: 4px;
 }
-.login-brand a { text-decoration: none; color: inherit; }
+.login-brand a { text-decoration: none; color: inherit; overflow-wrap: anywhere; }
 .login-brand b, .login-brand span { color: var(--accent); }
 .login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {
@@ -93,6 +93,7 @@
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: var(--accent-cta);
   color: var(--t1);
@@ -168,64 +169,5 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   letter-spacing: -.025em;
   margin-bottom: 6px;
 }
-.fpc-subtitle { color: var(--t3); font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
+.fpc-subtitle { color: var(--t3); font-size: 14px; line-height: 1.5; margin-bottom: 24px; overflow-wrap: anywhere; }
 .fpc-subtitle strong { color: var(--t1); font-weight: 500; }
-
-.fpc-meter {
-  height: 4px;
-  background: var(--s3);
-  border-radius: var(--r-pill);
-  overflow: hidden;
-  margin-top: 6px;
-}
-.fpc-meter-fill {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--danger);
-  transition: width var(--dur-slow) var(--ease-out), background var(--dur-slow) var(--ease-out);
-}
-.fpc-meter-fill.weak   { background: var(--danger); }
-.fpc-meter-fill.ok     { background: var(--warning); }
-.fpc-meter-fill.strong { background: var(--success); }
-
-.fpc-caption { color: var(--t3); font-size: 11px; margin-top: 4px; min-height: 14px; }
-.fpc-caption-weak   { color: var(--danger-text); }
-.fpc-caption-ok     { color: var(--warning); }
-.fpc-caption-strong { color: var(--success); }
-.fpc-hint { margin: -8px 0 16px; }
-
-.fpc-checklist {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 14px 0 18px;
-  font-size: 12px;
-  color: var(--t3);
-}
-.fpc-checklist li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.fpc-checklist li::before {
-  content: "○";
-  color: var(--t4);
-  font-size: 14px;
-}
-.fpc-checklist li.is-ok { color: var(--success); }
-.fpc-checklist li.is-ok::before { content: none; }
-.fpc-checklist li > .ico { display: none; flex: none; width: 12px; height: 1.47em; font-size: 14px; }
-.fpc-checklist li.is-ok > .ico { display: block; }
-
-.policy-issues {
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
-  border-radius: var(--r-sm);
-  padding: 12px 14px;
-  margin-bottom: 14px;
-}
-.policy-issues-title { font-size: 12px; font-weight: 600; color: var(--danger-text); margin-bottom: 6px; }
-.policy-issues ul { list-style: none; font-size: 12px; color: var(--danger-text); display: flex; flex-direction: column; gap: 4px; }
-.policy-issues li::before { content: "• "; }

@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
 HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 
@@ -103,8 +104,61 @@ def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_w
 
 
 def test_the_rule_for_a_new_password_is_back_when_its_field_is_emptied() -> None:
-    rule = "At least 12 characters"
-    assert _run("passwordRule") == [rule, "Too simple so far", rule]
+    rule = "12 characters or more"
+    assert _run("passwordRule") == [rule, rule + ", 3 so far", rule, rule]
+
+
+def test_the_row_says_when_the_password_changed_and_once_open_leaves_the_rest_to_the_form() -> None:
+    never, this_year, earlier = _run("passwordChanged")
+    effect = "It signs out the others."
+    assert never == [effect, effect, True]
+    assert this_year == [f"14 March {effect}", "14 March", True]
+    assert earlier[1] == "14 March 2025"
+
+
+def test_the_form_says_how_many_devices_and_tvs_a_new_password_signs_out() -> None:
+    none, one, both, tvs, no_list, no_tvs = _run("devicesLine")
+    assert none == "You have no other device to sign out."
+    assert one == "Signs out your other device."
+    assert both == "Signs out your 2 other devices and your TV."
+    assert tvs == "Signs out your 3 TVs."
+    assert no_list == no_tvs == "Signs out your other devices and your TVs."
+
+
+def test_the_words_that_stay_are_apart_from_what_fades_beside_them() -> None:
+    css = (WEB / "static" / "css" / "_profile.css").read_text()
+    assert "#account-password-sub.is-new > span:not(.is-fresh) { animation: fade-in" in css
+    assert "#account-password-sub.is-new {" not in css
+    for out in _run("passwordDone"):
+        assert out["faded"] == [out["says"]]
+
+
+def test_when_it_was_changed_keeps_its_lines_while_the_form_is_open() -> None:
+    out = _run("passwordTurned")
+    assert (out["opened"], out["keyboard"], out["again"], out["shut"]) == (
+        "164.5px",
+        "164.5px",
+        "164.5px",
+        "",
+    )
+    # the window's own once that has another width
+    assert (out["turned"], out["back"]) == ("", "")
+
+
+def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> None:
+    some, none, many, unsaid = _run("passwordDone")
+    for out in (some, none, many, unsaid):
+        assert out["live"] == "Password changed. " + out["says"]
+        assert out["sub"] == "Changed just now."
+        assert out["after"] == "Changed just now. " + out["says"]
+        assert out["left"] is False
+    assert some["says"] == "Your 2 other devices were signed out, and your TV was unpaired."
+    assert (some["icons"], some["more"]) == ("laptop phone phone tv", "")
+    assert (none["says"], none["icons"]) == ("You had no other device to sign out.", "")
+    # as many as there is room for, a TV among them
+    assert (many["icons"], many["more"]) == ("laptop phone phone phone tv", "+6")
+    # a server that does not say: what the lists held
+    assert unsaid["says"] == "Your other device was signed out, and your 2 TVs were unpaired."
 
 
 def test_email_is_saved_only_when_it_differs_and_a_wrong_one_is_refused_unsent() -> None:
@@ -142,28 +196,58 @@ def test_signing_out_the_others_keeps_the_focus_and_ends_it_on_the_list() -> Non
 
 def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() -> None:
     out = _run("password")
-    assert out["posts"] == 1
+    assert [sorted(body) for body in out["sent"]] == [["new_password", "old_password"]]
     assert out["whileSending"] == "account-submit-password"
-    # the form is shut, emptied
+    # neither Cancel nor Escape shuts it while it is sent, or while it is drawn
+    assert (out["working"][2], out["drawn"]) == (False, False)
+    # the form is shut, emptied and as it was
     assert (out["shut"], out["resets"], out["focused"]) == (True, 1, "account-open-password")
-    assert out["toasts"] == ["Password updated. Your other devices are signed out."]
+    assert (out["left"], out["says"]) == (["", ""], "Save new password")
+    assert out["toasts"] == []
     assert out["rows"] == 1
 
 
+def test_a_password_is_out_of_the_page_as_soon_as_it_is_saved() -> None:
+    out = _run("passwordForgotten")
+    assert out["left"] == ["", ""]
+    assert out["state"] == [True, False, "false"]
+    assert out["again"] is False
+
+
+def test_a_press_as_the_saved_form_folds_away_does_not_strand_it() -> None:
+    assert _run("passwordPressedAsItFolds") == [1, False, "false", "false"]
+
+
+def test_the_row_takes_its_new_height_from_the_one_it_had_both_ways() -> None:
+    out = _run("passwordEased")
+    # its words and its button are at once where they end
+    assert out["open"] == [["34px", ""], True, "33px"]
+    assert out["shut"] == [["-34px", ""], True]
+
+
+def test_the_rest_of_the_page_works_where_the_form_s_script_did_not_load() -> None:
+    assert _run("passwordWithout") == {"opener": True, "rows": 1, "email": True}
+
+
+def test_one_who_moved_on_while_the_tick_was_drawn_keeps_their_place() -> None:
+    assert _run("passwordLeft") == ["account-email", True]
+
+
 def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words() -> None:
-    _tone, said, shown = _run("password")["working"]
-    assert said and shown == "Updating…"
+    said, shown, _shut = _run("password")["working"]
+    assert said == shown == "Saving…"
 
 
 def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> None:
     out = _run("passwordRefusals")
     for refusal, name, words in (
         ("old", "old", "Enter your current password"),
-        ("new", "new", "12 characters"),
-        ("confirm", "confirm", "match"),
-        ("wrong", "old", "No"),
-        ("weak", "new", "Noa digit"),
-        ("same", "new", "No"),
+        ("new", "new", "7 more characters"),
+        ("known", "new", "you have now"),
+        # a whole sentence, whatever the server says
+        ("wrong", "old", "No."),
+        ("weak", "new", "a digit."),
+        ("same", "new", "No."),
     ):
         field = f"account-{name}-password"
         assert words in out[refusal]["words"], refusal
@@ -173,14 +257,30 @@ def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> 
         assert out[refusal]["typed"] == [], refusal
 
 
+def test_a_refused_new_password_is_kept_and_the_rule_it_broke_is_marked() -> None:
+    out = _run("passwordRefusals")
+    assert [out[refusal]["red"] for refusal in ("weak", "same", "wrong")] == [
+        ["common"],
+        ["same"],
+        [],
+    ]
+    for refusal in ("wrong", "weak", "same", "limit", "cancelled"):
+        assert (out[refusal]["kept"], out[refusal]["busy"]) == (True, "false"), refusal
+
+
 def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
     out = _run("passwordRefusals")["limit"]
     assert out["said"] == ["account-password-result"]
     assert out["focused"] == "account-submit-password"
 
 
+def test_the_password_dialog_cancelled_says_nothing_and_leaves_the_focus() -> None:
+    out = _run("passwordRefusals")["cancelled"]
+    assert (out["said"], out["focused"]) == ([], "account-submit-password")
+
+
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
-    # on a narrow phone the words wrap under the button, where the bottom bar may cover them
+    # on a short phone the form is taller than the screen
     out = _run("password")
     assert out["revealedSending"][-1] == ["account-submit-password", "nearest"]
     field = "account-new-password"
@@ -241,9 +341,9 @@ def test_a_refusal_takes_the_place_of_what_the_status_said() -> None:
     assert _run("passwordRefusals")["afterLimit"]["said"] == ["account-old-password-why"]
 
 
-def test_a_field_with_no_place_for_its_reason_has_it_said_at_the_button() -> None:
-    out = _run("passwordRefusals")["noPlace"]
-    assert (out["said"], out["focused"]) == (["account-password-result"], "account-old-password")
+def test_a_refusal_that_names_no_field_is_said_at_the_button() -> None:
+    out = _run("passwordRefusals")["unknown"]
+    assert (out["said"], out["focused"]) == (["account-password-result"], "account-submit-password")
 
 
 def test_the_list_of_sign_ins_takes_the_focus_without_pulling_the_page_to_it() -> None:
@@ -266,25 +366,6 @@ def test_email_is_sent_once_trimmed_and_each_outcome_is_said() -> None:
     assert out["removed"][2] == "Email removed. Alerts are off."
     assert out["refused"] == ["me-msg err", "Not an email address", False]
     assert out["cancelled"] == ["me-msg", "", False]
-
-
-def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> None:
-    out = _run("strength")
-    plain, weak, ok, strong = (
-        "fpc-caption",
-        "fpc-caption fpc-caption-weak",
-        "fpc-caption fpc-caption-ok",
-        "fpc-caption fpc-caption-strong",
-    )
-    assert [out[k]["tone"] for k in ("weak", "ok", "strong")] == [weak, ok, strong]
-    assert out["strong"]["meter"] == "100%"
-    assert out["strong"]["match"] == plain
-    assert out["differs"]["match"] == weak
-    assert out["matches"]["match"] == strong and out["matches"]["says"] == "Passwords match"
-    # changing the first field is noticed too
-    assert out["changed"]["match"] == weak
-    assert out["emptied"]["match"] == plain
-    assert out["reset"] == {"meter": "0%", "tone": plain, "match": plain}
 
 
 def test_the_plex_card_is_told_after_a_password_may_have_been_given() -> None:

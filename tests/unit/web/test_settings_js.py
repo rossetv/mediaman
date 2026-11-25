@@ -175,7 +175,7 @@ def test_form_message_clears_when_the_person_types_again() -> None:
 def test_account_message_clears_on_edit_but_not_while_sending() -> None:
     out = _run("accountClearOnInput")
     assert out["shown"] and out["afterInput"] == ""
-    assert out["whileSending"] == {"text": "Updating…", "disabled": True}
+    assert out["whileSending"] == {"text": "Saving…", "disabled": True}
 
 
 def test_newsletter_panel_ignores_its_toggle_and_cancel_while_sending() -> None:
@@ -196,7 +196,7 @@ def test_newsletter_is_sent_only_after_confirming_how_many_people_get_it() -> No
 
 def test_panels_say_whether_they_are_open_and_give_the_focus_back() -> None:
     out = _run("panelToggles")
-    ids = ("newsletter-send-panel", "add-user-form")
+    ids = ("newsletter-send-panel", "add-user-fold")
     shut = [["false", i] for i in ids]
     assert out["shut"] == out["shutAgain"] == shut
     assert out["open"] == [["true", i] for i in ids]
@@ -735,7 +735,7 @@ def test_a_form_comes_into_view_once_it_has_unfolded() -> None:
     out = _run("revealed")
     assert out["email"]["unfolding"] == []
     assert out["email"]["open"] == [["user-email-2", "nearest", "smooth"]]
-    assert out["add"]["open"] == [["add-user-form", "nearest", "smooth"]]
+    assert out["add"]["open"] == [["add-user-fold", "nearest", "smooth"]]
     # and again with the recipients, which come when they come
     assert out["newsletter"]["opened"] == [["newsletter-send-panel", "nearest", "smooth"]] * 2
     # with reduced motion there is nothing to wait for
@@ -751,10 +751,10 @@ def test_a_forms_status_comes_into_view_when_it_changes() -> None:
         "inline-form-msg err",
     ]
     field = ["new-username", "nearest", "auto"]
-    created = ["create-user-result", "nearest", "auto"]
+    pressed = ["btn-submit-add-user", "nearest", "auto"]
     reason = ["new-username-why", "nearest", "auto"]
     assert out["add"]["tooShort"] == [field, reason]
-    assert out["add"]["refused"] == [created, field, reason]
+    assert out["add"]["refused"] == [pressed, field, reason]
     # Safari would scroll to the field later, and the reason out of view
     assert out["add"]["focus"] == {"preventScroll": True}
     sent = ["newsletter-send-status", "nearest", "auto"]

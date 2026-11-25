@@ -27,18 +27,18 @@ class _Page(HTMLParser):
         self._form: str | None = None
         self.ids: set[str] = set()
         self.inputs: dict[str, str | None] = {}
-        self.hints: dict[str, set[str]] = {}
+        self.hints: dict[str | None, dict[str, str | None]] = {}
+        self.rules: dict[str | None, list[str]] = {}
         self.scripts: set[str] = set()
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if a.get("id"):
             self.ids.add(a["id"])
-        if a.get("data-strength"):
-            key = a["data-strength"]
-            self.hints[a["id"]] = {f"{key}-meter", f"{key}-label"}
-        if a.get("data-match"):
-            self.hints[a["id"]] = {a["data-match"], f"{a['id']}-match"}
+        if tag == "li" and a.get("data-rule"):
+            self.rules.setdefault(self._form, []).append(a["data-rule"])
+        if tag == "input" and a.get("autocomplete") in ("username", "new-password"):
+            self.hints.setdefault(self._form, {})[a["autocomplete"]] = a.get("value")
         if tag == "script" and a.get("src"):
             self.scripts.add(a["src"].split("?")[0])
         if tag == "form":
@@ -80,29 +80,57 @@ def test_an_admin_manages_their_email_password_and_sign_ins_on_profile(
     assert page.forms["account-email-form"] == ["account-submit-email"]
     assert page.inputs["account-email"] == "admin@example.com"
     assert page.forms["account-password-form"] == ["account-submit-password"]
-    assert {"account-old-password", "account-new-password", "account-confirm-password"} <= set(
-        page.inputs
-    )
+    assert {"account-old-password", "account-new-password"} <= set(page.inputs)
     assert "account-revoke-others" in page.ids
 
 
 @pytest.mark.parametrize(
-    ("router", "path", "fields"),
+    ("router", "path", "form", "rules"),
     [
-        (account_router, "/account", {"account-new-password", "account-confirm-password"}),
-        (settings_router, "/settings", {"new-user-password"}),
+        (
+            account_router,
+            "/account",
+            "account-password-form",
+            ["length", "mix", "guess", "same", "common"],
+        ),
+        (settings_router, "/settings", "add-user-form", ["length", "mix", "guess", "common"]),
     ],
 )
-def test_new_password_fields_have_the_parts_their_hints_are_drawn_in(
-    app_factory, authed_client, conn, router, path, fields
+def test_a_form_with_a_new_password_shows_the_rules_it_is_held_to(
+    app_factory, authed_client, conn, router, path, form, rules
 ):
     app = app_factory(router, conn=conn, state_extras={"templates": _TEMPLATES})
 
     page = _parse(authed_client(app, conn).get(path).text)
 
-    assert set(page.hints) == fields
-    assert all(parts <= page.ids for parts in page.hints.values())
-    assert "/static/js/password-strength.js" in page.scripts
+    assert page.rules == {form: rules}
+    assert "new-password" in page.hints[form]
+    assert "/static/js/password-form.js" in page.scripts
+
+
+def test_a_password_manager_is_told_whose_password_is_changed(app_factory, authed_client, conn):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    page = _parse(authed_client(app, conn).get("/account").text)
+
+    assert page.hints["account-password-form"]["username"] == "admin"
+
+
+def test_the_row_says_when_the_password_was_changed_if_it_is_known(
+    app_factory, authed_client, conn, monkeypatch
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+
+    def row() -> str:
+        html = client.get("/account").text
+        return html.split('id="account-password-sub">', 1)[1].split("</div>", 1)[0]
+
+    assert row() == "<span>A new one signs out your other devices and your TVs.</span>"
+    changed = {"at": "2026-03-14T09:26:53+00:00", "text": "14 March 2026"}
+    monkeypatch.setattr("mediaman.web.routes.account._password_changed", lambda *_args: changed)
+    assert row().startswith("Changed <time")
+    assert 'datetime="2026-03-14T09:26:53+00:00">14 March 2026</time>' in row()
 
 
 def test_settings_keeps_the_team_and_no_second_account_form(settings_html):
@@ -111,6 +139,10 @@ def test_settings_keeps_the_team_and_no_second_account_form(settings_html):
     assert page.forms["add-user-form"] == ["btn-submit-add-user"]
     # the menu's Log out is the only other form
     assert set(page.forms) == {"add-user-form", None}
+
+
+def test_a_new_username_can_be_no_longer_than_the_server_takes(settings_html):
+    assert re.search(r'<input [^>]*id="new-username" maxlength="64"', settings_html)
 
 
 def test_settings_users_links_to_profile(settings_html):

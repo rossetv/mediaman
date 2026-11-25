@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import cast
+from typing import NamedTuple, cast
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -24,8 +24,10 @@ from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import LANDING_PATH, resolve_page_session
 from mediaman.web.auth.password_hash import change_password
+from mediaman.web.auth.password_hash._change_password import change_lock, is_same_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
 from mediaman.web.cookies import is_request_secure, set_session_cookie
+from mediaman.web.routes.users.passwords import lock_words, rules_of
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +55,17 @@ def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, Redirec
     return username, None
 
 
-@router.get("/force-password-change", response_class=HTMLResponse)
-def force_change_page(request: Request) -> Response:
-    username, redirect = _resolve_session(request)
-    if redirect is not None:
-        return redirect
+class _Refusal(NamedTuple):
+    """Why the page comes back: in words, by rule name, and the field it is about, if one is."""
 
+    error: str | None = None
+    field: str | None = None
+    issues: list[str] | None = None
+    rules: list[str] | None = None
+    locked: bool = False
+
+
+def _render(request: Request, username: str | None, refusal: _Refusal) -> HTMLResponse:
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -66,10 +73,22 @@ def force_change_page(request: Request) -> Response:
         {
             "username": username,
             "policy": policy_summary(),
-            "error": None,
-            "issues": [],
+            "error": refusal.error,
+            "issues": refusal.issues or [],
+            "field": refusal.field,
+            "rules": refusal.rules or [],
+            "locked": refusal.locked,
         },
     )
+
+
+@router.get("/force-password-change", response_class=HTMLResponse)
+def force_change_page(request: Request) -> Response:
+    username, redirect = _resolve_session(request)
+    if redirect is not None:
+        return redirect
+
+    return _render(request, username, _Refusal())
 
 
 def _validate_force_change_inputs(
@@ -77,20 +96,26 @@ def _validate_force_change_inputs(
     old_password: str,
     new_password: str,
     confirm_password: str,
-) -> str | list[str] | None:
-    """Run the presence, match and strength guards. Returns None when acceptable, an error
-    string for presence/mismatch, or a list of policy issues. Strength is checked last so
-    bcrypt is not touched when the cheaper guards fail.
+) -> _Refusal | None:
+    """Run the presence, match, reuse and strength guards. Returns None when acceptable. The old
+    password is not checked here, so that bcrypt is not touched when a cheaper guard fails.
     """
     if not old_password or not new_password:
-        return "Please fill in every field."
+        empty = "new_password" if old_password else "old_password"
+        return _Refusal("Please fill in every field.", empty)
 
     if new_password != confirm_password:
-        return "The two new passwords don't match."
+        return _Refusal("The two new passwords don't match.", "confirm_password")
+
+    # Only what was typed is compared: what is typed as the old one is checked before any change.
+    if is_same_password(new_password, old_password):
+        return _Refusal(
+            "New password must differ from the old password.", "new_password", rules=["same"]
+        )
 
     issues = password_issues(new_password, username=username)
     if issues:
-        return issues
+        return _Refusal(field="new_password", issues=issues, rules=rules_of(issues))
 
     return None
 
@@ -160,42 +185,28 @@ def force_change_submit(
     # above leaves username as str, but mypy cannot narrow through union tuples.
     username = cast(str, username)
 
-    templates = cast(Jinja2Templates, request.app.state.templates)
     conn = get_db()
     client_ip = get_client_ip(request)
 
-    def _render(error: str | None = None, issues: list[str] | None = None) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request,
-            "force_password_change.html",
-            {
-                "username": username,
-                "policy": policy_summary(),
-                "error": error,
-                "issues": issues or [],
-            },
-        )
+    def refuse(refusal: _Refusal) -> HTMLResponse:
+        return _render(request, username, refusal)
 
     if not _FORCE_CHANGE_LIMITER.check(username):
         logger.warning(
             "force_password_change.throttled user=%s scope=user", _sanitise_log_field(username)
         )
-        return _render(error="Too many attempts — wait a moment and try again.")
+        return refuse(_Refusal("Too many attempts — wait a moment and try again."))
     if not _FORCE_CHANGE_IP_LIMITER.check(client_ip):
         logger.warning(
             "force_password_change.throttled user=%s scope=ip ip=%s",
             _sanitise_log_field(username),
             client_ip,
         )
-        return _render(error="Too many attempts — wait a moment and try again.")
+        return refuse(_Refusal("Too many attempts — wait a moment and try again."))
 
-    validation = _validate_force_change_inputs(
-        username, old_password, new_password, confirm_password
-    )
-    if isinstance(validation, list):
-        return _render(issues=validation)
-    if validation is not None:
-        return _render(error=validation)
+    refusal = _validate_force_change_inputs(username, old_password, new_password, confirm_password)
+    if refusal is not None:
+        return refuse(refusal)
 
     try:
         new_token = _rotate_and_reissue(
@@ -204,10 +215,14 @@ def force_change_submit(
     except ValueError:
         # Policy-enforced inside change_password — should be caught by
         # the earlier issues check, but belt-and-braces.
-        return _render(error="Password does not meet the strength policy.")
+        return refuse(_Refusal("Password does not meet the strength policy.", "new_password"))
 
     if new_token is None:
-        return _render(error="Current password is incorrect.")
+        # Read after the try, so that the one that sets the lock says so.
+        lock = change_lock(conn, username)
+        if lock is not None:
+            return refuse(_Refusal(lock_words(lock), "old_password", locked=True))
+        return refuse(_Refusal("Current password is incorrect.", "old_password"))
 
     response = RedirectResponse(LANDING_PATH, status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))

@@ -2,6 +2,8 @@
 
 {% block title %}Settings · Mediaman{% endblock %}
 
+{% block head %}<link rel="stylesheet" href="/static/css/_password.css?v={{ static_v }}">{% endblock %}
+
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
@@ -54,8 +56,7 @@
 } | tojson | safe }}</script>
 {# Core helpers must load before the settings modules; base.html loads the others. #}
 <script src="/static/js/core/reauth.js?v={{ static_v }}" defer></script>
-<script src="/static/js/show-password.js?v={{ static_v }}" defer></script>
-<script src="/static/js/password-strength.js?v={{ static_v }}" defer></script>
+<script src="/static/js/password-form.js?v={{ static_v }}" defer></script>
 {# Settings modules — order matters: the savebar/overview/disk-thresholds
    /toggles modules must register on the MM namespace before general.js
    orchestrates them inside init(). #}

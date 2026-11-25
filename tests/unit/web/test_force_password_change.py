@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import re
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,18 +24,7 @@ def _reset_limiters() -> None:
 
 
 SESSION_PATCH = "mediaman.web.routes.force_password_change.resolve_page_session"
-HARNESS = Path(__file__).parent / "js" / "force_password_change_harness.js"
 WEB = Path(__file__).parents[3] / "src" / "mediaman" / "web"
-
-
-def _submit(typed: str, again: str, old: str = "the-old-one") -> dict:
-    """What the page's own script does with a submit of these passwords, the cursor being
-    in the new password."""
-    result = subprocess.run(
-        ["node", str(HARNESS), old, typed, again], capture_output=True, text=True, check=False
-    )
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout)
 
 
 class TestForceChangeGet:
@@ -131,51 +118,6 @@ class TestForceChangePost:
         assert resp.headers["location"] == "/watch"
 
 
-def test_new_passwords_that_differ_are_not_sent_and_the_cursor_goes_to_the_second() -> None:
-    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd?")
-    # sending them would bring the page back with all three fields emptied
-    assert (out["sent"], out["focused"]) == (False, "confirm_password")
-    assert "match" in out["says"]
-    # and the form is free for the next try at once
-    assert out["busy"] is False
-
-
-def test_an_empty_field_is_not_sent_and_the_cursor_goes_to_the_first_one() -> None:
-    # sending it would bring the page back with what was typed in the others gone
-    for old, typed, again, first in (
-        ("", "a-New-long-passw0rd!", "a-New-long-passw0rd!", "old_password"),
-        ("", "", "", "old_password"),
-        ("the-old-one", "a-New-long-passw0rd!", "", "confirm_password"),
-    ):
-        out = _submit(typed, again, old)
-        assert (out["sent"], out["focused"], out["busy"]) == (False, first, False)
-        assert "every field" in out["error"]
-
-
-def test_an_empty_field_is_said_beside_it_and_brought_into_view_with_the_word() -> None:
-    # the box at the top can be far from the last field on a phone
-    good = "a-New-long-passw0rd!"
-    last, second, first = _submit(good, ""), _submit("", good), _submit(good, good, "")
-    assert (last["says"], last["saysNew"]) == ("Please fill in this field.", "")
-    assert (second["says"], second["saysNew"]) == ("", "Please fill in this field.")
-    # the box is right above the first one
-    assert (first["says"], first["saysNew"]) == ("", "")
-    assert last["shown"] == ["confirm_password: login-field", "confirm_password: pw-match"]
-    assert second["shown"] == ["new_password: login-field", "new_password: pw-strength-label"]
-    assert first["shown"] == ["old_password: login-field", "old_password: error-msg"]
-
-
-def test_the_word_on_passwords_that_differ_is_brought_into_view_with_its_field() -> None:
-    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd?")
-    assert out["shown"] == ["confirm_password: login-field", "confirm_password: pw-match"]
-
-
-def test_new_passwords_that_match_are_sent_once() -> None:
-    out = _submit("a-New-long-passw0rd!", "a-New-long-passw0rd!")
-    assert (out["sent"], out["busy"], out["focused"]) == (True, True, "new_password")
-    assert out["error"] == ""
-
-
 def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:
     css = (WEB / "static" / "css" / "_login.css").read_text()
     reach = re.search(r"\.security-note a::after \{[^}]*inset: -(\d+)px", css)
@@ -183,19 +125,139 @@ def test_the_sign_out_link_can_be_pressed_with_a_finger() -> None:
     assert reach and 15 + 2 * int(reach.group(1)) >= 44
 
 
-def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
+def _rule(css: str, selector: str) -> str:
+    found = re.search(rf"^\s*{re.escape(selector)} \{{([^}}]*)\}}", css, re.M)
+    assert found, selector
+    return found[1]
+
+
+def test_a_field_the_browser_filled_in_keeps_the_eye_in_sight() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    # its pale blue is as light as the eye, and so is the text it puts on a dark one
+    assert "color-scheme: dark" in _rule(login, ".login-page")
+    filled = _rule(password, ".pwd-box > .inp:autofill")
+    assert "box-shadow: inset" in filled and "-webkit-text-fill-color" in filled
+
+
+def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    forced = password.split("@media (forced-colors: active)", 1)[1]
+    # a focused field's own rule is the stronger one
+    assert ".pwd-box > .inp:focus ~ .pwd-eye .cut { stroke: Canvas; }" in forced
+    assert "border: 1px solid transparent" in _rule(login, ".login-btn")
+
+
+@pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
+def test_the_brand_breaks_between_its_parts_where_it_is_too_wide(page) -> None:
+    html = (WEB / "templates" / f"{page}.html").read_text()
+    brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
+    assert brand and "media<wbr><b>man</b>" in brand[1]
+
+
+def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
+    password = (WEB / "static" / "css" / "_password.css").read_text()
+    fold = ".setg-pg .setg-fold:has(.pwd):not(.is-shut, .is-moving, [hidden])"
+    assert "display: flow-root" in _rule(password, fold)
+
+
+def _page(**context) -> str:
     from fastapi.templating import Jinja2Templates
     from starlette.requests import Request
 
-    template_dir = WEB / "templates"
-    template = Jinja2Templates(directory=str(template_dir)).env.get_template(
+    template = Jinja2Templates(directory=str(WEB / "templates")).env.get_template(
         "force_password_change.html"
     )
     request = Request({"type": "http", "path": "/", "query_string": b"", "headers": []})
+    return template.render(
+        {"request": request, "username": "new", "policy": "", "error": None, "issues": []}
+        | {"field": None, "rules": [], "locked": False}
+        | context
+    )
 
-    html = template.render(request=request, username="new", policy="", error=None, issues=[])
+
+def test_page_wording_fits_a_first_login_as_well_as_a_policy_failure():
+    html = _page()
 
     assert "Choose a new password to continue." in html
     assert "Choose a stronger password" not in html
     assert "no longer meets" not in html
     assert "Security update required" not in html
+
+
+def _why(html: str, field: str) -> str:
+    """The words under a field, which are announced and its field marked when there are any."""
+    said = re.search(rf'id="{field}-why" role="(\w+)">(.*?)</div>', html, re.S)
+    marked = re.search(rf'id="{field}" [^>]*aria-invalid="true"', html)
+    assert said and (said[1] == "alert") == bool(said[2]) == bool(marked)
+    return said[2]
+
+
+@pytest.mark.parametrize("field", ["old_password", "new_password", "confirm_password"])
+def test_a_refusal_is_under_its_own_field_without_scripts(field):
+    html = _page(error="No <b>", field=field)
+
+    others = {"old_password", "new_password", "confirm_password"} - {field}
+    assert _why(html, field) == "No &lt;b&gt;"
+    assert [_why(html, other) for other in others] == ["", ""]
+
+
+def test_a_limit_is_about_the_whole_form():
+    html = _page(error="Too many attempts")
+
+    assert re.search(r'id="fpc-result" role="alert">Too many attempts<', html)
+    assert "aria-invalid" not in html
+
+
+def _broken(html: str) -> list[str]:
+    return re.findall(r'class="pwd-rule is-bad" data-rule="(\w+)"', html)
+
+
+def test_the_rules_a_password_broke_are_marked_where_they_stand_without_scripts():
+    common = "This password is on the common-password list."
+    one = _page(issues=[common], field="new_password", rules=["common"])
+    several = _page(
+        issues=["Must not contain the username.", common],
+        field="new_password",
+        rules=["username", "common"],
+    )
+
+    assert (_why(one, "new_password"), _broken(one)) == (common, ["common"])
+    assert _broken(several) == ["guess", "common"]
+    assert "It has your username in it" in several
+    assert "strength policy" in _why(several, "new_password")
+    # as the script takes it up
+    assert 'data-refused="username common"' in several
+    assert _broken(_page()) == []
+
+
+def test_a_rule_with_no_line_of_its_own_is_listed_under_the_field():
+    html = _page(issues=["Some new rule.", "Other."], field="new_password", rules=["other", "mix"])
+
+    assert re.findall(r"<li>([^<]*)</li>", _why(html, "new_password")) == ["Some new rule."]
+    assert _broken(html) == ["mix"]
+
+
+def test_the_page_works_without_scripts_and_holds_one_form_for_a_password_manager():
+    html = _page()
+    form = html.split("<form ", 1)[1].split("</form>", 1)[0]
+    inputs = re.findall(r"<input ([^>]*)>", form)
+    fields = {
+        re.search(r'name="(\w+)"', tag)[1]: re.search(r'autocomplete="([\w-]+)"', tag)[1]
+        for tag in inputs
+    }
+
+    assert html.count("<form ") == 1
+    assert fields == {
+        "username": "username",
+        "old_password": "current-password",
+        "new_password": "new-password",
+        "confirm_password": "new-password",
+    }
+    assert 'method="post" action="/force-password-change"' in form
+    # what password-form.js wires, and the field it fills as the form is sent
+    assert "data-password-form" in form.split(">", 1)[0]
+    assert 'data-again="new_password"' in inputs[-1]
+    # the script alone takes the second field away
+    assert not any(re.search(r"\bhidden\b(?!=)", tag) for tag in inputs if "aria-hidden" not in tag)

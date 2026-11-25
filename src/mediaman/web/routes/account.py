@@ -10,9 +10,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from mediaman.core.format import format_day_month
 from mediaman.services.avatars import drawn
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_email
+from mediaman.web.auth.password_hash._change_password import password_changed_at
 from mediaman.web.auth.reauth import reauth_seconds_left
 from mediaman.web.repository import avatars
 
@@ -45,6 +47,13 @@ def _picture(conn: sqlite3.Connection, username: str) -> dict[str, object]:
     }
 
 
+def _password_changed(conn: sqlite3.Connection, username: str) -> dict[str, str] | None:
+    at = password_changed_at(conn, username)
+    if at is None:
+        return None
+    return {"at": at.isoformat(), "text": format_day_month(at, long_month=True)}
+
+
 @router.get("/account", response_class=HTMLResponse)
 def account_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
@@ -59,6 +68,7 @@ def account_page(request: Request) -> Response:
         {
             "username": username,
             "email": get_user_email(conn, username),
+            "password_changed": _password_changed(conn, username),
             "picture": _picture(conn, username),
             "role": getattr(request.state, "user_role", "admin"),
             "nav_active": "account",

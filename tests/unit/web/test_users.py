@@ -150,6 +150,16 @@ class TestCreateUser:
         assert resp.status_code == 400
         assert "issues" in resp.json()
 
+    def test_create_user_weak_password_names_the_field_and_the_rules(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        weak = {"username": "validname", "password": "validname"}
+        body = client.post("/api/users", json=weak).json()
+        assert body["field"] == "password"
+        assert body["rules"] == ["length", "username", "mix"]
+        assert len(body["issues"]) == len(body["rules"])
+
     def test_create_user_duplicate_returns_409(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/users", json={"username": "admin", "password": "ValidPass!99"})
