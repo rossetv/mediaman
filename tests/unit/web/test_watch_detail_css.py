@@ -125,6 +125,12 @@ def test_a_rating_still_to_come_shows_no_figure_and_is_outlined_in_forced_colour
     assert "outline: 1px solid" in forced
 
 
+def test_metascore_is_said_shorter_on_a_phone_and_still_read_in_full() -> None:
+    assert "clip-path: inset(50%)" in _of(".ttl-rating__full", PHONE)
+    assert "attr(data-brief)" in _of(".ttl-rating__brief::after", PHONE)
+    assert not _of(".ttl-rating__full") + _of(".ttl-rating__brief::after")
+
+
 def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line

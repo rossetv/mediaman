@@ -1793,6 +1793,8 @@ const scenarios = {
     old.answers[0].resolve({ ok: true, ratings: { imdb: '8.2', rt: null, tmdb: 7.4, metascore: '70' } });
     await settle();
     out.renewed = old.look().shown;
+    const brief = old.p.q('[data-rating="metascore"] .ttl-rating__brief');
+    out.brief = [brief.getAttribute('data-brief'), brief.getAttribute('aria-hidden')];
     const moved = await page(early);
     moved.p.ctx.MMWatch.detail.open('tmdb-movie-77', {});
     await settle();

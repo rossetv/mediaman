@@ -1002,7 +1002,7 @@
   function ratingPill(key, value) {
     var glyph = { imdb: '★', rt: '🍅', tmdb: '★' }[key];
     var text = key === 'imdb' ? 'IMDb ' + value : key === 'rt' ? 'RT ' + value
-      : key === 'tmdb' ? 'TMDB ' + value.toFixed(1) : 'Metascore ' + String(value).replace(/\/100$/, '');
+      : key === 'tmdb' ? 'TMDB ' + value.toFixed(1) : ' ' + String(value).replace(/\/100$/, '');
     var p = el('span', 'ttl-rating ttl-rating--' + (key === 'metascore' ? 'meta' : key));
     p.setAttribute('data-rating', key);
     if (glyph) {
@@ -1010,7 +1010,14 @@
       g.setAttribute('aria-hidden', 'true');
       p.appendChild(g);
     }
-    p.appendChild(el('span', '', text));
+    var words = p.appendChild(el('span', 'ttl-rating__words'));
+    if (key === 'metascore') {
+      words.appendChild(el('span', 'ttl-rating__full', 'Metascore'));
+      var brief = words.appendChild(el('span', 'ttl-rating__brief'));
+      brief.setAttribute('data-brief', 'Meta');
+      brief.setAttribute('aria-hidden', 'true');
+    }
+    words.appendChild(document.createTextNode(text));
     return p;
   }
 

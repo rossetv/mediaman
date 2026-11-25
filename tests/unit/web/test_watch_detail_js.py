@@ -1096,6 +1096,7 @@ def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other
     assert out["after"] == {"shown": shown, "line": True, "waiting": []}
     assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": []}
     assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
+    assert out["brief"] == ["Meta", "true"]
     assert out["moved"] == "★IMDb 5.0"
     assert out["others"] == ["/api/watch/title/movie-120/ratings"]
 
