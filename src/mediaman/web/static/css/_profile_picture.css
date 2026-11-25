@@ -1,7 +1,8 @@
 /* The picture dialog of the Profile page. */
 .modal-backdrop.pic-back { align-items: center; padding: 20px; }
 .pic { max-width: 480px; max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; border: 1px solid var(--hair-strong); color-scheme: dark; }
-.pic-hd { display: flex; align-items: center; gap: 12px; padding: 18px 16px 0 24px; }
+/* Stays, with Close, where the rest of a tall dialog scrolls. */
+.pic-hd { position: sticky; top: 0; z-index: 1; background: var(--s2); display: flex; align-items: center; gap: 12px; padding: 18px 16px 0 24px; }
 .pic-hd h2 { flex: 1; font-size: 18px; }
 .pic-hd h2:focus { outline: none; }
 .pic-bd { padding: 14px 24px 24px; }
@@ -25,7 +26,8 @@
   border-radius: var(--r-pill); font-size: 12px; color: var(--danger-text);
   transition: background var(--dur-fast) var(--ease-out);
 }
-.pic .link-danger:hover { background: var(--rgba-danger-bg-soft); }
+.pic .link-danger:hover:enabled { background: var(--rgba-danger-bg-soft); }
+.pic .link-danger:disabled { opacity: .45; cursor: default; }
 .pic-drawn { min-width: 0; border: 0; }
 .pic-drawn legend { padding: 0 0 10px; font-size: 13px; color: var(--t2); }
 .pic-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
@@ -37,9 +39,10 @@
 .pic-grid label:hover { transform: scale(1.04); }
 .pic-grid label:active { transform: scale(.97); }
 .pic-grid label:has(:disabled) { pointer-events: none; }
+.pic-grid :disabled ~ img { opacity: .45; }
 .pic-grid label:has(:checked) { outline-color: var(--accent); }
 .pic-grid label:has(:focus-visible) { outline-color: var(--t1); }
-.pic-grid img { width: 100%; height: 100%; border-radius: 50%; }
+.pic-grid img { width: 100%; height: 100%; border-radius: 50%; transition: opacity var(--dur) var(--ease-out); }
 .pic-grid input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .pic-tick {
   position: absolute; right: -2px; bottom: -2px; width: 22px; height: 22px;
@@ -65,7 +68,16 @@
 .pic-crop::before { inset: 0; background: radial-gradient(closest-side, transparent 90%, color-mix(in srgb, var(--scrim) 62%, transparent) 90.4%); }
 .pic-crop::after { inset: 5%; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.85); }
 .pic-zoom { display: flex; align-items: center; gap: 12px; width: min(320px, 100%); margin: 16px auto 0; font-size: 13px; color: var(--t3); }
-.pic-zoom input { flex: 1; min-width: 0; height: 44px; accent-color: var(--accent-cta); }
+.pic-zoom input { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; height: 44px; margin: 0; background: none; cursor: pointer; }
+/* The line is full up to the middle of the thumb, which is 20px wide. */
+.pic-zoom input::-webkit-slider-runnable-track {
+  height: 4px; border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent-cta) calc(10px + (100% - 20px) * var(--at, 0)), var(--s5) 0);
+}
+.pic-zoom input::-moz-range-track { height: 4px; border-radius: var(--r-pill); background: var(--s5); }
+.pic-zoom input::-moz-range-progress { height: 4px; border-radius: var(--r-pill); background: var(--accent-cta); }
+.pic-zoom input::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: var(--t1); }
+.pic-zoom input::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--t1); }
 .pic-hint { text-align: center; font-size: 13px; color: var(--t3); }
 
 @media (max-width: 639.98px) {
@@ -77,7 +89,18 @@
   .pic-now .avatar { width: 76px; height: 76px; }
   .pic-ft .btn { flex: 1; }
 }
+/* On a short screen the controls stand beside the photo. */
+@media (max-height: 640px) and (min-width: 480px) {
+  .pic { max-width: 640px; }
+  .pic-grid { max-width: 432px; margin-inline: auto; }
+  #pic-place:not([hidden]) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 0 24px; }
+  .pic-crop { grid-row: 1 / 4; width: clamp(150px, 100dvh - 148px, 320px); margin: 4px; }
+  .pic-zoom { width: 100%; margin-top: 4px; }
+  #pic-place .pic-hint { text-align: left; }
+  #pic-place .pic-ft { align-self: end; }
+}
 @media (max-width: 699.98px), (pointer: coarse) {
+  .pic .btn--icon { width: 44px; height: 44px; }
   .pic .link-danger { min-height: 44px; }
 }
 @media (max-width: 359px) {
@@ -88,6 +111,7 @@
   .pic-grid label:hover { transform: none; }
 }
 @media (forced-colors: active) {
+  .pic-zoom input { -webkit-appearance: auto; appearance: auto; }
   .pic-grid label:has(:checked) { outline-color: Highlight; }
   .pic-tick { border-color: Highlight; }
   .pic-crop { border: 1px solid CanvasText; }

@@ -178,3 +178,14 @@ def test_an_answer_that_names_no_picture_is_not_taken_for_a_saved_one() -> None:
         ]
         * 2
     )
+
+
+def test_the_height_follows_from_picking_to_placing_and_back() -> None:
+    assert _run("height") == {
+        "full": [["417px", "562px", True], ["562px", "417px", False]],
+        "calm": [],
+    }
+
+
+def test_the_line_of_the_zoom_is_filled_as_far_as_it_is_zoomed() -> None:
+    assert _run("fill") == [0, 0.5]

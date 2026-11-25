@@ -125,7 +125,28 @@
       paint();
     }
 
+    var body = byId('pic-body');
+    var sizing = null;
+    /* Runs a change of what the dialog holds, and lets its height follow. */
+    function eased(change) {
+      var from = body.offsetHeight;
+      if (sizing) sizing.cancel();
+      sizing = null;
+      change();
+      var to = body.offsetHeight;
+      if (!from || from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var tokens = getComputedStyle(document.documentElement);
+      sizing = body.animate(
+        [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
+        { duration: parseFloat(tokens.getPropertyValue('--dur-slow')) * 1000, easing: tokens.getPropertyValue('--ease-out').trim() }
+      );
+    }
+
     function pane(placing) {
+      eased(function () { showPane(placing); });
+    }
+
+    function showPane(placing) {
       byId('pic-pick').hidden = placing;
       byId('pic-place').hidden = !placing;
       byId('pic-title').textContent = placing ? 'Place your photo' : 'Your picture';
@@ -274,6 +295,7 @@
       place.y = (place.y - (cy || 0)) * k + (cy || 0);
       place.zoom = zoom;
       zoomInput.value = Math.round(zoom * 100);
+      zoomInput.style.setProperty('--at', (zoom - 1) / (MAX_ZOOM - 1));
       draw();
     }
 

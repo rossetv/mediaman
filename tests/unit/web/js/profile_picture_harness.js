@@ -12,6 +12,7 @@ Node.prototype.scrollIntoView = () => {};
 const b = (id, text) => ['button', { id }, text || ''];
 const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', role: 'dialog', 'aria-hidden': 'true', ...attrs },
   ['h2', { id: 'pic-title' }], b('pic-close'),
+  ['div', { id: 'pic-body' }],
   ['div', { id: 'pic-pick' }, ['div', { id: 'pic-error' }], ['img', { id: 'pic-now' }], ['div', { id: 'pic-kind' }],
     b('pic-upload'), b('pic-remove'),
     ...[1, 2, 3, 4].map((n) => ['label', {}, ['input', { type: 'radio', value: n }], ['img', { src: '/d' + n }]]),
@@ -20,12 +21,17 @@ const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', r
   ['input', { id: 'pic-file' }]];
 
 // `decode` is the size a chosen file opens at, or null where the browser cannot open it.
-function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], blob = { type: 'image/jpeg' } } = {}) {
+function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], calm = true, blob = { type: 'image/jpeg' } } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.body.appendChild(build(doc, ['main', {}, ['button', { id: 'pic-open' }, ['img', { src: '/d2' }]]]));
   doc.body.appendChild(build(doc, DIALOG(attrs)));
   const $ = (id) => doc.getElementById(id);
+  const vars = {};
+  $('pic-zoom').style.setProperty = (k, v) => { vars[k] = v; };
+  const runs = [];
+  $('pic-body').animate = (frames) => { const run = { cancelled: false, cancel() { run.cancelled = true; } }; runs.push({ run, from: frames[0].height, to: frames[1].height }); return run; };
+  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : $('pic-place').hidden ? 417 : 562) });
   $('pic-dialog').hidden = true;
   $('pic-dialog').querySelectorAll('input').forEach((r) => { r.value = r.getAttribute('value'); });
   const drawn = [];
@@ -61,7 +67,8 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     URL: { createObjectURL: () => 'blob:' + (made += 1), revokeObjectURL: () => { revoked += 1; } },
     UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('error: ' + t) },
-    setTimeout: () => 0, clearTimeout: () => {}, matchMedia: () => ({ matches: true }),
+    setTimeout: () => 0, clearTimeout: () => {}, matchMedia: () => ({ matches: calm }), parseFloat,
+    getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--dur-slow' ? ' .25s' : ' ease-out') }),
   };
   ctx.ModalA11y = { register() {}, onOpened() {}, onClosed() {} };
   ctx.window = ctx;
@@ -73,7 +80,7 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   const fire = (id, type, e) => ($(id).listeners[type] || []).forEach((fn) => fn({ preventDefault() {}, target: $(id), stopImmediatePropagation() {}, ...e }));
   const radios = $('pic-pick').querySelectorAll('input');
   return {
-    $, drawn, outs, toasts, told, fire,
+    $, vars, runs, drawn, outs, toasts, told, fire,
     click: (id) => { if (!$(id).disabled) fire(id, 'click'); },
     pick: (n) => radios[n - 1].listeners.change.forEach((fn) => fn({})),
     file: (f) => { $('pic-file').files = [f]; fire('pic-file', 'change'); },
@@ -263,6 +270,26 @@ const scenarios = {
       out.push({ error: p.error(), told: p.told, toasts: p.toasts, head: p.$('pic-open').querySelector('img').getAttribute('src'), open: p.open() });
     }
     return out;
+  },
+  // the height while the photo is placed and left again, in full motion and with motion reduced
+  async height() {
+    const run = (calm) => {
+      const p = page({ calm });
+      p.click('pic-open');
+      p.file(JPEG);
+      p.click('pic-back');
+      return p.runs.map((r) => [r.from, r.to, r.run.cancelled]);
+    };
+    return { full: run(false), calm: run(true) };
+  },
+  async fill() {
+    const p = page();
+    p.click('pic-open');
+    p.file(JPEG);
+    const out = [p.vars['--at']];
+    p.$('pic-zoom').value = 250;
+    p.fire('pic-zoom', 'input');
+    return out.concat(p.vars['--at']);
   },
   async backdrop() {
     const p = page();
