@@ -71,9 +71,28 @@ async function page(opts = {}) {
     return { id, tv: copy(tv) };
   }
   const toasts = [];
+  // A step is made later, as a browser makes it.
+  const history = {
+    entries: [opts.state ? { ...opts.state } : { mm: { id: 'a' } }], index: 0,
+    get state() { return history.entries[history.index]; },
+    pushState(s) { history.entries.splice(history.index + 1); history.entries.push(copy(s)); history.index += 1; },
+    replaceState(s) { history.entries[history.index] = copy(s); },
+    go(by) {
+      timers.push({ id: ++ids, at: clock + 5, fn() {
+        if (by < 0 && history.index + by < 0 || history.index + by >= history.entries.length) return;
+        history.index += by;
+        let heard = true;
+        win.listeners.popstate({ stopImmediatePropagation() { heard = false; } });
+        if (heard) heardByPage.push(history.index);
+      } });
+    },
+  };
+  if (opts.reloadedAt) { history.entries.push(opts.reloadedAt); history.index = 1; }
+  const heardByPage = [];
   const session = {};
   const win = {
-    listeners: {}, location: { href: '' }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
+    listeners: {}, history,
+    location: { href: '', replace(to) { history.entries[history.index] = null; win.location.href = to; } }, innerWidth: 1000, innerHeight: 800, navigator: { onLine: true },
     sessionStorage: { getItem: (k) => session[k] || null, setItem: (k, v) => { session[k] = v; } },
     matchMedia: () => ({ matches: false }),
     addEventListener(t, fn) { win.listeners[t] = fn; },
@@ -96,7 +115,9 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, toasts,
+    $, doc, win, api, toasts, history, heardByPage,
+    async step(by) { history.go(by); await p.pass(20); },
+    trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: !p.$('[data-po]').hidden }),
     async pass(ms) {
       const end = clock + ms;
       for (;;) {
@@ -362,6 +383,106 @@ const scenarios = {
     await p.pressText('English');
     out.sent = p.sent();
     return out;
+  },
+  async back() {
+    const p = await page();
+    await p.open();
+    await p.press('[data-menu="quality"]');
+    const out = [p.trail()];
+    await p.step(-1);
+    out.push(p.trail());
+    await p.step(-1);
+    await p.pass(400);
+    out.push(p.trail());
+    return { out, page: p.heardByPage, mark: p.history.state.mm };
+  },
+  async closedOtherwise() {
+    const p = await page();
+    await p.open();
+    await p.press('[data-menu="quality"]');
+    await p.pressText('Auto' + 'Up to 1080p');
+    await p.pass(20);
+    const out = [p.trail()];
+    await p.press('[data-menu="quality"]');
+    p.api.tvs[0].play = aPlay({ play_id: 'p2' });
+    await p.pass(1200);
+    out.push(p.trail());
+    await p.press('[data-close]');
+    await p.open(); // before the step back is made
+    await p.pass(400);
+    out.push(p.trail());
+    await p.press('[data-close]');
+    await p.pass(400);
+    out.push(p.trail());
+    return { out, page: p.heardByPage };
+  },
+  async forward() {
+    const p = await page();
+    await p.open();
+    await p.step(-1);
+    await p.pass(400);
+    await p.step(1);
+    await p.pass(400);
+    const out = [p.trail()];
+    await p.step(-1);
+    await p.pass(400);
+    Object.assign(p.api.tvs[0], { play: null });
+    await p.step(1);
+    await p.pass(400);
+    out.push(p.trail());
+    return { out, page: p.heardByPage };
+  },
+  async otherEntries() {
+    const p = await page();
+    await p.open();
+    await p.step(-1);
+    await p.pass(400);
+    // The page goes on to an entry of its own, and back: that is the page's.
+    p.history.pushState({ mm: { id: 'b' } });
+    await p.step(-1);
+    const own = p.heardByPage.slice();
+    p.history.pushState({ mm: { id: 'c' } });
+    await p.open();
+    await p.step(-2); // past the remote's entry and the page's own
+    await p.pass(400);
+    return { own, both: p.heardByPage, trail: p.trail() };
+  },
+  async reloaded() {
+    const state = { mm: { id: 'a' }, mmTv: { level: 1, id: 7, base: 'x' } };
+    const p = await page({ state: { ...state, mmTv: { level: 0, base: 'x' } }, reloadedAt: state });
+    await p.pass(2000);
+    return { at: p.history.index, open: p.isOpen(), bar: p.bar().shown, page: p.heardByPage };
+  },
+  async hasty() {
+    const p = await page();
+    p.history.pushState({ mm: { id: 'b' } });
+    await p.open();
+    await p.press('[data-close]');
+    await p.open();
+    await p.press('[data-close]');
+    await p.pass(2500);
+    return { at: p.history.index, open: p.isOpen() };
+  },
+  async bringTrail() {
+    const p = await page();
+    await p.open();
+    await p.press('[data-bring]');
+    await p.pass(100);
+    return { left: p.history.entries.length, replaced: p.history.entries[1] === null, href: p.win.location.href };
+  },
+  async stands() {
+    const p = await page();
+    await p.open();
+    p.api.hold = [];
+    Object.assign(p.api.tvs[0], { on: false, lost_s: null });
+    await p.pass(1100);
+    const at = p.at();
+    await p.press('[data-play]');
+    await p.press('[data-mini-play]');
+    // Polls that come late give no newer place.
+    p.api.fail = ['network_error', 0];
+    await p.pass(2000);
+    return { stands: p.at() === at, sent: p.sent().length, inert: p.$('[data-seek]').inert };
   },
   async two() {
     const p = await page({ tvs: [aTv(), aTv({ id: 8, name: 'Bedroom TV' })] });

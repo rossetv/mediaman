@@ -32,6 +32,7 @@
   var KEY_SEEK_MS = 300; // after the last press of an arrow
   var HOLD_MS = 15000; // that what the person set is shown without a word of the TV
   var ANSWER_MS = 10000;
+  var STEP_MS = 1000;
   var EXIT_MS = 250;
   var SKIP_S = 10;
   var FAILS = 2; // polls in a row before it is said
@@ -393,7 +394,12 @@
   }
 
   function watchHere(what) {
-    global.location.href = '/watch/play/' + encodeURIComponent(what.rating_key) + '?resume=1';
+    var to = '/watch/play/' + encodeURIComponent(what.rating_key) + '?resume=1';
+    // In the place of the remote's own entry, or Back from the player would lead to the remote.
+    settled(function () {
+      if (level()) global.location.replace(to);
+      else global.location.href = to;
+    });
   }
   function bring() {
     if (play()) stop(watchHere);
@@ -853,6 +859,7 @@
     els.po.hidden = els.poVeil.hidden = false;
     from.setAttribute('aria-expanded', 'true');
     menuOpen = { kind: kind, from: from };
+    follow();
     placeMenu();
     reach();
     (els.poList.querySelector('[aria-checked="true"]') || els.poList.firstElementChild).focus({ preventScroll: true });
@@ -875,6 +882,7 @@
     var from = menuOpen.from;
     var held = els.po.contains(document.activeElement);
     menuOpen = null;
+    follow();
     els.po.hidden = els.poVeil.hidden = true;
     from.setAttribute('aria-expanded', 'false');
     reach();
@@ -1020,6 +1028,77 @@
     tick();
   }
 
+  /* ── Back ── */
+
+  /* The remote, and a menu in it, are each an entry of the history, so that Back closes them. Each is
+     a copy of the entry the remote was opened on, whose mark (base) it carries: a step between those
+     changes nothing of the page, which does not hear of it. */
+  function mine() { return (global.history.state || {}).mmTv || null; }
+  function level() { var t = mine(); return t ? t.level : 0; }
+  var at = level();
+  var base = mine() && mine().base;
+  var moving = null; // a step of this page's own, not made yet
+  var after = []; // what waits for it
+
+  function write(how, tvMark) {
+    global.history[how](Object.assign({}, global.history.state, { mmTv: tvMark }), '');
+  }
+
+  /* Brings the history into line with what is open. */
+  function follow() {
+    if (moving) return;
+    var to = isOpen ? (menuOpen ? 2 : 1) : 0;
+    if (level() === to) return;
+    if (level() > to) {
+      moving = setTimeout(arrived, STEP_MS); // a step the browser never makes
+      global.history.go(to - level());
+      return;
+    }
+    if (!level()) {
+      base = Math.random().toString(36).slice(2, 10);
+      write('replaceState', { level: 0, base: base });
+    }
+    while (level() < to) write('pushState', { level: level() + 1, base: base, id: tv.id });
+    at = level();
+  }
+
+  function arrived() {
+    clearTimeout(moving);
+    moving = null;
+    at = level();
+    follow();
+    if (!moving) after.splice(0).forEach(function (fn) { fn(); });
+  }
+  function settled(fn) {
+    if (moving) after.push(fn);
+    else fn();
+  }
+
+  global.addEventListener('popstate', function (e) {
+    var was = at;
+    var t = mine();
+    at = level();
+    if (t && t.base === base && (was || at)) e.stopImmediatePropagation();
+    base = t && t.base;
+    if (moving) { arrived(); return; }
+    if (at < 2) closeMenu();
+    if (!at) close();
+    else if (!isOpen) reopen();
+    else follow();
+  });
+
+  /* Forward leads to the remote: open where its TV still plays, else no longer there. */
+  function reopen() {
+    var id = mine().id;
+    MM.api.get(LIST + '/' + encodeURIComponent(id)).then(function (data) {
+      if (!level() || isOpen) return;
+      if (data.tv.play) open(data.tv);
+    }, function () {}).then(function () {
+      follow();
+      if (!isOpen) tick();
+    });
+  }
+
   /* ── opening and closing ── */
 
   var exit = null;
@@ -1042,6 +1121,7 @@
     ended = false;
     if (!isOpen) {
       isOpen = true;
+      follow();
       if (exit) clearTimeout(exit);
       exit = null;
       root.classList.remove('is-leaving');
@@ -1061,6 +1141,7 @@
     if (!isOpen) return;
     isOpen = false;
     closeMenu();
+    follow();
     endDrag(false);
     cardKey = null;
     els.card.hidden = els.dim.hidden = true;
@@ -1084,5 +1165,7 @@
   global.addEventListener('online', function () { if (play()) tick(); });
 
   MM.tvRemote = { open: open };
+  // What else a page loaded on the remote's entry stands on opens first: it goes back to that.
+  follow();
   tick();
 })(window);

@@ -171,6 +171,60 @@ def test_the_subtitle_menu_takes_the_focus_gives_it_back_and_sends_the_track() -
     assert out["sent"] == [{"kind": "subtitles", "subtitle": "11", "play_id": "p1"}]
 
 
+def test_back_closes_an_open_menu_then_the_remote_and_the_page_hears_of_neither() -> None:
+    out = _run("back")
+    assert out["out"] == [
+        {"at": 2, "entries": 3, "open": True, "menu": True},
+        {"at": 1, "entries": 3, "open": True, "menu": False},
+        {"at": 0, "entries": 3, "open": False, "menu": False},
+    ]
+    assert out["page"] == []
+    assert out["mark"] == {"id": "a"}
+
+
+def test_closing_by_a_button_steps_back_out_of_its_own_entries() -> None:
+    out = _run("closedOtherwise")
+    # a chosen row, a menu another episode closed, a remote opened again before the step was made
+    assert [(t["at"], t["open"], t["menu"]) for t in out["out"]] == [
+        (1, True, False),
+        (1, True, False),
+        (1, True, False),
+        (0, False, False),
+    ]
+    assert out["page"] == []
+
+
+def test_forward_opens_the_remote_again_and_steps_back_where_nothing_plays() -> None:
+    out = _run("forward")
+    assert [(t["at"], t["open"]) for t in out["out"]] == [(1, True), (0, False)]
+    assert out["page"] == []
+
+
+def test_the_pages_own_entries_stay_its_own() -> None:
+    out = _run("otherEntries")
+    assert out["own"] == [0]
+    assert out["both"] == [0, 0]
+    assert (out["trail"]["at"], out["trail"]["open"]) == (0, False)
+
+
+def test_a_reload_with_the_remote_open_leads_to_the_page_it_was_opened_on() -> None:
+    out = _run("reloaded")
+    assert out == {"at": 0, "open": False, "bar": True, "page": []}
+
+
+def test_closed_opened_and_closed_in_one_breath_it_steps_back_once() -> None:
+    assert _run("hasty") == {"at": 1, "open": False}
+
+
+def test_bringing_it_here_puts_the_player_in_the_place_of_the_remotes_entry() -> None:
+    out = _run("bringTrail")
+    assert out == {"left": 2, "replaced": True, "href": "/watch/play/9001?resume=1"}
+
+
+def test_a_tv_that_is_not_answering_stands_still_and_takes_no_presses() -> None:
+    assert _run("stands") == {"stands": True, "sent": 0, "inert": True}
+
+
 def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:
     out = _run("two")
     assert out["says"] == ["Playing on Living room", "Playing on Bedroom TV"]
