@@ -124,7 +124,7 @@ async function load(opts = {}) {
       go,
     },
     location: { get pathname() { return here().pathname; }, get search() { return here().search; }, get hash() { return here().hash; } },
-    UIFeedback: { toast: (m, o) => toasts.push(o) },
+    UIFeedback: { toast: (m, o) => toasts.push(o), dismiss() {} },
     MM: { api: { get, post: () => Promise.resolve({}), messageOf: (_e, f) => f } },
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },

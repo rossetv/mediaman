@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from mediaman.core.format import ensure_tz
 from mediaman.services.openai.recommendations.plays import record_play
 
-# Fraction of the duration past which an item counts as watched.
+# Fraction of the duration past which an item counts as watched, or its credits' start if earlier.
 WATCHED_FRACTION = 0.9
 # Seconds actually played before a play counts as a watch for cleanup;
 # shorter items need to be played to the watched mark instead.
@@ -131,13 +131,16 @@ def save_progress(
     duration_s: float,
     played_s: float,
     now: datetime,
+    credits_s: float | None = None,
 ) -> bool:
     """Store *username*'s position in *rating_key* and return whether it is watched.
 
     *played_s* is the time actually played on the page so far. Once it
     reaches five minutes (or the watched mark of a shorter item) the row's
     ``credited_at`` is set to *now*, which the cleanup scan reads as a
-    watch. The watched flag follows the position on every save, so playing
+    watch. *credits_s* is where the final credits start, if known: an item is
+    watched from there, or from the watched mark where that comes first; it
+    has no part in ``credited_at``. The watched flag follows the position on every save, so playing
     a watched item again from the start makes it in progress again; that it
     was once watched, or marked so, stays in ``seen_at``.
     """
@@ -145,7 +148,10 @@ def save_progress(
     position = _finite(position_s)
     if duration > 0:
         position = min(position, duration)
-    watched = duration > 0 and position >= WATCHED_FRACTION * duration
+    watched_from = WATCHED_FRACTION * duration
+    if credits_s is not None:
+        watched_from = min(watched_from, credits_s)
+    watched = duration > 0 and position >= watched_from
     threshold = min(CREDIT_SECONDS, WATCHED_FRACTION * duration) if duration > 0 else CREDIT_SECONDS
     now_iso = _utc_iso(now)
     credited_at = now_iso if _finite(played_s) >= threshold else None

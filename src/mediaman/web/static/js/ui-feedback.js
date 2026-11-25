@@ -21,9 +21,10 @@
  *                          adds a button to the toast; clicking it runs onClick
  *                          and dismisses the toast. A toast with an action stays
  *                          8s unless `duration` says otherwise, and is not
- *                          dismissed while the button has keyboard focus. With
- *                          `dialog`, the aria-modal it came from, Ctrl+Z presses
- *                          the button while that one is open too.
+ *                          dismissed while the button has keyboard focus. The
+ *                          label 'Undo' marks an undo: Ctrl+Z presses its button.
+ *                          With `dialog`, the aria-modal it came from, it does
+ *                          while that one is open too.
  *
  *   window.UIFeedback.dismiss(node)   takes away a toast, as toast() returned it
  *
@@ -81,6 +82,7 @@
     node.classList.add('is-leaving');
     node.classList.remove('is-visible');
     removeAfterExit(node);
+    tellShortcut();
   }
 
   // What is full screen hides all that is outside it. A video shows no child.
@@ -124,7 +126,20 @@
       return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
   }
-  // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
+  function newestUndo() {
+    var btns = document.querySelectorAll('.ui-toast--undo:not(.is-leaving) .ui-toast__action');
+    return btns[btns.length - 1];
+  }
+  // Only the newest Undo answers the shortcut, so only its button is told with it.
+  function tellShortcut() {
+    var newest = newestUndo();
+    Array.prototype.forEach.call(document.querySelectorAll('.ui-toast--undo .ui-toast__action'), function (b) {
+      if (b === newest) b.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
+      else b.removeAttribute('aria-keyshortcuts');
+      b.setAttribute('aria-label', b.textContent + (b === newest ? ' (' + undoHint + ')' : ''));
+    });
+  }
+  // Ctrl/Cmd+Z presses the newest Undo, except in a text
   // field where it is the field's own undo.
   function listenForUndo() {
     if (undoListening) return;
@@ -133,8 +148,7 @@
       if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
-      var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
-      var last = btns[btns.length - 1];
+      var last = newestUndo();
       if (!last || modalOpen(raisedFrom.get(last))) return;
       e.preventDefault();
       last.click();
@@ -152,9 +166,7 @@
     var action = opts.action;
     if (action && action.label && typeof action.onClick === 'function') {
       node.classList.add('ui-toast--action');
-      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
-                               'aria-keyshortcuts': 'Control+Z Meta+Z',
-                               'aria-label': action.label + ' (' + undoHint + ')' });
+      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label });
       if (opts.dialog) raisedFrom.set(btn, opts.dialog);
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
@@ -167,14 +179,8 @@
       action = null;
       node.textContent = message;
     }
-    if (action) {
-      // Only the newest action toast answers the shortcut.
-      Array.prototype.forEach.call(host.querySelectorAll('.ui-toast__action'), function (b) {
-        b.removeAttribute('aria-keyshortcuts');
-        b.setAttribute('aria-label', b.textContent);
-      });
-      btn.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
-      btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
+    if (action && action.label === 'Undo') {
+      node.classList.add('ui-toast--undo');
       listenForUndo();
     }
     // At most three at once, two on a phone, and never a stack taller than the
@@ -188,6 +194,7 @@
       });
     };
     host.appendChild(node);
+    tellShortcut();
     // Toasts already fading out leave the height measure: they are going.
     var overBudget = function () {
       var leaving = Array.prototype.filter.call(host.children, function (c) {

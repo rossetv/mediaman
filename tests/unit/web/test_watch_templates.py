@@ -1004,10 +1004,13 @@ def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
         ("rows-load", "grid"),
         ("grid", "explore"),
         ("search", "explore"),
+        ("collection", "detail"),
     ]:
         assert place[f"watch/{first}"] < place[f"watch/{then}"]
     # It starts them all and opens what the address names.
     assert place["watch"] > place["watch/explore"]
+    html = _watch()
+    assert html.index("/static/js/ratings.js") < html.index("/static/js/watch/marks.js")
 
 
 @pytest.mark.parametrize(

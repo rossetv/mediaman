@@ -379,7 +379,7 @@
     var rowsOff = browse.hidden;
     if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
     var here = _asked || (root() && !_stale ? wanted() : null); // what is shown, or on its way
-    if (view === 'list' && !(here && same(current, here))) load(current, {});
+    if (view === 'list' && !(here && same(current, here))) load(current, { focus: sameControl });
     // Leaving a category's page brings the rows back: they were not on view, so they do not fade.
     if (view === 'list' && rowsOff) browse.hidden = true;
     giveWay([view === 'list' ? browse : list], function () {
@@ -393,6 +393,23 @@
       var y = opts.top ? 0 : arriving && arriving.y;
       if (typeof y === 'number') window.scrollTo({ left: 0, top: y, behavior: 'instant' });
     });
+    if (view === 'list' && opts.history === null) Promise.resolve().then(takeFocus);
+  }
+
+  /* Back and Forward have put the focus where it was, if that is still there: else it goes to
+     the list, which says what it shows. */
+  function takeFocus() {
+    if (_view !== 'list' || address.top() !== 'list') return;
+    var active = document.activeElement;
+    if (!focusIsFree() && active !== list && active.getClientRects().length && !active.closest('[inert]')) return;
+    if (_asked || !root()) { holdFocus(); return; }
+    status.textContent = root().dataset.said || '';
+    focusFirst();
+  }
+
+  function focusFirst() {
+    var first = firstTitle(part(root(), 'results')) || firstTitle(root());
+    if (first) first.focus({ preventScroll: true });
   }
 
   /* With text in the field the search shows its results instead. Back may lead to a row's grid,
@@ -449,8 +466,7 @@
       }
       if (_asked || !root()) { holdFocus(); return; }
       status.textContent = root().dataset.said || '';
-      var first = firstTitle(part(root(), 'results')) || firstTitle(root());
-      if (first) first.focus({ preventScroll: true });
+      focusFirst();
       hooks.arrive();
     }
 
@@ -594,7 +610,9 @@
       play();
       if (next) handOn(row, focusTarget(next));
       if (hadFocus && next) core.focusSoftly(focusTarget(next));
-      if (!tbody.querySelector('tr') && !_asked) load(stateOf(root()), {});
+      if (!tbody.querySelector('tr') && !_asked) {
+        load(stateOf(root()), { focus: function (fresh) { return hadFocus && focusIsFree() ? firstTitle(fresh) : null; } });
+      }
     }
     if (core.reduceMotion()) { gone(); return; }
     row.classList.add('is-leaving');
@@ -826,14 +844,17 @@
     refresh([key], d);
   });
 
-  /* The same control in the list coming in, of the row the focus is in, or else the filter that is on. */
+  /* The same control in the list coming in, of the row the focus is in, or the first title where that
+     has gone, or else the filter that is on. */
   function sameControl(fresh) {
     var active = document.activeElement;
     if (!list.contains(active)) return null;
     var find = focusKey(active);
     var row = active.closest('tr[data-row-key]');
-    var next = row && (rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]'));
-    return (find ? find(fresh) : next && focusTarget(next, active === deleteButton(row) ? 'delete' : null)) ||
+    var same = row && rowByKey(row.getAttribute('data-row-key'), fresh);
+    var next = same || (row && fresh.querySelector('tr[data-row-key]'));
+    var title = next && (!same || active.matches('a.wl-title')) && next.querySelector('a.wl-title');
+    return (find ? find(fresh) : title || (next && focusTarget(next, active === deleteButton(row) ? 'delete' : null))) ||
       fresh.querySelector('.fpill.on');
   }
 
