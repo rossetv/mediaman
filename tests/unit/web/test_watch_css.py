@@ -263,6 +263,13 @@ def test_on_a_touch_screen_the_open_levels_stand_over_every_other_card_s_buttons
     assert "pointer-events: none" in _of(heading, FINGER, CARDS)
 
 
+def test_every_card_button_draws_its_keyboard_ring_on_its_round_backing() -> None:
+    assert "outline: none" in _of(".card-tool:focus-visible", sheet=CARDS)
+    assert "outline: 2px solid" in _of(".card-tool:focus-visible::before", sheet=CARDS)
+    shown = '.card-tool:is(:focus-visible, [aria-expanded="true"])::before'
+    assert "opacity: 1" in _of(shown, sheet=CARDS)
+
+
 MOUSE = "(hover: hover) and (pointer: fine)"
 
 
