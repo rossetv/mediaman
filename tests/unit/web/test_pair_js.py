@@ -74,6 +74,20 @@ def test_a_tv_paired_again_keeps_its_name_and_another_code_can_be_scanned() -> N
     assert out["scanned"] == [["pair-form"], "111222", 2]
 
 
+def test_a_new_tv_is_named_with_the_first_free_name_and_a_repeat_is_flagged() -> None:
+    out = _run("twoTvs")
+    assert out["shown"] == ["pair-name-form"]
+    assert out["first"] == ["Living room 3", ""]
+    assert out["same"][0] == "pair__why" and "Living room" in out["same"][1]
+    assert out["folded"] != ""
+    assert out["fresh"] == ""
+
+
+def test_the_name_is_still_offered_when_the_tvs_cannot_be_listed() -> None:
+    out = _run("noList")
+    assert (out["name"], out["shown"]) == ("Living room", ["pair-name-form"])
+
+
 def test_each_step_of_pairing_comes_in_and_at_once_under_reduced_motion() -> None:
     css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_pair.css").read_text()
     step = r"\.pair form, #pair-done \{ animation: ([^;]+);"

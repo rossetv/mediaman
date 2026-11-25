@@ -8,7 +8,7 @@ const { makeDocument, build, settle } = require('./fake_dom.js');
 
 const FILE = path.resolve(__dirname, '../../../../src/mediaman/web/static/js/pair.js');
 
-function page(hash, answers, yes = true) {
+function page(hash, answers, yes = true, owned = Promise.resolve({ tvs: [] })) {
   const doc = makeDocument();
   const input = (id) => ['input', { id }];
   doc.body.appendChild(build(doc, ['main', {},
@@ -35,7 +35,7 @@ function page(hash, answers, yes = true) {
   const listeners = {};
   const ctx = vm.createContext({
     document: doc, location, history: { replaceState: (a, b, url) => { replaced.push(url); location.hash = ''; } },
-    MM: { api: { post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
+    MM: { api: { get: () => owned, post: answer, patch: answer, messageOf: (e, d) => (e && e.words) || d } },
     UIFeedback: { confirm: (o) => { asked.push(o.body); return Promise.resolve(yes); } },
     window: { addEventListener: (t, fn) => { listeners[t] = fn; } },
   });
@@ -102,6 +102,28 @@ const scenarios = {
     const failed = [p.shown(), p.$('pair-name-why').textContent];
     p.scan('#111222');
     return { name, empty, failed, scanned: [p.shown(), p.boxes(), p.sent.length] };
+  },
+  async twoTvs() {
+    const mine = { tvs: [{ id: 3, name: 'Living room' }, { id: 4, name: 'Living room 2' }, { id: 7, name: 'TV' }] };
+    const p = page('#482916', [TV], true, Promise.resolve(mine));
+    p.fire('pair-form', 'submit');
+    await settle();
+    const first = [p.$('pair-name').value, p.$('pair-name-why').textContent];
+    p.$('pair-name').value = 'Living room';
+    p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    const same = [p.$('pair-name-why').className, p.$('pair-name-why').textContent];
+    p.$('pair-name').value = ' living room 2 ';
+    p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    const folded = p.$('pair-name-why').textContent;
+    p.$('pair-name').value = 'Attic';
+    p.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    return { first, same, folded, fresh: p.$('pair-name-why').textContent, shown: p.shown() };
+  },
+  async noList() {
+    const p = page('#482916', [TV], true, Promise.reject({ error: 'http_500' }));
+    p.fire('pair-form', 'submit');
+    await settle();
+    return { name: p.$('pair-name').value, shown: p.shown() };
   },
 };
 

@@ -30,6 +30,7 @@
   var pills = [].slice.call(naming.querySelectorAll('.fpill'));
   var busy = false;
   var tv = null;
+  var others = [];
 
   function paint() {
     [].forEach.call(boxes.querySelectorAll('i'), function (box, n) {
@@ -109,14 +110,41 @@
     });
   }
 
+  function same(a, b) {
+    return a.trim().toLowerCase() === b.trim().toLowerCase();
+  }
+
+  function taken(wanted) {
+    return others.some(function (other) { return same(other, wanted); });
+  }
+
+  function repeats() {
+    say(nameWhy, taken(name.value) ? 'You already have a TV called ' + name.value.trim() + '. You can still use it.' : '');
+  }
+
+  function firstFree() {
+    var pick = 'Living room';
+    for (var n = 2; taken(pick); n++) pick = 'Living room ' + n;
+    return pick;
+  }
+
   function paired(got) {
     tv = got;
     form.hidden = true;
-    naming.hidden = false;
-    // A TV paired again has its name.
-    name.value = got.name === 'TV' ? 'Living room' : got.name;
-    mark();
-    document.getElementById('pair-ok').focus({ preventScroll: true });
+    // The list is only a help: without it the name is as it always was.
+    MM.api.get('/api/tvs').then(function (data) {
+      return data.tvs.filter(function (t) { return t.id !== got.id; }).map(function (t) { return t.name; });
+    }, function () {
+      return [];
+    }).then(function (names) {
+      others = names;
+      naming.hidden = false;
+      // A TV paired again has its name.
+      name.value = got.name === 'TV' ? firstFree() : got.name;
+      say(nameWhy, '');
+      mark();
+      document.getElementById('pair-ok').focus({ preventScroll: true });
+    });
   }
 
   form.addEventListener('submit', function (e) {
@@ -139,7 +167,7 @@
     });
   });
   name.addEventListener('input', function () {
-    say(nameWhy, '');
+    repeats();
     mark();
   });
 
