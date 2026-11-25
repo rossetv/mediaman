@@ -2,7 +2,10 @@
  *
  *   MM.playOn.register(way)      a way of the browser's: AirPlay (airplay.js), Google Cast
  *   MM.playOn.changed()          what a way says of itself may be different now
- *   MM.playOn.again()            a play that one of the ways finds already on, or null
+ *   MM.playOn.again(key)         null, or {way, found}: a promise of the play of that title which a
+ *                                way may find already on
+ *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null
+ *   MM.playOn.cancel()           what is starting is not wanted any more
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
  *   MM.playOn.open(button, host) the sheet, by the button
  *   MM.playOn.button(href, className) the button of a title on a page without a player, by the
@@ -15,7 +18,7 @@
  *   what()        {rating_key, position_s, quality, subtitle, autoplay, asked_s}
  *   on()          optional: null, or the id of what plays it now ('tv-5', a way's)
  *   before(tv)    optional: what plays is stopped and its place saved; a promise of the place
- *   failed()      optional: nothing came of it; it plays on as before
+ *   failed()      optional: nothing came of it; it plays on as before, or what it says
  *   started(tv)   optional: a TV plays it
  *   startWay(way) optional: plays it by a way of the browser's; a promise
  *   here()        optional: bring it back to this device
@@ -44,6 +47,8 @@
   };
   var LIMIT = ['You’re watching on three screens', 'That’s the most at once. Stop one, then try again.'];
   var UNCHANGED = ' Nothing changed here.';
+  /* What a TV says while it has a title. */
+  var PLAYING = ['starting', 'loading', 'playing', 'paused', 'buffering'];
   /* A later press won: what the person sees is already that. */
   var SILENT = ['cancelled', 'superseded', 'replaced'];
   var FAILED = {
@@ -65,6 +70,7 @@
   var sheet = null;           // while open: {node, btn, host, pairing}
   var say = null;             // {id, title, line, bad, again, take}
   var wait = null;            // the id of what is starting
+  var callOff = null;         // calls off a start on a TV that was asked for
   var limit = false;          // three streams play already
   var asking = 0;             // bumps with every press that starts something
 
@@ -148,8 +154,8 @@
     };
   }
 
-  /* What is said where `tv` did not start. */
-  function refused(tv, err) {
+  /* What is said where `tv` did not start, and what that `left`. */
+  function refused(tv, err, left) {
     var code = err && err.error;
     if (code === 'in_use') return busy(tv);
     if (isOlder(tv) && (code === 'tv_off' || code === 'unreachable')) return notOpen(tv);
@@ -158,7 +164,7 @@
     return {
       id: idOf(tv),
       title: short(tv, 'It') + ' didn’t start',
-      line: [line + UNCHANGED],
+      line: [line + (left || UNCHANGED)],
       bad: true,
       again: function () { startTv(tv, false); },
     };
@@ -182,36 +188,59 @@
     if (wait) return;
     var mine = ++asking;
     var host = sheet.host;
-    var done;
+    var stopper = new AbortController();
+    var late;
     say = null;
     limit = false;
     wait = idOf(tv);
     draw();
     Promise.resolve(host.before ? host.before(tv) : undefined).then(function (place) {
+      if (mine !== asking) throw new Error('cancelled');
       var what = host.what();
       if (place !== undefined) what.position_s = place;
       if (confirm) what.confirm = true;
-      var stopper = new AbortController();
-      var late = setTimeout(function () { stopper.abort(); }, START_WAIT_MS);
-      done = function () { clearTimeout(late); };
+      late = setTimeout(function () { stopper.abort(); }, START_WAIT_MS);
+      /* Asked too late to be called off, it is stopped there: nothing begins there after that. */
+      callOff = function () {
+        stopper.abort();
+        stopTv(tv).catch(function () { /* nothing plays there */ });
+      };
       return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/play', what, { signal: stopper.signal });
     }).then(function (data) {
-      if (done) done();
+      clearTimeout(late);
       if (mine !== asking) return;
-      wait = null;
+      wait = callOff = null;
       close();
       if (host.started) host.started(data.tv || tv);
       else if (MM.tvRemote) MM.tvRemote.open(data.tv || tv);
     }, function (err) {
-      if (done) done();
+      clearTimeout(late);
       if (mine !== asking) return;
-      wait = null;
-      if (host.failed) host.failed();
+      wait = callOff = null;
+      var left = host.failed && host.failed();
       if (err && err.error === 'too_many_streams') overLimit();
-      else if (!err || SILENT.indexOf(err.error) === -1) tell(refused(tv, err));
+      else if (!err || SILENT.indexOf(err.error) === -1) tell(refused(tv, err, left));
       draw();
       look();
     });
+  }
+
+  function stopTv(tv) {
+    return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/commands', { kind: 'stop' });
+  }
+
+  function cancel() {
+    asking++;
+    if (callOff) callOff();
+    callOff = null;
+    say = wait = null;
+    draw();
+  }
+
+  function tvWith(key) {
+    return (tvs || []).filter(function (tv) {
+      return tv.play && String(tv.play.rating_key) === String(key) && PLAYING.indexOf(tv.play.state) !== -1;
+    })[0] || null;
   }
 
   /* ---- the browser's own ways ------------------------------------------- */
@@ -244,7 +273,7 @@
         tell({
           id: way.id,
           title: told ? told.title : way.label + ' didn’t start',
-          line: [told ? told.line : (FAILED[code] || 'Choose it again in a moment.') + UNCHANGED],
+          line: [told ? told.line : (FAILED[code] || 'Choose it again in a moment.') + (err && err.left || UNCHANGED)],
           bad: true,
           again: function () { startWay(way); },
         });
@@ -384,7 +413,7 @@
       sub: on ? 'Bring it back here' : '',
     }, function () {
       close();
-      if (on && host.here) host.here();
+      if ((on || wait) && host.here) host.here();
     });
     known.filter(function (tv) { return tv.on || tv.busy; }).forEach(function (tv) { tvRow(list, tv, on); });
     found.forEach(function (way) {
@@ -673,7 +702,7 @@
     global.addEventListener('resize', place);
     ways.forEach(function (w) { if (w.look) w.look(); });
     look();
-    poll = setInterval(function () { if (!document.hidden && !absent && !lost) look(); }, LOOK_MS);
+    poll = setInterval(function () { if (!document.hidden && !absent) look(); }, LOOK_MS);
   }
 
   /* Safari's own step passes over buttons, and leads out of the dialog to its own bars. */
@@ -742,10 +771,15 @@
         },
         before: function () { pressed = now(); },
         on: function () {
-          var tv = (tvs || []).filter(function (t) { return t.play && String(t.play.rating_key) === key && t.play.state !== 'ended'; })[0];
+          var tv = tvWith(key);
           return tv ? idOf(tv) : null;
         },
-        here: function () { global.location.href = href; },
+        here: function () {
+          var tv = tvWith(key);
+          function go() { global.location.href = '/watch/play/' + key + '?resume=1'; }
+          if (wait) cancel();
+          else if (tv) stopTv(tv).then(go, go);
+        },
       });
     });
     if (tvs === null && !absent) look();
@@ -756,9 +790,11 @@
     button: titleButton,
     register: function (way) { ways.push(way); changed(); },
     changed: changed,
-    again: function () {
+    cancel: cancel,
+    onTv: function (key) { return look().then(function () { return tvWith(key); }); },
+    again: function (key) {
       for (var i = 0; i < ways.length; i++) {
-        var found = ways[i].again && ways[i].again();
+        var found = ways[i].again && ways[i].again(key);
         if (found) return { way: ways[i], found: found };
       }
       return null;

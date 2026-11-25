@@ -82,7 +82,7 @@
 .play-on__code i:nth-of-type(4) { margin-left: 10px; }
 .play-on__code i.at { border-color: var(--accent); }
 .play-on__code.is-bad i { border-color: var(--danger-text); }
-.play-on__code:focus-within i.at { box-shadow: 0 0 0 1px var(--accent); }
+.play-on__code:focus-within i.at { outline: 1px solid var(--accent); }
 .play-on__code input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
 .play-on__pair .play-on__why { min-height: 20px; margin-bottom: 8px; font-size: 13px; }
 .play-on__pair .play-on__why.is-bad { color: var(--danger-text); }
