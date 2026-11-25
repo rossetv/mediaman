@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {} } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -40,7 +40,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     tab.index += by;
     fire('popstate');
   };
-  doc.dispatchEvent = (e) => events.push({ type: e.type, q: e.detail.q });
+  doc.dispatchEvent = (e) => { events.push({ type: e.type, q: e.detail.q }); (doc.listeners[e.type] || []).forEach((fn) => fn(e)); };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, Error, Infinity, URLSearchParams, parseFloat,
     setTimeout: (fn, ms) => { if (!ms) { setImmediate(fn); return -1; } timers.push({ fn, ms, on: true }); return timers.length; },
@@ -67,7 +67,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     categories,
     scrollY: 0,
     scrollTo: (o) => { ctx.scrollY = o.top; },
-    sessionStorage: { getItem: () => null, setItem() {} },
+    sessionStorage: { getItem: (k) => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = v; }, removeItem: (k) => { delete session[k]; } },
+    Date,
     localStorage: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = v; }, removeItem: (k) => { delete stored[k]; } },
     location: {
       get pathname() { return here().pathname; },
@@ -88,7 +89,10 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     MM: {
       api: {
         get: (url) => (url === '/api/watch/explore' && ctx.categories ? Promise.resolve(ctx.categories)
+          : url === '/api/search/assist' ? Promise.resolve({ ...assist })
           : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
+        post: (url, body) => new Promise((resolve, reject) => { calls.push({ method: 'POST', url, body, resolve, reject }); }),
+        delete: (url) => new Promise((resolve, reject) => { calls.push({ method: 'DELETE', url, resolve, reject }); }),
         messageOf: (_e, fallback) => fallback,
       },
     },
@@ -129,7 +133,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     };
   });
   input.select = () => {};
-  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', 'explore.js']
+  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
   ctx.MMWatch.grid = {
@@ -2190,6 +2194,354 @@ function withMotion(p) {
   Node.prototype.animate = function () { const a = { playState: 'running', cancel() {} }; live.push(a); return a; };
   return () => live.splice(0).forEach((a) => a.onfinish && a.onfinish());
 }
+
+// ── Ask AI ──
+
+const ASSIST = { available: true, history: true, recent: ['heist', 'tessera'], personal: true, phrases: ['a heist that goes wrong, gently', 'more by Ilse'], min_words: 3 };
+const Q = 'a gentle heist film';
+const HELD = { ref: 'tmdb-movie-1', library_ref: 'movie-1', in_library: true, kind: 'movie', title: 'Nine Locks', year: 2021, minutes: 104, reason: 'The vault opens first time.', href: '/watch/movie/1', play_href: '/watch/play/1', poster_url: '/api/poster/1', download_state: null };
+const OTHER = { ref: 'tmdb-movie-2', library_ref: null, in_library: false, kind: 'movie', title: '<b>Thunder</b>', year: 2023, minutes: 60, reason: '<img src=x onerror=alert(1)>', href: 'javascript:alert(1)', play_href: null, poster_url: '//evil.test/p.jpg', download_state: null };
+const ANSWER = { status: 'done', owned: [HELD], others: [OTHER], chips: ['Funnier', 'Only in your library'], instead: [] };
+
+/* A page with an AI. *more* changes what it knows. */
+async function asking(more, opts, opened, at) {
+  const p = load(ADMIN, opened, at, undefined, { assist: { ...ASSIST, ...more }, ...opts });
+  await settle();
+  p.fail = async (urlPart, error, data, status = 429) => {
+    p.calls.filter((c) => c.url.includes(urlPart) && !c.done).forEach((c) => { c.done = true; c.reject({ error, status, data: data || {} }); });
+    await settle();
+  };
+  p.reply = async (method, urlPart, payload) => {
+    p.calls.filter((c) => (c.method || 'GET') === method && c.url.includes(urlPart) && !c.done).forEach((c) => { c.done = true; c.resolve(payload); });
+    await settle();
+  };
+  p.sent = (urlPart) => p.calls.filter((c) => c.url.includes(urlPart)).map((c) => [c.method || 'GET', c.url.replace('/api/search/assist', ''), c.body]);
+  p.ask = async (q) => { p.type(q); p.key('Enter'); await settle(); };
+  p.head = () => { const n = p.doc.querySelector('.ask__row'); return n && n.closest('.ask').hidden === false ? n.querySelector('.ask__words').children.map((c) => c.textContent).join(' | ') : null; };
+  p.cards = () => p.doc.querySelectorAll('.ans').map((n) => [n.closest('.ask__grid').children.filter((c) => c.className === 'ask__group').length, n.querySelector('.ans__t') && n.querySelector('.ans__t').textContent]);
+  p.poll = async (payload) => { p.wait(1200); await settle(); await p.reply('GET', '/runs/', payload); };
+  return p;
+}
+
+scenarios.askOffered = async () => {
+  const p = await asking();
+  const out = {};
+  p.type('two words'); out.two = p.head();
+  p.type(Q); out.three = p.head();
+  out.picked = p.doc.querySelector('.ask__row').classList.contains('is-picked');
+  p.wait(); await settle();
+  out.searched = p.calls.map((c) => c.url.split('?')[0]);
+  p.type('two words'); out.less = p.head();
+  const without = await asking({ available: false });
+  without.type(Q); out.without = without.head();
+  return out;
+};
+
+scenarios.askAnswered = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  const out = { sent: p.sent('/ask'), search: p.calls.filter((c) => c.url.includes('/watch/search?')).length, thinking: p.head(), busy: p.doc.querySelector('.ask').getAttribute('aria-busy') };
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll({ status: 'running', run_id: 7 });
+  await p.poll(ANSWER);
+  out.head = p.head();
+  out.titles = p.doc.querySelectorAll('.ans__t').map((n) => n.children.map((c) => c.textContent));
+  out.markup = p.doc.querySelectorAll('.ans__t').map((n) => n.querySelectorAll('img').length);
+  out.links = p.doc.querySelectorAll('.ans__p').map((n) => [n.getAttribute('data-title-ref'), n.href, n.querySelectorAll('img').length]);
+  out.go = p.doc.querySelectorAll('.ans__go').map((n) => [n.getAttribute('aria-label'), n.href]);
+  out.said = p.doc.querySelector('.ask').querySelector('.sr-only').textContent;
+  out.recorded = p.sent('/searches');
+  p.key('Enter'); await settle();
+  out.asksAgain = p.sent('/ask').length;
+  return out;
+};
+
+scenarios.askNewer = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.ask('a much newer question');
+  const out = { waitsForOld: p.sent('/ask').length };
+  // The old one's run is only now known: it is stopped before the new one is asked.
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  out.stopped = p.sent('/runs/');
+  await p.reply('DELETE', '/runs/7', {});
+  out.asked = p.sent('/ask').map((c) => c[2].q);
+  await p.fail('/ask', 'stopping', {}, 409);
+  out.stopping = p.head();
+  p.wait(1500); await settle();
+  await p.reply('POST', '/ask', { status: 'running', run_id: 8 });
+  await p.poll(ANSWER);
+  out.head = p.head();
+  // Back at the old question it is offered again, not answered by the other's titles.
+  p.type(Q); out.old = [p.head(), p.cards().length];
+  return out;
+};
+
+scenarios.askStop = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  click(p.doc, p.doc.querySelector('.ask__stop')); await settle();
+  const out = { sent: p.sent('/runs/7'), head: p.head() };
+  p.wait(); await settle();
+  out.polls = p.sent('/runs/').filter((c) => c[0] === 'GET').length;
+  // Stopped before the server has said which run it is.
+  const early = await asking();
+  await early.ask(Q);
+  click(early.doc, early.doc.querySelector('.ask__stop')); await settle();
+  await early.reply('POST', '/ask', { status: 'running', run_id: 9 });
+  out.early = [early.head(), early.sent('/runs/9').map((c) => c[0])];
+  const late = await asking();
+  await late.ask(Q);
+  click(late.doc, late.doc.querySelector('.ask__stop')); await settle();
+  await late.reply('POST', '/ask', ANSWER);
+  out.late = late.head();
+  return out;
+};
+
+scenarios.askSurvives = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  p.key('Escape'); await settle(); await settle();
+  const out = { closed: [p.input.value, p.head()] };
+  await p.poll(ANSWER);
+  out.still = p.head();
+  p.type(Q);
+  out.again = [p.head(), p.sent('/ask').length];
+  return out;
+};
+
+scenarios.askReloaded = async () => {
+  const session = { 'mm.watch.ask': JSON.stringify({ q: Q }) };
+  const at = '/watch?q=' + Q.replace(/ /g, '+');
+  const p = await asking({}, { session }, Q, at);
+  const out = { mine: p.sent('/ask').map((c) => c[2].q) };
+  const other = await asking({}, {}, Q, at);
+  out.link = [other.sent('/ask').length, other.head()];
+  // One left going by the page before gives way; one of another tab is not touched.
+  const left = await asking({}, { session: { 'mm.watch.ask.run': '7' } });
+  await left.ask('a newer question altogether');
+  await left.fail('/ask', 'running', { run_id: 7 }, 409);
+  out.left = left.sent('/runs/').map((c) => c[0] + c[1]);
+  const tab = await asking();
+  await tab.ask(Q);
+  await tab.fail('/ask', 'running', { run_id: 8 }, 409);
+  out.tab = [tab.sent('/runs/').length, tab.head(), tab.doc.querySelector('.ask__row .chip').textContent];
+  click(tab.doc, tab.doc.querySelector('.ask__row .chip')); await settle();
+  await tab.reply('DELETE', '/runs/8', {});
+  out.taken = tab.sent('/ask').length;
+  return out;
+};
+
+scenarios.askRefused = async () => {
+  const say = async (error, data, status) => {
+    const p = await asking();
+    await p.ask(Q);
+    await p.fail('/ask', error, data, status);
+    const again = p.doc.querySelector('.ask__row .chip');
+    const head = p.head();
+    p.type(Q + ' too');
+    return { head, again: again && again.textContent, offered: p.head() !== null };
+  };
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  await p.poll({ status: 'failed', run_id: 7 });
+  const failed = p.head();
+  click(p.doc, p.doc.querySelector('.ask__row .chip')); await settle();
+  const local = new Date(); local.setHours(24, 0, 0, 0);
+  return {
+    limit: await say('limit', { limit: 12, resets_at: local.toISOString() }),
+    one: await say('limit', { limit: 1 }),
+    noNumber: await say('limit', {}),
+    zero: await say('limit', { limit: 0 }),
+    everyone: await say('limit_everyone', { limit: 40, resets_at: local.toISOString() }),
+    everyoneZero: await say('limit_everyone', { limit: 0 }),
+    unavailable: await say('unavailable', {}, 409),
+    busy: await say('busy', {}),
+    quick: await say('too_many_requests', {}),
+    tmdb: await say('tmdb_request_failed', {}, 502),
+    failed, retried: p.sent('/ask').length,
+  };
+};
+
+scenarios.askNothing = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', { status: 'done', owned: [], others: [], chips: [], instead: ['a western musical film'] });
+  const out = { head: p.head(), note: p.doc.querySelector('.ask__note').textContent };
+  click(p.doc, p.doc.querySelector('.refine .chip')); await settle();
+  out.asked = [p.input.value, p.sent('/ask').map((c) => c[2].q)];
+  return out;
+};
+
+scenarios.askNarrow = async () => {
+  const p = await asking();
+  const chip = (text) => p.doc.querySelectorAll('.chip').find((b) => b.getAttribute('data-chip') === text);
+  const now = () => [p.head().split(' | ')[1], p.doc.querySelectorAll('.ans__t').map((n) => n.children[0].textContent), p.doc.querySelectorAll('.refine .chip').filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent)];
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  const out = {};
+  click(p.doc, chip('Funnier')); await settle();
+  out.sent = p.sent('/ask')[1][2];
+  out.narrowing = now();
+  await p.reply('POST', '/ask', { ...ANSWER, owned: [] });
+  out.narrowed = now();
+  click(p.doc, chip('Funnier')); await settle();
+  out.back = [now(), p.sent('/ask').length];
+  click(p.doc, chip('Funnier')); await settle();
+  await p.fail('/ask', 'limit', { limit: 5 });
+  out.refused = [now(), p.doc.querySelector('.ask__note').textContent.slice(0, 30)];
+  click(p.doc, chip('Only in your library')); await settle();
+  await p.reply('POST', '/ask', { ...ANSWER, owned: [], others: [] });
+  out.none = [now(), p.doc.querySelector('.ask__none').textContent];
+  return out;
+};
+
+scenarios.askDownload = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  click(p.doc, p.doc.querySelector('.ans__go--dl')); await settle();
+  click(p.doc, p.doc.querySelector('.ans__go--dl')); await settle();
+  const out = { read: p.sent('/api/watch/title/').map((c) => c[1]) };
+  await p.answer('/api/watch/title/', { year: 2023, download: { request: { url: '/api/search/download', body: { tmdb_id: 2 } } } });
+  out.posted = p.sent('/api/search/download').map((c) => c[2]);
+  await p.reply('POST', '/api/search/download', {});
+  out.queued = p.doc.querySelectorAll('.ans__go').map((n) => n.getAttribute('aria-label'));
+  return out;
+};
+
+scenarios.askPanel = async () => {
+  const p = await asking();
+  p.press(); await settle();
+  const titles = () => p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
+  const tries = () => p.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.getAttribute('role'), n.classList.contains('watch-try--ai')]);
+  const out = { first: p.sheet.children[0].className, titles: titles(), tries: tries(), hint: p.$('watch-search-hint').textContent };
+  click(p.doc, p.sheet.querySelector('.watch-try--ai')); await settle();
+  out.asked = [p.input.value, p.sent('/ask').map((c) => c[2].q)];
+  const r = await asking();
+  r.press(); await settle();
+  click(r.doc, r.sheet.querySelector('.watch-recent .watch-try')); await settle();
+  out.recent = [r.input.value, r.sent('/ask').length];
+  const c = await asking();
+  c.press(); await settle();
+  click(c.doc, c.doc.getElementById('watch-option-clear-recent')); await settle();
+  await c.fail('/searches', 'network_error', {}, 0);
+  out.notCleared = c.sheet.querySelectorAll('.watch-recent .watch-try').length;
+  click(c.doc, c.doc.getElementById('watch-option-clear-recent')); await settle();
+  await c.reply('DELETE', '/searches', {});
+  c.wait(); await settle();
+  out.cleared = c.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  out.clearedTitle = c.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)[0];
+  const stranger = await asking({ personal: false, recent: [], phrases: ['popular action movies'] });
+  stranger.press(); await settle();
+  out.stranger = stranger.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
+  const off = await asking({ available: false });
+  off.press(); await settle();
+  out.off = [off.sheet.querySelector('.tn'), off.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)];
+  return out;
+};
+
+// Known only once the sheet is open: nothing moves under the pointer, and the next opening has it.
+scenarios.askLate = async () => {
+  const p = load(ADMIN, '', null, undefined, { assist: ASSIST });
+  p.press(); await settle();
+  const out = { open: p.sheet.querySelector('.tn') === null };
+  p.key('Escape');
+  p.press(); await settle();
+  out.next = p.sheet.querySelector('.tn') !== null;
+  return out;
+};
+
+scenarios.askRecorded = async () => {
+  const p = await asking();
+  const said = () => p.sent('/searches').filter((c) => c[0] === 'POST').map((c) => c[2].q);
+  await p.search('orchard');
+  const out = { typed: said() };
+  p.key('Enter'); await settle();
+  p.key('Enter'); await settle();
+  out.entered = said();
+  await p.reply('POST', '/searches', { recorded: true });
+  await p.search('salt');
+  await p.answer('/api/watch/search?', { items: [LIB] });
+  click(p.doc, p.doc.querySelector('.watch-card__link')); await settle();
+  out.opened = said();
+  await p.reply('POST', '/searches', { recorded: true });
+  p.type(''); p.press(); await settle();
+  out.recent = p.sheet.querySelectorAll('.watch-recent .watch-try').map((n) => n.textContent);
+  const off = await asking({ history: false });
+  off.type('orchard'); off.key('Enter'); await settle();
+  out.off = off.sent('/searches').length;
+  return out;
+};
+
+scenarios.tonight = async () => {
+  const item = (n, more) => ({ ref: 'movie-' + n, kind: 'movie', title: 'Film ' + n, year: 2020, minutes: 100, season: null, genre: 'Drama', reason: '<i>why</i>', poster_url: '/api/poster/' + n, href: '/watch/movie/' + n, ...more });
+  const p = await asking();
+  p.press(); await settle();
+  const out = {};
+  p.key('ArrowDown');
+  out.first = p.input.getAttribute('aria-activedescendant');
+  const times = () => p.sheet.querySelectorAll('.tn__seg button').map((b) => [b.getAttribute('role'), b.getAttribute('aria-checked')].join());
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[2]);
+  out.times = times();
+  out.sent = p.sent('/tonight').map((c) => c[1]);
+  // The answer to the time pressed before is not shown.
+  const [slow, now] = p.calls.filter((c) => c.url.includes('/tonight'));
+  now.resolve({ items: [item(1), item(2, { kind: 'show', season: 1, href: '//evil.test' }), item(3)], total: 5, more: true, shortest: null });
+  await settle();
+  slow.resolve({ items: [item(9)], total: 1, more: false, shortest: null });
+  await settle();
+  const cards = () => p.sheet.querySelectorAll('.tn__card').map((a) => [a.querySelector('b').textContent, a.href, a.querySelector('p').textContent]);
+  const foot = () => [p.sheet.querySelector('.tn__foot').querySelector('span').textContent, p.sheet.querySelector('.tn__foot').querySelector('.txt').hidden ? null : p.sheet.querySelector('.tn__foot').querySelector('.txt').textContent];
+  out.cards = cards();
+  out.sub = p.sheet.querySelectorAll('.tn__card').map((a) => a.querySelector('small').textContent.replace(/\d\d:\d\d/, 'T'));
+  out.foot = foot();
+  const opened = [];
+  p.ctx.MMWatch.detail = { open: (ref) => opened.push(ref) };
+  click(p.doc, p.sheet.querySelector('.tn__card'));
+  out.opened = [opened, p.sheet.inert];
+  const answer = async (payload) => { await p.answer('/tonight', payload); };
+  click(p.doc, p.sheet.querySelector('.tn__foot').querySelector('.txt'));
+  out.more = p.sent('/tonight').map((c) => c[1]).pop();
+  await answer({ items: [item(4), item(5)], total: 5, more: false, shortest: null });
+  out.back = foot();
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[1]);
+  await answer({ items: [item(1)], total: 1, more: false, shortest: null });
+  out.few = foot();
+  click(p.doc, p.sheet.querySelectorAll('.tn__seg button')[0]);
+  await answer({ items: [], total: 0, more: false, shortest: item(4, { minutes: 88 }) });
+  out.none = [p.sheet.querySelector('.tn__none').textContent];
+  click(p.doc, p.sheet.querySelector('.tn__none').querySelector('.chip'));
+  out.way = p.sent('/tonight').map((c) => c[1]).pop();
+  await p.fail('/tonight', 'network_error', {}, 0);
+  out.failed = p.sheet.querySelector('.tn__none').textContent;
+  return out;
+};
+
+scenarios.like = async () => {
+  const p = await asking();
+  const search = p.ctx.MMWatch.search;
+  const out = { can: [search.canLike('movie-1'), search.canLike('tmdb-tv-5'), search.canLike('rec-5'), search.canLike('')] };
+  search.like('movie-1', 'Nine Locks', '/api/poster/1'); await settle();
+  out.sent = p.sent('/like').map((c) => c[2]);
+  out.page = [p.url(), p.$('watch-search-token').textContent, p.head(), p.shown()];
+  await p.reply('POST', '/like', ANSWER);
+  out.answer = p.head();
+  await p.back();
+  out.back = [p.url(), p.shown(), p.$('watch-search-token').hidden];
+  // Only what was asked for in this tab is asked for by the address.
+  const linked = await asking({}, {}, '', '/watch?like=movie-1');
+  out.linked = [linked.sent('/like').length, linked.url(), linked.shown()];
+  const again = await asking({}, { session: { 'mm.watch.ask': JSON.stringify({ like: 'movie-1', name: 'Nine Locks', poster: '' }) } }, '', '/watch?like=movie-1');
+  out.again = [again.sent('/like').length, again.head()];
+  const none = await asking({ available: false });
+  out.none = none.ctx.MMWatch.search.canLike('movie-1');
+  return out;
+};
 
 const name = process.argv[2];
 if (!scenarios[name]) { console.error('unknown scenario ' + name); process.exit(2); }
