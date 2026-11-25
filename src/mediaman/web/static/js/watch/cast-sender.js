@@ -240,6 +240,13 @@
     if (rec && rec.stream === id) forgetStored();
   }
 
+  /* Somebody signed in over the person before: without the record an open tab of theirs lets go. */
+  function forgetOthers() {
+    var rec = readStored(RECORD);
+    if (account && rec && rec.account && rec.account !== account) forgetStored();
+  }
+  forgetOthers();
+
   /* ---- a play ------------------------------------------------------------- */
 
   var current = null;
@@ -873,6 +880,7 @@
     p.saved = { t: now(), paused: p.paused };
     MM.api.post('/api/watch/progress', Object.assign({ stream_id: id }, body(p))).then(function () {
       p.saving = false;
+      if (id === p.stream.stream_id) p.cut = false;
       if (p.done || p.mine) return;
       p.mine = true;
       changed();
