@@ -28,7 +28,7 @@ function prepare(Node) {
     Object.defineProperty(Node.prototype, 'lastElementChild', { get() { return this.children[this.children.length - 1] || null; } });
   }
   Node.prototype.select = function () {};
-  Node.prototype.setSelectionRange = function (from, to) { this.selectionStart = from; this.selectionEnd = to; };
+  Node.prototype.setSelectionRange = function (from, to, direction) { this.selectionStart = from; this.selectionEnd = to; this.selectionDirection = direction || 'none'; };
 }
 
 module.exports = { parts, prepare };

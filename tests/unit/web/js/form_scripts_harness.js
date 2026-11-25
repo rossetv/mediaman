@@ -12,7 +12,7 @@ class El {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
     this.parentNode = null; this.attrs = {}; this.listeners = {};
     this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {}; this.style = {}; this.title = '';
-    this.selectionStart = 0; this.selectionEnd = 0;
+    this.selectionStart = 0; this.selectionEnd = 0; this.selectionDirection = 'none';
     this.offsetWidth = 120; this.offsetHeight = 55;
     this.classList = { add: (c) => { this.className = c; }, remove: () => { this.className = ''; } };
   }
@@ -40,7 +40,7 @@ class El {
     return c;
   }
   focus() { this.doc.activeElement = this; }
-  setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
+  setSelectionRange(from, to, direction) { this.selectionStart = from; this.selectionEnd = to; this.selectionDirection = direction || 'none'; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(Object.assign({ target: this }, ev))); }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
@@ -114,20 +114,37 @@ function field(doc, form, autofocus) {
 const scenarios = {
   // the cursor stays in the field, where it was, while its eye is pressed
   focus() {
-    const { doc, ctx } = build();
+    const { doc, ctx, frames } = build();
     const form = doc.createElement('form'); doc.body.appendChild(form);
     const a = field(doc, form, false);
+    a.value = 'abcdefghij';
     a.focus();
-    a.selectionStart = 2; a.selectionEnd = 5;
+    a.setSelectionRange(2, 5, 'backward');
     load(ctx, 'show-password.js');
     const eye = a.parentNode.children[1];
     let prevented = false;
     eye.fire('mousedown', { preventDefault() { prevented = true; } });
-    // a browser puts the cursor at the end as the type changes
-    let type = a.type;
-    Object.defineProperty(a, 'type', { get: () => type, set: (t) => { type = t; a.selectionStart = a.selectionEnd = 9; } });
-    eye.fire('click');
-    return { prevented, active: doc.activeElement === a, selection: [a.selectionStart, a.selectionEnd], drawn: doc.documentElement.className };
+    // As Chromium does: after each press that changes its type, the cursor is put at the start.
+    const press = () => { eye.fire('click'); a.setSelectionRange(0, 0); };
+    const frame = () => frames.splice(0).forEach((fn) => fn());
+    const at = () => [a.selectionStart, a.selectionEnd, a.selectionDirection];
+    const from = () => { a.value = 'abcdefghij'; a.focus(); a.setSelectionRange(2, 5, 'backward'); };
+    press(); frame();
+    const kept = at();
+    const active = doc.activeElement === a;
+    from(); const type = a.type; press(); press(); frame();
+    const twice = [...at(), a.type === type];
+    // a key typed before the frame: where it goes, then what typing it leaves
+    from(); press();
+    a.fire('keydown', { key: 'X' });
+    const keyGoes = at();
+    a.value = 'abXfghij'; a.setSelectionRange(3, 3); frame();
+    const afterKey = at();
+    from(); press(); a.value = 'filled in'; frame();
+    const filledMeanwhile = at();
+    from(); press(); doc.activeElement = doc.body; frame();
+    const leftMeanwhile = at();
+    return { prevented, active, kept, twice, keyGoes, afterKey, filledMeanwhile, leftMeanwhile, drawn: doc.documentElement.className };
   },
   autofocus() {
     const { doc, ctx } = build();

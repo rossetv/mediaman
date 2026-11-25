@@ -89,6 +89,10 @@ def test_back_and_forward_put_scroll_and_focus_back() -> None:
     assert out == {"back": [900, "card"], "forward": 300, "restoration": "manual"}
 
 
+def test_focus_comes_back_to_a_card_s_button_far_out_of_sight() -> None:
+    assert _run("focusComesBackToAFarCard")["focus"] == "eye"
+
+
 def test_focus_that_is_already_somewhere_is_left_there() -> None:
     assert _run("focusALayerPutSomewhereStays")["focus"] == "other"
 

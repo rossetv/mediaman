@@ -20,12 +20,23 @@
     }
     // The cursor stays in the field while its eye is pressed.
     eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    // Chromium puts the cursor at the start just after the type changes, so it goes back a frame
+    // later, or sooner where a key comes first. A second press before then keeps the first place.
+    var back = null;
+    function putBack() {
+      var at = back;
+      back = null;
+      if (!at || document.activeElement !== input || input.value !== at.value) return;
+      try { input.setSelectionRange(at.from, at.to, at.way); } catch (err) { /* A field that has none. */ }
+    }
     eye.addEventListener('click', function () {
-      var from = input.selectionStart, to = input.selectionEnd;
+      if (!back) back = { from: input.selectionStart, to: input.selectionEnd, way: input.selectionDirection, value: input.value };
       setShown(eye.getAttribute('aria-pressed') !== 'true');
-      if (document.activeElement !== input) return;
-      try { input.setSelectionRange(from, to); } catch (err) { /* A field that has none. */ }
+      if (document.activeElement !== input) { back = null; return; }
+      requestAnimationFrame(putBack);
     });
+    input.addEventListener('keydown', putBack);
+    input.addEventListener('beforeinput', putBack);
     // A reopened form must not keep showing the last password typed into it.
     if (input.form) input.form.addEventListener('reset', function () { setShown(false); });
   });

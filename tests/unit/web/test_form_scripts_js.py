@@ -21,7 +21,14 @@ def test_pressing_the_eye_keeps_the_cursor_where_it_was_in_the_field() -> None:
     out = _run("focus")
     assert out["prevented"] is True
     assert out["active"] is True
-    assert out["selection"] == [2, 5]
+    assert out["kept"] == [2, 5, "backward"]
+    # pressed twice before a frame, it goes back to where it was before the first press
+    assert out["twice"] == [2, 5, "backward", True]
+    # a key typed before the frame goes where the cursor was, and the typing then stands
+    assert out["keyGoes"] == [2, 5, "backward"]
+    assert out["afterKey"] == [3, 3, "none"]
+    # what the browser did stands once the field has been filled in or left
+    assert out["filledMeanwhile"] == out["leftMeanwhile"] == [0, 0, "none"]
     # what shows the eye, which stays out of sight without the script
     assert out["drawn"] == "pwd-on"
 

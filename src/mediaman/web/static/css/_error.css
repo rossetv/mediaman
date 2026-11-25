@@ -38,6 +38,8 @@ body:has(> .nav-glass) .login-page { min-height: calc(100vh - var(--nav-h)); }
 .err-msg { text-wrap: balance; overflow-wrap: anywhere; }
 
 .err-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+/* Under a large text zoom a label takes two lines rather than push the card past the screen. */
+.err-actions .btn { white-space: normal; text-align: center; padding-block: 10px; line-height: 1.25; }
 
 @media (max-width: 479.98px) {
   .login-card.err-card { padding: 36px 24px; }

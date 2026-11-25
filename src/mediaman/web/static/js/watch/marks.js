@@ -846,7 +846,9 @@
 
   /* The toast takes the focus with it when it goes. */
   function refocus(node) {
-    if (node && node.getClientRects().length) node.focus({ preventScroll: true });
+    if (!node || !node.getClientRects().length) return;
+    core.drawTools(node);
+    node.focus({ preventScroll: true });
   }
 
   /* ── Dismiss ── */
