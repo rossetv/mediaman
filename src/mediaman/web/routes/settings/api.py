@@ -341,7 +341,7 @@ def api_update_settings(
                 return respond_err(
                     "disk_thresholds_unreadable",
                     status=409,
-                    message="The stored disk thresholds can't be read, so no library is scanned. "
+                    message="The stored disk thresholds can't be read, so scheduled scans skip every library. "
                     "Give every selected library a path and a Scan above limit, then save.",
                 )
             thresholds = _merge_disk_thresholds(conn, body.disk_thresholds)
@@ -499,7 +499,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
             return respond_err(
                 "plex_not_configured",
                 status=200,
-                message="Plex URL and token are not configured",
+                message="Plex URL and token are not configured.",
                 libraries=[],
             )
         libraries = client.get_libraries()
@@ -521,19 +521,27 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
     ):
         logger.exception("Failed to fetch Plex libraries")
         return respond_err(
-            "fetch_failed", status=200, message="Failed to fetch Plex libraries", libraries=[]
+            "fetch_failed", status=200, message="Failed to fetch Plex libraries.", libraries=[]
         )
 
 
+_MISSING: dict[str, float] = {}
+_NOT_ALLOWED: dict[str, float] = {}
+
+
 def _read_safe_disk_usage(path: str) -> dict[str, float]:
-    """Return the usage of *path*'s disk; empty when it is not there or not allowed."""
+    """Return the usage of *path*'s disk, or ``_NOT_ALLOWED`` or ``_MISSING`` in its place.
+
+    What is not allowed is the same whether or not it exists: only a path under an allowed
+    root may be told from a missing one.
+    """
     resolved = resolve_safe_readonly_path(path, disk_usage_allowed_roots())
     if resolved is None:
-        return {}
+        return _NOT_ALLOWED
     try:
         usage = shutil.disk_usage(str(resolved))
     except FileNotFoundError:
-        return {}
+        return _MISSING
     except OSError:
         logger.exception("Failed to read disk usage for %s", resolved)
         raise
@@ -550,13 +558,15 @@ def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     if not path:
-        return respond_err("path_required", status=400, message="path parameter is required")
+        return respond_err("path_required", status=400, message="path parameter is required.")
     if len(path) > 4096:
         return respond_err("path_too_long", status=400)
 
     usage = settings_disk_reads.read(path, _read_safe_disk_usage)
     if usage is None:
-        return respond_err("fetch_failed", message="Failed to read disk usage")
-    if not usage:
+        return respond_err("fetch_failed", message="Failed to read disk usage.")
+    if usage is _NOT_ALLOWED:
+        return respond_err("not_allowed", status=403, message="This page may not read this folder.")
+    if usage is _MISSING:
         return respond_err("not_found", status=404, message="Folder not found.")
     return JSONResponse(usage)

@@ -38,7 +38,7 @@ def _scanner_does(entry: object) -> str:
 def _card_says(text: str) -> str:
     if "always scans" in text:
         return "always"
-    if "t scanned" in text or "nothing is scanned" in text:
+    if "t be read" in text:
         return "never"
     return "limited"
 
@@ -98,7 +98,7 @@ def test_a_limit_with_no_folder_is_said_to_be_ignored() -> None:
     out = _run("typing")
     assert "will scan" in out["limited"]
     assert "no path" in out["noPath"].lower() and "always scans" in out["noPath"]
-    assert "will skip" in out["below"]
+    assert "scheduled scans skip" in out["below"]
     assert "always scans" in out["noLimit"]
 
 
@@ -110,13 +110,28 @@ def test_cards_of_unreadable_limits_change_once_a_save_has_mended_them() -> None
 
 
 def test_a_late_read_of_another_folder_is_not_shown() -> None:
-    assert "will skip" in _run("lateRead")
+    assert "Below threshold" in _run("lateRead")
 
 
-def test_a_disk_that_cannot_be_read_is_said_to_be_scanned_but_a_lost_request_is_not() -> None:
-    unread, lost = _run("unreadDisk")
-    assert "Folder not found" in unread and "always scanned" in unread
-    assert "scanned" not in lost
+def test_only_a_missing_folder_is_said_to_leave_its_library_always_scanned() -> None:
+    out = _run("unreadDisk")
+    assert "Folder not found" in out["missing"] and "always scanned" in out["missing"]
+    for answer in ("hidden", "slow"):
+        assert "always" not in out[answer] and "If a scheduled scan" in out[answer]
+    assert "scan" not in out["lost"]
+
+
+def test_every_card_that_says_a_library_is_left_out_speaks_of_scheduled_scans() -> None:
+    entries = [{"path": "/a", "threshold": limit} for limit in (95, 100, "many")]
+    cards = _run("stored", json.dumps(entries)) + _run("wholes", '["odd"]')
+    for text in cards:
+        assert "scheduled scans skip" in text
+
+
+def test_the_sections_say_that_scan_now_ignores_the_limits() -> None:
+    env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
+    libraries = env.get_template("settings/_sec_libraries.html").render(settings={})
+    assert "Scheduled scans" in libraries and "Scan now ignores" in libraries
 
 
 def test_the_libraries_say_to_set_up_plex_only_when_it_is_not_set_up() -> None:

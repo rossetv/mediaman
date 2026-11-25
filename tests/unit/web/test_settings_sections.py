@@ -124,6 +124,39 @@ def test_automatic_checks_are_limited_too(client) -> None:
     assert codes[-1] == 429
 
 
+def test_a_folder_the_page_may_not_read_is_not_called_missing(
+    client, tmp_path, monkeypatch
+) -> None:
+    root = tmp_path.resolve() / "root"
+    real = root / "real"
+    real.mkdir(parents=True)
+    (root / "link").symlink_to(real)
+    outside = tmp_path.resolve() / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+
+    def answer(path) -> tuple[int, str]:
+        resp = client.get("/api/settings/disk-usage", params={"path": str(path)})
+        return resp.status_code, resp.json().get("error", "")
+
+    assert answer(real) == (200, "")
+    assert answer(root / "gone") == (404, "not_found")
+    hidden = (403, "not_allowed")
+    assert answer(root / "link") == hidden
+    # nothing outside is told from what is not there at all
+    assert answer(outside) == answer(outside / "gone") == hidden
+
+
+def test_a_disk_that_cannot_be_read_says_so_in_a_sentence(client, monkeypatch) -> None:
+    def broken(_path):
+        raise PermissionError
+
+    monkeypatch.setattr("mediaman.web.routes.settings.api.shutil.disk_usage", broken)
+    body = client.get("/api/settings/disk-usage?path=/media/movies").json()
+    assert body["error"] == "fetch_failed"
+    assert body["message"].endswith(".")
+
+
 def test_a_test_that_outlives_a_save_is_not_kept_for_the_new_settings(client, monkeypatch) -> None:
     def saved_meanwhile(_settings):
         body = {"openai_api_key": "a-new-key"}

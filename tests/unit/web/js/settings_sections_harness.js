@@ -70,8 +70,8 @@ async function libraries(opts, usage, answer) {
     rows: () => p.id('disk-threshold-rows').textContent,
     says: (n) => card(n).querySelector('[data-role="state"]').textContent,
     type: async (n, folder, percent) => {
-      input(n, 'path').value = folder; p.fire(input(n, 'path'), 'blur');
-      input(n, 'threshold').value = percent; p.fire(input(n, 'threshold'), 'change');
+      input(n, 'path').value = folder; p.fire(input(n, 'path'), 'input'); p.fire(input(n, 'path'), 'blur');
+      input(n, 'threshold').value = percent; p.fire(input(n, 'threshold'), 'input'); p.fire(input(n, 'threshold'), 'change');
       await settle();
     },
   });
@@ -147,12 +147,42 @@ const scenarios = {
     return p.says(1);
   },
 
+  // What a card says for each answer to the read of its folder.
   async unreadDisk() {
-    const p = await libraries({ diskThresholds: { 1: { path: '/gone', threshold: 80 } } },
-      () => refused('not_found', 'Folder not found.', 404));
-    const q = await libraries({ diskThresholds: { 1: { path: '/a', threshold: 80 } } },
-      () => refused('network_error', 'No connection.', 0));
-    return [p.says(1), q.says(1)];
+    const says = async (error, message, status) => (await libraries({ diskThresholds: { 1: { path: '/a', threshold: 80 } } },
+      () => refused(error, message, status))).says(1);
+    return {
+      missing: await says('not_found', 'Folder not found.', 404),
+      hidden: await says('not_allowed', 'This page may not read this folder.', 403),
+      slow: await says('fetch_failed', 'Failed to read disk usage.', 400),
+      lost: await says('network_error', 'No connection.', 0),
+    };
+  },
+
+  // Typing the shown values again over an entry the scanner cannot read.
+  async retyped(entry, folder, percent) {
+    const p = await libraries({ diskThresholds: { 1: JSON.parse(entry) } });
+    const saved = p.disk.state();
+    const look = () => {
+      const now = p.disk.state();
+      return {
+        says: p.says(1), changes: p.disk.changes(saved.disk, now.disk),
+        sameThing: JSON.stringify(p.disk.things(saved)) === JSON.stringify(p.disk.things(now)),
+      };
+    };
+    const out = { untouched: look() };
+    await p.type(1, folder, percent);
+    out.typedSays = p.says(1);
+    out.typed = look();
+    p.disk.show(saved);
+    await settle();
+    out.shownAgain = look();
+    await p.type(1, folder, percent);
+    p.disk.state();
+    p.disk.restore(saved);
+    await settle();
+    out.discarded = look();
+    return out;
   },
 
   async plexAnswers() {
@@ -211,18 +241,88 @@ const scenarios = {
   },
 
   async recipients() {
+    const p = await newsletter();
+    const { doc, boxes, ticks, add, remove, list, person } = p;
+    const out = {};
+    out.opened = ticks();
+    await add(person(3));
+    out.added = ticks();
+    boxes()[1].checked = false;
+    const held = boxes()[1];
+    await add(person(4), () => held.focus());
+    out.addedAfterAChoice = ticks();
+    out.focusKept = doc.activeElement === held && doc.documentElement.contains(held);
+    await remove(1);
+    out.removed = ticks();
+    await add(person(5, false));
+    out.optedOut = ticks().length;
+    await remove(2); await remove(3); await remove(4);
+    out.none = list().textContent;
+    await add(person(6));
+    out.again = [ticks(), list().textContent.includes('No active')];
+    return out;
+  },
+
+  // A list that cannot be read again after an add or a removal.
+  async staleRecipients() {
+    const p = await newsletter();
+    const { boxes, ticks, add, remove, note, person, subscribers } = p;
+    boxes()[1].checked = false;
+    const out = {};
+    p.fail(Infinity);
+    await add(person(3));
+    out.failed = { ticks: ticks(), note: note(), subscribers: subscribers(), errors: p.errors.slice() };
+    p.fail(0);
+    await add(person(4));
+    out.recovered = { ticks: ticks(), note: note(), subscribers: subscribers() };
+    p.fail(Infinity);
+    await remove(4);
+    out.failedAgain = { ticks: ticks().length, note: note() };
+    p.fail(0);
+    p.click(p.id('btn-send-newsletter'));
+    p.click(p.id('btn-send-newsletter'));
+    await settle();
+    out.reopened = { ticks: ticks().length, note: note() };
+    return out;
+  },
+
+  // Where the focus goes when the recipient that has it is taken off the list.
+  async recipientFocus() {
+    const p = await newsletter([1, 2, 3]);
+    const focused = async (n) => {
+      p.id('recipient-' + n).focus();
+      await p.remove(n, true);
+      const active = p.doc.activeElement;
+      return p.doc.documentElement.contains(active) ? active.id : 'nowhere';
+    };
+    const out = [await focused(2), await focused(3), await focused(1)];
+    const q = await newsletter([1]);
+    q.list().querySelector('button').focus();
+    await q.remove(1, true);
+    out.push(q.doc.documentElement.contains(q.doc.activeElement) ? q.doc.activeElement.id : 'nowhere');
+    return out;
+  },
+
+};
+
+// The newsletter section with its recipients open.
+async function newsletter(people) {
     const p = page([
       ['div', { id: 'subscriber-list' }],
       ['input', { id: 'new-subscriber-email' }], ['button', { id: 'btn-add-subscriber' }, 'Add'],
       ['button', { id: 'btn-send-newsletter' }],
       ['div', { id: 'newsletter-send-panel', class: 'setg-fold' },
-        ['div', { id: 'newsletter-recipient-list' }], ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
+        ['div', { id: 'newsletter-recipient-list' }], ['div', { id: 'newsletter-recipient-note' }],
+        ['button', { id: 'btn-confirm-newsletter' }, 'Send newsletter'],
         ['span', { id: 'newsletter-send-status' }]],
     ], ['rows', 'newsletter']);
-    let subs = [1, 2].map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
+    let failing = 0;
+    let subs = (people || [1, 2]).map((n) => ({ id: n, email: 'p' + n + '@example.com', active: true }));
+    const errors = [];
+    p.ctx.UIFeedback.error = (text) => errors.push(text);
     const person = (n, active) => ({ id: n, email: 'p' + n + '@example.com', active: active !== false });
     p.ctx.MM.api = {
-      get: () => Promise.resolve({ subscribers: subs.slice() }),
+      get: () => (failing-- > 0 ? refused('http_500', 'x', 500) : Promise.resolve({ subscribers: subs.slice() })),
       postForm: () => Promise.resolve({}),
       delete: (u) => { subs = subs.filter((s) => '/api/subscribers/' + s.id !== u); return Promise.resolve({}); },
       messageOf: (e, w) => w,
@@ -241,32 +341,23 @@ const scenarios = {
       if (meanwhile) meanwhile();
       await settle();
     };
-    const remove = async (n) => {
+    // `keepFocus`: the person has moved on to the recipients by the time the removal is done.
+    const remove = async (n, keepFocus) => {
+      const active = p.doc.activeElement;
       p.click(p.doc.querySelector('.sub-row[data-id="' + n + '"]').querySelector('.link-danger'));
+      if (keepFocus) active.focus();
       await settle();
     };
-    const out = {};
     p.click(p.id('btn-send-newsletter'));
     await settle();
-    out.opened = ticks();
-    await add(person(3));
-    out.added = ticks();
-    boxes()[1].checked = false;
-    const held = boxes()[1];
-    await add(person(4), () => held.focus());
-    out.addedAfterAChoice = ticks();
-    out.focusKept = p.doc.activeElement === held && p.doc.documentElement.contains(held);
-    await remove(1);
-    out.removed = ticks();
-    await add(person(5, false));
-    out.optedOut = ticks().length;
-    await remove(2); await remove(3); await remove(4);
-    out.none = p.id('newsletter-recipient-list').textContent;
-    await add(person(6));
-    out.again = [ticks(), p.id('newsletter-recipient-list').textContent.includes('No active')];
-    return out;
-  },
-};
+    return Object.assign(p, {
+      boxes, ticks, add, remove, person, errors,
+      list: () => p.id('newsletter-recipient-list'),
+      note: () => p.id('newsletter-recipient-note').textContent,
+      subscribers: () => p.doc.querySelectorAll('.sub-row').map((r) => r.querySelector('.em').textContent),
+      fail: (n) => { failing = n; },
+    });
+}
 
 scenarios[process.argv[2]](...process.argv.slice(3)).then(
   (out) => process.stdout.write(JSON.stringify(out)),

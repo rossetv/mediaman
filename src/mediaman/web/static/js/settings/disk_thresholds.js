@@ -282,11 +282,11 @@
     var stored = isObject(STORED) ? STORED[id] : undefined;
     var limit = limitOf(same(typed, shown(stored)) ? stored : typed);
     if (limit === 'unreadable') {
-      return { tone: 'crit', text: 'Saved limit can’t be read — not scanned. Enter a path and a limit, then save.' };
+      return { tone: 'crit', text: 'Saved limit can’t be read — scheduled scans skip this library. Enter a path and a limit, then save.' };
     }
     if (limit) return { limit: limit };
     if (UNREADABLE) {
-      return { tone: 'crit', text: 'Saved limits can’t be read — nothing is scanned. Give every selected library a path and a limit, then save.' };
+      return { tone: 'crit', text: 'Saved limits can’t be read — scheduled scans skip every library. Give every selected library a path and a limit, then save.' };
     }
     if (typed.threshold > 0 && !typed.path) {
       return { tone: 'warn', text: 'No path, so the limit is ignored — always scans' };
@@ -296,15 +296,18 @@
 
   function usageState(usage, percent) {
     if (usage >= percent) return { tone: 'crit', text: 'Above threshold — will scan', usage: usage };
-    if (usage >= percent - 10) return { tone: 'warn', text: 'Approaching threshold — will skip', usage: usage };
-    return { tone: 'ok', text: 'Below threshold — will skip', usage: usage };
+    if (usage >= percent - 10) return { tone: 'warn', text: 'Approaching threshold — scheduled scans skip it', usage: usage };
+    return { tone: 'ok', text: 'Below threshold — scheduled scans skip it', usage: usage };
   }
 
   function unreadState(err) {
-    var text = MM.api.messageOf(err, 'Couldn’t check this folder. Try again.');
-    if (err && (err.error === 'not_found' || err.error === 'fetch_failed')) {
-      text += ' While its disk can’t be read, this library is always scanned.';
+    var code = err && err.error;
+    if (code === 'not_allowed') {
+      return { tone: 'warn', text: 'This page may not read this folder, but scheduled scans do. If a scheduled scan can’t, it scans this library.' };
     }
+    var text = MM.api.messageOf(err, 'Couldn’t check this folder. Try again.');
+    if (code === 'not_found') text += ' While its disk can’t be read, this library is always scanned.';
+    if (code === 'fetch_failed') text += ' If a scheduled scan can’t read it either, it scans this library.';
     return { tone: 'crit', text: text };
   }
 
