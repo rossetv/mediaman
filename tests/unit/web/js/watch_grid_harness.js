@@ -729,6 +729,78 @@ const scenarios = {
     return out;
   },
 
+  // Picks under their dates, in the grid alone: the last of a date takes its line along and the first back has it again,
+  // each in its place, whatever came after and in whatever order they come back.
+  async datedOut() {
+    const seq = (p) => p.grid.querySelector('.watch-grid').children.filter((n) => !n.classList.contains('watch-card--skel'))
+      .map((n) => (n.getAttribute('data-group') || Number(n.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6))));
+    const start = (motion) => {
+      const p = load({ motion });
+      const dates = ['b1', 'b2', 'b3'];
+      const list = [p.grid.group('b1', 'Picks of b1'), p.card(1), p.card(2), p.grid.group('b2', 'Picks of b2'), p.card(3)];
+      p.grid.open(p.opts({ total: null, cards: list, next: 'n', fetchPage: () => Promise.resolve({ cards: [p.grid.group('b3', 'Picks of b3'), p.card(4)], next: null }),
+        sort: { label: 'Jump to', value: 'b1', jump: true, options: dates.map((id) => ({ id, label: id })) } }));
+      p.take = (n) => p.grid.take(p.doc.querySelectorAll('.watch-all .watch-card').find((c) => c.querySelector('[data-title-ref="movie-' + n + '"]')), '.watch-card__link');
+      p.seq = () => seq({ grid: p.all() });
+      p.jumps = () => { click(p.doc, p.doc.querySelector('#watch-all-sort')); const ids = p.doc.querySelectorAll('#watch-all-menu [data-value]').map((i) => i.getAttribute('data-value')); p.key('Escape'); return ids; };
+      return p;
+    };
+    const p = start();
+    const took = [p.take(2)];
+    const one = p.seq();
+    took.push(p.take(1), p.take(3));
+    const gone = { seq: p.seq(), label: label(p) };
+    await settle();
+    const loaded = { seq: p.seq(), jumps: p.jumps() };
+    const last = p.take(4);
+    const out = { one, gone, loaded, none: p.seq() };
+    last.undo();
+    took[2].undo();
+    took[1].undo();
+    out.first = p.seq();
+    took[0].undo();
+    out.back = { seq: p.seq(), jumps: p.jumps() };
+    const q = start(true);
+    q.finish();
+    const line = q.doc.querySelector('.grid-group[data-group="b2"]');
+    const undo = q.take(3).undo;
+    out.fades = line.classList.contains('is-gone') && q.anims.some((a) => a.node === line && a.frames[1].opacity === 0);
+    q.finish();
+    out.faded = q.doc.body.contains(line);
+    undo();
+    q.finish();
+    out.seen = [q.seq().slice(0, 5), line.hasAttribute('inert'), line.className, line.style.top + line.style.width + line.style.paddingTop];
+    return out;
+  },
+
+  // A pick back in its row, whose grid of dates was filled without it: beside a pick of its date there, or with the line of
+  // its date, and the pages loaded since stay.
+  async bringsDated() {
+    const go = (rowOf, gridOf, n, takes = []) => {
+      const p = load({ cards: rowOf.map((r) => r[0]) });
+      const inRow = p.rows[0].querySelectorAll('.watch-card');
+      inRow.forEach((c, i) => c.setAttribute('data-batch', rowOf[i][1]));
+      const cardOf = ([id, batch]) => { const c = p.card(id); c.setAttribute('data-batch', batch); return c; };
+      const line = (c) => p.grid.group(c.getAttribute('data-batch'), c.getAttribute('data-batch'));
+      const all = (nodes) => nodes.map((g) => (typeof g === 'string' ? p.grid.group(g, g) : cardOf(g)));
+      p.grid.open(p.opts({ total: null, cards: all(gridOf), line }));
+      const grid = p.doc.querySelector('.watch-all .watch-grid');
+      const at = (id) => grid.querySelectorAll('.watch-card').find((c) => c.querySelector('[data-title-ref="movie-' + id + '"]'));
+      takes.forEach((id) => p.grid.take(at(id), '.watch-card__link'));
+      const twin = p.grid.bring(inRow.find((c) => c.querySelector('[data-title-ref="movie-' + n + '"]')));
+      return [twin === at(n), grid.children.map((c) => c.getAttribute('data-group') || Number(c.querySelector('[data-title-ref]').getAttribute('data-title-ref').slice(6)))];
+    };
+    const row = [[1, 'a'], [2, 'a'], [3, 'a'], [4, 'b'], [5, 'c']];
+    return {
+      middle: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b'], 'c', [5, 'c'], 'd', [6, 'd']], 2),
+      firstOfDate: go(row, ['a', [2, 'a'], [3, 'a'], 'b', [4, 'b']], 1),
+      aloneFirst: go([[1, 'a'], [4, 'b']], ['b', [4, 'b']], 1),
+      aloneBetween: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4),
+      aloneAfterTaken: go(row, ['a', [1, 'a'], [2, 'a'], [3, 'a'], 'c', [5, 'c']], 4, [3, 5]),
+      dateTaken: go(row, ['a', [1, 'a'], [3, 'a'], 'b', [4, 'b']], 2, [1, 3]),
+    };
+  },
+
   // Two seasons of one show in the row: each is a card, and comes back as itself.
   async bringsSeasons() {
     const p = load({ cards: [1, 1, 2] });

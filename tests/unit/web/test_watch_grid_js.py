@@ -7,6 +7,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HARNESS = Path(__file__).parent / "js" / "watch_grid_harness.js"
 
 OPEN = {"browse": False, "all": True, "moving": False, "open": True}
@@ -261,6 +263,46 @@ def test_a_card_taken_out_lets_the_rest_close_up_and_comes_back_to_its_place() -
 
 def test_a_card_undone_after_it_faded_out_of_the_grid_is_seen_again() -> None:
     assert _run("backFromAFade") == {"off": True, "held": False, "back": 2}
+
+
+def test_the_last_pick_of_a_date_takes_its_line_along_and_the_first_back_has_it_again() -> None:
+    out = _run("datedOut")
+    assert out["one"] == ["b1", 1, "b2", 3]
+    assert out["gone"]["seq"] == []
+    assert out["loaded"]["seq"] == ["b3", 4]
+    assert out["none"] == []
+    # Back in another order than they went, and before what came later.
+    assert out["first"] == ["b1", 1, "b2", 3, "b3", 4]
+    assert out["back"]["seq"] == ["b1", 1, 2, "b2", 3, "b3", 4]
+
+
+def test_a_date_with_nothing_under_it_any_more_is_not_there_to_jump_to() -> None:
+    out = _run("datedOut")
+    assert out["loaded"]["jumps"] == ["b3"]
+    assert out["back"]["jumps"] == ["b1", "b2", "b3"]
+
+
+def test_a_dates_line_fades_out_with_its_last_pick_and_stands_as_it_did_once_back() -> None:
+    out = _run("datedOut")
+    assert (out["fades"], out["faded"]) == (True, False)
+    assert out["seen"] == [["b1", 1, 2, "b2", 3], False, "grid-group", ""]
+
+
+@pytest.mark.parametrize(
+    ("case", "seq"),
+    [
+        ("middle", ["a", 1, 2, 3, "b", 4, "c", 5, "d", 6]),
+        ("firstOfDate", ["a", 1, 2, 3, "b", 4]),
+        ("aloneFirst", ["a", 1, "b", 4]),
+        ("aloneBetween", ["a", 1, 2, 3, "b", 4, "c", 5]),
+        ("aloneAfterTaken", ["a", 1, 2, "b", 4]),
+        ("dateTaken", ["a", 2, "b", 4]),
+    ],
+)
+def test_a_pick_back_in_its_row_stands_under_its_date_in_the_grid_opened_without_it(
+    case: str, seq: list[object]
+) -> None:
+    assert _run("bringsDated")[case] == [True, seq]
 
 
 def test_a_card_back_in_its_row_comes_back_to_a_grid_that_was_filled_without_it() -> None:
