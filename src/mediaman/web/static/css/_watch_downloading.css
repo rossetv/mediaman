@@ -15,7 +15,9 @@
 .dlx.is-open { grid-template-rows: 1fr; margin-top: 0; opacity: 1; }
 .dlx__in { min-height: 0; min-width: 0; overflow: hidden; }
 .dlx.is-resting > .dlx__in { overflow: visible; }
-@media (max-width: 599.98px) { .dlx { --rows-gap: 22px; } }
+@media (max-width: 599.98px) {
+  .dlx { --rows-gap: 22px; }
+}
 
 .dlx__count {
   align-self: center;
@@ -32,6 +34,7 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+@media (max-width: 599.98px) { .dlx__count { margin-left: 0; } }
 .dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); }
 .dlx__note[hidden] { display: none; }
 .dlx__note > .ico { flex: none; align-self: center; }
