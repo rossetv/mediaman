@@ -49,6 +49,7 @@ function load() {
     ratings: (map) => answer({ ok: true, ratings: map }),
     title: (id, type = 'movie') => answer({ ok: true, media_type: type, tmdb_id: id }),
     fail: () => answer({ ok: false, error: 'http_500' }, 500),
+    refuse: () => answer({ ok: false, error: 'too_many_requests' }, 429),
     press: (set, i) => click(doc, set.node.querySelectorAll('button')[i]),
     look: (set) => ({
       on: set.node.querySelectorAll('button').map((b, i) => ((b.getAttribute('aria-pressed') || b.getAttribute('aria-checked')) === 'true' ? i : -1)).filter((i) => i >= 0),
@@ -190,6 +191,94 @@ const scenarios = {
     const look = p.look(a).on;
     await p.ratings({ 'pick-3': lv(2) });
     return { order, look, b: p.look(b).on, log: p.log };
+  },
+
+  // Set mounted after a save that failed, beside the one that showed it.
+  async failedBefore() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(null) });
+    p.press(set, 3);
+    await p.refuse();
+    const later = p.R.mount('movie-1', { variant: 'menu' });
+    return { later: p.look(later), set: p.look(set), log: p.log.slice(2) };
+  },
+
+  // A save whose answer is lost: the server holds it, or does not.
+  async lost() {
+    const after = async (level) => {
+      const p = load();
+      const set = p.R.mount('movie-1');
+      await p.go();
+      await p.ratings({ 'movie-1': lv(-1) });
+      p.press(set, 3);
+      await p.fail();
+      const asked = p.log.slice(2);
+      await p.ratings({ 'movie-1': lv(level) });
+      return { asked, look: p.look(set) };
+    };
+    return { held: await after(2), not: await after(-1) };
+  },
+
+  // The first answer is lost, the second press is refused.
+  async lostThenRefused() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(null) });
+    p.press(set, 3); p.press(set, 0);
+    await p.fail();
+    await p.refuse();
+    return p.log.slice(3);
+  },
+
+  // Two refs of one title pressed while neither has settled; the second is then saved or refused.
+  async twins() {
+    const run = async (end) => {
+      const p = load();
+      const a = p.R.mount('movie-1');
+      const b = p.R.mount('tmdb-movie-7');
+      await p.go();
+      await p.ratings({ 'movie-1': lv(null), 'tmdb-movie-7': lv(null) });
+      p.press(a, 3); p.press(b, 0);
+      await p.title(7);
+      const out = { between: p.look(b).on };
+      await p[end](7);
+      out.end = [p.look(a).on, p.look(b).on];
+      p.press(a, 1);
+      out.next = [p.look(a).on, p.look(b).on];
+      return out;
+    };
+    return { saved: await run('title'), refused: await run('refuse') };
+  },
+
+  // As twins, but the first ref is pressed again before the second is refused.
+  async twinsBusy() {
+    const p = load();
+    const a = p.R.mount('movie-1');
+    const b = p.R.mount('tmdb-movie-7');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(null), 'tmdb-movie-7': lv(null) });
+    p.press(a, 3); p.press(b, 0);
+    await p.title(7);
+    p.press(a, 1);
+    await p.refuse();
+    const asked = p.log.slice(3);
+    await p.title(7);
+    return { asked, end: [p.look(a).on, p.look(b).on] };
+  },
+
+  // The first read answers while a save is out, which is then refused.
+  async readDuringSave() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    p.press(set, 3);
+    await p.ratings({ 'movie-1': lv(1) });
+    const during = p.look(set).on;
+    await p.refuse();
+    return { during, after: p.look(set).on };
   },
 
   async kept() {

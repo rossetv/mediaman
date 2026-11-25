@@ -115,6 +115,52 @@ def test_a_read_from_before_a_save_does_not_undo_it() -> None:
     assert out["log"][2:] == ["GET ?refs=pick-3"]
 
 
+def test_a_set_mounted_after_a_failed_save_does_not_say_it_failed() -> None:
+    out = _run("failedBefore")
+    assert (out["later"]["line"], out["later"]["bad"]) == ("Rate it. Only you see this.", False)
+    assert out["set"]["bad"] is True
+    # A refusal is the server's word that nothing changed: it is not asked again.
+    assert out["log"] == []
+
+
+def test_a_save_whose_answer_is_lost_is_read_again() -> None:
+    out = _run("lost")
+    assert out["held"]["asked"] == out["not"]["asked"] == ["GET ?refs=movie-1"]
+    assert (out["not"]["look"]["on"], out["not"]["look"]["bad"]) == ([1], True)
+    # Saved after all, so it no longer says it was not.
+    assert (out["held"]["look"]["on"], out["held"]["look"]["bad"]) == ([3], False)
+
+
+def test_a_lost_answer_is_read_again_though_a_later_press_was_refused() -> None:
+    assert _run("lostThenRefused") == ["GET ?refs=movie-1"]
+
+
+def test_a_press_still_on_its_way_is_not_hidden_by_the_same_title_saved_elsewhere() -> None:
+    assert _run("twins")["saved"] == {
+        "between": [0],
+        "end": [[0], [0]],
+        "next": [[1], [1]],
+    }
+
+
+def test_a_refused_press_shows_what_the_same_title_was_saved_as_elsewhere() -> None:
+    assert _run("twins")["refused"] == {
+        "between": [0],
+        "end": [[3], [3]],
+        "next": [[1], [1]],
+    }
+
+
+def test_a_refused_press_is_read_again_while_the_same_title_is_being_saved_elsewhere() -> None:
+    out = _run("twinsBusy")
+    assert out["asked"] == ["PUT /movie-1 -1", "GET ?refs=tmdb-movie-7,movie-1"]
+    assert out["end"] == [[1], [1]]
+
+
+def test_a_read_that_lands_during_a_save_shows_only_if_the_save_is_refused() -> None:
+    assert _run("readDuringSave") == {"during": [3], "after": [2]}
+
+
 def test_a_page_the_browser_kept_reads_its_ratings_again() -> None:
     assert _run("kept")["on"] == [2]
 

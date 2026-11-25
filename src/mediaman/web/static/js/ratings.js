@@ -88,7 +88,7 @@
     var key = m ? m[1] + '-' + m[2] : '';
     s = (key && withKey(key)) || {
       key: key, refs: [], want: null, saved: null, rateable: undefined, known: false,
-      busy: false, asking: false, error: '', rev: 0, pressed: null, from: null,
+      busy: false, asking: false, lost: false, rev: 0, pressed: null, from: null,
     };
     s.refs.push(ref);
     states[ref] = s;
@@ -100,9 +100,18 @@
       .filter(function (s) { return s !== except && s.key === key; })[0];
   }
 
+  function setsOf(s) {
+    return sets.filter(function (set) { return stateOf(set.ref) === s; });
+  }
+
+  /* Only the sets that were there for the change say how it failed. */
+  function setError(s, words) {
+    setsOf(s).forEach(function (set) { set.error = words; });
+  }
+
   function tell(s, phase, was, ref) {
     var title = /^(movie|tv)-(\d+)$/.exec(s.key);
-    sets.slice().forEach(function (set) { if (stateOf(set.ref) === s) set.paint(); });
+    setsOf(s).forEach(function (set) { set.paint(); });
     document.dispatchEvent(new CustomEvent('mm:rating', {
       detail: {
         phase: phase, ref: ref || s.refs[0], refs: s.refs.slice(), level: s.want, was: was, from: s.from,
@@ -111,12 +120,8 @@
     }));
   }
 
-  /* The other refs that the server now says name the title of *s*. One whose own change
-     is out joins when that has settled. */
-  function join(s, key) {
-    s.key = key;
-    var other = withKey(key, s);
-    if (!other || other.busy) return;
+  /* The refs of *other* now name *s*. */
+  function join(s, other) {
     other.refs.forEach(function (ref) { states[ref] = s; });
     s.refs = s.refs.concat(other.refs);
   }
@@ -140,7 +145,7 @@
     var was = s.want;
     if (level === was) return;
     s.want = level;
-    s.error = '';
+    setError(s, '');
     s.pressed = ref;
     s.from = from || null;
     tell(s, 'pending', was, ref);
@@ -158,19 +163,44 @@
       s.known = true;
       s.rateable = true;
       s.rev += 1;
-      join(s, data.media_type + '-' + data.tmdb_id);
+      s.lost = false;
+      s.key = data.media_type + '-' + data.tmdb_id;
+      var other = withKey(s.key, s);
+      // One whose own change is out joins when that has settled.
+      if (other && !other.busy) join(s, other);
       if (s.want !== level) { send(s); return; }
       s.busy = false;
+      setError(s, '');
       tell(s, 'saved', was, ref);
       doubtOthers(s);
     }, function (err) {
+      // Without the server's word, it may have saved it.
+      if (!(err.status >= 400 && err.status < 500)) s.lost = true;
       if (s.want !== level) { send(s); return; }
-      s.busy = false;
-      s.want = s.saved;
-      s.error = NOT_SAVED;
-      if (err && err.error === 'no_tmdb_id') s.error = MM.api.messageOf(err, NOT_SAVED);
-      tell(s, 'failed', s.saved, ref);
+      failed(s, err, ref);
     });
+  }
+
+  function failed(s, err, ref) {
+    var other = s.key && withKey(s.key, s);
+    var again = s.lost ? [ref] : [];
+    s.busy = false;
+    if (s.lost) doubt(s);
+    s.lost = false;
+    if (other && other.busy) {
+      doubt(s);
+      doubt(other);
+      again = s.refs.slice(0, 1).concat(other.refs.slice(0, 1));
+    } else if (other) {
+      s.saved = other.saved;
+      s.rateable = other.rateable;
+      s.rev += 1; // an answer on its way may be from before
+      join(s, other);
+    }
+    s.want = s.saved;
+    setError(s, err.error === 'no_tmdb_id' ? MM.api.messageOf(err, NOT_SAVED) : NOT_SAVED);
+    tell(s, 'failed', s.saved, ref);
+    read(again);
   }
 
   /* ── Reading ── */
@@ -209,6 +239,7 @@
         var was = s.want;
         s.want = s.saved;
         s.from = null;
+        if (s.want !== was) setError(s, ''); // saved after all, or changed elsewhere
         tell(s, 'read', was, a.ref);
       });
     }, function () {
@@ -284,12 +315,12 @@
       var l = levelOf(s.want);
       var bold = '';
       var text = IDLE[variant];
-      if (s.error) text = s.error;
+      if (set.error) text = set.error;
       else if (inMenu) text = l ? l.name : text;
       else if (variant === 'strip' && !touched) text = IDLE.strip;
       else if (l) { bold = l.name + '.'; text = ' ' + l.said; }
       else if (variant === 'strip') text = 'Rating removed.';
-      line.classList.toggle('is-bad', !!s.error);
+      line.classList.toggle('is-bad', !!set.error);
       if (lineKey === bold + text) return;
       var first = lineKey === null;
       lineKey = bold + text;
@@ -312,7 +343,7 @@
       sayLine(s);
     }
 
-    var set = { ref: ref, paint: paint };
+    var set = { ref: ref, paint: paint, error: '' };
     sets.push(set);
     paint();
     read([ref]);
