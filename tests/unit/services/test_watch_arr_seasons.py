@@ -75,3 +75,29 @@ def test_a_page_that_will_not_wait_is_answered_empty_and_the_next_one_has_the_vi
     assert (early.answers_for("tv"), early.season_states(77, None)) == (False, None)
     assert later.answers_for("tv")
     assert later.season_states(77, None)[1].status == "downloading"
+
+
+def test_dropping_the_view_while_sonarr_hangs_piles_up_no_builds(monkeypatch):
+    answered = threading.Event()
+    builds: list[str] = []
+    done = threading.Semaphore(0)
+
+    def get_series():
+        builds.append("build")
+        answered.wait(5)
+        done.release()
+        return [SERIES]
+
+    _hold(monkeypatch, get_series, [])
+
+    for _ in range(5):
+        catalog.arr_view(None, "k", wait_s=0)
+        catalog.invalidate()
+    piled = len(builds)
+    answered.set()
+    done.acquire(timeout=5)
+
+    assert piled == 1
+    # What the hung build read is older than the drop, so it is read anew.
+    assert catalog.arr_view(None, "k").answers_for("tv")
+    assert len(builds) == 2
