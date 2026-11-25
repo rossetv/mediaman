@@ -77,6 +77,8 @@
 .is-up:is(.card-tool, .card-flier) { --rate-c: var(--accent-hi); }
 .is-down:is(.card-tool, .card-flier) { --rate-c: var(--orange); }
 .card-tool--thumb:is(.is-up, .is-down) { color: var(--rate-c); }
+.is-up.is-double:is(.card-tool, .card-flier) { --rate-c: var(--rate-love); }
+.is-down.is-double:is(.card-tool, .card-flier) { --rate-c: var(--rate-no); }
 .card-tool:is(:focus-visible, [aria-expanded="true"])::before { opacity: 1; transform: none; }
 .card-tool:is(:focus-visible, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s3); }
 .card-tool:focus-visible { outline: none; }
@@ -270,6 +272,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .pv__eye.is-blink > .ico { animation: eye-blink calc(var(--dur) * 2.1) var(--ease-out); }
   .is-blink[aria-pressed="true"] { animation: eye-shuts calc(var(--dur) * 2.1) linear; }
   .is-blink[aria-pressed="false"] { animation: eye-opens calc(var(--dur) * 2.1) linear; }
+.card-flier .halo { display: none; }
   .card-lights { animation: card-lights calc(var(--dur) * 3.1) ease-in-out; }
   .watch-badge--watched.is-new { animation: badge-drop calc(var(--dur) * 2.1) var(--ease-pop) calc(var(--dur) * .9) backwards; }
   .watch-badge--unwatched { animation: badge-lift calc(var(--dur) * .8) ease-in forwards; }

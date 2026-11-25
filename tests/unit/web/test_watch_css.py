@@ -197,6 +197,95 @@ def test_no_button_under_a_card_moves_where_motion_is_unwanted() -> None:
 
 
 def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
+FINGER = "(hover: none), (pointer: coarse)"
+STILL = "(prefers-reduced-motion: reduce)"
+RATINGS = SHEET.with_name("_ratings.css")
+PREVIEW = SHEET.with_name("_watch_preview.css")
+
+
+def _z(selector: str, media: str | None = None) -> int:
+    return int(re.findall(r"z-index: (\d+)", _of(selector, media, CARDS))[0])
+
+
+def test_on_a_touch_screen_the_open_levels_stand_over_every_other_card_s_buttons() -> None:
+    lifted = _z(".watch-card.is-lifted", FINGER)
+    assert lifted > max(_z(".card-tools"), _z(".card-over"))
+    # And under nothing of the row's heading, which reaches down over the posters.
+    heading = ".watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after"
+    assert "pointer-events: none" in _of(heading, FINGER, CARDS)
+
+
+def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
+    assert "transition: none !important" in _of(".rate--lift .rate__set", STILL, CARDS)
+
+
+def test_a_level_s_name_stays_in_its_card_beside_the_levels() -> None:
+    name = _of(".rate__name > span", sheet=CARDS)
+    assert "nowrap" not in name
+    room = int(re.findall(r"max-width: calc\(100cqi - (\d+)px\)", name)[0])
+    levels = _of(".rate--lift", sheet=CARDS)
+    taken = sum(int(re.findall(rf"{side}: (\d+)px", levels)[0]) for side in ("right", " width"))
+    gap = int(re.findall(r"right: calc\(100% \+ (\d+)px\)", _of(".rate__name", sheet=CARDS))[0])
+    assert room >= taken + gap
+    # On a poster as narrow as a phone's three in a line, no word of a name fits.
+    css = CARDS.read_text(encoding="utf-8")
+    assert re.search(
+        r"@container \(max-width: 104px\) \{\s*\.card-over \.rate__name \{ display: none", css
+    )
+    # And by a finger not over the card above, whose caption the levels of a short poster reach.
+    assert "min(0px, var(--top))" in _of(".card-over .rate__name", FINGER, CARDS)
+    badge = _of(".is-lifted > .watch-card__link .watch-badge", FINGER, CARDS)
+    assert "opacity: 0" in badge
+
+
+@pytest.mark.parametrize("level", [".is-up.is-double", ".is-down.is-double"])
+def test_a_thumb_keeps_the_colour_of_its_level_from_the_press_to_its_rest(level: str) -> None:
+    pressed = re.findall(r"--level: ([^;]+);", _of(f".rate__b{level}", sheet=RATINGS))
+    rest = _of(f"{level}:is(.card-tool, .card-flier)", sheet=CARDS)
+    assert pressed and re.findall(r"--rate-c: ([^;]+);", rest) == pressed
+    preview = _of(f".pv__round{level}", sheet=PREVIEW)
+    assert re.findall(r"color: ([^;]+);", preview) == pressed
+    # Nothing round it on its way over the picture.
+    assert "display: none" in _of(".card-flier .halo", sheet=CARDS)
+
+
+def test_the_preview_s_eye_is_filled_once_watched_as_the_panel_s_is() -> None:
+    eye = _of('.pv__eye[aria-pressed="true"]', sheet=PREVIEW)
+    assert "background: var(--t1); color: var(--bg)" in eye
+    assert "background: var(--t1)" in _of('.card-over__b[aria-pressed="true"]::before', sheet=CARDS)
+
+
+def test_the_icons_under_a_card_do_not_outgrow_their_circles_with_the_text() -> None:
+    for icon in (".card-tool > .ico", ".card-over__b > .ico"):
+        assert re.search(r"width: [\d.]+px; height: \d+px", _of(icon, sheet=CARDS))
+    assert "overflow-wrap: anywhere" in _of(".rate__name > span", sheet=CARDS)
+
+
+def test_forced_colours_keep_the_level_given_readable_under_the_pointer() -> None:
+    assert "color: HighlightText" in _of(".rate--lift .rate__b.is-on", FORCED, CARDS)
+    hover = ".watch-card .card-tool--thumb:is(.is-up, .is-down):hover"
+    assert "color: Highlight" in _of(hover, FORCED, CARDS)
+    assert "padding-inline: 5px" in _of(".card-over .rate__name > span", FORCED, CARDS)
+
+
+def test_a_card_s_title_eases_down_as_its_bar_goes() -> None:
+    assert "padding-bottom var(--dur)" in _of(".watch-card__poster")
+    bar = _of(".card-barend", "(prefers-reduced-motion: no-preference)", CARDS)
+    assert "bar-away" in bar
+
+
+def test_the_levels_are_readable_where_the_picture_under_them_is_not_blurred() -> None:
+    ground = re.findall(r"var\(--s2\) (\d+)%", _of(".rate--lift .rate__set", sheet=CARDS))
+    assert int(ground[0]) >= 90
+
+
+def test_an_eye_that_had_shut_while_it_waited_opens_and_is_not_shut_twice() -> None:
+    motion = "(prefers-reduced-motion: no-preference)"
+    for part in (".pv__eye.is-blink > .ico", '.is-blink[aria-pressed="true"]'):
+        assert "var(--from-shut)" in _of(part, motion, CARDS)
+    assert "var(--shut, 0)" in _of(".is-blink", motion, CARDS)
+
+
     caption = ".watch-card__sub:has(> .watch-card__left)"
     assert "flex-wrap: wrap;" in _of(caption)
     # A dot after the episode would stay behind when the time goes.

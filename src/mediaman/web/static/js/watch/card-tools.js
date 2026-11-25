@@ -57,6 +57,7 @@
     button.setAttribute('data-face', String(level));
     button.classList.toggle('is-up', level > 0);
     button.classList.toggle('is-down', level < 0);
+    button.classList.toggle('is-double', Math.abs(level) === 2);
     button.textContent = '';
     button.appendChild(ratings.thumb(level || 1, !!level));
   }
@@ -247,7 +248,8 @@
     var a = from.getBoundingClientRect();
     var b = to.getBoundingClientRect();
     var c = o.card.getBoundingClientRect();
-    var flier = el('span', 'card-flier ' + (o.thumb.classList.contains('is-up') ? 'is-up' : 'is-down'));
+    var flier = el('span', 'card-flier');
+    ['is-up', 'is-down', 'is-double'].forEach(function (c) { flier.classList.toggle(c, o.thumb.classList.contains(c)); });
     flier.setAttribute('aria-hidden', 'true');
     flier.appendChild(from.cloneNode(true)).classList.add('is-on');
     flier.style.left = a.left - c.left + 'px';

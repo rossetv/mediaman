@@ -130,6 +130,8 @@
 .pv__round > .rate-th { --th-bg: color-mix(in srgb, var(--t1) 14%, var(--s1)); width: 22px; height: 20px; }
 .pv__round.is-up { color: var(--accent-hi); }
 .pv__round.is-down { color: var(--orange); }
+.pv__round.is-up.is-double { color: var(--rate-love); }
+.pv__round.is-down.is-double { color: var(--rate-no); }
 .pv__lift { position: absolute; z-index: 6; width: 44px; height: 180px; pointer-events: none; }
 .pv__lift > .rate--lift { right: 0; bottom: 0; height: 180px; }
 .pv__lift > .rate--lift.is-open { pointer-events: auto; }
