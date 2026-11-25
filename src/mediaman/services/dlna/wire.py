@@ -51,7 +51,7 @@ def _open_udp() -> Socket:
     return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
-class _Bounded(io.RawIOBase):
+class _Bounded:
     """A socket seen by ``http.client``, with one deadline and one byte budget."""
 
     def __init__(self, sock: Socket, remaining: Callable[[], float]) -> None:
@@ -64,18 +64,29 @@ class _Bounded(io.RawIOBase):
         self._sock.sendall(data)
 
     def makefile(self, _mode: str) -> io.BufferedReader:
-        return io.BufferedReader(self)
+        return io.BufferedReader(_Reader(self.recv_into))
 
-    def readable(self) -> bool:
-        return True
+    def close(self) -> None:
+        """Do nothing: ``http.client`` closes before the body is read; ``Wire`` closes after."""
 
-    def readinto(self, buffer: Any) -> int:
+    def recv_into(self, buffer: Any) -> int:
         self._sock.settimeout(self._remaining())
         count = self._sock.recv_into(buffer)
         self._budget -= count
         if self._budget < 0:
             raise TvBadAnswer(_TOO_BIG)
         return count
+
+
+class _Reader(io.RawIOBase):
+    def __init__(self, recv_into: Callable[[Any], int]) -> None:
+        self._recv_into = recv_into
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        return self._recv_into(buffer)
 
 
 class Wire:

@@ -104,36 +104,82 @@ def test_a_home_address_is_allowed(tv: FakeTv, address: str) -> None:
 def test_a_tv_whose_network_becomes_the_containers_own_is_refused(
     tv: FakeTv, found: Renderer, tmp_path: Path
 ) -> None:
-    tv.own = own_networks(_route_table(tmp_path, "0001A8C0", "00FFFFFF"))
+    tv.own = own_networks(*_tables(tmp_path, "0001A8C0", "00FFFFFF"))
     connects = len(tv.connects)
     with pytest.raises(TvRefused):
         found.play()
     assert len(tv.connects) == connects
 
 
-def _route_table(folder: Path, destination: str, mask: str) -> Path:
-    table = folder / "route"
-    table.write_text(
-        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
-        "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
-        "ppp0\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n"
-        "eth0\t0000000A\t010011AC\t0003\t0\t0\t0\t000000FF\t0\t0\t0\n"
-        f"eth0\t{destination}\t00000000\t0001\t0\t0\t0\t{mask}\t0\t0\t0\n"
+HEADER = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+DEFAULT = "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+ON_LINK = "eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+OWN_ADDRESS = (
+    "Local:\n  |-- 172.17.0.0\n     /16 link UNICAST\n  |-- 172.17.0.2\n     /32 host LOCAL\n"
+)
+
+
+def _tables(
+    folder: Path, destination: str, mask: str, own: str = "172.17.0.2"
+) -> tuple[Path, Path]:
+    routes, local = folder / "route", folder / "fib_trie"
+    routes.write_text(
+        HEADER
+        + DEFAULT
+        + "ppp0\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n"
+        + "eth0\t0000000A\t010011AC\t0003\t0\t0\t0\t000000FF\t0\t0\t0\n"
+        + f"eth0\t{destination}\t00000000\t0001\t0\t0\t0\t{mask}\t0\t0\t0\n"
     )
-    return table
+    local.write_text(OWN_ADDRESS.replace("172.17.0.2", own))
+    return routes, local
 
 
-def test_the_route_table_gives_the_networks_mediaman_is_on(tmp_path: Path) -> None:
-    table = _route_table(tmp_path, "000011AC", "0000FFFF")
-    assert [str(net) for net in own_networks(table)] == ["172.17.0.0/16"]
+def test_the_networks_mediaman_is_on_are_those_it_reaches_without_a_gateway(
+    tmp_path: Path,
+) -> None:
+    networks = own_networks(*_tables(tmp_path, "000011AC", "0000FFFF"))
+    assert {str(net) for net in networks} == {"172.17.0.0/16", "172.17.0.2/32"}
 
 
-def test_every_address_is_refused_when_the_route_table_cannot_be_read(tmp_path: Path) -> None:
+def test_behind_a_single_address_gateway_mediamans_own_address_is_refused(
+    tv: FakeTv, tmp_path: Path
+) -> None:
+    tv.own = own_networks(*_tables(tmp_path, "0100A8C0", "FFFFFFFF", own=TV))
     with pytest.raises(TvRefused):
-        own_networks(tmp_path / "missing")
-    (tmp_path / "odd").write_text("header\nnonsense\n")
+        tv.wire().check(TV)
     with pytest.raises(TvRefused):
-        own_networks(tmp_path / "odd")
+        tv.wire().check("192.168.0.1")
+
+
+@pytest.mark.parametrize(
+    ("routes", "local"),
+    [
+        (None, OWN_ADDRESS),
+        ("", OWN_ADDRESS),
+        (HEADER, OWN_ADDRESS),
+        (HEADER + DEFAULT, OWN_ADDRESS),
+        (DEFAULT + ON_LINK, OWN_ADDRESS),
+        (HEADER + ON_LINK + "nonsense\n", OWN_ADDRESS),
+        (HEADER + ON_LINK, None),
+        (HEADER + ON_LINK, ""),
+        (HEADER + ON_LINK, OWN_ADDRESS.replace("172.17.0.2", "127.0.0.1")),
+        (HEADER + ON_LINK, OWN_ADDRESS.replace("172.17.0.2", "nonsense")),
+    ],
+)
+def test_every_address_is_refused_when_mediaman_cannot_tell_its_own_networks(
+    tmp_path: Path, routes: str | None, local: str | None
+) -> None:
+    paths = tmp_path / "route", tmp_path / "fib_trie"
+    for path, text in zip(paths, (routes, local), strict=True):
+        if text is not None:
+            path.write_text(text)
+    with pytest.raises(TvRefused, match="container network of its own"):
+        own_networks(*paths)
+
+
+def test_an_address_on_mediamans_own_network_is_refused_with_what_to_do(tv: FakeTv) -> None:
+    with pytest.raises(TvRefused, match="container network of its own"):
+        tv.wire().check("172.17.0.5")
 
 
 # --- where an answer points ------------------------------------------------
@@ -171,16 +217,21 @@ def test_a_location_off_the_tv_is_never_fetched(tv: FakeTv, url: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "url", [*ELSEWHERE, "//192.168.1.21:7676/x", "/a b", "/a&#13;&#10;Evil: 1", ""]
+    ("where", "url"),
+    [
+        *(
+            (where, url)
+            for where in ("control", "base")
+            for url in (*ELSEWHERE, "//192.168.1.21:7676/x", "/a b", "/a&#13;&#10;Evil: 1")
+        ),
+        ("control", ""),
+    ],
 )
-@pytest.mark.parametrize("where", ["control", "base"])
 def test_a_control_address_off_the_tv_is_refused(tv: FakeTv, url: str, where: str) -> None:
     if where == "control":
         page = DESCRIPTION.replace("/smp_22_", url)
-    elif url:
-        page = DESCRIPTION.replace("<device>", f"<URLBase>{url}</URLBase><device>")
     else:
-        return
+        page = DESCRIPTION.replace("<device>", f"<URLBase>{url}</URLBase><device>")
     tv.pages["/smp_14_"] = http(page)
     with pytest.raises((TvRefused, TvBadAnswer)):
         find(TV, tv.wire())
@@ -312,6 +363,26 @@ def test_a_broken_http_answer_is_a_bad_answer(tv: FakeTv, answer: bytes) -> None
     tv.pages["/smp_14_"] = answer
     with pytest.raises(TvBadAnswer):
         find(TV, tv.wire())
+
+
+@pytest.mark.parametrize("version", ["1.0", "1.1"])
+@pytest.mark.parametrize("framing", ["length", "none", "chunked"])
+@pytest.mark.parametrize("connection", ["", "Connection: close\r\n"])
+def test_a_tv_that_closes_after_its_answer_is_read_to_the_end(
+    tv: FakeTv, version: str, framing: str, connection: str
+) -> None:
+    body = DESCRIPTION.encode()
+    extra = ""
+    if framing == "length":
+        extra = f"Content-Length: {len(body)}\r\n"
+    elif framing == "chunked":
+        extra = "Transfer-Encoding: chunked\r\n"
+        body = b"%x\r\n%b\r\n0\r\n\r\n" % (len(body), body)
+    head = f"HTTP/{version} 200 OK\r\n{connection}{extra}\r\n".encode()
+    tv.pages["/smp_14_"] = head + body
+    tv.read_size = len(head)
+    assert find(TV, tv.wire()).name == "[TV] Living room"
+    assert tv.closed == 2
 
 
 def test_an_answer_cut_short_counts_as_gone(tv: FakeTv) -> None:

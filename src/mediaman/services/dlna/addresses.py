@@ -21,13 +21,20 @@ _URL_PART = re.compile(r"[!$-;=?-\[\]_a-z~]+")
 _DEVICE_URL = re.compile(r"http://([0-9.]+):([0-9]{1,5})(/.*)?")
 
 
-def own_networks(route_table: Path = Path("/proc/net/route")) -> list[ipaddress.IPv4Network]:
-    """Return the networks this machine or container sits on.
+_OWN_NETWORK = "To reach TVs, mediaman must run on a container network of its own"
 
-    Refuses when they cannot be read, since nothing could then be ruled out.
+
+def own_networks(
+    routes: Path = Path("/proc/net/route"), local: Path = Path("/proc/net/fib_trie")
+) -> list[ipaddress.IPv4Network]:
+    """Return the networks this machine or container sits on, and its own addresses.
+
+    Refuses when either cannot be told, since nothing could then be ruled out.
     """
     try:
-        rows = [line.split() for line in route_table.read_text("ascii").splitlines()[1:]]
+        header, *rows = (line.split() for line in routes.read_text("ascii").splitlines())
+        if [header[i] for i in (1, 2, 7)] != ["Destination", "Gateway", "Mask"]:
+            raise ValueError
         networks = []
         for row in rows:
             destination, gateway, mask = (
@@ -35,9 +42,17 @@ def own_networks(route_table: Path = Path("/proc/net/route")) -> list[ipaddress.
             )
             if int(gateway) == 0 and int(mask) != 0:
                 networks.append(ipaddress.IPv4Network(f"{destination}/{mask}"))
-        return networks
+        # Behind a /32 gateway no route covers mediaman's own address.
+        own = {
+            ipaddress.IPv4Network(address)
+            for address in re.findall(r"\|-- (\S+)\n\s+/32 host LOCAL", local.read_text("ascii"))
+        }
+        addresses = [net for net in own if not net.is_loopback]
+        if not networks or not addresses:
+            raise ValueError
+        return networks + addresses
     except (OSError, ValueError, IndexError, OverflowError) as exc:
-        raise TvRefused("mediaman cannot tell which network it runs on.") from exc
+        raise TvRefused(f"{_OWN_NETWORK}, and it cannot tell which network it is on.") from exc
 
 
 def check_address(address: str, own: list[ipaddress.IPv4Network]) -> str:
@@ -49,7 +64,7 @@ def check_address(address: str, own: list[ipaddress.IPv4Network]) -> str:
     if not any(ip in net for net in _PRIVATE):
         raise TvRefused("That is not an address on a home network.")
     if any(ip in net for net in own):
-        raise TvRefused("That address is on mediaman's own network.")
+        raise TvRefused(f"{_OWN_NETWORK}, and that address is on mediaman's network.")
     return str(ip)
 
 
