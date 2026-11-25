@@ -19,6 +19,7 @@ from mediaman.services.openai.recommendations.enrich import (
     ENRICH_SECONDS,
     enrich_recommendations,
 )
+from mediaman.services.openai.recommendations.mix import choose_mix
 from mediaman.services.openai.recommendations.persist import (
     BATCH_SIZE,
     held_titles,
@@ -27,9 +28,14 @@ from mediaman.services.openai.recommendations.persist import (
     row_titles,
     store_batch,
 )
-from mediaman.services.openai.recommendations.plays import person_plays
-from mediaman.services.openai.recommendations.prompts import generate_personal
+from mediaman.services.openai.recommendations.plays import PlayedTitle, person_plays
+from mediaman.services.openai.recommendations.prompts import (
+    Portrait,
+    generate_personal,
+    make_portrait,
+)
 from mediaman.services.openai.recommendations.repository import SHARED_ONLY
+from mediaman.services.openai.recommendations.taste import Taste, read_taste
 from mediaman.services.plex_link.plex_tv import OWNER_ACCOUNT_ID
 from mediaman.services.plex_link.repository import PlexLink, get_link
 
@@ -44,6 +50,8 @@ _PEOPLE_PER_SCAN = 10
 _SCAN_SECONDS = 300.0
 # One person's picks: the model's answer and the look-ups after it, which get what is left.
 _PERSON_SECONDS = 180.0
+# The second call to the model begins only with this much of it left.
+_MIX_SECONDS = 30.0
 _PRESENT_WITHIN = timedelta(days=30)
 _FAILED_WAITS = timedelta(hours=24)
 
@@ -152,26 +160,33 @@ def _make(
         f"SELECT title, year, media_type, tmdb_id FROM suggestions WHERE {SHARED_ONLY} AND"
         f" batch_id = (SELECT MAX(batch_id) FROM suggestions WHERE {SHARED_ONLY})"
     ).fetchall()
-    items = generate_personal(
-        conn,
-        [{"title": p.title, "type": p.kind} for p in plays],
-        ratings,
-        list(dict.fromkeys(r["title"] for r in own)),
-        secret_key=secret_key,
-    )
+    portrait = _portrait(plays, ratings, read_taste(conn, username), [r["title"] for r in own])
+    items = generate_personal(conn, portrait, secret_key=secret_key)
+    # Read again: they may have rated something while the model was thinking.
+    taste = read_taste(conn, username)
     known = [
         *((p.kind, p.tmdb_id, p.title, None) for p in plays),
         *((r["type"], None, r["title"], None) for r in ratings),
         *held_titles(conn),
         *row_titles(own),
         *row_titles(shared),
+        # One rated up is known to them; one rated "not for me" may return, last.
+        *((r.media_type, r.tmdb_id, r.title or "", r.year) for r in taste.ratings if r.level != -1),
     ]
     enrich_recommendations(
         items,
         conn,
         secret_key,
         accept=new_titles(known),
-        limit=BATCH_SIZE,
+        choose=lambda found: choose_mix(
+            found,
+            BATCH_SIZE,
+            conn,
+            portrait=portrait,
+            levels=taste.levels,
+            may_ask=ends_at - clock() >= _MIX_SECONDS,
+            secret_key=secret_key,
+        ),
         seconds=min(ENRICH_SECONDS, ends_at - clock()),
         clock=clock,
     )
@@ -186,6 +201,37 @@ def _make(
         run_id=run_id,
         uses_plex=uses_plex,
         linked_at=link.linked_at if link else None,
+    )
+
+
+def _portrait(
+    plays: list[PlayedTitle], stars: list[PlexRatedItem], taste: Taste, previous: list[str]
+) -> Portrait:
+    """What the model is told. Someone who keeps their history from the AI has the names of
+    what they played, their stars and earlier picks sent, and nothing more."""
+    levels = taste.levels
+    history: list[dict[str, object]] = [
+        {
+            "title": p.title,
+            "type": p.kind,
+            # Not sent: it keeps the title from being what led to a pick.
+            "disliked": p.tmdb_id is not None and levels.get((p.kind, p.tmdb_id), 0) < 0,
+        }
+        for p in plays
+    ]
+    if not taste.may_send:
+        return make_portrait(history, stars, list(dict.fromkeys(previous)))
+    ratings: list[dict[str, object]] = [
+        {"title": r.title, "type": r.media_type, "level": r.level} for r in taste.ratings if r.title
+    ]
+    rated = {(r["type"], r["title"]) for r in ratings}
+    return make_portrait(
+        [{**h, "note": p.note} for h, p in zip(history, plays, strict=True)],
+        # What they said here is newer than a star in Plex.
+        [*ratings, *(dict(s) for s in stars if (s["type"], s["title"]) not in rated)],
+        list(dict.fromkeys(previous)),
+        asked_for=taste.asked_for,
+        searches=taste.searches,
     )
 
 

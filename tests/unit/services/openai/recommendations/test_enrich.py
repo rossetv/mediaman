@@ -360,6 +360,22 @@ class TestWhichPicksAreKept:
         kept = enrich(tmdb, [_rec(t) for t in "ABC"], seconds=60, clock=lambda: now[0])
         assert kept == [("A", 1), ("B", 2), ("C", None)]
 
+    def test_the_time_taken_choosing_is_not_taken_from_the_looking_up(self, enrich):
+        tmdb = _Tmdb({(t, None): n for n, t in enumerate("ABC", start=1)})
+        detailed = []
+        tmdb.details = lambda _type, tmdb_id: detailed.append(tmdb_id)
+        now = [0.0]
+
+        def choose(found):
+            now[0] += 100
+            return found[1:]
+
+        kept = enrich(
+            tmdb, [_rec(t) for t in "ABC"], choose=choose, seconds=60, clock=lambda: now[0]
+        )
+        assert kept == [("B", 2), ("C", 3)]
+        assert detailed == [2, 3]
+
     def test_no_rating_is_asked_for_when_the_time_is_up(self, conn):
         cls, _inst = _mock_tmdb()
         with (

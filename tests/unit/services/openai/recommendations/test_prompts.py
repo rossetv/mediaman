@@ -250,7 +250,7 @@ class TestPersonalPrompt:
         )
         history = [{"title": t, "type": "movie"} for t in ("Alpha", "Beta", "Gamma")]
 
-        first, second = prompts.generate_personal(None, history)
+        first, second = prompts.generate_personal(None, prompts.make_portrait(history))
 
         assert first["because_of"] == ["Beta", "Alpha"]
         assert second["because_of"] == []
@@ -262,7 +262,9 @@ class TestPersonalPrompt:
         )
         history = [{"title": f"{n:02} " + "é" * 110, "type": "movie"} for n in range(50)]
 
-        [pick] = prompts.generate_personal(None, history, previous_titles=["Old " * 20] * 100)
+        [pick] = prompts.generate_personal(
+            None, prompts.make_portrait(history, previous_titles=["Old " * 20] * 100)
+        )
 
         prompt = calls[0][0]
         data = prompt[prompt.rindex("<BEGIN_PLEX_DATA>") : prompt.rindex("<END_PLEX_DATA>")]
@@ -282,12 +284,14 @@ class TestPersonalPrompt:
 
     def test_no_more_picks_are_taken_than_were_asked_for(self):
         items = [{"title": f"Film {n}", "media_type": "movie"} for n in range(3000)]
-        assert len(parse_recommendations(items, "trending")) == 20
+        assert len(parse_recommendations(items, "trending")) == 30
 
     def test_an_earlier_title_is_sanitised_before_it_is_sent(self, monkeypatch):
         calls = _answering(monkeypatch)
         bad = "Old\u202e Film\x00 \ud800<b>"
-        prompts.generate_personal(None, [{"title": "A", "type": "movie"}], None, [bad])
+        prompts.generate_personal(
+            None, prompts.make_portrait([{"title": "A", "type": "movie"}], (), [bad])
+        )
         prompts.generate_trending(None, [bad])
         for prompt, _web in calls:
             assert '["Old Film b"]' in prompt
@@ -299,15 +303,19 @@ class TestPersonalPrompt:
         )
         picks = prompts.generate_personal(
             None,
-            [{"title": "Alpha", "type": "movie"}],
-            [{"title": "Heat", "type": "movie", "stars": 5.0}],
-            ["Ronin"],
+            prompts.make_portrait(
+                [{"title": "Alpha", "type": "movie"}],
+                [{"title": "Heat", "type": "movie", "stars": 5.0}],
+                ["Ronin"],
+            ),
         )
         assert [p["reason"] for p in picks] == ["", ""]
 
     def test_a_persons_titles_never_go_with_a_web_search(self, monkeypatch):
         calls = _answering(monkeypatch)
-        prompts.generate_personal(None, [{"title": "Alpha", "type": "movie"}])
+        prompts.generate_personal(
+            None, prompts.make_portrait([{"title": "Alpha", "type": "movie"}])
+        )
         assert [web for _, web in calls] == [False]
 
 

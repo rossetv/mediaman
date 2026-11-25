@@ -17,6 +17,7 @@ from mediaman.services.openai.recommendations.enrich import (
     drop_adult_picks,
     enrich_recommendations,
 )
+from mediaman.services.openai.recommendations.mix import choose_mix
 from mediaman.services.openai.recommendations.prompts import (
     generate_trending,
     strip_season_suffix,
@@ -260,7 +261,7 @@ def refresh_recommendations(
         conn,
         secret_key,
         accept=new_titles([*held_titles(conn), *row_titles(earlier)]),
-        limit=BATCH_SIZE,
+        choose=lambda found: choose_mix(found, BATCH_SIZE, conn, secret_key=secret_key),
     )
     if not trending:
         return 0

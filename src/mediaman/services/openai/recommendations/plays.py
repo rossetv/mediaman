@@ -6,9 +6,12 @@ Every read takes one username and reads only that username's rows.
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Literal
 
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services.watch_catalog import normalise_title
 
 _PLAYS_SQL = """
@@ -17,7 +20,11 @@ SELECT wp.show_rating_key IS NULL AS is_movie,
             ELSE COALESCE(mi.show_title, s.show_title, mi.title) END AS title,
        CASE WHEN wp.show_rating_key IS NULL THEN mi.tmdb_id
             ELSE COALESCE(s.tmdb_id, mi.tmdb_id) END AS tmdb_id,
-       wp.updated_at AS played_at, 0 AS in_plex
+       wp.updated_at AS played_at, 0 AS in_plex, wp.rating_key AS part,
+       (wp.watched = 1 OR wp.seen_at IS NOT NULL) AS done,
+       CASE WHEN wp.watched = 1 AND julianday(wp.updated_at) - julianday(wp.seen_at) >= 7
+            THEN 1 ELSE 0 END AS again,
+       CASE WHEN wp.duration_s > 0 THEN wp.position_s / wp.duration_s END AS share
 FROM watch_progress wp
 LEFT JOIN media_items mi ON mi.id = wp.media_item_id
 LEFT JOIN (SELECT show_rating_key, MAX(show_title) AS show_title, MAX(tmdb_id) AS tmdb_id
@@ -31,11 +38,11 @@ SELECT p.media_type = 'movie', CASE WHEN p.media_type = 'movie' THEN p.title ELS
        CASE WHEN p.media_type = 'movie' THEN
          (SELECT tmdb_id FROM media_items WHERE id = p.rating_key AND media_type = 'movie')
        ELSE (SELECT MAX(tmdb_id) FROM media_items WHERE show_rating_key = p.show_rating_key) END,
-       p.viewed_at, 1
+       p.viewed_at, 1, p.rating_key, 1, 0, NULL
 FROM plex_plays p
 WHERE p.username = :username AND p.media_type IN ('movie', 'episode')
 UNION ALL
-SELECT media_type = 'movie', title, tmdb_id, played_at, 0
+SELECT media_type = 'movie', title, tmdb_id, played_at, 0, NULL, 0, 0, NULL
 FROM played_titles WHERE username = :username
 ORDER BY 4 DESC
 """
@@ -74,6 +81,51 @@ class PlayedTitle:
     last_played: str
     #: Known from a play in one of Plex's own apps, not from mediaman alone.
     in_plex: bool
+    #: How it went, as far as is known: "finished", "watched again", "left part way", "3 episodes".
+    note: str = field(default="", compare=False)
+
+
+# How long a title must lie untouched to count as left.
+_LEFT_AFTER = timedelta(days=45)
+_AGAIN_AFTER = timedelta(days=7)
+
+
+@dataclass(slots=True)
+class _Course:
+    """What the rows of one title tell of how it went."""
+
+    parts: set[str] = field(default_factory=set)
+    last_done: dict[str, datetime] = field(default_factory=dict)
+    again: bool = False
+    share: float = 0.0
+
+    def add(self, row: sqlite3.Row) -> None:
+        self.share = max(self.share, row["share"] or 0.0)
+        if not row["done"]:
+            return
+        part = row["part"] or ""
+        self.parts.add(part)
+        at = parse_iso_strict_utc(row["played_at"])
+        before = self.last_done.get(part)
+        if at is not None:
+            # A film of two copies, or on Plex and here, is one part under two keys: only plays
+            # of one key are counted again.
+            if before is not None and abs(before - at) >= _AGAIN_AFTER:
+                self.again = True
+            self.last_done[part] = at
+        self.again = self.again or bool(row["again"])
+
+    def note(self, kind: str, idle: timedelta | None) -> str:
+        left = idle is not None and idle >= _LEFT_AFTER
+        if self.again:
+            return "watched again"
+        if kind == "movie":
+            if self.parts:
+                return "finished"
+            return "left part way" if left and 0.05 < self.share < 0.85 else ""
+        count = len(self.parts)
+        episodes = f"{count} episode{'' if count == 1 else 's'}" if count else ""
+        return f"left after {episodes}" if left and 0 < count <= 2 else episodes
 
 
 def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
@@ -84,6 +136,7 @@ def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
     """
     found: dict[tuple[str, str], PlayedTitle] = {}
     keys: dict[tuple[str, int], tuple[str, str]] = {}
+    courses: defaultdict[tuple[str, str], _Course] = defaultdict(_Course)
     for row in conn.execute(_PLAYS_SQL, {"username": username}):
         title = (row["title"] or "").strip()
         kind: Literal["movie", "tv"] = "movie" if row["is_movie"] else "tv"
@@ -93,6 +146,7 @@ def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
         if row["tmdb_id"]:
             # A title renamed since it was played is one title.
             key = keys.setdefault((kind, row["tmdb_id"]), key)
+        courses[key].add(row)
         held = found.get(key)
         found[key] = PlayedTitle(
             kind=kind,
@@ -101,4 +155,9 @@ def person_plays(conn: sqlite3.Connection, username: str) -> list[PlayedTitle]:
             last_played=held.last_played if held else row["played_at"],
             in_plex=bool(row["in_plex"]) or (held is not None and held.in_plex),
         )
-    return list(found.values())
+    now = now_utc()
+    plays = []
+    for key, play in found.items():
+        at = parse_iso_strict_utc(play.last_played)
+        plays.append(replace(play, note=courses[key].note(play.kind, now - at if at else None)))
+    return plays

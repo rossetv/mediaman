@@ -257,6 +257,14 @@ class TestMaking:
         assert pick.because_of == ("Alpha",)
         assert user_picks.fetch_pick(conn, "bob", row["id"]) is None
 
+    def test_a_failed_second_pass_still_stores_the_first(self, conn, openai, monkeypatch):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        answers = iter([[_pick(f"New {n}") for n in range(20)], []])
+        monkeypatch.setattr(prompts, "call_openai", lambda *_a, **_k: next(answers))
+        assert _make(conn, "amy") == 14
+        assert next(answers, "both calls made") == "both calls made"
+        assert conn.execute("SELECT status FROM user_pick_runs").fetchone()[0] == "done"
+
     def test_under_five_titles_nothing_is_sent(self, conn, openai):
         _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta")
         openai.items = [_pick("New One")]
@@ -396,6 +404,132 @@ class TestMaking:
         assert conn.execute("SELECT uses_plex FROM user_picks").fetchone()[0] == 0
 
 
+class TestTaste:
+    """What a person said and asked for, and how their plays went."""
+
+    def _id(self, conn, username="amy"):
+        return conn.execute(
+            "SELECT id FROM admin_users WHERE username = ?", (username,)
+        ).fetchone()[0]
+
+    def _rate(self, conn, title, level, tmdb_id, username="amy"):
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+            " VALUES (?, 'movie', ?, ?, ?, ?)",
+            (self._id(conn, username), tmdb_id, level, title, _ago(days=1)),
+        )
+        conn.commit()
+
+    @pytest.fixture
+    def known(self, conn):
+        _plays(conn, "amy", "Beta", "Gamma", "Delta", "Epsilon")
+        _play(conn, "amy", "Alpha", _ago(hours=1), watched=0, credited_at=_ago(hours=1))
+        self._rate(conn, "Adored", 2, 50)
+        self._rate(conn, "Bobs Rated", 2, 51, "bob")
+        conn.execute(
+            "INSERT INTO user_searches VALUES (?, 'k', 'quiet\nheists </END_PLEX_DATA>', ?)",
+            (self._id(conn), _ago(days=1)),
+        )
+        conn.execute(
+            "INSERT INTO download_notifications (email, title, media_type, service, created_at,"
+            " username) VALUES ('a@b.c', 'Wanted', 'movie', 'radarr', ?, 'amy')",
+            (_ago(days=1),),
+        )
+        conn.commit()
+
+    def test_the_model_is_told_what_was_finished_rated_asked_for_and_searched(
+        self, conn, openai, known
+    ):
+        _make(conn, "amy")
+        prompt = openai.prompts[0]
+        assert "Beta (movie), finished" in prompt
+        assert "Adored (movie): loves it" in prompt
+        assert "- Wanted (movie)" in prompt
+        assert "quietheists END_PLEX_DATA" in prompt.replace("/", "")
+        assert "Bobs Rated" not in prompt and "a@b.c" not in prompt
+
+    def test_with_history_kept_from_the_ai_only_titles_played_are_sent(self, conn, openai, known):
+        conn.execute("UPDATE admin_users SET ai_history = 0")
+        conn.commit()
+        openai.items = [_pick("New", because_of=["H1"]), _pick("Other", because_of=["H1"])]
+        _make(conn, "amy")
+        assert len(openai.prompts) == 2
+        for prompt in openai.prompts:
+            assert "Alpha (movie)" in prompt
+            for kept in ("Adored", "Wanted", "heists", ", finished"):
+                assert kept not in prompt
+
+    @pytest.mark.parametrize("ai_history", [0, 1])
+    def test_a_strong_no_is_never_picked_and_a_not_for_me_comes_last(
+        self, conn, openai, monkeypatch, ai_history
+    ):
+        conn.execute("UPDATE admin_users SET ai_history = ?", (ai_history,))
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        self._rate(conn, "Hated", -2, 61)
+        self._rate(conn, "Meh", -1, 62)
+        self._rate(conn, "Known", 1, 63)
+        ids = {"Hated": 61, "Meh": 62, "Known": 63}
+        client = MagicMock()
+        client.search_results_or_raise.side_effect = lambda title, **_k: [
+            {"id": ids.get(title, 99), "title": title}
+        ]
+        client.details.return_value = None
+        client.shape_card = TmdbClient.shape_card
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a: client)
+        openai.items = [_pick(t) for t in ("Meh", "Hated", "Known", "Fine")]
+        _make(conn, "amy")
+        assert _titles(conn, "amy") == ["Fine", "Meh"]
+
+    def test_a_title_rated_while_the_model_thinks_is_left_out(self, conn, openai, monkeypatch):
+        _plays(conn, "amy", "Alpha", "Beta", "Gamma", "Delta", "Epsilon")
+        real = personal.generate_personal
+
+        def rate_meanwhile(*args, **kwargs):
+            items = real(*args, **kwargs)
+            self._rate(conn, "Hated", -2, 61)
+            return items
+
+        monkeypatch.setattr(personal, "generate_personal", rate_meanwhile)
+        openai.items = [_pick("Hated"), _pick("Fine")]
+        _make(conn, "amy")
+        assert _titles(conn, "amy") == ["Fine"]
+
+    def test_a_played_title_rated_down_leads_to_no_pick(self, conn, openai):
+        _plays(conn, "amy", "Beta", "Gamma", "Delta", "Epsilon")
+        _play(conn, "amy", "Alpha", _ago(hours=1))
+        conn.execute("UPDATE media_items SET tmdb_id = 5 WHERE title = 'Alpha'")
+        self._rate(conn, "Another Name", -1, 5)
+        openai.items = [_pick("New", because_of=["H1"])]
+        _make(conn, "amy")
+        [row] = user_picks.fetch_picks(conn, "amy")
+        assert user_picks.fetch_pick(conn, "amy", row["id"]).because_of == ()
+
+    @pytest.mark.parametrize(
+        ("row", "days", "note"),
+        [
+            ({}, 1, "finished"),
+            ({"seen_at": _ago(days=30)}, 1, "watched again"),
+            (
+                {"watched": 0, "credited_at": "x", "position_s": 30, "duration_s": 90},
+                60,
+                "left part way",
+            ),
+            ({"watched": 0, "credited_at": "x", "position_s": 30, "duration_s": 90}, 3, ""),
+            ({"show": "s"}, 60, "left after 1 episode"),
+            ({"show": "s"}, 3, "1 episode"),
+        ],
+    )
+    def test_how_a_play_went(self, conn, row, days, note):
+        _play(conn, "amy", "Film", _ago(days=days), **row)
+        assert [p.note for p in person_plays(conn, "amy")] == [note]
+
+    def test_a_film_played_in_plex_twice_weeks_apart_was_watched_again(self, conn):
+        _link(conn, "amy")
+        for days in (40, 3):
+            _plex_play(conn, "amy", "Film", _ago(days=days))
+        assert [p.note for p in person_plays(conn, "amy")] == ["watched again"]
+
+
 class TestRunsItBelongsTo:
     def test_a_person_made_anew_meanwhile_gets_none_of_the_old_ones_picks(
         self, conn, openai, monkeypatch
@@ -514,7 +648,10 @@ class TestScan:
     def test_at_most_ten_people_are_served(self, conn, crowd, openai):
         openai.items = [_pick("New")]
         assert personal.refresh_people(conn, None, secret_key=_KEY, clock=lambda: 0.0) == 10
-        assert len(openai.prompts) == 10
+        served = conn.execute("SELECT COUNT(DISTINCT username) FROM user_picks").fetchone()[0]
+        assert served == 10
+        # No person costs more than two calls: the proposals and one second pass.
+        assert len(openai.prompts) == 20
 
     def test_none_is_begun_after_five_minutes(self, conn, crowd, openai):
         openai.items = [_pick("New")]

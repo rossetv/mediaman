@@ -440,7 +440,9 @@ class TestRefresh:
 
         again = amy.post("/api/watch/picks/refresh")
         assert (again.status_code, again.json()["error"]) == (429, "wait")
-        assert len(openai) == 1
+        # The proposals and the second pass over them are one run, and "again" cost nothing.
+        assert len(openai) == 2
+        assert conn.execute("SELECT COUNT(*) FROM user_pick_runs").fetchone()[0] == 1
 
     @pytest.mark.parametrize("error", [None, RuntimeError("plex")])
     def test_the_persons_new_plex_plays_are_read_first_and_their_trouble_costs_nothing(

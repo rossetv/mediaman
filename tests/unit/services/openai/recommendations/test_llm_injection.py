@@ -164,12 +164,14 @@ class TestPreviousTitlesJsonEncoded:
         with patch(
             "mediaman.services.openai.recommendations.prompts.call_openai", fake_call_openai
         ):
-            from mediaman.services.openai.recommendations.prompts import generate_personal
+            from mediaman.services.openai.recommendations.prompts import (
+                generate_personal,
+                make_portrait,
+            )
 
             generate_personal(
                 None,
-                watch_history=history,
-                previous_titles=previous,
+                make_portrait(history, previous_titles=previous),
                 secret_key=None,
             )
 
