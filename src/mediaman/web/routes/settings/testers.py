@@ -197,7 +197,11 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
             # (TypeError). Only the connection is read this way, so a bug in the
             # library call below is not mistaken for a foreign server.
             return _not_plex(exc)
-        client.get_libraries()
+        try:
+            client.get_libraries()
+        except TypeError as exc:
+            # An empty 200 body parses to None, and listing the libraries then iterates it.
+            return _not_plex(exc)
         return JSONResponse({"ok": True})
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
