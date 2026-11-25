@@ -511,6 +511,26 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert conn.execute("SELECT removed_files FROM scheduled_actions").fetchone()[0] is None
 
+    def test_recovery_reads_the_disk_with_no_write_lock(self, conn, film, monkeypatch):
+        _lose_the_record(conn, monkeypatch)
+        files = [{"path": str(film.with_name(name)), "size": 4} for name in (film.name, "cd2.mkv")]
+        conn.execute("UPDATE media_items SET tracked_files = ?", (json.dumps(files),))
+        conn.commit()
+        locked = []
+
+        def reading(read):
+            real = getattr(deletions, read)
+            monkeypatch.setattr(
+                deletions, read, lambda *args: locked.append(conn.in_transaction) or real(*args)
+            )
+
+        reading("path_within_delete_roots")
+        reading("_first_unavailable")
+        recover_stuck_deletions(conn)
+
+        assert len(locked) >= 3
+        assert not any(locked)
+
 
 class TestNothingLeftToRemove:
     def test_a_removed_item_is_booked_though_another_item_holds_its_folder(

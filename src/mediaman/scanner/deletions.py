@@ -301,8 +301,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
 
     for row in rows:
         settled = _settle_intent(conn, row, allowed_roots)
+        # Before the disk is read again, so a hung mount cannot hold the write lock.
+        conn.commit()
         if settled is None:
-            conn.commit()
             continue
         row = settled
         paths = tracked_paths(row)
