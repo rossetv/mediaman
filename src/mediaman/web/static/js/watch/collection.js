@@ -99,9 +99,9 @@
     holder.appendChild(skel);
   }
 
-  /* What holds the row's place while the film *ref* loads; null for one known to be in no collection. */
+  /* What holds the row's place while the film *ref* loads; null for one not known to be in a collection. */
   function skeleton(ref) {
-    if (without[ref]) return null;
+    if (without[ref] || !collOf(ref)) return null;
     var holder = el('div', 'ttl__collsec');
     holdPlace(holder);
     return holder;
@@ -226,7 +226,8 @@
     v.button.setAttribute('data-ttl-act', 'collection');
     v.button.setAttribute('aria-haspopup', 'dialog');
     v.button.appendChild(icon('i-download'));
-    v.button.appendChild(el('span'));
+    v.button.appendChild(el('span', 'coll__get-full'));
+    v.button.appendChild(el('span', 'coll__get-brief'));
     v.button.addEventListener('click', function () {
       v.button.focus({ preventScroll: true }); // Safari leaves a pressed button without it
       openDialog(v);
@@ -358,7 +359,8 @@
     var gone = !n && !busy;
     if (gone && v.button === document.activeElement) v.title.focus({ preventScroll: true });
     v.button.hidden = gone;
-    v.button.querySelector('span').textContent = text;
+    v.button.querySelector('.coll__get-full').textContent = text;
+    v.button.querySelector('.coll__get-brief').textContent = busy ? text : 'Get ' + n + ' missing';
   }
 
   /* ── The dialog ── */

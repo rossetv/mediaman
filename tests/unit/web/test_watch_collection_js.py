@@ -27,7 +27,7 @@ def test_the_row_comes_once_it_is_known_with_the_film_on_show_marked() -> None:
     assert (out["here"], out["current"]) == (["Film 2"], "true")
     assert out["name"] == "The Saga · 7 films · 1 in the library"
     assert out["stops"] == [-1, 0, -1, -1, -1, -1, -1]
-    assert out["get"] == "Download the missing 3"
+    assert (out["get"], out["brief"]) == ("Download the missing 3", "Get 3 missing")
 
 
 def test_there_is_no_row_where_there_is_nothing_to_show() -> None:
@@ -37,12 +37,13 @@ def test_there_is_no_row_where_there_is_nothing_to_show() -> None:
 def test_the_place_of_the_films_is_held_until_they_are_known() -> None:
     out = _run("expected")
     for got in out.values():
-        assert (got["before"], got["held"], got["again"]) == (True, [True, True, "true"], True)
+        assert (got["before"], got["held"], got["again"]) == (False, [True, True, "true"], True)
         assert got["skeleton"] is False
     assert [(g["films"], g["shown"], g["next"]) for g in out.values()] == [
+        # Only a film known to be in one has its place held the next time, while it loads.
         (7, True, True),
-        (0, False, False),  # known to be in none, its page holds no place the next time
-        (0, False, True),
+        (0, False, False),
+        (0, False, False),
     ]
 
 

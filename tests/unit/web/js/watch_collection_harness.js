@@ -76,7 +76,8 @@ function load(reply) {
   const redraw = async (ref) => { body.textContent = ''; await into(ref); };
   const q = (sel) => doc.querySelector(sel);
   const cards = () => doc.querySelectorAll('.coll .watch-card');
-  const get = () => { const b = q('.coll__get'); return b && !b.hidden ? b.textContent : null; };
+  const get = () => { const b = q('.coll__get'); return b && !b.hidden ? b.querySelector('.coll__get-full').textContent : null; };
+  const brief = () => q('.coll__get-brief').textContent;
   const isOpen = () => !!q('.coll-dialog') && q('.coll-dialog').classList.contains('active');
   const press = async (node, e) => { clock.now += 1000; click(doc, node, e); await settle(); };
   const go = () => q('.coll-dialog .btn--primary');
@@ -96,7 +97,7 @@ function load(reply) {
   };
   const told = (n, over) => doc.dispatchEvent({ type: 'mm:title-changed', detail: Object.assign({ ref: 'tmdb-movie-' + n,
     download_state: 'queued', download_pct: null, title: 'Film ' + n, kind: 'movie', year: 2000 + n }, over) });
-  return { reply: (r) => { reply = r; }, win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
+  return { reply: (r) => { reply = r; }, win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, brief, isOpen, press, go, rows, answer, tick };
 }
 
 const ids = (p) => p.posts.map((x) => x.body.tmdb_id);
@@ -118,7 +119,7 @@ const scenarios = {
     const here = p.cards().filter((c) => c.classList.contains('is-here'));
     return { waiting, gets: p.gets, titles: titles(p), last: p.body.children[p.body.children.length - 1].className.split(' ')[0],
       here: here.map((c) => c.querySelector('.watch-card__title').textContent), current: here[0].querySelector('a').getAttribute('aria-current'),
-      name: p.q('.coll__name').textContent, stops: p.cards().map((c) => c.querySelector('a').tabIndex), get: p.get() };
+      name: p.q('.coll__name').textContent, stops: p.cards().map((c) => c.querySelector('a').tabIndex), get: p.get(), brief: p.brief() };
   },
 
   async nothing() {
@@ -139,7 +140,7 @@ const scenarios = {
     const out = {};
     for (const [name, r] of [['films', SAGA()], ['none', null], ['failed', new APIError(429, 'too_many_requests')]]) {
       const p = load(r);
-      const before = p.ctx.MMWatch.collection.skeleton('tmdb-movie-2').querySelectorAll('.watch-card--skel').length > 0;
+      const before = !!p.ctx.MMWatch.collection.skeleton('tmdb-movie-2');
       p.ctx.MMWatch.collection.into(p.body, 'tmdb-movie-2', 'movie', true);
       const held = [!p.q('.ttl__collsec').hidden, !!p.q('.coll-skel'), p.q('.coll-skel').getAttribute('aria-hidden')];
       p.body.textContent = '';
