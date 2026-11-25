@@ -27,6 +27,9 @@ QualityId = Literal[
     "low",
 ]
 
+#: What a TV may be sent, all within H.264 level 4.1.
+TvQuality = Literal["auto", "best", "medium", "low"]
+
 #: The source's own video, repackaged and not converted.
 ORIGINAL = "original"
 

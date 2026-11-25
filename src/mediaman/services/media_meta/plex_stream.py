@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 from urllib.parse import urlsplit
-from xml.etree.ElementTree import ParseError
+from xml.etree.ElementTree import Element, ParseError
 
 import defusedxml.ElementTree as ET
 import requests
@@ -55,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 SESSION_PREFIX = "mediaman-"
 IDLE_TIMEOUT_SECONDS = 180.0
+# A paused TV asks for nothing, and the phone that started it may be asleep.
+TV_IDLE_TIMEOUT_SECONDS = 30 * 60.0
 SEGMENT_URL_PREFIX = "/api/watch/stream"
 
 _CLIENT_IDENTIFIER = "mediaman-watch"
@@ -124,6 +126,23 @@ _PLAIN_TAGS = frozenset(
         "#EXT-X-ENDLIST",
     }
 )
+# Every TV that plays H.264 and AAC plays this; whatever the source, Plex must convert to it.
+_TV_PROFILE = "+".join(
+    [
+        "add-transcode-target(type=videoProfile&context=streaming&protocol=hls"
+        "&container=mpegts&videoCodec=h264&audioCodec=aac&replace=true)",
+        "add-limitation(scope=videoCodec&scopeName=h264&type=match"
+        "&name=video.profile&list=baseline|main|high&isRequired=true)",
+        "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound"
+        "&name=video.level&value=41&isRequired=true)",
+        "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound"
+        "&name=video.bitDepth&value=8&isRequired=true)",
+        "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound"
+        "&name=video.frameRate&value=30&isRequired=true)",
+        "add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound"
+        "&name=audio.channels&value=2&isRequired=true)",
+    ]
+)
 _CONTENT_TYPES = {
     "ts": "video/mp2t",
     "m4s": "video/iso.segment",
@@ -150,6 +169,10 @@ class StreamReplaced(StreamGone):
 
 class _Unservable(PlexUnavailable):
     """Plex answered, and what it answered cannot be played: asking again soon changes nothing."""
+
+
+class TrackUnavailable(Exception):
+    """Plex would not play the audio or subtitle track that was asked for."""
 
 
 class TooManyStreams(Exception):
@@ -185,6 +208,14 @@ class StreamInfo:
     saved_position_s: float | None = None
     #: Place of its start among all starts.
     order: int = 0
+
+
+@dataclass(frozen=True)
+class TvTracks:
+    """Marks a stream as one for a TV, with the tracks asked for; None leaves Plex's own choice."""
+
+    audio: str | None = None
+    subtitle: str | None = None
 
 
 class SegmentRead:
@@ -330,6 +361,11 @@ class _Stream:
     info: dict[str, Any] = field(default_factory=dict)
     #: Place of its start among all starts: of two of the same item, the later one plays.
     order: int = 0
+    tv: bool = False
+    #: A TV has read its playlist or a segment.
+    tv_read: bool = False
+    #: Whether a TV may go on reading; asked by the reaper, without the lock.
+    allowed: Callable[[], bool] | None = None
 
     @property
     def item(self) -> tuple[str, str]:
@@ -450,6 +486,7 @@ class StreamManager:
         fallback: str | None = None,
         page: str | None = None,
         asked_ago: float = 0.0,
+        tv: TvTracks | None = None,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
 
@@ -466,6 +503,8 @@ class StreamManager:
         restart; they count as replaced unless nothing could be started in their place. Of two
         starts of one item at the same time the later wins, and the other's id is returned as
         one already replaced.
+        With *tv* the video and audio are converted to what any TV plays, and a track it names
+        that Plex would not play raises ``TrackUnavailable``.
         Raises ``ValueError`` for an unknown quality or a malformed rating key, and
         ``TooManyStreams`` when the user, or mediaman as a whole, is at the limit.
         """
@@ -490,7 +529,7 @@ class StreamManager:
             for session_id in dropped.values():
                 self._call_quietly("stop", session_id)
             return self._start_new(
-                creds, user, rating_key, quality, burn_subtitles, info, fallback, order
+                creds, user, rating_key, quality, burn_subtitles, info, fallback, order, tv
             )
         finally:
             with self._lock:
@@ -523,6 +562,7 @@ class StreamManager:
         info: Mapping[str, Any] | None,
         fallback: str | None,
         order: int,
+        tv: TvTracks | None,
     ) -> str:
         asked = quality
         base, token = creds
@@ -536,7 +576,7 @@ class StreamManager:
                 self._issued.add(session_id)
             try:
                 child_path = self._open_session(
-                    base, token, session_id, rating_key, quality, burn_subtitles, deadline
+                    base, token, session_id, rating_key, quality, burn_subtitles, deadline, tv
                 )
                 break
             except PlexUnavailable as exc:
@@ -593,6 +633,7 @@ class StreamManager:
                         viewing_started=viewing.began,
                         info=dict(info or {}),
                         order=order,
+                        tv=tv is not None,
                     )
         if beaten:
             self._call_quietly("stop", session_id)
@@ -623,9 +664,12 @@ class StreamManager:
         if sum(1 for s in self._streams.values() if s.user == user) >= MAX_STREAMS_PER_USER:
             raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
 
-    def playlist(self, stream_id: str, user: str) -> str:
-        """Return the media playlist with every URI rewritten to mediaman's segment route."""
-        stream = self._touch(stream_id, user)
+    def playlist(self, stream_id: str, user: str, *, base_path: str | None = None) -> str:
+        """Return the media playlist with every URI rewritten to mediaman's segment route.
+
+        That route is under *base_path*, by default the signed-in person's own.
+        """
+        stream = self._touch(stream_id, user, read=True)
         base, token = self._creds()
         raw = self._get(
             base, token, stream.child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES
@@ -634,7 +678,7 @@ class StreamManager:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
             raise PlexUnavailable("Plex sent a playlist that is not text") from None
-        return _rewrite_playlist(text, stream_id)
+        return _rewrite_playlist(text, base_path or f"{SEGMENT_URL_PREFIX}/{stream_id}")
 
     def claim_read(self, read: SegmentRead) -> None:
         """Take a slot for *read*; give it back with ``release_read``.
@@ -662,9 +706,8 @@ class StreamManager:
         Raises ``ValueError`` for a name that is not a plain segment file name, and
         ``StreamGone`` once the stream ends or the read is cancelled.
         """
-        if not _SEGMENT_NAME_RE.fullmatch(name):
-            raise ValueError("not a segment name")
-        stream = self._touch(read.stream_id, read.user)
+        content_type = segment_type(name)
+        stream = self._touch(read.stream_id, read.user, read=True)
         base, token = self._creds()
         path = f"{posixpath.dirname(stream.child_path)}/{name}"
 
@@ -687,7 +730,7 @@ class StreamManager:
             )
         finally:
             _reading.read = None
-        return body, _CONTENT_TYPES[name.rsplit(".", 1)[1]]
+        return body, content_type
 
     def get(self, stream_id: str, user: str) -> StreamInfo:
         stream = self._touch(stream_id, user)
@@ -742,6 +785,14 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise self._gone(stream_id, user)
             return self._info(stream, stream.last_access)
+
+    def allow(self, stream_id: str, user: str, allowed: Callable[[], bool]) -> None:
+        """Have the reaper stop the stream once *allowed* says no; raises ``StreamGone``."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise self._gone(stream_id, user)
+            stream.allowed = allowed
 
     def copies_video(self, rating_key: str, file: str, user: str = "") -> bool:
         """Whether Plex would send this item's video as it is, remembered per *file* for a while.
@@ -818,25 +869,43 @@ class StreamManager:
                 viewing.asked = float("-inf")
         self._call_quietly("stop", stream.session_id)
 
+    def end(self, stream_id: str, user: str) -> None:
+        """Stop the stream as the reaper does, so that a late save of its progress is kept."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise self._gone(stream_id, user)
+            self._end([stream_id], self._clock())
+        self._call_quietly("stop", stream.session_id)
+
+    def _end(self, ids: list[str], now: float) -> list[_Stream]:
+        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held."""
+        ended = {sid: self._streams.pop(sid) for sid in ids}
+        self._reaped = {
+            sid: kept for sid, kept in self._reaped.items() if now - kept[0] <= VIEWING_KEEP_SECONDS
+        }
+        self._reaped.update((sid, (now, s)) for sid, s in ended.items())
+        return list(ended.values())
+
     def reap(self, now: float | None = None) -> int:
-        """Stop streams idle for longer than the timeout and ping the rest; return how many stopped.
+        """Stop streams idle past their timeout or no longer allowed, and ping the rest; return
+        how many stopped.
 
         mediaman sends Plex no timeline updates, so the ping is what keeps a paused session alive.
         """
         now = self._clock() if now is None else now
         with self._lock:
-            idle = [
+            asked = {sid: s.allowed for sid, s in self._streams.items() if s.allowed is not None}
+        refused = {sid for sid, allowed in asked.items() if _says_no(allowed)}
+        with self._lock:
+            ended = [
                 sid
                 for sid, s in self._streams.items()
-                if now - s.last_access > IDLE_TIMEOUT_SECONDS
+                if sid in refused
+                or now - s.last_access
+                > (TV_IDLE_TIMEOUT_SECONDS if s.tv_read else IDLE_TIMEOUT_SECONDS)
             ]
-            stopped = [self._streams.pop(sid) for sid in idle]
-            self._reaped = {
-                sid: kept
-                for sid, kept in self._reaped.items()
-                if now - kept[0] <= VIEWING_KEEP_SECONDS
-            }
-            self._reaped.update((sid, (now, s)) for sid, s in zip(idle, stopped, strict=True))
+            stopped = self._end(ended, now)
             live = [s.session_id for s in self._streams.values()]
         for stream in stopped:
             self._call_quietly("stop", stream.session_id)
@@ -896,12 +965,13 @@ class StreamManager:
             self._call_quietly("stop", session_id)
         return len(orphans)
 
-    def _touch(self, stream_id: str, user: str) -> _Stream:
+    def _touch(self, stream_id: str, user: str, *, read: bool = False) -> _Stream:
         with self._lock:
             stream = self._streams.get(stream_id)
             if stream is None or stream.user != user:
                 raise self._gone(stream_id, user)
             stream.last_access = self._clock()
+            stream.tv_read = stream.tv and (stream.tv_read or read)
             viewing = self._viewings.setdefault(
                 (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
             )
@@ -931,8 +1001,9 @@ class StreamManager:
         quality: str,
         burn_subtitles: bool,
         deadline: float,
+        tv: TvTracks | None,
     ) -> str:
-        params = _session_params(session_id, rating_key, quality, burn_subtitles)
+        params = _session_params(session_id, rating_key, quality, burn_subtitles, tv)
         session_header = {"X-Plex-Session-Identifier": session_id}
         # start.m3u8 answers 400 unless a decision for the same session came first.
         for action in ("decision", "start.m3u8"):
@@ -948,6 +1019,8 @@ class StreamManager:
             )
             if action == "decision" and quality == ORIGINAL and not _video_copied(body):
                 raise _Unservable("Plex would not copy the video")
+            if action == "decision" and tv is not None:
+                _check_tracks(body, tv)
         variant = next(
             (
                 line.strip()
@@ -1079,8 +1152,21 @@ class StreamManager:
         raise PlexUnavailable("Plex could not be reached")
 
 
+def _says_no(allowed: Callable[[], bool]) -> bool:
+    try:
+        return not allowed()
+    except Exception as exc:
+        # One stream that cannot be asked about must not keep the round from the others.
+        logger.warning("plex_stream: could not check a stream (%s)", type(exc).__name__)
+        return False
+
+
 def _session_params(
-    session_id: str, rating_key: str, quality: str, burn_subtitles: bool
+    session_id: str,
+    rating_key: str,
+    quality: str,
+    burn_subtitles: bool,
+    tv: TvTracks | None = None,
 ) -> dict[str, str]:
     params = {
         "path": f"/library/metadata/{rating_key}",
@@ -1097,18 +1183,52 @@ def _session_params(
     if quality != ORIGINAL:
         resolution, bitrate = QUALITY_PRESETS[quality]
         params |= {"videoResolution": resolution, "maxVideoBitrate": str(bitrate)}
+    if tv is not None:
+        params |= {
+            "directStream": "0",
+            "directStreamAudio": "0",
+            "audioChannelCount": "2",
+            "X-Plex-Client-Profile-Extra": _TV_PROFILE,
+        }
+        if tv.audio is not None:
+            params["audioStreamID"] = tv.audio
+        if tv.subtitle is not None:
+            params["subtitleStreamID"] = tv.subtitle
     return params
+
+
+def _decided_streams(body: bytes) -> list[Element]:
+    """The tracks of the version a decision chose; none when it cannot be read."""
+    try:
+        root = ET.fromstring(body)
+    except (ParseError, ValueError):
+        return []
+    media = list(root.iter("Media"))
+    chosen = [m for m in media if m.get("selected") == "1"] or media
+    return [s for m in chosen for s in m.iter("Stream")]
+
+
+def _check_tracks(body: bytes, tv: TvTracks) -> None:
+    """Raise ``TrackUnavailable`` unless Plex decided on each track *tv* names.
+
+    Plex ignores what it does not know, and would play the wrong language without a word.
+    """
+    streams = _decided_streams(body)
+    if tv.audio is not None:
+        audio = [s for s in streams if s.get("streamType") == "2"]
+        playing = [s for s in audio if s.get("selected") == "1"] or audio
+        if [s.get("id") for s in playing] != [tv.audio]:
+            raise TrackUnavailable("Plex would not play the audio track")
+    if tv.subtitle is not None and not any(
+        s.get("streamType") == "3" and s.get("id") == tv.subtitle and s.get("decision") == "burn"
+        for s in streams
+    ):
+        raise TrackUnavailable("Plex would not burn in the subtitle track")
 
 
 def _video_copied(body: bytes) -> bool:
     """True when a decision says the chosen version's video is copied, with nothing burned in."""
-    try:
-        root = ET.fromstring(body)
-    except (ParseError, ValueError):
-        return False
-    media = list(root.iter("Media"))
-    chosen = [m for m in media if m.get("selected") == "1"] or media
-    streams = [s for m in chosen for s in m.iter("Stream")]
+    streams = _decided_streams(body)
     video = [s for s in streams if s.get("streamType") == "1"]
     return (
         bool(video)
@@ -1117,7 +1237,14 @@ def _video_copied(body: bytes) -> bool:
     )
 
 
-def _rewrite_playlist(text: str, stream_id: str) -> str:
+def segment_type(name: str) -> str:
+    """The content type of a segment; raises ``ValueError`` for any other file name."""
+    if not _SEGMENT_NAME_RE.fullmatch(name):
+        raise ValueError("not a segment name")
+    return _CONTENT_TYPES[name.rsplit(".", 1)[1]]
+
+
+def _rewrite_playlist(text: str, base_path: str) -> str:
     """Rewrite a Plex media playlist so it names only mediaman segment routes.
 
     Any URI that is not a plain segment file name (absolute, rooted, traversing, with a query)
@@ -1131,7 +1258,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
         if not line:
             continue
         if not line.startswith("#"):
-            out.append(_segment_url(line, stream_id))
+            out.append(_segment_url(line, base_path))
             continue
         if extinf := _EXTINF_RE.fullmatch(line):
             out.append(f"#EXTINF:{extinf.group(1)},")
@@ -1140,7 +1267,7 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
             map_tag = _MAP_RE.fullmatch(line)
             if map_tag is None:
                 raise _Unservable("Plex sent a playlist mediaman cannot serve")
-            out.append(f'#EXT-X-MAP:URI="{_segment_url(map_tag.group(1), stream_id)}"')
+            out.append(f'#EXT-X-MAP:URI="{_segment_url(map_tag.group(1), base_path)}"')
             continue
         if line == "#EXT-X-KEY:METHOD=NONE":
             out.append(line)
@@ -1153,10 +1280,10 @@ def _rewrite_playlist(text: str, stream_id: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def _segment_url(name: str, stream_id: str) -> str:
+def _segment_url(name: str, base_path: str) -> str:
     if not _SEGMENT_NAME_RE.fullmatch(name):
         raise _Unservable("Plex sent a playlist mediaman cannot serve")
-    return f"{SEGMENT_URL_PREFIX}/{stream_id}/seg/{name}"
+    return f"{base_path}/seg/{name}"
 
 
 _manager: StreamManager | None = None

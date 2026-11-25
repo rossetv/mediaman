@@ -361,6 +361,12 @@ class TestServerLogs:
             ("GET", "/unsubscribe?token=abc.DEF-123", "GET /unsubscribe?token=*** HTTP/1.1"),
             ("GET", "/api/poster/42?sig=abc.DEF-123", "GET /api/poster/42?sig=*** HTTP/1.1"),
             ("GET", "/x?a=1&apikey=abc.DEF-123&b=2", "GET /x?a=1&apikey=***&b=2 HTTP/1.1"),
+            (
+                "GET",
+                "/api/cast/abc.DEF-123/seg/0.ts",
+                "GET /api/cast/***/seg/0.ts HTTP/1.1",
+            ),
+            ("GET", "//API//cast//abc.DEF-123/x", "GET //API//cast//***/x HTTP/1.1"),
             ("GET", "//keep/abc.DEF-123", "GET //keep/*** HTTP/1.1"),
             ("GET", "/keep//abc.DEF-123", "GET /keep//*** HTTP/1.1"),
             ("GET", "/KEEP/abc.DEF-123", "GET /KEEP/*** HTTP/1.1"),
@@ -408,6 +414,13 @@ class TestServerLogs:
         start = time.perf_counter()
         AccessLogFilter().filter(record)
         assert time.perf_counter() - start < 0.5
+
+    def test_cast_ticket_is_scrubbed_from_any_line(self, server_logs) -> None:
+        ticket = "Abc-123_" * 5 + "xyz"
+        logging.getLogger("uvicorn.error").warning("at %s", f"http://x/api/cast/{ticket}/seg/0.ts")
+        err = server_logs[1].getvalue()
+        assert "/api/cast/***REDACTED***/seg/0.ts" in err
+        assert ticket not in err
 
     def test_uvicorn_error_traceback_is_scrubbed(self, server_logs) -> None:
         try:

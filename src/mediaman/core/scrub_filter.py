@@ -151,7 +151,7 @@ class ScrubFilter(logging.Filter):
             secrets_snapshot = list(self._secrets)
         for secret in secrets_snapshot:
             text = text.replace(secret, self._replacement)
-        return text
+        return _CAST_TICKET_RE.sub(lambda m: m.group(1) + self._replacement, text)
 
     @classmethod
     def attach(
@@ -211,11 +211,16 @@ class _Scrubbed:
 
 _REDACTED_TOKEN = "***"
 # Emailed links carry their credential in the path (/keep/<token>,
-# /download/<token>, /api/keep/<token>/forever) or in a query value
+# /download/<token>, /api/keep/<token>/forever), as a TV's stream address does
+# (/api/cast/<ticket>/...), or in a query value
 # (/unsubscribe?token=..., /api/poster/<key>?sig=...).
 # Slash runs and case are ignored because the credential is still usable
 # through those spellings.
-_TOKEN_PATH_RE = re.compile(r"^((?:/+api)?/+keep/+|/+download/+)[^/?#]+", re.IGNORECASE)
+_TOKEN_PATH_RE = re.compile(
+    r"^((?:/+api)?/+keep/+|/+download/+|/+api/+cast/+)[^/?#]+", re.IGNORECASE
+)
+# The same ticket anywhere in a line, such as an address an error quotes.
+_CAST_TICKET_RE = re.compile(r"(/api/+cast/+)[A-Za-z0-9_-]{16,}", re.IGNORECASE)
 _TOKEN_NAME_RE = re.compile(r"[\w.-]*token|sig|api_?key", re.IGNORECASE)
 
 
