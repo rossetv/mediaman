@@ -46,7 +46,7 @@ from mediaman.web.repository.download import (
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
 from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
-from mediaman.web.routes.download._tokens import is_token_used
+from mediaman.web.routes.download._tokens import add_went_unanswered, is_token_used
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -490,7 +490,8 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     read = _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt, tvdb_id)
     if item["download_state"] is None and is_token_used(conn, token):
         item["download_state"] = "used"
-        item["arr_unread"] = not read
+        # An add that got no answer may still land, so the Arr's answer may not be the last word.
+        item["arr_unread"] = not read or add_went_unanswered(conn, token)
 
     item["notify_by_email"] = bool(item["email"])
     if item["download_state"] == ACTION_QUEUED and item["email"] and tmdb_id:

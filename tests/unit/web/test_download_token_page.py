@@ -1167,6 +1167,15 @@ class TestUsedLink:
 
         assert "used already" in page and "Reload" not in page
 
+    def test_a_used_link_whose_add_got_no_answer_offers_a_reload(
+        self, app_factory, conn, secret_key
+    ):
+        token = self._used(app_factory, conn, secret_key)
+        _download_tokens.note_unanswered_add(conn, token, 4102444800)
+        page = self._page(app_factory, conn, token, return_value={}).split("<template")[0]
+
+        assert "used already" in page and "Reload" in page
+
     def test_a_used_link_whose_arr_cannot_be_read_offers_a_reload(
         self, app_factory, conn, secret_key
     ):
