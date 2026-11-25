@@ -81,6 +81,7 @@ def test_a_tv_that_cannot_fetch_the_test_picture_is_not_added_and_says_why() -> 
     assert "said busy" in got["busy"][1]
     # A TV that shows no pictures may still play films.
     assert [code for code, (_, _, shut, _) in got.items() if not shut] == ["no_picture"]
+    assert "said no_picture You can still add it" in got["no_picture"][1]
     assert "<b>TV</b> did" in got["no_fetch"][3]
     assert " did" not in got["busy"][3]
 
