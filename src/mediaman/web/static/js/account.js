@@ -42,8 +42,10 @@
   }
 
   // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
-  function setBusy(button, words) {
+  // With `keepWidth` the words are for a screen reader, so what is beside the button does not move.
+  function setBusy(button, words, keepWidth) {
     if (words) {
+      button._width = button.offsetWidth;
       button.setAttribute('aria-disabled', 'true');
       if (button._label === undefined) button._label = button.textContent;
       button.textContent = '';
@@ -51,9 +53,16 @@
       spinner.className = 'btn-spinner';
       spinner.setAttribute('aria-hidden', 'true');
       button.appendChild(spinner);
-      button.appendChild(document.createTextNode(words));
+      var text = document.createElement('span');
+      text.textContent = words;
+      button.appendChild(text);
+      if (keepWidth) {
+        button.style.width = button._width + 'px';
+        text.className = 'sr-only';
+      }
     } else {
       button.removeAttribute('aria-disabled');
+      button.style.width = '';
       if (button._label !== undefined) button.textContent = button._label;
     }
   }
@@ -320,10 +329,14 @@
       }
       text.appendChild(name);
       var dates = el('div', 'me-sub dev-sub');
-      dates.appendChild(el('span', '', 'Last active ' + when(s.last_used_at || s.created_at)));
+      function date(words, iso) {
+        var line = dates.appendChild(el('span', '', words + ' '));
+        line.appendChild(el('span', 'dev-date', when(iso)));
+      }
+      date('Last active', s.last_used_at || s.created_at);
       if (s.device_label) {
         dates.appendChild(document.createTextNode(' '));
-        dates.appendChild(el('span', '', 'Signed in ' + when(s.created_at)));
+        date('Signed in', s.created_at);
       }
       text.appendChild(dates);
       row.appendChild(text);
@@ -386,7 +399,7 @@
 
     function signOut(s, row, button) {
       if (isBusy(button)) return;
-      setBusy(button, 'Signing out…');
+      setBusy(button, 'Signing out…', true);
       confirmed('sign out a device', function () {
         return MM.api.delete('/api/users/sessions/' + encodeURIComponent(s.public_id));
       }).then(function () {

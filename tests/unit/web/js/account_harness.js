@@ -116,7 +116,7 @@ const scenarios = {
       const button = p.button(1);
       button.focus();
       for (let i = 0; i < 2; i += 1) button.listeners.click.forEach((fn) => fn({}));
-      const busy = button.textContent;
+      const busy = [button.textContent, button.style.width, button.querySelector('.sr-only') !== null];
       await settle();
       return busy;
     };

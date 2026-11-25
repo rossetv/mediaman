@@ -49,7 +49,8 @@ def test_one_device_is_signed_out_by_its_own_button() -> None:
     assert (out["own"], out["label"]) == (False, "Sign out: Safari on iPhone")
     # one request for each press, however often it is pressed meanwhile
     assert out["sent"] == ["/api/users/sessions/a%2Fb"] * 3 + ["/api/users/sessions/id3"]
-    assert out["busy"] == "Signing out…"
+    # said to a screen reader, at the width the button had
+    assert out["busy"] == ["Signing out…", "20px", True]
     assert out["words"] == {
         "title": "Confirm it’s you",
         "descText": "Enter your Mediaman password to sign out a device.",
@@ -191,6 +192,18 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     margin = re.search(r"\.me-msg \{[^}]*scroll-margin-bottom: (\d+)px", css)
     # a 44px button centred on one 18px line reaches 13px below it
     assert margin and int(margin.group(1)) >= 13
+
+
+def test_an_empty_status_takes_no_room_and_can_still_be_announced() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    assert re.search(r"\.me-msg:empty \{ position: absolute; \}", css)
+    assert not re.search(r"\.me-msg:empty[^}]*(display|visibility)", css)
+
+
+def test_a_fold_has_room_at_its_sides_for_the_focus_rings_it_clips() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    rule = re.search(r"is-moving > \.setg-fold-inner \{([^}]*)\}", css)
+    assert rule and "padding-inline: 6px; margin-inline: -6px" in rule[1]
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
