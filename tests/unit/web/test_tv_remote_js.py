@@ -356,7 +356,7 @@ def test_the_bar_says_that_mediaman_is_out_of_reach_and_offers_nothing_it_cannot
 
 
 @pytest.mark.parametrize("kind", ["page", "older"])
-def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_play_again(kind: str) -> None:
+def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_go_on_from_it(kind: str) -> None:
     out = _run("restarted")
     said = "Your place in Glass Orchard is kept."
     assert out[kind]["card"] == ["mediaman restarted", said]
@@ -366,6 +366,10 @@ def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_play_again(ki
     assert out[kind]["toasts"] == ["mediaman restarted. " + said]
     assert out["same"] == []
     assert out["both"].startswith("Lost")
+
+
+def test_a_remote_opened_at_the_end_begins_on_play_again() -> None:
+    assert _run("openEnded") == [["Play again"], ["Pause"]]
 
 
 def test_what_was_announced_of_a_card_goes_with_it() -> None:

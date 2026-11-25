@@ -788,7 +788,7 @@ const scenarios = {
       Object.assign(p.api.tvs[0], { play: null, boot: 'b' });
       await p.pass(1100);
       const card = [p.card(), p.$('[data-card-line]').textContent];
-      click(p.doc, p.$('[data-card-actions]').querySelectorAll('button').find((b) => b.textContent === 'Play again'));
+      click(p.doc, p.$('[data-card-actions]').querySelectorAll('button').find((b) => b.textContent === 'Continue watching'));
       await settle();
       const q = await page({ tvs: [aTv({ kind, boot: 'a' })] });
       Object.assign(q.api.tvs[0], { play: null, boot: 'b' });
@@ -802,6 +802,15 @@ const scenarios = {
     Object.assign(both.api.tvs[0], { play: null, boot: 'b', last: { ...aPlay(), reason: 'lost' } });
     await both.pass(5100);
     return { ...out, same: same.toasts, both: both.bar().says };
+  },
+  async openEnded() {
+    const marked = (p) => p.doc.querySelectorAll('#tv-remote [data-modal-focus]').filter((n) => !n.hidden).map((n) => n.textContent.trim() || n.getAttribute('aria-label'));
+    const p = await page({ tvs: [aTv({ play: aPlay({ state: 'ended' }) })] });
+    await p.open();
+    const out = [marked(p)];
+    p.api.tvs[0].play = aPlay({ play_id: 'p2' });
+    await p.pass(5100);
+    return out.concat([marked(p)]);
   },
   async statusCleared() {
     const p = await page();

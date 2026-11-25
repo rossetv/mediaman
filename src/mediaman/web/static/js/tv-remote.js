@@ -81,7 +81,7 @@
   function $(sel) { return root.querySelector(sel); }
   function m(sel) { return mini.querySelector(sel); }
   var els = {
-    title: $('[data-title]'), subtitle: $('[data-subtitle]'), on: $('[data-on]'), hint: $('[data-hint]'),
+    title: $('[data-title]'), subtitle: $('[data-subtitle]'), on: $('[data-on]'), hint: $('[data-hint]'), say: $('.tv-rem__say'),
     ring: $('[data-ring]'), mid: $('[data-mid]'), bottom: $('[data-bottom]'), top: $('.player-top'),
     seekRow: $('[data-seek-row]'), seek: $('[data-seek]'), played: $('[data-played]'), thumb: $('[data-thumb]'),
     marks: $('[data-marks]'), hover: $('[data-seek-hover]'), bubble: $('[data-bubble]'),
@@ -629,7 +629,10 @@
     setHidden(els.subtitle, !episode(what));
     root.classList.toggle('is-gone', bad);
     root.classList.toggle('is-load', loading);
-    root.classList.toggle('is-upnext', !bad && !loading && !!p && p.state === 'upnext');
+    var upnext = !bad && !loading && !!p && p.state === 'upnext';
+    // Other words of another height must not move the picture.
+    if (upnext !== root.classList.contains('is-upnext')) els.say.style.minHeight = upnext ? els.say.getBoundingClientRect().height + 'px' : '';
+    root.classList.toggle('is-upnext', upnext);
     root.classList.toggle('is-paused', !bad && !!p && (isPaused() || p.state === 'still'));
     setHidden(els.ring, !loading);
     MM.dom.setText(els.on, (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
@@ -791,7 +794,7 @@
       if (older) card = [gone.reason === 'unpaired' ? n + ' can’t be used now' : card[0], older];
       var mine = ['lost', 'still', 'restarted'].indexOf(gone.reason) !== -1;
       var on = onward(last);
-      var acts = mine ? [[gone.reason === 'still' ? 'Continue watching' : on && on.next ? 'Play next episode' : gone.reason === 'restarted' ? 'Play again' : 'Try again', playAgain], here, ['Close', dismiss]]
+      var acts = mine ? [[gone.reason === 'lost' ? (on && on.next ? 'Play next episode' : 'Try again') : 'Continue watching', playAgain], here, ['Close', dismiss]]
         : gone.reason === 'moved' ? [['Close', dismiss], here] : [here, ['Close', dismiss]];
       if (!on) acts = [['Close', dismiss]];
       return { key: 'gone' + gone.reason, title: card[0], line: card[1], acts: acts };
@@ -906,6 +909,7 @@
     els.card.inert = !cardKey || !!menuOpen;
     els.top.inert = !!menuOpen;
     els.play.toggleAttribute('data-modal-focus', !blocked && !els.play.hidden && !els.play.inert);
+    els.again.toggleAttribute('data-modal-focus', !blocked && !els.again.hidden);
     keepFocus();
   }
 
