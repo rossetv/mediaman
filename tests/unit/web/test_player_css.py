@@ -306,6 +306,14 @@ def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
 
 
+def test_the_question_of_a_rating_is_never_shrunk_away() -> None:
+    css = _text("_player.css")
+    # Beside the thumbs, on a phone on its side, it is what wraps.
+    column = css[css.index("@media (min-height: 520.02px), (orientation: portrait) {") :]
+    assert "flex: none" in _rule(column, ".player.is-away .player-rate .player-card-title")
+    assert len(re.findall(r"-rate \.player-card-title \{[^}]*flex: none", css)) == 1
+
+
 def test_chapters_go_with_the_other_controls_at_the_end_on_a_tv() -> None:
     body = _rule(_text("_player.css"), ".player.is-ended .player-chapters")
     assert "transition: none" in body

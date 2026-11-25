@@ -1021,6 +1021,14 @@
   .player.is-away .player-rate .player-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
   .player.is-away .player-message { top: calc((100vh + var(--away-head, 90px)) / 2); max-height: calc(100vh - var(--away-head, 90px) - 24px); overflow-y: auto; }
 }
+/* Where the card is a column its question is never what gives way. */
+@media (min-height: 520.02px), (orientation: portrait) {
+  .player.is-away .player-rate .player-card-title { flex: none; }
+}
+@media (max-width: 600px) and (max-height: 680px) and (orientation: portrait) {
+  .player.is-away .player-rate { --card-y: 8px; gap: 4px; }
+  .player.is-away .player-rate .player-card-title { -webkit-line-clamp: 2; }
+}
 @media (max-width: 350px) {
   .player.is-away .player-away-end .player-pill { flex: 1 1 100%; }
   .player.is-on-tv .player-controls > :is(.player-volume, .player-brk--1) { display: none; }
