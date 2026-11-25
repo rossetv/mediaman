@@ -304,6 +304,36 @@ class TestPosterEndpointAuth:
         r = client.get("/api/poster/12345")
         assert r.status_code == 200
 
+    def test_a_session_s_poster_is_for_that_browser_and_a_signed_one_for_any_cache(self, tmp_path):
+        from unittest.mock import MagicMock, patch
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = self._build_test_app(tmp_path, self._KEY, stub_cache=False)
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
+        for key in ("12345", "12346"):
+            insert_media_item(conn, id=key, plex_library_id=1)
+        _scan(conn)
+
+        def scopes(url):
+            return [client.get(url).headers["Cache-Control"].split(",")[0] for _ in range(2)]
+
+        image = MagicMock(content=b"\xff\xd8\xff", headers={"Content-Type": "image/jpeg"})
+        with (
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as http,
+            patch(
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
+                return_value="https://localhost",
+            ),
+        ):
+            http.get.return_value = image
+            # from Plex, then from the disk cache
+            assert scopes(sign_poster_url("12345", self._KEY)) == ["public"] * 2
+            asked = http.get.call_count
+            self._session(conn, client)
+            assert scopes("/api/poster/12346") == ["private"] * 2
+        assert (asked, http.get.call_count) == (1, 2)
+
     def _session(self, conn, client, role="viewer"):
         from mediaman.web.auth.session_store import create_session
 
