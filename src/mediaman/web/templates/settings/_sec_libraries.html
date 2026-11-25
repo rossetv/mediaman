@@ -17,7 +17,7 @@
   {% endcall %}
 
   {% call c.setg_card(title="Paths & disk thresholds",
-                         sub="Filesystem path Mediaman uses to measure disk usage — must match what Plex sees. Scheduled scans take a library with a path and a threshold only while its disk is that full, and any other chosen library always. Scan now ignores these limits.",
+                         sub="Filesystem path Mediaman uses to measure disk usage — must match what Plex sees. Scheduled scans take a library with a path and a threshold only while its disk is that full, and any other chosen library always. Scan now takes a library however full its disk is, but leaves out one whose saved limit cannot be read.",
                          pad=True) %}
     <div id="disk-threshold-rows">
       <div class="fld-sub">Loading…</div>
