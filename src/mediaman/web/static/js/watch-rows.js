@@ -199,10 +199,16 @@
 
     function controls(root) { return Array.prototype.slice.call(root.querySelectorAll('a[href], button')); }
 
+    /* While the keys have the focus here the row does not snap: browsers snap again as
+       cards come after the focused one, and move it. */
+    function snap(on) { scroller.style.scrollSnapType = on ? '' : 'none'; }
+
     function sync() {
       controls(scroller).forEach(function (node) { if (node.getAttribute('tabindex') !== '-1') node.tabIndex = -1; });
       var active = document.activeElement;
-      scroller.tabIndex = active !== scroller && scroller.contains(active) ? -1 : 0;
+      var inside = active !== scroller && scroller.contains(active);
+      scroller.tabIndex = inside ? -1 : 0;
+      if (!inside) snap(true);
     }
 
     /* Safari can drop a smooth scroll that others ran into: look again once they are over. */
@@ -220,6 +226,7 @@
 
     function focusOn(card, control) {
       control.focus({ preventScroll: true });
+      snap(false);
       show(card);
       var area = window.MMWatch.core.clearArea();
       var box = control.getBoundingClientRect();
@@ -247,10 +254,13 @@
       }
       last = e.target.closest('.watch-card, .watch-row__more');
       scroller.tabIndex = -1;
+      snap(!e.target.matches(':focus-visible'));
     });
     scroller.addEventListener('focusout', function (e) {
       if (e.target !== scroller) e.target.removeAttribute('aria-describedby');
-      if (!scroller.contains(e.relatedTarget)) scroller.tabIndex = 0;
+      if (scroller.contains(e.relatedTarget)) return;
+      scroller.tabIndex = 0;
+      snap(true);
     });
 
     scroller.addEventListener('keydown', function (e) {

@@ -53,6 +53,14 @@ def test_arrows_home_and_end_move_along_a_row_and_down_goes_to_more_and_keep() -
     assert out["taken"] == [False, False, False]
 
 
+def test_the_card_reached_with_end_stays_where_it_is_as_more_load_after_it() -> None:
+    out = _run("steady")
+    assert out["held"] == {"at": "link 8", "moved": 0, "snaps": False}
+    # Touch and the pointer snap as before: only the keys' focus holds the row.
+    assert (out["left"], out["taken"], out["pressed"]) == (True, True, True)
+    assert (out["back"], out["keys"]) == (False, False)
+
+
 def test_cards_that_load_or_leave_neither_add_a_tab_stop_nor_lose_the_row() -> None:
     out = _run("comeAndGo")
     assert out["loaded"] == {"at": "link 4", "stops": [], "end": "link 8"}
