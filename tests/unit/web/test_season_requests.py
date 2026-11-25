@@ -501,7 +501,7 @@ def test_a_deletion_that_comes_while_a_season_is_asked_for_is_not_undone_by_it(
 
 
 @pytest.mark.parametrize("route", ["search"])
-@pytest.mark.parametrize("left_on", [True, False])
+@pytest.mark.parametrize("left_on", [True, False, None])
 def test_seasons_left_started_for_one_that_was_not_added_are_told_and_audited(
     authed_client, db, ask, route, left_on
 ):
@@ -521,7 +521,8 @@ def test_seasons_left_started_for_one_that_was_not_added_are_told_and_audited(
 
     assert _results(resp) == {2: "removed"}
     assert resp.json()["also_started"] == ([1] if left_on else [])
-    assert [("season 1" in row[2], row[3]) for row in _audit(db)] == [(True, "admin")] * left_on
+    audited = [("season 1" in row[2], "May have" in row[2], row[3]) for row in _audit(db)]
+    assert audited == ([] if left_on is False else [(True, left_on is None, "admin")])
 
 
 @pytest.mark.parametrize("route", ["search"])

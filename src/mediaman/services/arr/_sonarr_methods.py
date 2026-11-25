@@ -12,7 +12,7 @@ import copy
 import logging
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass
 from time import monotonic, sleep
@@ -129,8 +129,8 @@ class SeriesChange:
     lone_episodes: bool = False
     #: The seasons monitored once it was made: one monitored beside them was asked for since.
     monitored: frozenset[object] = frozenset()
-    #: Whether the series stays monitored though the season was not added.
-    left_on: bool = False
+    #: Whether the series stays monitored though the season was not added; None for not known.
+    left_on: bool | None = False
 
 
 def _may_hold_lone_episodes(season: Mapping[str, Any]) -> bool:
@@ -364,7 +364,10 @@ class _SonarrMixin:
             except SearchUnanswered:
                 raise
             except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as exc:
-                if made.landed and made.season and made.lone_episodes:
+                lone_episodes = made.season and made.lone_episodes
+                if lone_episodes and not made.landed:
+                    made.landed = self._was_taken(series_id, is_already_remonitored)
+                if made.landed and lone_episodes:
                     raise SearchUnanswered("the season stays monitored, with no search") from exc
                 self._put_back(series_id, season_number, made, season_too=not made.lone_episodes)
                 raise
@@ -417,6 +420,20 @@ class _SonarrMixin:
             if taken:
                 lock.release()
 
+    def _undo_time(self) -> AbstractContextManager[None]:
+        """The short time of its own that putting a change somebody waits for back takes."""
+        return _due(monotonic() + _UNDO_SECONDS) if _deadline.get() is not None else nullcontext()
+
+    def _was_taken(self, series_id: int, is_made: Callable[[SonarrSeries], bool]) -> bool:
+        """Whether a change that got no answer is there all the same; False when that cannot be
+        read."""
+        try:
+            with self._undo_time():
+                return is_made(self.get_series_by_id(series_id))
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            logger.warning("Could not read sonarr series_id=%s again", series_id, exc_info=True)
+            return False
+
     def _put_back(
         self, series_id: int, season_number: int, change: SeriesChange, *, season_too: bool
     ) -> None:
@@ -425,12 +442,14 @@ class _SonarrMixin:
         hidden."""
         if not change.series and not (season_too and change.season):
             return
-        change.left_on = change.series
+        # A change that got no answer may never have turned the series on.
+        change.left_on = change.series and (change.landed or None)
         stays_on = False
 
         def put_back(entity: SonarrSeries) -> None:
             nonlocal stays_on
-            stays_on = change.series and bool(_monitored_in(entity) - change.monitored)
+            change.left_on = change.series and entity.get("monitored") is not False
+            stays_on = change.left_on and bool(_monitored_in(entity) - change.monitored)
             if change.series and not stays_on:
                 entity["monitored"] = False
             for season in (entity.get("seasons") or []) if season_too and change.season else ():
@@ -442,9 +461,8 @@ class _SonarrMixin:
             put_back(after)
             return after == entity
 
-        hurried = _deadline.get() is not None
         try:
-            with _due(monotonic() + _UNDO_SECONDS) if hurried else nullcontext():
+            with self._undo_time():
                 self._unmonitor_with_retry(  # type: ignore[attr-defined]
                     fetch_entity=lambda: self.get_series_by_id(series_id),
                     put_url=f"/api/v3/series/{series_id}",

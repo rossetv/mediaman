@@ -211,8 +211,16 @@ def _add_all(
                     if result == "asked":
                         sonarr.take_back_season(series_id, number, change)
                     result = refusal
-            if also and result != "asked" and change.left_on:
-                record_started(conn, show, title=title, number=number, actor=actor, started=also)
+            if also and result != "asked" and change.left_on is not False:
+                record_started(
+                    conn,
+                    show,
+                    title=title,
+                    number=number,
+                    actor=actor,
+                    started=also,
+                    certain=change.left_on is True,
+                )
             if change.left_on or (result == "asked" and change.series):
                 started |= also
             results[number] = result
