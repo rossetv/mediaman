@@ -1,6 +1,9 @@
 /* The Watch page's row of what a person asked for and has not watched. */
 
 .asked-row > .watch-row__head { margin-bottom: 2px; }
+/* Room inside its clip for the ring and the glow of an arrival. */
+.asked-row .watch-row__scroll { padding-top: 20px; margin-top: -20px; }
+.asked-row .watch-row__arrow { margin-top: 14px; }
 .asked-line { padding: 0 var(--pad); margin-bottom: 12px; font-size: 13px; line-height: 1.3; color: var(--t3); }
 
 /* Where a title is on its way to the screen, under its caption. */
@@ -74,9 +77,9 @@
 }
 .asked-arriving .asked-state { animation: asked-rise 400ms var(--ease-out) 250ms both; }
 @keyframes asked-arrive {
-  0% { transform: scale(.94); outline: 3px solid transparent; }
-  45% { transform: scale(1.04); outline: 3px solid color-mix(in srgb, var(--success) 60%, transparent); box-shadow: 0 0 34px color-mix(in srgb, var(--success) 45%, transparent); }
-  100% { transform: none; outline: 3px solid transparent; }
+  0% { transform: scale(.94); outline: 3px solid transparent; outline-offset: -1px; }
+  45% { transform: scale(1.04); outline: 3px solid color-mix(in srgb, var(--success) 60%, transparent); outline-offset: -1px; box-shadow: 0 0 18px color-mix(in srgb, var(--success) 45%, transparent); }
+  100% { transform: none; outline: 3px solid transparent; outline-offset: -1px; }
 }
 @keyframes asked-sweep {
   from { transform: translateX(-100%); }

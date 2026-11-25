@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -154,3 +155,17 @@ def test_a_mark_made_while_an_answer_is_on_its_way_is_not_lost() -> None:
     out = _run("in_flight")
     late = {"stale": ["movie-1", "movie-2"], "keys": ["movie-2"], "gets": 3}
     assert out == {"soon": late, "late": late}
+
+
+def test_the_row_s_clip_leaves_room_for_an_arrival_s_glow_and_moves_nothing() -> None:
+    css = (
+        Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_asked.css"
+    ).read_text(encoding="utf-8")
+    room = re.search(
+        r"\.asked-row \.watch-row__scroll \{ padding-top: (\d+)px; margin-top: -(\d+)px; \}", css
+    )
+    glow = re.search(r"box-shadow: 0 0 (\d+)px", css)
+    assert room
+    assert glow
+    assert room[1] == room[2]
+    assert int(glow[1]) < int(room[1])
