@@ -348,6 +348,10 @@ const SCENARIOS = {
     out.reloaded = { state: reloaded.history.state, on: reloaded.one('.share-hero').classList.contains('is-trailer') };
     reloaded.back();
     out.reloaded.left = reloaded.left;
+    const returned = page();
+    returned.history.scrollRestoration = 'manual';
+    returned.trailer();
+    out.returned = returned.history.scrollRestoration;
     press();
     p.act().replaceChildren();
     click(p.doc, p.one('.ttl__close'));

@@ -138,3 +138,33 @@ def test_a_title_pill_never_wraps_its_count() -> None:
     rule = re.search(r"\.dl-hero-episodes-toggle,\s*\.dl-compact-episodes-toggle \{([^}]*)\}", css)
 
     assert rule and "white-space: nowrap" in rule[1]
+
+
+def _queries_of(css: str, selector: str, declaration: str) -> set[str]:
+    """The conditions of the `@media` blocks that set `declaration` on `selector`."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    found = set()
+    for query in re.finditer(r"@media ([^{]+)\{", css):
+        depth, end = 1, query.end()
+        while depth:
+            depth += {"{": 1, "}": -1}.get(css[end], 0)
+            end += 1
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css[query.end() : end - 1]):
+            if selector in [s.strip() for s in head.split(",")] and declaration in body:
+                found.add(query[1].strip())
+    return found
+
+
+def test_the_main_button_takes_a_line_of_its_own_only_where_the_others_fill_theirs() -> None:
+    main = _queries_of(
+        _css("_share.css"), ".share-act .watch-actions .watch-btn--play", "flex-basis: 100%"
+    )
+    others = _queries_of(_css("_watch.css"), ".watch-banner .watch-actions .btn", "flex: 1 1 0")
+    assert main and main <= others
+
+
+def test_a_phone_held_sideways_gives_the_buttons_the_width_of_the_text_and_the_poster() -> None:
+    spans = _queries_of(
+        _css("_share.css"), ".share-page .watch-banner .share-act", "grid-column: 1 / -1"
+    )
+    assert any("orientation: landscape" in query for query in spans)
