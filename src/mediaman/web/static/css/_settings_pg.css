@@ -327,6 +327,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .savebar .sb-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--warning); box-shadow: var(--glow-warning);
+  flex: none;
 }
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
@@ -375,10 +376,10 @@ html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so
      neither label ("Discard" / "Save Settings") truncates. */
-  .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
+  .setg-pg .savebar .sb-msg { flex: 1 1 calc(100% - 18px); }
   .setg-pg .savebar .btn { flex: 1 1 0; }
-  html:has(.setg-pg .savebar.on) { --savebar-room: calc(184px + env(safe-area-inset-bottom, 0px)); }
-  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { --savebar-room: calc(272px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on) { --savebar-room: calc(166px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { --savebar-room: calc(254px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Reauth modal — narrow variant of .modal-sheet for the savebar
@@ -391,7 +392,7 @@ html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
   font-size: 22px; font-weight: 600; line-height: 1.19;
   letter-spacing: -.011em; color: var(--t1);
   margin: 0 0 8px;
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; text-wrap: balance;
 }
 .reauth-sheet .reauth-desc {
   font-size: 14px; line-height: 1.43; letter-spacing: -.224px;

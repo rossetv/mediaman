@@ -57,7 +57,7 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     assert kept(".is-error", ".setg-pg .savebar {") >= 86
     phone = ".setg-pg .savebar { bottom:"
     assert (kept("", phone) >= 129, kept(either, phone) >= 196) == (True, True)
-    assert (kept("", narrow) >= 176, kept(either, narrow) >= 259) == (True, True)
+    assert (kept("", narrow) >= 158, kept(either, narrow) >= 230) == (True, True)
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:
