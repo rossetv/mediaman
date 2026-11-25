@@ -62,8 +62,9 @@ img[data-broken=""] { display: none; }
 }
 .ico-sprite { display: none; }
 
-/* The name: the box of its drawing, with small letters as tall as the .53em of the type around it. */
-.wordmark { flex: none; width: 4.4316em; height: 1.0211em; }
+/* The name: the box of its drawing, with small letters as tall as the .53em of the type around it.
+   It cannot wrap as words do, so under a large text zoom it narrows to what holds it instead. */
+.wordmark { flex: none; width: 4.4316em; max-width: 100%; height: auto; aspect-ratio: 4.4316 / 1.0211; }
 .wm-man { stroke: var(--accent); }
 
 a { color: inherit; text-decoration: none; }

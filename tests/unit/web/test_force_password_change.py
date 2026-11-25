@@ -155,6 +155,10 @@ def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
     assert brand and 'aria-label="mediaman"' in brand[1] and "wordmark" in brand[1]
     assert "<b>man</b>" not in brand[1]
+    # Under a large text zoom it narrows with the card, and keeps its proportions.
+    mark = _rule((WEB / "static" / "css" / "_base.css").read_text(), ".wordmark")
+    assert "max-width: 100%" in mark and "height: auto" in mark
+    assert "aspect-ratio: 4.4316 / 1.0211" in mark
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
