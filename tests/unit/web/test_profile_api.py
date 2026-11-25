@@ -76,6 +76,7 @@ def test_a_viewer_signs_out_their_other_devices_and_nobody_else_s(client, conn):
     theirs = create_session(conn, "boss")
     other = create_session(conn, "viewer")
     mine = client.cookies["session_token"]
+    grant_recent_reauth(conn, mine, "viewer")
 
     resp = client.post("/api/users/sessions/revoke-others")
 
@@ -86,8 +87,40 @@ def test_a_viewer_signs_out_their_other_devices_and_nobody_else_s(client, conn):
     assert validate_session(conn, theirs) == "boss"
 
 
+def test_other_devices_stay_signed_in_until_the_password_is_confirmed(client, conn):
+    other = create_session(conn, "viewer")
+
+    for _ in range(_SESSIONS_REVOKE_LIMITER._max_in_window + 1):
+        resp = client.post("/api/users/sessions/revoke-others")
+
+    assert (resp.status_code, resp.json()["reauth_required"]) == (403, True)
+    assert "session_token" not in resp.cookies
+    assert validate_session(conn, other) == "viewer"
+
+
+def test_a_viewer_signs_out_one_of_their_devices_and_nobody_else_s(client, conn):
+    grant_recent_reauth(conn, client.cookies["session_token"], "viewer")
+    theirs, other = create_session(conn, "boss"), create_session(conn, "viewer")
+
+    def end(public_id):
+        resp = client.delete(f"/api/users/sessions/{public_id}")
+        return resp.status_code, resp.text
+
+    mine = next(
+        s["public_id"]
+        for s in list_sessions_for(conn, "viewer", current_token=other)
+        if s["current"]
+    )
+
+    assert end(mine) == (200, '{"ok":true}')
+    assert validate_session(conn, other) is None
+    assert end(list_sessions_for(conn, "boss")[0]["public_id"]) == end("0" * 32)
+    assert validate_session(conn, theirs) == "boss"
+
+
 def test_signing_out_other_devices_is_limited_for_each_person(client, conn):
     other = create_session(conn, "viewer")
+    grant_recent_reauth(conn, client.cookies["session_token"], "viewer")
     while _SESSIONS_REVOKE_LIMITER.check("viewer"):
         pass
 

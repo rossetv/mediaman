@@ -27,7 +27,6 @@ from mediaman.web.routes.users.crud import _reserve
 from mediaman.web.routes.users.rate_limits import (
     _SESSIONS_LIST_LIMITER,
     _SESSIONS_REVOKE_LIMITER,
-    too_many,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,13 +79,21 @@ def api_revoke_other_sessions(
     request: Request,
     admin: str = Depends(get_current_user),
     session_token: str | None = Cookie(default=None),
-) -> JSONResponse:
-    """Revoke every session for the signed-in user except the current one. Reauth tickets bound
+) -> Response:
+    """Revoke every session for the signed-in user except the current one. Requires a recent
+    reauth ticket, so a stolen session cookie cannot sign the owner out. Reauth tickets bound
     to the destroyed sessions are dropped too so they cannot be reused.
     """
-    if not _SESSIONS_REVOKE_LIMITER.check(admin):
-        logger.warning("session.revoke_all_throttled user=%s", _sanitise_log_field(admin))
-        return too_many(_SESSIONS_REVOKE_LIMITER, admin, "Too many tries.")
+    reserved = _reserve(
+        request,
+        _SESSIONS_REVOKE_LIMITER,
+        admin,
+        session_token,
+        "session.revoke_all",
+        what="Too many tries.",
+    )
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
     # Drop reauth tickets for this user before destroying their sessions
     # so a thief who held a ticket cannot perform one last privileged
