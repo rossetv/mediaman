@@ -969,11 +969,11 @@ class StreamManager:
         Meant for startup, so Plex trouble is logged and reported as 0 rather than raised; while
         Plex is not set up there is nothing to tidy, and nothing is said.
         """
-        try:
-            base, token = self._creds()
-        except PlexNotConfigured:
+        creds = self._credentials()
+        if creds is None or not creds[0] or not creds[1]:
             return 0
         try:
+            base, token = self._creds()
             raw = self._get(
                 base,
                 token,

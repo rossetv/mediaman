@@ -453,6 +453,14 @@ def test_tidy_orphans_asks_nothing_and_warns_of_nothing_while_plex_is_not_set(pl
     assert (caplog.records, plex.calls) == ([], [])
 
 
+def test_tidy_orphans_still_warns_of_a_plex_address_that_is_not_http(plex, caplog):
+    manager = StreamManager(lambda: ("ftp://plex.test", TOKEN), session=plex)
+
+    with caplog.at_level(logging.WARNING, logger=plex_stream.__name__):
+        assert manager.tidy_orphans() == 0
+    assert caplog.records
+
+
 def test_whole_lifecycle_writes_nothing_and_sends_the_token_only_in_a_header(manager, plex, clock):
     plex.sessions = [{"key": "mediaman-old"}]
     stream_id = _start(manager)
