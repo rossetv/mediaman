@@ -414,6 +414,57 @@ const scenarios = {
     await settle();
     return { failed, trying, after: g.now() };
   },
+  /* Back while the slow list is on its way, then Forward to it. */
+  async goSlowBackForward() {
+    const g = going();
+    g.go();
+    g.slow();
+    g.p.popstate('');
+    await settle();
+    g.p.doc.activeElement.blur();
+    g.p.popstate('?view=list&type=movie&sort=size_desc');
+    await settle();
+    const waiting = g.now();
+    g.wait.resolve();
+    await settle();
+    return { waiting, after: g.now() };
+  },
+  /* Back while the slow list, with the focus, is on its way; Forward once it is in. */
+  async goSlowForwardWhenIn() {
+    const g = going();
+    g.go();
+    g.slow();
+    const there = g.p.ctx.history.state;
+    g.p.popstate('');
+    g.wait.resolve();
+    await settle();
+    g.p.doc.activeElement.blur();
+    g.p.popstate('?view=list&type=movie&sort=size_desc', there);
+    await settle();
+    return g.now();
+  },
+  /* Forward to a list whose row with the focus was deleted as Back left it: nothing has the focus, or *own* has. */
+  async forwardAfterDelete() {
+    const go = async (own, state) => {
+      const rows = [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline', ref: 'movie-1' }];
+      const g = going({ list: true, rows, motion: true, state: { said: '2 titles' } });
+      g.p.serve('/watch/list', { said: '1 title' }, rows.slice(0, 1));
+      g.p.row('id:m1').querySelector('a.wl-title').focus();
+      const tell = (phase) => g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: 'delete', id: 'm1' } });
+      tell('busy');
+      if (state !== 'late') tell('done');
+      g.p.popstate('');
+      if (state === 'late') tell('done');
+      await settle();
+      g.slow();
+      if (own) g.p.doc.getElementById('watch-search').focus(); else g.p.doc.activeElement.blur();
+      g.p.popstate('?view=list');
+      await settle();
+      const { focus, on, said } = g.now();
+      return own ? on : { focus, said };
+    };
+    return { left: await go(false), late: await go(false, 'late'), own: await go(true), ownLate: await go(true, 'late') };
+  },
   /* Called off when what it asked for has already been replaced by another list. */
   async goReplaced() {
     const g = going({ list: true });

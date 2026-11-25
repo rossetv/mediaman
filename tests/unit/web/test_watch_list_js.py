@@ -881,6 +881,24 @@ def test_a_slow_list_that_fails_and_is_tried_again_keeps_the_focus_and_says_wher
     assert out["after"]["focus"] == "Big"
 
 
+def test_forward_to_a_list_still_on_its_way_waits_with_the_focus_and_tells_it_when_in() -> None:
+    out = _run("goSlowBackForward")
+    assert (out["waiting"]["on"], out["waiting"]["said"]) == ("watch-list", "Loading the list.")
+    assert (out["after"]["focus"], out["after"]["said"]) == ("Big", "35 movies")
+
+
+def test_forward_to_a_list_that_came_meanwhile_focuses_its_first_title_and_tells_it() -> None:
+    out = _run("goSlowForwardWhenIn")
+    assert (out["focus"], out["said"]) == ("Big", "35 movies")
+
+
+def test_forward_to_a_list_whose_focused_row_was_deleted_focuses_its_first_title() -> None:
+    out = _run("forwardAfterDelete")
+    assert out["left"] == {"focus": "Big", "said": "1 title"}
+    assert out["late"] == {"focus": "Big", "said": "1 title"}
+    assert (out["own"], out["ownLate"]) == ("watch-search", "watch-search")
+
+
 def test_calling_off_a_list_leaves_the_one_asked_for_since_to_come() -> None:
     assert _run("goReplaced")["rows"] == ["id:s9"]
 
