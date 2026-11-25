@@ -15,7 +15,7 @@ from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware import viewer_guard
 
 _HTML = {"Accept": "text/html"}
-_NAV = '<nav class="nav-tabs"'
+_NAV = '<header class="nav-glass'
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ def test_an_error_page_for_nobody_signed_in_has_no_nav(app, cookie):
     resp = client.get("/no/such/page", headers=_HTML)
 
     assert resp.status_code == 404
-    assert "nav-tabs" not in resp.text
+    assert "nav-glass" not in resp.text
     assert "media<b>man</b>" in resp.text
 
 
@@ -83,4 +83,4 @@ def test_a_failed_session_or_role_read_still_shows_the_error_page(app, conn, mon
 
     assert resp.status_code == 500
     assert "Something went wrong" in resp.text
-    assert "nav-tabs" not in resp.text
+    assert "nav-glass" not in resp.text

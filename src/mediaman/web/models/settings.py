@@ -223,6 +223,7 @@ class SettingsUpdate(BaseModel):
 
     older_tvs_enabled: bool | None = None
     older_tvs_http: bool | None = None
+    google_cast_enabled: bool | None = None
     tv_address: Annotated[str | None, Field(max_length=_URL_MAX)] = None
 
     @field_validator("tv_address", mode="after")

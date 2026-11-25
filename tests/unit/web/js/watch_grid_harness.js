@@ -72,7 +72,7 @@ function load(opts = {}) {
     ['div', { class: 'watch-row__viewport' }, ['div', { class: 'watch-row__scroll', tabindex: '0' }]]];
   doc.body.appendChild(build(doc, ['div', { class: 'nav-glass' }]));
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
-    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
+    ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]], ['div', { class: 'watch-all__bar' }],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }]]]] : [];
   doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['div', { id: 'watch-browse' }, row('Movies'), row('TV')], ...server]));

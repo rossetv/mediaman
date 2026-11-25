@@ -1,4 +1,4 @@
-/* Watch page: the films of a film's collection at the end of its detail, and the dialog that
+/* Watch page: the films of a film's collection above the cast in its detail, and the dialog that
    asks for the missing ones (watch/collection.js). */
 
 /* ── The row: to the sheet's edges, which its cards scroll under ── */
@@ -10,15 +10,31 @@
 .coll__words > .ttl__sec-title { margin-bottom: 2px; }
 .coll__name { font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
 .coll__get { flex: none; min-height: 44px; padding-inline: 18px; font-size: 14px; }
-.coll__get[hidden] { display: none; }
+.coll__get[hidden],
+.coll__get-brief { display: none; }
 .coll .is-here .watch-card__poster { outline: 2px solid var(--t1); outline-offset: 2px; }
 /* The link's own ring goes round it all. */
 .coll .is-here .watch-card__link:focus-visible .watch-card__poster { outline: none; }
 .coll__here { font-size: 12px; font-weight: 600; color: var(--t1); margin-top: -4px; }
 .coll .watch-row__scroll { padding-top: 8px; margin-top: -8px; }
+.coll-skel .watch-row__scroll { overflow: hidden; }
+/* The line under the film on show: "This film". */
+.coll-skel .watch-card--skel:first-child::after { content: ""; height: 14px; }
+.coll-skel__title { width: 110px; height: 16px; }
+.coll-skel__name { width: 190px; max-width: 70%; height: 10px; margin-top: 10px; }
 @media (max-width: 699.98px) {
   .ttl__collsec { --pad: 20px; --watch-card-w: 112px; --watch-gap: 10px; }
-  .coll__get { flex: 1 0 100%; }
+  /* The button on the heading's line, and what they are all of under both. */
+  .coll__head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; }
+  .coll__words { display: contents; }
+  .coll__words > :first-child { align-content: center; min-height: 44px; margin: 0; }
+  .coll__words > :last-child { grid-area: 2 / 1 / auto / -1; min-height: 1lh; }
+  .coll-skel .coll__words { font-size: 13px; }
+  .coll-skel__title.skel { margin-block: 14px; min-height: 0; }
+  .coll-skel__name.skel { margin-block: calc((1lh - 10px) / 2); min-height: 0; }
+  .coll__get { padding-inline: 14px; }
+  .coll__get-full { display: none; }
+  .coll__get-brief { display: inline; }
 }
 
 /* ── The dialog ── */

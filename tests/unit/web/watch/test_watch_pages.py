@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 import mediaman
+from mediaman.services import watch_catalog as catalog
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -38,6 +39,7 @@ from mediaman.web.repository.watch_progress import (
 from mediaman.web.routes.watch import list_page, pages
 from tests.helpers.factories import (
     insert_admin_user,
+    insert_download_notification,
     insert_media_item,
     insert_scheduled_action,
     insert_settings,
@@ -756,7 +758,7 @@ class TestLibraryRowOrder:
             "Aaa Undated",
         ]
 
-    def test_shows_come_by_their_latest_season_as_in_the_list_view(self, get, conn, admin):
+    def test_shows_come_by_their_latest_season_as_in_all_titles(self, get, conn, admin):
         for season, show, title, number, days in (
             ("801", "800", "Zebra Street", 1, 300),
             ("802", "800", "Zebra Street", 2, 5),
@@ -775,11 +777,10 @@ class TestLibraryRowOrder:
             )
 
         rows = _rows(get("/watch").json())
-        listed = get("/watch?view=list", user=admin).json()["items"]
+        listed = get("/watch?all=tv", user=admin).json()["grid"]["items"]
 
         assert _titles(rows["TV"]) == ["Zebra Street", "Badger", "The Long Coast"]
-        tv = [i["title"] for i in listed if i["media_type"] == "tv" and i["title"] != "Hidden Show"]
-        assert tv == _titles(rows["TV"])
+        assert [t for t in _titles(listed) if t != "Hidden Show"] == _titles(rows["TV"])
 
     def test_a_long_row_says_where_its_first_page_ends(self, get, conn, monkeypatch):
         monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 1)
@@ -1089,7 +1090,14 @@ class TestOpenRow:
         ctx = get("/watch?all=continue").json()
         assert ctx["grid"]["items"] == ctx["rows"][0]["items"]
         assert (ctx["grid"]["title"], ctx["grid"]["total"]) == ("Continue watching", 2)
-        assert ctx["page_data"]["grid"] == {"id": "continue", "total": 2, "next": None}
+        assert ctx["page_data"]["grid"] == {
+            "id": "continue",
+            "total": 2,
+            "next": None,
+            "counts": None,
+            "fact": None,
+            "empty": None,
+        }
         sorted_grid = get("/watch?all=continue&sort=az").json()["grid"]
         assert [i["title"] for i in sorted_grid["items"]] == ["Brightwater", "Glasshouse"]
 
@@ -1383,10 +1391,20 @@ def admin(conn):
 
 
 class TestWatchShell:
-    def test_only_an_admin_can_ask_for_the_list_view(self, get, admin):
-        assert get("/watch?view=list", user=admin).json()["view"] == "list"
-        assert get("/watch?view=list").json()["view"] == "rows"
-        assert get("/watch?view=other", user=admin).json()["view"] == "rows"
+    def test_the_old_list_view_leads_to_all_titles(self, get, admin):
+        old = "/watch?view=list&type=kept&sort=size_desc"
+        (own,) = get(old, user=admin).history
+        assert (own.status_code, own.headers["location"]) == (
+            302,
+            "/watch?all=library&type=kept&sort=size",
+        )
+        # A viewer has neither that filter nor that order.
+        assert get(old).history[0].headers["location"] == "/watch?all=library"
+        assert get("/watch?view=list&type=tv&sort=name_asc").history[0].headers["location"] == (
+            "/watch?all=library&type=tv&sort=az"
+        )
+        assert get("/watch?view=list&q=dune").history[0].headers["location"] == "/watch?q=dune"
+        assert get("/watch?view=other", user=admin).json()["grid"] is None
 
     def test_the_search_is_trimmed_and_cut_to_a_sane_length(self, get):
         assert get("/watch?q=%20%20glass%20").json()["q"] == "glass"
@@ -1430,6 +1448,66 @@ def test_discover_sits_between_recently_added_and_the_library_rows(
     movies = html.index('aria-label="Movies"')
     assert recent < slot < divider < movies
     assert "watch-row--skel" in html[slot:divider]
+
+
+def _asked(conn, username: str) -> None:
+    insert_download_notification(
+        conn, title="Glasshouse", tmdb_id=None, username=username, email="a@example.com"
+    )
+    conn.execute("UPDATE download_notifications SET tmdb_id = 11")
+    conn.execute("UPDATE media_items SET tmdb_id = 11 WHERE id = '101'")
+    conn.commit()
+    catalog.clear_library_index()
+
+
+def test_what_a_person_asked_for_comes_after_continue_watching_and_before_the_rest(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    _play(conn, "aoife", "100", position=900, duration=3600, item="100")
+    _schedule(conn, "101", 4)
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    places = [
+        html.index(part)
+        for part in (
+            'aria-label="Continue watching"',
+            'id="watch-asked"',
+            'class="asked-skel"',
+            'aria-label="Leaving soon"',
+        )
+    ]
+    assert places == sorted(places)
+    assert html.index("watch/browse.js") < html.index("watch/asked.js") < html.index("watch.js?")
+
+
+def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    html = _page(app_factory, conn, monkeypatch, "/watch", "cian").text
+
+    assert 'id="watch-asked"' in html
+    assert "asked-skel" not in html
+
+
+def test_no_place_is_held_for_what_stands_in_continue_watching(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    _play(conn, "aoife", "101", position=900, duration=3600, item="101")
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    assert 'data-dismiss-ref="movie-101"' in html
+    assert 'id="watch-asked"' in html
+    assert "asked-skel" not in html
+
+
+def test_the_row_of_what_was_asked_for_opens_as_a_grid(get):
+    ctx = get("/watch?all=asked").json()
+
+    assert (ctx["grid"]["title"], ctx["grid"]["loads_later"]) == ("You asked for these", True)
+    assert ctx["page_data"]["grid"]["id"] == "asked"
 
 
 @pytest.mark.parametrize(
@@ -1486,39 +1564,43 @@ def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(
     assert "Your library" not in html
 
 
-def test_an_admin_gets_the_view_switch_and_the_list_in_place_of_the_rows(
+def test_an_admin_s_all_titles_is_drawn_in_place_of_the_rows(
     app_factory, conn, library, plex, monkeypatch, admin
 ):
     rows = _page(app_factory, conn, monkeypatch, "/watch", admin).text
-    listed = _page(app_factory, conn, monkeypatch, "/watch?view=list", admin).text
+    listed = _page(app_factory, conn, monkeypatch, "/watch?all=library&type=movies", admin).text
 
-    assert 'href="/watch" data-view="rows" aria-current="page"' in rows
-    assert re.search(r'id="watch-list"[^>]*hidden', rows)
+    assert 'href="/watch?all=library" data-row-open="library"' in rows
     assert not re.search(r'id="watch-browse"[^>]*hidden', rows)
-    assert 'href="/watch?view=list" data-view="list" aria-current="page"' in listed
     assert re.search(r'id="watch-browse"[^>]*hidden', listed)
-    assert not re.search(r'id="watch-list"[^>]*hidden', listed)
-    assert 'placeholder="Search your library"' in listed
+    assert re.search(r'class="fpill on"[^>]*data-grid-filter="movies" aria-current="true"', listed)
+    assert "data-admin=" in listed
+    assert "on disk" in listed
+    assert 'data-grid-filter="stale"' in listed
 
 
-def test_a_viewer_gets_no_view_switch_list_or_admin_wording_even_when_asking_for_the_list(
+def test_a_viewer_s_all_titles_has_no_admin_wording_even_when_asked_for_the_list(
     app_factory, conn, library, plex, monkeypatch
 ):
     _schedule(conn, "100", 2)
 
-    html = _page(app_factory, conn, monkeypatch, "/watch?view=list", "aoife").text
+    html = _page(
+        app_factory, conn, monkeypatch, "/watch?all=library&type=kept&sort=size", "aoife"
+    ).text
 
-    assert 'aria-label="Movies"' in html
-    for leak in ("watch-viewtoggle", 'id="watch-list"', "watch/list.js", "watch/admin.js"):
+    assert 'data-grid-filter="movies"' in html
+    for leak in ("data-admin", "watch/admin.js", "on disk", 'data-grid-filter="kept"'):
         assert leak not in html
     for word in ("Delete", "Size", "Deletion", "/settings"):
         assert word not in html
 
 
-def test_the_list_fragment_is_for_admins_only(app_factory, conn, library, plex, monkeypatch, admin):
+def test_the_old_list_fragment_is_for_admins_only(
+    app_factory, conn, library, plex, monkeypatch, admin
+):
     # Without the guard in front, so the route's own check is what refuses.
     viewer = _page(app_factory, conn, monkeypatch, "/watch/list", "aoife", guard=False)
     owner = _page(app_factory, conn, monkeypatch, "/watch/list", admin)
 
     assert (viewer.status_code, viewer.headers["location"]) == (303, "/watch")
-    assert owner.status_code == 200
+    assert (owner.status_code, owner.headers["location"]) == (302, "/watch?all=library")

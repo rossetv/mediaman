@@ -64,6 +64,9 @@ PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
 #: Where a user lands after signing in with no page to go back to.
 LANDING_PATH = "/watch"
 
+#: What an open page asks for by itself on every page, which is no sign of anyone there.
+_PASSIVE_PATHS = frozenset({"/api/downloads/strip"})
+
 #: Attribute name under which the resolved-session cache is stashed on
 #: ``request.state``. Stored as a ``(token, username | None)`` tuple so a
 #: stale entry for a different token is never reused.
@@ -109,6 +112,7 @@ def resolve_cached_session(
         user_agent=user_agent,
         client_ip=client_ip,
         request_supplied=request is not None,
+        extend=request is None or request.scope["path"] not in _PASSIVE_PATHS,
     )
     if request is not None:
         setattr(request.state, _SESSION_CACHE_ATTR, (token, username))

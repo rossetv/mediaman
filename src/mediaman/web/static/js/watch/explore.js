@@ -926,14 +926,6 @@
     address.back('explore');
   });
 
-  // The Browse half of the switch is the way out to the rows.
-  document.addEventListener('click', function (e) {
-    var link = e.target.closest && e.target.closest('#watch-viewtoggle [data-view="rows"]');
-    if (!link || !open || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
-    address.push(null, address.url(OWN));
-  });
-
   watch.explore = {
     categories: categories,
     all: function () { return held; },

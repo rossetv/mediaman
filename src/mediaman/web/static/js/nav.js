@@ -1,8 +1,9 @@
-/* Profile menu: one menu for both profile buttons. A press on either, or an arrow
+/* Profile menu. A press on the profile button, or an arrow
  * key on it, opens the menu; arrows, Home and End move in it; Escape, Tab, a press
  * outside, focus moving away and the sheet's Close button close it. Below 700 px it
  * is a bottom sheet: the rest of the page is inert and does not scroll under it. The
- * fade is CSS; the open state changes at once, and a closed menu is inert while it fades. */
+ * fade is CSS; the open state changes at once, and a closed menu is inert while it fades.
+ * The button and the menu also say how what is downloading stands. */
 (function () {
   'use strict';
 
@@ -32,9 +33,6 @@
 
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
-  }
-  function buttons() {
-    return Array.prototype.slice.call(document.querySelectorAll('.profile-btn'));
   }
   function buttonOf(target) {
     return target && target.closest ? target.closest('.profile-btn') : null;
@@ -123,13 +121,57 @@
     e.stopPropagation();
   }, true);
 
-  // The button that was pressed goes out of sight with its layout.
-  phone.addEventListener('change', function () {
-    if (!isOpen()) return;
-    close(false);
-    var shown = buttons().filter(function (b) { return b.getClientRects().length; })[0];
-    if (shown) shown.focus({ preventScroll: true });
-  });
+  // A menu becomes a sheet, or a sheet a menu.
+  phone.addEventListener('change', function () { close(true); });
+
+  // A phone's keyboard shortens what is seen of the page, not the page. Zoomed in, the scale makes up for it.
+  var seen = window.visualViewport;
+  function keyboard() {
+    var root = document.documentElement;
+    root.classList.toggle('has-keyboard', root.clientHeight - seen.height * seen.scale > 150);
+  }
+  if (seen) seen.addEventListener('resize', keyboard);
+
+  var button = document.querySelector('.profile-btn');
+  var name = button.getAttribute('aria-label');
+  var ring = button.querySelector('.profile-ring');
+  var count = button.querySelector('.profile-count');
+  var note = document.getElementById('profile-note');
+
+  function tone(node, sum) {
+    node.classList.toggle('is-ready', !sum.active && sum.ready > 0);
+    node.classList.toggle('is-waiting', !sum.active && !sum.ready);
+  }
+
+  function drawDownloads(state) {
+    var sum = state.summary;
+    var words = sum.ready ? sum.ready + ' ready to watch'
+      : sum.active ? sum.total + ' downloading'
+      : sum.waiting + ' waiting to download';
+    button.setAttribute('aria-label', name + (sum.total ? ', ' + words : ''));
+
+    ring.classList.toggle('is-on', sum.total > 0);
+    count.classList.toggle('is-on', sum.ready > 0);
+    note.hidden = !sum.total;
+    if (sum.ready) count.textContent = sum.ready;
+    if (!sum.total) return; // as it was, while it fades
+
+    tone(ring, sum);
+    tone(note, sum);
+    // A little at least, or the ring would be a plain circle.
+    ring.style.setProperty('--ring', Math.max(sum.percent, 6));
+    note.style.setProperty('--ring', sum.percent);
+    note.textContent = '';
+    var pause = document.createElement('span');
+    pause.className = 'sr-only';
+    pause.textContent = ', ';
+    note.appendChild(pause);
+    if (sum.active) note.appendChild(document.createElement('i'));
+    note.appendChild(document.createTextNode(
+      sum.active ? sum.percent + '%' + (sum.total > 1 ? ' · ' + sum.total : '')
+        : sum.ready ? sum.ready + ' ready' : sum.waiting + ' waiting'));
+  }
+  if (window.MM && window.MM.downloading) window.MM.downloading.subscribe(drawDownloads);
 
   // A changed picture is loaded before it takes the place of the one on show; the last change wins.
   var newest = null;

@@ -11,9 +11,11 @@
 
 {% block head %}
 <link rel="stylesheet" href="/static/css/_watch_browse.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_making.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_search.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_ask.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_grid.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_asked.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
@@ -78,14 +80,13 @@
 {%- endmacro %}
 
 {% block content %}
-{% set list_view = is_admin and view == "list" %}
 {# A search, a category or a person in the address opens on its results, so the rows never show first. #}
 {% set asked = request.query_params if request else {} %}
-{% set on_results = not list_view and (q or asked.get("genre") or asked.get("person")) %}
+{% set on_results = q or asked.get("genre") or asked.get("person") %}
 <div class="watch-page" id="watch-page">
   <div class="watch-veil" id="watch-veil"></div>
 
-  <div id="watch-browse"{% if list_view or on_results or grid %} hidden{% endif %}>
+  <div id="watch-browse"{% if on_results or grid %} hidden{% endif %}>
     {% if watch_error %}
     {{ w.error_state(watch_error, is_admin) }}
     {% else %}
@@ -123,7 +124,13 @@
     {% for row in shelf if row['items'] and row['library'] %}{% set library.rows = true %}{% endfor %}
     <div class="watch-rows">
       {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured) }}{% endif %}
-      {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
+      {% for row in shelf if row['items'] and row.id == 'continue' %}{{ row_section(row) }}{% endfor %}
+      {# What the person asked for loads after the page: watch/asked.js. #}
+      {% if not watch_error %}
+      <div id="watch-asked" hidden></div>
+      {% if asked_waiting %}<div class="asked-skel" aria-hidden="true">{{ skel_row() }}</div>{% endif %}
+      {% endif %}
+      {% for row in shelf if row['items'] and not row['library'] and row.id != 'continue' %}{{ row_section(row) }}{% endfor %}
 
       {# Discover rows load after the page; until then a skeleton holds the place of each row that
          will arrive: Recommended while picks are on (an admin's switched-off note when they are
@@ -140,18 +147,14 @@
       </div>
 
       {% if library.rows %}
-      <p class="watch-group-label">Your library</p>
+      <p class="watch-group-label"><span>Your library</span><a class="watch-all-link" href="/watch?all=library" data-row-open="library">All {{ library_total }} titles{{ icon("i-chevron-right") }}</a></p>
       {% for row in shelf if row['items'] and row['library'] %}{{ row_section(row) }}{% endfor %}
       {% endif %}
     </div>
   </div>
-  {% if grid %}{{ g.section(grid) }}{% endif %}
+  {% if grid %}{{ g.section(grid, library_types) }}{% endif %}
 
   <section class="watch-results" id="watch-results" aria-label="Search results"{% if not on_results %} hidden{% endif %}></section>
-
-  {% if is_admin %}
-  <section class="watch-list" id="watch-list" aria-label="Library list"{% if not list_view %} hidden{% endif %}>{% if list_view %}{% with q=list_q %}{% include "_watch_list.html" %}{% endwith %}{% endif %}</section>
-  {% endif %}
 
   <div id="watch-detail">{% include "_watch_detail.html" %}</div>
 
@@ -171,16 +174,19 @@
 <script src="/static/js/watch/ask.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/tonight.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/rows-load.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/making.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/grid.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/expand.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/library.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/asked.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/cast.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/collection.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/airplay.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/detail.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/preview.js?v={{ static_v }}" defer></script>
 {% if is_admin %}
 <script src="/static/js/watch/admin.js?v={{ static_v }}" defer></script>
-<script src="/static/js/watch/list.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/space.js?v={{ static_v }}" defer></script>
 {% endif %}
 <script src="/static/js/watch/explore.js?v={{ static_v }}" defer></script>

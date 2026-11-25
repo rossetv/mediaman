@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
 
 import jinja2
 import pytest
@@ -96,6 +97,29 @@ def test_hls_loads_before_the_player_script():
     _, page = _render(EPISODE)
     srcs = [a["src"] for t, a in page.elements if t == "script" and a.get("src")]
     assert srcs.index("/static/vendor/hls/hls.min.js?v=") < srcs.index("/static/js/player.js?v=")
+
+
+def test_the_ways_to_a_tv_load_before_the_player_and_googles_only_where_allowed():
+    def scripts(**ctx):
+        _, page = _render({**EPISODE, **ctx})
+        srcs = [a["src"] for t, a in page.elements if t == "script" and a.get("src")]
+        return [s.split("/")[-1].split("?")[0] for s in srcs if "/watch/" in s or "player" in s]
+
+    def allowed(on):
+        return {"request": SimpleNamespace(state=SimpleNamespace(google_cast=on))}
+
+    ours = ["play-on.js", "airplay.js"]
+    assert scripts() == [*ours, "player.js"]
+    assert scripts(**allowed(False)) == [*ours, "player.js"]
+    assert scripts(**allowed(True)) == [*ours, "cast-sender.js", "player.js"]
+
+
+def test_nothing_says_there_is_a_tv_before_one_is_known():
+    _, page = _render(EPISODE)
+    buttons = [a for t, a in page.elements if t == "button" and "data-play-on" in a]
+    assert [("hidden" in a) for a in buttons] == [True, True]
+    away = [a for t, a in page.elements if "data-away" in a or "data-away-end" in a]
+    assert [("hidden" in a) for a in away] == [True, True]
 
 
 def test_what_rates_a_title_loads_before_the_player_script():

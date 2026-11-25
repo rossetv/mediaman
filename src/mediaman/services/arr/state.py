@@ -182,6 +182,27 @@ def series_ready(series: SonarrSeries, season_number: int | None = None) -> bool
     )
 
 
+def series_still_to_air(
+    series: SonarrSeries, season_number: int | None = None
+) -> tuple[bool, str | None]:
+    """Whether nothing of a show, or of its one season, has aired yet, and when the first of it
+    does as Sonarr says it (None when it does not say)."""
+    seasons = [
+        s
+        for s in series.get("seasons") or []
+        if s.get("seasonNumber", 0) > 0
+        and s.get("monitored", True)
+        and season_number in (None, s.get("seasonNumber"))
+    ]
+    if not seasons or any(
+        _season_has_aired(s) or _season_stats(s).get("episodeFileCount") for s in seasons
+    ):
+        return False, None
+    airings = [airing for s in seasons if (airing := _season_stats(s).get("nextAiring"))]
+    upcoming = str(series.get("status") or "").lower() == "upcoming"
+    return bool(airings) or upcoming, min(airings, default=None)
+
+
 def _wanted_is_there(season: ArrSeason) -> bool:
     stats = _season_stats(season)
     return (stats.get("episodeFileCount") or 0) >= (stats.get("episodeCount") or 0) > 0

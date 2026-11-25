@@ -2,7 +2,7 @@
  * of a pick. One More menu serves every card, a toggle every film, episode, season and
  * show that has one, and each change can be undone from its toast. What a change means
  * for the rest of the page is read from the server's own page. Needs watch/core.js,
- * watch/keep.js and ratings.js; on window.MMWatch.marks.
+ * watch/keep.js and ratings.js, and for an admin's All titles watch/library.js; on window.MMWatch.marks.
  */
 (function () {
   'use strict';
@@ -60,6 +60,8 @@
       return n.classList.contains('watch-card') && !n.classList.contains('is-kept') && !n.classList.contains('is-gone');
     });
   }
+
+  function continues(ref) { return continueCards(document, ref).length > 0; }
 
   /* The row of *root* that Continue watching is in. */
   function continueRow(root) {
@@ -230,8 +232,13 @@
   /* An Undo puts the old nodes back only where they still belong: what another
      change has replaced or taken out since is drawn from the server's page. */
 
+  function tellContinue(ref) {
+    document.dispatchEvent(new CustomEvent('mm:watch-continue', { detail: { ref: ref } }));
+  }
+
   function leaveContinue(ref, done) {
-    continueCards(document, ref).forEach(function (card) {
+    var cards = continueCards(document, ref);
+    cards.forEach(function (card) {
       closeMenu(card);
       var lost = focusLost(card);
       var row = card.closest('.watch-row');
@@ -250,6 +257,7 @@
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
     });
+    if (cards.length) tellContinue(ref);
   }
 
   /* The card moves on to what the server now has in its place. */
@@ -288,6 +296,7 @@
     core.fadeIn(fresh);
     var grid = window.MMWatch.grid;
     if (grid && grid.bring) grid.bring(row ? fresh : continueCards(fresh, now.getAttribute('data-dismiss-ref'))[0]);
+    tellContinue(now.getAttribute('data-dismiss-ref'));
   }
 
   function playOf(banner) { return banner.querySelector('.watch-btn--play').getAttribute('href'); }
@@ -540,6 +549,7 @@
   function putBack(ref, done, part) {
     changes += 1;
     done.undos.splice(0).reverse().forEach(function (fn) { fn(); });
+    if (done.rows) tellContinue(ref);
     if (focusLost(null)) refocus(controlOf(ref, done, !done.rows));
     return { undos: [], part: part, undone: true, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
@@ -875,6 +885,7 @@
   var menuNode = null;
   var moreMenu = null;
   var fillRating = null;
+  var keeping = null; // the card whose menu is opened at how long to keep it
 
   function menuItem(act, iconName, label) {
     var item = el('button', 'watch-keep-menu__item');
@@ -891,12 +902,15 @@
     var card = trigger.closest('.watch-card');
     var mark = card.getAttribute('data-mark');
     menuNode.textContent = '';
+    var library = window.MMWatch.library;
+    if (library && library.durations(card, keeping === card ? menuNode : null, menuItem)) return;
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
     fillRating(refOf(card), card.querySelector('.watch-card__link'));
     if (likeRef(refOf(card), card.querySelector('.watch-card__link'))) menuNode.appendChild(menuItem('like', 'i-sparkles', 'Find more like this'));
     if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
     if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
+    if (library) library.menu(card, menuNode, menuItem);
   }
 
   function choose(trigger, item) {
@@ -907,6 +921,12 @@
       window.MMWatch.search.like(likeRef(refOf(card), card.querySelector('.watch-card__link')), titleOf(card), poster && poster.getAttribute('src'));
     } else if (act === 'dismiss') {
       dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
+    } else if (act === 'keep-for') {
+      keeping = card;
+      moreMenu.open(trigger);
+      keeping = null;
+    } else if (/^admin-/.test(act)) {
+      window.MMWatch.library.act(card, act, item);
     } else if (act === 'details') {
       card.querySelector('.watch-card__link').click();
     } else {
@@ -942,5 +962,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
+  window.MMWatch.marks = { paint: paint, continues: continues, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
 })();

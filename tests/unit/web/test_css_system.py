@@ -118,29 +118,70 @@ def test_toggles_reach_44px_on_phones_without_growing() -> None:
     )
 
 
-def test_nav_links_reach_44px_on_tablets_without_growing_their_pill() -> None:
-    rules = [
-        rule
-        for block in _media_blocks(_text(CSS_DIR / "_nav.css"), "(max-width: 1023.98px)")
-        for rule in _rules(block)
-    ]
-    assert any(".nav-btn::after" in s and "inset: -6px" in body for s, body in rules)
-    assert not any(".nav-btn" in s and "height" in body for s, body in rules)
+def test_the_way_back_to_watch_reaches_44px_at_every_width() -> None:
+    css = _text(CSS_DIR / "_nav.css")
+    pill = int(re.search(r"\.nav-back,\s*\.nav-noscript \{[^}]*?min-height: (\d+)px", css).group(1))
+    reach = int(re.search(r"\.nav-noscript::after \{[^}]*?inset: -(\d+)px 0", css).group(1))
+    assert pill + 2 * reach >= 44
+    phone = [rule for block in _media_blocks(css, PHONE) for rule in _rules(block)]
+    heights = [body for heads, body in phone if ".nav-back" in heads and "height:" in body]
+    assert heights and all(
+        int(re.search(r"[^-]height: (\d+)px", b).group(1)) >= 44 for b in heights
+    )
 
 
 def test_what_is_scrolled_into_view_on_a_phone_stops_above_the_bottom_bar() -> None:
     css = _text(CSS_DIR / "_nav.css")
-    bar = int(re.search(r"\.nav-tabs \{[^}]*?height: calc\((\d+)px", css).group(1))
-    held = [
-        body
-        for block in _media_blocks(css, PHONE)
-        for heads, body in _rules(block)
-        if "html:has(.nav-tabs)" in heads
-    ]
-    kept = re.search(
-        r"scroll-padding-bottom: calc\((\d+)px \+ env\(safe-area-inset-bottom", held[0]
+    phone = [rule for block in _media_blocks(css, PHONE) for rule in _rules(block)]
+    (held,) = [body for heads, body in phone if "html:has(.nav-foot)" in heads and "scroll" in body]
+    assert (
+        int(re.search(r"scroll-padding-bottom: calc\(var\(--foot\) \+ (\d+)px", held).group(1)) > 0
     )
-    assert int(kept.group(1)) >= bar
+    assert re.search(r"--foot: calc\(\d+px \+ env\(safe-area-inset-bottom", held)
+    # the strip is as tall as everything that keeps clear of it takes it to be
+    assert any(".nav-foot" in heads and "height: var(--foot)" in body for heads, body in phone)
+
+
+def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
+    for name in ("_ui_feedback.css", "_settings_pg.css", "_watch_search.css"):
+        css = _text(CSS_DIR / name)
+        assert "var(--foot)" in css, name
+        assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
+
+
+def test_what_sticks_at_the_top_stands_where_the_bar_ends_and_at_the_top_where_it_is_gone() -> None:
+    for name, part in (("_history.css", ".hx-tools"), ("_settings_pg.css", ".setg-pg .setg-rail")):
+        tops = [
+            top
+            for block in re.findall(re.escape(part) + r" \{([^}]*)\}", _text(CSS_DIR / name))
+            for top in re.findall(r"(?<![\w-])top: ([^;]+);", block)
+        ]
+        assert tops, name
+        assert all("var(--nav-h)" in top or top == "auto" for top in tops), (name, tops)
+
+
+def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself() -> None:
+    (page,) = [
+        body
+        for heads, body in _rules(_text(CSS_DIR / "_pair.css"))
+        if ".pair-pg" in heads and "48px" in body
+    ]
+    assert re.search(r"padding: 48px 20px calc\(\d+px \+ var\(--foot\)\)", page)
+
+
+def test_the_bar_at_the_foot_leaves_what_stands_on_it_44px_on_a_short_phone_too() -> None:
+    css = _text(CSS_DIR / "_nav.css")
+    sizes = re.findall(r"--foot: calc\((\d+)px \+[^;]*;\s*--foot-gap: (\d+)px", css)
+    assert len(sizes) == 2
+    assert all(int(foot) - 2 * int(gap) >= 44 for foot, gap in sizes)
+
+
+def test_nothing_in_the_bar_holds_what_is_fixed_at_the_foot_of_a_phone() -> None:
+    nav, search = _text(CSS_DIR / "_nav.css"), _text(CSS_DIR / "_watch_search.css")
+    own = [body for heads, body in _rules(nav) if ".nav-glass" in heads]
+    assert own and not any("backdrop-filter" in body or "transform" in body for body in own)
+    phone = [rule for block in _media_blocks(search, PHONE) for rule in _rules(block)]
+    assert any(".wbar" in heads and "container-type: normal" in body for heads, body in phone)
 
 
 def test_no_control_drops_back_to_40px_on_phones() -> None:

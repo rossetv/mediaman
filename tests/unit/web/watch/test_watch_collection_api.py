@@ -282,6 +282,16 @@ def test_a_collection_tmdb_has_none_for_is_asked_for_again_after_a_day(viewer, t
     assert len(_ask(viewer)["films"]) == 3
 
 
+def test_a_films_page_says_whether_it_is_in_a_collection(viewer, tmdb):
+    tmdb["/movie/13"] = _film(13, None)
+
+    def said(ref):
+        return viewer.get(f"/api/watch/title/{ref}").json()["in_collection"]
+
+    refs = ("movie-100", "movie-101", "tmdb-movie-13")
+    assert [said(ref) for ref in refs] == [True, False, False]
+
+
 def test_details_held_from_before_the_collection_are_read_anew_for_that_film(viewer, tmdb):
     old = catalog.tmdb_fields(_film(11), "movie")
     del old["collection_id"]

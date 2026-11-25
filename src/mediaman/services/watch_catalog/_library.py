@@ -147,6 +147,11 @@ def tmdb_id_for_tvdb(client: TmdbClient, tvdb_id: int) -> int | None:
     return found
 
 
+def held_tmdb_id_for_tvdb(tvdb_id: int) -> int | None:
+    """The TMDB id held of the show with this TVDB id. TMDB is not asked."""
+    return _known([tvdb_id])[0].get(tvdb_id)
+
+
 def _current(key: tuple[str, tuple[str, ...]]) -> LibraryIndex | None:
     with _lock:
         held = _held.get(key)

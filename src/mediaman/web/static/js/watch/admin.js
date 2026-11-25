@@ -1,4 +1,4 @@
-/* Watch: the admin actions shared by the list view and the title detail, on
+/* Watch: the admin actions shared by All titles and the title detail, on
  * window.MMWatch.admin: Keep (and the TV Keep dialog), Remove keep, Delete
  * with its confirm, and the per-season Delete dialog. Needs watch/core.js.
  *

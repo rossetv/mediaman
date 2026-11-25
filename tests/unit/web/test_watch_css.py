@@ -101,7 +101,6 @@ def test_a_watched_toggle_is_filled_and_outshines_no_title() -> None:
 
 
 FORCED_CHOICES = [
-    (SHEET, '.watch-viewtoggle__btn[aria-current="page"]::before'),
     (SHEET, ".watch-pill.on"),
     (SHEET.with_name("_buttons.css"), ".fpill.on"),
     (SHEET.with_name("_dl.css"), ".dl-bar-fill"),
@@ -243,10 +242,31 @@ def test_a_rows_heading_leaves_the_more_of_the_row_above_its_44px() -> None:
     assert _reach(".watch-row__title > .row-open[href]::after", TOUCH)[0] <= 9
 
 
-def test_a_rows_offer_covers_no_heading_or_its_link_on_a_phone() -> None:
+def test_a_rows_offer_covers_no_heading_and_no_words_of_see_all_on_a_phone() -> None:
     browse = SHEET.with_name("_watch_browse.css")
-    text = _of(".row-offer__text", "(max-width: 499.98px)", browse)
-    assert "position: absolute" in text and "clip-path: inset(50%)" in text
+    phone = "(max-width: 599.98px)"
+    for media in (None, phone):
+        chip = _of(".row-open__cue::before", media, browse)
+        # As wide as the room See all keeps for it, and under its words.
+        assert re.findall(r"inset: -?\d+px 0;", chip) or (media and "inset" not in chip)
+        assert media or "z-index: -1" in chip
+        assert "position: absolute" not in _of(".row-open__cue", media, browse)
+    assert "isolation: isolate" in _of(".row-open__cue", sheet=browse)
+    assert int(re.findall(r"padding: 0 (\d+)px;", _of(".row-open__cue", sheet=browse))[0]) >= 8
+    # Beside the row's own tools or link a phone has no room for the words.
+    phone_rules = re.sub(r"/\*.*?\*/", "", browse.read_text(encoding="utf-8"), flags=re.S)
+    assert re.search(
+        r":has\(> :is\(\.watch-row__tools, \.space-row-link\)\) "
+        r":is\(\.row-open__word, \.row-open__total\) \{ display: none; \}",
+        phone_rules,
+    )
+
+
+def test_the_words_of_see_all_keep_their_colour_under_the_pointer_in_forced_colours() -> None:
+    browse = SHEET.with_name("_watch_browse.css")
+    for state in ("", ":hover", ":active"):
+        rules = _of(f".row-open[href]{state} .row-open__cue", FORCED, browse)
+        assert "color: LinkText" in rules
 
 
 def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
@@ -304,8 +324,10 @@ def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scrol
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
-    narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
-    assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow
+    # One line at every width, and nothing at the top of a phone.
+    assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
+    nav = SHEET.with_name("_nav.css")
+    assert "--nav-h: 0px" in _of("html:has(.nav-foot)", "(max-width: 699.98px)", nav)
 
 
 ASK = SHEET.with_name("_watch_ask.css")

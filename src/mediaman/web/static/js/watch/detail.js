@@ -268,6 +268,9 @@
       chosen: false,        // the person picked the season, or their link named it
       pressed: false,       // something has been pressed since it came
       picked: null,         // the episodes of the season on show, when not the title's own
+      pickedAbout: null,    // what is said of that season: { summary, year, words_pending }
+      words: null,          // the season whose words are asked for: { number }
+      opened: {},           // the texts opened by More, by what they are of
       seasonLoading: null,  // the season being loaded: { number }
       room: 0,              // what is left above the seasons, for them to stay where they were
       shareUrl: null,
@@ -588,7 +591,7 @@
   function comeLate(c, s, got) {
     if (c !== cur || !isOpen || c.pressed || !body.querySelector('.ttl__seasonsec')) return;
     var active = document.activeElement;
-    if (active && active.closest && active.closest('.watch-episodes, .ttl__season-mark')) return;
+    if (active && active.closest && active.closest('.ttl__season, .ttl__season-mark')) return;
     var now = numbered(c.data, s.number);
     if (!now) return;
     var left = leavingNow();
@@ -838,7 +841,12 @@
 
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
-    root.classList.remove('ttl--admin', 'is-short', 'is-late');
+    root.classList.remove('is-short', 'is-late');
+    var origin = cur.origin && cur.origin.closest ? cur.origin : null;
+    var card = origin && origin.closest('.watch-card');
+    var held = /^(movie|show)-/.test(cur.ref) ||
+      !!(origin && (origin.closest('[data-in-library]') || (card && card.querySelector('[data-in-library]'))));
+    root.classList.toggle('ttl--admin', isAdmin && held);
     if (heroEase) heroEase.cancel();
     hide(heroSkel, false);
     clearPictures();
@@ -859,21 +867,62 @@
     var main = el('div', 'ttl__main');
     var actions = el('div', 'ttl__actions');
     actions.appendChild(skel('skel--pill', '150px'));
-    actions.appendChild(skel('skel--pill', '120px'));
+    if (held && window.MM.playOn) actions.appendChild(skel('skel--pill ttl__play-on'));
+    var search = window.MMWatch.search;
+    if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px')).style.minWidth = '181px'; // as its words are on a phone
+    actions.appendChild(skel('skel--pill', '158px')); // Trailer
+    if (held) actions.appendChild(skel('skel--pill', '200px')).style.minWidth = '175px'; // Watched
+    var leaves = held && card && card.querySelector('.watch-badge--leaving');
+    if (leaves && !isAdmin) actions.appendChild(skel('skel--pill ttl__keep-skel', '94px'));
     main.appendChild(actions);
+    var under = el('div', 'ttl__under');
+    // Its card says how far it was watched and that it leaves, as the page is about to.
+    if (held && card && card.querySelector('.watch-bar')) {
+      var progress = el('div', 'ttl__progress');
+      progress.appendChild(skel('skel--line', '240px'));
+      under.appendChild(progress);
+    }
+    if (leaves) {
+      var leaving = skel('ttl__leaving-skel');
+      leaving.textContent = 'Leaving in 10 days. Keep it to stop the deletion.';
+      var line = el('p', 'ttl__leaving');
+      line.setAttribute('aria-hidden', 'true');
+      line.appendChild(icon('i-clock'));
+      line.appendChild(leaving);
+      under.appendChild(line);
+    }
+    if (under.children.length) main.appendChild(under);
     if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
       var thumbsSkel = el('div', 'ttl__rate-skel');
       thumbsSkel.appendChild(skel('skel--pill'));
       main.appendChild(thumbsSkel);
     }
+    var pills = el('div', 'ttl__ratings ttl__ratings-skel');
+    pills.appendChild(skel('skel--line', '220px'));
+    main.appendChild(pills);
     var lines = el('div', 'ttl-skel-lines');
-    lines.appendChild(skel('skel--line', '220px'));
     lines.appendChild(skel('skel--line'));
     lines.appendChild(skel('skel--line'));
     lines.appendChild(skel('skel--line', '72%'));
     main.appendChild(lines);
+    if (held && cur.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
     lead.appendChild(main);
+    if (isAdmin && held) {
+      var facts = factsCard();
+      factsToCome(facts, false);
+      lead.appendChild(facts.aside);
+    }
     body.appendChild(lead);
+    if (held && cur.kind !== 'movie') {
+      var eps = el('section', 'ttl__seasonsec');
+      eps.setAttribute('aria-hidden', 'true');
+      eps.appendChild(skel('skel--line ttl__sec-skel'));
+      eps.appendChild(episodeSkels(3));
+      body.appendChild(eps);
+    }
+    var films = window.MMWatch.collection && (cur.kind === 'movie' || /^(tmdb-)?movie-/.test(cur.ref)) &&
+      window.MMWatch.collection.skeleton(cur.ref);
+    if (films) body.appendChild(films);
     var strip = el('section', 'ttl__castsec');
     strip.setAttribute('aria-hidden', 'true');
     strip.appendChild(skel('skel--line ttl__sec-skel'));
@@ -1120,15 +1169,19 @@
     body.appendChild(lead);
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
+    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind, d.in_collection);
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
-    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind);
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
+    var season = body.querySelector('.ttl__season');
+    if (season) fitTexts(season);
     if (fresh) {
+      if (season) season.classList.add('is-arriving');
       toArray(main.children).concat(toArray(body.children).slice(1)).forEach(function (n) {
         n.classList.add('is-swapping-in');
       });
     }
+    if (season) askWords(cur);
     restoreFocus(keepComes && byAct('keep') ? 'keep' : key);
   }
 
@@ -1318,6 +1371,10 @@
     var d = cur.data;
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
+      if (window.MM.playOn) {
+        var tv = actions.appendChild(window.MM.playOn.button(d.play.href, 'btn btn--lg watch-btn--grey ttl__play-on'));
+        tv.setAttribute('data-ttl-act', 'play-on');
+      }
       if (d.play.progress_pct) {
         var progress = el('div', 'ttl__progress');
         var bar = el('progress', 'watch-bar watch-bar--banner');
@@ -1416,7 +1473,7 @@
       .then(function (got) {
         if (c !== cur || !isOpen || asked !== c.marksAsked) return;
         c.data = got[0];
-        if (got[1] && c.season === season) c.picked = got[1].episodes || [];
+        if (got[1] && c.season === season) takeEpisodes(c, got[1]);
         var key = focusKey();
         if (byAct(key)) holdStill(function () { return byAct(key); }, function () { renderContent(false); });
         else renderContent(false);
@@ -2122,12 +2179,34 @@
 
   /* ── Seasons and episodes (library shows) ── */
 
+  /* The episode Play plays, unless it has been seen: the show then starts over. */
+  function isNext(e) {
+    var play = cur.data && cur.data.play;
+    return !!play && play.href === e.href && !e.watched;
+  }
+
+  function episodeFacts(e) {
+    var facts = [];
+    if (e.minutes) facts.push(dur(e.minutes));
+    // A date alone is read as UTC midnight, the day before west of it.
+    var at = e.aired ? new Date(e.aired + 'T12:00:00') : null;
+    var said = at ? day(at) : '';
+    if (said) facts.push(at > Date.now() ? 'Airs ' + said : said);
+    if (e.state === 'in_progress' && e.minutes_left) facts.push(dur(e.minutes_left) + ' left');
+    return facts.join(' · ');
+  }
+
   function episodeRow(e) {
+    var next = isNext(e);
+    var begun = e.state === 'in_progress';
+    var name = e.title || 'Episode ' + e.number;
     var li = el('li', 'watch-eprow');
-    var a = el('a', 'watch-ep' + (e.state === 'in_progress' ? ' watch-ep--in-progress' : ''));
+    var a = el('a', 'watch-ep' + (begun ? ' watch-ep--in-progress' : '') + (next ? ' watch-ep--next' : '') +
+      (e.watched ? ' watch-ep--watched' : ''));
     a.setAttribute('href', safePath(e.href) || '#');
     a.appendChild(el('span', 'watch-ep__num', String(e.number)));
     var thumb = el('span', 'watch-ep__thumb');
+    thumb.appendChild(icon('i-film', 'watch-ep__noart'));
     var src = safePath(e.thumb_url);
     if (src) {
       var img = el('img');
@@ -2137,7 +2216,15 @@
       img.setAttribute('data-broken-on-error', '');
       thumb.appendChild(img);
     }
-    if (e.state === 'in_progress' && e.progress_pct) {
+    if (e.watched) {
+      var tick = el('span', 'watch-ep__tick');
+      tick.appendChild(icon('i-check'));
+      thumb.appendChild(tick);
+    }
+    var play = el('span', 'watch-ep__play');
+    play.appendChild(icon('i-play'));
+    thumb.appendChild(play);
+    if (begun && e.progress_pct) {
       var bar = el('progress', 'watch-bar');
       bar.max = 100;
       bar.value = e.progress_pct;
@@ -2146,19 +2233,82 @@
     }
     a.appendChild(thumb);
     var text = el('span', 'watch-ep__text');
-    var title = el('span', 'watch-ep__title', e.title || 'Episode ' + e.number);
+    if (next || begun) {
+      text.appendChild(el('span', 'watch-ep__state watch-ep__state--active',
+        next ? (begun ? 'Continue' : 'Next up') : 'In progress'));
+      text.appendChild(el('span', 'sr-only', ', '));
+    }
+    var title = el('span', 'watch-ep__title', name);
     if (e.watched) title.appendChild(el('span', 'sr-only', ', watched'));
     text.appendChild(title);
-    var meta = [];
-    if (e.minutes) meta.push(dur(e.minutes));
-    if (e.state === 'in_progress' && e.minutes_left) meta.push(dur(e.minutes_left) + ' left');
-    text.appendChild(el('span', 'watch-ep__meta', meta.join(' · ')));
+    text.appendChild(el('span', 'watch-ep__meta', episodeFacts(e)));
     a.appendChild(text);
-    if (e.state === 'in_progress') a.appendChild(el('span', 'watch-ep__state watch-ep__state--active', 'In progress'));
     li.appendChild(a);
+    describe(li, e);
     var mark = episodeMark(e);
     if (mark) li.appendChild(mark);
     return li;
+  }
+
+  /* Put what episode *e* is about into its row. */
+  function describe(li, e) {
+    var a = li.querySelector('.watch-ep');
+    if (!e.summary || a.querySelector('.watch-ep__about')) return null;
+    // The link's description, not a part of its name.
+    var about = el('span', 'watch-ep__about ttl-clamp', e.summary);
+    about.id = 'ttl-ep-' + (++seq);
+    about.setAttribute('aria-hidden', 'true');
+    a.setAttribute('aria-describedby', about.id);
+    a.appendChild(about);
+    a.after(moreButton('watch-ep__more', about, li, e.title || 'Episode ' + e.number, 'ep-' + e.number));
+    return about;
+  }
+
+  /* Opens the rest of *text* by a press: *holder* is open meanwhile, and again when it is drawn
+     anew as *key*. */
+  function moreButton(cls, text, holder, name, key) {
+    var c = cur;
+    var b = button('ttl-more ' + cls, 'More');
+    b.setAttribute('aria-controls', text.id);
+    b.setAttribute('data-ttl-act', 'more-' + key);
+    function show() {
+      var open = !!c.opened[key];
+      holder.classList.toggle('is-open', open);
+      b.textContent = open ? 'Less' : 'More';
+      b.setAttribute('aria-label', (open ? 'Less' : 'More') + ' about ' + name);
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    b.addEventListener('click', function () {
+      c.opened[key] = !c.opened[key];
+      show();
+    });
+    show();
+    return b;
+  }
+
+  /* Which texts are cut off, and how high each is in full, for it to ease open. */
+  function fitNow(panel) {
+    toArray(panel.querySelectorAll('.ttl-clamp')).map(function (text) {
+      return [text, text.scrollHeight, parseFloat(getComputedStyle(text).lineHeight)];
+    }).forEach(function (one) {
+      one[0].style.setProperty('--full', one[1] + 'px');
+      one[0].parentNode.classList.toggle('is-long', one[1] > 2 * one[2] + 2);
+    });
+  }
+
+  function fitTexts(panel) {
+    if (typeof ResizeObserver !== 'function') return;
+    function fit() { fitNow(panel); }
+    var width = panel.offsetWidth;
+    fit();
+    // A text open from the start, as under the mark just pressed, is drawn open.
+    panel.classList.add('is-still');
+    new ResizeObserver(function () {
+      requestAnimationFrame(function () { panel.classList.remove('is-still'); });
+      if (panel.offsetWidth === width) return; // a text opening, not the screen
+      width = panel.offsetWidth;
+      requestAnimationFrame(fit);
+    }).observe(panel);
   }
 
   function episodeList(episodes, label) {
@@ -2166,6 +2316,173 @@
     ol.setAttribute('aria-label', label);
     episodes.forEach(function (e) { ol.appendChild(episodeRow(e)); });
     return ol;
+  }
+
+  /* The season on show: what is said of it, and its episodes. */
+  function seasonPanel(s, episodes) {
+    var about = (cur.picked && cur.pickedAbout) || s || {};
+    var name = s ? seasonName(s) : 'Season';
+    var panel = el('div', 'ttl__season');
+    var box = el('div', 'ttl__season-about');
+    box.appendChild(el('p', 'ttl__season-facts', seasonFacts(about, episodes)));
+    sayOfSeason(box, about, name);
+    panel.appendChild(box);
+    panel.appendChild(episodeList(episodes, name + ' episodes'));
+    return panel;
+  }
+
+  function seasonFacts(about, episodes) {
+    var facts = [plural(episodes.length, 'episode', 'episodes')];
+    if (about.year) facts.unshift(String(about.year));
+    return facts.join(' · ');
+  }
+
+  function sayOfSeason(box, about, name) {
+    if (!about.summary || about.summary === cur.data.overview || box.querySelector('.ttl__season-text')) return null;
+    var text = el('p', 'ttl__season-text ttl-clamp', about.summary);
+    text.id = 'ttl-season-' + (++seq);
+    box.appendChild(text);
+    box.appendChild(moreButton('', text, box, name, 'season'));
+    return text;
+  }
+
+  /* ── Words that come after their season ── */
+
+  function askWords(c) {
+    var n = c.season;
+    if (!(c.picked ? c.pickedAbout : c.data).words_pending || (c.words && c.words.number === n)) return;
+    var w = c.words = { number: n };
+    get(apiUrl(c.ref) + '/season/' + encodeURIComponent(n) + '?words=1', c.ctrl).then(function (data) {
+      betweenPresses(function () {
+        if (c.words !== w) return;
+        c.words = null;
+        if (c === cur && isOpen && c.data && c.season === n) takeWords(c, data);
+      });
+    }, function () { if (c.words === w) c.words = null; });
+  }
+
+  /* Run *fn* now, or once what is being pressed has been let go of and has answered. A press
+     whose end never comes, such as one that opened a menu, is waited for 3 s. */
+  function betweenPresses(fn, waited) {
+    waited = waited || 0;
+    if (!pressing || waited >= 3000) { fn(); return; }
+    setTimeout(function () { betweenPresses(fn, waited + 100); }, 100);
+  }
+
+  var pressing = false;
+  document.addEventListener('pointerdown', function () { pressing = true; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (type) {
+    document.addEventListener(type, function () { pressing = false; }, true);
+  });
+
+  /* The words into the rows on show, which make room for them: what is pointed at or has the
+     focus stays where it is, and the rest slides. What was seen is as held: a mark may have
+     been made since the words were asked for. */
+  function takeWords(c, data) {
+    var s = numbered(c.data, c.season);
+    if (!s) return;
+    var episodes = c.picked || c.data.episodes || [];
+    var about = c.picked ? c.pickedAbout : s;
+    var told = {};
+    (data.episodes || []).forEach(function (e) { told[e.key] = e; });
+    episodes.forEach(function (e) {
+      var t = told[e.key] || {};
+      e.summary = t.summary || e.summary;
+      e.aired = t.aired || e.aired;
+    });
+    about.summary = data.summary || about.summary;
+    about.year = data.year || about.year;
+    delete (c.picked ? c.pickedAbout : c.data).words_pending;
+    var sec = body.querySelector('.ttl__seasonsec');
+    var panel = sec && sec.querySelector('.ttl__season');
+    if (!panel) return;
+    var rows = toArray(panel.querySelectorAll('.watch-eprow'));
+    var still = keptStill(sec, rows);
+    var others = toArray(body.children).concat(toArray(sec.children), toArray(panel.children));
+    var slide = core.flip(rows.concat(others.filter(function (n) { return n !== sec && n !== panel && !n.contains(rows[0]); })));
+    function say() {
+      var box = panel.querySelector('.ttl__season-about');
+      box.querySelector('.ttl__season-facts').textContent = seasonFacts(about, episodes);
+      var fresh = [sayOfSeason(box, about, seasonName(s))];
+      rows.forEach(function (li, i) {
+        li.querySelector('.watch-ep__meta').textContent = episodeFacts(episodes[i]);
+        fresh.push(describe(li, episodes[i]));
+      });
+      if (typeof ResizeObserver === 'function') fitNow(panel);
+      fresh.filter(Boolean).forEach(function (text) {
+        core.fadeIn(text);
+        core.fadeIn(panel.querySelector('[aria-controls="' + text.id + '"]'));
+      });
+    }
+    if (still) holdStill(function () { return still; }, say);
+    else say();
+    slide();
+  }
+
+  /* What of the seasons must not move: what the pointer is on, what has the focus, or, with their
+     top out of sight, the first row to be seen. */
+  function keptStill(sec, rows) {
+    function stays(node) { return node && sec.contains(node) && (node.closest('.watch-eprow') || node.closest('button')); }
+    var at = stays(toArray(sec.querySelectorAll(':hover')).pop()) || stays(document.activeElement);
+    if (at) return at;
+    var top = root.getBoundingClientRect().top;
+    if (!rows.length || rows[0].getBoundingClientRect().top >= top) return null;
+    return rows.filter(function (li) { return li.getBoundingClientRect().bottom > top; })[0] || sec.nextElementSibling;
+  }
+
+  function episodeSkels(n) {
+    var box = el('div', 'ttl-epskels');
+    box.setAttribute('aria-hidden', 'true');
+    for (var i = 0; i < n; i++) {
+      var row = el('div', 'ttl-epskel');
+      row.appendChild(skel('ttl-epskel__thumb'));
+      var lines = el('div', 'ttl-skel-lines');
+      ['38%', '22%', '94%', '70%'].forEach(function (w) { lines.appendChild(skel('skel--line', w)); });
+      row.appendChild(lines);
+      box.appendChild(row);
+    }
+    return box;
+  }
+
+  /* While another season loads, rows still to come stand over those of the one on show, which
+     takes no press unseen. */
+  function seasonWaits(panel, on) {
+    var list = panel.querySelector('.watch-episodes');
+    var about = panel.querySelector('.ttl__season-about');
+    list.setAttribute('aria-busy', on ? 'true' : 'false');
+    list.inert = about.inert = on;
+    panel.classList.toggle('is-waiting', on);
+    toArray(panel.querySelectorAll('.ttl__season-wait')).forEach(function (n) { n.remove(); });
+    if (!on) return;
+    var head = el('div', 'ttl__season-wait ttl-aboutskel ttl-skel-lines');
+    head.setAttribute('aria-hidden', 'true');
+    ['130px'].concat(about.querySelector('.ttl__season-text') ? ['100%', '84%'] : []).forEach(function (w) {
+      head.appendChild(skel('skel--line', w));
+    });
+    panel.appendChild(head);
+    var rows = episodeSkels(6);
+    rows.classList.add('ttl__season-wait');
+    panel.appendChild(rows);
+  }
+
+  /* The season that leaves fades over the one that comes. It is never taken off the page
+     before: what is easing in it would start over. */
+  function crossfade(old, fresh) {
+    var last = old.parentNode.querySelector('.ttl__season.is-gone');
+    if (last) last.remove();
+    old.before(fresh);
+    fitTexts(fresh);
+    fresh.classList.add('is-arriving');
+    if (!old.animate || core.reduceMotion()) {
+      old.remove();
+      return;
+    }
+    old.style.top = fresh.offsetTop + 'px';
+    old.classList.add('is-gone');
+    old.setAttribute('aria-hidden', 'true');
+    old.inert = true;
+    var fade = old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: core.tokenMs('--dur', 200), fill: 'forwards' });
+    fade.onfinish = fade.oncancel = function () { old.remove(); };
   }
 
   function numbered(d, n) { return (d.seasons || []).filter(function (s) { return s.number === n; })[0]; }
@@ -2186,6 +2503,7 @@
       shown = ownSeason(d);
       cur.season = shown ? shown.number : null;
       cur.picked = null;
+      cur.pickedAbout = null;
       cur.chosen = false;
     }
     if (cur.seasonLoading && !numbered(d, cur.seasonLoading.number)) cur.seasonLoading = null;
@@ -2215,9 +2533,9 @@
       viewport.appendChild(nav);
       sec.appendChild(viewport);
     }
-    var list = episodeList(cur.picked || d.episodes, (shown ? seasonName(shown) : 'Season') + ' episodes');
-    if (cur.seasonLoading) list.setAttribute('aria-busy', 'true');
-    sec.appendChild(list);
+    var panel = seasonPanel(shown, cur.picked || d.episodes);
+    if (cur.seasonLoading) seasonWaits(panel, true);
+    sec.appendChild(panel);
     return sec;
   }
 
@@ -2271,10 +2589,15 @@
     if (sec) sec.style.marginTop = cur.room ? cur.room + 'px' : '';
   }
 
+  function takeEpisodes(c, data) {
+    c.picked = data.episodes || [];
+    c.pickedAbout = { summary: data.summary, year: data.year, words_pending: data.words_pending };
+  }
+
   function takeSeason(c, s, data) {
     c.season = s.number;
     c.chosen = true;
-    c.picked = data.episodes || [];
+    takeEpisodes(c, data);
     s.key = data.key;
     s.watched = data.watched;
   }
@@ -2284,12 +2607,13 @@
   function showSeason(c, s, data, still) {
     var leftOn = leavingNow();
     takeSeason(c, s, data);
+    c.opened = {};
     var leaves = leavingNow();
-    var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
+    var fresh = seasonPanel(s, c.picked);
     var sec = body.querySelector('.ttl__seasonsec');
     still = still || sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
     holdStill(function () { return still; }, function () {
-      sec.querySelector('.watch-episodes').replaceWith(fresh);
+      crossfade(sec.querySelector('.ttl__season'), fresh);
       if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
         redrawActions(c.ref);
         if (hasFacts(c)) renderFacts(false);
@@ -2298,7 +2622,7 @@
       var mark = seasonMark(s);
       if (oldMark && mark) oldMark.replaceWith(mark);
     });
-    core.fadeIn(fresh);
+    askWords(c);
   }
 
   /* A season pill swaps the list in place; focus stays on the pill. When the
@@ -2312,10 +2636,9 @@
     var sec = body.querySelector('.ttl__seasonsec');
     markSeason(sec, s.number);
     showPill(sec.querySelector('.watch-seasons'), core.reduceMotion() ? 'auto' : 'smooth');
-    var list = sec.querySelector('.watch-episodes');
     var oldErr = sec.querySelector('.ttl__error');
     if (oldErr) oldErr.remove();
-    list.setAttribute('aria-busy', 'true');
+    seasonWaits(sec.querySelector('.ttl__season'), true);
     get(apiUrl(c.ref) + '/season/' + encodeURIComponent(s.number)).then(function (data) {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
@@ -2326,7 +2649,7 @@
       var sec = body.querySelector('.ttl__seasonsec');
       var list = sec.querySelector('.watch-episodes');
       markSeason(sec, c.season);
-      list.setAttribute('aria-busy', 'false');
+      seasonWaits(sec.querySelector('.ttl__season'), false);
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
       err.appendChild(el('span', '', 'Could not load ' + seasonName(s) + '.'));
@@ -2345,6 +2668,43 @@
 
   var adminMenu = null;
 
+  function factsCard() {
+    var aside = el('aside', 'ttl-facts');
+    aside.setAttribute('aria-label', 'Library facts, admins only');
+    var eyebrow = el('p', 'ttl-facts__eyebrow');
+    eyebrow.appendChild(icon('i-lock'));
+    eyebrow.appendChild(document.createTextNode('Admin only'));
+    aside.appendChild(eyebrow);
+    var dl = el('dl', 'ttl-facts__list');
+    return {
+      aside: aside,
+      dl: dl,
+      row: function (label, value, cls, sub) {
+        dl.appendChild(el('dt', '', label));
+        var dd = el('dd', cls || '', value);
+        if (sub) dd.appendChild(el('span', 'ttl-facts__sub', sub));
+        dl.appendChild(dd);
+        return dd;
+      }
+    };
+  }
+
+  /* The same rows as the facts have, so that nothing below moves when they come. */
+  function factsToCome(card, leaves) {
+    card.aside.setAttribute('aria-busy', 'true');
+    ['Size on disk', 'Added', 'Last watched by anyone', 'Deletion', 'Keep'].forEach(function (label) {
+      var dd = card.row(label, '', 'is-pending');
+      dd.appendChild(skel('skel--line ttl-facts__skel'));
+      if (label === 'Deletion' && leaves) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
+    });
+    card.aside.appendChild(card.dl);
+    if (!window.MMWatch.admin) return;
+    var foot = el('div', 'ttl-facts__foot');
+    foot.appendChild(skel('skel--pill'));
+    foot.appendChild(skel('skel--pill'));
+    card.aside.appendChild(foot);
+  }
+
   function renderFacts(fresh) {
     var f = cur.facts;
     var pending = !f && !cur.factsError;
@@ -2353,36 +2713,11 @@
     if (adminMenu) closeAdminMenu(adminMenu.menu.contains(document.activeElement));
     var key = focusKey();
     var old = lead.querySelector('.ttl-facts');
-    var aside = el('aside', 'ttl-facts');
-    aside.setAttribute('aria-label', 'Library facts, admins only');
-    var eyebrow = el('p', 'ttl-facts__eyebrow');
-    eyebrow.appendChild(icon('i-lock'));
-    eyebrow.appendChild(document.createTextNode('Admin only'));
-    aside.appendChild(eyebrow);
-    var dl = el('dl', 'ttl-facts__list');
-    function row(label, value, cls, sub) {
-      dl.appendChild(el('dt', '', label));
-      var dd = el('dd', cls || '', value);
-      if (sub) dd.appendChild(el('span', 'ttl-facts__sub', sub));
-      dl.appendChild(dd);
-      return dd;
-    }
-    if (pending) {
-      aside.setAttribute('aria-busy', 'true');
-      // The same rows as the facts have, so that nothing below moves when they come.
-      ['Size on disk', 'Added', 'Last watched by anyone', 'Deletion', 'Keep'].forEach(function (label) {
-        var dd = row(label, '', 'is-pending');
-        dd.appendChild(skel('skel--line ttl-facts__skel'));
-        if (label === 'Deletion' && cur.data.leaving) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
-      });
-      aside.appendChild(dl);
-      if (window.MMWatch.admin) {
-        var wait = el('div', 'ttl-facts__foot');
-        wait.appendChild(skel('skel--pill'));
-        wait.appendChild(skel('skel--pill'));
-        aside.appendChild(wait);
-      }
-    }
+    var card = factsCard();
+    var aside = card.aside;
+    var dl = card.dl;
+    var row = card.row;
+    if (pending) factsToCome(card, !!cur.data.leaving);
     if (f) {
       row('Size on disk', f.size || '—');
       row('Added', f.added ? day(f.added) : '—');
