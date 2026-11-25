@@ -32,8 +32,7 @@
     'a[href]', 'area[href]', 'button:not([disabled])',
     'input:not([disabled]):not([type="hidden"])',
     'select:not([disabled])', 'textarea:not([disabled])',
-    '[tabindex]:not([tabindex="-1"])',
-    '[contenteditable="true"]'
+    'summary', 'iframe', '[tabindex]', '[contenteditable="true"]'
   ].join(',');
 
   var registry = {};           // id -> { closeFn, lastTrigger }
@@ -52,6 +51,8 @@
       modal.querySelectorAll(FOCUSABLE),
       function (el) {
         return !el.hasAttribute('disabled')
+          && !(parseInt(el.getAttribute('tabindex'), 10) < 0)
+          && !el.closest('[inert]')
           && el.getAttribute('aria-hidden') !== 'true'
           && isVisible(el);
       }

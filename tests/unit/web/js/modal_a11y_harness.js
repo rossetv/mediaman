@@ -165,6 +165,19 @@ const scenarios = {
     for (let i = 0; i < 2; i++) { p.key('Tab'); out.push(p.focused()); }
     return out;
   },
+  // Controls the browser's own Tab would pass over, and two it would not.
+  stops() {
+    const p = page();
+    p.$('card').textContent = '';
+    p.$('card').append(...[
+      ['button', { id: 'passed', tabindex: '-1' }], ['a', { id: 'further', href: '#', tabindex: '-2' }], ['button', { id: 'first' }],
+      ['div', { inert: '' }, ['button', { id: 'out' }]], ['details', {}, ['summary', { id: 'more' }]], ['iframe', { id: 'frame' }], ['div', { id: 'own', tabindex: '0' }],
+    ].map((n) => build(p.doc, n)));
+    p.setup('low').open();
+    const out = [p.focused()];
+    for (let i = 0; i < 4; i++) { p.key('Tab'); out.push(p.focused()); }
+    return out;
+  },
   // Escape with a dialog that answers it itself over one that does not.
   escape() {
     const p = page();

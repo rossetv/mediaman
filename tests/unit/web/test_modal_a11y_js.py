@@ -79,6 +79,10 @@ def test_tab_goes_round_every_control_in_the_dialog_and_never_by_the_browser_s_o
     assert out["none"] == ["low"]
 
 
+def test_tab_stops_where_the_browser_would_and_nowhere_else() -> None:
+    assert _run("stops") == ["first", "more", "frame", "own", "first"]
+
+
 def test_tab_stays_in_a_dialog_with_its_own_focus() -> None:
     assert _run("tabInPlain") == ["plain-yes", "password"]
 
