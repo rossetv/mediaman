@@ -208,3 +208,14 @@ def test_a_long_unbroken_word_in_the_message_breaks_inside_the_card():
 
     css = (Path(mediaman.web.__file__).parent / "static" / "css" / "_error.css").read_text()
     assert ".err-title,\n.err-msg { text-wrap: balance; overflow-wrap: anywhere; }" in css
+
+
+def test_a_button_wraps_its_words_inside_the_card_under_a_large_text_zoom():
+    import re
+    from pathlib import Path
+
+    import mediaman.web
+
+    css = (Path(mediaman.web.__file__).parent / "static" / "css" / "_error.css").read_text()
+    rule = re.search(r"^\.err-actions \.btn \{([^}]*)\}", css, re.M)
+    assert rule and "white-space: normal" in rule[1] and "text-align: center" in rule[1]
