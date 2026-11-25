@@ -119,6 +119,56 @@ def test_the_focus_goes_on_to_the_next_card_or_to_where_the_title_went(out) -> N
     assert out["focusFollowsTheLast"] is True
 
 
+def test_the_focus_goes_to_what_takes_the_last_cards_place(out) -> None:
+    assert out["lastIsReplaced"] is True
+
+
+def test_the_focus_does_not_go_to_a_card_that_leaves_too(out) -> None:
+    assert out["focusSkipsWhatLeaves"] == {"passed": ["C"], "leaving": True, "onC": True}
+
+
+def test_the_focus_on_see_all_goes_to_the_next_row_when_the_row_closes(out) -> None:
+    assert out["focusOnSeeAll"] == "movie-1"
+
+
+def test_titles_ready_at_once_are_said_together(out) -> None:
+    both = out["saysBoth"]
+    assert (both["both"], both["then"]) == (
+        "A and B are ready to watch",
+        "C is ready to watch",
+    )
+
+
+def test_a_title_that_finishes_again_is_said_again(out) -> None:
+    said = out["saidAgain"]
+    assert said["first"] == said["again"] == "A is ready to watch"
+    assert said["between"] == ""
+
+
+def test_a_title_the_answer_let_go_of_may_be_ready_anew(out) -> None:
+    assert out["readyAnew"] == {"gone": ["A"], "cards": ["B", "A"]}
+
+
+def test_a_title_in_recently_added_under_another_ref_is_not_put_there_twice(out) -> None:
+    assert out["underAnotherRef"] == ["tmdb-tv-4", "movie-2", "movie-1"]
+
+
+def test_two_films_of_one_name_are_two_titles_there(out) -> None:
+    assert out["twoFilmsOfOneName"] == ["B", "B", "Salt", "Fieldwork"]
+
+
+def test_a_later_page_of_the_row_does_not_bring_the_title_again(out) -> None:
+    assert out["loaderIsTold"] == ["B", "Salt", "Fieldwork", "Other"]
+
+
+def test_a_title_taken_out_of_the_row_is_not_put_back(out) -> None:
+    assert out["loaderHoldsIt"] == {"recent": ["Salt"], "cards": ["A"]}
+
+
+def test_signed_out_it_stops_and_leaves_the_page_where_it_is(out) -> None:
+    assert out["signedOut"] == {"asks": 2, "at": "start", "cards": ["A"], "note": None}
+
+
 def test_a_new_card_takes_its_place_and_leaves_the_focus(out) -> None:
     assert out["reorder"] == {"cards": ["New", "A", "Q"], "focused": True}
 

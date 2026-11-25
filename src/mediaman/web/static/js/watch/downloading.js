@@ -2,7 +2,7 @@
  * while there is something in it. A card fills with colour as its title comes
  * in; one that is done says so for a minute, then its poster goes to the front
  * of Recently added.
- * Needs downloading.js and watch/core.js.
+ * Needs downloading.js, watch/core.js and watch/rows-load.js.
  */
 (function () {
   'use strict';
@@ -16,6 +16,7 @@
   var HREF = '/downloads';
   var STATES = { queued: ['is-queued'], searching: ['is-looking'], stuck: ['is-looking', 'is-stuck'], ready: ['is-ready'] };
   var FLY_MS = 520;
+  var SAID_MS = 5000; // then it is taken back, so that the same words are read again
   var SWEEP_MS = 1700; // past the ring the new card arrives with
   var FLY_EASE = 'cubic-bezier(.3,.7,.2,1)';
 
@@ -29,6 +30,7 @@
   var landed = {}; // keys of what went to Recently added, until it downloads again
   var last = null; // the answer on show
   var starting = true;
+  var saying = null;
   var closing = null;
   var opening = null;
 
@@ -180,6 +182,7 @@
 
   function close() {
     if (!inner || closing) return;
+    passOn(slot);
     clearTimeout(opening);
     slot.classList.remove('is-resting');
     void slot.offsetWidth;
@@ -222,23 +225,32 @@
 
   function draw(state) {
     last = state;
+    var held = {};
+    state.items.forEach(function (item) { held[item.key] = true; });
+    Object.keys(landed).forEach(function (key) { if (!held[key]) delete landed[key]; });
     var list = state.items.filter(function (item) {
       if (item.state !== 'ready') delete landed[item.key];
       return !landed[item.key];
     });
     var there = {};
     list.forEach(function (item) { there[item.key] = true; });
-    Object.keys(cards).forEach(function (key) {
-      if (there[key]) return;
-      // Its minute ran out between two answers.
-      if (cards[key].item.state === 'ready') land(key, !list.length);
-      else drop(key, !list.length);
-    });
-    if (!list.length) { close(); return; }
+    var going = Object.keys(cards).filter(function (key) { return !there[key]; });
+    function letGo() {
+      // All of them first, so that the focus goes to none of them.
+      if (list.length) going.forEach(function (key) { cards[key].node.classList.add('is-leaving'); });
+      going.forEach(function (key) {
+        if (!cards[key]) return;
+        // Its minute ran out between two answers.
+        if (cards[key].item.state === 'ready') land(key, !list.length);
+        else drop(key, !list.length);
+      });
+    }
+    if (!list.length) { letGo(); close(); return; }
     if (closing) comeBack();
     if (!inner) buildRow();
     var isNew = !slot.classList.contains('is-open');
     var play = isNew ? null : core.flip(toArray(scroller.children));
+    var ready = [];
     list.forEach(function (item) {
       var card = cards[item.key];
       var was = card && card.item.state;
@@ -247,13 +259,23 @@
         if (!isNew) core.fadeIn(card.node);
       }
       patch(card, item, state.lost);
-      if (item.state === 'ready' && was && was !== 'ready') setText(said, item.title + ' is ready to watch');
+      if (item.state === 'ready' && was && was !== 'ready') ready.push(item.title);
     });
+    say(ready);
     order(list);
+    letGo();
     sole();
     heading(state, list);
     if (play) play();
     open();
+  }
+
+  function say(titles) {
+    if (!titles.length) return;
+    var end = titles.length > 1 ? ' and ' + titles[titles.length - 1] + ' are' : ' is';
+    setText(said, (titles.length > 1 ? titles.slice(0, -1) : titles).join(', ') + end + ' ready to watch');
+    clearTimeout(saying);
+    saying = setTimeout(function () { setText(said, ''); }, SAID_MS);
   }
 
   /* Something to show again before the row has closed: what it closed with is gone. */
@@ -274,25 +296,48 @@
 
   /* ── Leaving ── */
 
+  function controlOf(row) {
+    return row && row.querySelector('.watch-row__scroll a[href], .watch-row__scroll button');
+  }
+
+  /* The first control of the next row on the page, or of the one before. */
+  function besides() {
+    var found = null;
+    ['nextElementSibling', 'previousElementSibling'].forEach(function (way) {
+      for (var n = slot[way]; n && !found; n = n[way]) {
+        if (n.getClientRects().length) found = controlOf(n);
+      }
+    });
+    return found;
+  }
+
+  /* The focus, when *node* has it, goes to the card nearest to it that stays, else out of the row. */
+  function passOn(node) {
+    if (!node.contains(document.activeElement)) return;
+    function stays(n) { return !n.classList.contains('is-leaving'); }
+    var all = node === slot ? [] : toArray(scroller.children);
+    var at = all.indexOf(node);
+    var to = all.slice(at + 1).filter(stays)[0] || all.slice(0, Math.max(0, at)).filter(stays).pop();
+    var control = to ? to.querySelector('.dw__link') : besides();
+    if (control) core.focusSoftly(control);
+  }
+
   /* Take a card out; with the whole row closing it goes with that. */
   function drop(key, withRow) {
     var card = cards[key];
     if (!card) return;
     delete cards[key];
     clearTimeout(card.timer);
-    var node = card.node;
     if (withRow) return;
-    var had = node.contains(document.activeElement);
-    var others = toArray(scroller.children);
-    var at = others.indexOf(node);
-    var next = others[at + 1] || others[at - 1];
+    var node = card.node;
+    node.classList.add('is-leaving');
+    passOn(node);
     function gone() {
+      passOn(node);
       node.remove();
       sole();
     }
-    if (had && next) core.focusSoftly(next.querySelector('.dw__link'));
     if (core.reduceMotion() || !node.animate || !onScreen(node)) { gone(); return; }
-    node.classList.add('is-leaving');
     var gap = parseFloat(getComputedStyle(scroller).columnGap) || 0;
     var away = -(node.getBoundingClientRect().width + gap) + 'px';
     node.animate([{ opacity: 1, marginRight: 0 }, { opacity: 0, marginRight: away }],
@@ -332,17 +377,31 @@
     return card;
   }
 
+  function source(ref) { return /^tmdb-/.test(ref) ? 'tmdb' : 'library'; }
+
+  /* Whether *card* is of *item*'s title: its ref, or where one has the library's and the
+     other TMDB's, its name and kind. */
+  function isOf(card, item) {
+    var link = card.querySelector('[data-title-ref]');
+    if (!link || card.classList.contains('is-kept') || card.classList.contains('is-gone')) return false;
+    var ref = link.getAttribute('data-title-ref');
+    if (ref === item.ref) return true;
+    var title = card.querySelector('.watch-card__title');
+    return source(ref) !== source(item.ref) && /^(tmdb-)?movie-/.test(ref) === (item.kind === 'movie') &&
+      !!title && title.textContent.trim().toLowerCase() === item.title.trim().toLowerCase();
+  }
+
   /* Put *item* at the front of Recently added and return its card, or null: the
      page has no such row, or what is done has no title. */
   function intoRecent(item) {
     var row = recentRow();
     if (!row || !REF_RE.test(item.ref || '')) return null;
-    var there = toArray(row.children).filter(function (n) {
-      return n.querySelector && n.querySelector('[data-title-ref="' + item.ref + '"]');
-    })[0];
+    var there = toArray(row.children).filter(function (n) { return isOf(n, item); })[0];
     if (there && there === row.firstElementChild) return there;
-    var play = core.flip(toArray(row.children).slice(0, 12));
     var card = there || recentCard(item);
+    // A title it no longer shows, such as one dismissed, stays as it is.
+    if (!there && !window.MMWatch.rowsLoad.add(row.parentNode, card)) return null;
+    var play = core.flip(toArray(row.children).slice(0, 12));
     var at = row.scrollLeft;
     var using = at > 2 || row.contains(document.activeElement);
     var snap = row.style.scrollSnapType;

@@ -8,7 +8,6 @@
  *   now()          ask soon: something was just asked for.
  *
  * lost: mediaman itself has stopped answering, and the rest is as it last was.
- * Needs core/api.js.
  */
 (function () {
   'use strict';
@@ -68,6 +67,14 @@
     wait(Math.min(FAIL_MS * Math.pow(2, failures - 1), FAIL_MAX_MS));
   }
 
+  /* Not MM.api: its 401 leads to the login page, which nobody here asked for. */
+  function get(signal) {
+    return fetch(URL, { credentials: 'same-origin', signal: signal }).then(function (resp) {
+      if (!resp.ok) throw Object.assign(new Error('http'), { status: resp.status });
+      return resp.json();
+    });
+  }
+
   function ask() {
     timer = null;
     if (inFlight || ended) return;
@@ -81,7 +88,7 @@
       again = false;
       return soon;
     }
-    window.MM.api.get(URL, { signal: request.signal }).then(function (data) {
+    get(request.signal).then(function (data) {
       var soon = over();
       if (!take(data)) { failed(null); return; }
       failures = 0;

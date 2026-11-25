@@ -7,7 +7,7 @@ const vm = require('vm');
 const { Node, makeDocument, build, settle } = require('./fake_dom');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
-const SOURCES = ['downloading.js', 'watch/core.js', 'watch/downloading.js'].map((name) =>
+const SOURCES = ['core/api.js', 'downloading.js', 'watch/core.js', 'watch/rows-load.js', 'watch/downloading.js'].map((name) =>
   new vm.Script(fs.readFileSync(path.join(JS, name), 'utf8'), { filename: name }));
 
 Object.defineProperty(Node.prototype, 'hidden', {
@@ -32,7 +32,7 @@ const answer = (items, outage = '') => {
   return { ok: true, outage, items, summary: { total: items.length, active, ready: of('ready'), waiting: items.length - active - of('ready'), percent: 0 } };
 };
 
-const recentCard = (ref, title) => ['article', { class: 'watch-card' }, ['a', { class: 'watch-card__link', 'data-title-ref': ref },
+const recentCard = (ref, title) => ['article', { class: 'watch-card' }, ['a', { class: 'watch-card__link', href: '/watch', 'data-title-ref': ref },
   ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, title]]]];
 
 /* *answers*: what the server gives, the last one for good; a number is an error's status, 'never' no answer. */
@@ -46,7 +46,7 @@ function load(answers, opts = {}) {
         ['div', { class: 'watch-row__scroll' }, recentCard('movie-1', 'Salt'), recentCard('movie-2', 'Fieldwork')]]]],
     ...(opts.drawn ? [['script', { id: 'watch-page-data' }, JSON.stringify({ downloading: opts.drawn })]] : [])]));
   const bare = doc.createElement;
-  const styled = (el) => { el.style = { set: {}, setProperty(k, v) { this.set[k] = v; }, removeProperty(k) { delete this.set[k]; } }; return el; };
+  const styled = (el) => { if (opts.still === false) el.animate = () => ({}); el.style = { set: {}, setProperty(k, v) { this.set[k] = v; }, removeProperty(k) { delete this.set[k]; } }; return el; };
   doc.createElement = (t) => styled(bare(t));
   (function all(n) { if (n.nodeType === 1) styled(n); n.childNodes.forEach(all); })(doc.body);
   const p = { doc, asks: 0, aborted: 0, answers: answers.slice(), time: 1000000 };
@@ -70,27 +70,31 @@ function load(answers, opts = {}) {
     p.time = until;
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, AbortController,
+    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Set, Map, Error, parseFloat, AbortController,
     Date: { now: () => p.time },
     setTimeout: clock.set, clearTimeout: clock.clear,
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingBottom: '0', columnGap: '14' }),
     matchMedia: () => ({ matches: opts.still !== false }),
     innerHeight: 900, innerWidth: 1280, scrollBy() {},
+    addEventListener() {}, requestAnimationFrame: (fn) => fn(),
+    location: { pathname: '/settings', href: 'start' },
+    fetch: (url, o) => {
+      p.asks += 1;
+      const a = p.answers.length > 1 ? p.answers.shift() : p.answers[0];
+      if (typeof a === 'number') return Promise.resolve({ ok: false, status: a, json: () => Promise.resolve({}) });
+      if (a === 'never') return new Promise((_ok, no) => o.signal.addEventListener('abort', () => { p.aborted += 1; no(new Error('aborted')); }));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(a) });
+    },
     MM: {
       dom: { icon: (name) => build(doc, ['svg', { class: 'ico ' + name }]) },
-      api: { get: (url, o) => {
-        p.asks += 1;
-        const a = p.answers.length > 1 ? p.answers.shift() : p.answers[0];
-        if (typeof a === 'number') return Promise.reject(Object.assign(new Error('http'), { status: a }));
-        if (a === 'never') return new Promise((_ok, no) => o.signal.addEventListener('abort', () => { p.aborted += 1; no(new Error('aborted')); }));
-        return Promise.resolve(a);
-      } },
     },
   };
   ctx.window = ctx;
   vm.createContext(ctx);
   SOURCES.forEach((s) => s.runInContext(ctx));
   p.MM = ctx.MM;
+  p.watch = ctx.MMWatch;
+  p.at = () => ctx.location.href;
   p.tell = (name) => (doc.listeners[name] || []).forEach((fn) => fn({ type: name }));
   p.hide = (on) => { doc.hidden = on; p.tell('visibilitychange'); };
   p.slot = doc.getElementById('watch-downloading');
@@ -240,6 +244,86 @@ const scenarios = {
     const p = load([answer([ready('B', 60), item('A')]), answer([item('A')])]);
     await p.step(5010);
     return { cards: p.cards(), recent: p.recent() };
+  },
+  async lastIsReplaced() {
+    const p = load([answer([item('A')]), answer([item('C')])]);
+    await p.step(10);
+    p.card('A').querySelector('a').focus();
+    await p.step(5010);
+    return p.doc.activeElement === p.card('C').querySelector('a');
+  },
+  async focusSkipsWhatLeaves() {
+    const p = load([answer([item('A'), item('B'), item('C')]), answer([item('C')])], { still: false });
+    await p.step(10);
+    p.card('A').querySelector('a').focus();
+    const passed = [];
+    p.cards().forEach((t) => { const a = p.card(t).querySelector('a'); const own = a.focus; a.focus = () => { passed.push(t); own.call(a); }; });
+    await p.step(5010);
+    return { passed, leaving: p.card('B').classList.contains('is-leaving'), onC: p.doc.activeElement === p.card('C').querySelector('a') };
+  },
+  async focusOnSeeAll() {
+    const p = load([answer([item('A')]), answer([])]);
+    await p.step(10);
+    p.slot.querySelector('.row-open').focus();
+    await p.step(5010);
+    return p.doc.activeElement.getAttribute('data-title-ref');
+  },
+  async saysBoth() {
+    const p = load([answer([item('A'), item('B'), item('C')]), answer([ready('A'), ready('B'), item('C')]),
+      answer([ready('A'), ready('B'), ready('C')])]);
+    await p.step(5010);
+    const both = p.said();
+    await p.step(5000);
+    return { both, then: p.said() };
+  },
+  async saidAgain() {
+    const p = load([answer([item('A')]), answer([ready('A', 60)]), answer([item('A')]), answer([ready('A', 60)])]);
+    await p.step(5010);
+    const first = p.said();
+    await p.step(9000);
+    const between = p.said();
+    await p.step(1500);
+    return { first, between, again: p.said() };
+  },
+  async readyAnew() {
+    const p = load([answer([ready('B', 2), item('A')]), answer([item('A')]), answer([ready('B', 60), item('A')])]);
+    await p.step(5010);
+    const gone = p.cards();
+    await p.step(5000);
+    return { gone, cards: p.cards() };
+  },
+  async underAnotherRef() {
+    const p = load([answer([ready('Fieldwork', 2), ready('Salt', 2, { kind: 'show', ref: 'tmdb-tv-4' }), item('A')])]);
+    await p.step(3000);
+    return p.doc.querySelector('[data-row-id="recent"]').querySelectorAll('[data-title-ref]').map((n) => n.getAttribute('data-title-ref'));
+  },
+  async twoFilmsOfOneName() {
+    const p = load([answer([ready('B', 2, { key: 'radarr::1', ref: 'tmdb-movie-1' }), ready('B', 2, { key: 'radarr::2', ref: 'tmdb-movie-2' }), item('A')])]);
+    await p.step(3000);
+    return p.recent();
+  },
+  async loaderIsTold() {
+    const p = load([answer([ready('B', 2, { ref: 'show-7', kind: 'show' }), item('A')])]);
+    const viewport = p.doc.querySelector('[data-row-id="recent"]').querySelector('.watch-row__viewport');
+    const page = [build(p.doc, recentCard('show-7', 'B')), build(p.doc, recentCard('movie-8', 'Other'))];
+    const row = p.watch.rowsLoad.start(viewport, { title: 'Recently added', next: 'p1', fetchPage: () => Promise.resolve({ cards: page, next: null }) });
+    await p.step(3000);
+    row.more();
+    await p.step(10);
+    return p.recent();
+  },
+  async loaderHoldsIt() {
+    const p = load([answer([ready('Fieldwork', 2, { ref: 'movie-2' }), item('A')])]);
+    const viewport = p.doc.querySelector('[data-row-id="recent"]').querySelector('.watch-row__viewport');
+    p.watch.rowsLoad.start(viewport, { title: 'Recently added', next: null });
+    viewport.querySelectorAll('.watch-card')[1].remove();
+    await p.step(3000);
+    return { recent: p.recent(), cards: p.cards() };
+  },
+  async signedOut() {
+    const p = load([answer([item('A')]), 401]);
+    await p.step(600000);
+    return { asks: p.asks, at: p.at(), cards: p.cards(), note: p.note() };
   },
   async outage() {
     const p = load([answer([item('A', { held: true }), item('B')], "Can't reach Radarr"), answer([item('B')], "Can't reach Radarr"), answer([item('B')])]);
