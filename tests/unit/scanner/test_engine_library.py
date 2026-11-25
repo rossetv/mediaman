@@ -719,8 +719,12 @@ class TestScanWithAnUnreadableLibrary:
 
 
 _HOUR = timedelta(hours=1)
+_WAITS_FOR_LIBRARY = (
+    "; the deletion waits while mediaman still has that one and Plex does not list its library"
+)
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestGoneLibrary:
     """Plex library 1 was removed and made again as 2, the only one ticked."""
 
@@ -940,6 +944,7 @@ class TestGoneLibrary:
         assert not self.film.exists()
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestTwinInAGoneLibrary:
     """A due title of library 2 and a kept one of library 1 may be one; Plex lists 1 no more."""
 
@@ -1022,6 +1027,38 @@ class TestTwinInAGoneLibrary:
         ).fetchall()
         assert [row[0] for row in waits] == ["delete_awaiting_scan"]
 
+    def test_the_late_watch_of_a_copy_with_other_files_is_not_said_to_hold_it(
+        self, conn, mock_plex
+    ):
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = '10'")
+        conn.execute(
+            "UPDATE media_items SET last_watched_at = ? WHERE id = '10'",
+            ((datetime.now(UTC) - timedelta(days=1)).isoformat(),),
+        )
+        self._twins(conn, "ids")
+
+        self._scan(conn, mock_plex)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "it may be a title of a library" in said[0][0]
+        assert "watched lately" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
+
+    def test_one_that_shares_a_file_spelled_another_way_waits(self, conn, mock_plex):
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = '10'",
+            (json.dumps([{"path": f"{self.due.parent}/./film.mkv", "size": 4}]),),
+        )
+        conn.commit()
+
+        self._scan(conn, mock_plex)
+
+        assert self.due.exists()
+
     def test_the_wait_is_told_once(self, conn, mock_plex):
         self._twins(conn, "ids")
 
@@ -1076,6 +1113,7 @@ class TestTwinInAGoneLibrary:
         assert [row[0] for row in told] == ["delete_awaiting_scan"]
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
     """Plex lists library 1 no more; a due title of 2 or 4 has a file of a kept one of 1."""
 
@@ -1229,7 +1267,29 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         ).fetchall()
         assert len(said) == 1
         assert "is kept" in said[0][0]
-        assert "certain" not in said[0][0]
+        assert "it may be a title of a library" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
+
+    def test_a_deletion_that_waits_for_a_title_watched_lately_in_a_gone_library_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "it has a file of a title watched lately" in said[0][0]
+        assert "it may be a title of a library" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
 
     @pytest.mark.parametrize("kept", [True, False])
     def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
@@ -1245,6 +1305,35 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         self._scan_four_times(conn, mock_plex, freezer)
 
         assert shared.exists() is kept
+
+    def test_a_kept_film_stays_beside_one_that_has_its_file_spelled_another_way(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, f"{self.folder}/./b.mkv"])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+
+    def test_a_kept_film_listed_again_as_the_same_film_goes_and_gives_it_its_keep(
+        self, conn, mock_plex, freezer
+    ):
+        film = self._file("film.mkv")
+        self._store(conn, "10", 1, film, [film])
+        self._store(conn, "20", 2, film, [film])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert not conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+        keeps = conn.execute("SELECT action FROM scheduled_actions WHERE media_item_id = '20'")
+        assert [row[0] for row in keeps] == ["protected_forever"]
+        assert film.exists()
 
     def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
         self, conn, mock_plex, freezer

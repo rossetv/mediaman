@@ -39,10 +39,13 @@ from mediaman.scanner.repository.rekeyed import (
     Ids,
     cancel_kept_deletion,
     fetch_title,
+    files_held_for_gone_titles,
     ids_match,
     is_kept_deletion,
+    is_watched_lately,
     title_files,
     title_ids,
+    was_held_since_scheduled,
 )
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
@@ -1174,13 +1177,22 @@ def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: 
     _audit_once(conn, row, "delete_root_unavailable", detail)
 
 
+# What the history says of a title whose keep or watch holds a file: the deletion waits for it.
+_GONE = "Plex lists no more"
+# What it says of a title of a library Plex does not list now.
+_WAITS_FOR_LIBRARY = (
+    "the deletion waits while mediaman still has that one and Plex does not list its library"
+)
+
+
 class _Title(NamedTuple):
-    """What tells whether two items are one title."""
+    """What tells whether two items are one title; its files as normalised paths."""
 
     is_film: bool
     ids: Ids
     files: set[str]
     is_kept: bool
+    is_watched_lately: bool
 
     def may_be(self, other: _Title) -> bool:
         return self.is_film == other.is_film and (
@@ -1188,16 +1200,17 @@ class _Title(NamedTuple):
         )
 
 
-def _title(conn: sqlite3.Connection, media_id: str) -> _Title | None:
+def _title(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> _Title | None:
     title = fetch_title(conn, media_id)
     if title is None:
         return None
     return _Title(
         title["media_type"] == "movie",
         title_ids(title),
-        title_files(title),
+        set(map(os.path.normpath, title_files(title))),
         repository.is_protected(conn, media_id)
         or repository.is_show_kept_pure(conn, title["show_rating_key"]),
+        is_watched_lately(conn, media_id, inactivity_days),
     )
 
 
@@ -1221,6 +1234,7 @@ class DeletionExecutor:
             removed so the items re-enter the scan pipeline. Set to
             False when the caller is performing a true dry-run preview
             and must not mutate ``scheduled_actions``.
+        inactivity_days: Days without a watch before the scan schedules a title.
         sonarr_client: Optional Sonarr API client for unmonitor calls.
         radarr_client: Optional Radarr API client for unmonitor calls.
             Neither is ever asked to delete files.
@@ -1232,12 +1246,14 @@ class DeletionExecutor:
         conn: sqlite3.Connection,
         dry_run: bool = False,
         cleanup_snoozes: bool = True,
+        inactivity_days: int = 30,
         sonarr_client: ArrClient | None = None,
         radarr_client: ArrClient | None = None,
     ) -> None:
         self._conn = conn
         self._dry_run = dry_run
         self._cleanup_snoozes = cleanup_snoozes
+        self._inactivity_days = inactivity_days
         self._sonarr = sonarr_client
         self._radarr = radarr_client
         # Action row id -> the folder found missing or empty that holds it back.
@@ -1245,6 +1261,8 @@ class DeletionExecutor:
         self._unread_libraries: Collection[str] = ()
         # The titles of the libraries Plex does not list now.
         self._gone_titles: list[_Title] = []
+        # The files held for titles removed from the library: True by a keep, False by a watch.
+        self._held_files: dict[str, bool] = {}
         self._turn = ArrTurn()
 
     def execute(
@@ -1253,8 +1271,10 @@ class DeletionExecutor:
         """Run the deletion pass; the items of *unread_libraries* (Plex ids) wait.
 
         So does an item that may be one of *gone_libraries*, those with items stored
-        that Plex does not list: until their items are removed, what keeps them
-        has not come to it.
+        that Plex does not list: while their items are stored, what keeps them
+        has not come to it. And one with a file that a keep or a late watch of a
+        title removed from the library still holds: a title listed with that file
+        may be one the keep or the watch is never given to.
 
         Returns a dict with ``deleted`` count and ``reclaimed_bytes``
         total. Cleans up expired snoozes before returning unless
@@ -1276,8 +1296,9 @@ class DeletionExecutor:
         self._gone_titles = [
             title
             for media_id in repository.fetch_ids_in_libraries(self._conn, list(gone_libraries))
-            if (title := _title(self._conn, media_id)) is not None
+            if (title := _title(self._conn, media_id, self._inactivity_days)) is not None
         ]
+        self._held_files = files_held_for_gone_titles(self._conn, self._inactivity_days)
         self._turn = ArrTurn()
         rows = self._recover_then_fetch_pending(now)
         if self._dry_run:
@@ -1305,7 +1326,8 @@ class DeletionExecutor:
             row
             for row in rows
             if row.library_selected
-            and not self._must_wait(row)
+            and not self._held_back(row, now.isoformat())
+            and not was_held_since_scheduled(self._conn, row.id, _GONE)
             and not is_kept_deletion(self._conn, row.id, now.isoformat())
         ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
@@ -1388,15 +1410,75 @@ class DeletionExecutor:
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
 
     def _must_wait(self, row: DeletionRow) -> bool:
-        """Return True while what Plex answered does not tell whether *row*'s item may go."""
-        return row.library_id in self._unread_libraries or bool(self._gone_twins(row))
+        """Return True while what Plex answered does not tell whether *row*'s item may go.
+
+        Or while a file of it is held for a title removed from the library.
+        """
+        return (
+            row.library_id in self._unread_libraries
+            or bool(self._gone_twins(row))
+            or self._is_file_held(row)
+        )
+
+    def _held_back(self, row: DeletionRow, now_iso: str) -> list[DeletionRow]:
+        """Return what holds *row* back now: itself, else the due rows in the folder it would remove.
+
+        Asked once, before anything else is decided: nothing is removed, no row
+        in the folder is claimed and no wait is told as over while it names a row.
+        """
+        if self._must_wait(row):
+            return [row]
+        path = row.file_path or ""
+        if not path.strip():
+            return []
+        under = fetch_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+        return [other for other in under if self._must_wait(other)]
+
+    def _is_file_held(self, row: DeletionRow) -> bool:
+        return self._held_by(row) is not None
+
+    def _held_by(self, row: DeletionRow) -> bool | None:
+        """Return what holds a file of *row* for a title removed from the library.
+
+        True for a keep, False for a late watch alone, None when nothing does.
+        """
+        files = map(os.path.normpath, tracked_paths(row) or [])
+        holds = [self._held_files[file] for file in files if file in self._held_files]
+        return any(holds) if holds else None
 
     def _gone_twins(self, row: DeletionRow) -> list[_Title]:
         """Return the titles of libraries Plex does not list that *row*'s item may be."""
         if not self._gone_titles:
             return []
-        own = _title(self._conn, row.media_item_id)
+        own = _title(self._conn, row.media_item_id, self._inactivity_days)
         return [gone for gone in self._gone_titles if own is not None and own.may_be(gone)]
+
+    def _why_it_waits(self, row: DeletionRow) -> str:
+        """Say which title Plex does not list holds *row* back, and for how long."""
+        twins = self._gone_twins(row)
+        if any(gone.is_kept for gone in twins):
+            return (
+                "it may be a title that is kept in a library Plex does not list now; "
+                f"{_WAITS_FOR_LIBRARY}"
+            )
+        files = set(map(os.path.normpath, tracked_paths(row) or []))
+        # Only a file of its own makes a watch hold: the watch of a copy with other files does not.
+        if any(gone.is_watched_lately and not gone.files.isdisjoint(files) for gone in twins):
+            return (
+                "it has a file of a title watched lately in a library Plex does not list now; "
+                f"{_WAITS_FOR_LIBRARY}"
+            )
+        if twins:
+            return f"it may be a title of a library Plex does not list now; {_WAITS_FOR_LIBRARY}"
+        if self._held_by(row):
+            return (
+                f"one of its files is of a kept title {_GONE}; the deletion waits while that "
+                "one is kept"
+            )
+        return (
+            f"one of its files is of a title watched lately that {_GONE}; the deletion waits "
+            "until that watch is too long ago"
+        )
 
     def _book_over(
         self, rows: list[DeletionRow], allowed_roots: list[str], now_iso: str
@@ -1535,28 +1617,29 @@ class DeletionExecutor:
         row = claimed_row
         path = row.file_path or ""
 
-        if self._must_wait(row):
-            logger.info(
-                "engine.delete.library_unread id=%s media_id=%s — its library, or one it may "
-                "have moved from, was not read from Plex; leaving the row pending",
-                row.id,
-                row.media_item_id,
-            )
+        waiting = self._held_back(row, now_iso)
+        if waiting:
             repository.mark_delete_status(self._conn, row.id, "pending")
-            if row.library_id not in self._unread_libraries:
-                waits = (
-                    "a kept title of a library Plex does not list now; the deletion waits "
-                    "while that one is kept"
-                    if any(gone.is_kept for gone in self._gone_twins(row))
-                    else "a title of a library Plex does not list now; the deletion waits "
-                    "until that is certain"
+            if waiting != [row]:
+                self._hold_with(row, waiting)
+            else:
+                logger.info(
+                    "engine.delete.library_unread id=%s media_id=%s — its library, or one it "
+                    "may have moved from, was not read from Plex; leaving the row pending",
+                    row.id,
+                    row.media_item_id,
                 )
-                _audit_once(
-                    self._conn,
-                    row,
-                    "delete_awaiting_scan",
-                    f"Not deleted yet: {row.title} — it may be {waits}",
-                )
+                if row.library_id not in self._unread_libraries:
+                    _audit_once(
+                        self._conn,
+                        row,
+                        "delete_awaiting_scan",
+                        f"Not deleted yet: {row.title} — {self._why_it_waits(row)}",
+                    )
+            self._conn.commit()
+            return [], 0
+
+        if self._cancel_if_released(row):
             self._conn.commit()
             return [], 0
 
@@ -1613,12 +1696,12 @@ class DeletionExecutor:
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return [], 0
-        # A kept item cancelled here no longer counts as due, so the check
-        # before the removal finds its media held and leaves the path.
+        # An item cancelled here, kept or with a wait that is over, no longer counts
+        # as due, so the check before the removal finds its media held and leaves the path.
         co_located = [
             other
             for other in claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
-            if not self._cancel_if_kept(other, now_iso)
+            if not self._cancel_if_kept(other, now_iso) and not self._cancel_if_released(other)
         ]
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
@@ -1834,12 +1917,14 @@ class DeletionExecutor:
             [other.id for other in waiting],
         )
         names = ", ".join(str(other.title) for other in waiting)
+        # Said so that this row too is scheduled afresh once the wait is over.
+        whom = f" for a title {_GONE}" if any(map(self._is_file_held, waiting)) else ""
         _audit_once(
             self._conn,
             row,
             "delete_awaiting_scan",
             f"Not deleted yet: {row.title} — its folder also holds media whose own deletion "
-            f"waits ({names})",
+            f"waits{whom} ({names})",
         )
 
     def _refuse_unselected(self, row: DeletionRow) -> None:
@@ -1853,6 +1938,34 @@ class DeletionExecutor:
             row.id,
             row.media_item_id,
         )
+        self._cancel(
+            row, "its library is not selected in Settings, so its scheduled deletion is cancelled"
+        )
+
+    def _cancel_if_released(self, row: DeletionRow) -> bool:
+        """Cancel a claimed row that waited for a keep or a watch of a title that is gone.
+
+        Run it only once _held_back found nothing holding the row or its folder.
+        Its notice named a day long past, and it may have been watched since:
+        the next scan decides afresh, with a new notice.
+        """
+        if not was_held_since_scheduled(self._conn, row.id, _GONE):
+            return False
+        logger.info(
+            "engine.delete.released id=%s media_id=%s — what it waited for is over; cancelling "
+            "the deletion, whose notice is past",
+            row.id,
+            row.media_item_id,
+        )
+        self._cancel(
+            row,
+            "what it waited for is over, but the day its notice named is past, so its scheduled "
+            "deletion is cancelled and the next scan decides afresh",
+        )
+        return True
+
+    def _cancel(self, row: DeletionRow, why: str) -> None:
+        """Cancel a claimed row, booking what it removed and auditing *why* it is not deleted."""
         audit_lost_removal(self._conn, row)
         finished = is_fully_removed(row)
         if row.removed_paths:
@@ -1861,11 +1974,7 @@ class DeletionExecutor:
             return
         repository.delete_scheduled_action(self._conn, row.id)
         log_audit(
-            self._conn,
-            row.media_item_id,
-            "delete_refused",
-            f"Not deleted: {row.title} — its library is not selected in Settings, so its "
-            "scheduled deletion is cancelled",
+            self._conn, row.media_item_id, "delete_refused", f"Not deleted: {row.title} — {why}"
         )
 
     def _cancel_if_kept(self, row: DeletionRow, now_iso: str) -> bool:

@@ -8,6 +8,7 @@ module is read-heavy (or small targeted DELETEs) and never touches
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Collection
@@ -317,6 +318,38 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
     )
 
 
+# pruned_keeps.action of a row that gives no keep: it holds the files of a kept title that is gone.
+HELD = "held"
+
+
+def follow_taken_keep(
+    conn: sqlite3.Connection,
+    kept_as: str,
+    takers: Collection[object],
+    place: tuple[object, object] | None = None,
+) -> None:
+    """Let the files held while the keep of *kept_as* stands be held while that of *takers* does.
+
+    They took that keep for good, so it ends with theirs: a person removes it
+    from them, or it runs out. One who refused it is no taker, and with none
+    nothing changes. *place* is the path and season of the one season meant,
+    where *kept_as* is a show.
+    """
+    keys = {str(taker) for taker in takers if taker}
+    if not keys:
+        return
+    held = conn.execute(
+        "SELECT id, file_path, season_number, given_to FROM pruned_keeps WHERE action = ?", (HELD,)
+    ).fetchall()
+    for row in held:
+        given = set(json.loads(row["given_to"]))
+        if kept_as in given and place in (None, (row["file_path"], row["season_number"])):
+            conn.execute(
+                "UPDATE pruned_keeps SET given_to = ? WHERE id = ?",
+                (json.dumps(sorted((given - {kept_as}) | keys)), row["id"]),
+            )
+
+
 def take_pruned_keeps(
     conn: sqlite3.Connection, media_id: str, file_path: str, season_number: object
 ) -> list[sqlite3.Row]:
@@ -332,6 +365,8 @@ def take_pruned_keeps(
         "    AND NOT EXISTS (SELECT 1 FROM media_items WHERE id = ?)))",
         (now_iso(), media_id, file_path, season_number, media_id),
     ).fetchall()
+    for keep in keeps:
+        follow_taken_keep(conn, keep["media_item_id"], [media_id])
     conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(keep["id"],) for keep in keeps])
     return keeps
 

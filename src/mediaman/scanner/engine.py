@@ -99,6 +99,8 @@ _GONE_LIBRARIES_KEY = "gone_libraries"
 # How long after it was first found gone a run must begin to confirm it: every run in a short
 # spell may ask a Plex that has just started and does not list all its libraries yet.
 _GONE_FOR = timedelta(hours=1)
+# Off: what it would do to the file of a kept copy is not yet certain.
+_PRUNE_GONE_LIBRARIES = False
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
@@ -197,6 +199,7 @@ class ScanEngine:
             conn=conn,
             dry_run=dry_run,
             cleanup_snoozes=not dry_run,
+            inactivity_days=inactivity_days,
             sonarr_client=sonarr_client,
             radarr_client=radarr_client,
         )
@@ -576,7 +579,8 @@ class ScanEngine:
 
         Delegates to DeletionExecutor. The items of a library this run could not
         read wait: one of them may no longer be what Plex lists. So does one that
-        may have moved from a library not yet confirmed to be gone.
+        may be one of a library Plex does not list, or that has a file a keep or a
+        late watch of a title removed from the library holds.
         """
         gone = (
             fetch_gone_library_ids(self._conn, self._library_types) if self._library_types else ()
@@ -632,13 +636,15 @@ class ScanEngine:
         return _ensure_tz(candidate)
 
     def _remove_items_of_gone_libraries(self) -> int:
-        """Remove the items of each library Plex still does not list an hour after a run found so.
+        """Record when each library Plex does not list was first found gone, and prune those.
 
-        No scan of a listed library would, and until then they hold back the
-        deletion of what is at their paths. One look is not enough, however few
-        the items: an answer may lack a library that is there. An empty list of
-        libraries says nothing, and one Plex failed to give ends the run before
-        it starts. A library that is only unticked in Settings keeps its items.
+        Pruned, while _PRUNE_GONE_LIBRARIES is on, are the items of each that Plex
+        still does not list an hour later. No scan of a listed library would, and
+        while they are stored they hold back the deletion of what is at their
+        paths. One look is not enough, however few the items: an answer may lack
+        a library that is there. An empty list of libraries says nothing, and one
+        Plex failed to give ends the run before it starts. A library that is only
+        unticked in Settings keeps its items.
         """
         if not self._library_types:
             return 0
@@ -654,6 +660,8 @@ class ScanEngine:
                 "updated_at = excluded.updated_at",
                 (_GONE_LIBRARIES_KEY, json.dumps(gone), now_iso()),
             )
+        if not _PRUNE_GONE_LIBRARIES:
+            return 0
         removed = 0
         for lib_id, since in gone.items():
             if not self._began_after(since, _GONE_FOR):

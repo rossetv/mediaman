@@ -150,6 +150,10 @@ def apply_keep_in_tx(
                 "WHERE id=?",
                 (action, execute_at, now_iso, snooze_label, existing[0]["id"]),
             )
+            for row in existing[1:]:
+                audit_lost_removals(
+                    conn, "id = ? AND delete_status IS NOT 'deleting'", (row["id"],)
+                )
             conn.executemany(
                 "DELETE FROM scheduled_actions WHERE id = ? AND delete_status IS NOT 'deleting'",
                 [(row["id"],) for row in existing[1:]],

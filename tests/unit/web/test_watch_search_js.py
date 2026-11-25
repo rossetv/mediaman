@@ -235,10 +235,11 @@ def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> Non
     assert out["badge"] == "In library"
 
 
-def test_a_download_badge_names_its_percentage() -> None:
+def test_a_download_badge_names_its_percentage_and_a_library_one_its_class() -> None:
     out = _run("stateBadges")
     assert out["texts"] == ["Downloading 95%", "Downloading"]
     assert out["said"] == [["Downloading "], []]
+    assert out["owned"].endswith("watch-badge--in")
 
 
 def test_a_poster_both_searches_found_stays_and_one_whose_state_changed_is_drawn_anew() -> None:

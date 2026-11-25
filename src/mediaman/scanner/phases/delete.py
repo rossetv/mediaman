@@ -22,6 +22,7 @@ from mediaman.scanner import repository
 from mediaman.scanner.repository.rekeyed import (
     fetch_titles_in_two_libraries,
     held_beside_another_title,
+    hold_files_of_kept_titles,
     note_listing,
     title_files,
 )
@@ -207,6 +208,7 @@ def remove_orphans(
     Pruning only removes mediaman's tracking rows — never media files — and a
     later healthy scan re-populates anything Plex still has, with the keeps,
     last watches and Watch progress set aside here, so a wrong prune leaves nothing unprotected.
+    The files of an item that is kept are held from the deletion pass while its keep stands.
 
     An item whose deletion removed files that are not booked yet stays until
     that is done: its rows are the only record of them.
@@ -290,6 +292,7 @@ def remove_orphans(
         if confirmed:
             staying = held_beside_another_title(conn, set(orphan_ids), inactivity_days)
             orphan_ids = [i for i in orphan_ids if i not in staying]
+        hold_files_of_kept_titles(conn, orphan_ids)
         repository.save_pruned_keeps(conn, orphan_ids)
         repository.carry_pruned_keeps(conn, set(orphan_ids))
         repository.save_pruned_show_seasons(conn, set(orphan_ids))
