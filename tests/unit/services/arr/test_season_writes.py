@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import copy
 import threading
-import time
+from contextlib import nullcontext, suppress
 from itertools import count
 
 import pytest
 
 from mediaman.services.arr import _sonarr_methods
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr._sonarr_methods import SeriesChange
+from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
 from mediaman.services.arr.spec import SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 
@@ -143,32 +144,64 @@ def test_a_guard_that_refuses_the_series_as_read_stops_the_change(client, fake_h
     assert [method for method, _url in held.calls] == ["GET"]
 
 
-def test_a_series_changed_for_too_long_holds_up_nobody_and_no_other_series(
+def _lock(series_id=9):
+    key = ("http://sonarr:8989", series_id)
+    return _sonarr_methods._series_locks.setdefault(key, threading.Lock())
+
+
+def test_somebody_waiting_for_a_series_changed_for_too_long_is_told_it_gave_no_answer(
     client, fake_http, fake_response, monkeypatch
 ):
     monkeypatch.setattr(_sonarr_methods, "_STEP_SECONDS", 0.05)
-    lock = _sonarr_methods._series_locks.setdefault(("http://sonarr:8989", 9), threading.Lock())
     held = Held(fake_response, s3=False)
     fake_http.handler(held)
-    with lock:
-        before = time.monotonic()
-        with pytest.raises(ArrError):
-            client.remonitor_season(9, 3)
-        waited = time.monotonic() - before
 
-        fake_http.handler(
-            lambda method, url, **_kw: fake_response(
-                json_data={"id": 8, "seasons": [{"seasonNumber": 3, "monitored": True}]}
-                if "series" in url
-                else []
-                if method == "GET"
-                else {}
-            )
-        )
+    with _lock(), client.within(40), pytest.raises(SafeHTTPError) as told:
+        client.remonitor_season(9, 3)
+
+    assert told.value.status_code == 0
+    assert held.calls == []
+
+
+def test_a_series_being_changed_does_not_hold_up_another(client, fake_http, fake_response):
+    def arr(method, url, **_kwargs):
+        series = {"id": 8, "seasons": [{"seasonNumber": 3, "monitored": True}]}
+        return fake_response(json_data=series if "series" in url else [] if method == "GET" else {})
+
+    fake_http.handler(arr)
+    with _lock(), client.within(1):
         client.remonitor_season(8, 3)
 
-    assert waited < 2
-    assert held.calls == []
+
+def _run(client, change):
+    if change == "within":
+        with client.within(40):
+            client.remonitor_season(9, 3, max_retries=1)
+    else:
+        client.remonitor_season(9, 3)
+
+
+@pytest.mark.parametrize("change", ["within", "unhurried"])
+def test_only_a_change_somebody_waits_for_is_hurried(
+    client, fake_http, fake_response, monkeypatch, change
+):
+    clock = count(0.0, 4.0)
+    monkeypatch.setattr(_sonarr_methods, "monotonic", lambda: next(clock))
+    timeouts = []
+    held = Held(fake_response, s3=False)
+
+    def arr(method, url, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        return held(method, url, **kwargs)
+
+    fake_http.handler(arr)
+    with suppress(SafeHTTPError, ArrError):
+        _run(client, change)
+
+    reads = [read for _connect, read in timeouts]
+    assert (max(reads) <= _sonarr_methods._STEP_SECONDS) is (change == "within")
+    # The list of commands is read in a short time of its own.
+    assert change == "within" or sorted(reads) == [5.0, 30.0, 30.0, 30.0]
 
 
 def test_a_hung_sonarr_holds_a_series_for_a_short_time_in_all(
@@ -185,11 +218,10 @@ def test_a_hung_sonarr_holds_a_series_for_a_short_time_in_all(
 
     fake_http.handler(arr)
 
-    with pytest.raises((SafeHTTPError, ArrError)):
+    with client.within(40), pytest.raises(SafeHTTPError):
         client.remonitor_season(9, 3)
 
     assert sum(read for _connect, read in timeouts) <= 2 * _sonarr_methods._STEP_SECONDS
-    assert all(read <= _sonarr_methods._STEP_SECONDS for _connect, read in timeouts)
 
 
 def test_a_read_that_failed_for_a_moment_is_tried_again(
@@ -204,7 +236,8 @@ def test_a_read_that_failed_for_a_moment_is_tried_again(
         return fake_response(status=status, text="no") if status else held(method, url, **kwargs)
 
     fake_http.handler(arr)
-    client.unmonitor_season(9, 3)
+    with client.within(40):
+        client.unmonitor_season(9, 3)
 
     assert held.seasons == {3: False}
 
@@ -220,3 +253,70 @@ def test_a_season_of_no_shape_beside_it_does_not_stop_a_change_and_is_sent_back_
 
     assert held.series["seasons"][0] is None
     assert held.seasons == {3: True}
+
+
+@pytest.mark.parametrize("stats", [{"episodeCount": 2}, {"nextAiring": "2099-01-01T00:00:00Z"}])
+def test_a_season_with_episodes_monitored_one_by_one_is_not_put_back_over_them(
+    client, fake_http, fake_response, stats
+):
+    held = Held(fake_response, s3=False)
+    held.series["seasons"][0]["statistics"] = stats
+    held.failing_searches = 1
+    fake_http.handler(held)
+
+    with pytest.raises(SearchUnanswered):
+        client.remonitor_season(9, 3)
+
+    assert held.seasons == {3: True}
+
+
+def test_a_change_tried_again_is_not_judged_by_what_its_first_try_did(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, s3=False)
+    judged = []
+
+    def arr(method, url, **kwargs):
+        response = held(method, url, **kwargs)
+        return fake_response(status=502, text="no") if method == "PUT" else response
+
+    fake_http.handler(arr)
+    client.remonitor_season(9, 3, guard=lambda series: judged.append(copy.deepcopy(series)))
+
+    assert [s["seasons"][0]["monitored"] for s in judged] == [False]
+    assert held.seasons == {3: True}
+
+
+def test_what_a_season_deleted_meanwhile_changed_is_taken_back_with_the_show(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False, s4=True)
+    fake_http.handler(held)
+    change = SeriesChange()
+    with client.within(40):
+        client.remonitor_season(9, 3, change=change)
+        turned_on = held.series["monitored"]
+        # Whatever time the rest has used up.
+        with client.within(-1):
+            client.take_back_season(9, 3, change)
+
+    assert turned_on is True
+    assert held.seasons == {3: False, 4: True}
+    assert (held.series["monitored"], change.left_on) == (False, False)
+
+
+@pytest.mark.parametrize("busy", [True, False])
+def test_a_show_that_cannot_be_taken_back_is_known_to_be_left_on(
+    client, fake_http, fake_response, monkeypatch, busy
+):
+    monkeypatch.setattr(_sonarr_methods, "_UNDO_SECONDS", 0.05)
+    held = Held(fake_response, monitored=False, s3=False)
+    fake_http.handler(held)
+    change = SeriesChange()
+    client.remonitor_season(9, 3, change=change)
+    if not busy:
+        fake_http.handler(lambda *_a, **_k: fake_response(status=500, text="no"))
+    with _lock() if busy else nullcontext():
+        client.take_back_season(9, 3, change)
+
+    assert change.left_on is True
