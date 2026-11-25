@@ -149,7 +149,7 @@
         name.value = firstFree();
         mark();
       }
-      if (touched) repeats();
+      if (touched && !busy && nameWhy.className.indexOf('bad') < 0) repeats();
     }).catch(function () {});
   }
 
@@ -190,6 +190,7 @@
       return;
     }
     busy = true;
+    touched = true;
     save.setAttribute('aria-disabled', 'true');
     MM.api.patch('/api/tvs/' + tv.id, { name: wanted }).then(function (data) {
       naming.hidden = true;

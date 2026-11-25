@@ -95,6 +95,13 @@ def test_the_name_form_shows_at_once_and_a_late_list_never_overrides_typing() ->
     assert out["typed"][0] == "Living room" and "already have" in out["typed"][1]
 
 
+def test_a_list_arriving_during_a_save_leaves_the_field_as_sent() -> None:
+    out = _run("listDuringSave")
+    assert out["sent"] == ["/api/tvs/7", {"name": "Living room"}]
+    assert out["name"] == "Living room"
+    assert out["says"] == "Away"
+
+
 def test_a_malformed_list_leaves_the_name_form_as_it_was() -> None:
     out = _run("badList")
     assert out == [[["pair-name-form"], "Living room"]] * 4

@@ -141,6 +141,17 @@ const scenarios = {
     await settle();
     return { before, after, typed: [typed.$('pair-name').value, typed.$('pair-name-why').textContent] };
   },
+  async listDuringSave() {
+    let land;
+    const late = new Promise((resolve) => { land = resolve; });
+    const p = page('#482916', [TV, { error: 'x', words: 'Away' }], true, late);
+    p.fire('pair-form', 'submit');
+    await settle();
+    p.fire('pair-name-form', 'submit');
+    land({ tvs: [{ id: 3, name: 'Living room' }] });
+    await settle();
+    return { sent: p.sent[1], name: p.$('pair-name').value, says: p.$('pair-name-why').textContent };
+  },
   async badList() {
     const out = [];
     for (const answer of [{}, { tvs: null }, { tvs: [null, { id: 1 }] }, undefined]) {
