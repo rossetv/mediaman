@@ -47,14 +47,21 @@ def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     assert "overflow-wrap: anywhere" in body
 
 
-def test_a_trailer_s_bar_stands_over_the_video_and_not_on_it() -> None:
-    assert "padding: var(--ttl-bar) 0" in _of(".ttl__player")
+def test_close_stands_above_a_trailer_and_not_on_it() -> None:
+    sticky = "(max-width: 699.98px), (max-height: 500px)"
+    assert "padding: var(--ttl-bar) 0" in _of(".ttl__player", sticky)
     assert "height: var(--ttl-bar)" in _of(".ttl__bar")
+    # Elsewhere the sheet reaches up by the strip's height, so the hero stays where it was.
+    wide = "(min-width: 700px) and (min-height: 500.02px)"
+    assert "margin-top: -40px" in _of(".ttl.is-trailer .ttl__sheet", wide)
+    strip = _of(".ttl.is-trailer .ttl__bar", wide)
+    assert "height: 40px" in strip and "margin-bottom: 0" in strip
 
 
-def test_a_trailer_s_frame_never_stands_taller_than_its_box() -> None:
+def test_a_trailer_s_frame_is_16_to_9_and_never_larger_than_its_box() -> None:
     body = _of(".ttl__frame")
-    assert "height: 100%" in body and "aspect-ratio" not in body
+    assert "width: min(100cqw, 100cqh * 16 / 9)" in body and "aspect-ratio: 16 / 9" in body
+    assert "container-type: size" in _of(".ttl__player")
 
 
 def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:

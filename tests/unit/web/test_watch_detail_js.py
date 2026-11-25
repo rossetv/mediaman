@@ -205,22 +205,19 @@ def test_escape_closes_the_trailer_first_then_the_overlay() -> None:
         "trailer": False,
         "frame": False,
         "open": True,
-        "button": ["Trailer", False],
+        "close": ["Close", None],
         "focus": True,
-        "tabbable": False,
     }
     assert out["closedSecond"] is True
 
 
-def test_a_playing_trailer_is_left_from_its_bar_and_the_row_of_buttons_stays() -> None:
+def test_a_playing_trailer_is_left_from_close_or_from_its_own_button() -> None:
     playing = _run("escapeOrder")["playing"]
-    assert playing["back"] == "Back to details"
-    assert (playing["focus"], playing["tabbable"]) == (True, True)
-    assert playing["row"] == ["Download", "Trailer"]
-    assert playing["button"] == ["Trailer", True]
+    assert (playing["close"], playing["focus"]) == (["Close trailer", "Close trailer"], True)
+    assert (playing["faces"], playing["usable"]) == (["Trailer", "Stop trailer"], True)
 
 
-def test_back_closes_the_trailer_before_the_title_and_the_x_closes_both() -> None:
+def test_back_close_and_a_press_outside_take_the_trailer_before_the_title() -> None:
     out = _run("trailerHistory")
     title = "#title=tmdb-movie-77"
     details = {"open": True, "trailer": False, "hash": title}
@@ -229,7 +226,9 @@ def test_back_closes_the_trailer_before_the_title_and_the_x_closes_both() -> Non
     assert out["forward"] == {**details, "trailer": True}
     assert out["backTwice"] == gone
     assert out["button"] == {**details, "asked": 1}
-    assert (out["close"], out["closeLink"]) == (gone, gone)
+    for way in ("close", "closeLink", "outside"):
+        assert out[way] == [details, gone], way
+    assert out["doubleClick"] == [details, details]
     # Loaded again mid-trailer: the title alone, and one Back still leaves it.
     assert (out["reload"], out["reloadBack"]) == (details, gone)
 

@@ -52,7 +52,7 @@
   var fill = part('fill');
   var poster = part('poster');
   var player = part('player');
-  var backBtn = part('back');
+  var closeBtn = root.querySelector('.ttl__close');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
   var metaEl = part('meta');
@@ -73,6 +73,7 @@
   var pictures = '';   // the addresses the hero shows or is trying
   var trying = false;  // the hero's picture is not known yet
   var onSettled = null;
+  var trailerLeftAt = 0;
   var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
@@ -209,6 +210,7 @@
   function show(origin) {
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
+    nameClose();
     lockPage(true);
     MM.inertPage.hold(root);
     isOpen = true;
@@ -315,6 +317,7 @@
     closeTrailer(false);
     root.hidden = false;
     root.classList.remove('is-entering', 'is-leaving', 'is-trailer', 'ttl--admin');
+    nameClose();
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
     MM.inertPage.hold(root);
@@ -1781,15 +1784,22 @@
 
   function trailerOn() { return root.classList.contains('is-trailer'); }
 
-  /* It keeps its place in the row while its trailer plays, so nothing moves;
-     the bar over the video is the way back. */
+  /* Both its labels are laid out, so it keeps its width; the one in force shows. */
   function trailerButton(d) {
     if (!trailerKey(d)) return null;
-    var b = button('btn btn--lg watch-btn--grey ttl__trailer', 'Trailer', 'i-film');
+    var b = button('btn btn--lg watch-btn--grey ttl__trailer');
     b.setAttribute('data-ttl-act', 'trailer');
-    b.toggleAttribute('inert', trailerOn());
+    [['ttl__trailer-off', 'Trailer', 'i-film'], ['ttl__trailer-on', 'Stop trailer', 'i-stop']].forEach(function (f) {
+      var face = el('span', f[0]);
+      face.appendChild(icon(f[2]));
+      face.appendChild(document.createTextNode(f[1]));
+      b.appendChild(face);
+    });
     b.addEventListener('click', function () {
-      if (trailerOn()) return;
+      if (trailerOn()) {
+        leaveTrailer();
+        return;
+      }
       address.push('trailer', address.url({}));
       keepPick();
       openTrailer();
@@ -1815,8 +1825,8 @@
     if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
   }
 
-  /* The bar and the player take the hero's box, so nothing below it moves; a
-     hero too small for them grows. */
+  /* The player takes the hero's box, so nothing below it moves; a hero too small
+     for it grows. */
   function openTrailer() {
     var key = cur && trailerKey(cur.data);
     if (!key || trailerOn()) return;
@@ -1834,9 +1844,8 @@
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
-    setTrailerButton(true);
-    backBtn.removeAttribute('tabindex');
-    backBtn.focus({ preventScroll: true });
+    nameClose();
+    closeBtn.focus({ preventScroll: true });
     root.scrollTo({ top: 0, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
   }
 
@@ -1845,32 +1854,32 @@
   function closeTrailer(refocus) {
     if (!trailerOn()) return;
     var active = document.activeElement;
-    var lost = !root.contains(active) || player.contains(active) || active === backBtn;
+    var lost = !root.contains(active) || player.contains(active) || active === closeBtn;
     easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
-    backBtn.setAttribute('tabindex', '-1');
+    nameClose();
+    trailerLeftAt = Date.now();
     var frame = player.querySelector('iframe');
     if (frame) {
       tellFrame(frame, { event: 'command', func: 'pauseVideo', args: [] });
       if (refocus && !core.reduceMotion()) setTimeout(function () { frame.remove(); }, core.tokenMs('--dur', 200));
       else frame.remove();
     }
-    setTrailerButton(false);
     var b = root.querySelector('[data-ttl-act="trailer"]');
     if (refocus && lost && b) b.focus({ preventScroll: true });
   }
 
-  function setTrailerButton(on) {
-    var b = root.querySelector('[data-ttl-act="trailer"]');
-    if (b) b.toggleAttribute('inert', on);
+  /* Close takes the trailer first. */
+  function nameClose() {
+    closeBtn.setAttribute('aria-label', trailerOn() ? 'Close trailer' : 'Close');
+    if (trailerOn()) closeBtn.setAttribute('title', 'Close trailer');
+    else closeBtn.removeAttribute('title');
   }
 
   /* Leave the trailer at the person's request, or at its end. */
   function leaveTrailer() {
     if (trailerOn()) address.back('trailer');
   }
-
-  backBtn.addEventListener('click', leaveTrailer);
 
   window.addEventListener('message', function (e) {
     var frame = player.querySelector('iframe');
@@ -2488,7 +2497,9 @@
     if (toggle) toggle.focus({ preventScroll: true }); // Safari leaves a pressed button without it
     if (t.closest && t.closest('[data-ttl-close]')) {
       e.preventDefault();
-      requestClose();
+      if (trailerOn()) leaveTrailer();
+      // The rest of a double click that closed the trailer leaves the title.
+      else if (!(e.detail > 1) || Date.now() - trailerLeftAt > DOUBLE_CLICK_MS) requestClose();
     }
   });
 
