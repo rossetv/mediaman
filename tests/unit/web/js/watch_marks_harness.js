@@ -18,13 +18,6 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
   };
 });
 
-// As in a browser, a far card's buttons, hidden, take no focus.
-const ownFocus = Node.prototype.focus;
-Node.prototype.focus = function (...args) {
-  const card = this.closest && this.closest('.watch-card');
-  if (!(card && card.classList.contains('is-far') && this.closest('.card-tools'))) ownFocus.apply(this, args);
-};
-
 Object.defineProperty(Node.prototype, 'hidden', {
   get() { return this.hasAttribute('hidden'); },
   set(v) { if (v) this.setAttribute('hidden', ''); else this.removeAttribute('hidden'); },
@@ -76,6 +69,7 @@ function watchPage(parts) {
    its answer, or a function giving it. */
 function load(page, opts = {}) {
   const doc = makeDocument();
+  doc.mouse = !opts.touch;
   doc.body.appendChild(build(doc, page));
   const calls = [];
   const toasts = [];
