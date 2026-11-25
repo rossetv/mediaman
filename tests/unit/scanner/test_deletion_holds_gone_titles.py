@@ -10,6 +10,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.web.repository.kept import delete_protections
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 _SEASON = {"media_type": "tv_season", "show_title": "Title"}
@@ -20,8 +21,8 @@ def conn(db_path):
     return init_db(str(db_path))
 
 
-class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
-    """Plex lists library 1 no more; once its title is pruned, a file of it is listed in 2 or 4."""
+class _GoneLibrary:
+    """Plex lists library 1 no more, and lists what it likes in 2 (films) and 4 (shows)."""
 
     @pytest.fixture(autouse=True)
     def _library(self, conn, tmp_path, monkeypatch, freezer):
@@ -44,21 +45,22 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
 
     def _file(self, name):
         file = self.folder / name
+        file.parent.mkdir(exist_ok=True)
         file.write_bytes(b"data")
         return file
 
-    def _gone(self, path, files, **fields):
-        """Store the title "10" as library 1 had it."""
+    def _gone(self, path, files, library=1, **fields):
+        """Store the title "10" as *library* had it, with the TMDB id 7."""
         insert_media_item(
             self.conn,
             id="10",
             plex_rating_key="10",
-            plex_library_id=1,
+            plex_library_id=library,
             file_path=str(path),
             **fields,
         )
         self.conn.execute(
-            "UPDATE media_items SET tracked_files = ? WHERE id = '10'",
+            "UPDATE media_items SET tmdb_id = 7, tracked_files = ? WHERE id = '10'",
             (json.dumps([{"path": str(file), "size": 4} for file in files]),),
         )
         self.conn.commit()
@@ -79,7 +81,7 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
         )
         self.conn.commit()
 
-    def _list(self, key, library, path, files, **season):
+    def _list(self, key, library, path, files, **fields):
         """Have Plex list *key* from now on: added long ago and never watched."""
         self.listed[str(library)].append(
             {
@@ -89,7 +91,7 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
                 "file_path": str(path),
                 "file_size_bytes": 4,
                 "tracked_files": [{"path": str(file), "size": 4} for file in files],
-                **season,
+                **fields,
             }
         )
 
@@ -118,6 +120,9 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
         """Scan twice more, which schedules *keys*, then once their grace period is over."""
         self._scan(2)
         assert self._scheduled() == set(keys)
+        self._scan_past_grace()
+
+    def _scan_past_grace(self):
         self.freezer.tick(timedelta(days=15))
         self._scan(1)
 
@@ -134,6 +139,10 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
             (key,),
         )
         return [row[0] for row in rows]
+
+
+class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
+    """Once the title of library 1 is pruned, Plex lists a file of it as another title."""
 
     @pytest.mark.parametrize("ticked", [("2", "4"), ("1", "2", "4")], ids=["unticked", "ticked"])
     def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it(self, ticked):
@@ -285,3 +294,133 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother:
         self._scan_until_due("20")
 
         assert not episode.exists()
+
+
+class TestFilesOfAKeepATitleTook(_GoneLibrary):
+    """Film "10" is kept with the files a and b; Plex lists a as the film "30", which takes the keep."""
+
+    def _listed_as_two(self):
+        """Prune the kept film, then have Plex list its files as the films "30" and "20"."""
+        a, b = self._file("a.mkv"), self._file("b.mkv")
+        self._gone(a, [a, b])
+        self._keep()
+        self._scan_until_pruned()
+        self._list("30", 2, a, [a])
+        self._list("20", 2, b, [b])
+        return b
+
+    @pytest.mark.parametrize("taken", ["before the prune", "after the prune"])
+    @pytest.mark.parametrize("other", ["alone", "with another file"])
+    def test_the_file_it_lacks_stays_though_listed_as_another_film(self, taken, other):
+        a, b, d = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._gone(a, [a, b])
+        self._keep()
+        if taken == "before the prune":
+            self._list("30", 2, a, [a])
+        self._scan_until_pruned()
+        if taken == "after the prune":
+            self._list("30", 2, a, [a])
+        if other == "alone":
+            self._list("20", 2, b, [b])
+        else:
+            self._list("20", 2, d, [d, b])
+
+        self._scan_until_due("20")
+
+        assert b.exists()
+
+    def test_it_stays_in_a_folder_of_its_own_and_whatever_ids_plex_gives_the_two(self):
+        a, b = self._file("a.mkv"), self._file("Other/b.mkv")
+        self._gone(a, [a, b])
+        self._keep()
+        self._scan_until_pruned()
+        self._list("30", 2, a, [a], tmdb_id=8)
+        self._list("20", 2, b, [b], tmdb_id=9)
+
+        self._scan_until_due("20")
+
+        assert b.exists()
+
+    @pytest.mark.parametrize("taken", ["before the prune", "after the prune"])
+    @pytest.mark.parametrize("kept", ["season", "show"])
+    def test_the_episode_it_lacks_stays_though_listed_as_another_season(self, kept, taken):
+        one, two = self._file("S1/E1.mkv"), self._file("S2/E2.mkv")
+        self._gone(one.parent, [one, two], season_number=1, show_rating_key="s1", **_SEASON)
+        self._keep() if kept == "season" else self._keep_show()
+        took = {"season_number": 1, "show_rating_key": "s2", **_SEASON}
+        if taken == "before the prune":
+            self._list("30", 4, one.parent, [one], **took)
+        self._scan_until_pruned()
+        if taken == "after the prune":
+            self._list("30", 4, one.parent, [one], **took)
+        self._list("20", 4, two.parent, [two], season_number=2, show_rating_key="s3", **_SEASON)
+
+        self._scan_until_due("20")
+
+        assert two.exists()
+
+    def test_the_file_a_film_that_took_it_by_its_other_file_lacks_stays(self):
+        a, b, d = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._gone(a, [a, b])
+        self._keep()
+        self._scan_until_pruned()
+        self._list("30", 2, b, [b])
+        self._list("20", 2, d, [d, a])
+
+        self._scan_until_due("20")
+
+        assert a.exists()
+
+    def test_the_episode_a_show_that_took_the_keep_by_its_ids_lacks_stays(self):
+        one, two, new = self._file("S1/E1.mkv"), self._file("S2/E2.mkv"), self._file("S9/E9.mkv")
+        self._gone(
+            one.parent, [one, two], library=4, season_number=1, show_rating_key="s1", **_SEASON
+        )
+        self._keep_show()
+        self._scan(1)
+        assert not self.conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+        took = {"season_number": 1, "show_rating_key": "s2", "tmdb_id": 7, **_SEASON}
+        self._list("30", 4, new.parent, [new], **took)
+        self._list("20", 4, two.parent, [two], season_number=2, show_rating_key="s3", **_SEASON)
+
+        self._scan_until_due("20")
+
+        assert two.exists()
+
+    @pytest.mark.parametrize("ended", ["removed by a person", "ran out"])
+    def test_a_keep_that_ended_before_the_other_film_was_due_holds_nothing(self, ended):
+        a, b = self._file("a.mkv"), self._file("b.mkv")
+        self._gone(a, [a, b])
+        if ended == "ran out":
+            runs_out = datetime.now(UTC) + timedelta(days=7)
+            self._keep(action="snoozed", execute_at=runs_out.isoformat())
+        else:
+            self._keep()
+        self._scan_until_pruned()
+        self._list("30", 2, a, [a])
+        self._list("20", 2, b, [b])
+        self._scan(2)
+        if ended == "removed by a person":
+            with self.conn:
+                delete_protections(self.conn, "30")
+
+        self._scan_past_grace()
+
+        assert not b.exists()
+
+    @pytest.mark.parametrize("removed", [False, True])
+    def test_what_is_held_follows_the_new_key_plex_gives_the_title_that_took_the_keep(
+        self, removed
+    ):
+        b = self._listed_as_two()
+        self._scan(2)
+        self.listed["2"][0]["plex_rating_key"] = "31"
+        self._scan(1)
+        assert not self.conn.execute("SELECT 1 FROM media_items WHERE id = '30'").fetchone()
+        if removed:
+            with self.conn:
+                delete_protections(self.conn, "31")
+
+        self._scan_past_grace()
+
+        assert b.exists() is not removed

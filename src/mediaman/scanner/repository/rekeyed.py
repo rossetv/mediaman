@@ -30,6 +30,8 @@ from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso, now_utc, parse_iso_utc
 from mediaman.scanner._eligibility import is_inactive
 from mediaman.scanner.repository._protection import (
+    HELD,
+    hold_files_of_taken_keep,
     is_protected,
     is_show_kept_pure,
     restore_keeps,
@@ -509,11 +511,12 @@ _LIVE_ITEM_KEEP = (
 def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -> dict[str, bool]:
     """Return the files of titles removed from the library that a keep or a watch still holds.
 
-    True for one of a live keep set aside, a title's own or its show's, that no
-    title has taken; False for one held only by a watch that would keep its
-    title from being scheduled today. A title listed with such a file may be
-    one the keep or the watch is never given to: of another season, or a film
-    at another path. The paths are normalised.
+    True for one of a live keep set aside, a title's own or its show's: all its
+    files until a title takes it, then those no taker has, while a taker is
+    kept. False for one held only by a watch that would keep its title from
+    being scheduled today. A title listed with such a file may be one the keep
+    or the watch is never given to: of another season, or a film at another
+    path. The paths are normalised.
     """
     now = now_iso()
     # rationale: the interpolated conditions are fixed strings; every value is bound
@@ -535,7 +538,39 @@ def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -
         if kept or _is_lately(row["watched"], inactivity_days):
             for file in pruned_files(row):
                 held[os.path.normpath(file)] = kept or held.get(os.path.normpath(file), False)
+    for taken in conn.execute("SELECT * FROM pruned_keeps WHERE action = ?", (HELD,)).fetchall():
+        takers = _entries(taken["given_to"])
+        if any(_is_kept_now(conn, taker, now) for taker in takers):
+            for file in set(map(os.path.normpath, pruned_files(taken))) - _files_of(conn, takers):
+                held[file] = True
     return held
+
+
+def _is_kept_now(conn: sqlite3.Connection, key: object, now: str) -> bool:
+    """Return True if the title or show *key* is kept, or its keep is set aside for it."""
+    if not isinstance(key, str):
+        return False
+    if is_protected(conn, key) or is_show_kept_pure(conn, key, now_iso_str=now):
+        return True
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    set_aside = conn.execute(  # nosec B608
+        f"SELECT 1 FROM pruned_keeps sa WHERE sa.media_item_id = ? AND {_LIVE_ITEM_KEEP} LIMIT 1",
+        (key, now),
+    ).fetchone()
+    return set_aside is not None
+
+
+def _files_of(conn: sqlite3.Connection, keys: Iterable[object]) -> set[str]:
+    """Return the normalised paths of the files of the titles and shows *keys* in the library."""
+    files: set[str] = set()
+    for key in keys:
+        for title in conn.execute(
+            "SELECT tracked_files, episode_keys FROM media_items "
+            "WHERE id = ? OR show_rating_key = ?",
+            (key, key),
+        ):
+            files.update(map(os.path.normpath, title_files(title)))
+    return files
 
 
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
@@ -694,7 +729,8 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
     Such a key is in the library already, so it would never take them as a new
     one does. A title's own key still takes its keep back; by path no other
     does, or the next new key would take one removed from this one meanwhile.
-    The files of a title no other key has are noted, for carry_film_keeps.
+    The files of a title no other key has are noted, for carry_film_keeps; those
+    of one another key takes stay held, as hold_files_of_taken_keep says.
     """
     for keep in conn.execute(
         "SELECT pk.* FROM pruned_keeps pk JOIN media_items mi ON mi.id = pk.media_item_id"
@@ -702,14 +738,14 @@ def carry_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> 
         if keep["media_item_id"] not in media_ids:
             continue
         others = other_keys(conn, keep["media_item_id"], media_ids)
-        for other in others:
-            _give_keep(conn, keep, other["id"])
+        files = files_json(fetch_title(conn, keep["media_item_id"]))
+        given = [other["id"] for other in others if _give_keep(conn, keep, other["id"])]
         if others:
             conn.execute("UPDATE pruned_keeps SET file_path = '' WHERE id = ?", (keep["id"],))
+            hold_files_of_taken_keep(conn, files, given, set_aside_for=keep["media_item_id"])
         else:
             conn.execute(
-                "UPDATE pruned_keeps SET tracked_files = ? WHERE id = ?",
-                (files_json(fetch_title(conn, keep["media_item_id"])), keep["id"]),
+                "UPDATE pruned_keeps SET tracked_files = ? WHERE id = ?", (files, keep["id"])
             )
     _set_carried_up_to(conn)
 
@@ -724,8 +760,9 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
     them; no other does once one of its own library has it, nor one of another
     library once one there has it, or once a person removed it from one there:
     that one was a copy, and the title may still come back to its own library.
-    Run it once the items set aside are removed, and once a run has stored all
-    Plex lists.
+    The files of a keep taken for good stay held, as hold_files_of_taken_keep
+    says. Run it once the items set aside are removed, and once a run has
+    stored all Plex lists.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
@@ -734,9 +771,13 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
         (now_iso(),),
     ).fetchall()
     for keep in keeps:
+        given: list[str] = []
 
-        def give(title: sqlite3.Row, keep: sqlite3.Row = keep) -> bool:
-            return _give_keep(conn, keep, title["id"])
+        def give(title: sqlite3.Row, keep: sqlite3.Row = keep, given: list[str] = given) -> bool:
+            if not _give_keep(conn, keep, title["id"]):
+                return False
+            given.append(title["id"])
+            return True
 
         claim = None
         if [
@@ -750,6 +791,10 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
             if any(_keep_removed_since(conn, keep, str(key)) for key in _entries(keep["given_to"])):
                 titles = _of_own_library(keep, titles)
             claim = _give_nearest(keep, titles, give, "id")
+        if claim is None:
+            hold_files_of_taken_keep(
+                conn, keep["tracked_files"], given, set_aside_for=keep["media_item_id"]
+            )
         _store_claim(conn, "pruned_keeps", keep["id"], claim)
     _carry_pruned_show_keeps(conn)
 
@@ -969,14 +1014,21 @@ def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
             if other["show_rating_key"]
         }
 
-        def give(show: sqlite3.Row, keep: sqlite3.Row = gone[0]) -> bool:
-            return _give_show_keep(conn, keep, show["show_rating_key"])
+        given: list[str] = []
+
+        def give(show: sqlite3.Row, keep: sqlite3.Row = gone[0], given: list[str] = given) -> bool:
+            if not _give_show_keep(conn, keep, show["show_rating_key"]):
+                return False
+            given.append(show["show_rating_key"])
+            return True
 
         titles = list(shows.values())
         if any(_show_keep_removed_where_given(conn, season) for season in gone):
             titles = _of_own_library(gone[0], titles)
         claim = _give_nearest(gone[0], titles, give, "show_rating_key")
         for season in gone:
+            if claim is None:
+                hold_files_of_taken_keep(conn, season["tracked_files"], given)
             _store_claim(conn, "pruned_show_seasons", season["id"], claim)
 
 
@@ -1110,9 +1162,9 @@ def carry_show_keeps(
 def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str]) -> None:
     """Carry the keeps of the kept shows whose seasons are about to be removed.
 
-    A season still in the library under another key gives its show the keep;
-    without one, where the season was and its ids are set aside for carry_show_keeps
-    and carry_film_keeps.
+    A season still in the library under another key gives its show the keep,
+    and its files stay held as hold_files_of_taken_keep says; without one, where
+    the season was and its ids are set aside for carry_show_keeps and carry_film_keeps.
     """
     now = now_iso()
     # rationale: the interpolated condition is a fixed string; every value is bound
@@ -1136,6 +1188,9 @@ def save_pruned_show_seasons(conn: sqlite3.Connection, media_ids: Collection[str
         }
         for show_key in shows - {None, "", season["show_rating_key"]}:
             _give_show_keep(conn, season, show_key)
+        hold_files_of_taken_keep(
+            conn, files_json(fetch_title(conn, season["season_id"])), shows - {None, ""}
+        )
         if not shows - {None, ""}:
             conn.execute(
                 "INSERT INTO pruned_show_seasons (show_rating_key, media_item_id, file_path, "
@@ -1159,16 +1214,30 @@ def forget_pruned_show_season(
     """Forget where a kept show's season was, now that *media_id* is it in the library again.
 
     It is when its show has the keep, or lost it since; else it may be of
-    another show in the same folder.
+    another show in the same folder. The files the season was set aside with
+    stay held, as hold_files_of_taken_keep says.
     """
-    conn.execute(
-        "DELETE FROM pruned_show_seasons "
-        "WHERE file_path = ? AND file_path != '' AND season_number IS ? "
+    where = (
+        "file_path = ? AND file_path != '' AND season_number IS ? "
         "AND EXISTS (SELECT 1 FROM media_items mi WHERE mi.id = ? AND ("
         "  EXISTS (SELECT 1 FROM kept_shows ks WHERE ks.show_rating_key = mi.show_rating_key) "
         "  OR EXISTS (SELECT 1 FROM audit_log a WHERE a.media_item_id = mi.show_rating_key "
-        "    AND a.action = 'removed_show_keep')))",
+        "    AND a.action = 'removed_show_keep')))"
+    )
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    back = conn.execute(  # nosec B608
+        f"SELECT tracked_files FROM pruned_show_seasons WHERE {where}",
         (file_path, season_number, media_id),
+    ).fetchall()
+    if not back:
+        return
+    show = conn.execute("SELECT show_rating_key FROM media_items WHERE id = ?", (media_id,))
+    takers = [show.fetchone()["show_rating_key"]]
+    for season in back:
+        hold_files_of_taken_keep(conn, season["tracked_files"], takers)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    conn.execute(  # nosec B608
+        f"DELETE FROM pruned_show_seasons WHERE {where}", (file_path, season_number, media_id)
     )
 
 
