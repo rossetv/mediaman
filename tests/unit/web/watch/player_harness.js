@@ -5317,7 +5317,21 @@ const scenarios = {
     await settle();
     const rows = () => sheet().querySelectorAll('.play-on__row').map((r) => r.getAttribute('data-key'));
     const out = { first: rows() };
-    if (how !== 'plain') fire(rowOf('pair'), 'pointerover', { bubbles: true });
+    if (how === 'slow') { opened.tick(3100); await settle(); out.slow = rows(); }
+    if (how === 'reopened') {
+      hear();
+      await settle();
+      fire(sheet(), 'pointerleave', { pointerType: 'touch' });
+      opened.win.MM.playOn.close();
+      opened.tick(100);
+      click(b);
+      fire(rowOf('pair'), 'pointerover', { bubbles: true });
+      opened.tick(250);
+      opened.win.MM.playOn.register(Object.assign(castWay(true), { id: 'late' }));
+      await settle();
+      return rows().includes('late');
+    }
+    if (how !== 'plain' && how !== 'slow') fire(rowOf('pair'), 'pointerover', { bubbles: true });
     hear();
     await settle();
     out.heard = rows();

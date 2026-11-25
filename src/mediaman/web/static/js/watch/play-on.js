@@ -7,7 +7,8 @@
  *   MM.playOn.mayBeOnTv()        whether a TV was playing anything when last heard of
  *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null; rejects where
  *                                that cannot be known
- *   MM.playOn.cancel()           what is starting is not wanted any more
+ *   MM.playOn.cancel()           what is starting is not wanted any more: a promise, settled once that is
+ *                                stopped or refused
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
  *   MM.playOn.open(button, host) the sheet, by the button
  *   MM.playOn.button(href, className) the button of a title on a page without a player, by the
@@ -42,6 +43,7 @@
   var ON_TV_KEY = 'mediaman.watch.onTv';
   var CAST_URL = '/api/cast/stream';
   var LOOK_MS = 5000;
+  var SLOW_MS = 3000;         // the browser's own ways wait no longer for the TVs
   var START_WAIT_MS = 125000;
   /* A TV just paired is heard of with its next question. */
   var FRESH_MS = 6000;
@@ -86,6 +88,8 @@
   var wait = null;            // the id of what is starting
   var limit = false;          // three streams play already
   var asking = 0;             // bumps with every press that starts something
+  var underway = Promise.resolve(); // settles once no start, nor what ends one, is still to be answered
+  var callOff = null;         // ends what a TV has begun to start without its next word
 
   function now() { return Date.now(); }
 
@@ -238,7 +242,10 @@
   function askPlay(tv, what, signal, freshUntil, wanted) {
     return MM.api.post(tvUrl(tv) + '/play', what, { signal: signal }).catch(function (err) {
       if (!err || err.error !== 'tv_off' || now() >= freshUntil || !wanted()) throw err;
-      return later(FRESH_EVERY_MS).then(function () { return askPlay(tv, what, signal, freshUntil, wanted); });
+      return later(FRESH_EVERY_MS).then(function () {
+        if (!wanted()) throw err;
+        return askPlay(tv, what, signal, freshUntil, wanted);
+      });
     });
   }
 
@@ -256,6 +263,17 @@
     }).then(function (heard) { return begun(heard, wanted, until); });
   }
 
+  function hold(promise) {
+    function over() { /* however it went */ }
+    underway = Promise.all([underway, Promise.resolve(promise).then(over, over)]);
+  }
+
+  /* What is held may have more to hold as it settles. */
+  function settled() {
+    var was = underway;
+    return was.then(function () { return was === underway ? undefined : settled(); });
+  }
+
   /* `confirm` is the person's yes to taking the TV from somebody; `freshUntil`: just paired. */
   function startTv(tv, confirm, freshUntil) {
     if (wait) return;
@@ -268,7 +286,7 @@
     limit = false;
     wait = idOf(tv);
     draw();
-    Promise.resolve(host.before ? host.before(tv) : undefined).then(function (place) {
+    hold(Promise.resolve(host.before ? host.before(tv) : undefined).then(function (place) {
       if (mine !== asking) throw new Error('cancelled');
       var what = host.what();
       if (place !== undefined) what.position_s = place;
@@ -279,11 +297,12 @@
     }).then(function (data) {
       clearTimeout(late);
       if (!isOlder(tv) || !data.tv) return data;
-      return begun(data.tv, wanted, now() + BEGIN_WAIT_MS).then(function (heard) { return { tv: heard }; });
+      var off = new Promise(function (resolve) { callOff = function () { resolve(data.tv); }; });
+      return Promise.race([off, begun(data.tv, wanted, now() + BEGIN_WAIT_MS)]).then(function (heard) { return { tv: heard }; });
     }).then(function (data) {
       if (mine !== asking) {
         /* Called off too late not to begin: that play is stopped, and nothing the TV has since. */
-        if (data.tv && data.tv.play) stopTv(data.tv).catch(function () { /* it is over */ });
+        if (data.tv && data.tv.play) hold(stopTv(data.tv));
         return;
       }
       wait = null;
@@ -299,7 +318,7 @@
       else if (!err || SILENT.indexOf(err.error) === -1) tell(refused(tv, err, left));
       draw();
       look();
-    });
+    }));
   }
 
   /* End what `tv` says it plays, and nothing it plays since. */
@@ -312,7 +331,10 @@
   function cancel() {
     asking++;
     say = wait = null;
+    if (callOff) callOff();
+    callOff = null;
     draw();
+    return settled();
   }
 
   function tvWith(key) {
@@ -340,6 +362,7 @@
       if (mine !== asking) return;
       say = null;
       wait = way.id;
+      Promise.resolve().then(function () { hold(playing); }); // chosen maybe before there is a promise
       draw();
     });
     draw();
@@ -394,7 +417,7 @@
     var streamId = null;
     function cancelled() { return Object.assign(new Error('cancelled'), { code: 'cancelled' }); }
     function endStream() {
-      if (streamId) MM.api.post('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop').catch(function () { /* it ends by itself */ });
+      if (streamId) hold(MM.api.post('/api/watch/stream/' + encodeURIComponent(streamId) + '/stop'));
       streamId = null;
     }
     return way.start({
@@ -438,7 +461,7 @@
       },
     }).then(function (play) {
       if (!wanted()) {
-        play.stop();
+        hold(play.stop());
         endStream();
         throw cancelled();
       }
@@ -633,7 +656,7 @@
       close();
       if ((on || wait) && host.here) host.here();
     });
-    if (!first) {
+    if (!first || sheet.slow) {
       rowsOf(known, found).forEach(function (one) {
         if (one.tv) tvRow(list, one.tv, on);
         else wayRow(list, one.way, on);
@@ -917,7 +940,7 @@
     node.addEventListener('pointerleave', function (e) {
       /* A finger's press is yet to come as it lifts. */
       if (e.pointerType === 'mouse') pointed(false);
-      else setTimeout(function () { pointed(false); }, LEAVE_MS);
+      else setTimeout(function () { if (sheet && sheet.node === node) pointed(false); }, LEAVE_MS);
     });
     node.addEventListener('keydown', function (e) {
       /* The player's own keys are not for what is typed or pressed here. */
@@ -932,6 +955,11 @@
     node.addEventListener('close', closed);
     global.addEventListener('resize', place);
     look();
+    setTimeout(function () {
+      if (!sheet || sheet.node !== node || tvs !== null) return;
+      sheet.slow = true;
+      changed();
+    }, SLOW_MS);
     poll = setInterval(function () { if (!document.hidden && !absent) look(); }, LOOK_MS);
   }
 

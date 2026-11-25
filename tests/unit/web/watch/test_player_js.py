@@ -2867,6 +2867,16 @@ def test_no_row_comes_while_the_pointer_is_on_one(markup, how, left):
     assert (out["left"], out["later"]) == (left, ROWS)
 
 
+def test_the_browsers_own_ways_do_not_wait_for_tvs_that_are_slow_to_be_heard_of(markup):
+    out = elsewhere(markup, "away_first", "slow")
+    assert (out["first"], out["slow"]) == (LOOKS, ["here", "cast", "pair"])
+    assert out["heard"] == ["here", "cast", "tv-5", "tv-7", "tv-6", "pair"]
+
+
+def test_a_finger_that_left_one_sheet_says_nothing_of_the_next(markup):
+    assert elsewhere(markup, "away_first", "reopened") is False
+
+
 def test_a_way_that_cannot_work_says_why_and_is_looked_for_again(markup):
     out = elsewhere(markup, "away_rows", "plain")
     assert out["trouble"] == "Chromecast isn’t answeringGoogle’s script didn’t load."

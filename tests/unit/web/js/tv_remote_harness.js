@@ -78,11 +78,19 @@ async function page(opts = {}) {
     if (api.fail) throw new APIError(...api.fail);
     if (method === 'POST' && api.hold) await new Promise((r) => { api.hold.push(r); });
     if (url === '/api/tvs') return { tvs: copy(api.tvs) };
+    if (/^\/api\/(cast|watch)\//.test(url)) return { stream_id: 'c1', url: '/c1' };
     const tv = api.tvs.find((t) => url.startsWith('/api/tvs/' + t.id) && !(api.goneIds || []).includes(t.id));
     if (!tv) throw new APIError(api.gone ? api.gone.reason : 'not_found', api.gone ? 410 : 404, { last: api.gone && api.gone.last });
     if (method === 'GET') return { tv: copy(tv) };
     if (api.refuse) throw new APIError(api.refuse, 409);
+    if (opts.sheet && /\/play$/.test(url)) {
+      // As it begins there, it ends on the TV it was on.
+      if (api.gives) Object.assign(api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
+      tv.play = aPlay({ play_id: 'p8', state: 'starting' });
+      return { tv: copy(tv) };
+    }
     const id = ++api.commandId;
+    if (opts.sheet && body.kind === 'stop' && !tv.play) throw new APIError('not_playing', 409);
     if (body.kind === 'stop') {
       tv.last = { ...tv.play, reason: 'stopped' };
       tv.play = null;
@@ -154,21 +162,42 @@ async function page(opts = {}) {
     };
   }
   const $ = (sel) => doc.querySelector(sel);
+  const pages = [];
+  if (opts.sheet) {
+    const create = doc.createElement;
+    doc.createElement = (tag) => {
+      const el = create(tag);
+      if (tag === 'dialog') {
+        el.showModal = () => { el.open = true; };
+        el.close = () => { el.open = false; };
+      }
+      return el;
+    };
+    let href = '';
+    Object.defineProperty(win.location, 'href', { get: () => href, set: (to) => { href = to; api.calls.push({ method: 'GO', url: to }); } });
+    win.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+    win.removeEventListener = () => {};
+    win.crypto = { getRandomValues: (a) => a };
+  }
   const ctx = vm.createContext({
+    fetch: () => new Promise((yes) => pages.push(() => yes({ text: async () => '' }))),
+    DOMParser: class { parseFromString() { return { getElementById: () => ({ getAttribute: (k) => ({ 'data-item': '{"title":"Glass Orchard"}' }[k] || null) }) }; } },
     window: win, document: doc, AbortController,
     Date: class extends Date { constructor(...a) { super(...(a.length ? a : [clock])); } static now() { return clock; } },
     setTimeout: (fn, ms) => { timers.push({ id: ++ids, at: clock + ms, fn }); return ids; },
     clearTimeout: (id) => { timers = timers.filter((t) => t.id !== id); },
+    clearInterval: (id) => { timers = timers.filter((t) => t.id !== id); },
     setInterval: (fn, ms) => { timers.push({ id: ++ids, at: clock + ms, fn, every: ms }); return ids; },
   });
   vm.runInContext(fs.readFileSync(path.join(JS, 'core/dom.js'), 'utf8'), ctx);
   const seek = $('[data-seek]');
   seek.getBoundingClientRect = () => ({ left: 0, right: 1000, width: 1000, top: 0, bottom: 44 });
   seek.setPointerCapture = () => {};
+  if (opts.sheet) vm.runInContext(fs.readFileSync(path.join(JS, 'watch/play-on.js'), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, toasts, history, heardByPage, cast,
+    $, doc, win, api, pages, toasts, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -1163,6 +1192,96 @@ const scenarios = {
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });
     out.upnext = [u.host.what().rating_key, u.host.before({ id: 8 })];
+    return out;
+  },
+  // The real sheet and the remote: here after all, while another TV is starting.
+  async calledOff() {
+    const older = () => aTv({ id: 8, kind: 'older', name: 'Bedroom', play: null });
+    const paired = () => aTv({ id: 8, kind: 'page', name: 'Bedroom', play: null });
+    const begin = async (tv, opts) => {
+      const p = await page({ sheet: true, tvs: [aTv()].concat(tv || []), ...opts });
+      p.row = (key) => p.press('.play-on [data-key="' + key + '"]');
+      p.did = () => p.api.calls.filter((c) => c.method !== 'GET').map((c) => (c.method === 'GO' ? 'go' : c.url.replace('/api/', '') + (c.body && c.body.kind ? ' ' + c.body.kind + ' ' + c.body.play_id : '')));
+      await p.open();
+      await p.press('#tv-remote [data-play-on]');
+      if (tv) await p.row('tv-8');
+      return p;
+    };
+    const out = {};
+
+    const un = await begin(paired(), { hold: [] });
+    await un.row('here');
+    await un.pass(300); await settle();
+    const button = un.$('#tv-remote [data-play-on]');
+    out.waits = {
+      did: un.did(), says: [un.$('[data-on]').textContent, un.$('[data-hint]').textContent], ring: un.seen('[data-ring]'),
+      dead: [un.$('[data-bring]').disabled, un.$('[data-stop]').disabled], focus: un.doc.activeElement === button, bar: un.bar().says,
+    };
+    await un.press('#tv-remote [data-play-on]');
+    out.waits.sheets = un.doc.querySelectorAll('.play-on').length;
+    un.api.hold.splice(0).forEach((yes) => yes());
+    await settle();
+    out.stopSent = un.did();
+    const held = un.api.hold;
+    un.api.hold = null;
+    held.splice(0).forEach((yes) => yes());
+    await un.pass(100); await settle();
+    out.unanswered = un.did();
+
+    const gave = await begin(paired(), { hold: [], gives: true });
+    await gave.row('here');
+    const gaveHeld = gave.api.hold;
+    gave.api.hold = null;
+    await gave.pass(1100); await settle();
+    gaveHeld.forEach((yes) => yes());
+    await gave.pass(1100); await settle();
+    out.given = gave.did();
+
+    const old = await begin(older(), { gives: true });
+    await old.pass(1100); await settle();
+    await old.row('here');
+    await old.pass(50); await settle();
+    out.begun = [old.did(), old.win.location.href];
+
+    const no = await begin(paired(), { hold: [] });
+    await no.row('here');
+    const noHeld = no.api.hold;
+    no.api.hold = null;
+    no.api.tvs.splice(1);
+    noHeld.forEach((yes) => yes());
+    await no.pass(100); await settle();
+    out.refused = [no.did(), no.toasts];
+
+    const slow = await begin(paired(), { hold: [] });
+    await slow.row('here');
+    await slow.pass(9900); await settle();
+    out.limit = [slow.did()];
+    slow.api.hold = null;
+    await slow.pass(200); await settle();
+    out.limit.push(slow.did());
+
+    const castOn = async () => {
+      const p = await begin(null, {});
+      p.win.MM.playOn.register({ id: 'cast', label: 'Chromecast', icon: 'x', available: () => true, start: (what) => what.open().then(() => new Promise(() => {})) });
+      await p.row('cast');
+      await settle();
+      await p.row('here');
+      await p.pass(300); await settle();
+      return p;
+    };
+    const cast = await castOn();
+    out.cast = [cast.did()];
+    cast.pages.forEach((yes) => yes());
+    await cast.pass(100); await settle();
+    out.cast.push(cast.did());
+
+    // Until a TV is chosen in the browser's own list there is none to wait for.
+    const list = await begin(null, {});
+    list.win.MM.playOn.register({ id: 'cast', label: 'Chromecast', icon: 'x', available: () => true, start: () => new Promise(() => {}) });
+    await list.row('cast');
+    await list.row('here');
+    await list.pass(100); await settle();
+    out.unchosen = list.did();
     return out;
   },
   async paintsTitles() {
