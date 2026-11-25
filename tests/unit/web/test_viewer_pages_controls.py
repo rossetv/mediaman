@@ -30,6 +30,8 @@ _SEARCHING = {
     "arr_id": 1,
     "arr_link": "http://radarr.internal:7878/movie/stuck-movie",
     "arr_source": "Radarr",
+    "tmdb_id": 603,
+    "queued_since": "2020-02-02T10:00:00+00:00",
 }
 _UPCOMING = {
     "id": "upcoming:9",
@@ -107,6 +109,20 @@ def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
         assert told == [("", "", 0)] * 3
         assert ".internal" not in page.text
         assert 'data-v="arr-link" hidden' in page.text
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_ids_and_dates_kept_for_completion_are_told_to_admins_alone(make_client, role):
+    page, api = _get_downloads(make_client(downloads_router, role))
+    body = api.json()
+    items = [body["hero"], *body["queue"]]
+    told = [(i.get("tmdb_id"), i.get("queued_since")) for i in items]
+
+    if role == "admin":
+        assert told == [(603, "2020-02-02T10:00:00+00:00")] * 2
+    else:
+        assert told == [(None, None)] * 2
+        assert "2020-02-02" not in page.text
 
 
 def test_downloads_page_still_lists_the_items_for_a_viewer(make_client):
