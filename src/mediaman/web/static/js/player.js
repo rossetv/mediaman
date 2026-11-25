@@ -15,6 +15,11 @@
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
  *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
+ *   POST /api/watch/ratings/ask/<key>  (in the last credits or at the end, the place saved:
+ *                                     whether to ask for a rating)
+ *   POST /api/cast/stream             {rating_key, quality, subtitle, page, asked_s} → {stream_id, url,
+ *                                     subtitle, subtitle_tracks} (a stream for a TV; watch/play-on.js)
+ *   GET  /api/tvs/<id>, POST /api/tvs/<id>/commands  (what plays on a TV of the person's)
  *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
  * A 410 from any stream URL means the server has dropped the stream (a
@@ -32,6 +37,12 @@
  * While a new stream replaces the old one, the last frame stays on screen.
  * A connection that drops, with an error or in silence, is tried again for a
  * while before it is an error.
+ *
+ * Played elsewhere, by a way of watch/play-on.js, the title goes on with this page as its
+ * remote: what the way plays takes the video's place here, so that its place, its credits, the
+ * question at its end and the next episode are this page's as ever. A TV with a page of its own
+ * has a remote of its own (tv-remote.js): this page only says that it plays there. Either way
+ * nothing of the title is started here meanwhile, since that would end it there.
  *
  * The next episode takes over in this same page, from what its own page
  * (GET /watch/play/<key>) says, so that full screen, picture in picture and
@@ -69,6 +80,18 @@
   var PAGE_WAIT_MS = 15000;
   var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
+  /* Reached other than by playing into them, the last credits have played this long first. */
+  var CREDITS_PLAYED_S = 10;
+  /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
+  var CREDITS_FROM = 0.7;
+  /* What comes after them is a scene where it is longer than this. */
+  var SCENE_S = 10;
+  /* The longest a title's end waits to hear whether to ask for a rating. */
+  var RATE_WAIT_MS = 4000;
+  /* A rating just given stays in sight this long. */
+  var RATED_MS = 1800;
+  /* Left alone this long, the question lets the page go on, or the credits. */
+  var RATE_IGNORED_MS = 30000;
   /* How long a start may go without an answer: on the server, with each of its calls to
      a slow Plex at its limit, one takes up to 110 s. */
   var START_WAIT_MS = 120000;
@@ -138,6 +161,28 @@
   var NOTICE_STARTING = 'Still starting…';
   var MSG_REPLACED = 'Playing somewhere else.';
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
+  var MSG_OTHER_TAB = 'This is playing on a TV from another tab.';
+  var MSG_MAYBE_TV = 'This may still be playing on a TV.';
+  var MSG_LEFT_TV = { lost: ' stopped answering.', taken: ' is used by someone else now.' };
+  var NOTE_QUALITY = 'TVs get up to 1080p, in a form every TV can play. 4K and HDR stay on this device. Changing quality restarts the picture where you are.';
+  var NOTE_SUBTITLES = 'On a TV the subtitles are drawn into the picture. Changing them restarts the picture where you are; it takes a few seconds.';
+  var CAST_URL = '/api/cast/stream';
+  /* What a TV can be given, as rows of the quality menu. */
+  var TV_ROWS = [
+    { id: 'auto', kind: 'auto', label: 'Auto', detail: 'Up to 1080p' },
+    { id: 'best', kind: 'convert', label: '1080p', detail: '8 Mbps', height: 1080, bitrate_kbps: 8000 },
+    { id: 'medium', kind: 'convert', label: '720p', detail: '4 Mbps', height: 720, bitrate_kbps: 4000 },
+    { id: 'low', kind: 'convert', label: '480p', detail: '1.5 Mbps', height: 480, bitrate_kbps: 1500 },
+  ];
+  var LOOK_WAIT_MS = 1500;
+  var AGAIN_WAIT_MS = 4000;
+  var PLACE_AGE_S = 90;
+  var KEEP_EVERY_MS = 60000;
+  var TV_EVERY_MS = 5000;
+  var TV_BEGINS_MS = 1000;
+  var TV_HIDDEN_MS = 30000;
+  /* A TV that lets go of the title pauses it first, just before it says so. */
+  var LET_GO_MS = 5000;
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
   /* Start failures by the server's error code; `retry` is whether Try again can help. */
   var START_ERRORS = {
@@ -185,6 +230,21 @@
   readPage(root);
 
   var video = root.querySelector('video.player-video');
+  var local = video;
+
+  /* What is heard of the video, wherever it plays. */
+  var heard = [];
+  function onVideo(name, fn) {
+    heard.push([name, fn]);
+    video.addEventListener(name, fn);
+  }
+
+  function useVideo(next) {
+    heard.forEach(function (h) { video.removeEventListener(h[0], h[1]); });
+    video = next;
+    heard.forEach(function (h) { video.addEventListener(h[0], h[1]); });
+  }
+
   var hold = root.querySelector('[data-hold]');
   var q = function (sel) { return root.querySelector(sel); };
   var els = {
@@ -217,8 +277,25 @@
     qualityMenu: q('[data-quality-menu]'),
     fullscreen: q('[data-fullscreen]'),
     upnextStatus: q('[data-upnext-status]'),
+    rate: q('[data-rate]'),
+    rateTitle: q('[data-rate-title]'),
+    rateLevel: q('[data-rate-level]'),
+    rateSet: q('[data-rate-set]'),
+    rateStatus: q('[data-rate-status]'),
     ask: q('[data-ask]'),
     lost: q('[data-lost]'),
+    playOn: q('[data-play-on]'),
+    away: q('[data-away]'),
+    awayOn: q('[data-away-on]'),
+    awayHint: q('[data-away-hint]'),
+    awayEnd: q('[data-away-end]'),
+    bring: q('[data-bring]'),
+    stopAway: q('[data-stop-away]'),
+    openRemote: q('[data-open-remote]'),
+    noVolume: q('[data-no-volume]'),
+    tracks: q('[data-tracks]'),
+    leaveCard: q('[data-leave-card]'),
+    bottom: q('.player-bottom'),
     message: q('[data-message]'),
     messageText: q('[data-message-text]'),
     retry: q('[data-retry]'),
@@ -283,6 +360,16 @@
   var dragging = false;
   var countdownTimer = null; // runs while the next-episode card counts down
   var quality = readSetting(QUALITY_KEY) || 'auto';   // the person's choice
+  var playOn = MM.playOn;    // the sheet, where the page has it
+  var away = null;           // {way, play} while a way plays the title, {tv} while a TV does
+  var attempt = null;        // a start elsewhere by a way: {way, wanted, opened}
+  var holding = null;        // {way, told, heard} while it is not known whether it plays elsewhere
+  var here = null;           // what this device goes on with: {rows, quality, override}
+  var subtitle = null;       // what the TV is asked for: 'off', a track, or null for Plex's own choice
+  var subtitleGood = null;   // what it was last given
+  var given = null;          // the subtitles it can be given and has, as its start said
+  var pausedHere = false;    // the pause to come is the person's
+  var pausedThereAt = -Infinity;
   var autoplay = readSetting(AUTOPLAY_KEY) !== 'false';
 
   /* What belongs to the video being watched; resetVideo sets every one. */
@@ -322,6 +409,7 @@
   var fatalRestartUsed;
   var goneRestarts;
   var reverts;
+  var question;              // of a rating: see askOnce
 
   function resetVideo(at) {
     pendingStart = at;
@@ -352,6 +440,7 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
+    question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false, over: false, aloneS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
     clearTimeout(seekSaveTimer);
@@ -435,11 +524,7 @@
   function buildQualityMenu() {
     var hadFocus = els.qualityMenu.contains(document.activeElement);
     els.qualityMenu.textContent = '';
-    var title = document.createElement('p');
-    title.className = 'player-menu-title';
-    title.setAttribute('aria-hidden', 'true');
-    title.textContent = 'Quality';
-    els.qualityMenu.appendChild(title);
+    addTitle(els.qualityMenu, 'Quality');
     var list = addList(els.qualityMenu);
     list.setAttribute('role', 'group');
     list.setAttribute('aria-label', 'Quality');
@@ -448,6 +533,7 @@
       btn.setAttribute('data-quality', row.id);
       list.appendChild(btn);
     });
+    if (away) addNote(els.qualityMenu, NOTE_QUALITY);
     if (showHref) addAutoplayRow();
     showQuality();
     fadeEnds(list);
@@ -478,6 +564,21 @@
     btn.setAttribute('data-autoplay', '');
     btn.setAttribute('aria-checked', String(autoplay));
     els.qualityMenu.appendChild(btn);
+  }
+
+  function addTitle(menu, text) {
+    var title = document.createElement('p');
+    title.className = 'player-menu-title';
+    title.setAttribute('aria-hidden', 'true');
+    title.textContent = text;
+    menu.appendChild(title);
+  }
+
+  function addNote(menu, text) {
+    var p = document.createElement('p');
+    p.className = 'player-menu-note';
+    p.textContent = text;
+    menu.appendChild(p);
   }
 
   /* A choice of a menu: what it is, the detail of it, and its tick. */
@@ -526,7 +627,8 @@
 
   function setQuality(value) {
     quality = value;
-    saveSetting(QUALITY_KEY, value);
+    /* What a TV is given is no choice for this device. */
+    if (!away) saveSetting(QUALITY_KEY, value);
   }
 
   function chooseQuality(value) {
@@ -544,6 +646,11 @@
     override = null;
     stalls = 0;
     stopWatching();
+    if (holding) {
+      good = choice();
+      showQuality();
+      return;
+    }
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
@@ -670,7 +777,7 @@
   /* One step, or further where the connection measured slower than that. One
      that has played nothing has measured nothing: half of what is left. */
   function stepDown() {
-    if (quality !== 'auto' || starting || !streamId) return false;
+    if (away || quality !== 'auto' || starting || !streamId) return false;
     var lower = lowerRows();
     if (!lower.length) return false;
     if (playedS - steppedUpAt <= UP_TRIAL_S) upAfter = Math.min(upAfter * 2, UP_AFTER_MAX_S);
@@ -683,7 +790,7 @@
   }
 
   function maybeStepUp() {
-    if (quality !== 'auto' || !autoTop || starting || swapping || menuOpen()) return;
+    if (away || quality !== 'auto' || !autoTop || starting || swapping || menuOpen()) return;
     if (playedS - Math.max(steppedAt, stalledAt) < upAfter) return;
     if (duration() - video.currentTime < UP_LEFT_S) return;
     var converts = convertRows();
@@ -754,10 +861,11 @@
     tryAgain = again;
     swapping = false;
     if (again !== tryLost && again !== playHere) releaseFrame();
+    if (shown(els.rate)) dropRating();
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
-    els.retry.textContent = again === playHere ? 'Play here' : 'Try again';
+    els.retry.textContent = again === playHere || again === playAnyway ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
     showPlayState();
@@ -1028,6 +1136,17 @@
     if (lastStart) lastStart.abort();
   }
 
+  function startBody() {
+    var body = {
+      rating_key: item.rating_key,
+      quality: asked(),
+      page: pageId,
+      asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
+    };
+    if (away && subtitle !== null) body.subtitle = subtitle;
+    return body;
+  }
+
   /* Start a stream at `pos`; one retry before the error is shown. */
   function startStream(pos) {
     var gen = ++generation;
@@ -1082,12 +1201,7 @@
         unanswered();
       }, START_WAIT_MS);
       var abort = lastStart = new AbortController();
-      var start = MM.api.post('/api/watch/stream', {
-        rating_key: item.rating_key,
-        quality: asked(),
-        page: pageId,
-        asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
-      }, { signal: abort.signal });
+      var start = MM.api.post(away ? CAST_URL : '/api/watch/stream', startBody(), { signal: abort.signal });
       start.then(answered, answered);
       return start
         .then(function (data) {
@@ -1100,6 +1214,12 @@
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
+          if (away) {
+            takeSubtitles(data);
+            if (data.markers) takeMarks(data);
+            loadAway(data);
+            return;
+          }
           takePreviews(data.previews);
           takeMarks(data);
           if (aimS !== null) land();
@@ -1117,6 +1237,11 @@
           /* Asked for by itself, after the person asked another page. */
           if (status === 410 && code === 'replaced') { streamReplaced(); return; }
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
+          if (code === 'track_unavailable' && subtitle !== subtitleGood) {
+            subtitle = subtitleGood;
+            swapNotice = "Couldn't change the subtitles.";
+            return attempt(tries);
+          }
           if (status === 422 && quality !== 'auto' && !hasPlayed) {
             /* A saved choice the server does not know. It stays saved. */
             quality = 'auto';
@@ -1168,8 +1293,7 @@
       if (h !== hls) return;
       reached();
       swapping = false;
-      if (wantPlaying) play();
-      else setLoading(false);
+      playAsWanted();
     });
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
@@ -1178,6 +1302,11 @@
     });
     h.loadSource(playlist);
     h.attachMedia(video);
+  }
+
+  function playAsWanted() {
+    if (wantPlaying) play();
+    else setLoading(false);
   }
 
   /* hls.js has stopped at an error of this stream's that may pass: go on loading. */
@@ -1264,20 +1393,21 @@
     pendingStart = position();
     streamId = null;
     release();
+    endAway(true);
     showMessage(MSG_REPLACED, playHere);
   }
 
   /* Go on from where the other one got to, where it has saved that. */
   var hereGeneration = null; // the generation that is asking it
-  function playHere() {
+  function playHere(known, unreached) {
     var gen = hereGeneration = ++generation;
     pressedPlay();
     swapping = true;         // a press starts nothing from this place meanwhile
     hideMessage();
     setLoading(true);
-    fetchPage(window.location.href)
+    (known === true ? Promise.resolve(null) : fetchPage(window.location.href))
       .then(function (page) {
-        var el = page.getElementById('player');
+        var el = page && page.getElementById('player');
         var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
         if (gen !== generation || !(place >= 0) || place === placeS || sent[place]) return;
         placeS = place;
@@ -1285,7 +1415,12 @@
         if (!next && !nextUnknown && place >= duration() - 1) return;
         pendingStart = within(place);
       })
-      .catch(function () { /* from where this one stands */ })
+      .catch(function (err) {
+        /* From where this one stands, where that may not be newer than the server's. */
+        if (gen !== generation || !unreached || !err.lost) return;
+        generation++;
+        unreached();
+      })
       .then(function () { if (gen === generation) startOver(); });
   }
 
@@ -1423,16 +1558,25 @@
     return { stream_id: streamId, position_s: body.position_s, played_s: body.played_s };
   }
 
+  /* The last save, and those before it that are still under way; whether it was taken. */
+  var saving = Promise.resolve(true);
+  var endSaved;              // whether the save at the end was taken, once that is known
   function saveProgress() {
     var body = unsaved();
-    if (!body) return;
+    if (!body) return streamId ? saving : Promise.resolve(false);
     var id = streamId;
-    MM.api.post('/api/watch/progress', withStream(body)).then(function () {
+    var before = saving;
+    var mine = MM.api.post('/api/watch/progress', withStream(body)).then(function () {
       if (id === streamId) savedAs = JSON.stringify(body);
+      return true;
     }).catch(function (err) {
-      if (!err || err.status !== 410 || id !== streamId) return;
-      streamEnded({ error: err.error, by: err.data && err.data.by });
+      if (err && err.status === 410 && id === streamId) {
+        streamEnded({ error: err.error, by: err.data && err.data.by });
+      }
+      return false;
     });
+    saving = before.then(function () { return mine; });
+    return saving;
   }
 
   function beacon(url, body) {
@@ -1500,6 +1644,7 @@
 
   /* Where the next-episode card waits only the Play button plays this one again. */
   function togglePlay(byButton) {
+    if (onTv()) return;
     if (shown(els.message)) {
       if (tryAgain) tryAgain();
       return;
@@ -1514,6 +1659,7 @@
     if (swapping) {
       /* No video to pause yet: the new stream starts the way this leaves it. */
       wantPlaying = !wantPlaying;
+      if (holding) holding.pressed = true;
       if (wantPlaying) pressedPlay();
       showPlayState();
       return;
@@ -1524,6 +1670,8 @@
       play();
     } else {
       wantPlaying = false;
+      /* Not what its TV does when it lets go of it. */
+      pausedHere = true;
       video.pause();
     }
   }
@@ -1551,7 +1699,8 @@
     dropAim();
     lastTime = null;
     hideUpnext();
-    if (video.readyState >= 1) {
+    leftEnd(t);
+    if (video.readyState >= 1 && !(away && swapping)) {
       pendingStart = null;
       /* WebKit shows black until the place has loaded. */
       if (!isLoaded(t)) {
@@ -1588,6 +1737,7 @@
     pressedPlay();
     aimS = within(t);
     hideUpnext();
+    leftEnd(aimS);
     clearTimeout(landTimer);
     landTimer = setTimeout(land, LAND_MS);
     if (hls && video.readyState < 1) hls.config.startPosition = aimS;
@@ -1616,16 +1766,18 @@
     icon.toggleAttribute('hidden', busy);
     els.play.querySelector('.player-btn-ring').toggleAttribute('hidden', !busy);
     root.classList.toggle('is-paused', paused);
+    paintAway();
     if (paused) showControls();
     else scheduleIdle();
   }
 
   /* Playing again, or moving within the episode, cancels the next-episode countdown. */
   ['play', 'playing', 'seeking'].forEach(function (name) {
-    video.addEventListener(name, hideUpnext);
+    onVideo(name, hideUpnext);
+    onVideo(name, function () { leftEnd(position()); });
   });
 
-  video.addEventListener('playing', function () {
+  function onPlaying() {
     hasPlayed = true;
     startedAt = null;
     stopWatching();
@@ -1645,32 +1797,35 @@
     pendingStart = null;
     releaseOnceSeen();
     setLoading(false);
-  });
-  video.addEventListener('play', function () {
+  }
+  onVideo('playing', onPlaying);
+  onVideo('play', function () {
     if (!ownPlay) noteActivity();
     ownPlay = false;
     wantPlaying = true;
     showPlayState();
   });
-  video.addEventListener('pause', function () {
+  onVideo('pause', function () {
     if (swapping) return;
     stopRolling();
     showPlayState();
     if (video.ended) return;
     noteActivity();
+    if (!pausedHere) pausedThereAt = Date.now();
+    pausedHere = false;
     wantPlaying = false;
     saveProgress();
   });
-  video.addEventListener('waiting', function () {
+  onVideo('waiting', function () {
     setLoading(true);
     noteStall();
   });
-  video.addEventListener('canplay', function () {
+  onVideo('canplay', function () {
     if (!video.paused) return;
     if (!wantPlaying && !swapping) releaseOnceSeen();
     setLoading(false);
   });
-  video.addEventListener('seeking', function () {
+  onVideo('seeking', function () {
     /* A jump from where it played; hls.js only nudges. */
     if (lastTime !== null && Math.abs(video.currentTime - lastTime) > 2) noteActivity();
     lastTime = null;
@@ -1691,20 +1846,21 @@
     /* A wait that a seek begins again may not be said again. */
     watchWait();
   });
-  video.addEventListener('seeked', function () {
+  onVideo('seeked', function () {
     settleStart();
     if (heldForSeek && !swapping) releaseOnceSeen();
     saveAfterSeek();
   });
-  video.addEventListener('progress', render);
-  video.addEventListener('volumechange', function () {
+  onVideo('progress', render);
+  onVideo('volumechange', function () {
     if (hasPlayed) noteActivity();
     showVolume();
+    if (away) return;
     saveSetting(VOLUME_KEY, video.volume);
     saveSetting(MUTED_KEY, video.muted);
   });
 
-  video.addEventListener('timeupdate', function () {
+  onVideo('timeupdate', function () {
     settleStart();
     var now = video.currentTime;
     /* Count only time that really played: a seek resets the mark, and a
@@ -1715,6 +1871,7 @@
         playedS += delta;
         rolling = true;
         backRounds = 0;
+        playedOn(lastTime, now);
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -1724,14 +1881,14 @@
     render();
   });
 
-  video.addEventListener('ended', function () {
+  onVideo('ended', function () {
     /* Presses that led back from the end are to be followed; ones that led on have been. */
     if (aimS !== null && aimS < duration() - 1) {
       land();
       return;
     }
     dropAim();
-    saveProgress();
+    endSaved = saveProgress();
     showSkip();
     atEnd();
     showPlayState();
@@ -1819,7 +1976,7 @@
     });
   }
   window.addEventListener('resize', drawMarks);
-  video.addEventListener('durationchange', drawMarks);
+  onVideo('durationchange', drawMarks);
 
   /* The last of a sorted list that has started by `t`. */
   function startedBy(list, t) {
@@ -1869,7 +2026,7 @@
   var skipTimer;
 
   function showSkip() {
-    var over = video.ended || switching || (els.ask && els.ask.open) || (els.upnext && !els.upnext.hidden);
+    var over = video.ended || switching || onTv() || opening() || (els.ask && els.ask.open) || (els.upnext && !els.upnext.hidden);
     var m = !shown(els.message) && !over ? markerAt(position()) : null;
     if (m !== skipMarker) offerSkip(m);
   }
@@ -1887,6 +2044,7 @@
     var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
     els.skipText.textContent = label;
     els.skip.setAttribute('title', label + ' (S)');
+    keepOffSkip();
     skipTimer = setTimeout(function () { els.skip.classList.add('is-quiet'); }, SKIP_SHOWN_MS);
   }
 
@@ -2327,6 +2485,7 @@
   function showControls() {
     root.classList.remove('is-idle');
     scheduleIdle();
+    if (ignoredTimer !== null) waitForRating();
   }
 
   /* Whether the mouse or a finger, not the keyboard, last moved the focus.
@@ -2341,12 +2500,13 @@
   function scheduleIdle() {
     clearTimeout(idleTimer);
     idleTimer = setTimeout(function () {
-      if (!video.paused && !dragging && !menuOpen() && !shown(els.message) && !keyboardInChrome()) goIdle();
+      if (!video.paused && !dragging && !menuOpen() && !(playOn && playOn.isOpen()) && !shown(els.message) && !keyboardInChrome()) goIdle();
     }, IDLE_MS);
   }
 
   /* A preview goes with the controls, also from under a mouse that rests on the bar. */
   function goIdle() {
+    if (isAway()) return;
     clearTimeout(idleTimer);
     root.classList.add('is-idle');
     hideBubble();
@@ -2405,24 +2565,27 @@
       e.preventDefault();
       return;
     }
-    if (els.ask && els.ask.open) {
+    if (playOn && playOn.isOpen()) return;
+    var asks = [els.ask, els.leaveCard].filter(function (card) { return card && card.open; })[0];
+    if (asks) {
       /* Safari's own step passes over buttons and links. */
       if (e.key === 'Tab') {
         e.preventDefault();
-        var stop = q('[data-ask-continue]');
-        (document.activeElement === stop ? q('[data-ask-back]') : stop).focus();
+        var stops = asks.querySelectorAll('.player-pill');
+        (document.activeElement === stops[0] ? stops[1] : stops[0]).focus();
       }
       return;
     }
     showControls();
     /* Option and Tab is how Safari reaches the buttons. */
     if (e.key === 'Tab') focusByPointer = false;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || onTv() || opening()) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
     if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
+      else if (shown(els.rate) && (!upnextOpen() || els.rate.contains(document.activeElement))) endRating();
       else hideUpnext();
       return;
     }
@@ -2437,18 +2600,23 @@
     if (e.key === ' ' || e.key === 'Spacebar') {
       if (onControl) {
         /* Space presses a control the keyboard is on, not one the mouse left the focus on. */
-        if (!focusByPointer || !e.target.closest('.player-chrome')) return;
+        if (!focusByPointer || !e.target.closest('.player-chrome, .player-rate')) return;
         e.target.blur();
       }
       e.preventDefault();
       if (!e.repeat) togglePlay(false);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (els.rate.contains(e.target)) {
+        e.preventDefault();
+        moveInRating(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
       /* The slider's own where the keyboard is on it, not where the mouse left the focus. */
       if ((tag === 'INPUT' && !focusByPointer) || menuOpen()) return;
       e.preventDefault();
       skip(e.key === 'ArrowLeft' ? -SKIP_S : SKIP_S);
       if (e.target === els.seek) peekBubble();
-    } else if (e.key === 'f' || e.key === 'F') {
+    } else if ((e.key === 'f' || e.key === 'F') && !isAway()) {
       e.preventDefault();
       toggleFullscreen();
     } else if (e.key === 's' || e.key === 'S') {
@@ -2466,10 +2634,23 @@
   /* What the video's end leads to. */
   function atEnd() {
     if (nextUnknown) findNext();
-    else if (!next && showHref) window.location.href = showHref;
-    else if (!next) goBack();
-    else if (autoplay) goOrAsk(showUpnext);
-    else showUpnext();
+    else if (!next) askRating(leaveAtEnd);
+    else {
+      if (autoplay) goOrAsk(showUpnext);
+      else showUpnext();
+      /* What cannot be seen is not asked. */
+      if (upnextOpen() && !cannotBeSeen()) {
+        if (roomForRating()) askRating(null);
+        else rateAfterUpnext = true;
+      }
+    }
+  }
+
+  function leaveAtEnd() {
+    /* The TV may be given something else from here. */
+    if (away) return;
+    if (showHref) window.location.href = showHref;
+    else goBack();
   }
 
   /* The document at `href`: not a player's where the video cannot be played, and
@@ -2551,18 +2732,20 @@
      `savedAt` is the place to save this one at, where that is not where it stands. */
   function goNext(byItself, savedAt) {
     if (!byItself) pressedPlay();
-    if (!next || switching) return;
+    if (!next || switching || onTv() || opening()) return;
     if (byItself) sitting.count++;
     openNext(byItself, savedAt);
   }
 
   function openNext(byItself, savedAt) {
     var href = next.href;
+    dropHold();
     switching = true;
     swapping = true;
     wantPlaying = true;
     clickToggled = false;
     hideUpnext();
+    dropRating();
     hideMessage();
     holdFrame(true);
     showSubtitle(next.label);
@@ -2627,6 +2810,12 @@
     endDrag({ pointerType: 'touch' }, false);
     hideBubble();
     readPage(el);
+    if (away) {
+      here.rows = rows;
+      rows = TV_ROWS;
+      /* Tracks are the title's own; that there are to be none is not. */
+      if (subtitle !== 'off') subtitle = null;
+    }
     resetVideo(startS);
     wantPlaying = want;
     if (stepped) {
@@ -2667,6 +2856,10 @@
     card.classList.remove('is-counting');
     if (card.contains(document.activeElement)) els.play.focus();
     leave(card);
+    /* What hides it may go on to the next episode at once. */
+    if (rateAfterUpnext) setTimeout(function () {
+      if (rateAfterUpnext && video.ended && !upnextOpen()) askRating(null);
+    }, 0);
   }
 
   function stopCountdown() {
@@ -2786,6 +2979,7 @@
   }
 
   function ask() {
+    dropRating();
     leaveNative();
     swapping = true;
     holdFrame();
@@ -2802,8 +2996,14 @@
   }
 
   /* A question must not hide behind the system's own player. */
+  function inNative() {
+    return !!video.webkitPresentationMode && video.webkitPresentationMode !== 'inline';
+  }
+
+  function nativelyShown() { return inNative() || !!document.pictureInPictureElement; }
+
   function leaveNative() {
-    if (video.webkitPresentationMode && video.webkitPresentationMode !== 'inline') {
+    if (inNative()) {
       video.webkitSetPresentationMode('inline');
     } else if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(function () {});
@@ -2826,6 +3026,296 @@
       showUpnext(true);
       showPlayState();
     });
+  }
+
+  /* ---- a rating at the end --------------------------------------------- */
+
+  var ratingAsked = 0;       // bumps with every question and whenever one no longer matters
+  var ratingWait = null;     // runs until it is known whether to ask
+  var rating = null;         // the set of thumbs of the card
+  var ratingRef;             // the title it rates
+  var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
+  var rateAfterUpnext = false;
+  var onReturn = null;       // what the end leads to, once the hidden page is seen again
+  var rateHovered = false;   // the mouse is on the card
+  var overCredits = false;   // the card came while the video played
+  var goOnAfter = null;      // what the end leads to once the card is done with
+  var ratedTimer = null;
+  var ignoredTimer = null;
+  var unsavedRating = null;  // {ref, level} on its way to the server
+
+  /* Ask the server, once `saved` is taken and if it is `still` wanted then, whether to ask what the
+     person thought: the question, or null. It gives each only once, so one that cannot be shown
+     as it comes is held. */
+  function askOnce(saved, still) {
+    var mine = question;
+    mine.tried = true;
+    mine.asking = saved.then(function (taken) {
+      if (mine !== question) return null;
+      if (!still()) mine.tried = false;
+      if (!taken || !mine.tried) return null;
+      return MM.api.post('/api/watch/ratings/ask/' + encodeURIComponent(item.rating_key));
+    }).then(function (data) {
+      mine.held = data && data.ask ? data : null;
+    }, function () {}).then(function () {
+      mine.asking = null;
+      return mine.held;
+    });
+    return mine.asking;
+  }
+
+  /* The last credits, where they are to be believed as the server sees it, or null. */
+  function lastCredits() {
+    var m = markers.filter(function (x) { return x.kind === 'credits' && x.final; }).pop();
+    return m && m.start_s > duration() * CREDITS_FROM ? m : null;
+  }
+
+  /* Places are saved in tenths: one that rounds to before the credits is not in them yet. */
+  function inCredits(t) {
+    var m = lastCredits();
+    return !!m && Math.round(t * 10) / 10 >= m.start_s && !afterCredits(t);
+  }
+
+  /* Whether a scene that comes after the credits is on at `t`. */
+  function afterCredits(t) {
+    var m = lastCredits();
+    return !!m && duration() - m.end_s > SCENE_S && t >= m.end_s;
+  }
+
+  function pageHidden() { return document.visibilityState === 'hidden'; }
+
+  function cannotBeSeen() { return nativelyShown() || pageHidden(); }
+
+  /* The video has played from one place to another. */
+  function playedOn(from, to) {
+    if (!inCredits(to)) {
+      question.creditsS = 0;
+      question.due = false;
+      if (rating && overCredits && afterCredits(to)) putOffRating();
+      return;
+    }
+    if (rating && overCredits) leaveAlone(to - from);
+    if (question.put || question.over) return;
+    question.creditsS += to - from;
+    if (!inCredits(from) || question.creditsS >= CREDITS_PLAYED_S) question.due = true;
+    if (!question.due || cannotBeSeen()) return;
+    if (question.held) showRating(question.held, null);
+    else if (!question.tried) askInCredits();
+  }
+
+  function askInCredits() {
+    var mine = question;
+    var asked = ratingAsked;
+    askOnce(saveProgress(), function () { return !switching && inCredits(position()); }).then(function (held) {
+      if (!held || mine !== question || mine.put || asked !== ratingAsked) return;
+      if (inCredits(position()) && !switching && !video.ended && !cannotBeSeen()) showRating(held, null);
+    });
+  }
+
+  /* At the end. `goOn`, or null where the next episode follows, comes after the question or
+     in its place. */
+  function askRating(goOn) {
+    if (question.put) {
+      endWithRating(goOn);
+      return;
+    }
+    dropRating();
+    if (goOn && pageHidden()) {
+      onReturn = goOn;
+      return;
+    }
+    var mine = ratingAsked;
+    var since = Date.now();
+    function heard(held) {
+      if (mine !== ratingAsked) return;
+      clearTimeout(ratingWait);
+      if (held && pageHidden()) {
+        onReturn = goOn;
+        return;
+      }
+      if (held && !roomForRating()) {
+        rateAfterUpnext = true;
+        return;
+      }
+      if (held) {
+        showRating(held, goOn);
+        return;
+      }
+      ratingAsked++;
+      if (goOn) goOn();
+    }
+    if (goOn) ratingWait = setTimeout(heard, RATE_WAIT_MS);
+    /* A question that is answered too late to be put would be spent for nothing. */
+    function askNow() {
+      askOnce(endSaved, function () {
+        return mine === ratingAsked && (!goOn || Date.now() - since <= RATE_WAIT_MS / 2);
+      }).then(heard);
+    }
+    if (question.held) heard(question.held);
+    else if (!question.asking) askNow();
+    else question.asking.then(function (held) {
+      if (mine !== ratingAsked) return;
+      if (held) heard(held);
+      else askNow();
+    });
+  }
+
+  /* The question has been put before the end: open still, it is waited for. */
+  function endWithRating(goOn) {
+    if (!goOn) return;
+    if (!rating) {
+      goOn();
+      return;
+    }
+    leaveNative();
+    goOnAfter = goOn;
+    waitForRating();
+  }
+
+  /* Where the card has no names by its thumbs it says the one given. */
+  function showLevel(level) {
+    var given = MM.ratings.LEVELS.filter(function (l) { return l.level === level; })[0];
+    els.rateLevel.textContent = given ? given.name : '';
+    els.rate.classList.toggle('is-rated', !!given);
+  }
+
+  /* Over the skip button where large text makes the two meet. */
+  function keepOffSkip() {
+    els.rate.classList.remove('player-rate--above');
+    if (!shown(els.rate) || !shown(els.skip)) return;
+    var card = els.rate.getBoundingClientRect();
+    var skip = els.skip.getBoundingClientRect();
+    els.rate.classList.toggle('player-rate--above', card.right > skip.left && card.bottom > skip.top);
+  }
+  window.addEventListener('resize', keepOffSkip);
+
+  /* Whether the card can be seen: a small window has no room for it and the next episode's. */
+  function roomForRating() { return !tight.matches || !upnextOpen(); }
+
+  function showRating(held, goOn) {
+    var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
+    if (goOn) leaveNative();
+    goOnAfter = goOn;
+    question.put = true;
+    question.aloneS = 0;
+    rateHovered = false;
+    overCredits = !video.ended;
+    els.rateTitle.textContent = text;
+    els.rateSet.textContent = '';
+    ratingRef = held.ref;
+    rating = MM.ratings.mount(held.ref, { variant: 'grid', again: overCredits });
+    els.rateSet.appendChild(rating.node);
+    /* A small window shows no names. */
+    els.rateSet.querySelectorAll('button').forEach(function (b) { b.setAttribute('title', b.getAttribute('aria-label')); });
+    els.rate.classList.toggle('player-rate--beside', !goOn);
+    showLevel(null);
+    show(els.rate);
+    keepOffSkip();
+    els.rateStatus.textContent = text;
+    if (!overCredits) showControls();
+    waitForRating();
+  }
+
+  /* The question goes, and nothing of it is to come. */
+  function dropRating() {
+    ratingAsked++;
+    rateAfterUpnext = false;
+    onReturn = null;
+    [ratingWait, ratedTimer, ignoredTimer].forEach(clearTimeout);
+    ignoredTimer = null;
+    goOnAfter = null;
+    if (!rating) return;
+    rating.destroy();
+    rating = null;
+    els.rateStatus.textContent = '';
+    if (els.rate.contains(document.activeElement)) els.play.focus();
+    leave(els.rate);
+  }
+
+  /* The video is, or is to be, at `t` and not at its end: one put in the credits stays in them. */
+  function leftEnd(t) {
+    if (rating && overCredits && afterCredits(t)) {
+      putOffRating();
+      return;
+    }
+    if (!rating || !overCredits || !inCredits(t)) {
+      dropRating();
+      return;
+    }
+    goOnAfter = null;
+    clearTimeout(ignoredTimer);
+    ignoredTimer = null;
+  }
+
+  /* Out of the way of a scene: without an answer the question is put again at the end. */
+  function putOffRating() {
+    question.put = question.answered;
+    dropRating();
+  }
+
+  /* The credits have played on for this long: one that nobody is at goes, for the end to put it. */
+  function leaveAlone(playedFor) {
+    if (pageHidden()) return;
+    question.aloneS += playedFor;
+    if (rateHovered || (!focusByPointer && els.rate.contains(document.activeElement))) question.aloneS = 0;
+    if (question.aloneS < RATE_IGNORED_MS / 1000) return;
+    question.over = true;
+    putOffRating();
+  }
+
+  els.rate.addEventListener('pointerenter', function (e) { rateHovered = e.pointerType === 'mouse'; });
+  els.rate.addEventListener('pointerleave', function () { rateHovered = false; });
+  els.rate.addEventListener('pointerdown', function () { question.aloneS = 0; });
+
+  function moveInRating(by) {
+    var thumbs = els.rateSet.querySelectorAll('button');
+    var at = Array.prototype.indexOf.call(thumbs, document.activeElement);
+    thumbs[at < 0 ? (by < 0 ? thumbs.length - 1 : 0) : (at + by + thumbs.length) % thumbs.length].focus();
+  }
+
+  function endRating() {
+    var goOn = goOnAfter;
+    dropRating();
+    if (goOn) goOn();
+  }
+
+  function waitForRating() {
+    clearTimeout(ignoredTimer);
+    ignoredTimer = null;
+    if (!goOnAfter) return;
+    ignoredTimer = setTimeout(function () {
+      /* The keyboard in the card is somebody; a click leaves the focus behind. */
+      if (!focusByPointer && !unsavedRating && els.rate.contains(document.activeElement)) waitForRating();
+      else endRating();
+    }, RATE_IGNORED_MS);
+  }
+
+  document.addEventListener('mm:rating', function (e) {
+    var said = e.detail;
+    if (said.phase === 'pending') unsavedRating = { ref: said.ref, level: said.level };
+    else if (said.phase !== 'read') unsavedRating = null;
+    if (rating && MM.ratings.canRate(ratingRef) === false) endRating();
+    if (!rating || said.from !== rating.node) return;
+    clearTimeout(ratedTimer);
+    showLevel(said.level);
+    question.answered = said.level !== null;
+    if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);
+    else waitForRating();
+  });
+
+  q('[data-rate-close]').addEventListener('click', endRating);
+
+  /* Leaving may cut off the request that a rating went out with. */
+  function keepRating() {
+    if (!unsavedRating) return;
+    var none = unsavedRating.level === null;
+    fetch('/api/watch/ratings/' + encodeURIComponent(unsavedRating.ref), {
+      method: none ? 'DELETE' : 'PUT',
+      credentials: 'same-origin',
+      keepalive: true,
+      headers: none ? {} : { 'Content-Type': 'application/json' },
+      body: none ? undefined : JSON.stringify({ level: unsavedRating.level }),
+    }).catch(function () {});
   }
 
   /* ---- back ------------------------------------------------------------ */
@@ -2871,15 +3361,764 @@
 
   root.addEventListener('click', function (e) {
     var link = e.target.closest('[data-back]');
-    if (!link || cameFrom !== backHref || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!link || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    dropRating();
+    if (stopsOnLeaving()) {
+      e.preventDefault();
+      els.leaveCard.showModal();
+      return;
+    }
+    if (cameFrom !== backHref) return;
     e.preventDefault();
     goBack();
   });
+
+  /* ---- playing elsewhere ----------------------------------------------- */
+
+  function onTv() { return !!away && !!away.tv; }
+  /* A TV has been chosen and has not begun. */
+  function opening() { return !!attempt && attempt.opened; }
+  function isAway() { return !!away || opening(); }
+  function stopsOnLeaving() { return !!away && !!away.play && !away.play.carriesOn && !video.ended; }
+
+  function coded(code) { return Object.assign(new Error(code), { code: code }); }
+  function toast(text) { if (window.UIFeedback) window.UIFeedback.toast(text, { variant: 'info' }); }
+
+  function awayName() {
+    if (opening()) return attempt.name;
+    if (onTv()) return away.tv.name;
+    return away.play.name || away.way.label;
+  }
+
+  function pictureUrl() {
+    var key = encodeURIComponent(item.rating_key);
+    return showHref ? '/api/watch/thumb/' + key : '/api/poster/' + key + '?kind=art';
+  }
+
+  function titleNow() {
+    return {
+      rating_key: item.rating_key, title: item.title, subtitle: item.subtitle,
+      duration_s: item.duration_s, image: pictureUrl(),
+    };
+  }
+
+  /* The choice of quality, as one of those a TV can be given. */
+  function tvQuality() {
+    if (away && away.play) return asked();
+    var row = quality === 'auto' || quality === 'original' ? null : rowFor(quality);
+    if (!row) return 'auto';
+    if (row.height >= AUTO_HEIGHT) return 'best';
+    return row.height >= 720 ? 'medium' : 'low';
+  }
+
+  /* What plays the title now is ended and its place saved, before something else is asked to play
+     it. Settles with the place. */
+  function stopHere() {
+    var at = video.ended ? 0 : position();
+    var was = away;
+    dropHold();
+    leaveNative();
+    dropRating();
+    hideMessage();
+    hideUpnext();
+    swapping = true;
+    var stopped = release();
+    if (onTv()) {
+      /* Where it is not reached it is replaced all the same. */
+      stopped = inTime(stopTv(was.tv), STOP_WAIT_MS).then(function (last) {
+        if (last && isThis(last)) at = last.position_s;
+      }, function () {
+        if (was.tv.play) at = was.tv.play.position_s || at;
+      });
+    }
+    endAway(true);
+    pendingStart = at;
+    setLoading(true);
+    return stopped.then(function () { return at; });
+  }
+
+  function isThis(what) { return String(what.rating_key) === String(item.rating_key); }
+
+  /* What a start that failed has changed, as the sheet says it. */
+  function leftBy(was) { return was.was ? ' What played on ' + was.was + ' stopped, and goes on here.' : ''; }
+
+  /* What was chosen is not wanted any more. */
+  function dropAttempt() {
+    var was = attempt;
+    attempt = null;
+    if (was.abort) was.abort.abort();
+    playOn.cancel();
+  }
+
+  /* Nothing came of it: go on here, at the place, or as it was `held` before. */
+  function goOnHere(playing, held) {
+    var at = position();
+    swapping = true;
+    release();
+    if (held) {
+      /* Still not known to be nowhere else. */
+      held.told = true;
+      holding = held;
+      pendingStart = at;
+      showAway();
+      showMessage(MSG_MAYBE_TV, playAnyway);
+      return;
+    }
+    wantPlaying = playing;
+    startStream(at);
+    showAway();
+  }
+
+  /* A way of the browser's, in the press for it; `chosen` is told once a TV was picked. */
+  function startWay(way, chosen) {
+    var mine = attempt = { way: way, name: way.label, opened: false, played: false, was: '', held: null, abort: null, stream: null, data: null };
+    pressedPlay();
+    return way.start({
+      title: titleNow(),
+      position_s: position(),
+      open: function () { return openFor(mine, chosen); },
+    }).then(function (elsewhere) {
+      if (attempt !== mine) {
+        elsewhere.stop();
+        throw coded('cancelled');
+      }
+      attempt = null;
+      follow(way, elsewhere, mine.stream, mine.data);
+    }, function (err) {
+      if (attempt === mine) {
+        attempt = null;
+        if (mine.opened) goOnHere(mine.played, mine.held);
+      }
+      err.left = leftBy(mine);
+      throw err;
+    });
+  }
+
+  function openFor(mine, chosen) {
+    if (attempt !== mine) return Promise.reject(coded('cancelled'));
+    var asks = tvQuality();
+    var at;
+    var late;
+    mine.was = away ? awayName() : '';
+    mine.held = holding;
+    mine.opened = true;
+    mine.played = wantPlaying;
+    chosen();
+    var stopped = stopHere();
+    showAway();
+    return stopped.then(function (place) {
+      if (attempt !== mine) throw coded('cancelled');
+      at = place;
+      mine.abort = new AbortController();
+      late = setTimeout(function () { mine.abort.abort(); }, START_WAIT_MS);
+      return MM.api.post(CAST_URL, Object.assign(startBody(), { quality: asks }), { signal: mine.abort.signal });
+    }).then(function (data) {
+      clearTimeout(late);
+      if (attempt !== mine) {
+        stopOnServer(data.stream_id);
+        throw coded('cancelled');
+      }
+      streamId = data.stream_id;
+      mine.data = data;
+      mine.quality = asks;
+      mine.stream = streamOf(data, at, false);
+      return mine.stream;
+    }, function (err) {
+      clearTimeout(late);
+      if (err.name === 'AbortError') throw coded(attempt === mine ? 'network_error' : 'cancelled');
+      throw err.code ? err : coded(err.error || 'failed');
+    });
+  }
+
+  /* A stream's answer as its way is given it. */
+  function streamOf(data, at, paused) {
+    return {
+      stream_id: data.stream_id,
+      url: window.location.origin + data.url,
+      position_s: at,
+      duration_s: data.duration_s || item.duration_s,
+      paused: paused,
+      title: titleNow(),
+    };
+  }
+
+  /* What plays elsewhere takes the video's place here. */
+  function follow(way, elsewhere, stream, data) {
+    here = { rows: rows, quality: quality, override: override };
+    quality = data.quality || 'auto';
+    override = null;
+    rows = TV_ROWS;
+    away = { way: way, play: elsewhere };
+    good = streamChoice = choice();
+    starting = false;
+    streamId = stream.stream_id;
+    pendingStart = stream.position_s;
+    lastTime = null;
+    savedAs = null;
+    wantPlaying = !stream.paused;
+    clearTrouble();
+    useVideo(elsewhere.media);
+    streamPlayed = video.readyState >= 3;
+    /* A TV's stream has none. */
+    takePreviews(null);
+    dropFrames();
+    elsewhere.onGone(function (why) { if (away && away.play === elsewhere) letGo(why); });
+    buildQualityMenu();
+    takeQualities(data);
+    takeSubtitles(data);
+    keepWith();
+    swapping = false;
+    showAway();
+    var plays = !video.paused && video.readyState >= 3;
+    playAsWanted();
+    if (plays) onPlaying();
+  }
+
+  function keepWith() {
+    if (!away.play.keep) return;
+    away.play.keep({
+      quality: quality, subtitle: subtitle, played_s: Math.round(playedS),
+      given: given, markers: markers, chapters: chapters,
+    });
+  }
+
+  /* Another stream of the same play: a new choice, the next episode, one that ended. */
+  function loadAway(data) {
+    var gen = generation;
+    if (aimS !== null) pendingStart = aimS;
+    dropAim();
+    var stream = streamOf(data, pendingStart, !wantPlaying);
+    swapping = true;
+    away.play.load(stream).then(function () {
+      if (gen !== generation) return;
+      /* Moved on meanwhile. */
+      if (pendingStart !== null && Math.abs(pendingStart - stream.position_s) > 1) video.currentTime = pendingStart;
+      swapping = false;
+      keepWith();
+      playAsWanted();
+    }, function () {
+      if (gen !== generation) return;
+      swapping = false;
+      streamGone();
+    });
+  }
+
+  onVideo('error', function () {
+    if (away && streamId && !starting && !swapping) streamGone();
+  });
+
+  /* No longer elsewhere; with `stop` what plays there is ended. */
+  function endAway(stop) {
+    var was = away;
+    if (!was) return;
+    away = null;
+    clearTimeout(tvTimer);
+    if (was.play) {
+      rows = here.rows;
+      quality = here.quality;
+      override = here.override;
+      good = choice();
+      useVideo(local);
+      if (stop) was.play.stop();
+      buildQualityMenu();
+      showVolume();
+    }
+    here = null;
+    subtitle = subtitleGood = null;
+    showAway();
+  }
+
+  /* It ended elsewhere by itself. */
+  function letGo(why) {
+    var name = awayName();
+    var ended = video.ended;
+    var at = ended ? 0 : position();
+    hideUpnext();
+    var goesOn = wantPlaying || Date.now() - pausedThereAt < LET_GO_MS;
+    swapping = true;
+    release();
+    endAway(false);
+    pendingStart = at;
+    if (why === 'back' && !ended) {
+      wantPlaying = goesOn;
+      startStream(at);
+      return;
+    }
+    restHere();
+    if (why !== 'back') showMessage(name + (MSG_LEFT_TV[why] || ' stopped playing.'), playHere);
+  }
+
+  /* Nothing plays, here or elsewhere, until a press. */
+  function restHere() {
+    wantPlaying = false;
+    swapping = false;
+    setLoading(false);
+    render();
+    showPlayState();
+  }
+
+  function bringHere() {
+    pressedPlay();
+    hideUpnext();
+    if (opening()) {
+      dropAttempt();
+      goOnHere(true);
+    } else if (onTv()) {
+      leaveTv(function (at) {
+        wantPlaying = true;
+        swapping = true;
+        startStream(at);
+        toast('Playing here again from ' + fmt(at) + '.');
+      });
+    } else if (away) {
+      var at = video.ended ? 0 : position();
+      var note = away.way.hereNote;
+      swapping = true;
+      release();
+      endAway(true);
+      wantPlaying = true;
+      startStream(at);
+      toast('Playing here again from ' + fmt(at) + '.' + (note ? ' ' + note : ''));
+    }
+  }
+
+  function stopAway() {
+    hideUpnext();
+    if (opening()) {
+      dropAttempt();
+      release();
+      showAway();
+      restHere();
+    } else if (onTv()) {
+      leaveTv(stoppedAt);
+    } else if (away && video.ended) {
+      release();
+      endAway(true);
+      leaveAtEnd();
+    } else if (away) {
+      var at = position();
+      swapping = true;
+      release();
+      endAway(true);
+      stoppedAt(at);
+    }
+  }
+
+  function stoppedAt(at) {
+    pendingStart = at;
+    restHere();
+    els.play.focus();
+    toast('Stopped. Your place is saved at ' + fmt(at) + '.');
+  }
+
+  /* A paused TV asks for nothing, and what nothing asks for is ended: the place once more, and
+     nothing played since, counts as use and as no save. */
+  setInterval(function () {
+    if (!away || !away.play || !streamId || !hasPlayed || !video.paused || video.ended || swapping) return;
+    var place = { position_s: Math.round(position() * 10) / 10, played_s: 0 };
+    MM.api.post('/api/watch/progress', withStream(place)).catch(function () { /* found out as it plays on */ });
+  }, KEEP_EVERY_MS);
+
+  /* ---- a TV with a page of its own ---- */
+
+  var tvTimer = null;
+  var tvLeaving = false;
+
+  function tvUrl(tv) { return '/api/tvs/' + encodeURIComponent(tv.id); }
+
+  function stopTv(tv) {
+    return MM.api.post(tvUrl(tv) + '/commands', { kind: 'stop' }).then(function (data) {
+      return data.tv && data.tv.last;
+    }, function (err) {
+      if (err && err.error === 'not_playing') return tv.last || null;
+      throw err;
+    });
+  }
+
+  /* End it there, and `then` go on from its place. */
+  function leaveTv(then) {
+    var tv = away.tv;
+    if (tvLeaving) return;
+    tvLeaving = true;
+    stopTv(tv).then(function (last) {
+      tvLeaving = false;
+      if (!onTv()) return;
+      if (last && !isThis(last)) {
+        /* It has gone on to another episode. */
+        window.location.href = '/watch/play/' + encodeURIComponent(last.rating_key) + '?resume=1';
+        return;
+      }
+      endAway(false);
+      then(last ? last.position_s : position());
+    }, function (err) {
+      tvLeaving = false;
+      if (window.UIFeedback) window.UIFeedback.error(MM.api.messageOf(err, 'That didn’t work. Try again.'));
+    });
+  }
+
+  function watchTv() {
+    clearTimeout(tvTimer);
+    tvTimer = setTimeout(function () {
+      var tv = away.tv;
+      MM.api.get(tvUrl(tv)).then(function (data) {
+        if (!onTv() || away.tv.id !== tv.id || tvLeaving) return;
+        away.tv = data.tv;
+        if (data.tv.play) paintAway();
+        else tvOver(data.tv.last);
+      }, function (err) {
+        if (!onTv() || tvLeaving) return;
+        if (err && (err.status === 404 || err.status === 410)) tvOver(err.data && err.data.last, err.error);
+      }).then(function () { if (onTv()) watchTv(); });
+    }, pageHidden() ? TV_HIDDEN_MS : root.classList.contains('is-begun') ? TV_EVERY_MS : TV_BEGINS_MS);
+  }
+
+  function tvOver(last, code) {
+    var name = away.tv.name;
+    var why = code || last && last.reason;
+    endAway(false);
+    if (last && isThis(last)) pendingStart = last.position_s;
+    if (why === 'stopped') {
+      stoppedAt(position());
+      return;
+    }
+    restHere();
+    showMessage(why === 'moved' ? MSG_REPLACED : name + (MSG_LEFT_TV[why] || ' stopped playing.'), playHere);
+  }
+
+  document.addEventListener('visibilitychange', function () { if (onTv() && !pageHidden()) watchTv(); });
+
+  /* ---- showing that it plays elsewhere ---- */
+
+  function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+
+  function showAway() {
+    var on = isAway();
+    var plays = !!away && !!away.play;
+    var silent = plays && video.canVolume === false;
+    root.classList.toggle('is-on-tv', onTv());
+    root.classList.toggle('has-no-volume', silent);
+    els.away.hidden = els.awayEnd.hidden = !on;
+    els.noVolume.hidden = !silent;
+    if (!plays) els.tracks.hidden = true;
+    els.openRemote.hidden = !(onTv() && MM.tvRemote);
+    els.bring.classList.toggle('player-pill--primary', els.openRemote.hidden);
+    if (on) {
+      root.querySelectorAll('[data-away-art]').forEach(function (img) {
+        if (img.getAttribute('src') !== pictureUrl()) {
+          img.hidden = true;
+          img.setAttribute('src', pictureUrl());
+        }
+      });
+    }
+    closeMenus();
+    showVolume();
+    showSkip();
+    paintAway();
+    showControls();
+  }
+  root.querySelectorAll('[data-away-art]').forEach(function (img) {
+    img.addEventListener('load', function () { img.hidden = false; });
+  });
+
+  function paintAway() {
+    var on = isAway();
+    root.classList.toggle('is-away', on);
+    var tv = onTv() ? away.tv : null;
+    var begins = opening() || (tv ? !tv.play || /^(starting|loading)$/.test(tv.play.state) : on && (starting || swapping || !streamPlayed));
+    var ended = on && !begins && (tv ? tv.play.state === 'ended' : video.ended);
+    var lostTv = !!tv && !tv.on && tv.lost_s !== null && tv.lost_s !== undefined;
+    var paused = on && !begins && (tv ? tv.play.state === 'paused' : video.paused);
+    root.classList.toggle('is-begun', on && !begins);
+    root.querySelectorAll('[data-away-idle]').forEach(function (el) { el.inert = opening(); });
+    if (!on) return;
+    var says = begins ? 'Starting on ' : ended ? 'Finished on ' : paused ? 'Paused on ' : 'Playing on ';
+    if (lostTv) says = 'Was playing on ';
+    setText(els.awayOn, says + awayName());
+    var hint = 'You can lock or close this device. The TV carries on.';
+    if (lostTv) hint = 'It stopped answering. If it comes back within 2 minutes, it carries on by itself.';
+    else if (begins) hint = 'Starting. This can take a few seconds.';
+    else if (ended) hint = awayName() + ' is ready for something else.';
+    else if (tv && !isThis(tv.play)) hint = 'It plays ' + [tv.play.title, tv.play.episode_title].filter(Boolean).join(', ') + ' now.';
+    else if (away.play && away.play.carriesOn) hint = 'You can leave this page. The TV carries on.';
+    else if (away.play) hint = 'Keep this page open. ' + away.way.label + ' stops when you leave it.';
+    setText(els.awayHint, hint);
+    setText(els.bring, ended && !tv ? 'Play again' : 'Stop and bring it here');
+    setText(els.stopAway, ended && !tv ? 'Disconnect' : 'Stop');
+  }
+
+  /* The subtitles the TV can be given, and which it has. */
+  function takeSubtitles(data) {
+    var tracks = data.subtitle_tracks || [];
+    var now = data.subtitle || 'off';
+    subtitleGood = subtitle;
+    given = { subtitle: data.subtitle || null, subtitle_tracks: tracks };
+    els.tracks.hidden = !tracks.length;
+    var hadFocus = els.tracks.contains(document.activeElement);
+    els.tracks.textContent = '';
+    var trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'player-pill';
+    trigger.setAttribute('data-menu-trigger', '');
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.textContent = 'Subtitles';
+    var menu = document.createElement('div');
+    menu.className = 'player-menu player-menu--up player-menu--wide';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Subtitles');
+    menu.hidden = true;
+    els.tracks.appendChild(trigger);
+    els.tracks.appendChild(menu);
+    addTitle(menu, 'Subtitles');
+    var list = addList(menu);
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', 'Subtitles');
+    [{ id: 'off', label: 'Off' }].concat(tracks).forEach(function (t) {
+      var btn = menuRow(t.label, '');
+      btn.setAttribute('data-subtitle', t.id);
+      btn.setAttribute('aria-checked', String(t.id === now));
+      list.appendChild(btn);
+    });
+    addNote(menu, NOTE_SUBTITLES);
+    if (hadFocus) trigger.focus();
+  }
+
+  els.tracks.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-subtitle]');
+    if (!btn) return;
+    closeMenus(true);
+    if (btn.getAttribute('aria-checked') === 'true' || !away) return;
+    subtitle = btn.getAttribute('data-subtitle');
+    pressedPlay();
+    restartStream(true);
+  });
+
+  els.bring.addEventListener('click', function () {
+    if (away && away.play && video.ended) togglePlay(true);
+    else bringHere();
+  });
+  els.stopAway.addEventListener('click', stopAway);
+  els.openRemote.addEventListener('click', function () { MM.tvRemote.open(away.tv); });
+
+  q('[data-leave-stay]').addEventListener('click', function () { els.leaveCard.close(); });
+  q('[data-leave-stop]').addEventListener('click', function () {
+    els.leaveCard.close();
+    beaconStop();
+    streamId = null;
+    generation++;
+    endAway(true);
+    goBack();
+  });
+
+  var playHost = {
+    what: function () {
+      return {
+        rating_key: String(item.rating_key),
+        quality: tvQuality(),
+        position_s: position(),
+        autoplay: autoplay,
+        asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
+      };
+    },
+    on: function () { return onTv() ? 'tv-' + away.tv.id : away ? away.way.id : null; },
+    before: function (tv) {
+      attempt = { name: tv.name, opened: true, played: wantPlaying, was: away ? awayName() : '', held: holding };
+      pressedPlay();
+      var stopped = stopHere();
+      showAway();
+      return stopped;
+    },
+    failed: function () {
+      if (!opening()) return '';
+      var was = attempt;
+      attempt = null;
+      goOnHere(was.played, was.held);
+      return leftBy(was);
+    },
+    started: function (tv) {
+      /* Left and come back to meanwhile, the page may have begun something else. */
+      if (!opening() && (streamId || starting)) {
+        swapping = true;
+        release();
+      }
+      attempt = null;
+      dropHold();
+      followTv(tv);
+      if (MM.tvRemote) MM.tvRemote.open(tv);
+    },
+    startWay: startWay,
+    here: bringHere,
+  };
+
+  function setupPlayOn() {
+    if (!playOn) return;
+    var buttons = root.querySelectorAll('[data-play-on]');
+    playOn.ready(function (any) {
+      buttons.forEach(function (b) { b.hidden = !any && !isAway(); });
+    });
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        showControls();
+        playOn.open(b, playHost);
+      });
+    });
+  }
+
+  function inTime(promise, ms) {
+    return Promise.race([promise, new Promise(function (resolve) { setTimeout(resolve, ms, null); })]);
+  }
+
+  /* Plays here, unless it plays elsewhere: a start here would end it there. Until that is known
+     a press only says whether it is to play; where it is not known soon the page says so, and
+     only a press for it plays it here. */
+  function begin() {
+    var key = String(item.rating_key);
+    var asked = playOn && playOn.again(key);
+    var look = playOn && playOn.mayBeOnTv();
+    if (!asked && !look) {
+      if (!holding) startStream(position());
+      return;
+    }
+    /* Asked again behind the message that says so, it stays until there is something to follow. */
+    var mine = holding = {
+      way: asked ? asked.way : null,
+      told: !!holding,
+      heard: false,
+      at: position(),
+      pressed: false,
+      drop: function () {
+        clearTimeout(timer);
+        if (got) got.play.leave();
+        got = null;
+      },
+    };
+    var still = mine.told;
+    var timer = null;
+    var got = null;            // what the way has found
+    if (!still) {
+      swapping = true;
+      setLoading(true);
+    }
+
+    function tell(text) {
+      clearTimeout(timer);
+      if (mine !== holding || mine.told) return;
+      mine.told = true;
+      showMessage(text || MSG_MAYBE_TV, playAnyway);
+    }
+
+    function tellAfter(ms) {
+      clearTimeout(timer);
+      if (!mine.told) timer = setTimeout(tell, ms);
+    }
+
+    function endHold() {
+      var told = mine.told;
+      dropHold();
+      if (told) hideMessage();
+    }
+
+    function startHere() {
+      mine.heard = true;
+      if (mine.told && (still || asked)) return;
+      endHold();
+      startStream(position());
+    }
+
+    var found = asked ? asked.found : Promise.resolve(null);
+    found.then(function (f) {
+      got = f;
+      if (f && mine !== holding) mine.drop();
+    }, function () { /* said below */ });
+    tellAfter(LOOK_WAIT_MS);
+    (look ? playOn.onTv(key) : Promise.resolve(null)).catch(function (err) {
+      if (!asked) throw err;
+      /* A way may still find it; that it does not says nothing of the TVs. */
+      tell();
+      return null;
+    }).then(function (tv) {
+      if (mine !== holding) return undefined;
+      if (tv) {
+        endHold();
+        followTv(tv);
+        return undefined;
+      }
+      if (!asked) {
+        startHere();
+        return undefined;
+      }
+      tellAfter(AGAIN_WAIT_MS);
+      return found.then(function (f) {
+        if (mine !== holding) return;
+        if (!f || !isThis(f.stream)) {
+          startHere();
+          return;
+        }
+        got = null;
+        endHold();
+        followAgain(asked.way, f, mine.pressed ? wantPlaying : null);
+      });
+    }).catch(function (err) {
+      mine.heard = true;
+      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : null);
+    });
+  }
+
+  /* It is known, or no longer asked, where it plays; what a way has found is left to its TV. */
+  function dropHold() {
+    var was = holding;
+    holding = null;
+    if (was) was.drop();
+  }
+
+  /* From the newest place there is: where it stood on a TV a moment ago, or what the server has. */
+  function playAnyway() {
+    var was = holding;
+    var chosen = Math.abs(position() - was.at) > 1;
+    var place = was.way && was.way.release ? was.way.release(String(item.rating_key)) : null;
+    if (place && place.age_s < PLACE_AGE_S) was.place = place.position_s;
+    dropHold();
+    if (!chosen && was.place !== undefined) pendingStart = within(was.place);
+    playHere(chosen || was.place !== undefined, function () {
+      holding = was;
+      was.heard = true;
+      showMessage(MSG_LOST, playAnyway);
+    });
+  }
+
+  /* `wants`: what was pressed for while it was looked for, or null. */
+  function followAgain(way, found, wants) {
+    var kept = found.stream.keep || {};
+    hasPlayed = true;
+    playedS = kept.played_s || 0;
+    subtitle = kept.subtitle || null;
+    takeMarks({ markers: kept.markers, chapters: kept.chapters });
+    follow(way, found.play, found.stream, Object.assign({ quality: kept.quality }, kept.given));
+    if (wants === null || wants === wantPlaying) return;
+    wantPlaying = wants;
+    if (wants) {
+      play();
+    } else {
+      pausedHere = true;
+      video.pause();
+    }
+  }
+
+  function followTv(tv) {
+    away = { tv: tv };
+    if (tv.play && tv.play.position_s) pendingStart = tv.play.position_s;
+    swapping = false;
+    setLoading(false);
+    render();
+    showAway();
+    watchTv();
+  }
 
   /* ---- leaving the page ----------------------------------------------- */
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') beaconProgress();
+    else if (onReturn) askRating(onReturn);
   });
 
   // A phone may not say so.
@@ -2888,8 +4127,23 @@
   window.addEventListener('pagehide', function () {
     clearTimeout(backTimer);
     backTimer = null;
+    if (away && away.play && away.play.carriesOn) {
+      beaconProgress();
+      dropRating();
+      keepRating();
+      return;
+    }
     var resumeAt = position();
     beaconStop();
+    dropRating();
+    keepRating();
+    /* A TV's own start goes on without the page; a way's needs it. */
+    if (attempt && attempt.way) dropAttempt();
+    if (attempt) {
+      attempt = null;
+      showAway();
+    }
+    if (away && away.play) endAway(true);
     pendingStart = resumeAt;
     streamId = null;
     generation++;
@@ -2902,11 +4156,12 @@
 
   /* Back from the browser's page cache: the old stream was stopped. */
   window.addEventListener('pageshow', function (e) {
-    if (!e.persisted || (els.ask && els.ask.open)) return;
+    if (!e.persisted || away || (els.ask && els.ask.open)) return;
+    if (holding && !holding.heard) return;
     /* Playing somewhere else it stays so. */
     if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
-    startStream(pendingStart || 0);
+    begin();
   });
 
   /* ---- start ---------------------------------------------------------- */
@@ -2926,5 +4181,6 @@
     showMessage(MSG_UNSUPPORTED, null);
     return;
   }
-  startStream(startS);
+  setupPlayOn();
+  begin();
 })();

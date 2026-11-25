@@ -165,6 +165,18 @@ def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_say
     assert "display: none" not in word
 
 
+def test_a_caption_ends_before_the_more_of_any_card_that_has_one() -> None:
+    caption = ".watch-card:has(> .watch-more) .watch-card__sub"
+    wide = re.search(r"padding-right: (\d+)px", _of(caption))
+    phone = re.search(r"padding-right: (\d+)px", _of(caption, "max-width: 599.98px"))
+    # The dots are 14px wide: in the middle of 44px that end 8px past the card, on a phone 7px from that end.
+    assert wide and int(wide.group(1)) >= 44 / 2 + 14 / 2 - 8
+    assert phone and int(phone.group(1)) >= 14 + 7 - 8
+    assert "data-mark" not in "".join(
+        line for line in SHEET.read_text(encoding="utf-8").splitlines() if "__sub" in line
+    )
+
+
 def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> None:
     phone = "max-width: 599.98px"
     more = _of(".watch-more", phone)
@@ -269,3 +281,60 @@ def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
         left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
         assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
     assert "right: auto" in _of(under, sheet=browse)
+
+
+def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -> None:
+    search = SHEET.with_name("_watch_search.css")
+    # The tile's own rule for the drawing's grey is more specific than a bare `.watch-line` one.
+    for selector in (
+        ".watch-tile > .watch-line",
+        ".watch-tile:hover > .watch-line",
+        ".watch-tile.is-picked > .watch-line",
+    ):
+        rules = _of(selector, FORCED, search)
+        assert "color: CanvasText" in rules and "forced-color-adjust: auto" in rules
+
+
+BAR = SHEET.with_name("_watch_search.css")
+CONTROLS = ":is(a, button, input, select, textarea, [tabindex])"
+
+
+def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scroll_it() -> None:
+    css = BAR.read_text(encoding="utf-8")
+    rules = re.findall(r"([^{}]*)\{ scroll-margin-top: [^}]*\}", css)
+    page = [r.strip() for r in rules if CONTROLS in r]
+    assert len(page) == 2
+    for selector in page:
+        assert selector.endswith(':not(.watch-all__head *, [role="menu"] *)')
+    sticky = {
+        head.strip()
+        for sheet in SHEET.parent.glob("_watch*.css")
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", sheet.read_text(encoding="utf-8"))
+        if "position: sticky" in body
+    }
+    # The bar of a title's overlay is in #watch-detail, which the rule leaves out.
+    assert sticky == {".watch-all__head", ".ttl__bar"}
+
+
+def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
+    assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
+    narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
+    assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow
+
+
+ASK = SHEET.with_name("_watch_ask.css")
+
+
+def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
+    assert "min-height: 38px" in _of(".tn__seg > button", sheet=ASK)
+    assert "inset: -3.5px 0" in _of(".tn__seg > button::after", sheet=ASK)
+    assert "min-height: 44px" in _of(".tn__foot", sheet=ASK)
+    assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
+
+
+def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_text() -> None:
+    assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
+    assert "white-space: nowrap" in _of(".tn__art > span", sheet=ASK)
+    # The picture is as wide as it needs.
+    assert "position: relative" in _of(".tn__art > span", sheet=ASK)
+    assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)

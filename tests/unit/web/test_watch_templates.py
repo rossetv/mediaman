@@ -64,6 +64,13 @@ def _watch(**over: object) -> str:
     return _render("watch.html", **ctx)
 
 
+def test_the_play_on_sheet_and_its_symbols_are_there_before_what_opens_it() -> None:
+    html = _watch()
+    assert 'id="play-on-tv"' in html
+    assert html.index("/watch/play-on.js") < html.index("/watch/detail.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/preview.js")
+
+
 def _show_ctx(**over: object) -> dict:
     ctx: dict = {
         "show": {
@@ -622,6 +629,19 @@ def test_search_has_a_clear_button_and_announces_outside_the_hidden_results():
     assert "watch-search-status" not in overlay
 
 
+def test_a_titles_page_does_not_hide_the_bar_of_a_tv_from_a_screen_reader():
+    tag = re.search(r'<div class="ttl"[^>]*>', _watch())
+    assert tag is not None
+    assert 'role="dialog"' in tag.group(0)
+    assert "aria-modal" not in tag.group(0)
+
+
+def test_the_watch_page_loads_what_asks_the_ai():
+    html = _watch()
+    for name in ("js/watch/ask.js", "js/watch/tonight.js", "css/_watch_ask.css"):
+        assert f"/static/{name}?v=" in html
+
+
 def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
     field = re.search(r'<input id="watch-search"[^>]*>', _watch())
     assert field is not None
@@ -1004,10 +1024,13 @@ def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
         ("rows-load", "grid"),
         ("grid", "explore"),
         ("search", "explore"),
+        ("collection", "detail"),
     ]:
         assert place[f"watch/{first}"] < place[f"watch/{then}"]
     # It starts them all and opens what the address names.
     assert place["watch"] > place["watch/explore"]
+    html = _watch()
+    assert html.index("/static/js/ratings.js") < html.index("/static/js/watch/marks.js")
 
 
 @pytest.mark.parametrize(

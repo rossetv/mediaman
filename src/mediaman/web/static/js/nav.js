@@ -10,6 +10,19 @@
   // document or body; this empty one switches the pressed states on.
   document.addEventListener('touchstart', function () {}, { passive: true });
 
+  // Pressed again on the address it already led to, the skip link moves the focus
+  // but leaves the page where it was: scroll it here. Any other press is the browser's own.
+  document.addEventListener('click', function (e) {
+    var link = e.target && e.target.closest ? e.target.closest('a.skip-link') : null;
+    if (!link || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var href = link.getAttribute('href');
+    var target = href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+    if (!target || window.location.hash !== href) return;
+    e.preventDefault();
+    target.focus({ preventScroll: true });
+    target.scrollIntoView();
+  });
+
   var menu = document.getElementById('profile-menu');
   if (!menu) return;
 
@@ -58,7 +71,7 @@
     // CSS keeps the menu visible for the fade, so only this keeps it out of focus and the tree.
     menu.inert = true;
     opener.setAttribute('aria-expanded', 'false');
-    if (returnFocus) opener.focus();
+    if (returnFocus) opener.focus({ preventScroll: true });
   }
 
   document.addEventListener('click', function (e) {
@@ -115,7 +128,7 @@
     if (!isOpen()) return;
     close(false);
     var shown = buttons().filter(function (b) { return b.getClientRects().length; })[0];
-    if (shown) shown.focus();
+    if (shown) shown.focus({ preventScroll: true });
   });
 
   // A changed picture is loaded before it takes the place of the one on show; the last change wins.

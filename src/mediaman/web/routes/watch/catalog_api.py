@@ -30,6 +30,7 @@ from mediaman.core.format import format_bytes
 from mediaman.core.time import now_iso, now_utc
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr.state import ACTION_IN_LIBRARY, ACTION_PARTIAL
 from mediaman.services.downloads.notifications import has_unsent_notification
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.item_enrichment import tidy_summary
@@ -91,6 +92,9 @@ _PAGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_d
 # Titles whose ratings OMDb is asked for, apart from the query limit (and as tight) so that
 # opening a title, which counts there, is not counted twice.
 _RATINGS_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+# Films whose collection TMDB is asked for, apart from the query limit (and as tight) for the
+# same reason.
+_COLLECTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 # A worker thread waits for the answer.
 _TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
@@ -1008,6 +1012,74 @@ def _rated(
         return media_type, int(tmdb_id), None
     rec = _recommended(conn, username, kind, rest)
     return (rec.media_type, rec.tmdb_id, None) if rec and rec.tmdb_id else None
+
+
+@router.get("/api/watch/title/{ref}/collection")
+def api_watch_title_collection(
+    ref: str, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
+    """The films of the collection that film *ref* is part of, ``here`` marking its own, and
+    why one is not to be asked for; null when there is nothing to show."""
+    if not REF_RE.fullmatch(ref):
+        return _not_found()
+    nothing = JSONResponse(None)
+    if ref.startswith(("show-", "tmdb-tv-")):
+        return nothing
+    conn = get_db()
+    client = _tmdb_client(request, conn)
+    found = _rated(request, conn, username, client, ref) if client is not None else None
+    if client is None or found is None or found[0] != "movie":
+        return nothing
+    tmdb_id = found[1]
+    # Counted once, though TMDB may be asked for the film and for its collection.
+    allowed: list[bool] = []
+
+    def allow_fetch() -> bool:
+        if not allowed:
+            allowed.append(_COLLECTION_LIMITER.check(username))
+        return allowed[0]
+
+    try:
+        collection = catalog.film_collection(client, tmdb_id, allow_fetch=allow_fetch)
+    except (disk_cache.Refused, catalog.TmdbBusy):
+        return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        return nothing
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
+    if collection is None or len(collection["films"]) < 2:
+        return nothing
+    films = collection["films"]
+    [cards] = _discover_cards(request, conn, client, username, [films])
+    answered = _arr(request, conn).answers_for("movie")
+    shown = []
+    for film, card in zip(films, cards, strict=True):
+        why_not = _why_not_to_request(card, film["release_date"], answered)
+        shown.append(
+            {
+                **card,
+                "release_date": film["release_date"],
+                "here": film["id"] == tmdb_id,
+                "can_request": why_not is None,
+                "why_not": why_not,
+            }
+        )
+    return JSONResponse({"name": collection["name"], "films": shown})
+
+
+def _why_not_to_request(
+    card: Mapping[str, object], release_date: str | None, radarr_answered: bool
+) -> str | None:
+    state = card["download_state"]
+    if card["in_library"] or state in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
+        return "held"
+    if state is not None:
+        return "requested"
+    if release_date is None:
+        return "undated"
+    if release_date > now_utc().date().isoformat():
+        return "unreleased"
+    return None if radarr_answered else "unavailable"
 
 
 @router.get("/api/watch/title/{ref}/season/{number}")

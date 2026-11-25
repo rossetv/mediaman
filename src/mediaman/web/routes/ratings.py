@@ -123,8 +123,15 @@ def _details(
         return None
 
 
-def _answer(title: RatedTitle, level: int | None) -> JSONResponse:
-    return respond_ok({"media_type": title.media_type, "tmdb_id": title.tmdb_id, "level": level})
+def _answer(title: RatedTitle, level: int | None, was: int | None) -> JSONResponse:
+    return respond_ok(
+        {
+            "media_type": title.media_type,
+            "tmdb_id": title.tmdb_id,
+            "level": level,
+            "was": was,
+        }
+    )
 
 
 @router.get("/api/watch/ratings")
@@ -172,8 +179,8 @@ def api_rate(
             title = RatedTitle(
                 title.media_type, title.tmdb_id, fields["title"] or None, fields["year"]
             )
-    ratings.set_level(conn, user_id, title, body.level, now_utc())
-    return _answer(title, body.level)
+    was = ratings.set_level(conn, user_id, title, body.level, now_utc())
+    return _answer(title, body.level, was)
 
 
 @router.delete("/api/watch/ratings/{ref}")
@@ -187,8 +194,8 @@ def api_unrate(ref: str, user_id: _UserId, username: _Username) -> JSONResponse:
     title = found[ref]
     if title is None:
         return _no_tmdb_id()
-    ratings.clear_level(conn, user_id, title)
-    return _answer(title, None)
+    was = ratings.clear_level(conn, user_id, title)
+    return _answer(title, None, was)
 
 
 @router.post("/api/watch/ratings/ask/{rating_key}")

@@ -1,0 +1,49 @@
+/* Pair a TV: the code it shows, then its name. */
+.pair-pg { display: grid; justify-items: center; padding: 48px 20px 72px; }
+.pair { width: 100%; max-width: 380px; }
+/* Each step as it is shown. */
+.pair form, #pair-done { animation: pair-in var(--dur) var(--ease-out); }
+@keyframes pair-in { from { opacity: 0; transform: translateY(8px); } }
+.pair__title { margin-bottom: 16px; font-size: 28px; letter-spacing: -.03em; line-height: 1.1; }
+.pair p { margin-bottom: 12px; font-size: 14px; line-height: 1.45; color: var(--t2); }
+.pair ol { margin-bottom: 14px; list-style: none; counter-reset: step; font-size: 14px; line-height: 1.45; color: var(--t2); }
+.pair li { position: relative; padding: 0 0 8px 32px; counter-increment: step; }
+.pair li::before {
+  content: counter(step); position: absolute; left: 0; top: -1px;
+  display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--s4); color: var(--t1); font-size: 12px; font-weight: 600;
+}
+.pair li b { color: var(--t1); font-weight: 600; overflow-wrap: anywhere; }
+.pair__code { position: relative; display: flex; gap: 8px; margin-bottom: 10px; }
+.pair__code i {
+  flex: 1; min-width: 0; height: 56px; display: grid; place-items: center;
+  border: 1px solid var(--hair-strong); border-radius: var(--r-md); background: var(--s1);
+  font: 600 24px/1 var(--font-display); font-variant-numeric: tabular-nums;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.pair__code i:nth-of-type(4) { margin-left: 10px; }
+.pair__code i.at { border-color: var(--accent); }
+.pair__code:focus-within i.at { outline: 1px solid var(--accent); }
+.pair__code.is-bad i { border-color: var(--danger-text); }
+.pair__code input { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: text; }
+.pair__code input[readonly] { cursor: default; }
+.pair .pair__why { min-height: 20px; margin-bottom: 8px; font-size: 13px; }
+.pair .pair__why.bad { color: var(--danger-text); }
+.pair .btn--primary { width: 100%; min-height: 44px; }
+.pair .inp { width: 100%; min-height: 44px; margin-bottom: 4px; padding: 0 14px; font-size: 16px; }
+.pair .pill-row { margin-bottom: 12px; }
+.pair .fpill { min-height: 44px; background: var(--s3); }
+.pair .fpill.on { background: var(--t1); }
+.pair .pair__ok { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 15px; font-weight: 600; color: var(--t1); overflow-wrap: anywhere; }
+.pair__ok:focus { outline: none; }
+.pair__ok .ico { flex: none; color: var(--success); font-size: 20px; }
+
+@media (max-width: 699.98px) {
+  .pair-pg { padding-top: 24px; }
+}
+@media (forced-colors: active) {
+  .pair__code:focus-within i.at { outline: 2px solid Highlight; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pair form, #pair-done { animation: none; }
+}

@@ -398,6 +398,22 @@ class TestServerLogs:
             ("/x?a=1&&sig=s1;b=2", "/x?a=1&&sig=***"),
             ("/x?%zz=1&apikey=s1#frag", "/x?%zz=1&apikey=***#frag"),
             ("/x?token&page=2", "/x?token&page=2"),
+            ("/watch?q=a+secret+wish&view=list", "/watch?q=***&view=list"),
+            ("/watch?%71=a+secret+wish", "/watch?%71=***"),
+            ("/api/watch/search?q=a%20secret%20wish", "/api/watch/search?q=***"),
+            ("/api/watch/search/tmdb?q=wish", "/api/watch/search/tmdb?q=***"),
+            (
+                "/watch/play/5?resume=1&from=%2Fwatch%3Fq%3Da%2Bwish",
+                "/watch/play/5?resume=1&from=***",
+            ),
+            ("/login?next=/watch?q=a+wish", "/login?next=***"),
+            ("/login?next=%2Fwatch%3Fview%3Dlist%26q%3Dwish", "/login?next=***"),
+            (
+                "/login?next=%2Fwatch%2Fplay%2F5%3Ffrom%3D%252Fwatch%253Fq%253Dwish",
+                "/login?next=***",
+            ),
+            ("/login?next=%2Fwatch%3Fgenre%3Daction", "/login?next=%2Fwatch%3Fgenre%3Daction"),
+            ("/watch/play/5?from=%2Fwatch%2Fshow%2F2", "/watch/play/5?from=%2Fwatch%2Fshow%2F2"),
         ],
     )
     def test_access_log_query_is_read_like_the_app_reads_it(self, target, logged) -> None:
@@ -407,7 +423,12 @@ class TestServerLogs:
 
     @pytest.mark.parametrize(
         "target",
-        ["?" * 100_000, "/keep/abc?" + "?a" * 50_000, "/x?" + "&" * 100_000],
+        [
+            "?" * 100_000,
+            "/keep/abc?" + "?a" * 50_000,
+            "/x?" + "&" * 100_000,
+            "/login?next=" + "%25" * 30_000,
+        ],
     )
     def test_access_log_redaction_is_fast_on_a_huge_target(self, target) -> None:
         record = _make_record("%s", args=(target,))

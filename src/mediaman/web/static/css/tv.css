@@ -1,0 +1,80 @@
+/* The TV's own page. TV browsers of 2016 read it: pixels and flex alone, no custom properties,
+   grid or gap. tv.js scales the 1920x1080 stage to the window. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: Arial, Helvetica, sans-serif; }
+video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: #000; }
+video::-webkit-media-controls { display: none !important; }
+#s, #o { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; -webkit-transform-origin: 0 0; transform-origin: 0 0; }
+#o { pointer-events: none; }
+.in > div { -webkit-animation: in .2s ease-out; animation: in .2s ease-out; }
+#o > div { -webkit-animation: out .2s ease-out forwards; animation: out .2s ease-out forwards; }
+@-webkit-keyframes in { from { opacity: 0; } }
+@keyframes in { from { opacity: 0; } }
+@-webkit-keyframes out { to { opacity: 0; } }
+@keyframes out { to { opacity: 0; } }
+.page { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
+.brand { font-size: 40px; color: #fff; letter-spacing: -1px; }
+.brand b { color: #2997ff; }
+
+.code { display: -webkit-flex; display: flex; position: absolute; left: 120px; right: 120px; top: 80px; bottom: 70px; -webkit-align-items: center; align-items: center; }
+.lc { width: 1060px; }
+.rc { -webkit-flex: 1; flex: 1; text-align: center; }
+.h { font-size: 72px; font-weight: 700; line-height: 84px; margin: 26px 0 40px; word-wrap: break-word; }
+.n { display: -webkit-flex; display: flex; font-size: 38px; line-height: 48px; color: #cfcfd2; margin-bottom: 32px; }
+.n u { text-decoration: none; display: block; width: 52px; height: 52px; line-height: 52px; text-align: center; border-radius: 26px; background: #2e2e33; color: #fff; font-size: 28px; font-weight: 700; margin-right: 28px; -webkit-flex: none; flex: none; }
+.n div { width: 980px; }
+.addr { font-size: 60px; line-height: 76px; color: #fff; font-weight: 700; word-wrap: break-word; word-break: break-all; }
+.addr--long { font-size: 40px; line-height: 52px; }
+.big { font-size: 150px; line-height: 164px; color: #fff; font-weight: 700; letter-spacing: 8px; white-space: nowrap; }
+.sm { font-size: 32px; color: #b0b0b4; margin-bottom: 30px; }
+.qr { width: 420px; height: 420px; background: #fff; margin: 0 auto; padding: 8px; border-radius: 16px; }
+.qr svg { width: 404px; height: 404px; display: block; }
+.cap { font-size: 32px; line-height: 44px; color: #cfcfd2; margin-top: 32px; }
+
+.mid { position: absolute; left: 160px; right: 160px; top: 0; bottom: 0; display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; text-align: center; }
+/* A column's children are as wide as their words, which a long name must not be. */
+.mid > div { max-width: 100%; }
+.mid .h { margin: 34px 0 24px; }
+.l { font-size: 40px; line-height: 58px; color: #cfcfd2; word-wrap: break-word; }
+.mid .sm { margin: 30px 0 0; }
+.bs { display: -webkit-flex; display: flex; }
+.mid .bs { margin-top: 60px; -webkit-justify-content: center; justify-content: center; }
+.b { font-family: inherit; font-size: 34px; line-height: 40px; color: #fff; background: #2e2e33; border: 6px solid #2e2e33; border-radius: 48px; padding: 18px 44px; margin-right: 24px; outline: none; transition: background .15s, color .15s; }
+.bs .b:last-child { margin-right: 0; }
+.b.f { background: #fff; color: #000; border-color: #2997ff; }
+.i { width: 34px; height: 34px; fill: currentColor; vertical-align: -5px; margin-right: 16px; }
+.tick .i { width: 110px; height: 110px; margin: 30px 0 0; fill: #30d158; }
+
+.pic { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000 no-repeat center; background-size: cover; }
+.shade { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; background: rgba(0, 0, 0, .78); }
+.t1 { font-size: 60px; font-weight: 700; line-height: 76px; word-wrap: break-word; }
+.t2 { font-size: 38px; line-height: 54px; color: #dedee0; word-wrap: break-word; }
+.ov { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; opacity: 1; transition: opacity .3s; }
+.ov.hide { opacity: 0; }
+.top { position: absolute; left: 0; right: 0; top: 0; padding: 70px 110px 120px; background: linear-gradient(rgba(0, 0, 0, .85), rgba(0, 0, 0, .6) 60%, rgba(0, 0, 0, 0)); }
+.bot { position: absolute; left: 0; right: 0; bottom: 0; padding: 140px 110px 70px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .75) 45%, rgba(0, 0, 0, .92)); }
+.bar { position: relative; height: 10px; background: #5a5a5e; border-radius: 5px; }
+.bar .p { height: 10px; background: #2997ff; border-radius: 5px; }
+.bar i { position: absolute; top: 0; width: 4px; height: 10px; background: #000; }
+.tms { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; font-size: 32px; margin: 16px 0 34px; color: #dedee0; }
+.pz { font-size: 44px; font-weight: 700; margin-bottom: 34px; }
+.pz .i { width: 44px; height: 44px; vertical-align: -7px; }
+.up { position: absolute; right: 110px; bottom: 90px; width: 800px; background: #1d1d1f; border-radius: 24px; padding: 44px 48px; }
+.up .bs { margin-top: 34px; }
+.up .t1 { font-size: 48px; line-height: 64px; }
+.spin { width: 96px; height: 96px; border: 8px solid #4a4a4e; border-top-color: #fff; border-radius: 50%; -webkit-animation: sp 1s linear infinite; animation: sp 1s linear infinite; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
+@-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
+@keyframes sp { to { transform: rotate(360deg); } }
+@keyframes pu { 50% { opacity: .4; } }
+.idle .brand { opacity: .9; }
+@media (prefers-reduced-motion: reduce) {
+  .b, .ov { transition: none; }
+  .in > div, #o > div { animation: none; }
+  #o { display: none; }
+  .spin { animation: pu 1.6s ease-in-out infinite; }
+}
+@media (forced-colors: active) {
+  .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
+  .b.f { color: HighlightText; border-color: Highlight; }
+  .bar { border: 1px solid CanvasText; }
+}

@@ -2,8 +2,8 @@
  * Opens from any [data-title-ref] and from the address; Back closes it, and
  * finds a title left for another page as it was left.
  * Needs watch/core.js, watch/address.js and watch/cast.js; uses watch/explore.js
- * for the genres, watch/keep.js for a viewer's Keep and MMWatch.admin, when
- * loaded, for the admin facts' Keep and Delete.
+ * for the genres, ratings.js for the person's own rating, watch/keep.js for a
+ * viewer's Keep and MMWatch.admin, when loaded, for the admin facts' Keep and Delete.
  */
 (function () {
   'use strict';
@@ -34,7 +34,7 @@
      is the Arr catching up rather than the download being gone. */
   var DOWNLOAD_GRACE_MS = 30000;
   var COPIED_MS = 2000;
-  /* How long a title waits for its picture, which settles the hero's height, and for why it is a pick. */
+  /* How long a title waits for its picture, which settles the hero's height, for why it is a pick and for whether it can be rated. */
   var PICTURE_WAIT_MS = 400;
   var SEASON_WAIT_MS = 1500;
   /* How long after a close the next press of a double click can still come. */
@@ -65,6 +65,7 @@
     isAdmin = !!(dataNode && JSON.parse(dataNode.textContent).is_admin);
   } catch (e) { isAdmin = false; }
 
+  var thumbs = null;   // the set of thumbs on show
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
@@ -135,6 +136,16 @@
     k.kind = data.kind;
     k.year = data.year;
   }
+
+  /* Queued from elsewhere on the page: the title's panel follows it as its own. */
+  document.addEventListener('mm:title-changed', function (e) {
+    var k = stateOf(e.detail.ref);
+    if (e.detail.download_state !== 'queued' || k.state || k.busy) return;
+    k.state = 'queued';
+    k.sentAt = Date.now();
+    redrawActions(e.detail.ref);
+    if (isOpen && cur && cur.ref === e.detail.ref) schedulePoll(POLL_MS);
+  });
 
   function nowInLibrary(ref) {
     var k = stateOf(ref);
@@ -248,6 +259,7 @@
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
       pick: null,          // why it is a pick, once known: { reason, because }
       onPick: null,
+      onThumbs: null,
       atEpisodes: !!opts.atEpisodes,
       opensOn: opts.season,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
@@ -525,6 +537,7 @@
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
+    if (window.MM.ratings) window.MM.ratings.read([c.ref]);
     get(apiUrl(c.ref), ctrl).then(function (data) {
       if (c !== cur || !isOpen) return;
       if (c.ref === c.pickRef) takePick(c, data);
@@ -535,7 +548,9 @@
       showPictures(data);
       afterPictures(function () {
         afterPick(c, function () {
-          afterSeason(c, data, function () { if (c === cur && isOpen) arrive(c, data); });
+          afterThumbs(c, function () {
+            afterSeason(c, data, function () { if (c === cur && isOpen) arrive(c, data); });
+          });
         });
       });
     }).catch(function (err) {
@@ -659,6 +674,43 @@
     return box;
   }
 
+
+  /* ── The person's own rating ── */
+
+  /* Run *fn* once it is known whether the title can be rated, or that takes too long. One
+     named by TMDB always can. */
+  function afterThumbs(c, fn) {
+    var ratings = window.MM.ratings;
+    function known() { return ratings.canRate(c.ref) !== undefined; }
+    if (!ratings || /^tmdb-/.test(c.ref) || known()) { fn(); return; }
+    function go() {
+      if (c.onThumbs !== told) return;
+      c.onThumbs = null;
+      clearTimeout(timer);
+      fn();
+    }
+    function told() { if (known()) go(); }
+    var timer = setTimeout(go, PICTURE_WAIT_MS);
+    c.onThumbs = told;
+  }
+
+  document.addEventListener('mm:rating', function () { if (cur && cur.onThumbs) cur.onThumbs(); });
+
+  function mountThumbs(main) {
+    var ratings = window.MM.ratings;
+    if (!ratings || ratings.canRate(cur.ref) === false) return;
+    thumbs = ratings.mount(cur.ref);
+    toArray(thumbs.node.querySelectorAll('button')).forEach(function (b, i) {
+      b.setAttribute('data-ttl-act', 'rate-' + ratings.LEVELS[i].level);
+    });
+    main.appendChild(thumbs.node);
+  }
+
+  function dropThumbs() {
+    if (thumbs) thumbs.destroy();
+    thumbs = null;
+  }
+
   function arrive(c, data) {
     c.data = data;
     c.title = data.title || c.title;
@@ -780,6 +832,7 @@
 
   function emptyBody() {
     cast.drop(); // it stands on the people in there
+    dropThumbs();
     body.textContent = '';
   }
 
@@ -808,6 +861,11 @@
     actions.appendChild(skel('skel--pill', '150px'));
     actions.appendChild(skel('skel--pill', '120px'));
     main.appendChild(actions);
+    if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
+      var thumbsSkel = el('div', 'ttl__rate-skel');
+      thumbsSkel.appendChild(skel('skel--pill'));
+      main.appendChild(thumbsSkel);
+    }
     var lines = el('div', 'ttl-skel-lines');
     lines.appendChild(skel('skel--line', '220px'));
     lines.appendChild(skel('skel--line'));
@@ -1047,6 +1105,7 @@
     main.appendChild(under);
     fillActions(actions, under);
     hide(under, !under.children.length);
+    mountThumbs(main);
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     askRatings(cur);
@@ -1062,6 +1121,7 @@
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
+    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind);
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
     if (fresh) {
@@ -1258,6 +1318,10 @@
     var d = cur.data;
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
+      if (window.MM.playOn) {
+        var tv = actions.appendChild(window.MM.playOn.button(d.play.href, 'btn btn--lg watch-btn--grey ttl__play-on'));
+        tv.setAttribute('data-ttl-act', 'play-on');
+      }
       if (d.play.progress_pct) {
         var progress = el('div', 'ttl__progress');
         var bar = el('progress', 'watch-bar watch-bar--banner');
@@ -1278,6 +1342,8 @@
       line.appendChild(document.createTextNode(leavingText(leaves) + ' Keep it to stop the deletion.'));
       under.appendChild(line);
     }
+    var like = likeButton(d);
+    if (like) actions.appendChild(like);
     var trailer = trailerButton(d);
     if (trailer) actions.appendChild(trailer);
     var mark = titleMark(d);
@@ -1298,6 +1364,21 @@
     a.appendChild(document.createTextNode(play.label || 'Play'));
     return a;
   }
+
+  /* Titles like it, where there is an AI to find them. */
+  function likeButton(d) {
+    var search = window.MMWatch.search || {};
+    var byId = d.download && d.download.tmdb_id ? 'tmdb-' + (d.kind === 'movie' ? 'movie-' : 'tv-') + d.download.tmdb_id : '';
+    var ref = [d.library_ref, d.ref, cur.ref, byId].filter(function (r) { return search.canLike && search.canLike(r); })[0];
+    if (!ref) return null;
+    var b = button('btn btn--lg watch-btn--grey', 'Find more like this', 'i-sparkles');
+    b.setAttribute('data-ttl-act', 'like');
+    b.addEventListener('click', function () { search.like(ref, d.title || cur.title, d.poster_url); });
+    return b;
+  }
+
+  // It may come to be known after the title has opened.
+  document.addEventListener('mm:search-assist', function () { if (cur) redrawActions(cur.ref); });
 
   /* ── Watched marks: watch/marks.js works them, then says so. ── */
 
@@ -2513,16 +2594,17 @@
   /* ── Keys and focus ── */
 
   /* Elsewhere focus may go while the overlay is open: menus, dialogs and
-     toasts opened over it. */
+     toasts opened over it, and the bar of what plays on a TV. */
   function allowedOutside(node) {
     return !!(node && node.closest &&
-      node.closest('[role="menu"], [role="dialog"], [role="alertdialog"], .modal-backdrop, .ui-toast, .ui-toast-host'));
+      node.closest('[role="menu"], [role="dialog"], [role="alertdialog"], .modal-backdrop, .ui-toast, .ui-toast-host, #tv-mini'));
   }
 
   document.addEventListener('keydown', function (e) {
     if (!isOpen) return;
     var target = e.target;
-    var inside = root.contains(target) || target === document.body || target === document.documentElement || !target;
+    var inside = root.contains(target) || target === document.body || target === document.documentElement || !target ||
+      !!target.closest('#tv-mini');
     if (e.key === 'Escape') {
       if (e.defaultPrevented || !inside) return;
       e.preventDefault();

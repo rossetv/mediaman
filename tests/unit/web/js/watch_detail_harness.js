@@ -140,6 +140,7 @@ function load(opts = {}) {
   const timers = [];
   const gets = [];
   const posts = [];
+  const answers = []; // to the ratings sent, not answered yet
   const events = [];
   const history = [];
   const routes = Object.assign({}, opts.routes);
@@ -236,6 +237,10 @@ function load(opts = {}) {
         if (typeof r === 'function') return r(o);
         return r ? Promise.resolve(JSON.parse(JSON.stringify(r))) : Promise.reject(new APIError(404, 'not_found'));
       },
+      put: (url, body) => {
+        posts.push({ url, body });
+        return new Promise((resolve) => { answers.push(resolve); });
+      },
       post: (url, body) => {
         posts.push({ url, body });
         const r = posted[url];
@@ -269,7 +274,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'modal-a11y.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', opts.playOn ? 'watch/play-on.js' : [], 'watch/detail.js')
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -287,7 +292,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -301,6 +306,16 @@ async function openCard(p, ref) {
 }
 
 const scenarios = {
+  // Another part of the page queued the film on show.
+  async queuedElsewhere() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: 'tmdb-movie-77', download_state: 'queued', download_pct: null } });
+    return { before, after: primary(p).text, polls: p.timers.some((t) => t.fn && t.ms === 5000), events: p.events.length };
+  },
+
   async openFromCard() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();
@@ -1489,6 +1504,33 @@ const scenarios = {
     return { loaded: await run(false), loading: await run(true) };
   },
 
+  // Play on a TV, beside Play: with TVs to choose, with none of mediaman's to ask, and of no such page.
+  async playOn() {
+    const open = async (title, o) => {
+      const ref = title.ref;
+      const p = load({ routes: { ['/api/watch/title/' + ref]: title, '/api/tvs': { tvs: [] } }, ...o });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      const b = p.q('[data-ttl-act="play-on"]');
+      return { p, says: b && { label: b.getAttribute('aria-label'), hidden: b.hidden, afterPlay: p.q('[data-ttl-act="primary"]').nextElementSibling === b } };
+    };
+    const film = { ...LIB_MOVIE, play: { label: 'Play', href: '/watch/play/120', progress_pct: null, minutes_left: null } };
+    const shown = await open(film, { playOn: true });
+    shown.p.q('[data-ttl-act="play-on"]').focus();
+    shown.p.doc.dispatchEvent(new shown.p.ctx.CustomEvent('mm:watch-marked', { detail: { refs: [film.ref] } }));
+    shown.p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: film.ref, download_state: null, download_pct: null } });
+    await settle();
+    const now = shown.p.q('[data-ttl-act="play-on"]');
+    return {
+      shown: shown.says,
+      redrawn: shown.p.doc.activeElement === now,
+      noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
+      notHeld: (await open(MOVIE_DL, { playOn: true })).says,
+      without: (await open(film, {})).says,
+    };
+  },
+
   // Undo pressed in a toast, which goes with the focus it had.
   async undoInToast() {
     const p = load({ admin: true, adminApi: { keep: () => {} }, routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS } });
@@ -2416,6 +2458,126 @@ const scenarios = {
     out.plain = [q.text('.ttl__credit'), !!q.q('.ttl__credit a')];
     return out;
   },
+};
+
+// The set of thumbs: the request held, then its answer; and what the page is when the answer comes.
+scenarios.thumbs = async () => {
+  const URL = '/api/watch/ratings?refs=';
+  const asked = [];
+  const p = load({ thumbs: true, routes: {
+    '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/show-300': LIB_SHOW,
+    [URL + 'movie-120']: () => new Promise((resolve) => asked.push(resolve)),
+    [URL + 'show-300']: { ok: true, ratings: { 'show-300': { level: null, rateable: true } } },
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL,
+  } });
+  p.run();
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const set = () => p.q('.ttl__main .rate');
+  const on = () => set().querySelectorAll('button').map((b) => b.getAttribute('aria-pressed'));
+  await open('movie-120');
+  const out = { skel: !!p.q('.ttl__rate-skel') };
+  await due(0);
+  out.waits = !!p.q('.ttl__overview');
+  asked[0]({ ok: true, ratings: { 'movie-120': { level: 1, rateable: true } } });
+  await settle();
+  out.order = p.q('.ttl__main').children.map((n) => n.className.split(' ')[0]);
+  out.rated = on();
+  const b = set().querySelectorAll('button')[3];
+  b.focus();
+  click(p.doc, b);
+  out.pressed = [on(), p.posts.slice()];
+  // Drawn again, as when an episode is marked: the same thumb keeps the focus.
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120' } });
+  await settle();
+  out.redrawn = [set().querySelectorAll('button')[3] !== b, p.doc.activeElement === set().querySelectorAll('button')[3], on()];
+  const left = set().querySelectorAll('button');
+  await open('show-300');
+  await due(0);
+  out.next = on();
+  click(p.doc, left[0]); // a set no longer on show is not painted
+  out.old = left[0].getAttribute('aria-pressed');
+  p.ctx.history.back();
+  await settle();
+  out.back = on();
+  const last = set().querySelectorAll('button');
+  p.key('Escape');
+  p.tick();
+  p.ctx.MM.ratings.set('movie-120', 1);
+  out.closed = last.map((n) => n.getAttribute('aria-pressed'));
+  return out;
+};
+
+// The focus goes from a title's page to the bar of what plays on a TV, then behind the page.
+scenarios.tvBar = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE } });
+  p.doc.body.append(build(p.doc, ['section', { id: 'tv-mini' }, ['button', { id: 'tv-pause' }, 'Pause']]));
+  p.run();
+  p.ctx.MMWatch.detail.open('movie-120', { push: true });
+  await settle();
+  const go = (n) => { n.focus(); (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: n })); };
+  go(p.doc.getElementById('tv-pause'));
+  const out = { bar: p.doc.activeElement.id };
+  go(p.doc.querySelector('[data-title-ref]'));
+  out.behind = p.doc.activeElement.id;
+  go(p.doc.getElementById('tv-pause'));
+  p.key('Escape');
+  out.closed = p.ttl().classList.contains('is-leaving');
+  return out;
+};
+
+// What finds more like a title comes to be known after the title opened; then one that is no one's, and one by its TMDB id.
+scenarios.like = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+  p.run();
+  const b = () => p.q('[data-ttl-act="like"]');
+  const acts = () => p.q('[data-ttl-part="actions"]').children.map((n) => n.getAttribute('data-ttl-act')).slice(0, 2);
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  await open('movie-120');
+  const asked = [];
+  const out = { before: !!b() };
+  let on = true;
+  p.ctx.MMWatch.search = { canLike: (ref) => on && /^(movie|show|tmdb-movie|tmdb-tv)-/.test(ref), like: (...args) => asked.push(args) };
+  p.q('[data-ttl-act="primary"]').focus();
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.acts = acts();
+  out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+  click(p.doc, b());
+  await open('rec-3');
+  if (b()) click(p.doc, b());
+  await open('tmdb-movie-77');
+  click(p.doc, b());
+  out.asked = asked.map((a) => a[0]);
+  on = false;
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.off = !!b();
+  return out;
+};
+
+// *rateable* unknown: the answer comes after the wait is over.
+scenarios.thumbsNone = async () => {
+  const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };
+  const asked = [];
+  const p = load({ thumbs: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE,
+    '/api/watch/ratings?refs=movie-120': () => new Promise((resolve) => asked.push(resolve)) } });
+  p.run();
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const open = async () => { p.ctx.MMWatch.detail.open('movie-120', { push: true }); await settle(); };
+  await open();
+  await due(0);
+  const out = { before: !!p.q('.ttl__overview') };
+  await due(400);
+  out.late = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  asked[0](none);
+  await settle();
+  out.told = p.q('.ttl__main .rate').hidden;
+  p.key('Escape');
+  p.tick();
+  await open();
+  await due(400);
+  out.again = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  return out;
 };
 
 scenarios[process.argv[2]]().then((out) => {

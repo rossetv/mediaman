@@ -21,6 +21,9 @@ from mediaman.db.connection import SchemaTooOldError, check_schema_version
 
 logger = logging.getLogger(__name__)
 
+# Docker kills at 10 seconds, and what plays is stopped on Plex after the wait.
+_GRACEFUL_SHUTDOWN_SECONDS = 5
+
 
 def cli_main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
@@ -80,6 +83,7 @@ def cli_main() -> None:
             proxy_headers=True,
             server_header=False,
             date_header=False,
+            timeout_graceful_shutdown=_GRACEFUL_SHUTDOWN_SECONDS,
         )
     else:
         uvicorn.run(
@@ -89,6 +93,7 @@ def cli_main() -> None:
             proxy_headers=False,
             server_header=False,
             date_header=False,
+            timeout_graceful_shutdown=_GRACEFUL_SHUTDOWN_SECONDS,
         )
 
 

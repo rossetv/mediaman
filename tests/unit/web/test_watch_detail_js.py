@@ -19,6 +19,15 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_play_on_a_tv_stands_beside_play_only_where_there_is_something_to_play_and_a_way() -> None:
+    out = _run("playOn")
+    assert out["shown"] == {"label": "Play on a TV", "hidden": False, "afterPlay": True}
+    assert out["redrawn"] is True
+    assert out["noTvs"]["hidden"] is True
+    assert out["notHeld"] is None
+    assert out["without"] is None
+
+
 def test_a_card_opens_at_once_with_its_title_and_its_own_address() -> None:
     out = _run("openFromCard")
     assert out["afterModifiers"] == {"hidden": True, "gets": 0}
@@ -269,6 +278,22 @@ def test_the_head_eases_between_the_heights_it_really_has_as_its_trailer_comes_a
 
 def test_a_title_without_a_trailer_has_no_trailer_button() -> None:
     assert _run("noTrailerKey") == {"trailer": False, "primary": "Download"}
+
+
+def test_the_bar_of_a_tv_may_have_the_focus_over_a_title_and_escape_still_closes_the_title() -> (
+    None
+):
+    assert _run("tvBar") == {"bar": "tv-pause", "behind": "ttl-title", "closed": True}
+
+
+def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask() -> None:
+    assert _run("like") == {
+        "before": False,
+        "acts": ["primary", "like"],
+        "focus": "primary",
+        "asked": ["movie-120", "tmdb-movie-77", "tmdb-movie-77"],
+        "off": False,
+    }
 
 
 def test_escape_handled_by_an_open_keep_menu_leaves_the_overlay_open() -> None:
@@ -1116,3 +1141,46 @@ def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_w
     out = _run("lateRatings")
     assert out["dropped"] == [True, True]
     assert out["again"] == [2, 3]
+
+
+def test_a_title_s_thumbs_stand_between_its_actions_and_its_overview_from_the_start() -> None:
+    out = _run("thumbs")
+    assert (out["skel"], out["waits"]) == (True, False)
+    order = out["order"]
+    assert order.index("ttl__actions") < order.index("rate") < order.index("ttl__overview")
+    assert out["rated"] == ["false", "false", "true", "false"]
+
+
+def test_a_thumb_pressed_stays_on_and_keeps_the_focus_when_the_title_is_drawn_again() -> None:
+    out = _run("thumbs")
+    loved = ["false", "false", "false", "true"]
+    assert out["pressed"] == [
+        loved,
+        [{"url": "/api/watch/ratings/movie-120", "body": {"level": 2}}],
+    ]
+    assert out["redrawn"] == [True, True, loved]
+
+
+def test_thumbs_go_with_their_title() -> None:
+    out = _run("thumbs")
+    assert out["next"] == ["false"] * 4
+    assert out["old"] == "false"
+    assert out["back"] == ["true", "false", "false", "false"]
+    assert out["closed"] == out["back"]
+
+
+def test_a_title_that_cannot_be_rated_has_no_thumbs_and_waits_for_that_only_so_long() -> None:
+    out = _run("thumbsNone")
+    assert out["before"] is False
+    assert out["late"] == [True, True]
+    assert out["told"] is True
+    assert out["again"] == [True, False]
+
+
+def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
+    assert _run("queuedElsewhere") == {
+        "before": "Download",
+        "after": "Queued",
+        "polls": True,
+        "events": 1,
+    }

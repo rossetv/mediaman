@@ -618,13 +618,16 @@
     if (state === 'cooldown') timer = setTimeout(drawOwn, 60000);
   }
 
-  /* A batch's cards, each with the batch it is of. */
+  /* A batch's cards, each with the batch it is of and its place in it. */
   function pickCards(payload) {
     return tagged(cardsOf(payload.items), payload.batch);
   }
 
   function tagged(cards, batch) {
-    cards.forEach(function (c) { c.setAttribute('data-batch', batch); });
+    cards.forEach(function (c, i) {
+      c.setAttribute('data-batch', batch);
+      c.setAttribute('data-place', i);
+    });
     return cards;
   }
 
@@ -715,12 +718,14 @@
       return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
     }
     var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    function line(card) { return batchLine(card.getAttribute('data-batch'), rec.payload); }
+    function dates() { return rec.payload.batches.map(function (b) { return b.id; }); }
     if (at.row && rec && rec.payload.batch) {
       return { cards: lines(at.cards(), rec.payload), next: recLoader ? recLoader.next() : null,
-        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty };
+        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty, line: line, dates: dates };
     }
     var rest = null;
-    return { cards: [], next: 'first', empty: empty, fetchPage: function (batch) {
+    return { cards: [], next: 'first', empty: empty, line: line, dates: dates, fetchPage: function (batch) {
       if (batch !== 'first') return rest(batch);
       return fetchRec(null).then(function (payload) {
         if (!payload.batch) return { cards: [], next: null };

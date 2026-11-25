@@ -1,4 +1,4 @@
-// Runs watch/core.js, keep.js and preview.js against the fake DOM and a fake clock, and prints one
+// Runs watch/core.js, keep.js, ratings.js, marks.js and preview.js against the fake DOM and a fake clock, and prints one
 // scenario's outcome as JSON. Usage: node watch_preview_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -86,6 +86,7 @@ function load(opts = {}) {
   const gets = [];
   const aborted = [];
   const posts = [];
+  const rates = [];
   const waiting = {};
   const toasts = [];
   const details = [];
@@ -93,7 +94,9 @@ function load(opts = {}) {
   const answers = { 'movie-1': FILM, 'movie-2': { ...FILM, ref: 'movie-2', library_ref: 'movie-2', title: 'Orbit' }, 'movie-3': FILM, 'tmdb-movie-9': OUTSIDE, ...opts.api };
   const store = { ...opts.store };
   const api = {
+    put(url, body) { rates.push([url, body.level]); if (opts.saving) return opts.saving; return opts.noRating ? Promise.reject(new Error('down')) : Promise.resolve({ media_type: 'movie', tmdb_id: 1 }); },
     get(url, o) {
+      if (/ratings/.test(url)) return opts.reading || Promise.resolve({ ratings: { 'movie-1': { level: opts.level || null, rateable: !opts.unrateable } } });
       const ref = url.replace('/api/watch/preview/', '');
       gets.push(ref);
       const answer = answers[ref];
@@ -135,13 +138,14 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
+  if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
   });
 
   const h = {
-    doc, ctx, gets, aborted, posts, waiting, toasts, details, origins, store, fire, answers,
+    doc, ctx, gets, aborted, posts, rates, waiting, toasts, details, origins, store, fire, answers,
     winFire: (type, e) => (winListeners[type] || []).forEach((fn) => fn(e || {})),
     /* Press *key*, from the document down to *target* and back up to the window. */
     key(key, target, over) {
@@ -198,7 +202,140 @@ async function trailer(opts) {
   return h;
 }
 
+/* A click that goes no further up than where it is stopped. */
+function clickThumb(doc, b) {
+  let stopped = false;
+  const e = { target: b, preventDefault() {}, stopPropagation() { stopped = true; } };
+  for (let n = b; n && !stopped; n = n.parentNode) (n.listeners.click || []).forEach((fn) => fn(e));
+  if (!stopped) doc.listeners.click.forEach((fn) => fn(e));
+}
+
+/* What the Rate button shows: its strip open or not, the thumb's side, and what is said. */
+function rateLook(h) {
+  const b = h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0];
+  return [h.pv().querySelector('.pv__actions').classList.contains('is-rating'), ['is-up', 'is-down'].filter((c) => b.classList.contains(c)).join(), h.text('.pv__said'), b.hidden];
+}
+function pressRate(h) { h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0].click(); }
+
 const scenarios = {
+  async playOn() {
+    const on = async (id, opts) => {
+      const h = load(opts);
+      await h.rest(id);
+      const b = h.pv().querySelector('[data-play-on]');
+      return b && [b.getAttribute('data-play-on'), b.getAttribute('tabindex')];
+    };
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const dialog = h.doc.createElement('dialog');
+    dialog.className = 'play-on';
+    dialog.setAttribute('open', '');
+    dialog.addEventListener('keydown', (ev) => ev.stopPropagation());
+    h.doc.body.appendChild(dialog);
+    const e = h.key('Escape', dialog);
+    return { film: await on('film', { tvs: true }), next: await on('going', { tvs: true }), outside: await on('outside', { tvs: true }), without: await on('film', {}), underSheet: [e.defaultPrevented, h.title()] };
+  },
+  async rate() {
+    const h = load({ ratings: true });
+    await h.rest('film');
+    const out = { first: rateLook(h), stops: h.pv().querySelectorAll('a, button').filter((n) => n.getAttribute('tabindex') !== '-1').length };
+    pressRate(h);
+    out.open = rateLook(h)[0];
+    h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+    await h.pass(50);
+    out.loved = rateLook(h);
+    pressRate(h);
+    h.fire(h.pv().querySelector('.pv__body'), 'mouseleave');
+    out.left = rateLook(h)[0];
+    h.pv().querySelector('[data-preview-more]').click();
+    out.menu = h.doc.querySelectorAll('.pv-menu .rate__b').map((b) => b.getAttribute('aria-checked'));
+    clickThumb(h.doc, h.doc.querySelectorAll('.pv-menu .rate__b')[1]);
+    await h.pass(600);
+    out.looked = h.doc.querySelector('.pv-menu').classList.contains('is-open');
+    await h.pass(100);
+    out.shut = h.doc.querySelector('.pv-menu').classList.contains('is-open');
+    return { ...out, after: rateLook(h), rates: h.rates, title: h.title() };
+  },
+  /* The strip opened again while the save is on its way. */
+  async stripAgain() {
+    const save = {};
+    const h = load({ ratings: true, saving: new Promise((r) => { save.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+    pressRate(h);
+    save.done({ media_type: 'movie', tmdb_id: 1 });
+    await h.pass(50);
+    return [h.rates.length, rateLook(h)[0]];
+  },
+  /* The strip opened before the reply is there. */
+  async stripEarly() {
+    const h = load({ ratings: true, api: { 'movie-1': undefined } });
+    await h.rest('film', 900);
+    pressRate(h);
+    h.waiting['movie-1'](FILM);
+    await h.pass(50);
+    return [h.text('.pv__text'), rateLook(h)[0]];
+  },
+  /* How many sets a page that has shown previews still paints. */
+  async setsLeft() {
+    const h = load({ ratings: true });
+    let sets = 0;
+    const mount = h.ctx.MM.ratings.mount;
+    h.ctx.MM.ratings.mount = (ref, o) => { const set = mount(ref, o); const own = set.destroy; sets += 1; set.destroy = () => { sets -= 1; own(); }; return set; };
+    await h.rest('film');
+    const open = sets;
+    h.away();
+    await h.pass(1500);
+    return [open, sets];
+  },
+  /* A pick whose card has no TMDB title, and a film the server says cannot be rated while its strip is open. */
+  async cannotRate() {
+    const pick = load({ ratings: true, api: { 'rec-5': FILM } });
+    await pick.rest('pick', 900);
+    const asked = {};
+    const h = load({ ratings: true, reading: new Promise((r) => { asked.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    asked.done({ ratings: { 'movie-1': { level: null, rateable: false } } });
+    await h.pass(50);
+    h.away();
+    await h.pass(1500);
+    await h.rest('film');
+    const rate = (p) => p.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate').length;
+    return { pick: rate(pick), again: rate(h) };
+  },
+  async stripNotRateable() {
+    const asked = {};
+    const h = load({ ratings: true, reading: new Promise((r) => { asked.done = r; }) });
+    await h.rest('film');
+    pressRate(h);
+    asked.done({ ratings: { 'movie-1': { level: null, rateable: false } } });
+    await h.pass(50);
+    const look = rateLook(h);
+    return [look[0], look[3]];
+  },
+  async ratedBefore() {
+    const h = load({ ratings: true, level: -1 });
+    await h.rest('film');
+    const none = load({ ratings: true, unrateable: true });
+    await none.rest('film');
+    return [rateLook(h), rateLook(none)[3]];
+  },
+  /* The save fails with the preview open, and after it has gone. */
+  async rateFails() {
+    const out = [];
+    for (const away of [false, true]) {
+      const h = load({ ratings: true, noRating: true });
+      await h.rest('film');
+      pressRate(h);
+      h.pv().querySelectorAll('.pv__strip .rate__b')[3].click();
+      if (away) h.winFire('pagehide');
+      await settle();
+      out.push([h.toasts.length, away ? null : rateLook(h).slice(1, 3)]);
+    }
+    return out;
+  },
   async passing() {
     const h = load();
     for (const id of ['film', 'other', 'third', 'outside']) { h.over(h.link(id)); await h.pass(120); }
@@ -507,10 +644,23 @@ const scenarios = {
     out.closed = h.title();
     return out;
   },
+  async like() {
+    const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', title: 'The Long Coast' } }, ratings: true });
+    const asked = [];
+    await h.rest('going', 900);
+    const menu = () => { h.pv().querySelector('[data-preview-more]').click(); return h.doc.querySelectorAll('.pv-menu .watch-keep-menu__item').map((n) => n.textContent)[0]; };
+    const out = { without: menu() };
+    h.pv().querySelector('[data-preview-more]').click();
+    h.ctx.MMWatch.search = { canLike: () => true, like: (...args) => asked.push(args.slice(0, 2)) };
+    out.first = menu();
+    h.doc.querySelector('.pv-menu [data-act="like"]').click();
+    return Object.assign(out, { asked, open: h.title() });
+  },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });
     await h.rest('going', 900);
-    h.pv().querySelectorAll('button').filter((b) => b.textContent === 'Details')[0].click();
+    h.pv().querySelector('[data-preview-more]').click();
+    h.doc.querySelector('.pv-menu [data-act="details"]').click();
     return { opened: h.details, open: h.title() };
   },
   async picture() {
@@ -564,7 +714,8 @@ const scenarios = {
     const h = load({ api: { 'rec-6': { ...FILM, ref: 'movie-3', library_ref: 'movie-3', reason: 'You finished Fieldwork.' } } });
     await h.rest('held');
     const reason = h.text('.pv__reason');
-    h.pv().querySelectorAll('button').filter((b) => b.textContent === 'Details')[0].click();
+    h.pv().querySelector('[data-preview-more]').click();
+    h.doc.querySelector('.pv-menu [data-act="details"]').click();
     return { gets: h.gets, reason, opened: h.details, pick: h.origins[0].pick, kind: h.origins[0].kind };
   },
   /* Escape over a grid, from the page, from the search box and with a menu of the preview's open. */

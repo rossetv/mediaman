@@ -13,6 +13,7 @@ from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai.recommendations import personal, prompts
 from mediaman.services.openai.search_assist import answers, phrases, tonight
 from mediaman.services.watch_catalog import _arr, _discover, _library, _title_meta
 from mediaman.web.auth.session_store import create_session
@@ -221,6 +222,41 @@ class TestSearches:
 
         assert _search(amy, "heist") == [False]
         assert amy.get(BASE).json()["recent"] == []
+
+    def test_the_panel_says_whether_searches_are_kept(self, amy):
+        assert amy.get(BASE).json()["records"] is True
+        amy.put(f"{BASE}/history", json={"enabled": False})
+        assert amy.get(BASE).json()["records"] is False
+
+    def test_each_account_has_a_value_of_its_own_that_says_nothing_of_it(self, people):
+        amy, bob = (people[name].get(BASE).json()["account"] for name in ("amy", "bob"))
+        assert amy != bob and amy == people["amy"].get(BASE).json()["account"]
+        assert len(amy) >= 16 and "amy" not in amy
+
+    def test_a_page_of_someone_else_keeps_asks_and_clears_nothing(self, people, conn, model):
+        bob = people["bob"]
+        _search(bob, "his own")
+        page = {"X-Assist-Account": people["amy"].get(BASE).json()["account"]}
+        for resp in (
+            bob.post(f"{BASE}/searches", json={"q": "her words"}, headers=page),
+            bob.request("DELETE", f"{BASE}/searches", headers=page),
+            bob.post(f"{BASE}/ask", json={"q": Q}, headers=page),
+            bob.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}, headers=page),
+            bob.post(f"{BASE}/searches", json={"q": "x"}, headers={"X-Assist-Account": b"caf\xe9"}),
+        ):
+            assert (resp.status_code, resp.json()["error"]) == (409, "other_account")
+        assert model.prompts == []
+        assert bob.get(BASE).json()["recent"] == ["his own"]
+        assert (
+            conn.execute("SELECT COUNT(*) FROM user_ai_runs WHERE kind = 'ask'").fetchone()[0] == 0
+        )
+
+    def test_a_page_of_ones_own_or_that_does_not_say_is_served(self, people):
+        bob = people["bob"]
+        own = {"X-Assist-Account": bob.get(BASE).json()["account"]}
+        resp = bob.post(f"{BASE}/searches", json={"q": "mine"}, headers=own)
+        assert resp.json()["recorded"] is True
+        assert _search(bob, "older page") == [True]
 
     def test_control_characters_are_not_kept(self, amy):
         resp = amy.post(
@@ -547,6 +583,80 @@ class TestRuns:
         conn.commit()
         assert self._start(amy).status_code == 202
 
+    def test_an_admin_sets_how_many_questions_a_day_holds(self, people, conn):
+        insert_settings(conn, ai_questions_per_day="2")
+        self._spent(conn, "amy-secret", 2)
+        resp = self._start(people["amy"])
+        assert (resp.status_code, resp.json()["error"], resp.json()["limit"]) == (429, "limit", 2)
+        assert self._start(people["bob"]).status_code == 202
+
+    def test_an_admin_sets_how_many_runs_everyones_day_holds(self, people, conn):
+        insert_settings(conn, ai_everyone_per_day="3")
+        self._spent(conn, "bob-secret", 3)
+        resp = self._start(people["amy"])
+        assert resp.status_code == 429
+        assert (resp.json()["error"], resp.json()["limit"]) == ("limit_everyone", 3)
+
+    def test_a_limit_above_the_usual_one_lets_more_be_asked(self, amy, conn):
+        insert_settings(conn, ai_questions_per_day="30")
+        self._spent(conn, "amy-secret", repo.QUESTIONS_PER_DAY)
+        assert self._start(amy).status_code == 202
+
+    def test_an_answer_that_is_not_about_a_day_names_no_limit(self, amy, monkeypatch):
+        monkeypatch.setattr(assist.threading, "Thread", HeldThread)
+        self._start(amy)
+        resp = self._start(amy, "quite another question")
+        assert resp.status_code == 409 and "limit" not in resp.json()
+
+    @pytest.mark.parametrize("stored", ["", "lots", "[]", "Infinity"])
+    def test_a_limit_that_cannot_be_read_is_the_usual_one(self, amy, conn, stored):
+        insert_settings(conn, ai_questions_per_day=stored)
+        self._spent(conn, "amy-secret", repo.QUESTIONS_PER_DAY)
+        assert self._start(amy).json()["limit"] == repo.QUESTIONS_PER_DAY
+
+    def test_a_stored_limit_past_the_highest_is_held_to_it(self, amy, conn):
+        insert_settings(conn, ai_questions_per_day="9" * 30)
+        assert repo.daily_limit(conn, "ai_questions_per_day") == 200
+
+    @pytest.mark.parametrize("key", ["ai_questions_per_day", "ai_everyone_per_day"])
+    @pytest.mark.parametrize("stored", ["0", "-5"])
+    def test_none_a_day_is_the_ai_switched_off_for_everyone(self, people, conn, model, key, stored):
+        insert_settings(conn, **{key: stored})
+        _search(people["amy"], "heist")
+        for client in people.values():
+            found = client.get(BASE).json()
+            assert (found["available"], found["personal"]) == (False, False)
+            for resp in (
+                self._start(client),
+                client.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),
+                client.get(f"{BASE}/tonight", params={"minutes": 120}),
+            ):
+                assert (resp.status_code, resp.json()["error"]) == (409, "unavailable")
+        assert model.prompts == []
+        # What is sent for recommendations is still theirs to stop.
+        assert people["amy"].get(f"{BASE}/history").json()["available"] is True
+
+    def test_without_tmdb_recommendations_use_the_history_so_its_switch_is_there(
+        self, amy, conn, model, monkeypatch
+    ):
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
+        monkeypatch.setattr(prompts, "call_openai", model)
+        _own(conn, 1, 2, 3, 5, 6)
+        for tmdb_id in (1, 2, 3, 5, 6):
+            _play(conn, str(100 + tmdb_id))
+        _search(amy, "a secret wish")
+        assert amy.get(BASE).json()["available"] is False
+
+        personal.refresh_people(conn, None, secret_key="0123456789abcdef" * 4)
+        assert len(model.prompts) == 1 and "a secret wish" in model.prompts[0]
+
+        assert amy.get(f"{BASE}/history").json() == {"ok": True, "enabled": True, "available": True}
+
+    def test_without_an_openai_key_nothing_can_use_the_history(self, amy, conn):
+        conn.execute("DELETE FROM settings WHERE key = 'openai_api_key'")
+        conn.commit()
+        assert amy.get(f"{BASE}/history").json()["available"] is False
+
     def test_phrases_being_made_do_not_hold_up_a_question(self, amy, monkeypatch):
         monkeypatch.setattr(assist.threading, "Thread", HeldThread)
         _search(amy, "heist")
@@ -739,10 +849,13 @@ class TestNoKey:
             conn.commit()
         else:
             monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
-        assert _search(amy, "heist") == [True]
+        # Without a key of OpenAI's nothing may use them, and their switch is not shown.
+        assert _search(amy, "heist") == [lacking != "openai"]
 
         found = amy.get(BASE).json()
-        assert (found["available"], found["personal"], found["recent"]) == (False, False, ["heist"])
+        assert (found["available"], found["personal"]) == (False, False)
+        assert found["recent"] == ([] if lacking == "openai" else ["heist"])
+        assert found["records"] is (lacking != "openai")
         for resp in (
             amy.post(f"{BASE}/ask", json={"q": Q}),
             amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),

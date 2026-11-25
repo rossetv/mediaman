@@ -284,6 +284,7 @@ def details(
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
     fresh: bool = False,
+    anew: bool = False,
     background: bool = False,
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
@@ -291,7 +292,8 @@ def details(
     times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
     asked as in ``search``, and *brief* says that *client* gives up early, so that its
     failure is not held against the next caller. *fresh* takes nothing TMDB answered more
-    than a week ago, and *background* is as in ``_cached``."""
+    than a week ago, *anew* nothing it answered before, and *background* is as in
+    ``_cached``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
@@ -311,8 +313,8 @@ def details(
     result: dict[str, Any] = _cached(
         client,
         key,
-        7 * _DAY,
-        7 * _DAY if fresh else 90 * _DAY,
+        0 if anew else 7 * _DAY,
+        0 if anew else 7 * _DAY if fresh else 90 * _DAY,
         fetch,
         allow_fetch,
         brief,

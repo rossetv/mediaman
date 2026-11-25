@@ -97,3 +97,15 @@ def test_a_corrupt_database_file_reaches_the_app_for_its_own_error(data_dir, uvi
     main.cli_main()
 
     assert len(uvicorn_run) == 1
+
+
+@pytest.mark.parametrize("proxies", ["", "10.0.0.1"])
+def test_a_stop_waits_only_so_long_for_open_responses(data_dir, uvicorn_run, monkeypatch, proxies):
+    """Docker kills at 10 seconds, and the streams on Plex are stopped after the wait."""
+    monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", proxies)
+
+    main.cli_main()
+
+    (call,) = uvicorn_run
+    assert call["proxy_headers"] is bool(proxies)
+    assert call["timeout_graceful_shutdown"] == 5

@@ -4,7 +4,8 @@
  *
  * Nothing here reloads the page. Each action announces itself on the
  * document as an `mm:watch-admin` event, {phase: 'busy'|'done'|'failed',
- * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, showRk, keep}, and whatever shows
+ * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, ids, showRk, keep}
+ * (ids: the seasons, where it is of several), and whatever shows
  * the title (a list row, the detail) updates itself in place.
  *
  * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
@@ -843,7 +844,7 @@
   function seasonsUndo(c, duration, state, chainKey, made) {
     if (!c.fresh) return null;
     if (!c.keeps.every(function (s) { return viaWatch(s, duration) || (!s.leaving && made[s.id]); })) return null;
-    var detail = { action: 'unkeep', id: state.seasonId, showRk: state.showRk };
+    var detail = { action: 'unkeep', id: state.seasonId, ids: state.ids, showRk: state.showRk };
     function undoOne(s) {
       return s.leaving ? MM.api.post('/api/watch/unkeep', { media_item_id: s.id }) : unprotect(s.id, made[s.id]);
     }
@@ -925,7 +926,7 @@
       say: function (msg) { return state.isOpen() || !showTitle ? msg : showTitle + ': ' + msg; }
     };
     var say = state.say;
-    var rowDetail = { action: 'show', id: state.seasonId, showRk: rk };
+    var rowDetail = { action: 'show', id: state.seasonId, ids: state.ids, showRk: rk };
     /* The Undo of an earlier keep this changes would undo the wrong thing. */
     state.ids.forEach(retireToast);
     emit('busy', rowDetail);
@@ -1055,7 +1056,7 @@
         isOpen: function () { return request === _keepDialogRequest; },
         say: function (msg) { return state.isOpen() || !showTitle ? msg : showTitle + ': ' + msg; }
       };
-      var rowDetail = { action: 'unkeep', id: state.seasonId, showRk: rk };
+      var rowDetail = { action: 'unkeep', id: state.seasonId, ids: state.ids, showRk: rk };
       state.ids.forEach(retireToast);
       emit('busy', rowDetail);
       var allRequests = [];
@@ -1212,6 +1213,7 @@
     keep: keep,
     removeKeep: removeKeep,
     confirmDelete: confirmDelete,
-    pickSeasonDelete: pickSeasonDelete
+    pickSeasonDelete: pickSeasonDelete,
+    retireToast: retireToast
   };
 })();

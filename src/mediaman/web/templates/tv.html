@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Mediaman on this TV</title>
+  <link rel="icon" type="image/png" sizes="48x48" href="/static/icons/favicon.png?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/tv.css?v={{ static_v }}">
+</head>
+<body data-base="{{ base_url }}" data-hls="/static/vendor/hls/hls.min.js?v={{ static_v }}">
+  <video id="v" preload="auto" playsinline></video>
+  <div id="o" aria-hidden="true"></div>
+  <main id="s"><div class="mid"><div class="brand">media<b>man</b></div><div class="spin"></div></div></main>
+  <script src="/static/js/tv.js?v={{ static_v }}"></script>
+</body>
+</html>

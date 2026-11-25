@@ -344,7 +344,7 @@
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; overflow-wrap: anywhere; }
 .setg-pg .usr-row .usr-sub { font-size: 11.5px; color: var(--t3); margin-top: 3px; overflow-wrap: anywhere; }
 .setg-pg .usr-row .usr-actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; flex-shrink: 0; white-space: nowrap; }
-.usr-plex { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 5px; font-size: 12px; color: var(--t2); }
+.usr-plex { display: flex; width: fit-content; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-top: 5px; font-size: 12px; color: var(--t2); }
 .usr-plex > span { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: var(--r-pill); background: var(--rgba-overlay-md); font-weight: 500; }
 .usr-plex .ico { font-size: 10px; color: var(--t3); }
 .usr-plex.is-leaving {
@@ -456,10 +456,13 @@
 .setg-pg .usr-plex .link-danger { position: relative; min-height: 26px; padding: 0 9px; }
 
 /* A pressed button that is working keeps the focus, so it is dimmed instead of disabled. */
+.setg-pg .tv-li .btn[aria-disabled="true"],
+.setg-pg .tv-add .btn[aria-disabled="true"],
 .setg-pg .usr-row [aria-disabled="true"] { opacity: .55; cursor: progress; }
 
 /* Rows added or removed in place fade in, or fold away, instead of the list jumping. */
 .setg-pg .sub-row.is-entering,
+.setg-pg .tv-li.is-entering,
 .setg-pg .usr-row.is-entering { animation: setg-row-in var(--dur-slow) var(--ease-out); }
 @keyframes setg-row-in { from { opacity: 0; transform: translateY(-4px); } }
 /* A changed role fades its pill in where the old one stood. */
@@ -469,6 +472,7 @@
   .setg-pg .usr-row .pill.is-changed { animation: none; }
 }
 .setg-pg .sub-row.is-leaving,
+.setg-pg .tv-li.is-leaving,
 .setg-pg .usr-row.is-leaving {
   overflow: hidden; opacity: 0;
   padding-top: 0; padding-bottom: 0; border-bottom-width: 0;
@@ -532,4 +536,87 @@
   .setg-pg .savebar.is-partial .sb-sub {
     position: static; width: auto; height: auto; clip-path: none; white-space: normal;
   }
+}
+
+/* TVs & Casting */
+.setg-pg .tv-list { list-style: none; margin: 0; padding: 0; }
+.setg-pg .tv-li { padding: 14px 0; border-top: 1px solid var(--hair); }
+.setg-pg .tv-li:first-child { border-top: 0; }
+.setg-pg .tv-in { display: flex; align-items: center; gap: 14px; }
+.setg-pg .tv-ico {
+  flex: none; width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border-radius: var(--r-md); background: var(--s3); color: var(--t2);
+}
+.setg-pg .tv-ico .ico { width: 20px; height: 20px; }
+.setg-pg .tv-txt { flex: 1; min-width: 0; }
+.setg-pg .tv-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
+.setg-pg .tv-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
+.setg-pg .tv-acts { flex: none; display: flex; gap: 8px; }
+.setg-pg .tv-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+.setg-pg .tv-edit .inp { width: 100%; max-width: 320px; }
+.setg-pg .tv-err { flex: 1 0 100%; margin-top: 8px; font-size: 13px; line-height: 1.45; color: var(--danger-text); }
+.setg-pg .tv-err:empty { display: none; }
+.setg-pg .tv-sure {
+  margin: 12px 0 0 52px;
+  font-size: 14px; line-height: 1.45; color: var(--t2); overflow-wrap: anywhere;
+  animation: tv-come var(--dur) var(--ease-out);
+}
+.setg-pg .tv-sure > div { display: flex; gap: 8px; margin-top: 10px; }
+.setg-pg .tv-empty { padding: 26px 20px; text-align: center; font-size: 14px; line-height: 1.5; color: var(--t2); }
+.setg-pg .tv-empty b { display: block; color: var(--t1); font-weight: 600; font-size: 15px; }
+.setg-pg .tv-empty .btn { margin-top: 12px; }
+.setg-pg .tv-chk { list-style: none; margin: 14px 0 0; padding: 0; font-size: 14px; }
+.setg-pg .tv-li > .tv-chk { margin: 8px 0 0 52px; }
+.setg-pg .tv-chk li {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 7px 0; line-height: 1.4; color: var(--t2); overflow-wrap: anywhere;
+  animation: tv-come var(--dur) var(--ease-out);
+}
+.setg-pg .tv-chk li > span:first-child { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font-size: 17px; }
+.setg-pg .tv-chk li > span:last-child { min-width: 0; }
+.setg-pg .tv-chk .ok > span:first-child { color: var(--success); }
+.setg-pg .tv-chk .no > span:first-child { color: var(--danger-text); }
+.setg-pg .tv-chk .no { color: var(--t1); }
+.setg-pg .tv-chk .todo { opacity: .5; }
+.setg-pg .tv-chk small { display: block; font-size: 13px; color: var(--t2); }
+.setg-pg .tv-ring {
+  width: 16px; height: 16px;
+  border: 2px solid color-mix(in srgb, var(--t1) 25%, transparent); border-top-color: var(--t1);
+  border-radius: 50%; animation: player-spin .9s linear infinite;
+}
+.setg-pg .tv-add { padding: 18px 0; border-top: 1px solid var(--hair); animation: tv-come var(--dur) var(--ease-out); }
+.setg-pg .tv-add label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.setg-pg .tv-add-line { display: flex; flex-wrap: wrap; gap: 8px; }
+.setg-pg .tv-add-line .inp { flex: 1 1 140px; width: auto; }
+/* Wide enough for "Checking…", so the label changing moves nothing. */
+.setg-pg .tv-add-line .btn { flex: none; min-width: 7em; padding-inline: 12px; }
+.setg-pg .tv-add-hint { font-size: 13px; color: var(--t2); line-height: 1.5; margin-top: 8px; max-width: 62ch; }
+.setg-pg .tv-add label[for="tv-add-name"] { margin-top: 14px; }
+.setg-pg #tv-add-name { width: 100%; max-width: 320px; }
+.setg-pg .tv-add-end { display: flex; gap: 8px; margin-top: 14px; }
+.setg-pg .tv-lets { grid-template-columns: minmax(0, 1fr); }
+.setg-pg .tv-lets ul { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: var(--t2); max-width: 62ch; }
+.setg-pg .tv-lets ul:first-child { margin-top: 0; }
+.setg-pg .tv-lets b { font-weight: 500; color: var(--t1); }
+.setg-pg .tv-lets li { position: relative; margin-top: 3px; padding-left: 16px; }
+.setg-pg .tv-lets li::before { content: ""; position: absolute; left: 2px; top: .65em; width: 4px; height: 4px; border-radius: 50%; background: var(--t3); }
+.setg-pg .tv-pair-at { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.setg-pg #tv-address-hint.is-bad { color: var(--danger-text); }
+.setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { pointer-events: none; animation: tv-go var(--dur) var(--ease-out) forwards; }
+@keyframes tv-come { from { opacity: 0; transform: translateY(6px); } }
+@keyframes tv-go { to { opacity: 0; transform: translateY(6px); } }
+@media (max-width: 699.98px) {
+  .setg-pg .tv-in { flex-wrap: wrap; }
+  .setg-pg .tv-in > .tv-txt { flex-basis: calc(100% - 60px); }
+  .setg-pg .tv-acts { width: 100%; padding-left: 52px; }
+  .setg-pg .tv-acts .btn { flex: 1; padding-inline: 8px; }
+  .setg-pg .tv-sure { margin-left: 0; }
+  .setg-pg .tv-sure .btn, .setg-pg .tv-add-end .btn { flex: 1; }
+  .setg-pg .tv-add .btn { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setg-pg .tv-sure, .setg-pg .tv-chk li, .setg-pg .tv-add,
+  .setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { animation: none; }
+  .setg-pg .tv-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
 }
