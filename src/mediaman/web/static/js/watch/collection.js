@@ -238,7 +238,12 @@
   /* The film of the title in the middle of the row, which alone scrolls. */
   function toHere(v) { v.scroller.scrollLeft = middleFor(v, cardHere(v)); }
 
-  function middleFor(v, card) { return card.offsetLeft - (v.scroller.clientWidth - card.offsetWidth) / 2; }
+  /* Where the row has *card* in its middle; its start where that shows the whole card. */
+  function middleFor(v, card) {
+    var end = v.scroller.clientWidth - parseFloat(getComputedStyle(v.scroller).paddingRight);
+    if (card.offsetLeft + card.offsetWidth <= end) return 0;
+    return card.offsetLeft - (v.scroller.clientWidth - card.offsetWidth) / 2;
+  }
 
   /* The row is one Tab stop, which the arrow keys move. */
   function stopAt(v, link) {
@@ -319,7 +324,19 @@
     d.title.setAttribute('data-modal-focus', '');
     d.lead = el('p', 'coll-dialog__lead');
     d.lead.id = 'coll-dialog-lead';
+    d.all = button('season-pick__all coll-dialog__all');
+    d.all.addEventListener('click', function () {
+      if (job.busy) return;
+      var on = ticked(job).length < left(job).length;
+      left(job).forEach(function (i) { i.on = on; });
+      sync();
+    });
+    var under = el('div', 'coll-dialog__under');
+    under.appendChild(d.lead);
+    under.appendChild(d.all);
     d.body = el('div', 'coll-dialog__body');
+    d.body.addEventListener('scroll', edges, { passive: true });
+    window.addEventListener('resize', edges);
     d.list = el('ul', 'coll-list');
     d.out = el('div', 'coll-out');
     d.said = el('p', 'coll-dialog__said');
@@ -331,7 +348,7 @@
     actions.appendChild(d.go);
     d.body.appendChild(d.list);
     d.body.appendChild(d.out);
-    [d.title, d.lead, d.body, d.said, actions].forEach(function (n) { card.appendChild(n); });
+    [d.title, under, d.body, d.said, actions].forEach(function (n) { card.appendChild(n); });
     d.root.appendChild(card);
     // The rest of a double click on what opened it neither closes it nor answers it.
     d.root.addEventListener('click', function (e) {
@@ -415,6 +432,7 @@
     openedAt = Date.now();
     dialog.modal.open();
     dialog.body.scrollTop = 0;
+    edges();
   }
 
   function fill() {
@@ -514,9 +532,19 @@
       : !n ? 'Pick films' : (tried ? 'Try again with ' : 'Download ') + n;
     if (job.busy || (rest && !n)) d.go.setAttribute('aria-disabled', 'true');
     else d.go.removeAttribute('aria-disabled');
+    d.all.textContent = n < rest ? 'Select all' : 'Select none';
+    d.all.disabled = job.busy || rest < 2;
     d.cancel.textContent = tried ? 'Close' : 'Cancel';
     d.cancel.hidden = !rest;
     d.root.classList.toggle('is-busy', job.busy);
+  }
+
+  /* Where the list goes on out of sight, it fades. */
+  function edges() {
+    var b = dialog && dialog.body;
+    if (!b) return;
+    b.classList.toggle('has-above', b.scrollTop > 1);
+    b.classList.toggle('has-below', b.scrollTop < b.scrollHeight - b.clientHeight - 1);
   }
 
   /* The film being added, in the dialog's list. */

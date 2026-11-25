@@ -258,3 +258,21 @@ def test_a_session_that_ends_stops_the_run_without_a_question_about_leaving() ->
 
 def test_enter_held_down_does_not_press_what_comes_next() -> None:
     assert _run("held") == {"prevented": [False, True], "soon": True, "later": False}
+
+
+def test_all_films_are_unticked_or_ticked_at_once_while_none_is_added() -> None:
+    out = _run("toggleAll")
+    assert out["out"] == [
+        ["Select none", [True, True, True], "Download 3"],
+        ["Select all", [False, False, False], "Pick films"],
+        ["Select all", [False, True, False], "Download 1"],
+        ["Select none", [True, True, True], "Download 3"],
+    ]
+    assert out["busy"] is True
+    assert out["ids"] == [2, 3, 4]
+    # One left to tick needs no such button.
+    assert out["one"] is True
+
+
+def test_the_row_stays_at_its_start_where_the_film_is_whole_in_view() -> None:
+    assert _run("whereItStands") == [0, 0, 247]

@@ -479,6 +479,40 @@ const scenarios = {
     return { prevented, soon, later: p.isOpen() };
   },
 
+  async toggleAll() {
+    const p = await asked();
+    const all = () => p.q('.coll-dialog__all');
+    const look = () => [all().textContent, p.doc.querySelectorAll('.coll-item input').map((b) => b.checked), p.go().textContent];
+    const out = [look()];
+    await p.press(all());
+    out.push(look());
+    await p.tick(1, true);
+    out.push(look());
+    await p.press(all());
+    out.push(look());
+    await p.press(p.go());
+    const busy = all().disabled;
+    await p.press(all());
+    await p.answer(0);
+    await p.answer(1, new APIError(502, 'no'));
+    await p.answer(2);
+    return { out, busy, ids: ids(p), one: all().disabled };
+  },
+
+  // The film on show is *n*th of cards 112 wide and 10 apart, 20 in, in a row 390 wide.
+  async whereItStands() {
+    const at = async (n) => {
+      const p = load({ name: 'X', films: SAGA().films.map((f, i) => Object.assign(f, { here: i + 1 === n })) });
+      Object.defineProperty(Node.prototype, 'offsetLeft', { configurable: true, get() { return 20 + this.parentNode.children.indexOf(this) * 122; } });
+      Object.defineProperty(Node.prototype, 'offsetWidth', { configurable: true, get() { return 112; } });
+      Object.defineProperty(Node.prototype, 'clientWidth', { configurable: true, get() { return 390; } });
+      p.ctx.getComputedStyle = () => ({ getPropertyValue: () => '', paddingRight: '20px' });
+      await p.into('rec-9');
+      return p.q('.coll__row').scrollLeft;
+    };
+    return [await at(1), await at(2), await at(4)];
+  },
+
   // TMDB fails after the row was drawn.
   async outage() {
     let reply = SAGA();
