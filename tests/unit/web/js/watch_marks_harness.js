@@ -424,6 +424,26 @@ const scenarios = {
     return [go(), go({ touch: true })];
   },
 
+  // A card a finger, then a pen, lit, as the mouse moves on; and one a finger lit, as Tab is pressed.
+  async touchedLetGo() {
+    const p = load(watchPage([row('lib', [FILM()])]));
+    const film = p.cards()[0];
+    const eye = film.querySelector('.card-tool--eye');
+    const lit = () => film.classList.contains('is-touched');
+    const out = [];
+    ['touch', 'pen'].forEach((pointerType) => {
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType, pointerId: 1 });
+      const was = lit();
+      send(p.doc.listeners.pointermove, { target: p.doc.body, pointerType: 'mouse', pointerId: 2 });
+      out.push([was, lit()]);
+    });
+    send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+    send(p.doc.listeners.keydown, { key: 'Enter', target: eye });
+    const enter = lit();
+    send(p.doc.listeners.keydown, { key: 'Tab', target: eye });
+    return out.concat([[enter, lit()]]);
+  },
+
   // A finger's drag on a button not in sight, that the browser takes for a scroll, then Enter on it.
   async unseenThenKey() {
     const press = async (between) => {

@@ -269,9 +269,10 @@
   }, true);
 
   document.addEventListener('pointermove', function (e) {
-    if (!byTouch || e.pointerType !== 'mouse') return;
+    if ((!byTouch && !says['is-touched']) || e.pointerType !== 'mouse') return;
     byTouch = false;
     document.documentElement.classList.remove('is-by-touch');
+    say('is-touched', null);
   }, { passive: true });
 
   document.addEventListener('click', function (e) {
@@ -286,6 +287,7 @@
   ['pointercancel', 'keydown'].forEach(function (name) {
     document.addEventListener(name, function () { unseen = null; }, true);
   });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Tab') say('is-touched', null); }, true);
 
   document.addEventListener('scroll', function () { say('is-touched', null); }, true);
 
