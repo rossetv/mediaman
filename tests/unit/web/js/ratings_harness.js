@@ -215,10 +215,30 @@ const scenarios = {
       p.press(set, 3);
       await p.fail();
       const asked = p.log.slice(2);
+      const meanwhile = p.R.get('movie-1');
       await p.ratings({ 'movie-1': lv(level) });
-      return { asked, look: p.look(set) };
+      return { asked, meanwhile, look: p.look(set) };
     };
     return { held: await after(2), not: await after(-1) };
+  },
+
+  // Both the save and the read after it fail; the title is then asked for once more.
+  async offline() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(-1) });
+    p.press(set, 3);
+    await p.fail();
+    await p.fail();
+    const level = p.R.get('movie-1');
+    p.log.length = 0;
+    p.R.read(['movie-1']);
+    await p.go();
+    await p.ratings({ 'movie-1': lv(2) });
+    p.R.read(['movie-1']);
+    await p.go();
+    return { level, log: p.log, then: p.R.get('movie-1') };
   },
 
   // The first answer is lost, the second press is refused.

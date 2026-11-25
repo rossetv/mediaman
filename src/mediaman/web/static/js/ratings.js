@@ -5,7 +5,7 @@
  *     node for plain and grid, for the caller to place for strip and menu. Both are
  *     hidden while the title cannot be rated. 'menu' is for inside a role=menu: its
  *     buttons are menu items and out of the tab order.
- *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while not known
+ *   MM.ratings.get(ref)          -2, -1, 1, 2, null for none, undefined while never known
  *   MM.ratings.canRate(ref)      false, true, or undefined while not known
  *   MM.ratings.read(refs)        asks for those not known, in one request
  *   MM.ratings.set(ref, level)   rates, or with null takes the rating back
@@ -87,7 +87,7 @@
     var m = /^tmdb-(movie|tv)-0*([1-9][0-9]*)$/.exec(ref);
     var key = m ? m[1] + '-' + m[2] : '';
     s = (key && withKey(key)) || {
-      key: key, refs: [], want: null, saved: null, rateable: undefined, known: false,
+      key: key, refs: [], want: null, saved: null, rateable: undefined, known: false, askAgain: false,
       busy: false, asking: false, lost: false, rev: 0, pressed: null, from: null,
     };
     s.refs.push(ref);
@@ -127,7 +127,7 @@
   }
 
   function doubt(s) {
-    s.known = false;
+    s.askAgain = true;
     s.rev += 1; // an answer on its way may be from before
   }
 
@@ -161,6 +161,7 @@
     (level === null ? MM.api.delete(url) : MM.api.put(url, { level: level })).then(function (data) {
       s.saved = level;
       s.known = true;
+      s.askAgain = false;
       s.rateable = true;
       s.rev += 1;
       s.lost = false;
@@ -210,7 +211,7 @@
   function read(refs) {
     refs.forEach(function (ref) {
       var s = stateOf(ref);
-      if (s.known || s.asking) return;
+      if ((s.known && !s.askAgain) || s.asking) return;
       s.asking = true;
       if (!toAsk.length) setTimeout(flush, 0);
       toAsk.push(ref);
@@ -233,6 +234,7 @@
         if (s.rev !== a.rev) { read([a.ref]); return; }
         var got = data.ratings[a.ref];
         s.known = true;
+        s.askAgain = false;
         s.rateable = !!got && got.rateable;
         s.saved = got ? got.level : null;
         if (s.busy) return;

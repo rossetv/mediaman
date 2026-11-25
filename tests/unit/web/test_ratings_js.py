@@ -131,6 +131,16 @@ def test_a_save_whose_answer_is_lost_is_read_again() -> None:
     assert (out["held"]["look"]["on"], out["held"]["look"]["bad"]) == ([3], False)
 
 
+def test_the_last_known_level_is_answered_while_it_is_asked_again() -> None:
+    assert _run("lost")["held"].get("meanwhile") == -1
+
+
+def test_a_level_that_could_not_be_read_again_stays_known_and_is_asked_at_the_next_read() -> None:
+    out = _run("offline")
+    assert out.get("level") == -1
+    assert (out["log"], out["then"]) == (["GET ?refs=movie-1"], 2)
+
+
 def test_a_lost_answer_is_read_again_though_a_later_press_was_refused() -> None:
     assert _run("lostThenRefused") == ["GET ?refs=movie-1"]
 
