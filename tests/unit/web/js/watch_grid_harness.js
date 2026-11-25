@@ -226,6 +226,17 @@ const scenarios = {
     return { path, tab, short: p.focus().slice(6) };
   },
 
+  // A row's card with its levels open, as the row opens as a grid.
+  async copiedTools() {
+    const p = load();
+    const card = p.rows[0].querySelector('.watch-card');
+    card.appendChild(build(p.doc, ['div', { class: 'card-tools' }, ...['thumb', 'eye', 'x'].map((n) => ['button', { class: 'card-tool', 'data-n': n, tabindex: n === 'thumb' ? '0' : '-1' }])]));
+    const closed = [];
+    p.ctx.MMWatch.cardTools = { close: (c) => closed.push(c === card) };
+    p.grid.open(p.opts());
+    return { closed: closed.includes(true), stops: p.all().querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex')) };
+  },
+
   async jumpLoadsUntilThere() {
     const p = lone({ cards: ['a', 1, 2] }, [{ cards: ['b', 3], next: 'p1' }, { cards: ['c', 4], next: 'p2' }, { cards: ['d', 5], next: 'p3' }, { cards: ['e', 6], next: null }]);
     // The end is far off: only the jump asks for more.
@@ -667,14 +678,17 @@ const scenarios = {
     };
   },
 
-  // A copy is of the card at rest, and opening closes a preview over it.
+  // A copy is of the card at rest, without levels that are folding away, and opening closes a preview over it.
   async previewGoes() {
     const p = load();
     let closed = 0;
     p.ctx.MMWatch.preview = { close() { closed++; } };
     p.rows[0].querySelectorAll('.watch-card__link')[0].classList.add('is-previewed');
+    const card = p.rows[0].querySelectorAll('.watch-card')[0];
+    card.classList.add('is-lifted');
+    card.appendChild(build(p.doc, ['div', { class: 'card-over' }]));
     p.grid.open(p.opts());
-    return { closed, copies: p.doc.querySelectorAll('.watch-all .is-previewed').length };
+    return { closed, copies: p.doc.querySelectorAll('.watch-all .is-previewed, .watch-all .is-lifted, .watch-all .card-over').length };
   },
 
   // A card taken out: the rest close up from where they were, and it comes back to its place.
@@ -961,9 +975,12 @@ const scenarios = {
     const count = p.doc.querySelector('.watch-all__count');
     const skel = grid.querySelector('.watch-card--skel');
     const out = { asked: asked.slice(), first: look(), count: count.textContent, lead: p.anims.filter((a) => a.node === skel).map((a) => a.opts.delay) };
-    give({ cards: [1, 2, 3].map(p.card), next: null, total: 3 });
+    const cards = [1, 2, 3].map((n) => p.card(n));
+    cards[0].appendChild(build(p.doc, ['div', { class: 'card-tools' }]));
+    out.placed = 0;
+    give({ cards, next: null, total: 3, placed: () => { out.placed++; } });
     await settle();
-    out.moving = look();
+    out.moving = look().concat(out.placed);
     const before = p.anims.length;
     p.finish();
     await settle();
@@ -971,6 +988,7 @@ const scenarios = {
     const card = grid.querySelector('.watch-card');
     const since = p.anims.slice(before).map((a) => a.node);
     out.boxFades = since.indexOf(card) >= 0;
+    out.toolsFade = since.indexOf(card.querySelector('.card-tools')) >= 0;
     out.wordsFade = since.indexOf(card.querySelector('.watch-card__sub')) >= 0;
     return out;
   },

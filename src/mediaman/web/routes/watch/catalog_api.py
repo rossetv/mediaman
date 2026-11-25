@@ -54,6 +54,7 @@ from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email, get_user_role
+from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
 from mediaman.web.repository.library_query import TitleSearch, protection_label
@@ -64,6 +65,13 @@ from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
 from mediaman.web.routes.watch.browse_api import library_items
+from mediaman.web.routes.watch.card_marks import (
+    card_marks,
+    latest_season_out,
+    marked,
+    title_key,
+    tmdb_ref,
+)
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
@@ -166,6 +174,7 @@ def api_watch_search_tmdb(
     index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     arr = _arr(request, conn)
     cards = [card for item in found if (card := catalog.tmdb_card(item, index, arr)) is not None]
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
     refs = dict.fromkeys(cast(str, c["library_ref"]) for c in cards if c["in_library"])
     search = TitleSearch(conn, term)
     held = [
@@ -177,7 +186,11 @@ def api_watch_search_tmdb(
     return respond_ok(
         {
             "tmdb_configured": True,
-            "items": [card for card in cards if not card["in_library"]],
+            "items": [
+                marked({**card, **lib.mark_fields(None, set())}, marks)
+                for card in cards
+                if not card["in_library"]
+            ],
             "held": library_items(conn, username, libraries, held),
             "people": catalog.people(found),
         }
@@ -215,8 +228,14 @@ def api_watch_discover(
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     cards = _discover_cards(request, conn, client, username, [items for _, _, items in shelves])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
     rows = [
-        {"id": shelf_id, "title": title, "items": row_cards, "next_page": 2}
+        {
+            "id": shelf_id,
+            "title": title,
+            "items": [marked(card, marks) for card in row_cards],
+            "next_page": 2,
+        }
         for (shelf_id, title, _), row_cards in zip(shelves, cards, strict=True)
     ]
     return respond_ok({"tmdb_configured": True, "stale": False, "rows": rows})
@@ -283,7 +302,9 @@ def _discover_page(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    [items] = _discover_cards(request, conn, client, username, [found])
+    [cards] = _discover_cards(request, conn, client, username, [found])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
+    items = [marked(card, marks) for card in cards]
     return respond_ok({"tmdb_configured": True, "items": items, "next_page": next_page})
 
 
@@ -405,6 +426,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "in_library": False,
         "library_ref": None,
         **lib.mark_fields(None, set()),
+        "tmdb_ref": None,
         "title": "",
         "year": None,
         "year_end": None,
@@ -514,8 +536,11 @@ def _movie_title(
         in_library=True, library_ref=ref, title=movie.title, poster_url=poster_url(movie.key)
     )
     progress = get_progress(conn, username, [movie.key]).get(movie.key)
-    seen = progress is not None and progress.seen
+    seen = (progress is not None and progress.seen) or (
+        movie.key in seen_titles.seen_films(conn, username, libraries)
+    )
     out.update(lib.mark_fields(ref, {ref} if seen else set()))
+    out["tmdb_ref"] = tmdb_ref(title_key("movie", movie.tmdb_id))
     try:
         item = open_plex(request, conn).get_item(movie.key)
     except PlexError:
@@ -684,6 +709,7 @@ def _show_title(
     )
     counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
     out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
+    out["tmdb_ref"] = tmdb_ref(title_key("tv", listed.tmdb_id))
     tmdb_seasons: list[dict[str, Any]] = []
     arr_view = begin_arr_view(conn, request.app.state.config.secret_key)
     origin = f"/watch#title={ref}"
@@ -699,7 +725,9 @@ def _show_title(
                 episodes_cache[season_key] = plex.get_season_episodes(season_key)
             return episodes_cache[season_key]
 
-        progress = show_progress(conn, username, listed.key)
+        progress = seen_titles.with_covered(
+            conn, username, libraries, listed.key, show_progress(conn, username, listed.key)
+        )
         primary, primary_season = _primary_episode(
             plex, show, progress, episodes_of, origin, counted
         )
@@ -837,6 +865,14 @@ def _title_of_fields(
     if library_ref is not None:
         seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
         out.update(in_library=True, library_ref=library_ref, **lib.mark_fields(library_ref, seen))
+    own = seen_titles.person_marks(conn, username)
+    title = (kind, tmdb_id)
+    out["tmdb_ref"] = tmdb_ref(title)
+    if title in own.seen and library_ref is None:
+        latest = latest_season_out(fields, now_utc().date()) if kind == "tv" else None
+        out["watched"] = title not in own.partly and (
+            latest is None or latest <= (own.seen[title] or 0)
+        )
     if kind == "tv":
         held = arr.seasons_with_files(tmdb_id)
         out["seasons"] = [
@@ -1142,7 +1178,9 @@ def api_watch_title_collection(
     if collection is None or len(collection["films"]) < 2:
         return nothing
     films = collection["films"]
-    [cards] = _discover_cards(request, conn, client, username, [films])
+    [found_cards] = _discover_cards(request, conn, client, username, [films])
+    marks = card_marks(seen_titles.person_marks(conn, username), client)
+    cards = [marked(card, marks) for card in found_cards]
     answered = _arr(request, conn).answers_for("movie")
     shown = []
     for film, card in zip(films, cards, strict=True):
@@ -1222,7 +1260,9 @@ def api_watch_title_season(
             except disk_cache.Refused:
                 pending = not words
     # What was seen or marked during the wait counts.
-    progress = show_progress(conn, username, key)
+    progress = seen_titles.with_covered(
+        conn, username, libraries, key, show_progress(conn, username, key)
+    )
     return respond_ok(
         {
             "key": season.rating_key,

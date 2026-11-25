@@ -235,6 +235,58 @@ def test_a_title_whose_lookup_fails_takes_no_other_down(services, viewer, asked)
     assert harbour["art_url"] == "/api/watch/img/tmdb/w1280/f12.jpg"
 
 
+def test_what_is_ready_says_what_each_person_marked_it_as(viewer, conn, monkeypatch):
+    insert_media_item(conn, id="900", title="Dry Harbour", media_type="movie")
+    conn.execute("UPDATE media_items SET tmdb_id = 12, plex_rating_key = '900'")
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, role, created_at)"
+        " VALUES ('other', 'x', 'viewer', '2026-01-01')"
+    )
+    guest, other = (
+        conn.execute("SELECT id FROM admin_users WHERE username = ?", (name,)).fetchone()[0]
+        for name in ("guest", "other")
+    )
+    for user, level, tmdb_id in ((guest, 2, 11), (other, -1, 12)):
+        conn.execute(
+            "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, title, updated_at)"
+            " VALUES (?, 'movie', ?, ?, 'x', '2026-01-01')",
+            (user, tmdb_id, level),
+        )
+    for user, tmdb_id in ((guest, 12), (other, 11)):
+        conn.execute(
+            "INSERT INTO user_seen_titles (user_id, media_type, tmdb_id, title, seen_at)"
+            " VALUES (?, 'movie', ?, 'x', '2026-01-01')",
+            (user, tmdb_id),
+        )
+    conn.commit()
+
+    def item(title, tmdb_id, ref, state="ready"):
+        return strip.StripItem(
+            key=title, title=title, kind="movie", state=state, tmdb_id=tmdb_id, ref=ref,
+            ready_seconds=50 if state == "ready" else None,
+        )  # fmt: skip
+
+    held = strip.Shared(clock=lambda: 0.0)
+    items = (
+        item("Ember Coast", 11, "tmdb-movie-11"),
+        item("Dry Harbour", 12, "movie-900"),
+        item("On its way", 13, "tmdb-movie-13", "downloading"),
+        item("Unknown", None, None),
+    )
+    held.get(lambda _before: strip.Strip(items))
+    monkeypatch.setattr(strip, "shared", held)
+
+    ember, harbour, coming, unknown = _get(viewer).json()["items"]
+    said = ("tmdb_ref", "level", "watched", "mark_kind", "mark_key")
+    assert [ember[k] for k in said] == ["tmdb-movie-11", 2, False, None, None]
+    assert [harbour[k] for k in said] == ["tmdb-movie-12", None, True, "movie", "900"]
+    assert coming["tmdb_ref"] == "tmdb-movie-13"
+    assert not {"level", "watched"} & {*coming, *unknown}
+
+
 def test_the_downloads_page_s_poll_tells_the_ring_and_asks_the_services_nothing_more(
     services, viewer
 ):

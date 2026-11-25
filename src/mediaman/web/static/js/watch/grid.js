@@ -28,7 +28,7 @@
   var HEARD_MS = 3000; // how long what a grid says of itself as it opens is left to be heard
   var JUMP_MS = 4000; // a jump whose next page takes longer is not awaited any more
   var POSTER = 1.5; // its height, of its width
-  var SAID = '.watch-card__poster > :not(img), .watch-card__sub, .watch-more';
+  var SAID = '.watch-card__poster > :not(img), .watch-card__sub, .card-tools';
   var SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
 
   /* ── Cards ── */
@@ -56,10 +56,14 @@
   }
 
   function copy(card) {
+    if (watch.cardTools) watch.cardTools.close(card);
     var twin = wake(card.cloneNode(true));
     toArray(twin.querySelectorAll('.is-previewed')).forEach(function (n) { n.classList.remove('is-previewed'); });
     // A row has its own keys (watch-rows.js), the grid the Tab order.
     toArray(twin.querySelectorAll('[tabindex]')).forEach(function (n) { n.removeAttribute('tabindex'); });
+    toArray(twin.querySelectorAll('.card-over, .card-flier, .card-lights, .card-barend, .watch-badge--unwatched')).forEach(function (n) { n.remove(); });
+    twin.classList.remove('is-lifted', 'is-quiet', 'has-focus', 'is-on-tools');
+    toArray(twin.querySelectorAll('.card-tool')).slice(1).forEach(function (n) { n.tabIndex = -1; });
     toArray(twin.querySelectorAll('[aria-expanded]')).forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
     return twin;
   }
@@ -243,14 +247,17 @@
       tail.replaceChildren(box);
     }
 
-    /* A page that comes while the layer moves is put in once it rests. */
+    /* A page that comes while the layer moves is put in once it rests. page.placed: called as it is. */
     function askPage(next) {
       function rested(end) {
         return function (got) {
           return held ? new Promise(function (go) { freed.push(go); }).then(function () { return end(got); }) : end(got);
         };
       }
-      return fetchPage(next).then(rested(function (page) { return page; }), rested(function (err) { throw err; }));
+      return fetchPage(next).then(rested(function (page) {
+        if (page.placed) page.placed();
+        return page;
+      }), rested(function (err) { throw err; }));
     }
 
     function begin(next) {

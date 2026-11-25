@@ -45,6 +45,7 @@ from mediaman.services.scheduled_actions import parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.asked import has_any
 from mediaman.web.repository.library_query import count_titles
@@ -53,11 +54,12 @@ from mediaman.web.repository.watch_progress import (
     WatchProgress,
     continue_watching,
     get_progress,
-    seen_movies,
     show_progress,
 )
+from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page
+from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
 from mediaman.web.routes.watch.library_order import library_page
 
 router = APIRouter()
@@ -272,9 +274,11 @@ def card(
     season_leaving: list[dict[str, Any]] | None = None,
     mark: tuple[str, str] | None = None,
     dismiss_ref: str | None = None,
+    title_fields: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     """One card; *mark* is the (kind, key) its Watched toggle marks, *season_leaving* the
-    seasons of a show that are leaving, which the card says and offers no Keep of."""
+    seasons of a show that are leaving, which the card says and offers no Keep of, and
+    *title_fields* is ``_title_fields`` of the film or show."""
     if season_leaving:
         leaving = {"days": season_leaving[0]["days"], "keep_id": None}
     mark_kind, mark_key = mark or (None, None)
@@ -290,10 +294,21 @@ def card(
         "mark_kind": mark_kind,
         "mark_key": mark_key,
         "dismiss_ref": dismiss_ref,
+        **(title_fields or {"tmdb_ref": None, "level": None}),
         "leaving_days": leaving["days"] if leaving else None,
         "keep_id": leaving["keep_id"] if leaving else None,
         **season_fields(season_leaving),
     }
+
+
+def _title_fields(
+    marks: seen_titles.PersonMarks, title: lib.LibraryMovie | lib.LibraryShow | None
+) -> dict[str, object]:
+    """What a library title's card is rated by, and how this person rated it."""
+    key = title_key(
+        "movie" if isinstance(title, lib.LibraryMovie) else "tv", title.tmdb_id if title else None
+    )
+    return {"tmdb_ref": tmdb_ref(key), "level": marks.levels.get(key) if key else None}
 
 
 def movie_subtitle(movie: lib.LibraryMovie) -> str:
@@ -306,6 +321,7 @@ def movie_card(
     watched: bool = False,
     leaving: dict[str, Any] | None = None,
     progress_pct: int | None = None,
+    title_fields: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     return card(
         "movie",
@@ -317,6 +333,7 @@ def movie_card(
         leaving=leaving,
         progress_pct=progress_pct,
         mark=("movie", movie.key),
+        title_fields=title_fields,
     )
 
 
@@ -333,6 +350,7 @@ def show_card(
     show: lib.LibraryShow,
     seen: lib.ShowSeen | None = None,
     season_leaving: list[dict[str, Any]] | None = None,
+    title_fields: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     """A show's card; *seen* is how much of it this person has seen."""
     return card(
@@ -344,6 +362,7 @@ def show_card(
         watched=seen is not None and seen.watched,
         season_leaving=season_leaving,
         mark=("show", show.key),
+        title_fields=title_fields,
     )
 
 
@@ -354,34 +373,63 @@ def show_cards(
     shows: list[lib.LibraryShow],
     pending: list[lib.PendingDeletion],
     now: datetime,
+    marks: seen_titles.PersonMarks,
 ) -> list[dict[str, Any]]:
     """Show cards marked with what this person has seen of each and any season leaving."""
     seen = lib.show_seen(conn, username, libraries)
     leaving = seasons_leaving(pending, now)
-    return [show_card(s, seen.get(s.key), leaving.get(s.key)) for s in shows]
+    return [
+        show_card(s, seen.get(s.key), leaving.get(s.key), _title_fields(marks, s)) for s in shows
+    ]
 
 
 def movie_cards(
     conn: sqlite3.Connection,
     username: str,
+    libraries: list[str],
     movies: list[lib.LibraryMovie],
     pending: list[lib.PendingDeletion],
     now: datetime,
+    marks: seen_titles.PersonMarks,
 ) -> list[dict[str, Any]]:
     """Movie cards marked with this person's Watched state and any scheduled deletion."""
     progress = get_progress(conn, username, [m.key for m in movies])
+    covered = seen_titles.seen_films(conn, username, libraries)
     leaving = {p.media_item_id: leaving_info(p, now) for p in pending if p.season_number is None}
     return [
         movie_card(
             m,
-            watched=is_seen(progress, m.key),
+            watched=is_seen(progress, m.key) or m.key in covered,
             leaving=leaving.get(m.key),
             progress_pct=(
                 progress_fields(progress[m.key])[0] if resumable(progress.get(m.key)) else None
             ),
+            title_fields=_title_fields(marks, m),
         )
         for m in movies
     ]
+
+
+def title_cards(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    titles: Sequence[lib.LibraryMovie | lib.LibraryShow],
+    now: datetime,
+) -> list[dict[str, Any]]:
+    """The cards of library *titles*, in their order."""
+    movies = [t for t in titles if isinstance(t, lib.LibraryMovie)]
+    shows = [t for t in titles if isinstance(t, lib.LibraryShow)]
+    pending = lib.pending_deletions(conn, libraries)
+    marks = seen_titles.person_marks(conn, username)
+    cards: dict[lib.LibraryMovie | lib.LibraryShow, dict[str, Any]] = {}
+    if movies:
+        films = movie_cards(conn, username, libraries, movies, pending, now, marks)
+        cards.update(zip(movies, films, strict=True))
+    if shows:
+        held = show_cards(conn, username, libraries, shows, pending, now, marks)
+        cards.update(zip(shows, held, strict=True))
+    return [cards[title] for title in titles]
 
 
 def _render(request: Request, template: str, ctx: dict[str, Any]) -> Response:
@@ -554,6 +602,7 @@ def _continue_watching(
     plex: _OptionalPlex,
     movies: dict[str, lib.LibraryMovie],
     shows: dict[str, lib.LibraryShow],
+    marks: seen_titles.PersonMarks,
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """This person's Continue watching cards, and the banner, which stands for the first."""
     cards: list[dict[str, Any]] = []
@@ -581,6 +630,7 @@ def _continue_watching(
                     minutes_left=left,
                     mark=("movie", movie.key),
                     dismiss_ref=f"movie-{movie.key}",
+                    title_fields=_title_fields(marks, movie),
                 )
             )
             if banner is None:
@@ -607,6 +657,7 @@ def _continue_watching(
                     href,
                     mark=("episode", episode.rating_key),
                     dismiss_ref=f"show-{show.key}",
+                    title_fields=_title_fields(marks, show),
                 )
             )
             if banner is None:
@@ -635,6 +686,7 @@ def _continue_watching(
                 minutes_left=left,
                 mark=("episode", key),
                 dismiss_ref=f"show-{show.key}",
+                title_fields=_title_fields(marks, show),
             )
         )
         if banner is None:
@@ -687,15 +739,18 @@ def _banner(
 
 def _mark_banner(banner: dict[str, Any], of: dict[str, Any]) -> None:
     """Give the banner the marks of the card it stands for."""
-    banner.update({k: of[k] for k in ("watched", "mark_kind", "mark_key", "dismiss_ref")})
+    copied = ("watched", "mark_kind", "mark_key", "dismiss_ref")
+    banner.update({k: of[k] for k in copied})
 
 
 def _leaving_card(
     pending: lib.PendingDeletion,
     now: datetime,
     films: Mapping[str, lib.LibraryMovie],
-    seen_movies: set[str],
+    shows: Mapping[str, lib.LibraryShow],
+    seen_films: set[str],
     seen_shows: Mapping[str, lib.ShowSeen],
+    marks: seen_titles.PersonMarks,
 ) -> dict[str, Any]:
     leaving = leaving_info(pending, now)
     if pending.season_number is None:
@@ -706,9 +761,10 @@ def _leaving_card(
             movie_subtitle(films[key]) if key in films else "Movie",
             poster_url(key),
             f"/watch/movie/{key}",
-            watched=key in seen_movies,
+            watched=key in seen_films,
             leaving=leaving,
             mark=("movie", key),
+            title_fields=_title_fields(marks, films.get(key)),
         )
     show_key = pending.show_key or pending.media_item_id
     show = seen_shows.get(show_key)
@@ -722,6 +778,7 @@ def _leaving_card(
         watched=season is not None and season.watched,
         leaving=leaving,
         mark=("season", pending.media_item_id),
+        title_fields=_title_fields(marks, shows.get(show_key)),
     )
 
 
@@ -825,18 +882,23 @@ def watch_page(
     movies = lib.newest_first(lib.library_movies(conn, libraries))
     shows = lib.newest_first(lib.library_shows(conn, libraries))
     pending = lib.pending_deletions(conn, libraries)
-    movie_row = movie_cards(conn, username, movies, pending, now)
+    marks = seen_titles.person_marks(conn, username)
+    movie_row = movie_cards(conn, username, libraries, movies, pending, now, marks)
     seen_shows = lib.show_seen(conn, username, libraries)
     going = seasons_leaving(pending, now)
-    show_row = [show_card(s, seen_shows.get(s.key), going.get(s.key)) for s in shows]
+    show_row = [
+        show_card(s, seen_shows.get(s.key), going.get(s.key), _title_fields(marks, s))
+        for s in shows
+    ]
 
     films = {m.key: m for m in movies}
-    continue_row, banner = _continue_watching(
-        conn, username, plex, films, {s.key: s for s in shows}
-    )
+    by_key = {s.key: s for s in shows}
+    continue_row, banner = _continue_watching(conn, username, plex, films, by_key, marks)
     plex.check_reachable()
-    seen_films = seen_movies(conn, username)
-    leaving_row = [_leaving_card(p, now, films, seen_films, seen_shows) for p in pending]
+    seen_films = lib.seen_films(conn, username, libraries)
+    leaving_row = [
+        _leaving_card(p, now, films, by_key, seen_films, seen_shows, marks) for p in pending
+    ]
 
     card_of = {
         **{("movie", m.key): c for m, c in zip(movies, movie_row, strict=True)},
@@ -960,7 +1022,11 @@ def watch_page(
                 if grid
                 else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
-                "downloading": strip.payload(downloading) if downloading else None,
+                "downloading": payload_for(
+                    conn, request.app.state.config.secret_key, username, downloading
+                )
+                if downloading
+                else None,
             },
         },
     )
@@ -1101,7 +1167,9 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
         show = plex.get_show(show_key)
         if not is_in_libraries(show, libraries):
             raise HTTPException(status_code=404)
-        progress = show_progress(conn, username, show_key)
+        progress = seen_titles.with_covered(
+            conn, username, libraries, show_key, show_progress(conn, username, show_key)
+        )
         counted = lib.show_seen(conn, username, libraries, show_key=show_key).get(show_key)
         primary, primary_season = _primary_episode(
             plex, show, progress, episodes_of, f"/watch/show/{show_key}", counted
@@ -1227,7 +1295,8 @@ def movie_page(request: Request, key: str) -> Response:
                 "minutes": _minutes(item.duration_s),
                 "summary": item.summary,
                 "poster_url": poster_url(key),
-                "watched": progress is not None and progress.seen,
+                "watched": (progress is not None and progress.seen)
+                or key in seen_titles.seen_films(conn, username, libraries),
                 "mark_kind": "movie",
                 "mark_key": key,
             },

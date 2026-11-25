@@ -1,8 +1,8 @@
-/* Watch: the person's own Watched marks and Dismiss, and their rating in the menus and
- * of a pick. One More menu serves every card, a toggle every film, episode, season and
- * show that has one, and each change can be undone from its toast. What a change means
- * for the rest of the page is read from the server's own page. Needs watch/core.js,
- * watch/keep.js and ratings.js, and for an admin's All titles watch/library.js; on window.MMWatch.marks.
+/* Watch: the person's own Watched marks and Dismiss, and what their rating does to a pick.
+ * A toggle serves every film, episode, season and show that has one, in the library or not,
+ * and each change can be undone from its toast. What a change means for the rest of the
+ * page is read from the server's own page. Needs watch/core.js, watch/keep.js, ratings.js and
+ * watch/card-tools.js, and for an admin's All titles watch/library.js; on window.MMWatch.marks.
  */
 (function () {
   'use strict';
@@ -14,11 +14,15 @@
   var toArray = core.toArray;
 
   var WATCHED_URL = '/api/watch/watched/';
+  var SEEN_URL = '/api/watch/seen/';
   var DISMISSED_URL = '/api/watch/dismissed/';
   var TITLE_URL = '/api/watch/title/';
   var SEARCH_URL = '/api/watch/search?q=';
   var LEFT_RE = / · [^·]* left$/;
-  var RATED_MS = 650; // how long a rating is looked at before what it was given in goes
+  var EYE = '.card-tool--eye';
+  var RATED_MS = 900; // how long a rating is looked at, and comes down, before what it was given in goes
+  var RATED_STILL_MS = 650; // with nothing moving
+  var MARKED_MS = 600; // how long a mark is looked at before its card leaves Continue watching or moves on there
   var STRONG_NO = -2;
 
   var page = byId('watch-page');
@@ -89,14 +93,14 @@
   function controlOf(ref, done, any) {
     var banner = bannerOf(ref);
     var buttons = banner ? [banner.querySelector('[data-watch-dismiss]')] : [];
-    var mores = moresOf(continueCards(document, ref));
-    var all = moresOf(done.card ? [done.card] : []).concat(done.fromBanner ? buttons.concat(mores) : mores.concat(buttons));
-    if (any) all = all.concat(moresOf(cardsOf(function (card) { return refOf(card) === ref; })));
+    var cards = controlsOf(continueCards(document, ref));
+    var all = controlsOf(done.card ? [done.card] : []).concat(done.fromBanner ? buttons.concat(cards) : cards.concat(buttons));
+    if (any) all = all.concat(controlsOf(cardsOf(function (card) { return refOf(card) === ref; })));
     return all.filter(canFocus)[0];
   }
 
-  function moresOf(cards) {
-    return cards.map(function (card) { return card.querySelector('[data-watch-more]'); }).filter(Boolean);
+  function controlsOf(cards) {
+    return cards.map(function (card) { return core.controlIn(card, EYE); }).filter(Boolean);
   }
 
   function canFocus(node) { return node.getClientRects().length > 0 && !node.closest('[inert]'); }
@@ -109,10 +113,6 @@
 
   function buttonsOf(key) {
     var found = withAttr(document, 'data-mark-toggle', key).concat(withAttr(document, 'data-watch-dismiss', key));
-    withAttr(document, 'data-mark', key).concat(withAttr(document, 'data-dismiss-ref', key)).forEach(function (card) {
-      var more = card.querySelector('[data-watch-more]');
-      if (more) found.push(more);
-    });
     return found;
   }
 
@@ -131,39 +131,118 @@
 
   /* ── Drawing a mark ── */
 
+  /* Each page's style is worked out again whenever it is read after a change, which costs as many
+     cards as the page has: what the drawing of a mark needs to know is read before it changes anything. */
+
+  var shut = new WeakMap(); // of an eye that waits for its answer: how far it has shut, from 0 to 1
+  var sight = null; // while a mark is drawn: whether each of its cards is in sight
+
+  /* Read what drawing the mark *key* of the title *ref* needs, then draw it with *fn*. */
+  function readFirst(key, ref, fn) {
+    buttonsOf(key).forEach(function (button) {
+      var drawn = /^matrix\((?:[^,]+,){3}([^,]+)/.exec(getComputedStyle(button.querySelector('.ico') || button).transform);
+      shut.set(button, drawn ? 1 - Math.min(1, Math.max(0, Number(drawn[1]))) : 0);
+    });
+    sight = new Map();
+    cardsOfMark(key).concat(continueCards(document, ref)).forEach(function (card) { sight.set(card, card.getClientRects().length > 0); });
+    try { fn(); } finally { sight = null; }
+  }
+
+  /* Whether *card* is in sight, with motion. */
+  function moving(card) {
+    return !core.reduceMotion() && (sight && sight.has(card) ? sight.get(card) : card.getClientRects().length > 0);
+  }
+
   function setToggle(button, watched) {
-    button.setAttribute('aria-pressed', watched ? 'true' : 'false');
+    var now = watched ? 'true' : 'false';
+    if (button.getAttribute('aria-pressed') !== now && button.matches('.card-tool, .card-over__b, .pv__eye')) {
+      button.style.setProperty('--shut', String(shut.get(button) || 0));
+      shut.delete(button);
+      // One still blinking is made to blink again; one done blinking is told so below.
+      if (button.classList.contains('is-blink')) {
+        button.classList.remove('is-blink');
+        void button.offsetWidth;
+      }
+      button.classList.add('is-blink');
+    }
+    button.setAttribute('aria-pressed', now);
     if (button.hasAttribute('title')) button.setAttribute('title', core.markAction(watched));
+  }
+
+  document.addEventListener('animationend', function (e) {
+    if (/^eye-(shuts|opens)$/.test(e.animationName)) e.target.classList.remove('is-blink');
+  });
+
+  /* A card's caption; null while it says what an admin's change is doing. */
+  function captionOf(card) {
+    return card.classList.contains('is-working') ? null : card.querySelector('.watch-card__sub').textContent;
   }
 
   /* A card's mark, progress bar and caption, as they are now. Returns what puts them back. */
   function snapshot(card) {
     var poster = card.querySelector('.watch-card__poster');
-    var sub = card.querySelector('.watch-card__sub');
     var badge = poster.querySelector('.watch-badge--watched');
     var bar = poster.querySelector('.watch-bar');
-    var text = sub.textContent;
+    var text = captionOf(card);
     return function () { draw(card, badge, bar, text); };
   }
 
   function draw(card, badge, bar, text) {
     var poster = card.querySelector('.watch-card__poster');
+    var moves = moving(card);
     [['.watch-badge--watched', badge], ['.watch-bar', bar]].forEach(function (p) {
       var old = poster.querySelector(p[0]);
       if (old === p[1]) return;
-      if (old) old.remove();
+      if (old) {
+        if (moves) (p[0] === '.watch-bar' ? endBar : liftBadge)(poster, old);
+        old.remove();
+      }
       if (p[1]) poster.appendChild(p[1]);
     });
-    core.caption(card.querySelector('.watch-card__sub'), text);
+    toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) { setToggle(b, !!badge); });
+    if (text !== null && captionOf(card) !== null) core.caption(card.querySelector('.watch-card__sub'), text);
+  }
+
+  /* What is left on *poster* for a moment, for the motion alone. */
+  function ghost(poster, node, ms) {
+    node.setAttribute('aria-hidden', 'true');
+    poster.appendChild(node);
+    setTimeout(function () { node.remove(); }, ms);
+  }
+
+  function liftBadge(poster, badge) {
+    var copy = badge.cloneNode(true);
+    copy.className = 'watch-badge watch-badge--unwatched';
+    copy.style.top = badge.offsetTop + 'px';
+    copy.style.left = badge.offsetLeft + 'px';
+    copy.style.right = 'auto';
+    ghost(poster, copy, 170);
+  }
+
+  /* The bar runs to its end. */
+  function endBar(poster, bar) {
+    var rail = el('span', 'card-barend');
+    rail.appendChild(el('i')).style.setProperty('--from', String((Number(bar.value) || 0) / 100));
+    ghost(poster, rail, 560);
+  }
+
+  /* The lights go down and come up. */
+  function lights(card) {
+    if (!moving(card)) return;
+    ghost(card.querySelector('.watch-card__poster'), el('span', 'card-lights'), 660);
   }
 
   /* A watched title has nothing left to watch. */
   function setCard(card, watched) {
     var back = snapshot(card);
     var bar = card.querySelector('.watch-bar');
-    var text = card.querySelector('.watch-card__sub').textContent;
+    var text = captionOf(card);
     var badge = card.querySelector('.watch-badge--watched') || core.watchedBadge();
-    if (watched) draw(card, badge, null, text.replace(LEFT_RE, ''));
+    if (watched && !hasBadge(card)) {
+      badge.classList.add('is-new');
+      lights(card);
+    }
+    if (watched) draw(card, badge, null, text && text.replace(LEFT_RE, ''));
     else draw(card, null, bar, text);
     return back;
   }
@@ -174,11 +253,52 @@
     });
   }
 
+  var WHOLE_RE = /^(movie|show)\/|^tmdb-/; // a film or a whole show, by its mark
+
+  function markOf(card) { return card.getAttribute('data-mark') || ''; }
+
+  function isWhole(card) { return WHOLE_RE.test(markOf(card)) && !isContinue(card); }
+
+  /* The titles of TMDB that *mark*, of a film or a whole show, is of, as far as the page knows. */
+  function tmdbRefsOf(mark) {
+    if (/^tmdb-/.test(mark)) return [mark];
+    if (!WHOLE_RE.test(mark)) return [];
+    return withAttr(document, 'data-mark', mark).map(function (card) { return card.getAttribute('data-tmdb-ref'); })
+      .filter(function (ref, i, all) { return ref && all.indexOf(ref) === i; });
+  }
+
+  /* What a title was marked as from this page, for a card of it drawn from an older answer. */
+  var said = {}; // by its TMDB ref: { watched, at }
+  var drawnAt = new WeakMap();
+  var LATE_MS = 10000; // how long an answer asked for before a mark may be on its way
+
+  function note(mark, watched) {
+    tmdbRefsOf(mark).forEach(function (ref) { said[ref] = { watched: watched, at: Date.now() }; });
+  }
+
+  /* A card that has come onto the page. */
+  function adopt(card) {
+    var ref = card.getAttribute('data-tmdb-ref');
+    var told = ref && said[ref];
+    var from = drawnAt.get(card) || Date.now();
+    drawnAt.set(card, Date.now());
+    if (told && told.at > from - LATE_MS && isWhole(card) && hasBadge(card) !== told.watched) setCard(card, told.watched);
+  }
+
+  /* The cards that *mark* is drawn on: of the same title, in the library or not. */
+  function cardsOfMark(mark) {
+    var refs = tmdbRefsOf(mark);
+    return cardsOf(function (card) {
+      return markOf(card) === mark || (isWhole(card) && refs.indexOf(card.getAttribute('data-tmdb-ref')) >= 0);
+    });
+  }
+
   /* Show *mark* as it now is wherever it is drawn. Returns what puts the cards back. */
   function paint(mark, watched) {
+    note(mark, watched);
+    var backs = cardsOfMark(mark).map(function (card) { return setCard(card, watched); });
     withAttr(document, 'data-mark-toggle', mark).forEach(function (b) { setToggle(b, watched); });
-    return cardsOf(function (card) { return card.getAttribute('data-mark') === mark; })
-      .map(function (card) { return setCard(card, watched); });
+    return backs;
   }
 
   /* A show's change is every season's. */
@@ -205,6 +325,7 @@
 
   /* A card that goes takes its open menu with it. */
   function closeMenu(card) {
+    window.MMWatch.cardTools.close(card);
     var trigger = moreMenu && moreMenu.trigger();
     if (trigger && card.contains(trigger)) moreMenu.close(false);
   }
@@ -243,7 +364,7 @@
       var lost = focusLost(card);
       var row = card.closest('.watch-row');
       var grid = row ? null : card.parentNode; // the row opened as a grid holds one too
-      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '[data-watch-more]');
+      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '.card-tool');
       done.rows = true;
       done.undos.push(function () {
         if (grid) {
@@ -256,13 +377,73 @@
       });
       // From the banner, the one that takes its place gets the focus.
       if (lost && taken.focus && !done.fromBanner) core.focusSoftly(taken.focus);
+      done.beside = taken.focus;
     });
     if (cards.length) tellContinue(ref);
   }
 
-  /* The card moves on to what the server now has in its place. */
+  /* A card of Continue watching shows that it was watched. Returns whether one does. */
+  function showWatched(ref, mark, done) {
+    return continueCards(document, ref).filter(function (card) {
+      if ((done.part && markOf(card) !== mark) || !moving(card)) return false;
+      var poster = card.querySelector('.watch-card__poster');
+      var bar = poster.querySelector('.watch-bar');
+      var own = markOf(card);
+      lights(card);
+      if (!bar) return true;
+      endBar(poster, bar);
+      bar.remove();
+      done.undos.push(function () {
+        if (markOf(card) === own && !poster.querySelector('.watch-bar')) poster.appendChild(bar);
+      });
+      return true;
+    }).length > 0;
+  }
+
+  function pictureOf(card) {
+    var img = card.querySelector('.watch-card__poster img');
+    return img ? img.getAttribute('src') : '';
+  }
+
+  var OWN_ATTRS = ['class', 'style', 'tabindex', 'aria-pressed', 'data-level']; // of the page, not of what is drawn
+
+  function syncAttrs(node, to) {
+    to.getAttributeNames().forEach(function (name) {
+      if (OWN_ATTRS.indexOf(name) < 0) node.setAttribute(name, to.getAttribute(name));
+    });
+  }
+
+  /* Draw *card* as *to* is, with its picture and its buttons where they are. */
+  function redraw(card, to) {
+    card.getAttributeNames().forEach(function (name) {
+      if (/^data-(keep|leaving)-/.test(name) && !to.hasAttribute(name)) card.removeAttribute(name);
+    });
+    syncAttrs(card, to);
+    syncAttrs(card.querySelector('.watch-card__link'), to.querySelector('.watch-card__link'));
+    replacePart(card.querySelector('.watch-card__poster'), to.querySelector('.watch-card__poster'), '.watch-badge--leaving');
+    replacePart(card.querySelector('.watch-card__poster'), to.querySelector('.watch-card__poster'), '.watch-bar');
+    replacePart(card.querySelector('.watch-card__link'), to.querySelector('.watch-card__link'), '.watch-card__sub');
+    core.fadeIn(card.querySelector('.watch-card__sub'));
+    var tools = to.querySelectorAll('.card-tool');
+    toArray(card.querySelectorAll('.card-tool')).forEach(function (b, i) { syncAttrs(b, tools[i]); });
+  }
+
+  /* The card moves on to what the server now has in its place: where it stands, if the picture is the same. */
   function replaceCard(card, fresh, done) {
     closeMenu(card);
+    if (pictureOf(card) === pictureOf(fresh) && card.querySelectorAll('.card-tool').length === fresh.querySelectorAll('.card-tool').length) {
+      var was = card.cloneNode(true);
+      redraw(card, fresh);
+      var eye = card.querySelector(EYE);
+      if (eye) setToggle(eye, fresh.querySelector(EYE).getAttribute('aria-pressed') === 'true');
+      done.rows = true;
+      done.undos.push(function () {
+        if (!document.body.contains(card) || card.classList.contains('is-kept') || markOf(card) !== markOf(fresh)) return;
+        closeMenu(card);
+        redraw(card, was);
+      });
+      return;
+    }
     var lost = focusLost(card);
     card.replaceWith(fresh);
     core.fadeIn(fresh);
@@ -273,7 +454,7 @@
       fresh.replaceWith(card);
       core.fadeIn(card);
     });
-    if (lost) fresh.querySelector('[data-watch-more]').focus({ preventScroll: true });
+    if (lost) refocus(core.controlIn(fresh, EYE));
   }
 
   /* The server's card that the page lacks, in its place in the row, or with its row, and in that row's open grid. */
@@ -479,15 +660,42 @@
     else followTitle();
   }
 
-  /* Details, when it shows the title, loads it again. */
-  function announce(ref) {
-    document.dispatchEvent(new CustomEvent('mm:watch-marked', { detail: { ref: ref } }));
+  /* Told as `mm:watch-marked`, with detail { ref, refs }: the title's refs, and of them the library's, if it has one. */
+  function announce(mark, ref) {
+    var refs = [ref];
+    tmdbRefsOf(mark).forEach(function (tmdb) {
+      refs.push(tmdb);
+      withAttr(document, 'data-tmdb-ref', tmdb).forEach(function (card) {
+        if (!isContinue(card)) refs.push(refOf(card));
+      });
+    });
+    refs = refs.filter(function (one, i) { return one && refs.indexOf(one) === i; });
+    if (!refs.length) return;
+    var held = refs.filter(function (one) { return /^(movie|show)-/.test(one); })[0];
+    document.dispatchEvent(new CustomEvent('mm:watch-marked', { detail: { ref: held || refs[0], refs: refs } }));
   }
 
   /* ── Mark as watched, or not ── */
 
   function send(mark, watched, query) {
+    if (/^tmdb-/.test(mark)) return MM.api[watched ? 'put' : 'delete'](SEEN_URL + mark + (query || ''));
     return MM.api[watched ? 'post' : 'delete'](WATCHED_URL + mark + (query || ''));
+  }
+
+  /* The library has come to hold the title *mark*: its cards are marked by that from now on. */
+  function nowHeld(mark, held) {
+    ['data-mark', 'data-mark-toggle'].forEach(function (name) {
+      withAttr(document, name, mark).forEach(function (n) { n.setAttribute(name, held); });
+    });
+  }
+
+  /* TMDB has no such title: nothing can be marked of it. */
+  function noEye(mark) {
+    toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
+      if (markOf(card) !== mark) return;
+      toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) { b.hidden = true; });
+      window.MMWatch.cardTools.moveStop(card);
+    });
   }
 
   /* The toast of each mark's or Dismiss's last change, taken away as the next one starts:
@@ -498,14 +706,30 @@
     toasts[key] = window.UIFeedback.toast(message, opts);
   }
 
-  function started(key) {
+  function retire(key) {
     if (toasts[key]) window.UIFeedback.dismiss(toasts[key]);
     delete toasts[key];
+  }
+
+  /* An older Undo of a title is of no use once the whole of it, or a part, is marked again. */
+  var offered = {}; // what each mark's Undo is of: { ref, whole }
+
+  function retireUndos(mark, ref) {
+    var whole = WHOLE_RE.test(mark);
+    Object.keys(offered).forEach(function (key) {
+      if (key === mark || !ref || offered[key].ref !== ref || !(whole || offered[key].whole)) return;
+      retire(key);
+      delete offered[key];
+    });
+  }
+
+  function started(key) {
+    retire(key);
     setBusy(key, true);
   }
 
   function toastFailed(mark, err, name) {
-    var why = err && err.status === 404 ? name + ' is not in the library any more.'
+    var why = err && err.status === 404 ? name + (/^tmdb-/.test(mark) ? ' can’t be found any more.' : ' is not in the library any more.')
       : err && err.status === 503 ? 'Couldn’t reach Plex to mark ' + name + '. Try again in a moment.'
       : 'Couldn’t mark ' + name + '. Try again.';
     tell(mark, MM.api.messageOf(err, why), { variant: 'error' });
@@ -516,27 +740,55 @@
     return own ? own[1] + '-' + own[2] : given || '';
   }
 
-  function change(mark, watched, name, ref, card) {
+  /* *inPanel*: from a touch screen's panel, which stays open until the answer, as its eye alone can show the wait. */
+  function change(mark, watched, name, ref, card, inPanel) {
     if (busy[mark]) return;
     // undos puts the page back; rows: Continue watching or the banner changed with it; redraw: it may come back there.
     var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched, card: card };
+    var tmdb = /^tmdb-/.test(mark); // not in the library: nothing of it is in Continue watching
     ref = refOfMark(mark, ref);
+    if (card && !inPanel) window.MMWatch.cardTools.close(card);
     started(mark);
-    send(mark, watched).then(function (data) {
+    retireUndos(mark, ref);
+    send(mark, watched).then(function (data) { readFirst(mark, ref, function () {
       changes += 1;
+      if (inPanel) window.MMWatch.cardTools.close(card);
+      if (done.part) tmdbOf(ref).forEach(function (tmdb) { delete said[tmdb]; });
       done.undos = paint(mark, watched);
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
-      if (watched && !done.part) leaveContinue(ref, done);
+      var shown = watched && showWatched(ref, mark, done);
+      latest[ref] = done;
       var opts = { variant: 'success', dialog: detailsShown() };
-      if (data.changed) opts.action = { label: 'Undo', onClick: function () { undoChange(mark, watched, name, ref, done); } };
+      if (data.changed) {
+        offered[mark] = { ref: ref, whole: !done.part };
+        opts.action = { label: 'Undo', onClick: function () { undoChange(mark, watched, name, ref, done); } };
+      }
       tell(mark, 'Marked ' + name + ' as ' + (watched ? 'watched.' : 'not watched.'), opts);
       setBusy(mark, false);
-      announce(ref);
-      follow(ref, done);
-    }, function (err) {
-      toastFailed(mark, err, name);
+      announce(mark, ref);
+      var goOn = function () {
+        if (latest[ref] !== done) return; // a later change of it says what stands there
+        if (watched && !done.part) leaveContinue(ref, done);
+        if (!tmdb) follow(ref, done);
+      };
+      if (shown) setTimeout(goOn, MARKED_MS); else goOn();
+    }); }, function (err) {
       setBusy(mark, false);
+      var held = err && err.error === 'in_library' && err.data ? err.data.mark_kind + '/' + err.data.mark_key : '';
+      if (tmdb && /^(movie|show)\/[0-9]+$/.test(held)) {
+        nowHeld(mark, held);
+        change(held, watched, name, null, card, inPanel);
+        return;
+      }
+      if (err && err.error === 'no_tmdb_id') noEye(mark);
+      toastFailed(mark, err, name);
     });
+  }
+
+  /* The TMDB refs of the cards of the title *ref*. */
+  function tmdbOf(ref) {
+    return toArray(document.querySelectorAll('[data-tmdb-ref]')).filter(function (card) { return refOf(card) === ref; })
+      .map(function (card) { return card.getAttribute('data-tmdb-ref'); });
   }
 
   /* Run *fn* now, or once the change of *key* on its way is in. */
@@ -554,35 +806,49 @@
     return { undos: [], part: part, undone: true, redraw: done.rows, fromBanner: done.fromBanner, card: done.card, seek: focusLost(null) };
   }
 
+  /* An Undo that was refused has taken its toast, and the focus in it, with it. */
+  function keepFocus(ref, done) {
+    if (!focusLost(null)) return;
+    refocus(controlOf(ref, done, true) || (done.beside && canFocus(done.beside) ? done.beside : core.spareFocus()));
+  }
+
   function undoChange(mark, watched, name, ref, done) {
     whenIdle(mark, function () {
-      refocus(toggleOf(mark));
+      refocus(toggleOf(mark, done.card));
       started(mark);
-      send(mark, !watched, '?undo=1').then(function (data) {
+      send(mark, !watched, '?undo=1').then(function (data) { readFirst(mark, ref, function () {
         var after = putBack(ref, done, !/^movie\//.test(mark));
+        // A card that came meanwhile was not there to be put back.
+        note(mark, data.watched);
+        cardsOfMark(mark).forEach(function (card) { if (hasBadge(card) !== data.watched) setCard(card, data.watched); });
         withAttr(document, 'data-mark-toggle', mark).forEach(function (b) { setToggle(b, data.watched); });
         tell(mark, 'Undone for ' + name + '.', { variant: 'info' });
         setBusy(mark, false);
-        announce(ref);
-        follow(ref, after);
-      }, function (err) {
+        announce(mark, ref);
+        if (!/^tmdb-/.test(mark)) follow(ref, after);
+      }); }, function (err) {
         toastFailed(mark, err, name);
         setBusy(mark, false);
+        keepFocus(ref, done);
       });
     });
   }
 
   /* Where an undone mark is now: in Details while that is open over the page. */
-  function toggleOf(mark) {
+  function toggleOf(mark, card) {
     var over = detailsShown();
+    var own = card && card.isConnected && (!over || over.contains(card)) && core.controlIn(card, EYE);
+    if (own) return own;
     return withAttr(document, 'data-mark-toggle', mark).filter(function (b) {
-      return b.getClientRects().length && (!over || over.contains(b));
+      return b.getClientRects().length && (over ? over.contains(b) : !b.closest('.watch-card'));
     })[0];
   }
 
   /* The toast takes the focus with it when it goes. */
   function refocus(node) {
-    if (node && node.getClientRects().length) node.focus({ preventScroll: true });
+    if (!node || !node.getClientRects().length) return;
+    core.drawTools(node);
+    node.focus({ preventScroll: true });
   }
 
   /* ── Dismiss ── */
@@ -618,6 +884,7 @@
       }, function (err) {
         tell(ref, MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
         setBusy(ref, false);
+        keepFocus(ref, done);
       });
     });
   }
@@ -651,8 +918,6 @@
     }).sort(function (a, b) { return (a.closest('.watch-row') ? 0 : 1) - (b.closest('.watch-row') ? 0 : 1); });
   }
 
-  function controlIn(card) { return card.querySelector('[data-watch-more]') || card.querySelector('.watch-card__link'); }
-
   /* Details gives the focus back to the card it opened from: *node* has it if that has gone. */
   function focusAfter(details, node) {
     var watcher = new MutationObserver(function () {
@@ -680,7 +945,7 @@
       closeMenu(card);
       if (preview && card.querySelector('.is-previewed')) preview.close();
       var lost = card.contains(document.activeElement);
-      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '[data-watch-more]');
+      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '.card-tool');
       if (lost) focus = taken.focus;
       next = taken.focus;
       left.undos.push(function () {
@@ -711,7 +976,7 @@
       var cards = left.undos.reverse().map(function (fn) { return fn(); });
       if (!focusLost(null)) return;
       var shown = cards.filter(function (card) { return canFocus(card); })[0];
-      if (shown) core.focusSoftly(controlIn(shown));
+      if (shown) core.focusSoftly(core.controlIn(shown, '.card-tool--thumb'));
     });
     return mine.length > 0;
   }
@@ -767,7 +1032,7 @@
       noes = without(noes, d);
       if (d.level === STRONG_NO) {
         noes.push(d);
-        setTimeout(function () { saidNo(d); }, RATED_MS);
+        setTimeout(function () { saidNo(d); }, core.reduceMotion() ? RATED_STILL_MS : RATED_MS);
       } else {
         backInPicks(d);
       }
@@ -784,10 +1049,10 @@
       restored = without(restored, d);
       // The strong no still stands, and may have been passed over while another level was shown.
       if (!again && d.level === STRONG_NO && of(noes, d)) saidNo(of(noes, d));
-      var where = d.from && d.from.closest('.watch-keep-menu, .pv');
+      var where = d.from && d.from.closest('.pv');
       if (again) again.toast = window.UIFeedback.toast('Couldn’t bring ' + again.name + ' back. It stays out of your picks.', { variant: 'error' });
-      // The menu or preview that would say so has gone.
-      else if (!d.from || (d.from.matches('.rate--menu, .rate--strip') &&
+      // Over a card nothing says so, and the preview that would may have gone.
+      else if (!d.from || (d.from.matches('.rate--lift') &&
           !(where && document.body.contains(where) && where.matches('.is-open:not(.is-fading):not(.is-handed)')))) {
         core.toast('Your rating wasn’t saved. Try again.', { variant: 'error' });
       }
@@ -808,83 +1073,10 @@
     return search.canLike && search.canLike(ref) ? ref : '';
   }
 
-  /* ── The rating in a More menu ──
-     At its top: *node* is the menu, close() shuts it. Returns fill(ref, link). */
+  /* ── The More menu: what an admin can do of a title of All titles ── */
 
-  function menuRating(node, close) {
-    var set = null;
-    var closing = null;
-
-    function drop() {
-      clearTimeout(closing);
-      if (set) set.destroy();
-      set = null;
-    }
-
-    new MutationObserver(function () {
-      if (!node.classList.contains('is-open')) drop();
-    }).observe(node, { attributes: true, attributeFilter: ['class'] });
-
-    function fill(ref, link) {
-      drop();
-      if (!canRate(ref, link)) return;
-      set = MM.ratings.mount(ref, { variant: 'menu' });
-      var block = node.appendChild(el('div', 'watch-menu-rate'));
-      block.appendChild(set.line);
-      block.appendChild(set.node);
-      // A press elsewhere than on an item closes a menu.
-      block.addEventListener('click', function (e) { e.stopPropagation(); });
-      node.appendChild(el('hr', 'pv-menu__line'));
-    }
-
-    document.addEventListener('mm:rating', function (e) {
-      var d = e.detail;
-      if (!set) return;
-      if (d.phase === 'read' && set.node.hidden) sayNone();
-      if (d.from !== set.node || (d.phase !== 'pending' && d.phase !== 'failed')) return;
-      clearTimeout(closing);
-      if (d.phase === 'pending' && d.level !== null) closing = setTimeout(close, RATED_MS);
-    });
-
-    /* The thumbs turned out to be of no use: what is below them stays where it is. */
-    function sayNone() {
-      var block = set.node.parentNode;
-      if (!block || block.querySelector('.watch-menu-rate__none')) return;
-      var lost = set.node.contains(document.activeElement);
-      block.insertBefore(el('p', 'rate__line watch-menu-rate__none', 'This title can’t be rated.'), set.line);
-      if (lost) node.querySelector('.watch-keep-menu__item').focus({ preventScroll: true });
-    }
-
-    /* The four are one stop of the menu's up and down keys; left and right go between them. */
-    node.addEventListener('keydown', function (e) {
-      if (!set || set.node.hidden) return;
-      var thumbs = toArray(set.node.querySelectorAll('.rate__b'));
-      var stops = [thumbs.filter(function (b) { return b.getAttribute('aria-checked') === 'true'; })[0] || thumbs[0]]
-        .concat(toArray(node.querySelectorAll('.watch-keep-menu__item')));
-      var at = thumbs.indexOf(document.activeElement);
-      var stop = at < 0 ? stops.indexOf(document.activeElement) : 0;
-      var to = null;
-      if (e.key === 'ArrowDown') to = stops[(stop + 1) % stops.length];
-      else if (e.key === 'ArrowUp') to = stops[(Math.max(stop, 0) - 1 + stops.length) % stops.length];
-      else if (e.key === 'Home') to = stops[0];
-      else if (e.key === 'End') to = stops[stops.length - 1];
-      else if (at >= 0 && e.key === 'ArrowRight') to = thumbs[(at + 1) % thumbs.length];
-      else if (at >= 0 && e.key === 'ArrowLeft') to = thumbs[(at - 1 + thumbs.length) % thumbs.length];
-      if (!to) return;
-      e.preventDefault();
-      e.stopPropagation();
-      to.focus();
-    });
-
-    return fill;
-  }
-
-  /* ── The More menu ── */
-
-  var WHAT = { movie: '', episode: 'episode ', season: 'season ', show: 'show ' };
   var menuNode = null;
   var moreMenu = null;
-  var fillRating = null;
   var keeping = null; // the card whose menu is opened at how long to keep it
 
   function menuItem(act, iconName, label) {
@@ -900,38 +1092,24 @@
 
   function fillMenu(trigger) {
     var card = trigger.closest('.watch-card');
-    var mark = card.getAttribute('data-mark');
-    menuNode.textContent = '';
     var library = window.MMWatch.library;
-    if (library && library.durations(card, keeping === card ? menuNode : null, menuItem)) return;
+    menuNode.textContent = '';
+    if (!library || library.durations(card, keeping === card ? menuNode : null, menuItem)) return;
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
-    fillRating(refOf(card), card.querySelector('.watch-card__link'));
-    if (likeRef(refOf(card), card.querySelector('.watch-card__link'))) menuNode.appendChild(menuItem('like', 'i-sparkles', 'Find more like this'));
-    if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
-    if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
-    if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
-    if (library) library.menu(card, menuNode, menuItem);
+    library.menu(card, menuNode, menuItem);
   }
 
   function choose(trigger, item) {
     var card = trigger.closest('.watch-card');
     var act = item.getAttribute('data-act');
-    if (act === 'like') {
-      var poster = card.querySelector('.watch-card__poster img');
-      window.MMWatch.search.like(likeRef(refOf(card), card.querySelector('.watch-card__link')), titleOf(card), poster && poster.getAttribute('src'));
-    } else if (act === 'dismiss') {
-      dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
-    } else if (act === 'keep-for') {
+    if (act === 'keep-for') {
       keeping = card;
       moreMenu.open(trigger);
       keeping = null;
-    } else if (/^admin-/.test(act)) {
-      window.MMWatch.library.act(card, act, item);
-    } else if (act === 'details') {
-      card.querySelector('.watch-card__link').click();
-    } else {
-      change(card.getAttribute('data-mark'), !hasBadge(card), nameOf(card), refOf(card), card);
+      return;
     }
+    window.MMWatch.cardTools.close(card);
+    window.MMWatch.library.act(card, act, item);
   }
 
   if (byId('watch-browse')) {
@@ -940,7 +1118,6 @@
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
     page.appendChild(menuNode);
-    fillRating = menuRating(menuNode, function () { moreMenu.close(true); });
     moreMenu = keep.menu(menuNode, {
       trigger: '[data-watch-more]',
       canOpen: function (trigger) { return trigger.getAttribute('aria-disabled') !== 'true'; },
@@ -953,6 +1130,11 @@
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var toggle = e.target.closest('[data-mark-toggle]');
+    var of = toggle && toggle.closest('.watch-card');
+    if (of) {
+      change(toggle.getAttribute('data-mark-toggle'), toggle.getAttribute('aria-pressed') !== 'true', nameOf(of), refOf(of), of, !!toggle.closest('.card-over'));
+      return;
+    }
     if (toggle) {
       change(toggle.getAttribute('data-mark-toggle'), toggle.getAttribute('aria-pressed') !== 'true',
         toggle.getAttribute('data-mark-name'), toggle.getAttribute('data-mark-ref'));
@@ -962,5 +1144,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, continues: continues, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
+  window.MMWatch.marks = { paint: paint, adopt: adopt, continues: continues, showInRow: showInRow, canRate: canRate, likeRef: likeRef };
 })();

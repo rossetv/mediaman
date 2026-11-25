@@ -66,7 +66,7 @@
   {%- endif -%}
 {%- endmacro %}
 
-{# The person's own Watched mark, on a poster. Its toggle is in the card's More menu. #}
+{# The person's own Watched mark, on a poster. Its toggle is the card's eye. #}
 {% macro watched_badge() -%}
 <span class="watch-badge watch-badge--watched">{{ icon("i-eye") }}<span class="watch-badge__word">Watched</span></span>
 {%- endmacro %}
@@ -79,6 +79,31 @@
 {# A button toggle: both its labels are laid out, so its width never changes. #}
 {% macro mark_button(kind, key, watched, name, label="Mark as watched", class="btn btn--lg watch-btn--grey") -%}
 <button type="button" class="{{ class }} watch-mark-btn" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="{{ label }}"><span class="watch-mark-btn__faces"><span class="watch-mark-btn__off">{{ icon("i-eye") }}{{ label }}</span><span class="watch-mark-btn__on">{{ icon("i-eye") }}Watched</span></span></button>
+{%- endmacro %}
+
+{# A level's thumb, as ratings.js draws it. *on*: the person's own. #}
+{% macro thumb(level, on) -%}
+{%- set hand = "M3 11.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4v7.2c0 .8-.6 1.4-1.4 1.4S3 19.6 3 18.8ZM8.4 11.2l3.2-6.8C12 3.5 12.6 3 13.4 3c1.3 0 2.2 1 2.2 2.4 0 1.4-.5 2.7-.9 3.8h3.9c1.6 0 2.7 1.4 2.4 2.9l-1.1 5.6c-.3 1.5-1.5 2.5-3 2.5h-5.7c-1 0-1.9-.3-2.8-.8Z" -%}
+{%- set two = level in (2, -2) -%}
+<svg class="rate-th{% if two %} rate-th--2{% endif %}{% if level < 0 %} rate-th--down{% endif %}{% if on %} is-on{% endif %}" viewBox="{{ '0 0 32 24' if two else '-1 0 26 24' }}" aria-hidden="true" focusable="false">
+{%- if two -%}<g transform="translate(10.5 -2.8) scale(.92)"><g class="b"><path d="{{ hand }}"/><path class="ink" d="{{ hand }}"/></g></g><g transform="translate(0 2)"><g class="f"><g class="halo"><path d="{{ hand }}"/></g><path d="{{ hand }}"/><path class="ink" d="{{ hand }}"/></g></g>
+{%- else -%}<g class="f"><path d="{{ hand }}"/>{% if on %}<path class="ink" d="{{ hand }}"/>{% endif %}</g>{%- endif -%}
+</svg>
+{%- endmacro %}
+
+{# A card's buttons under its poster: the person's rating and mark, Dismiss in Continue watching,
+   and for an admin what All titles can do of it. One Tab stop, which the arrow keys move. #}
+{% macro tools(item) -%}
+{%- set mark = item.mark_kind ~ "/" ~ item.mark_key if item.mark_key else item.tmdb_ref -%}
+{%- if mark or item.admin -%}
+{%- set kind = item.mark_kind if item.mark_key else "show" if (mark or "").startswith("tmdb-tv-") else "movie" -%}
+<div class="card-tools" role="toolbar" aria-label="{{ item.title }}">
+  {%- if item.tmdb_ref %}<button type="button" class="card-tool card-tool--thumb{% if item.level %} {{ 'is-up' if item.level > 0 else 'is-down' }}{{ ' is-double' if item.level in (2, -2) }}{% endif %}" data-card-rate aria-expanded="false" aria-label="Rate {{ item.title }}{% if item.level %}: {{ {2: 'I love it', 1: 'I like it', -1: 'Not for me', -2: 'Strong no'}[item.level] }}{% endif %}">{{ thumb(item.level or 1, item.level) }}</button>{% endif %}
+  {%- if mark %}<button type="button" class="card-tool card-tool--eye"{% if item.tmdb_ref %} tabindex="-1"{% endif %} data-mark-toggle="{{ mark }}" aria-pressed="{{ 'true' if item.watched else 'false' }}" aria-label="Mark {{ kind ~ ' ' if kind != 'movie' else '' }}as watched" title="Mark as {{ 'not ' if item.watched else '' }}watched">{{ icon("i-eye") }}</button>{% endif %}
+  {%- if item.admin %}<button type="button" class="card-tool card-tool--more"{% if mark %} tabindex="-1"{% endif %} data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
+  {%- if item.dismiss_ref %}<button type="button" class="card-tool card-tool--x"{% if mark %} tabindex="-1"{% endif %} data-watch-dismiss="{{ item.dismiss_ref }}" data-mark-name="{{ item.title }}" aria-label="Dismiss {{ item.title }} from Continue watching" title="Dismiss">{{ icon("i-xmark") }}</button>{% endif -%}
+</div>
+{%- endif -%}
 {%- endmacro %}
 
 {# "1 h 5 min left", drawn "1h 5m left" on a phone. #}
@@ -114,7 +139,8 @@
    from the Leaving soon row and the badge from any other card with the same
    keep id. #}
 {% macro card(item, keep=false) -%}
-<article class="watch-card" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}" data-leaving-seasons="{{ (item.leaving_seasons or [])|tojson|forceescape }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}{% if item.key %} data-key="{{ item.key }}"{% endif %}{% if item.tone %} data-tone="{{ item.tone }}"{% endif %}{% if item.admin %} data-admin="{{ item.admin|tojson|forceescape }}"{% endif %}>
+{%- set tools_shown = [item.tmdb_ref, item.mark_key or item.tmdb_ref, item.admin, item.dismiss_ref]|select|list|length -%}
+<article class="watch-card{% if item.mark_key or item.tmdb_ref or item.admin %} has-tools{% if tools_shown > 2 %} has-three-tools{% endif %}{% endif %}" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}" data-leaving-seasons="{{ (item.leaving_seasons or [])|tojson|forceescape }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% elif item.tmdb_ref %} data-mark="{{ item.tmdb_ref }}"{% endif %}{% if item.tmdb_ref %} data-tmdb-ref="{{ item.tmdb_ref }}"{% if item.level %} data-level="{{ item.level }}"{% endif %}{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}{% if item.key %} data-key="{{ item.key }}"{% endif %}{% if item.tone %} data-tone="{{ item.tone }}"{% endif %}{% if item.admin %} data-admin="{{ item.admin|tojson|forceescape }}"{% endif %}>
   {% set ref = title_ref(item) %}
   <a class="watch-card__link"{% if item.href %} href="{{ item.href }}"{% else %} tabindex="0"{% endif %}{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">
@@ -128,7 +154,7 @@
     {% set said = item.subtitle or "" %}
     <span class="watch-card__sub">{{ caption(said ~ ((" · " ~ dur(item.minutes_left) ~ " left") if item.minutes_left and not said.endswith(" left") else "")) }}</span>
   </a>
-  {% if item.mark_key or item.admin %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
+  {{ tools(item) }}
   {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title ~ (', ' ~ item.subtitle if item.kind == 'season' else '')) }}{% endif %}
 </article>
 {%- endmacro %}

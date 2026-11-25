@@ -382,12 +382,12 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 /* The buttons of a title in the library: two rows of one width. */
 @media (min-width: 700px) {
-  .ttl__actions:has(> .ttl__play-on) { max-width: 472px; }
-  .ttl__actions:has(> .ttl__play-on):has(> :is(.watch-btn--keep, .ttl__keep-skel)) { max-width: 500px; }
-  .ttl__actions:has(> .ttl__play-on):has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"]),
-  .ttl__actions:has(> .ttl__play-on):has(> .ttl__keep-skel--show) { max-width: 530px; }
-  .ttl__actions:has(> .ttl__play-on) > :not(.ttl__play-on) { flex: 1 1 auto; }
-  .ttl__actions:has(> .ttl__play-on) > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
+  .ttl__actions.has-play-on { max-width: 472px; }
+  .ttl__actions.has-play-on:has(> :is(.watch-btn--keep, .ttl__keep-skel)) { max-width: 500px; }
+  .ttl__actions.has-play-on:has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"]),
+  .ttl__actions.has-play-on:has(> .ttl__keep-skel--show) { max-width: 530px; }
+  .ttl__actions.has-play-on > :not(.ttl__play-on) { flex: 1 1 auto; }
+  .ttl__actions.has-play-on > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
 }
 
 /* Those still to come take what is left of the line: the ones that do not fit wrap out of sight. */

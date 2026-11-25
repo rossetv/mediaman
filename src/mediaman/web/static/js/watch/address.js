@@ -15,6 +15,8 @@
  * push and replace move the address for a layer and do not call it back; every
  * other layer is brought into line. open and close may return true: the layer
  * places the page's scroll itself. watch.js calls start() last.
+ *
+ * Needs watch/core.js.
  */
 (function () {
   'use strict';
@@ -531,6 +533,7 @@
     // A page that was loaded again has neither the node nor what opened its title.
     if (!seen(node)) node = cardOf(openedOn[current]) || firstSeen(HEADINGS[top()]);
     if (!node) return;
+    window.MMWatch.core.drawTools(node);
     node.focus({ preventScroll: true });
   }
 

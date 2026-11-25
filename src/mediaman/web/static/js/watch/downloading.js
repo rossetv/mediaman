@@ -425,6 +425,7 @@
     poster.appendChild(el('span', 'watch-card__title', item.title));
     poster.appendChild(el('span', 'watch-badge watch-badge--new', 'New'));
     link.appendChild(el('span', 'watch-card__sub', item.kind === 'movie' ? 'Movie' : 'TV'));
+    core.addMarks(card, poster, item);
     return card;
   }
 

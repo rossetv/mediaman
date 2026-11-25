@@ -20,6 +20,7 @@ from typing import Literal
 from mediaman.core.removed_files import FILES_GONE
 from mediaman.services.infra import get_setting
 from mediaman.services.watch_catalog import folder_year
+from mediaman.web.repository import seen_titles
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
@@ -47,6 +48,7 @@ class LibraryShow:
     added_at: str
     tvdb_id: int | None = None
     year: int | None = None
+    tmdb_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +91,12 @@ class SeasonSeen:
 
     seen: int
     total: int | None  # None until a scan has counted the episodes
+    marked: bool = False  # whole, with what a mark of the show covers, whatever is counted
+    by_mark: frozenset[str] = frozenset()  # of the seen ones, those a mark alone covers
 
     @property
     def watched(self) -> bool:
-        return bool(self.total) and self.seen >= (self.total or 0)
+        return self.marked or (bool(self.total) and self.seen >= (self.total or 0))
 
 
 @dataclass(slots=True)
@@ -109,10 +113,12 @@ class ShowSeen:
     def left(self) -> int | None:
         """Episodes left of a show partly seen; None when none or all are seen, or a season's
         episodes are not counted yet."""
-        if not any(s.seen for s in self.seasons.values()):
+        if not any(s.seen or s.marked for s in self.seasons.values()):
             return None
         left = 0
         for s in self.seasons.values():
+            if s.marked:
+                continue
             if not s.total:
                 return None
             left += s.total - min(s.seen, s.total)
@@ -213,13 +219,15 @@ def _shows(
         params.append(key)
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
+        "SELECT s.*, COALESCE(s.tmdb_id, (SELECT m.tmdb_id FROM title_meta m"
+        " WHERE m.id_type = 'tvdb' AND m.id = s.tvdb_id)) AS known_tmdb_id FROM ("
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
         f" MAX(media_type IN ({anime_marks})) AS anime,"
         " COUNT(DISTINCT CASE WHEN season_number > 0 THEN season_number END) AS seasons,"
-        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id,"
+        " MAX(added_at) AS added_at, MAX(tvdb_id) AS tvdb_id, NULLIF(MAX(tmdb_id), 0) AS tmdb_id,"
         " MAX(year) AS year, MIN(file_path) AS file_path"
         f" FROM media_items WHERE {' AND '.join(where)}"
-        " GROUP BY show_rating_key ORDER BY show_title COLLATE NOCASE, show_rating_key",
+        " GROUP BY show_rating_key) s ORDER BY s.show_title COLLATE NOCASE, s.show_rating_key",
         (*ANIME_SEASON_TYPES, *params),
     ).fetchall()
     return [
@@ -232,6 +240,7 @@ def _shows(
             tvdb_id=r["tvdb_id"],
             # a title not scanned since years were stored has only its folder's
             year=r["year"] or folder_year(r["file_path"]),
+            tmdb_id=r["known_tmdb_id"],
         )
         for r in rows
         if search is None or search.distance(r["show_title"]) is not None
@@ -358,7 +367,7 @@ def show_seen(
     show_key: str | None = None,
 ) -> dict[str, ShowSeen]:
     """*username*'s seen episodes of each show of the scanned libraries (or only of *show_key*),
-    by show rating key. Specials do not count."""
+    by show rating key, with those a mark of the show covers. Specials do not count."""
     lib_sql, params = _in_libraries(libraries, "mi.plex_library_id")
     season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
     where = [
@@ -374,7 +383,7 @@ def show_seen(
     seen_rows = "FROM watch_progress wp WHERE wp.username = ? AND (wp.watched = 1 OR wp.seen_at IS NOT NULL)"
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
-        "SELECT mi.show_rating_key, mi.season_number, mi.episode_count,"
+        "SELECT mi.id, mi.show_rating_key, mi.season_number, mi.episode_count,"
         # by its own episodes, whichever season their rows were saved under: a row of one no longer
         # in it (replaced under a new key, or removed) does not count; a season with no list yet
         # counts every row of its own
@@ -385,17 +394,33 @@ def show_seen(
         f" FROM media_items mi WHERE {' AND '.join(where)}",
         (username, username, *params),
     ).fetchall()
+    covered = {
+        c.season_id: c
+        for c in seen_titles.covered_seasons(conn, username, libraries, show_key=show_key)
+    }
     found: dict[str, ShowSeen] = {}
     for r in rows:
         seasons = found.setdefault(r["show_rating_key"], ShowSeen()).seasons
-        seasons[r["season_number"]] = SeasonSeen(r["seen"], r["episode_count"])
+        season = covered.get(r["id"])
+        by_mark = season.episodes if season else frozenset()
+        seasons[r["season_number"]] = SeasonSeen(
+            r["seen"] + len(by_mark),
+            r["episode_count"],
+            season is not None and season.whole,
+            by_mark,
+        )
     return found
+
+
+def seen_films(conn: sqlite3.Connection, username: str, libraries: list[str]) -> set[str]:
+    """The rating keys of the films *username* has seen."""
+    return seen_movies(conn, username) | seen_titles.seen_films(conn, username, libraries)
 
 
 def seen_refs(conn: sqlite3.Connection, username: str, libraries: list[str]) -> set[str]:
     """The refs ("movie-<key>", "show-<key>") of the library titles *username* has seen."""
     shows = show_seen(conn, username, libraries)
-    return {f"movie-{key}" for key in seen_movies(conn, username)} | {
+    return {f"movie-{key}" for key in seen_films(conn, username, libraries)} | {
         f"show-{key}" for key, seen in shows.items() if seen.watched
     }
 
@@ -619,6 +644,7 @@ __all__ = [
     "scanned_library_ids",
     "search_library",
     "season_item_id",
+    "seen_films",
     "seen_refs",
     "show_seen",
     "title_facts",

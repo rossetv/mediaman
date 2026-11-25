@@ -58,7 +58,6 @@
   /* A round photo, or the initials where there is none or it does not load. */
   function face(name, url, lazy) {
     var node = el('span', 'cast-face');
-    node.appendChild(el('span', 'cast-face__letters', initials(name)));
     var src = core.safePath(url);
     if (src) {
       var img = el('img');
@@ -68,6 +67,7 @@
       img.setAttribute('src', src);
       node.appendChild(img);
     }
+    node.appendChild(el('span', 'cast-face__letters', initials(name)));
     return node;
   }
 
@@ -206,7 +206,6 @@
       var b = shortcut('cast-card__poster');
       b.title = t.title;
       b.setAttribute('aria-label', t.title);
-      b.appendChild(el('span', 'cast-card__poster-name', t.title));
       var src = core.safePath(t.poster_url);
       if (src) {
         var img = el('img');
@@ -215,6 +214,7 @@
         img.setAttribute('src', src);
         b.appendChild(img);
       }
+      b.appendChild(el('span', 'cast-card__poster-name', t.title));
       b.addEventListener('click', function () {
         drop();
         watch.detail.open(t.library_ref || t.ref, { title: t.title, kind: t.kind });

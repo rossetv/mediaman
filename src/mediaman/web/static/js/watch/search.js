@@ -488,7 +488,6 @@
   function face(url, name) {
     var node = el('span', 'watch-face');
     node.setAttribute('aria-hidden', 'true');
-    node.appendChild(name ? el('span', 'watch-face__letters', initials(name)) : MM.dom.icon('i-user'));
     var src = safePath(url);
     if (src) {
       var img = el('img');
@@ -497,6 +496,7 @@
       img.setAttribute('data-broken-on-error', '');
       node.appendChild(img);
     }
+    node.appendChild(name ? el('span', 'watch-face__letters', initials(name)) : MM.dom.icon('i-user'));
     return node;
   }
 

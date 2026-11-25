@@ -147,7 +147,7 @@
       <ul class="ttl-cast">
         {% for c in item.cast_list %}
         <li class="ttl-cast__item">
-          <span class="ttl-cast__avatar" aria-hidden="true"><span class="cast-face"><span class="cast-face__letters">{{ c.name[:1] }}{{ c.name.split(' ')[-1][:1] if ' ' in c.name else '' }}</span>{% if c.photo_url %}<img src="{{ c.photo_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}</span></span>
+          <span class="ttl-cast__avatar" aria-hidden="true"><span class="cast-face">{% if c.photo_url %}<img src="{{ c.photo_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}<span class="cast-face__letters">{{ c.name[:1] }}{{ c.name.split(' ')[-1][:1] if ' ' in c.name else '' }}</span></span></span>
           <span class="ttl-cast__name">{{ c.name }}</span>
           <span class="ttl-cast__char">{{ c.character }}</span>
         </li>

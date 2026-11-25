@@ -33,8 +33,10 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import asked
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.seen_titles import TitleKey, person_marks
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.watch.card_marks import card_marks, title_key
 from mediaman.web.routes.watch.catalog_api import held_fields
 from mediaman.web.routes.watch.pages import movie_subtitle, poster_url, resumable, show_subtitle
 
@@ -70,13 +72,8 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
         return respond_ok({"items": [], "complete": True})
     secret_key = request.app.state.config.secret_key
     libraries = lib.scanned_library_ids(conn)
-    index = catalog.library_index(
-        conn,
-        TmdbClient.from_db(conn, secret_key),
-        libraries,
-        lib.library_movies,
-        lib.library_shows,
-    )
+    client = TmdbClient.from_db(conn, secret_key)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     row = _Row(
         conn,
         username,
@@ -84,7 +81,11 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
         catalog.arr_view(conn, secret_key),
         held_fields(conn, username, libraries),
     )
-    items = row.items(requests)
+    marks = card_marks(person_marks(conn, username), client)
+    items = [
+        {**item, **marks(_title_of(item), item["library_ref"], bool(item["watched"]))}
+        for item in row.items(requests)
+    ]
     asked.remember_shown(conn, username, requests, row.shown)
     complete = all(row.arr.answers_for(kind) for kind in row.asked_of)
     return respond_ok({"items": items[:_LIMIT], "complete": complete})
@@ -347,6 +348,10 @@ def _out_on(movie: Mapping[str, Any]) -> datetime | None:
 def _key(kind: str, tmdb_id: int | None, ref: str) -> str:
     """What a card stays under when its title comes into the library."""
     return f"{'movie' if kind == 'movie' else 'tv'}-{tmdb_id}" if tmdb_id else ref
+
+
+def _title_of(item: Mapping[str, Any]) -> TitleKey | None:
+    return title_key("movie" if item["kind"] == "movie" else "tv", item["tmdb_id"])
 
 
 def _place(item: dict[str, Any]) -> tuple[int, bool, float, str]:

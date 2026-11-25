@@ -77,6 +77,8 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("PUT", "/api/watch/ratings/{ref}"),
         ("DELETE", "/api/watch/ratings/{ref}"),
         ("POST", "/api/watch/ratings/ask/{rating_key}"),
+        ("PUT", "/api/watch/seen/{ref}"),
+        ("DELETE", "/api/watch/seen/{ref}"),
         ("GET", "/search"),
         ("GET", "/api/search"),
         ("GET", "/api/search/discover"),

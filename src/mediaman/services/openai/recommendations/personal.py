@@ -164,7 +164,7 @@ def _make(
     previous = [r["title"] for r in own]
     portrait = _portrait(plays, ratings, read_taste(conn, username), previous)
     items = generate_personal(conn, portrait, secret_key=secret_key)
-    # Read again: they may have rated something while the model was thinking.
+    # Read again: they may have rated or marked something while the model was thinking.
     taste = read_taste(conn, username)
     known = [
         *((p.kind, p.tmdb_id, p.title, None) for p in plays),
@@ -174,6 +174,7 @@ def _make(
         *row_titles(shared),
         # One rated up is known to them; one rated "not for me" may return, last.
         *((r.media_type, r.tmdb_id, r.title or "", r.year) for r in taste.ratings if r.level != -1),
+        *((s.media_type, s.tmdb_id, s.title or "", s.year) for s in taste.seen),
     ]
 
     def choose(found: list[RecommendationItem]) -> list[RecommendationItem]:

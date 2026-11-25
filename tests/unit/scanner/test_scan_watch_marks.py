@@ -7,6 +7,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mediaman.core.time import parse_iso_utc
+from mediaman.scanner._scan_library import scan_tv_library
+from mediaman.web.repository import seen_titles
+from mediaman.web.repository.ratings import RatedTitle, find_user_id
 from mediaman.web.repository.watch_progress import (
     MarkTarget,
     dismiss,
@@ -15,7 +18,14 @@ from mediaman.web.repository.watch_progress import (
     save_progress,
     unmark_watched,
 )
-from tests.unit.scanner.test_scan_watch_credit import SEASON, _delete_viewer, _scan, viewer
+from tests.unit.scanner.test_scan_watch_credit import (
+    SEASON,
+    _delete_viewer,
+    _old_unwatched_season,
+    _scan,
+    _StubEngine,
+    viewer,
+)
 
 __all__ = ["viewer"]
 
@@ -133,3 +143,35 @@ def test_a_mark_is_no_watch_when_its_person_is_deleted(viewer):
     _delete_viewer(viewer)
 
     assert _scan(viewer)["scheduled"] == 1
+
+
+def _mark_title(conn, *, in_library):
+    title = RatedTitle("tv", 44, "Show", 2019)
+    user_id = find_user_id(conn, "aoife")
+    seen_titles.mark(conn, user_id, title, 9, NOW, in_library=in_library)
+
+
+def _decisions(conn, act):
+    act(conn)
+    fetched = _old_unwatched_season()
+    fetched.item["tmdb_id"] = 44
+    summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0}
+    scan_tv_library(_StubEngine(conn, [fetched]), "2", summary)()
+    items = conn.execute("SELECT last_watched_at, tmdb_id FROM media_items").fetchall()
+    return summary, [tuple(r) for r in items]
+
+
+@pytest.mark.parametrize("history", HISTORIES)
+@pytest.mark.parametrize("in_library", [False, True])
+def test_a_mark_of_the_shows_title_changes_no_decision(viewer, history, in_library):
+    HISTORIES[history][0](viewer)
+    viewer.commit()
+    without = _decisions(viewer, _nothing)
+    viewer.execute("DELETE FROM media_items")
+    viewer.execute("DELETE FROM scheduled_actions")
+    viewer.commit()
+
+    marked = _decisions(viewer, lambda conn: _mark_title(conn, in_library=in_library))
+
+    assert marked == without
+    assert marked[1][0][1] == 44

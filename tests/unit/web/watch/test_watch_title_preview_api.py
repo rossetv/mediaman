@@ -3,6 +3,7 @@ searches or asking Plex for what is already known."""
 
 from __future__ import annotations
 
+import json
 import shutil
 from datetime import timedelta
 from types import SimpleNamespace
@@ -18,6 +19,8 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _gate, _library
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository import seen_titles
+from mediaman.web.repository.ratings import RatedTitle, find_user_id
 from mediaman.web.repository.search import upsert_ratings_cache
 from mediaman.web.repository.watch_progress import NEVER_PLAYED, save_progress
 from mediaman.web.routes.watch import catalog_api, title_preview_api
@@ -278,6 +281,21 @@ class TestLibraryShow:
         assert body["play"]["label"] == "Play S1 · E2"
         assert "/watch/play/512" in body["play"]["href"]
         assert (body["overview"], body["genres"]) == ("A coast.", ["Comedy"])
+
+    def test_the_next_episode_is_the_one_after_those_a_mark_covers(
+        self, viewer, library, tmdb, plex
+    ):
+        listed = [{"key": k, "number": n, "path": k} for n, k in enumerate(("511", "512"), 1)]
+        library.execute(
+            "UPDATE media_items SET episode_count = 2, episode_keys = ? WHERE id = '501'",
+            (json.dumps(listed),),
+        )
+        library.commit()
+        user_id = find_user_id(library, "viewer")
+        show = RatedTitle("tv", 77)
+        seen_titles.mark(library, user_id, show, 1, now_utc(), in_library=True, episodes={1: {1}})
+
+        assert _preview(viewer, "show-500").json()["play"]["label"] == "Play S1 · E2"
 
     def test_with_plex_away_there_is_no_play_and_the_words_stay(self, viewer, tmdb, plex):
         plex.error = PlexUnavailable("down")

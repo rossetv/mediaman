@@ -1,5 +1,10 @@
 /* The set of four thumbs a person rates a title with (ratings.js). */
 
+:root {
+  --rate-love: color-mix(in srgb, var(--accent-hi) 72%, var(--t1));
+  --rate-no: color-mix(in srgb, var(--orange) 45%, var(--danger-text));
+}
+
 .rate-th {
   --th-bg: var(--s1);
   display: block;
@@ -26,7 +31,7 @@
 .rate-th.is-on .b { opacity: .6; }
 
 .rate {
-  --wash-0: color-mix(in srgb, color-mix(in srgb, var(--orange) 45%, var(--danger-text)) 24%, var(--s2));
+  --wash-0: color-mix(in srgb, var(--rate-no) 24%, var(--s2));
   --wash-1: color-mix(in srgb, var(--orange) 16%, var(--s2));
   --wash-2: color-mix(in srgb, var(--accent) 18%, var(--s2));
   --wash-3: color-mix(in srgb, var(--accent) 34%, var(--s2));
@@ -59,8 +64,8 @@
 }
 .rate__b.is-up { --level: var(--accent-hi); --wash: var(--wash-2); }
 .rate__b.is-down { --level: var(--orange); --wash: var(--wash-1); }
-.rate__b.is-up.is-double { --level: color-mix(in srgb, var(--accent-hi) 72%, var(--t1)); --wash: var(--wash-3); }
-.rate__b.is-down.is-double { --level: color-mix(in srgb, var(--orange) 45%, var(--danger-text)); --wash: var(--wash-0); }
+.rate__b.is-up.is-double { --level: var(--rate-love); --wash: var(--wash-3); }
+.rate__b.is-down.is-double { --level: var(--rate-no); --wash: var(--wash-0); }
 .rate__b.is-double { --strong: 1.35; }
 .rate__b .rate-th { --th-bg: var(--b-bg); transition: opacity var(--dur-fast) var(--ease-out); }
 .rate__b.is-on { --b-bg: var(--wash); color: var(--level); }
@@ -214,15 +219,6 @@
 .rate--grid .rate__b { width: auto; height: 72px; gap: 5px; align-content: center; border-radius: 13px; }
 .rate__lab { transition: opacity var(--dur-fast) var(--ease-out); font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
 
-.rate--strip { --rate-bg: var(--s3); }
-.rate--strip .rate__set { padding: 0; box-shadow: var(--shadow-card); }
-.rate--strip .rate__b { height: 40px; }
-
-.rate--menu .rate__set { padding: 0; border: 0; background: none; }
-
-@media (max-width: 699.98px) {
-  .rate--strip .rate__b { height: 44px; }
-}
 @media (max-width: 599.98px) {
   .rate__b { width: 56px; }
   .rate--plain { width: 100%; }

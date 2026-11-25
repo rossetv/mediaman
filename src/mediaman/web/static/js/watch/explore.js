@@ -648,7 +648,6 @@
     a.href = core.safePath(t.href) || '#title=' + encodeURIComponent(t.library_ref || t.ref);
     a.title = t.title;
     a.setAttribute('aria-label', t.title);
-    a.appendChild(el('span', 'cast-card__poster-name', t.title));
     var src = core.safePath(t.poster_url);
     if (src) {
       var img = el('img');
@@ -657,6 +656,7 @@
       img.src = src;
       a.appendChild(img);
     }
+    a.appendChild(el('span', 'cast-card__poster-name', t.title));
     return a;
   }
 
@@ -805,7 +805,8 @@
 
     /* Who it is, said where the outline of a person stood. */
     function name(text) {
-      photo.children[0].replaceWith(stage().face(null, text).children[0]);
+      var said = core.toArray(photo.children).filter(function (n) { return n.tagName !== 'IMG'; })[0];
+      said.replaceWith(stage().face(null, text).children[0]);
     }
 
     /* The larger photo takes the small one's place once it is here. */
@@ -817,7 +818,7 @@
         img = el('img');
         img.alt = '';
         img.setAttribute('data-broken-on-error', '');
-        photo.appendChild(img);
+        photo.insertBefore(img, photo.firstChild);
         img.src = src;
         return;
       }

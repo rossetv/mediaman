@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from mediaman.core.format import ensure_tz
+from mediaman.db import write_transaction
 from mediaman.services.openai.recommendations.plays import record_play
 
 # Fraction of the duration past which an item counts as watched, or its credits' start if earlier.
@@ -80,6 +81,7 @@ class MarkChange:
     position_s: float
     updated_at: str
     new_seen_at: str | None
+    new: bool = False  # the mark made the row
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,8 +202,7 @@ def mark_watched(
     """
     now_iso = _utc_iso(now)
     changes: list[MarkChange] = []
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         held = get_progress(conn, username, [t.rating_key for t in targets])
         for target in targets:
             row = held.get(target.rating_key)
@@ -221,7 +222,7 @@ def mark_watched(
                     ),
                 )
                 changes.append(
-                    MarkChange(target.rating_key, False, None, 0.0, NEVER_PLAYED, now_iso)
+                    MarkChange(target.rating_key, False, None, 0.0, NEVER_PLAYED, now_iso, True)
                 )
             elif not row.watched:
                 seen_at = row.seen_at or now_iso
@@ -271,8 +272,7 @@ def unmark_watched(
     watched mark starts over, any other keeps its place. A show's specials
     are left alone, as marking the show leaves them.
     """
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         changes = [_change(r, None) for r in progress_of(conn, username, kind, key) if r.seen]
         conn.executemany(
             "UPDATE watch_progress SET watched = 0, seen_at = NULL, position_s ="
@@ -283,14 +283,16 @@ def unmark_watched(
     return changes
 
 
-def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[MarkChange]) -> None:
-    """Put *username*'s rows back as they were before a mark or unmark.
+def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[MarkChange]) -> int:
+    """Put *username*'s rows back as they were before a mark or unmark; returns how many were.
 
     A row marked again since is left alone, and one played since keeps the
-    place and state of that play.
+    place and state of that play. A row the mark made goes.
     """
-    with conn:
-        conn.executemany(
+    if not changes:
+        return 0
+    with write_transaction(conn):
+        restored = conn.executemany(
             "UPDATE watch_progress SET seen_at = ?,"
             " watched = CASE WHEN updated_at = ? THEN ? ELSE watched END,"
             " position_s = CASE WHEN updated_at = ? THEN ? ELSE position_s END"
@@ -308,7 +310,13 @@ def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[Mar
                 )
                 for c in changes
             ],
+        ).rowcount
+        conn.executemany(
+            "DELETE FROM watch_progress WHERE username = ? AND rating_key = ? AND watched = 0"
+            " AND seen_at IS NULL AND credited_at IS NULL AND updated_at = ?",
+            [(username, c.rating_key, NEVER_PLAYED) for c in changes if c.new],
         )
+    return restored
 
 
 def dismiss(conn: sqlite3.Connection, username: str, title_key: str, now: datetime) -> None:

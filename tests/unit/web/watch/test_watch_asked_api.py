@@ -18,7 +18,7 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.watch_catalog import _arr, _library
 from mediaman.web.auth.session_store import create_session
-from mediaman.web.repository import asked
+from mediaman.web.repository import asked, ratings
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes.watch import asked_api
@@ -234,6 +234,20 @@ class TestWhose:
         _audit(conn, "Named Only")
 
         assert _titles(other) == []
+
+    def test_it_says_what_they_rated_and_nothing_of_others(self, aoife, client_of, conn):
+        client_of("cian")
+        _ask(conn, "Salt", 10)
+        _ask(conn, "Reef", 11)
+        _film(conn, "100", "Salt", 10)
+        _film(conn, "110", "Reef", 11)
+        for name, tmdb_id, level in (("aoife", 10, 2), ("aoife", 11, 1), ("cian", 10, -2)):
+            title = ratings.RatedTitle("movie", tmdb_id)
+            ratings.set_level(conn, ratings.find_user_id(conn, name), title, level, NOW)
+
+        said = {i["title"]: (i["tmdb_ref"], i["level"]) for i in _body(aoife)["items"]}
+
+        assert said == {"Salt": ("tmdb-movie-10", 2), "Reef": ("tmdb-movie-11", 1)}
 
     def test_a_request_with_no_email_is_found_by_who_was_signed_in(self, aoife, conn, radarr):
         _film(conn, "101", "Glass House")

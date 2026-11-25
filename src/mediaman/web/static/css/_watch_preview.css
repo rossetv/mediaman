@@ -130,18 +130,13 @@
 .pv__round > .rate-th { --th-bg: color-mix(in srgb, var(--t1) 14%, var(--s1)); width: 22px; height: 20px; }
 .pv__round.is-up { color: var(--accent-hi); }
 .pv__round.is-down { color: var(--orange); }
-.pv__strip {
-  position: absolute;
-  z-index: 3;
-  right: 0;
-  bottom: 0;
-  transform: scaleX(.3);
-  transform-origin: 100% 50%;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur);
-}
-.is-rating > .pv__strip { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
+.pv__round.is-up.is-double { color: var(--rate-love); }
+.pv__round.is-down.is-double { color: var(--rate-no); }
+.pv__lift { position: absolute; z-index: 6; width: 44px; height: 180px; pointer-events: none; }
+.pv__lift > .rate--lift { right: 0; bottom: 0; height: 180px; }
+.pv__lift > .rate--lift.is-open { pointer-events: auto; }
+.pv__eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; background: var(--t1); color: var(--bg); }
+.pv__eye[aria-busy="true"] { opacity: .55; cursor: progress; }
 .pv__said { padding: 0; color: var(--t2); }
 .pv__said[hidden] { display: block !important; visibility: hidden; }
 
@@ -159,10 +154,6 @@
 .pv__held { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%; }
 
 .watch-more-menu { width: 258px; }
-.watch-menu-rate { flex: none; padding: 8px 10px 6px; }
-.watch-menu-rate > .rate__line { min-height: 24px; padding: 0 4px 6px; font-size: 12px; line-height: 18px; }
-/* Found not to be rateable, the thumbs keep their room. */
-.watch-menu-rate > .rate[hidden] { display: flex !important; visibility: hidden; }
 .pv__actions > .pv__round[hidden] { display: inline-flex !important; visibility: hidden; }
 
 .pv-menu { transform-origin: top right; }

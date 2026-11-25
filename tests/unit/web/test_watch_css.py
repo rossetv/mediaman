@@ -23,7 +23,7 @@ def _of(selector: str, media: str | None = None, sheet: Path = SHEET) -> str:
     return "".join(
         body
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text)
-        if selector in [s.strip() for s in head.split(",")]
+        if selector in [s.strip() for s in re.split(r",(?![^()]*\))", head)]
     )
 
 
@@ -78,6 +78,7 @@ def test_a_leaving_badge_shows_fewer_words_wherever_the_short_ones_do_not_fit() 
     "seen",
     [
         ".watch-badge--watched",
+        ".watch-badge--unwatched",
         ".watch-pill__mark",
         '.watch-mark[aria-pressed="true"]',
         ".watch-mark-btn__on",
@@ -163,29 +164,239 @@ def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_say
     assert "display: none" not in word
 
 
-def test_a_caption_ends_before_the_more_of_any_card_that_has_one() -> None:
-    caption = ".watch-card:has(> .watch-more) .watch-card__sub"
-    wide = re.search(r"padding-right: (\d+)px", _of(caption))
-    phone = re.search(r"padding-right: (\d+)px", _of(caption, "max-width: 599.98px"))
-    # The dots are 14px wide: in the middle of 44px that end 8px past the card, on a phone 7px from that end.
-    assert wide and int(wide.group(1)) >= 44 / 2 + 14 / 2 - 8
-    assert phone and int(phone.group(1)) >= 14 + 7 - 8
-    assert "data-mark" not in "".join(
-        line for line in SHEET.read_text(encoding="utf-8").splitlines() if "__sub" in line
+CARDS = SHEET.with_name("_watch_cards.css")
+
+
+def test_a_caption_ends_before_the_thumb_of_any_card_that_has_one() -> None:
+    rules = _of(".watch-card.has-tools .watch-card__sub", sheet=CARDS)
+    pad = re.search(r"padding-right: (\d+)px", rules)
+    # The widest thumb is 21px, in the middle of 30 that end 5px past the card.
+    assert pad and int(pad.group(1)) >= (30 + 21) / 2 - 5
+
+
+def _compounds(css: str) -> list[str]:
+    """The compound selectors of *css*, each with what is in its own parentheses."""
+    heads = re.findall(r"([^{};]+)\{", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
+    found, depth, one = [], 0, ""
+    for char in ",".join(h for h in heads if not h.strip().startswith("@")):
+        depth += (char == "(") - (char == ")")
+        if depth or char not in " \n>~+,":
+            one += char
+        elif one:
+            found.append(one)
+            one = ""
+    return [*found, one]
+
+
+CARD = r"\.(?:watch-card|card-tools?|watch-card__(?:poster|link))(?![\w-])"
+
+
+def _asks_a_card(compound: str) -> bool:
+    outside = compound
+    while "(" in outside:
+        outside = re.sub(r"\([^()]*\)", "", outside)
+    return ":has(" in compound and bool(re.search(CARD, outside))
+
+
+def test_no_rule_asks_by_has_what_a_card_holds() -> None:
+    # A browser asks it of every card of the page for each one added, marked or pointed at.
+    css = "".join(sheet.read_text(encoding="utf-8") for sheet in SHEET.parent.glob("*.css"))
+    found = {one.removesuffix("::after") for one in _compounds(css) if _asks_a_card(one)}
+    # These two cost next to nothing: a poster's own child, of which there is one at most.
+    assert found <= {
+        ".watch-card__poster:has(> .watch-bar)",
+        ".watch-card__poster:has(> .card-barend)",
+    }
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".watch-card:has(> .card-tools) .watch-card__sub",
+        ".watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool",
+        ".card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool",
+        ".watch-card.has-tools:not(:has(.is-previewed)) .watch-card__sub",
+    ],
+)
+def test_a_rule_that_does_would_be_found(selector: str) -> None:
+    assert any(_asks_a_card(one) for one in _compounds(selector + " {}"))
+
+
+def test_what_is_being_done_of_a_title_stays_on_one_line_beside_its_thumb() -> None:
+    grid = SHEET.with_name("_watch_grid.css")
+    assert "white-space: nowrap" in _of(".watch-card.is-working .watch-card__sub", sheet=grid)
+
+
+def test_every_button_under_a_card_takes_44px_on_a_touch_screen() -> None:
+    css = CARDS.read_text(encoding="utf-8")
+    size = re.search(r"\.card-tool \{[^}]*?width: (\d+)px;\s*height: (\d+)px", css)
+    grown = re.search(r"\.card-tool::after \{[^}]*inset: -(\d+)px -(\d+)px -(\d+)px -(\d+)px", css)
+    assert size and grown
+    top, right, bottom, left = map(int, grown.groups())
+    assert int(size.group(1)) + left + right >= 44 and int(size.group(2)) + top + bottom >= 44
+    # Four levels of 44px and the 4px round them.
+    assert "--h: max(184px," in css
+
+
+def test_no_button_under_a_card_moves_where_motion_is_unwanted() -> None:
+    css = CARDS.read_text(encoding="utf-8")
+    still = css.split("@media (prefers-reduced-motion: no-preference)")
+    assert "animation:" not in still[0]
+    assert "animation:" not in still[1].split("@media (prefers-reduced-motion: reduce)")[1]
+
+
+FINGER = "(hover: none), (pointer: coarse)"
+STILL = "(prefers-reduced-motion: reduce)"
+RATINGS = SHEET.with_name("_ratings.css")
+PREVIEW = SHEET.with_name("_watch_preview.css")
+
+
+def _z(selector: str, media: str | None = None) -> int:
+    return int(re.findall(r"z-index: (\d+)", _of(selector, media, CARDS))[0])
+
+
+def test_on_a_touch_screen_the_open_levels_stand_over_every_other_card_s_buttons() -> None:
+    lifted = _z(".watch-card.is-lifted", FINGER)
+    assert lifted > max(_z(".card-tools"), _z(".card-over"))
+    # And under nothing of the row's heading, which reaches down over the posters.
+    heading = ".watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after"
+    assert "pointer-events: none" in _of(heading, FINGER, CARDS)
+
+
+def test_every_card_button_draws_its_keyboard_ring_on_its_round_backing() -> None:
+    assert "outline: none" in _of(".card-tool:focus-visible", sheet=CARDS)
+    assert "outline: 2px solid" in _of(".card-tool:focus-visible::before", sheet=CARDS)
+    shown = '.card-tool:is(:focus-visible, [aria-expanded="true"])::before'
+    assert "opacity: 1" in _of(shown, sheet=CARDS)
+
+
+MOUSE = "(hover: hover) and (pointer: fine)"
+
+
+def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
+    # The whole row, which WebKit then skips at once; a rating given stays drawn, as a card nears
+    # faster than it is told.
+    far = ".watch-card.is-far > .card-tools"
+    rated = far + " > .card-tool:is(.is-up, .is-down)"
+    assert "visibility: hidden" in _of(far, MOUSE, CARDS)
+    assert "visibility: visible" in _of(rated, MOUSE, CARDS)
+    assert "opacity: 1" in _of(".card-tool--thumb:is(.is-up, .is-down)", MOUSE, CARDS)
+    assert not _of(far + " > .card-tool:not(.is-up, .is-down)", MOUSE, CARDS)
+    # A touch screen's thumbs, drawn at rest, are as they were.
+    for rule in (far, rated):
+        assert not _of(rule, sheet=CARDS) and not _of(rule, FINGER, CARDS)
+
+
+_TOOLS = " > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
+
+
+def test_with_a_mouse_a_card_a_finger_pressed_shows_its_buttons_as_under_the_mouse() -> None:
+    shown = ".watch-card:is(.has-focus, .is-lifted, .is-touched)" + _TOOLS
+    assert "opacity: 1; transform: none" in _of(shown, MOUSE, CARDS)
+    ring = ".watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before"
+    assert "opacity: 1" in _of(ring, MOUSE, CARDS)
+
+
+def test_with_a_mouse_a_card_under_it_shows_its_buttons_unless_a_finger_was_last() -> None:
+    # A finger leaves its card under :hover until it presses elsewhere.
+    hover = ":where(html:not(.is-by-touch)) .watch-card"
+    assert "opacity: 1; transform: none" in _of(hover + ":hover" + _TOOLS, MOUSE, CARDS)
+    assert "opacity: 1" in _of(hover + ":hover .card-tool::before", MOUSE, CARDS)
+    assert "--th-bg: var(--s3)" in _of(hover + ":hover .card-tool > .rate-th", MOUSE, CARDS)
+    sub = hover + ".has-tools:hover > .watch-card__link:not(.is-previewed) .watch-card__sub"
+    assert "mask-image" in _of(sub, MOUSE, CARDS)
+    css = CARDS.read_text(encoding="utf-8")
+    assert not re.search(r"\.watch-card(\.has-tools)?:is\(:hover", css)
+
+
+def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
+    assert "transition: none !important" in _of(".rate--lift .rate__set", STILL, CARDS)
+
+
+def test_a_level_s_name_stays_in_its_card_beside_the_levels() -> None:
+    name = _of(".rate__name > span", sheet=CARDS)
+    assert "nowrap" not in name and "max-width: 100%" in name
+    room = int(re.findall(r"width: calc\(100cqi - (\d+)px\)", _of(".rate__name", sheet=CARDS))[0])
+    levels = _of(".rate--lift", sheet=CARDS)
+    taken = sum(int(re.findall(rf"{side}: (\d+)px", levels)[0]) for side in ("right", " width"))
+    gap = int(re.findall(r"right: calc\(100% \+ (\d+)px\)", _of(".rate__name", sheet=CARDS))[0])
+    assert room >= taken + gap
+    # On a poster as narrow as a phone's three in a line, no word of a name fits.
+    css = CARDS.read_text(encoding="utf-8")
+    assert re.search(
+        r"@container \(max-width: 104px\) \{\s*\.card-over \.rate__name \{ display: none", css
     )
+    # And by a finger not over the card above, whose caption the levels of a short poster reach.
+    assert "min(0px, var(--top))" in _of(".card-over .rate__name", FINGER, CARDS)
+    badge = _of(".is-lifted > .watch-card__link .watch-badge", FINGER, CARDS)
+    assert "opacity: 0" in badge
 
 
-def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> None:
-    phone = "max-width: 599.98px"
-    more = _of(".watch-more", phone)
-    _, right, _, left = (int(v) for v in re.findall(r"(\d+)px", _of(".watch-more::before", phone)))
-    dots = int(re.findall(r"font-size: (\d+)px", _of(".watch-more"))[0])
-    edge = int(re.findall(r"padding-right: (\d+)px", more)[0])
-    # An icon is 1.25em wide.
-    assert abs(edge + dots * 1.25 / 2 - (right + (44 - right - left) / 2)) < 0.5
-    assert "outline: none" in _of(".watch-more:focus-visible", phone)
-    ring = _of(".watch-more:focus-visible::before", phone)
-    assert "outline: 2px solid" in ring and "opacity: 1" in ring
+@pytest.mark.parametrize("level", [".is-up.is-double", ".is-down.is-double"])
+def test_a_thumb_keeps_the_colour_of_its_level_from_the_press_to_its_rest(level: str) -> None:
+    pressed = re.findall(r"--level: ([^;]+);", _of(f".rate__b{level}", sheet=RATINGS))
+    rest = _of(f"{level}:is(.card-tool, .card-flier)", sheet=CARDS)
+    assert pressed and re.findall(r"--rate-c: ([^;]+);", rest) == pressed
+    preview = _of(f".pv__round{level}", sheet=PREVIEW)
+    assert re.findall(r"color: ([^;]+);", preview) == pressed
+    # Nothing round it on its way over the picture.
+    assert "display: none" in _of(".card-flier .halo", sheet=CARDS)
+
+
+def test_the_preview_s_eye_is_filled_once_watched_as_the_panel_s_is() -> None:
+    eye = _of('.pv__eye[aria-pressed="true"]', sheet=PREVIEW)
+    assert "background: var(--t1); color: var(--bg)" in eye
+    assert "background: var(--t1)" in _of('.card-over__b[aria-pressed="true"]::before', sheet=CARDS)
+
+
+def test_the_icons_under_a_card_do_not_outgrow_their_circles_with_the_text() -> None:
+    for icon in (".card-tool > .ico", ".card-over__b > .ico"):
+        assert re.search(r"width: [\d.]+px; height: \d+px", _of(icon, sheet=CARDS))
+
+
+# "removed", the widest word of a level's name, is 3.97em in the system font at its boldest.
+WIDEST_WORD_EM = 3.97
+
+
+def test_a_level_s_name_breaks_between_words_alone_and_goes_where_one_does_not_fit() -> None:
+    css = re.sub(r"/\*.*?\*/", "", CARDS.read_text(encoding="utf-8"), flags=re.S)
+    words = "".join(re.findall(r"\.rate__name > span \{([^{}]*)\}", css))
+    assert "overflow-wrap: normal" in words
+    assert not re.search(r"anywhere|break-word|break-all|hyphens: auto", words)
+    # Its room is measured in its own size, so a name too big for it goes as the text grows.
+    assert "container-type: inline-size" in _of(".rate__name", sheet=CARDS)
+    assert "font-size" not in words
+    sized = [_of(".rate__name", sheet=CARDS), _of(".card-over .rate__name", FINGER, CARDS)]
+    assert all("font-size" in rule for rule in sized)
+    gone = re.search(
+        r"@container \(width < ([\d.]+)em\) \{\s*\.rate__name > span \{ visibility: hidden", css
+    )
+    assert gone and float(gone.group(1)) >= WIDEST_WORD_EM
+
+
+def test_forced_colours_keep_the_level_given_readable_under_the_pointer() -> None:
+    assert "color: HighlightText" in _of(".rate--lift .rate__b.is-on", FORCED, CARDS)
+    hover = ".watch-card .card-tool--thumb:is(.is-up, .is-down):hover"
+    assert "color: Highlight" in _of(hover, FORCED, CARDS)
+    assert "padding-inline: 5px" in _of(".card-over .rate__name", FORCED, CARDS)
+
+
+def test_a_card_s_title_eases_down_as_its_bar_goes() -> None:
+    assert "padding-bottom var(--dur)" in _of(".watch-card__poster")
+    bar = _of(".card-barend", "(prefers-reduced-motion: no-preference)", CARDS)
+    assert "bar-away" in bar
+
+
+def test_the_levels_are_readable_where_the_picture_under_them_is_not_blurred() -> None:
+    ground = re.findall(r"var\(--s2\) (\d+)%", _of(".rate--lift .rate__set", sheet=CARDS))
+    assert int(ground[0]) >= 90
+
+
+def test_an_eye_that_had_shut_while_it_waited_opens_and_is_not_shut_twice() -> None:
+    motion = "(prefers-reduced-motion: no-preference)"
+    for part in (".pv__eye.is-blink > .ico", '.is-blink[aria-pressed="true"]'):
+        assert "var(--from-shut)" in _of(part, motion, CARDS)
+    assert "var(--shut, 0)" in _of(".is-blink", motion, CARDS)
 
 
 def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
@@ -279,13 +490,22 @@ def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
 
 def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
     browse = SHEET.with_name("_watch_browse.css")
-    under = (
-        ".watch-card__poster:has(> .watch-badge--leaving) > .watch-badge:not(.watch-badge--leaving)"
-    )
+    under = ".watch-card__poster > .watch-badge--leaving ~ .watch-badge:not(.watch-badge--leaving)"
     for media in (None, "(max-width: 599.98px)"):
         left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
         assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
     assert "right: auto" in _of(under, sheet=browse)
+
+
+def test_a_watched_badge_stands_under_any_other_in_its_corner() -> None:
+    under = re.search(
+        r"\.watch-card__poster > :is\(([^)]*)\) ~ \.watch-badge--watched \{ top: 36px; \}",
+        SHEET.read_text(encoding="utf-8"),
+    )
+    assert under
+    assert {".watch-badge--leaving", ".watch-badge--state", ".watch-badge--new"} == set(
+        under[1].split(", ")
+    )
 
 
 def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -> None:

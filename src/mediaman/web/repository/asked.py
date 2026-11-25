@@ -17,7 +17,6 @@ from typing import Literal
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.web.repository import watch_library as lib
-from mediaman.web.repository.watch_progress import seen_movies
 
 Kind = Literal["movie", "tv"]
 
@@ -324,7 +323,7 @@ def held_library(
         index,
         movies,
         shows,
-        seen_movies(conn, username) | _films_played_in_plex(conn, username),
+        lib.seen_films(conn, username, libraries) | _films_played_in_plex(conn, username),
         _with_plex_plays(conn, username, lib.show_seen(conn, username, libraries)),
     )
     for m in movies.values():
@@ -352,7 +351,7 @@ def _with_plex_plays(
 ) -> dict[str, lib.ShowSeen]:
     """*seen* with the episodes played in Plex's own apps that it does not count."""
     rows = conn.execute(
-        "SELECT mi.show_rating_key, mi.season_number, COUNT(*) AS played"
+        "SELECT mi.show_rating_key, mi.season_number, json_extract(e.value, '$.key') AS episode"
         " FROM media_items mi, json_each(mi.episode_keys) e"
         " WHERE mi.show_rating_key IN (SELECT show_rating_key FROM plex_plays"
         " WHERE username = :name) AND mi.season_number > 0"
@@ -360,15 +359,14 @@ def _with_plex_plays(
         " AND p.rating_key = json_extract(e.value, '$.key'))"
         " AND NOT EXISTS (SELECT 1 FROM watch_progress wp WHERE wp.username = :name"
         " AND wp.rating_key = json_extract(e.value, '$.key')"
-        " AND (wp.watched = 1 OR wp.seen_at IS NOT NULL))"
-        " GROUP BY mi.show_rating_key, mi.season_number",
+        " AND (wp.watched = 1 OR wp.seen_at IS NOT NULL))",
         {"name": username},
     ).fetchall()
     for r in rows:
         season = seen.get(r["show_rating_key"], lib.ShowSeen()).seasons.get(r["season_number"])
-        if season is not None:
+        if season is not None and r["episode"] not in season.by_mark:
             seen[r["show_rating_key"]].seasons[r["season_number"]] = replace(
-                season, seen=season.seen + r["played"]
+                season, seen=season.seen + 1
             )
     return seen
 

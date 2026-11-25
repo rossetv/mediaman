@@ -23,6 +23,8 @@ def test_play_on_a_tv_stands_beside_play_only_where_there_is_something_to_play_a
     out = _run("playOn")
     assert out["shown"] == {"label": "Play on a TV", "hidden": False, "afterPlay": True}
     assert out["redrawn"] is True
+    # Its row is laid out for it, and drawn again with it.
+    assert out["wide"] == [True, True, False]
     assert out["noTvs"]["hidden"] is True
     assert out["notHeld"] is None
     assert out["without"] is None

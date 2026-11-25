@@ -41,6 +41,7 @@ from mediaman.services.openai.recommendations.user_picks import fetch_pick
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.repository import seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
@@ -311,7 +312,9 @@ def _show_from_plex(
 
         counted = lib.show_seen(conn, username, libraries, show_key=key).get(key)
         origin = f"/watch#title={out['ref']}"
-        progress = show_progress(conn, username, key)
+        progress = seen_titles.with_covered(
+            conn, username, libraries, key, show_progress(conn, username, key)
+        )
         primary, _season = _primary_episode(plex, show, progress, episodes_of, origin, counted)
     except PlexError:
         return

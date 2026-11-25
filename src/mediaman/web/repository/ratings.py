@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Container, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -46,11 +46,18 @@ def levels_for(conn: sqlite3.Connection, user_id: int) -> dict[tuple[str, int], 
 
 
 def suggestible(
-    rows: Iterable[dict[str, object]], levels: Mapping[tuple[str, int], int]
+    rows: Iterable[dict[str, object]],
+    levels: Mapping[tuple[str, int], int],
+    seen: Container[tuple[str, int]] = (),
 ) -> list[dict[str, object]]:
-    """The suggestions (with ``media_type`` and ``tmdb_id``) to show a person with *levels*: none
-    of their strong noes, and those they rated down after the rest."""
-    kept = [(row, levels.get((row.get("media_type"), row.get("tmdb_id")), 0)) for row in rows]  # type: ignore[arg-type]
+    """The suggestions (with ``media_type`` and ``tmdb_id``) to show a person with *levels* who
+    marked *seen* watched: none of these or of their strong noes, and those they rated down
+    after the rest."""
+    kept = [
+        (row, levels.get(key, 0))  # type: ignore[arg-type]
+        for row in rows
+        if (key := (row.get("media_type"), row.get("tmdb_id"))) not in seen
+    ]
     shown = [(row, level) for row, level in kept if level != STRONG_NO]
     return [row for row, _ in sorted(shown, key=lambda pair: pair[1] < 0)]
 
