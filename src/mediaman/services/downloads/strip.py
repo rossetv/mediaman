@@ -52,6 +52,8 @@ _RANK: dict[State, int] = {
 }
 _KEY_SALT = secrets.token_bytes(16)
 _ETA = re.compile(r"~(?:(\d+) hr )?(\d+) (min|sec) remaining")
+# What is left of "[GROUP] Title - 01 [1080p]" once its quality is cut off.
+_FANSUB = re.compile(r"\[[^\]]*\] (.+) \[")
 
 
 class Unavailable(Exception):
@@ -144,8 +146,10 @@ def _title_of(item: Mapping[str, object]) -> str:
     dl_id, title = _text(item.get("id")), _text(item.get("title"))
     if _is_arr(dl_id):
         return title
+    if fansub := _FANSUB.fullmatch(title):
+        title = fansub[1]
     whole = dl_id.replace(".", " ").replace("_", " ").strip().rstrip("- ")
-    return UNNAMED if title in ("", whole) else title
+    return UNNAMED if title in ("", whole) or title.startswith("-") else title
 
 
 def for_viewer(item: Mapping[str, object]) -> dict[str, object]:

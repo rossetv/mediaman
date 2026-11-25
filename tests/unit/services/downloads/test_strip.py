@@ -140,6 +140,22 @@ def test_a_release_with_a_readable_name_keeps_its_title():
     assert "GRP" not in str(payload(Answer(Strip((item,)), 0.0)))
 
 
+@pytest.mark.parametrize(
+    ("release", "title", "told"),
+    [
+        ("1080p.x264-GRP", "-GRP", strip.UNNAMED),
+        (
+            "[GRP] Ember Coast - 01 [1080p][ABCD1234]",
+            "[GRP] Ember Coast - 01 [",
+            "Ember Coast - 01",
+        ),
+    ],
+)
+def test_what_is_left_of_a_name_cut_short_is_not_told_as_a_title(release, title, told):
+    [item] = collect(_data(_raw(release, title=title)), (), _NOW)
+    assert item.title == told
+
+
 def test_such_a_release_keeps_its_card_while_nzbget_is_away_and_when_it_is_done():
     before = collect(_data(_raw(_RELEASE, title=_RELEASE)), (), _NOW)
     [held] = collect(_data(unreachable=["NZBGet"]), before, _NOW)
