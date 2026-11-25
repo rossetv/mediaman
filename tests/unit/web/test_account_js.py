@@ -329,6 +329,9 @@ def test_recent_searches_are_cleared_only_once_confirmed() -> None:
     assert out["failed"]["toasts"] == ["error: No luck"]
     assert [out[k]["says"] for k in ("yes", "failed")] == ["Clear", "Clear"]
     assert out["yes"]["busy"] is None
+    # The question this tab remembers goes with them.
+    assert out["yes"]["left"] == ["other"]
+    assert len(out["no"]["left"]) == len(out["failed"]["left"]) == 2
 
 
 def test_a_persons_tvs_are_listed_as_text_and_with_none_there_is_no_section() -> None:

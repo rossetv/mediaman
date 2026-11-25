@@ -44,7 +44,6 @@
   var LENS = 'M10.5 4a6.5 6.5 0 100 13 6.5 6.5 0 000-13M15.5 15.5L20 20';
   var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null, like: null };
   var LIKE_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
-  var ASKED = 'mm.watch.ask'; // of this tab: the question asked last, to be shown again on the way back to the page
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
     in_library: ['i-check', 'In library'],
@@ -926,7 +925,6 @@
       wipe.setAttribute('aria-busy', 'true');
       ai.forget().then(function () {
         recorded = '';
-        remember(null);
         status.textContent = 'Your recent searches are cleared';
         wrap.classList.add('is-gone');
         wrap.inert = true;
@@ -1111,7 +1109,7 @@
       ordinary.hidden = true;
       results.insertBefore(ordinary, results.firstChild);
       results.insertBefore(host, ordinary);
-      asking = ai.view(host, { ask: fillAsk, stopped: function () { remember(null); }, around: around });
+      asking = ai.view(host, { ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
     }
 
     function hideAsk() { if (asking && asking.item) asking.hide(); }
@@ -1125,23 +1123,10 @@
       asking.pick(!picked);
     }
 
-    function remember(what) {
-      try {
-        if (what) window.sessionStorage.setItem(ASKED, JSON.stringify(what));
-        else window.sessionStorage.removeItem(ASKED);
-      } catch (e) { /* storage blocked */ }
-    }
-
-    /* The question asked last in this tab, which may have been left for another page. */
-    function remembered() {
-      try { return JSON.parse(window.sessionStorage.getItem(ASKED)) || {}; } catch (e) { return {}; }
-    }
-
     function askNow(q) {
       var item = ai.question('ask', q);
       if (item.state !== 'new' && item.state !== 'refused') return;
-      record(q);
-      remember({ q: item.value });
+      ai.keep({ q: item.value });
       ai.start(item);
       offerAsk(q);
     }
@@ -1151,6 +1136,7 @@
       input.value = text;
       input.focus({ preventScroll: true });
       typed(true);
+      record(text);
       askNow(text);
       if (core.coarsePointer()) input.blur();
       toTop();
@@ -1161,7 +1147,7 @@
       var q = input.value.trim();
       if (!q || listView || tokened || !ai || view !== 'results') return;
       offerAsk(q);
-      if (ai.fits(q) && remembered().q === ai.question('ask', q).value) askNow(q);
+      if (ai.fits(q) && ai.kept().q === ai.question('ask', q).value) askNow(q);
     }
 
     /* A search the person meant: one pressed, entered or followed to a title. */
@@ -1187,13 +1173,14 @@
       return node;
     }
 
-    function showLike(ref, name, poster) {
+    /* *asked*: it is asked at once, else offered. */
+    function showLike(ref, name, poster, asked) {
       var node = el('div', 'results-page results-page--like');
       var host = node.appendChild(el('section', 'ask'));
       host.setAttribute('aria-label', 'More like ' + name);
       var place = ai.view(host, {
         ask: fillAsk,
-        stopped: function () { remember(null); },
+        stopped: function () { ai.keepLike({ ref: ref, name: name, poster: poster, asked: false }); },
         around: function (change, nodes) {
           var move = flip(nodes || []);
           change();
@@ -1202,8 +1189,8 @@
       });
       window.MMWatch.search.stage.open(node, 'More like ' + name, { icon: likeFace(poster), name: 'Like ' + name });
       var item = ai.question('like', ref, name);
-      remember({ like: ref, name: name, poster: poster || '' });
-      if (item.state === 'new' || item.state === 'refused') ai.start(item);
+      ai.keepLike({ ref: ref, name: name, poster: poster, asked: asked });
+      if (asked && (item.state === 'new' || item.state === 'refused')) ai.start(item);
       place.show(item);
       host.querySelector('.ask__row').focus({ preventScroll: true });
     }
@@ -1214,7 +1201,7 @@
     function like(ref, name, poster) {
       if (!canLike(ref)) return;
       address.push('like', address.url(Object.assign({}, PAGE_PARAMS, { q: null, view: null, like: ref }), ''));
-      showLike(ref, name, poster);
+      showLike(ref, name, poster || '', true);
     }
 
     /* ── Suggestions ── */
@@ -1533,7 +1520,7 @@
       if (asking && asking.item) {
         live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
         rise(live.node);
-        status.textContent = 'No matches for “' + c.q + '”';
+        status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
         return;
       }
       var block = nothing(c.q, true);
@@ -2056,7 +2043,9 @@
       restHint();
       // Text goes along, unless Back led to something the address opens itself.
       if (input.value.trim() && (listView || !addressed())) change(true);
+      if (ai && canExplore()) ai.load().then(askAgain);
     });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) openSheet(false); });
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
     fitSheet();
@@ -2172,11 +2161,13 @@
         return ai && !other && LIKE_RE.test(ref || '') ? ref : null;
       },
       open: function (ref) {
-        var was = remembered();
-        // Only what was asked for here is asked for again.
-        if (was.like === ref && typeof was.name === 'string') showLike(ref, was.name, was.poster);
-        else if (ai.question('like', ref).state === 'answer') showLike(ref, ai.question('like', ref).name, '');
-        else address.replace('like', address.url({ like: null }));
+        // Only what the person asked for here is asked for again.
+        (ai.state() ? Promise.resolve() : ai.load()).then(function () {
+          if (address.value('like') !== ref) return;
+          var was = ai.keptLike(ref);
+          if (was) showLike(ref, was.name, was.poster, was.asked);
+          else address.replace('like', address.url({ like: null }));
+        });
       },
       close: function () { if (view === 'page' && live && live.node.classList.contains('results-page--like')) window.MMWatch.search.stage.close(); }
     });
@@ -2192,7 +2183,7 @@
     sayRole();
     showExamples();
     if (canExplore()) explore.categories();
-    if (ai && canExplore()) ai.load().then(askAgain);
+    if (ai && data.tmdb_configured === true) ai.load().then(askAgain);
     window.MMWatch.search.like = like;
     window.MMWatch.search.canLike = canLike;
     // A value the browser put back (going back to the page) gets its results.

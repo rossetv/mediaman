@@ -686,6 +686,8 @@
         if (!ok) return;
         setBusy(clear, 'Clearing…', true);
         MM.api.delete('/api/search/assist/searches').then(function () {
+          // With the question the search remembers for this tab.
+          try { window.sessionStorage.removeItem('mm.watch.ask'); } catch (e) { /* storage blocked */ }
           done('Recent searches cleared.');
         }, function (err) {
           UIFeedback.error(MM.api.messageOf(err, 'Could not clear them. Try again.'));

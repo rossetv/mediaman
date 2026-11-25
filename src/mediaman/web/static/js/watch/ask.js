@@ -26,7 +26,8 @@
   var KEPT = 30; // questions this page remembers
   var RECENT = 6;
   var WAITING = 3; // cards of the outline
-  var RUN = 'mm.watch.ask.run';
+  var STORE = 'mm.watch.ask'; // of this tab: what was asked and the run begun last, with whose they are
+  var LIKES = 20; // pages of titles like one it remembers
   var LONGEST = 200; // of a question, as the server takes it
 
   function tidy(text) { return String(text || '').replace(/\s+/g, ' ').trim().slice(0, LONGEST).trim(); }
@@ -37,7 +38,7 @@
 
   /* ── What the panel knows ── */
 
-  var state = null; // { available, history, recent, phrases, min_words }
+  var state = null; // { account, available, records, recent, phrases, min_words }
   var asked = 0; // when it was asked for
   var loading = null;
   var wipes = 0; // times the searches were forgotten
@@ -50,9 +51,11 @@
     loading = MM.api.get(URL).then(function (data) {
       if (mine !== wipes) return;
       var was = available();
+      if (state && state.account !== data.account) dropAll();
       state = {
+        account: data.account || '',
         available: data.available === true,
-        history: data.history === true,
+        records: data.records === true,
         recent: data.recent || [],
         phrases: data.personal && data.phrases ? data.phrases : [],
         min_words: data.min_words || 3
@@ -75,7 +78,7 @@
   /* Keep a search the person made, where their history is used. */
   function record(text) {
     var phrase = tidy(text);
-    if (!state || !state.history || !phrase || (state.recent[0] && same(state.recent[0], phrase))) return;
+    if (!state || !state.records || !phrase || (state.recent[0] && same(state.recent[0], phrase))) return;
     var mine = wipes;
     MM.api.post(URL + '/searches', { q: phrase }).then(function (data) {
       if (!data.recorded || mine !== wipes) return;
@@ -89,8 +92,59 @@
     return MM.api.delete(URL + '/searches').then(function () {
       wipes++;
       state = Object.assign({}, state, { recent: [], phrases: [] });
+      keep(null);
+      dropAll();
     });
   }
+
+  /* What this tab remembers of the person who is signed in. */
+  function kept() {
+    try {
+      var held = JSON.parse(window.sessionStorage.getItem(STORE)) || {};
+      return state && state.account && held.who === state.account ? held : {};
+    } catch (e) { return {}; }
+  }
+
+  function keep(what) {
+    if (what && !(state && state.account)) return;
+    try {
+      if (what) window.sessionStorage.setItem(STORE, JSON.stringify(Object.assign({}, kept(), what, { who: state.account })));
+      else window.sessionStorage.removeItem(STORE);
+    } catch (e) { /* storage blocked */ }
+  }
+
+  function isKept() {
+    try { return window.sessionStorage.getItem(STORE) !== null; } catch (e) { return false; }
+  }
+
+  /* The title whose like are on a page of their own: { ref, name, poster, asked }. */
+  function keptLike(ref) {
+    return (kept().likes || []).filter(function (l) { return l.ref === ref; })[0] || null;
+  }
+
+  function keepLike(like) {
+    var rest = (kept().likes || []).filter(function (l) { return l.ref !== like.ref; });
+    keep({ likes: [like].concat(rest).slice(0, LIKES) });
+  }
+
+  /* Forget every question and what came of it. */
+  function dropAll() {
+    leave();
+    items.clear();
+    views = views.filter(function (v) { return v.host.isConnected; });
+    views.forEach(function (v) { if (v.item) v.show(question(v.item.kind, v.item.value, v.item.name)); });
+  }
+
+  // A page that Back brings is as it was left: things may have been cleared since, or the person changed.
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) return;
+    if (items.size && !isKept()) dropAll();
+    wipes++;
+    asked = 0;
+    loading = null;
+    if (state) state = Object.assign({}, state, { recent: [], phrases: [] });
+    load();
+  });
 
   /* ── Questions ── */
 
@@ -193,15 +247,6 @@
     }, SLOW_MS);
   }
 
-  /* The run begun last in this tab, which another page of it may have left going. */
-  function keepRun(run) {
-    try { window.sessionStorage.setItem(RUN, String(run)); } catch (e) { /* storage blocked */ }
-  }
-
-  function keptRun() {
-    try { return Number(window.sessionStorage.getItem(RUN)); } catch (e) { return 0; }
-  }
-
   /* Returns the run to poll, or null: it was answered, refused or given up. */
   function post(g, tries) {
     if (g.left) return null;
@@ -213,15 +258,15 @@
         if (!g.left) done(g, data);
         return null;
       }
-      // Not over the newer one's.
-      if (!going || going === g) keepRun(data.run_id);
+      // Another page of this tab may find it going. Not over the newer one's.
+      if (!going || going === g) keep({ run: data.run_id });
       if (!g.left) poll(g, data.run_id, POLL_TRIES);
       return data.run_id;
     }, function (err) {
       if (g.left) return null;
       var left = err && err.error === 'running' && err.data && err.data.run_id;
-      if (left && left === keptRun()) {
-        keepRun(0);
+      if (left && left === kept().run) {
+        keep({ run: 0 });
         return inTime(endRun(left)).then(function () { return post(g, tries); });
       }
       if (err && err.error === 'stopping' && tries > 0) {
@@ -303,19 +348,21 @@
     return ' after ' + clock(at) + (at.toDateString() === new Date().toDateString() ? '' : ' tomorrow');
   }
 
-  /* What the person is told: { title, text, again }, *again* the button that asks once more. */
-  function reason(err) {
+  /* What the person is told: { title, text, again }, *again* the button that asks once more.
+     *kind*: only under a question is there a search. */
+  function reason(err, kind) {
+    var search = kind === 'ask' ? 'Search below works as always.' : 'Search works as always.';
     var code = err && err.error;
     var data = (err && err.data) || {};
     var limit = typeof data.limit === 'number' ? data.limit : null;
     if (code === 'unavailable' || ((code === 'limit' || code === 'limit_everyone') && limit === 0)) {
-      return { off: true, title: 'AI isn’t available right now', text: 'Search works as always.' };
+      return { off: true, title: 'AI isn’t available right now', text: search };
     }
     if (code === 'limit') {
       return {
         title: limit === null ? 'You’ve asked all your questions for today'
           : 'You’ve asked ' + limit + (limit === 1 ? ' question today' : ' questions today'),
-        text: 'You can ask again' + (resets(data.resets_at) || ' tomorrow') + '. Search works as always.'
+        text: 'You can ask again' + (resets(data.resets_at) || ' tomorrow') + '. ' + search
       };
     }
     if (code === 'limit_everyone') {
@@ -343,7 +390,7 @@
 
   function refuse(g, err) {
     var item = g.item;
-    var why = reason(err);
+    var why = reason(err, item.kind);
     ended(g);
     if (why.off && state) {
       state = Object.assign({}, state, { available: false });
@@ -473,17 +520,28 @@
   }
 
   function downloadButton(t) {
-    var at = course(t);
-    var b = button('ans__go ' + (at ? 'ans__go--ok' : 'ans__go--dl'));
-    b.appendChild(MM.dom.icon(at ? at[0] : 'i-download'));
-    b.setAttribute('aria-label', at ? t.title + ': ' + at[1] : 'Download ' + t.title);
-    b.setAttribute('title', at ? at[1] : 'Download');
+    var b = button('ans__go');
     b.addEventListener('click', function () {
       // Which seasons of a show, or how far a download is, is in its detail.
-      if (at || t.kind === 'show') openDetail(t, b);
+      if (course(b.of) || t.kind === 'show') openDetail(t, b);
       else download(t, b);
     });
+    drawCourse(b, t);
     return b;
+  }
+
+  /* Where it stands: the same button, so that what has the focus keeps it. */
+  function drawCourse(b, t) {
+    var at = course(t);
+    var words = at ? at[1] : 'Download';
+    b.of = t;
+    if (b.getAttribute('title') === words) return;
+    b.className = 'ans__go ' + (at ? 'ans__go--ok' : 'ans__go--dl');
+    b.textContent = '';
+    b.appendChild(MM.dom.icon(at ? at[0] : 'i-download'));
+    b.setAttribute('aria-label', at ? t.title + ': ' + at[1] : 'Download ' + t.title);
+    b.setAttribute('title', words);
+    b.removeAttribute('aria-busy');
   }
 
   function download(t, b) {
@@ -576,17 +634,24 @@
       },
       update: function (node) { node.querySelector('small').textContent = list.length; }
     }].concat(list.map(function (t) {
-      return { key: t.ref, sig: JSON.stringify(t), make: function () { return card(t); } };
+      return {
+        key: t.ref,
+        sig: JSON.stringify(Object.assign({}, t, { download_state: null, download_pct: null })),
+        make: function () { return card(t); },
+        update: function (node) { if (!t.in_library) drawCourse(node.querySelector('.ans__go'), t); }
+      };
     }));
   }
 
   /* ── The place of a question ── */
 
-  /* *host* shows a question. *opts*: say(text) reads it out, ask(text) asks another,
+  /* *host*, which stands on the page, shows a question. *opts*: say(text) reads it out, ask(text) asks another,
      stopped(item), and around(change) makes a change of height. */
   function view(host, opts) {
-    var status = host.appendChild(el('p', 'sr-only'));
+    // Beside it: what is read out must not wait for what is busy.
+    var status = el('p', 'sr-only');
     status.setAttribute('role', 'status');
+    host.parentNode.insertBefore(status, host);
     var inside = host.appendChild(el('div', 'ask__in'));
     var v = { host: host, item: null, draw: draw, row: row, show: show, hide: hide, pick: pick, offered: offered };
     var drawn = null; // what *inside* holds: { item, phase, ... }
@@ -794,6 +859,10 @@
     fits: fits,
     record: record,
     forget: forget,
+    kept: kept,
+    keep: keep,
+    keptLike: keptLike,
+    keepLike: keepLike,
     question: question,
     start: start,
     view: view,

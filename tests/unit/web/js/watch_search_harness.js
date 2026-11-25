@@ -2197,7 +2197,7 @@ function withMotion(p) {
 
 // ── Ask AI ──
 
-const ASSIST = { available: true, history: true, recent: ['heist', 'tessera'], personal: true, phrases: ['a heist that goes wrong, gently', 'more by Ilse'], min_words: 3 };
+const ASSIST = { account: 'a1', available: true, history: true, records: true, recent: ['heist', 'tessera'], personal: true, phrases: ['a heist that goes wrong, gently', 'more by Ilse'], min_words: 3 };
 const Q = 'a gentle heist film';
 const HELD = { ref: 'tmdb-movie-1', library_ref: 'movie-1', in_library: true, kind: 'movie', title: 'Nine Locks', year: 2021, minutes: 104, reason: 'The vault opens first time.', href: '/watch/movie/1', play_href: '/watch/play/1', poster_url: '/api/poster/1', download_state: null };
 const OTHER = { ref: 'tmdb-movie-2', library_ref: null, in_library: false, kind: 'movie', title: '<b>Thunder</b>', year: 2023, minutes: 60, reason: '<img src=x onerror=alert(1)>', href: 'javascript:alert(1)', play_href: null, poster_url: '//evil.test/p.jpg', download_state: null };
@@ -2205,8 +2205,12 @@ const ANSWER = { status: 'done', owned: [HELD], others: [OTHER], chips: ['Funnie
 
 /* A page with an AI. *more* changes what it knows. */
 async function asking(more, opts, opened, at) {
-  const p = load(ADMIN, opened, at, undefined, { assist: { ...ASSIST, ...more }, ...opts });
+  const { view, ...rest } = opts || {};
+  const assist = { ...ASSIST, ...more };
+  const p = load({ ...ADMIN, view: view || 'rows' }, opened, at, undefined, { assist, ...rest });
   await settle();
+  p.assist = assist;
+  p.said = () => p.doc.querySelectorAll('.sr-only').filter((n) => n.getAttribute('role') === 'status').map((n) => n.textContent).join();
   p.fail = async (urlPart, error, data, status = 429) => {
     p.calls.filter((c) => c.url.includes(urlPart) && !c.done).forEach((c) => { c.done = true; c.reject({ error, status, data: data || {} }); });
     await settle();
@@ -2249,7 +2253,7 @@ scenarios.askAnswered = async () => {
   out.markup = p.doc.querySelectorAll('.ans__t').map((n) => n.querySelectorAll('img').length);
   out.links = p.doc.querySelectorAll('.ans__p').map((n) => [n.getAttribute('data-title-ref'), n.href, n.querySelectorAll('img').length]);
   out.go = p.doc.querySelectorAll('.ans__go').map((n) => [n.getAttribute('aria-label'), n.href]);
-  out.said = p.doc.querySelector('.ask').querySelector('.sr-only').textContent;
+  out.said = p.said();
   out.recorded = p.sent('/searches');
   p.key('Enter'); await settle();
   out.asksAgain = p.sent('/ask').length;
@@ -2313,14 +2317,17 @@ scenarios.askSurvives = async () => {
 };
 
 scenarios.askReloaded = async () => {
-  const session = { 'mm.watch.ask': JSON.stringify({ q: Q }) };
+  const session = {};
   const at = '/watch?q=' + Q.replace(/ /g, '+');
+  const before = await asking({}, { session });
+  await before.ask(Q);
+  await before.reply('POST', '/ask', { status: 'running', run_id: 7 });
   const p = await asking({}, { session }, Q, at);
-  const out = { mine: p.sent('/ask').map((c) => c[2].q) };
+  const out = { mine: p.sent('/ask').map((c) => c[2].q), recorded: p.sent('/searches').length };
   const other = await asking({}, {}, Q, at);
   out.link = [other.sent('/ask').length, other.head()];
   // One left going by the page before gives way; one of another tab is not touched.
-  const left = await asking({}, { session: { 'mm.watch.ask.run': '7' } });
+  const left = await asking({}, { session });
   await left.ask('a newer question altogether');
   await left.fail('/ask', 'running', { run_id: 7 }, 409);
   out.left = left.sent('/runs/').map((c) => c[0] + c[1]);
@@ -2392,6 +2399,119 @@ scenarios.askAfterStop = async () => {
     same: [await after(Q, 'known'), await after(Q, 'unknown'), await after(Q, 'hung')],
     other: [await after('a much newer question', 'known'), await after('a much newer question', 'unknown')],
   };
+};
+
+// The next person in the same tab.
+scenarios.askNextPerson = async () => {
+  const session = {};
+  const at = '/watch?q=' + Q.replace(/ /g, '+');
+  const amy = await asking({}, { session });
+  amy.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
+  await amy.reply('POST', '/like', ANSWER);
+  await amy.ask(Q);
+  await amy.reply('POST', '/ask', { status: 'running', run_id: 7 });
+  const carl = await asking({ account: 'c3' }, { session: { ...session } });
+  await carl.ask('a question of his own');
+  await carl.fail('/ask', 'running', { run_id: 7 }, 409);
+  const bob = await asking({ account: 'b2' }, { session }, Q, at);
+  const out = { asked: bob.sent('/ask').length, recorded: bob.sent('/searches').length, head: bob.head() };
+  const like = await asking({ account: 'b2' }, { session }, '', '/watch?like=movie-1');
+  out.like = [like.sent('/like').length, like.url()];
+  await bob.ask('a question of his own');
+  out.runs = carl.sent('/runs/').length;
+  const held = JSON.stringify(session);
+  out.kept = held.includes(Q) || held.includes('Nine Locks');
+  // Signed out.
+  const gone = { 'mm.watch.ask': 'x', other: 'y' };
+  vm.runInNewContext(fs.readFileSync(path.join(JS, '../signed-out.js'), 'utf8'), { window: { sessionStorage: { removeItem: (k) => { delete gone[k]; } } } });
+  out.signedOut = Object.keys(gone);
+  return out;
+};
+
+scenarios.askNoTitle = async () => {
+  const p = await asking();
+  await p.search(Q);
+  await p.answer('/api/watch/search?', { items: [] });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  const out = { status: p.status.textContent };
+  await p.ask(Q);
+  await p.answer('/api/watch/search?', { items: [] });
+  await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+  out.asked = p.status.textContent;
+  return out;
+};
+
+scenarios.askFocus = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  const go = p.doc.querySelector('.ans__go--dl');
+  go.focus();
+  click(p.doc, go); await settle();
+  await p.answer('/api/watch/title/', { year: 2023, download: { request: { url: '/api/search/download', body: {} } } });
+  await p.reply('POST', '/api/search/download', {});
+  const active = p.doc.activeElement;
+  return { label: active.getAttribute('aria-label'), there: p.doc.body.contains(active), busy: active.getAttribute('aria-busy') };
+};
+
+scenarios.askForgotten = async () => {
+  const session = {};
+  const p = await asking({}, { session });
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  p.key('Escape'); await settle();
+  p.press(); await settle();
+  click(p.doc, p.doc.getElementById('watch-option-clear-recent')); await settle();
+  await p.reply('DELETE', '/searches', {});
+  p.type(Q);
+  const out = { head: p.head(), kept: JSON.stringify(session).includes(Q) };
+  const next = await asking({}, { session }, Q, '/watch?q=' + Q.replace(/ /g, '+'));
+  out.asked = next.sent('/ask').length;
+  return out;
+};
+
+// Back brings the page as it was left, while the searches were cleared on another.
+scenarios.askRestored = async () => {
+  const session = {};
+  const p = await asking({}, { session });
+  await p.ask(Q);
+  await p.reply('POST', '/ask', ANSWER);
+  Object.assign(p.assist, { recent: [], personal: false, phrases: [] });
+  delete session['mm.watch.ask'];
+  p.fire('pageshow', { persisted: true }); await settle();
+  const out = { head: p.head() };
+  p.key('Escape'); await settle();
+  p.press(); await settle();
+  out.tries = p.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  // Another person's now.
+  const other = await asking({}, { session: {} });
+  await other.ask(Q);
+  await other.reply('POST', '/ask', ANSWER);
+  other.assist.account = 'b2';
+  other.fire('pageshow', { persisted: true }); await settle();
+  out.other = other.head();
+  // A page shown for the first time asks nothing twice.
+  const first = await asking();
+  await first.ask(Q);
+  await first.reply('POST', '/ask', ANSWER);
+  first.fire('pageshow', { persisted: false }); await settle();
+  out.first = first.head();
+  return out;
+};
+
+scenarios.askListView = async () => {
+  const p = await asking({}, { view: 'list' }, '', '/watch?view=list');
+  const out = { can: p.ctx.MMWatch.search.canLike('movie-1') };
+  p.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
+  out.page = [p.url(), p.head(), p.shown()];
+  return out;
+};
+
+scenarios.askStatus = async () => {
+  const p = await asking();
+  await p.ask(Q);
+  const said = p.doc.querySelectorAll('.sr-only').filter((n) => n.getAttribute('role') === 'status');
+  return { text: said.map((n) => n.textContent), busy: said.map((n) => !!n.closest('[aria-busy]')) };
 };
 
 scenarios.askRefused = async () => {
@@ -2531,7 +2651,7 @@ scenarios.askRecorded = async () => {
   await p.reply('POST', '/searches', { recorded: true });
   p.type(''); p.press(); await settle();
   out.recent = p.sheet.querySelectorAll('.watch-recent .watch-try').map((n) => n.textContent);
-  const off = await asking({ history: false });
+  const off = await asking({ records: false });
   off.type('orchard'); off.key('Enter'); await settle();
   out.off = off.sent('/searches').length;
   return out;
@@ -2596,8 +2716,14 @@ scenarios.like = async () => {
   // Only what was asked for in this tab is asked for by the address.
   const linked = await asking({}, {}, '', '/watch?like=movie-1');
   out.linked = [linked.sent('/like').length, linked.url(), linked.shown()];
-  const again = await asking({}, { session: { 'mm.watch.ask': JSON.stringify({ like: 'movie-1', name: 'Nine Locks', poster: '' }) } }, '', '/watch?like=movie-1');
-  out.again = [again.sent('/like').length, again.head()];
+  const session = {};
+  const before = await asking({}, { session });
+  before.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
+  before.ctx.MMWatch.search.like('tmdb-tv-5', 'Dockside', ''); await settle();
+  await before.ask(Q);
+  // A title's page, though others were asked since.
+  const again = await asking({}, { session }, '', '/watch?like=movie-1');
+  out.again = [again.sent('/like').map((c) => c[2].ref), again.head(), again.$('watch-search-token').textContent];
   const none = await asking({ available: false });
   out.none = none.ctx.MMWatch.search.canLike('movie-1');
   return out;

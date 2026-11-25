@@ -1084,6 +1084,7 @@ def test_a_question_goes_on_while_the_bar_is_closed_and_is_there_again() -> None
 def test_a_question_left_for_another_page_is_shown_again_but_a_link_asks_nothing() -> None:
     out = _run("askReloaded")
     assert out["mine"] == [Q]
+    assert out["recorded"] == 0  # it was when it was asked
     assert out["link"][0] == 0 and out["link"][1].startswith("Ask AI")
     assert out["left"] == ["DELETE/runs/7"]
 
@@ -1120,7 +1121,7 @@ def test_a_question_asked_straight_after_stop_waits_till_the_server_was_told() -
 def test_a_limit_names_the_number_in_force_and_when_it_ends() -> None:
     out = _run("askRefused")
     assert out["limit"]["head"].startswith("You’ve asked 12 questions today")
-    assert "after midnight" in out["limit"]["head"]
+    assert "after midnight. Search below works as always." in out["limit"]["head"]
     assert out["one"]["head"].startswith("You’ve asked 1 question today")
     assert not re.search(r"\d", out["noNumber"]["head"])
     assert "40" in out["everyone"]["head"]
@@ -1206,7 +1207,7 @@ def test_a_search_is_kept_when_it_is_meant_and_not_at_every_key() -> None:
     assert out["entered"] == ["orchard"]
     assert out["opened"] == ["orchard", "salt"]
     assert out["recent"] == ["salt", "orchard", "heist", "tessera"]
-    assert out["off"] == 0  # the person's history is not used
+    assert out["off"] == 0  # the person's history is not used, or nothing can use it
 
 
 def test_tonight_shows_what_fits_the_time_pressed_last() -> None:
@@ -1247,4 +1248,56 @@ def test_titles_like_one_have_a_page_that_back_leaves() -> None:
 def test_a_link_to_titles_like_one_asks_nothing_but_the_way_back_to_them_does() -> None:
     out = _run("like")
     assert out["linked"] == [0, "/watch", "browse"]
-    assert out["again"][0] == 1
+    assert out["again"][0] == ["movie-1"]
+    assert out["again"][1:] == [
+        "More like Nine Locks | Looking for titles that fit",
+        "Like Nine Locks",
+    ]
+
+
+def test_what_is_remembered_is_the_person_s_own_and_goes_at_sign_out() -> None:
+    out = _run("askNextPerson")
+    # Nothing is asked, kept or stopped for the next person of the tab.
+    assert (out["asked"], out["recorded"], out["runs"]) == (0, 0, 0)
+    assert out["head"].startswith("Ask AI")
+    assert out["like"] == [0, "/watch"]
+    assert out["kept"] is False
+    assert out["signedOut"] == ["other"]
+
+
+def test_where_no_title_has_the_words_return_is_still_said_to_ask() -> None:
+    out = _run("askNoTitle")
+    assert out["status"] == f"No matches for “{Q}”. Press Return to ask AI"
+    assert out["asked"] == f"No matches for “{Q}”"
+
+
+def test_a_download_from_an_answer_keeps_the_focus_on_its_button() -> None:
+    out = _run("askFocus")
+    assert out == {"label": "<b>Thunder</b>: Queued", "there": True, "busy": None}
+
+
+def test_clearing_forgets_the_answers_and_the_question_remembered() -> None:
+    out = _run("askForgotten")
+    assert out["head"].startswith("Ask AI")
+    assert (out["kept"], out["asked"]) == (False, 0)
+
+
+def test_a_page_back_brings_is_brought_up_to_date() -> None:
+    out = _run("askRestored")
+    assert out["head"].startswith("Ask AI")
+    assert out["tries"] == ["popular action movies", "popular comedy movies", "top rated sci-fi"]
+    assert out["other"].startswith("Ask AI")
+    assert out["first"].endswith("already here")
+
+
+def test_titles_like_one_can_be_found_from_the_list() -> None:
+    out = _run("askListView")
+    assert out["can"] is True
+    assert out["page"][0] == "/watch?like=movie-1"
+    assert out["page"][1].startswith("More like Nine Locks")
+
+
+def test_what_is_read_out_stands_outside_what_is_busy() -> None:
+    out = _run("askStatus")
+    assert out["text"] == ["Looking for titles that fit"]
+    assert out["busy"] == [False]

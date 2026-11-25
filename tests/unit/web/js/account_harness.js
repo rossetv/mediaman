@@ -72,11 +72,12 @@ function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   // A top bar of 64px and a bottom bar of 72px.
   const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
   const told = [];
+  const session = { 'mm.watch.ask': 'a question', other: 'x' };
   doc.dispatchEvent = (e) => { told.push(e.type); };
-  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }) }, Date: FixedDate, Event, getComputedStyle });
+  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
   ['core/dom.js', 'settings/rows.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
-    $, told, asked, toasts,
+    $, told, asked, toasts, session,
     wait: () => timers.splice(0).forEach((fn) => fn()),
     resets: () => resets,
     key: (id, key) => $(id).listeners.keydown.forEach((fn) => fn({ key })),
@@ -539,7 +540,7 @@ const scenarios = {
       await settle();
       p.press('account-clear-searches');
       await settle();
-      return { asked: p.asked.length, sent, toasts: p.toasts, says: p.$('account-clear-searches').textContent, busy: p.$('account-clear-searches').getAttribute('aria-disabled') };
+      return { asked: p.asked.length, sent, left: Object.keys(p.session), toasts: p.toasts, says: p.$('account-clear-searches').textContent, busy: p.$('account-clear-searches').getAttribute('aria-disabled') };
     };
     return {
       no: await run(false, () => Promise.resolve({})),
