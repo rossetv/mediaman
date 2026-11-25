@@ -478,7 +478,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     MediaMetadata: function MediaMetadata(init) { Object.assign(this, init); },
     location: { href: '/watch/play/1', origin: 'http://mm' },
     navigator: { mediaSession: {}, sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
-    matchMedia: (q) => ({ matches: !!reduced && /prefers-reduced-motion:\s*reduce/.test(q) }),
+    matchMedia: (q) => ({ get matches() { return /prefers-reduced-motion:\s*reduce/.test(q) ? !!reduced : /max-height: 599/.test(q) && !!held.tight; } }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     clearTimeout: clearTimer,
     setInterval: (fn, ms) => addTimer(fn, ms, true),
@@ -4329,8 +4329,10 @@ const scenarios = {
     if (what === 'refused') p.held.rate = { ask: false };
     if (what === 'fails' || what === 'silent') p.held.rate = what;
     if (what === 'unsaved') p.held.progressFails = { status: 500 };
+    if (/^tight/.test(what)) p.held.tight = true;
     await streamPlays(p, 100);
     playOn(p, 5);
+    if (what === 'late') p.held.save = [];
     if (what === 'saving' || what === 'backWhileAsked') p.held.save = [];
     if (what === 'saving') { p.video.paused = true; fire(p.video, 'pause'); p.video.paused = false; }
     if (what === 'native') { p.video.webkitPresentationMode = 'fullscreen'; p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; }; }
@@ -4341,6 +4343,7 @@ const scenarios = {
       await settle();
       out.waiting = look();
       out.saves = p.held.save.length;
+      if (what === 'late') { p.tick(3000); await settle(); }
       if (what === 'backWhileAsked') { fire(p.video, 'seeking'); }
       p.held.save.pop()({});
       await settle();
@@ -4376,6 +4379,9 @@ const scenarios = {
     }
     if (what === 'rated') { click(thumb()); await settle(); p.tick(1000); await settle(); out.early = look(); p.tick(1000); }
     if (what === 'ignored') { p.tick(29000); await settle(); fire(p.root, 'pointermove', { bubbles: true, pointerType: 'mouse' }); p.tick(29000); await settle(); out.early = look(); p.tick(2000); }
+    if (what === 'tightCancel') { p.held.tight = true; click(p.q('[data-upnext-cancel]')); await settle(); p.tick(1); await settle(); out.cancelled = look(); }
+    if (what === 'tightCountdown') { p.tick(11000); await settle(); out.cancelled = look(); }
+    if (what === 'tightSeek') { p.video.ended = false; p.video.currentTime = 100; fire(p.video, 'seeking'); p.tick(10); await settle(); out.cancelled = look(); }
     if (what === 'next') { click(p.q('[data-upnext-play]')); out.pressed = look(); }
     if (what === 'countdown') { p.tick(9000); await settle(); out.early = look(); p.tick(2000); }
     /* Nobody has been there for the two hours that end while it counts down. */
@@ -4437,6 +4443,7 @@ const scenarios = {
       saves: saves(), focus: doc.activeElement === focus, idle: p.root.classList.contains('is-idle'),
       beside: card.classList.contains('player-rate--beside'), plays: p.video.plays,
     });
+    if (what === 'arrowOnThumb') { tabTo(thumb()); const from = p.video.currentTime; key('ArrowLeft'); out.left = doc.activeElement === card.querySelectorAll('.rate__b')[2]; key('ArrowRight'); key('ArrowRight'); out.right = doc.activeElement === card.querySelectorAll('.rate__b')[0]; p.tick(300); await settle(); out.moved = p.video.currentTime - from; }
     if (what === 'rebuffer') { fire(p.video, 'waiting'); fire(p.video, 'play'); fire(p.video, 'playing'); await on(1); }
     if (what === 'seekOn') { seek(2900); await on(1); }
     if (what === 'seekBack') { seek(2000); await settle(); out.back = look(); await on(1); seek(2698); await on(15); }

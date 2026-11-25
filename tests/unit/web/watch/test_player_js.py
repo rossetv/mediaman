@@ -1942,6 +1942,22 @@ def test_the_next_episode_is_never_met_by_the_question(markup, what):
         assert (out["ended"]["asks"], out["mode"]) == (0, "fullscreen")
 
 
+def test_with_no_room_for_both_cards_the_question_waits_for_the_other_to_go(markup):
+    out = rating(markup, "tightCancel")
+    assert (out["ended"]["card"], out["ended"]["asks"], out["ended"]["said"]) == (False, 0, "")
+    assert (out["cancelled"]["card"], out["cancelled"]["asks"]) == (True, 1)
+
+
+@pytest.mark.parametrize("what", ["tightCountdown", "tightSeek"])
+def test_with_no_room_the_next_episode_or_a_seek_spends_no_question(markup, what):
+    assert rating(markup, what)["cancelled"]["asks"] == 0
+
+
+def test_a_save_that_took_most_of_the_wait_leaves_no_time_to_spend_the_question(film):
+    out = rating(film, "late")["ended"]
+    assert (out["asks"], out["at"]) == (0, "/watch/movie/501")
+
+
 def test_escape_is_the_next_episode_s_card_s_unless_the_question_has_the_focus(markup):
     out = rating(markup, "escape")["after"]
     assert (out["card"], out["upnext"]) == (True, False)
@@ -2025,6 +2041,12 @@ def test_a_step_back_before_the_place_is_saved_spends_no_question(film):
 def test_a_film_that_ends_while_the_server_is_asked_is_asked_once(film):
     out = in_credits(film, "endWhileAsked")
     assert (out["in"]["card"], out["end"]["card"], out["end"]["asks"]) == (False, True, 1)
+
+
+def test_the_arrows_move_between_the_thumbs_and_leave_the_film_alone(film):
+    out = in_credits(film, "arrowOnThumb")
+    assert (out["left"], out["right"], out["moved"]) == (True, True, 0)
+    assert out["after"]["card"] is True
 
 
 def test_a_rating_in_the_credits_closes_the_card_and_they_go_on(film):

@@ -2475,6 +2475,11 @@
       e.preventDefault();
       if (!e.repeat) togglePlay(false);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (els.rate.contains(e.target)) {
+        e.preventDefault();
+        moveInRating(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
       /* The slider's own where the keyboard is on it, not where the mouse left the focus. */
       if ((tag === 'INPUT' && !focusByPointer) || menuOpen()) return;
       e.preventDefault();
@@ -2503,7 +2508,10 @@
       if (autoplay) goOrAsk(showUpnext);
       else showUpnext();
       /* What the system's own player hides is not asked. */
-      if (upnextOpen() && !nativelyShown()) askRating(null);
+      if (upnextOpen() && !nativelyShown()) {
+        if (roomForRating()) askRating(null);
+        else rateAfterUpnext = true;
+      }
     }
   }
 
@@ -2708,6 +2716,10 @@
     card.classList.remove('is-counting');
     if (card.contains(document.activeElement)) els.play.focus();
     leave(card);
+    /* What hides it may go on to the next episode at once. */
+    if (rateAfterUpnext) setTimeout(function () {
+      if (rateAfterUpnext && video.ended && !upnextOpen()) askRating(null);
+    }, 0);
   }
 
   function stopCountdown() {
@@ -2881,6 +2893,8 @@
   var ratingAsked = 0;       // bumps with every question and whenever one no longer matters
   var ratingWait = null;     // runs until it is known whether to ask
   var rating = null;         // the set of thumbs of the card
+  var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
+  var rateAfterUpnext = false;
   var overCredits = false;   // the card came while the video played
   var goOnAfter = null;      // what the end leads to once the card is done with
   var ratedTimer = null;
@@ -2947,9 +2961,14 @@
     }
     dropRating();
     var mine = ratingAsked;
+    var since = Date.now();
     function heard(held) {
       if (mine !== ratingAsked) return;
       clearTimeout(ratingWait);
+      if (held && !roomForRating()) {
+        rateAfterUpnext = true;
+        return;
+      }
       if (held) {
         showRating(held, goOn);
         return;
@@ -2958,8 +2977,11 @@
       if (goOn) goOn();
     }
     if (goOn) ratingWait = setTimeout(heard, RATE_WAIT_MS);
+    /* A question that is answered too late to be put would be spent for nothing. */
     function askNow() {
-      askOnce(endSaved, function () { return mine === ratingAsked; }).then(heard);
+      askOnce(endSaved, function () {
+        return mine === ratingAsked && (!goOn || Date.now() - since <= RATE_WAIT_MS / 2);
+      }).then(heard);
     }
     if (question.held) heard(question.held);
     else if (!question.asking) askNow();
@@ -2982,6 +3004,9 @@
     waitForRating();
   }
 
+  /* Whether the card can be seen: a small window has no room for it and the next episode's. */
+  function roomForRating() { return !tight.matches || !upnextOpen(); }
+
   function showRating(held, goOn) {
     var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
     if (goOn) leaveNative();
@@ -3002,6 +3027,7 @@
   /* The question goes, and nothing of it is to come. */
   function dropRating() {
     ratingAsked++;
+    rateAfterUpnext = false;
     [ratingWait, ratedTimer, ignoredTimer].forEach(clearTimeout);
     ignoredTimer = null;
     goOnAfter = null;
@@ -3022,6 +3048,12 @@
     goOnAfter = null;
     clearTimeout(ignoredTimer);
     ignoredTimer = null;
+  }
+
+  function moveInRating(by) {
+    var thumbs = els.rateSet.querySelectorAll('button');
+    var at = Array.prototype.indexOf.call(thumbs, document.activeElement);
+    thumbs[at < 0 ? (by < 0 ? thumbs.length - 1 : 0) : (at + by + thumbs.length) % thumbs.length].focus();
   }
 
   function endRating() {
