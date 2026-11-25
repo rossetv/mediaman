@@ -325,6 +325,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (held.save && /\/progress$/.test(url)) return new Promise((r) => held.save.push(r));
       if (/\/ratings\/ask\//.test(url)) {
+        if (Array.isArray(held.rate)) return new Promise((r) => held.rate.push(r));
         if (held.rate === 'silent') return new Promise(() => {});
         return held.rate === 'fails' ? Promise.reject({ status: 500 }) : Promise.resolve(held.rate || { ask: false });
       }
@@ -4386,6 +4387,85 @@ const scenarios = {
     p.tick(40000);
     await settle();
     out.late = p.win.location.href;
+    return out;
+  },
+
+  /* The last credits begin at 2700 of 3000 s, and the server has a question: what comes of it, by *what*. */
+  async credits() {
+    const what = process.argv[5];
+    const p = boot(fs.readFileSync(process.argv[2], 'utf8'), false, what === 'noAutoplay' ? { 'mediaman.watch.autoplay': 'false' } : null);
+    const card = p.q('[data-rate]');
+    const asks = () => p.calls.filter((c) => /ratings\/ask/.test(c.url)).length;
+    const saves = () => p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body.position_s);
+    const look = () => ({
+      card: !gone(card), asks: asks(), at: p.win.location.href, said: p.q('[data-rate-status]').textContent,
+      paused: p.video.paused, upnext: !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]')),
+    });
+    const thumb = () => card.querySelectorAll('.rate__b')[3];
+    const on = async (s) => { for (let i = 0; i < s; i++) { playOn(p, 1); await settle(); } };
+    const seek = (t) => { p.video.seeking = true; p.video.currentTime = t; fire(p.video, 'seeking'); p.video.seeking = false; fire(p.video, 'timeupdate'); };
+    p.replies[0].ok.markers = MARKERS;
+    if (what === 'early') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 1400, end_s: 3000, final: true }];
+    if (what === 'notFinal') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700, end_s: 3000, final: false }];
+    if (what === 'fraction') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700.92, end_s: 3000, final: true }];
+    p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    if (what === 'askFails') p.held.rate = 'fails';
+    if (what === 'refused') p.held.rate = { ask: false };
+    if (what === 'saveFails') p.held.progressFails = { status: 500 };
+    if (what === 'native') p.video.webkitPresentationMode = 'fullscreen';
+    if (what === 'picture') { doc.pictureInPictureElement = p.video; doc.exitPictureInPicture = () => Promise.resolve(); }
+    const start = { early: 1390, resumed: 2750, endCard: 2985, scrubbed: 100 }[what] || 2690;
+    await streamPlays(p, start);
+    p.video.paused = false;
+    p.video.currentTime = start;
+    fire(p.video, 'timeupdate');
+    const out = {};
+    if (what === 'fraction') { p.video.currentTime = 2699.93; fire(p.video, 'timeupdate'); await on(1); }
+    if (what === 'scrubbed') { await on(2); seek(2800); await settle(); await on(3); out.passed = look(); seek(200); await on(1); out.back = look(); seek(2690); fire(p.video, 'timeupdate'); await on(11); out.after = look(); return out; }
+    if (what === 'endCard') { await on(5); endsNow(p); await settle(); out.end = look(); seek(2950); await settle(); out.sought = look(); p.tick(60000); out.late = look(); return out; }
+    if (what === 'resumed') { await on(5); out.passed = look(); await on(6); out.after = look(); return out; }
+    await on(9);
+    if (what !== 'fraction') out.before = look();
+    const QUESTION = p.held.rate;
+    if (what === 'seekWhileAsked') p.held.rate = [];
+    if (what === 'seekWhileSaved') p.held.save = [];
+    if (what === 'endWhileAsked') p.held.save = [];
+    p.root.classList.add('is-idle');
+    const focus = doc.activeElement;
+    await on(2);
+    out.in = Object.assign(look(), {
+      saves: saves(), focus: doc.activeElement === focus, idle: p.root.classList.contains('is-idle'),
+      beside: card.classList.contains('player-rate--beside'), plays: p.video.plays,
+    });
+    if (what === 'rebuffer') { fire(p.video, 'waiting'); fire(p.video, 'play'); fire(p.video, 'playing'); await on(1); }
+    if (what === 'seekOn') { seek(2900); await on(1); }
+    if (what === 'seekBack') { seek(2000); await settle(); out.back = look(); await on(1); seek(2698); await on(15); }
+    if (what === 'arrowBack') { key('ArrowLeft'); key('ArrowLeft'); p.tick(300); fire(p.video, 'timeupdate'); await settle(); }
+    if (what === 'seekWhileAsked') { seek(2000); p.held.rate[0](QUESTION); await settle(); out.back = look(); seek(2690); fire(p.video, 'timeupdate'); await on(12); }
+    if (what === 'seekWhileSaved') { seek(2000); p.held.save.splice(0).forEach((r) => r({})); p.held.save = null; await settle(); out.back = look(); seek(2690); fire(p.video, 'timeupdate'); await on(12); }
+    if (what === 'rated') { click(thumb()); await settle(); p.tick(2000); await settle(); out.rated = look(); }
+    if (what === 'spaceAfterClick') { press(thumb()); await settle(); key(' '); await settle(); out.level = p.calls.filter((c) => c.gone).length; }
+    if (what === 'close') { click(p.q('[data-rate-close]')); await settle(); }
+    if (what === 'escape') key('Escape');
+    if (what === 'alone') { p.tick(60000); await settle(); }
+    if (what === 'native') { out.native = look(); p.video.webkitPresentationMode = 'inline'; await on(12); }
+    out.after = look();
+    if (what === 'askFails') { p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null }; }
+    if (what === 'refused') { p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null }; }
+    if (what === 'saveFails') { p.held.progressFails = null; }
+    if (what === 'skip' || what === 'stillOpen') { click(p.q('[data-skip]')); p.video.currentTime = 2999; await settle(); out.skipped = look(); }
+    if (what === 'stillWatching') p.sleep(3 * 60 * 60 * 1000);
+    endsNow(p);
+    await settle();
+    if (what === 'endWhileAsked') { p.held.save.splice(0).forEach((r) => r({})); p.held.save = null; await settle(); }
+    await settle();
+    out.end = Object.assign(look(), { dialog: !!p.q('[data-ask]') && p.q('[data-ask]').open });
+    if (what === 'endSeek') { seek(2950); await on(1); out.sought = look(); p.tick(60000); await settle(); out.soughtLate = look(); return out; }
+    p.tick(9000); await settle();
+    out.nine = look();
+    p.tick(22000); await settle();
+    out.late = look();
+    out.went = p.calls.some((c) => c.page);
     return out;
   },
 

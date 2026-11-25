@@ -597,12 +597,14 @@
   bottom: calc(var(--player-foot) + 118px);
   width: 340px;
 }
-/* Asks what the person thought at the end. With the next episode to come it keeps clear of
-   that one's card, also once it has gone: beside it, or above it where there is no room. */
+/* Asks what the person thought. Over the last credits and with the next episode to come it
+   keeps clear of the skip button and of the lines of subtitles; as the next episode's card
+   comes it goes beside that, or above it where there is no room. */
 .player-rate {
   --card-x: 18px;
   --card-y: 18px;
-  --pop-y: 12px;
+  --rate-shift: 0px;
+  --pop-y: calc(var(--rate-shift) + 12px);
   left: 0;
   right: 0;
   bottom: calc(var(--player-foot) + 118px);
@@ -636,7 +638,19 @@
   transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .player-rate-close:hover { color: var(--t1); background: var(--hair); }
-.player-rate--beside { right: auto; left: max(32px, env(safe-area-inset-left)); }
+/* Where it stands clear of subtitles, above where it stands by the other card. */
+.player-rate--beside {
+  --rate-up: max(0px, 18vh - var(--player-foot) - 118px);
+  right: auto;
+  left: max(32px, env(safe-area-inset-left));
+  bottom: calc(var(--player-foot) + 118px + var(--rate-up));
+  translate: 0 var(--rate-shift);
+  transition: translate var(--dur-slow) var(--ease-out);
+}
+.player:has(.player-upnext:not([hidden], .is-leaving)) .player-rate--beside { --rate-shift: var(--rate-up); }
+@media (prefers-reduced-motion: reduce) {
+  .player-rate--beside { transition: none; }
+}
 .player-message {
   top: 50%;
   left: 50%;
@@ -710,7 +724,7 @@
   .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
   .player-chapters { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) var(--ease-out); }
   /* Where the frame preview and the next-episode card come. */
-  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
+  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving, .player-rate--beside)) .player-chapters { opacity: 0; visibility: hidden; }
   .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
   .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
   .player-chapters .player-menu {
@@ -751,16 +765,24 @@
   .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext .player-still { display: none; }
 }
 @media (max-width: 899.98px) and (min-height: 600px) {
-  /* Above the other card at its tallest. */
-  .player-rate--beside { left: 0; right: 0; bottom: calc(var(--player-foot) + 300px); }
+  /* Above the skip button, and then above the other card at its tallest. */
+  .player-rate--beside { --rate-up: -144px; left: 0; right: 0; bottom: calc(var(--player-foot) + 156px); }
+}
+@media (max-width: 600px) and (min-height: 600px) {
+  /* Below the picture of a phone held upright. */
+  .player-rate--beside { --rate-up: -160px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 140px); }
+  .player-rate--beside .player-card-title { font-size: 17px; }
+  .player .player-rate--beside .rate__b { height: 56px; }
+  .player-rate--beside .player-rate-close { top: 0; }
 }
 @media (max-width: 899.98px) and (max-height: 599.98px), (max-width: 1040px) and (max-height: 520px) {
   .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: auto; width: 300px; padding-left: var(--card-x); }
-  .player-rate--beside { left: 16px; max-width: calc(100% - 360px); }
+  .player-rate--beside { --rate-up: 0px; left: 16px; bottom: calc(var(--player-foot) + 118px); max-width: calc(100% - 360px); }
 }
-/* No room for both: it waits for the other card to go. */
+/* No room for both cards: it waits for the other to go, beside the skip button. */
 @media (max-width: 659.98px) and (max-height: 599.98px) {
-  .player-rate--beside { max-width: calc(100% - 32px); }
+  .player-rate--beside { max-width: calc(100% - 200px); }
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
   .player:has(.player-upnext:not([hidden], .is-leaving)) .player-rate--beside { visibility: hidden; }
 }
 @media (max-height: 520px) {

@@ -15,7 +15,8 @@
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
  *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
- *   POST /api/watch/ratings/ask/<key>  (at the end, its place saved: whether to ask for a rating)
+ *   POST /api/watch/ratings/ask/<key>  (in the last credits or at the end, the place saved:
+ *                                     whether to ask for a rating)
  *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
  * A 410 from any stream URL means the server has dropped the stream (a
@@ -70,6 +71,8 @@
   var PAGE_WAIT_MS = 15000;
   var AGAIN_MS = 2000;       // a step back not begun by then may be asked for again
   var STOP_WAIT_MS = 5000;
+  /* Reached other than by playing into them, the last credits have played this long first. */
+  var CREDITS_PLAYED_S = 10;
   /* The longest a title's end waits to hear whether to ask for a rating. */
   var RATE_WAIT_MS = 4000;
   /* A rating just given stays in sight this long. */
@@ -333,6 +336,7 @@
   var fatalRestartUsed;
   var goneRestarts;
   var reverts;
+  var question;              // of a rating: see askOnce
 
   function resetVideo(at) {
     pendingStart = at;
@@ -363,6 +367,7 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
+    question = { asking: null, held: null, put: false, tried: false, creditsS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
     clearTimeout(seekSaveTimer);
@@ -1572,7 +1577,7 @@
     dropAim();
     lastTime = null;
     hideUpnext();
-    dropRating();
+    leftEnd(t);
     if (video.readyState >= 1) {
       pendingStart = null;
       /* WebKit shows black until the place has loaded. */
@@ -1610,7 +1615,7 @@
     pressedPlay();
     aimS = within(t);
     hideUpnext();
-    dropRating();
+    leftEnd(aimS);
     clearTimeout(landTimer);
     landTimer = setTimeout(land, LAND_MS);
     if (hls && video.readyState < 1) hls.config.startPosition = aimS;
@@ -1646,7 +1651,7 @@
   /* Playing again, or moving within the episode, cancels the next-episode countdown. */
   ['play', 'playing', 'seeking'].forEach(function (name) {
     video.addEventListener(name, hideUpnext);
-    video.addEventListener(name, dropRating);
+    video.addEventListener(name, function () { leftEnd(position()); });
   });
 
   video.addEventListener('playing', function () {
@@ -1739,6 +1744,7 @@
         playedS += delta;
         rolling = true;
         backRounds = 0;
+        playedOn(lastTime, now);
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */
@@ -2463,7 +2469,7 @@
     if (e.key === ' ' || e.key === 'Spacebar') {
       if (onControl) {
         /* Space presses a control the keyboard is on, not one the mouse left the focus on. */
-        if (!focusByPointer || !e.target.closest('.player-chrome')) return;
+        if (!focusByPointer || !e.target.closest('.player-chrome, .player-rate')) return;
         e.target.blur();
       }
       e.preventDefault();
@@ -2875,47 +2881,121 @@
   var ratingAsked = 0;       // bumps with every question and whenever one no longer matters
   var ratingWait = null;     // runs until it is known whether to ask
   var rating = null;         // the set of thumbs of the card
+  var overCredits = false;   // the card came while the video played
   var goOnAfter = null;      // what the end leads to once the card is done with
   var ratedTimer = null;
   var ignoredTimer = null;
   var unsavedRating = null;  // {ref, level} on its way to the server
 
-  /* Whether the server wants to ask what the person thought of what just ended. `goOn`,
-     or null where the next episode follows, comes after the question or in its place. */
+  /* Ask the server, once `saved` is taken and if it is `still` wanted then, whether to ask what the
+     person thought: the question, or null. It gives each only once, so one that cannot be shown
+     as it comes is held. */
+  function askOnce(saved, still) {
+    var mine = question;
+    mine.tried = true;
+    mine.asking = saved.then(function (taken) {
+      if (mine !== question) return null;
+      if (!still()) mine.tried = false;
+      if (!taken || !mine.tried) return null;
+      return MM.api.post('/api/watch/ratings/ask/' + encodeURIComponent(item.rating_key));
+    }).then(function (data) {
+      mine.held = data && data.ask ? data : null;
+    }, function () {}).then(function () {
+      mine.asking = null;
+      return mine.held;
+    });
+    return mine.asking;
+  }
+
+  /* Where the last credits begin, as the server has it, or null. */
+  function creditsAt() {
+    var m = markers.filter(function (x) { return x.kind === 'credits' && x.final; }).pop();
+    return m && m.start_s > duration() / 2 ? m.start_s : null;
+  }
+
+  /* Places are saved in tenths: one that rounds to before the credits is not in them yet. */
+  function inCredits(t) {
+    var at = creditsAt();
+    return at !== null && Math.round(t * 10) / 10 >= at;
+  }
+
+  /* The video has played from one place to another. */
+  function playedOn(from, to) {
+    if (question.put || !inCredits(to)) return;
+    question.creditsS += to - from;
+    var into = !inCredits(from);
+    if (!into && question.creditsS < CREDITS_PLAYED_S || nativelyShown()) return;
+    if (question.held) showRating(question.held, null);
+    else if (!question.tried) askInCredits();
+  }
+
+  function askInCredits() {
+    var mine = question;
+    var asked = ratingAsked;
+    askOnce(saveProgress(), function () { return !switching && inCredits(position()); }).then(function (held) {
+      if (!held || mine !== question || mine.put || asked !== ratingAsked) return;
+      if (inCredits(position()) && !switching && !video.ended && !nativelyShown()) showRating(held, null);
+    });
+  }
+
+  /* At the end. `goOn`, or null where the next episode follows, comes after the question or
+     in its place. */
   function askRating(goOn) {
+    if (question.put) {
+      endWithRating(goOn);
+      return;
+    }
     dropRating();
     var mine = ratingAsked;
-    function heard(question) {
+    function heard(held) {
       if (mine !== ratingAsked) return;
       clearTimeout(ratingWait);
-      if (question) {
-        showRating(question, goOn);
+      if (held) {
+        showRating(held, goOn);
         return;
       }
       ratingAsked++;
       if (goOn) goOn();
     }
     if (goOn) ratingWait = setTimeout(heard, RATE_WAIT_MS);
-    endSaved.then(function (saved) {
-      if (!saved || mine !== ratingAsked) return null;
-      return MM.api.post('/api/watch/ratings/ask/' + encodeURIComponent(item.rating_key));
-    }).then(function (data) {
-      heard(data && data.ask ? data : null);
-    }, function () { heard(null); });
+    function askNow() {
+      askOnce(endSaved, function () { return mine === ratingAsked; }).then(heard);
+    }
+    if (question.held) heard(question.held);
+    else if (!question.asking) askNow();
+    else question.asking.then(function (held) {
+      if (mine !== ratingAsked) return;
+      if (held) heard(held);
+      else askNow();
+    });
   }
 
-  function showRating(question, goOn) {
-    var text = 'How was ' + (question.season ? 'season ' + question.season + ' of ' : '') + question.title + '?';
+  /* The question has been put before the end: open still, it is waited for. */
+  function endWithRating(goOn) {
+    if (!goOn) return;
+    if (!rating) {
+      goOn();
+      return;
+    }
+    leaveNative();
+    goOnAfter = goOn;
+    waitForRating();
+  }
+
+  function showRating(held, goOn) {
+    var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
     if (goOn) leaveNative();
     goOnAfter = goOn;
+    question.put = true;
+    overCredits = !video.ended;
     els.rateTitle.textContent = text;
     els.rateSet.textContent = '';
-    rating = MM.ratings.mount(question.ref, { variant: 'grid' });
+    rating = MM.ratings.mount(held.ref, { variant: 'grid' });
     els.rateSet.appendChild(rating.node);
     els.rate.classList.toggle('player-rate--beside', !goOn);
     show(els.rate);
     els.rateStatus.textContent = text;
-    showControls();
+    if (!overCredits) showControls();
     waitForRating();
   }
 
@@ -2931,6 +3011,17 @@
     els.rateStatus.textContent = '';
     if (els.rate.contains(document.activeElement)) els.play.focus();
     leave(els.rate);
+  }
+
+  /* The video is, or is to be, at `t` and not at its end: one put in the credits stays in them. */
+  function leftEnd(t) {
+    if (!rating || !overCredits || !inCredits(t)) {
+      dropRating();
+      return;
+    }
+    goOnAfter = null;
+    clearTimeout(ignoredTimer);
+    ignoredTimer = null;
   }
 
   function endRating() {

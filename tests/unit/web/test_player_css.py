@@ -193,3 +193,16 @@ def test_under_reduced_motion_the_spinner_over_a_held_frame_comes_at_once() -> N
     )
     held = ".is-held.is-loading:not(.is-switching) .player-spinner { transition-delay"
     assert (moving.count(held), css.count(held)) == (1, 1)
+
+
+def test_the_question_over_the_credits_stands_clear_of_the_skip_button_on_a_phone() -> None:
+    css = _text("_player.css")
+    phone = css[css.index("@media (max-width: 600px) and (min-height: 600px)") :]
+    skip = re.search(
+        r"\.player-skip \{ right: 12px; bottom: calc\(var\(--player-foot\) \+ (\d+)", css
+    )
+    card = re.search(
+        r"\.player-rate--beside \{[^}]*bottom: calc\(var\(--player-foot\) \+ (\d+)", phone
+    )
+    assert skip and card
+    assert int(card.group(1)) >= int(skip.group(1)) + 44
