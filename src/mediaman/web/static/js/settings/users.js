@@ -293,8 +293,9 @@
           }).catch(function (err) {
             setBusy(save, false);
             if (err && err.error === 'reauth_cancelled') { say(''); return; }
+            var there = rows.stillAt(msg, form);
             say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-            MM.dom.refuse(input, msg);
+            if (there) MM.dom.refuse(input, msg);
           });
         });
         return form;
@@ -329,20 +330,20 @@
           // The reauth dialog is still fading out; the new pill waits until it has gone.
           var behind = document.querySelector('.reauth-backdrop');
           function apply() {
-            var keepFocus = MM.dom.focusStillIn(btn);
+            var there = rows.stillAt(btn, btn);
             user.role = role;
             changed();
             setTimeout(function () { setBusy(btn, false); }, ROLE_QUIET_MS);
-            if (keepFocus) btn.focus();
+            if (there) btn.focus();
           }
           if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
         }).catch(function (err) {
-          var keepFocus = MM.dom.focusStillIn(btn);
+          var there = rows.stillAt(btn, btn);
           setBusy(btn, false);
           btn.textContent = label;
           btn.setAttribute('aria-label', label + ': ' + user.username);
-          if (keepFocus) btn.focus();
+          if (there) btn.focus();
           if (err && err.error === 'reauth_cancelled') return;
           window.UIFeedback.error(MM.api.messageOf(err, 'Could not change role'));
         });
@@ -380,11 +381,11 @@
             });
             window.UIFeedback.success('Deleted ' + user.username);
           }).catch(function (err) {
-            var keepFocus = MM.dom.focusStillIn(btn);
+            var there = rows.stillAt(btn, btn);
             setBusy(btn, false);
             btn.textContent = 'Delete';
             btn.setAttribute('aria-label', 'Delete: ' + user.username);
-            if (keepFocus) btn.focus();
+            if (there) btn.focus();
             if (err && err.error === 'reauth_cancelled') return;
             window.UIFeedback.error(
               MM.api.messageOf(err, 'Could not delete user')
@@ -408,7 +409,7 @@
       function clearOnInput(form, target, submitBtn) {
         if (!form) return;
         form.addEventListener('input', function () {
-          if (submitBtn && submitBtn.disabled) return;
+          if (submitBtn && isBusy(submitBtn)) return;
           if (target && target.textContent) clearMsg(target);
           clearReasons(form);
         });
@@ -421,10 +422,13 @@
       var createResult     = document.getElementById('create-user-result');
 
       // On a narrow phone the form is taller than the screen, so the reason is said beside its field.
-      function failOn(field, text, issues) {
+      function failOn(field, text, issues, onlySay) {
+        clearMsg(createResult);
+        clearReasons(addUserForm);
         var why = document.getElementById(field.id + '-why');
+        if (!why) { why = createResult; why.className = 'inline-form-msg err'; }
         showReason(why, text, issues);
-        MM.dom.refuse(field, why);
+        if (!onlySay) MM.dom.refuse(field, why);
       }
 
       var roleSwitch = document.getElementById('new-user-role');
@@ -473,12 +477,12 @@
       }
       // A form that is sending cannot be closed or reset from its own buttons.
       if (btnAddUser)       btnAddUser.addEventListener('click', function () {
-        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        if (btnSubmitAddUser && isBusy(btnSubmitAddUser)) return;
         holdFocus(btnAddUser);
         toggleAddUser();
       });
       if (btnCancelAddUser) btnCancelAddUser.addEventListener('click', function () {
-        if (btnSubmitAddUser && btnSubmitAddUser.disabled) return;
+        if (btnSubmitAddUser && isBusy(btnSubmitAddUser)) return;
         toggleAddUser(false);
         if (btnAddUser) btnAddUser.focus();
       });
@@ -486,7 +490,7 @@
       clearOnInput(addUserForm, createResult, btnSubmitAddUser);
       if (addUserForm) addUserForm.addEventListener('submit', function (e) {
         e.preventDefault();
-        if (btnSubmitAddUser.disabled) return;
+        if (isBusy(btnSubmitAddUser)) return;
         var nameInput = document.getElementById('new-username');
         var pwInput = document.getElementById('new-user-password');
         var username = nameInput.value.trim();
@@ -501,7 +505,7 @@
         }
         clearReasons(addUserForm);
         holdFocus(btnSubmitAddUser, addUserForm);
-        btnSubmitAddUser.disabled = true;
+        setBusy(btnSubmitAddUser, true);
         createResult.className = 'inline-form-msg';
         createResult.textContent = 'Creating…';
         rows.reveal(createResult);
@@ -513,7 +517,7 @@
           createResult.textContent = 'User "' + username + '" created.';
           if (there) rows.reveal(createResult);
           var listed = loadUsers().catch(function () { return null; });
-          // Submit stays disabled until the form has closed, so a second Enter cannot create twice.
+          // Submit stays busy until the form has closed, so a second Enter cannot create twice.
           // The new row comes in only then, so the list does not jump under it.
           var closed = new Promise(function (resolve) {
             setTimeout(function () {
@@ -530,11 +534,11 @@
             }, 700);
           });
           Promise.all([listed, closed]).then(function (done) {
-            btnSubmitAddUser.disabled = false;
+            setBusy(btnSubmitAddUser, false);
             if (done[0]) appendNewUsers(done[0]); else showUsers();
           });
         }).catch(function (err) {
-          btnSubmitAddUser.disabled = false;
+          setBusy(btnSubmitAddUser, false);
           if (err && err.error === 'reauth_cancelled') {
             createResult.className = 'inline-form-msg';
             createResult.textContent = '';
@@ -542,16 +546,14 @@
           }
           var there = rows.stillAt(createResult, addUserForm);
           var text = MM.api.messageOf(err, 'Something went wrong. Try again.');
-          clearMsg(createResult);
           if (err && (err.status === 0 || err.status === 429 || err.status >= 500)) {
             createResult.className = 'inline-form-msg err';
             createResult.textContent = text;
-            if (MM.dom.focusStillIn(addUserForm)) btnSubmitAddUser.focus({ preventScroll: true });
             if (there) rows.reveal(createResult);
             return;
           }
           var issues = err && err.issues;
-          failOn(issues && issues.length ? pwInput : nameInput, text, issues);
+          failOn(issues && issues.length ? pwInput : nameInput, text, issues, !there);
         });
       });
 
