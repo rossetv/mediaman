@@ -1,18 +1,15 @@
 """Older TVs (DLNA), added by address in Settings. Admins only.
 
-Nothing is looked for by itself: mediaman asks only the address an admin typed, within what
-:mod:`mediaman.services.dlna` allows.
+Nothing is looked for by itself: mediaman asks only the address an admin typed, and those around
+it for a TV that moved, within what :mod:`mediaman.services.dlna` allows.
 """
 
 from __future__ import annotations
 
-import sqlite3
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+import contextlib
+import time
 from dataclasses import asdict
 from typing import Annotated
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,24 +17,28 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
-from mediaman.services.dlna import renderer
-from mediaman.services.dlna.addresses import check_address
-from mediaman.services.dlna.errors import TvError, TvRefused, TvUnreachable
-from mediaman.services.dlna.wire import Wire
-from mediaman.services.infra.settings_reader import get_bool_setting, get_setting
+from mediaman.services.dlna.errors import TvError, TvFault
+from mediaman.services.dlna.renderer import Renderer
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.tv import _Name
+from mediaman.web.routes import older_play
+from mediaman.web.routes import older_reach as reaching
+from mediaman.web.routes.older_reach import Refusal
+from mediaman.web.routes.older_stream import offer_picture, picture_media, withdraw_picture
+from mediaman.web.routes.older_stream import router as stream_router
+from mediaman.web.routes.tv import _carry_out, _Name
 from mediaman.web.routes.users.rate_limits import too_many
 
 router = APIRouter()
+router.include_router(stream_router)
 
 _CHECK_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60)
 _CHANGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
-# Looking for a TV can hold a thread for over ten seconds.
-_LOOKS = threading.BoundedSemaphore(2)
+# How long a TV that was shown the test picture may take to fetch it, and how long it stays.
+_FETCH_SECONDS = 10.0
+_SHOWN_SECONDS = 3.0
 
 _Admin = Annotated[str, Depends(get_current_admin)]
 _TvId = Annotated[int, Path(ge=1, le=2**53)]
@@ -59,68 +60,24 @@ class _AddBody(_AddressBody, _NameBody):
     pass
 
 
-class _Refusal(Exception):
-    def __init__(self, error: str, status: int, message: str) -> None:
-        super().__init__(message)
-        self.response = respond_err(error, status=status, message=message)
-
-
 def _not_found() -> Response:
     return respond_err("not_found", status=404, message="That TV is no longer in the list.")
 
 
-def _already(tv: repo.OlderTv | None) -> _Refusal:
+def _already(tv: repo.OlderTv | None) -> Refusal:
     name = f"{tv.name} is" if tv is not None else "That TV is"
-    return _Refusal("already_added", 409, f"{name} already in the list.")
+    return Refusal("already_added", 409, f"{name} already in the list.")
 
 
-def _is_own(conn: sqlite3.Connection, address: str) -> bool:
-    for key in ("tv_address", "base_url"):
-        try:
-            if urlsplit(str(get_setting(conn, key) or "")).hostname == address:
-                return True
-        except ValueError:
-            continue
-    return False
-
-
-@contextmanager
-def _looking() -> Iterator[None]:
-    if not _LOOKS.acquire(blocking=False):
-        raise _Refusal("busy", 503, "Other TVs are being checked. Try again in a moment.")
-    try:
-        yield
-    finally:
-        _LOOKS.release()
-
-
-def _look(admin: str, address: str) -> renderer.Renderer:
-    """Ask the TV at *address* who it is."""
+def _limited(admin: str) -> None:
     if not _CHECK_LIMITER.check(admin):
-        raise _Refusal("too_many_requests", 429, "Too many checks. Try again in a minute.")
-    conn = get_db()
-    if not get_bool_setting(conn, "older_tvs_enabled", default=False):
-        raise _Refusal("off", 409, "Older TVs are off. Turn them on below, save, then check again.")
-    wire = Wire()
-    try:
-        address = check_address(address.strip(), [])
-        if _is_own(conn, address):
-            raise _Refusal("own_address", 422, "That is mediaman’s own address, not a TV’s.")
-    except TvRefused as exc:
-        raise _Refusal("bad_address", 422, str(exc)) from exc
-    try:
-        wire.check(address)
-    except TvRefused as exc:
-        raise _Refusal("own_network", 409, str(exc)) from exc
-    with _looking():
-        try:
-            return renderer.find(address, wire)
-        except TvRefused as exc:
-            raise _Refusal("refused", 502, str(exc)) from exc
-        except TvUnreachable as exc:
-            raise _Refusal("unreachable", 502, str(exc)) from exc
-        except TvError as exc:
-            raise _Refusal("not_a_tv", 502, str(exc)) from exc
+        raise Refusal("too_many_requests", 429, "Too many checks. Try again in a minute.")
+
+
+def _look(admin: str, address: str) -> Renderer:
+    """Ask the TV at *address* who it is."""
+    _limited(admin)
+    return reaching.find(get_db(), address)
 
 
 def _shown(tv: repo.OlderTv) -> dict[str, object]:
@@ -142,9 +99,50 @@ def check_address_of_tv(body: _AddressBody, admin: _Admin) -> Response:
         same = repo.same(get_db(), found.address, found.udn)
         if same is not None:
             raise _already(same)
-    except _Refusal as exc:
+    except Refusal as exc:
         return exc.response
     return respond_ok({"name": found.name, "address": found.address})
+
+
+@router.post("/api/settings/older-tvs/picture")
+def show_test_picture(body: _AddressBody, admin: _Admin) -> Response:
+    """Show a picture on the TV at an address for a moment, to see that it can reach mediaman."""
+    conn = get_db()
+    try:
+        base = reaching.media_base(conn)
+        same = repo.same(conn, body.address.strip(), "")
+        if same is not None:
+            raise _already(same)
+        found = _look(admin, body.address)
+        with reaching.looking():
+            fetched = _show_picture(found, base)
+    except Refusal as exc:
+        return exc.response
+    if not fetched:
+        return respond_err("no_fetch", status=502, message="The TV couldn’t reach mediaman.")
+    return respond_ok({"from": base})
+
+
+def _show_picture(tv: Renderer, base: str) -> bool:
+    """Whether the TV fetched the picture; raises ``Refusal`` where it would not show one."""
+    token, picture = offer_picture()
+    try:
+        try:
+            tv.start(picture_media(f"{base}/api/cast/{token}/test.jpg"))
+        except TvFault as exc:
+            if not picture.fetched.is_set():
+                raise Refusal("no_picture", 502, str(exc)) from exc
+        except TvError:
+            # It may have fetched it all the same.
+            pass
+        if not picture.fetched.wait(_FETCH_SECONDS):
+            return False
+        time.sleep(_SHOWN_SECONDS)
+        return True
+    finally:
+        withdraw_picture(token)
+        with contextlib.suppress(TvError):
+            tv.stop()
 
 
 @router.post("/api/settings/older-tvs")
@@ -166,10 +164,10 @@ def add_older_tv(request: Request, body: _AddBody, admin: _Admin) -> Response:
         except repo.AlreadyAdded:
             raise _already(repo.same(conn, found.address, found.udn)) from None
         except repo.TooManyOlderTvs:
-            raise _Refusal(
+            raise Refusal(
                 "too_many_tvs", 409, f"mediaman keeps at most {repo.MAX_OLDER_TVS} older TVs."
             ) from None
-    except _Refusal as exc:
+    except Refusal as exc:
         return exc.response
     tv = repo.find(conn, tv_id)
     return respond_ok({"tv": _shown(tv)}) if tv is not None else _not_found()
@@ -183,17 +181,13 @@ def check_older_tv(tv_id: _TvId, admin: _Admin) -> Response:
     if tv is None:
         return _not_found()
     try:
-        found = _look(admin, tv.address)
-    except _Refusal as exc:
+        _limited(admin)
+        reaching.reach(conn, tv_id)
+    except Refusal as exc:
         return exc.response
-    if tv.udn and found.udn != tv.udn:
-        return respond_err(
-            "another_tv",
-            status=409,
-            message="Another device answers at this address now. If the TV’s address changed, "
-            "forget it here and add it again.",
-        )
-    repo.mark_seen(conn, tv_id, now_utc())
+    except TvError as exc:
+        return reaching.told(exc).response
+    reaching.note_seen(conn, tv_id)
     tv = repo.find(conn, tv_id)
     return respond_ok({"tv": _shown(tv)}) if tv is not None else _not_found()
 
@@ -213,4 +207,5 @@ def remove_older_tv(request: Request, tv_id: _TvId, admin: _Admin) -> Response:
         return too_many(_CHANGE_LIMITER, admin)
     if not repo.remove(get_db(), tv_id, actor=admin, ip=get_client_ip(request)):
         return _not_found()
+    older_play.end(tv_id, "unpaired", _carry_out)
     return respond_ok()

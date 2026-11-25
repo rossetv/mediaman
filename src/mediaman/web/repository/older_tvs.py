@@ -92,6 +92,17 @@ def rename(conn: sqlite3.Connection, tv_id: int, name: str) -> bool:
     return changed.rowcount > 0
 
 
+def move(conn: sqlite3.Connection, tv_id: int, address: str) -> bool:
+    """Keep the TV's new address; False where another TV has it."""
+    with conn:
+        moved = conn.execute(
+            "UPDATE tvs SET address = ? WHERE id = ? AND kind = 'older' AND NOT EXISTS"
+            " (SELECT 1 FROM tvs o WHERE o.kind = 'older' AND o.address = ? AND o.id <> ?)",
+            (address, tv_id, address, tv_id),
+        )
+    return moved.rowcount > 0
+
+
 def mark_seen(conn: sqlite3.Connection, tv_id: int, now: datetime) -> None:
     with conn:
         conn.execute(
