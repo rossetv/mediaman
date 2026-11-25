@@ -443,7 +443,7 @@ class TestPlexClientUnbuildable:
 
 
 class TestLibraryPlexDidNotAnswerFor:
-    def _scan(self, conn, left_out, ids=("1", "2")):
+    def _scan(self, conn, left_out, ids=("1", "2"), *, skip_disk_check=True):
         _seed_plex_settings(conn, list(ids))
         plex = _make_plex_mock([{"id": i, "title": f"Library {i}", "type": "movie"} for i in ids])
         engine = MagicMock()
@@ -453,7 +453,7 @@ class TestLibraryPlexDidNotAnswerFor:
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine),
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
         ):
-            return runner.run_scan_from_db(conn, "test-secret", skip_disk_check=True)
+            return runner.run_scan_from_db(conn, "test-secret", skip_disk_check=skip_disk_check)
 
     @staticmethod
     def _told(conn):
@@ -479,6 +479,32 @@ class TestLibraryPlexDidNotAnswerFor:
 
     def test_a_scan_of_no_library_did_not_fail(self, conn):
         assert runner.scan_end(self._scan(conn, {}, ids=())) == ("done", None)
+
+    def _scan_with_limits(self, conn, limits, ids=("1", "2"), left_out=None):
+        _set_setting(conn, "disk_thresholds", limits)
+        return self._scan(conn, left_out or {}, ids=ids, skip_disk_check=False)
+
+    def test_one_with_an_unreadable_disk_limit_is_in_how_the_scan_ended(self, conn):
+        summary = self._scan_with_limits(
+            conn, {"1": "x"}, ("1", "2", "3"), {"3": "Plex failed to answer for it"}
+        )
+
+        status, said = runner.scan_end(summary)
+        assert status == "done"
+        assert "'Library 1' was not scanned: its disk limit in Settings cannot be read" in said
+        assert "'Library 3' was not scanned: Plex failed to answer for it" in said
+
+    def test_a_scan_with_only_unreadable_disk_limits_failed_and_points_to_settings(self, conn):
+        status, said = runner.scan_end(self._scan_with_limits(conn, {"1": "x"}, ("1",)))
+
+        assert status == "error"
+        assert "Settings" in said
+        assert "Plex" not in said
+
+    def test_a_scan_whose_libraries_are_all_below_their_disk_limit_did_not_fail(self, conn):
+        below = {"1": {"path": "/", "threshold": 1000}}
+
+        assert runner.scan_end(self._scan_with_limits(conn, below, ("1",))) == ("done", None)
 
     def test_a_disk_limit_left_out_is_not_told_again_for_a_scan_that_does_not_ask(self, conn):
         runner._audit_left_out(conn, "libraries_left_out", {"1": "why"}, {})

@@ -13,7 +13,7 @@ import logging
 import shutil
 import sqlite3
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
@@ -68,6 +68,7 @@ def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
 SCAN_SKIPPED_NO_PLEX = "Plex not configured"
 SCAN_SKIPPED_PLEX_UNREACHABLE = "Plex could not be reached"
 SCAN_FAILED_NO_LIBRARY = "no library could be read from Plex"
+SCAN_FAILED_DISK_LIMITS = "no library was scanned: check the disk limits in Settings"
 
 
 class ScanSummary(TypedDict, total=False):
@@ -330,18 +331,25 @@ def _read_left_out(conn: sqlite3.Connection, key: str) -> dict[str, object]:
 def _say_what_was_left_out(
     conn: sqlite3.Connection,
     summary: ScanSummary,
-    lib_ids: Iterable[str],
+    lib_ids: Collection[str],
     lib_titles: Mapping[str, str],
+    unreadable_limits: Mapping[str, str],
 ) -> ScanSummary:
-    """Audit the libraries a scan of *lib_ids* could not read from Plex, and name them in its summary."""
+    """Audit the libraries a scan of *lib_ids* could not read from Plex, and name them in its summary.
+
+    *unreadable_limits*, whose disk limit could not be read, are named too.
+    """
     left_out = summary.pop("left_out", {})
     _audit_left_out(conn, _UNREAD_KEY, left_out, lib_titles)
-    if not left_out:
+    noted = {**unreadable_limits, **left_out}
+    if not noted:
         return summary
     summary["left_out_notes"] = [
-        _left_out_note(lib_id, reason, lib_titles) for lib_id, reason in left_out.items()
+        _left_out_note(lib_id, reason, lib_titles) for lib_id, reason in noted.items()
     ]
-    if left_out.keys() >= set(lib_ids):
+    if not left_out and not lib_ids:
+        summary["failed_reason"] = SCAN_FAILED_DISK_LIMITS
+    elif left_out.keys() >= set(lib_ids):
         summary["failed_reason"] = SCAN_FAILED_NO_LIBRARY
     return summary
 
@@ -457,14 +465,14 @@ def run_scan_from_db(
         return {"skipped_reason": SCAN_SKIPPED_PLEX_UNREACHABLE}
     plex, lib_ids, lib_types, lib_titles = result
 
+    unreadable_limits: dict[str, str] = {}
     if not skip_disk_check:
         # One Plex does not list is left out by the scan, however full its disk is.
         listed = [lib_id for lib_id in lib_ids if lib_id in lib_types]
         unlisted = [lib_id for lib_id in lib_ids if lib_id not in lib_types]
         to_scan, left_out = _filter_libraries_by_disk(conn, listed, lib_titles)
-        _audit_left_out(
-            conn, _LEFT_OUT_KEY, dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE), lib_titles
-        )
+        unreadable_limits = dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE)
+        _audit_left_out(conn, _LEFT_OUT_KEY, unreadable_limits, lib_titles)
         lib_ids = to_scan + unlisted
 
     sonarr_client = _build_sonarr(conn, secret_key)
@@ -491,7 +499,7 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    return _say_what_was_left_out(conn, engine.run_scan(), lib_ids, lib_titles)
+    return _say_what_was_left_out(conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits)
 
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
