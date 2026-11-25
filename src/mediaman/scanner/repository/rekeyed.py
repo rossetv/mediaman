@@ -26,9 +26,11 @@ from mediaman.scanner.repository._protection import (
     restore_keeps,
 )
 from mediaman.scanner.repository.scheduled_actions import (
+    audit_lost_removal,
     book_removed_files_where,
     delete_scheduled_action,
     delete_show_scheduled_deletions,
+    fetch_deletion,
 )
 from mediaman.scanner.repository.settings import read_setting
 
@@ -430,10 +432,17 @@ def cancel_deletions_kept_under_another_key(conn: sqlite3.Connection) -> None:
 def _delete_unclaimed(conn: sqlite3.Connection, where: str, params: tuple[object, ...]) -> int:
     """Delete the rows matching the fixed condition *where*, but for one being carried out.
 
-    Return how many were deleted.
+    What a row records as removed is booked first, and a removal it began with
+    no outcome is audited. Return how many were deleted.
     """
     where = f"{where} AND delete_status IS NOT 'deleting'"
     book_removed_files_where(conn, where, params)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(f"SELECT id FROM scheduled_actions WHERE {where}", params)  # nosec B608
+    for row in rows.fetchall():
+        dropped = fetch_deletion(conn, row["id"])
+        if dropped is not None:
+            audit_lost_removal(conn, dropped)
     # rationale: the interpolated condition is a fixed string; every value is bound
     deleted = conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", params)  # nosec B608
     return deleted.rowcount

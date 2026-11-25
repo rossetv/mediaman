@@ -1091,6 +1091,23 @@ def test_what_a_cancelled_deletion_already_removed_is_booked(conn, freezer, libr
     assert [r[0] for r in booked] == [4]
 
 
+def test_a_cancelled_deletion_whose_removal_was_cut_off_says_so_in_the_history(conn, library):
+    library.sync("old", "new")
+    _schedule(conn, "new")
+    with conn:
+        conn.execute(
+            "UPDATE scheduled_actions SET removed_files = ?",
+            ('{"paths": [], "bytes": 0, "intent": {"/cut.mkv": [1, 1, 1]}}',),
+        )
+    _keep(conn, "old")
+
+    library.sync("old", "new")
+
+    lost = conn.execute("SELECT media_item_id FROM audit_log WHERE action = 'delete_incomplete'")
+    assert [r["media_item_id"] for r in lost] == ["new"]
+    assert _actions(conn, "new") == []
+
+
 @pytest.mark.parametrize("library", ["season"], indirect=True)
 @pytest.mark.parametrize("lists", [[], [["old", "new"]], [[]]], ids=str)
 def test_another_season_of_the_show_of_a_kept_one_is_not_kept(conn, freezer, library, lists):
