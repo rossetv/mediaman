@@ -154,11 +154,7 @@
 .row-tool__face { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 7px; }
 .row-tool--refresh::before { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: 22px; }
 .row-tool.is-busy { cursor: progress; }
-.row-tool.is-busy .ico { animation: spin 1s linear infinite; }
 .row-tool:not([aria-disabled="true"]):active { background: var(--s4); color: var(--t1); }
-@media (prefers-reduced-motion: reduce) {
-  .row-tool.is-busy .ico { animation: loading-pulse 1.6s ease-in-out infinite !important; }
-}
 @media (max-width: 699.98px) {
   .watch-row__tools:not(:empty) { min-height: 44px; }
   .row-tool { height: 44px; min-width: 44px; }
