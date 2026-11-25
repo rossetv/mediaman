@@ -46,11 +46,12 @@ def read_delete_allowed_roots_setting(
        is missing or empty. This lets a fresh container start with a
        sensible bootstrap set before the operator has logged in to
        configure them in the UI.
-    3. If both are empty we return ``[]`` and log a loud error: the
-       caller must treat an empty list as fail-closed and refuse every
-       deletion (path safety contract). Letting an unconfigured
-       installation silently accept ``/`` would be catastrophic. The
-       error is logged unless ``quiet`` is true.
+    3. If both are empty we return ``[]`` and log, at info since it is
+       the default install, that scheduled deletion is off: the caller
+       must treat an empty list as fail-closed and refuse every deletion
+       (path safety contract). Letting an unconfigured installation
+       silently accept ``/`` would be catastrophic. The line is logged
+       unless ``quiet`` is true.
 
     ``quiet=True`` silences every log line of this read (bad JSON, an
     unparseable env var, nothing configured) for read-only callers such as
@@ -93,9 +94,8 @@ def read_delete_allowed_roots_setting(
                     env_val,
                 )
     if not roots and not quiet:
-        logger.error(
-            "MEDIAMAN_DELETE_ROOTS is not configured, so all deletions will be refused. "
-            "Set the MEDIAMAN_DELETE_ROOTS env var (colon-separated paths) "
-            "or the delete_allowed_roots setting (JSON list) to re-enable deletions."
+        logger.info(
+            "Scheduled deletion is off until MEDIAMAN_DELETE_ROOTS is set "
+            "(the folders it may delete from, separated by ':')."
         )
     return roots
