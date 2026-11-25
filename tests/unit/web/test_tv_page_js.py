@@ -148,6 +148,13 @@ def test_no_place_is_reported_before_the_start_was_reached(how: str) -> None:
     assert not out["kept"] or int(out["kept"].split()[1]) >= 1200
 
 
+@pytest.mark.parametrize("off", ["10", "-10", "0.5"])
+def test_a_film_that_says_it_plays_only_while_it_seeks_is_shown(off: str) -> None:
+    out = _run("playsWhileItSeeks", off)
+    assert out["report"]["state"] == "playing" and "is starting it" not in out["said"]
+    assert out["sets"] <= 3 and min(out["reported"]) > 1180
+
+
 def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:
     out = _run("usedCodeSeenLate", "used")
     assert min(out["count"]) > 20

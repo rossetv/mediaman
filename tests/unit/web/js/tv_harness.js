@@ -38,7 +38,7 @@ function tv({ kept = null, plays = true } = {}) {
   video.time = 0;
   Object.defineProperty(video, 'currentTime', {
     get() { return this.time; },
-    set(v) { this.sets.push(v); if (this.inert) return; this.time = v + (this.land || 0); if (this.land) later(() => this.fire('seeked'), 3); },
+    set(v) { this.sets.push(v); if (this.inert) return; if (this.slow) { this.seeking = true; later(() => { this.seeking = false; this.time = v + this.slow; }, 300); return; } this.time = v + (this.land || 0); if (this.land) later(() => this.fire('seeked'), 3); },
   });
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
@@ -235,6 +235,8 @@ const scenarios = {
   async loads() {
     const t = tv({ kept: 'old' });
     t.answers.poll = () => ready({ play: film() });
+    // Nothing moves until it plays.
+    t.video.stuck = true;
     t.run();
     await t.step(50);
     const first = t.says();
@@ -242,6 +244,7 @@ const scenarios = {
     await t.step(1500);
     const at = t.video.currentTime;
     const loading = t.last('poll').body.report;
+    t.video.stuck = false;
     t.video.fire('playing');
     await t.step(4000);
     return { first, at: Math.round(at), src: t.video.src, loading: loading.state, report: t.last('poll').body.report, calls: t.video.calls, polls: t.sent.length };
@@ -326,6 +329,19 @@ const scenarios = {
     t.video.inert = false;
     await t.step(3000);
     return { at: t.paths('poll').map((c) => c.body.report).filter(Boolean).map((b) => b.position_s), kept: t.store['mm-tv-place'] || '', time: t.video.currentTime };
+  },
+  // a browser that takes a while to seek, lands off, and says it plays only meanwhile
+  async playsWhileItSeeks(off) {
+    const t = tv({ kept: 'old' });
+    t.video.slow = Number(off);
+    t.answers.poll = () => ready({ play: film({ start_s: 1200 }) });
+    t.run();
+    await t.step(50);
+    t.video.fire('loadedmetadata');
+    await t.step(100);
+    t.video.fire('playing');
+    await t.step(9000);
+    return { report: t.last('poll').body.report, said: t.says(), sets: t.video.sets.length, reported: t.paths('poll').map((c) => c.body.report).filter(Boolean).map((b) => b.position_s) };
   },
   async usedCodeSeenLate(what) {
     const t = tv();

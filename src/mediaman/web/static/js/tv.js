@@ -736,10 +736,14 @@
     show();
   }
 
-  function begun() {
-    // A browser may take no place until it plays.
+  /* A browser may take no place until it plays. */
+  function triesAnew() {
     if (!begunThere) puts = 0;
     begunThere = true;
+  }
+  function begun() {
+    if (!ready) begunThere = false;
+    triesAnew();
     atPlace();
     if (!ready) wake();
     ready = true;
@@ -800,16 +804,16 @@
     lastTick = at;
     if (loaded && overAt === null && !broken && !reloadDue) {
       var time = video.currentTime;
-      if (!there && ready && wanted) {
-        begunThere = begunThere || time !== lastTime;
-        atPlace();
-      }
+      // As a film plays on, which a seek's jump is not; a browser may not say that it plays.
+      var moving = wanted && !video.paused && !video.seeking && time > lastTime && time - lastTime < 2;
+      if (moving) triesAnew();
+      if (!there && (moving || (ready && wanted))) atPlace();
       if (!wanted && at - movedAt > 5000) readyPaused();
       if (time !== lastTime || (ready && !wanted)) {
         movedAt = at;
         if (ready && wanted && !video.paused) counted += since / 1000;
         if (stalled) { stalled = false; tell(); show(); }
-        if (!ready && wanted && there && !video.paused && !video.seeking && time > place + 0.2) begun();
+        if (!ready && moving && there) begun();
       } else if (ready && at - movedAt > STALL_MS && !stalled) {
         stalled = true;
         tell();
