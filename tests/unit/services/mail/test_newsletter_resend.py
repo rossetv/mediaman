@@ -287,6 +287,32 @@ def test_own_picks_over_28_days_old_are_neither_mailed_nor_worth_an_email(conn):
     assert "BosPick" in outbox.html["bob@example.com"]
 
 
+def test_an_own_pick_rated_a_strong_no_is_not_mailed_to_that_person_and_one_rated_down_is_last(
+    conn,
+):
+    _person(conn, "al", "alice@example.com")
+    _person(conn, "bo", "bob@example.com")
+    for user, n in (("al", 0), ("bo", 10)):
+        for i, title in enumerate(("DownPick", "NoPick", "PlainPick")):
+            insert_user_pick(conn, user, title=title, media_type="movie", tmdb_id=200 + n + i)
+    insert_suggestion(conn, title="SharedPick", media_type="movie", batch_id="b1", tmdb_id=250)
+    conn.executemany(
+        "INSERT INTO user_ratings (user_id, media_type, tmdb_id, level, updated_at)"
+        " SELECT id, 'movie', ?, ?, '2026' FROM admin_users WHERE username = ?",
+        # bo's ratings are of titles only al has picked
+        [(200, -1, "al"), (201, -2, "al"), (250, -2, "al"), (202, -2, "bo")],
+    )
+    conn.commit()
+    outbox = _Outbox()
+
+    outbox.scan(conn)
+
+    alice, bob = outbox.html["alice@example.com"], outbox.html["bob@example.com"]
+    assert "NoPick" not in alice and "NoPick" in bob
+    assert alice.index("PlainPick") < alice.index("DownPick")
+    assert "SharedPick" in alice
+
+
 def test_the_link_of_an_own_pick_names_the_title_and_no_stored_pick(conn):
     _person(conn, "al", "alice@example.com")
     insert_user_pick(conn, "al", title="AlsPick", tmdb_id=5)

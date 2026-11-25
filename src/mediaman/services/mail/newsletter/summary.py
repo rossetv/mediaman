@@ -300,6 +300,7 @@ def load_own_picks(
     """The latest own picks with a TMDB id, not over 28 days old, of each address that is
     exactly one person's, by address.
 
+    A title they rated a strong no is left out, and one they rated down comes last.
     An address of nobody, or of more than one person, has none. A card holds neither the
     pick's id nor the titles that led to it: the email and its links can be passed on.
     """
@@ -307,12 +308,25 @@ def load_own_picks(
     oldest = (now - PICKS_LAST).strftime("%Y-%m-%d")
     for email in emails:
         people = conn.execute(
-            "SELECT username FROM admin_users WHERE email = ? COLLATE NOCASE", (email.strip(),)
+            "SELECT id, username FROM admin_users WHERE email = ? COLLATE NOCASE", (email.strip(),)
         ).fetchall()
         if len(people) == 1:
             picks = fetch_picks(conn, people[0]["username"], latest_only=True)
+            levels = {
+                (r["media_type"], r["tmdb_id"]): r["level"]
+                for r in conn.execute(
+                    "SELECT media_type, tmdb_id, level FROM user_ratings"
+                    " WHERE user_id = ? AND level < 0",
+                    (people[0]["id"],),
+                )
+            }
+            picks.sort(key=lambda p: (p["media_type"], p["tmdb_id"]) in levels)
             found[email] = [
-                _rec_item(p, None) for p in picks if p["tmdb_id"] and str(p["batch_id"]) >= oldest
+                _rec_item(p, None)
+                for p in picks
+                if p["tmdb_id"]
+                and str(p["batch_id"]) >= oldest
+                and levels.get((p["media_type"], p["tmdb_id"])) != -2
             ]
     return found
 
