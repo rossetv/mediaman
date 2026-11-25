@@ -17,6 +17,9 @@
   <script src="/static/js/player.js?v={{ static_v }}" defer></script>
 {% endblock %}
 
+{# It is among the scripts above: the player needs it before its own. #}
+{% block cast_sender %}{% endblock %}
+
 {% block content %}
 {% include "_play_on.html" %}
 <div class="player" id="player"

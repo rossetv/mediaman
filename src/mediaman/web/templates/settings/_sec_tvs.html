@@ -26,6 +26,26 @@
     {% endcall %}
   {% endcall %}
 
+  {% call c.setg_card(title="Chromecast") %}
+    {% set cast_on = settings.get('google_cast_enabled', False) in (True, 'true') %}
+    {% call c.setg_row("Allow Chromecast", "When off, mediaman loads nothing from Google. AirPlay and paired TVs don’t need this.") %}
+      <span class="tog {% if cast_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow Chromecast"
+            aria-describedby="cast-lets" data-toggle data-target="google_cast_enabled" aria-checked="{{ 'true' if cast_on else 'false' }}"></span>
+      <input type="hidden" id="google_cast_enabled" value="{{ 'true' if cast_on else 'false' }}">
+    {% endcall %}
+    <div class="setg-row tv-lets" id="cast-lets">
+      <div>
+        <div class="setg-row-lbl">{{ 'On. What this lets in:' if cast_on else 'What turning it on lets in:' }}</div>
+        <ul>
+          <li>One script from Google (gstatic.com) runs inside mediaman. It can see what the page shows.</li>
+          <li>It loads when someone opens Play on in Chrome, and while a Chromecast plays. Not on Settings, Profile, History or sign-in.</li>
+          <li>Google sees that person’s internet address, and that they use mediaman.</li>
+          <li>The TV gets a ticket for one film. It never gets anyone’s sign-in.</li>
+        </ul>
+      </div>
+    </div>
+  {% endcall %}
+
   {% call c.setg_card(title="Addresses") %}
     {% call c.setg_row("To pair a TV", "What people type into the TV’s browser. It follows your Base URL.") %}
       {% set base = (settings.get('base_url', '') or '')|string %}
@@ -36,6 +56,17 @@
              aria-describedby="tv-address-hint" inputmode="url" autocomplete="off" spellcheck="false"
              value="{{ settings.get('tv_address', '') }}" placeholder="http://192.168.1.10:8282">
     {% endcall %}
+  {% endcall %}
+
+  {% call c.setg_card(title="What each way needs") %}
+    <div class="setg-row tv-lets" id="tv-needs">
+      <ul>
+        <li><b>A paired TV:</b> a web browser on the TV that can open the address to pair it at.</li>
+        <li><b>AirPlay:</b> Safari on an iPhone, iPad or Mac, and a TV that can open the address mediaman is open at.</li>
+        <li><b>Chromecast:</b> mediaman opened over https, in Chrome on a computer or an Android device, and a TV that can open that address. Other browsers show nothing of it.</li>
+        <li><b>An older TV:</b> Allow older TVs and Plain http on, and an Address TVs use that starts with http. Where MEDIAMAN_ALLOWED_HOSTS is set, it must hold that address’s host.</li>
+      </ul>
+    </div>
   {% endcall %}
 
 {% endcall %}

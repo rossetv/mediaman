@@ -51,6 +51,7 @@
   <script src="/static/js/nav.js?v={{ static_v }}" defer></script>
   <script src="/static/js/dl-poster.js?v={{ static_v }}" defer></script>
   <script src="/static/js/broken-poster.js?v={{ static_v }}" defer></script>
+  {% block cast_sender %}{% if request is defined and request.state and request.state.google_cast %}<script src="/static/js/watch/cast-sender.js?v={{ static_v }}" defer></script>{% endif %}{% endblock %}
   <script src="/static/js/tv-remote.js?v={{ static_v }}" defer></script>
   {% block head %}{% endblock %}
 </head>

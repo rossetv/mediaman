@@ -123,6 +123,7 @@ def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -
         {
             "older_tvs_enabled": "true",
             "older_tvs_http": "true",
+            "google_cast_enabled": "true",
             "tv_address": "http://192.168.1.10:8282",
         }
     ]

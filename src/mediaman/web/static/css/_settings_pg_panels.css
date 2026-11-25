@@ -595,6 +595,12 @@
 .setg-pg .tv-add label[for="tv-add-name"] { margin-top: 14px; }
 .setg-pg #tv-add-name { width: 100%; max-width: 320px; }
 .setg-pg .tv-add-end { display: flex; gap: 8px; margin-top: 14px; }
+.setg-pg .tv-lets { grid-template-columns: minmax(0, 1fr); }
+.setg-pg .tv-lets ul { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.5; color: var(--t2); max-width: 62ch; }
+.setg-pg .tv-lets ul:first-child { margin-top: 0; }
+.setg-pg .tv-lets b { font-weight: 500; color: var(--t1); }
+.setg-pg .tv-lets li { position: relative; margin-top: 3px; padding-left: 16px; }
+.setg-pg .tv-lets li::before { content: ""; position: absolute; left: 2px; top: .65em; width: 4px; height: 4px; border-radius: 50%; background: var(--t3); }
 .setg-pg .tv-pair-at { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .setg-pg #tv-address-hint.is-bad { color: var(--danger-text); }
 .setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { pointer-events: none; animation: tv-go var(--dur) var(--ease-out) forwards; }
