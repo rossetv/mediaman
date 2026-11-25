@@ -57,3 +57,23 @@ def test_a_saved_row_shows_it_though_another_list_was_asked_for_meanwhile_and_fa
 
 def test_what_was_read_for_a_row_changes_nothing_in_a_list_drawn_since() -> None:
     assert _run("refreshAfterALoad") == {"summary": "summary tv", "label": "Kept"}
+
+
+def test_the_focus_waits_on_the_title_of_a_row_while_a_change_to_it_is_saved() -> None:
+    title, keep = "id:m2 wl-title", "id:m2 keep-trigger"
+    assert _run("focusWaits") == {
+        "undo": [title, keep],
+        "redrawn": [title, title, keep],
+        "keep": [title, keep],
+        "plain": ["id:m2", keep],
+    }
+
+
+def test_a_dialog_opened_from_a_row_gives_the_focus_back_to_the_row_as_it_is_then() -> None:
+    out = _run("dialogOverAChange")
+    assert out["busy"] == {"open": True, "at": "show:77 wl-title", "usable": True}
+    assert out["saved"] == {"open": True, "at": "show:77 keep-trigger", "usable": True}
+
+
+def test_back_from_the_list_closes_a_dialog_opened_from_one_of_its_rows() -> None:
+    assert _run("dialogOverAChange")["back"]["open"] is False

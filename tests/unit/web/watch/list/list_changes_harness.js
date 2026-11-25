@@ -1,6 +1,7 @@
 // More scenarios for the page watch_list_harness.js builds. Usage: node list_changes_harness.js <scenario>
 'use strict';
 const fs = require('fs');
+const vm = require('vm');
 const Module = require('module');
 const path = require('path');
 
@@ -18,6 +19,12 @@ const trigger = (p, key) => p.row(key).querySelector('.keep-trigger');
 const LIST = '/watch/list';
 const TV = '/watch/list?type=tv';
 const tv = (p) => p.doc.querySelectorAll('#watch-list .fpill').find((n) => n.getAttribute('data-type') === 'tv');
+/* What has the focus: the title or the Keep of a row, or else its own. */
+const at = (p) => {
+  const a = p.doc.activeElement;
+  const row = a.closest('tr');
+  return row && a !== row ? row.getAttribute('data-row-key') + ' ' + a.className.split(' ')[0] : a.id || a.getAttribute('data-row-key') || a.tagName;
+};
 
 /* m2 kept from the list, and the focus on its toast's Undo. */
 async function kept(state) {
@@ -175,6 +182,63 @@ const scenarios = {
     return { summary: p.part('summary'), label: trigger(p, 'id:m2').textContent };
   },
 
+  // Where the focus is while a change to a row is being saved, and once it is.
+  async focusWaits() {
+    const out = {};
+    const run = async (name, p, url, start) => {
+      const reply = deferred();
+      p.replies[url] = () => reply.promise;
+      const drop = () => p.dropFocusIfDisabled();
+      p.doc.addEventListener('mm:watch-admin', drop);
+      await start(); await settle();
+      out[name] = [at(p)];
+      if (name === 'redrawn') { p.doc.dispatchEvent({ type: 'mm:watch-scheduled' }); await settle(); out[name].push(at(p)); }
+      reply.resolve({ ok: true }); await settle();
+      out[name].push(at(p));
+    };
+    const undo = await kept();
+    await run('undo', undo, 'post /api/media/m2/unprotect', () => undo.pressUndo());
+    const redrawn = await kept();
+    await run('redrawn', redrawn, 'post /api/media/m2/unprotect', () => redrawn.pressUndo());
+    const keep = load({ list: true });
+    keep.serve(LIST, {}, ROWS);
+    trigger(keep, 'id:m2').focus();
+    await run('keep', keep, 'postForm /api/media/m2/keep', () => click(keep.doc, keepOption(keep, 'id:m2', 'forever')));
+    const rows = [{ id: 'm2', title: 'Saltmarsh', plain: true }];
+    const plain = load({ list: true, rows });
+    plain.serve(LIST, {}, rows);
+    trigger(plain, 'id:m2').focus();
+    await run('plain', plain, 'postForm /api/media/m2/keep', () => click(plain.doc, keepOption(plain, 'id:m2', 'forever')));
+    return out;
+  },
+
+  // A dialog opened from a row that is busy, and then drawn anew, when it is closed; and Back to the rows with it open.
+  async dialogOverAChange() {
+    const out = {};
+    const run = async (name, go) => {
+      const p = load({ list: true });
+      p.serve(LIST, {}, ROWS);
+      vm.runInContext(fs.readFileSync(path.resolve(path.dirname(file), '../../../../src/mediaman/web/static/js/modal-a11y.js'), 'utf8'), p.ctx);
+      const dialog = p.doc.createElement('div');
+      dialog.id = 'asked';
+      dialog.appendChild(p.doc.createElement('button'));
+      p.doc.body.appendChild(dialog);
+      let closed = 0;
+      p.ctx.ModalA11y.register('asked', () => { closed++; p.ctx.ModalA11y.onClosed('asked'); });
+      trigger(p, 'show:77').focus();
+      p.ctx.ModalA11y.onOpened('asked');
+      const emit = (phase) => p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: 'show', id: 's1', showRk: '77' } });
+      await go(p, emit);
+      const open = !closed;
+      if (open) p.ctx.ModalA11y.onClosed('asked');
+      const a = p.doc.activeElement;
+      out[name] = { open, at: at(p), usable: a.isConnected && !a.disabled };
+    };
+    await run('busy', (p, emit) => emit('busy'));
+    await run('saved', async (p, emit) => { emit('busy'); emit('done'); await settle(); });
+    await run('back', async (p) => { p.popstate(''); await settle(); });
+    return out;
+  },
 };
 
 scenarios[process.argv[2]]().then((out) => {
