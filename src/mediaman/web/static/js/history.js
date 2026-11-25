@@ -1045,11 +1045,12 @@
         var stops = MM.dom.qa('button, input', menu).filter(function (n) {
           return n.getClientRects().length && window.getComputedStyle(n).visibility !== 'hidden';
         });
-        var last = e.shiftKey ? stops[0] : stops[stops.length - 1];
-        if (document.activeElement === last || document.activeElement === menu) {
-          e.preventDefault();
-          (e.shiftKey ? stops[stops.length - 1] : stops[0]).focus();
-        }
+        /* Safari's own step passes over buttons, and out of the menu. */
+        e.preventDefault();
+        var at = stops.indexOf(document.activeElement);
+        if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;
+        else at = (at + 1) % stops.length;
+        stops[at].focus();
         return;
       }
       var edge = e.key === 'Home' || e.key === 'End';

@@ -472,6 +472,20 @@ const scenarios = {
     await settle();
     return { matched, waiting, answered, failed: rows() };
   },
+  tabEach: async () => {
+    const h = open({});
+    h.press('[data-menu="title"]');
+    h.menus[0].resolve({ options: ['Aces', 'Low Tide'].map((t) => ({ value: t, label: t, count: 1 })), more: false });
+    await settle();
+    const menu = h.q('.hx-menu');
+    const at = () => h.doc.activeElement.getAttribute('data-v') || h.doc.activeElement.tagName + (h.doc.activeElement.getAttribute('aria-label') || '');
+    const walk = (shiftKey) => [1, 2, 3, 4].map(() => {
+      let held = false;
+      h.fire(menu, 'keydown', { key: 'Tab', shiftKey, preventDefault() { held = true; } });
+      return held ? at() : 'left';
+    });
+    return { from: at(), on: walk(false), back: walk(true) };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });

@@ -350,3 +350,10 @@ def test_a_menu_whose_screen_turns_low_is_let_go_of_its_height_and_stays_open() 
 
 def test_a_title_typed_that_none_listed_holds_shows_a_row_to_come_until_the_answer() -> None:
     assert _run("titlesUnseen") == {"matched": 0, "waiting": 1, "answered": 0, "failed": 0}
+
+
+def test_every_tab_in_a_menu_goes_to_its_next_stop_and_round() -> None:
+    out = _run("tabEach")
+    assert out["from"] == "INPUTFind a title"
+    assert out["on"] == ["Aces", "Low Tide", "BUTTONClose", "INPUTFind a title"]
+    assert out["back"] == ["BUTTONClose", "Low Tide", "Aces", "INPUTFind a title"]
