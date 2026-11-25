@@ -44,6 +44,7 @@ function page(isPhone) {
     inert: () => doc.body.children.filter((n) => n.inert).map((n) => n.id),
     scrolls: () => doc.body.style.overflow !== 'hidden',
     open: () => $('profile-menu').hasAttribute('open'),
+    menuInert: () => $('profile-menu').inert,
     expanded: (id) => $(id).getAttribute('aria-expanded'),
   };
 }
@@ -119,6 +120,21 @@ const scenarios = {
     p.click('phone');
     p.click('close-icon');
     return { open: p.open(), inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() };
+  },
+  // The CSS fade keeps a closed menu visible for a moment: only inert keeps it out of reach.
+  fade() {
+    const p = page(false);
+    const fresh = p.menuInert();
+    p.click('desktop');
+    const opened = p.menuInert();
+    p.click('desktop');
+    const closed = { inert: p.menuInert(), focused: p.focused() };
+    p.click('desktop');
+    const reopened = { inert: p.menuInert(), focused: p.focused() };
+    const sheet = page(true);
+    sheet.click('phone');
+    sheet.click('close-icon');
+    return { fresh, opened, closed, reopened, sheet: { inert: sheet.menuInert(), focused: sheet.focused() } };
   },
   resize() {
     const p = page(true);
