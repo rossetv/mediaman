@@ -9,7 +9,7 @@ from typing import Literal
 import requests as _requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from mediaman.core.audit import log_audit
 from mediaman.db import get_db
@@ -27,6 +27,12 @@ from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download.confirm import drop_arr_cache
+from mediaman.web.routes.search._seasons import (
+    SeasonPicks,
+    add_to_tracked_show,
+    no_season,
+    seasons_not_listed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,19 +115,14 @@ def _release_download(
         _download_dedup.pop((username, tmdb_id, media_type, seasons_token), None)
 
 
-class _DownloadRequest(BaseModel):
-    """Body schema for POST /api/search/download. extra="forbid" turns unknown keys into a 422,
-    media_type is limited to the two handled values, the title to 256 chars and the season
-    lists to 100 entries to refuse flood payloads.
+class _DownloadRequest(SeasonPicks):
+    """Body schema for POST /api/search/download. media_type is limited to the two handled
+    values and the title to 256 chars.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     media_type: Literal["movie", "tv"]
     tmdb_id: int = Field(ge=1)
     title: str = Field(max_length=256)
-    monitored_seasons: list[int] | None = Field(default=None, max_length=100)
-    search_seasons: list[int] | None = Field(default=None, max_length=100)
 
 
 def _resolve_admin_email(conn: sqlite3.Connection, admin: str) -> str | None:
@@ -257,30 +258,36 @@ def _submit_tv(
         return respond_failure(
             "Cannot verify series status — Sonarr unreachable, please retry", status=503
         )
-    if already_tracked:
+    if already_tracked and not body.search_seasons:
         return respond_failure(
             f"'{body.title}' is already tracked by Sonarr — manage it there",
             status=409,
         )
-    # Sonarr searches every monitored season it is missing files for, so a season not
-    # asked to be searched is not monitored. A show Sonarr already holds was refused
-    # above, so no season of it is held to keep monitored.
-    seasons = body.monitored_seasons if body.search_seasons is None else body.search_seasons
+    if already_tracked:
+        try:
+            return add_to_tracked_show(
+                conn,
+                sonarr,
+                tmdb_id=body.tmdb_id,
+                tvdb_id=tvdb_id,
+                title=body.title,
+                numbers=body.search_seasons or (),
+                actor=actor,
+                email=notify_email,
+            )
+        except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
+            logger.exception("Failed to read the series")
+            return respond_failure("Failed to add to Sonarr", status=502)
+    seasons = body.to_add()
     if seasons is not None and not seasons:
-        return respond_failure("Pick at least one season", status=400)
+        return no_season()
     try:
         if seasons is None:
             sonarr.add_series(tvdb_id, body.title)
         else:
             sonarr.add_series_with_seasons(tvdb_id, body.title, seasons)
     except SeasonsNotListed as exc:
-        # The person's own pick, not a fault: nothing was added, and not "already there".
-        message = str(exc)
-        if set(seasons or []) - set(exc.seasons):
-            message += (
-                " Untick " + ("it" if len(exc.seasons) == 1 else "them") + " to add the rest."
-            )
-        return respond_failure(message, status=422)
+        return seasons_not_listed(exc, seasons or [])
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
         if not (isinstance(exc, SafeHTTPError) and series_add_landed(exc, sonarr, tvdb_id)):
             logger.exception("Failed to add series")
