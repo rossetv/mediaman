@@ -98,6 +98,8 @@ SEGMENT_DEADLINE_SECONDS = 60.0
 # A start holds one of the same threads for as long as Plex takes over it. Of a person's starts at
 # the limit, the oldest is given up once it has run longer than Plex takes when it is well.
 MAX_STARTS_PER_USER = 3
+# Of one person's, those given up and not yet ended included.
+MAX_STARTS_HELD = 2 * MAX_STARTS_PER_USER
 MAX_STARTS_TOTAL = 10
 HUNG_START_SECONDS = 10.0
 
@@ -218,12 +220,32 @@ class SegmentRead:
 class _Start(SegmentRead):
     """A start under way, from the first question to Plex on; cancelled as a read is."""
 
-    def __init__(self, user: str, began: float) -> None:
+    def __init__(self, user: str, rating_key: str, page: str | None, asked: float) -> None:
         super().__init__("", user)
-        self.began = began
+        self.rating_key = rating_key
+        self.page = page
+        self.asked = asked
+        self.began = 0.0
+        self._why: Exception | None = None
+
+    def give_up(self, why: Exception) -> None:
+        self._why = why
+        self.cancel()
+
+    def check(self) -> None:
+        """Raise what the start was given up for, if it was."""
+        if self._why is not None:
+            raise self._why
 
 
 _reading = threading.local()
+
+
+def _check_start() -> None:
+    """Raise if this thread runs a start that was given up."""
+    read = getattr(_reading, "read", None)
+    if isinstance(read, _Start):
+        read.check()
 
 
 class _ReadResponse(http.client.HTTPResponse):
@@ -378,26 +400,40 @@ class StreamManager:
         return self._clock()
 
     @contextlib.contextmanager
-    def starting(self, user: str) -> Iterator[None]:
+    def starting(
+        self, user: str, rating_key: str, page: str | None = None, asked_ago: float = 0.0
+    ) -> Iterator[_Start]:
         """Hold one of *user*'s places among the starts, for all that a start asks Plex.
 
-        Never waits: raises ``TooManyStarts`` at a limit. A start of *user*'s own that hangs is
-        then given up, so that the next try finds its place free.
+        *user*'s starts of the item that were asked for earlier are given up, and count no more
+        towards the user's limit while they end. Never waits: raises ``TooManyStarts`` at a limit.
+        Of the user's own at that limit the oldest is given up if it hangs, so that the next try
+        finds its place free; no other is while one is still ending.
         """
-        start = _Start(user, self._clock())
+        now = self._clock()
+        start = _Start(user, rating_key, page, now - asked_ago)
+        start.began = now
         with self._lock:
             own = [s for s in self._starting if s.user == user]
-            refused = len(own) >= MAX_STARTS_PER_USER or len(self._starting) >= MAX_STARTS_TOTAL
-            if not refused:
-                self._starting.add(start)
-        if refused:
-            hung = [s for s in own if start.began - s.began >= HUNG_START_SECONDS]
-            for oldest in sorted((s for s in hung if not s.unwanted), key=lambda s: s.began)[:1]:
-                oldest.cancel()
-            raise TooManyStarts("too many streams are starting")
+            wanted = [s for s in own if not s.unwanted]
+            earlier = [
+                s
+                for s in wanted
+                if s.rating_key == rating_key and (s.page == page or s.asked <= start.asked)
+            ]
+            full = len(wanted) - len(earlier) >= MAX_STARTS_PER_USER
+            if full and len(wanted) == len(own):
+                oldest = min(own, key=lambda s: s.began)
+                if now - oldest.began >= HUNG_START_SECONDS:
+                    oldest.give_up(TooManyStarts("the start hung"))
+            if full or len(own) >= MAX_STARTS_HELD or len(self._starting) >= MAX_STARTS_TOTAL:
+                raise TooManyStarts("too many streams are starting")
+            for old in earlier:
+                old.give_up(StreamReplaced("the item was started anew", page))
+            self._starting.add(start)
         _reading.read = start
         try:
-            yield
+            yield start
         finally:
             _reading.read = None
             with self._lock:
@@ -440,6 +476,8 @@ class StreamManager:
         creds = self._creds()
         item = (user, rating_key)
         with self._lock:
+            # A start given up must not take the item from the one it made way for.
+            _check_start()
             asked = self._clock() - asked_ago
             if page is not None:
                 later = self._asked_later(item, page, asked)
@@ -975,12 +1013,10 @@ class StreamManager:
         its timeouts never run beyond it, nor the reading of the body. *check* runs before each
         chunk of the body and after a failure to reach Plex, and may raise to end the call.
         """
-        read: SegmentRead | None = getattr(_reading, "read", None)
 
         def still_wanted() -> None:
             check()
-            if isinstance(read, _Start) and read.unwanted:
-                raise TooManyStarts("the start was given up")
+            _check_start()
 
         still_wanted()
         if deadline is not None:

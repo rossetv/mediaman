@@ -27,7 +27,7 @@ from starlette.responses import Response
 from mediaman.core.scrub_filter import register_secret
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
-from mediaman.services.infra import allowed_outbound_hosts
+from mediaman.services.infra import SafeHTTPClient, allowed_outbound_hosts
 from mediaman.services.infra.settings_reader import get_setting, get_string_setting
 from mediaman.services.media_meta.plex_quality import (
     ORIGINAL,
@@ -84,6 +84,9 @@ _RETRY_AFTER_SECONDS = 2
 
 #: stream id -> segment requests waiting for a slot; only touched on the event loop.
 _waiting: Counter[str] = Counter()
+
+# The question about the title, which giving up a start does not interrupt.
+_ITEM_TIMEOUT = (3.0, 7.0)
 
 _START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
@@ -191,8 +194,15 @@ def start_stream(
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
     try:
-        with manager.starting(username):
-            return _start(request, body, username, manager, began)
+        with manager.starting(username, body.rating_key, body.page, body.asked_s) as start:
+            answer = _start(request, body, username, manager, began)
+            if answer.status_code != 200:
+                # The answer is the one of a start given up, not of what it ran into: the player
+                # tries again by itself after a failure of Plex's.
+                start.check()
+            return answer
+    except StreamReplaced as exc:
+        return _gone_answer(exc)
     except TooManyStarts:
         refused = respond_err("rate_limited", status=429)
         refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
@@ -207,7 +217,10 @@ def _start(
         creds = read_plex_credentials(conn, request.app.state.config.secret_key)
         if creds is None:
             raise PlexNotConfigured("Plex is not set up")
-        plex = PlexWatch(*creds, allowed_hosts=allowed_outbound_hosts(conn))
+        http = SafeHTTPClient(
+            default_timeout=_ITEM_TIMEOUT, allowed_hosts=allowed_outbound_hosts(conn)
+        )
+        plex = PlexWatch(*creds, http=http)
         item = plex.get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
