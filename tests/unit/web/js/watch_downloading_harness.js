@@ -261,6 +261,23 @@ const scenarios = {
     await p.step(5010);
     return { passed, leaving: p.card('B').classList.contains('is-leaving'), onC: p.doc.activeElement === p.card('C').querySelector('a') };
   },
+  // Each card that leaves has the focus; what stands in the row while it goes, and which cards were moved.
+  async leavesFromItsPlace() {
+    const out = {};
+    for (const [all, gone] of [['ABC', 'A'], ['ABC', 'B'], ['ABCD', 'A'], ['ABCD', 'C']]) {
+      const cards = all.split('').map((t) => (t === gone ? ready(t, 60) : item(t)));
+      const p = load([answer(cards), answer(cards.filter((i) => i.title !== gone))], { still: false });
+      await p.step(10);
+      p.card(gone).querySelector('a').focus();
+      const moved = [];
+      const scroller = p.slot.querySelector('.watch-row__scroll');
+      const own = scroller.insertBefore;
+      scroller.insertBefore = (c, ref) => { moved.push(c.querySelector('.dw__title').textContent); return own.call(scroller, c, ref); };
+      await p.step(5010);
+      out[all + ' without ' + gone] = { row: p.cards().join(''), moved, focus: p.doc.activeElement.querySelector('.dw__title').textContent };
+    }
+    return out;
+  },
   async focusOnSeeAll() {
     const p = load([answer([item('A')]), answer([])]);
     await p.step(10);

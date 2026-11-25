@@ -127,6 +127,15 @@ def test_the_focus_does_not_go_to_a_card_that_leaves_too(out) -> None:
     assert out["focusSkipsWhatLeaves"] == {"passed": ["C"], "leaving": True, "onC": True}
 
 
+def test_a_card_leaves_from_its_place_and_the_focus_goes_to_the_next(out) -> None:
+    assert out["leavesFromItsPlace"] == {
+        "ABC without A": {"row": "ABC", "moved": [], "focus": "B"},
+        "ABC without B": {"row": "ABC", "moved": [], "focus": "C"},
+        "ABCD without A": {"row": "ABCD", "moved": [], "focus": "B"},
+        "ABCD without C": {"row": "ABCD", "moved": [], "focus": "D"},
+    }
+
+
 def test_the_focus_on_see_all_goes_to_the_next_row_when_the_row_closes(out) -> None:
     assert out["focusOnSeeAll"] == "movie-1"
 

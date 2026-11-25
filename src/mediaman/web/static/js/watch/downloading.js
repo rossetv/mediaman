@@ -235,9 +235,9 @@
     var there = {};
     list.forEach(function (item) { there[item.key] = true; });
     var going = Object.keys(cards).filter(function (key) { return !there[key]; });
+    // Before the rest is put in order round them, and so that the focus goes to none of them.
+    if (list.length) going.forEach(function (key) { cards[key].node.classList.add('is-leaving'); });
     function letGo() {
-      // All of them first, so that the focus goes to none of them.
-      if (list.length) going.forEach(function (key) { cards[key].node.classList.add('is-leaving'); });
       going.forEach(function (key) {
         if (!cards[key]) return;
         // Its minute ran out between two answers.
