@@ -49,12 +49,15 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "ai_questions_per_day",
         "ai_everyone_per_day",
         "auto_abandon_enabled",
+        "older_tvs_enabled",
+        "older_tvs_http",
+        "tv_address",
     }
 )
 
 #: Settings keys that require a recent-reauth ticket before they can be
-#: written: credentials, where mediaman connects or sends mail, and the
-#: settings that decide when media is deleted.
+#: written: credentials, where mediaman connects or sends mail, what TVs may
+#: fetch from it, and the settings that decide when media is deleted.
 SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         "plex_url",
@@ -75,6 +78,9 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "dry_run",
         "plex_libraries",
         "disk_thresholds",
+        "older_tvs_enabled",
+        "older_tvs_http",
+        "tv_address",
     }
     | SECRET_FIELDS
 )

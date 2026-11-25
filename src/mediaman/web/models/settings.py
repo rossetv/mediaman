@@ -11,7 +11,9 @@ to ``_common``.
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
@@ -54,6 +56,34 @@ def _validate_url(v: str | None) -> str | None:
     if not parsed.netloc:
         raise ValueError("URL must include a host")
     return v
+
+
+_HOME_NETWORKS = tuple(
+    ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def _validate_tv_address(v: str) -> str:
+    """Return the address TVs fetch films from: an origin, and over http a home one."""
+    _validate_url(v)
+    try:
+        parts = urlsplit(v)
+        host, port = parts.hostname or "", parts.port
+    except ValueError as exc:
+        raise ValueError("must be a home address") from exc
+    if "@" in parts.netloc or parts.path not in ("", "/") or "?" in v or "#" in v:
+        raise ValueError("must be a home address with nothing after it")
+    try:
+        ip = ipaddress.IPv4Address(host)
+    except ValueError:
+        ip = None
+    home = ip is not None and any(ip in net for net in _HOME_NETWORKS)
+    named = ip is None and ":" not in host and host.rstrip(".") != "localhost"
+    if not home and not (
+        named and parts.scheme == "https" and not host.rstrip(".").endswith(".localhost")
+    ):
+        raise ValueError("must be a home address")
+    return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
 
 
 # Field -> (label on the Settings page, lowest, highest), matching the min and
@@ -177,6 +207,15 @@ class SettingsUpdate(BaseModel):
     disk_thresholds: Annotated[dict[str, Any] | None, Field(max_length=256)] = None
 
     auto_abandon_enabled: bool | None = None
+
+    older_tvs_enabled: bool | None = None
+    older_tvs_http: bool | None = None
+    tv_address: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+
+    @field_validator("tv_address", mode="after")
+    @classmethod
+    def validate_tv_address(cls, v: str | None) -> str | None:
+        return _validate_tv_address(v) if v else v
 
     @field_validator(
         "plex_url",
