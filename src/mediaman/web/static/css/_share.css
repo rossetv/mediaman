@@ -24,7 +24,7 @@
 @media (max-width: 1279.98px) {
   .share-bar::before { background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 86%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) 55%, transparent); }
 }
-.share-bar .brand { display: inline-flex; align-items: center; min-height: 44px; }
+.share-bar .brand { min-height: 44px; }
 .share-bar .btn { min-height: 44px; background: color-mix(in srgb, var(--scrim) 45%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .share-bar .btn:hover { background: color-mix(in srgb, var(--s5) 70%, transparent); }
 

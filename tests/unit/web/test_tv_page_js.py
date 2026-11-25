@@ -252,9 +252,16 @@ def test_a_code_that_was_entered_counts_though_a_new_one_was_asked_for() -> None
     assert "Connected to tobias" in out["said"] and out["store"] == {"mm-tv": "fresh"}
 
 
+def test_the_page_waits_under_the_icon_and_a_film_that_starts_under_the_ring() -> None:
+    out = _run("bootWaits")
+    assert out["boot"].count('class="brand"') == 1
+    assert out["boot"].count('<div class="spin spin--mark"><svg class="mark"') == 1
+    assert out["later"].count('<div class="spin"></div>') == 1 and "mark" not in out["later"]
+
+
 def test_a_page_that_waits_takes_no_press_for_the_page_before() -> None:
     out = _run("bootHasNoButtons")
-    assert out["said"] == "media man" and out["asked"] == 1
+    assert out["said"] == "mediaman" and out["asked"] == 1
 
 
 @pytest.mark.parametrize("events", ["metadata", "nothing"])

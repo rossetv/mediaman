@@ -7,6 +7,10 @@ const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '../../../../src/mediaman/web/static');
 const SOURCE = fs.readFileSync(path.join(WEB, 'js/tv.js'), 'utf8');
+const template = (name) => fs.readFileSync(path.join(WEB, '../templates', name), 'utf8');
+// What the stage holds as the page is opened.
+const STAGE = template('tv.html').match(/<main id="s">(.*?)<\/main>/s)[1]
+  .replace(/\{% include "([^"]+)" %\}/g, (all, name) => template(name)).replace(/\{#.*?#\}/gs, '');
 
 function tv({ kept = null, plays = true } = {}) {
   let time = 1e12;
@@ -64,6 +68,11 @@ function tv({ kept = null, plays = true } = {}) {
   const document = {
     body, createElement: element, on: {},
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
+    querySelector(selector) {
+      if (selector === '.mid') return { outerHTML: STAGE };
+      if (selector === '.brand') return { outerHTML: STAGE.match(/<div class="brand">.*?<\/div>/s)[0] };
+      return null;
+    },
     getElementById(id) {
       if (nodes[id] && (id === 'v' || id === 's' || id === 'o')) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
@@ -130,7 +139,7 @@ function tv({ kept = null, plays = true } = {}) {
     entering: () => nodes.s.className,
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
     html: () => nodes.s.innerHTML,
-    says: () => nodes.s.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    says: () => nodes.s.innerHTML.replace(/<svg[^>]* aria-label="([^"]*)"[^>]*>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
     paths: (p) => sent.filter((c) => c.path === p),
     last: (p) => sent.filter((c) => c.path === p).pop(),
@@ -537,6 +546,14 @@ const scenarios = {
     t.key(OK);
     await t.step(1500);
     return { said: t.says(), store: t.store, asked: t.paths('code').length };
+  },
+  async bootWaits() {
+    const t = tv({ kept: 'old' });
+    t.run();
+    const boot = t.html();
+    t.answers.poll = ready({ play: film() });
+    await t.step(10000);
+    return { boot, later: t.html() };
   },
   async bootHasNoButtons() {
     const t = tv({ kept: 'old' });

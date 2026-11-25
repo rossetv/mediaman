@@ -36,15 +36,20 @@
   padding: 44px 36px;
   box-shadow: var(--shadow-card);
 }
-.login-brand {
-  font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 600;
-  letter-spacing: -.03em;
-  margin-bottom: 4px;
+.login-brand { display: flex; min-height: 1.47em; margin-bottom: 4px; font-size: 32px; }
+.login-brand a { display: inline-flex; align-items: center; color: inherit; }
+/* The name draws itself once, media and then man, as the sign-in page opens. */
+@media (prefers-reduced-motion: no-preference) {
+  .login-brand--drawn .wm-media > path { animation: wm-draw var(--dur-draw) var(--ease-out) backwards; }
+  .login-brand--drawn .wm-media > circle { animation: wm-dot var(--dur-draw) var(--ease-out) backwards; }
+  .login-brand--drawn .wm-man > path { animation: wm-draw var(--dur-draw-man) var(--delay-draw-man) var(--ease-out) backwards; }
 }
-.login-brand a { text-decoration: none; color: inherit; }
-.login-brand b, .login-brand span { color: var(--accent); }
+@keyframes wm-draw {
+  from { stroke-dasharray: 1 2; stroke-dashoffset: 1; opacity: 0; }
+  1% { opacity: 1; }
+  to { stroke-dasharray: 1 2; stroke-dashoffset: 0; }
+}
+@keyframes wm-dot { from, 60% { opacity: 0; } }
 .login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {
   font-size: 22px;
