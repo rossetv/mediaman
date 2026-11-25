@@ -3,27 +3,33 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from typing import cast
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
+from mediaman.core.audit import CLI_UNLOCK, UNSIGNED_ACTIONS
 from mediaman.core.format import format_bytes, title_from_audit_detail
 from mediaman.db import get_db
 from mediaman.scanner.repository.audit import (
     AuditRow,
     count_audit_rows,
-    event_page,
-    fetch_media_audit_rows,
     fetch_security_audit_rows,
 )
-from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
+from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
+from mediaman.web.repository import history as repo
+from mediaman.web.repository.avatars import avatar_url
+from mediaman.web.responses import respond_err
 from mediaman.web.routes._history_view import (
     describe,
     hide_emails,
+    own_item,
+    play_item,
     redact_text,
     scrub_control,
     split_security_body,
@@ -50,11 +56,16 @@ ACTION_TYPES = [
     "kept_show",
     "removed_show_keep",
     "security",
+    repo.PLAYS,
 ]
+
+_FILTER_NAMES = ("q", "user", "action", "title", "since", "until")
 
 # Filters kept working for old links but no longer shown as pills: the "kept"
 # and "unkept" pills already cover them.
 _PILL_HIDDEN = {ACTION_SNOOZED, "removed_show_keep"}
+# What a person who is no admin can have done.
+_OWN_PILLS = {"kept", "unkept", "downloaded", "re_downloaded", "security", repo.PLAYS}
 # The pill that lights for such an old link.
 _PILL_COVERING = {ACTION_SNOOZED: "kept", "removed_show_keep": "unkept"}
 
@@ -137,6 +148,7 @@ SECURITY_EVENT_LABELS = {
     "reauth.granted": "Password confirmed",
     "reauth.failed": "Password confirmation failed",
     "session.destroy": "Session ended",
+    "session.revoke_one": "Device signed out",
     "session.revoke_all": "All sessions ended",
     "settings.write": "Settings changed",
     "settings.write.throttled": "Settings changes throttled",
@@ -245,55 +257,158 @@ def _build_item(r: AuditRow) -> dict[str, object]:
     }
 
 
-def _fetch_rows(
-    conn: sqlite3.Connection, *, action: str | None, page: int, per_page: int
-) -> list[dict[str, object]]:
-    if action == "security":
-        rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
-    else:
-        rows = fetch_media_audit_rows(conn, action=action, page=page, per_page=per_page)
-    return [_build_item(r) for r in rows]
-
-
-def _fetch_history(
-    conn: sqlite3.Connection, action: str | None, page: int, per_page: int
+def _fetch_security_events(
+    conn: sqlite3.Connection, page: int, per_page: int
 ) -> tuple[list[dict[str, object]], int]:
-    total = count_audit_rows(conn, action)
-    items = _fetch_rows(conn, action=action, page=page, per_page=per_page)
-    return items, total
+    rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
+    return [_build_item(r) for r in rows], count_audit_rows(conn, "security")
+
+
+@dataclass(frozen=True, slots=True)
+class _Listing:
+    """A numbered page: 1-based, or past the last one and empty."""
+
+    page: int
+    total: int
+    entries: list[repo.Entry]
+    next_cursor: str | None
+    #: The event asked for, when it is on this page.
+    open_id: int | None = None
+
+
+def _pages(total: int, per_page: int) -> int:
+    return max(1, (total + per_page - 1) // per_page)
+
+
+def _read_page(
+    conn: sqlite3.Connection, viewer: repo.Viewer, filters: repo.Filters, page: int, per_page: int
+) -> _Listing:
+    found = repo.history_page(conn, viewer, filters, per_page=per_page)
+    total = found.total or 0
+    if page == 1:
+        return _Listing(1, total, found.entries, found.next_cursor)
+    cursor = found.next_cursor if page <= _pages(total, per_page) else None
+    skip = (page - 2) * per_page
+    while cursor and skip:
+        step = min(skip, repo.PER_PAGE_MAX)
+        cursor = repo.history_page(conn, viewer, filters, cursor=cursor, per_page=step).next_cursor
+        skip -= step
+    if cursor is None:
+        return _Listing(page, total, [], None)
+    found = repo.history_page(conn, viewer, filters, cursor=cursor, per_page=per_page)
+    return _Listing(page, total, found.entries, found.next_cursor)
+
+
+def _page_of_event(
+    conn: sqlite3.Connection,
+    viewer: repo.Viewer,
+    filters: repo.Filters,
+    event_id: int,
+    per_page: int,
+) -> int | None:
+    """The page that holds *event_id*; None when *viewer* may not see it or a filter hides it."""
+    event = repo.event_for(conn, viewer, event_id)
+    if event is None:
+        return None
+    since = repo.parse_filters(since=event.created_at).since
+    if since is None:
+        return None
+    from_then = replace(filters, since=since)
+    before = repo.history_page(conn, viewer, from_then, per_page=1).total or 0
+    # Less what shares the event's moment and is listed from it on.
+    cursor: str | None = repo.cursor_of(event)
+    while cursor:
+        rest = repo.history_page(conn, viewer, from_then, cursor=cursor, per_page=repo.PER_PAGE_MAX)
+        before -= len(rest.entries)
+        cursor = rest.next_cursor
+    return before // per_page + 1
+
+
+def _read(
+    conn: sqlite3.Connection,
+    viewer: repo.Viewer,
+    filters: repo.Filters,
+    *,
+    page: int,
+    per_page: int,
+    event: str,
+) -> _Listing:
+    """The page asked for, or the one that holds *event* when there is such a one."""
+    event_id = int(event) if event.isdecimal() and len(event) < 19 else None
+    held = event_id and _page_of_event(conn, viewer, filters, event_id, per_page)
+    if held:
+        listing = _read_page(conn, viewer, filters, held, per_page)
+        if any(not isinstance(e, repo.Play) and e.id == event_id for e in listing.entries):
+            return replace(listing, open_id=event_id)
+    return _read_page(conn, viewer, filters, page, per_page)
+
+
+def _filters(
+    viewer: repo.Viewer, *, q: str, user: str, action: str, title: str, since: str, until: str
+) -> repo.Filters:
+    """An unknown action is no filter, and a name is one for an admin only."""
+    return repo.parse_filters(
+        q=q,
+        user=user if viewer.is_admin else "",
+        action=action if action in ACTION_TYPES else "",
+        title=title,
+        since=since,
+        until=until,
+    )
+
+
+def _people(conn: sqlite3.Connection, viewer: repo.Viewer) -> dict[str, str | None]:
+    """The avatar of each person *viewer* may see, by name."""
+    return {name: avatar_url(conn, name) for name in repo.people(conn, viewer)}
+
+
+def _items(
+    viewer: repo.Viewer, entries: Iterable[repo.Entry], avatars: dict[str, str | None]
+) -> list[dict[str, object]]:
+    items = []
+    for entry in entries:
+        if isinstance(entry, repo.Play):
+            item = play_item(entry)
+            signed_in = True
+        else:
+            item = _build_item(entry)
+            if not viewer.is_admin:
+                item = own_item(item, viewer.username)
+            # A name typed at sign-in, or the command line's, is nobody's account.
+            signed_in = (
+                entry.action not in UNSIGNED_ACTIONS and (entry.action, entry.actor) != CLI_UNLOCK
+            )
+        avatar = avatars.get(str(item["actor"])) if signed_in else None
+        items.append({**item, "avatar": avatar})
+    return items
 
 
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> Response:
-    resolved = resolve_admin_page_session(request)
+    resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, conn = resolved
+    viewer = repo.viewer_for(conn, username)
+    if viewer is None:
+        return RedirectResponse("/login", status_code=302)
 
     params = request.query_params
-    action_filter = params.get("action") or None
-    if action_filter and action_filter not in ACTION_TYPES:
-        action_filter = None
-
+    filters = _filters(viewer, **{k: params.get(k, "") for k in _FILTER_NAMES})
     try:
-        page = max(1, int(params.get("page", 1)))
-    except (ValueError, TypeError):
+        page = min(max(1, int(params.get("page", 1))), _PAGE_MAX)
+    except ValueError:
         page = 1
 
     per_page = _PER_PAGE_DEFAULT
-    open_event = params.get("event", "")
-    open_id = int(open_event) if open_event.isdecimal() and len(open_event) < 19 else None
-    if open_id is not None:
-        found = event_page(conn, action=action_filter, event_id=open_id, per_page=per_page)
-        if found is None:
-            open_id = None
-        else:
-            page = found
-    total = count_audit_rows(conn, action_filter)
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = min(page, total_pages)
-    items = _fetch_rows(conn, action=action_filter, page=page, per_page=per_page)
+    event = params.get("event", "")
+    listing = _read(conn, viewer, filters, page=page, per_page=per_page, event=event)
+    total_pages = _pages(listing.total, per_page)
+    if listing.page > total_pages:
+        listing = _read_page(conn, viewer, filters, total_pages, per_page)
 
+    avatars = _people(conn, viewer)
+    action = filters.action
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -301,47 +416,72 @@ def history_page(request: Request) -> Response:
         {
             "username": username,
             "nav_active": "history",
-            "items": items,
-            "open_id": open_id,
+            "is_admin": viewer.is_admin,
+            "items": _items(viewer, listing.entries, avatars),
+            "people": [{"username": n, "avatar": a} for n, a in avatars.items()],
+            "open_id": listing.open_id,
             "action_types": [
                 (at, ACTION_LABELS.get(at, at.replace("_", " ")).capitalize())
                 for at in ACTION_TYPES
-                if at not in _PILL_HIDDEN
+                if at not in _PILL_HIDDEN and (viewer.is_admin or at in _OWN_PILLS)
             ],
-            "action_filter": action_filter or "",
-            "pill_on": _PILL_COVERING.get(action_filter or "", action_filter or ""),
-            "filter_label": ACTION_LABELS.get(
-                action_filter or "", (action_filter or "").replace("_", " ")
-            ),
-            "page": page,
+            "filters": {k: params.get(k, "") for k in ("since", "until")}
+            | {"q": filters.q, "user": filters.user, "action": action, "title": filters.title},
+            "action_filter": action,
+            "pill_on": _PILL_COVERING.get(action, action),
+            "filter_label": ACTION_LABELS.get(action, action.replace("_", " ")),
+            "page": listing.page,
             "per_page": per_page,
-            "total": total,
+            "total": listing.total,
             "total_pages": total_pages,
+            "next_cursor": listing.next_cursor,
         },
     )
 
 
 @router.get("/api/history")
 def api_history(
-    action: str | None = Query(default=None),
+    q: str = "",
+    user: str = "",
+    action: str = "",
+    title: str = "",
+    since: str = "",
+    until: str = "",
+    cursor: str = "",
+    event: str = "",
     page: int = Query(default=1, ge=1, le=_PAGE_MAX),
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
-    _admin: str = Depends(get_current_admin),
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    if action and action not in ACTION_TYPES:
-        action = None
-
+    """What this person may see, newest first: by *page*, the page of *event*, or what follows
+    *cursor*, where nothing is counted."""
     conn = get_db()
-    items, total = _fetch_history(conn, action, page, per_page)
-    total_pages = max(1, (total + per_page - 1) // per_page)
-
+    viewer = repo.viewer_for(conn, username)
+    if viewer is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    filters = _filters(viewer, q=q, user=user, action=action, title=title, since=since, until=until)
+    if cursor:
+        try:
+            after = repo.history_page(conn, viewer, filters, cursor=cursor, per_page=per_page)
+        except repo.BadCursor:
+            return respond_err("bad_cursor", status=400)
+        entries, next_cursor = after.entries, after.next_cursor
+        place: dict[str, object] = dict.fromkeys(("page", "total", "total_pages", "open_id"))
+    else:
+        listing = _read(conn, viewer, filters, page=page, per_page=per_page, event=event)
+        entries, next_cursor = listing.entries, listing.next_cursor
+        place = {
+            "page": listing.page,
+            "total": listing.total,
+            "total_pages": _pages(listing.total, per_page),
+            "open_id": listing.open_id,
+        }
     return JSONResponse(
         {
-            "items": items,
-            "page": page,
+            "items": _items(viewer, entries, _people(conn, viewer)),
             "per_page": per_page,
-            "total": total,
-            "total_pages": total_pages,
+            "next_cursor": next_cursor,
+            **place,
         }
     )
 
@@ -353,14 +493,13 @@ def api_security_events(
     _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     conn = get_db()
-    items, total = _fetch_history(conn, "security", page, per_page)
-    total_pages = max(1, (total + per_page - 1) // per_page)
+    items, total = _fetch_security_events(conn, page, per_page)
     return JSONResponse(
         {
             "items": items,
             "page": page,
             "per_page": per_page,
             "total": total,
-            "total_pages": total_pages,
+            "total_pages": _pages(total, per_page),
         }
     )

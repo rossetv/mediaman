@@ -10,7 +10,7 @@ from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.settings import router as settings_router
 
 
-@pytest.mark.parametrize("path", ["/", "/library", "/history", "/settings"])
+@pytest.mark.parametrize("path", ["/", "/library", "/settings"])
 def test_a_viewer_is_sent_to_watch_from_each_admin_page(app_factory, viewer_client, conn, path):
     app = app_factory(dashboard_router, library_router, history_router, settings_router, conn=conn)
 

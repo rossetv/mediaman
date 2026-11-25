@@ -10,6 +10,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+from mediaman.core.audit import log_audit, security_event
 from mediaman.scanner.repository.audit import (
     AuditRow,
     fetch_media_audit_rows,
@@ -854,3 +855,133 @@ class TestHistoryPageMarkup:
         )
         assert 'No "keep removed" events on record.' in html
         assert "removed show keep" not in html
+
+
+class TestWhoReadsWhat:
+    """Everyone's rows for an admin; only their own for anyone else."""
+
+    @pytest.fixture
+    def app(self, app_factory, conn):
+        return app_factory(
+            history_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+
+    @pytest.fixture
+    def clients(self, app, conn, authed_client, viewer_client):
+        admin, ana = authed_client(app, conn), viewer_client(app, conn, username="ana")
+        viewer_client(app, conn, username="bob")
+        conn.execute("DELETE FROM audit_log")
+        insert_media_item(conn, id="m1", title="Ana Film", plex_rating_key="m1")
+        insert_media_item(conn, id="m2", title="Bob Film", plex_rating_key="m2")
+        log_audit(conn, "m1", "snoozed", "Kept for 30 days by ana", actor="ana")
+        log_audit(conn, "m2", "snoozed", "Kept for 30 days by bob", actor="bob")
+        security_event(conn, event="login.success", actor="bob", ip="192.0.2.9")
+        conn.execute(
+            "INSERT INTO played_titles (username, media_type, title, played_at)"
+            " VALUES ('bob', 'movie', 'Bob Film', '2026-03-01T12:00:00+00:00')"
+        )
+        conn.commit()
+        return admin, ana
+
+    def _titles(self, client, **params):
+        body = client.get("/api/history", params=params).json()
+        return [i["title"] for i in body["items"]]
+
+    def test_an_admin_reads_everyones_rows_and_plays(self, clients):
+        assert self._titles(clients[0]) == ["Signed in", "Bob Film", "Ana Film", "Bob Film"]
+
+    @pytest.mark.parametrize(
+        "params",
+        [{}, {"user": "bob"}, {"q": "film"}, {"per_page": 1}, {"action": "kept"}, {"page": 1}],
+    )
+    def test_a_viewer_reads_only_their_own(self, clients, params):
+        assert self._titles(clients[1], **params) == ["Ana Film"]
+
+    def test_a_viewers_page_holds_nothing_of_anyone_else(self, clients, conn):
+        other = conn.execute("SELECT id FROM audit_log WHERE actor = 'bob'").fetchone()[0]
+
+        html = clients[1].get(f"/history?event={other}&user=bob").text
+
+        assert "Ana Film" in html
+        assert "Bob Film" not in html
+        assert "bob" not in html
+        assert "192.0.2.9" not in html
+        assert " open>" not in html
+
+    def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
+        own, every = (
+            re.findall(r'href="/history\?action=(\w+)"', c.get("/history").text)
+            for c in reversed(clients)
+        )
+        assert {"kept", "plays", "security"} <= set(own)
+        assert not {"deleted", "scheduled", "delete_failed"} & set(own)
+        assert "deleted" in every
+
+    def test_the_security_events_stay_with_admins(self, clients):
+        assert clients[1].get("/api/security-events").status_code == 403
+
+    @pytest.mark.parametrize(
+        ("params", "titles"),
+        [
+            ({"user": "bob", "action": "kept"}, ["Bob Film"]),
+            ({"action": "plays"}, ["Bob Film"]),
+            ({"title": "ana"}, ["Ana Film"]),
+            ({"q": "ana"}, ["Ana Film"]),
+            ({"until": "2026-03-01"}, ["Bob Film"]),
+            ({"since": "2026-03-02", "action": "plays"}, []),
+        ],
+    )
+    def test_an_admin_searches_and_filters(self, clients, params, titles):
+        assert self._titles(clients[0], **params) == titles
+
+    def test_the_cursor_leads_on_to_the_end(self, clients):
+        first = clients[0].get("/api/history", params={"per_page": 3}).json()
+        rest = clients[0].get("/api/history", params={"cursor": first["next_cursor"]}).json()
+
+        assert (first["total"], len(first["items"])) == (4, 3)
+        assert len(rest["items"]) == 1
+        assert rest["next_cursor"] is None
+
+    def test_a_cursor_never_made_here_is_refused(self, clients):
+        resp = clients[1].get("/api/history", params={"cursor": "nonsense"})
+        assert (resp.status_code, resp.json()["error"]) == (400, "bad_cursor")
+
+    def test_numbered_pages_follow_each_other_past_the_second(self, clients):
+        seen = [self._titles(clients[0], per_page=1, page=n) for n in range(1, 6)]
+        assert seen == [["Signed in"], ["Bob Film"], ["Ana Film"], ["Bob Film"], []]
+
+    def test_a_far_page_starts_where_the_one_before_it_ended(self, clients, conn):
+        conn.executemany(
+            "INSERT INTO audit_log (media_item_id, action, created_at)"
+            " VALUES ('m1', 'deleted', '2026-04-01T12:00:00+00:00')",
+            [()] * 301,
+        )
+        params = {"action": "deleted", "per_page": 100, "page": 4}
+        assert self._titles(clients[0], **params) == ["Ana Film"]
+
+    def test_an_event_is_found_on_its_page_among_others_of_its_moment(self, clients, conn):
+        for _ in range(3):
+            insert_audit_log(
+                conn, media_item_id="m1", action="deleted", created_at="2026-04-01T12:00:00+00:00"
+            )
+        for [event_id] in conn.execute("SELECT id FROM audit_log").fetchall():
+            body = clients[0].get("/api/history", params={"event": event_id, "per_page": 1}).json()
+            assert body["open_id"] == event_id
+            assert [i["id"] for i in body["items"]] == [event_id]
+
+    def test_an_event_the_filter_hides_is_not_opened(self, clients, conn):
+        [kept] = conn.execute("SELECT id FROM audit_log WHERE actor = 'ana'").fetchone()
+        params = {"event": kept, "action": "plays"}
+        assert clients[0].get("/api/history", params=params).json()["open_id"] is None
+
+    def test_an_account_has_its_avatar_and_a_name_typed_at_sign_in_has_none(self, clients, conn):
+        security_event(conn, event="login.failed", actor="bob")
+        failed, signed_in = clients[0].get("/api/history").json()["items"][:2]
+        assert failed["avatar"] is None
+        assert signed_in["avatar"]
+
+    def test_one_device_signed_out_has_its_label(self, clients, conn):
+        security_event(conn, event="session.revoke_one", actor="ana")
+        assert self._titles(clients[1])[0] == "Device signed out"

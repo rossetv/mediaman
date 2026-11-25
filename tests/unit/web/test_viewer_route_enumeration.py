@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from fastapi.routing import iter_route_contexts
+from fastapi.testclient import TestClient
+
+from mediaman.db import set_connection
+from mediaman.main import create_app
 
 #: What a viewer may reach, written out independently of the guard.
 _VIEWER_MAY_REACH = {
@@ -70,6 +75,8 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/recommended"),
     ("POST", "/api/recommended/{recommendation_id}/download"),
     ("GET", "/api/poster/{rating_key}"),
+    ("GET", "/history"),
+    ("GET", "/api/history"),
     ("GET", "/account"),
     ("GET", "/api/account/plex"),
     ("POST", "/api/account/plex"),
@@ -164,3 +171,30 @@ def test_an_admin_reaches_every_route(guarded_app, conn, authed_client):
             blocked.append((method, template, resp.status_code))
 
     assert blocked == []
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "/api/account/avatar",
+        "/api/avatars/",
+        "/api/watch/ratings",
+        "/api/search/assist",
+        "/api/history",
+        "/api/security-events",
+    ],
+)
+def test_a_persons_own_data_is_not_answered_signed_out(conn, prefix):
+    set_connection(conn)
+    app = create_app()
+    client = TestClient(app)
+    routes = [r for r in _routes(app) if r[1].startswith(prefix)]
+    assert routes
+
+    answered = [
+        (method, template)
+        for method, template in routes
+        if client.request(method, _concrete(template), headers=_ORIGIN).status_code != 401
+    ]
+
+    assert answered == []
