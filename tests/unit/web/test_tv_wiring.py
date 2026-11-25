@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.db import set_connection
 from mediaman.main import create_app
-from mediaman.web.auth.password_hash import set_must_change_password
+from mediaman.web.auth.password_hash import create_user, set_must_change_password
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session, destroy_session
 from mediaman.web.repository import tv as repo
@@ -192,3 +192,11 @@ def test_the_tvs_own_page_opens_with_any_cookie_and_ends_no_session(tv, amy, hom
     assert tv.client.get("/tv", follow_redirects=False).status_code == 200
     (after,) = conn.execute("SELECT COUNT(*) FROM admin_sessions").fetchone()
     assert after == before
+
+
+def test_only_an_admin_reaches_the_older_tvs(whole, amy, conn):
+    create_user(conn, "root", "password1234", enforce_policy=False)
+    admin = TestClient(whole)
+    admin.cookies.set("session_token", create_session(conn, "root"))
+    url = "/api/settings/older-tvs"
+    assert (amy.get(url).status_code, admin.get(url).status_code) == (403, 200)
