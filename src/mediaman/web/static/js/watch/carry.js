@@ -360,7 +360,7 @@
         move(wb[i], { x: at[i].x, y: y, sx: s, sy: s, fade: [wait, wait + 0.2], word: true });
       });
       // Its ellipsis is the line's.
-      if (cut) out(a, 0.08, 0);
+      if (cut) out(a, 0.08, 0, { x1: pb[0].x - pa[0].x, y1: pb[0].y - pa[0].y, s1x: 1 / s, s1y: 1 / s });
       return { x: dx, y: dy };
     }
 
