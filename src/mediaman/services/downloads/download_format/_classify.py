@@ -86,10 +86,12 @@ def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
 
 
 def next_movie_release(movie: _ArrLike) -> datetime | None:
-    """The earliest release (digital, physical, in cinemas) still to come, or None when unknown."""
+    """The earliest release still to come of those Radarr waits for, or None when unknown."""
     now = now_utc()
     candidates = []
-    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
+    home, cinemas = ("digitalRelease", "physicalRelease"), ("inCinemas",)
+    waits_for = movie.get("minimumAvailability")
+    for key in {"released": home, "inCinemas": cinemas}.get(str(waits_for), home + cinemas):
         raw = movie.get(key, "")
         dt = parse_iso_utc(raw if isinstance(raw, str) else "")
         if dt and now < dt and dt.year <= now.year + _MAX_FUTURE_YEARS:

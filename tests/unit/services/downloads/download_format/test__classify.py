@@ -75,6 +75,27 @@ class TestClassifyMovieUpcoming:
         assert is_up is True
         assert label == "Not yet released"
 
+    @pytest.mark.parametrize(
+        ("waits_for", "label"),
+        [
+            ("released", "Releases 5 Jun 2099"),
+            ("inCinemas", "Releases 5 Jan 2099"),
+            ("announced", "Releases 5 Jan 2099"),
+            (None, "Releases 5 Jan 2099"),
+        ],
+    )
+    def test_the_date_is_of_the_release_radarr_waits_for(self, waits_for, label):
+        movie = self._movie(
+            minimumAvailability=waits_for,
+            inCinemas="2099-01-05T00:00:00Z",
+            digitalRelease="2099-06-05T00:00:00Z",
+        )
+        assert classify_movie_upcoming(movie) == (True, label)
+
+    def test_a_date_in_cinemas_is_not_when_a_film_waiting_to_be_released_arrives(self):
+        movie = self._movie(minimumAvailability="released", inCinemas="2099-01-05T00:00:00Z")
+        assert classify_movie_upcoming(movie) == (True, "Not yet released")
+
     def test_far_future_date_sentinel_treated_as_no_date(self):
         """A year-9999 sentinel must not produce a 'Releases in 7973 years' label."""
         is_up, label = classify_movie_upcoming(self._movie(physicalRelease="9999-01-01T00:00:00Z"))
