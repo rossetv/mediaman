@@ -56,9 +56,14 @@ Open one film of a series to see the others, and fetch the missing ones together
 
 ## On the TV
 
-Open `/tv` in the TV's browser and type the code it shows into your phone. While a film plays there, the phone is the remote, and you can lock it or put it away.
+Open `/tv` in the TV's browser and type the code it shows into your phone. That TV is then yours: press Play on, on a film's page or in the player, and choose it. While it plays, the phone is the remote, and you can lock it or put it away.
 
-<!-- To fill: how a film is sent to a TV from its page (Play on), AirPlay and Chromecast. At this point no page starts one yet. Then tv.webp may be taken again from that button on. -->
+Play on also lists AirPlay and Chromecast, which need no pairing:
+
+- AirPlay: Safari on an iPhone, iPad or Mac, and a TV with AirPlay, such as an Apple TV.
+- Chromecast: Chrome on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast. It is off until an admin turns on Allow Chromecast in Settings, under TVs & Casting, since it loads one script from Google into mediaman's pages. The [install guide](docs/install.md#chromecast) says what that lets in.
+
+Either way the TV must be able to open mediaman's address. TVs too old for a browser are added by an admin, see [TVs](docs/install.md#tvs).
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/tv-still.webp">
@@ -83,7 +88,7 @@ Who watched, asked for and kept what, and what mediaman did by itself. Admins se
 
 ## Profile
 
-Choose a picture, link your Plex account, see where you are signed in, and say whether the AI may learn from what you watch.
+Choose a picture, change your own email and password, link your Plex account, see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may learn from what you watch.
 
 <img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
 

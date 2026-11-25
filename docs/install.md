@@ -72,7 +72,7 @@ In Settings, under Integrations, fill in a service, save, and press Test.
 | OMDb | API key | Ratings |
 | Mailgun | domain, API key, from address | The weekly email and download alerts |
 
-URLs are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+URLs are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. The browser never talks to Plex: mediaman passes the video on, and the token never leaves mediaman. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
 Under Libraries & Paths choose the Plex libraries mediaman reads, and give each the path Plex has for it. Then press Sync now under General & Schedule, and they appear on Watch.
 
@@ -149,6 +149,27 @@ Delete, pressed by an admin, asks Radarr or Sonarr to delete the files, and does
 ## TVs
 
 Open `/tv` at mediaman's address in the TV's browser, for example `https://mediaman.example.com/tv`, and enter the code it shows at `/pair`, on a phone or computer where you are signed in. The TV is then yours, and needs no password. Your TVs are on your Profile, where you can rename and unpair them.
+
+In the TV's browser or not, a film is sent to a TV with Play on, on its page or in the player. A paired TV and an older one are steered from a phone's remote. AirPlay and Chromecast are listed there too; neither needs pairing.
+
+### AirPlay
+
+Safari on an iPhone, iPad or Mac, and a TV with AirPlay. The TV reads the stream itself, by an address that needs no sign-in, so it must be able to open the address mediaman is open at. Nothing to turn on.
+
+### Chromecast
+
+Chrome on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast that can open that address. Other browsers show nothing of it.
+
+It is off until an admin turns on Allow Chromecast, in Settings under TVs & Casting. Casting needs a script from Google, so turning it on lets in:
+
+- One script from Google (gstatic.com) runs inside mediaman, and can do all that the person signed in there can.
+- It loads only when someone opens Play on in Chrome or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
+- Google sees that person's internet address and the address they open mediaman at.
+- Google's player on the TV gets the film's title and a ticket for that one film, never anyone's sign-in.
+
+Turning it off stops no Chromecast that is playing: stop it there first. AirPlay and paired TVs do not need it.
+
+### Older TVs
 
 Older TVs, without a browser that can do this, are added by an admin with their address, in Settings under TVs & Casting:
 
