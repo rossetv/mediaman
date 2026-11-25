@@ -432,6 +432,10 @@ def test_an_answer_that_never_ends_is_left_behind(plex, conn, secret_key, monkey
         assert titles(conn, "bob") == ["Film 2"]
     finally:
         over.set()
+        # Or its next call would find the fake Plex taken away.
+        for thread in threading.enumerate():
+            if thread.name == "plex-link-call":
+                thread.join(5)
 
 
 def test_a_pool_counts_the_calls_still_running_and_those_left_behind():
