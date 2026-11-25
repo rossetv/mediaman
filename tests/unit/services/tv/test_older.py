@@ -280,6 +280,108 @@ def test_a_pause_the_tv_did_not_take_is_not_lost(home, wrong):
     assert home.tv.state == "PAUSED_PLAYBACK"
 
 
+def _paused(home):
+    home.play()
+    home.steps(3)
+    home.command("pause")
+    home.step()
+    home.step()
+    assert home.film()["state"] == "paused"
+
+
+@pytest.mark.parametrize("steps", [1, 2, 3])
+def test_two_seeks_while_paused_stay_paused(home, steps):
+    _paused(home)
+    home.command("seek", position_s=80)
+    for _ in range(steps):
+        home.step()
+    home.command("seek", position_s=160)
+    for _ in range(4):
+        home.step()
+    assert home.tv.calls[-2:] == [("start", "http://tv/film1/160"), ("pause",)]
+    assert home.film()["state"] == "paused"
+
+
+def test_a_seek_right_after_a_pause_stays_paused(home):
+    home.play()
+    home.steps(3)
+    home.command("pause")
+    home.command("seek", position_s=80)
+    home.steps(4, playing=False)
+    assert home.tv.state == "PAUSED_PLAYBACK"
+
+
+def test_a_seek_before_a_pause_is_done_keeps_the_pause(home):
+    home.play()
+    home.steps(3)
+    home.tv.fails["pause"] = TvFault("not now", 701)
+    home.command("pause")
+    home.step()
+    home.command("seek", position_s=80)
+    home.step()
+    del home.tv.fails["pause"]
+    home.steps(3, playing=False)
+    assert home.tv.calls[-2:] == [("start", "http://tv/film1/80"), ("pause",)]
+
+
+def test_a_seek_right_after_play_plays(home):
+    _paused(home)
+    home.command("play")
+    home.command("seek", position_s=80)
+    home.steps(4, playing=False)
+    assert home.tv.state == "PLAYING"
+
+
+def _loading(home, fails):
+    """A film the TV was handed, does not play yet, and refuses what is asked of it."""
+    home.play()
+    home.step()
+    home.tv.state = "TRANSITIONING"
+    home.tv.fails[fails] = TvFault("not now", 701)
+
+
+def test_a_pause_pressed_while_the_tv_loads_is_done_once_it_plays(home):
+    _loading(home, "pause")
+    command = home.command("pause")
+    home.step()
+    del home.tv.fails["pause"]
+    home.tv.state = "PLAYING"
+    home.steps(2)
+    assert home.tv.state == "PAUSED_PLAYBACK"
+    assert home.view()["acked"] == command
+
+
+def test_a_play_pressed_after_a_pause_while_the_tv_loads_wins(home):
+    _loading(home, "pause")
+    home.command("pause")
+    home.step()
+    home.tv.fails = {"play": TvFault("not now", 701)}
+    home.command("play")
+    home.step()
+    home.tv.state = "PLAYING"
+    home.steps(3)
+    assert home.tv.state == "PLAYING"
+    assert home.tv.names()[-1] == "play"
+    assert home.tv.names().count("start") == 1
+
+
+def test_a_tv_that_never_takes_a_pause_is_not_asked_for_ever(home):
+    home.play()
+    home.steps(2)
+    home.tv.fails["pause"] = TvFault("no", 701)
+    home.command("pause")
+    home.steps(40)
+    assert home.tv.names().count("pause") == older.PAUSE_TRIES + 1
+
+
+def test_a_stream_that_ends_before_a_pause_is_done_is_taken_again_paused(home):
+    _paused_load(home)
+    home.tv.state = "TRANSITIONING"
+    home.stream_is_gone = True
+    home.steps(2)
+    assert home.asked[0] == ("again", True)
+
+
 def test_a_film_played_on_meanwhile_is_not_paused_late(home):
     _paused_load(home)
     home.tv.fails["pause"] = TvFault("not now", 701)

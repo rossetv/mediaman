@@ -43,6 +43,8 @@ AUTO_WAIT_SECONDS = 5.0
 _START_WAIT_SECONDS = 120.0
 _LAST_WORK_SECONDS = 60.0
 _VOLUME_STEPS = 5
+#: How often a TV that plays and will not be paused is asked to.
+PAUSE_TRIES = 10
 _AGAIN_TRIES = 2
 # UPnP's code for what a TV does not know how to do.
 _NOT_KNOWN = 401
@@ -162,6 +164,7 @@ class _Film:
     played_s: float
     #: Whether it is to be paused as soon as it plays.
     pause: bool = False
+    pause_tries: int = 0
     begun: bool = False
     #: What the address the TV names holds where it plays this.
     mark: str = ""
@@ -440,9 +443,10 @@ class Driver:
             try:
                 self._renderer.pause()
             except TvFault as exc:
-                film.pause = exc.code != _NOT_KNOWN
+                film.pause_tries += 1
+                film.pause = exc.code != _NOT_KNOWN and film.pause_tries < PAUSE_TRIES
             else:
-                film.pause = False
+                film.pause, film.paused = False, True
 
     def _stopped(self, film: _Film, status: Status, now: float) -> Reported | None:
         all_sent, broke_off = self._server.sent(film.stream_id)
@@ -473,7 +477,7 @@ class Driver:
             if self._is_owed(play):
                 self._hand(play)
             return
-        paused = self._film is not None and self._film.paused
+        paused = self._film is not None and (self._film.paused or self._film.pause)
         self._silence()
         if state == "upnext" and play["upnext_in_s"] == 0:
             self._ask_next(play_id)
@@ -584,17 +588,25 @@ class Driver:
         """Carry out a command; whether the film must be handed over anew for it."""
         kind = command["kind"]
         if kind == "play":
-            film.pause = False
+            film.pause = film.paused = False
             try:
                 self._renderer.play()
             except TvFault:
-                # Some let go of a film that was paused for long.
-                return True
+                # Some let go of a film that was paused for long; one that loads will play.
+                return film.on
         elif kind == "pause":
-            self._renderer.pause()
+            try:
+                self._renderer.pause()
+            except TvFault as exc:
+                if exc.code == _NOT_KNOWN:
+                    raise
+                # It may take it once it plays.
+                film.pause, film.pause_tries = True, 0
+            else:
+                film.paused = True
         elif kind == "seek":
             film.position_s = command["position_s"]
-            film.pause = film.paused
+            film.pause, film.pause_tries = film.pause or film.paused, 0
             return True
         elif kind == "volume":
             self._volume, self._muted = command["level"], False
