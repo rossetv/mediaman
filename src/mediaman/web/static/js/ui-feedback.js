@@ -82,6 +82,7 @@
     node.classList.add('is-leaving');
     node.classList.remove('is-visible');
     removeAfterExit(node);
+    tellShortcut();
   }
 
   // What is full screen hides all that is outside it. A video shows no child.
@@ -125,6 +126,19 @@
       return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
   }
+  function newestUndo() {
+    var btns = document.querySelectorAll('.ui-toast--undo:not(.is-leaving) .ui-toast__action');
+    return btns[btns.length - 1];
+  }
+  // Only the newest Undo answers the shortcut, so only its button is told with it.
+  function tellShortcut() {
+    var newest = newestUndo();
+    Array.prototype.forEach.call(document.querySelectorAll('.ui-toast--undo .ui-toast__action'), function (b) {
+      if (b === newest) b.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
+      else b.removeAttribute('aria-keyshortcuts');
+      b.setAttribute('aria-label', b.textContent + (b === newest ? ' (' + undoHint + ')' : ''));
+    });
+  }
   // Ctrl/Cmd+Z presses the newest Undo, except in a text
   // field where it is the field's own undo.
   function listenForUndo() {
@@ -134,8 +148,7 @@
       if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
-      var btns = document.querySelectorAll('.ui-toast--undo:not(.is-leaving) .ui-toast__action');
-      var last = btns[btns.length - 1];
+      var last = newestUndo();
       if (!last || modalOpen(raisedFrom.get(last))) return;
       e.preventDefault();
       last.click();
@@ -167,14 +180,7 @@
       node.textContent = message;
     }
     if (action && action.label === 'Undo') {
-      // Only the newest Undo answers the shortcut.
-      Array.prototype.forEach.call(host.querySelectorAll('.ui-toast--undo .ui-toast__action'), function (b) {
-        b.removeAttribute('aria-keyshortcuts');
-        b.setAttribute('aria-label', b.textContent);
-      });
       node.classList.add('ui-toast--undo');
-      btn.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
-      btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
       listenForUndo();
     }
     // At most three at once, two on a phone, and never a stack taller than the
@@ -188,6 +194,7 @@
       });
     };
     host.appendChild(node);
+    tellShortcut();
     // Toasts already fading out leave the height measure: they are going.
     var overBudget = function () {
       var leaving = Array.prototype.filter.call(host.children, function (c) {
