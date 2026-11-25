@@ -67,6 +67,7 @@ _VIEWER_MAY_REACH = {
     ("PATCH", "/api/users/me/email"),
     ("GET", "/api/users/sessions"),
     ("POST", "/api/users/sessions/revoke-others"),
+    ("DELETE", "/api/users/sessions/{public_id}"),
     ("POST", "/api/auth/reauth"),
     ("GET", "/login"),
     ("POST", "/login"),

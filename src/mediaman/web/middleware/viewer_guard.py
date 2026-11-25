@@ -85,6 +85,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("PATCH", "/api/users/me/email"),
         ("GET", "/api/users/sessions"),
         ("POST", "/api/users/sessions/revoke-others"),
+        ("DELETE", "/api/users/sessions/{public_id}"),
         ("POST", "/api/auth/reauth"),
         ("GET", "/login"),
         ("POST", "/login"),
