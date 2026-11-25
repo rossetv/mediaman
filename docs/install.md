@@ -227,7 +227,7 @@ For these, mediaman must be in a container network of its own, as it is above. W
 
 With an OpenAI key, these go to OpenAI, never with the name of an account:
 
-- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, and draft reason, to choose from. To mix them, the same data about the person goes again, with each candidate's type (film or show);
+- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, and draft reason, to choose from. To mix them, the same data about the person goes again, with each candidate's type (film or show) and which of their played titles led to it;
 - for the new and popular picks everyone sees: those of the last 30 days, and the titles it proposed in the same way. Nothing of what anyone watched;
 - when somebody asks the AI in search: their question, or the name and year of the title they want more like. When they narrow the answer, also its titles and the narrowing they chose;
 - unless they turn off Use my history on their Profile:

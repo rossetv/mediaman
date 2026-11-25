@@ -218,6 +218,7 @@ _SENT = [
     ("always", "played"),
     ("always", "recent picks"),
     ("always", "suggested before", "year", "description", "reason", "choose from"),
+    ("always", "picks", "titles", "played", "led to each"),
     ("always", "stars in Plex", "own", "link"),
     ("always", "in search", "question", "title and year", "more like"),
     ("always", "narrow", "choice", "titles it already gave"),
