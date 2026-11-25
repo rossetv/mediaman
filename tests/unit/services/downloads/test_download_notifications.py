@@ -14,25 +14,14 @@ from datetime import UTC
 from pathlib import Path
 
 import pytest
-from jinja2 import Environment, FileSystemLoader
 
 from tests.helpers.factories import insert_download_notification, insert_settings
 
 
 def _load_template():
-    template_dir = (
-        Path(__file__).parent.parent.parent.parent.parent
-        / "src"
-        / "mediaman"
-        / "services"
-        / "downloads"
-        / "templates"
-    )
-    env = Environment(
-        loader=FileSystemLoader(str(template_dir)),
-        autoescape=True,
-    )
-    return env.get_template("download_ready.html")
+    from mediaman.services.downloads._notification_email import get_notification_template
+
+    return get_notification_template()
 
 
 def _render(**overrides):
@@ -63,24 +52,26 @@ class TestDownloadReadyTemplate:
         html = _render()
         assert "Example" in html
         assert "2026" in html
-        assert "Directed by Jane Doe" in html
-        assert "READY TO WATCH" in html
+        assert re.search(r"Directed by <span[^>]*>Jane Doe</span>", html)
+        assert "Ready to watch" in html
 
     def test_the_title_beside_the_picture_is_not_read_out_twice(self):
         html = _render(poster_src="https://x/p.jpg", backdrop_src="https://x/b.jpg")
         assert "<img " in html
         assert 'alt="Example"' not in html
 
-    def test_declares_a_dark_colour_scheme(self):
+    def test_declares_both_colour_schemes(self):
         html = _render()
-        assert '<meta name="color-scheme" content="dark">' in html
-        assert '<meta name="supported-color-schemes" content="dark">' in html
+        assert '<meta name="color-scheme" content="light dark">' in html
+        assert '<meta name="supported-color-schemes" content="light dark">' in html
 
-    def test_footer_text_is_readable_on_black(self):
+    def test_footer_text_is_readable_in_light_and_dark(self):
         html = _render()
-        footer = html[html.index("You requested this download") - 120 :]
-        assert "color:#a1a1a6" in footer
-        assert "rgba(255,255,255,0.2)" not in html
+        footer = html[html.index("You asked for this") - 200 :]
+        assert 'class="pad t2"' in footer
+        assert "color:#5f5f66" in footer
+        assert ".t2{color:#b4b4b8 !important}" in html
+        assert "rgba(" not in html
 
     def test_title_escapes_html(self):
         """A crafted title (e.g. Plex metadata tampering) must be escaped."""
@@ -132,24 +123,22 @@ class TestDownloadReadyTemplate:
         assert "&middot;" in html
         # Parts are present around the separator.
         assert "Movie" in html
-        assert "120 min" in html
+        assert "2 h" in html
 
     def test_no_safe_filter_on_new_variables(self):
         """Regression guard: the template must not reintroduce ``|safe`` on
         user-sourced data. If someone adds it back, this test fails."""
-        template_path = (
-            Path(__file__).parent.parent.parent.parent.parent
-            / "src"
-            / "mediaman"
-            / "services"
-            / "downloads"
-            / "templates"
-            / "download_ready.html"
-        )
-        src = template_path.read_text()
-        assert "|safe" not in src and "| safe" not in src, (
-            "download_ready.html must not use |safe — every field is untrusted TMDB/OMDb data."
-        )
+        services = Path(__file__).parent.parent.parent.parent.parent / "src/mediaman/services"
+        mails = services / "mail/newsletter/templates"
+        for path in (
+            services / "downloads/templates/download_ready.html",
+            mails / "_mail_base.html",
+            mails / "newsletter.html",
+        ):
+            src = path.read_text()
+            assert "|safe" not in src and "| safe" not in src, (
+                f"{path.name} must not use |safe — every field is untrusted TMDB/OMDb data."
+            )
 
     def test_ratings_section_hidden_when_all_empty(self):
         html = _render()
@@ -165,16 +154,17 @@ class TestDownloadReadyTemplate:
         imgs = re.findall(r"<img [^>]*>", html)
         assert len(imgs) == 1
         assert "w1280/wide.jpg" in imgs[0]
-        assert 'width="536"' in imgs[0]
-        assert "object-fit" not in html and "max-height" not in html
+        assert 'width="600"' in imgs[0]
+        assert "object-fit" not in html and "max-height" not in imgs[0]
 
     def test_a_poster_alone_is_shown_whole_as_a_poster_not_cropped_to_a_strip(self):
         html = _render(poster_src="https://image.tmdb.org/t/p/w500/abc.jpg")
         imgs = re.findall(r"<img [^>]*>", html)
         assert len(imgs) == 1
         assert "w500/abc.jpg" in imgs[0]
-        assert 'width="180"' in imgs[0] and 'height="270"' in imgs[0]
-        assert "object-fit" not in html and "max-height" not in html
+        assert 'width="170"' in imgs[0] and 'height="255"' in imgs[0]
+        assert 'alt="Example"' in imgs[0]
+        assert "object-fit" not in html and "max-height" not in imgs[0]
 
     def test_no_picture_leaves_no_image_tag(self):
         assert "<img " not in _render()
@@ -1620,6 +1610,90 @@ class TestAvailableEmailNamesTheSeason:
 
         assert subject == "'Severance' is now available to watch"
         assert "Season" not in html
+
+
+class TestEmailWatchButton:
+    def setup_method(self):
+        from mediaman.services.downloads._notification_backoff import _clear_backoff
+
+        _clear_backoff(1)
+
+    def _links(self, base_url, **fields):
+        from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
+        from mediaman.services.downloads._notification_email import build_email_payload
+
+        values = {"title": "Dune", "media_type": "movie", "tmdb_id": 42, "tvdb_id": None}
+        row = ClaimedNotificationRow(
+            id=1, email="u@x", service="radarr", claimed_at="", **(values | fields)
+        )
+        html = build_email_payload(row, None, {}, _load_template(), base_url)[1]
+        return re.findall(r'href="([^"]*)"', html)
+
+    @pytest.mark.parametrize("base_url", ["https://mm.example", "https://mm.example/"])
+    def test_it_opens_the_title_on_watch(self, base_url):
+        assert self._links(base_url) == ["https://mm.example/watch#title=tmdb-movie-42"]
+
+    def test_a_show_is_opened_as_a_show(self):
+        assert self._links("https://mm.example", media_type="tv") == [
+            "https://mm.example/watch#title=tmdb-tv-42"
+        ]
+
+    def test_its_address_names_a_title_watch_knows_and_sign_in_leads_back_to_it(self):
+        from urllib.parse import urlsplit
+
+        from mediaman.web.auth.return_path import safe_return_path
+        from mediaman.web.routes.watch.catalog_api import REF_RE
+
+        for kind in ("movie", "tv"):
+            [link] = self._links("https://mm.example", media_type=kind)
+            assert REF_RE.fullmatch(urlsplit(link).fragment.removeprefix("title="))
+        [link] = self._links("https://mm.example", title="A & B #1", tmdb_id=None)
+        assert safe_return_path(link.removeprefix("https://mm.example"))
+
+    def test_a_title_with_no_tmdb_id_is_searched_for_by_name(self):
+        assert self._links("https://mm.example", title="A & B #1", tmdb_id=None, tvdb_id=7) == [
+            "https://mm.example/watch?q=A%20%26%20B%20%231"
+        ]
+
+    @pytest.mark.parametrize("base_url", ["", "  ", "javascript:alert(1)//", "mm.example"])
+    def test_with_no_usable_site_address_there_is_no_button(self, base_url):
+        assert self._links(base_url) == []
+
+    def test_the_site_address_is_the_one_in_the_settings(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from mediaman.db import init_db
+        from mediaman.services.downloads.notifications import check_download_notifications
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+            base_url="https://mm.example/",
+        )
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            service="radarr",
+        )
+        radarr, mailgun = MagicMock(), MagicMock()
+        radarr.get_movies.return_value = [{"tmdbId": 42, "hasFile": True}]
+        for name, value in (
+            ("arr.build.build_radarr_from_db", radarr),
+            ("arr.build.build_sonarr_from_db", None),
+            ("mail.mailgun.MailgunClient", mailgun),
+        ):
+            monkeypatch.setattr(f"mediaman.services.{name}", lambda *a, _v=value, **kw: _v)
+
+        check_download_notifications(conn, secret_key="x" * 64)
+
+        html = mailgun.send.call_args.kwargs["html"]
+        assert 'href="https://mm.example/watch#title=tmdb-movie-42"' in html
 
 
 class TestEmailBackdrop:

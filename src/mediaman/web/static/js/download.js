@@ -1,10 +1,10 @@
 /**
  * download.js — behaviour for the per-token download confirm page.
  *
- * Reads server-supplied values from the #page-bootstrap JSON island
- * (token, poll_token, service, tmdb_id, poster_url, backdrop_url, title, media_type,
- * download_state, notify_by_email) and drives the download trigger + polling UI. Lives in
- * its own file, not an inline <script>, so the CSP can forbid inline script.
+ * Reads server-supplied values from the #page-bootstrap JSON island (token, poll_token,
+ * service, tmdb_id, download_state, notify_by_email) and drives the download trigger and its
+ * progress. What takes the button's place is cloned from the page's <template data-part>s. Lives
+ * in its own file, not an inline <script>, so the CSP can forbid inline script.
  */
 (function () {
   'use strict';
@@ -21,10 +21,6 @@
   var _pollToken = boot.poll_token || '';
   var _service = boot.service || '';
   var _tmdbId = boot.tmdb_id || 0;
-  var _posterUrl = boot.poster_url || '';
-  var _backdropUrl = boot.backdrop_url || '';
-  var _title = boot.title || '';
-  var _mediaType = boot.media_type || 'movie';
   var _downloadState = boot.download_state || '';
   var _notifyByEmail = boot.notify_by_email === true;
   var _pollInterval = null;
@@ -32,8 +28,59 @@
   var _pollsSent = 0;
   var _pollDrawn = 0;
 
-  function triggerDownload() {
-    var btn = document.getElementById('btn-download');
+  /* How long the last step is seen before the way to watch takes the steps' place. */
+  var DONE_AFTER_MS = 900;
+  var STEP_OF = { searching: 1, queued: 1, downloading: 2, almost_ready: 2, ready: 4 };
+
+  var page = document.querySelector('.share-page');
+  var hero = document.querySelector('.share-hero');
+  var act = document.getElementById('download-action');
+  var said = document.querySelector('[data-said]');
+
+  function part(name) {
+    return document.querySelector('template[data-part="' + name + '"]').content.firstElementChild.cloneNode(true);
+  }
+
+  /* What can be done and how it goes stand in one place, whose height eases. */
+  function high(px) {
+    return px ? { height: px + 'px' }
+      : { height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 };
+  }
+
+  function ease(el, from, to, then) {
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || from === to || !el.animate) { if (then) then(); return; }
+    el.style.overflow = 'clip';
+    el.style.overflowClipMargin = '4px';
+    var run = el.animate([high(from), high(to)],
+      { duration: 250, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    run.onfinish = run.oncancel = function () {
+      el.style.overflow = el.style.overflowClipMargin = '';
+      if (then) then();
+    };
+  }
+
+  function show(node, unasked) {
+    /* What comes of itself moves only the focus it takes away. */
+    var keepsFocus = unasked ? act.contains(document.activeElement) : MM.dom.focusStillIn(act);
+    var from = act.offsetHeight;
+    node.classList.add('is-swapping-in');
+    act.replaceChildren(node);
+    var to = act.offsetHeight;
+    ease(act, from, to);
+    letGo();
+    var first = node.querySelector('[tabindex="-1"]') || node.querySelector('.btn');
+    if (keepsFocus && first) first.focus({ preventScroll: true });
+  }
+
+  function say(words) { MM.dom.setText(said, words); }
+
+  function colour(share) {
+    page.style.setProperty('--sat', share);
+    page.style.setProperty('--lum', 0.78 + 0.22 * share);
+  }
+
+  function triggerDownload(btn) {
     /* Not the disabled attribute: that would drop the keyboard's focus. */
     if (btn.getAttribute('aria-disabled') === 'true') return;
     btn.style.minWidth = btn.offsetWidth + 'px';
@@ -54,38 +101,19 @@
     });
   }
 
-  /* Trade the title's page for the progress card. */
   function showOnItsWay(pollToken, already, notify) {
     if (pollToken) {
       _pollToken = pollToken;
       /* A fresh token means polling can authenticate again. */
       _pollStopped = false;
     }
-    var keepsFocus = focusStillOnAction();
-
-    var cinema = document.getElementById('dl-cinema');
-    var content = document.getElementById('dl-content');
-    if (cinema) cinema.hidden = true;
-    if (content) content.hidden = true;
-
-    var wrapper = document.getElementById('dl-hero-wrapper');
-    var heading = buildHeroCard(wrapper, {
-      id: _service + ':' + _title,
-      title: _title,
-      media_type: _mediaType,
-      poster_url: _posterUrl,
-      hero_backdrop: _backdropUrl,
-      state: 'searching',
-      state_label: 'Searching',
-      progress: 0,
-      eta: '',
-      size_done: '',
-      size_total: '',
-      episodes: null,
-      episode_summary: ''
-    }, already, notify);
-    wrapper.hidden = false;
-    if (keepsFocus) heading.focus();
+    var node = part('on-its-way');
+    node.querySelector('[data-already]').hidden = !already;
+    /* Not there on the page of a link with no email. */
+    var mail = node.querySelector('[data-mail]');
+    if (mail) mail.hidden = !notify;
+    show(node);
+    draw({ state: 'searching' });
 
     /* A 401 already stopped polling and told the visitor to reload. */
     if (!_pollStopped) {
@@ -93,55 +121,6 @@
       _startPolling();
     }
   }
-
-  function focusStillOnAction() {
-    return MM.dom.focusStillIn(document.getElementById('download-action'));
-  }
-
-  /* The card, with what _dl_hero_card.html and download.html put around it. Returns the
-     page's heading. */
-  function buildHeroCard(wrapper, item, already, notify) {
-    var hero = MM.downloads.buildDom.buildHero(item);
-
-    /* The h1 of the page went with the cinema, and the card's title is no h1. */
-    var heading = document.createElement('h1');
-    heading.className = 'sr-only';
-    heading.tabIndex = -1;
-    heading.textContent = item.title;
-    heading.setAttribute('aria-describedby', 'dl-hint');
-
-    var status = document.createElement('div');
-    status.setAttribute('role', 'status');
-    var hint = document.createElement('div');
-    hint.className = 'dl-hint';
-    hint.id = 'dl-hint';
-    hint.textContent = (already ? 'This was already on its way. ' : '')
-      + 'You may close this page — the download will continue in the background. ';
-    /* A link minted without an email gets no notification, so promise none. */
-    if (notify) {
-      hint.appendChild(document.createElement('br'));
-      hint.appendChild(document.createTextNode(
-        'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
-      ));
-    }
-
-    status.appendChild(hint);
-
-    var footer = document.createElement('div');
-    footer.className = 'dl-footer u-mt-24';
-    var link = document.createElement('a');
-    link.href = '/';
-    link.textContent = 'Open mediaman →';
-    footer.appendChild(link);
-
-    [hero, status, footer].forEach(function(part) { part.classList.add('dl-card-enter'); });
-    wrapper.replaceChildren(heading, hero, status, footer);
-    return heading;
-  }
-
-  // State labels come from the server (item.state_label). Fall back to the
-  // raw state string only if the server didn't supply one (defensive — shouldn't
-  // happen). The canonical map lives in services/downloads/download_format/_types.py.
 
   /* Polling uses setInterval internally; _startPolling / _stopPolling manage the
      timer and the visibilitychange pause so the tab doesn't hammer the
@@ -183,30 +162,12 @@
         /* The service did not answer: what is drawn is the last it said. */
         if (data.state === 'unknown') return;
         _pollDrawn = poll;
-
-        /* Update the hero card in-place */
-        var wrapper = document.getElementById('dl-hero-wrapper');
-        if (!wrapper) return;
-
-        var pill = wrapper.querySelector('[data-v="pill"]');
-        if (pill) {
-          pill.className = 'dl-state-pill dl-state-' + data.state;
-          pill.textContent = data.state_label || data.state;
-        }
-
-        var progressWrap = wrapper.querySelector('[data-v="progress-wrap"]');
-        var running = data.state !== 'searching' && data.state !== 'ready';
-        /* One that closes keeps its last figures while it does. */
-        if (running) drawProgress(wrapper, data);
-        if (progressWrap) showPart(progressWrap, running);
-
-        drawEpisodes(wrapper, data);
-        updateEpisodeSummary(wrapper, data.episode_summary);
+        draw(data);
 
         if (data.state === 'ready') {
           _downloadState = 'ready';
           _stopPolling();
-          showReady(wrapper);
+          setTimeout(function() { show(part('ready'), true); }, DONE_AFTER_MS);
         }
       })
       .catch(function(err) {
@@ -219,206 +180,124 @@
       });
   }
 
-  function drawProgress(wrapper, data) {
-    var buildDom = MM.downloads.buildDom;
-    var fill = wrapper.querySelector('[data-v="fill"]');
-    if (fill) {
-      buildDom.setProgress(fill, data.progress || 0);
-      if (data.state === 'almost_ready') fill.classList.add('green');
-      else fill.classList.remove('green');
+  function draw(data) {
+    var steps = act.querySelector('.share-steps');
+    if (!steps) return;
+    var at = STEP_OF[data.state] || 1;
+    Array.prototype.forEach.call(steps.children, function(li, i) {
+      li.classList.toggle('is-done', i < at);
+      li.classList.toggle('is-now', i === at);
+      if (i === at) li.setAttribute('aria-current', 'step');
+      else li.removeAttribute('aria-current');
+    });
+    steps.classList.toggle('is-all', data.state === 'ready');
+    MM.dom.setText(steps.children[2].querySelector('span'), data.state === 'almost_ready' ? 'Almost ready' : 'Downloading');
+
+    var done = data.progress || 0;
+    var running = data.state === 'downloading';
+    act.querySelector('[data-fold]').classList.toggle('is-shut', !running);
+    /* One that shuts keeps its last figures while it does. */
+    if (running) {
+      act.querySelector('progress').value = done;
+      MM.dom.setText(act.querySelector('[data-done]'), done + '%');
+      MM.dom.setText(act.querySelector('[data-eta]'), data.eta || '');
     }
+    drawEpisodes(data);
 
-    var pct = wrapper.querySelector('[data-v="pct"]');
-    if (pct) pct.textContent = (data.progress || 0) + '%';
-
-    var sizeDone = wrapper.querySelector('[data-v="size-done"]');
-    if (sizeDone) sizeDone.textContent = data.size_done || '';
-    var sizeTotal = wrapper.querySelector('[data-v="size-total"]');
-    if (sizeTotal) sizeTotal.textContent = data.size_total || '';
-
-    buildDom.updateEtaStat(wrapper, data.eta);
+    colour(running ? 0.25 + 0.0065 * done : data.state === 'ready' ? 1 : data.state === 'almost_ready' ? 0.92 : 0.25);
+    say({ 1: 'Searching', 2: data.state === 'almost_ready' ? 'Almost ready' : 'Downloading', 4: 'Ready to watch' }[at]);
   }
 
-  /* The episodes button opens and closes like the card's other parts. Episodes that come
-     back while it closes open it again, with the list as the person left it. */
-  function drawEpisodes(wrapper, data) {
-    var buildDom = MM.downloads.buildDom;
-    var toggle = wrapper.querySelector('[data-v="ep-toggle"]');
-    var list = wrapper.querySelector('[data-v="ep-list"]');
-    if (toggle && !(data.episodes && data.episodes.length)) {
-      var heading = wrapper.querySelector('h1');
-      if (heading && document.activeElement === toggle) {
-        heading.tabIndex = -1;
-        heading.focus();
-      }
-      if (list && !list.hidden) buildDom.collapseAway(list);
-      buildDom.collapse(toggle, function() {
-        removeNode(toggle);
-        removeNode(list);
+  /* The words stand at the hero's foot: while the list is open they keep their place, and the
+     hero grows under them. */
+  function hold() {
+    var from = hero.getBoundingClientRect().top + hero.clientTop;
+    hero.style.paddingTop = act.closest('.watch-banner__body').getBoundingClientRect().top - from + 'px';
+    hero.style.alignItems = 'flex-start';
+  }
+
+  function letGo() { hero.style.paddingTop = hero.style.alignItems = ''; }
+
+  function toggleEpisodes(box) {
+    var list = box.querySelector('[data-v="ep-list"]');
+    if (box.hasAttribute('open')) {
+      if (box.classList.contains('is-shutting')) return;
+      box.classList.add('is-shutting');
+      ease(list, list.offsetHeight, 0, function () {
+        box.classList.remove('is-shutting');
+        box.removeAttribute('open');
+        letGo();
       });
       return;
     }
-    if (toggle && !list) {
-      removeNode(toggle);
-      toggle = null;
-    }
-    buildDom.syncEpisodes(wrapper, data);
-    if (!toggle) {
-      var drawn = wrapper.querySelector('[data-v="ep-toggle"]');
-      if (drawn) buildDom.reveal(drawn);
-    } else if (buildDom.isCollapsing(toggle)) {
-      buildDom.reveal(toggle);
-      if (toggle.getAttribute('aria-expanded') === 'true') buildDom.reveal(list);
-    }
+    hold();
+    box.setAttribute('open', '');
+    ease(list, 0, list.offsetHeight);
   }
 
-  function removeNode(el) {
-    if (el && el.parentNode) el.parentNode.removeChild(el);
-  }
-
-  function showPart(el, shown) {
-    var buildDom = MM.downloads.buildDom;
-    if (!shown) {
-      if (!el.hidden) buildDom.collapse(el, function() { el.hidden = true; });
-    } else if (el.hidden || buildDom.isCollapsing(el)) {
-      el.hidden = false;
-      buildDom.reveal(el);
-    }
+  /* Open, the list stays as the person left it while episodes come and go. */
+  function drawEpisodes(data) {
+    var box = act.querySelector('.share-eps');
+    var there = !!(data.episodes && data.episodes.length);
+    if (there) MM.downloads.buildDom.syncEpisodes(box, data);
+    else if (!box.hidden && box.contains(document.activeElement)) act.querySelector('.share-steps').focus({ preventScroll: true });
+    box.hidden = !there;
+    if (!there) letGo();
   }
 
   /* Polling can no longer authenticate: keep the last progress on screen and
      tell the visitor to reload, rather than leaving a bar that silently stops. */
   function showReloadNotice() {
-    var wrapper = document.getElementById('dl-hero-wrapper');
-    if (!wrapper) return;
-    var hint = wrapper.querySelector('.dl-hint');
-    if (!hint) return;
-    hint.textContent = 'Progress updates have stopped. Reload this page to see the latest status.';
+    var notice = act.querySelector('[data-stopped]');
+    if (!notice) return;
+    notice.hidden = false;
+    act.querySelector('[data-say]').hidden = true;
+    say('Updates have stopped. Reload the page to see where it is now.');
   }
 
-  /* Where _dl_hero_card.html draws it: between the title and the state. */
-  function updateEpisodeSummary(wrapper, summary) {
-    var line = wrapper.querySelector('.dl-hero-ep-summary');
-    var buildDom = MM.downloads.buildDom;
-    if (!summary) {
-      if (line) buildDom.collapseAway(line);
-      return;
-    }
-    if (line) {
-      MM.dom.setText(line, summary);
-      if (buildDom.isCollapsing(line)) buildDom.reveal(line);
-      return;
-    }
-    line = document.createElement('div');
-    line.className = 'dl-hero-ep-summary';
-    line.textContent = summary;
-    var status = wrapper.querySelector('.dl-hero-status');
-    status.parentNode.insertBefore(line, status);
-    buildDom.reveal(line);
-  }
-
-  function fillResult(box, ok, title, detail) {
-    var titleDiv = document.createElement('div');
-    titleDiv.className = 'dl-result-title dl-result-title--' + (ok ? 'success' : 'error');
-    titleDiv.textContent = title;
-    var detailDiv = document.createElement('div');
-    detailDiv.className = 'dl-result-detail';
-    detailDiv.textContent = detail;
-
-    box.className = 'dl-result dl-card-enter' + (ok ? '' : ' dl-result--error');
-    box.replaceChildren(
-      ok ? MM.dom.icon('i-circle-check', 'dl-result-icon dl-result-icon--success')
-        : MM.dom.icon('i-circle-xmark', 'dl-result-icon dl-result-icon--error'),
-      titleDiv,
-      detailDiv
-    );
-    return detailDiv;
-  }
-
-  /* The card stays, so the page keeps its heading and its link; the words under it change. */
-  function showReady(wrapper) {
-    var hint = wrapper.querySelector('.dl-hint');
-    if (!hint) return;
-    var box = document.createElement('div');
-    fillResult(box, true, 'Ready to watch!', 'It will appear in your Plex library shortly.');
-    box.className = 'dl-result';
-    hint.parentNode.appendChild(box);
-    MM.downloads.buildDom.reveal(box);
-    MM.downloads.buildDom.collapseAway(hint);
+  function fail(name, what, why) {
+    var node = part(name);
+    if (what) node.querySelector('[data-what]').textContent = what;
+    node.querySelector('[data-why]').textContent = why;
+    show(node);
   }
 
   /* The request did not go through: say why where the button is. */
   function showRefusal(err) {
-    var said = err.data || {};
+    var told = err.data || {};
     var status = err.status || 0;
-    if (status === 409 && said.poll_token) {
-      if (said.download_state === 'queued') {
-        showOnItsWay(said.poll_token, true, said.notify_by_email === true);
-      } else if (said.download_state === 'in_library') {
-        endWith(true, 'Already in your library', 'This title is available to watch in Plex.');
-      } else if (said.download_state === 'tracked') {
-        endWith(true, 'Already tracked by Sonarr', 'Sonarr has nothing to download for it right now.');
-      } else {
-        endWith(true, 'Already in ' + (_service === 'radarr' ? 'Radarr' : 'Sonarr'), MM.api.messageOf(err, ''));
-      }
+    if (status === 409 && told.poll_token) {
+      if (told.download_state === 'queued') showOnItsWay(told.poll_token, true, told.notify_by_email === true);
+      else show(part(told.download_state === 'in_library' ? 'in-library' : 'tracked'));
       return;
     }
     if (status === 409) {
-      var detail = endWith(false, 'This link has already been used', '');
-      var reload = document.createElement('a');
-      reload.href = '';
-      reload.textContent = 'Reload this page to see where the download is';
-      detail.appendChild(reload);
+      fail('refused', 'This link has been used already.', 'Reload the page to see where the download is.');
       return;
     }
+    /* The server's own words are an admin's: they name the services behind it. */
     if (status && status !== 429 && status < 500) {
-      endWith(false, 'Download failed', MM.api.messageOf(err, 'This link could not start the download.'));
+      fail('refused', '', status === 410 ? 'This link does not work any more.' : 'Ask whoever sent you this link.');
       return;
     }
-
-    var btn = document.getElementById('btn-download');
-    btn.removeAttribute('aria-disabled');
-    btn.textContent = 'Try again';
-    var box = document.getElementById('download-result');
-    fillResult(box, false, 'Download failed', MM.api.messageOf(err, 'Something went wrong. Try again.'));
-    box.hidden = false;
-    btn.setAttribute('aria-describedby', box.id);
-    box.scrollIntoView({ block: 'nearest' });
+    fail('try-again', '', status ? 'Try again in a moment.' : MM.api.messageOf(err, 'Try again in a moment.'));
   }
 
-  /* The last word: the button goes and the answer takes its place. */
-  function endWith(ok, title, detail) {
-    var keepsFocus = focusStillOnAction();
-    var box = document.getElementById('download-result');
-    var detailEl = fillResult(box, ok, title, detail);
-    box.hidden = false;
-    document.getElementById('download-action').hidden = true;
-    if (keepsFocus) box.focus();
-    return detailEl;
-  }
-
-  var dlBtn = document.getElementById('btn-download');
-  if (dlBtn) {
-    dlBtn.addEventListener('click', triggerDownload);
-  }
-
-  var heroWrapper = document.getElementById('dl-hero-wrapper');
-  if (heroWrapper) {
-    heroWrapper.addEventListener('click', function(e) {
-      var toggle = e.target.closest('[data-v="ep-toggle"]');
-      if (!toggle) return;
-      var opening = toggle.getAttribute('aria-expanded') !== 'true';
-      toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
-      toggle.classList.toggle('open', opening);
-      var list = toggle.nextElementSibling;
-      if (opening) {
-        list.hidden = false;
-        MM.downloads.buildDom.reveal(list);
-      } else {
-        MM.downloads.buildDom.collapse(list, function() { list.hidden = true; });
-      }
-    });
-  }
+  act.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-dl]');
+    if (btn) triggerDownload(btn);
+    var summary = e.target.closest('.share-eps summary');
+    if (summary) {
+      e.preventDefault();
+      toggleEpisodes(summary.parentNode);
+    }
+  });
+  /* A phone's address bar comes and goes without a turn of the screen. */
+  var width = window.innerWidth;
+  window.addEventListener('resize', function() {
+    if (window.innerWidth !== width) letGo();
+    width = window.innerWidth;
+  });
 
   if (_downloadState === 'queued' && _tmdbId) {
     pollStatus();

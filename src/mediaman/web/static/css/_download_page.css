@@ -1,320 +1,92 @@
-/* DOWNLOAD PAGE — public guest confirmation page (download.html)
-   linked from "Re-download" buttons in newsletters. Owns the
-   cinematic backdrop, metadata layout, ratings, trailer, cast,
-   primary CTA, post-action result strip, and the expired-link
-   state. */
+/* DOWNLOAD PAGE — what the page of a download link has to itself: the press and how it goes,
+   what is under the hero, and the trailer over it. The rest is _share.css. */
 
-/* 28. DOWNLOAD.HTML — public guest download confirmation page
-   (linked from "Re-download" buttons in newsletters). Cinematic
-   backdrop + metadata + single CTA. */
-.dl-nav {
-  padding: 18px var(--pad);
-  text-align: center;
-  border-bottom: 1px solid var(--hair);
-  background: var(--scrim-modal);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  backdrop-filter: saturate(180%) blur(24px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
+/* The picture comes into colour as the download does (download.js). */
+.share-page.is-searching { --sat: .25; --lum: .835; }
 
-.dl-cinema {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  width: 100%;
-  min-height: clamp(320px, 27vw, 480px); /* grows for a long title */
-  padding: 28px 0 32px;
-  overflow: hidden;
-  background: var(--s3);
-}
-.dl-cinema__art,
-.dl-cinema__fill {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.dl-cinema__art { object-position: 50% 25%; }
-.dl-cinema__fill { filter: blur(40px) brightness(.8); transform: scale(1.2); }
-.dl-cinema__poster {
-  position: relative;
-  z-index: 1;
-  flex: none;
-  width: clamp(104px, 24vw, 180px);
-  height: auto;
-  aspect-ratio: auto 2 / 3; /* its own shape, once known */
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
-}
-.dl-cinema__art:not([data-broken]) ~ .dl-cinema__fill,
-.dl-cinema__art:not([data-broken]) ~ .dl-cinema-info .dl-cinema__poster { display: none; }
-/* With no picture at all: a short head. */
-.dl-cinema:not(:has(img:not([data-broken]))) {
-  min-height: 0;
-  padding-top: 72px;
-  background: radial-gradient(ellipse at 75% 40%, var(--hero-hi) 0%, var(--hero-mid) 45%, var(--bg) 80%);
-}
-.dl-cinema-gradient {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(0deg, var(--bg), color-mix(in srgb, var(--bg) 60%, transparent) 70px, color-mix(in srgb, var(--bg) 25%, transparent) 150px, color-mix(in srgb, var(--bg) 18%, transparent));
-}
-.dl-cinema-info {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: clamp(16px, 3vw, 28px);
-  width: min(720px, 92vw);
-}
-/* The shade rises with the text, whatever height it takes, and runs the hero's full width. */
-.dl-cinema-text { position: relative; z-index: 0; min-width: 0; overflow-wrap: anywhere; }
-.dl-cinema-text::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: -72px -100vw -32px;
-  background: linear-gradient(0deg, color-mix(in srgb, var(--scrim) 80%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) calc(100% - 72px), color-mix(in srgb, var(--scrim) 38%, transparent) calc(100% - 46px), color-mix(in srgb, var(--scrim) 12%, transparent) calc(100% - 18px), transparent);
-  pointer-events: none;
-}
-.dl-cinema-title {
-  font-family: var(--font-display);
-  font-size: clamp(28px, 4vw, 44px);
-  font-weight: 600;
-  letter-spacing: -.03em;
-  line-height: 1.05;
-}
-.dl-cinema-text--long .dl-cinema-title { font-size: clamp(22px, 2.6vw, 32px); line-height: 1.12; }
-.dl-cinema-title .year { color: var(--t3); font-weight: 400; margin-left: 6px; font-size: .7em; }
-.dl-cinema-tagline {
-  font-style: italic;
-  color: var(--t2);
-  font-size: 16px;
-  margin-top: 10px;
-  letter-spacing: -.01em;
-}
+.share-act .btn .btn-spinner { margin: 0; }
+.share-act .btn[aria-disabled="true"] { opacity: .8; cursor: progress; }
 
-.dl-content,
-#dl-hero-wrapper { overflow-wrap: anywhere; }
-/* Opens from no height at all: a least height or a line of its own would show at once. */
-#dl-hero-wrapper .dl-fold { min-height: 0; }
-#dl-hero-wrapper .dl-hero-episodes-toggle { display: flex; width: fit-content; }
-.dl-content {
-  width: min(720px, 92vw);
-  margin: 32px auto 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.dl-quick,
-.dl-ratings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-.dl-quick .meta-text { font-size: 13px; color: var(--t2); }
-.genre-pill {
-  display: inline-flex;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  background: var(--rgba-overlay-sm);
-  color: var(--t2);
-  font-size: 11px;
-  font-weight: 500;
-}
-.genre-pill--ai { align-items: center; gap: 5px; color: var(--t1); }
+.share-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; width: min(480px, 100%); padding: 0; }
+.share-steps:focus { outline: none; }
+.share-steps li { position: relative; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--t2); transition: color var(--dur) var(--ease-out); }
+.share-steps li::before, .share-steps li:not(:last-child)::after { content: ""; position: absolute; top: 10px; left: 22px; right: 0; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--t1) 18%, transparent); }
+.share-steps li:last-child::before { content: none; }
+.share-steps li:not(:last-child)::after { background: var(--accent); transform: scaleX(0); transform-origin: 0 50%; transition: transform calc(var(--dur-slow) * 2) var(--ease-out); }
+.share-steps li.is-done:not(:last-child)::after { transform: none; }
+.share-steps i { position: relative; z-index: 1; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--t1) 26%, transparent); background: color-mix(in srgb, var(--scrim) 60%, transparent); color: transparent; font-size: 11px; transition: background-color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out); }
+.share-steps .is-done i { background: var(--accent); border-color: var(--accent); color: var(--color-on-accent); }
+.share-steps .is-now { color: var(--t1); font-weight: 600; }
+.share-steps .is-now i { border-color: var(--accent); }
+.share-steps .is-now i::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--accent); animation: share-pulse 1.8s ease-in-out infinite; }
+@keyframes share-pulse { 50% { transform: scale(.55); opacity: .6; } }
+.share-steps.is-all li i { background: var(--success); border-color: var(--success); color: #00210b; }
+.share-steps.is-all li:not(:last-child)::after { background: var(--success); }
 
-.dl-columns {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-@media (min-width: 720px) {
-  .dl-columns { grid-template-columns: 1.5fr 1fr; }
-}
-.dl-description {
-  color: var(--t1);
-  font-size: 15px;
-  line-height: 1.55;
-}
-.dl-reason {
-  padding: 12px 14px;
-  background: var(--s3);
-  border-radius: var(--r-sm);
-  font-size: 13px;
-  color: var(--t2);
-  line-height: 1.5;
-}
+.share-act .dl-progress { width: min(480px, 100%); }
+.share-act .dl-progress .watch-bar { height: 6px; }
+.share-act .dl-progress .watch-bar::-webkit-progress-value { transition: width calc(var(--dur-slow) * 2) var(--ease-out); }
+.share-act .dl-progress__line { color: var(--t1); font-size: 14px; }
+.share-fold { width: 100%; display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out), margin var(--dur-slow) var(--ease-out); }
+.share-fold > * { min-height: 0; overflow: hidden; }
+.share-fold.is-shut { grid-template-rows: 0fr; opacity: 0; margin-top: -14px; visibility: hidden; transition: grid-template-rows var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out), margin var(--dur-slow) var(--ease-out), visibility 0s var(--dur-slow); }
+.share-act .share-say--bad, .share-act .share-say--bad b { color: var(--danger-text); }
+.share-eps { width: min(480px, 100%); }
+.share-eps summary { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; color: var(--t1); cursor: pointer; list-style: none; }
+.share-eps summary::-webkit-details-marker { display: none; }
+.share-eps summary .ico { font-size: 11px; transition: transform var(--dur) var(--ease-out); }
+.share-eps[open]:not(.is-shutting) summary .ico { transform: rotate(90deg); }
+.share-eps .dl-hero-episodes { margin-top: 2px; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
 
-.dl-trailer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.dl-trailer iframe {
-  width: 100%;
-  aspect-ratio: 16/9;
-  border: 0;
-  border-radius: var(--r-md);
-  background: #000;
-  display: block;
-}
+/* ── Under the hero ── */
 
-.dl-requested {
-  font-size: 12px;
-  color: var(--t3);
-  padding-top: 8px;
+.share-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; max-width: 1180px; padding: 12px var(--pad) 72px; overflow-wrap: anywhere; }
+@media (min-width: 900px) {
+  .share-body:has(> .ttl__reason) { grid-template-columns: minmax(0, 1fr) 340px; }
+  .share-body > .share-cast { grid-column: 1 / -1; }
 }
+.share-body > .ttl__main { gap: 14px; }
+.share-body .ttl__overview { font-size: 17px; color: var(--t1); }
+.share-body .ttl__reason { align-self: start; }
+.share-cast .ttl-cast { max-width: 980px; padding: 0; }
 
-.dl-action { display: flex; padding: 8px 0 24px; }
-/* Sized as a large .btn. */
-.btn-download-hero {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 32px;
-  font-size: 15px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  background: var(--accent-cta);
-  color: var(--t1);
-  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-  letter-spacing: -.01em;
-}
-.btn-download-hero:not([aria-disabled="true"]):hover { background: var(--accent-cta-hover); }
-.btn-download-hero:not([aria-disabled="true"]):active { transform: scale(.97); }
-/* Less padding, so the spinner takes no width. */
-.btn-download-hero[aria-disabled="true"] { padding-inline: 12px; opacity: .8; cursor: progress; }
+/* ── Trailer, in the hero (share.js) ── */
 
-.dl-result {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 32px 20px;
-  background: rgba(48,209,88,.08);
-  border: 1px solid rgba(48,209,88,.2);
-  border-radius: var(--r-lg);
-  text-align: center;
-  width: min(720px, 92vw);
-  margin: 24px auto 0;
-}
-.dl-result-title {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -.02em;
-}
-.dl-content .dl-result { margin-top: 0; }
-.dl-action:has(+ .dl-result:not([hidden])) { padding-bottom: 0; }
-.dl-result--error { background: var(--rgba-danger-bg); border-color: color-mix(in srgb, var(--danger) 25%, transparent); }
-.dl-result-title--success { color: var(--success); }
-.dl-result-title--error { color: var(--danger-text); }
-.dl-result-detail a { color: var(--accent); }
-.dl-result-detail { color: var(--t2); font-size: 14px; }
+.share-player { position: absolute; inset: 0; z-index: calc(var(--z-nav) + 1); display: grid; justify-items: center; align-items: start; background: color-mix(in srgb, var(--scrim) 72%, transparent); -webkit-backdrop-filter: blur(32px) saturate(1.3); backdrop-filter: blur(32px) saturate(1.3); opacity: 0; visibility: hidden; transition: opacity var(--dur) var(--ease-out), visibility 0s var(--dur); container-type: size; }
+.is-trailer > .share-player { opacity: 1; visibility: visible; transition-delay: 0s; }
+/* As large as the hero allows with the close button beside it, or over it. */
+.share-player__frame { --w: max(min(100cqw, (100cqh - 64px) * 16 / 9), min(100cqw - 136px, 100cqh * 16 / 9)); --spare: calc(100cqh - var(--w) * 9 / 16); position: relative; width: var(--w); aspect-ratio: 16 / 9; margin-top: min(max(var(--spare) / 2, 64px), var(--spare)); background: #000; overflow: hidden; transform: scale(.97); transition: transform var(--dur-slow) var(--ease-out); }
+.is-trailer .share-player__frame { transform: none; }
+.share-player__frame > iframe { display: block; width: 100%; height: 100%; border: 0; }
+/* Gone at once, so that it is never seen over the bar's own button. */
+.share-player .ttl__close { position: absolute; top: 12px; right: 12px; margin: 0; translate: none; z-index: 2; visibility: hidden; }
+.is-trailer > .share-player .ttl__close { visibility: visible; }
+.share-hero > .watch-banner__body { transition: opacity var(--dur) var(--ease-out); }
+.is-trailer > .watch-banner__body[inert] { opacity: 0; }
+.share-bar { transition: opacity var(--dur) var(--ease-out), visibility 0s; }
+/* The bar is over the hero, not in it. */
+.share-bar:has(~ main .is-trailer) { opacity: 0; visibility: hidden; transition-delay: 0s, var(--dur); }
+.share-trailer-off, .share-trailer-on { display: inline-flex; align-items: center; gap: 8px; }
+.share-hero:not(.is-trailer) .share-trailer-on, .is-trailer .share-trailer-off { display: none; }
 
-.dl-hint {
-  width: min(720px, 92vw);
-  margin: 16px auto 0;
-  padding: 14px 18px;
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-md);
-  color: var(--t2);
-  font-size: 13px;
-  line-height: 1.55;
-  text-align: center;
-}
-
-.dl-footer {
-  text-align: center;
-  margin-top: 24px;
-  padding-bottom: 40px;
-}
-.dl-content .dl-footer { text-align: start; }
-.dl-footer a { color: var(--accent); font-size: 14px; }
-
-.dl-expired {
-  width: min(540px, 92vw);
-  margin: 80px auto;
-  padding: 40px 32px;
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  box-shadow: var(--shadow-card);
-}
-.dl-expired-icon-wrap {
-  width: 72px;
-  height: 72px;
-  margin-bottom: 4px;
-  border-radius: 50%;
-  background: var(--rgba-overlay-xs);
-  display: grid;
-  place-items: center;
-}
-.dl-expired-icon { font-size: 40px; color: rgba(255,255,255,0.3); }
-.dl-result-icon { font-size: 44px; margin-bottom: 8px; }
-.dl-result-icon--success { color: var(--success); }
-.dl-result-icon--error   { color: var(--danger-text); }
-.dl-expired-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
-.dl-expired-sub   { color: var(--t3); font-size: 14px; text-wrap: balance; }
-.dl-expired-back  { margin-top: 6px; }
-.dl-expired-back a { color: var(--accent); font-size: 14px; }
-
-.u-mt-24 { margin-top: 24px; }
-
-/* Phone: 44px tap area on the brand and the links back. */
 @media (max-width: 699.98px) {
-  .dl-nav .nav-brand,
-  .dl-footer a,
-  .dl-expired-back a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-  }
+  .share-steps li { font-size: 12px; }
+  .share-body { padding-top: 8px; gap: 28px; }
+  .share-body .ttl__overview { font-size: 16px; }
+  .share-player { inset: 0 0 auto; height: max(56.25vw + 64px, var(--clear, 0px)); max-height: 100%; }
+  /* The words go with the picture; the buttons stay under the video. */
+  .share-info > :not(.share-act, .sr-only) { transition: opacity var(--dur) var(--ease-out), visibility 0s; }
+  .is-trailer .share-info > :not(.share-act, .sr-only) { opacity: 0; visibility: hidden; transition-delay: 0s, var(--dur); }
 }
-
-/* A finger's width to tap. */
-@media (pointer: coarse) {
-  .dl-nav .nav-brand,
-  .dl-footer a { display: inline-flex; align-items: center; min-height: 44px; }
-  .dl-expired-back a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: 16px; }
-}
-
-/* Little height: the hero is no taller than what it holds, but a wide backdrop keeps room to show. */
-@media (max-height: 500px) {
-  .dl-cinema { min-height: 0; padding-block: 16px 20px; }
-  .dl-cinema:has(.dl-cinema__art:not([data-broken])) { min-height: 55vh; }
-  .dl-cinema__poster { width: min(24vw, 34vh); }
-}
-
-/* A phone held sideways: the whole card on one screen. */
-@media (max-height: 500px) and (orientation: landscape) {
-  .dl-nav { padding-block: 10px; }
-  .dl-expired { margin: 12px auto; padding: 14px 24px; gap: 8px; }
-  .dl-expired-icon-wrap { width: 48px; height: 48px; margin-bottom: 0; }
-  .dl-expired-icon { font-size: 26px; }
-  .dl-expired-back { margin-top: 0; }
-}
-@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
-  .dl-nav { padding-block: 0; }
-}
-@media (max-height: 360px) and (orientation: landscape) {
-  .dl-expired-icon-wrap { display: none; }
-}
-
 @media (forced-colors: active) {
-  .dl-cinema__art,
-  .dl-cinema__fill,
-  .dl-cinema-gradient,
-  .dl-cinema-text::before { display: none; }
+  .share-steps i { border-color: CanvasText; }
+  .share-steps li:not(.is-done) .ico { visibility: hidden; }
+  .share-steps li:not(:last-child)::before { background: CanvasText; forced-color-adjust: none; }
+  .share-steps li:not(:last-child)::after { background: Highlight !important; forced-color-adjust: none; }
+  .share-steps .is-now i::after { forced-color-adjust: none; background: Highlight; }
+  .share-steps .is-done i, .share-steps.is-all li i { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .share-steps .is-now i::after { animation: none !important; }
+  .share-player__frame { transform: none; }
 }

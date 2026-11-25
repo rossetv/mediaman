@@ -13,15 +13,12 @@ Package layout:
 - ``_types``: ``KeepDecision``, ``VerifiedKeepAction``, ``resolve_keep_decision``
 - ``_lookup``: token hash, DB lookups, ``mark_token_consumed``
 - ``_mutations``: date-parsing predicates, guarded UPDATE helpers
-- ``_display``: human-readable expiry and date formatters
+- ``_display``: the human-readable expiry formatter
 """
 
 from __future__ import annotations
 
-from mediaman.services.scheduled_actions._display import (
-    format_added_display,
-    format_expiry,
-)
+from mediaman.services.scheduled_actions._display import format_expiry
 from mediaman.services.scheduled_actions._lookup import (
     is_keep_token_consumed,
     lookup_verified_action,
@@ -46,7 +43,6 @@ __all__ = [
     "VerifiedKeepAction",
     "apply_keep_forever",
     "apply_keep_snooze",
-    "format_added_display",
     "format_expiry",
     "is_keep_token_consumed",
     "is_pending",

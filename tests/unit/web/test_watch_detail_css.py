@@ -87,6 +87,11 @@ def test_a_long_season_name_wraps_inside_its_chip() -> None:
     assert "nowrap" not in _of(".season-chip", PHONE)
 
 
+def test_a_season_to_be_ticked_is_tall_enough_for_a_finger() -> None:
+    assert "min-height: 56px" in _of(".season-chip")
+    assert "min-height: 44px" in _of(".season-pick__go")
+
+
 def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     body = _of(".ttl-cast__name")
     assert "overflow-wrap: anywhere" in body

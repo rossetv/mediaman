@@ -1,18 +1,7 @@
-"""Regression test: download.html must load downloads/build_dom.js.
+"""download.html must load downloads/build_dom.js before download.js.
 
-``download.js``'s ``buildHeroCard()`` calls
-``MM.downloads.buildDom.buildHero(item)``, but ``MM.downloads.buildDom`` is
-only ever defined by ``static/js/downloads/build_dom.js`` — a module only
-``downloads.html`` (the dashboard-ish listing page) loaded, not
-``download.html`` (the per-token confirm page). Before ``download.js`` was
-made parseable (curly-quote fix), the page's script never ran, so the
-missing dependency was invisible; once it parses, a successful download
-throws a ``TypeError`` in the ``.then`` handler, which the generic
-``.catch`` reports to the user as "Network error — please try again" — on a
-download that had actually succeeded.
-
-``defer`` scripts execute in document order, so ``build_dom.js`` must also
-appear *before* ``download.js`` in the template.
+download.js draws the episodes with ``MM.downloads.buildDom.syncEpisodes``, which
+build_dom.js alone defines, and ``defer`` scripts execute in document order.
 """
 
 from __future__ import annotations
@@ -33,8 +22,8 @@ def _tpl(name: str) -> str:
 def test_download_html_loads_build_dom_before_download_js() -> None:
     download = _tpl("download.html")
     assert _BUILD_DOM_TAG in download, (
-        "download.html must load downloads/build_dom.js — download.js's "
-        "buildHeroCard() calls MM.downloads.buildDom.buildHero(item)"
+        "download.html must load downloads/build_dom.js — download.js calls "
+        "MM.downloads.buildDom.syncEpisodes(box, item)"
     )
     assert _DOWNLOAD_JS_TAG in download
 

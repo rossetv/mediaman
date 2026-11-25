@@ -1,53 +1,44 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="dark">
-<meta name="supported-color-schemes" content="dark">
-<title>{{ title }}{% if season_label %}, {{ season_label }}{% endif %} is ready to watch</title>
-<style>
-  @media (max-width: 520px) {
-    .mm-ready .pad { padding-left:16px !important; padding-right:16px !important; }
-    .mm-ready .card { padding:20px 18px !important; }
-  }
-</style>
-</head>
-<body style="margin:0;padding:0;background:#000000;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#000000" style="background:#000000;">
-<tr><td align="center" style="padding:32px 12px;">
-<table class="mm-ready" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif;color:#ffffff;background:#000000;">
-<tr><td class="pad" style="padding:24px 32px 20px;text-align:center;"><div style="font-size:20px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div></td></tr>
-{% if backdrop_src %}<tr><td class="pad" style="padding:0 32px;"><img src="{{ backdrop_src }}" alt="" width="536" height="302" style="display:block;width:100%;max-width:536px;height:auto;background:#1a1a1c;border-radius:16px 16px 0 0;"></td></tr>{% endif %}
-<tr><td class="pad" style="padding:0 32px;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;background:#1a1a1c;border-radius:{% if backdrop_src %}0 0 16px 16px{% else %}16px{% endif %};">
-{% if poster_src and not backdrop_src %}<tr><td align="center" style="padding:24px 24px 0;"><img src="{{ poster_src }}" alt="" width="180" height="270" style="display:block;width:180px;height:auto;background:#2c2c2e;border-radius:10px;"></td></tr>
-{% endif %}<tr><td class="card" style="padding:24px;">
-<div style="margin-bottom:14px;"><span style="display:inline-block;padding:5px 14px;border-radius:980px;font-size:12px;font-weight:700;letter-spacing:0.3px;background:rgba(48,209,88,0.12);color:#30d158;">&#10003; READY TO WATCH</span></div>
-<div style="font-size:28px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.15;overflow-wrap:anywhere;word-break:break-word;">{{ title }}</div>{% if season_label %}
-<div style="font-size:16px;font-weight:600;color:#ffffff;margin-top:6px;overflow-wrap:anywhere;word-break:break-word;">{{ season_label }}</div>{% endif %}
-<div style="font-size:14px;color:#8e8e8e;margin-top:6px;line-height:1.5;overflow-wrap:anywhere;word-break:break-word;">
-{%- set _parts = [] -%}
-{%- if meta.year %}{% set _ = _parts.append(meta.year) %}{% endif -%}
-{%- set _ = _parts.append(meta.media_label) -%}
-{%- if meta.runtime %}{% set _ = _parts.append(meta.runtime ~ ' min') %}{% endif -%}
-{%- if meta.director %}{% set _ = _parts.append('Directed by ' ~ meta.director) %}{% endif -%}
-{%- for part in _parts -%}
-{%- if not loop.first %} &middot; {% endif -%}
-{{ part }}
-{%- endfor -%}
+{%- import "_mail_base.html" as m -%}
+{{ m.head(title ~ " is ready to watch") }}
+<body class="bg" style="margin:0;padding:0;background:#f2f2f4">
+{{ m.pre((season_label ~ " of " if season_label else "") ~ title ~ (" are" if season_label == "Specials" else " is") ~ " in the library. Press play when you are.") }}
+<table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f2f4" style="background:#f2f2f4"><tr><td class="wrap" align="center" style="padding:20px 12px 32px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:separate;{{ m.ff }}">
+{{ m.brand() }}
+<tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px;overflow:hidden">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed">
+{%- if backdrop_src %}
+<tr><td><img class="pic" src="{{ backdrop_src }}" alt="A picture from {{ title }}" width="600" height="338" style="display:block;border:0;width:100%;max-width:600px;height:auto;background:#e3e3e8;color:#1d1d1f;font-size:16px;font-weight:600;line-height:40px;text-align:center;{{ m.ff }}"></td></tr>
+{%- endif %}
+<tr><td class="pad" style="padding:28px 32px 34px;{{ m.ff }}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+{%- if poster_src and not backdrop_src %}<td class="stack" width="170" valign="top" style="padding:0 24px 20px 0">{{ m.pic(poster_src,title,170,255) }}</td>{% endif -%}
+<td class="stack" valign="top" style="{{ m.ff }}">
+<div class="ok" style="font-size:14px;font-weight:700;line-height:20px;color:#1a7f37">&#10003;&nbsp; Ready to watch</div>
+<div class="t1 h1" style="margin-top:8px;font-size:32px;font-weight:700;letter-spacing:-.6px;line-height:1.12;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>
+{%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f">{{ season_label }}</div>{% endif -%}
+{%- set mins = meta.runtime|int %}
+{%- set length = "" if mins <= 0 else mins ~ " min" if mins < 60 else (mins // 60) ~ " h" ~ (" " ~ mins % 60 ~ " min" if mins % 60 else "") %}
+<div class="t2" style="margin-top:8px;font-size:15px;line-height:22px;color:#5f5f66;{{ m.wrap }}">{% for p in (meta.year, meta.media_label, length) if p %}{% if not loop.first %} &middot; {% endif %}{{ p }}{% endfor %}</div>
+{%- macro chip() -%}<span class="chip" style="display:inline-block;margin:0 6px 6px 0;padding:5px 11px;border-radius:14px;background:#ececf0;color:#3a3a40;font-size:13px;font-weight:600;line-height:18px;white-space:nowrap">{{ caller() }}</span> {% endmacro -%}
+{%- if ratings.rating or ratings.imdb_rating or ratings.rt_rating %}
+<div style="margin-top:12px;font-size:0;line-height:0">
+{%- if ratings.rating %}{% call chip() %}&#9733; {{ ratings.rating }}{% endcall %}{% endif %}
+{%- if ratings.imdb_rating %}{% call chip() %}IMDb {{ ratings.imdb_rating }}{% endcall %}{% endif %}
+{%- if ratings.rt_rating %}{% call chip() %}Rotten Tomatoes {{ ratings.rt_rating }}{% endcall %}{% endif -%}
 </div>
-{% if ratings.rating or ratings.imdb_rating or ratings.rt_rating %}<table cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;"><tr>
-{%- if ratings.rating %}<td style="padding-right:6px;"><span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(255,159,10,0.15);color:#ff9f0a;">&#9733; {{ ratings.rating }}</span></td>{% endif -%}
-{%- if ratings.imdb_rating %}<td style="padding-right:6px;"><span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(245,197,24,0.15);color:#f5c518;">IMDb {{ ratings.imdb_rating }}</span></td>{% endif -%}
-{%- if ratings.rt_rating %}<td><span style="display:inline-block;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(255,69,58,0.15);color:#ff453a;">&#127813; {{ ratings.rt_rating }}</span></td>{% endif -%}
-</tr></table>{% endif %}
-{% if description %}<div style="font-size:14px;color:#a1a1a6;margin-top:16px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word;">{{ description }}</div>{% endif %}
-<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:15px;color:#a1a1a6;text-align:center;">Open Plex and enjoy! &#127909;</div>
+{%- endif %}
+{%- if description %}
+<div class="t2" style="margin-top:14px;font-size:16px;line-height:1.55;color:#4a4a50;{{ m.wrap }}">{{ description }}</div>
+{%- endif %}
+{%- if meta.director %}
+<div class="t2" style="margin-top:12px;font-size:14px;color:#5f5f66">{#- What is stored for a show is its creator. -#}
+{{ "Directed" if meta.media_label == "Movie" else "Created" }} by <span class="t1" style="color:#1d1d1f">{{ meta.director }}</span></div>
+{%- endif %}
+{% if watch_url %}<div style="margin-top:26px">{{ m.btn(watch_url,"Watch now",110) }}</div>{% endif %}
+</td></tr></table>
 </td></tr></table>
 </td></tr>
-<tr><td class="pad" style="padding:24px 32px 32px;text-align:center;"><div style="font-size:12px;color:#a1a1a6;line-height:1.6;">You requested this download from mediaman.</div></td></tr>
-</table>
-</td></tr></table>
-</body>
-</html>
+<tr><td class="pad t2" align="center" style="padding:22px 32px 8px;font-size:13px;line-height:20px;color:#5f5f66;{{ m.ff }}">You asked for this on mediaman, so we told you once it was there.</td></tr>
+</table></td></tr></table>
+</body></html>

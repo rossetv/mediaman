@@ -19,7 +19,7 @@ from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services import watch_catalog
 from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr.base import ArrError, SeasonsNotListed
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     add_or_remonitor_movie,
@@ -43,6 +43,12 @@ from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations_page
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.download.confirm import drop_arr_cache
+from mediaman.web.routes.search._seasons import (
+    SeasonPicks,
+    add_to_tracked_show,
+    no_season,
+    seasons_not_listed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +174,7 @@ def _add_rec_to_radarr(
     row: SuggestionDetail,
     mark: Callable[[], None],
     secret_key: str,
+    picks: SeasonPicks,
 ) -> JSONResponse:
     """Add a movie recommendation to Radarr, record the notification and return the response.
     notify_email is None when the issuing admin has no email set: the movie is still added
@@ -228,8 +235,10 @@ def _add_rec_to_sonarr(
     row: SuggestionDetail,
     mark: Callable[[], None],
     secret_key: str,
+    picks: SeasonPicks,
 ) -> JSONResponse:
-    """Add a TV recommendation to Sonarr, record the notification and return the response.
+    """Add a TV recommendation, or its seasons *picks* names, to Sonarr, record the notification
+    and return the response.
     notify_email is None when the issuing admin has no email set: the show is still added
     but no notification row is recorded.
     """
@@ -264,10 +273,34 @@ def _add_rec_to_sonarr(
         return respond_failure("Invalid TVDB ID for this show", status=200)
     if tvdb_id <= 0:
         return respond_failure("Invalid TVDB ID for this show", status=200)
-    if is_series_already_tracked(client, tvdb_id):
+    tracked = is_series_already_tracked(client, tvdb_id)
+    if tracked and not picks.search_seasons:
         return _already_there(row)
+    if tracked:
+        resp = add_to_tracked_show(
+            conn,
+            client,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            title=safe_title,
+            numbers=picks.search_seasons or (),
+            actor=actor,
+            email=notify_email,
+        )
+        if resp.status_code < 400:
+            with conn:
+                mark()
+        return resp
+    seasons = picks.to_add()
+    if seasons is not None and not seasons:
+        return no_season()
     try:
-        client.add_series(tvdb_id, safe_title)
+        if seasons is None:
+            client.add_series(tvdb_id, safe_title)
+        else:
+            client.add_series_with_seasons(tvdb_id, safe_title, seasons)
+    except SeasonsNotListed as exc:
+        return seasons_not_listed(exc, seasons or [])
     except SafeHTTPError as exc:
         # Same as Radarr, for a series Sonarr already tracks.
         if exc.status_code in (409, 422) or (
@@ -302,20 +335,31 @@ def _add_rec_to_sonarr(
 
 @router.post("/api/recommended/{recommendation_id}/download")
 def api_download_recommendation(
-    recommendation_id: _RowId, request: Request, admin: str = Depends(get_current_user)
+    recommendation_id: _RowId,
+    request: Request,
+    body: SeasonPicks | None = None,
+    admin: str = Depends(get_current_user),
 ) -> JSONResponse:
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return respond_failure("Too many requests", status=429)
     conn = get_db()
     row = fetch_suggestion_by_id(conn, recommendation_id)
     return _download(
-        conn, request, admin, row, lambda: mark_downloaded(conn, recommendation_id, now_iso())
+        conn,
+        request,
+        admin,
+        row,
+        lambda: mark_downloaded(conn, recommendation_id, now_iso()),
+        body or SeasonPicks(),
     )
 
 
 @router.post("/api/watch/picks/{pick_id}/download")
 def api_download_pick(
-    pick_id: _RowId, request: Request, username: str = Depends(get_current_user)
+    pick_id: _RowId,
+    request: Request,
+    body: SeasonPicks | None = None,
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
     """Download one of the person's own picks; anyone else's is not found."""
     if not _DOWNLOAD_ACTION_LIMITER.check(username):
@@ -328,6 +372,7 @@ def api_download_pick(
         username,
         row,
         lambda: user_picks.mark_downloaded(conn, username, pick_id, now_iso()),
+        body or SeasonPicks(),
     )
 
 
@@ -337,6 +382,7 @@ def _download(
     username: str,
     row: SuggestionDetail | None,
     mark: Callable[[], None],
+    picks: SeasonPicks,
 ) -> JSONResponse:
     if not row:
         return respond_failure("Recommendation not found", status=404)
@@ -356,6 +402,7 @@ def _download(
             row=row,
             mark=mark,
             secret_key=request.app.state.config.secret_key,
+            picks=picks,
         )
 
     except SafeHTTPError as exc:

@@ -840,7 +840,6 @@ def _declarations_in(rules: str, selector: str) -> str:
     [
         ("_watch.css", ".watch-banner__poster"),
         ("_watch_detail.css", ".ttl__poster"),
-        ("_download_page.css", ".dl-cinema__poster"),
     ],
 )
 def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, poster: str) -> None:

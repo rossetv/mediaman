@@ -22,6 +22,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
@@ -86,8 +87,13 @@ def get_notification_template() -> Template:
             return _NOTIFICATION_TEMPLATE
         from jinja2 import Environment, FileSystemLoader
 
-        template_dir = Path(__file__).parent / "templates"
-        env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        services = Path(__file__).parent.parent
+        # The second folder holds what the two mails share.
+        folders = [
+            services / "downloads" / "templates",
+            services / "mail" / "newsletter" / "templates",
+        ]
+        env = Environment(loader=FileSystemLoader(folders), autoescape=True)
         _NOTIFICATION_TEMPLATE = env.get_template("download_ready.html")
     return _NOTIFICATION_TEMPLATE
 
@@ -139,11 +145,25 @@ def gather_email_meta(
     return meta
 
 
+def _watch_url(row: ClaimedNotificationRow, base_url: str) -> str:
+    """The address that opens the title on Watch, or "" (no button) with no usable site
+    address. A title with no TMDB id is searched for by name.
+    """
+    site = base_url.strip().rstrip("/")
+    if not site.lower().startswith(("http://", "https://")):
+        return ""
+    if not row.tmdb_id:
+        return f"{site}/watch?q={quote(row.title, safe='')}"
+    kind = "movie" if row.media_type == "movie" else "tv"
+    return f"{site}/watch#title=tmdb-{kind}-{row.tmdb_id}"
+
+
 def build_email_payload(
     row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, SuggestionsMeta],
     template: Template,
+    base_url: str = "",
 ) -> tuple[str, str]:
     title = row.title
     media_type = row.media_type
@@ -189,5 +209,6 @@ def build_email_payload(
         meta=meta_ctx,
         ratings=ratings_ctx,
         description=meta["description"],
+        watch_url=_watch_url(row, base_url),
     )
     return subject, html

@@ -1,0 +1,64 @@
+{# What the pages a mailed or shared link opens have in common: the bar, the hero's pictures,
+   the drawn marks and the page that only has something to say. #}
+
+{% macro bar(label="Open mediaman", href="/watch") -%}
+<header class="share-bar">
+  <a class="brand" href="/watch" aria-label="mediaman">media<b>man</b></a>
+  <a class="btn btn--ghost" href="{{ href }}">{{ label }}</a>
+</header>
+{%- endmacro %}
+
+
+{# The wide picture; with none, or one that is no wide picture, the poster as a poster over a
+   blurred copy of itself. Lazy, so those are only fetched when they show. #}
+{% macro pictures(wide, poster) -%}
+{% if wide %}<img class="watch-banner__bg watch-banner__bg--art" src="{{ wide }}" alt="" referrerpolicy="no-referrer" data-wide-art data-broken-on-error>{% endif %}
+{% if poster %}<img class="watch-banner__bg watch-banner__bg--fill" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>
+<img class="watch-banner__poster" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}
+{%- endmacro %}
+
+
+{% macro heading(title) -%}
+<h1 class="watch-banner__title{% if title|length > 80 %} watch-banner__title--longest{% elif title|length > 40 %} watch-banner__title--long{% endif %}" tabindex="-1">{{ title }}</h1>
+{%- endmacro %}
+
+
+{% macro tick() -%}
+<svg class="share-tick" viewBox="0 0 52 52" aria-hidden="true" focusable="false"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 15-17"/></svg>
+{%- endmacro %}
+
+
+{% macro mark(name) -%}
+<svg class="share-note__mark{% if name in ('good', 'count') %} is-{{ name }}{% endif %}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+{%- if name == "count" %}<circle cx="32" cy="32" r="29" stroke-opacity=".18"/>{% endif -%}
+<circle class="ring" cx="32" cy="32" r="29"/>
+{%- if name == "clock" %}<path class="hand" d="M32 32V15"/><path d="M32 32l11 7"/>
+{%- elif name == "good" %}<path class="line" d="M20 33l9 9 16-18"/>
+{%- elif name == "count" %}<path d="M32 18v15l8 5" stroke-opacity=".7"/>
+{%- elif name == "mail" %}<path class="line line--long" d="M18 24h28v18H18zl14 11 14-11"/>
+{%- elif name == "broken" %}<path class="line" d="M27 37l-4 4a6 6 0 0 1-8-8l6-6M37 27l4-4a6 6 0 0 1 8 8l-6 6"/><path d="M28 22v-4M22 28h-4M36 42v4M42 36h4" stroke-opacity=".6"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
+
+{# A page with only something to say. Called with a block, that is what can be done about it. #}
+{% macro notice(mark_name, title, text="", small="") -%}
+<div class="login-page share-note">
+  <div class="login-card">
+    {{ mark(mark_name) }}
+    <h1>{{ title }}</h1>
+    {% if text %}<p>{{ text }}</p>{% endif %}
+    {% if caller is defined %}<div class="share-note__acts">{{ caller() }}</div>{% endif %}
+    {% if small %}<p class="share-note__small">{{ small }}</p>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+
+{# The minute the server asks for, counted by share.js. With no script it is a plain link. #}
+{% macro limited(retry=True) -%}
+{% call notice("count", "One moment", "This page was opened many times in a short while.") %}
+{% if retry %}<a class="btn btn--lg btn--primary" href="" data-count="60">Try again</a>{% else %}<p>Wait a minute, then open the link again.</p>{% endif %}
+{% endcall %}
+{%- endmacro %}
