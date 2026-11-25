@@ -221,6 +221,21 @@ def test_a_refusal_is_under_its_own_field_without_scripts(field):
     assert [_why(html, other) for other in others] == ["", ""]
 
 
+@pytest.mark.parametrize(
+    ("context", "focused"),
+    [
+        ({}, "old_password"),
+        ({"error": "No", "field": "old_password"}, "old_password"),
+        ({"error": "No", "field": "new_password"}, "new_password"),
+        ({"error": "No", "field": "confirm_password"}, "confirm_password"),
+        ({"issues": ["Too short."], "rules": ["length"]}, "new_password"),
+        ({"error": "Too many attempts"}, "old_password"),
+    ],
+)
+def test_the_page_opens_on_the_field_it_refused(context, focused):
+    assert re.findall(r'id="(\w+)"[^>]*\bautofocus\b', _page(**context)) == [focused]
+
+
 def test_a_limit_is_about_the_whole_form():
     html = _page(error="Too many attempts")
 
