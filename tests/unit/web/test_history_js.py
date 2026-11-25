@@ -241,3 +241,7 @@ def test_focus_stays_in_the_page_when_what_held_it_goes() -> None:
         "moreAgain": True,
         "moreNone": "3",
     }
+
+
+def test_a_change_of_the_addresss_hash_alone_leaves_the_list_as_it_is() -> None:
+    assert _run("hash") == {"same": 0, "back": 0, "left": 2}

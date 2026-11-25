@@ -202,6 +202,17 @@
     var menuOf = null;     // the filter whose menu is open
     var titles = {};       // the titles seen, to choose from
     var menuAsked = 0;
+    var at = '';           // the address listed, without its hash
+
+    function here() {
+      var url = new URL(window.location.href);
+      return url.pathname + url.search;
+    }
+
+    function go(method) {
+      window.history[method](null, '', address());
+      at = here();
+    }
 
     function filtered() { return KEYS.some(function (k) { return !!F[k]; }); }
 
@@ -563,7 +574,7 @@
         if (row.scrollIntoView) row.scrollIntoView({ block: 'center', behavior: 'auto' });
       } else if (opened) {
         opened = null;
-        window.history.replaceState(null, '', address());
+        go('replaceState');
       }
       linkNewest(page.page);
       near();
@@ -726,7 +737,7 @@
       window.clearTimeout(typed);
       typed = null;
       opened = null;
-      window.history[sameStep ? 'replaceState' : 'pushState'](null, '', address());
+      go(sameStep ? 'replaceState' : 'pushState');
       chips();
       toTop();
       load(false);
@@ -937,7 +948,7 @@
       if (row.open) opened = id;
       else if (opened === id) opened = null;
       else return;
-      window.history.replaceState(null, '', address());
+      go('replaceState');
     }
 
     /* Slide what follows the row, up to the page's end, along with its details. */
@@ -1090,6 +1101,8 @@
       near();
     });
     window.addEventListener('popstate', function () {
+      if (here() === at) return;
+      at = here();
       window.clearTimeout(typed);
       typing = false;
       closeMenu(false);
@@ -1099,6 +1112,7 @@
       load(false);
     });
 
+    at = here();
     readAddress();
     /* The server's words for what it filtered by, where the address has them. */
     ['q', 'user', 'action', 'title'].forEach(function (k) { F[k] = data.filters[k] || ''; });

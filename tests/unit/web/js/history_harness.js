@@ -318,6 +318,16 @@ const scenarios = {
     out.moreNone = at().closest('.hist') && at().closest('.hist').getAttribute('data-event');
     return out;
   },
+  hash: () => {
+    const h = open({ cursor: 'c1', total: 40 });
+    h.back('#main-content');
+    const same = h.asked.length;
+    h.back('');
+    const back = h.asked.length;
+    h.pick('user', 'bob');
+    h.back('');
+    return { same, back, left: h.asked.length };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });
