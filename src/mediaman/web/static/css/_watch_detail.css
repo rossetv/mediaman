@@ -206,7 +206,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
-:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
+:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
 :is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
 :is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
@@ -250,7 +250,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .ttl.is-trailer .ttl__frame { transform: none; animation: ttl-frame-in var(--dur-slow) var(--ease-out); }
 @keyframes ttl-frame-in { from { opacity: 0; transform: scale(.97); } }
-.ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out); }
+.ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 .ttl__trailer { display: inline-grid; }
 .ttl:not(.is-trailer) .ttl__trailer-on,
 .ttl.is-trailer .ttl__trailer-off { opacity: 0; visibility: hidden; }

@@ -62,6 +62,13 @@ def test_close_stands_above_a_trailer_and_not_on_it() -> None:
     assert re.search(r"outline-offset:\s*-", _of(".ttl.is-trailer .ttl__close:focus-visible", wide))
 
 
+def test_what_a_trailer_takes_away_fades_before_it_is_hidden() -> None:
+    css = (STYLES / "_watch_detail.css").read_text(encoding="utf-8")
+    for hides in (":is(.ttl__genre, .ttl__director)", ".ttl__trailer > span"):
+        rule = re.escape(hides) + r" \{[^}]*transition:[^;]*visibility var\(--dur"
+        assert re.search(rule, css), hides
+
+
 def test_a_trailer_s_frame_is_16_to_9_and_never_larger_than_its_box() -> None:
     body = _of(".ttl__frame")
     assert "width: min(100cqw, 100cqh * 16 / 9)" in body and "aspect-ratio: 16 / 9" in body
