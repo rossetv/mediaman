@@ -968,6 +968,12 @@ def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
     assert _run("barCovers") == [106, 52]
 
 
+def test_nothing_leaves_the_field_s_line_over_the_header_of_see_all() -> None:
+    out = _run("barLeavesSeeAllFree")
+    assert (out.pop("focused"), out.pop("rows")) == (False, False)
+    assert out == {"left": True, "turned": True, "forward": True, "opened": True}
+
+
 def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
     out = _run("barTucksOnPurpose")
     # Far down, back up, then by 1, 6 and 7 in all.

@@ -653,6 +653,7 @@
       // Moving a node takes the focus off it.
       if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
       tuck(false);
+      settleLine(0);
     }
 
     function onLine(node) { return box.contains(node) || (!!toggle && toggle.contains(node)); }
@@ -666,8 +667,8 @@
       var all = byId('watch-all');
       var grid = !!all && !all.hidden;
       if (sheetOn || wide.matches || y < (grid ? 8 : 80) || onLine(document.activeElement)) tuck(false);
-      else if (by > 6) tuck(true);
-      else if (by < -6 && !grid) tuck(false);
+      else if (grid || by > 6) tuck(true);
+      else if (by < -6) tuck(false);
     }
 
     function onScroll() {
@@ -1786,9 +1787,12 @@
       framed = true;
       window.requestAnimationFrame(onScroll);
     }, { passive: true });
+    // See all opens.
+    new MutationObserver(function () { settleLine(0); }).observe(page, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
     bar.addEventListener('focusin', function (e) {
       if (onLine(e.target)) tuck(false);
     });
+    bar.addEventListener('focusout', function () { setTimeout(function () { settleLine(0); }); });
     [wide, phone].forEach(function (m) { m.addEventListener('change', place); });
     place();
 
