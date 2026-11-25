@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
+from fastapi import Body, HTTPException
 from fastapi.testclient import TestClient
 
 from mediaman.app_factory import create_app
@@ -26,6 +26,10 @@ def client():
     @app.get("/json-500")
     def json_500():
         raise HTTPException(status_code=500, detail="broken")
+
+    @app.post("/api/secret")
+    def api_secret(word: str = Body(embed=True)):
+        return {}
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -53,6 +57,16 @@ def test_a_missing_page_for_a_non_html_caller_stays_json(client):
 
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Not Found"}
+
+
+def test_a_refused_body_names_the_field_and_not_what_was_sent(client):
+    resp = client.post("/api/secret", json={"word": ["hunter2"]})
+
+    assert resp.status_code == 422
+    (error,) = resp.json()["detail"]
+    assert error["loc"] == ["body", "word"]
+    assert error["msg"]
+    assert "hunter2" not in resp.text
 
 
 def test_a_missing_api_route_stays_json_even_for_a_browser(client):

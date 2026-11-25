@@ -7,10 +7,13 @@ crash. The page names no path, exception or setting.
 
 from __future__ import annotations
 
+import json
 from typing import cast
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import PlainTextResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -54,6 +57,15 @@ async def _http_exception(request: Request, exc: Exception) -> Response:
     return await http_exception_handler(request, exc)
 
 
+async def _validation_error(request: Request, exc: Exception) -> Response:
+    """The framework's 422, without the value that was sent: it may be a password."""
+    assert isinstance(exc, RequestValidationError)
+    errors = [{k: v for k, v in error.items() if k != "input"} for error in exc.errors()]
+    # Escaped to ASCII, since the names of the fields are the caller's own text.
+    body = json.dumps({"detail": jsonable_encoder(errors)})
+    return Response(body, status_code=422, media_type="application/json")
+
+
 async def _with_security_headers(request: Request, response: Response) -> Response:
     """*response* with the headers the security middleware puts on every other response.
 
@@ -88,4 +100,5 @@ def refusal(request: Request, body: bytes) -> Response:
 
 def register_error_pages(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_exception)
+    app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(Exception, _server_error)
