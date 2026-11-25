@@ -30,6 +30,11 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_an_admin_s_card_has_one_button_named_for_its_title_that_opens_a_menu() -> None:
+    titles = ["Copperline", "Saltmarsh", "Night Shift", "Glass Harbour"]
+    assert _run("moreButton") == [[["BUTTON", "More for " + t, "menu", "false"]] for t in titles]
+
+
 def test_a_mark_reads_each_copy_of_its_title_again_once() -> None:
     assert _run("markedCopies") == ["id:m1", "id:m2"]
 
