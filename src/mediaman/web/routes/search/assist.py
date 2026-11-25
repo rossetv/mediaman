@@ -104,15 +104,17 @@ def _secret(request: Request) -> str:
     return cast(str, request.app.state.config.secret_key)
 
 
-def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
-    return None if repo.switched_off(conn) else _client_by_keys(request, conn)
-
-
-def _client_by_keys(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
+def _has_openai_key(request: Request, conn: sqlite3.Connection) -> bool:
     try:
         get_openai_key(conn, _secret(request))
     except ValueError:
+        return False
+    return True
+
+
+def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
+    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
+    if repo.switched_off(conn) or not _has_openai_key(request, conn):
         return None
     return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
 
@@ -236,8 +238,8 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
     return respond_ok(
         {
             "enabled": repo.uses_history(conn, user_id),
-            # Recommendations use it too, and no limit of search stops them.
-            "available": _client_by_keys(request, conn) is not None,
+            # Recommendations use it too, with neither TMDB nor the AI in search.
+            "available": _has_openai_key(request, conn),
         }
     )
 

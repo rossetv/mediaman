@@ -13,6 +13,7 @@ from mediaman.core.time import now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.services.openai.recommendations import personal, prompts
 from mediaman.services.openai.search_assist import answers, phrases, tonight
 from mediaman.services.watch_catalog import _arr, _discover, _library, _title_meta
 from mediaman.web.auth.session_store import create_session
@@ -599,6 +600,27 @@ class TestRuns:
         assert model.prompts == []
         # What is sent for recommendations is still theirs to stop.
         assert people["amy"].get(f"{BASE}/history").json()["available"] is True
+
+    def test_without_tmdb_recommendations_use_the_history_so_its_switch_is_there(
+        self, amy, conn, model, monkeypatch
+    ):
+        monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
+        monkeypatch.setattr(prompts, "call_openai", model)
+        _own(conn, 1, 2, 3, 5, 6)
+        for tmdb_id in (1, 2, 3, 5, 6):
+            _play(conn, str(100 + tmdb_id))
+        _search(amy, "a secret wish")
+        assert amy.get(BASE).json()["available"] is False
+
+        personal.refresh_people(conn, None, secret_key="0123456789abcdef" * 4)
+        assert len(model.prompts) == 1 and "a secret wish" in model.prompts[0]
+
+        assert amy.get(f"{BASE}/history").json() == {"ok": True, "enabled": True, "available": True}
+
+    def test_without_an_openai_key_nothing_can_use_the_history(self, amy, conn):
+        conn.execute("DELETE FROM settings WHERE key = 'openai_api_key'")
+        conn.commit()
+        assert amy.get(f"{BASE}/history").json()["available"] is False
 
     def test_phrases_being_made_do_not_hold_up_a_question(self, amy, monkeypatch):
         monkeypatch.setattr(assist.threading, "Thread", HeldThread)
