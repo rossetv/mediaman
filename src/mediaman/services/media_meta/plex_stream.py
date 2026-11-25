@@ -362,6 +362,10 @@ class _Stream:
     #: Place of its start among all starts: of two of the same item, the later one plays.
     order: int = 0
     tv: bool = False
+    #: A TV has read its playlist or a segment.
+    tv_read: bool = False
+    #: Whether a TV may go on reading; asked by the reaper, without the lock.
+    allowed: Callable[[], bool] | None = None
 
     @property
     def item(self) -> tuple[str, str]:
@@ -665,7 +669,7 @@ class StreamManager:
 
         That route is under *base_path*, by default the signed-in person's own.
         """
-        stream = self._touch(stream_id, user)
+        stream = self._touch(stream_id, user, read=True)
         base, token = self._creds()
         raw = self._get(
             base, token, stream.child_path, op="playlist", max_bytes=_PLAYLIST_MAX_BYTES
@@ -703,7 +707,7 @@ class StreamManager:
         ``StreamGone`` once the stream ends or the read is cancelled.
         """
         content_type = segment_type(name)
-        stream = self._touch(read.stream_id, read.user)
+        stream = self._touch(read.stream_id, read.user, read=True)
         base, token = self._creds()
         path = f"{posixpath.dirname(stream.child_path)}/{name}"
 
@@ -782,6 +786,14 @@ class StreamManager:
                 raise self._gone(stream_id, user)
             return self._info(stream, stream.last_access)
 
+    def allow(self, stream_id: str, user: str, allowed: Callable[[], bool]) -> None:
+        """Have the reaper stop the stream once *allowed* says no; raises ``StreamGone``."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise self._gone(stream_id, user)
+            stream.allowed = allowed
+
     def copies_video(self, rating_key: str, file: str, user: str = "") -> bool:
         """Whether Plex would send this item's video as it is, remembered per *file* for a while.
 
@@ -858,24 +870,30 @@ class StreamManager:
         self._call_quietly("stop", stream.session_id)
 
     def reap(self, now: float | None = None) -> int:
-        """Stop streams idle for longer than the timeout and ping the rest; return how many stopped.
+        """Stop streams idle past their timeout or no longer allowed, and ping the rest; return
+        how many stopped.
 
         mediaman sends Plex no timeline updates, so the ping is what keeps a paused session alive.
         """
         now = self._clock() if now is None else now
         with self._lock:
-            idle = [
+            asked = {sid: s.allowed for sid, s in self._streams.items() if s.allowed is not None}
+        refused = {sid for sid, allowed in asked.items() if _says_no(allowed)}
+        with self._lock:
+            ended = [
                 sid
                 for sid, s in self._streams.items()
-                if now - s.last_access > (TV_IDLE_TIMEOUT_SECONDS if s.tv else IDLE_TIMEOUT_SECONDS)
+                if sid in refused
+                or now - s.last_access
+                > (TV_IDLE_TIMEOUT_SECONDS if s.tv_read else IDLE_TIMEOUT_SECONDS)
             ]
-            stopped = [self._streams.pop(sid) for sid in idle]
+            stopped = [self._streams.pop(sid) for sid in ended]
             self._reaped = {
                 sid: kept
                 for sid, kept in self._reaped.items()
                 if now - kept[0] <= VIEWING_KEEP_SECONDS
             }
-            self._reaped.update((sid, (now, s)) for sid, s in zip(idle, stopped, strict=True))
+            self._reaped.update((sid, (now, s)) for sid, s in zip(ended, stopped, strict=True))
             live = [s.session_id for s in self._streams.values()]
         for stream in stopped:
             self._call_quietly("stop", stream.session_id)
@@ -935,12 +953,13 @@ class StreamManager:
             self._call_quietly("stop", session_id)
         return len(orphans)
 
-    def _touch(self, stream_id: str, user: str) -> _Stream:
+    def _touch(self, stream_id: str, user: str, *, read: bool = False) -> _Stream:
         with self._lock:
             stream = self._streams.get(stream_id)
             if stream is None or stream.user != user:
                 raise self._gone(stream_id, user)
             stream.last_access = self._clock()
+            stream.tv_read = stream.tv and (stream.tv_read or read)
             viewing = self._viewings.setdefault(
                 (user, stream.rating_key), _Viewing(stream.viewing_started, stream.last_access)
             )
@@ -1119,6 +1138,15 @@ class StreamManager:
         still_wanted()
         logger.warning("plex_stream: %s could not reach Plex (%s)", op, failure)
         raise PlexUnavailable("Plex could not be reached")
+
+
+def _says_no(allowed: Callable[[], bool]) -> bool:
+    try:
+        return not allowed()
+    except Exception as exc:
+        # One stream that cannot be asked about must not keep the round from the others.
+        logger.warning("plex_stream: could not check a stream (%s)", type(exc).__name__)
+        return False
 
 
 def _session_params(

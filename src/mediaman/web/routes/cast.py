@@ -1,13 +1,16 @@
 """Streams for a TV: started by a signed-in person, read by the TV with a ticket and no session.
 
 A ticket reads its own stream's playlist and segments and nothing else. Whatever a ticket is
-refused for, the answer is the same 404, so that a stranger learns nothing from it. Any origin
+refused for, the answer is the same 404 (429 once an address fails too often), so that a stranger
+learns nothing from it. Any origin
 may read the ticket routes, since a TV's player runs on its maker's; none may send credentials.
 """
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
+from functools import partial
 
 from fastapi import APIRouter, Cookie, Depends, Request
 from pydantic import Field
@@ -51,8 +54,10 @@ router = APIRouter(route_class=_StreamRoute)
 
 _PLAYLIST_TYPE = "application/vnd.apple.mpegurl"
 
-# Several TVs of one home, each with a segment every few seconds, and a seek's burst.
-_READ_LIMITER = RateLimiter(max_attempts=600, window_seconds=60)
+# Keyed by stream: a segment every few seconds, and a seek's burst.
+_STREAM_LIMITER = RateLimiter(max_attempts=240, window_seconds=60)
+# Keyed by address, which the TVs behind a proxy share, so only failures count.
+_FAILURE_LIMITER = RateLimiter(max_attempts=60, window_seconds=60)
 
 _CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -135,11 +140,21 @@ def _start(
         return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
-    ticket = get_ticket_store().issue(stream_id, username, session_hash, live=_stream_lives)
+    store = get_ticket_store()
+    token = store.issue(stream_id, username, session_hash, live=_stream_lives)
+    ticket = store.read(token)
+    try:
+        if ticket is None:
+            raise StreamGone("stream is gone")
+        manager.allow(stream_id, username, partial(_is_good, ticket))
+    except StreamGone as exc:
+        # A later start of the title took its place meanwhile.
+        store.drop(token)
+        return _gone_answer(exc)
     return respond_ok(
         {
             "stream_id": stream_id,
-            "url": f"/api/cast/{ticket}/index.m3u8",
+            "url": f"/api/cast/{token}/index.m3u8",
             "expires_in_s": int(TICKET_SECONDS),
             "duration_s": item.duration_s,
             "quality": body.quality,
@@ -175,21 +190,40 @@ def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
     )
 
 
-def _read_ticket(request: Request, token: str) -> Ticket | None:
-    """The one way a ticket is read; None for every refusal."""
-    if not _READ_LIMITER.check(get_client_ip(request)):
-        return None
-    ticket = get_ticket_store().read(token)
+def _is_good(ticket: Ticket) -> bool:
+    return not get_ticket_store().expired(ticket) and _may_still_watch(get_db(), ticket)
+
+
+def _read_ticket(request: Request, token: str) -> Ticket | Response:
+    """The one way a ticket is read; the answer to give, where it may not be."""
+    store = get_ticket_store()
+    ticket = store.read(token)
+    if ticket is not None and not _is_good(ticket):
+        with contextlib.suppress(StreamGone):
+            get_stream_manager().stop(ticket.stream_id, ticket.user)
+        store.drop(token)
+        ticket = None
+    if ticket is not None and not _stream_lives(ticket):
+        store.drop(token)
+        ticket = None
     if ticket is None:
-        return None
-    if not _stream_lives(ticket) or not _may_still_watch(get_db(), ticket):
-        get_ticket_store().drop(token)
-        return None
+        return _refused(request)
+    if not _STREAM_LIMITER.check(ticket.stream_id):
+        return _too_many(_STREAM_LIMITER.retry_after(ticket.stream_id))
     return ticket
 
 
-def _refused() -> Response:
+def _refused(request: Request) -> Response:
+    address = get_client_ip(request)
+    if not _FAILURE_LIMITER.check(address):
+        return _too_many(_FAILURE_LIMITER.retry_after(address))
     return _for_tv(respond_err("not_found", status=404))
+
+
+def _too_many(retry_after: int) -> Response:
+    response = _for_tv(respond_err("rate_limited", status=429))
+    response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 def _for_tv(response: Response) -> Response:
@@ -213,8 +247,8 @@ def cast_preflight() -> Response:
 @router.api_route("/api/cast/{ticket}/index.m3u8", methods=["GET", "HEAD"])
 def cast_playlist(request: Request, ticket: str) -> Response:
     held = _read_ticket(request, ticket)
-    if held is None:
-        return _refused()
+    if isinstance(held, Response):
+        return held
     if request.method == "HEAD":
         return _head(_PLAYLIST_TYPE)
     try:
@@ -222,7 +256,7 @@ def cast_playlist(request: Request, ticket: str) -> Response:
             held.stream_id, held.user, base_path=f"/api/cast/{ticket}"
         )
     except StreamGone:
-        return _refused()
+        return _refused(request)
     except PlexError as exc:
         return _for_tv(plex_failure(exc))
     return _for_tv(Response(text, media_type=_PLAYLIST_TYPE))
@@ -231,12 +265,12 @@ def cast_playlist(request: Request, ticket: str) -> Response:
 @router.api_route("/api/cast/{ticket}/seg/{name}", methods=["GET", "HEAD"])
 async def cast_segment(request: Request, ticket: str, name: str) -> Response:
     held = await run_in_threadpool(_read_ticket, request, ticket)
-    if held is None:
-        return _refused()
+    if isinstance(held, Response):
+        return held
     try:
         content_type = segment_type(name)
         if request.method == "HEAD":
             return _head(content_type)
         return _for_tv(await _read_segment(request, held.stream_id, held.user, name))
     except (ValueError, StreamGone):
-        return _refused()
+        return _refused(request)

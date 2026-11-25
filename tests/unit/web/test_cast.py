@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from urllib.parse import urlsplit
 
 import defusedxml.ElementTree as ET
@@ -57,6 +58,7 @@ class FakePlex:
         self.knows_tracks = True
         self.subtitle_decision = "burn"
         self.reads_fail = False
+        self.on_start = lambda: None
 
     def request(self, method, url, *, params=None, headers=None, **kwargs):
         path, params = urlsplit(url).path, dict(params or {})
@@ -71,6 +73,7 @@ class FakePlex:
                 "</MediaContainer>".encode(),
             )
         if path == f"{TRANSCODE}/start.m3u8":
+            self.on_start()
             return FakeResponse(
                 200, f"#EXTM3U\nsession/{params['session']}/base/index.m3u8".encode()
             )
@@ -321,13 +324,118 @@ def test_a_ticket_is_no_session_and_its_stream_id_is_no_ticket(alice, tv):
     assert _start(tv).status_code == 401
 
 
-def test_past_the_rate_limit_a_held_ticket_is_refused_like_any_other(alice, tv, monkeypatch):
+def test_bogus_tickets_never_stop_a_tv_at_the_same_address(alice, tv, monkeypatch):
     url = _cast(alice)["url"]
-    never = tv.get(f"/api/cast/{'x' * 43}/index.m3u8")
-    monkeypatch.setattr(cast._READ_LIMITER, "_max_attempts", 2)
-    cast._READ_LIMITER.reset()
-    assert [tv.get(url).status_code for _ in range(3)] == [200, 200, 404]
-    assert tv.get(url).content == never.content
+    monkeypatch.setattr(cast._FAILURE_LIMITER, "_max_attempts", 2)
+    bogus = f"/api/cast/{'x' * 43}/index.m3u8"
+    assert [tv.get(bogus).status_code for _ in range(3)] == [404, 404, 429]
+    assert tv.get(url).status_code == 200
+    assert tv.get(_segment_url(url)).status_code == 200
+
+
+def test_past_the_limit_on_failures_every_bad_request_is_refused_alike(
+    alice, tv, conn, monkeypatch
+):
+    url = _cast(alice)["url"]
+    destroy_session(conn, alice.cookies["session_token"])
+    monkeypatch.setattr(cast._FAILURE_LIMITER, "_max_attempts", 1)
+    never = f"/api/cast/{'x' * 43}/index.m3u8"
+    tv.get(never)
+    ended, unknown = tv.get(url), tv.get(never)
+    assert ended.status_code == unknown.status_code == 429
+    assert (ended.content, ended.headers) == (unknown.content, unknown.headers)
+    assert int(unknown.headers["retry-after"]) >= 1
+    assert unknown.headers["access-control-allow-origin"] == "*"
+
+
+def test_a_held_ticket_is_limited_by_its_own_stream_alone(alice, tv, monkeypatch):
+    url, other = _cast(alice)["url"], _cast(alice, "102")["url"]
+    monkeypatch.setattr(cast._STREAM_LIMITER, "_max_attempts", 2)
+    assert [tv.get(url).status_code for _ in range(2)] == [200, 200]
+    refused = tv.get(url)
+    assert refused.status_code == 429
+    assert int(refused.headers["retry-after"]) >= 1
+    assert refused.headers["access-control-allow-origin"] == "*"
+    assert tv.get(other).status_code == 200
+
+
+def _fill(client) -> dict:
+    started = [_cast(client, key) for key in ("101", "102", "103")]
+    assert _start(client, "104").status_code == 429
+    return started[0]
+
+
+@pytest.mark.parametrize("end", [_must_change, _ran_out])
+@pytest.mark.parametrize("notice", ["read", "reaper"])
+def test_the_slot_comes_back_when_a_ticket_ends(alice, tv, conn, clock, end, notice):
+    first = _fill(alice)
+    tv.get(first["url"])
+    end(alice, conn, clock, first)
+    if notice == "read":
+        assert tv.get(first["url"]).status_code == 404
+    else:
+        # Progress keeps the stream from being idle, so only its ticket's end can stop it.
+        plex_stream.get_stream_manager().get(first["stream_id"], "alice")
+        plex_stream.get_stream_manager().reap()
+    set_must_change_password(conn, "alice", False)
+    assert _start(alice, "104").status_code == 200
+
+
+def test_the_session_ending_stops_the_stream_on_plex_without_a_read(alice, conn, plex):
+    _cast(alice)
+    session = plex.decision()["session"]
+    destroy_session(conn, alice.cookies["session_token"])
+    assert plex_stream.get_stream_manager().reap() == 1
+    assert (f"{TRANSCODE}/stop", {"session": session}) in plex.calls
+
+
+def test_a_session_that_cannot_be_checked_leaves_its_stream_and_the_others_reaped(
+    alice, tv, clock, monkeypatch
+):
+    started = _cast(alice)
+    tv.get(started["url"])
+    idle = alice.post("/api/watch/stream", json={"rating_key": "102", "quality": "best"})
+    clock.now += IDLE_TIMEOUT_SECONDS + 1
+
+    def locked(conn, ticket):
+        raise sqlite3.OperationalError("database is locked")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(cast, "_may_still_watch", locked)
+        assert plex_stream.get_stream_manager().reap() == 1
+    assert tv.get(started["url"]).status_code == 200
+    assert alice.get(idle.json()["playlist"]).status_code == 410
+
+
+@pytest.mark.parametrize("read", ["nothing", "head", "progress"])
+def test_a_tv_that_never_reads_is_reaped_as_a_player_is(alice, tv, clock, read):
+    started = _cast(alice)
+    url = started["url"]
+    if read == "head":
+        tv.head(url)
+    if read == "progress":
+        plex_stream.get_stream_manager().get(started["stream_id"], "alice")
+    clock.now += IDLE_TIMEOUT_SECONDS + 1
+    assert plex_stream.get_stream_manager().reap() == 1
+    assert tv.get(url).status_code == 404
+
+
+@pytest.mark.parametrize("address", [str, _segment_url], ids=["playlist", "segment"])
+def test_a_tvs_first_read_gives_it_the_longer_idle_time(alice, tv, clock, address):
+    url = _cast(alice)["url"]
+    assert tv.get(address(url)).status_code == 200
+    clock.now += TV_IDLE_TIMEOUT_SECONDS - 1
+    assert plex_stream.get_stream_manager().reap() == 0
+    assert tv.get(url).status_code == 200
+
+
+def test_a_start_beaten_by_a_later_one_is_told_so(alice, plex):
+    manager = plex_stream.get_stream_manager()
+    later = iter([lambda: manager.start("alice", "101", "best", False, page="later-page")])
+    plex.on_start = lambda: next(later, lambda: None)()
+    resp = _start(alice)
+    assert (resp.status_code, resp.json()["error"]) == (410, "replaced")
+    assert "url" not in resp.json()
 
 
 def test_the_stream_is_asked_of_plex_in_a_form_any_tv_plays(alice, plex):
@@ -418,6 +526,7 @@ def test_a_tvs_stream_counts_towards_the_persons_limit(alice):
 
 def test_a_paused_tv_outlives_the_players_idle_time_and_a_players_stream_does_not(alice, tv, clock):
     url = _cast(alice)["url"]
+    tv.get(url)
     other = alice.post("/api/watch/stream", json={"rating_key": "102", "quality": "best"})
     clock.now += IDLE_TIMEOUT_SECONDS + 1
     plex_stream.get_stream_manager().reap()
@@ -427,6 +536,7 @@ def test_a_paused_tv_outlives_the_players_idle_time_and_a_players_stream_does_no
 
 def test_saving_progress_keeps_a_paused_tvs_stream(alice, tv, clock):
     started = _cast(alice)
+    tv.get(started["url"])
     for _ in range(3):
         clock.now += TV_IDLE_TIMEOUT_SECONDS - 60
         saved = alice.post(

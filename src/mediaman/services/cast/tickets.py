@@ -43,11 +43,10 @@ class TicketStore:
     ) -> str:
         """Return a new ticket for *stream_id*, forgetting those that ran out or are not *live*."""
         token = secrets.token_urlsafe(32)
-        now = self._clock()
-        ticket = Ticket(stream_id, user, session_hash, now + TICKET_SECONDS)
+        ticket = Ticket(stream_id, user, session_hash, self._clock() + TICKET_SECONDS)
         with self._lock:
             held = list(self._tickets.items())
-        ended = [key for key, t in held if now >= t.expires or not live(t)]
+        ended = [key for key, t in held if self.expired(t) or not live(t)]
         with self._lock:
             for key in ended:
                 self._tickets.pop(key, None)
@@ -55,14 +54,17 @@ class TicketStore:
         return token
 
     def read(self, token: str) -> Ticket | None:
-        """The ticket *token* stands for, or None; whether its stream still lives is not asked."""
+        """The ticket *token* stands for, or None.
+
+        One that ran out is handed back too, so that the caller can end its stream.
+        """
         if not _TICKET_RE.fullmatch(token):
             return None
         with self._lock:
-            ticket = self._tickets.get(_hash(token))
-        if ticket is None or self._clock() >= ticket.expires:
-            return None
-        return ticket
+            return self._tickets.get(_hash(token))
+
+    def expired(self, ticket: Ticket) -> bool:
+        return self._clock() >= ticket.expires
 
     def drop(self, token: str) -> None:
         with self._lock:

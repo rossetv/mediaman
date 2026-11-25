@@ -37,9 +37,9 @@ def test_a_ticket_reads_its_own_stream_only(store):
 def test_a_ticket_runs_out(store, clock):
     token = _issue(store)
     clock.now += TICKET_SECONDS - 1
-    assert store.read(token) is not None
+    assert not store.expired(store.read(token))
     clock.now += 1
-    assert store.read(token) is None
+    assert store.expired(store.read(token))
 
 
 @pytest.mark.parametrize("token", ["", "x" * 43, "short", "é" * 43, "a/b"])
@@ -57,3 +57,10 @@ def test_tickets_of_ended_streams_are_forgotten_at_the_next_issue(store):
     _issue(store, "ended")
     _issue(store, "new", live=lambda t: t.stream_id != "ended")
     assert "ended" not in repr(vars(store))
+
+
+def test_a_ticket_that_ran_out_is_forgotten_at_the_next_issue_though_its_stream_lives(store, clock):
+    token = _issue(store, "old")
+    clock.now += TICKET_SECONDS
+    _issue(store, "new")
+    assert store.read(token) is None
