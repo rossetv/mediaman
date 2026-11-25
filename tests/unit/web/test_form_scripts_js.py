@@ -64,3 +64,10 @@ def test_a_busy_button_shows_its_busy_label_and_gets_its_own_back() -> None:
     assert out["stillBusy"] == "Unsubscribing…"
     assert out["afterLapse"] == "Unsubscribe"
     assert out["busyAfter"] is False
+
+
+def test_only_the_pressed_button_is_busy_and_it_gets_its_own_words_back() -> None:
+    out = _run("pressed")
+    idle = [["7 days", "", "", ""], ["30 days", "", "", ""], ["90 days", "", "", ""]]
+    assert out["busy"] == [idle[0], ["Keeping…", "is-pressed", "btn-spinner", "120px"], idle[2]]
+    assert out["after"] == idle

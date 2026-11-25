@@ -11,6 +11,8 @@
               transform var(--dur-fast) var(--ease-out),
               opacity var(--dur-fast) var(--ease-out);
 }
+.share-note form[data-busy] .unsub-btn-danger { opacity: .8; }
+.unsub-btn-danger .btn-spinner { margin: 0; }
 .unsub-btn-danger:hover { background: var(--danger-solid-hover); }
 .unsub-btn-danger:active { background: var(--danger-solid-active); }
 .unsub-btn-danger:focus-visible {

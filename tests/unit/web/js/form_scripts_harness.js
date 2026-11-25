@@ -11,15 +11,19 @@ class El {
   constructor(tag, doc) {
     this.tagName = tag.toUpperCase(); this.doc = doc; this.children = [];
     this.parentNode = null; this.attrs = {}; this.listeners = {};
-    this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {};
+    this.className = ''; this._text = ''; this.type = ''; this.form = null; this.dataset = {}; this.style = {};
+    this.offsetWidth = 120; this.offsetHeight = 55;
+    this.classList = { add: (c) => { this.className = c; }, remove: () => { this.className = ''; } };
   }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   hasAttribute(k) { return k in this.attrs; }
   removeAttribute(k) { delete this.attrs[k]; }
   toggleAttribute(k, on) { if (on) this.attrs[k] = ''; else delete this.attrs[k]; }
-  set textContent(t) { this._text = String(t); }
-  get textContent() { return this._text; }
+  set textContent(t) { this._text = String(t); this.children = []; }
+  get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
+  get childNodes() { return this.children; }
+  replaceChildren(...cs) { this._text = ''; this.children = cs; }
   appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
   insertBefore(c, ref) {
     if (c.parentNode) c.parentNode.removeChild(c);
@@ -37,6 +41,7 @@ class El {
   focus() { this.doc.activeElement = this; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(Object.assign({ target: this }, ev))); }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   all() { return this.children.flatMap((c) => [c, ...c.all()]); }
   querySelectorAll(sel) {
     if (sel === '[data-busy-label]') return this.all().filter((e) => e.hasAttribute('data-busy-label'));
@@ -71,7 +76,7 @@ function build() {
   const win = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }, fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(ev)); } };
   const ctx = {
     document: doc, window: win,
-    setTimeout: (fn, ms) => { timers.push({ fn, ms, done: false }); return timers.length; },
+    WeakMap, Array, setTimeout: (fn, ms) => { timers.push({ fn, ms, done: false }); return timers.length; },
   };
   return { doc, win, ctx, timers };
 }
@@ -153,7 +158,7 @@ const scenarios = {
     form.setAttribute('data-submit-guard', '');
     const btn = doc.createElement('button');
     btn.setAttribute('data-busy-label', 'Unsubscribing…');
-    btn.textContent = 'Unsubscribe';
+    btn.appendChild(doc.createElement('span')).textContent = 'Unsubscribe';
     form.appendChild(btn);
     doc.body.appendChild(form);
     load(ctx, 'submit-guard.js');
@@ -164,6 +169,26 @@ const scenarios = {
     const stillBusy = btn.textContent;
     timers.forEach((t) => t.fn());
     return { whileBusy, second, stillBusy, afterLapse: btn.textContent, busyAfter: form.hasAttribute('data-busy') };
+  },
+  // of three buttons the one pressed is the one that is busy
+  pressed() {
+    const { doc, ctx, win } = build();
+    const form = doc.createElement('form');
+    form.setAttribute('data-submit-guard', '');
+    doc.body.appendChild(form);
+    const buttons = ['7', '30', '90'].map((n) => {
+      const b = form.appendChild(doc.createElement('button'));
+      b.setAttribute('data-busy-label', 'Keeping…');
+      b.appendChild(doc.createElement('span')).textContent = n;
+      b.appendChild(doc.createElement('small')).textContent = ' days';
+      return b;
+    });
+    load(ctx, 'submit-guard.js');
+    const now = () => buttons.map((b) => [b.textContent, b.className, b.children[0].className, b.style.minWidth || '']);
+    doc.fire('submit', { target: form, submitter: buttons[1], preventDefault() {} });
+    const busy = now();
+    win.fire('pageshow', { persisted: true });
+    return { busy, after: now() };
   },
 };
 
