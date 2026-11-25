@@ -343,7 +343,7 @@
     if (opts.history === null && window.ModalA11y) window.ModalA11y.closeFrom(list);
     var state = opts.state;
     if (view === _view) {
-      if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history });
+      if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history, focus: sameControl });
       if (view === 'list' && state) sayText(state.q)();
       return;
     }
@@ -713,15 +713,15 @@
     refresh([key], d);
   });
 
-  /* The same control in the list coming in, of the row the focus is in. */
+  /* The same control in the list coming in, of the row the focus is in, or else the filter that is on. */
   function sameControl(fresh) {
     var active = document.activeElement;
+    if (!list.contains(active)) return null;
     var find = focusKey(active);
-    if (find) return find(fresh);
-    var row = list.contains(active) ? active.closest('tr[data-row-key]') : null;
-    if (!row) return null;
-    var next = rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]');
-    return next && focusTarget(next, active === deleteButton(row) ? 'delete' : null);
+    var row = active.closest('tr[data-row-key]');
+    var next = row && (rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]'));
+    return (find ? find(fresh) : next && focusTarget(next, active === deleteButton(row) ? 'delete' : null)) ||
+      fresh.querySelector('.fpill.on');
   }
 
   /* The list as it is now, its totals and dates too. */

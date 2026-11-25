@@ -69,9 +69,21 @@ def test_the_focus_waits_on_the_title_of_a_row_while_a_change_to_it_is_saved() -
     }
 
 
+def test_back_between_filters_keeps_the_focus_in_the_list() -> None:
+    assert _run("backBetweenFilters") == {
+        "filter": "filter tv",
+        "row": "id:m2 keep-trigger",
+        "rowGone": "filter ",
+        "elsewhere": "watch-search",
+    }
+
+
 def test_a_dialog_opened_from_a_row_gives_the_focus_back_to_the_row_as_it_is_then() -> None:
     out = _run("dialogOverAChange")
     assert out["busy"] == {"open": True, "at": "show:77 wl-title", "usable": True}
+    assert out["failed"] == {"open": True, "at": "show:77 keep-trigger", "usable": True}
+    # the row has left, and its neighbour has the focus
+    assert out["left"] == {"open": True, "at": "show:77 keep-trigger", "usable": True}
     assert out["saved"] == {"open": True, "at": "show:77 keep-trigger", "usable": True}
 
 

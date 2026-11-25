@@ -212,6 +212,26 @@ const scenarios = {
     return out;
   },
 
+  // Back from one filter to another, with the focus on what the list is drawn with anew.
+  async backBetweenFilters() {
+    const out = {};
+    const run = async (name, focus, rows) => {
+      const p = load({ list: true });
+      p.serve(TV, { type: 'tv' }, [{ id: 'm2', title: 'Saltmarsh' }]);
+      p.serve(LIST, {}, rows || ROWS);
+      click(p.doc, tv(p)); await settle();
+      focus(p).focus();
+      p.popstate('?view=list'); await settle();
+      const a = p.doc.activeElement;
+      out[name] = a.isConnected && a.classList.contains('fpill') ? 'filter ' + a.getAttribute('data-type') : at(p);
+    };
+    await run('filter', tv);
+    await run('row', (p) => p.row('id:m2').querySelector('a.wl-title'));
+    await run('rowGone', (p) => p.row('id:m2').querySelector('a.wl-title'), []);
+    await run('elsewhere', (p) => p.doc.getElementById('watch-search'));
+    return out;
+  },
+
   // A dialog opened from a row that is busy, and then drawn anew, when it is closed; and Back to the rows with it open.
   async dialogOverAChange() {
     const out = {};
@@ -236,6 +256,14 @@ const scenarios = {
     };
     await run('busy', (p, emit) => emit('busy'));
     await run('saved', async (p, emit) => { emit('busy'); emit('done'); await settle(); });
+    await run('failed', (p, emit) => { emit('busy'); emit('failed'); });
+    await run('left', async (p) => {
+      p.ctx.ModalA11y.onClosed('asked');
+      trigger(p, 'id:m2').focus();
+      p.ctx.ModalA11y.onOpened('asked');
+      p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase: 'done', action: 'delete', id: 'm2' } });
+      await settle();
+    });
     await run('back', async (p) => { p.popstate(''); await settle(); });
     return out;
   },
