@@ -14,13 +14,15 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import anyio
 from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import Response
+from starlette.types import Receive, Scope, Send
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import Ticket
@@ -45,6 +47,8 @@ _WAITS = (0.0, 2.0, 5.0)
 # A TV opens a film more than once, and does not always close it.
 _MAX_OPEN = 3
 _KEPT_FEEDS = 64
+# How often it is asked whether the stream of a film still lives.
+_LIVES_SECONDS = 2.0
 
 PICTURE_SECONDS = 120.0
 _PICTURE = Path(__file__).parents[1] / "static" / "icons" / "tv-test.jpg"
@@ -87,7 +91,10 @@ def place_of(parts: list[tuple[str, float]], position_s: float) -> tuple[int, fl
 class _Feed:
     """What a TV was sent of a stream, as of its latest request."""
 
-    open: int = 0
+    #: Requests whose film has yet to be found.
+    opening: int = 0
+    #: The films being sent, the oldest first.
+    readers: list[_FilmResponse] = field(default_factory=list)
     #: The number of its latest request.
     latest: int = 0
     done: bool = False
@@ -104,7 +111,7 @@ def sent(stream_id: str) -> tuple[bool, bool]:
 
 def _feed(stream_id: str) -> _Feed:
     if stream_id not in _feeds:
-        for old in [k for k, f in _feeds.items() if not f.open][
+        for old in [k for k, f in _feeds.items() if not f.readers][
             : max(0, len(_feeds) - _KEPT_FEEDS)
         ]:
             del _feeds[old]
@@ -144,45 +151,103 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
         del response.headers["content-length"]
         return response
     feed = _feed(held.stream_id)
+    if feed.opening >= _MAX_OPEN:
+        return respond_err("rate_limited", status=429)
     feed.latest += 1
     number = feed.latest
     # Until it goes on, whatever happens to it.
     feed.done, feed.broke_off = False, True
+    feed.opening += 1
     try:
         parts = await run_in_threadpool(segments, held.stream_id, held.user)
     except StreamGone:
         return _refused(request)
     except PlexError as exc:
         return plex_failure(exc)
+    finally:
+        feed.opening -= 1
     names = [name for name, _ in parts[int(match[1]) :]]
     if not names:
         return _refused(request)
-    if feed.open >= _MAX_OPEN:
-        return respond_err("rate_limited", status=429)
     if feed.latest == number:
         feed.broke_off = False
-    return StreamingResponse(
-        _film(request, held, names, feed, number), media_type="video/mpeg", headers=headers
-    )
+    while len(feed.readers) >= _MAX_OPEN:
+        feed.readers.pop(0).end()
+    reader = _FilmResponse(_film(request, held, names, feed, number), held, feed, headers)
+    feed.readers.append(reader)
+    return reader
+
+
+class _FilmResponse(Response):
+    """Sends a film until it, its stream or the TV's wish for it ends.
+
+    A TV that stops reading holds a segment: that is let go of with the rest.
+    """
+
+    def __init__(
+        self,
+        film: AsyncGenerator[bytes],
+        held: Ticket,
+        feed: _Feed,
+        headers: dict[str, str],
+    ) -> None:
+        super().__init__(media_type="video/mpeg", headers=headers)
+        # Nobody knows the length.
+        del self.headers["content-length"]
+        self._film, self._held, self._feed = film, held, feed
+        self._scope = anyio.CancelScope()
+
+    def end(self) -> None:
+        self._scope.cancel()
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": self.status_code,
+                    "headers": self.raw_headers,
+                }
+            )
+            with self._scope:
+                async with anyio.create_task_group() as tasks:
+                    tasks.start_soon(self._until_hung_up, receive)
+                    tasks.start_soon(self._until_stream_ends)
+                    async for chunk in self._film:
+                        await send({"type": "http.response.body", "body": chunk, "more_body": True})
+                    tasks.cancel_scope.cancel()
+        finally:
+            if self in self._feed.readers:
+                self._feed.readers.remove(self)
+            with anyio.CancelScope(shield=True):
+                await self._film.aclose()
+        # A TV that reads no more holds this up for as long as it holds the connection.
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    async def _until_hung_up(self, receive: Receive) -> None:
+        while (await receive())["type"] != "http.disconnect":
+            pass
+        self.end()
+
+    async def _until_stream_ends(self) -> None:
+        while _stream_lives(self._held):
+            await asyncio.sleep(_LIVES_SECONDS)
+        self.end()
 
 
 async def _film(
     request: Request, held: Ticket, names: list[str], feed: _Feed, number: int
-) -> AsyncIterator[bytes]:
-    feed.open += 1
-    try:
-        for name in names:
-            body = await _segment(request, held, name)
-            if body is None:
-                break
-            for start in range(0, len(body), _CHUNK):
-                yield body[start : start + _CHUNK]
-        else:
-            feed.done = feed.latest == number or feed.done
-            return
-        feed.broke_off = feed.latest == number or feed.broke_off
-    finally:
-        feed.open -= 1
+) -> AsyncGenerator[bytes]:
+    for name in names:
+        body = await _segment(request, held, name)
+        if body is None:
+            break
+        for start in range(0, len(body), _CHUNK):
+            yield body[start : start + _CHUNK]
+    else:
+        feed.done = feed.latest == number or feed.done
+        return
+    feed.broke_off = feed.latest == number or feed.broke_off
 
 
 async def _segment(request: Request, held: Ticket, name: str) -> bytes | None:

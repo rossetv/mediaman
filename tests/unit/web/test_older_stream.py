@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -229,8 +231,7 @@ def test_an_earlier_request_that_fails_says_nothing_of_the_latest(tv, ticket, mo
 
     async def fails_while_another_reads(request, stream_id, user, name):
         if name == "00001.ts":
-            feed = older_stream._feeds[stream_id]
-            feed.latest += 1
+            older_stream._feeds[stream_id].latest += 1
             raise RuntimeError("x")
         return await real(request, stream_id, user, name)
 
@@ -244,9 +245,146 @@ def test_a_stream_that_is_no_mpeg_ts_is_not_sent_as_one(tv, ticket, film):
     assert tv.get(_from(ticket)).status_code == 502
 
 
-def test_a_tv_holds_only_so_many_copies_open(tv, ticket):
-    older_stream._feed(_stream()).open = older_stream._MAX_OPEN
-    assert tv.get(_from(ticket)).status_code == 429
+class Reader:
+    """A TV that takes as much of a film as it is let, over ASGI itself."""
+
+    def __init__(self, app, path: str) -> None:
+        self.app, self.path = app, path
+        self.sent = b""
+        self.status = 0
+        self.takes = asyncio.Event()
+        self.hung_up = asyncio.Event()
+        self.task: asyncio.Task | None = None
+
+    async def receive(self):
+        if not self.status:
+            self.status = -1
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await self.hung_up.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(self, message) -> None:
+        if message["type"] == "http.response.start":
+            self.status = message["status"]
+            return
+        self.sent += message["body"]
+        if message.get("more_body"):
+            await self.takes.wait()
+
+    def open(self) -> Reader:
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": self.path,
+            "raw_path": self.path.encode(),
+            "query_string": b"",
+            "root_path": "",
+            "headers": [],
+            "client": ("192.168.1.20", 5),
+            "server": ("192.168.1.10", 8282),
+        }
+        self.task = asyncio.create_task(self.app(scope, self.receive, self.send))
+        return self
+
+    async def until(self, true) -> None:
+        for _ in range(500):
+            if true():
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError("it never came")
+
+    async def reads(self) -> Reader:
+        await self.until(lambda: self.sent)
+        return self
+
+    async def is_over(self) -> None:
+        await self.until(self.task.done)
+
+
+def test_a_fourth_copy_ends_the_oldest_and_not_itself(app, ticket):
+    async def run():
+        first = [await Reader(app, _from(ticket)).open().reads() for _ in range(3)]
+        fourth = await Reader(app, _from(ticket)).open().reads()
+        await first[0].is_over()
+        assert [r.task.done() for r in (*first[1:], fourth)] == [False] * 3
+        assert len(older_stream._feeds[_stream()].readers) == 3
+        assert older_stream.sent(_stream()) == (False, False)
+        for reader in (*first[1:], fourth):
+            reader.hung_up.set()
+            await reader.is_over()
+        assert older_stream._feeds[_stream()].readers == []
+
+    asyncio.run(run())
+
+
+def test_of_twenty_copies_at_once_three_stay_open(app, ticket, monkeypatch):
+    finding: list[int] = []
+    asked = []
+    real = older_stream.segments
+
+    def segments(*args):
+        finding.append(1)
+        asked.append(len(finding))
+        time.sleep(0.02)
+        finding.pop()
+        return real(*args)
+
+    monkeypatch.setattr(older_stream, "segments", segments)
+
+    async def run():
+        readers = [Reader(app, _from(ticket)).open() for _ in range(20)]
+        feed = older_stream._feed(_stream())
+        most = 0
+        for _ in range(100):
+            most = max(most, len(feed.readers))
+            await asyncio.sleep(0.01)
+        going = [r for r in readers if not r.task.done()]
+        assert (most, len(going), max(asked)) == (3, 3, 3)
+        assert {r.status for r in readers} <= {200, 429}
+        for reader in readers:
+            reader.hung_up.set()
+            await reader.is_over()
+
+    asyncio.run(run())
+
+
+def test_a_tv_that_hangs_up_lets_go_of_its_segment_at_once(app, ticket, monkeypatch):
+    closed = []
+    real = older_stream._film
+
+    async def film(*args):
+        try:
+            async for chunk in real(*args):
+                yield chunk
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(older_stream, "_film", film)
+
+    async def run():
+        reader = await Reader(app, _from(ticket)).open().reads()
+        reader.hung_up.set()
+        await reader.is_over()
+        assert closed == [True]
+
+    asyncio.run(run())
+
+
+def test_a_tv_that_stopped_reading_lets_go_once_its_stream_ends(app, ticket, monkeypatch):
+    monkeypatch.setattr(older_stream, "_LIVES_SECONDS", 0.02)
+
+    async def run():
+        reader = await Reader(app, _from(ticket)).open().reads()
+        await asyncio.sleep(0.1)
+        assert not reader.task.done()
+        plex_stream.get_stream_manager().end(_stream(), "alice")
+        await reader.is_over()
+        assert all(not feed.readers for feed in older_stream._feeds.values())
+
+    asyncio.run(run())
 
 
 def test_the_ticket_is_kept_out_of_the_log(tv, ticket, film, caplog):
