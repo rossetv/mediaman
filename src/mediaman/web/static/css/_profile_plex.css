@@ -13,9 +13,10 @@
 .plex-link-more > summary::-webkit-details-marker { display: none; }
 .plex-link-more > summary > .ico { color: var(--t3); transition: transform var(--dur) var(--ease-out); }
 .plex-link-more > summary:hover > .ico { color: var(--t1); }
-.plex-link-more[open] > summary > .ico { transform: rotate(180deg); }
+.plex-link-more[open]:not(.is-shutting) > summary > .ico { transform: rotate(180deg); }
 .plex-link-more[open] > .plex-link-terms { animation: plex-panel-in var(--dur) var(--ease-out); }
 .plex-link-terms { margin: 10px 0 4px; padding-left: 18px; list-style: disc; }
+.plex-link .plex-link-terms li { max-width: none; }
 .plex-link-terms li + li { margin-top: 4px; }
 .plex-link .plex-link-fine { font-size: 13px; color: var(--t3); margin-top: 10px; }
 .plex-link-more + .plex-link-fine { margin-top: 0; }
