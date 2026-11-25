@@ -8,12 +8,15 @@ from fastapi.testclient import TestClient
 from mediaman.services.plex_link import repository as plex_links
 from mediaman.services.plex_link.plex_tv import PlexIdentity
 from mediaman.web.auth.password_hash import authenticate, create_user
-from mediaman.web.auth.session_store import create_session
+from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
+from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
     _SESSIONS_LIST_LIMITER,
+    _SESSIONS_REVOKE_LIMITER,
+    _UNTICKETED_LIMITER,
     _USER_CREATE_LIMITER,
     _USER_MGMT_LIMITER,
 )
@@ -45,6 +48,8 @@ def _clear_rate_limiter():
         _PASSWORD_CHANGE_LIMITER,
         _PASSWORD_CHANGE_IP_LIMITER,
         _SESSIONS_LIST_LIMITER,
+        _SESSIONS_REVOKE_LIMITER,
+        _UNTICKETED_LIMITER,
     ):
         lim.reset()
     yield
@@ -55,6 +60,8 @@ def _clear_rate_limiter():
         _PASSWORD_CHANGE_LIMITER,
         _PASSWORD_CHANGE_IP_LIMITER,
         _SESSIONS_LIST_LIMITER,
+        _SESSIONS_REVOKE_LIMITER,
+        _UNTICKETED_LIMITER,
     ):
         lim.reset()
 
@@ -359,7 +366,14 @@ class TestListSessions:
                 "fingerprint leaks the SHA-256/24-prefix material — must be stripped"
             )
         # Nothing but these may be added, least of all a token or its hash.
-        assert set(sessions[0].keys()) == {"created_at", "expires_at", "last_used_at", "current"}
+        assert set(sessions[0].keys()) == {
+            "created_at",
+            "expires_at",
+            "last_used_at",
+            "current",
+            "device_label",
+            "public_id",
+        }
 
     def test_sessions_rate_limited_after_cap(self, app_factory, authed_client, conn):
         """Per-actor cap stops a cookie thief from
@@ -403,3 +417,119 @@ class TestRevokeOtherSessions:
             "SELECT COUNT(*) FROM admin_sessions WHERE username='admin'"
         ).fetchone()[0]
         assert remaining == 1
+
+
+class TestRevokeOneSession:
+    @staticmethod
+    def _id(conn, token: str, username: str = "admin") -> str:
+        return next(
+            s["public_id"]
+            for s in list_sessions_for(conn, username, current_token=token)
+            if s["current"]
+        )
+
+    @staticmethod
+    def _audit(conn) -> list[tuple[str, str]]:
+        return [
+            (r["actor"], r["detail"])
+            for r in conn.execute(
+                "SELECT actor, detail FROM audit_log WHERE action = 'sec:session.revoke_one'"
+            )
+        ]
+
+    def test_requires_auth(self, app_factory, conn):
+        client = TestClient(_app(app_factory, conn))
+        assert client.delete("/api/users/sessions/abc").status_code == 401
+
+    def test_ends_the_one_named_with_its_ticket_and_no_other(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        gone = create_session(conn, "admin", user_agent="Mozilla/5.0 (X11; Linux) Firefox/130.0")
+        grant_recent_reauth(conn, gone, "admin")
+        kept = create_session(conn, "admin")
+        device = TestClient(
+            client.app,
+            headers={"user-agent": "Mozilla/5.0 (X11; Linux) Firefox/130.0"},
+            cookies={"session_token": gone},
+        )
+        assert device.get("/api/users/sessions").status_code == 200
+
+        resp = client.delete(f"/api/users/sessions/{self._id(conn, gone)}")
+
+        assert (resp.status_code, resp.json()) == (200, {"ok": True})
+        assert device.get("/api/users/sessions").status_code == 401
+        assert not has_recent_reauth(conn, gone, "admin")
+        assert validate_session(conn, kept) == "admin"
+        assert client.get("/api/users/sessions").status_code == 200
+        ((actor, detail),) = self._audit(conn)
+        assert actor == "admin"
+        assert "Firefox on Linux" in detail
+
+    def test_needs_a_recent_password_and_counts_no_try_until_then(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
+        other = create_session(conn, "admin")
+        path = f"/api/users/sessions/{self._id(conn, other)}"
+
+        for _ in range(_SESSIONS_REVOKE_LIMITER._max_in_window + 1):
+            resp = client.delete(path)
+
+        assert (resp.status_code, resp.json()["reauth_required"]) == (403, True)
+        assert validate_session(conn, other) == "admin"
+
+    def test_never_ends_the_session_it_is_asked_from(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
+        mine = client.cookies["session_token"]
+
+        resp = client.delete(f"/api/users/sessions/{self._id(conn, mine)}")
+
+        assert (resp.status_code, resp.json()["error"]) == (400, "current_session")
+        assert validate_session(conn, mine) == "admin"
+
+    def test_one_already_gone_and_another_persons_answer_alike_and_leave_no_trace(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        _make_second_user(conn)
+        theirs = create_session(conn, "other")
+        mine = create_session(conn, "admin")
+        path = f"/api/users/sessions/{self._id(conn, mine)}"
+        client.delete(path)
+
+        again = client.delete(path)
+        foreign = client.delete(f"/api/users/sessions/{self._id(conn, theirs, 'other')}")
+        unknown = client.delete("/api/users/sessions/" + "0" * 32)
+
+        answers = {(r.status_code, r.text) for r in (again, foreign, unknown)}
+        assert answers == {(200, '{"ok":true}')}
+        assert validate_session(conn, theirs) == "other"
+        assert len(self._audit(conn)) == 1
+
+    def test_shares_the_limit_on_signing_devices_out(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
+        other = create_session(conn, "admin")
+        while _SESSIONS_REVOKE_LIMITER.check("admin"):
+            pass
+
+        resp = client.delete(f"/api/users/sessions/{self._id(conn, other)}")
+
+        assert resp.status_code == 429
+        assert validate_session(conn, other) == "admin"
+
+    def test_nothing_ends_when_it_cannot_be_recorded(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
+        other = create_session(conn, "admin")
+        grant_recent_reauth(conn, other, "admin")
+        path = f"/api/users/sessions/{self._id(conn, other)}"
+        conn.execute(
+            "CREATE TRIGGER full BEFORE INSERT ON audit_log"
+            " BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+
+        resp = client.delete(path)
+
+        assert resp.status_code == 500
+        assert validate_session(conn, other) == "admin"
+        assert has_recent_reauth(conn, other, "admin")
