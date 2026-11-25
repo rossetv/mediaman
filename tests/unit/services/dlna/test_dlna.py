@@ -1106,6 +1106,10 @@ def test_a_picture_is_told_as_one() -> None:
     headers = picture.stream_headers({"getcontentFeatures.dlna.org": "1"})
     assert headers["transferMode.dlna.org"] == "Interactive"
     assert "DLNA.ORG_CI=0" in headers["contentFeatures.dlna.org"]
+    # Interactive, not streaming; background; connection stalling; DLNA 1.5.
+    assert int(picture.content_features.rpartition("=")[2], 16) >> 96 == 0x00F00000
+    assert int(FILM.content_features.rpartition("=")[2], 16) >> 96 == 0x01700000
+    assert len(picture.content_features.rpartition("=")[2]) == 32
     assert "object.item.videoItem" in FILM.didl()
 
 
