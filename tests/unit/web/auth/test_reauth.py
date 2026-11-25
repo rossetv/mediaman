@@ -251,6 +251,12 @@ class TestVerifyReauthPassword:
         # is refused while the lock is active.
         assert verify_reauth_password(conn, "alice", "correct-password-99") is False
 
+    def test_the_right_password_as_the_fifth_try_is_accepted_and_leaves_no_lock(self, conn):
+        for _ in range(4):
+            assert verify_reauth_password(conn, "alice", "wrong") is False
+        for _ in range(2):
+            assert verify_reauth_password(conn, "alice", "correct-password-99") is True
+
     def test_locked_log_line_cannot_be_split_by_a_newline_in_the_name(self, conn, caplog):
         name = "bob\r\nWARNING forged"
         for _ in range(5):

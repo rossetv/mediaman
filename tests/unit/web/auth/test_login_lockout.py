@@ -218,6 +218,13 @@ class TestAuthenticateIntegration:
         authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
         assert is_locked_out(conn, login_ip_key("alice", "203.0.113.7")) is False
 
+    def test_the_right_password_as_the_fifth_try_is_accepted_and_leaves_no_lock(self, conn):
+        create_user(conn, "alice", "right-password", enforce_policy=False)
+        for _ in range(4):
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
+        for _ in range(2):
+            assert authenticate(conn, "alice", "right-password", client_ip="203.0.113.7")
+
     def test_lockout_does_not_leak_to_caller(self, conn):
         """`authenticate` must return False for locked accounts — same
         value it returns for wrong-password. Revealing lock state would

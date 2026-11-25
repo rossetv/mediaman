@@ -510,6 +510,23 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     return minutes
 
 
+def count_attempt(conn: sqlite3.Connection, username: str) -> bool:
+    """Count an attempt as a failure before its password is checked; False where *username* was
+    locked already, so that it is not to be checked.
+
+    Read and counted in one write transaction, so attempts under way at the same time each hold
+    their place. `record_success` takes the count back.
+    """
+    _ensure_table(conn)
+    now = _now()
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        locked = is_locked_out(conn, username)
+        _record_failure_in_tx(conn, username, now, _iso(now))
+    _maybe_prune_stale_failures(conn)
+    return not locked
+
+
 def record_success(conn: sqlite3.Connection, username: str) -> None:
     """Clear the failure counter after a successful login.
 
