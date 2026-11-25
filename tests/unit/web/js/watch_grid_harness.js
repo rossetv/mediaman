@@ -748,13 +748,26 @@ const scenarios = {
     const p = start();
     const took = [p.take(2)];
     const one = p.seq();
-    took.push(p.take(1), p.take(3));
-    const gone = { seq: p.seq(), label: label(p) };
+    pressSort(p, 'b1'); // named until the date has gone
+    took.push(p.take(1));
+    const gone = { label: label(p) };
+    took.push(p.take(3));
+    gone.seq = p.seq();
     await settle();
     const loaded = { seq: p.seq(), jumps: p.jumps() };
-    const last = p.take(4);
-    const out = { one, gone, loaded, none: p.seq() };
-    last.undo();
+    const sort = p.doc.querySelector('#watch-all-sort');
+    const alone = (setup) => {
+      setup();
+      const before = p.doc.activeElement;
+      const last = p.take(4);
+      const now = { none: p.seq(), hidden: !!sort.hidden, menu: p.doc.querySelector('#watch-all-menu').classList.contains('is-open'), focus: p.focus(), kept: p.doc.activeElement === before };
+      last.undo();
+      return { ...now, back: !!sort.hidden };
+    };
+    const out = { one, gone, loaded,
+      onButton: alone(() => sort.focus()),
+      inMenu: alone(() => { click(p.doc, sort); p.doc.querySelector('#watch-all-menu .watch-keep-menu__item').focus(); }),
+      elsewhere: alone(() => p.doc.querySelector('.watch-all__back').focus()) };
     took[2].undo();
     took[1].undo();
     out.first = p.seq();

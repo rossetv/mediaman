@@ -190,6 +190,7 @@
         arrive(added);
         var more = added.length < cards().length ? ' more loaded.' : ' loaded.';
         if (added.length || done) say(added.length + more + (done ? ' That is everything.' : ''));
+        if (opts.took) opts.took();
         if (Date.now() - wantedAt > JUMP_MS) wanted = null;
         // The loader settles after this; a jump goes on from there.
         if (wanted !== null) setTimeout(function () { if (wanted !== null) jump(wanted, done); });
@@ -750,6 +751,19 @@
     if (!button) return;
     button.querySelector('.watch-all__value').textContent = optionNow().short || optionNow().label;
     button.setAttribute('aria-label', now.opts.sort.label + ': ' + optionNow().label);
+    fitSort();
+  }
+
+  /* With nothing to choose from there is no button; one that had the focus, or its menu, hands it on. */
+  function fitSort() {
+    var button = dom.tools.querySelector('#watch-all-sort');
+    if (!button) return;
+    var none = !options().length;
+    if (none && !button.hidden) {
+      dom.sortMenu.close(false);
+      if (document.activeElement === button) dom.title.focus({ preventScroll: true });
+    }
+    button.hidden = none;
   }
 
   function setTotal(n) {
@@ -832,6 +846,7 @@
     count(-1);
     mine.jumped = false;
     nameLine();
+    fitSort();
     return {
       focus: next ? next.querySelector(control) || linkOf(next) : dom.title,
       // Filled anew since, there is no place to go back to: bring() fills it again.
@@ -840,6 +855,7 @@
         back();
         count(1);
         nameLine();
+        fitSort();
         return card.querySelector(control);
       }
     };
@@ -874,6 +890,7 @@
     if (next !== null && dates.indexOf(card.getAttribute('data-batch')) >= dates.indexOf(next)) return;
     now.list.put(copy(card), dates, function () { return now.opts.line(card); });
     nameLine();
+    fitSort();
   }
 
   /* ── The two layers ── */
@@ -1253,7 +1270,8 @@
       title: opts.title, cards: cards, next: opts.next, fetchPage: opts.fetchPage,
       total: opts.total, empty: opts.empty || { title: 'Nothing in ' + opts.title + ' yet', text: 'What you add shows up here.', link: 'Back to all rows', href: '/watch' },
       clearTop: headBottom,
-      say: function (text) { if (Date.now() - saidAt > HEARD_MS) say(text); }
+      say: function (text) { if (Date.now() - saidAt > HEARD_MS) say(text); },
+      took: fitSort
     });
     drawHead();
   }
