@@ -416,6 +416,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "ratings": {"imdb": None, "rt": None, "tmdb": None, "metascore": None},
         "ratings_pending": False,
         "cast": [],
+        "in_collection": False,
         "trailer_key": None,
         "reason": None,
         "ai_pick": False,
@@ -475,6 +476,8 @@ def _fill_fields(
             out[name] = fields[name]
     for name in ("title", "overview", "poster_url"):
         out[name] = out[name] or fields[name]
+    # Held details may be from before the collection was.
+    out["in_collection"] = fields.get("collection_id") is not None
     out["trailer_key"] = validate_youtube_id(fields["trailer_key"])
     media_type = "movie" if kind == "movie" else "tv"
     held, fresh = _held_ratings(conn, media_type, tmdb_id)

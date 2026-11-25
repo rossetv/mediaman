@@ -65,7 +65,7 @@ function load(reply) {
   ctx.window = ctx;
   vm.createContext(ctx);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
-  ['core/dom.js', 'modal-a11y.js', 'core/modal.js', 'watch/core.js'].forEach(run);
+  ['core/dom.js', 'modal-a11y.js', 'core/modal.js', 'watch/core.js', 'watch/keep.js'].forEach(run);
   ctx.MMWatch.browse = { card: (f) => build(doc, ['article', { class: 'watch-card' },
     ['a', { class: 'watch-card__link', href: f.href || '#' }, ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, f.title], ...(f.download_state ? [['span', { class: 'watch-badge--state' }, f.download_state]] : [])]],
     ['button', { class: 'watch-more' }]]) };
@@ -131,6 +131,24 @@ const scenarios = {
     const show = load(SAGA());
     await show.into('show-3', 'show');
     out.show = show.gets.length;
+    return out;
+  },
+
+  // The film's details say that it is in a collection, before its films are known.
+  async expected() {
+    const out = {};
+    for (const [name, r] of [['films', SAGA()], ['none', null], ['failed', new APIError(429, 'too_many_requests')]]) {
+      const p = load(r);
+      const before = p.ctx.MMWatch.collection.skeleton('tmdb-movie-2').querySelectorAll('.watch-card--skel').length > 0;
+      p.ctx.MMWatch.collection.into(p.body, 'tmdb-movie-2', 'movie', true);
+      const held = [!p.q('.ttl__collsec').hidden, !!p.q('.coll-skel'), p.q('.coll-skel').getAttribute('aria-hidden')];
+      p.body.textContent = '';
+      p.ctx.MMWatch.collection.into(p.body, 'tmdb-movie-2', 'movie', true); // drawn again meanwhile
+      const again = !!p.q('.coll-skel');
+      await settle();
+      out[name] = { before, held, again, skeleton: !!p.q('.coll-skel'), films: p.cards().length,
+        shown: !!p.q('.ttl__collsec') && !p.q('.ttl__collsec').hidden, next: !!p.ctx.MMWatch.collection.skeleton('tmdb-movie-2') };
+    }
     return out;
   },
 

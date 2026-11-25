@@ -274,7 +274,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', opts.playOn ? 'watch/play-on.js' : [], 'watch/detail.js')
+    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', opts.collection ? 'watch/collection.js' : [], opts.playOn ? 'watch/play-on.js' : [], 'watch/detail.js')
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -1093,6 +1093,23 @@ const scenarios = {
     const movie = p.text('[data-ttl-part="kind"]');
     p.ctx.MMWatch.detail.open('show-300', { title: 'Brightwater' });
     return { movie, show: p.text('[data-ttl-part="kind"]') };
+  },
+
+  async collectionPlace() {
+    const out = {};
+    const parts = (p) => p.q('[data-ttl-part="body"]').children.map((n) => n.className.split(' ')[0]);
+    for (const [name, title] of [['film', Object.assign({}, MOVIE_DL, { in_collection: true })], ['lone', Object.assign({}, MOVIE_DL, { in_collection: false })], ['show', LIB_SHOW]]) {
+      const url = '/api/watch/title/' + title.ref;
+      let answer;
+      const p = load({ collection: true, routes: { [url]: () => new Promise((resolve) => { answer = resolve; }), [url + '/collection']: () => new Promise(() => {}) } });
+      p.run();
+      p.ctx.MMWatch.detail.open(title.ref, { title: title.title });
+      const loading = parts(p);
+      answer(title);
+      await settle();
+      out[name] = { loading, drawn: parts(p).filter((c) => c !== 'ttl__collsec' || !p.q('.ttl__collsec').hidden) };
+    }
+    return out;
   },
 
   async showDirector() {

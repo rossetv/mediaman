@@ -18,7 +18,7 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> None:
+def test_the_row_comes_once_it_is_known_with_the_film_on_show_marked() -> None:
     out = _run("row")
     assert out["waiting"] is True
     assert out["gets"] == ["/api/watch/title/tmdb-movie-2/collection"]
@@ -32,6 +32,18 @@ def test_the_row_comes_last_once_it_is_known_with_the_film_on_show_marked() -> N
 
 def test_there_is_no_row_where_there_is_nothing_to_show() -> None:
     assert _run("nothing") == {"none": False, "alone": False, "failed": False, "show": 0}
+
+
+def test_the_place_of_the_films_is_held_until_they_are_known() -> None:
+    out = _run("expected")
+    for got in out.values():
+        assert (got["before"], got["held"], got["again"]) == (True, [True, True, "true"], True)
+        assert got["skeleton"] is False
+    assert [(g["films"], g["shown"], g["next"]) for g in out.values()] == [
+        (7, True, True),
+        (0, False, False),  # known to be in none, its page holds no place the next time
+        (0, False, True),
+    ]
 
 
 def test_a_film_opens_its_page_and_back_finds_its_card() -> None:

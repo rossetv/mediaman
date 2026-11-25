@@ -886,6 +886,9 @@
       eps.appendChild(episodeSkels(3));
       body.appendChild(eps);
     }
+    var films = window.MMWatch.collection && (cur.kind === 'movie' || /^(tmdb-)?movie-/.test(cur.ref)) &&
+      window.MMWatch.collection.skeleton(cur.ref);
+    if (films) body.appendChild(films);
     var strip = el('section', 'ttl__castsec');
     strip.setAttribute('aria-hidden', 'true');
     strip.appendChild(skel('skel--line ttl__sec-skel'));
@@ -1132,8 +1135,8 @@
     body.appendChild(lead);
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
+    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind, d.in_collection);
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
-    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind);
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
     var season = body.querySelector('.ttl__season');

@@ -402,6 +402,15 @@ def test_the_loading_view_names_the_kind_of_title() -> None:
     assert _run("loadingKind") == {"movie": "Movie", "show": "TV series"}
 
 
+def test_a_films_collection_stands_above_its_cast_and_its_place_is_held() -> None:
+    out = _run("collectionPlace")
+    held = ["ttl__lead", "ttl__collsec", "ttl__castsec"]
+    assert out["film"] == {"loading": held, "drawn": held}
+    assert out["lone"]["drawn"] == ["ttl__lead", "ttl__castsec"]
+    show = ["ttl__lead", "ttl__seasonsec", "ttl__castsec"]
+    assert out["show"] == {"loading": show, "drawn": show}
+
+
 def test_a_series_shows_no_director() -> None:
     assert _run("showDirector") == {"credit": None}
 
