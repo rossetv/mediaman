@@ -4,7 +4,7 @@
  *   MM.playOn.changed()          what a way says of itself may be different now
  *   MM.playOn.again(key)         null, or {way, found}: a promise of the play of that title which a
  *                                way may find already on
- *   MM.playOn.mayBeOnTv()        whether a TV was playing anything when last heard of
+ *   MM.playOn.mayBeOnTv(told)    whether a TV was playing anything when last heard of, or this page was `told` so
  *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null; rejects where
  *                                that cannot be known
  *   MM.playOn.cancel()           what is starting is not wanted any more: a promise, settled once that is
@@ -1068,7 +1068,7 @@
     register: function (way) { ways.push(way); changed(); },
     changed: changed,
     cancel: cancel,
-    mayBeOnTv: function () { return !absent && remembered(); },
+    mayBeOnTv: function (told) { return !absent && (told || remembered()); },
     onTv: function (key) {
       return look().then(function () {
         if (lost) throw new Error('lost');

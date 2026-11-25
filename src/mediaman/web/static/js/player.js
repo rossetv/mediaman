@@ -4148,7 +4148,7 @@
   function begin() {
     var key = String(item.rating_key);
     var asked = playOn && playOn.again(key);
-    var look = playOn && playOn.mayBeOnTv();
+    var look = playOn && playOn.mayBeOnTv(root.hasAttribute('data-on-tv'));
     if (!asked && !look) {
       if (!holding) startStream(position());
       return;

@@ -5513,7 +5513,7 @@ const scenarios = {
       return { starts: p.starts().length - starts, says: awayState(p).says };
     }
     /* Whether a TV was known to play anything when this browser last heard. */
-    const known = how === 'unknown' ? {} : { 'mediaman.watch.onTv': '1' };
+    const known = /^(unknown|told)/.test(how) ? {} : { 'mediaman.watch.onTv': '1' };
     let hear;
     const pending = new Promise((yes, no) => { hear = { none: () => yes({ tvs: [LIVING] }), tv: () => yes({ tvs: on }), fails: () => no({ status: 0, error: 'network_error' }) }; });
     const waits = /^(unknown|silent|late|paused)/.test(how) || how === 'pressed';

@@ -2550,6 +2550,12 @@ def test_a_title_of_another_tab_is_said_to_be_there_still_after_a_tv_refused_it(
     assert "another tab" in out["message"]["text"]
 
 
+def test_a_page_told_that_a_tv_plays_its_title_leaves_it_there(tmp_path_factory):
+    told = _markup(tmp_path_factory, {**EPISODE, "on_tv": True})
+    out = elsewhere(told, "away_opened_on_tv", "told")
+    assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")
+
+
 def test_a_play_found_after_the_next_episode_was_asked_for_is_left(markup, tmp_path_factory):
     next_item = {**EPISODE["item"], "rating_key": "502", "subtitle": "S2 · E5"}
     next_page = _markup(tmp_path_factory, {**EPISODE, "item": next_item})
