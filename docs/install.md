@@ -87,12 +87,14 @@ To go back:
 ```bash
 docker compose down
 docker rename mediaman-old mediaman
-# if the new one had started, put the backup back here
+```
+
+If the new one had started, put the backup back now, with the `docker run` line that has `tar xzf` under [Backup, update, roll back](#backup-update-roll-back) and your own `/data`. Then:
+
+```bash
 docker start mediaman
 rm .env
 ```
-
-That is the `docker run` line with `tar xzf` under [Backup, update, roll back](#backup-update-roll-back), with your own `/data`.
 
 Once you have signed in and Settings shows your services, `docker rm mediaman-old`. From then on you [update](#backup-update-roll-back) like everyone else.
 
