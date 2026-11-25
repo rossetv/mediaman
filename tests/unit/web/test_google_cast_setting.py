@@ -59,7 +59,9 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     needs = html.split('id="tv-needs"', 1)[1].split("</ul>", 1)[0]
     assert all(word in needs for word in ("Safari", "https", "Chrome", "MEDIAMAN_ALLOWED_HOSTS"))
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
-    assert "script from Google (gstatic.com)" in told
+    assert "One script" not in told
+    assert "Scripts from Google (gstatic.com) run" in told
+    assert "Chromium" in told and "Chromium" in needs
     assert "internet address" in told
     assert 'aria-describedby="cast-lets"' in html
 
