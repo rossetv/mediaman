@@ -263,3 +263,19 @@ def test_a_new_link_is_celebrated_by_name_until_the_page_is_shown_again() -> Non
     )
     assert "<b>amy</b>" in out["said"]
     assert (out["later"], out["sinceLater"]) == (False, True)
+
+
+def test_a_password_that_is_due_is_asked_first_and_its_press_opens_the_tab() -> None:
+    out = _run("passwordDue")
+    assert out["asked"] == {"tabs": 0, "starts": 0, "label": "Link Plex account"}
+    assert out["wrong"] == {"closed": True, "label": "Link Plex account"}
+    assert out["after"] == {**OPEN, "went": [PLEX]}
+    assert out["good"] == {"asked": 1, "tab": {**OPEN, "went": [PLEX]}}
+    assert out["nearlyOut"] == {"asked": 2, "tabs": 3}
+    assert out["cancelled"] == {"label": "Link Plex account", "starts": 2}
+
+
+def test_the_card_eases_to_each_states_height_unless_motion_is_unwelcome() -> None:
+    out = _run("heights")
+    assert out["out"][-1:] == [["300px", "160px", 250]]
+    assert out["calm"] == []

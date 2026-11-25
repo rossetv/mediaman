@@ -48,7 +48,7 @@ function api(method) {
   };
 }
 const ctx = {
-  document: doc, Promise, Date,
+  document: doc, Promise,
   setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
   clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
   addEventListener: (t, fn) => { listeners[t] = fn; },
@@ -73,6 +73,16 @@ ctx.open = (url) => {
   return tab;
 };
 const tabsNow = () => tabs.map((t) => ({ opener: t.opener, closed: t.closed, went: t.went.map((w) => w.href) }));
+let calm = false;
+let clock = 0;
+const moves = [];
+const HEIGHTS = { loading: 40, unlinked: 300, waiting: 160, failed: 90 };
+Object.defineProperty(card, 'offsetHeight', { get: () => HEIGHTS[shown()] || 0 });
+card.animate = (frames, how) => { moves.push([frames[0].height, frames[1].height, how.duration]); return { cancel() {} }; };
+card.setAttribute('data-password-good-for', '300');
+ctx.Date = class extends Date { static now() { return clock * 1000; } };
+ctx.matchMedia = () => ({ matches: calm });
+ctx.getComputedStyle = () => ({ getPropertyValue: (n) => (n === '--dur-slow' ? ' .25s' : ' ease-out') });
 ctx.window = ctx;
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(WEB, 'static/js/core/dom.js'), 'utf8'), ctx);
@@ -350,6 +360,42 @@ const scenarios = {
     out.right = await press(() => asked[0].onSubmit('yes'));
     await flush();
     return { ...out, after: tabsNow(), shown: shown() };
+  },
+  async passwordDue() {
+    const out = {};
+    card.setAttribute('data-password-good-for', '0');
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers['POST /api/auth/reauth'] = [{ error: 'bad', status: 403, message: 'Wrong.' }, { expires_in_seconds: 300 }];
+    await click('plex-start');
+    out.asked = { tabs: tabs.length, starts: calls.filter((c) => c === START).length, label: at('plex-start').textContent };
+    await press(() => asked[0].onSubmit('no'));
+    out.wrong = { closed: tabs[0].closed, label: at('plex-start').textContent };
+    await press(() => asked[0].onSubmit('yes'));
+    await flush();
+    out.after = tabsNow().pop();
+    await click('plex-cancel');
+    clock = 200;
+    await click('plex-start');
+    out.good = { asked: asked.length, tab: tabsNow().pop() };
+    await click('plex-cancel');
+    clock = 296;
+    await click('plex-start');
+    out.nearlyOut = { asked: asked.length, tabs: tabs.length };
+    asked[1].onCancel();
+    await flush();
+    out.cancelled = { label: at('plex-start').textContent, starts: calls.filter((c) => c === START).length };
+    return out;
+  },
+  async heights() {
+    await load(NONE);
+    moves.length = 0;
+    answers[START] = [{ attempt: WAITING }];
+    await click('plex-start');
+    const out = moves.splice(0);
+    calm = true;
+    await click('plex-cancel');
+    return { out, calm: moves };
   },
   async passwordCancelled() {
     await load(NONE);

@@ -6,6 +6,8 @@
   var POLL_MS = 2000;
   var SLOW_POLL_MS = 10000;
   var READING_MS = 3000;
+  /* A password good for less than this may no longer be when the press arrives. */
+  var MARGIN_S = 5;
   var APPROVAL_PAGE = 'https://app.plex.tv/auth#?';
   var MOVES = 'This Plex account is linked to another person here; linking moves it to you.';
   var APPROVE = 'Approve mediaman in the Plex tab. This page updates by itself.';
@@ -102,6 +104,9 @@
     var sentTab = null;
     /* The start that has not been answered. */
     var underway = null;
+    var passwordUntil = 0;
+    passwordGoodFor(Number(card.getAttribute('data-password-good-for')) || 0);
+    var sizing = null;
     var checking = null;
     var waitWords = WAIT;
     var justLinked = false;
@@ -116,17 +121,42 @@
       closeTab();
     }
 
+    function passwordGoodFor(seconds) {
+      passwordUntil = Date.now() + (seconds - MARGIN_S) * 1000;
+    }
+
+    /* Runs a change of what the card holds, and lets its height follow. */
+    function eased(change) {
+      var from = card.offsetHeight;
+      change();
+      if (sizing) sizing.cancel();
+      sizing = null;
+      var to = card.offsetHeight;
+      if (from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var tokens = getComputedStyle(document.documentElement);
+      var mine = sizing = card.animate(
+        [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
+        { duration: parseFloat(tokens.getPropertyValue('--dur-slow')) * 1000, easing: tokens.getPropertyValue('--ease-out').trim() }
+      );
+      mine.onfinish = function () {
+        if (sizing !== mine) return;
+        sizing = null;
+        /* What took the focus may have had no room on the page yet. */
+        var at = document.activeElement;
+        if (card.contains(at)) at.scrollIntoView({ block: 'nearest' });
+      };
+    }
+
     function closeTab() {
       if (tab) tab.close();
       tab = null;
     }
 
-    function opening(button, on) {
-      var label = button.textContent;
+    function opening(on) {
+      var button = underway.button;
       busy(button, on);
       button.textContent = '';
       if (on) {
-        underway = { button: button, label: label, cancelled: false };
         var spinner = document.createElement('span');
         spinner.className = 'btn-spinner';
         spinner.setAttribute('aria-hidden', 'true');
@@ -134,9 +164,13 @@
         button.appendChild(document.createTextNode('Opening Plex…'));
       } else {
         button.textContent = underway.label;
-        underway = null;
       }
       byId(button.id + '-stop').hidden = !on;
+    }
+
+    function settled() {
+      opening(false);
+      underway = null;
     }
 
     function sayCancelled() {
@@ -154,6 +188,10 @@
     }
 
     function show(name, quiet) {
+      eased(function () { swap(name, quiet); });
+    }
+
+    function swap(name, quiet) {
       var held = !quiet && MM.dom.focusStillIn(holder);
       var changed = name !== current;
       current = name;
@@ -193,12 +231,12 @@
       MM.api.post('/api/account/plex/check').then(function (data) {
         if (mine !== checking) return;
         checking = null;
-        MM.dom.setText(byId('plex-wait'), waitWords);
+        eased(function () { MM.dom.setText(byId('plex-wait'), waitWords); });
         if (data.attempt) render(data.attempt); else recover(data.message);
       }, function (err) {
         if (mine !== checking) return;
         checking = null;
-        if (err.status !== 429) MM.dom.setText(byId('plex-wait'), NOT_ANSWERING);
+        if (err.status !== 429) eased(function () { MM.dom.setText(byId('plex-wait'), NOT_ANSWERING); });
         later(SLOW_POLL_MS);
       });
     }
@@ -219,6 +257,10 @@
     }
 
     function render(next, quiet) {
+      eased(function () { fill(next, quiet); });
+    }
+
+    function fill(next, quiet) {
       attempt = next;
       byId('plex-signout-note').hidden = attempt.signed_out;
       if (attempt.state === 'failed') {
@@ -260,22 +302,26 @@
     /* Kept over every panel until the person dismisses it or links an account. */
     function showMoved(iso) {
       movedAt = iso;
-      byId('plex-moved').hidden = !iso;
-      if (iso) byId('plex-moved-when').textContent = when(iso);
+      eased(function () {
+        byId('plex-moved').hidden = !iso;
+        if (iso) byId('plex-moved-when').textContent = when(iso);
+      });
     }
 
     function showLink(link, quiet) {
-      byId('plex-name').textContent = link.name;
-      byId('plex-done-name').textContent = link.name;
-      byId('plex-done').hidden = !justLinked;
-      byId('plex-linked').hidden = justLinked;
-      byId('plex-since').textContent = when(link.linked_at);
-      byId('plex-read').textContent = link.reading
-        ? 'Reading your plays…'
-        : link.last_read_at
-          ? 'Plays last read ' + when(link.last_read_at) + '.'
-          : 'Your plays will be read after the next scan.';
-      show('linked', quiet);
+      eased(function () {
+        byId('plex-name').textContent = link.name;
+        byId('plex-done-name').textContent = link.name;
+        byId('plex-done').hidden = !justLinked;
+        byId('plex-linked').hidden = justLinked;
+        byId('plex-since').textContent = when(link.linked_at);
+        byId('plex-read').textContent = link.reading
+          ? 'Reading your plays…'
+          : link.last_read_at
+            ? 'Plays last read ' + when(link.last_read_at) + '.'
+            : 'Your plays will be read after the next scan.';
+        show('linked', quiet);
+      });
       if (!link.reading) return;
       var mine = turn;
       timer = setTimeout(function () { if (mine === turn) load(true); }, READING_MS);
@@ -315,11 +361,13 @@
           onSubmit: function (pw) {
             closeTab();
             tab = openTab();
-            return MM.api.post('/api/auth/reauth', { password: pw }).then(function () {
+            opening(true);
+            return MM.api.post('/api/auth/reauth', { password: pw }).then(function (data) {
+              passwordGoodFor(data.expires_in_seconds);
               if (!cancelled) resolve(MM.api.post('/api/account/plex'));
               return { ok: true };
             }, function (err) {
-              if (!cancelled) closeTab();
+              if (!cancelled) { closeTab(); opening(false); }
               return { ok: false, error: MM.api.messageOf(err, 'Could not check the password. Try again.') };
             });
           },
@@ -337,17 +385,23 @@
       var mine = turn;
       errorLine.textContent = '';
       byId('plex-note').textContent = '';
-      byId('plex-signout-note').hidden = true;
+      eased(function () { byId('plex-signout-note').hidden = true; });
       justLinked = false;
-      tab = openTab();
-      opening(button, true);
-      var start = underway;
-      function settle() { if (underway === start) opening(button, false); }
-      MM.api.post('/api/account/plex').then(null, function (err) {
-        if (mine !== turn || !(err.status === 403 && err.data && err.data.reauth_required)) throw err;
-        closeTab();
-        return withPassword();
-      }).then(function (data) {
+      var start = underway = { button: button, label: button.textContent, cancelled: false };
+      function settle() { if (underway === start) settled(); }
+      function first() {
+        tab = openTab();
+        opening(true);
+        return MM.api.post('/api/account/plex').then(null, function (err) {
+          if (mine !== turn || !(err.status === 403 && err.data && err.data.reauth_required)) throw err;
+          passwordUntil = 0;
+          closeTab();
+          opening(false);
+          return withPassword();
+        });
+      }
+      /* Asked first where it is due: a tab opened before would cover the question. */
+      (Date.now() < passwordUntil ? first() : withPassword()).then(function (data) {
         if (mine === turn) render(data.attempt);
         else if (start.cancelled) giveUp(data.attempt.id);
         settle();
@@ -365,7 +419,7 @@
     /* Named, so that arriving late it cannot end a sign-in started since. The sign-in ends by itself when this does not arrive. */
     function giveUp(id) {
       MM.api.post('/api/account/plex/cancel', { attempt: id }).then(function (data) {
-        if (!data.signed_out) byId('plex-signout-note').hidden = false;
+        if (!data.signed_out) eased(function () { byId('plex-signout-note').hidden = false; });
       }, function () {});
     }
 
@@ -379,11 +433,10 @@
 
     function cancelOpening() {
       if (!underway) return;
-      var button = underway.button;
       underway.cancelled = true;
       stop();
       var held = MM.dom.focusStillIn(holder);
-      opening(button, false);
+      settled();
       sayCancelled();
       if (held) byId('plex-start').focus();
     }
