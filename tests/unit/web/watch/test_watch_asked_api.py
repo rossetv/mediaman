@@ -512,6 +512,15 @@ class TestOverAndDone:
         (item,) = _body(aoife)["items"]
         assert item["leaving_days"] is not None and item["keep_id"] == "101"
 
+    def test_one_gone_from_the_library_a_moment_ago_is_no_error(self, aoife, conn):
+        _film(conn, "101", "Glass House", 11)
+        _ask(conn, "Glass House", 11)
+        assert _titles(aoife) == ["Glass House"]
+
+        conn.execute("DELETE FROM media_items")
+        conn.commit()
+        assert _titles(aoife) == []
+
 
 class TestOnce:
     def test_a_title_asked_for_again_and_again_is_shown_once(self, aoife, conn, radarr):

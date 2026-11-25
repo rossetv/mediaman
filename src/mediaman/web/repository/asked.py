@@ -204,9 +204,12 @@ class Held:
         return named[0] if len(named) == 1 else None
 
     def is_there(self, ref: str, season: int | None) -> bool:
-        """Whether the library has *season* of the title, or all of it that was asked for."""
+        """Whether the library has the title, and its *season* if that was asked for. The index,
+        held a while, may name one that is gone."""
         kind, _, key = ref.partition("-")
-        return kind == "movie" or season is None or season in self._seen(key).seasons
+        if kind == "movie":
+            return key in self.movies
+        return key in self.shows and (season is None or season in self._seen(key).seasons)
 
     def is_watched(self, ref: str, season: int | None) -> bool:
         kind, _, key = ref.partition("-")
