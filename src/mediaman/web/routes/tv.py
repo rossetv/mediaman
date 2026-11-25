@@ -556,7 +556,8 @@ def _start_on(
             begun.append(play)
             # Not before: signing out everywhere ends what has begun by then.
             if asked_by is not None and not repo.has_session(conn, user, asked_by):
-                players.stop(key, play.id)
+                with contextlib.suppress(NotPlaying, Stale):
+                    players.stop(key, play.id)
                 raise _not_signed_in()
             # What played counts among the owner's streams until it has ended.
             _carry_out(players)

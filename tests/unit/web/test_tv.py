@@ -542,6 +542,39 @@ def test_signing_out_everywhere_while_a_film_starts_leaves_nothing_on(
     assert not manager._streams
 
 
+def test_a_film_that_signing_out_everywhere_ended_as_it_began_is_refused_as_signed_out(
+    tv, home, amy, manager, monkeypatch
+):
+    looks = repo.has_session
+
+    def ended_first(conn, username, session_hash):
+        monkeypatch.setattr(repo, "has_session", looks)
+        destroy_all_sessions_for(conn, username)
+        tv_routes.end_plays_of(username)
+        return looks(conn, username, session_hash)
+
+    monkeypatch.setattr(repo, "has_session", ended_first)
+    refused = _play(amy, home)
+    assert (refused.status_code, refused.json()) == (401, {"detail": "Not authenticated"})
+    assert tv.poll()["play"] is None
+    assert not manager._streams
+
+
+def test_a_film_another_start_replaced_as_the_session_ended_is_refused_as_signed_out(
+    tv, home, amy, conn, monkeypatch
+):
+    looks = repo.has_session
+
+    def replaced_first(conn, username, session_hash):
+        monkeypatch.setattr(repo, "has_session", looks)
+        assert _play(amy, home, "102").status_code == 200
+        return False
+
+    monkeypatch.setattr(repo, "has_session", replaced_first)
+    assert _play(amy, home).status_code == 401
+    assert _tv_of(amy, home)["play"]["rating_key"] == "102"
+
+
 def test_a_tv_that_changed_hands_meanwhile_keeps_its_name(tv, home, amy, bob, conn, person):
     was = repo.find(conn, home)
     tv.pair(bob, confirm=True)
