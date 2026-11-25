@@ -366,10 +366,7 @@ def _unschedule_copies(
     watched = conn.execute(  # nosec B608
         f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (media_id,)
     ).fetchone()["at"]
-    watched_at = parse_iso_utc(watched)
-    lately = watched_at is not None and not is_inactive(
-        [{"viewed_at": watched_at}], inactivity_days
-    )
+    lately = _is_lately(watched, inactivity_days)
     for other in _in_other_libraries(conn, title):
         same_season = other["season_number"] == title["season_number"]
         if not whole_show and not same_season:
@@ -488,7 +485,12 @@ def _is_watched_lately(conn: sqlite3.Connection, media_id: str, inactivity_days:
     watched = conn.execute(  # nosec B608
         f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (media_id,)
     ).fetchone()
-    watched_at = parse_iso_utc(watched["at"]) if watched else None
+    return watched is not None and _is_lately(watched["at"], inactivity_days)
+
+
+def _is_lately(watched: str | None, inactivity_days: int) -> bool:
+    """Return True if a title last watched at *watched* would not be scheduled today."""
+    watched_at = parse_iso_utc(watched)
     return watched_at is not None and not is_inactive([{"viewed_at": watched_at}], inactivity_days)
 
 
@@ -500,6 +502,38 @@ _CARRIED_UP_TO_KEY = "pruned_keeps_carried_up_to"
 _LIVE_ITEM_KEEP = (
     "(sa.action = 'protected_forever' OR (sa.action = 'snoozed' AND sa.execute_at >= ?))"
 )
+
+
+def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -> dict[str, bool]:
+    """Return the files of titles removed from the library that a keep or a watch still holds.
+
+    True for one of a live keep set aside, a title's own or its show's, that no
+    title has taken; False for one held only by a watch that would keep its
+    title from being scheduled today. A title listed with such a file may be
+    one the keep or the watch is never given to: of another season, or a film
+    at another path.
+    """
+    now = now_iso()
+    # rationale: the interpolated conditions are fixed strings; every value is bound
+    rows = conn.execute(  # nosec B608
+        "SELECT sa.tracked_files, NULL AS watched FROM pruned_keeps sa "
+        f"WHERE {_LIVE_ITEM_KEEP} AND sa.tracked_files IS NOT NULL "
+        "UNION ALL "
+        "SELECT ps.tracked_files, NULL FROM pruned_show_seasons ps "
+        f"JOIN kept_shows ks USING (show_rating_key) WHERE {_LIVE_KEEP} "
+        "  AND ps.tracked_files IS NOT NULL "
+        "UNION ALL "
+        "SELECT pw.tracked_files, pw.last_watched_at FROM pruned_watches pw "
+        "WHERE pw.tracked_files IS NOT NULL",
+        (now, now),
+    ).fetchall()
+    held: dict[str, bool] = {}
+    for row in rows:
+        kept = row["watched"] is None
+        if kept or _is_lately(row["watched"], inactivity_days):
+            for file in pruned_files(row):
+                held[file] = kept or held.get(file, False)
+    return held
 
 
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:

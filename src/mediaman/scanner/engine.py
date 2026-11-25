@@ -197,6 +197,7 @@ class ScanEngine:
             conn=conn,
             dry_run=dry_run,
             cleanup_snoozes=not dry_run,
+            inactivity_days=inactivity_days,
             sonarr_client=sonarr_client,
             radarr_client=radarr_client,
         )
@@ -576,7 +577,8 @@ class ScanEngine:
 
         Delegates to DeletionExecutor. The items of a library this run could not
         read wait: one of them may no longer be what Plex lists. So does one that
-        may have moved from a library not yet confirmed to be gone.
+        may have moved from a library not yet confirmed to be gone, or that has a
+        file a keep or a late watch of a title removed from the library holds.
         """
         gone = (
             fetch_gone_library_ids(self._conn, self._library_types) if self._library_types else ()
