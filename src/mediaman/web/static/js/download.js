@@ -42,12 +42,17 @@
   }
 
   /* What can be done and how it goes stand in one place, whose height eases. */
+  function high(px) {
+    return px ? { height: px + 'px' }
+      : { height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0, borderTopWidth: 0, borderBottomWidth: 0 };
+  }
+
   function ease(el, from, to, then) {
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (still || from === to || !el.animate) { if (then) then(); return; }
     el.style.overflow = 'clip';
     el.style.overflowClipMargin = '4px';
-    var run = el.animate([{ height: from + 'px' }, { height: to + 'px' }],
+    var run = el.animate([high(from), high(to)],
       { duration: 250, easing: 'cubic-bezier(.2,.8,.2,1)' });
     run.onfinish = run.oncancel = function () {
       el.style.overflow = el.style.overflowClipMargin = '';

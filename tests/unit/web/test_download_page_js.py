@@ -308,6 +308,9 @@ def test_the_episodes_come_go_and_stay_as_the_person_left_them() -> None:
         "summary": "3 episodes",
         "rows": ["Ready", "Searching", "Queued"],
     }
+    (closing, opening) = out["eased"]
+    assert closing == opening[::-1] and closing[0] == {"height": "20px"}
+    assert set(closing[1].values()) == {0} and {"paddingTop", "marginTop"} <= set(closing[1])
     assert out["shut"] == {"open": False, "held": ""}
     assert out["opened"] == {"open": True, "held": "flex-start"}
     assert out["narrowed"] == "flex-start" and out["letGo"] == ""

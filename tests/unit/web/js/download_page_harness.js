@@ -220,7 +220,17 @@ const SCENARIOS = {
     out.after = state();
     const hero = p.one('.share-hero');
     const summary = box.querySelector('summary');
+    const list = box.querySelector('[data-v="ep-list"]');
+    const eased = [];
+    list.animate = (frames) => { eased.push(frames); return (p.easing = {}); };
     const press = () => { click(p.doc, summary); return { open: box.hasAttribute('open'), held: hero.style.alignItems || '' }; };
+    p.still = false;
+    press();
+    p.easing.onfinish();
+    press();
+    p.easing.onfinish();
+    p.still = true;
+    out.eased = eased;
     out.shut = press();
     out.opened = press();
     p.resized();
