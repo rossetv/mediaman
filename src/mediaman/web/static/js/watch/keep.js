@@ -23,7 +23,12 @@
      (downwards), gap included, so nothing beside it jumps. A card fades and
      shrinks in place while its slot closes behind it. */
   function shrinkMotion(node, sideways) {
-    var parentStyle = getComputedStyle(node.parentNode);
+    var box = node.parentNode;
+    var parentStyle = getComputedStyle(box);
+    while (parentStyle.display === 'contents') { // its children stand in the box around it
+      box = box.parentNode;
+      parentStyle = getComputedStyle(box);
+    }
     var ease = token('--ease-out', 'ease-out');
     if (sideways) {
       var w = node.offsetWidth + 'px';

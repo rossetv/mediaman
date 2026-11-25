@@ -294,6 +294,18 @@ const scenarios = {
     return frames.map(room);
   },
 
+  // Where a row in a group that has no box of its own ends its fold, in a column of rows 30px apart.
+  async foldInGroup() {
+    const page = load({ motion: true });
+    page.ctx.getComputedStyle = (n) => ({ getPropertyValue: () => '', ...(n.id === 'rows' ? { display: 'flex', rowGap: '30px' } : { display: n.id === 'group' ? 'contents' : 'block', rowGap: 'normal' }) });
+    const ends = [];
+    Node.prototype.animate = function (f) { ends.push([f[1].marginTop, f[1].marginBottom]); return { cancel() {} }; };
+    page.doc.body.appendChild(build(page.doc, ['div', { id: 'rows' }, ['div', { id: 'group' }, ['section', { id: 'first' }], ['section', { id: 'next' }]]]));
+    page.run();
+    ['first', 'next'].forEach((id) => page.ctx.MMWatch.keep.foldAway(page.doc.getElementById(id)));
+    return ends;
+  },
+
   // The toasts still there: after an undo, after the next keep of that title and one of another, and once each is changed elsewhere.
   async oneToast() {
     const page = load();

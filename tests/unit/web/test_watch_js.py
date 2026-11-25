@@ -150,6 +150,10 @@ def test_a_block_that_folds_away_gives_up_all_its_room_bit_by_bit() -> None:
     assert end == [0, 0, 0, 0, 0, 0]
 
 
+def test_a_row_in_a_group_with_no_box_of_its_own_folds_the_gap_of_the_rows_with_it() -> None:
+    assert _run("foldInGroup") == [["0px", "-30px"], ["-30px", "0px"]]
+
+
 def test_only_the_last_keep_or_undo_of_a_title_has_a_toast() -> None:
     assert _run("oneToast") == [
         ["Kept Leaving Film for 7 days."],
