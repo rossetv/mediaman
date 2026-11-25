@@ -703,11 +703,18 @@ def test_a_hard_flick_heard_late_is_not_taken_for_notches_and_reads_nothing_on()
     assert _run("flickNotNotches") == {"flick": 0, "notches": True}
 
 
-def test_notches_sideways_over_a_preview_are_left_to_the_rows_snapping() -> None:
+def test_quick_notches_sideways_from_a_preview_take_its_row_a_card_each_its_snapping_kept() -> None:
     out = _run("notchedSideways")
-    assert out["px"] == {"asked": [[100, "smooth"]] * 4, "left": 0, "snaps": [""]}
-    assert out["lines"] == {"asked": [[99, "smooth"]] * 4, "left": 0, "snaps": [""]}
+    cards = [[164, "smooth"], [328, "smooth"], [492, "smooth"], [656, "smooth"]]
+    assert out == {"px": {"asked": cards, "snaps": [""]}, "lines": {"asked": cards, "snaps": [""]}}
 
 
 def test_a_page_picture_there_before_it_opens_comes_over_the_previews_a_frame_later() -> None:
     assert _run("loadedPictureFades") == [True, True, False, True]
+
+
+def test_small_steps_sideways_over_a_preview_end_on_the_card_they_went_to_and_never_back() -> None:
+    assert _run("smallStepsOn") == {
+        "right": {"left": 115, "asked": [[164, "smooth"]], "snap": ""},
+        "left": {"left": 385, "asked": [[328, "smooth"]], "snap": ""},
+    }

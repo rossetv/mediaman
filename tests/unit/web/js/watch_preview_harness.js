@@ -1446,22 +1446,42 @@ const scenarios = {
     await h.pass(400);
     return { left, kept: kept.every(Boolean), snaps: [...new Set(snaps)], after: row.style.scrollSnapType, drawn, open };
   },
-  /* Notches sideways over a preview: each goes to the row's own snapping, as it would over the card. */
+  /* Quick notches sideways, the first over a preview and the rest over the cards it leaves: a card each,
+     the row's snapping kept. */
   async notchedSideways() {
     const out = {};
     for (const [name, over] of [['px', { deltaX: 100 }], ['lines', { deltaX: 3, deltaMode: 1 }]]) {
       const h = load();
       const row = h.doc.querySelector('.watch-row__scroll');
       const asked = [];
-      Object.assign(row, { scrollLeft: 0, scrollWidth: 5000, clientWidth: 1000, scrollBy: (o) => asked.push([o.left, o.behavior]) });
+      Object.assign(row, { scrollLeft: 0, scrollWidth: 5000, clientWidth: 1000, scrollTo: (o) => asked.push([o.left, o.behavior]) });
+      row.children.forEach((n, i) => { n.offsetLeft = 24 + i * 164; });
       await h.rest('film', 1100);
+      const card = row.children[2];
       const snaps = [];
       for (let i = 0; i < 4; i++) {
-        h.wheel(0, over);
+        h.wheel(0, { ...over, target: i ? card : h.pv() });
         snaps.push(row.style.scrollSnapType || '');
         await h.pass(120);
       }
-      out[name] = { asked, left: row.scrollLeft, snaps: [...new Set(snaps)] };
+      out[name] = { asked, snaps: [...new Set(snaps)] };
+    }
+    return out;
+  },
+  /* Small steps sideways over a preview, either way: once they stop, the row goes on to the card they were
+     going to, never back. */
+  async smallStepsOn() {
+    const out = {};
+    for (const [way, from, dx] of [['right', 100, 3], ['left', 400, -3]]) {
+      const h = load();
+      const row = h.doc.querySelector('.watch-row__scroll');
+      const asked = [];
+      Object.assign(row, { scrollLeft: from, scrollWidth: 5000, clientWidth: 1000, scrollTo: (o) => { asked.push([o.left, o.behavior]); } });
+      row.children.forEach((n, i) => { n.offsetLeft = 24 + i * 164; });
+      await h.rest('film', 1100);
+      for (let i = 0; i < 5; i++) { h.wheel(0, { deltaX: dx }); await h.pass(12); }
+      await h.pass(1000);
+      out[way] = { left: row.scrollLeft, asked, snap: row.style.scrollSnapType };
     }
     return out;
   },

@@ -1325,7 +1325,7 @@
     stream.sum += dy;
     stream.way += Math.abs(dy);
     stream.side += Math.abs(dx);
-    if (stream.row) freeRow(stream.row);
+    if (stream.row) freeRow(stream.row, dx);
   }
 
   /* Over a preview, and over the page one becomes. */
@@ -1419,41 +1419,85 @@
   }
 
   /* Its snapping would pull every small step back. The row moves, so the preview over it fades.
-     A notch, which its snapping takes a card on, is its snapping's, as over the card. */
+     A notch takes it a card on, as over the card. */
   function slideRow(s, dx, e) {
     var row = s.p && s.p.link.closest('.watch-row__scroll');
     if (!row) return;
     e.preventDefault();
-    if (e.deltaMode === 1 || Math.abs(dx) >= 60) {
-      row.scrollBy({ left: dx, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+    if (notched(e, dx)) {
+      notchRow(row, dx);
       return;
     }
     if (s.row !== row) {
       s.row = row;
       s.left = row.scrollLeft;
     }
-    freeRow(row);
+    freeRow(row, dx);
     s.left = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, s.left + dx));
     row.scrollLeft = s.left;
   }
 
+  function notched(e, dx) { return e.deltaMode === 1 || Math.abs(dx) >= 60; }
+
+  /* The row notches are taking on: { row, to }. Those that come over its cards once the preview has
+     gone are counted too, each from where the one before is going, so that none is lost on the way. */
+  var rowGoing = null;
+
+  function notchRow(row, dx) {
+    if (rowGoing && rowGoing.row !== row) letRowGo();
+    if (!rowGoing) {
+      rowGoing = { row: row, to: row.scrollLeft, timer: null };
+      row.addEventListener('wheel', rowWheel, { passive: false });
+    }
+    rowGoing.to = cardFrom(row, rowGoing.to + dx, dx);
+    row.scrollTo({ left: rowGoing.to, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+    clearTimeout(rowGoing.timer);
+    rowGoing.timer = setTimeout(letRowGo, NOTCH_REST_MS);
+  }
+
+  function rowWheel(e) {
+    var dx = px(e, e.deltaX);
+    if (Math.abs(dx) <= Math.abs(px(e, e.deltaY)) || !notched(e, dx)) return;
+    e.preventDefault();
+    notchRow(rowGoing.row, dx);
+  }
+
+  function letRowGo() {
+    if (!rowGoing) return;
+    clearTimeout(rowGoing.timer);
+    rowGoing.row.removeEventListener('wheel', rowWheel);
+    rowGoing = null;
+  }
+
   var snapTimer = null;
 
-  function freeRow(row) {
+  var rowWay = 0; // which way the small steps went
+
+  function freeRow(row, dx) {
     clearTimeout(snapTimer);
+    if (dx) rowWay = dx;
     row.style.scrollSnapType = 'none';
     snapTimer = setTimeout(function () {
       if (stream && stream.row === row) stream.row = null;
-      // Where it snaps to, and there at its own pace.
+      // On to the card it was going to, at its own pace, and never back.
       var left = row.scrollLeft;
-      row.style.scrollSnapType = '';
-      var to = row.scrollLeft;
-      if (to === left || core.reduceMotion()) return;
-      row.style.scrollSnapType = 'none';
-      row.scrollTo({ left: left, behavior: 'instant' });
+      var to = cardFrom(row, left, rowWay);
+      if (Math.abs(to - left) < 1 || core.reduceMotion()) {
+        if (core.reduceMotion()) row.scrollLeft = to;
+        row.style.scrollSnapType = '';
+        return;
+      }
       row.scrollTo({ left: to, behavior: 'smooth' });
       snapTimer = setTimeout(function () { row.style.scrollSnapType = ''; }, core.tokenMs('--dur-slow', 250) * 2);
     }, GAP_MS);
+  }
+
+  /* Where the first card of *row* at or past *at* the way *dx* goes starts. */
+  function cardFrom(row, at, dx) {
+    var first = row.firstElementChild;
+    var starts = core.toArray(row.children).map(function (n) { return n.offsetLeft - first.offsetLeft; });
+    var card = dx > 0 ? starts.filter(function (x) { return x >= at - 1; })[0] : starts.filter(function (x) { return x <= at + 1; }).pop();
+    return Math.max(0, Math.min(row.scrollWidth - row.clientWidth, card >= 0 ? card : at));
   }
 
   /* ── Scrolled open ── */
