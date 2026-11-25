@@ -77,8 +77,18 @@
     }, RETRY_MS[state.times]);
   }
 
+  // One the person can see goes before those further on.
   function askNext() {
-    while (asking < ABREAST && queue.length) ask.apply(null, queue.shift());
+    while (asking < ABREAST && queue.length) {
+      var at = queue.findIndex(function (entry) { return inView(entry[0]); });
+      ask.apply(null, queue.splice(Math.max(at, 0), 1)[0]);
+    }
+  }
+
+  // A marked picture is not drawn, so where it stands is where its stand-in is.
+  function inView(img) {
+    var box = img.parentNode && img.parentNode.getBoundingClientRect ? img.parentNode.getBoundingClientRect() : null;
+    return !!box && box.bottom > 0 && box.right > 0 && box.top < innerHeight && box.left < innerWidth;
   }
 
   function wanted(img, state) {
@@ -119,7 +129,11 @@
 
   /* Fades the picture in over its stand-in, or a banner's stand-ins, which lie over it, out. */
   function fadeIn(img) {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { settle(img); return; }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // Once drawn whole, so no transition of its own can start from nothing as its stand-in goes.
+      requestAnimationFrame(function () { settle(img); });
+      return;
+    }
     var style = getComputedStyle(document.documentElement);
     var over = img.hasAttribute('data-wide-art')
       ? [].slice.call(img.parentNode.querySelectorAll('.watch-banner__bg--fill:not([data-broken]), .watch-banner__poster:not([data-broken])'))

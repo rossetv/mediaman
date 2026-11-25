@@ -84,8 +84,8 @@ def test_a_picture_that_comes_back_fades_in_unless_motion_is_reduced() -> None:
 def test_a_stand_in_stays_until_the_picture_is_wholly_over_it() -> None:
     out = {name: [mark for mark, *_ in got["seen"]] for name, got in _run()["tries"].items()}
     assert out["comesBack"] == [True, True, "coming", "coming", False]
-    # With no fade, it goes in the same frame as the picture comes.
-    assert out["calm"] == [True, True, "coming", False]
+    # With no fade, it goes once the picture has been drawn whole.
+    assert out["calm"] == [True, True, "coming", "coming", False]
     assert out["failsAgain"][3] is True
 
 
@@ -112,6 +112,12 @@ def test_pictures_that_failed_together_are_asked_for_a_few_at_a_time() -> None:
         assert got["total"] == 200, name
         assert got["most"] <= 4, name
         assert got["inSecond"] <= 8, name
+
+
+def test_pictures_in_view_are_asked_for_before_those_further_on() -> None:
+    first = _run()["seenFirst"]
+    # The first few go before the rest have come to their turn; at the next free slot, those in view.
+    assert first == [0, 1, 2, 3, 37, 39, 4]
 
 
 def test_a_picture_that_fails_again_while_it_waits_has_no_second_set_of_tries() -> None:
