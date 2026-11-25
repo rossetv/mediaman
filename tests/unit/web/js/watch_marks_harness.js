@@ -411,20 +411,22 @@ const scenarios = {
     return { pick, said: menu.querySelector('.watch-menu-rate').textContent.replace(/Rate it.*/, ''), focus: p.doc.activeElement.textContent };
   },
 
-  // Undo of a strong no over Details, pressed in its toast: a level from before, and none.
+  // Undo of a strong no, pressed in its toast over Details of the same title: a level from before, none, and the
+  // title named by another ref; then with no thumbs there, and over another title. And from the title's own heading.
   async undoInDetails() {
     const out = [];
-    for (const level of [1, null]) {
+    for (const [level, on, from] of [[1, 'movie-1'], [null, 'movie-1'], [1, 'tmdb-movie-10'], [1, 'rec-1'], [1, 'movie-1', 'bare'], [1, 'movie-9'], [null, 'tmdb-movie-90', 'heading']]) {
       const p = rated();
-      const details = p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }, ...[-2, -1, 1, 2].map((n) => ['button', { 'data-ttl-act': 'rate-' + n }])]));
+      const details = p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }, ['h2', { id: 'ttl-title' }], ...(from === 'bare' ? [] : [-2, -1, 1, 2].map((n) => ['button', { 'data-ttl-act': 'rate-' + n }]))]));
+      p.ctx.location.hash = '#title=' + on;
       if (level) { p.ctx.MM.ratings.set('movie-1', level); await settle(); }
       p.doc.documentElement.classList.add('has-ttl');
       p.ctx.MM.ratings.set('movie-1', -2);
       await settle();
       const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast' }, ['button', {}]]));
-      toast.querySelector('button').focus();
+      (from === 'heading' ? details.querySelector('#ttl-title') : toast.querySelector('button')).focus();
       await p.undo();
-      out.push(details.contains(p.doc.activeElement) && p.doc.activeElement.getAttribute('data-ttl-act'));
+      out.push(p.doc.activeElement.getAttribute('data-ttl-act') || p.doc.activeElement.tagName);
     }
     return out;
   },

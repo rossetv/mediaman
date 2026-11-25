@@ -598,8 +598,9 @@ def test_a_title_that_cannot_be_rated_shows_no_thumbs_or_says_so_in_their_place(
     }
 
 
-def test_undo_of_a_strong_no_over_details_lands_on_its_thumb() -> None:
-    assert _run("undoInDetails") == ["rate-1", "rate--2"]
+def test_undo_over_details_lands_on_the_thumb_of_that_title_alone_and_else_on_the_heading() -> None:
+    same = ["rate-1", "rate--2", "rate-1", "rate-1"]
+    assert _run("undoInDetails") == [*same, "H2", "H2", "H2"]
 
 
 def test_a_strong_no_over_a_level_not_known_offers_no_undo() -> None:

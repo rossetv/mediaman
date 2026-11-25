@@ -717,12 +717,30 @@
     });
   }
 
+  /* The title Details shows, as far as its address and the cards on the page say. */
+  function titleShown() {
+    var ref = decodeURIComponent((/^#title=(.+)$/.exec(window.location.hash || '') || ['', ''])[1]);
+    var tmdb = /^tmdb-(movie|tv)-0*([1-9][0-9]*)$/.exec(ref);
+    var shown = { refs: [ref], mediaType: tmdb && tmdb[1], tmdbId: tmdb && Number(tmdb[2]) };
+    if (!ref || tmdb) return shown;
+    var card = toArray(document.querySelectorAll('.watch-card')).filter(function (c) {
+      return isPick(c) && pickOf(c).refs.indexOf(ref) >= 0;
+    })[0];
+    return card ? pickOf(card) : shown;
+  }
+
   function undoNo(title) {
     var details = detailsShown();
+    var heading = byId('ttl-title');
     var active = document.activeElement;
-    var lost = !active || active === document.body || active.closest('.ui-toast');
-    MM.ratings.set(title.ref, title.was);
-    if (details && lost) refocus(details.querySelector('[data-ttl-act="rate-' + (title.was || STRONG_NO) + '"]'));
+    var lost = !active || active === document.body || active === heading || active.closest('.ui-toast');
+    MM.ratings.set(title.ref, title.was); // its cards are back, for titleShown
+    if (!details || !lost) return;
+    var thumb = sameTitle(titleShown(), title) &&
+      details.querySelector('[data-ttl-act="rate-' + (title.was || STRONG_NO) + '"]');
+    if (thumb) refocus(thumb);
+    // Once Details has put it on its first button, which acts.
+    else setTimeout(function () { refocus(heading); }, 0);
   }
 
   document.addEventListener('mm:rating', function (e) {
