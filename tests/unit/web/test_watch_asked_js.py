@@ -119,6 +119,24 @@ def test_the_row_has_a_limit_and_its_grid_has_them_all() -> None:
     }
 
 
+def test_a_title_in_continue_watching_is_not_repeated_and_not_counted() -> None:
+    out = _run("continued")
+    assert (out["keys"], out["total"], out["grid"]) == (["movie-1"], "1", 1)
+    # Dismissed there, it comes here; with its Undo it goes again at once.
+    assert out["dismissed"] == [["movie-1", "movie-2"], ["Arrived today", "Started"]]
+    assert out["undone"] == [["movie-1"], "1", 2]
+
+
+def test_one_marked_as_watched_in_continue_watching_never_shows_here() -> None:
+    assert _run("continued_mark") == {"early": ["movie-1"], "keys": ["movie-1"]}
+
+
+def test_with_all_of_it_in_continue_watching_there_is_no_row() -> None:
+    out = _run("all_continued")
+    assert (out["row"], out["skeleton"], out["grid"]) == (False, False, 0)
+    assert (out["alone"], out["left"]) == (["movie-1"], ["movie-1"])
+
+
 def test_a_grid_opened_before_the_row_is_there_waits_for_it() -> None:
     out = _run("grid_first")
     assert (out["first"], out["then"], out["next"], out["gets"]) == (0, 2, None, 1)

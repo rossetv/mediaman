@@ -878,7 +878,8 @@ def watch_page(
         _paged_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
     index = catalog.library_index(conn, tmdb, libraries, lib.library_movies, lib.library_shows)
-    asked_waiting = has_any(conn, username, libraries, index)
+    continuing = {c["dismiss_ref"] for c in continue_row}
+    asked_waiting = has_any(conn, username, libraries, index, continuing)
     picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
     later = [_ASKED_ROW, *([_RECOMMENDED_ROW] if picks_on else [])] + (
         [(shelf[0], shelf[1]) for shelf in catalog.SHELVES] if tmdb_configured else []

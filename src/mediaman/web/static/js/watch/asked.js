@@ -1,8 +1,9 @@
 /* Watch page: the row of what the person asked to download and has not watched,
  * under Continue watching: what is there, then what is on its way. It loads
  * after the page, follows what is watched, asked for or arrives while the page
- * is open, and is not there when it has nothing to show.
- * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/grid.js, watch/expand.js and watch/browse.js.
+ * is open, and is not there when it has nothing to show. What stands in
+ * Continue watching is not repeated in it.
+ * Needs watch/core.js, watch/address.js, watch/keep.js, watch/marks.js, watch/search.js, watch/grid.js, watch/expand.js and watch/browse.js.
  */
 (function () {
   'use strict';
@@ -29,6 +30,7 @@
   var anchor = core.byId('watch-asked');
 
   var section = null;
+  var known = []; // what the server last said
   var items = []; // as they are shown
   var timer = null;
   var askedAt = 0;
@@ -256,9 +258,16 @@
     var fresh = (data.items || []).filter(function (item) { return item && item.key; });
     if (data.complete === false) {
       // Nothing is known of what is on its way: it stays as it was.
-      var known = byKey(fresh);
-      fresh = fresh.concat(items.filter(function (item) { return item.state !== 'ready' && !known[item.key]; }));
+      var here = byKey(fresh);
+      fresh = fresh.concat(known.filter(function (item) { return item.state !== 'ready' && !here[item.key]; }));
     }
+    known = fresh;
+    put(known.filter(notContinued));
+  }
+
+  function notContinued(item) { return !watch.marks.continues(item.held_ref); }
+
+  function put(fresh) {
     if (section && section.isConnected && fresh.length) {
       update(fresh);
     } else if (fresh.length) {
@@ -300,7 +309,7 @@
 
   function gridOf() {
     function page() { return { cards: items.map(card).filter(Boolean), next: null }; }
-    var empty = { title: 'Nothing is waiting for you', text: 'What you ask for shows up here until you have watched it.', link: 'Back to all rows', href: '/watch' };
+    var empty = { title: 'Nothing is waiting for you', text: 'What you ask for shows up here until you start it.', link: 'Back to all rows', href: '/watch' };
     if (section) return Object.assign(page(), { total: items.length, empty: empty });
     return { cards: [], next: 'first', empty: empty, fetchPage: function () { return ask().then(page); } };
   }
@@ -309,6 +318,11 @@
   watch.expand.source(ID, gridOf);
 
   document.addEventListener('mm:watch-marked', function () { soon(SETTLE_MS); });
+  document.addEventListener('mm:watch-continue', function () {
+    var left = items.filter(notContinued);
+    if (left.length < items.length) put(left);
+    soon(SETTLE_MS); // what left it may have been watched, so the server is asked first
+  });
   document.addEventListener('mm:title-changed', function () { soon(0); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) soon(0); });
   window.addEventListener('pageshow', function (e) { if (e.persisted) soon(0); });

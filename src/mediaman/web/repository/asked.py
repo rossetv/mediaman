@@ -318,16 +318,22 @@ def is_over(conn: sqlite3.Connection, username: str, requests: Iterable[Request]
 
 
 def has_any(
-    conn: sqlite3.Connection, username: str, libraries: list[str], index: catalog.LibraryIndex
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    index: catalog.LibraryIndex,
+    continuing: Collection[str] = (),
 ) -> bool:
-    """Whether something they asked for is there unwatched, or is still waited for, as far as
-    the database knows: Radarr and Sonarr are not asked."""
+    """Whether something they asked for, but the titles *continuing*, is there unwatched, or is
+    still waited for, as far as the database knows: Radarr and Sonarr are not asked."""
     asked = requests_of(conn, username)
     if not asked:
         return False
     held = held_library(conn, username, libraries, index)
     for request in asked:
         ref = held.ref_of(request)
+        if ref in continuing:
+            continue
         if ref is None or not held.is_there(ref, request.season):
             if request.waiting:
                 return True

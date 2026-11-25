@@ -586,7 +586,8 @@ class TestOnce:
         series = {"tmdbId": 70, "tvdbId": 77, "title": "Coast", "monitored": True}
         sonarr.series = [{**series, "seasons": seasons}]
 
-        assert [(i["ref"], i["state"]) for i in _body(aoife)["items"]] == [("show-500", "ready")]
+        (item,) = _body(aoife)["items"]
+        assert (item["ref"], item["held_ref"], item["state"]) == ("show-500", "show-500", "ready")
 
         mark_watched(
             conn,
@@ -595,7 +596,10 @@ class TestOnce:
             now=NOW,
         )
         conn.commit()
-        assert [(i["ref"], i["state"]) for i in _body(aoife)["items"]] == [("tmdb-tv-70", "queued")]
+        (item,) = _body(aoife)["items"]
+        # The season on its way is of a show the library has.
+        assert (item["ref"], item["held_ref"]) == ("tmdb-tv-70", "show-500")
+        assert item["state"] == "queued"
 
     def test_nothing_asked_for_is_an_empty_row(self, aoife):
         assert _body(aoife) == {"ok": True, "items": [], "complete": True}
@@ -610,10 +614,10 @@ class TestOnce:
 class TestHasAny:
     @pytest.fixture
     def any_of(self, aoife, conn):
-        def ask() -> bool:
+        def ask(*continuing: str) -> bool:
             catalog.clear_library_index()
             index = catalog.library_index(conn, None, ["1"], lib.library_movies, lib.library_shows)
-            return asked.has_any(conn, "aoife", ["1"], index)
+            return asked.has_any(conn, "aoife", ["1"], index, continuing)
 
         return ask
 

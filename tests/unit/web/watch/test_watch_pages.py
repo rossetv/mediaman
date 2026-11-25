@@ -1475,6 +1475,18 @@ def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
     assert "asked-skel" not in html
 
 
+def test_no_place_is_held_for_what_stands_in_continue_watching(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    _play(conn, "aoife", "101", position=900, duration=3600, item="101")
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    assert 'data-dismiss-ref="movie-101"' in html
+    assert 'id="watch-asked"' in html
+    assert "asked-skel" not in html
+
+
 def test_the_row_of_what_was_asked_for_opens_as_a_grid(get):
     ctx = get("/watch?all=asked").json()
 

@@ -56,8 +56,9 @@ _ORDER = get_args(State)
 def api_watch_asked(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     """``items`` are cards as of a discover row, each with its ``state`` (ready, arriving: there
     but not yet in Plex, downloading, queued or coming), ``started`` and ``arrived_at`` of a
-    ready one and ``release_date`` of one that is coming, None when unknown. ``complete`` is False when Radarr
-    or Sonarr, set up, did not answer, so that some on their way may be missing."""
+    ready one and ``release_date`` of one that is coming, None when unknown. ``held_ref`` is the
+    library's own title of it, for a season on its way too, or None. ``complete`` is False when
+    Radarr or Sonarr, set up, did not answer, so that some on their way may be missing."""
     if not _LIMITER.check(username):
         return respond_err("too_many_requests", status=429)
     conn = get_db()
@@ -99,7 +100,11 @@ class _Row:
     def items(self, requests: Sequence[asked.Request]) -> list[dict[str, Any]]:
         """A card per title, in the best state of any of its requests."""
         known = [self._with_ids(r) for r in requests]
-        refs = [self._ref_of(r) for r in known]
+        titles = [self._title_of(r) for r in known]
+        refs = [
+            title if title and self.held.is_there(title, request.season) else None
+            for request, title in zip(known, titles, strict=True)
+        ]
         # By its name alone, what the library holds may be another title than the one deleted.
         unsure = [
             request
@@ -109,8 +114,8 @@ class _Row:
         over = asked.is_over(self.conn, self.username, unsure)
         items = [
             item
-            for request, ref in zip(known, refs, strict=True)
-            if (item := self._item(request, ref, request in over)) is not None
+            for request, title, ref in zip(known, titles, refs, strict=True)
+            if (item := self._item(request, title, ref, request in over)) is not None
         ]
         # A title may be known by its own ref in one request and by TMDB's in another.
         shown: set[str] = set()
@@ -142,8 +147,8 @@ class _Row:
         tvdb_id = self.arr.tvdb_id(tmdb_id) if kind == "tv" else None
         return replace(request, kind=kind, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
 
-    def _ref_of(self, request: asked.Request) -> str | None:
-        """The library title that has what was asked for, or None."""
+    def _title_of(self, request: asked.Request) -> str | None:
+        """The library title of what was asked for, with its season or without, or None."""
         ref = self.held.ref_of(request)
         if ref is None and request.kind and request.tmdb_id:
             found = self._entry(request.kind, request.tmdb_id)
@@ -156,9 +161,11 @@ class _Row:
                 year=year if isinstance(year, int) else None,
                 tvdb_id=request.tvdb_id,
             )
-        return ref if ref and self.held.is_there(ref, request.season) else None
+        return ref if ref and self.held.is_there(ref, None) else None
 
-    def _item(self, request: asked.Request, ref: str | None, over: bool) -> dict[str, Any] | None:
+    def _item(
+        self, request: asked.Request, title: str | None, ref: str | None, over: bool
+    ) -> dict[str, Any] | None:
         if ref is not None:
             watched = self.held.is_watched(ref, request.season)
             return None if over or watched else self._ready(ref, request)
@@ -169,7 +176,8 @@ class _Row:
         # Of a show, what is not out yet is none of what was deleted or played.
         if state is None or (over and (request.kind == "movie" or state != "coming")):
             return None
-        return self._on_its_way_card(request, request.kind, request.tmdb_id, state, release_date)
+        item = self._on_its_way_card(request, request.kind, request.tmdb_id, state, release_date)
+        return {**item, "held_ref": title}
 
     def _entry(self, kind: str, tmdb_id: int) -> Mapping[str, Any]:
         caches = self.arr.caches
@@ -246,6 +254,7 @@ class _Row:
             **self.fields(ref),
             "tmdb_id": tmdb_id,
             "key": _key(kind, tmdb_id, ref),
+            "held_ref": ref,
             "subtitle": subtitle,
             "state": "ready",
             "started": started,

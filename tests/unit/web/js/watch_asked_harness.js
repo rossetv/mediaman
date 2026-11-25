@@ -18,7 +18,8 @@ Object.defineProperty(Node.prototype, 'hidden', {
 Node.prototype.scrollTo = function (o) { this.scrollLeft = o.left; };
 
 function item(n, state, over) {
-  return Object.assign({ key: 'movie-' + n, ref: (state === 'ready' ? 'movie-' : 'tmdb-movie-') + n, kind: 'movie', title: 'Film ' + n,
+  return Object.assign({ key: 'movie-' + n, ref: (state === 'ready' ? 'movie-' : 'tmdb-movie-') + n,
+    held_ref: state === 'ready' ? 'movie-' + n : null, kind: 'movie', title: 'Film ' + n,
     subtitle: null, state, arrived_at: null, release_date: null, leaving_days: null, download_state: null }, over);
 }
 
@@ -29,6 +30,7 @@ function load(answer, opts = {}) {
   const clock = { now: opts.now || NOON, timers: [] };
   const api = { answer, gets: 0 };
   const left = [];
+  const standing = new Set(opts.continues); // the refs in Continue watching
   const win = {};
   doc.body.appendChild(build(doc, ['div', { class: 'watch-rows' }, ['div', { id: 'watch-asked', hidden: '' }],
     ...(opts.skeleton ? [['div', { class: 'asked-skel' }]] : []), ['section', { class: 'watch-row', id: 'next' }]]));
@@ -60,6 +62,7 @@ function load(answer, opts = {}) {
     head: (id, title) => build(doc, ['div', { class: 'watch-row__head' }, ['h2', {}, title]]),
     row() {}, source: (id, make) => { source = () => make({ id }); },
   };
+  watch.marks = { continues: (ref) => standing.has(ref) };
   watch.address = { putRowsBack() {} };
   watch.keep = {
     growIn() {},
@@ -75,7 +78,7 @@ function load(answer, opts = {}) {
   run('watch/asked.js');
   const cards = () => doc.querySelectorAll('.asked-row .watch-card').filter((c) => !c.closest('[data-going]'));
   return {
-    doc, api, left, win, source: () => source(),
+    doc, api, left, standing, win, source: () => source(),
     fire: (type) => doc.dispatchEvent({ type, detail: {} }),
     async pass(ms) {
       clock.now += ms;
@@ -217,6 +220,42 @@ const scenarios = {
     await t.pass(6000);
     return { row: [drawn, t.keys().length], more: t.q('.watch-row__viewport').hasAttribute('data-row-more'), said: t.row().getAttribute('data-row-total'),
       grid: grid.cards.length, total: grid.total, next: grid.next };
+  },
+  async continued() {
+    const t = load({ items: [ready(1, 0), ready(2, 1, { started: true }), item(3, 'coming', { held_ref: 'show-3' })] }, { continues: ['movie-2', 'show-3'] });
+    await settle();
+    const out = { keys: t.keys(), total: t.row().getAttribute('data-row-total'), grid: t.source().total };
+    t.standing.delete('movie-2');
+    t.fire('mm:watch-continue');
+    await t.pass(6000);
+    out.dismissed = [t.keys(), t.lines()];
+    t.standing.add('movie-2');
+    t.fire('mm:watch-continue');
+    out.undone = [t.keys(), t.row().getAttribute('data-row-total'), t.api.gets];
+    return out;
+  },
+  async continued_mark() {
+    // Marked as watched in Continue watching: the server's answer comes before the row takes it.
+    const t = load({ items: [ready(1, 0), ready(2, 1)] }, { continues: ['movie-2'] });
+    await settle();
+    t.standing.delete('movie-2');
+    t.fire('mm:watch-continue');
+    const early = t.keys();
+    await t.answer({ items: [ready(1, 0)] });
+    await t.pass(6000);
+    return { early, keys: t.keys() };
+  },
+  async all_continued() {
+    const t = load({ items: [ready(1, 0)] }, { continues: ['movie-1'], skeleton: true });
+    await settle();
+    const at = { row: !!t.row(), skeleton: !!t.q('.asked-skel'), grid: (await t.source().fetchPage()).cards.length };
+    t.standing.clear();
+    t.fire('mm:watch-continue');
+    await t.pass(6000);
+    const alone = t.keys();
+    t.standing.add('movie-1');
+    t.fire('mm:watch-continue');
+    return { ...at, alone, left: t.left };
   },
   async grid_first() {
     const t = load({ items: [ready(1, 0), ready(2, 1)] });
