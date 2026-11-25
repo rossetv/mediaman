@@ -11,6 +11,7 @@ from tests.helpers.factories import (
     insert_audit_log,
     insert_media_item,
     insert_scheduled_action,
+    insert_settings,
 )
 
 AIRED = {"previousAiring": "2020-01-01T00:00:00Z"}
@@ -62,6 +63,7 @@ def _page(*numbers, held=()):
 def people(conn):
     insert_admin_user(conn, username="amy", role="viewer")
     insert_admin_user(conn, username="boss", role="admin")
+    insert_settings(conn, plex_libraries='["1"]')
     return conn
 
 
@@ -116,13 +118,19 @@ def test_without_an_answer_from_sonarr_nothing_is_claimed_or_offered(people):
     }
 
 
-def test_a_season_plex_holds_is_held_though_sonarr_has_nothing_of_it(people):
+@pytest.mark.parametrize(
+    ("column", "value", "status"),
+    [("unlisted", 0, "held"), ("unlisted", 1, "not_asked"), ("plex_library_id", 9, "not_asked")],
+)
+def test_a_season_the_last_scan_listed_is_held_though_sonarr_has_nothing_of_it(
+    people, column, value, status
+):
     insert_media_item(
         people, id="502", media_type="tv_season", season_number=2, show_title="Glass Coast"
     )
-    people.execute("UPDATE media_items SET tvdb_id = 5500")
+    people.execute(f"UPDATE media_items SET tvdb_id = 5500, {column} = ?", (value,))
 
-    assert _fill(people, _page(2), _view(_sonarr_season(2)))[2][0] == "held"
+    assert _fill(people, _page(2), _view(_sonarr_season(2)))[2][0] == status
 
 
 @pytest.mark.parametrize(

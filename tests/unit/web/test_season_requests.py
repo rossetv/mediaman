@@ -22,6 +22,7 @@ from tests.helpers.factories import (
     insert_audit_log,
     insert_media_item,
     insert_scheduled_action,
+    insert_settings,
     insert_user_pick,
 )
 from tests.unit.web.test_search_download_rate_limit import (  # noqa: F401
@@ -324,6 +325,7 @@ def test_a_deleted_season_downloaded_again_since_is_anybodys_to_ask_for(viewer, 
 
 
 def _in_library(db, number, key="502"):
+    insert_settings(db, plex_libraries='["1"]')
     insert_media_item(
         db, id=key, media_type="tv_season", season_number=number, show_title="Glass Coast"
     )

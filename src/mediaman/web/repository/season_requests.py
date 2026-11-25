@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from typing import Literal
@@ -9,6 +10,7 @@ from typing import Literal
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import DeletedMedia, redownload_tokens
 from mediaman.services.downloads.notifications import record_download_notification
+from mediaman.web.repository.watch_library import scanned_library_ids
 
 Refusal = Literal["leaving", "removed"]
 
@@ -32,10 +34,12 @@ class ShowIds:
 
 
 def library_seasons(conn: sqlite3.Connection, show: ShowIds) -> set[int]:
-    """The seasons of the show the last scans found in Plex."""
+    """The seasons of the show the last scan listed in the scanned libraries."""
     # rationale: the interpolated condition is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
-        f"SELECT season_number FROM media_items WHERE {_OF_SHOW}", show.params()
+        f"SELECT season_number FROM media_items WHERE {_OF_SHOW} AND unlisted = 0"
+        " AND CAST(plex_library_id AS TEXT) IN (SELECT value FROM json_each(:libraries))",
+        {**show.params(), "libraries": json.dumps(scanned_library_ids(conn))},
     )
     return {row[0] for row in rows}
 
