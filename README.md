@@ -1,119 +1,100 @@
 # mediaman
 
-[![CI](https://github.com/rossetv/mediaman/actions/workflows/ci.yml/badge.svg)](https://github.com/rossetv/mediaman/actions/workflows/ci.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/rossetv/mediaman)](https://hub.docker.com/r/rossetv/mediaman)
+mediaman is a home for a Plex library. Watch your films and shows in the browser, find what to watch next, and ask for what is missing. When the disks fill up, it lists what nobody has watched and clears it away, unless somebody keeps it.
 
-mediaman keeps a self-hosted Plex library from filling up. It queues old, unwatched items for deletion, emails a newsletter where readers can keep them, and drives Sonarr, Radarr and NZBGet from a web UI.
+<img src="docs/images/watch.webp" alt="The Watch page: a film to go on with over its own picture, with Resume and Details, and under it a row of films and shows, each with how much is left.">
+
+## Watch
+
+Rest the pointer on a poster and it opens into a preview with the trailer. Everyone has their own place in every title, kept in mediaman and never written to Plex.
 
 <picture>
-  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/screens-still.png">
-  <img src="docs/images/screens.webp" alt="mediaman in turn: Watch, with a storage meter at the top and the titles leaving soon; a title; everything leaving soon, each with Keep; the storage panel with the heaviest movies first; the titles scheduled for deletion; the library list with sizes and last-watched dates; Downloads; and the newsletter with a Keep button for each title.">
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/preview-still.webp">
+  <img src="docs/images/preview.webp" alt="The pointer rests on a film's poster. It grows into a preview with the year, the length, the score and Play, the trailer starts, and it folds back as the pointer leaves.">
 </picture>
 
-![The scan queues a stale movie with a grace period set in Settings. If Mailgun, a Base URL and a subscriber are set, the newsletter offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](docs/images/how-it-works.svg)
+## Play
+
+Skip the intro, jump from chapter to chapter, or run along the bar to see where you are going. The film comes through mediaman, so the browser never talks to Plex.
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/player-still.webp">
+  <img src="docs/images/player.webp" alt="The player: Skip intro is pressed and the film goes on after its titles. The pointer runs along the bar and a small frame shows each place, with the chapter's name and the time.">
+</picture>
+
+When the credits start, it asks how it was, and the next episode is one press away.
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/credits-still.webp">
+  <img src="docs/images/credits.webp" alt="As the credits start, a card asks how the film was: Strong no, Not for me, I like it, I love it. I love it is pressed, and the card says it counts most in your picks.">
+</picture>
+
+## Find
+
+Say how long you have tonight, and it offers what fits and you have not seen.
+
+<img src="docs/images/search.webp" alt="The open search: How long have you got tonight, with 2 h chosen and three unseen films that fit, each with its length, when it would end and why. Below are recent searches and phrases to try.">
+
+Or ask in your own words. What you have comes first, then what you could ask for.
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/ask-still.webp">
+  <img src="docs/images/ask.webp" alt="Something kind and funny for a tired evening is typed and asked. Six titles come back, each with one line on why it fits: four in the library, with Play, and two that are not, with Download.">
+</picture>
+
+## Picks and ratings
+
+Each person gets picks of their own, each with its reason. Your ratings are yours alone to see, and the picks follow them.
+
+<img src="docs/images/picks.webp" alt="The Recommended for you row, with one pick open: a documentary that is not in the library, with Download and why it was picked: nine people and weather, you watched Northering twice.">
+
+## Collections
+
+Open one film of a series to see the others, and fetch the missing ones together.
+
+<img src="docs/images/collection.webp" width="680" alt="Part of a film's page: its cast, and its collection of four films, three of them in the library, with a button to download the missing one.">
+
+## On the TV
+
+Open `/tv` in the TV's browser and type the code it shows into your phone. While a film plays there, the phone is the remote, and you can lock it or put it away.
+
+<!-- To fill: how a film is sent to a TV from its page (Play on), AirPlay and Chromecast. At this point no page starts one yet. Then tv.webp may be taken again from that button on. -->
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/tv-still.webp">
+  <img src="docs/images/tv.webp" alt="A film on a TV, and beside it a phone with the remote: pause, ten seconds back and forward, volume, chapters and quality. Pause is pressed on the phone and the film pauses on the TV, then goes on.">
+</picture>
+
+## Storage
+
+What nobody has watched for a while is listed as leaving, with the day it goes. Anyone can keep a title, from the page or from the weekly email.
+
+<img src="docs/images/leaving.webp" alt="The Leaving soon row: posters with the days they have left, each with Keep under it.">
+
+The meter in the bar shows admins what fills the disks, what is about to go and what went. Scheduled deletion is off until you name the folders it may delete from.
+
+<img src="docs/images/storage.webp" width="430" alt="The storage panel: 307 GB free of 1.5 TB, a bar of movies, TV shows, anime, other files and free space, and a line that twelve scheduled titles will free 135 GB.">
+
+## History
+
+Who watched, asked for and kept what, and what mediaman did by itself. Admins see everyone's; everyone else sees their own.
+
+<img src="docs/images/history.webp" width="680" alt="History: a day's events, such as a film started, one finished, one kept and one downloaded, each with who and when. Above are a search and filters by user, action, title and date.">
+
+## Profile
+
+Choose a picture, link your Plex account, see where you are signed in, and say whether the AI may learn from what you watch.
+
+<img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
 
 ## Run it
 
 ```bash
-openssl rand -hex 32 > mediaman.key   # keep it: encrypted settings need the same key
-
-docker run -d --name mediaman \
-  -p 8282:8282 \
-  -e MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" \
-  -v mediaman-data:/data \
-  -v /path/to/your/media:/media \
-  rossetv/mediaman
-
-docker exec -it mediaman mediaman-create-user   # asks for the first admin; needs a terminal
-docker exec mediaman mediaman-unlock-user admin  # after 15 failed logins; clears the 24-hour lock
+[ -f mediaman.env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > mediaman.env
+docker run -d --name mediaman --env-file mediaman.env -p 8282:8282 -v mediaman-data:/data -v /path/to/your/media:/media rossetv/mediaman
+docker exec -it mediaman mediaman-create-user
 ```
 
-Mount your media at the path Plex uses for it (`/media` here), writable by uid 1000.
+Then open `http://localhost:8282`. The [install guide](docs/install.md) goes from there: another machine, https, Plex and the other services, deletion, TVs, backups and updates.
 
-The session cookie is always `Secure`: before you log in, use HTTPS or add `-e MEDIAMAN_FORCE_SECURE_COOKIES=false` for plain `http://`.
-
-Open `http://<host>:8282`, log in and add your services under Settings:
-
-![mediaman needs Plex to scan; Radarr, Sonarr, NZBGet, Mailgun, TMDB, OMDb and OpenAI are optional. It keeps its database on /data and deletes from the media mount.](docs/images/connections.svg)
-
-Scheduled deletion stays off until you set `MEDIAMAN_DELETE_ROOTS`. Press the storage meter at the top of Watch, then Scan now, and check its Scheduled tab. Then `docker rm -f mediaman` and rerun your own `docker run` with this line above the image name, naming your library folders separated by `:`. The next scan deletes everything past its grace period, with no newsletter or Keep link unless Mailgun, a Base URL readers can reach and a subscriber are set.
-
-```bash
-  -e MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv \
-```
-
-`/`, `/media`, `/data`, `/mnt`, `/srv`, `/home` and the system directories are refused as roots, and one refused root stops every scheduled deletion.
-
-To upgrade, `docker pull rossetv/mediaman` and recreate the container the same way: same key, `/data` volume, roots and flags. mediaman refuses to start on a database last opened by a build from before 13 May 2026; the error names the image, or two images in order, to start once to upgrade it (amd64 only).
-
-`/healthz` answers 200 while the process runs; `/readyz` answers 503 until the scheduler starts, or if the key does not match the database.
-
-## On a phone
-
-<p>
-  <img src="docs/images/phone-watch.png" width="140" alt="Watch on a phone: the storage meter in the top bar, a featured film and the Leaving soon row, the first with a red badge.">
-  <img src="docs/images/phone-storage.png" width="140" alt="Storage on a phone: free space, a bar by type, and movies, TV shows and anime with their sizes.">
-  <img src="docs/images/phone-scheduled.png" width="140" alt="Scheduled for deletion on a phone: each title with its day, its size and Keep.">
-  <img src="docs/images/phone-list.png" width="140" alt="The library list on a phone: counts of movies, TV shows, anime and stale titles above each title with Keep and Delete.">
-</p>
-
-## Watch
-
-Watch plays the Plex libraries mediaman scans. Plex sends the video, converted where it must be, and mediaman passes it on, so the browser never talks to Plex and the Plex token never leaves mediaman. Nothing is written to Plex: no watched marks, progress or history. Each person's progress is kept in mediaman.
-
-Rest the pointer on a card and it grows into a preview that plays its trailer from youtube-nocookie.com. Play trailers on hover, in the preview's More menu, turns trailers off in that browser.
-
-An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices and link their Plex account, so what they play in Plex apps shapes their recommendations. History shows a viewer only what they did and played; an admin sees everyone's. A viewer has no settings, library tools or way to cancel downloads.
-
-With an OpenAI key, these go to OpenAI, never with a name:
-
-- For recommendations: the titles each person played, the picks they had before and the Plex stars of the server's owner. AI recommendations in Settings turns this off.
-- Unless the person turns off the use of their history: their searches, ratings, requests and how their plays went, for their recommendations, the suggestions in search and the answers there.
-- When someone asks the AI in search: the question, whatever their switch says.
-
-Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
-
-```bash
-docker exec -it mediaman mediaman-create-user --role viewer   # --role viewer|admin, default admin
-```
-
-A reverse proxy or CDN in front of mediaman must not buffer or cache the video. mediaman sends `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` on stream responses; with nginx, also turn buffering off and allow long timeouts:
-
-```nginx
-location /api/watch/stream/ {
-    proxy_pass http://mediaman:8282;
-    proxy_buffering off;
-    proxy_read_timeout 1h;
-    proxy_send_timeout 1h;
-}
-```
-
-Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
-
-## Environment
-
-| Variable | Default | What it does |
-|---|---|---|
-| `MEDIAMAN_SECRET_KEY` | required | 64+ hex characters or 43+ URL-safe base64; a weak key stops startup |
-| `MEDIAMAN_DELETE_ROOTS` | unset: no scheduled deletion | Library folders scheduled deletion may delete from, as seen inside the container, separated by `:` |
-| `MEDIAMAN_FORCE_SECURE_COOKIES` | unset: always `Secure` | `false` allows login over plain HTTP and also turns HSTS off |
-
-[`.env.example`](.env.example) describes the rest, with defaults: port, data folder, reverse proxies, allowed hosts, HSTS and other rarely needed settings.
-
-## Development
-
-Python 3.12; see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-```bash
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]" "bandit[toml]" pip-audit
-make check
-
-mkdir -p data
-[ -f mediaman.key ] || openssl rand -hex 32 > mediaman.key   # reuse one key
-export MEDIAMAN_SECRET_KEY="$(cat mediaman.key)" MEDIAMAN_DATA_DIR=./data MEDIAMAN_FORCE_SECURE_COOKIES=false
-mediaman-create-user   # once
-mediaman               # serves http://127.0.0.1:8282
-```
-
-Report vulnerabilities as [SECURITY.md](SECURITY.md) says. MIT licence ([LICENSE](LICENSE)).
+mediaman is under the [MIT licence](LICENSE). To change it, see [CONTRIBUTING.md](CONTRIBUTING.md); to report a security problem, [SECURITY.md](SECURITY.md).
