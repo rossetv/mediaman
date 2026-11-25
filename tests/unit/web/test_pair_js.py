@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -71,3 +72,11 @@ def test_a_tv_paired_again_keeps_its_name_and_another_code_can_be_scanned() -> N
     assert out["empty"] == [1, "Give it a name."]
     assert out["failed"] == [["pair-name-form"], "Away"]
     assert out["scanned"] == [["pair-form"], "111222", 2]
+
+
+def test_each_step_of_pairing_comes_in_and_at_once_under_reduced_motion() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_pair.css").read_text()
+    step = r"\.pair form, #pair-done \{ animation: ([^;]+);"
+    moves = re.findall(step, css)
+    assert "var(--dur)" in moves[0] and moves[1] == "none"
+    assert "prefers-reduced-motion" in css[: css.rindex("animation: none")]

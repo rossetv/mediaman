@@ -1,6 +1,9 @@
 /* Pair a TV: the code it shows, then its name. */
 .pair-pg { display: grid; justify-items: center; padding: 48px 20px 72px; }
 .pair { width: 100%; max-width: 380px; }
+/* Each step as it is shown. */
+.pair form, #pair-done { animation: pair-in var(--dur) var(--ease-out); }
+@keyframes pair-in { from { opacity: 0; transform: translateY(8px); } }
 .pair__title { margin-bottom: 16px; font-size: 28px; letter-spacing: -.03em; line-height: 1.1; }
 .pair p { margin-bottom: 12px; font-size: 14px; line-height: 1.45; color: var(--t2); }
 .pair ol { margin-bottom: 14px; list-style: none; counter-reset: step; font-size: 14px; line-height: 1.45; color: var(--t2); }
@@ -40,4 +43,7 @@
 }
 @media (forced-colors: active) {
   .pair__code:focus-within i.at { outline: 2px solid Highlight; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pair form, #pair-done { animation: none; }
 }
