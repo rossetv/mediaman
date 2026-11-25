@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
+from jinja2 import ChoiceLoader, DictLoader
 from starlette.requests import Request
 
 from mediaman.web.auth.password_hash import set_user_email
@@ -110,6 +111,22 @@ def test_the_phone_bar_shows_the_storage_meter_on_watch_to_an_admin_and_to_nobod
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_the_phone_bar_is_its_links_and_no_more_button(role):
     assert "<button" not in _tabbar(_render(role))
+
+
+def test_a_page_can_fill_the_middle_and_the_end_of_the_desktop_bar():
+    extra = (
+        '{% extends "_nav.html" %}'
+        "{% block nav_center %}<i>middle {{ request.url.path }}</i>{% endblock %}"
+        "{% block nav_end %}<i>end</i>{% endblock %}"
+    )
+    env = _TEMPLATES.env.overlay(
+        loader=ChoiceLoader([_TEMPLATES.env.loader, DictLoader({"extra.html": extra})])
+    )
+    html = env.from_string('{% include "extra.html" %}').render(request=_request("viewer"))
+
+    bar = html.split('<header class="nav-glass">')[1].split("</header>")[0]
+    places = [bar.index(part) for part in ("</nav>", "middle /watch", ">end<", "profile-btn")]
+    assert places == sorted(places)
 
 
 def test_log_out_is_a_posted_form():

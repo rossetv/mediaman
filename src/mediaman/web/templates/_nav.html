@@ -10,6 +10,9 @@
      watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
+   A page with more in its desktop bar includes a template that extends this one and fills
+   `nav_center` and `nav_end` (a block cannot be filled through a plain include).
+
    The links follow the role on the request (`request.state.user_role`). A viewer
    sees only what the viewer role may open; a missing role gets the admin links.
 #}
@@ -49,6 +52,8 @@
     <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}"{{ current('watch') }}>Watch</a>
     <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}"{{ current('downloads') }}>Downloads</a>
   </nav>
+  {% block nav_center %}{% endblock %}
+  {% block nav_end %}{% endblock %}
   {{ profile_button() }}
 </header>
 
