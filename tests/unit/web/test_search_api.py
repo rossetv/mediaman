@@ -124,6 +124,10 @@ class TestSearchEndpoint:
         data = resp.json()
         titles = {r["title"] for r in data["results"]}
         assert titles == {"Dune", "Dune: Prophecy"}
+        assert {r["poster_url"] for r in data["results"]} == {
+            "/api/watch/img/tmdb/w342/d.jpg",
+            "/api/watch/img/tmdb/w342/dp.jpg",
+        }
 
         search_calls = [c for c in fake_http.calls if "search/multi" in c[1]]
         pages_requested = sorted(c[2]["params"]["page"] for c in search_calls)
@@ -252,6 +256,7 @@ class TestDiscoverEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert [r["title"] for r in data["trending"]] == ["Trending Movie", "Trending Show"]
+        assert [r["poster_url"] for r in data["popular_tv"]] == ["/api/watch/img/tmdb/w342/s.jpg"]
         assert [r["title"] for r in data["popular_movies"]] == ["Popular Movie"]
         assert [r["media_type"] for r in data["popular_movies"]] == ["movie"]
         assert [r["title"] for r in data["popular_tv"]] == ["Popular Show"]
@@ -834,7 +839,28 @@ class TestDetailEndpoint:
         assert data["rating_metascore"] == "74"
         assert "seasons" not in data
         cast0 = data["cast"][0]
-        assert cast0["profile_url"].endswith("/t.jpg")
+        assert cast0["profile_url"] == "/api/watch/img/tmdb/w185/t.jpg"
+        assert data["poster_url"] == "/api/watch/img/tmdb/w342/p.jpg"
+        assert data["backdrop_url"] == "/api/watch/img/tmdb/w780/b.jpg"
+
+    @patch("mediaman.web.routes.search.detail.fetch_ratings", return_value={})
+    def test_a_picture_path_that_is_not_a_tmdb_file_is_no_picture(
+        self, _ratings, authed_client, fake_http, fake_response
+    ):
+        payload = _tmdb_movie_payload() | {
+            "poster_path": "https://evil.example/p.jpg",
+            "backdrop_path": "/../x",
+        }
+        payload["credits"]["cast"][0]["profile_path"] = "//evil.example/t.jpg"
+        fake_http.default(fake_response(json_data=payload))
+
+        data = authed_client.get("/api/search/detail/movie/438631").json()
+
+        assert (data["poster_url"], data["backdrop_url"], data["cast"][0]["profile_url"]) == (
+            None,
+            None,
+            None,
+        )
 
     @patch("mediaman.web.routes.search.detail.fetch_ratings")
     def test_tv_detail_filters_season_zero(

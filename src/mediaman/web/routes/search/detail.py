@@ -27,12 +27,11 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient, vote_of, year_of
+from mediaman.services.watch_catalog import tmdb_image_url
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.responses import respond_err
 
 from ._enrichment import (
-    _BACKDROP_BASE,
-    _PROFILE_BASE,
     _QUERY_LIMITER,
     _TMDB_TIMEOUT_S,
     _poster_url,
@@ -114,11 +113,7 @@ def _extract_credits(
         {
             "name": cast_member.get("name"),
             "character": cast_member.get("character"),
-            "profile_url": (
-                f"{_PROFILE_BASE}{cast_member['profile_path']}"
-                if cast_member.get("profile_path")
-                else None
-            ),
+            "profile_url": tmdb_image_url(cast_member.get("profile_path"), "w185"),
         }
         for cast_member in cast_raw[:6]
     ]
@@ -173,9 +168,7 @@ def _build_detail_payload(
         "tagline": data.get("tagline") or None,
         "description": data.get("overview") or "",
         "poster_url": _poster_url(data.get("poster_path")),
-        "backdrop_url": f"{_BACKDROP_BASE}{data['backdrop_path']}"
-        if data.get("backdrop_path")
-        else None,
+        "backdrop_url": tmdb_image_url(data.get("backdrop_path"), "w780"),
         "runtime": runtime,
         "genres": [g["name"] for g in data.get("genres", [])],
         "director": director,
