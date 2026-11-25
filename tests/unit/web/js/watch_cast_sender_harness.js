@@ -1397,6 +1397,31 @@ const scenarios = {
     }
     return out;
   },
+  // Stop is pressed on a page that took the wait over; the server saves the end, or refuses.
+  async stopsTakenOver() {
+    const out = {};
+    for (const kind of ['count', 'cancelled', 'still']) {
+      for (const reply of ['saved', 'refused']) {
+        const w = world();
+        const page = await casting(w);
+        page.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+        page.play.leave();
+        await w.clock.advance(1000);
+        if (kind === 'still') await w.clock.advance(2 * 3600 * 1000);
+        w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
+        await settle();
+        if (kind === 'cancelled') page.sender.cancel();
+        page.close();
+        const next = await open(w);
+        if (reply === 'refused') next.replies['/api/watch/stream/st1/stop'] = { status: 502 };
+        await w.clock.advance(500);
+        const before = next.sender.now();
+        const said = await next.sender.stop();
+        out[kind + ' ' + reply] = { state: before && before.state, said: said.saved, at: said.position_s === before.position_s, ended: w.tv.ended, now: next.sender.now(), record: RECORD in w.storage };
+      }
+    }
+    return out;
+  },
   // A page that only looks, while the page that has it changes its stream or has just seen it end.
   async looksOnly() {
     const out = {};
@@ -1422,7 +1447,6 @@ const scenarios = {
     }
     return out;
   },
-  // A page that is left as it puts another stream on the TV.
   // A page was left as it changed its stream; the server takes the old one's saves, then ends it.
   async leftChangingInTime() {
     const out = {};
@@ -1447,6 +1471,7 @@ const scenarios = {
     }
     return out;
   },
+  // A page that is left as it puts another stream on the TV.
   async leftChanging() {
     const w = world();
     const page = await casting(w);

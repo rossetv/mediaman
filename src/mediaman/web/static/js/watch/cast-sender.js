@@ -1364,7 +1364,8 @@
       var p = kept();
       if (!p) return Promise.resolve({ position_s: 0, saved: false });
       var at = body(p);
-      var saved = p.wait ? p.endSaved : stopOnServer(p.stream.stream_id, at);
+      /* Whether the end was saved is not known where the wait was taken over: it is told again. */
+      var saved = p.wait && p.endSaved || stopOnServer(p.stream.stream_id, at);
       finish(p);
       return saved.then(function (ok) { return { position_s: at.position_s, saved: ok }; });
     },

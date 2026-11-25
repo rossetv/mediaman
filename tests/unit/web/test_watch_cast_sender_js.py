@@ -827,6 +827,21 @@ def test_what_waits_for_a_press_is_taken_up_as_it_was(kind: str, now: list[Any])
     assert (out["now"][:3], out["ended"], out["loads"]) == (now, [], 1)
 
 
+@pytest.mark.parametrize(
+    ("kind", "state"), [("count", "upnext"), ("cancelled", "upnext"), ("still", "still")]
+)
+@pytest.mark.parametrize("reply", ["saved", "refused"])
+def test_stop_answers_on_a_page_that_took_the_wait_over(kind: str, state: str, reply: str) -> None:
+    assert _run("stopsTakenOver")[f"{kind} {reply}"] == {
+        "state": state,
+        "said": reply == "saved",
+        "at": True,
+        "ended": [True],
+        "now": None,
+        "record": False,
+    }
+
+
 def test_a_question_nobody_answered_is_over_on_the_next_page_too() -> None:
     out = _run("waits")["asked"]
     assert (out["now"], out["ended"]) == (None, [True])
