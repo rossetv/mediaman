@@ -211,7 +211,10 @@ def test_single_shadow_token():
         # The dl-hero poster uses a single bespoke deep drop because the
         # backdrop blur already provides the room-level lift.
         is_hero_poster = "rgba(0,0,0,.6) 0 20px 40px" in v
-        assert is_glow or is_hero_poster, f"unexpected box-shadow literal: {v!r}"
+        # A field a browser filled in is painted over in its own surface colour with an
+        # inset spread: no offset, no blur, so nothing lifts.
+        is_autofill_paint = bool(re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", v))
+        assert is_glow or is_hero_poster or is_autofill_paint, f"unexpected box-shadow literal: {v!r}"
 
 
 def test_nav_template_emits_all_surfaces():
