@@ -532,7 +532,7 @@
 .player.is-held.is-switching .player-dim { opacity: .4; }
 @keyframes player-spin { to { transform: rotate(360deg); } }
 
-/* A connection that dropped, said under the spinner that waits for it. */
+/* What the picture waits for, said under its spinner. */
 .player-lost {
   position: absolute;
   top: calc(50% + 40px);

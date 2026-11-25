@@ -15,6 +15,7 @@
  *   POST /api/watch/stream/<id>/stop  {position_s, played_s} or nothing to save (a beacon,
  *                                     or a fetch where the next episode waits for it)
  *   POST /api/watch/keep              {media_item_id, days}
+ *   GET  /healthz                     (whether mediaman is reached where something went unanswered)
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
@@ -26,7 +27,8 @@
  * Automatic steps the quality down when playback keeps stalling, and
  * slowly up again when it no longer does.
  * While a new stream replaces the old one, the last frame stays on screen.
- * A connection that drops is tried again for a while before it is an error.
+ * A connection that drops, with an error or in silence, is tried again for a
+ * while before it is an error.
  *
  * The next episode takes over in this same page, from what its own page
  * (GET /watch/play/<key>) says, so that full screen, picture in picture and
@@ -78,6 +80,13 @@
   var LOST_FOR_MS = 60000;
   /* And where the server refuses, or refuses and is lost by turns, for this long. */
   var NONE_FOR_MS = 2 * LOST_FOR_MS;
+  /* How long a light request, which needs neither Plex nor the database, may go unanswered
+     before the connection counts as lost. */
+  var LIGHT_URL = '/healthz';
+  var LIGHT_WAIT_MS = 5000;
+  /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
+  var LOST_NOTICE_MS = 300;
+  var SLOW_NOTICE_MS = 8000;
   /* The longest a busy server may ask for before it is asked again. */
   var BUSY_MAX_S = 30;
   /* Automatic steps down when playback stalls twice within this much of the
@@ -112,6 +121,10 @@
   var MSG_UNSUPPORTED = "This browser can't play video here. On iPhone and iPad, iOS 17.1 or later is needed.";
   var MSG_FAILED = "Can't play this right now.";
   var MSG_LOST = "Can't reach mediaman. Check your connection.";
+  var MSG_BUSY = 'The server is busy right now. Try again in a moment.';
+  var NOTICE_LOST = 'Connection lost. Trying again…';
+  var NOTICE_BUSY = 'The server is busy. Trying again…';
+  var NOTICE_STARTING = 'Still starting…';
   var MSG_REPLACED = 'Playing somewhere else.';
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
   var MSG_NEXT_UNKNOWN = "Can't find the next episode right now.";
@@ -245,6 +258,9 @@
   var ownRival = false;      // one of them may have replaced the stream now playing
   var noneSince = null;      // the first refusal since a request was taken, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
+  var startedAt = null;      // when the stream that has not played yet was asked for
+  var waitingSince = null;   // when the picture began to wait
+  var bytesAt = -Infinity;   // when a segment last brought any
   var switching = false;     // the next episode's page is on its way
   var swapping = false;      // the old stream is torn down; its pause event is not the person's
   var dragging = false;
@@ -578,7 +594,17 @@
     if (noneSince !== null) noneSince = Date.now();
     stalled = true;
     if (lost || noneSince !== null) return;
-    if (quality === 'auto' && !countSlow()) stallTimer = setTimeout(stepDown, STALL_MS);
+    if (quality !== 'auto' || !countSlow()) stallTimer = setTimeout(stalledLong, STALL_MS);
+  }
+
+  /* Slow, or a drop that says nothing. */
+  function stalledLong() {
+    var h = hls;
+    ifReached(function () {
+      if (h === hls && stalled) stepDown();
+    }, function () {
+      if (h === hls && stalled) loseLoads(h, 'segment');
+    });
   }
 
   /* Whether this sign of a slow connection, with the last, made for a step down. */
@@ -633,7 +659,9 @@
 
   function setLoading(on) {
     root.classList.toggle('is-loading', on);
-    showLost();
+    if (!on) waitingSince = null;
+    else if (waitingSince === null) waitingSince = Date.now();
+    showNotice();
     showPlayState();
   }
 
@@ -692,6 +720,7 @@
     els.retry.textContent = again === playHere ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
+    showPlayState();
     showSkip();
     swapNotice = null;
     showControls();
@@ -700,33 +729,41 @@
 
   function hideMessage() {
     els.play.disabled = false;
+    if (!shown(els.message)) return;
     if (els.message.contains(document.activeElement)) els.play.focus();
     leave(els.message);
+    showPlayState();
   }
 
   /* ---- a lost connection ----------------------------------------------- */
 
   /* While mediaman cannot be reached: since when (`at`), what asks `again`, what
      tidies up once it `gaveUp`, the next `wait`, and whether the message is up
-     (`over`). What asks again drops a try still under way. */
+     (`over`). What asks again drops a try still under way; one that is better left
+     under way has a `look` instead, which the timer makes. */
   var lost = null;
 
-  function waitOut(again, gaveUp) {
+  function waitOut(again, gaveUp, look) {
     if (!lost) {
-      lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false };
+      lost = { at: Date.now(), gaveUp: gaveUp, wait: LOST_FIRST_MS, over: false, tryTimer: null };
       countLost();
-      showLost();
+      showNotice();
     }
     clearTimeout(stallTimer);
     if (lost.over) return;
     lost.again = again;
     clearTimeout(lost.tryTimer);
-    lost.tryTimer = setTimeout(tryUnattended, lost.wait);
+    lost.tryTimer = setTimeout(function () {
+      lost.tryTimer = null;
+      if (look && !lostLong()) look();
+      else tryUnattended();
+    }, lost.wait);
     lost.wait = Math.min(lost.wait * 2, LOST_MAX_MS);
   }
 
   function askAgain() {
     clearTimeout(lost.tryTimer);
+    lost.tryTimer = null;
     lost.again();
   }
 
@@ -736,6 +773,32 @@
   function tryUnattended() {
     if (lostLong()) giveUp();
     else askAgain();
+  }
+
+  /* Something went unanswered: a server that answers a light request is only slow. Neither
+     is called where a drop was found meanwhile and is being tried again. */
+  function ifReached(yes, no) {
+    var asked = Date.now();
+    var abort = new AbortController();
+    var timer = setTimeout(function () { abort.abort(); }, LIGHT_WAIT_MS);
+    /* A login page in front of mediaman may answer with its address: an answer too. */
+    fetch(LIGHT_URL, { credentials: 'same-origin', cache: 'no-store', redirect: 'manual', signal: abort.signal })
+      .then(function (resp) { return !fromProxy(resp.status); }, function () { return false; })
+      .then(function (answered) {
+        clearTimeout(timer);
+        if (lost && (lost.over || lost.tryTimer !== null)) return;
+        if (!answered && bytesAt < asked) { no(); return; }
+        reached();
+        yes();
+      });
+  }
+
+  /* While `open` says so nothing has come: the server may be slow, or the connection lost. */
+  function watchSlow(open, unreached) {
+    setTimeout(function () {
+      if (!open()) return;
+      ifReached(function () { watchSlow(open, unreached); }, function () { if (open()) unreached(); });
+    }, SLOW_NOTICE_MS);
   }
 
   /* What was loaded before may still play for long. */
@@ -779,7 +842,7 @@
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
     lost = null;
-    showLost();
+    showNotice();
   }
 
   function reached() {
@@ -792,10 +855,42 @@
     endLost();
   }
 
-  /* Said only where the picture waits for it. */
-  function showLost() {
-    if (lost && !lost.over && root.classList.contains('is-loading')) show(els.lost);
-    else leave(els.lost);
+  /* What the picture has waited for long enough to be told; asks again when it will have. */
+  var noticeTimer = null;
+  function noticeDue() {
+    var text = null;
+    var since;
+    var after = SLOW_NOTICE_MS;
+    if (waitingSince === null) {
+      return null;
+    } else if (lost) {
+      if (!lost.over) text = NOTICE_LOST;
+      since = waitingSince;
+      after = LOST_NOTICE_MS;
+    } else if (noneSince !== null) {
+      text = NOTICE_BUSY;
+      since = noneSince;
+    } else if (startedAt !== null) {
+      text = NOTICE_STARTING;
+      since = startedAt;
+    }
+    if (!text) return null;
+    var left = Math.max(since, waitingSince) + after - Date.now();
+    if (left <= 0) return text;
+    noticeTimer = setTimeout(showNotice, left);
+    return null;
+  }
+
+  function showNotice() {
+    clearTimeout(noticeTimer);
+    var text = noticeDue();
+    if (!text) {
+      leave(els.lost);
+      return;
+    }
+    if (shown(els.lost) && els.lost.textContent === text) return;
+    els.lost.textContent = text;
+    show(els.lost);
   }
 
   window.addEventListener('online', function () {
@@ -807,8 +902,9 @@
 
   /* A request was taken; from now on a wait is the connection's. */
   function taken() {
-    if (noneSince !== null && stalled) stallTimer = setTimeout(stepDown, STALL_MS);
+    if (noneSince !== null && stalled) stallTimer = setTimeout(stalledLong, STALL_MS);
     noneSince = null;
+    showNotice();
   }
 
   function noneTooLong() {
@@ -818,6 +914,7 @@
       if (b.start(i) <= video.currentTime && b.end(i) - video.currentTime > 1) noneSince = null;
     }
     if (noneSince === null) noneSince = Date.now();
+    showNotice();
     return Date.now() - noneSince >= NONE_FOR_MS;
   }
 
@@ -847,6 +944,7 @@
     var gen = ++generation;
     endLost();
     noneSince = null;
+    startedAt = Date.now();
     dropAim();
     starting = true;
     pendingStart = pos;
@@ -876,6 +974,13 @@
       };
       startsOpen++;
       var open = true;
+      var waits = function () { return open && !dropped(); };
+      /* It may still be answered: asked again only once the server is there. */
+      var look = function () {
+        if (!waits()) return;
+        ifReached(function () { if (waits()) again(); }, function () { if (waits()) waitOut(again, gaveUp, look); });
+      };
+      watchSlow(waits, function () { waitOut(again, gaveUp, look); });
       var answered = function () {
         if (open) startsOpen--;
         open = false;
@@ -949,13 +1054,21 @@
       xhrSetup: function (xhr, url) {
         if (!/\/seg\//.test(url)) return;
         xhr.addEventListener('readystatechange', function () {
-          if (h === hls && xhr.readyState === 2 && xhr.status === 200) taken();
+          if (h !== hls || xhr.status !== 200) return;
+          bytesAt = Date.now();
+          if (xhr.readyState === 2) taken();
         });
       },
     });
     hls = h;
-    h.on(Hls.Events.ERROR, function (event, data) { if (h === hls) onHlsError(data); });
+    var waits = true;        // for the playlist
+    watchSlow(function () { return waits && h === hls; }, function () { loseLoads(h, 'manifest'); });
+    h.on(Hls.Events.ERROR, function (event, data) {
+      waits = false;
+      if (h === hls) onHlsError(data);
+    });
     h.on(Hls.Events.MANIFEST_PARSED, function () {
+      waits = false;
       if (h !== hls) return;
       reached();
       swapping = false;
@@ -979,6 +1092,14 @@
     if (h !== hls) return;
     if (/^manifest/.test(details)) attach(playlistUrl, position());
     else h.startLoad(pendingStart === null ? -1 : pendingStart);
+  }
+
+  /* Nothing is heard of what it loads: stop, and ask again later. */
+  function loseLoads(h, details) {
+    var id = streamId;
+    h.stopLoad();
+    /* A try for the playlist is a new hls.js. */
+    waitOut(function () { if (id === streamId) loadAgain(hls, details); });
   }
 
   /* hls.js empties the video and fills it again, but says nothing of its place or of play. */
@@ -1094,20 +1215,31 @@
     if (status === 429) {
       reached();
       clearTimeout(stallTimer);
-      if (noneTooLong()) { fail(START_ERRORS.rate_limited.text); return; }
+      if (noneTooLong()) { fail(MSG_BUSY); return; }
       h.stopLoad();
       setTimeout(function () { loadAgain(h, data.details); }, retryAfterMs(data));
       return;
     }
     /* Leaving the page cancels its requests too, before it says that it is left. */
     if (status === 0 || (fromProxy(status) && !codeOf(data))) {
-      h.stopLoad();
-      waitOut(function () { loadAgain(h, data.details); });
+      loseLoads(h, data.details);
       return;
     }
-    /* Also how a connection too slow to start at all shows. */
-    if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
-    if (!data.fatal) return;
+    if (/TimeOut$/.test(data.details)) {
+      ifReached(function () {
+        if (h !== hls) return;
+        /* Also how a connection too slow to start at all shows. */
+        if (quality === 'auto' && data.details === Hls.ErrorDetails.FRAG_LOAD_TIMEOUT && countSlow()) return;
+        if (data.fatal) fatalError(data);
+      }, function () {
+        if (h === hls) loseLoads(h, data.details);
+      });
+      return;
+    }
+    if (data.fatal) fatalError(data);
+  }
+
+  function fatalError(data) {
     /* An original that has played is one this browser can play: only the picture
        itself failing says otherwise. */
     var unplayable = data.type === Hls.ErrorTypes.MEDIA_ERROR || !originalPlayed;
@@ -1152,6 +1284,7 @@
     streamId = null;
     generation++;
     starting = false;
+    startedAt = null;
     endLost();
     dropAim();
     stopRolling();
@@ -1224,7 +1357,8 @@
   }
 
   setInterval(function () {
-    if (!video.paused && !video.ended && !swapping) saveProgress();
+    /* In a drop saves would only pile up, unanswered. */
+    if (!video.paused && !video.ended && !swapping && !lost) saveProgress();
   }, SAVE_EVERY_MS);
 
   /* ---- playback ------------------------------------------------------- */
@@ -1354,7 +1488,7 @@
      that has nothing to pause yet; pressing it still means "don't play". */
   function showPlayState() {
     var busy = wantPlaying && root.classList.contains('is-loading');
-    var paused = (video.paused || video.ended) && !busy && countdownTimer === null;
+    var paused = shown(els.message) || ((video.paused || video.ended) && !busy && countdownTimer === null);
     setName(els.play, paused ? 'Play' : 'Pause', 'Space');
     if (busy) els.play.setAttribute('aria-busy', 'true');
     else els.play.removeAttribute('aria-busy');
@@ -1374,6 +1508,7 @@
 
   video.addEventListener('playing', function () {
     hasPlayed = true;
+    startedAt = null;
     clearTimeout(stallTimer);
     stalled = false;
     if (streamId) {
@@ -1423,6 +1558,7 @@
     stopRolling();
     /* What is wanted now may not be what was refused. */
     noneSince = null;
+    showNotice();
     /* A message over a video that can be played is about its end. */
     if (streamId && !starting) {
       if (lost && lost.over) {
