@@ -1639,6 +1639,16 @@ def test_a_server_that_comes_back_unsaid_is_found_while_the_message_is_seen(mark
         assert out["askedThen"] == 0
 
 
+def test_a_server_that_answers_and_still_plays_nothing_is_left_to_a_press_after_three_rounds(
+    markup,
+):
+    out = run(markup, "back_but_failing")
+    assert (out["rounds"], out["message"]) == (3, LOST)
+    # Neither asked nor tried any more, until the person says so: then three rounds again.
+    assert out["later"] == [0, 0, 0]
+    assert (out["pressed"], out["after"]) == ({"tried": 1, "message": None}, 4)
+
+
 def test_once_tried_again_by_hand_the_server_is_not_asked_for_any_more(markup):
     out = run(markup, "back_unsaid", plays="again")
     assert (out["then"]["tried"], out["askedThen"]) == (1, 0)

@@ -90,6 +90,9 @@
   /* Under the message about it the server is asked for this often: it may come back with no word
      from the browser. */
   var LIGHT_EVERY_MS = 30000;
+  /* A server found again so, with nothing played since, is tried this often before the message
+     stays for a press: each time it comes up it takes the focus and is said. */
+  var BACK_ROUNDS = 3;
   /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
   var LOST_NOTICE_MS = 300;
   var SLOW_NOTICE_MS = 8000;
@@ -777,6 +780,7 @@
      (`over`). What asks again drops a try still under way; one that is better left
      under way has a `look` instead, which the timer makes. */
   var lost = null;
+  var backRounds = 0;        // times the server was found again with nothing played since
 
   function waitOut(again, gaveUp, look) {
     if (!lost) {
@@ -867,7 +871,7 @@
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
     showMessage(MSG_LOST, tryLost);
-    watchBack();
+    if (backRounds < BACK_ROUNDS) watchBack();
   }
 
   function watchBack() {
@@ -879,8 +883,12 @@
       if (document.visibilityState === 'hidden') { again(); return; }
       askLight(function (answered) {
         if (mine !== lost || !lost.over) return;
-        if (answered && document.visibilityState !== 'hidden') cameBack();
-        else again();
+        if (answered && document.visibilityState !== 'hidden') {
+          backRounds++;
+          cameBack();
+        } else {
+          again();
+        }
       });
     }, LIGHT_EVERY_MS);
   }
@@ -898,6 +906,7 @@
   /* Try again. */
   function tryLost() {
     pressedPlay();
+    backRounds = 0;
     lost.at = Date.now();
     wantPlaying = true;
     if (streamId && video.paused && !video.ended) play();
@@ -1691,6 +1700,7 @@
       if (delta > 0 && delta < 2) {
         playedS += delta;
         rolling = true;
+        backRounds = 0;
       }
     }
     /* Emptied for a new stream the video stands at 0: from there to its start is no jump. */

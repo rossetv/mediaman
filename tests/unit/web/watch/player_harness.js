@@ -1708,6 +1708,43 @@ const scenarios = {
     return out;
   },
 
+  /* Under the message the server answers light requests, and every segment still fails. */
+  async back_but_failing(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    const h = p.hlsList[0];
+    const error = () => loadError('fragLoadError', 0);
+    const fail = failingLoads(h, error);
+    p.held.light = 'gateway';
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    h.emit('hlsError', error());
+    await failFor(p, 65000, fail);
+    p.held.light = 'answered';
+    /* How often the message comes up anew in this long. */
+    const comesUp = async (ms) => {
+      let times = 0;
+      let up = !!messageState(p);
+      for (let i = 0; i < ms; i += 500) {
+        p.tick(500);
+        fail();
+        await settle();
+        if (!up && messageState(p)) times++;
+        up = !!messageState(p);
+      }
+      return times;
+    };
+    const out = { rounds: await comesUp(600000), message: messageState(p) };
+    const asked = p.held.lights.length;
+    const loads = h.loads.length;
+    out.later = [await comesUp(300000), p.held.lights.length - asked, h.loads.length - loads];
+    press(p.q('[data-retry]'));
+    await settle();
+    out.pressed = { tried: h.loads.length - loads, message: messageState(p) };
+    out.after = await comesUp(600000);
+    return out;
+  },
+
   /* The start, or its playlist, is not answered: by a slow server, or where nothing is. */
   async hung(p) {
     const [what, light] = p.win.serverPlays.split(' ');
