@@ -67,11 +67,56 @@ const scenarios = {
       await settle();
       click(p.doc, p.doc.getElementById('own').querySelector('a'));
       await settle();
-      if (ref === 'show-300') delete p.routes['/api/watch/admin/title/show-300'];
+      if (ref === 'show-300') delete p.routes['/api/watch/title/show-300'];
       p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', ...del } }));
       await settle();
       out[ref] = { taken, at: p.at(), badges: p.doc.querySelectorAll('.watch-badge--in').length,
         links: ['trending', 'pick'].map((id) => { const a = p.doc.getElementById(id).querySelector('a'); return [a.getAttribute('data-title-ref'), a.getAttribute('href')]; }) };
+    }
+    return out;
+  },
+  // The same as the title was closed while it was being deleted; then Forward to it, with the banner of it.
+  async deletedAfterClosing() {
+    const out = {};
+    for (const [ref, del] of [['movie-120', { action: 'delete', id: '120' }], ['show-300', { action: 'delete', id: '3010', showRk: '300' }]]) {
+      const p = await asked();
+      p.ctx.history.back();
+      await settle();
+      p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-banner', id: 'banner' }, ['a', { 'data-title-ref': ref }, 'Details']]));
+      p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-row' }, ['article', { class: 'watch-card', id: 'own' }, ['a', { class: 'watch-card__link', 'data-title-ref': ref }]]]));
+      const taken = [];
+      p.ctx.MMWatch.keep.fromRow = (c) => { taken.push(c.id); return { focus: null }; };
+      p.ctx.MMWatch.keep.foldAway = (n) => { taken.push(n.id); };
+      click(p.doc, p.doc.getElementById('own').querySelector('a'));
+      await settle();
+      p.ctx.history.back();
+      await settle();
+      delete p.routes['/api/watch/title/' + ref];
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', ...del } }));
+      await settle();
+      p.ctx.history.go(1);
+      await settle();
+      out[ref] = { taken: taken.filter(Boolean), at: p.at(), forward: p.text('.ttl__failed-why') };
+    }
+    return out;
+  },
+  // Deleted from its card among the search results: two of them, then the last.
+  async deletedResult() {
+    const p = await asked();
+    p.ctx.history.back();
+    await settle();
+    const card = (ref) => ['article', { class: 'watch-card' }, ['a', { class: 'watch-card__link', 'data-title-ref': ref, id: ref }]];
+    const grid = p.doc.body.appendChild(build(p.doc, ['div', {}, ['div', { 'data-results-head': 'lib' }, ['span', { class: 'results-group__count' }, '2 titles']], card('movie-120'), card('movie-9')]));
+    p.ctx.MMWatch.keep.fromRow = () => ({ focus: null });
+    const out = [];
+    for (const id of ['120', '9']) {
+      p.routes['/api/watch/title/movie-9'] = { ...LIB_MOVIE, library_ref: 'movie-9' };
+      p.routes['/api/watch/admin/title/movie-9'] = FACTS;
+      click(p.doc, p.doc.getElementById('movie-' + id));
+      await settle();
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'delete', id } }));
+      await settle();
+      out.push([grid.textContent, p.at()]);
     }
     return out;
   },

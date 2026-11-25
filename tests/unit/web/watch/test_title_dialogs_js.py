@@ -46,3 +46,16 @@ def test_a_title_deleted_from_its_page_leaves_the_rows_and_its_other_cards_say_n
         }
 
     assert _run("deleted") == {"movie-120": want("tmdb-movie-77"), "show-300": want("tmdb-tv-77")}
+
+
+def test_a_title_deleted_after_it_was_closed_leaves_the_page_and_forward_says_it_is_gone() -> None:
+    for ref, out in _run("deletedAfterClosing").items():
+        assert out["taken"] == ["banner", "own"], ref
+        assert out["at"] == "ttl-title", ref
+        assert out["forward"] == "This title is not available any more.", ref
+
+
+def test_a_search_counts_what_is_left_of_it_and_the_last_one_leaves_the_focus_to_its_field() -> (
+    None
+):
+    assert _run("deletedResult") == [["1 title", "movie-9"], ["No title matches", "watch-search"]]

@@ -287,7 +287,7 @@
 
   /* What the title on show needs to be found as it is left. */
   function keepPlace() {
-    if (!cur || !cur.data) return;
+    if (!cur || !cur.data || cur.gone) return;
     cur.at = root.scrollTop;
     cur.focus = focusKey();
     cur.ring = !!document.activeElement && document.activeElement.matches(':focus-visible');
@@ -412,10 +412,35 @@
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }
 
-  /* The title left the library: its cards go from the library's rows, and those of what
-     can be had lead to it there. The focus goes on from the card the overlay opened from. */
-  function dropCards(ref) {
+  /* The title left the library: its cards and banner go from the library's rows, and those
+     of what can be had lead to it there. The focus goes on from what it was on. */
+  function drop(ref) {
     var path = '/watch/' + ref.replace('-', '/');
+    var search = document.getElementById('watch-search');
+    function was(c) { return c && (c.ref === ref || c.openedAs === ref); }
+    Object.keys(kept).forEach(function (key) { if (was(kept[key])) delete kept[key]; });
+    var mine = was(cur) ? cur : null;
+    if (mine) mine.gone = true; // not to be kept as it closes
+    /* Where the focus goes from *node*, as *take* takes it away. */
+    function leave(node, take) {
+      var lost = node.contains(document.activeElement);
+      var from = cur && cur.origin && node.contains(cur.origin);
+      var to = take() || search;
+      if (from) {
+        cur.origin = null;
+        cur.fallback = to;
+      }
+      if (lost && to) to.focus({ preventScroll: true });
+    }
+    toArray(document.querySelectorAll('.watch-banner')).forEach(function (banner) {
+      var link = banner.querySelector('[data-title-ref]');
+      if (banner.hasAttribute('inert') || (banner.getAttribute('data-dismiss-ref') !== ref &&
+          !(link && link.getAttribute('data-title-ref') === ref))) return;
+      leave(banner, function () {
+        window.MMWatch.keep.foldAway(banner);
+        banner.setAttribute('inert', '');
+      });
+    });
     toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
       var link = card.querySelector('.watch-card__link');
       if (!link || root.contains(card) || card.classList.contains('is-kept') || card.classList.contains('is-gone')) return;
@@ -432,12 +457,37 @@
         toArray(card.querySelectorAll('.watch-badge--in, .watch-badge--leaving')).forEach(function (b) { b.remove(); });
         return;
       }
-      var taken = window.MMWatch.keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '.watch-card__link');
-      if (cur.origin && card.contains(cur.origin)) {
-        cur.origin = null;
-        cur.fallback = taken.focus;
-      }
+      leave(card, function () {
+        if (card.parentNode.querySelector('[data-results-head]')) return dropResult(card);
+        return window.MMWatch.keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '.watch-card__link').focus;
+      });
     });
+    // Opened from what stays but leads nowhere now, such as a suggestion.
+    if (!mine || mine.fallback) return;
+    var from = mine.origin && mine.origin.closest('[data-title-ref]');
+    if (!from || from.getAttribute('data-title-ref') === ref) {
+      mine.origin = null;
+      mine.fallback = search;
+    }
+  }
+
+  /* Out of the search results: its group's heading counts one fewer, and goes with the last. */
+  function dropResult(card) {
+    var grid = card.parentNode;
+    function isCard(n) { return n && n.classList.contains('watch-card'); }
+    var before = card.previousElementSibling;
+    var after = card.nextElementSibling;
+    var head = before;
+    while (head && !head.hasAttribute('data-results-head')) head = head.previousElementSibling;
+    card.remove();
+    if (head && (isCard(before) || isCard(after))) {
+      var count = head.querySelector('.results-group__count');
+      count.textContent = count.textContent.replace(/\d+/g, function (n) { return n - 1; }).replace(/^1 titles/, '1 title');
+    } else if (head) head.remove();
+    var next = isCard(after) ? after : isCard(before) ? before : grid.querySelector('.watch-card');
+    if (next) return next.querySelector('.watch-card__link');
+    if (!grid.querySelector('.results-none')) grid.insertBefore(el('p', 'results-none', 'No title matches'), grid.children[0] || null);
+    return null;
   }
 
   /* Where focus goes when the list row the overlay opened from is deleted:
@@ -687,7 +737,15 @@
       c.data = data;
       if (!same) renderContent(false);
       if (hasFacts(c)) loadFacts(c);
-    }).catch(function () {});
+    }).catch(function (err) {
+      if (c === cur && isOpen && err && err.status === 404 && /^(movie|show)-/.test(c.ref)) leftLibrary(c.ref);
+    });
+  }
+
+  /* Deleted from under the overlay: nothing left to show. */
+  function leftLibrary(ref) {
+    drop(ref);
+    if (isOpen && cur && cur.ref === ref) requestClose();
   }
 
   function hasFacts(c) { return isAdmin && /^(movie|show)-/.test(c.ref); }
@@ -701,10 +759,8 @@
     }).catch(function (err) {
       if (c !== cur || !isOpen) return;
       var gone = !!err && err.status === 404;
-      // Deleted from under the overlay: nothing left to show.
       if (gone && c.facts) {
-        dropCards(c.ref);
-        requestClose();
+        leftLibrary(c.ref);
         return;
       }
       c.factsError = gone ? 'unknown' : 'failed';
@@ -2369,20 +2425,29 @@
      last season went closes once its facts are gone). */
   document.addEventListener('mm:watch-admin', function (e) {
     var d = e.detail || {};
-    if (!isOpen || !cur || !cur.facts || d.phase !== 'done') return;
+    if (d.phase !== 'done') return;
+    if (d.action === 'delete') {
+      if (!d.showRk) {
+        if (isOpen && cur && cur.ref === 'movie-' + d.id) cur.fallback = rowFallback(cur.origin);
+        leftLibrary('movie-' + d.id);
+        return;
+      }
+      // Closed meanwhile, or another title: was it the show's last season?
+      if (!isOpen || !cur || cur.ref !== 'show-' + d.showRk) {
+        get(apiUrl('show-' + d.showRk)).catch(function (err) {
+          if (err && err.status === 404) leftLibrary('show-' + d.showRk);
+        });
+        return;
+      }
+    }
+    if (!isOpen || !cur || !cur.facts) return;
     var a = cur.facts.actions || {};
     var w = a.keep_wrapper || {};
     var del = a.delete || {};
     var ids = [w.id, del.id].filter(function (x) { return x != null; }).map(String);
     var showRk = w.show_rk || del.show_rk || '';
     var mine = (d.id && ids.indexOf(String(d.id)) >= 0) || (showRk && d.showRk === showRk);
-    if (!mine) return;
-    if (d.action === 'delete' && !d.showRk) {
-      cur.fallback = rowFallback(cur.origin);
-      dropCards('movie-' + d.id);
-      requestClose();
-    }
-    else refresh();
+    if (mine) refresh();
   });
 
   function menuItems(menu) { return toArray(menu.querySelectorAll('[role="menuitem"]')); }
