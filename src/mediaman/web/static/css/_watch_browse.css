@@ -34,6 +34,7 @@
 /* A row's heading; with tools on its right for Recommended (the batch of picks). */
 .watch-row__head {
   position: relative;
+  z-index: 1; /* over the room above the cards, or it takes the foot of See all's 44px */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -84,10 +85,15 @@
   .row-open__words { transform: translateX(calc(-100% + var(--row-arrow) * 1.25 + 3px - var(--row-near))); }
   .row-open__end { transform: none; }
   .row-open__word { opacity: 0; }
+  /* They come once they are clear of the title they stood under. */
+  .row-open:is(:focus-visible, .is-offered) :is(.row-open__word, .row-open__total) { transition-delay: .12s; }
   /* Beside the row's own tools or link there is room for the arrow alone. */
   .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open { --row-near: 9px; --row-nudge: 5px; }
   .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open__cue { padding: 0 6px 0 3px; }
   .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) :is(.row-open__word, .row-open__total) { display: none; }
+}
+@media (hover: hover) and (max-width: 599.98px) {
+  .row-open[href]:hover :is(.row-open__word, .row-open__total) { transition-delay: .12s; }
 }
 @media (prefers-reduced-motion: reduce) {
   .row-open .row-open__cue::before { transform: none; }
@@ -116,7 +122,11 @@
   20% { transform: translateX(var(--row-nudge)); }
   65% { transform: translateX(calc(var(--row-nudge) * .875)); }
 }
-@media (forced-colors: active) { .row-open:is(:hover, :focus-visible, .is-offered) .row-open__cue::before { border: 1px solid LinkText; } }
+/* The backplates of the words would cover one another. */
+@media (forced-colors: active) {
+  .row-open[href] .row-open__cue { forced-color-adjust: none; color: LinkText; }
+  .row-open:is(:hover, :focus-visible, .is-offered) .row-open__cue::before { border: 1px solid LinkText; }
+}
 
 .row-tool {
   position: relative;

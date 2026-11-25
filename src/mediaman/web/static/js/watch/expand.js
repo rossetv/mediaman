@@ -186,7 +186,8 @@
     if (own(called, id)) return;
     called[id] = true;
     fitSwell(link);
-    link.classList.add('is-calling');
+    // With no animation to end, it would stay, and swell as soon as motion is allowed.
+    if (!core.reduceMotion()) link.classList.add('is-calling');
   }
 
   /* A heading still moving comes to rest by itself. */

@@ -151,6 +151,32 @@ def test_going_back_takes_the_offer_and_lets_the_heading_settle_and_a_grid_stops
     }
 
 
+def test_under_reduced_motion_the_offer_comes_with_nothing_left_to_move_later() -> None:
+    assert _run("calledStill") == [True, False]
+
+
+def test_the_room_above_the_cards_takes_none_of_the_heading_s_44px() -> None:
+    head = re.search(r"^\.watch-row__head \{([^}]*)\}", BROWSE, re.M)
+    assert head
+    assert "position: relative" in head[1]
+    assert "z-index: 1" in head[1]
+
+
+def test_in_forced_colours_no_backplate_of_the_count_covers_see_all() -> None:
+    forced = BROWSE[BROWSE.index("@media (forced-colors: active)") :]
+    cue = re.search(r"\.row-open\[href\] \.row-open__cue \{([^}]*)\}", forced)
+    assert cue
+    assert "forced-color-adjust: none" in cue[1]
+    assert "color: LinkText" in cue[1]
+
+
+def test_on_a_phone_see_all_is_seen_only_once_clear_of_the_title_and_goes_at_once() -> None:
+    late = re.findall(r"([^{}]*)\{ transition-delay: \.12s; \}", BROWSE)
+    assert len(late) == 2
+    # Never on the words at rest, which would linger as they go.
+    assert all(re.search(r":focus-visible|:hover", head) for head in late)
+
+
 def test_a_row_with_nothing_more_to_see_makes_no_offer() -> None:
     assert _run("offeredWhole") == {"whole": False, "before": True, "after": False}
 

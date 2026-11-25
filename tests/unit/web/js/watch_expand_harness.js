@@ -1,5 +1,5 @@
 // Runs the rows that grow into grids (watch/expand.js and browse.js, on the real address.js, grid.js and rows-load.js)
-// against the fake DOM and a fake history, with reduced motion, and prints the outcome of one scenario as JSON.
+// against the fake DOM and a fake history, with reduced motion unless a scenario allows it, and prints the outcome of one scenario as JSON.
 // Usage: node watch_expand_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -112,7 +112,7 @@ async function load(opts = {}) {
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn) => { setImmediate(fn); return 1; }, clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', visibility: 'visible', display: 'block', paddingLeft: '0', paddingRight: '0', gridTemplateColumns: '1px 1px 1px' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: 900, innerWidth: 1280, scrollY: 0, scrollTo() {}, scrollBy() {},
@@ -311,7 +311,7 @@ const scenarios = {
 
   // The heading moves once for each row; the offer itself comes back without it.
   async calledOnce() {
-    const p = await load();
+    const p = await load({ motion: true });
     const deep = async (id) => { for (const left of [800, 1600, 2400]) await p.scroll(id, left); };
     const look = () => [p.offer('movies'), p.call('movies')];
     const seen = [];
@@ -332,7 +332,7 @@ const scenarios = {
 
   // Gone back to the row's start while its heading moves; a page hidden meanwhile; a grid opened meanwhile.
   async calledOff() {
-    const deep = async () => { const p = await load(); for (const left of [800, 1600, 2400]) await p.scroll('movies', left); return p; };
+    const deep = async () => { const p = await load({ motion: true }); for (const left of [800, 1600, 2400]) await p.scroll('movies', left); return p; };
     const look = (p) => [p.offer('movies'), p.call('movies')];
     const p = await deep();
     await p.scroll('movies', 0);
@@ -345,6 +345,13 @@ const scenarios = {
     const pressed = r.call('movies');
     await r.step(-1);
     return { back, hidden, pressed, closed: look(r) };
+  },
+
+  // Under reduced motion no animation would end it.
+  async calledStill() {
+    const p = await load();
+    for (const left of [800, 1600, 2400]) await p.scroll('movies', left);
+    return [p.offer('movies'), p.call('movies')];
   },
 
   // How much of its swell a heading 200px wide (80 of them See all's) has: alone, beside something, over it, by the screen's edge.
