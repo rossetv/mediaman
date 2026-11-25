@@ -186,7 +186,7 @@
 @media (min-width: 1100px) {
   .wbar.is-wide-open .space-meter { opacity: 0; pointer-events: none; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 }
-@media (min-width: 1100px) and (max-width: 1319.98px) { .wbar { --wshut: max(120px, min(380px, var(--w) - 750px, var(--r) - var(--l))); --wopen: min(520px, var(--w) - 644px); } }
+@media (min-width: 1100px) and (max-width: 1319.98px) { .wbar { --wshut: max(120px, min(380px, var(--w) - 750px, var(--r) - var(--l))); --wopen: min(520px, var(--w) - 664px); } }
 @media (min-width: 1100px) { .wbar .watch-search { left: clamp(var(--l) + var(--wshut) / 2, 50%, var(--r) - var(--wshut) / 2); } }
 @media (min-width: 1100px) { .watch-search .watch-search__input, .watch-search__ph { font-size: 15px; } }
 @media (min-width: 1600px) {
