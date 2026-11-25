@@ -116,11 +116,18 @@
   .coll-dialog .keep-dialog { padding: 20px; }
   .coll-dialog .keep-dialog-actions .btn { flex: 1 1 auto; }
 }
-/* Too short for a list that scrolls by itself: all of it does, under its buttons. */
+/* A phone on its side: room for the list, between what it is of and its buttons. */
 @media (max-height: 460px) {
-  .coll-dialog .keep-dialog { overflow-y: auto; padding-bottom: 0; scroll-padding-bottom: 88px; }
+  .coll-dialog .keep-dialog { padding-block: 14px; }
+  .coll-dialog__under { margin-bottom: 8px; }
+  .coll-dialog__lead { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .coll-dialog__said { margin-top: 2px; }
+  .coll-dialog .keep-dialog-actions { margin-top: 2px; }
+}
+/* Too short for a list that scrolls by itself: all of it does. */
+@media (max-height: 300px) {
+  .coll-dialog .keep-dialog { overflow-y: auto; }
   .coll-dialog__body { flex-shrink: 0; max-height: none; overflow: visible; -webkit-mask-image: none; mask-image: none; }
-  .coll-dialog .keep-dialog-actions { position: sticky; bottom: 0; margin-top: 4px; padding-block: 10px 16px; background: var(--s2); }
 }
 @media (forced-colors: active) {
   .coll .is-here .watch-card__poster { outline: 3px solid Highlight; outline-offset: 2px; }
