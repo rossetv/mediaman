@@ -297,6 +297,13 @@ class TestLibraryShow:
         assert "/watch/play/512" in body["play"]["href"]
         assert plex.calls == 1
 
+    def test_a_show_plex_is_asked_about_spans_the_years_plex_says_as_its_page_does(
+        self, viewer, library, no_tmdb, plex
+    ):
+        body = _preview(viewer, "show-500").json()
+
+        assert (body["year"], body["year_end"]) == (2021, 2024)
+
     def test_what_leaves_first_is_what_it_says_is_leaving(self, viewer, library, tmdb, plex):
         insert_media_item(
             library,
