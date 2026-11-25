@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import requests
 
 from mediaman.services.arr import ArrError
+from mediaman.services.arr._throttle_persistence import adopt_throttle
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
@@ -92,6 +93,7 @@ def _fetch_service(
         return
     result.unreachable.extend(failures)
     stamp_searching_since(conn, name.lower(), cards, complete=not failures)
+    adopt_throttle(conn, cards)
     result.cards.extend(cards)
 
 

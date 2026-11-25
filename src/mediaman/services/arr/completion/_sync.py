@@ -26,6 +26,7 @@ import requests
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.completion._types import CompletedItem, RecentDownloadItem
 from mediaman.services.arr.fetcher import ArrCard
+from mediaman.services.arr.fetcher._base import is_own_id
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra import SafeHTTPError
 
@@ -163,7 +164,9 @@ def _sync_recent_row(
     * Otherwise, when the stored poster is missing, look it up via
       *poster_lookup* and, on a hit, ``UPDATE`` the row and commit.
     """
-    if row["dl_id"] in active_ids or row["title"] in active_titles:
+    # A film that shares its title is back only as itself.
+    by_title = not is_own_id(row["dl_id"], row["title"])
+    if row["dl_id"] in active_ids or (by_title and row["title"] in active_titles):
         # Item is back in the download queue — remove from recent
         with conn:
             conn.execute("DELETE FROM recent_downloads WHERE id = ?", (row["id"],))

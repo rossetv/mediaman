@@ -30,6 +30,7 @@ router = APIRouter()
 
 class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
+    arr_id: int | None = None
 
 
 def _ring(data: DownloadsResponse, asked_at: float) -> dict[str, object] | None:
@@ -69,19 +70,25 @@ def _page_payload(
 
 
 def _lookup_dl_item(
-    conn: sqlite3.Connection, secret_key: str, dl_id: str
+    conn: sqlite3.Connection, secret_key: str, dl_id: str, arr_id: int | None = None
 ) -> dict[str, object] | None:
     """Find the queue item with the given dl_id in a freshly built response, never trusting
-    stale client-side state. Raises 503 when it is missing while a service is unreachable.
+    stale client-side state: with *arr_id*, only that very title, for another of the same name
+    may have the id by now. Raises 409 when titles share the id and none was named, and 503
+    when it is missing while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
-    for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
-        for item in bucket:
-            if item.get("id") == dl_id:
-                return item
-    hero = payload.get("hero")
-    if hero and hero.get("id") == dl_id:
-        return hero
+    items = [*payload.get("queue", []), *payload.get("upcoming", [])]
+    if hero := payload.get("hero"):
+        items.append(hero)
+    found = [i for i in items if i.get("id") == dl_id and arr_id in (None, i.get("arr_id"))]
+    if len({item.get("arr_id") for item in found}) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="More than one title has this name. Reload the page and try again.",
+        )
+    if found:
+        return found[0]
     if outage := payload.get("outage"):
         raise HTTPException(status_code=503, detail=f"{outage} right now. Try again later.")
     return None
@@ -149,16 +156,18 @@ def downloads_abandon(
     dl_id: str = Path(..., description="dl_id of the item to abandon"),
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Unmonitor a stuck searching item and clear its throttle row.
+    """Unmonitor a stuck searching item and clear its throttle row. A page sends the arr_id of
+    the item it showed; one opened before it did sends none.
 
     Movies ignore seasons; a series needs at least one season number. Returns 404 if the
     dl_id is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
-    release) and 400 for a malformed request (empty seasons on a series).
+    release), 409 if it names more than one title and 400 for a malformed request (empty
+    seasons on a series).
     """
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
-    item = _lookup_dl_item(conn, secret_key, dl_id)
+    item = _lookup_dl_item(conn, secret_key, dl_id, body.arr_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found in queue")
 
