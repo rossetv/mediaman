@@ -2732,6 +2732,25 @@ def test_a_tv_lost_for_good_can_be_asked_again_from_the_same_place(markup):
     assert (out["after"]["says"], out["after"]["message"]) == ("Starting on Living room", None)
 
 
+def test_a_press_meant_for_the_picture_does_nothing_to_a_tv_that_does_not_answer(markup):
+    out = elsewhere(markup, "away_lost_way", "keys")
+    # No button of the card that came by itself has the keyboard, nor any under it.
+    assert (out["focus"], out["endInert"]) == (True, [True, True])
+    assert out["keys"] == {"stops": 0, "moved": 0, "pages": 0}
+
+
+def test_the_keyboard_is_on_the_controls_again_as_a_tv_answers(markup):
+    assert elsewhere(markup, "away_lost_way", "found")["back"] == [True, False]
+    assert elsewhere(markup, "away_lost_tv", "back")["focus"] is True
+
+
+def test_the_page_says_what_the_next_episode_waits_for(markup):
+    out = elsewhere(markup, "away_countdown", "cancel")
+    assert out["hint"] == "Keep this page open for the next episode."
+    assert out["after"] == "Den is ready for something else."
+    assert out["focus"] is True
+
+
 def test_a_tv_that_is_still_off_keeps_the_card(markup):
     out = elsewhere(markup, "away_lost_tv", "overRefused")
     assert out["after"]["message"]["acts"] == ["Try again", "Bring it here", "Close"]
@@ -2828,6 +2847,26 @@ def test_rows_stay_where_they_are_while_the_sheet_is_open(markup):
     assert dict(out["later"])["cast"] == "No TV found"
 
 
+LOOKS = ["here", "pair"]
+ROWS = ["here", "tv-5", "tv-7", "cast", "tv-6", "pair"]
+
+
+def test_the_first_rows_come_in_order_and_the_sheet_grows_for_them(markup):
+    out = elsewhere(markup, "away_first", "plain")
+    assert (out["first"], out["heard"]) == (LOOKS, ROWS)
+    floor, height = out["style"]
+    assert floor.endswith("px")
+    assert not height
+
+
+@pytest.mark.parametrize(("how", "left"), [("mouse", ROWS), ("finger", LOOKS)])
+def test_no_row_comes_while_the_pointer_is_on_one(markup, how, left):
+    out = elsewhere(markup, "away_first", how)
+    assert out["heard"] == LOOKS
+    # A finger that lifts has yet to press.
+    assert (out["left"], out["later"]) == (left, ROWS)
+
+
 def test_a_way_that_cannot_work_says_why_and_is_looked_for_again(markup):
     out = elsewhere(markup, "away_rows", "plain")
     assert out["trouble"] == "Chromecast isn’t answeringGoogle’s script didn’t load."
@@ -2865,6 +2904,18 @@ def test_a_cast_refused_to_a_title_is_said_and_leaves_no_stream(markup):
     assert "three screens" in out["says"]
     out = elsewhere(markup, "away_title_ways", "noTake")
     assert (out["says"], out["ended"]) == ("The TV didn’t startChoose it again.Try again", 1)
+
+
+def test_a_cast_called_back_before_the_tv_took_it_leaves_no_stream(markup):
+    out = elsewhere(markup, "away_title_ways", "calledBack")
+    assert (out["stopped"], out["ended"]) == (1, 1)
+    assert "keep" not in out["steps"]
+
+
+def test_a_title_that_no_tv_plays_any_more_starts_again_from_its_row(markup):
+    out = elsewhere(markup, "away_title_ways", "waits")
+    assert "cast" in out["rows"]
+    assert "start" in out["steps"]
 
 
 def test_airplay_of_a_title_leads_to_the_player_and_its_sheet(markup):

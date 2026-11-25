@@ -439,6 +439,7 @@
     }).then(function (play) {
       if (!wanted()) {
         play.stop();
+        endStream();
         throw cancelled();
       }
       if (play.keep) play.keep(kept);
@@ -632,10 +633,12 @@
       close();
       if ((on || wait) && host.here) host.here();
     });
-    rowsOf(known, found).forEach(function (one) {
-      if (one.tv) tvRow(list, one.tv, on);
-      else wayRow(list, one.way, on);
-    });
+    if (!first) {
+      rowsOf(known, found).forEach(function (one) {
+        if (one.tv) tvRow(list, one.tv, on);
+        else wayRow(list, one.way, on);
+      });
+    }
 
     if (first) {
       var looks = el('div', 'play-on__wait');
@@ -840,17 +843,23 @@
     return !!to;
   }
 
-  /* `held`: not for a press, so the sheet keeps its place and height. */
+  function keysIn(node) {
+    return Array.prototype.map.call(node.querySelectorAll('[data-key]'), function (b) { return b.getAttribute('data-key'); }).join();
+  }
+
+  /* `held`: not for a press, so the sheet keeps its place and gets no lower, and rows wait to come
+     while the pointer is on one. */
   function draw(held) {
     if (!sheet) return;
     var node = sheet.node;
-    if (held) node.style.height = node.offsetHeight + 'px';
-    else node.style.height = '';
     var at = document.activeElement;
     var key = at && node.contains(at) && at.getAttribute('data-key');
     var body = el('div', 'play-on__body');
     if (sheet.pairing) pairing(body);
     else panel(body);
+    sheet.waits = !!held && sheet.over && keysIn(body) !== keysIn(node);
+    if (sheet.waits) return;
+    node.style.minHeight = held ? node.offsetHeight + 'px' : '';
     var top = node.scrollTop;
     node.textContent = '';
     node.appendChild(body);
@@ -891,7 +900,7 @@
     ways.forEach(function (w) {
       try { if (w.look) w.look(); } catch (e) { /* it is not there */ }
     });
-    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [] };
+    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [], over: false, waits: false };
     say = null;
     limit = false;
     document.body.appendChild(node);
@@ -903,6 +912,12 @@
     node.addEventListener('click', function (e) {
       var r = node.getBoundingClientRect();
       if (e.target === node && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) close();
+    });
+    node.addEventListener('pointerover', function (e) { pointed(!!e.target.closest('.play-on__row')); });
+    node.addEventListener('pointerleave', function (e) {
+      /* A finger's press is yet to come as it lifts. */
+      if (e.pointerType === 'mouse') pointed(false);
+      else setTimeout(function () { pointed(false); }, LEAVE_MS);
     });
     node.addEventListener('keydown', function (e) {
       /* The player's own keys are not for what is typed or pressed here. */
@@ -918,6 +933,12 @@
     global.addEventListener('resize', place);
     look();
     poll = setInterval(function () { if (!document.hidden && !absent) look(); }, LOOK_MS);
+  }
+
+  function pointed(over) {
+    if (!sheet) return;
+    sheet.over = over;
+    if (!over && sheet.waits) draw(true);
   }
 
   /* Safari's own step passes over buttons, and leads out of the dialog to its own bars. */
@@ -968,7 +989,7 @@
     var plays = sender && sender.now && sender.now();
     return !!plays && String(plays.rating_key) === key;
   }
-  function castHolds(key) { return castNow(key) || !!(MM.castSender && MM.castSender.holds && MM.castSender.holds(key)); }
+  function castHolds(key) { return !!(MM.castSender && MM.castSender.holds && MM.castSender.holds(key)); }
 
   function titleButton(href, className) {
     var key = (/^\/watch\/play\/([0-9]+)/.exec(href) || [])[1];
@@ -1005,7 +1026,7 @@
           if (wait) cancel();
           else if (tv) stopTv(tv).then(go, go);
           else if (castNow(key)) MM.castSender.stop().then(go, go);
-          /* Of another tab, or not found yet: the player asks. */
+          /* Of another tab: the player asks. */
           else if (castHolds(key)) go();
         },
       });
