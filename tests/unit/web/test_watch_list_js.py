@@ -904,6 +904,10 @@ def test_forward_to_a_list_whose_focused_row_was_deleted_focuses_its_first_title
     assert (out["own"], out["ownLate"]) == ("watch-search", "watch-search")
 
 
+def test_forward_to_a_list_takes_the_focus_from_what_is_hidden_now() -> None:
+    assert _run("forwardAfterDelete")["hidden"] == {"focus": "Big", "said": "1 title"}
+
+
 def test_calling_off_a_list_leaves_the_one_asked_for_since_to_come() -> None:
     assert _run("goReplaced")["rows"] == ["id:s9"]
 

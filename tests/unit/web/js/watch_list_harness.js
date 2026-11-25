@@ -458,12 +458,14 @@ const scenarios = {
       await settle();
       g.slow();
       if (own) g.p.doc.getElementById('watch-search').focus(); else g.p.doc.activeElement.blur();
+      // Safari leaves the focus for a while on what has just been hidden.
+      if (own === 'hidden') g.p.doc.activeElement.getClientRects = () => [];
       g.p.popstate('?view=list');
       await settle();
       const { focus, on, said } = g.now();
-      return own ? on : { focus, said };
+      return own === true ? on : { focus, said };
     };
-    return { left: await go(false), late: await go(false, 'late'), own: await go(true), ownLate: await go(true, 'late') };
+    return { left: await go(false), late: await go(false, 'late'), hidden: await go('hidden'), own: await go(true), ownLate: await go(true, 'late') };
   },
   /* Called off when what it asked for has already been replaced by another list. */
   async goReplaced() {
