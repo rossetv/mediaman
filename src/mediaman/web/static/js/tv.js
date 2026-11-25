@@ -15,6 +15,8 @@
   var LOST_AFTER = 8000;
   var OVERLAY_MS = 4000;
   var STALL_MS = 1500;
+  var PUT_AGAIN_MS = 1500;
+  var GIVE_UP_MS = 4000;
   var BROKEN_MS = 45000;
 
   var body = document.body;
@@ -305,6 +307,7 @@
   /* ── pairing ── */
 
   var asking = false;
+  var pairings = 0;          // counts up as this TV is paired or unpairs itself
 
   function newCode(ranOut) {
     if (asking) return;
@@ -320,7 +323,7 @@
         waitUntil = 0;
         if (mode !== 'conn' && mode !== 'taken') mode = 'code';
         pollPending(fresh);
-        if (old) lastLook(old, fresh);
+        if (old) pollOld(old, 0);
       } else {
         codes -= 1;
         // A code that still works stays up.
@@ -336,11 +339,17 @@
     });
   }
 
-  /* The code before may have been entered since it was last asked about. */
-  function lastLook(old, fresh) {
-    send('poll', old.token, {}, 10000, function (status, got) {
-      if (status === 200 && got.state === 'ready' && pending === fresh) paired(old, got);
-    });
+  /* A code that was shown before may still be entered. */
+  function pollOld(old, wait) {
+    var of = pairings;
+    setTimeout(function () {
+      if (of !== pairings || now() >= old.until) return;
+      send('poll', old.token, {}, 10000, function (status, got, retry) {
+        if (of !== pairings || status === 404) return;
+        if (status === 200 && got.state === 'ready') { paired(old, got); return; }
+        pollOld(old, retry ? retry * 1000 : got.poll_ms || 2000);
+      });
+    }, wait);
   }
 
   function pollPending(mine) {
@@ -373,6 +382,7 @@
     var other = Boolean(from) && from !== got.owner;
     cutOff = null;
     pending = null;
+    pairings += 1;
     token = mine.token;
     remember(KEPT, token);
     remember(KEPT_PLACE, null);
@@ -565,7 +575,8 @@
   var ready = false;
   var there = false;         // at its place
   var place = 0;
-  var puts = 0;              // times it was put there
+  var puts = 0, putAt = 0;   // times it was put there, and when last
+  var begunThere = false;    // whether it has played since it was first put there
   var blocked = false;       // the browser wants a key first
   var counted = 0;           // seconds played
   var stalled = false;
@@ -599,6 +610,7 @@
     loaded = play.play_id;
     place = from || 0;
     puts = 0;
+    begunThere = false;
     movedAt = now();
     if (byHls === null) byHls = !native() && sources();
     if (byHls) loadHls(play.play_id, play.url);
@@ -627,12 +639,14 @@
 
   function atPlace() {
     if (there || !loaded || video.seeking) return;
-    // A browser that lands elsewhere each time is left where it lands.
-    if (Math.abs(video.currentTime - place) < 3 || puts > 1) there = true;
-    else putThere();
+    // A browser that lands elsewhere each time, as it plays, is left where it lands.
+    var off = Math.abs(video.currentTime - place) >= 3;
+    if (!off || (puts > 1 && begunThere && wanted && now() - putAt > GIVE_UP_MS)) there = true;
+    else if (!puts || (puts < 2 && now() - putAt > PUT_AGAIN_MS)) putThere();
   }
   function putThere() {
     puts += 1;
+    putAt = now();
     try { video.currentTime = place; } catch (e) { /* Too early; canplay comes. */ }
   }
 
@@ -672,6 +686,7 @@
     place = Math.max(0, to);
     there = false;
     puts = 0;
+    begunThere = false;
     movedAt = now();
     putThere();
     atPlace();
@@ -722,6 +737,9 @@
   }
 
   function begun() {
+    // A browser may take no place until it plays.
+    if (!begunThere) puts = 0;
+    begunThere = true;
     atPlace();
     if (!ready) wake();
     ready = true;
@@ -782,7 +800,10 @@
     lastTick = at;
     if (loaded && overAt === null && !broken && !reloadDue) {
       var time = video.currentTime;
-      if (!there && ready) atPlace();
+      if (!there && ready && wanted) {
+        begunThere = begunThere || time !== lastTime;
+        atPlace();
+      }
       if (!wanted && at - movedAt > 5000) readyPaused();
       if (time !== lastTime || (ready && !wanted)) {
         movedAt = at;
@@ -1048,6 +1069,7 @@
       var old = token;
       signedOut();
       loop += 1;
+      pairings += 1;
       pending = null;
       send('unpair', old, {}, 15000, function (status) {
         // Where that was not heard, it is told again: this TV would stay paired on the server.

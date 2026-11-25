@@ -136,7 +136,24 @@ def test_no_page_has_a_style_in_its_markup_which_old_browsers_refuse() -> None:
 
 
 def test_a_browser_that_lands_off_its_place_is_put_right_twice_and_then_left() -> None:
-    assert _run("landsOff") == {"sets": 2, "state": "playing", "at": True}
+    # once as it loads, and twice as it plays
+    assert _run("landsOff") == {"sets": 3, "state": "playing", "at": True}
+
+
+@pytest.mark.parametrize("how", ["plays", "paused", "slow"])
+def test_no_place_is_reported_before_the_start_was_reached(how: str) -> None:
+    out = _run("inertUntilItPlays", how)
+    assert out["at"] and min(out["at"]) >= 1200
+    assert 1200 <= out["time"] < 1210
+    assert not out["kept"] or int(out["kept"].split()[1]) >= 1200
+
+
+def test_a_code_shown_before_counts_for_as_long_as_it_is_good() -> None:
+    out = _run("usedCodeSeenLate", "used")
+    assert min(out["count"]) > 20
+    assert "Connected to maren" in out["said"] and out["store"] == "fresh"
+    gone = _run("usedCodeSeenLate", "gone")
+    assert "222 222" in gone["said"] and gone["quiet"] is True
 
 
 def test_a_seek_of_a_second_is_carried_out() -> None:

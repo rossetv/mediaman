@@ -38,7 +38,7 @@ function tv({ kept = null, plays = true } = {}) {
   video.time = 0;
   Object.defineProperty(video, 'currentTime', {
     get() { return this.time; },
-    set(v) { this.sets.push(v); this.time = v + (this.land || 0); if (this.land) later(() => this.fire('seeked'), 3); },
+    set(v) { this.sets.push(v); if (this.inert) return; this.time = v + (this.land || 0); if (this.land) later(() => this.fire('seeked'), 3); },
   });
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
@@ -304,9 +304,49 @@ const scenarios = {
     await t.step(50);
     t.video.fire('loadedmetadata');
     t.video.fire('playing');
-    await t.step(5000);
+    await t.step(9000);
     const sets = t.video.sets.length;
     return { sets, state: t.last('poll').body.report.state, at: t.last('poll').body.report.position_s > 105 };
+  },
+  // a browser that ignores a seek until it plays; it starts paused, or plays at once, and may take
+  // a moment more after it has begun
+  async inertUntilItPlays(how) {
+    const t = tv({ kept: 'old' });
+    t.video.inert = true;
+    t.answers.poll = () => ready({ play: film({ start_s: 1200, paused: how === 'paused' }) });
+    t.run();
+    await t.step(50);
+    t.video.fire('loadedmetadata');
+    t.video.fire('canplay');
+    await t.step(how === 'paused' ? 12000 : 3000);
+    if (how === 'paused') t.key(OK);
+    if (how !== 'slow') t.video.inert = false;
+    t.video.fire('playing');
+    await t.step(1200);
+    t.video.inert = false;
+    await t.step(3000);
+    return { at: t.paths('poll').map((c) => c.body.report).filter(Boolean).map((b) => b.position_s), kept: t.store['mm-tv-place'] || '', time: t.video.currentTime };
+  },
+  async usedCodeSeenLate(what) {
+    const t = tv();
+    const codes = [{ code: '482916', token: 'fresh' }, { code: '111111', token: 'newer' }, { code: '222222', token: 'third' }];
+    t.answers.code = () => ({ ok: true, expires_in_s: 300, ...codes.shift() });
+    t.answers.poll = { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 };
+    t.run();
+    await t.step(1000);
+    t.key(OK);
+    await t.step(500);
+    t.key(OK);
+    await t.step(60000);
+    const polled = () => ['fresh', 'newer', 'third'].map((k) => t.paths('poll').filter((c) => c.token === k).length);
+    const count = polled();
+    if (what === 'gone') t.answers.poll = (c) => (c.token === 'third' ? { ok: true, state: 'pairing', poll_ms: 2000 } : GONE);
+    else t.answers.poll = (c) => (c.token === 'fresh' ? ready() : { ok: true, state: 'pairing', poll_ms: 2000 });
+    await t.step(3000);
+    const said = t.says();
+    const then = polled();
+    await t.step(10000);
+    return { count, said, quiet: polled()[0] === then[0] && polled()[1] === then[1], store: t.store['mm-tv'] || null };
   },
   async shortSeek() {
     const t = await playing();
