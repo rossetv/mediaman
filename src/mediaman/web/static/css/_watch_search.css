@@ -190,6 +190,7 @@
   .wbar { --wshut: min(520px, var(--w) - 1160px); --wopen: min(680px, var(--w) - 900px); }
   .wbar .profile-btn-name { display: block; max-width: 80px; }
 }
+@media (min-width: 1920px) { .wbar { --wopen: 640px; } }
 /* Here the switch has no words. */
 @media (max-width: 799.98px), (min-width: 1100px) and (max-width: 1319.98px) {
   .wbar .watch-viewtoggle__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
