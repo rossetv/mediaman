@@ -154,34 +154,17 @@ def _mark_title(
     marked: _Marked,
     numbers: _Numbers,
     now: datetime,
-    *,
-    changed: bool,
 ) -> SeenChange | None:
-    """Mark the title too, or the part of it that was taken back; None when it is so already."""
+    """Mark the title too, or the part of it that was taken back, if it has a mark."""
     if marked.part is not None:
         return seen_titles.change_part(conn, user_id, marked.key, marked.part, seen=True)
     show = marked.title.media_type == "tv"
     if show and not numbers:
         return None
-    before = seen_titles.get_mark(conn, user_id, marked.key)
-    if not changed and before is not None and not before.not_seen:
-        return None
     last_season = max(numbers) if show else None
     return seen_titles.mark(
         conn, user_id, marked.title, last_season, now, in_library=True, episodes=numbers
     )
-
-
-def _covered(
-    conn: sqlite3.Connection, username: str, libraries: list[str], targets: list[MarkTarget]
-) -> set[str]:
-    """The keys among *targets* that a mark of their title covers without a row."""
-    shows = {t.show_rating_key for t in targets if t.show_rating_key}
-    found = seen_titles.seen_films(conn, username, libraries) if not shows else set()
-    for show in shows:
-        for season in seen_titles.covered_seasons(conn, username, libraries, show_key=show):
-            found |= season.episodes
-    return found
 
 
 def _unmark_title(conn: sqlite3.Connection, user_id: int, marked: _Marked) -> SeenChange | None:
@@ -248,13 +231,9 @@ def api_watch_mark(
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
     now = now_utc()
-    covered = _covered(conn, username, libraries, targets)
-    targets = [t for t in targets if t.rating_key not in covered]
     changes = mark_watched(conn, username, targets, now)
     marked = _marked(conn, libraries, kind, key)
-    title = (
-        _mark_title(conn, user_id, marked, numbers, now, changed=bool(changes)) if marked else None
-    )
+    title = _mark_title(conn, user_id, marked, numbers, now) if marked else None
     mark_undo.hold(
         (user_id, kind, key),
         marked.key if marked else None,

@@ -80,6 +80,7 @@ class MarkChange:
     position_s: float
     updated_at: str
     new_seen_at: str | None
+    new: bool = False  # the mark made the row
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +222,7 @@ def mark_watched(
                     ),
                 )
                 changes.append(
-                    MarkChange(target.rating_key, False, None, 0.0, NEVER_PLAYED, now_iso)
+                    MarkChange(target.rating_key, False, None, 0.0, NEVER_PLAYED, now_iso, True)
                 )
             elif not row.watched:
                 seen_at = row.seen_at or now_iso
@@ -287,7 +288,7 @@ def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[Mar
     """Put *username*'s rows back as they were before a mark or unmark.
 
     A row marked again since is left alone, and one played since keeps the
-    place and state of that play.
+    place and state of that play. A row the mark made goes.
     """
     with conn:
         conn.executemany(
@@ -308,6 +309,11 @@ def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[Mar
                 )
                 for c in changes
             ],
+        )
+        conn.executemany(
+            "DELETE FROM watch_progress WHERE username = ? AND rating_key = ? AND watched = 0"
+            " AND seen_at IS NULL AND credited_at IS NULL AND updated_at = ?",
+            [(username, c.rating_key, NEVER_PLAYED) for c in changes if c.new],
         )
 
 

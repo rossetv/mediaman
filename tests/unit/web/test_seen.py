@@ -364,7 +364,7 @@ class TestJoiningTheLibrary:
         user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
         seen_titles.mark(conn, user, title, 2, NOW, in_library=bool(reach), episodes=reach)
         if reach is None:
-            part = seen_titles.ShowPart("500", 1, 1, frozenset({1, 2}))
+            part = seen_titles.ShowPart("500", 1, 1, {1: frozenset({1, 2})})
             seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
 
         assert not _show(conn).watched
@@ -419,16 +419,25 @@ class TestMarkedInTheLibrary:
 
         assert _mark_of(conn).episodes == {}
 
+    def test_a_season_the_library_lacked_is_not_meant(self, conn, as_user):
+        user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
+        seen_titles.mark(conn, user, title, 1, NOW, in_library=False)
+        seen_titles.mark(conn, user, title, 3, NOW, in_library=True, episodes={3: {1}})
+        for number in (1, 2, 3):
+            _season(conn, number, [f"5{number}1"])
+
+        assert [_show(conn).seasons[n].watched for n in (1, 2, 3)] == [True, False, True]
+
     def test_taking_back_an_episode_it_never_reached_leaves_it(self, conn, as_user):
         self._mark(conn, 1)
-        part = seen_titles.ShowPart("500", 1, 2, frozenset({1, 2}))
+        part = seen_titles.ShowPart("500", 1, 2, {1: frozenset({1, 2})})
         user = find_user_id(conn, "aoife")
 
         assert seen_titles.change_part(conn, user, ("tv", 44), part, seen=False) is None
 
     def test_all_it_reached_of_its_seasons_taken_back_ends_it(self, conn, as_user):
         self._mark(conn, 1)
-        part = seen_titles.ShowPart("500", 1, 1, frozenset({1, 2}))
+        part = seen_titles.ShowPart("500", 1, 1, {1: frozenset({1, 2})})
         user = find_user_id(conn, "aoife")
         seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
 
@@ -509,7 +518,7 @@ class TestCards:
 
     def test_a_show_of_which_a_part_was_taken_back_is_not_watched(self, client, conn):
         client.put(f"{BASE}/tmdb-tv-44")
-        part = seen_titles.ShowPart("500", 1, 3, frozenset({1, 2, 3}))
+        part = seen_titles.ShowPart("500", 1, 3, {1: frozenset({1, 2, 3})})
         user = find_user_id(conn, "aoife")
         seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
         assert self._watched(conn, ("tv", 44))["watched"] is False

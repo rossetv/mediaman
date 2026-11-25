@@ -285,8 +285,8 @@ class TestAShowMarkedBeforeItJoined:
         assert seen_titles.person_marks(conn, "aoife").partly == set()
 
     def test_taking_a_part_back_twice_leaves_the_first_undo(self, client, conn, joined):
-        for _ in range(2):
-            client.delete("/api/watch/watched/season/501")
+        path = "/api/watch/watched/season/501"
+        assert [client.delete(path).json()["changed"] for _ in range(2)] == [1, 0]
         client.post("/api/watch/watched/season/501?undo=1")
 
         assert _watched(conn) == {"show-500"}
@@ -327,7 +327,7 @@ class TestAShowMarkedBeforeItJoined:
         client.delete("/api/watch/watched/episode/531")
 
         mark = seen_titles.get_mark(conn, ratings.find_user_id(conn, "aoife"), ("tv", 44))
-        assert (mark.through_season, mark.not_seen) == (2, frozenset())
+        assert (mark.through_season, mark.partly) == (2, False)
         assert _covered(conn) == EPISODES
 
     def test_what_was_begun_again_stays_begun_when_another_part_is_taken_back(
@@ -424,6 +424,81 @@ class TestMarkedInTheLibrary:
 
 
 class TestWhatIsLeftOfAMark:
+    def test_an_episode_that_comes_after_a_season_was_taken_back_is_not_seen(
+        self, client, conn, joined, plex
+    ):
+        client.delete("/api/watch/watched/season/502")
+        client.post("/api/watch/watched/episode/521")
+
+        _arrives(conn, plex)
+
+        assert _covered(conn, [*EPISODES, "523"]) == ["511", "512", "521"]
+
+    def test_a_show_held_from_its_second_season_keeps_no_mark_once_taken_back(
+        self, client, conn, matched, plex
+    ):
+        conn.execute("DELETE FROM media_items WHERE id = '501'")
+        conn.commit()
+        plex.add_show("500", "The Long Coast", {2: ("502", ["521", "522"])})
+        client.post("/api/watch/watched/show/500")
+
+        client.delete("/api/watch/watched/season/502")
+
+        assert _title_marks(conn) == {}
+
+    def test_an_episode_gone_since_the_mark_keeps_nothing_of_it(self, client, conn, matched):
+        client.post("/api/watch/watched/show/500")
+        conn.execute(
+            "UPDATE media_items SET episode_keys = ?, episode_count = 1 WHERE id = '502'",
+            (json.dumps([{"key": "521", "number": 1, "path": "p"}]),),
+        )
+        conn.commit()
+        for part in ("season/501", "episode/521"):
+            client.delete(f"/api/watch/watched/{part}")
+
+        assert _title_marks(conn) == {}
+
+    def test_a_season_not_listed_is_taken_back_and_given_back(self, client, conn, joined):
+        conn.execute("UPDATE media_items SET episode_keys = NULL WHERE id = '502'")
+        conn.commit()
+
+        def watched():
+            return lib.show_seen(conn, "aoife", ["1"])["500"].seasons[2].watched
+
+        client.delete("/api/watch/watched/season/502")
+        assert not watched()
+        client.post("/api/watch/watched/season/502")
+        conn.execute("DELETE FROM watch_progress")
+        conn.commit()
+        assert watched()
+
+    def test_with_one_of_two_parts_given_back_the_show_is_still_not_whole(
+        self, client, conn, joined
+    ):
+        for part in ("season/501", "episode/521"):
+            client.delete(f"/api/watch/watched/{part}")
+        client.post("/api/watch/watched/season/501")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == {("tv", 44)}
+
+    def test_an_episode_gone_since_it_was_taken_back_leaves_the_show_whole(
+        self, client, conn, joined, plex
+    ):
+        _arrives(conn, plex)
+        client.delete("/api/watch/watched/episode/523")
+        conn.execute(
+            "UPDATE media_items SET episode_keys = ?, episode_count = 2 WHERE id = '502'",
+            (json.dumps([{"key": f"52{n}", "number": n, "path": "p"} for n in (1, 2)]),),
+        )
+        conn.commit()
+        plex.add_show(
+            "500", "The Long Coast", {1: ("501", ["511", "512"]), 2: ("502", ["521", "522"])}
+        )
+        client.post("/api/watch/watched/season/502")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == set()
+        assert _watched(conn) == {"show-500"}
+
     def test_an_episode_with_no_number_speaks_for_itself_alone(self, client, conn, joined, plex):
         unnumbered = [{"key": "511", "number": None, "path": "a"}]
         unnumbered.append({"key": "512", "number": 2, "path": "b"})
@@ -506,36 +581,94 @@ _OF = {
 }
 
 
-@pytest.mark.parametrize("start", ["nothing", "joined", "in the library"])
-def test_marks_in_any_order_read_as_they_were_made_and_undo_exactly(
-    client, conn, matched, monkeypatch, start
-):
+def test_marking_a_show_watched_leaves_no_episode_of_it_unseen(client, conn, matched, plex):
+    """Not one whose own mark was taken back before the show was marked elsewhere."""
+    client.post("/api/watch/watched/episode/511")
+    client.delete("/api/watch/watched/episode/511")
+    _mark_outside(conn)
+    _season(conn, "503", "500", "The Long Coast", 3)
+    seasons = {n: (f"50{n}", [f"5{n}1", f"5{n}2"]) for n in (1, 2, 3)}
+    plex.add_show("500", "The Long Coast", seasons)
+
+    client.post("/api/watch/watched/show/500")
+
+    assert _covered(conn) == EPISODES
+
+
+@pytest.fixture
+def on_the_page(app_factory, conn, client, templates_stub, monkeypatch):
+    """The key of the episode that the Watch page offers to go on with."""
     monkeypatch.setattr(marks_api, "_MARK_LIMITER", ActionRateLimiter(10**6, 60))
+    monkeypatch.setattr(pages, "_reachable_until", [float("inf")])
+    app = app_factory(pages.router, conn=conn, state_extras={"templates": templates_stub})
+    page = TestClient(app)
+    page.cookies.set("session_token", create_session(conn, "aoife"))
+
+    def _read():
+        rows = page.get("/watch").json()["rows"]
+        items = next((r["items"] for r in rows if r["id"] == "continue"), [])
+        return items[0]["mark_key"] if items else None
+
+    return _read
+
+
+@pytest.mark.parametrize("start", ["joined", "back in the library"])
+def test_the_episode_to_go_on_with_is_marked_and_the_next_one_comes(
+    client, conn, matched, on_the_page, start
+):
+    _begin(client, conn, start)
+    _play(conn, "511", position=2900)
+    assert on_the_page() == "512"
+
+    client.post("/api/watch/watched/episode/512")
+    assert on_the_page() == "521"
+
+    client.delete("/api/watch/watched/episode/512?undo=1")
+    assert on_the_page() == "512"
+    assert _covered(conn) == EPISODES
+
+
+def _begin(client, conn, start):
+    if start == "joined":
+        _mark_outside(conn)
+    elif start != "nothing":
+        client.post("/api/watch/watched/show/500")
+    if start == "back in the library":
+        conn.execute("DELETE FROM watch_progress")
+        conn.commit()
+
+
+@pytest.mark.parametrize(
+    "start", ["nothing", "joined", "in the library", "back in the library", "played"]
+)
+def test_marks_in_any_order_read_as_they_were_made_and_undo_exactly(
+    client, conn, matched, on_the_page, start
+):
+    """What a person sees: the episodes, the show, and the one to go on with."""
     dice = random.Random(7)
-    for _ in range(40):
+    for _ in range(25):
         conn.execute("DELETE FROM watch_progress")
         conn.execute("DELETE FROM user_seen_titles")
         conn.commit()
         mark_undo._held.clear()
-        seen = set()
-        if start != "nothing":
-            seen = set(EPISODES)
-            if start == "joined":
-                _mark_outside(conn)
-            else:
-                client.post("/api/watch/watched/show/500")
+        _begin(client, conn, "joined" if start == "played" else start)
+        seen = set() if start == "nothing" else set(EPISODES)
+        if start == "played":
+            _play(conn, "511", position=2900)
         made = []
         for _ in range(4):
             part, marks = dice.choice(list(_OF)), dice.random() < 0.5
             made.append((part, marks))
             path = f"/api/watch/watched/{part}"
-            before, seen = seen, seen | _OF[part] if marks else seen - _OF[part]
-            (client.post if marks else client.delete)(path)
+            before, offered = seen, on_the_page()
+            seen = seen | _OF[part] if marks else seen - _OF[part]
+            changed = (client.post if marks else client.delete)(path).json()["changed"]
             assert _covered(conn) == sorted(seen), made
-            if before != seen and dice.random() < 0.3:
+            assert not (marks and on_the_page() in _OF[part]), made
+            if changed and dice.random() < 0.4:
                 (client.delete if marks else client.post)(f"{path}?undo=1")
                 seen = before
-                assert _covered(conn) == sorted(seen), made
+                assert (_covered(conn), on_the_page()) == (sorted(seen), offered), made
         assert bool(_watched(conn)) is (seen == set(EPISODES)), made
 
 

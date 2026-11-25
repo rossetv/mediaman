@@ -35,7 +35,7 @@ _SHOWS = (
 class SeenMark:
     through_season: int | None  # None for a film
     episodes: Mapping[int, frozenset[int]]  # the numbers it reaches of a season not whole
-    not_seen: frozenset[str]  # what of it was taken back: seasons ("2") and episodes ("2.5")
+    partly: bool  # some of it was taken back
     in_library: bool
     title: str | None
     year: int | None
@@ -81,16 +81,16 @@ class ShowPart:
     show_key: str
     season: int
     episode: int | None
-    numbers: frozenset[int]  # of the season's episodes
+    listed: Mapping[int, frozenset[int]]  # the numbers of the show's episodes by season
 
 
 def person_marks(conn: sqlite3.Connection, username: str) -> PersonMarks:
     found = PersonMarks()
     for r in conn.execute(
-        "SELECT media_type, tmdb_id, level, NULL AS through, NULL AS not_seen, 0 AS seen"
+        "SELECT media_type, tmdb_id, level, NULL AS through, 0 AS partly, 0 AS seen"
         " FROM user_ratings"
         " WHERE user_id = (SELECT id FROM admin_users WHERE username = :name)"
-        " UNION ALL SELECT media_type, tmdb_id, NULL, through_season, not_seen, 1"
+        " UNION ALL SELECT media_type, tmdb_id, NULL, through_season, partly, 1"
         " FROM user_seen_titles"
         " WHERE user_id = (SELECT id FROM admin_users WHERE username = :name)",
         {"name": username},
@@ -98,7 +98,7 @@ def person_marks(conn: sqlite3.Connection, username: str) -> PersonMarks:
         key = (r["media_type"], r["tmdb_id"])
         if r["seen"]:
             found.seen[key] = r["through"]
-            if r["not_seen"]:
+            if r["partly"]:
                 found.partly.add(key)
         else:
             found.levels[key] = r["level"]
@@ -107,7 +107,7 @@ def person_marks(conn: sqlite3.Connection, username: str) -> PersonMarks:
 
 def get_mark(conn: sqlite3.Connection, user_id: int, key: TitleKey) -> SeenMark | None:
     row = conn.execute(
-        "SELECT through_season, episodes, not_seen, in_library, title, year, seen_at FROM user_seen_titles"
+        "SELECT through_season, episodes, partly, in_library, title, year, seen_at FROM user_seen_titles"
         " WHERE user_id = ? AND media_type = ? AND tmdb_id = ?",
         (user_id, *key),
     ).fetchone()
@@ -116,16 +116,12 @@ def get_mark(conn: sqlite3.Connection, user_id: int, key: TitleKey) -> SeenMark 
     return SeenMark(
         row["through_season"],
         _reach(row["episodes"]),
-        _parts(row["not_seen"]),
+        bool(row["partly"]),
         bool(row["in_library"]),
         row["title"],
         row["year"],
         row["seen_at"],
     )
-
-
-def _parts(stored: str | None) -> frozenset[str]:
-    return frozenset(json.loads(stored or "[]"))
 
 
 def _reach(stored: str | None) -> dict[int, frozenset[int]]:
@@ -152,11 +148,15 @@ def mark(
         if before is not None and through_season is not None:
             through_season = max(through_season, before.through_season or 0)
         reach = dict(before.episodes) if before is not None and in_library else {}
+        if in_library and through_season is not None:
+            # What the library did not hold was not meant.
+            first = (before.through_season or 0) + 1 if before is not None else 1
+            reach |= {season: frozenset() for season in range(first, through_season + 1)}
         reach |= {season: frozenset(numbers) for season, numbers in (episodes or {}).items()}
         after = SeenMark(
             through_season,
             reach,
-            frozenset(),
+            False,
             in_library,
             title.title or (before.title if before else None),
             title.year or (before.year if before else None),
@@ -190,22 +190,31 @@ def change_part(
         through = (before.through_season or 0) if before else 0
         if before is None or part.season > through:
             return None
-        season = str(part.season)
-        reach = part.numbers & before.episodes.get(part.season, part.numbers)
-        if part.episode is not None and part.episode not in reach:
+        listed = part.listed.get(part.season, frozenset())
+        one = listed if part.episode is None else frozenset({part.episode})
+        reached = before.episodes.get(part.season)
+        held = listed if reached is None else reached & listed
+        episodes = dict(before.episodes)
+        if seen:
+            if reached is None:
+                return None
+            episodes[part.season] = reached | one
+            if not listed:
+                del episodes[part.season]
+            partly = before.partly and any(
+                not numbers <= episodes.get(season, numbers)
+                for season, numbers in part.listed.items()
+            )
+        else:
+            if part.episode is not None and part.episode not in held:
+                return None
+            episodes[part.season] = held - one
+            partly = True
+        after: SeenMark | None = replace(before, episodes=episodes, partly=partly)
+        if after == before:
             return None
-        every = {f"{season}.{n}" for n in reach}
-        one = every if part.episode is None else {f"{season}.{part.episode}"}
-        taken = set(before.not_seen)
-        if season in taken:
-            taken = (taken - {season}) | every
-        taken = taken - one if seen else taken | one
-        if (part.episode is None and not seen) or (every and every <= taken):
-            taken = (taken - every) | {season}
-        if taken == before.not_seen:
-            return None
-        gone = all(str(n) in taken for n in range(1, through + 1))
-        after = None if gone else replace(before, not_seen=frozenset(taken))
+        if all(episodes.get(n) == frozenset() for n in range(1, through + 1)):
+            after = None
         _write(conn, user_id, key, after)
     return SeenChange(user_id, key, before, after)
 
@@ -227,7 +236,7 @@ def _write(conn: sqlite3.Connection, user_id: int, key: TitleKey, mark: SeenMark
         return
     conn.execute(
         "INSERT OR REPLACE INTO user_seen_titles (user_id, media_type, tmdb_id, through_season,"
-        " episodes, not_seen, in_library, title, year, seen_at)"
+        " episodes, partly, in_library, title, year, seen_at)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             user_id,
@@ -236,7 +245,7 @@ def _write(conn: sqlite3.Connection, user_id: int, key: TitleKey, mark: SeenMark
             json.dumps({s: sorted(numbers) for s, numbers in mark.episodes.items()})
             if mark.episodes
             else None,
-            json.dumps(sorted(mark.not_seen)) if mark.not_seen else None,
+            int(mark.partly),
             int(mark.in_library),
             mark.title,
             mark.year,
@@ -290,12 +299,11 @@ def covered_seasons(
     show_key: str | None = None,
 ) -> list[CoveredSeason]:
     """The seasons of the library's shows (or only of *show_key*) that *username*'s marks of
-    the shows cover: what a mark reaches, less what was taken back and the episodes whose own
-    row says otherwise. An episode Plex has no number of is never covered."""
+    the shows cover: what a mark reaches, less the episodes whose own row says otherwise. An episode Plex has no number of is never covered."""
     # rationale: _SHOWS is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
         f"{_SHOWS} SELECT held.id, held.show_rating_key, held.season_number, held.episode_keys,"
-        " t.seen_at, t.in_library, t.episodes, t.not_seen"
+        " t.seen_at, t.in_library, t.episodes"
         " FROM user_seen_titles t JOIN admin_users u ON u.id = t.user_id"
         " JOIN shows ON shows.tmdb_id = t.tmdb_id"
         " JOIN held ON held.show_rating_key = shows.show_key"
@@ -323,10 +331,7 @@ def covered_seasons(
         by_season.setdefault(p["media_item_id"], []).append(p)
     found = []
     for r, listed in seasons:
-        season, taken_back = r["season_number"], _parts(r["not_seen"])
-        if str(season) in taken_back:
-            continue
-        reach = _reach(r["episodes"]).get(season)
+        reach = _reach(r["episodes"]).get(r["season_number"])
         held = (
             by_season.get(r["id"], [])
             if listed is None
@@ -341,14 +346,10 @@ def covered_seasons(
         episodes = frozenset(
             key
             for key, number in (listed or {}).items()
-            if key not in own
-            and number is not None
-            and (reach is None or number in reach)
-            and f"{season}.{number}" not in taken_back
+            if key not in own and number is not None and (reach is None or number in reach)
         )
         if listed is None:
-            part_back = any(p.startswith(f"{season}.") for p in taken_back)
-            whole = reach is None and not part_back and all(own.values())
+            whole = reach is None and all(own.values())
         else:
             whole = all(key in episodes or own.get(key) for key in listed)
         found.append(CoveredSeason(r["id"], r["show_rating_key"], episodes, whole, r["seen_at"]))
@@ -391,9 +392,22 @@ def part_of(
         {"libraries": json.dumps(list(libraries)), "key": key},
     )
     for r in rows:
-        listed = _episodes(r["episode_keys"]) or {}
-        number = listed.get(key)
+        number = (_episodes(r["episode_keys"]) or {}).get(key)
         if kind == "season" or number is not None:
-            numbers = frozenset(n for n in listed.values() if n is not None)
-            return ShowPart(r["show_rating_key"], r["season_number"], number, numbers)
+            show_key = r["show_rating_key"]
+            return ShowPart(show_key, r["season_number"], number, _listed(conn, show_key))
     return None
+
+
+def _listed(conn: sqlite3.Connection, show_key: str) -> dict[int, frozenset[int]]:
+    rows = conn.execute(
+        "SELECT season_number, episode_keys FROM media_items"
+        " WHERE show_rating_key = ? AND season_number > 0 AND episode_keys IS NOT NULL",
+        (show_key,),
+    )
+    return {
+        r["season_number"]: frozenset(
+            n for n in (_episodes(r["episode_keys"]) or {}).values() if n is not None
+        )
+        for r in rows
+    }
