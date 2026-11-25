@@ -73,6 +73,8 @@ _PLAYED_SLACK_SECONDS = 30.0
 
 # A place this close to the saved one is the same place; a save is rounded and the video may snap.
 _SAME_PLACE_SECONDS = 0.5
+# Final credits marked no further into the title than this share of it are taken as a wrong marker.
+_CREDITS_AFTER_FRACTION = 0.7
 
 # A segment request past the limits waits this long for a slot, so a player that fetches a little
 # ahead, or a seek whose old requests Plex still holds, is not refused. Well under the 10 s the
@@ -172,11 +174,13 @@ def plex_failure(exc: PlexError) -> Response:
 
 
 def _credits_start(item: PlexItem) -> float | None:
-    """Where *item*'s last final credits start; ones in its first half are not believed."""
+    """Where *item*'s last final credits start, or None where Plex has none to believe."""
     starts = [
         m.start_s
         for m in item.markers
-        if m.kind == "credits" and m.final and item.duration_s / 2 < m.start_s < item.duration_s
+        if m.kind == "credits"
+        and m.final
+        and _CREDITS_AFTER_FRACTION * item.duration_s < m.start_s < item.duration_s
     ]
     return max(starts, default=None)
 
