@@ -4,6 +4,7 @@ title's detail and a season's episodes, for viewers and admins alike."""
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from dataclasses import replace
 from datetime import timedelta
@@ -26,7 +27,7 @@ from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search import download as search_download
-from mediaman.web.routes.watch import catalog_api, pages
+from mediaman.web.routes.watch import catalog_api, pages, title_seasons
 from tests.helpers.factories import (
     insert_admin_user,
     insert_download_notification,
@@ -1534,6 +1535,106 @@ class TestTmdbTitle:
         viewer.get("/api/watch/title/tmdb-movie-12/ratings")
 
         assert conn.execute("SELECT COUNT(*) FROM ratings_cache").fetchone()[0] == 0
+
+
+class TestSeasonStatus:
+    @staticmethod
+    def _series(arr, *seasons, tvdb_id=5500):
+        ids = {"id": 9, "tmdbId": 77, "tvdbId": tvdb_id}
+        arr.series = [{**ids, "monitored": True, "seasons": list(seasons)}]
+
+    @staticmethod
+    def _season(number, monitored=False):
+        return {
+            "seasonNumber": number,
+            "monitored": monitored,
+            "statistics": {
+                "totalEpisodeCount": 8,
+                # Sonarr gives no airing dates of what is not monitored.
+                **({"previousAiring": "2020-01-01T00:00:00Z"} if monitored else {}),
+            },
+        }
+
+    def test_a_library_show_lists_the_seasons_it_lacks_apart_and_what_asks_for_them(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        tmdb.tvdb_to_tmdb = {5500: 77}
+        tmdb.detail[77]["seasons"] += [
+            {"season_number": 3, "episode_count": 8, "air_date": "2020-01-01"},
+            {"season_number": 4, "episode_count": 8, "air_date": "2099-01-01"},
+        ]
+        self._series(arr, *(self._season(n) for n in (1, 2, 3, 4)))
+
+        body = viewer.get("/api/watch/title/show-500").json()
+
+        assert [(s["number"], s["key"], s["status"]) for s in body["seasons"]] == [
+            (1, "501", "held"),
+            (2, "502", "held"),
+        ]
+        assert [(s["number"], s["status"], s["askable"]) for s in body["more_seasons"]] == [
+            (3, "not_asked", True),
+            (4, "not_out", True),
+        ]
+        assert body["seasons_request"]["body"]["tmdb_id"] == 77
+        assert body["download"] is None
+        assert [e["number"] for e in body["episodes"]] == [1, 2]
+
+    def test_where_sonarr_is_not_set_up_there_is_no_way_to_ask(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        monkeypatch.setattr(arr, "get_series", MagicMock(side_effect=SafeHTTPError(503, "", "")))
+        down = viewer.get("/api/watch/title/show-500").json()
+        assert down["seasons_request"] is not None
+
+        catalog.invalidate()
+        monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
+        off = viewer.get("/api/watch/title/show-500").json()
+
+        assert (off["seasons_request"], off["seasons_pending"]) == (None, False)
+
+    def test_a_library_show_does_not_wait_for_a_slow_sonarr(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        page_came, waited_for = threading.Event(), []
+
+        def get_series():
+            if not page_came.wait(3):
+                waited_for.append("sonarr")
+            return []
+
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.01)
+        monkeypatch.setattr(arr, "get_series", get_series)
+        body = viewer.get("/api/watch/title/show-500").json()
+        page_came.set()
+        for thread in threading.enumerate():
+            if thread.name == "watch-arr":
+                thread.join(5)
+
+        assert waited_for == []
+        assert [(s["status"], s["askable"]) for s in body["seasons"]] == [("held", False)] * 2
+        assert body["seasons_pending"] is True
+
+    def test_a_queued_show_still_lists_its_seasons(self, viewer, conn, tmdb, arr):
+        rec = insert_suggestion(conn, title="Far Shore", tmdb_id=77, media_type="tv")
+        self._series(arr, self._season(1, monitored=True), self._season(2), tvdb_id=5501)
+
+        body = viewer.get(f"/api/watch/title/rec-{rec}").json()
+
+        assert body["download"]["state"] == "queued"
+        assert [(s["status"], s["asked"], s["askable"]) for s in body["seasons"]] == [
+            ("asked", True, False),
+            ("not_asked", False, True),
+        ]
+        assert body["seasons_request"] == {"url": f"/api/recommended/{rec}/download", "body": {}}
+
+    def test_a_movie_has_nothing_that_asks_for_seasons(self, viewer, tmdb, arr):
+        assert viewer.get("/api/watch/title/tmdb-movie-12").json()["seasons_request"] is None
 
 
 class TestShowsSonarrDoesNotTrack:

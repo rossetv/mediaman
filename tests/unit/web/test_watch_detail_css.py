@@ -87,6 +87,11 @@ def test_a_long_season_name_wraps_inside_its_chip() -> None:
     assert "nowrap" not in _of(".season-chip", PHONE)
 
 
+def test_a_season_to_be_ticked_is_tall_enough_for_a_finger() -> None:
+    assert "min-height: 56px" in _of(".season-chip")
+    assert "min-height: 44px" in _of(".season-pick__go")
+
+
 def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     body = _of(".ttl-cast__name")
     assert "overflow-wrap: anywhere" in body
@@ -208,6 +213,32 @@ def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
     assert "overflow: hidden" in line
+
+
+def test_what_waits_for_room_comes_at_once_where_nothing_moves() -> None:
+    for line in (
+        ".season-pick__why.fade-in",
+        ".season-pick__out > .fade-in",
+        ".ttl__under > .fade-in",
+    ):
+        assert "animation-delay: var(--dur)" in _of(line)
+        assert "animation-delay: 0s" in _of(line, "prefers-reduced-motion")
+    # An error kept for its room alone is not seen.
+    assert "opacity: 0" in _of(".ttl__error[inert]") and "opacity: 0" in _of(".ttl__note[inert]")
+
+
+def test_a_season_that_cannot_be_asked_for_has_no_box() -> None:
+    assert _of('.season-chip[data-state="some"] .season-chip__box') == ""
+    assert "border-color: transparent" in _of(
+        '.season-chip[aria-disabled="true"] .season-chip__box'
+    )
+
+
+def test_the_button_that_asks_eases_in_to_its_own_opacity() -> None:
+    assert "animation-name: season-go-in" in _of(".season-pick__go.fade-in")
+    css = (STYLES / "_watch_detail.css").read_text(encoding="utf-8")
+    frames = re.search(r"@keyframes season-go-in \{(.*)\}$", css, re.M)
+    assert frames and re.findall(r"(\w+) \{", frames[1]) == ["from"]
 
 
 def test_keep_has_the_room_beside_a_shows_wider_words_and_a_films_row_stays_as_it_is() -> None:

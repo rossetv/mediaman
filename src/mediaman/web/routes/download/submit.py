@@ -24,7 +24,7 @@ from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
-from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ACTION_QUEUED,
@@ -47,7 +47,6 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin_from_token
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
-from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
 
 from ._season import (
     already_there,
@@ -363,17 +362,7 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
         )
         if season is not None and season_on_disk(season):
             raise _SeasonOnDisk(409, "already on disk", "sonarr/api/v3/series")
-        was_unmonitored = season is not None and not season.get("monitored")
-        try:
-            client.remonitor_season(series_id, season_number)
-        except SearchUnanswered:
-            raise
-        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-            # The monitor may have landed before the search failed. A season already
-            # monitored before this request stays as it was.
-            if was_unmonitored:
-                _put_back_unmonitored(client, series_id, season_number)
-            raise
+        client.remonitor_season(series_id, season_number)
     except _SeasonOnDisk:
         raise
     except SafeHTTPError as exc:

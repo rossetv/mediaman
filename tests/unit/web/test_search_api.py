@@ -977,7 +977,7 @@ class TestDownloadEndpoint:
         )
         assert resp.status_code == 409
         assert resp.json()["ok"] is False
-        assert resp.json()["error"] == "'Dune' is already in Radarr"
+        assert resp.json()["error"] == "'Dune' has already been added"
         radarr.add_movie.assert_not_called()
         radarr.remonitor_movie.assert_not_called()
 
@@ -1026,7 +1026,7 @@ class TestDownloadEndpoint:
         )
 
         assert resp.status_code == 502
-        assert resp.json()["error"] == "Failed to add to Radarr"
+        assert resp.json()["error"] == "The download service didn't take it."
         radarr.unmonitor_movie.assert_called_once_with(77, max_retries=1)
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
@@ -1085,7 +1085,7 @@ class TestDownloadEndpoint:
             json={"media_type": "tv", "tmdb_id": 12345, "title": "BB", "monitored_seasons": [2]},
         )
         assert resp.status_code == 422
-        assert resp.json()["error"] == "Season 2 isn't in Sonarr's listing."
+        assert resp.json()["error"] == "Season 2 can't be asked for yet."
         assert resp.json()["ok"] is False
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
@@ -1124,11 +1124,11 @@ class TestDownloadEndpoint:
     @pytest.mark.parametrize(
         ("picked", "missing", "message"),
         [
-            ([1, 2], [2], "Season 2 isn't in Sonarr's listing. Untick it to add the rest."),
+            ([1, 2], [2], "Season 2 can't be asked for yet. Untick it to add the rest."),
             (
                 [1, 2, 3],
                 [2, 3],
-                "Seasons 2 and 3 aren't in Sonarr's listing. Untick them to add the rest.",
+                "Seasons 2 and 3 can't be asked for yet. Untick them to add the rest.",
             ),
         ],
     )
@@ -1198,7 +1198,7 @@ class TestDownloadEndpoint:
             },
         )
         assert resp.json()["ok"] is False
-        assert resp.json()["error"] == "'BB' is already tracked by Sonarr — manage it there"
+        assert resp.json()["error"] == "'BB' has already been added"
         sonarr.add_series.assert_not_called()
 
 

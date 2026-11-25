@@ -23,7 +23,7 @@
   /* How long after the dialog opened, or a run ended, the rest of a press can still come. */
   var DOUBLE_CLICK_MS = 600;
   var OUT = [['held', 'Already in the library'], ['requested', 'Already asked for'], ['unreleased', 'Not out yet'],
-    ['undated', 'No release date yet'], ['unavailable', 'Radarr can’t be asked right now']];
+    ['undated', 'No release date yet'], ['unavailable', 'Can’t be checked right now']];
 
   /* A limit of a minute or of the day: the server does not say which. */
   var WHEN = 'try again in a minute, or tomorrow if the day’s limit is reached.';
@@ -712,7 +712,7 @@
     }).then(function () { done(item, 'Queued'); }, function (err) {
       if (j.run !== run) return;
       if (err && err.status === 409) {
-        done(item, 'Already in Radarr');
+        done(item, 'Already added');
         return;
       }
       run.limited = !!err && err.status === 429 && /^too many/i.test(err.message || '');
