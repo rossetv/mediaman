@@ -476,16 +476,23 @@ class TestWatchRows:
         assert banner["primary"]["href"] == card["href"]
         assert get("/watch", user="cian").json()["banner"]["title"] == "Glasshouse"
 
-    def test_what_is_half_watched_comes_before_a_next_episode_played_later(self, get, conn):
+    def test_the_banner_stands_for_the_first_card_whichever_kind_it_is(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100", minutes_ago=60)
         _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
 
-        assert get("/watch").json()["banner"]["ref"] == "movie-100"
-
-        dismiss(conn, "aoife", "100", NOW)
-        assert get("/watch").json()["banner"]["ref"] == "show-500"
+        ctx = get("/watch").json()
+        banner, cards = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert [c["dismiss_ref"] for c in cards] == ["show-500", "movie-100"]
+        assert banner["dismiss_ref"] == "show-500"
+        assert banner["primary"] == {"label": "Play", "href": cards[0]["href"]}
 
         dismiss(conn, "aoife", "500", NOW)
+        ctx = get("/watch").json()
+        banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert banner["ref"] == "movie-100"
+        assert banner["primary"] == {"label": "Resume", "href": card["href"]}
+
+        dismiss(conn, "aoife", "100", NOW)
         assert get("/watch").json()["banner"]["kicker"] == "Recently added"
 
     def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
