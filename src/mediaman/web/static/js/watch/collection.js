@@ -77,7 +77,7 @@
     window.MM.api.get('/api/watch/title/' + encodeURIComponent(v.ref) + '/collection').then(function (coll) {
       if (gen === v.gen) take(v, coll && Array.isArray(coll.films) && coll.films.length > 1 ? coll : null);
     }, function () {
-      v.stale = true; // what is known stays
+      if (gen === v.gen) v.stale = true; // what is known stays
     });
   }
 
@@ -91,7 +91,10 @@
     }
     var was = v.coll;
     v.coll = coll;
-    if (v !== view || !v.holder.isConnected) return;
+    if (v !== view || !v.holder.isConnected) {
+      v.node = null;
+      return;
+    }
     if (!coll) {
       if (v.holder.contains(document.activeElement)) title().focus({ preventScroll: true });
       v.node = null;
@@ -341,7 +344,7 @@
         d.open = false;
         Promise.resolve().then(function () {
           // The button that opened it may have gone with the last film.
-          if (view && view.node && view.button.hidden && view.node.isConnected &&
+          if (!root.hidden && !root.matches('.is-leaving, .is-aside') && view && view.node && view.button.hidden && view.node.isConnected &&
               !(document.activeElement && root.contains(document.activeElement))) view.title.focus({ preventScroll: true });
         });
       }
@@ -586,6 +589,8 @@
         else if (view) view.stale = true;
       });
     });
+    // What the page changes on its cards it does not change on those off it.
+    if (view && view.node && !view.node.isConnected) view.node = null;
     if (view && view.node && view.coll) label(view);
   });
 
