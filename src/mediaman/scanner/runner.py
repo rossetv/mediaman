@@ -334,10 +334,15 @@ def _say_what_was_left_out(
     lib_ids: Collection[str],
     lib_titles: Mapping[str, str],
     unreadable_limits: Mapping[str, str],
+    ticked: Collection[str],
 ) -> ScanSummary:
     """Audit the libraries a scan of *lib_ids* could not read from Plex, and name them in its summary.
 
-    *unreadable_limits*, whose disk limit could not be read, are named too.
+    *unreadable_limits*, whose disk limit could not be read, are named too. The
+    scan failed if it read none: of those it was to scan that Plex lists, or of
+    any, where Plex lists none of the *ticked* ones. With none to scan that Plex
+    lists it failed only for a disk limit that cannot be read: the others are
+    below theirs.
     """
     left_out = summary.pop("left_out", {})
     _audit_left_out(conn, _UNREAD_KEY, left_out, lib_titles)
@@ -347,8 +352,10 @@ def _say_what_was_left_out(
     summary["left_out_notes"] = [
         _left_out_note(lib_id, reason, lib_titles) for lib_id, reason in noted.items()
     ]
-    if not left_out and not lib_ids:
-        summary["failed_reason"] = SCAN_FAILED_DISK_LIMITS
+    listed = [lib_id for lib_id in ticked if lib_id in lib_titles]
+    if listed and not any(lib_id in lib_titles for lib_id in lib_ids):
+        if unreadable_limits:
+            summary["failed_reason"] = SCAN_FAILED_DISK_LIMITS
     elif left_out.keys() >= set(lib_ids):
         summary["failed_reason"] = SCAN_FAILED_NO_LIBRARY
     return summary
@@ -464,6 +471,7 @@ def run_scan_from_db(
         logger.warning("Scan skipped — Plex client could not be built")
         return {"skipped_reason": SCAN_SKIPPED_PLEX_UNREACHABLE}
     plex, lib_ids, lib_types, lib_titles = result
+    ticked = lib_ids
 
     unreadable_limits: dict[str, str] = {}
     if not skip_disk_check:
@@ -499,7 +507,9 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    return _say_what_was_left_out(conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits)
+    return _say_what_was_left_out(
+        conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits, ticked
+    )
 
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:
