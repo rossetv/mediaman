@@ -148,6 +148,15 @@ def _title_of(item: Mapping[str, object]) -> str:
     return UNNAMED if title in ("", whole) else title
 
 
+def for_viewer(item: Mapping[str, object]) -> dict[str, object]:
+    """The id and title a viewer is told of *item*: for what only NZBGet holds they are made of
+    the release's name, which is told to nobody but an admin."""
+    dl_id = _text(item.get("id"))
+    if _is_arr(dl_id):
+        return {}
+    return {"id": _key_of(dl_id, None), "title": _title_of(item)}
+
+
 def _current(item: Mapping[str, object]) -> StripItem:
     state = _state_of(item)
     dl_id, tmdb_id = _text(item.get("id")), _int(item.get("tmdb_id")) or None

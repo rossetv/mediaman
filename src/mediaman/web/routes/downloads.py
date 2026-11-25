@@ -88,8 +88,8 @@ def _lookup_dl_item(
 
 
 def _for_viewer(payload: DownloadsResponse) -> None:
-    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, and
-    the ids and dates kept for the server's own bookkeeping."""
+    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, the
+    names of releases, and the ids and dates kept for the server's own bookkeeping."""
     hero = payload["hero"]
     items = [*payload["queue"], *payload["upcoming"]]
     if hero is not None:
@@ -98,6 +98,8 @@ def _for_viewer(payload: DownloadsResponse) -> None:
         item.update(abandon_visible=False, arr_link="", arr_source="", arr_id=0)
         item.pop("tmdb_id", None)
         item.pop("queued_since", None)
+    for item in [*items, *payload["recent"]]:
+        item.update(strip.for_viewer(item))
 
 
 @router.get("/downloads", response_class=HTMLResponse)
