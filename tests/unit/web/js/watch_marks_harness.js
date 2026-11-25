@@ -326,6 +326,30 @@ const scenarios = {
     return [await said(), await said(-1)];
   },
 
+  // A film marked while an admin's change of it is on its way, and undone after it.
+  async markWhileWorking() {
+    const p = load(watchPage([row('lib', [card('movie/3', 'Salt', 'Movie · 1 GB', { tmdb: '10' })])]));
+    const c = p.cards()[0];
+    const sub = c.querySelector('.watch-card__sub');
+    c.classList.add('is-working');
+    sub.textContent = 'Keeping…';
+    const spin = sub.appendChild(p.doc.createElement('span'));
+    c.querySelector('.card-tools').appendChild(build(p.doc, ['button', { class: 'card-tool', 'data-watch-more': '', 'aria-disabled': 'true' }, ['svg', {}]]));
+    p.open(c);
+    const panel = c.querySelector('.card-over').querySelector('[data-watch-more]').getAttribute('aria-disabled');
+    await p.pick(c);
+    const working = [sub.textContent, sub.contains(spin), !!c.querySelector('.watch-badge--watched')];
+    c.classList.remove('is-working');
+    sub.textContent = 'Movie · 1 GB · Kept';
+    await p.undo();
+    const undone = [sub.textContent, !!c.querySelector('.watch-badge--watched')];
+    await p.pick(c);
+    c.classList.add('is-working');
+    sub.textContent = 'Deleting…';
+    await p.undo();
+    return { panel, working, undone, undoneMeanwhile: sub.textContent };
+  },
+
   // Left and right go between a card's buttons, which stand from the right to the left; up to the card.
   async toolKeys() {
     const p = load(watchPage([row('cont', [card('movie/1', 'Fieldwork', 'Movie', { dismiss: 'movie-1', tmdb: '10' })])]));

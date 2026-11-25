@@ -697,3 +697,21 @@ def test_it_is_gone_to_at_once_where_asked_again() -> None:
 
 def test_a_mark_of_one_s_own_changes_the_counts_and_leaves_the_cards() -> None:
     assert _run("marked") == {"fact": "counted", "sub": "Movie"}
+
+
+def test_an_answer_from_before_a_mark_does_not_draw_it_away() -> None:
+    out = _run("markedMeanwhile")
+    assert (out["same"], out["kept"]) == (True, True)
+    assert out["look"] == {"busy": False, "label": "Movie", "held": None}
+
+
+def test_a_mark_takes_the_focus_nowhere() -> None:
+    assert _run("markedMeanwhile")["focus"] is True
+
+
+def test_a_mark_whose_title_cannot_be_read_again_is_no_error() -> None:
+    assert _run("markedMeanwhile")["errors"] == []
+
+
+def test_a_card_s_panel_offers_no_menu_while_it_is_changed() -> None:
+    assert _run("workingPanel") == "true"

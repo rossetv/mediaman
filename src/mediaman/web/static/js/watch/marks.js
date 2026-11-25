@@ -140,13 +140,17 @@
     if (button.hasAttribute('title')) button.setAttribute('title', core.markAction(watched));
   }
 
+  /* A card's caption; null while it says what an admin's change is doing. */
+  function captionOf(card) {
+    return card.classList.contains('is-working') ? null : card.querySelector('.watch-card__sub').textContent;
+  }
+
   /* A card's mark, progress bar and caption, as they are now. Returns what puts them back. */
   function snapshot(card) {
     var poster = card.querySelector('.watch-card__poster');
-    var sub = card.querySelector('.watch-card__sub');
     var badge = poster.querySelector('.watch-badge--watched');
     var bar = poster.querySelector('.watch-bar');
-    var text = sub.textContent;
+    var text = captionOf(card);
     return function () { draw(card, badge, bar, text); };
   }
 
@@ -163,7 +167,7 @@
       if (p[1]) poster.appendChild(p[1]);
     });
     toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) { setToggle(b, !!badge); });
-    core.caption(card.querySelector('.watch-card__sub'), text);
+    if (text !== null && captionOf(card) !== null) core.caption(card.querySelector('.watch-card__sub'), text);
   }
 
   /* What is left on *poster* for a moment, for the motion alone. */
@@ -199,13 +203,13 @@
   function setCard(card, watched) {
     var back = snapshot(card);
     var bar = card.querySelector('.watch-bar');
-    var text = card.querySelector('.watch-card__sub').textContent;
+    var text = captionOf(card);
     var badge = card.querySelector('.watch-badge--watched') || core.watchedBadge();
     if (watched && !hasBadge(card)) {
       badge.classList.add('is-new');
       lights(card);
     }
-    if (watched) draw(card, badge, null, text.replace(LEFT_RE, ''));
+    if (watched) draw(card, badge, null, text && text.replace(LEFT_RE, ''));
     else draw(card, null, bar, text);
     return back;
   }

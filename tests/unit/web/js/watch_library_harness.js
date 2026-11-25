@@ -60,7 +60,7 @@ const keyOf = (r) => (r.showRk ? 'show:' + r.showRk : 'id:' + r.id);
 function item(r) {
   const several = !!r.showRk;
   return {
-    key: keyOf(r), title: r.title, subtitle: r.sub || 'Movie', href: r.unheld ? null : '/watch/movie/' + r.id,
+    key: keyOf(r), title: r.title, subtitle: r.sub || 'Movie', href: r.unheld ? null : '/watch/movie/' + r.id, ref: r.ref, watched: !!r.watched,
     admin: { id: r.id, is_tv: !!r.showRk, show_rk: r.showRk || '', has_rk: !!r.showRk, show_title: r.title, title: r.title,
       kept: !!r.kept, deletion: !!r.deletion, keep: r.keep || null, seasons: r.seasons || null, has_keeps: !!r.kept,
       delete: r.kept ? null : several ? { show_rk: r.showRk } : { show_rk: '', id: r.id, kind: 'movie', size: '22.1 GB' },
@@ -84,8 +84,8 @@ const ROWS = [
 /* A card, as watch/search.js builds it. */
 function cardOf(doc, it) {
   return build(doc, ['article', { class: 'watch-card', 'data-keep-id': '' },
-    ['a', { class: 'watch-card__link', href: it.href || '/watch' },
-      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title]], ['span', { class: 'watch-card__sub' }, it.subtitle]],
+    ['a', { class: 'watch-card__link', href: it.href || '/watch', ...(it.ref ? { 'data-title-ref': it.ref } : {}) },
+      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title], ...(it.watched ? [['span', { class: 'watch-badge watch-badge--watched' }]] : [])], ['span', { class: 'watch-card__sub' }, it.subtitle]],
     ...(it.href ? [['button', { class: 'watch-more', 'data-watch-more': '' }]] : [])]);
 }
 
@@ -1540,6 +1540,42 @@ const scenarios = {
     p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1' } });
     await settle();
     return { fact: p.bar.fact, sub: p.row('id:m1').querySelector('.watch-card__sub').textContent };
+  },
+
+  // A title marked while a read of it from before is on its way, then one whose read after the mark fails.
+  async markedMeanwhile() {
+    const rows = (over) => ROWS.map((r) => (r.id === 'm2' ? { ...r, ref: 'movie-2', ...over } : r));
+    const mark = (p) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2' } });
+    const badge = (p) => p.row('id:m2').querySelector('.watch-badge--watched');
+    const p = load({ rows: rows({}) });
+    const wait = deferred();
+    p.serve(rows({ kept: true }), {}, wait);
+    press(p, 'id:m2', 'keep', 'forever');
+    await settle();
+    const drawn = p.row('id:m2').querySelector('.watch-card__poster').appendChild(build(p.doc, ['span', { class: 'watch-badge watch-badge--watched is-new' }]));
+    p.serve(rows({ kept: true, watched: true }));
+    p.doc.body.focus();
+    mark(p);
+    await settle();
+    wait.resolve();
+    await settle();
+    const focus = p.doc.activeElement === p.doc.body;
+    const q = load({ rows: rows({}) });
+    q.failReads();
+    mark(q);
+    await settle();
+    return { same: badge(p) === drawn, kept: keptNow(p, 'id:m2'), look: look(p, 'id:m2'), focus, errors: q.errors };
+  },
+
+  // While a change is made, the panel over the card offers its menu no more than the card.
+  async workingPanel() {
+    const p = load();
+    const wait = deferred();
+    p.replies['postForm /api/media/m2/keep'] = () => wait.promise;
+    const copy = p.row('id:m2').appendChild(build(p.doc, ['div', { class: 'card-over' }, ['button', { 'data-watch-more': '' }]])).children[0];
+    press(p, 'id:m2', 'keep', 'forever');
+    await settle();
+    return copy.getAttribute('aria-disabled');
   },
 
   // What the menu offers each card, and a card with nothing of an admin's.

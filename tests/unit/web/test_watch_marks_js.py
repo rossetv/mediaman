@@ -557,6 +557,17 @@ def test_a_part_marked_takes_the_undo_of_its_whole_show_away_and_no_other_title_
     assert out["after"] == ["Marked Brightwater as watched."]
 
 
+def test_a_mark_made_while_an_admin_s_change_is_on_its_way_leaves_the_caption_to_that() -> None:
+    out = _run("markWhileWorking")
+    assert out["working"] == ["Keeping…", True, True]
+    assert out["undone"] == ["Movie · 1 GB · Kept", False]
+    assert out["undoneMeanwhile"] == "Deleting…"
+
+
+def test_the_panel_of_a_card_being_changed_offers_no_menu() -> None:
+    assert _run("markWhileWorking")["panel"] == "true"
+
+
 def test_the_arrow_keys_go_between_a_card_s_buttons_and_back_up_to_it() -> None:
     assert [name.split("--")[-1] for name in _run("toolKeys")] == [
         "eye",

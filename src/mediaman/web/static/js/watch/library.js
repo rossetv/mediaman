@@ -65,6 +65,8 @@
     ['.watch-badge--leaving', '.watch-badge--watched', '.watch-bar'].forEach(function (name) {
       var old = poster.querySelector(name);
       var next = now.querySelector(name);
+      // A mark just given is still on its way in.
+      if (old && next && name === '.watch-badge--watched') return;
       if (old && next) old.replaceWith(next);
       else if (old) old.remove();
       else if (next) poster.appendChild(next);
@@ -90,7 +92,8 @@
     });
   }
 
-  function moreOf(card) { return card.querySelector('[data-watch-more]'); }
+  /* Under its poster, and in its open panel on a touch screen. */
+  function moresOf(card) { return toArray(card.querySelectorAll('[data-watch-more]')); }
 
   /* ── Pages ── */
 
@@ -241,7 +244,6 @@
   function showWorking(card) {
     var running = working[card.getAttribute('data-key')];
     var sub = card.querySelector('.watch-card__sub');
-    var button = moreOf(card);
     card.classList.toggle('is-working', !!running);
     if (running) {
       if (!labels.has(card)) labels.set(card, toArray(sub.childNodes));
@@ -252,10 +254,11 @@
       sub.replaceChildren.apply(sub, labels.get(card));
       labels.delete(card);
     }
-    if (!button) return;
-    button.setAttribute('aria-busy', running ? 'true' : 'false');
-    if (running) button.setAttribute('aria-disabled', 'true');
-    else button.removeAttribute('aria-disabled');
+    moresOf(card).forEach(function (button) {
+      button.setAttribute('aria-busy', running ? 'true' : 'false');
+      if (running) button.setAttribute('aria-disabled', 'true');
+      else button.removeAttribute('aria-disabled');
+    });
   }
 
   /* Note that an action on a title starts or ends. */
@@ -281,7 +284,7 @@
     if (taken && window.ModalA11y) window.ModalA11y.handOn(function (from) { return card.contains(from) ? taken.focus : null; });
   }
 
-  /* Read *key* again as it stands after the action *d* and bring its card up to date where it is. One
+  /* Read *key* again as it stands after the action *d*, or a mark (d.marked), and bring its card up to date where it is. One
      the filter no longer holds stays until the grid is filled anew, so its Undo still has a card. */
   function readAgain(key, d) {
     var now = grid.shows('library');
@@ -294,11 +297,11 @@
       cardsOf(key).forEach(function (card) {
         if (got.items.length) refresh(card, build(got.items[0]));
         else leave(card);
-        focusOn(got.items.length ? card : null);
+        if (!d.marked) focusOn(got.items.length ? card : null);
       });
     }, function () {
       cardsOf(key).forEach(function (card) { letGo(card, d); });
-      window.UIFeedback.error('Couldn’t read the title again. Reload to see the change.');
+      if (!d.marked) window.UIFeedback.error('Couldn’t read the title again. Reload to see the change.');
     });
   }
 
@@ -371,10 +374,21 @@
     readAll([]);
   });
 
-  /* A mark changes how many are not watched; marks.js draws the card. */
-  document.addEventListener('mm:watch-marked', function () {
+  /* A mark changes how many are not watched, and marks.js has drawn the card: an answer from
+     before it must not draw that again. */
+  document.addEventListener('mm:watch-marked', function (e) {
     var now = grid.shows('library');
     if (!now) return;
+    var link = toArray(document.querySelectorAll('.watch-all .watch-card__link')).filter(function (a) {
+      return a.getAttribute('data-title-ref') === e.detail.ref && !a.closest('.is-gone');
+    })[0];
+    var key = link && link.closest('.watch-card').getAttribute('data-key');
+    if (key) {
+      version++;
+      changed[key] = version;
+      readAgain(key, { marked: true });
+      return;
+    }
     ask(now.sort, now.filter, '&only=none').then(function (got) {
       var still = grid.shows('library');
       if (still && still.filter === now.filter) grid.setBar(barOf(got));

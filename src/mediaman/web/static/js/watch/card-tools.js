@@ -117,7 +117,7 @@
     var b = el('button', 'card-over__b');
     b.type = 'button';
     b.setAttribute('tabindex', '-1');
-    ['data-mark-toggle', 'aria-pressed', 'data-watch-dismiss', 'data-mark-name', 'data-watch-more', 'aria-haspopup', 'aria-label'].forEach(function (name) {
+    ['data-mark-toggle', 'aria-pressed', 'data-watch-dismiss', 'data-mark-name', 'data-watch-more', 'aria-haspopup', 'aria-label', 'aria-busy', 'aria-disabled'].forEach(function (name) {
       if (button.hasAttribute(name)) b.setAttribute(name, button.getAttribute(name));
     });
     if (b.hasAttribute('data-watch-more')) b.setAttribute('aria-expanded', 'false');
