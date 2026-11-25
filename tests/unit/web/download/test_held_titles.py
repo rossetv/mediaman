@@ -17,6 +17,7 @@ from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.scanner.repository.scheduled_actions import DeletionRow, was_requested_since
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.arr.state import compute_download_state
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download import confirm as confirm_module
@@ -360,6 +361,21 @@ class TestSubmitRefusedForAHeldTitle:
         radarr.remonitor_movie.assert_called_once_with(7)
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
+
+    def test_a_re_monitored_movie_whose_search_got_no_answer_is_on_its_way(
+        self, client, secret_key
+    ):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+        radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 200
+        assert _consumed(token)
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert [row["email"] for row in mails] == ["viewer@example.com"]
+        radarr.unmonitor_movie.assert_not_called()
 
     def test_an_unmonitored_movie_that_has_its_file_is_left_alone_and_the_link_is_used(
         self, client, secret_key
