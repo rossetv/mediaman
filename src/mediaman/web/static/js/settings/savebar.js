@@ -252,7 +252,9 @@
     var labels = keys.map(fieldLabel);
     return window.UIFeedback.confirm({
       title: many ? 'Remove ' + keys.length + ' saved secrets?' : 'Remove the saved ' + labels[0] + '?',
-      body: (many ? labels.join(', ') + '. ' : '') + 'mediaman deletes what it has stored, and what uses it stops working until you enter it again.',
+      body: many
+        ? 'mediaman will delete the saved ' + inWords(labels) + '. What uses them stops working until you enter them again.'
+        : 'mediaman deletes what it has stored, and what uses it stops working until you enter it again.',
       confirmLabel: 'Remove and save',
       confirmVariant: 'danger',
       cancelLabel: many ? 'Keep them' : 'Keep it',
