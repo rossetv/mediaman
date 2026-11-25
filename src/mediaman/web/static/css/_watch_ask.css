@@ -140,7 +140,7 @@ button.ask__row:active { transform: scale(.99); }
   .refine.is-wrap { flex-wrap: wrap; }
   .refine.is-wrap > * { flex: initial; }
 }
-@media (max-width: 419.98px) { .tn__seg > button { font-size: 12.5px; } }
+@media (max-width: 419.98px) { .tn__seg > button { padding: 0; font-size: 12.5px; } }
 
 /* ── Still ── */
 
