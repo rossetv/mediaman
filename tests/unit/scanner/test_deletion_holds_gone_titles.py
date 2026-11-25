@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
 from mediaman.web.repository.kept import delete_protections
@@ -49,37 +50,47 @@ class _GoneLibrary:
         file.write_bytes(b"data")
         return file
 
-    def _gone(self, path, files, library=1, **fields):
-        """Store the title "10" as *library* had it, with the TMDB id 7."""
+    def _gone(self, path, files, library=1, key="10", **fields):
+        """Store the title *key* as *library* had it, with the TMDB id 7."""
         insert_media_item(
             self.conn,
-            id="10",
-            plex_rating_key="10",
+            id=key,
+            plex_rating_key=key,
             plex_library_id=library,
             file_path=str(path),
             **fields,
         )
         self.conn.execute(
-            "UPDATE media_items SET tmdb_id = 7, tracked_files = ? WHERE id = '10'",
-            (json.dumps([{"path": str(file), "size": 4} for file in files]),),
+            "UPDATE media_items SET tmdb_id = 7, tracked_files = ? WHERE id = ?",
+            (json.dumps([{"path": str(file), "size": 4} for file in files]), key),
         )
         self.conn.commit()
 
-    def _keep(self, **fields):
+    def _keep(self, key="10", **fields):
         insert_scheduled_action(
             self.conn,
-            media_item_id="10",
-            token="keep-10",
+            media_item_id=key,
+            token=f"keep-{key}",
             token_used=True,
             **({"action": "protected_forever", "execute_at": None} | fields),
         )
         self.conn.commit()
 
-    def _keep_show(self):
+    def _keep_show(self, key="s1"):
         insert_kept_show(
-            self.conn, show_rating_key="s1", show_title="Title", action="protected_forever"
+            self.conn, show_rating_key=key, show_title="Title", action="protected_forever"
         )
         self.conn.commit()
+
+    def _unkeep(self, key):
+        """Remove the keep of the title or show *key* a minute on, as a person does."""
+        self.freezer.tick(60)
+        with self.conn:
+            if delete_protections(self.conn, key):
+                log_audit(self.conn, key, "unprotected", "Protection removed by admin (1 keep)")
+            else:
+                self.conn.execute("DELETE FROM kept_shows WHERE show_rating_key = ?", (key,))
+                log_audit(self.conn, key, "removed_show_keep", "Show keep removed by admin")
 
     def _list(self, key, library, path, files, **fields):
         """Have Plex list *key* from now on: added long ago and never watched."""
@@ -413,6 +424,64 @@ class TestFilesOfAKeepATitleTook(_GoneLibrary):
 
         assert two.exists()
 
+    @pytest.mark.parametrize("took", ["before the prune", "after the prune", "by its other file"])
+    def test_the_file_goes_once_a_person_removes_the_keep_from_the_film_that_took_it(self, took):
+        a, b, d = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        own, lacks = (b, a) if took == "by its other file" else (a, b)
+        self._gone(a, [a, b])
+        self._keep()
+        if took == "before the prune":
+            self._list("30", 2, own, [own])
+        self._scan_until_pruned()
+        if took != "before the prune":
+            self._list("30", 2, own, [own])
+        self._list("20", 2, d, [d, lacks])
+        self._scan(2)
+        self._unkeep("30")
+
+        self._scan_past_grace()
+
+        assert not lacks.exists()
+
+    @pytest.mark.parametrize("took", ["before the prune", "after the prune", "by its ids"])
+    def test_the_episode_goes_once_a_person_removes_the_keep_from_the_show_that_took_it(self, took):
+        one, two, new = self._file("S1/E1.mkv"), self._file("S2/E2.mkv"), self._file("S9/E9.mkv")
+        season = {"season_number": 1, **_SEASON}
+        library = 4 if took == "by its ids" else 1
+        self._gone(one.parent, [one, two], library=library, show_rating_key="s1", **season)
+        self._keep_show()
+        if took == "before the prune":
+            self._list("30", 4, one.parent, [one], show_rating_key="s2", **season)
+        self._scan_until_pruned()
+        if took == "after the prune":
+            self._list("30", 4, one.parent, [one], show_rating_key="s2", **season)
+        elif took == "by its ids":
+            self._list("30", 4, new.parent, [new], show_rating_key="s2", tmdb_id=7, **season)
+        self._list("20", 4, two.parent, [two], season_number=2, show_rating_key="s3", **_SEASON)
+        self._scan(2)
+        self._unkeep("s2")
+
+        self._scan_past_grace()
+
+        assert not two.exists()
+
+    def test_the_show_keep_stands_for_a_season_no_show_took_though_the_taker_of_another_lost_it(
+        self,
+    ):
+        one, two = self._file("S1/E1.mkv"), self._file("S2/E2.mkv")
+        self._gone(one.parent, [one], season_number=1, show_rating_key="s1", **_SEASON)
+        self._gone(two.parent, [two], key="11", season_number=2, show_rating_key="s1", **_SEASON)
+        self._keep_show()
+        self._scan_until_pruned()
+        self._list("30", 4, one.parent, [one], season_number=1, show_rating_key="s2", **_SEASON)
+        self._list("20", 4, two.parent, [two], season_number=3, show_rating_key="s3", **_SEASON)
+        self._scan(2)
+        self._unkeep("s2")
+
+        self._scan_past_grace()
+
+        assert two.exists()
+
     @pytest.mark.parametrize("ended", ["removed by a person", "ran out"])
     def test_a_keep_that_ended_before_the_other_film_was_due_holds_nothing(self, ended):
         a, b = self._file("a.mkv"), self._file("b.mkv")
@@ -497,3 +566,64 @@ class TestFilesOfAKeepATitleTook(_GoneLibrary):
         ).fetchall()
         assert len(said) == 1
         assert "cancelled" in said[0][0]
+
+
+class TestKeepAnotherTitleWithTheFileRefused(_GoneLibrary):
+    """ "10" and "30" have the file a and were both kept; a person removed the keep of "30"."""
+
+    @pytest.mark.parametrize("files", ["one file", "two files"])
+    @pytest.mark.parametrize("kind", ["film", "season", "show"])
+    def test_the_file_stays_while_the_keep_of_the_title_that_is_gone_stands(self, kind, files):
+        a, b = self._file("S1/a.mkv"), self._file("S1/b.mkv")
+        own = [a, b] if files == "two files" else [a]
+        if kind == "film":
+            self._gone(a, own)
+            self._gone(a, [a], library=2, key="30")
+            self._list("30", 2, a, [a])
+        else:
+            season = {"season_number": 1, **_SEASON}
+            self._gone(a.parent, own, show_rating_key="s1", **season)
+            self._gone(a.parent, [a], library=4, key="30", show_rating_key="s2", **season)
+            self._list("30", 4, a.parent, [a], show_rating_key="s2", **season)
+        if kind == "show":
+            self._keep_show("s1")
+            self._keep_show("s2")
+            self._unkeep("s2")
+        else:
+            self._keep("10")
+            self._keep("30")
+            self._unkeep("30")
+        self._scan_until_pruned()
+
+        self._scan_until_due("30")
+
+        assert a.exists()
+
+    def test_it_stays_though_the_show_that_refused_the_keep_is_listed_where_the_season_was(self):
+        a = self._file("S1/a.mkv")
+        season = {"season_number": 1, **_SEASON}
+        self._gone(a.parent, [a], show_rating_key="s1", **season)
+        self._keep_show("s1")
+        self._keep_show("s2")
+        self._unkeep("s2")
+        self._scan_until_pruned()
+        self._list("30", 4, a.parent, [a], show_rating_key="s2", **season)
+
+        self._scan_until_due("30")
+
+        assert a.exists()
+
+    def test_it_stays_too_while_the_library_that_is_gone_is_still_ticked(self):
+        self.ticked = ("1", "2", "4")
+        a = self._file("a.mkv")
+        self._gone(a, [a])
+        self._gone(a, [a], library=2, key="30")
+        self._list("30", 2, a, [a])
+        self._keep("10")
+        self._keep("30")
+        self._unkeep("30")
+        self._scan_until_pruned()
+
+        self._scan_until_due("30")
+
+        assert a.exists()

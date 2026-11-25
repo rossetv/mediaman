@@ -318,57 +318,36 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
     )
 
 
-# pruned_keeps.action of a row that gives no keep: it holds the files of one that titles took.
+# pruned_keeps.action of a row that gives no keep: it holds the files of a kept title that is gone.
 HELD = "held"
 
 
-def hold_files_of_taken_keep(
+def follow_taken_keep(
     conn: sqlite3.Connection,
-    tracked_files: str | None,
+    kept_as: str,
     takers: Collection[object],
-    *,
-    set_aside_for: str | None = None,
+    place: tuple[object, object] | None = None,
 ) -> None:
-    """Hold the files a keep was set aside with, now that the titles or shows *takers* took it.
+    """Let the files held while the keep of *kept_as* stands be held while that of *takers* does.
 
-    One of them may lack a file, and Plex may list that file as a title the keep
-    is never given to: it stays held while a taker is kept. What was held for
-    the title *set_aside_for*, whose keep this was, is held for the takers instead.
-    One row holds all there is for the same takers.
+    They took that keep for good, so it ends with theirs: a person removes it
+    from them, or it runs out. One who refused it is no taker, and with none
+    nothing changes. *place* is the path and season of the one season meant,
+    where *kept_as* is a show.
     """
-    keys = sorted({str(taker) for taker in takers if taker})
+    keys = {str(taker) for taker in takers if taker}
     if not keys:
         return
-    if set_aside_for is not None:
-        held = conn.execute("SELECT id, given_to FROM pruned_keeps WHERE action = ?", (HELD,))
-        for row in held.fetchall():
-            given = set(json.loads(row["given_to"]))
-            if set_aside_for in given:
-                conn.execute(
-                    "UPDATE pruned_keeps SET given_to = ? WHERE id = ?",
-                    (json.dumps(sorted((given - {set_aside_for}).union(keys))), row["id"]),
-                )
-    same = conn.execute(
-        "SELECT id, tracked_files FROM pruned_keeps WHERE action = ? AND given_to = ?",
-        (HELD, json.dumps(keys)),
+    held = conn.execute(
+        "SELECT id, file_path, season_number, given_to FROM pruned_keeps WHERE action = ?", (HELD,)
     ).fetchall()
-    paths = {
-        entry["path"]
-        for stored in (tracked_files, *(row["tracked_files"] for row in same))
-        for entry in json.loads(stored or "[]")
-    }
-    conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(row["id"],) for row in same])
-    if paths:
-        conn.execute(
-            "INSERT INTO pruned_keeps (media_item_id, file_path, action, scheduled_at, "
-            "token_used, given_to, tracked_files) VALUES ('', '', ?, ?, 0, ?, ?)",
-            (
-                HELD,
-                now_iso(),
-                json.dumps(keys),
-                json.dumps([{"path": path} for path in sorted(paths)]),
-            ),
-        )
+    for row in held:
+        given = set(json.loads(row["given_to"]))
+        if kept_as in given and place in (None, (row["file_path"], row["season_number"])):
+            conn.execute(
+                "UPDATE pruned_keeps SET given_to = ? WHERE id = ?",
+                (json.dumps(sorted((given - {kept_as}) | keys)), row["id"]),
+            )
 
 
 def take_pruned_keeps(
@@ -377,8 +356,7 @@ def take_pruned_keeps(
     """Remove and return the live keeps set aside for this item.
 
     Plex gives an item it removed and found again a new key, so one that is
-    not in the library yet also takes those of its path and season. The files
-    a keep was set aside with stay held: see hold_files_of_taken_keep.
+    not in the library yet also takes those of its path and season.
     """
     keeps = conn.execute(
         "SELECT * FROM pruned_keeps "
@@ -388,9 +366,7 @@ def take_pruned_keeps(
         (now_iso(), media_id, file_path, season_number, media_id),
     ).fetchall()
     for keep in keeps:
-        hold_files_of_taken_keep(
-            conn, keep["tracked_files"], [media_id], set_aside_for=keep["media_item_id"]
-        )
+        follow_taken_keep(conn, keep["media_item_id"], [media_id])
     conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(keep["id"],) for keep in keeps])
     return keeps
 
