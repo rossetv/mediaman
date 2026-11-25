@@ -509,14 +509,21 @@
       item.state = 'wait';
       item.note = 'Waiting';
     });
-    say('You can close this: the rest are still added.');
+    say(items.length > 1 ? 'Keep this page open until all ' + items.length + ' are added.' : '');
     update();
     line = items.reduce(function (before, item) {
       return before.then(function () { return askFor(j, item); });
     }, line).then(function () { finish(j, items); });
   }
 
+  function waits() { return !!job && job.busy && job.items.some(function (i) { return i.state === 'wait'; }); }
+
+  function askToStay(e) { if (waits()) e.preventDefault(); }
+
   function update() {
+    // Only while it is needed: Firefox does not keep a page that listens for it.
+    window.removeEventListener('beforeunload', askToStay);
+    if (waits()) window.addEventListener('beforeunload', askToStay);
     sync();
     if (view && view.node && view.coll) label(view);
   }
