@@ -1583,6 +1583,31 @@ def test_the_light_request_carries_no_session(markup):
     assert run(markup, "light_request") == ["omit"]
 
 
+@pytest.mark.parametrize(
+    ("way", "then"),
+    [
+        ("seen", {"tried": 1, "message": None}),
+        ("hidden", {"tried": 0, "message": LOST}),
+        ("left", {"tried": 0, "message": LOST}),
+        # Nobody may be there after hours.
+        ("asleep", {"tried": 0, "message": LOST}),
+    ],
+)
+def test_a_server_that_comes_back_unsaid_is_found_while_the_message_is_seen(markup, way, then):
+    out = run(markup, "back_unsaid", plays=way)
+    assert (out["message"], out["asked"]) == (LOST, 3)
+    assert out["then"] == then
+    if way == "hidden":
+        assert (out["askedThen"], out["seen"]) == (0, {"tried": 1, "message": None})
+    if way in ("left", "asleep"):
+        assert out["askedThen"] == 0
+
+
+def test_once_tried_again_by_hand_the_server_is_not_asked_for_any_more(markup):
+    out = run(markup, "back_unsaid", plays="again")
+    assert (out["then"]["tried"], out["askedThen"]) == (1, 0)
+
+
 @pytest.mark.parametrize("what", ["start", "playlist"])
 def test_a_slow_start_is_said_and_waited_for(markup, what):
     out = run(markup, "hung", plays=f"{what} answered")

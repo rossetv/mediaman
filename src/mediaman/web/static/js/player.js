@@ -84,6 +84,9 @@
      neither Plex nor, sent with no session, the database. */
   var LIGHT_URL = '/healthz';
   var LIGHT_WAIT_MS = 5000;
+  /* Under the message about it the server is asked for this often: it may come back with no word
+     from the browser. */
+  var LIGHT_EVERY_MS = 30000;
   /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
   var LOST_NOTICE_MS = 300;
   var SLOW_NOTICE_MS = 8000;
@@ -811,6 +814,15 @@
      is called where a drop was found meanwhile and is being tried again. */
   function ifReached(yes, no) {
     var asked = Date.now();
+    askLight(function (answered) {
+      if (lost && (lost.over || lost.tryTimer !== null)) return;
+      if (!answered && bytesAt < asked) { no(); return; }
+      reached();
+      yes();
+    });
+  }
+
+  function askLight(then) {
     var abort = new AbortController();
     var timer = setTimeout(function () { abort.abort(); }, LIGHT_WAIT_MS);
     /* A login page in front of mediaman may answer with its address: an answer too. */
@@ -818,10 +830,7 @@
       .then(function (resp) { return !fromProxy(resp.status); }, function () { return false; })
       .then(function (answered) {
         clearTimeout(timer);
-        if (lost && (lost.over || lost.tryTimer !== null)) return;
-        if (!answered && bytesAt < asked) { no(); return; }
-        reached();
-        yes();
+        then(answered);
       });
   }
 
@@ -850,9 +859,26 @@
     if (lost.gaveUp) lost.gaveUp();
     leaveNative();
     showMessage(MSG_LOST, tryLost);
+    watchBack();
+  }
+
+  function watchBack() {
+    var mine = lost;
+    var again = function () { if (mine === lost && lost.over) watchBack(); };
+    clearTimeout(lost.backTimer);
+    lost.backTimer = setTimeout(function () {
+      if (lostLong()) return;
+      if (document.visibilityState === 'hidden') { again(); return; }
+      askLight(function (answered) {
+        if (mine !== lost || !lost.over) return;
+        if (answered && document.visibilityState !== 'hidden') cameBack();
+        else again();
+      });
+    }, LIGHT_EVERY_MS);
   }
 
   function goOnTrying() {
+    clearTimeout(lost.backTimer);
     lost.over = false;
     lost.wait = LOST_FIRST_MS;
     countLost();
@@ -873,6 +899,7 @@
     if (!lost) return;
     clearTimeout(lost.tryTimer);
     clearTimeout(lost.endTimer);
+    clearTimeout(lost.backTimer);
     lost = null;
     showNotice();
   }
@@ -926,12 +953,14 @@
     show(els.lost);
   }
 
-  window.addEventListener('online', function () {
+  function cameBack() {
     if (!lost) return;
     if (lost.over && lostLong()) return;
     if (lost.over) goOnTrying();
     else tryUnattended();
-  });
+  }
+
+  window.addEventListener('online', cameBack);
 
   /* A request was taken; from now on a wait is the connection's. */
   function taken() {
