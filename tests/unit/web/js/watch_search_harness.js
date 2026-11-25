@@ -2158,6 +2158,19 @@ scenarios.barBetween = async () => {
   out.push([bar.classList.contains('is-tight')]);
   return out;
 };
+// On a phone a figure cut short would say another one.
+scenarios.barCutFigure = async () => {
+  const at = (needs, has) => {
+    const observed = [];
+    const p = load(ADMIN, '', null, undefined, { width: 320, observed });
+    const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
+    Object.defineProperty(free, 'scrollWidth', { value: needs });
+    Object.defineProperty(free, 'clientWidth', { value: has });
+    observed.forEach((fn) => fn());
+    return p.doc.querySelector('.wbar').classList.contains('is-tight');
+  };
+  return [at(90, 90), at(90, 20)];
+};
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {
   const at = async (top) => {

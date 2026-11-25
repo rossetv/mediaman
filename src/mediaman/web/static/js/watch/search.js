@@ -636,14 +636,17 @@
     var framed = false;
 
     /* The field stays between what is on either side, however large a person has text;
-       where that leaves too little, the meter drops its words till the width changes. */
+       where that leaves too little, or cuts the meter's figure, the meter drops its words
+       till the width changes. */
     function fitBetween() {
       var links = bar.querySelector('.nav-links');
       var l = links.offsetLeft + links.offsetWidth + 2;
       var r = (meter || bar.querySelector('.profile-btn')).offsetLeft - 2;
       bar.style.setProperty('--l', l + 'px');
       bar.style.setProperty('--r', r + 'px');
-      if (wide.matches && meter && r - l < 200) bar.classList.add('is-tight');
+      var figure = meter && meter.querySelector('.space-meter__free');
+      var short = wide.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
+      if (meter && short) bar.classList.add('is-tight');
       makeRoom();
     }
 
