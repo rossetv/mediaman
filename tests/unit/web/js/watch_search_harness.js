@@ -678,14 +678,14 @@ const scenarios = {
     return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => [b.children.map((n) => n.textContent || n.getAttribute('data-words')), b.classList.contains('watch-badge--leaving-now')]);
   },
 
-  // A library result carries its mark and its More; one outside the library neither.
+  // A library result carries its mark and its eye; one outside the library neither.
   async marks() {
     const p = load(ADMIN);
     await p.search('orchard');
     await p.answer('/api/watch/search?', { items: [{ ...LIB, watched: true, mark_kind: 'movie', mark_key: '1' }] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
     return p.doc.querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
-      c.querySelectorAll('[data-watch-more]').length, c.querySelectorAll('[data-watch-keep]').length]);
+      c.querySelectorAll('.card-tool--eye').length, c.querySelectorAll('[data-watch-keep]').length]);
   },
 
   // A search in the address opens on the results: the rows never show, and a skeleton holds the place.
@@ -1059,7 +1059,7 @@ const scenarios = {
     await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: { ...MARA, photo_url: '/api/watch/img/tmdb/w342/p.jpg' }, items: [item(1, true), item(2, true)], total: 5, in_library: 3, next_page: 2 });
     const out = {
       title: p.doc.querySelector('.explore-title').textContent, facts: p.doc.querySelector('.explore-facts').textContent,
-      token: p.doc.querySelector('.watch-search__name').textContent, letters: p.doc.querySelector('.explore-photo').children[0].textContent, first: p.grids[0].titles, status: p.status.textContent,
+      token: p.doc.querySelector('.watch-search__name').textContent, letters: p.doc.querySelector('.explore-photo').children.map((n) => n.textContent || n.tagName), first: p.grids[0].titles, status: p.status.textContent,
       photo: p.doc.querySelector('.explore-photo img').src,
     };
     const more = p.grids[0].opts.fetchPage(2);

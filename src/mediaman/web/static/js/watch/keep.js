@@ -63,7 +63,7 @@
   }
 
   /* While a card's slot opens or closes, its poster, title and Keep keep
-     their own widths and are clipped, never squeezed. Returns the undo. */
+     their own widths, never squeezed. Returns the undo. */
   function pinContent(node, sideways) {
     if (!sideways) return noop;
     var kids = toArray(node.children);
@@ -80,7 +80,7 @@
     }
     var motion = shrinkMotion(node, sideways);
     var unpin = pinContent(node, sideways);
-    node.style.overflow = 'hidden';
+    if (!sideways) node.style.overflow = 'hidden'; // a card's raised poster and its buttons stand out of it
     var anim = node.animate(motion.frames, { duration: motion.duration, fill: 'forwards' });
     anim.onfinish = function () {
       node.remove();
@@ -105,7 +105,7 @@
       return Object.assign({}, f, { offset: 1 - f.offset });
     });
     var unpin = pinContent(node, sideways);
-    node.style.overflow = 'hidden';
+    if (!sideways) node.style.overflow = 'hidden'; // a card's raised poster and its buttons stand out of it
     var anim = node.animate(frames, { duration: motion.duration });
     anim.onfinish = anim.oncancel = function () {
       node.style.overflow = '';

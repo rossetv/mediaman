@@ -346,7 +346,7 @@
   watch.expand.source(ID, gridOf);
 
   document.addEventListener('mm:watch-marked', function (e) {
-    var shown = items.some(function (item) { return item.held_ref === e.detail.ref; });
+    var shown = items.some(function (item) { return e.detail.refs.indexOf(item.held_ref) >= 0; });
     soon(shown ? SETTLE_MS : 0, true);
   });
   document.addEventListener('mm:watch-continue', function () {

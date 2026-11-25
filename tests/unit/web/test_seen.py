@@ -185,6 +185,7 @@ class TestMarking:
         assert answer == {
             "ok": True,
             "watched": True,
+            "changed": 1,
             "media_type": "movie",
             "tmdb_id": 603,
             "tmdb_ref": "tmdb-movie-603",
@@ -193,6 +194,13 @@ class TestMarking:
         assert _stored(conn) == [(find_user_id(conn, "aoife"), "movie", 603, None)]
         assert aoife.delete(f"{BASE}/tmdb-movie-603").json()["watched"] is False
         assert _stored(conn) == []
+
+    def test_a_change_that_is_made_already_says_that_there_is_nothing_to_undo(self, client):
+        url = f"{BASE}/tmdb-movie-603"
+        said = [
+            client.request(m, url).json()["changed"] for m in ("PUT", "PUT", "DELETE", "DELETE")
+        ]
+        assert said == [1, 0, 1, 0]
 
     def test_a_show_is_marked_up_to_the_latest_season_out_that_day_as_tmdb_says_now(
         self, client, conn, tmdb

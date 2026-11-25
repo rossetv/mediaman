@@ -225,13 +225,23 @@
 
   /* ── Watched marks ──
      The markup of _watch_card.html's mark macros; watch/marks.js works them.
-     A mark is "<kind>/<key>": movie, episode, season or show, and its key. */
+     A mark is "<kind>/<key>": movie, episode, season or show, and its key; or, of a title
+     the library does not hold, its tmdb_ref. */
 
   var MARK_RE = /^(movie|episode|season|show)\/[0-9]{1,18}$/;
+  var TMDB_RE = /^tmdb-(movie|tv)-[0-9]{1,18}$/;
+
+  function tmdbRef(item) { return item && TMDB_RE.test(item.tmdb_ref || '') ? item.tmdb_ref : ''; }
 
   function markOf(item) {
     var mark = item && item.mark_kind + '/' + item.mark_key;
-    return mark && MARK_RE.test(mark) ? mark : '';
+    return mark && MARK_RE.test(mark) ? mark : tmdbRef(item);
+  }
+
+  /* "Mark show as watched": what a card's eye does. */
+  function markLabel(mark) {
+    var kind = { episode: 'episode ', season: 'season ', show: 'show ', 'tmdb-tv': 'show ' }[mark.split(/\/|-\d/)[0]] || '';
+    return 'Mark ' + kind + 'as watched';
   }
 
   /* Put *text* in a card's caption, as _watch_card.html's caption macro does. */
@@ -282,23 +292,63 @@
     return badge;
   }
 
-  /* Give a card its mark and its More button; a title the library does not
-     hold has no mark, and a More button only among the picks. */
+  /* Give a card its mark, its thumb and its eye, the markup of _watch_card.html's tools(). */
   function addMarks(card, poster, item) {
     var mark = markOf(item);
-    if (!mark && !card.querySelector('[data-pick-ref]')) return;
-    if (mark) card.setAttribute('data-mark', mark);
+    var ref = tmdbRef(item);
+    if (!mark) return;
     var sub = card.querySelector('.watch-card__sub');
     if (sub) caption(sub, sub.textContent);
-    if (mark && item.watched) poster.appendChild(watchedBadge());
-    var more = el('button', 'watch-more');
-    more.type = 'button';
-    more.setAttribute('data-watch-more', '');
-    more.setAttribute('aria-haspopup', 'menu');
-    more.setAttribute('aria-expanded', 'false');
-    more.setAttribute('aria-label', 'More for ' + item.title);
-    more.appendChild(window.MM.dom.icon('i-ellipsis'));
-    card.appendChild(more);
+    card.setAttribute('data-mark', mark);
+    if (item.watched) poster.appendChild(watchedBadge());
+    if (ref) {
+      card.setAttribute('data-tmdb-ref', ref);
+      if (item.level) card.setAttribute('data-level', String(Number(item.level)));
+      var thumb = addTool(card, item.title, 'thumb', 'Rate ' + item.title, null);
+      thumb.setAttribute('data-card-rate', '');
+      thumb.setAttribute('aria-expanded', 'false');
+    }
+    eyeFor(addTool(card, item.title, 'eye', markLabel(mark), 'i-eye'), mark, !!item.watched);
+  }
+
+  /* One of a card's buttons under its poster. They are one Tab stop, which the arrow keys move. */
+  function addTool(card, title, kind, label, iconName) {
+    var tools = card.querySelector('.card-tools');
+    if (!tools) {
+      tools = el('div', 'card-tools');
+      tools.setAttribute('role', 'toolbar');
+      tools.setAttribute('aria-label', title);
+      card.insertBefore(tools, card.querySelector('.watch-keep'));
+    }
+    var b = el('button', 'card-tool card-tool--' + kind);
+    b.type = 'button';
+    b.setAttribute('aria-label', label);
+    if (tools.children.length) b.setAttribute('tabindex', '-1');
+    if (iconName) b.appendChild(window.MM.dom.icon(iconName));
+    tools.appendChild(b);
+    card.classList.add('has-tools');
+    card.classList.toggle('has-three-tools', tools.children.length > 2);
+    return b;
+  }
+
+  /* What an admin can do of a title of All titles. */
+  function addMore(card, title) {
+    var b = addTool(card, title, 'more', 'More for ' + title, 'i-ellipsis');
+    b.setAttribute('data-watch-more', '');
+    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-expanded', 'false');
+  }
+
+  function eyeFor(button, mark, watched) {
+    button.setAttribute('data-mark-toggle', mark);
+    button.setAttribute('aria-pressed', watched ? 'true' : 'false');
+    button.setAttribute('title', markAction(watched));
+  }
+
+  /* What of a card takes the focus: *selector*'s button of it, where that shows, or its first. */
+  function controlIn(card, selector) {
+    return toArray(card.querySelectorAll(selector)).concat(toArray(card.querySelectorAll('.card-tool')), toArray(card.querySelectorAll('.watch-card__link')))
+      .filter(function (n) { return n.getClientRects().length > 0 && !n.closest('.card-over'); })[0] || null;
   }
 
   function markAction(watched) { return watched ? 'Mark as not watched' : 'Mark as watched'; }
@@ -341,6 +391,9 @@
     caption: caption,
     watchedBadge: watchedBadge,
     addMarks: addMarks,
+    addMore: addMore,
+    controlIn: controlIn,
+    markLabel: markLabel,
     markAction: markAction,
     markToggle: markToggle,
     markButton: markButton,

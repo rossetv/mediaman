@@ -46,9 +46,8 @@ from mediaman.web.repository.kept import fetch_keeps
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.pages import (
     is_valid_key,
-    movie_cards,
     open_plex,
-    show_cards,
+    title_cards,
 )
 
 logger = logging.getLogger(__name__)
@@ -119,24 +118,11 @@ def library_items(
     titles: Sequence[lib.LibraryMovie | lib.LibraryShow],
 ) -> list[dict[str, Any]]:
     """The cards of library *titles*, in their order, each with its title ref."""
-    now = now_utc()
-    movies = [t for t in titles if isinstance(t, lib.LibraryMovie)]
-    pending = lib.pending_deletions(conn, libraries)
-    by_ref = {
-        f"movie-{m.key}": c
-        for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
-    }
-    shows = [t for t in titles if isinstance(t, lib.LibraryShow)]
-    by_ref |= {
-        f"show-{s.key}": c
-        for s, c in zip(
-            shows, show_cards(conn, username, libraries, shows, pending, now), strict=True
-        )
-    }
-    refs = (
-        f"movie-{t.key}" if isinstance(t, lib.LibraryMovie) else f"show-{t.key}" for t in titles
-    )
-    return [{**by_ref[ref], "ref": ref} for ref in refs]
+    cards = title_cards(conn, username, libraries, titles, now_utc())
+    return [
+        {**card, "ref": f"{'movie' if isinstance(title, lib.LibraryMovie) else 'show'}-{title.key}"}
+        for title, card in zip(titles, cards, strict=True)
+    ]
 
 
 @router.post("/api/watch/keep")

@@ -60,12 +60,7 @@ def test_each_place_says_the_approved_words_for_each_level_and_for_none() -> Non
     assert _run("levels") == {
         "plain": ["Only you see this.", *said, "Only you see this."],
         "grid": [once, *said, once],
-        "strip": ["Only you see your rating.", *said, "Rating removed."],
-        "menu": [
-            "Rate it. Only you see this.",
-            *["Strong no", "Not for me", "I like it", "I love it"],
-            "Rate it. Only you see this.",
-        ],
+        "lift": ["Only you see your rating.", *said, "Rating removed."],
     }
 
 
@@ -176,7 +171,7 @@ def test_a_read_from_before_a_save_does_not_undo_it() -> None:
 
 def test_a_set_mounted_after_a_failed_save_does_not_say_it_failed() -> None:
     out = _run("failedBefore")
-    assert (out["later"]["line"], out["later"]["bad"]) == ("Rate it. Only you see this.", False)
+    assert (out["later"]["line"], out["later"]["bad"]) == ("Only you see your rating.", False)
     assert out["set"]["bad"] is True
     # A refusal is the server's word that nothing changed: it is not asked again.
     assert out["log"] == []
@@ -296,15 +291,57 @@ def test_a_title_with_no_match_says_why_instead_of_to_try_again() -> None:
     }
 
 
-def test_a_reader_gets_a_group_of_pressed_buttons_and_in_a_menu_checked_items() -> None:
+def test_a_reader_gets_a_group_of_pressed_buttons_and_in_the_lift_checked_radios() -> None:
     out = _run("roles")
     assert out["plain"] == [
         *["group", "Your rating", None, "Strong no"],
         *["false", None, None, "status"],
     ]
-    assert out["menu"] == [
-        *["group", "Your rating", "menuitemcheckbox", "Strong no"],
+    assert out["lift"] == [
+        *["radiogroup", "Your rating", "radio", "I love it"],
         *[None, "false", "-1", "status"],
+    ]
+
+
+def test_what_a_page_was_drawn_with_is_known_under_every_ref_and_never_over_a_press() -> None:
+    out = _run("known")
+    assert out["drawn"] == [1, 1, [2], [0]]
+    assert out["pending"] == [2, [3]]
+    assert out["refs"] == ["movie-1", "rec-2", "tmdb-movie-7"]
+
+
+def test_what_a_page_was_drawn_with_leaves_a_press_and_another_title_alone() -> None:
+    out = _run("knownBusy")
+    assert (out["own"], out["other"], out["joined"], out["asked"]) == (-2, [2, 1], [2, -1], 0)
+
+
+def test_of_two_answers_that_differ_the_server_says_which_is_the_newer() -> None:
+    out = _run("newer")
+    assert out["out"] == [[1, [2]], [-1, [1]], [-1, [1]], [-1, [1]]]
+    assert out["asked"] == [0, 1, 1, 0, 1]
+    assert (out["pressed"], out["own"]) == (0, [2, [3]])
+
+
+def test_two_refs_of_one_title_are_joined_once() -> None:
+    assert sorted(_run("joinedOnce")) == ["movie-1", "tmdb-movie-7"]
+
+
+def test_a_page_of_titles_is_known_without_going_through_those_known_before() -> None:
+    assert _run("manyKnown") == {"told": 0, "same": [2, 2]}
+
+
+def test_the_name_by_the_levels_goes_along_and_says_what_a_press_does() -> None:
+    love = ["I love it", "0", 0]
+    assert _run("pointed") == [
+        [False, None, -1],
+        ["Not for me", "2", 2],
+        love,
+        love,
+        love,
+        ["I like it", "1", 1],
+        ["Take back", "0", 0],
+        ["Rating removed", "0", 0],
+        [False, "0", -1],
     ]
 
 

@@ -48,21 +48,10 @@
       // Watch cannot open it; its menu has what can be done of it.
       link.removeAttribute('href');
       link.tabIndex = 0;
-      if (item.admin) card.appendChild(more(item.title));
     }
+    if (item.admin) core.addMore(card, item.title);
     showWorking(card);
     return card;
-  }
-
-  function more(title) {
-    var b = el('button', 'watch-more');
-    b.type = 'button';
-    b.setAttribute('data-watch-more', '');
-    b.setAttribute('aria-haspopup', 'menu');
-    b.setAttribute('aria-expanded', 'false');
-    b.setAttribute('aria-label', 'More for ' + title);
-    b.appendChild(window.MM.dom.icon('i-ellipsis'));
-    return b;
   }
 
   /* Have *card* say what *fresh*, the same title as it is now, says. */
@@ -76,9 +65,15 @@
     ['.watch-badge--leaving', '.watch-badge--watched', '.watch-bar'].forEach(function (name) {
       var old = poster.querySelector(name);
       var next = now.querySelector(name);
+      // A mark just given is still on its way in.
+      if (old && next && name === '.watch-badge--watched') return;
       if (old && next) old.replaceWith(next);
       else if (old) old.remove();
       else if (next) poster.appendChild(next);
+    });
+    toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) {
+      var own = fresh.querySelector('[data-mark-toggle]');
+      if (own) ['aria-pressed', 'title'].forEach(function (name) { b.setAttribute(name, own.getAttribute(name)); });
     });
     labels.delete(card);
     card.querySelector('.watch-card__title').textContent = fresh.querySelector('.watch-card__title').textContent;
@@ -97,7 +92,8 @@
     });
   }
 
-  function moreOf(card) { return card.querySelector('[data-watch-more]'); }
+  /* Under its poster, and in its open panel on a touch screen. */
+  function moresOf(card) { return toArray(card.querySelectorAll('[data-watch-more]')); }
 
   /* ── Pages ── */
 
@@ -149,8 +145,7 @@
         var now = grid.shows('library');
         if (now && now.sort === sort) grid.setBar(barOf(got));
         if (empty) Object.assign(empty, got.empty);
-        readChanged(got);
-        return { cards: got.items.map(build), next: got.next, total: got.total };
+        return { cards: got.items.map(build), next: got.next, total: got.total, placed: function () { readChanged(got); } };
       });
     };
   }
@@ -269,7 +264,6 @@
   function showWorking(card) {
     var running = working[card.getAttribute('data-key')];
     var sub = card.querySelector('.watch-card__sub');
-    var button = moreOf(card);
     card.classList.toggle('is-working', !!running);
     if (running) {
       if (!labels.has(card)) labels.set(card, toArray(sub.childNodes));
@@ -280,10 +274,11 @@
       sub.replaceChildren.apply(sub, labels.get(card));
       labels.delete(card);
     }
-    if (!button) return;
-    button.setAttribute('aria-busy', running ? 'true' : 'false');
-    if (running) button.setAttribute('aria-disabled', 'true');
-    else button.removeAttribute('aria-disabled');
+    moresOf(card).forEach(function (button) {
+      button.setAttribute('aria-busy', running ? 'true' : 'false');
+      if (running) button.setAttribute('aria-disabled', 'true');
+      else button.removeAttribute('aria-disabled');
+    });
   }
 
   /* Note that an action on a title starts or ends. */
@@ -297,7 +292,8 @@
 
   /* The focus of an Undo, which its toast takes along: to the title it is of. */
   function focusOn(card) {
-    if (card && focusIsFree()) moreOf(card).focus({ preventScroll: true });
+    var control = card && focusIsFree() && core.controlIn(card, '[data-watch-more]');
+    if (control) control.focus({ preventScroll: true });
   }
 
   function leave(card) {
@@ -308,7 +304,7 @@
     if (taken && window.ModalA11y) window.ModalA11y.handOn(function (from) { return card.contains(from) ? taken.focus : null; });
   }
 
-  /* Read *key* again as it stands after the action *d* and bring its card up to date where it is. One
+  /* Read *key* again as it stands after the action *d*, or a mark (d.marked), and bring its card up to date where it is. One
      the filter no longer holds stays until the grid is filled anew, so its Undo still has a card. */
   function readAgain(key, d) {
     var now = grid.shows('library');
@@ -321,11 +317,11 @@
       cardsOf(key).forEach(function (card) {
         if (got.items.length) refresh(card, build(got.items[0]));
         else leave(card);
-        focusOn(got.items.length ? card : null);
+        if (!d.marked) focusOn(got.items.length ? card : null);
       });
     }, function () {
       cardsOf(key).forEach(function (card) { letGo(card, d); });
-      window.UIFeedback.error('Couldn’t read the title again. Reload to see the change.');
+      if (!d.marked) window.UIFeedback.error('Couldn’t read the title again. Reload to see the change.');
     });
   }
 
@@ -400,10 +396,22 @@
     readAll([]);
   });
 
-  /* A mark changes how many are not watched; marks.js draws the card. */
-  document.addEventListener('mm:watch-marked', function () {
+  /* A mark changes how many are not watched, and marks.js has drawn the card: an answer from
+     before it must not draw that again. */
+  document.addEventListener('mm:watch-marked', function (e) {
     var now = grid.shows('library');
     if (!now) return;
+    var keys = toArray(document.querySelectorAll('.watch-all .watch-card__link')).filter(function (a) {
+      return e.detail.refs.indexOf(a.getAttribute('data-title-ref')) >= 0 && !a.closest('.is-gone');
+    }).map(function (a) { return a.closest('.watch-card').getAttribute('data-key'); }).filter(Boolean);
+    if (keys.length) {
+      version++;
+      keys.forEach(function (key) {
+        changed[key] = version;
+        readAgain(key, { marked: true });
+      });
+      return;
+    }
     ask(now.sort, now.filter, '&only=none').then(function (got) {
       var still = grid.shows('library');
       if (still && still.filter === now.filter) grid.setBar(barOf(got));

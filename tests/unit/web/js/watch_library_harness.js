@@ -60,7 +60,7 @@ const keyOf = (r) => (r.showRk ? 'show:' + r.showRk : 'id:' + r.id);
 function item(r) {
   const several = !!r.showRk;
   return {
-    key: keyOf(r), title: r.title, subtitle: r.sub || 'Movie', href: r.unheld ? null : '/watch/movie/' + r.id,
+    key: keyOf(r), title: r.title, subtitle: r.sub || 'Movie', href: r.unheld ? null : '/watch/movie/' + r.id, ref: r.ref, watched: !!r.watched,
     admin: { id: r.id, is_tv: !!r.showRk, show_rk: r.showRk || '', has_rk: !!r.showRk, show_title: r.title, title: r.title,
       kept: !!r.kept, deletion: !!r.deletion, keep: r.keep || null, seasons: r.seasons || null, has_keeps: !!r.kept,
       delete: r.kept ? null : several ? { show_rk: r.showRk } : { show_rk: '', id: r.id, kind: 'movie', size: '22.1 GB' },
@@ -84,8 +84,8 @@ const ROWS = [
 /* A card, as watch/search.js builds it. */
 function cardOf(doc, it) {
   return build(doc, ['article', { class: 'watch-card', 'data-keep-id': '' },
-    ['a', { class: 'watch-card__link', href: it.href || '/watch' },
-      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title]], ['span', { class: 'watch-card__sub' }, it.subtitle]],
+    ['a', { class: 'watch-card__link', href: it.href || '/watch', ...(it.ref ? { 'data-title-ref': it.ref } : {}) },
+      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title], ...(it.watched ? [['span', { class: 'watch-badge watch-badge--watched' }]] : [])], ['span', { class: 'watch-card__sub' }, it.subtitle]],
     ...(it.href ? [['button', { class: 'watch-more', 'data-watch-more': '' }]] : [])]);
 }
 
@@ -280,6 +280,19 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
 }
 
 const scenarios = {
+  // A title read again says whether it is watched, on its eye too.
+  async eyeReadAgain() {
+    const p = load();
+    const eye = (watched) => build(p.doc, ['button', { class: 'card-tool', 'data-mark-toggle': 'movie/1', 'aria-pressed': String(watched), title: watched ? 'Mark as not watched' : 'Mark as watched' }]);
+    const own = p.row('id:m1').appendChild(eye(false));
+    const plain = p.ctx.MMWatch.search.card;
+    p.ctx.MMWatch.search.card = (it) => { const c = plain(it); c.appendChild(eye(true)); return c; };
+    p.serve(ROWS);
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    return [own.getAttribute('aria-pressed'), own.getAttribute('title')];
+  },
+
   async keepScheduled() {
     const p = load();
     const kept = ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r));
@@ -1366,7 +1379,7 @@ const scenarios = {
     p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
     const before = p.reads.length;
     wait.resolve();
-    await page;
+    (await page).placed();
     await settle();
     return p.reads.slice(before);
   },
@@ -1459,7 +1472,7 @@ const scenarios = {
       sorted: await go(choose, set),
       // One the filter no longer has is read by itself.
       gone: await go(choose, set, {}, keptRows.filter((r) => r.id !== 'm2')),
-      page: await go((p) => p.source.fetchPage('c'), (_p, got, draw) => { draw(got.cards); fire(); }, { timers }),
+      page: await go((p) => p.source.fetchPage('c'), (_p, got, draw) => { draw(got.cards); got.placed(); fire(); }, { timers }),
       opened: await go((p) => {
         let ready = null;
         p.ctx.MMWatch.expand.library = (_sort, _type, how) => { ready = how.ready; };
@@ -1575,9 +1588,54 @@ const scenarios = {
   async marked() {
     const p = load();
     p.serve(ROWS.map((r) => ({ ...r, sub: 'other' })), { fact: 'counted' });
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1', refs: ['movie-1'] } });
     await settle();
     return { fact: p.bar.fact, sub: p.row('id:m1').querySelector('.watch-card__sub').textContent };
+  },
+
+  // A title marked while a read of it from before is on its way, then one whose read after the mark fails.
+  async markedMeanwhile() {
+    const rows = (over) => ROWS.map((r) => (r.id === 'm2' ? { ...r, ref: 'movie-2', ...over } : r));
+    const mark = (p) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2', refs: ['movie-2'] } });
+    const badge = (p) => p.row('id:m2').querySelector('.watch-badge--watched');
+    const p = load({ rows: rows({}) });
+    const wait = deferred();
+    p.serve(rows({ kept: true }), {}, wait);
+    press(p, 'id:m2', 'keep', 'forever');
+    await settle();
+    const drawn = p.row('id:m2').querySelector('.watch-card__poster').appendChild(build(p.doc, ['span', { class: 'watch-badge watch-badge--watched is-new' }]));
+    p.serve(rows({ kept: true, watched: true }));
+    p.doc.body.focus();
+    mark(p);
+    await settle();
+    wait.resolve();
+    await settle();
+    const focus = p.doc.activeElement === p.doc.body;
+    const q = load({ rows: rows({}) });
+    q.failReads();
+    mark(q);
+    await settle();
+    return { same: badge(p) === drawn, kept: keptNow(p, 'id:m2'), look: look(p, 'id:m2'), focus, errors: q.errors };
+  },
+
+  // A mark of a title the library holds two copies of.
+  async markedCopies() {
+    const p = load({ rows: ROWS.map((r) => (/^m[12]$/.test(r.id) ? { ...r, ref: 'movie-' + r.id[1] } : r)) });
+    p.serve(ROWS);
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1', refs: ['movie-1', 'tmdb-movie-7', 'movie-2'] } });
+    await settle();
+    return p.reads.map((url) => new URLSearchParams(url.slice(url.indexOf('?'))).get('only'));
+  },
+
+  // While a change is made, the panel over the card offers its menu no more than the card.
+  async workingPanel() {
+    const p = load();
+    const wait = deferred();
+    p.replies['postForm /api/media/m2/keep'] = () => wait.promise;
+    const copy = p.row('id:m2').appendChild(build(p.doc, ['div', { class: 'card-over' }, ['button', { 'data-watch-more': '' }]])).children[0];
+    press(p, 'id:m2', 'keep', 'forever');
+    await settle();
+    return copy.getAttribute('aria-disabled');
   },
 
   // What the menu offers each card, and a card with nothing of an admin's.
