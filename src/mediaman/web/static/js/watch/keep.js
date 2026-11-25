@@ -461,6 +461,8 @@
     });
     var focus = left.length ? focusAfterCard(card, control) : focusAfterRow(row);
     var spot = spotOf(card);
+    // What went before it may come back after it, so its place is marked.
+    var mark = scroller.insertBefore(document.createTextNode(''), card);
     var state = { cancel: noop, holdsRow: !left.length };
     card.classList.add('is-kept');
     card.inert = true;
@@ -494,7 +496,9 @@
           });
         }
         var cardBack = card.parentNode !== scroller;
-        if (cardBack) putBack(spot);
+        if (cardBack && mark.parentNode === scroller) mark.replaceWith(card);
+        else if (cardBack) putBack(spot);
+        mark.remove();
         if (rowBack) {
           if (row.getClientRects().length) growIn(row, false);
         } else if (cardBack && card.getClientRects().length) {

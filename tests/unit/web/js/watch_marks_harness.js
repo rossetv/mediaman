@@ -237,7 +237,7 @@ const scenarios = {
 
   // Two strong noes undone in the order they were given.
   async strongNoesUndone() {
-    const p = load(watchPage([row('picks', PICKS())]), { api: { 'PUT /api/watch/ratings/movie-8 -2': { ok: true, media_type: 'movie', tmdb_id: 80 }, [RATE + '-2']: FILM_10,
+    const p = load(watchPage([row('picks', PICKS())]), { api: { 'PUT /api/watch/ratings/movie-8 -2': { ok: true, media_type: 'movie', tmdb_id: 80, was: null }, [RATE + '-2']: FILM_10,
       'DELETE /api/watch/ratings/movie-8': { ok: true, media_type: 'movie', tmdb_id: 80 }, 'DELETE /api/watch/ratings/movie-1': FILM_10 } });
     await thumb(p, p.cards('picks')[1], 0);
     await thumb(p, p.cards('picks')[0], 0);
@@ -708,7 +708,7 @@ const scenarios = {
       const by = [];
       const snaps = [];
       const put = scroller.insertBefore;
-      scroller.insertBefore = function (...args) { snaps.push(scroller.style.scrollSnapType); return put.apply(scroller, args); };
+      scroller.insertBefore = function (...args) { if (args[0].tagName === 'ARTICLE') snaps.push(scroller.style.scrollSnapType); return put.apply(scroller, args); };
       scroller.getBoundingClientRect = () => ({ top: 0, bottom: 20, left: 0, right: 390, width: 390, height: 20 });
       scroller.scrollBy = (to) => by.push([to.left, to.behavior]);
       const first = p.cards()[0];
