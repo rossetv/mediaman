@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 from xml.etree.ElementTree import ParseError
@@ -12,6 +13,7 @@ import requests
 from plexapi.exceptions import PlexApiException
 
 from mediaman.db import init_db
+from mediaman.scanner import engine as engine_module
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
@@ -839,6 +841,25 @@ class TestGoneLibrary:
         freezer.tick(_HOUR)
         self._engine(conn, mock_plex, ["2"]).run_scan()
         assert self._ids(conn) == {"20"}
+
+    def test_nobody_can_write_between_the_read_and_the_write_of_when_it_was_found_gone(
+        self, conn, db_path, mock_plex, monkeypatch
+    ):
+        other = sqlite3.connect(db_path, timeout=0, isolation_level=None)
+        real, refused = engine_module.fetch_gone_library_ids, []
+
+        def reading(*args):
+            try:
+                other.execute("DELETE FROM settings WHERE key = 'gone_libraries'")
+            except sqlite3.OperationalError as exc:
+                refused.append(str(exc))
+            return real(*args)
+
+        monkeypatch.setattr(engine_module, "fetch_gone_library_ids", reading)
+
+        self._engine(conn, mock_plex, ["2"]).sync_library()
+
+        assert refused == ["database is locked"]
 
     def test_one_listed_again_in_between_starts_over(self, conn, mock_plex, freezer):
         for listed in (["2"], ["1", "2"], ["2"]):
