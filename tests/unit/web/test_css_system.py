@@ -149,6 +149,26 @@ def test_no_offset_repeats_the_height_of_the_bar_at_the_foot() -> None:
         assert not re.search(r"calc\(\d+px \+ env\(safe-area-inset-bottom", css), name
 
 
+def test_what_sticks_at_the_top_stands_where_the_bar_ends_and_at_the_top_where_it_is_gone() -> None:
+    for name, part in (("_history.css", ".hx-tools"), ("_settings_pg.css", ".setg-pg .setg-rail")):
+        tops = [
+            top
+            for block in re.findall(re.escape(part) + r" \{([^}]*)\}", _text(CSS_DIR / name))
+            for top in re.findall(r"(?<![\w-])top: ([^;]+);", block)
+        ]
+        assert tops, name
+        assert all("var(--nav-h)" in top or top == "auto" for top in tops), (name, tops)
+
+
+def test_the_pairing_page_leaves_room_for_the_bar_at_the_foot_and_under_itself() -> None:
+    (page,) = [
+        body
+        for heads, body in _rules(_text(CSS_DIR / "_pair.css"))
+        if ".pair-pg" in heads and "48px" in body
+    ]
+    assert re.search(r"padding: 48px 20px calc\(\d+px \+ var\(--foot\)\)", page)
+
+
 def test_the_bar_at_the_foot_leaves_what_stands_on_it_44px_on_a_short_phone_too() -> None:
     css = _text(CSS_DIR / "_nav.css")
     sizes = re.findall(r"--foot: calc\((\d+)px \+[^;]*;\s*--foot-gap: (\d+)px", css)
