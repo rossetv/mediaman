@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.scanner.repository.rekeyed import (
+    LATEST_WATCH,
     copies,
     fetch_title,
     ids_conflict,
@@ -20,12 +21,6 @@ from mediaman.scanner.repository.rekeyed import (
 
 # A watch older than the longest inactivity setting (365 days) keeps nothing.
 _WATCH_KEPT_FOR = timedelta(days=366)
-
-# The last watch of a title ``o``, with the plays made in mediaman a scan may not have stored yet.
-_LATEST = (
-    "MAX(COALESCE(o.last_watched_at, ''), COALESCE("
-    " (SELECT MAX(wp.credited_at) FROM watch_progress wp WHERE wp.media_item_id = o.id), ''))"
-)
 
 
 def _times_by_media_item(
@@ -110,7 +105,7 @@ def carry_last_watched(
     watches = [
         # rationale: the interpolated expression is a fixed string; every value is bound
         conn.execute(  # nosec B608
-            f"SELECT {_LATEST} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
+            f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
         ).fetchone()["at"]
         for other in [
             *other_keys(conn, media_id, ()),
@@ -189,7 +184,7 @@ def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) ->
         " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_tmdb_id,"
         " last_tvdb_id, last_watched_at)"
         " SELECT o.id, o.file_path, o.season_number, o.show_title, o.tmdb_id, o.tvdb_id,"
-        f" o.last_tmdb_id, o.last_tvdb_id, {_LATEST} FROM media_items o"
-        f" WHERE o.id = ? AND {_LATEST} != ''",
+        f" o.last_tmdb_id, o.last_tvdb_id, {LATEST_WATCH} FROM media_items o"
+        f" WHERE o.id = ? AND {LATEST_WATCH} != ''",
         [(media_id,) for media_id in media_ids],
     )

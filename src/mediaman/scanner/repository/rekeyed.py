@@ -19,7 +19,8 @@ from datetime import timedelta
 from typing import Any
 
 from mediaman.core.audit import log_audit
-from mediaman.core.time import now_iso, now_utc
+from mediaman.core.time import now_iso, now_utc, parse_iso_utc
+from mediaman.scanner._eligibility import is_inactive
 from mediaman.scanner.repository._protection import (
     is_protected,
     is_show_kept_pure,
@@ -42,8 +43,17 @@ _PROGRESS_COLUMNS = (
     "watched, credited_at, updated_at, seen_at"
 )
 
+# media_items.unlisted: Plex lists the title; lists it no more; lists it with none of its files there.
+_THERE, _UNLISTED, _WITHOUT_FILES = 0, 1, 2
+
 # A file of a title: its path, and the episode's number when it is an episode.
 Place = tuple[str, int | None]
+
+# The last watch of a title ``o``, with the plays made in mediaman a scan may not have stored yet.
+LATEST_WATCH = (
+    "MAX(COALESCE(o.last_watched_at, ''), COALESCE("
+    " (SELECT MAX(wp.credited_at) FROM watch_progress wp WHERE wp.media_item_id = o.id), ''))"
+)
 
 
 def episode_keys_json(item: Mapping[str, object]) -> str | None:
@@ -197,12 +207,13 @@ def copies(
     ]
 
 
-def _may_be_moved(unlisted: bool, last_listed_at: str | None, first_listed_at: str | None) -> bool:
+def _may_be_moved(unlisted: int, last_listed_at: str | None, first_listed_at: str | None) -> bool:
     """Return True if a title of another library may be the one first listed at *first_listed_at*.
 
-    It is *unlisted*, or nobody has seen it listed since the other is.
+    It is *unlisted*, or listed with none of its files there, or nobody has
+    seen it listed since the other is.
     """
-    return unlisted or (last_listed_at or "") < (first_listed_at or "")
+    return unlisted != _THERE or (last_listed_at or "") < (first_listed_at or "")
 
 
 def _in_other_libraries(conn: sqlite3.Connection, title: sqlite3.Row) -> list[sqlite3.Row]:
@@ -233,6 +244,26 @@ def mark_listed_copies(conn: sqlite3.Connection, media_id: str, listed: Collecti
     )
 
 
+def fetch_titles_in_two_libraries(
+    conn: sqlite3.Connection, library_ids: Collection[int]
+) -> list[sqlite3.Row]:
+    """Return the titles of the libraries that have an id of a title of another library."""
+    other = "SELECT 1 FROM media_items o WHERE o.plex_library_id != mi.plex_library_id AND "
+    rows: list[sqlite3.Row] = []
+    for library_id in library_ids:
+        # rationale: the interpolated fragments are fixed strings; every value is bound
+        rows += conn.execute(  # nosec B608
+            "SELECT mi.id, mi.tracked_files, mi.episode_keys FROM media_items mi "
+            "WHERE mi.plex_library_id = ? AND ("
+            f"EXISTS ({other} COALESCE(o.tvdb_id, o.last_tvdb_id) = "
+            "  COALESCE(mi.tvdb_id, mi.last_tvdb_id)) "
+            f"OR EXISTS ({other} COALESCE(o.tmdb_id, o.last_tmdb_id) = "
+            "  COALESCE(mi.tmdb_id, mi.last_tmdb_id)))",
+            (library_id,),
+        ).fetchall()
+    return rows
+
+
 def note_listing(
     conn: sqlite3.Connection,
     library_id: int,
@@ -241,48 +272,78 @@ def note_listing(
     since: str,
     *,
     trusted: bool = True,
+    without_files: Collection[str] = (),
+    inactivity_days: int = 30,
 ) -> None:
-    """Note which titles of a library Plex lists, as it was read in the run begun at *since*.
+    """Note which titles of a library are there, as it was read in the run begun at *since*.
 
-    One whose history failed is stored by no run, but is listed. Of one that is
-    not, nothing is known if it is in *touched*, or if the list is not *trusted*:
-    one too short to remove anything by. A copy of one that is not listed,
-    scheduled in this run as if both were, is left to the next.
+    One Plex lists is, unless it is in *without_files*; one whose history failed
+    is stored by no run, but is listed. Of one Plex does not list, nothing is
+    known if it is in *touched*, or if the list is not *trusted*: one too short
+    to remove anything by. What is true of the copies of one found gone changes
+    with it: see _unschedule_copies.
     """
     for row in conn.execute(
         "SELECT id, unlisted, last_scanned_at FROM media_items WHERE plex_library_id = ?",
         (library_id,),
     ).fetchall():
         if row["id"] in listed:
+            state = _WITHOUT_FILES if row["id"] in without_files else _THERE
+        elif trusted and row["id"] not in touched:
+            state = _UNLISTED
+        else:
+            continue
+        if state == _THERE:
             if row["unlisted"] or (row["last_scanned_at"] or "") < since:
                 conn.execute(
                     "UPDATE media_items SET unlisted = 0, last_scanned_at = ? WHERE id = ?",
                     (now_iso(), row["id"]),
                 )
-        elif trusted and not row["unlisted"] and row["id"] not in touched:
-            conn.execute("UPDATE media_items SET unlisted = 1 WHERE id = ?", (row["id"],))
-            _unschedule_copies(conn, row["id"], since)
+        elif row["unlisted"] != state:
+            conn.execute("UPDATE media_items SET unlisted = ? WHERE id = ?", (state, row["id"]))
+            if not row["unlisted"]:
+                _unschedule_copies(conn, row["id"], since, inactivity_days)
 
 
-def _unschedule_copies(conn: sqlite3.Connection, media_id: str, since: str) -> None:
+def _unschedule_copies(
+    conn: sqlite3.Connection, media_id: str, since: str, inactivity_days: int
+) -> None:
+    """Cancel the deletions the copies of a title found gone were given as if it were there.
+
+    Those of this run, which the next decides. An older one too, if the title
+    was watched before it, lately enough to keep its copy today; a watch after
+    it cancels nothing, as none does of the title itself.
+    """
     title = fetch_title(conn, media_id)
     if title is None:
         return
     whole_show = is_show_kept_pure(conn, title["show_rating_key"])
+    # rationale: the interpolated expression is a fixed string; every value is bound
+    watched = conn.execute(  # nosec B608
+        f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (media_id,)
+    ).fetchone()["at"]
+    watched_at = parse_iso_utc(watched)
+    lately = watched_at is not None and not is_inactive(
+        [{"viewed_at": watched_at}], inactivity_days
+    )
     for other in _in_other_libraries(conn, title):
-        if not whole_show and other["season_number"] != title["season_number"]:
+        same_season = other["season_number"] == title["season_number"]
+        if not whole_show and not same_season:
             continue
+        made = "scheduled_at >= ?"
+        params: tuple[object, ...] = (other["id"], since)
+        if lately and same_season and is_film_or_numbered(title):
+            made, params = f"({made} OR scheduled_at > ?)", (*params, watched)
         if _delete_unclaimed(
             conn,
-            "media_item_id = ? AND action = 'scheduled_deletion' AND token_used = 0 "
-            "AND scheduled_at >= ?",
-            (other["id"], since),
+            f"media_item_id = ? AND action = 'scheduled_deletion' AND token_used = 0 AND {made}",
+            params,
         ):
             log_audit(
                 conn,
                 other["id"],
                 "delete_refused",
-                "Not deleted: it may be a title Plex lists no more in another library, "
+                "Not deleted: it may be a title that is gone from another library, "
                 "so the next scan decides",
             )
 

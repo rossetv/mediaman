@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS media_items (
     last_tmdb_id INTEGER,
     last_tvdb_id INTEGER,
     first_listed_at TEXT,
-    -- 1 when its library was read and it was not in it.
+    -- 1 when its library was read and it was not in it; 2 when it was, and none of
+    -- its files was on the disk while a title of another library has its ids.
     unlisted INTEGER NOT NULL DEFAULT 0
 );
 
