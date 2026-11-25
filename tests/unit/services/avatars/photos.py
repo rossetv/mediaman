@@ -64,3 +64,25 @@ def webp_lossless(width: int, height: int) -> bytes:
     bits = (width - 1) | (height - 1) << 14
     body = b"WEBP" + webp_chunk(b"VP8L", b"\x2f" + struct.pack("<I", bits) + b"pixel")
     return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def exif(orientation: int, secret: bytes, order: str = "<") -> bytes:
+    """A TIFF block telling *orientation*, between a maker's name and a place holding *secret*."""
+    entries = (
+        struct.pack(order + "HHII", 0x010F, 2, len(secret), 50),
+        struct.pack(order + "HHIHH", 0x0112, 3, 1, orientation, 0),
+        struct.pack(order + "HHII", 0x8825, 4, 1, 50),
+    )
+    start = b"II*\0" if order == "<" else b"MM\0*"
+    return (
+        start
+        + struct.pack(order + "IH", 8, len(entries))
+        + b"".join(entries)
+        + struct.pack(order + "I", 0)
+        + secret
+    )
+
+
+def orientation_only(orientation: int) -> bytes:
+    entry = struct.pack(">HHIHH", 0x0112, 3, 1, orientation, 0)
+    return b"MM\0*" + struct.pack(">IH", 8, 1) + entry + struct.pack(">I", 0)

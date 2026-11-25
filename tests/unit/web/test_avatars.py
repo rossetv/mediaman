@@ -8,8 +8,9 @@ import os
 import pytest
 from starlette.requests import Request
 
-from mediaman.services.avatars import drawn, files
+from mediaman.services.avatars import drawn, files, photo
 from mediaman.web.auth.password_hash import delete_user
+from mediaman.web.middleware.body_size import BodySizeLimitMiddleware
 from mediaman.web.repository import avatars
 from mediaman.web.routes.avatars import api_upload_avatar, router
 from tests.helpers.factories import insert_admin_user
@@ -145,7 +146,7 @@ def test_a_refused_photo_changes_nothing(viewer, stored, data, status, error):
 
 
 def test_a_photo_over_the_limit_is_refused_whatever_it_holds(viewer):
-    too_much = photos.png() + b"\0" * (10 * 1024 * 1024)
+    too_much = photos.png() + b"\0" * photo.MAX_BYTES
 
     refused = viewer.put(_PHOTO, content=too_much)
 
@@ -164,6 +165,41 @@ def test_reading_a_photo_stops_once_it_is_over_the_limit():
 
     assert answer.status_code == 413
     assert len(read) == 11
+
+
+@pytest.fixture
+def capped(app, viewer):
+    """The viewer's client, behind the cap on every request's body."""
+    app.add_middleware(BodySizeLimitMiddleware)
+    return viewer
+
+
+def test_a_photo_over_the_usual_body_cap_is_taken_up_to_its_own(capped):
+    # Metadata, so that the photo is big without being a big picture.
+    padding = photos.png_chunk(b"tEXt", b"x" * (photo.MAX_BYTES - len(photos.png()) - 12))
+    data = photos.png(200, 200, padding)
+    assert len(data) == photo.MAX_BYTES
+
+    assert capped.put(_PHOTO, content=data).json()["kind"] == "photo"
+
+
+@pytest.mark.parametrize("chunked", [False, True])
+def test_a_photo_too_big_is_refused_in_the_same_words_behind_the_body_cap(capped, chunked):
+    data = b"\xff" * (photo.MAX_BYTES + 1)
+
+    refused = capped.put(_PHOTO, content=iter([data[:-1], data[-1:]]) if chunked else data)
+
+    assert (refused.status_code, refused.json()["error"]) == (413, "too_big")
+    assert refused.json()["message"] == photo.TOO_BIG_MESSAGE
+
+
+@pytest.mark.parametrize(
+    ("method", "path"), [("POST", _PHOTO), ("PUT", _MINE), ("PUT", _PHOTO + "/")]
+)
+def test_the_usual_body_cap_holds_for_every_other_request(capped, method, path):
+    refused = capped.request(method, path, content=b"x" * (9 * 1024 * 1024))
+
+    assert (refused.status_code, refused.text) == (413, "Payload too large")
 
 
 def test_a_photo_whose_row_cannot_be_written_leaves_no_file(viewer, conn, stored):

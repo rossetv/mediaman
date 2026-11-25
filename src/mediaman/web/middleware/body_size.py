@@ -10,11 +10,14 @@ requests so it can short-circuit mid-flight.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 
 from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from mediaman.services.avatars import photo
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,17 @@ logger = logging.getLogger(__name__)
 # loop.  Operators who upload large files (e.g. avatars, imports)
 # can raise the cap via ``MEDIAMAN_MAX_REQUEST_BYTES``.
 _DEFAULT_MAX_REQUEST_BYTES = 8 * 1024 * 1024
+
+
+# The one route that takes more than the default, under a cap of its own.
+_PHOTO_ROUTE = ("PUT", "/api/account/avatar/photo")
+_PHOTO_REFUSAL = json.dumps(
+    {"ok": False, "error": "too_big", "message": photo.TOO_BIG_MESSAGE}
+).encode()
+
+
+def _is_photo_upload(scope: Scope) -> bool:
+    return (scope.get("method"), scope.get("path")) == _PHOTO_ROUTE
 
 
 def _resolve_max_request_bytes() -> int:
@@ -75,13 +89,16 @@ def _declared_length_over_cap(scope: Scope, max_bytes: int) -> bool:
     return False
 
 
-async def _send_413(send: Send) -> None:
+async def _send_413(scope: Scope, send: Send) -> None:
+    content_type, body = b"text/plain; charset=utf-8", b"Payload too large"
+    if _is_photo_upload(scope):
+        content_type, body = b"application/json", _PHOTO_REFUSAL
     await send(
         {
             "type": "http.response.start",
             "status": 413,
             "headers": [
-                (b"content-type", b"text/plain; charset=utf-8"),
+                (b"content-type", content_type),
                 (b"connection", b"close"),
             ],
         }
@@ -89,7 +106,7 @@ async def _send_413(send: Send) -> None:
     await send(
         {
             "type": "http.response.body",
-            "body": b"Payload too large",
+            "body": body,
             "more_body": False,
         }
     )
@@ -152,9 +169,12 @@ class BodySizeLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
+        if _is_photo_upload(scope):
+            max_bytes = photo.MAX_BYTES
+
         # Fast path: declared Content-Length over the cap.
         if _declared_length_over_cap(scope, max_bytes):
-            await _send_413(send)
+            await _send_413(scope, send)
             return
 
         # Read the first request message up front so we can short-
@@ -173,7 +193,7 @@ class BodySizeLimitMiddleware:
 
         bytes_received = len(first_message.get("body", b"") or b"")
         if bytes_received > max_bytes:
-            await _send_413(send)
+            await _send_413(scope, send)
             return
 
         # Wrap ``receive`` so subsequent chunks are size-checked as they
@@ -216,7 +236,7 @@ class BodySizeLimitMiddleware:
                 if not replaced:
                     replaced = True
                     response_started = True
-                    await _send_413(send)
+                    await _send_413(scope, send)
                 return
             if message["type"] == "http.response.start":
                 response_started = True
@@ -247,4 +267,4 @@ class BodySizeLimitMiddleware:
         if oversize and not response_started:
             # The handler gave up on the forced disconnect (returned or
             # raised ClientDisconnect) without answering: reply 413.
-            await _send_413(send)
+            await _send_413(scope, send)

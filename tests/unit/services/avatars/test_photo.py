@@ -57,6 +57,58 @@ def test_the_marker_that_tells_how_a_jpeg_stores_its_colours_is_kept():
     assert photo.clean(data) == data
 
 
+def _jpeg_with(exif: bytes) -> bytes:
+    return photos.jpeg(200, 200, photos.segment(0xE1, b"Exif\0\0" + exif))
+
+
+def _png_with(exif: bytes) -> bytes:
+    return photos.png(200, 200, photos.png_chunk(b"eXIf", exif))
+
+
+def _webp_with(exif: bytes) -> bytes:
+    return photos.webp(flags=0x08, extra=photos.webp_chunk(b"EXIF", exif))
+
+
+_WITH_EXIF = [
+    (_jpeg_with, photos.jpeg()),
+    (_png_with, photos.png()),
+    (_webp_with, photos.webp(flags=0)),
+]
+
+
+@pytest.mark.parametrize("order", ["<", ">"])
+@pytest.mark.parametrize("orientation", range(2, 9))
+@pytest.mark.parametrize(("make", "plain"), _WITH_EXIF)
+def test_the_way_up_is_all_that_is_kept_of_a_photos_exif(make, plain, orientation, order):
+    cleaned = photo.clean(make(photos.exif(orientation, _SECRET, order)))
+
+    assert cleaned == make(photos.orientation_only(orientation))
+    assert _SECRET not in cleaned
+
+
+@pytest.mark.parametrize(
+    "exif",
+    [
+        photos.exif(1, _SECRET),
+        photos.exif(0, _SECRET),
+        photos.exif(9, _SECRET),
+        photos.exif(6, _SECRET)[:20],
+        b"II*\0\xff\xff\xff\xff",
+    ],
+)
+@pytest.mark.parametrize(("make", "plain"), _WITH_EXIF)
+def test_exif_that_turns_nothing_is_left_out_whole(make, plain, exif):
+    assert photo.clean(make(exif)) == plain
+
+
+def test_only_the_first_exif_counts():
+    first, second = (photos.segment(0xE1, b"Exif\0\0" + photos.exif(n, _SECRET)) for n in (6, 3))
+
+    cleaned = photo.clean(photos.jpeg(200, 200, first, second))
+
+    assert cleaned == _jpeg_with(photos.orientation_only(6))
+
+
 _MAKERS = [photos.jpeg, photos.png, photos.webp, photos.webp_lossless]
 
 

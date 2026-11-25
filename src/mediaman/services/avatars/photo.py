@@ -2,15 +2,18 @@
 
 Nothing here decodes pixels. The size is read from the picture's own headers, and the file
 is put together again from known parts, so metadata (where and when a photo was taken), colour
-profiles, thumbnails and anything hidden after the picture are left out.
+profiles, thumbnails and anything hidden after the picture are left out. Only which way up
+the photo is shown is written anew.
 """
 
 from __future__ import annotations
 
 import re
 import zlib
+from typing import Literal
 
 MAX_BYTES = 10 * 1024 * 1024
+TOO_BIG_MESSAGE = f"That photo is too big. The most is {MAX_BYTES // (1024 * 1024)} MB."
 MIN_SIDE = 128
 #: A small file can unpack to a huge picture in everyone's browser, so its size is bounded.
 MAX_SIDE = 4096
@@ -26,6 +29,10 @@ _JPEG_SCAN_END = re.compile(rb"\xff[^\x00\xd0-\xd7\xff]")
 _PNG_KEPT = {b"IHDR", b"PLTE", b"tRNS", b"sRGB", b"gAMA", b"IDAT", b"IEND"}
 _PNG_DEPTHS = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
 _WEBP_ALPHA = 0x10
+_WEBP_EXIF = 0x08
+_EXIF_HEADER = b"Exif\0\0"
+_ORIENTATION_TAG = 0x0112
+_SHORT = 3
 
 
 class PhotoError(Exception):
@@ -76,10 +83,35 @@ def _check_size(width: int, height: int) -> None:
         raise PhotoError("too_large")
 
 
+def _orientation_only(exif: bytes) -> bytes:
+    """A TIFF block that tells the orientation *exif* does and nothing else, or ``b""``."""
+    tiff = exif.removeprefix(_EXIF_HEADER)
+    order: Literal["little", "big"]
+    if tiff[:4] == b"II*\0":
+        order = "little"
+    elif tiff[:4] == b"MM\0*":
+        order = "big"
+    else:
+        return b""
+    start = int.from_bytes(tiff[4:8], order)
+    count = int.from_bytes(tiff[start : start + 2], order)
+    for at in range(start + 2, min(start + 2 + 12 * count, len(tiff) - 11), 12):
+        if int.from_bytes(tiff[at : at + 2], order) != _ORIENTATION_TAG:
+            continue
+        kind = int.from_bytes(tiff[at + 2 : at + 4], order)
+        value = int.from_bytes(tiff[at + 8 : at + 10], order)
+        if kind != _SHORT or not 2 <= value <= 8:
+            return b""
+        entry = _ORIENTATION_TAG.to_bytes(2) + b"\0\x03\0\0\0\x01" + value.to_bytes(2) + b"\0\0"
+        return b"MM\0*\0\0\0\x08\0\x01" + entry + b"\0\0\0\0"
+    return b""
+
+
 def _clean_jpeg(data: bytes) -> bytes:
     out = [data[:2]]
     at = 2
     framed = False
+    exif_seen = False
     scans = 0
     for _ in range(_MAX_PARTS):
         fill = _JPEG_FILL.match(data, at)
@@ -120,6 +152,11 @@ def _clean_jpeg(data: bytes) -> bytes:
             marker == 0xEE and len(body) == 12 and body.startswith(b"Adobe")
         ):
             out.append(data[at:end])
+        elif marker == 0xE1 and body.startswith(_EXIF_HEADER) and not exif_seen:
+            exif_seen = True
+            if turned := _orientation_only(body):
+                segment = _EXIF_HEADER + turned
+                out.append(b"\xff\xe1" + (len(segment) + 2).to_bytes(2) + segment)
         elif not (0xE0 <= marker <= 0xEF or marker == 0xFE):
             raise _not_a_photo()
         at = end
@@ -130,6 +167,7 @@ def _clean_png(data: bytes) -> bytes:
     out = [_PNG_SIGNATURE]
     at = len(_PNG_SIGNATURE)
     has_pixels = False
+    exif_seen = False
     for part in range(_MAX_PARTS):
         length = int.from_bytes(data[at : at + 4])
         name = data[at + 4 : at + 8]
@@ -147,6 +185,11 @@ def _clean_png(data: bytes) -> bytes:
             raise _not_a_photo()
         elif name == b"IDAT":
             has_pixels = True
+        elif name == b"eXIf" and not exif_seen:
+            exif_seen = True
+            if turned := _orientation_only(body):
+                crc = zlib.crc32(name + turned).to_bytes(4)
+                out.append(len(turned).to_bytes(4) + name + turned + crc)
         if name in _PNG_KEPT:
             out.append(data[at:end])
         if name == b"IEND":
@@ -184,14 +227,17 @@ def _clean_webp(data: bytes) -> bytes:
             _check_size(width, height)
             # A lossless picture carries its own transparency.
             alpha = alpha if name == b"VP8 " else b""
-            chunks = b""
+            chunks = exif = b""
             if extended is not None:
                 canvas = (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
                 if extended[4:] != canvas:
                     raise _not_a_photo()
                 flags = extended[0] & _WEBP_ALPHA
+                if turned := _webp_orientation(data[end + length % 2 : size]):
+                    flags |= _WEBP_EXIF
+                    exif = _webp_chunk(b"EXIF", turned)
                 chunks = _webp_chunk(b"VP8X", bytes((flags, 0, 0, 0)) + canvas) + alpha
-            content = b"WEBP" + chunks + _webp_chunk(name, body)
+            content = b"WEBP" + chunks + _webp_chunk(name, body) + exif
             return b"RIFF" + len(content).to_bytes(4, "little") + content
         at = end + length % 2
     raise _not_a_photo()
@@ -199,6 +245,20 @@ def _clean_webp(data: bytes) -> bytes:
 
 def _webp_chunk(name: bytes, body: bytes) -> bytes:
     return name + len(body).to_bytes(4, "little") + body + b"\0" * (len(body) % 2)
+
+
+def _webp_orientation(rest: bytes) -> bytes:
+    """What the first EXIF chunk after the picture tells of its orientation."""
+    at = 0
+    for _ in range(_MAX_PARTS):
+        length = int.from_bytes(rest[at + 4 : at + 8], "little")
+        end = at + 8 + length
+        if at + 8 > len(rest) or end > len(rest):
+            break
+        if rest[at : at + 4] == b"EXIF":
+            return _orientation_only(rest[at + 8 : end])
+        at = end + length % 2
+    return b""
 
 
 def _webp_size(name: bytes, body: bytes) -> tuple[int, int]:

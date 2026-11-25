@@ -29,7 +29,7 @@ _UPLOAD_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=3600)
 
 _MESSAGES = {
     "not_a_photo": "That file is not a photo Mediaman can use. Choose a JPEG, PNG or WebP.",
-    "too_big": f"That photo is too big. The most is {photo.MAX_BYTES // (1024 * 1024)} MB.",
+    "too_big": photo.TOO_BIG_MESSAGE,
     "too_small": f"That photo is too small. It needs at least {photo.MIN_SIDE} pixels each way.",
     "too_large": f"That photo is too large. The most is {photo.MAX_SIDE} pixels each way.",
     "too_many_requests": "Too many tries. Wait a while and try again.",
