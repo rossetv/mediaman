@@ -711,7 +711,7 @@ class TestAWriteByAnotherConnection:
     """Someone else writes after the run began to read and before it writes."""
 
     @staticmethod
-    def _engine(conn, mock_plex):
+    def _engine(conn, mock_plex, types=None):
         mock_plex.get_movie_items.return_value = [
             {
                 "plex_rating_key": "1",
@@ -724,8 +724,8 @@ class TestAWriteByAnotherConnection:
         return ScanEngine(
             conn=conn,
             plex_client=mock_plex,
-            library_ids=["1"],
-            library_types={"1": "movie"},
+            library_ids=list(types or ["1"]),
+            library_types=types or {"1": "movie"},
             secret_key="test-key",
             dry_run=True,
         )
@@ -770,3 +770,14 @@ class TestAWriteByAnotherConnection:
         self._engine(conn, mock_plex).run_scan()
 
         assert outcomes[0] == "database is locked"
+
+    @pytest.mark.parametrize("run", ["sync_library", "run_scan"])
+    @pytest.mark.parametrize("carry", ["carry_stranded_keeps", "carry_show_keeps"])
+    def test_cannot_change_the_keeps_while_they_are_carried(
+        self, conn, db_path, mock_plex, monkeypatch, carry, run
+    ):
+        self._interrupt(monkeypatch, db_path, (repository, carry), outcomes := [])
+
+        getattr(self._engine(conn, mock_plex, {"1": "show", "2": "show"}), run)()
+
+        assert set(outcomes) == {"database is locked"}

@@ -297,10 +297,12 @@ class ScanEngine:
                 for f in fetched.items
             ],
         )
+        begin_write(self._conn)
         repository.carry_stranded_keeps(self._conn)
         for fetched in per_lib_fetches.values():
             self._listed_keys.update(fetched.listed_keys)
         for lib_id, fetched in per_lib_fetches.items():
+            begin_write(self._conn)
             repository.carry_show_keeps(self._conn, fetched.seasons, self._listed_keys)
             # Includes the history-fetch skips: those items are still present in
             # Plex, just not fetched this pass, so they must never be pruned as orphans.
@@ -413,6 +415,7 @@ class ScanEngine:
         of it is pruned, scheduled or deleted in this run, nor anything
         scheduled that shares a place with it.
         """
+        begin_write(self._conn)
         repository.carry_stranded_keeps(self._conn)
         self._conn.commit()
         seen_by_lib: dict[str, set[str]] = {}
