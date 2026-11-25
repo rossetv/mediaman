@@ -49,7 +49,7 @@ def test_rows_added_after_load_get_the_row_arrows_once() -> None:
 
 def test_a_row_the_server_has_more_of_opens_as_a_grid_that_loads_the_rest() -> None:
     out = _run("libraryGrids")
-    assert out == {kind: [9, "z"] for kind in ("movies", "tv", "anime", "recent")}
+    assert out == {"recent": [9, "z"]}
 
 
 def test_a_card_of_a_held_title_that_is_leaving_says_when() -> None:
@@ -224,13 +224,66 @@ def test_a_person_has_their_own_picks_made_and_they_come_in_place() -> None:
     assert (out["sameRow"], out["focus"], out["toasts"]) == (True, True, ["Your new picks are in."])
 
 
+def test_the_words_change_while_picks_are_made_and_a_screen_reader_is_told_once() -> None:
+    out = _run("ownMaking")["made"]
+    assert (out["before"]["shown"], out["before"]["reel"], out["before"]["twinkles"]) == (
+        None,
+        False,
+        False,
+    )
+    assert (out["busy"]["heard"], out["busy"]["role"], out["busy"]["reel"]) == (
+        False,
+        "status",
+        True,
+    )
+    assert out["busy"]["shown"] and out["busy"]["twinkles"]
+    assert out["later"]["shown"] != out["busy"]["shown"]
+    assert out["starts"] == 1
+    assert out["told"] == ["Making your picks. It can take a minute or two."]
+
+
+def test_the_end_shows_here_they_are_then_the_usual_words_and_is_told_by_the_toast_alone() -> None:
+    out = _run("ownMaking")["made"]
+    assert (out["end"]["shown"], out["end"]["live"], out["beating"]) == ("Here they are.", "off", 0)
+    assert (out["after"]["shown"], out["after"]["heard"]) == (None, True)
+    assert out["after"]["status"] == "From your plays, then new and popular."
+    assert (out["after"]["twinkles"], out["after"]["reel"]) == (False, False)
+    assert out["toasts"] == ["Your new picks are in."]
+
+
+def test_a_failure_says_its_own_words_at_once() -> None:
+    out = _run("ownMaking")["failed"]
+    assert (out["end"]["shown"], out["end"]["heard"], out["end"]["live"]) == (None, True, None)
+    assert out["end"]["status"] == "Couldn’t make new ones. Try again."
+    assert out["beating"] == 0
+
+
+def test_picks_made_again_at_once_go_on_without_an_end() -> None:
+    out = _run("ownMaking")["again"]
+    assert out["end"]["shown"] not in (None, "Here they are.")
+    assert (out["end"]["twinkles"], out["beating"]) == (True, 1)
+
+
+def test_a_press_that_fails_after_one_that_made_picks_has_no_happy_end() -> None:
+    out = _run("ownMakingThenBroken")
+    assert out["first"] == "Here they are."
+    assert out["busy"]["shown"] not in (None, "Here they are.")
+    assert (out["busy"]["heard"], out["second"], out["heard"]) == (False, None, True)
+
+
+def test_someone_who_rated_few_titles_is_told_so_kindly() -> None:
+    source = (STATIC / "js" / "watch" / "making.js").read_text(encoding="utf-8")
+    few = re.search(r"var FEW = \[(.*?)\];", source, re.DOTALL)
+    assert few and f"'{_run('ownMaking')['few']}'" in few[1]
+
+
 def test_own_picks_that_could_not_be_made_leave_the_row_and_can_be_tried_again() -> None:
     out = _run("ownRefreshFailed")
     assert out["failed"]["text"].startswith("Couldn’t make new ones")
     assert (out["failed"]["button"], out["failed"]["off"]) == ("Refresh my picks", False)
     assert out["failed"]["variant"] == "error"
     assert out["sameCards"] is True
-    assert out["again"]["text"].startswith("Making yours")
+    assert out["again"]["text"].startswith("Making your picks")
 
 
 def test_a_refused_refresh_of_own_picks_says_why_and_keeps_the_focus() -> None:
@@ -249,7 +302,7 @@ def test_a_session_lost_while_own_picks_are_made_goes_to_login() -> None:
 
 def test_own_picks_being_made_when_the_page_loads_are_followed_to_their_end() -> None:
     out = _run("ownRunningAtLoad")
-    assert out["made"]["busy"].startswith("Making yours")
+    assert out["made"]["busy"].startswith("Making your picks")
     assert out["made"]["toasts"] == ["Your new picks are in."]
     assert out["none"]["toasts"] == []
     assert out["none"]["after"].startswith("From your plays")

@@ -241,9 +241,16 @@
     if (header) updateSubtitle(dom, header, subtitleFor(dom, data));
   }
 
+  /* The header's ring is told by the same answer. */
+  function hear(data) {
+    if (MM.downloading) MM.downloading.hear(data.strip);
+    update(data);
+  }
+
   /* mediaman itself does not answer: all that is shown is held as what was last
      known, as it is for a service that does not. */
   function lost() {
+    if (MM.downloading) MM.downloading.lose();
     var line = 'Can\'t reach mediaman';
     update({
       hero: null, queue: [], upcoming: [], subtitle: line,
@@ -268,5 +275,5 @@
   });
 
   /* Kick off the polling loop. */
-  MM.downloads.poll.start(update, lost);
+  MM.downloads.poll.start(hear, lost);
 }());

@@ -1,8 +1,8 @@
 {# Nav surfaces.
-   - .nav-glass    — desktop sticky top, link rail and profile button (>= 700 px)
-   - .nav-topbar   — mobile sticky top, brand, page title and profile button (< 700 px)
-   - .nav-tabs     — mobile fixed bottom tab bar (< 700 px)
-   - .profile-menu — what either profile button opens: a menu under it on desktop,
+   - .nav-glass    — the bar: brand, the way back to Watch, profile button
+   - .nav-foot     — phones (< 700 px): the strip at the foot, on which the way back (on Watch
+                     the search) and the profile button stand
+   - .profile-menu — what the profile button opens: a menu under it on desktop,
                      a bottom sheet on phones
 
    Set `nav_active` in template context to one of:
@@ -11,9 +11,8 @@
 
    `avatar_url` in the context is the signed-in person's picture.
 
-   A page with more in its desktop bar includes a template that extends this one and fills
-   `nav_center` and `nav_end` (a block cannot be filled through a plain include). One whose
-   bar serves phones too leaves `nav_phone` empty.
+   Watch includes a template that extends this one and fills `nav_center` and `nav_end`
+   (a block cannot be filled through a plain include).
 
    The links follow the role on the request (`request.state.user_role`). A viewer
    sees only what the viewer role may open; a missing role gets the admin links.
@@ -28,56 +27,32 @@
 {% set active = nav_active or ('watch' if (path == '/watch' or path.startswith('/watch/')) else '') %}
 
 {% set titles = {
-  'watch':       'Watch',
   'downloads':   'Downloads',
   'history':     'History',
   'settings':    'Settings',
   'account':     'Profile',
 } %}
-{% set in_menu = active in ('history', 'settings', 'account') %}
+{% set in_menu = active in titles %}
 
 {% macro current(page) %}{% if active == page %} aria-current="page"{% endif %}{% endmacro %}
 
-{% macro profile_button() %}
-<button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
-  {{ avatar(who, avatar_url) }}
-  <span class="profile-btn-name">{{ who }}</span>
-  {{ icon("i-chevron-down") }}
-</button>
-{% endmacro %}
-
-{# Desktop top nav — hidden below 700 px #}
 <header class="nav-glass{% block nav_class %}{% endblock %}">
-  <a class="brand" href="/watch">media<b>man</b></a>
-  <nav class="nav-links" aria-label="Primary">
-    <a href="/watch"       class="nav-btn{% if active == 'watch' %} on{% endif %}"{{ current('watch') }}>Watch</a>
-    <a href="/downloads"   class="nav-btn{% if active == 'downloads' %} on{% endif %}"{{ current('downloads') }}>Downloads</a>
-  </nav>
-  {% block nav_center %}{% endblock %}
+  <a class="brand" href="/watch" aria-label="mediaman, home"{{ current('watch') }}>media<b>man</b></a>
+  {% block nav_center %}<a class="nav-back" href="/watch">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
   {% block nav_end %}{% endblock %}
-  {{ profile_button() }}
+  {# The menu needs its script. #}
+  <noscript><a class="nav-noscript" href="/downloads">Downloads</a></noscript>
+  <button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
+    <span class="profile-ava">
+      {{ avatar(who, avatar_url) }}
+      <span class="profile-ring" aria-hidden="true"></span>
+      <span class="profile-count" aria-hidden="true"></span>
+    </span>
+    <span class="profile-btn-name">{{ who }}</span>
+    {{ icon("i-chevron-down") }}
+  </button>
 </header>
-
-{# Mobile top bar — brand, current page title, profile button #}
-{% block nav_phone %}
-<div class="nav-topbar">
-  <a class="brand" href="/watch">media<b>man</b></a>
-  <span class="nav-topbar-title">{{ titles.get(active, '') }}</span>
-  {{ profile_button() }}
-</div>
-{% endblock %}
-
-{# Mobile bottom tab bar #}
-<nav class="nav-tabs" aria-label="Primary">
-  <a class="nav-tab{% if active == 'watch' %} on{% endif %}" href="/watch" aria-label="Watch"{{ current('watch') }}>
-    {{ icon("i-play") }}
-    <span>Watch</span>
-  </a>
-  <a class="nav-tab{% if active == 'downloads' %} on{% endif %}" href="/downloads" aria-label="Downloads"{{ current('downloads') }}>
-    {{ icon("i-download") }}
-    <span>Downloads</span>
-  </a>
-</nav>
+<div class="nav-foot" aria-hidden="true"></div>
 
 {# Profile menu — a direct child of <body>, so nav.js can make the rest of the page inert under the sheet #}
 <div class="profile-menu" id="profile-menu">
@@ -94,6 +69,7 @@
     </div>
     <div id="profile-menu-items" role="menu" aria-label="Profile menu">
       <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>
+      <a class="profile-item" role="menuitem" tabindex="-1" href="/downloads"{{ current('downloads') }}>{{ icon("i-download") }}Downloads<span class="profile-note" id="profile-note" hidden></span></a>
       <a class="profile-item" role="menuitem" tabindex="-1" href="/history"{{ current('history') }}>{{ icon("i-clock-rotate-left") }}History</a>
       {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/settings"{{ current('settings') }}>{{ icon("i-gear") }}Settings</a>

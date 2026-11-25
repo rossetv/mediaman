@@ -6,7 +6,7 @@
 ``name="duration" value="..."`` template literal, or a JS default fallback for
 a duration value, that still uses the short form ("7d") sends a request the
 route rejects with 400 ``invalid_duration`` — the "quick keep" buttons on the
-Watch list and token-keep pages silently fail for every duration except Forever.
+All titles and token-keep pages silently fail for every duration except Forever.
 """
 
 from __future__ import annotations
@@ -63,13 +63,22 @@ def _js_duration_fallbacks() -> dict[str, list[str]]:
 def test_template_duration_literals_are_valid_keep_durations() -> None:
     literals = _template_duration_literals()
     assert literals != {}, "expected duration literals in the templates"
-    assert "src/mediaman/web/templates/_watch_list.html" in literals
     for path, values in literals.items():
         for value in values:
+            # The keep page's come from VALID_KEEP_DURATIONS itself.
+            if value.startswith("{{"):
+                continue
             assert value in VALID_KEEP_DURATIONS, (
                 f"{path}: {value!r} is not a key of VALID_KEEP_DURATIONS "
                 f"({sorted(VALID_KEEP_DURATIONS)}) — POST /keep will 400 invalid_duration"
             )
+
+
+def test_the_durations_of_the_menu_of_all_titles_are_valid_keep_durations() -> None:
+    text = (JS_DIR / "watch/library.js").read_text(encoding="utf-8")
+    menu = re.search(r"var DURATIONS = (\[\[.*?\]\]);", text)
+    assert menu
+    assert set(re.findall(r"\['([^']+)',", menu[1])) == set(VALID_KEEP_DURATIONS)
 
 
 def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
@@ -80,6 +89,9 @@ def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
     assert "src/mediaman/web/static/js/watch/admin.js" in fallbacks
     for path, values in fallbacks.items():
         for value in values:
+            # The keep page's come from VALID_KEEP_DURATIONS itself.
+            if value.startswith("{{"):
+                continue
             assert value in VALID_KEEP_DURATIONS, (
                 f"{path}: default fallback {value!r} is not a key of VALID_KEEP_DURATIONS "
                 f"({sorted(VALID_KEEP_DURATIONS)}) — POST /keep will 400 invalid_duration"

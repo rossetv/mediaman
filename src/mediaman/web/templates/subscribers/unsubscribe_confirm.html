@@ -1,24 +1,29 @@
 {% extends "base.html" %}
+{% import "_share.html" as share %}
 
 {% block title %}Unsubscribe · Mediaman{% endblock %}
 
-{% block head %}<link rel="stylesheet" href="/static/css/_unsubscribe.css?v={{ static_v }}">{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_unsubscribe.css?v={{ static_v }}">
+{% endblock %}
+
+{% block nav %}{{ share.bar() }}{% endblock %}
 
 {% block content %}
-<div class="login-page">
-  <div class="login-card unsub-card">
-    <div class="unsub-brand" aria-hidden="true">media<span class="unsub-brand-accent">man</span></div>
-    <h1 class="unsub-title">Unsubscribe?</h1>
-    <p class="unsub-sub">
-      You will no longer receive newsletter emails at
-      <strong class="unsub-email">{{ email }}</strong>
-    </p>
-    <form method="POST" action="/unsubscribe" data-submit-guard>
-      <input type="hidden" name="email" value="{{ email }}">
-      <input type="hidden" name="token" value="{{ token }}">
-      <button type="submit" class="unsub-btn-danger" data-busy-label="Unsubscribing…">Unsubscribe</button>
-    </form>
-    <p class="unsub-note">Changed your mind? Close this page and nothing changes.</p>
+<div class="login-page share-note">
+  <div class="login-card">
+    {{ share.mark("mail") }}
+    <h1>Stop the weekly mail?</h1>
+    <p>It will no longer be sent to <b>{{ email }}</b></p>
+    <div class="share-note__acts">
+      <form method="POST" action="/unsubscribe" data-submit-guard>
+        <input type="hidden" name="email" value="{{ email }}">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button type="submit" class="btn btn--lg unsub-btn-danger" data-busy-label="Unsubscribing…">Unsubscribe</button>
+      </form>
+    </div>
+    <p class="share-note__small">Changed your mind? Close this page and nothing changes.</p>
   </div>
 </div>
 <script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>

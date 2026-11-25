@@ -516,7 +516,7 @@ def test_a_title_radarr_or_sonarr_has_files_of_is_not_offered_for_download() -> 
 
 
 def test_a_show_partly_there_offers_what_its_title_page_does() -> None:
-    assert _run("partlyHeld") == ["Pick seasons", "In Sonarr", "In library"]
+    assert _run("partlyHeld") == ["Pick seasons", "Already added", "In library"]
 
 
 def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:
@@ -567,6 +567,33 @@ def test_a_preview_that_has_gone_leaves_no_rating_behind() -> None:
 
 def test_a_title_known_not_to_be_rateable_has_no_rate_button() -> None:
     assert _run("cannotRate") == {"pick": 0, "again": 0}
+
+
+def test_play_on_a_tv_is_there_for_what_can_be_played_and_its_sheet_keeps_the_preview() -> None:
+    assert _run("playOn") == {
+        "film": ["/watch/play/1", "-1"],
+        "next": ["/watch/play/22?resume=1", "-1"],
+        "outside": None,
+        "without": None,
+        "underSheet": [False, "Fieldwork"],
+    }
+
+
+def test_play_on_a_tv_plays_what_play_would_once_the_title_is_marked() -> None:
+    assert _run("playOnMarked") == {
+        "unmoved": True,
+        "moved": ["/watch/play/2"],
+        "sheetOpen": ["/watch/play/2"],
+    }
+
+
+def test_the_preview_stays_under_its_sheet_and_leaves_the_remote_its_escape() -> None:
+    assert _run("playOnOver") == {
+        "input": "Fieldwork",
+        "scroll": "Fieldwork",
+        "escape": False,
+        "under": None,
+    }
 
 
 def test_a_strip_folds_as_the_server_says_the_title_cannot_be_rated() -> None:

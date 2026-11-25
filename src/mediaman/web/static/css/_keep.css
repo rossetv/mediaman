@@ -1,173 +1,44 @@
-.keep-page {
-  min-height: 100vh;
-  background: var(--bg);
-  position: relative;
-  overflow: hidden;
-}
-.keep-page::before {
-  content: none;
-}
-.keep-nav {
-  position: relative;
-  z-index: 1;
-  padding: 20px var(--pad);
-  text-align: center;
-  border-bottom: 1px solid var(--hair);
-}
-.keep-container {
-  position: relative;
-  z-index: 1;
-  max-width: 540px;
-  margin: 60px auto;
-  padding: 40px 32px;
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  text-align: center;
-  box-shadow: var(--shadow-card);
-  overflow-wrap: anywhere;
+/* KEEP PAGE — the day a title leaves and how long it can be kept. The rest is _share.css. */
+
+.share-leave { display: flex; align-items: center; gap: 16px; }
+.share-date { flex: none; display: grid; grid-template-rows: 20px 1fr; width: 64px; height: 72px; overflow: hidden; border-radius: var(--r-lg); background: var(--s3); text-align: center; box-shadow: var(--shadow-card); }
+.share-date small { background: var(--danger-solid); color: var(--t1); font-size: 11px; line-height: 20px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.share-date b { align-self: center; font: 600 30px/1 var(--font-display); letter-spacing: -.03em; }
+.share-leave strong { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.share-leave strong + span { font-size: 14px; color: var(--danger-text); }
+/* Kept: the date turns over, green. */
+.share-leave.is-kept .share-date { animation: share-turn calc(var(--dur-slow) * 2.2) var(--share-after) var(--ease-out) backwards; }
+.share-leave.is-kept .share-date small { background: #1f7a38; }
+.share-leave.is-kept strong + span { color: var(--t2); }
+@keyframes share-turn {
+  from { transform: perspective(300px) rotateX(-85deg); opacity: 0; }
+  60% { transform: perspective(300px) rotateX(10deg); }
 }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 14px;
-  border-radius: var(--r-pill);
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--rgba-overlay-md);
-  color: var(--t2);
-  margin-bottom: 18px;
-}
-.status-pill .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger-text); }
-.status-protected { background: var(--rgba-success-bg); color: var(--success); }
-.status-expired   { background: var(--rgba-overlay-sm); color: var(--t3); }
-.dot-danger  { background: var(--danger) !important; }
-.dot-success { background: var(--success) !important; }
-.dot-muted   { background: var(--t4) !important; }
+.share-keep { width: 100%; }
+.share-keep legend { margin-bottom: 10px; padding: 0; font-size: 14px; color: var(--t1); }
+.share-keep fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.share-keep__row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-width: 480px; }
+.share-keep .btn { flex-direction: column; gap: 2px; min-height: 60px; padding: 8px 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--success) 18%, color-mix(in srgb, var(--s1) 80%, transparent)); color: var(--success); font-size: 16px; font-weight: 600; white-space: normal; line-height: 1.25; }
+.share-keep .btn small { font-size: 12px; font-weight: 500; color: var(--t2); }
+.share-keep .btn:hover { background: color-mix(in srgb, var(--success) 30%, color-mix(in srgb, var(--s1) 80%, transparent)); }
+.share-keep[data-busy] .btn:not(.is-pressed) { opacity: .45; }
+.share-keep[data-busy] .btn.is-pressed { flex-direction: row; gap: 6px; padding-inline: 4px; white-space: nowrap; opacity: 1; }
+.share-keep .btn-spinner { margin: 0; }
 
-.poster-container {
-  width: 160px;
-  margin: 0 auto 18px;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--s3);
-  aspect-ratio: 2/3;
-  box-shadow: var(--shadow-card);
+@media (max-width: 699.98px) {
+  .share-keep__row { gap: 8px; }
+  .share-keep .btn { font-size: 15px; }
 }
-.poster-container img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.poster-container img[data-broken] { display: none; }
-.poster-faded { opacity: .5; }
-.item-poster-empty {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--t4);
+@media (max-width: 359.98px) {
+  .share-keep .btn { padding-inline: 4px; }
+  .share-keep .btn small { white-space: nowrap; }
+  .share-keep .btn.is-pressed { font-size: 13px; }
 }
-/* Shown after a poster img only once it has failed to load. */
-img:not([data-broken]) + .item-poster-empty { display: none; }
-.item-poster-empty .ico { font-size: 42px; }
-
-.item-title {
-  font-family: var(--font-display);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -.025em;
-  margin-bottom: 4px;
+@media (forced-colors: active) {
+  .share-date { border: 1px solid CanvasText; }
+  .share-keep .btn { border-color: ButtonText; }
 }
-.item-title--secondary { color: var(--t2); }
-.item-title:has(+ .meta-row) { margin-bottom: 14px; }
-.item-season { color: var(--t3); font-size: 13px; margin-bottom: 14px; }
-
-.meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-bottom: 12px;
+@media (prefers-reduced-motion: reduce) {
+  .share-date { animation: none !important; }
 }
-.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger-text); }
-.meta-pill.size { background: var(--s3); color: var(--t2); }
-
-.info-box {
-  margin: 20px 0;
-  padding: 16px;
-  background: var(--s2);
-  border-radius: var(--r-md);
-  text-align: center;
-}
-.info-box .label { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; font-weight: 600; }
-.info-box .value { font-size: 16px; font-weight: 500; }
-.info-box .value.danger  { color: var(--danger-text); }
-.info-box .value.success { color: var(--success); }
-
-.snooze-section { margin-top: 18px; }
-.snooze-label { font-size: 13px; color: var(--t3); margin-bottom: 10px; }
-.snooze-buttons,
-.keep-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-.snooze-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  border-radius: var(--r-pill);
-  background: var(--s3);
-  color: var(--t1);
-  font-size: 13px;
-  font-weight: 500;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.snooze-btn:hover { background: var(--s4); }
-form[data-busy] .snooze-btn { opacity: .6; cursor: progress; }
-.snooze-btn .duration { color: var(--accent); font-weight: 600; }
-.snooze-btn.snooze-forever { background: var(--rgba-success-bg); color: var(--success); }
-.snooze-btn.snooze-forever .duration { color: var(--success); }
-.snooze-btn .admin-only {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  background: rgba(48,209,88,.2);
-  margin-left: 4px;
-}
-
-.keep-footer { margin-top: 28px; }
-.keep-footer a { color: var(--accent); font-size: 13px; }
-
-/* Phone: side gutter like the login card. */
-@media (max-width: 639.98px) {
-  .keep-container { width: calc(100% - 40px); margin: 40px auto; padding: 32px 20px; }
-}
-
-/* 44px tap areas, also on touch screens wider than the bottom-nav breakpoint. */
-@media (max-width: 699.98px), (pointer: coarse) {
-  .snooze-btn { min-height: 44px; padding: 8px 18px; }
-  .keep-nav .brand { display: inline-block; line-height: 44px; }
-  .keep-footer a { display: inline-flex; align-items: center; min-height: 44px; }
-}
-
-.already-kept-msg { margin: 18px 0; }
-.check-icon { display: grid; place-items: center; margin-bottom: 8px; font-size: 30px; }
-.msg-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
-.msg-detail { color: var(--t2); font-size: 13px; line-height: 1.5; }
-
-.expired-msg { margin: 24px 0; color: var(--t2); }
-.expired-icon { display: grid; place-items: center; margin-bottom: 12px; color: var(--t3); font-size: 32px; }
-.expired-title {
-  font-family: inherit;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: inherit;
-  line-height: inherit;
-  margin-bottom: 6px;
-}
-.expired-detail { font-size: 13px; line-height: 1.5; color: var(--t3); }

@@ -19,6 +19,7 @@ from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.upsert import upsert_item
 from mediaman.services.arr.base import SearchUnanswered
+from mediaman.services.arr.spec import SONARR_SPEC
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter.subscribers import _mint_deleted_tokens
@@ -32,6 +33,7 @@ from mediaman.web.routes.download import (
     reset_used_tokens,
 )
 from tests.helpers.factories import insert_audit_log
+from tests.unit.web.test_redownload_errors import _OneTitleArr
 
 _ROUTES = "mediaman.web.routes.download"
 _TMDB, _TVDB = 60622, 269613
@@ -260,16 +262,26 @@ class TestSubmit:
         assert tuple(note) == (_TVDB, 2)
         assert set(_cards(conn, secret_key)) == {1}
 
-    @pytest.mark.parametrize(("season_two", "put_back"), [(UNMONITORED, 1), (MONITORED, 0)])
-    def test_a_failed_search_frees_the_link_and_puts_back_what_it_changed(
-        self, client, link, season_two, put_back
+    @pytest.mark.parametrize("season_two", [UNMONITORED, MONITORED])
+    def test_a_failed_search_frees_the_link_and_takes_back_nothing_asked_for_since(
+        self, client, link, season_two
     ):
         sonarr = _sonarr(_series(season_two))
         sonarr.remonitor_season.side_effect = [SafeHTTPError(409, "busy", "sonarr/c"), None]
 
         assert _post(client, link, sonarr).status_code == 502
-        assert sonarr.unmonitor_season.call_count == put_back
+        # Sonarr's own step put back what it changed; by now the season may be another's.
+        sonarr.unmonitor_season.assert_not_called()
         assert _post(client, link, sonarr).status_code == 200
+
+    @pytest.mark.parametrize(("season_two", "after"), [(UNMONITORED, False), (MONITORED, True)])
+    def test_a_failed_search_puts_back_the_season_it_monitored(
+        self, client, link, season_two, after
+    ):
+        sonarr = _OneTitleArr(SONARR_SPEC, _series(season_two), SafeHTTPError(409, "busy", "s"))
+
+        assert _post(client, link, sonarr).status_code == 502
+        assert sonarr.entry["seasons"][1]["monitored"] is after
 
     def test_a_season_whose_search_may_be_running_stays_monitored_and_the_link_is_free(
         self, client, link
@@ -391,7 +403,7 @@ class TestPage:
 
         assert f'"download_state": "{state}"' in page
         assert ('"notify_by_email": true' in page) == (state != "queued")
-        assert ("Re-Download Season 2" in page) == (state == "")
+        assert ("Download season 2" in page) == (state == "")
 
     def test_the_button_for_season_0_says_specials(self, client, secret_key):
         _delete_season(client.app.state.db, 0)
@@ -399,7 +411,7 @@ class TestPage:
         with patch(f"{_ROUTES}.confirm.build_sonarr_from_db", return_value=_sonarr(None)):
             page = client.get(link).text
 
-        assert "Re-Download Specials" in page
+        assert "Download specials" in page
         assert "Season 0" not in page
 
     def test_a_reopened_link_still_promises_the_season_s_email(self, client, secret_key):
@@ -411,7 +423,7 @@ class TestPage:
         ):
             page = client.get(link).text
 
-        assert "notified by email" in page
+        assert "send you a mail" in page
 
     def test_a_season_the_person_asked_for_in_the_library_promises_its_email(
         self, client, secret_key
@@ -434,7 +446,7 @@ class TestPage:
         ):
             page = client.get(link).text
 
-        assert "notified by email" in page
+        assert "send you a mail" in page
 
 
 class TestProgress:

@@ -32,14 +32,14 @@ class TestKeepPageHeadings:
         set_connection(conn)
         return TestClient(app, raise_server_exceptions=True)
 
-    def test_invalid_state_has_a_neutral_h1_and_pill(self, conn):
+    def test_invalid_state_has_a_neutral_h1_and_title(self, conn):
         text = self._client(conn).get("/keep/badtoken").text
 
-        assert re.search(r"<h1[^>]*>\s*This link isn't valid\s*</h1>", text)
-        assert re.search(r"</span>\s*Invalid\s*</div>", text)
-        assert "This link has expired" not in text
+        assert re.search(r"<h1[^>]*>\s*This link does not work\s*</h1>", text)
+        assert re.search(r"<title>\s*Invalid link", text)
+        assert "This link has run out" not in text
 
-    def test_expired_link_without_a_poster_says_expired_throughout(self, conn):
+    def test_expired_link_without_a_poster_is_headed_by_its_title_and_says_expired(self, conn):
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="", file_path="/f")
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
@@ -49,8 +49,8 @@ class TestKeepPageHeadings:
 
         text = self._client(conn).get(f"/keep/{token}").text
 
-        assert re.search(r"<h1[^>]*>\s*This link has expired\s*</h1>", text)
-        assert re.search(r"</span>\s*Expired\s*</div>", text)
+        assert re.search(r"<h1[^>]*>\s*Test\s*</h1>", text)
+        assert "This link has run out." in text and "<img" not in text
         assert re.search(r"<title>\s*Expired", text)
 
     def test_error_state_has_an_h1(self, conn):
@@ -60,7 +60,7 @@ class TestKeepPageHeadings:
             headers={"accept": "text/html"},
         )
 
-        assert re.search(r"<h1[^>]*>\s*We could not keep this item\s*</h1>", resp.text)
+        assert re.search(r"<h1[^>]*>\s*This link does not work\s*</h1>", resp.text)
 
     def test_expired_state_with_an_item_keeps_a_single_h1(self, conn):
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="rk1", file_path="/f")
@@ -73,7 +73,7 @@ class TestKeepPageHeadings:
         resp = self._client(conn).get(f"/keep/{token}")
 
         assert resp.text.count("<h1") == 1
-        assert "This link has expired" in resp.text
+        assert "This link has run out." in resp.text
 
 
 class TestKeepPageMessages:
@@ -83,8 +83,8 @@ class TestKeepPageMessages:
     def test_damaged_link_does_not_blame_the_protection_window(self, conn):
         text = self._client(conn).get("/keep/badtoken").text
 
-        assert "This link is no longer valid or has expired." in text
-        assert "protection window" not in text
+        assert "It may have run out, or part of it may be missing." in text
+        assert "The time this was kept for" not in text
 
     def test_really_expired_row_keeps_the_protection_window_sentence(self, conn):
         insert_media_item(conn, id="mi1", title="Test", plex_rating_key="rk1", file_path="/f")
@@ -96,7 +96,7 @@ class TestKeepPageMessages:
 
         text = self._client(conn).get(f"/keep/{token}").text
 
-        assert "The protection window for this item has passed." in text
+        assert "The time this was kept for is over." in text
 
     def _active_page(self, conn, **item):
         insert_media_item(conn, id="mi1", title="Test", file_path="/f", **item)
@@ -107,21 +107,18 @@ class TestKeepPageMessages:
         token = _make_keep_token(conn, "mi1", action_id)
         return self._client(conn).get(f"/keep/{token}").text
 
-    def test_watched_item_is_not_labelled_never_watched(self, conn):
-        text = self._active_page(conn, last_watched_at="2025-05-14T10:00:00+00:00")
+    @pytest.mark.parametrize("last_watched_at", ["2025-05-14T10:00:00+00:00", None])
+    def test_whether_it_was_watched_is_not_said(self, conn, last_watched_at):
+        text = self._active_page(conn, last_watched_at=last_watched_at)
 
-        assert "Never watched" not in text
-        assert "Last watched 14 May 2025" in text
-
-    def test_unwatched_item_is_labelled_never_watched(self, conn):
-        assert "Never watched" in self._active_page(conn, last_watched_at=None)
+        assert "atched" not in text and "14 May" not in text
 
     @pytest.mark.parametrize(
         ("media_type", "season", "kind", "label"),
         [
-            ("tv_season", 2, "TV", "Season 2"),
+            ("tv_season", 2, "TV series", "Season 2"),
             ("anime_season", 1, "Anime", "Season 1"),
-            ("tv_season", 0, "TV", "Specials"),
+            ("tv_season", 0, "TV series", "Specials"),
         ],
     )
     def test_a_season_is_named_by_its_show_its_number_and_its_kind(
@@ -132,21 +129,21 @@ class TestKeepPageMessages:
         )
 
         assert re.search(r"<h1[^>]*>\s*Harrow Lane\s*</h1>", text)
-        assert f'<div class="item-season">{label}</div>' in text
-        assert re.search(rf'<span class="pill pill--{kind.lower()}">{kind}</span>', text)
+        assert f'<p class="share-season">{label}</p>' in text
+        assert f'<span class="ttl__kind">{kind}</span>' in text
         assert re.search(r"<title>\s*Keep · Harrow Lane", text)
 
     def test_the_year_it_was_added_does_not_stand_as_its_release_year(self, conn):
         text = self._active_page(conn, added_at="2019-03-02T10:00:00+00:00")
 
-        assert "Added 2 March 2019" in text
-        assert not re.search(r">\s*2019\s*<", text)
+        assert "2019" not in text
 
     def test_a_long_word_wraps_inside_the_card(self):
-        css = (_TEMPLATE_DIR.parent / "static/css/_keep.css").read_text(encoding="utf-8")
+        css = (_TEMPLATE_DIR.parent / "static/css/_share.css").read_text(encoding="utf-8")
 
-        rule = re.search(r"\.keep-container \{([^}]*)\}", css)
-        assert rule and "overflow-wrap: anywhere" in rule[1]
+        for box in (r"\.share-page \.watch-banner__body", r"\.share-note \.login-card"):
+            rule = re.search(box + r" \{([^}]*)\}", css)
+            assert rule and "overflow-wrap: anywhere" in rule[1]
 
     def test_rate_limited_get_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_GET_LIMITER
@@ -156,12 +153,10 @@ class TestKeepPageMessages:
         resp = self._client(conn).get("/keep/badtoken")
 
         assert resp.status_code == 429
-        assert "keep-page" in resp.text
-        assert "Too many requests" in resp.text
-        assert "We could not keep this item" not in resp.text
+        assert "One moment" in resp.text
+        assert "does not work" not in resp.text
         assert re.search(r"<title>\s*Too many requests", resp.text)
-        assert "Not changed" not in resp.text
-        assert "open the link again" in resp.text
+        assert re.search(r'<a [^>]*href="" data-count="60">Try again</a>', resp.text)
 
     def test_rate_limited_form_post_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_POST_LIMITER
@@ -173,4 +168,4 @@ class TestKeepPageMessages:
         )
 
         assert resp.status_code == 429
-        assert "keep-page" in resp.text
+        assert "One moment" in resp.text

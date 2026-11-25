@@ -5,6 +5,7 @@
 
 /* Signed in, the page stands under the nav and still fits the screen. */
 body:has(> .nav-glass) .login-page { min-height: calc(100vh - var(--nav-h)); }
+@media (max-width: 699.98px) { body:has(> .nav-glass) .login-page { min-height: calc(100vh - 48px); } }
 
 .err-brand { font-size: 20px; margin-bottom: 24px; }
 .err-brand a { border-radius: var(--r-xs); }

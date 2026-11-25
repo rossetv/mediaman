@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+from dataclasses import asdict
 from functools import partial
 
 from fastapi import APIRouter, Cookie, Depends, Request
@@ -163,6 +164,8 @@ def _start(
             "subtitle": (subtitle or _selected(subtitles)) if burn else None,
             "audio_tracks": audio,
             "subtitle_tracks": subtitles,
+            "markers": [asdict(m) for m in item.markers],
+            "chapters": [asdict(c) for c in item.chapters],
         }
     )
 

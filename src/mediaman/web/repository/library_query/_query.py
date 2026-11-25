@@ -238,8 +238,8 @@ def _fetch_protection_maps(
     (one per season the row's filter let through), keyed by that item's id.
     ``ks_map`` is keyed by show_rating_key and holds only keeps in force.
     """
-    row_items = {str(r["id"]): str(r["item_ids"]).split(_ITEM_ID_SEP) for r in rows}
-    item_ids = sorted({i for ids in row_items.values() for i in ids})
+    items_of = {str(r["id"]): row_items(r) for r in rows}
+    item_ids = sorted({i for ids in items_of.values() for i in ids})
     show_rkeys = sorted({r["show_rating_key"] for r in rows if r["show_rating_key"]})
 
     kept_ids = sorted(fetch_protected_media_ids(conn, item_ids, now))
@@ -259,7 +259,7 @@ def _fetch_protection_maps(
             if prev is None or lapse_key(keep) > lapse_key(prev):
                 strongest[sa["media_item_id"]] = keep
     sa_map = {
-        rid: {i: strongest[i] for i in ids if i in strongest} for rid, ids in row_items.items()
+        rid: {i: strongest[i] for i in ids if i in strongest} for rid, ids in items_of.items()
     }
 
     kept_keys = sorted(fetch_kept_show_keys(conn, show_rkeys, now))
@@ -277,12 +277,41 @@ def _fetch_protection_maps(
     return sa_map, ks_map
 
 
+def fetch_display_rows(conn: sqlite3.Connection, media_type: str = "") -> list[sqlite3.Row]:
+    """Every movie, and every show once, as fetch_library groups them, unshaped."""
+    where_sql, params, kept_filter = _build_where_clause(conn, "", media_type)
+    cte_sql, order = _build_cte_sql(where_sql, "added_desc")
+    # rationale: kept_where is a closed literal and the rest as in _execute_paged_query
+    kept_where = " WHERE is_kept = 1" if kept_filter else ""
+    return conn.execute(
+        cte_sql + f"SELECT * FROM display_items{kept_where} ORDER BY {order}", [now_iso(), *params]
+    ).fetchall()
+
+
+def display_key(row: sqlite3.Row) -> str:
+    """What names a row of display_items: its show, or the movie; a show with no key, its item."""
+    if row["display_type"] == "movie" or not row["show_rating_key"]:
+        return f"id:{row['id']}"
+    return f"show:{row['show_rating_key']}"
+
+
+def row_items(row: sqlite3.Row) -> list[str]:
+    """The ids of the items a row of display_items stands for."""
+    return str(row["item_ids"]).split(_ITEM_ID_SEP)
+
+
+def shape_display_rows(
+    conn: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> list[dict[str, object]]:
+    sa_map, ks_map = _fetch_protection_maps(conn, rows, now_iso())
+    return _shape_rows(rows, sa_map, ks_map)
+
+
 # rationale: a repository may return ``list[dict]`` at a documented
-# template-feeding boundary. ``mediaman.web.routes.watch.list_page`` passes
-# these display-ready dicts onto the Watch list view's ``_watch_list.html``
-# template as ``items``, and ``/api/library`` answers them as JSON; the keys are
-# display-shaped (``type_label``, ``protection_label``, ...) and a dataclass would
-# add ceremony without removing the template's column coupling.
+# template-feeding boundary. ``/api/library`` answers these display-ready dicts as
+# JSON and All titles puts them on its cards; the keys are display-shaped
+# (``type_label``, ``protection_label``, ...) and a dataclass would add ceremony
+# without removing that coupling.
 def fetch_library(
     conn: sqlite3.Connection,
     q: str = "",

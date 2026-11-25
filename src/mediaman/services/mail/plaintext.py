@@ -10,6 +10,8 @@ _BLOCK_TAGS = frozenset(
 )
 _CELL_TAGS = frozenset({"td", "th"})
 _SKIPPED_TAGS = frozenset({"style", "script", "head", "title"})
+# They have no end tag, so nothing can be hidden inside one.
+_VOID_TAGS = frozenset({"br", "hr", "img", "input", "wbr"})
 
 
 class _TextExtractor(HTMLParser):
@@ -17,11 +19,18 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._parts: list[str] = []
         self._skip_depth = 0
+        # The tag of the aria-hidden element being read, and how many of that tag are open.
+        self._hidden_tag = ""
+        self._hidden_depth = 0
         # Open links as (href, index in _parts where its text starts).
         self._links: list[tuple[str, int]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in _SKIPPED_TAGS:
+        if self._hidden_depth:
+            self._hidden_depth += tag == self._hidden_tag
+        elif dict(attrs).get("aria-hidden") == "true" and tag not in _VOID_TAGS:
+            self._hidden_tag, self._hidden_depth = tag, 1
+        elif tag in _SKIPPED_TAGS:
             self._skip_depth += 1
         elif tag in _BLOCK_TAGS:
             self._parts.append("\n")
@@ -29,7 +38,9 @@ class _TextExtractor(HTMLParser):
             self._links.append((dict(attrs).get("href") or "", len(self._parts)))
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in _SKIPPED_TAGS:
+        if self._hidden_depth:
+            self._hidden_depth -= tag == self._hidden_tag
+        elif tag in _SKIPPED_TAGS:
             self._skip_depth = max(0, self._skip_depth - 1)
         elif tag in _BLOCK_TAGS:
             self._parts.append("\n")
@@ -42,7 +53,7 @@ class _TextExtractor(HTMLParser):
                 self._parts.append(f" ({href})")
 
     def handle_data(self, data: str) -> None:
-        if not self._skip_depth:
+        if not (self._skip_depth or self._hidden_depth):
             self._parts.append(data)
 
     def text(self) -> str:
@@ -51,7 +62,9 @@ class _TextExtractor(HTMLParser):
 
 
 def html_to_text(html: str) -> str:
-    """Return *html* as readable plain text, with each link shown as ``label (url)``."""
+    """Return *html* as readable plain text, with each link shown as ``label (url)`` and what
+    is aria-hidden left out.
+    """
     parser = _TextExtractor()
     parser.feed(html)
     parser.close()

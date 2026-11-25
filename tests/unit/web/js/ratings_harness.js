@@ -93,7 +93,28 @@ const scenarios = {
     p.press(set, 3);
     const on = pops();
     p.press(set, 3);
-    return { on, off: pops() };
+    const back = () => set.node.querySelectorAll('button').map((b) => b.classList.contains('back'));
+    const off = pops();
+    const taken = back();
+    p.press(set, 3);
+    return { on, off, taken, again: back() };
+  },
+
+  // Where the highlight slides from, for each press and for one that fails.
+  async slides() {
+    const p = load();
+    const set = p.R.mount('movie-1');
+    await p.go();
+    await p.ratings({ 'movie-1': lv(-1) });
+    const from = () => set.node.getAttribute('data-from');
+    const out = [from()];
+    [3, 0, 0, 2].forEach((i) => { p.press(set, i); out.push(from()); });
+    await p.title(7);
+    await p.title(7);
+    p.press(set, 3);
+    out.push(from());
+    await p.refuse();
+    return out.concat(from());
   },
 
   async fails() {

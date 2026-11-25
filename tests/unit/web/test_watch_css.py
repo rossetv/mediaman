@@ -101,7 +101,6 @@ def test_a_watched_toggle_is_filled_and_outshines_no_title() -> None:
 
 
 FORCED_CHOICES = [
-    (SHEET, '.watch-viewtoggle__btn[aria-current="page"]::before'),
     (SHEET, ".watch-pill.on"),
     (SHEET.with_name("_buttons.css"), ".fpill.on"),
     (SHEET.with_name("_dl.css"), ".dl-bar-fill"),
@@ -127,7 +126,6 @@ def test_forced_colours_give_a_download_s_hidden_art_no_room() -> None:
 
 
 def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None:
-    assert "border: 1px solid" in _of(".keep-trigger", FORCED, SHEET.with_name("_buttons.css"))
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
     banner = _of(".watch-banner:has(> .watch-banner__bg--art:not([data-broken]))", FORCED)
     assert "min-height: 0" in banner
@@ -243,10 +241,31 @@ def test_a_rows_heading_leaves_the_more_of_the_row_above_its_44px() -> None:
     assert _reach(".watch-row__title > .row-open[href]::after", TOUCH)[0] <= 9
 
 
-def test_a_rows_offer_covers_no_heading_or_its_link_on_a_phone() -> None:
+def test_a_rows_offer_covers_no_heading_and_no_words_of_see_all_on_a_phone() -> None:
     browse = SHEET.with_name("_watch_browse.css")
-    text = _of(".row-offer__text", "(max-width: 499.98px)", browse)
-    assert "position: absolute" in text and "clip-path: inset(50%)" in text
+    phone = "(max-width: 599.98px)"
+    for media in (None, phone):
+        chip = _of(".row-open__cue::before", media, browse)
+        # As wide as the room See all keeps for it, and under its words.
+        assert re.findall(r"inset: -?\d+px 0;", chip) or (media and "inset" not in chip)
+        assert media or "z-index: -1" in chip
+        assert "position: absolute" not in _of(".row-open__cue", media, browse)
+    assert "isolation: isolate" in _of(".row-open__cue", sheet=browse)
+    assert int(re.findall(r"padding: 0 (\d+)px;", _of(".row-open__cue", sheet=browse))[0]) >= 8
+    # Beside the row's own tools or link a phone has no room for the words.
+    phone_rules = re.sub(r"/\*.*?\*/", "", browse.read_text(encoding="utf-8"), flags=re.S)
+    assert re.search(
+        r":has\(> :is\(\.watch-row__tools, \.space-row-link\)\) "
+        r":is\(\.row-open__word, \.row-open__total\) \{ display: none; \}",
+        phone_rules,
+    )
+
+
+def test_the_words_of_see_all_keep_their_colour_under_the_pointer_in_forced_colours() -> None:
+    browse = SHEET.with_name("_watch_browse.css")
+    for state in ("", ":hover", ":active"):
+        rules = _of(f".row-open[href]{state} .row-open__cue", FORCED, browse)
+        assert "color: LinkText" in rules
 
 
 def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
@@ -304,8 +323,10 @@ def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scrol
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
-    narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
-    assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow
+    # One line at every width, and nothing at the top of a phone.
+    assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
+    nav = SHEET.with_name("_nav.css")
+    assert "--nav-h: 0px" in _of("html:has(.nav-foot)", "(max-width: 699.98px)", nav)
 
 
 ASK = SHEET.with_name("_watch_ask.css")
@@ -324,3 +345,68 @@ def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_te
     # The picture is as wide as it needs.
     assert "position: relative" in _of(".tn__art > span", sheet=ASK)
     assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)
+
+
+REMOTE = SHEET.with_name("_tv_remote.css")
+SEARCH = SHEET.with_name("_watch_search.css")
+WIDE, PHONE = "(min-width: 700px)", "(max-width: 699.98px)"
+BAR_SHOWN = "body:has(> .tv-mini:not([hidden]))"
+
+
+def _last(name: str, css: str) -> str:
+    return re.findall(rf"(?<![\w-]){re.escape(name)}:\s*([^;]+)", css)[-1]
+
+
+def _px(value: str, foot: int, height: int) -> float:
+    """What a length of a window *height* high with *foot* at its foot comes to in pixels."""
+    wide_nav = _last("--nav-h", _of(":root", sheet=SHEET.with_name("_tokens.css")))
+    value = re.sub(r"env\([^()]*\)", "0px", value)
+    for name, px in (("--foot", f"{foot}px"), ("--nav-h", wide_nav), ("--seen", "100dvh")):
+        value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
+    value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
+    value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)
+    return float(eval(value.replace("px", ""), {"__builtins__": {}, "min": min, "max": max}))
+
+
+def _bar_top(narrow: bool, foot: int, height: int) -> float:
+    """How far the top of the TV bar is from the foot of the window."""
+    css = _of(".tv-mini", sheet=REMOTE) + (_of(".tv-mini", PHONE, REMOTE) if narrow else "")
+    pads = re.findall(r"(\d+)px", _last("padding", css))
+    inside = _last("min-height", _of(".tv-mini__open", sheet=REMOTE))
+    tall = int(pads[0]) + int(pads[2]) + _px(inside, foot, height)
+    return _px(_last("bottom", css), foot, height) + tall
+
+
+@pytest.mark.parametrize(
+    ("narrow", "foot", "height"),
+    [(False, 0, 800), (False, 0, 390), (True, 72, 844), (True, 60, 375)],
+)
+def test_the_search_sheet_ends_above_the_tv_bar_at_every_width(narrow, foot, height) -> None:
+    top = _of(".watch-sheet", sheet=SEARCH)
+    if narrow:
+        top += _of(".watch-sheet", PHONE, SEARCH)
+    tallest = _of(f"{BAR_SHOWN} .watch-sheet", PHONE if narrow else WIDE, REMOTE)
+    end = _px(_last("top", top), foot, height) + _px(_last("max-height", tallest), foot, height)
+    assert end <= height - _bar_top(narrow, foot, height)
+
+
+@pytest.mark.parametrize("foot", [60, 72])
+def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolled_to(foot) -> None:
+    bar = _of(".tv-mini", PHONE, REMOTE)
+    assert _px(_last("bottom", bar), foot, 844) >= foot
+    over = _bar_top(True, foot, 844)
+    toast = _of(f"{BAR_SHOWN}:has(.watch-search) .ui-toast-host", PHONE, REMOTE)
+    assert _px(_last("bottom", toast), foot, 844) >= over
+    scrolled = _of("html:has(.tv-mini:not([hidden]))", PHONE, REMOTE)
+    assert _px(_last("scroll-padding-bottom", scrolled), foot, 844) >= over
+
+
+def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> None:
+    nav = _last("--nav-h", _of(".nav-glass", PHONE, SHEET.with_name("_nav.css")))
+    page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
+    assert _last("min-height", page) == f"calc(100vh - {nav})"
+
+
+def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:
+    rule = _of(".watch-row__scroll.is-still", sheet=SHEET.parent / "_watch_downloading.css")
+    assert "scroll-snap-type: none !important" in rule

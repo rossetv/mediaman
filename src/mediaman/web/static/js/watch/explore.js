@@ -217,7 +217,7 @@
 
   /* The address' own part: { kind, id, type, sort, decade }, or null. */
   function readAddress(params) {
-    if (params.get('view') === 'list' || (params.get('q') || '').trim()) return null;
+    if ((params.get('q') || '').trim()) return null;
     var id = params.get('genre') || '';
     if (/^[a-z0-9-]{1,40}$/.test(id)) {
       return {
@@ -360,7 +360,7 @@
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       address.push(null, address.url(OWN));
-      core.byId('watch-search').focus({ preventScroll: true });
+      core.spareFocus().focus({ preventScroll: true });
     });
     box.appendChild(link);
     f.host.replaceWith(box);
@@ -924,14 +924,6 @@
     if (e.key !== 'Escape' || e.defaultPrevented || watch.search.composing(e) || !open || address.top() !== 'explore') return;
     e.preventDefault();
     address.back('explore');
-  });
-
-  // The Browse half of the switch is the way out to the rows.
-  document.addEventListener('click', function (e) {
-    var link = e.target.closest && e.target.closest('#watch-viewtoggle [data-view="rows"]');
-    if (!link || !open || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
-    address.push(null, address.url(OWN));
   });
 
   watch.explore = {

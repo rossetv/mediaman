@@ -64,6 +64,16 @@ def _watch(**over: object) -> str:
     return _render("watch.html", **ctx)
 
 
+def test_the_play_on_sheet_and_its_symbols_are_there_before_what_opens_it() -> None:
+    state = SimpleNamespace(username="maren", google_cast=False)
+    html = _watch(request=SimpleNamespace(state=state, query_params={}))
+    for once in ('id="play-on-tv"', "/watch/play-on.js", "/_play_on.css"):
+        assert html.count(once) == 1, once
+    assert html.index("/watch/play-on.js") < html.index("/watch/airplay.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/detail.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/preview.js")
+
+
 def _show_ctx(**over: object) -> dict:
     ctx: dict = {
         "show": {
@@ -797,22 +807,6 @@ def test_the_banner_is_short_on_a_phone_held_sideways() -> None:
     assert block and "min-height: 260px" in block.group(1)
 
 
-def test_a_list_poster_of_any_shape_fills_its_frame() -> None:
-    body = _declarations_of("_tables.css", ".thumb img")
-
-    assert "width: 100%" in body and "height: 100%" in body and "object-fit: cover" in body
-
-
-def test_the_list_actions_column_hugs_its_buttons() -> None:
-    assert "width: 1%" in _declarations_of("_watch_list.css", ".wl-table .col-act")
-
-
-def test_the_dash_of_an_unscheduled_title_is_hidden_on_phone_cards() -> None:
-    rules = dict(_phone_rules("_watch_list.css"))
-
-    assert "display: none" in rules[".wl-del--none > [aria-hidden]"]
-
-
 @pytest.mark.parametrize("place", [".watch-card__poster", ".watch-ep__thumb"])
 def test_a_progress_bar_sits_inside_the_rounded_corners(place: str) -> None:
     body = _declarations_of("_watch.css", f"{place} > .watch-bar")
@@ -846,7 +840,6 @@ def _declarations_in(rules: str, selector: str) -> str:
     [
         ("_watch.css", ".watch-banner__poster"),
         ("_watch_detail.css", ".ttl__poster"),
-        ("_download_page.css", ".dl-cinema__poster"),
     ],
 )
 def test_a_poster_standing_in_for_a_backdrop_keeps_its_own_shape(sheet: str, poster: str) -> None:
@@ -1007,6 +1000,7 @@ def test_a_search_in_the_address_opens_the_page_on_its_results() -> None:
 
 def test_the_watch_scripts_load_in_the_order_they_need_each_other() -> None:
     scripts = re.findall(r'src="/static/js/(watch[^"?]*)\.js', _watch())
+    scripts.remove("watch/play-on")  # every page's own, before them
     place = {name: n for n, name in enumerate(scripts)}
 
     assert scripts[0] == "watch/core"

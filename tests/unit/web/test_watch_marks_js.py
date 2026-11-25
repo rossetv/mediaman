@@ -232,6 +232,14 @@ def test_a_dismissed_card_leaves_focus_goes_on_and_undo_brings_it_back_in_its_pl
     assert (out["focus"], out["call"]) == ("episode/22", "DELETE /api/watch/dismissed/show-2")
 
 
+def test_after_the_last_card_of_a_row_the_focus_goes_to_the_next_row_that_has_cards() -> None:
+    assert _run("dismissLast") == {
+        "next": "leaving",
+        "none": "watch-search",
+        "touch": "main-content",
+    }
+
+
 def test_a_dismissal_in_a_row_opened_as_a_grid_leaves_both_and_comes_back_to_both() -> None:
     out = _run("dismissInGrid")
     assert out["gone"] == [["movie/1", "movie/3"]] * 2
@@ -258,6 +266,14 @@ def test_an_undo_gives_the_focus_to_a_control_that_is_shown() -> None:
 
 def test_a_card_fading_out_of_the_grid_is_taken_out_once() -> None:
     assert _run("ghostInGrid") == [["episode/22", "movie/3"], ["movie/1"], False]
+
+
+def test_the_page_is_told_each_time_a_title_leaves_or_joins_continue_watching() -> None:
+    assert _run("continues") == [
+        ["movie-1", "show-2"],
+        ["movie-1", "show-2", "movie-3"],
+        ["show-2", "movie-3"],
+    ]
 
 
 def test_a_dismissal_the_server_refuses_leaves_the_card() -> None:

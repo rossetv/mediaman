@@ -70,8 +70,11 @@ function load(page, opts = {}) {
   const fetched = [];
   doc.dispatchEvent = (e) => {
     if (e.type === 'mm:rating') doc.listeners['mm:rating'].forEach((fn) => fn(e));
+    else if (e.type === 'mm:watch-continue') continues.push(doc.querySelectorAll('.watch-card').map((c) => c.getAttribute('data-dismiss-ref'))
+      .filter((ref) => ref && ctx.MMWatch.marks.continues(ref)));
     else events.push(e.detail.ref);
   };
+  const continues = []; // what stands in Continue watching, each time a title has left or joined it
   const gone = [];
   const held = []; // the timers of a rating just given, with opts.hold
   const watchers = new Set();
@@ -89,7 +92,7 @@ function load(page, opts = {}) {
     clearTimeout(id) { if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: (q) => ({ matches: !/coarse/.test(q) }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900,
     innerWidth: 1280,
@@ -121,7 +124,7 @@ function load(page, opts = {}) {
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
     gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); },
-    ctx, started, doc, calls, toasts, events, fetched, cards,
+    ctx, started, doc, calls, toasts, events, continues, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
     marks: (id) => cards(id).map((c) => c.getAttribute('data-mark')),
@@ -620,6 +623,21 @@ const scenarios = {
   },
 
   // The row opened as a grid: the card is in both, and an Undo brings it back to both.
+  // The last card of Continue watching goes; after its row stand an anchor, a placeholder and the next row.
+  async dismissLast() {
+    const strip = (id, spec) => ['section', { id }, ['div', { class: 'watch-row__scroll', ...spec }]];
+    const run = async (after, touch) => {
+      const p = load(watchPage([row('continue', [CONTINUE[0]]), ['div', { id: 'watch-asked', hidden: '' }], strip('skel', {}), ...after]));
+      if (touch) {
+        p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }]));
+        p.ctx.matchMedia = () => ({ matches: true });
+      }
+      await p.pick(p.cards()[0], 'dismiss');
+      const at = p.doc.activeElement;
+      return at.id || at.closest('section').id;
+    };
+    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]), touch: await run([], true) };
+  },
   async dismissInGrid() {
     const p = load(watchPage([row('cont', CONTINUE), ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE]]));
     await p.pick(p.cards('grid')[1], 'dismiss');
@@ -671,6 +689,14 @@ const scenarios = {
     p.dismissed('movie-1');
     await settle();
     return [p.marks('cont'), p.marks('host'), ghost.classList.contains('is-kept')];
+  },
+
+  async continues() {
+    const p = load(watchPage([row('cont', CONTINUE)]), { next: (n) => watchPage([row('cont', n === 1 ? CONTINUE : CONTINUE.slice(1))]) });
+    await p.pick(p.cards()[2], 'dismiss');
+    await p.undo();
+    await p.pick(p.cards()[0], 'mark');
+    return p.continues;
   },
 
   async dismissRefused() {

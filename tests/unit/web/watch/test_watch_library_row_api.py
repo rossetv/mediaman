@@ -215,7 +215,7 @@ def test_other_rows_and_absurd_limits_are_refused(client):
     assert client.get("/api/watch/library/films/row").status_code == 404
     for limit in ("0", "61", "x"):
         assert client.get(f"/api/watch/library/tv/row?limit={limit}").status_code == 422
-    assert client.get("/api/watch/library/tv/row?sort=size").status_code == 422
+    assert client.get("/api/watch/library/tv/row?sort=heaviest").status_code == 422
 
 
 def test_what_one_person_has_seen_of_a_show_says_nothing_to_another(client, conn):
@@ -374,8 +374,11 @@ def test_the_shared_link_of_a_library_row_is_its_first_page_in_every_order(
     _seen(conn, "200")
     _year(conn, "203", 2020)
     grid = titled.get(f"/watch?all=movies&sort={sort}").json()["grid"]
-    rest = _page(titled, "movies", sort=sort, after=grid["next"])
-    assert grid["items"] + rest["items"] == _page(titled, "movies", sort=sort)["items"]
+    rest = _page(titled, "library", type="movies", sort=sort, after=grid["next"])
+    whole = _page(titled, "library", type="movies", sort=sort)["items"]
+    assert grid["items"] + rest["items"] == whole
+    row = _page(titled, "movies", sort=sort)["items"]
+    assert [c["href"] for c in whole] == [c["href"] for c in row]
     assert grid["sort"] == sort
 
 

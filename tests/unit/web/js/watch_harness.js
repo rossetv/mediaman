@@ -534,7 +534,7 @@ const scenarios = {
   async flip() {
     const page = load({ motion: true });
     const anims = [];
-    Node.prototype.animate = function (frames) { anims.push({ node: this, frames }); return {}; };
+    Node.prototype.animate = function (frames) { anims.push({ node: this, frames }); return { cancel: () => {} }; };
     page.run();
     const doc = page.doc;
     const a = build(doc, ['i', { id: 'a' }]);
@@ -544,7 +544,21 @@ const scenarios = {
     const play = page.ctx.MMWatch.core.flip([a, b]);
     at.a = { left: 30, top: 10 };
     play();
-    return { moved: anims.map((x) => [x.node.id, x.frames[0].transform, x.frames[1].transform]) };
+    const moved = anims.map((x) => [x.node.id, x.frames[0].transform, x.frames[1].transform]);
+    // Seen halfway, it is moved again.
+    let way = { left: -15, top: -5 };
+    const rest = { left: 30, top: 10 };
+    Node.prototype.animate = function (frames) { anims.push({ node: this, frames }); return { cancel: () => { way = { left: 0, top: 0 }; } }; };
+    a.getBoundingClientRect = () => ({ left: rest.left + way.left, top: rest.top + way.top });
+    way = { left: 0, top: 0 };
+    const begin = page.ctx.MMWatch.core.flip([a]);
+    rest.left = 60;
+    begin();
+    way = { left: -15, top: -5 };
+    const on = page.ctx.MMWatch.core.flip([a]);
+    rest.left = 80;
+    on();
+    return { moved, again: anims[anims.length - 1].frames[0].transform };
   },
 
   // Season 1 is leaving, Season 2 is not: the line's slot stays through the swap and back.

@@ -86,14 +86,14 @@ class TestConfirmPage:
         resp = self._page(client, secret_key, "tv", series=UNMONITORED_SHOW)
 
         assert resp.status_code == 200
-        assert "Already tracked by Sonarr" in resp.text
+        assert "Already on the list" in resp.text
         assert 'id="btn-download"' not in resp.text
 
     def test_a_show_sonarr_does_not_hold_still_offers_the_download(self, client, secret_key):
         resp = self._page(client, secret_key, "tv")
 
         assert 'id="btn-download"' in resp.text
-        assert "Already tracked" not in resp.text
+        assert '"download_state": "tracked"' not in resp.text
 
     def test_an_unmonitored_movie_keeps_its_download_button(self, client, secret_key):
         movie = {"tmdbId": 500, "hasFile": False, "monitored": False}
@@ -101,7 +101,7 @@ class TestConfirmPage:
         resp = self._page(client, secret_key, "movie", movie=movie)
 
         assert 'id="btn-download"' in resp.text
-        assert "Already tracked" not in resp.text
+        assert '"download_state": "tracked"' not in resp.text
 
     @pytest.mark.parametrize("season_files", [0, 4])
     def test_a_show_still_downloading_is_on_its_way_not_offered_again(
@@ -614,7 +614,7 @@ class TestRetryOfAnAddThatLandedLate:
             page = client.get(f"/download/{token}").text
 
         assert '"download_state": "queued"' in page
-        assert "notified by email" in page
+        assert "send you a mail" in page
         assert self._mails(client) == ["viewer@example.com"]
 
     @pytest.mark.parametrize("media_type", ["movie", "tv"])
@@ -880,7 +880,7 @@ class TestAlreadyThereAnswer:
         assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
         reopened, polled = self._reopened_and_polled(client, token, held)
         assert '"download_state": "queued"' in reopened
-        assert "be notified by email" in reopened
+        assert "send you a mail" in reopened
         assert polled == "ready"
 
     @pytest.mark.parametrize("was_held", [True, False], ids=["held", "added"])
@@ -899,7 +899,7 @@ class TestAlreadyThereAnswer:
         reopened, polled = self._reopened_and_polled(client, token, held)
 
         assert '"download_state": "queued"' in reopened
-        assert "be notified by email" not in reopened
+        assert "send you a mail" not in reopened
         assert polled == "ready"
 
     def test_a_refused_link_with_no_address_is_no_request_that_keeps_a_deleted_season_monitored(

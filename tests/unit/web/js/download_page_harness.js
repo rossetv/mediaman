@@ -1,386 +1,402 @@
-// Runs the real download.js (the per-token page) against a tiny fake DOM and
-// prints the outcome as JSON. Usage: node download_page_harness.js [scenario]; with none, a
-// title already on its way when the page opens.
+// Runs the real download.js and share.js on the page the server draws, given on stdin as
+// nested [tag, attrs, ...children] arrays, and prints the outcome as JSON.
+// Usage: node download_page_harness.js <scenario> < page.json
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { Node, makeDocument, build, click, settle } = require('./fake_dom.js');
 
 const JS = path.resolve(__dirname, '../../../../src/mediaman/web/static/js');
+const SPEC = JSON.parse(fs.readFileSync(0, 'utf8'));
 
-class El {
-  constructor(tag) {
-    this.tagName = tag.toUpperCase(); this.children = []; this.parentNode = null;
-    this.attrs = {}; this.style = {}; this.listeners = {}; this.className = ''; this._text = ''; this.id = '';
-    this.hidden = false;
-  }
-  get firstChild() { return this.children[0] || null; }
-  get nextElementSibling() { const all = this.parentNode.children; return all[all.indexOf(this) + 1] || null; }
-  insertBefore(c, before) {
-    if (c.parentNode) c.parentNode.removeChild(c);
-    const at = before ? this.children.indexOf(before) : this.children.length;
-    c.parentNode = this; this.children.splice(at, 0, c); return c;
-  }
-  contains(o) { for (let e = o; e; e = e.parentNode) if (e === this) return true; return false; }
-  // The busy button's padding is narrower.
-  get offsetWidth() { return this.getAttribute('aria-disabled') === 'true' ? 92 : 132; }
-  closest(sel) { for (let e = this; e; e = e.parentNode) if (e.matches(sel)) return e; return null; }
-  removeAttribute(k) { delete this.attrs[k]; }
-  focus() { El.focused = this; }
-  scrollIntoView() { El.scrolledTo = this; }
-  get classList() {
-    const el = this;
-    const list = () => el.className.split(/\s+/).filter(Boolean);
-    return {
-      contains: (c) => list().includes(c),
-      add: (c) => { if (!list().includes(c)) el.className = list().concat(c).join(' '); },
-      remove: (c) => { el.className = list().filter((x) => x !== c).join(' '); },
-      toggle: (c, on) => {
-        if (on === undefined) on = !list().includes(c);
-        el.className = list().filter((x) => x !== c).concat(on ? c : []).join(' ');
-        return on;
-      },
-    };
-  }
-  setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') this.id = String(v); }
-  getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
-  set textContent(t) { this.children = []; this._text = String(t); }
-  get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); }
-  appendChild(c) { if (c.parentNode) c.parentNode.removeChild(c); c.parentNode = this; this.children.push(c); return c; }
-  removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parentNode = null; return c; }
-  addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
-  removeEventListener() {}
-  replaceChildren(...cs) { this.children = []; this._text = ''; cs.forEach((c) => this.appendChild(c)); }
-  all() { return this.children.flatMap((c) => [c, ...c.all()]); }
-  matches(sel) {
-    let m;
-    if ((m = sel.match(/^\.([\w-]+)$/))) return this.classList.contains(m[1]);
-    if ((m = sel.match(/^\[([\w-]+)="([^"]*)"\]$/))) return this.getAttribute(m[1]) === m[2];
-    return this.tagName === sel.toUpperCase();
-  }
-  querySelectorAll(sel) { return this.all().filter((e) => e.matches(sel)); }
-  querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
-}
+Object.defineProperty(Node.prototype, 'hidden', {
+  get() { return this.hasAttribute('hidden'); },
+  set(on) { this.toggleAttribute('hidden', on); },
+});
+Node.prototype.replaceChildren = function (...cs) { this.textContent = ''; this.append(...cs); };
+Node.prototype.removeChild = function (c) { c.remove(); return c; };
+Object.defineProperty(Node.prototype, 'content', { get() { return this; } });
+// The busy button's spinner and word are narrower.
+Object.defineProperty(Node.prototype, 'offsetWidth', { get() { return this.getAttribute('aria-disabled') === 'true' ? 92 : 132; } });
 
-const settle = () => new Promise((r) => setImmediate(r));
-
-// The page with its scripts not yet run. `boot` overrides what the server says of the title.
-// `moving`: without reduced motion, parts close when endFolds() is called.
-function page(boot, moving) {
-  El.focused = null;
-  const root = new El('div');
-  const doc = {
-    hidden: false,
-    get activeElement() { return El.focused; },
-    createElement: (t) => new El(t),
-    createElementNS: (ns, t) => new El(t),
-    createTextNode: (t) => { const e = new El('#text'); e._text = t; return e; },
-    addEventListener() {},
-    querySelector: () => null,
-    getElementById: (id) => (id === 'dl-root' ? root : root.all().find((e) => e.id === id) || null),
+function page() {
+  const doc = makeDocument();
+  const bar = doc.body.appendChild(doc.createElement('header'));
+  bar.className = 'share-bar';
+  SPEC.forEach((s) => doc.body.appendChild(build(doc, s)));
+  const inTemplate = (n) => !!n.parentNode && !!n.parentNode.closest('template');
+  // A template's parts are not in the page until they are cloned.
+  const all = doc.documentElement.querySelectorAll.bind(doc.documentElement);
+  doc.querySelectorAll = (s) => all(s).filter((n) => !inTemplate(n));
+  doc.querySelector = (s) => doc.querySelectorAll(s)[0] || null;
+  doc.getElementById = (id) => doc.querySelector('#' + id);
+  const p = {
+    doc, payload: {}, posted: 0, asked: [], timers: [],
+    answer: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }),
   };
-  const add = (id, text, parent) => { const e = new El('div'); e.setAttribute('id', id); if (text) e._text = text; (parent || root).appendChild(e); return e; };
-  add('page-bootstrap', JSON.stringify(Object.assign({
-    token: 't', poll_token: 'p', service: 'radarr', tmdb_id: 7, title: 'Film',
-    media_type: 'movie', download_state: 'queued',
-    poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
-    backdrop_url: 'https://image.tmdb.org/t/p/w1280/wide.jpg',
-  }, boot)));
-  const cinema = add('dl-cinema');
-  const content = add('dl-content');
-  const action = add('download-action', '', content);
-  const button = add('btn-download', 'Download', action);
-  const result = add('download-result', '', content);
-  result.hidden = true;
-  const wrapper = add('dl-hero-wrapper');
-
-  const p = { payload: {}, posted: 0, answer: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }) };
+  const make = doc.createElement;
+  doc.createElement = (tag) => { const n = make(tag); n.style.setProperty = (k, v) => { n.style[k] = v; }; return n; };
+  const styles = p.styles = {};
+  doc.querySelector('.share-page').style.setProperty = (k, v) => { styles[k] = v; };
+  doc.hidden = false;
+  class APIError extends Error { constructor(status, data) { super(); this.status = status; this.data = data || {}; } }
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise,
-    setInterval: (fn) => { ctx.tick = fn; return 1; }, clearInterval() {}, MM: {},
+    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, encodeURIComponent,
+    getComputedStyle: () => ({}), matchMedia: () => ({ matches: true }),
+    setInterval: (fn) => { p.tick = fn; return 1; }, clearInterval() { p.tick = null; },
+    setTimeout: (fn) => { p.timers.push(fn); }, MM: {},
   };
   ctx.window = ctx;
-  let folds = [];
-  p.endFolds = () => { const due = folds; folds = []; due.forEach((fn) => fn()); };
-  ctx.setTimeout = (fn) => (moving ? folds.push(fn) : fn());
-  ctx.matchMedia = () => ({ matches: !moving });
-  ctx.getComputedStyle = () => ({});
+  const heard = {};
+  ctx.addEventListener = (type, fn) => { (heard[type] = heard[type] || []).push(fn); };
+  p.hear = (type, e) => (heard[type] || []).forEach((fn) => fn(e));
+  p.resized = () => p.hear('resize');
+  ctx.matchMedia = () => ({ matches: p.still });
+  p.still = true;
+  ctx.location = { origin: 'https://mediaman.example' };
+  // Two entries of one page, as a browser's history has them.
+  const entries = [null];
+  // Going back is asked for now and done later.
+  const asked = [];
+  p.went = () => { asked.splice(0).forEach(go); return !!p.left; };
+  p.now = 1e6;
+  ctx.Date = { now: () => p.now };
+  let at = 0;
+  const go = (by) => { if (at + by < 0) p.left = true; else if (entries[at + by] !== undefined) { at += by; p.hear('popstate', { state: entries[at] }); } };
+  ctx.history = { get state() { return entries[at]; }, back: () => { asked.push(-1); },
+    pushState: (s) => { entries.splice(++at, entries.length, s); }, replaceState: (s) => { entries[at] = s; } };
+  p.back = () => go(-1); p.forward = () => go(1); p.entries = () => entries.length; p.history = ctx.history;
+  Node.prototype.scrollIntoView = function (how) { p.scrolled = [this.className, how.block, how.behavior]; };
+  Object.defineProperty(Node.prototype, 'contentWindow', { configurable: true, get() { return this.win = this.win || { postMessage: (m) => { (p.told = p.told || []).push(JSON.parse(m)); } }; } });
+  // Where the player ends and the buttons start.
+  const rect = Node.prototype.getBoundingClientRect;
+  p.place = (playerEnds, buttonsStart) => {
+    doc.createElement('div').constructor.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('share-player')) return { ...rect.call(this), bottom: playerEnds };
+      if (this.classList.contains('share-act')) return { ...rect.call(this), top: buttonsStart };
+      return rect.call(this);
+    };
+  };
   ctx.MM.api = {
-    get: () => Promise.resolve(p.payload),
-    post: () => { p.posted += 1; return p.answer(); },
-    APIError: class extends Error {},
+    get: (url) => { p.asked.push(url); return p.get ? p.get() : Promise.resolve(p.payload); },
+    post: (url) => { p.posted += 1; p.postedTo = url; return p.answer(); },
+    APIError,
     messageOf: (err, fallback) => (err.data && err.data.message) || fallback,
   };
+  p.refuse = (status, data) => { p.answer = () => Promise.reject(new APIError(status, data)); };
+  p.error = (status) => new APIError(status);
   vm.createContext(ctx);
-  const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
-  load('core/dom.js');
-  load('downloads/build_dom.js');
-  return Object.assign(p, { ctx, load, root, cinema, content, action, button, result, wrapper });
-}
-
-// Pressing Download gets `answer`; the second press, when there is one, gets `then`.
-function refusal(status, data) {
-  return () => Promise.reject(Object.assign(new Error(), { status, data: data || {} }));
+  ['core/dom.js', 'downloads/build_dom.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  p.start = () => vm.runInContext(fs.readFileSync(path.join(JS, 'download.js'), 'utf8'), ctx);
+  p.trailer = () => vm.runInContext(fs.readFileSync(path.join(JS, 'share.js'), 'utf8'), ctx);
+  p.one = (s) => doc.querySelector(s);
+  p.act = () => p.one('#download-action');
+  p.later = () => { p.timers.splice(0).forEach((fn) => fn()); };
+  p.poll = async (payload) => { p.payload = payload; p.tick(); await settle(); };
+  return p;
 }
 
 async function press(p) {
+  const button = p.one('[data-dl]');
   // A click in Safari puts the focus on the page around the button.
-  El.focused = p.root;
-  p.button.listeners.click.forEach((fn) => fn());
-  const during = { label: p.button.textContent, busy: p.button.getAttribute('aria-disabled'), focused: El.focused === p.button };
-  during.spinner = !!p.button.querySelector('.btn-spinner');
-  during.minWidth = p.button.style.minWidth;
-  p.button.listeners.click.forEach((fn) => fn());
+  p.doc.activeElement = p.doc.body;
+  click(p.doc, button);
+  const during = { label: button.textContent, busy: button.getAttribute('aria-disabled'),
+    focused: p.doc.activeElement === button, spinner: !!button.querySelector('.btn-spinner'), minWidth: button.style.minWidth };
+  click(p.doc, button);
   await settle();
   return during;
 }
 
-const seen = (p) => ({
-  card: !p.wrapper.hidden && !!p.wrapper.querySelector('.dl-hero'),
-  hint: (p.wrapper.querySelector('.dl-hint') || { textContent: null }).textContent,
-  content: !p.content.hidden,
-  button: p.action.hidden ? null : p.button.textContent,
-  busy: p.button.getAttribute('aria-disabled'),
-  result: p.result.hidden ? null : p.result.textContent,
-  error: p.result.classList.contains('dl-result--error'),
-  focus: El.focused === p.button ? 'button' : El.focused === p.result ? 'result' : El.focused && El.focused.tagName,
-  posted: p.posted,
-});
+const shown = (el) => { for (let a = el; a; a = a.parentNode) if (a.hidden) return false; return true; };
+const words = (el) => (el.nodeType === 3 ? el.textContent : shown(el) ? el.childNodes.map(words).join(' ') : '').replace(/\s+/g, ' ').trim();
 
-const ANSWERS = {
-  unanswered: refusal(0, { message: 'Could not reach mediaman.' }),
-  down: refusal(502, { message: 'Check service connectivity' }),
-  limited: refusal(429, { message: 'Too many requests' }),
-  expired: refusal(410, { message: 'Token expired or invalid' }),
-  wordless: refusal(403),
-  used: refusal(409, { message: 'This download link has already been used' }),
-  queued: refusal(409, { poll_token: 'p3', download_state: 'queued' }),
-  queuedMailed: refusal(409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }),
-  inLibrary: refusal(409, { poll_token: 'p3', download_state: 'in_library' }),
-  tracked: refusal(409, { poll_token: 'p3', download_state: 'tracked' }),
-};
+function seen(p) {
+  const act = p.act();
+  const steps = act.querySelector('.share-steps');
+  const buttons = act.querySelectorAll('.btn');
+  return {
+    words: words(act), title: p.one('.watch-banner__title').textContent,
+    step: steps && words(steps.querySelector('.is-now') || steps.children[3]),
+    alert: !!act.querySelector('[role="alert"]'),
+    buttons: buttons.map((b) => words(b)), links: buttons.filter((b) => b.tagName === 'A').map((b) => b.getAttribute('href')),
+    busy: buttons.length ? buttons[0].getAttribute('aria-disabled') : null,
+    focus: p.doc.activeElement === p.doc.body ? null : words(p.doc.activeElement) || p.doc.activeElement.tagName,
+    said: p.one('[data-said]').textContent, posted: p.posted,
+    bar: !!steps && !act.querySelector('[data-fold]').classList.contains('is-shut'),
+    figures: steps && words(act.querySelector('.dl-progress__line')),
+    colour: p.styles['--sat'],
+  };
+}
+
+const RUNNING = { state: 'downloading', state_label: 'Downloading', progress: 34, eta: '5 min',
+  episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
+const READY = { state: 'ready', state_label: 'Ready', progress: 100 };
 
 const SCENARIOS = {
   async answers() {
+    const ANSWERS = {
+      unanswered: [0, { message: 'Could not reach mediaman.' }],
+      wordless: [403, {}],
+      ...JSON.parse(process.argv[3]),
+      queued: [409, { poll_token: 'p3', download_state: 'queued' }],
+      queuedMailed: [409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }],
+      inLibrary: [409, { poll_token: 'p3', download_state: 'in_library' }],
+      tracked: [409, { poll_token: 'p3', download_state: 'tracked' }],
+    };
     const out = {};
     for (const name of Object.keys(ANSWERS)) {
-      const p = page({ download_state: '', poll_token: '', notify_by_email: true });
-      p.load('download.js');
-      p.answer = ANSWERS[name];
+      const p = page();
+      p.start();
+      p.refuse(...ANSWERS[name]);
       await press(p);
-      out[name] = seen(p);
+      out[name] = { ...seen(p), polls: p.asked };
     }
     return out;
   },
   async retry() {
-    const p = page({ download_state: '', poll_token: '' });
-    p.load('download.js');
+    const p = page();
     const good = p.answer;
-    p.answer = ANSWERS.down;
+    p.start();
+    p.refuse(502);
     const first = await press(p);
     const failed = seen(p);
     p.answer = good;
+    p.payload = { state: 'searching' };
     const second = await press(p);
-    return { first, failed, second, done: seen(p) };
+    return { first, failed, second, done: seen(p), to: p.postedTo, polls: p.asked };
   },
-  // Which parts of the card open and close, and that it comes in, as the download goes on.
-  async motion() {
-    const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
-    const moves = [];
-    const dom = p.ctx.MM.downloads.buildDom;
-    for (const name of ['reveal', 'collapse', 'collapseAway']) {
-      const real = dom[name];
-      dom[name] = (el, done) => { moves.push(`${name} ${el.getAttribute('data-v') || el.className}`); real(el, done); };
-    }
-    p.load('download.js');
-    p.payload = { state: 'searching', state_label: 'Searching', progress: 0 };
+  // A press, then the polls of a whole download.
+  async run() {
+    const p = page();
+    p.start();
+    p.payload = { state: 'searching' };
     await press(p);
-    const enters = p.wrapper.querySelector('.dl-hero').classList.contains('dl-card-enter');
-    const poll = async (payload) => { moves.length = 0; p.payload = payload; p.ctx.tick(); await settle(); return moves.slice(); };
-    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
-      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
-    const starts = await poll(running);
-    const goesOn = await poll(running);
-    El.focused = p.wrapper.querySelector('[data-v="ep-toggle"]');
-    const ends = await poll({ state: 'ready', state_label: 'Ready', progress: 100, size_done: '', size_total: '' });
-    return { enters, starts, goesOn, ends, left: p.wrapper.querySelectorAll('[data-v="ep-toggle"]').length,
-      figures: p.wrapper.querySelector('.dl-hero-details').textContent, focus: El.focused.tagName };
+    const out = { searching: seen(p) };
+    await p.poll(RUNNING);
+    out.downloading = seen(p);
+    await p.poll({ ...RUNNING, progress: 80, eta: '' });
+    out.later = seen(p);
+    await p.poll({ state: 'unknown', progress: 0 });
+    out.unanswered = seen(p);
+    await p.poll({ state: 'almost_ready', progress: 100 });
+    out.almost = seen(p);
+    await p.poll(READY);
+    out.last = seen(p);
+    p.later();
+    out.ready = seen(p);
+    return out;
   },
-  // Answers that come while parts close, or after a newer one.
+  async eta() {
+    const p = page();
+    p.start();
+    await settle();
+    const step = async (polled) => { await p.poll({ ...RUNNING, ...polled }); return seen(p).figures; };
+    return { start: seen(p).figures, noEtaYet: await step({ eta: '' }), arrives: await step({ eta: '5 min' }),
+      changes: await step({ eta: '4 min' }), clears: await step({ eta: '' }) };
+  },
+  async pictures() {
+    const p = page();
+    p.start();
+    const there = () => p.doc.querySelectorAll('img').map((i) => i.getAttribute('src'));
+    const before = there();
+    await press(p);
+    return { before, after: there() };
+  },
+  async episodes() {
+    const p = page();
+    p.start();
+    await settle();
+    const box = p.one('.share-eps');
+    const ep = (label, state) => ({ label, title: label, state, progress: 0 });
+    const state = () => ({ shown: !box.hidden, open: box.hasAttribute('open'), summary: words(box.querySelector('summary')),
+      rows: box.querySelectorAll('.dl-ep-status-pill').map((e) => e.textContent) });
+    const out = { none: box.hidden };
+    await p.poll({ ...RUNNING, episodes: [ep('S01E01', 'queued'), ep('S01E02', 'searching')] });
+    out.first = state();
+    box.setAttribute('open', '');
+    await p.poll({ ...RUNNING, episodes: [ep('S01E01', 'ready'), ep('S01E02', 'searching'), ep('S01E03', 'queued')] });
+    out.after = state();
+    const hero = p.one('.share-hero');
+    const summary = box.querySelector('summary');
+    const list = box.querySelector('[data-v="ep-list"]');
+    const eased = [];
+    list.animate = (frames) => { eased.push(frames); return (p.easing = {}); };
+    const press = () => { click(p.doc, summary); return { open: box.hasAttribute('open'), held: hero.style.alignItems || '' }; };
+    p.still = false;
+    press();
+    p.easing.onfinish();
+    press();
+    p.easing.onfinish();
+    p.still = true;
+    out.eased = eased;
+    out.shut = press();
+    out.opened = press();
+    p.resized();
+    out.narrowed = hero.style.alignItems || '';
+    p.doc.activeElement = summary;
+    await p.poll({ state: 'searching' });
+    out.letGo = hero.style.alignItems || '';
+    out.gone = { shown: !box.hidden, focus: p.doc.activeElement.tagName };
+    await p.poll(RUNNING);
+    out.back = state();
+    return out;
+  },
+  // Answers that come after a newer one, or once the title is ready.
   async late() {
     const out = {};
-    const running = { state: 'downloading', state_label: 'Downloading', progress: 34, size_done: '3 GB', size_total: '9 GB',
-      episode_summary: '0 of 1 ready', episodes: [{ label: 'S01E01', title: 'One', state: 'queued', progress: 0 }] };
-    const ready = { state: 'ready', state_label: 'Ready', progress: 100 };
     const start = async () => {
-      const p = page({ media_type: 'tv', service: 'sonarr' }, true);
-      p.ctx.MM.api.APIError = class extends Error { constructor(status) { super(); this.status = status; } };
-      const hint = new El('div');
-      hint.className = 'dl-hint'; hint._text = 'On its way';
-      p.wrapper.appendChild(p.ctx.MM.downloads.buildDom.buildHero({ id: 'x', title: 'Show', media_type: 'tv', state: 'searching' }));
-      p.wrapper.appendChild(hint);
-      p.payload = running;
-      p.load('download.js');
+      const p = page();
+      p.payload = RUNNING;
+      p.start();
       await settle();
-      p.endFolds();
       const asked = [];
-      p.ctx.MM.api.get = () => new Promise((resolve, reject) => asked.push({ resolve, reject }));
-      p.ask = () => { p.ctx.tick(); return asked[asked.length - 1]; };
-      p.answer = async (q, payload) => { q.resolve(payload); await settle(); };
-      p.pill = () => p.wrapper.querySelector('[data-v="pill"]').textContent;
-      p.results = () => p.wrapper.querySelectorAll('.dl-result').length;
-      p.part = (v) => p.wrapper.querySelector(`[data-v="${v}"]`);
+      p.get = () => new Promise((resolve, reject) => asked.push({ resolve, reject }));
+      p.ask = () => { p.tick(); return asked[asked.length - 1]; };
       return p;
     };
-
     let p = await start();
     let first = p.ask(), second = p.ask(), third = p.ask(), fourth = p.ask();
-    await p.answer(first, ready);
-    await p.answer(second, ready);
-    const closing = p.results();
-    await p.answer(third, running);
-    fourth.reject(new p.ctx.MM.api.APIError(401));
+    first.resolve(READY);
     await settle();
-    p.endFolds();
-    out.ready = { closing, after: p.results(), pill: p.pill(), bar: !p.part('progress-wrap').hidden,
-      said: p.wrapper.querySelectorAll('.dl-hint').length };
+    second.resolve(READY);
+    third.resolve(RUNNING);
+    fourth.reject(p.error(401));
+    await settle();
+    out.ready = { ...seen(p), timers: p.timers.length };
+    p.later();
+    out.after = seen(p);
 
     p = await start();
     first = p.ask(); second = p.ask(); third = p.ask();
-    await p.answer(third, { ...running, progress: 60 });
-    await p.answer(first, running);
-    second.reject(new p.ctx.MM.api.APIError(401));
+    third.resolve({ ...RUNNING, progress: 60 });
     await settle();
-    out.overtaken = { pct: p.part('pct').textContent, hint: p.wrapper.querySelector('.dl-hint').textContent };
+    first.resolve(RUNNING);
+    second.reject(p.error(401));
+    await settle();
+    out.overtaken = seen(p);
 
     p = await start();
-    const press = () => { const target = p.part('ep-toggle'); if (target) p.wrapper.listeners.click.forEach((fn) => fn({ target })); };
-    const loseList = () => { const list = p.part('ep-list'); if (list) list.parentNode.removeChild(list); };
-    const back = async () => {
-      await p.answer(p.ask(), { state: 'searching', state_label: 'Searching', progress: 0 });
-      await p.answer(p.ask(), running);
-      p.endFolds();
-      const list = p.part('ep-list');
-      return { toggle: !!p.part('ep-toggle'), open: !!list && !list.hidden,
-        rows: list ? list.querySelectorAll('.dl-ep-row').length : 0, summary: !!p.wrapper.querySelector('.dl-hero-ep-summary') };
-    };
-    out.backClosed = await back();
-    p = await start();
-    press();
-    p.endFolds();
-    out.backOpen = await back();
-
-    p = await start();
-    loseList();
-    await p.answer(p.ask(), { ...running, episode_summary: '1 of 1 ready' });
-    out.noList = { summary: (p.wrapper.querySelector('.dl-hero-ep-summary') || {}).textContent, rows: p.wrapper.querySelectorAll('.dl-ep-row').length };
-    loseList();
-    await p.answer(p.ask(), ready);
-    p.endFolds();
-    out.noListReady = { results: p.results(), toggle: !!p.part('ep-toggle') };
-    return out;
-  },
-  async hint() {
-    const p = page({ download_state: '', poll_token: '', notify_by_email: true });
-    p.ctx.MM.api.get = () => new Promise(() => {});
-    p.load('download.js');
-    await press(p);
-    return { hint: seen(p).hint };
-  },
-  async card() {
-    const p = page({ download_state: '', poll_token: '', media_type: 'tv', service: 'sonarr' });
-    p.ctx.MM.api.get = () => new Promise(() => {});
-    p.load('download.js');
-    await press(p);
-    const card = p.wrapper.querySelector('.dl-hero');
-    return {
-      headings: p.wrapper.querySelectorAll('h1').map((e) => e.textContent),
-      focused: El.focused.tagName,
-      pills: card.querySelectorAll('.pill').map((e) => e.textContent),
-      state: card.querySelector('[data-v="pill"]').textContent,
-      links: p.wrapper.querySelectorAll('a').map((e) => e.href),
-    };
-  },
-  async episodes() {
-    const p = page({ media_type: 'tv', service: 'sonarr' });
-    p.wrapper.appendChild(p.ctx.MM.downloads.buildDom.buildHero({ id: 'x', title: 'Show', media_type: 'tv', state: 'searching' }));
-    const ep = (label, state) => ({ label, title: label, state, progress: 0 });
-    const step = async (episodes) => {
-      p.payload = { state: 'downloading', state_label: 'Downloading', progress: 3, episodes };
-      if (p.ctx.tick) p.ctx.tick(); else p.load('download.js');
-      await settle();
-    };
-    await step([ep('S01E01', 'queued'), ep('S01E02', 'searching')]);
-    const toggle = p.wrapper.querySelector('[data-v="ep-toggle"]');
-    const list = p.wrapper.querySelector('[data-v="ep-list"]');
-    const press = () => p.wrapper.listeners.click.forEach((fn) => fn({ target: toggle.querySelector('span') }));
-    const state = () => ({ expanded: toggle.getAttribute('aria-expanded'), shown: !list.hidden });
-    const out = { tag: toggle.tagName, inInfo: !!toggle.closest('.dl-hero-info') && !!list.closest('.dl-hero-info') };
-    out.pills = list.querySelectorAll('.dl-ep-status-pill').map((e) => e.textContent);
-    out.closed = state();
-    press();
-    out.open = state();
-    await step([ep('S01E01', 'ready'), ep('S01E02', 'searching'), ep('S01E03', 'queued')]);
-    out.after = { ...state(), rows: list.querySelectorAll('.dl-ep-status-pill').map((e) => e.textContent) };
-    p.payload = { state: 'unknown', progress: 0 };
-    p.ctx.tick();
+    p.ask().reject(p.error(401));
     await settle();
-    out.unanswered = p.wrapper.querySelector('[data-v="pill"]').textContent;
-    press();
-    out.closedAgain = state();
+    out.stopped = { ...seen(p), polling: !!p.tick };
     return out;
   },
-  async ready() {
-    const p = page({ download_state: '', poll_token: '' });
-    p.load('download.js');
-    p.payload = { state: 'ready', state_label: 'Ready', progress: 100 };
-    await press(p);
-    return {
-      status: p.wrapper.querySelectorAll('[role="status"]').map((e) => e.textContent),
-      card: !!p.wrapper.querySelector('.dl-hero'),
-      progress: !p.wrapper.querySelector('[data-v="progress-wrap"]').hidden,
-      links: p.wrapper.querySelectorAll('a').length,
+  async trailer() {
+    const p = page();
+    p.start();
+    p.trailer();
+    const link = p.one('[data-trailer]');
+    const frames = () => p.doc.querySelectorAll('iframe').map((f) => ({ ...f.attrs, src: f.src }));
+    const now = () => ({ frames: frames(), on: p.one('.share-hero').classList.contains('is-trailer'),
+      inert: p.one('.watch-banner__body').inert, focus: p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.className });
+    const out = { before: now() };
+    p.place(700, 400);
+    click(p.doc, link, { ctrlKey: true });
+    out.newTab = now();
+    click(p.doc, link);
+    out.on = now();
+    p.place(390, 430);
+    p.resized();
+    out.upright = now();
+    p.one('[data-dl]').focus();
+    p.place(390, 300);
+    p.resized();
+    out.sideways = now();
+    (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
+    p.went();
+    out.off = now();
+    p.resized();
+    out.offResized = now();
+    out.scrolled = p.scrolled;
+    out.told = p.told.map((m) => m.func || m.event);
+    out.entries = p.entries();
+    const press = (el) => { p.now += 1000; click(p.doc, el || link); p.went(); };
+    press();
+    press();
+    out.again = now();
+    press();
+    p.back();
+    out.back = now();
+    p.forward();
+    out.forward = now();
+    const ended = (state, source, origin) => p.hear('message', { source, origin: origin || 'https://www.youtube-nocookie.com',
+      data: JSON.stringify({ event: 'onStateChange', info: state }) });
+    const win = p.one('iframe').contentWindow;
+    ended(1, win);
+    ended(0, {});
+    ended(0, win, 'https://elsewhere.example');
+    out.played = now();
+    ended(0, win);
+    p.went();
+    out.ended = now();
+    p.still = false;
+    press();
+    // Safari leaves the focus of a clicked button on the page around it.
+    p.one('main').focus();
+    press(p.one('.ttl__close'));
+    out.fading = now();
+    p.later();
+    out.faded = now();
+    p.still = true;
+    const reloaded = page();
+    reloaded.history.pushState({ trailer: 'dQw4w9WgXcQ' });
+    reloaded.trailer();
+    reloaded.hear('load');
+    reloaded.went();
+    out.reloaded = { state: reloaded.history.state, on: reloaded.one('.share-hero').classList.contains('is-trailer') };
+    reloaded.back();
+    out.reloaded.left = reloaded.left;
+    press();
+    p.act().replaceChildren();
+    click(p.doc, p.one('.ttl__close'));
+    out.gone = { ...now(), tag: p.doc.activeElement.tagName };
+    return out;
+  },
+  // Each way to close the trailer, twice before the browser has gone back once.
+  async twice() {
+    const key = (p, e) => p.doc.listeners.keydown.forEach((fn) => fn(e));
+    const ends = (p, event, info) => p.hear('message', { source: p.one('iframe').contentWindow,
+      origin: 'https://www.youtube-nocookie.com', data: JSON.stringify({ event, info }) });
+    const WAYS = {
+      close: (p, again) => click(p.doc, p.one('.ttl__close'), { detail: again ? 2 : 1 }),
+      button: (p, again) => click(p.doc, p.one('[data-trailer]'), { detail: again ? 2 : 1 }),
+      escape: (p, again) => key(p, { key: 'Escape', repeat: !!again }),
+      end: (p, again) => (again ? ends(p, 'infoDelivery', { playerState: 0 }) : ends(p, 'onStateChange', 0)),
     };
+    const out = {};
+    for (const way of Object.keys(WAYS)) {
+      const p = page();
+      p.still = false;
+      p.start();
+      p.trailer();
+      click(p.doc, p.one('[data-trailer]'));
+      p.now += 1000;
+      WAYS[way](p);
+      WAYS[way](p, true);
+      const barHeld = p.one('.share-bar').style.pointerEvents;
+      const left = p.went();
+      WAYS[way](p, true);
+      out[way] = { left: left || p.went(), on: p.one('.share-hero').classList.contains('is-trailer'), barHeld };
+      p.later();
+      out[way].barAfter = p.one('.share-bar').style.pointerEvents;
+      p.now += 1000;
+      click(p.doc, p.one('[data-trailer]'));
+      out[way].opens = p.one('.share-hero').classList.contains('is-trailer');
+      p.back();
+      out[way].back = [p.one('.share-hero').classList.contains('is-trailer'), !!p.left];
+    }
+    const p = page();
+    p.start();
+    p.trailer();
+    const held = { key: 'Enter', repeat: true, target: p.one('[data-trailer]'), preventDefault() { this.stopped = true; } };
+    key(p, held);
+    const typed = { ...held, repeat: false, stopped: false };
+    key(p, typed);
+    out.enter = { held: !!held.stopped, typed: !!typed.stopped };
+    return out;
   },
 };
 
-async function main() {
-  const scenario = SCENARIOS[process.argv[2]];
-  if (scenario) { console.log(JSON.stringify(await scenario())); return; }
-  const p = page({});
-  const { ctx, wrapper, button, load } = p;
-  // the page arrives with a hero that has no ETA yet
-  wrapper.appendChild(ctx.MM.downloads.buildDom.buildHero({
-    id: 'radarr:Film', title: 'Film', media_type: 'movie', state: 'searching', progress: 0, eta: '',
-  }));
-
-  const stats = () => wrapper.querySelector('.dl-hero-details').children.map((c) => c.textContent);
-  const out = {};
-  out.start = stats();
-  load('download.js');           // queued: polls once straight away
-  await settle();
-  out.noEta = stats();
-
-  const step = async (polled) => {
-    p.payload = Object.assign({ state: 'downloading', state_label: 'Downloading', progress: 30, size_done: '1 GB', size_total: '3 GB' }, polled);
-    ctx.tick();
-    await settle();
-    return stats();
-  };
-  out.noEtaYet = await step({ eta: '' });
-  out.arrives = await step({ eta: '5 min' });
-  out.changes = await step({ eta: '4 min' });
-  out.clears = await step({ eta: '' });
-
-  // pressing Download builds the queued card: wide backdrop behind it, the poster as its poster
-  button.listeners.click[0]();
-  await settle();
-  const built = wrapper.querySelector('.dl-hero');
-  out.queuedCard = {
-    background: built.querySelector('.dl-hero-bg').getAttribute('data-bg-url'),
-    poster: built.querySelector('.dl-hero-poster').querySelector('IMG').src,
-  };
-  console.log(JSON.stringify(out));
-}
-
-main();
+SCENARIOS[process.argv[2]]().then((out) => console.log(JSON.stringify(out)));

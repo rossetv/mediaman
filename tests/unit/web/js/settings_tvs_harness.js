@@ -251,12 +251,12 @@ const scenarios = {
     doc.addEventListener = () => {};
     const field = (id) => ['input', { id }];
     doc.body.appendChild(build(doc, ['div', { class: 'setg-pg' },
-      field('older_tvs_enabled'), field('older_tvs_http'), field('tv_address'),
+      field('older_tvs_enabled'), field('older_tvs_http'), field('google_cast_enabled'), field('tv_address'),
       ['div', { class: 'tv-add' }, field('tv-add-address')],
       ['div', { id: 'setg-savebar', class: 'savebar' }, ['span', { class: 'sb-msg' }], ['span', { id: 'save-status' }],
         ['button', { id: 'btn-discard' }], ['button', { id: 'btn-save' }]]]));
     const set = (id, value) => { doc.getElementById(id).value = value; };
-    const start = { older_tvs_enabled: 'false', older_tvs_http: 'false', tv_address: '', 'tv-add-address': '' };
+    const start = { older_tvs_enabled: 'false', older_tvs_http: 'false', google_cast_enabled: 'false', tv_address: '', 'tv-add-address': '' };
     Object.keys(start).forEach((id) => { set(id, start[id]); doc.getElementById(id).defaultValue = start[id]; });
     const sent = [];
     const ctx = {
@@ -273,6 +273,7 @@ const scenarios = {
     const afterAdd = shows();
     set('older_tvs_enabled', 'true');
     set('older_tvs_http', 'true');
+    set('google_cast_enabled', 'true');
     set('tv_address', ' http://192.168.1.10:8282 ');
     const afterEdit = shows();
     click(doc, doc.getElementById('btn-save'));

@@ -25,7 +25,6 @@ def test_the_section_strip_scrolls_away_on_a_short_screen_only() -> None:
     assert re.search(r"\.setg-rail \{[^}]*position: relative; top: auto;", body)
     # over every rule that sticks it, and the only one to let it go
     assert at > CSS.rindex("position: sticky")
-    assert at > CSS.rindex(".setg-pg .setg-rail { top:")
     # with nothing pinned but the top bar, what is scrolled into view stops below that
     assert "html:has(.setg-rail) { scroll-padding-top: 60px; }" in body
-    assert at > CSS.index("html:has(.setg-pg) { scroll-padding-top: calc(48px")
+    assert at > CSS.index("html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 65px")

@@ -76,6 +76,7 @@ function page(spec, opts) {
   doc.dispatchEvent = (e) => (doc.listeners[e.type] || []).forEach((f) => f(e));
   ctx.MM.api = { get: opts && opts.get, post: opts && opts.post, messageOf: (_e, m) => m };
   vm.createContext(ctx);
+  if (opts && opts.ring) ctx.MM.downloading = opts.ring;
   const load = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
   ['core/dom.js', 'core/modal.js', 'modal-a11y.js', 'dl-poster.js', 'broken-poster.js', 'downloads/build_dom.js',
     'downloads/render_hero.js', 'downloads/render_row.js', 'downloads/render_recent.js'].forEach(load);
@@ -183,6 +184,16 @@ const scenarios = {
   },
 
   // polls that fail, hang or are never heard back from
+  // The header's ring is told by the page's own polls, whatever the page makes of them.
+  async ring() {
+    const told = [];
+    const ring = { hear: (d) => told.push(d), lose: () => told.push('lost') };
+    const answers = [{ hero: null, queue: [null], strip: 1 }, null, null, { hero: null, queue: [], upcoming: [], recent: [], subtitle: '', strip: 2 }];
+    const p = page(spec, { ring, get: () => { const a = answers.shift(); return a ? Promise.resolve(a) : Promise.reject(new Error('down')); } });
+    for (const ms of [2000, 2000, 4000, 8000]) { const t = p.timers.find((x) => x.ms === ms); p.timers.splice(p.timers.indexOf(t), 1); t.fn(); await settle(); }
+    return told;
+  },
+
   async lost() {
     const calls = [];
     const p = page(spec, { get: (_url, o) => new Promise((resolve, reject) => {

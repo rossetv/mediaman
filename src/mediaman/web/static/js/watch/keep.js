@@ -431,8 +431,12 @@
   }
 
   function focusAfterRow(row) {
-    var other = row.nextElementSibling || row.previousElementSibling;
-    return (other && other.querySelector('.watch-row__scroll')) || byId('watch-search');
+    function other(step) {
+      var found = null;
+      for (var n = row[step]; n && !found; n = n[step]) found = n.querySelector('.watch-row__scroll[tabindex]');
+      return found;
+    }
+    return other('nextElementSibling') || other('previousElementSibling') || core.spareFocus();
   }
 
   /* A kept Leaving soon card waits on the cancel of its own collapse. The one
@@ -768,7 +772,7 @@
       keep(trigger, days === FOREVER ? FOREVER : parseInt(days, 10));
     },
     spare: function () {
-      return document.querySelector('.watch-seasons a.watch-pill.on, .watch-search__input, #watch-search');
+      return document.querySelector('.watch-seasons a.watch-pill.on') || core.spareFocus();
     }
   }) : null;
 

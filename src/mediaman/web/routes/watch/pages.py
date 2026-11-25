@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast, get_args
+from typing import Annotated, Any, Concatenate, ParamSpec, TypeVar, cast
 from urllib.parse import parse_qsl, quote, urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -25,6 +25,7 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.downloads import strip
 from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.services.media_meta.plex_quality import quality_rows
@@ -45,6 +46,8 @@ from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.asked import has_any
+from mediaman.web.repository.library_query import count_titles
 from mediaman.web.repository.watch_progress import (
     MIN_RESUME_SECONDS,
     WatchProgress,
@@ -54,7 +57,7 @@ from mediaman.web.repository.watch_progress import (
     show_progress,
 )
 from mediaman.web.routes.poster.title_art import title_art
-from mediaman.web.routes.watch import list_page
+from mediaman.web.routes.watch import all_titles, list_page
 from mediaman.web.routes.watch.library_order import library_page
 
 router = APIRouter()
@@ -70,8 +73,13 @@ ROW_PAGE_SIZE = 30
 # How many a library row shows at first when it is opened as a grid (?all=).
 GRID_PAGE_SIZE = 60
 
+# All titles, which the rows of the library open too, each with its own filter.
+_LIBRARY_TITLE = "All titles"
+_LIBRARY_GRIDS = ("library", "movies", "tv", "anime")
+
 # The rows that load after the page, so do their grids.
 _RECOMMENDED_ROW = ("recommended", "Recommended for you")
+_ASKED_ROW = ("asked", "You asked for these")
 # The Continue watching row stops filling at this many cards, and a page load spends at most
 # this many Plex HTTP calls on it however long the person's history is.
 _CONTINUE_LIMIT = 20
@@ -770,10 +778,9 @@ def _row_grid(
     sort: str | None,
 ) -> dict[str, Any]:
     """The row *row* opened as a grid, in the order *sort* asks for if it has that one: its first
-    cards, and for a row that pages (with *entries*) where they end."""
+    cards, and for one that pages (with *entries*) where they end."""
     items: list[dict[str, Any]] = row["items"]
-    own = get_args(lib.RowOrder) if row["library"] else ("az",)
-    order = cast(lib.RowOrder, sort if sort in own and row["id"] != "leaving" else "added")
+    order: lib.RowOrder = "az" if sort == "az" and row["id"] != "leaving" else "added"
     end = None
     if entries is not None:
         by_key = {e.key: c for e, c in zip(entries, items, strict=True)}
@@ -804,9 +811,12 @@ def watch_page(
         return resolved
     username, conn = resolved
     is_admin = _is_admin(conn, username)
-    view = "list" if is_admin and view == "list" else "rows"
+    if view == "list":
+        to = list_page.address_of(request.query_params, admin=is_admin)
+        return RedirectResponse(to, status_code=302)
     q = q.strip()[:_QUERY_MAX]
-    tmdb_configured = TmdbClient.from_db(conn, request.app.state.config.secret_key) is not None
+    tmdb = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    tmdb_configured = tmdb is not None
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
     set_up = plex_is_configured(conn)
@@ -874,28 +884,53 @@ def watch_page(
         _paged_row("TV", "tv", entries["tv"], [c for _, c in tv]),
         _paged_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
+    index = catalog.library_index(conn, tmdb, libraries, lib.library_movies, lib.library_shows)
+    continuing = {c["dismiss_ref"] for c in continue_row}
+    asked_waiting = has_any(conn, username, libraries, index, continuing)
     picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
-    later = ([_RECOMMENDED_ROW] if picks_on else []) + (
+    later = [_ASKED_ROW, *([_RECOMMENDED_ROW] if picks_on else [])] + (
         [(shelf[0], shelf[1]) for shelf in catalog.SHELVES] if tmdb_configured else []
     )
-    # What ?all= may name. Not set up, the page has no row of its own to open.
+    # What ?all= may name. Not set up, the page has no row of its own to open, but an admin still
+    # has what the scans found.
     grid_titles = {r["id"]: r["title"] for r in rows if set_up} | dict(later)
+    if set_up or is_admin:
+        grid_titles["library"] = _LIBRARY_TITLE
     grid: dict[str, Any] | None = None
     asked = request.query_params
-    if view != "list" and not (q or asked.get("genre") or asked.get("person")):
+    if not (q or asked.get("genre") or asked.get("person")):
         if row_id in dict(later):
             grid = {"id": row_id, "title": grid_titles[row_id], "items": [], "total": None}
             grid |= {"sort": None, "next": None, "loads_later": True}
+        elif "library" in grid_titles and row_id in _LIBRARY_GRIDS:
+            # The grid of a row of the library is All titles with that filter.
+            type_ = all_titles.known_type(
+                asked.get("type") if row_id == "library" else row_id, is_admin
+            )
+            sort = all_titles.known_sort(asked.get("sort"), is_admin)
+            by_ref = {f"{kind}-{key}": c for (kind, key), c in card_of.items()}
+            grid = {"id": "library", "title": _LIBRARY_TITLE, "sort": sort, "loads_later": False}
+            grid |= all_titles.in_one_read(
+                conn,
+                lambda: all_titles.page_of(
+                    conn,
+                    username,
+                    libraries,
+                    all_titles.load(conn, username, libraries, movies, shows, admin=is_admin),
+                    lambda refs: {ref: by_ref[ref] for ref in refs},
+                    type_=type_,
+                    sort=sort,
+                    limit=GRID_PAGE_SIZE,
+                    now=now,
+                ),
+            )
         elif row_id in grid_titles:
             opened = next(r for r in rows if r["id"] == row_id)
             grid = _row_grid(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
-    # The list view's own context, included by watch.html; its q is the trimmed search term.
-    list_ctx = (
-        list_page.list_context(conn, username, request.query_params) if view == "list" else {}
-    )
-    list_q = list_ctx.pop("q", "")
+    downloading = strip.shared.last()
+    library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     return _render(
         request,
         "watch.html",
@@ -908,21 +943,24 @@ def watch_page(
             "watch_error": None if set_up else "not_set_up",
             "plex_unreachable": set_up and plex.error is not None,
             "is_admin": is_admin,
-            "view": view,
             "q": q,
             "tmdb_configured": tmdb_configured,
             "picks_on": picks_on,
+            "asked_waiting": set_up and asked_waiting,
             "grid": grid,
-            **list_ctx,
-            "list_q": list_q,
+            "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
+            "library_total": library_total,
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
-                "view": view,
                 "q": q,
                 "grids": grid_titles,
-                "grid": {k: grid[k] for k in ("id", "total", "next")} if grid else None,
+                "library_total": library_total,
+                "grid": {k: grid.get(k) for k in ("id", "total", "next", "counts", "fact", "empty")}
+                if grid
+                else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
+                "downloading": strip.payload(downloading) if downloading else None,
             },
         },
     )

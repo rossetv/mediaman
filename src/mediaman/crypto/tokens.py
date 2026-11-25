@@ -433,8 +433,15 @@ def validate_unsubscribe_token(token: str, secret_key: str) -> UnsubscribeTokenP
     return cast(UnsubscribeTokenPayload, result) if result is not None else None
 
 
-def generate_poster_token(*, rating_key: str, secret_key: str, ttl_days: int = 180) -> str:
+def generate_poster_token(
+    *, rating_key: str, secret_key: str, ttl_days: int = 180, whole_days: bool = False
+) -> str:
+    """Issue a poster token. With *whole_days* it expires as its last day begins (UTC), so each
+    one issued on a day is the same and a browser finds its picture in its cache.
+    """
     exp = int(time.time()) + ttl_days * 86400
+    if whole_days:
+        exp -= exp % 86400
     payload = {"rk": rating_key, "exp": exp}
     return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POSTER)
 
@@ -450,8 +457,10 @@ def validate_poster_token(token: str, secret_key: str) -> PosterTokenPayload | N
     return cast(PosterTokenPayload, result) if result is not None else None
 
 
-def sign_poster_url(rating_key: str, secret_key: str) -> str:
-    token = generate_poster_token(rating_key=rating_key, secret_key=secret_key)
+def sign_poster_url(rating_key: str, secret_key: str, *, whole_days: bool = False) -> str:
+    token = generate_poster_token(
+        rating_key=rating_key, secret_key=secret_key, whole_days=whole_days
+    )
     return f"/api/poster/{rating_key}?sig={token}"
 
 

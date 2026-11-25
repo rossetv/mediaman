@@ -95,6 +95,10 @@ def test_flip_slides_only_the_nodes_that_moved_from_where_they_were() -> None:
     assert out["moved"] == [["a", "translate(-30px, -10px)", "none"]]
 
 
+def test_a_node_moved_again_on_its_way_slides_on_from_where_it_is_seen() -> None:
+    assert _run("flip")["again"] == "translate(-35px, -5px)"
+
+
 def test_what_has_eased_in_does_not_ease_in_again_when_a_swap_moves_it() -> None:
     assert _run("swapEased") == {"before": 2, "going": 0, "left": 0}
 
