@@ -361,13 +361,65 @@ def test_what_the_tv_says_is_over_is_forgotten(since: str) -> None:
     }
 
 
-def test_a_tv_that_plays_nothing_is_over_and_its_stream_stopped_at_the_last_place() -> None:
+def test_a_tv_that_says_nothing_may_play_still_and_nothing_of_it_is_ended() -> None:
     assert _run("empty") == {
-        "found": None,
-        "kept": False,
-        "posts": [["stream/st1/stop", 112, 62]],
-        "ended": [True],
+        "found": {"code": "lost", "says": False},
+        "kept": True,
+        "posts": [],
+        "ended": [],
     }
+
+
+@pytest.mark.parametrize("page", ["player", "bar"])
+def test_a_tv_that_names_what_it_plays_seconds_after_it_was_joined_is_gone_on_with(
+    page: str,
+) -> None:
+    assert _run("saysLate")[page] == {
+        "early": {"ended": [], "kept": True, "posts": []},
+        "plays": True,
+        "ended": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("how", "gone", "lost", "at", "kept"),
+    [
+        ("back", [], False, 110, True),
+        ("another", ["taken"], False, 105, False),
+        # It may play on while it says nothing; away again, for two minutes.
+        ("never", [], True, 105, True),
+        ("lostAgain", ["lost"], False, 105, False),
+    ],
+)
+def test_a_lost_tv_that_is_back_and_silent_is_no_tv_that_stopped(
+    how: str, gone: list[str], lost: bool, at: int, kept: bool
+) -> None:
+    out = _run("saysLate")[how]
+    assert out["early"] == {"gone": [], "lost": True}
+    assert (out["gone"], out["lost"], out["at"], out["ended"]) == (gone, lost, at, [])
+    assert out["kept"] is kept
+
+
+def test_a_tv_silent_for_long_is_let_go_of_and_what_it_plays_left_to_it() -> None:
+    out = _run("saysLate")["silentLong"]
+    assert (out["kept"], out["stops"], out["ended"]) == (False, [], [])
+    # The player that follows it is told why it is let go of.
+    assert out["gone"] == ["silent"]
+
+
+@pytest.mark.parametrize(
+    ("how", "quiet"),
+    [
+        ("back", [True, False, False]),
+        ("another", [True, False, False]),
+        ("never", [True, True, True]),
+        # Gone again, it is lost and no longer back.
+        ("lostAgain", [True, False, False]),
+        ("silentLong", [True, True, False]),
+    ],
+)
+def test_a_lost_tv_that_is_back_and_silent_says_so(how: str, quiet: list[bool]) -> None:
+    assert _run("saysLate")[how]["quiet"] == quiet
 
 
 def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:
@@ -845,6 +897,43 @@ def test_stop_answers_on_a_page_that_took_the_wait_over(kind: str, state: str, r
 def test_a_question_nobody_answered_is_over_on_the_next_page_too() -> None:
     out = _run("waits")["asked"]
     assert (out["now"], out["ended"]) == (None, [True])
+
+
+def test_a_question_that_is_over_ends_nothing_on_a_tv_that_has_said_nothing() -> None:
+    assert _run("waits")["askedSilent"] == {"now": None, "ended": []}
+
+
+def test_the_count_is_over_as_the_tv_says_it_plays_something_else() -> None:
+    assert _run("waits")["takenLate"] == {"now": None, "ended": [], "loads": 1}
+
+
+def test_a_count_left_in_the_player_goes_on_where_the_person_goes() -> None:
+    out = _run("waits")["left counts"]
+    # Other pages leave it to the player while that is open.
+    assert out["open"] is None
+    assert out["taken"] == ["upnext", 6, None, "101", "Glass Orchard"]
+    assert (out["loads"], out["ended"]) == (2, [])
+
+
+def test_an_end_left_in_the_player_without_a_count_waits_for_a_press() -> None:
+    out = _run("waits")["left waits"]
+    assert out["taken"] == ["upnext", None, None, "101", "Glass Orchard"]
+    assert (out["loads"], out["ended"], out["record"]) == (1, [], True)
+
+
+def test_an_end_left_in_the_player_with_nothing_to_follow_is_over() -> None:
+    out = _run("waits")["left film"]
+    assert (out["taken"], out["ended"], out["record"]) == (None, [], False)
+
+
+@pytest.mark.parametrize("joined", ["true", "false"])
+def test_what_waits_on_a_tv_is_forgotten_once_it_was_watched_here(joined: str) -> None:
+    assert _run("waits")[f"watched {joined}"] == {
+        "other": True,
+        "record": False,
+        "now": None,
+        "ended": [],
+    }
 
 
 def test_the_sitting_is_counted_on_across_pages() -> None:

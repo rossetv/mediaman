@@ -24,7 +24,7 @@
   var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
 
   var inflight = {};   // dlId -> true while its abandon request runs
-  var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
+  var current = null;  // { dlId, arrId, kind, title, stuckSeasons, upcoming }
   var letGo = null;    // gives the page back once the dialog has closed
 
   /* setupDetail owns the display/aria-hidden lifecycle and registers with
@@ -48,6 +48,7 @@
 
   function open(trigger) {
     var dlId = trigger.dataset.dlId;
+    var arrId = Number(trigger.dataset.arrId) || null;
     var kind = trigger.dataset.kind || 'movie';
     var title = trigger.dataset.title || '';
     var upcoming = trigger.dataset.abandonUpcoming === '1';
@@ -56,7 +57,7 @@
       stuck = JSON.parse(trigger.dataset.stuckSeasons || '[]');
     } catch (e) { stuck = []; }
 
-    current = { dlId: dlId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming };
+    current = { dlId: dlId, arrId: arrId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming };
 
     titleEl.textContent = upcoming
       ? 'Stop tracking ' + title + '?'
@@ -210,7 +211,7 @@
       document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
       window.UIFeedback.toast(text, { variant: variant });
     }
-    MM.api.post(endpoint, { seasons: seasons })
+    MM.api.post(endpoint, { seasons: seasons, arr_id: current.arrId })
       .then(function () {
         delete inflight[dlId];
         finish(message, 'success');

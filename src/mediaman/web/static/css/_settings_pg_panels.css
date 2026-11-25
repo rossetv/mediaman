@@ -297,35 +297,6 @@
   /* A tap anywhere along the row reaches the name's box. */
   padding: 12px 0; margin: -12px 0;
 }
-.setg-pg .recipient-item input[type="checkbox"] {
-  appearance: none; -webkit-appearance: none;
-  flex: 0 0 20px;
-  width: 20px; height: 20px;
-  margin: 0;
-  border: 1.5px solid var(--hair-strong);
-  border-radius: var(--r-xs);
-  background: var(--s1);
-  cursor: pointer;
-  position: relative;
-  transition: background var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
-}
-.setg-pg .recipient-item input[type="checkbox"]:hover {
-  border-color: rgba(255,255,255,.28);
-}
-.setg-pg .recipient-item input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.setg-pg .recipient-item input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 5px; top: 1px;
-  width: 6px; height: 11px;
-  border: solid var(--t1);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
 
 .setg-pg .usr-self-head { display: flex; align-items: center; gap: 16px; }
 .setg-pg .usr-self-head .usr-meta { flex: 1; min-width: 0; }
@@ -390,14 +361,16 @@
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
 .setg-pg .setg-fold {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows var(--dur) var(--ease-out),
+  transition: grid-template-rows var(--dur-slow) var(--ease-out),
               opacity var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out),
-              margin var(--dur) var(--ease-out),
-              padding var(--dur) var(--ease-out),
-              border-width var(--dur) var(--ease-out);
+              transform var(--dur-slow) var(--ease-out),
+              margin var(--dur-slow) var(--ease-out),
+              padding var(--dur-slow) var(--ease-out),
+              border-width var(--dur-slow) var(--ease-out);
 }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
+/* Safari keeps the row at its old height when what it holds grows by a line. */
+.setg-pg .setg-fold:not(.is-moving):not(.is-shut) { display: flow-root; }
 /* Clipped only while folding, so focus rings show when it is open. */
 .setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }
 .setg-pg .setg-fold.is-shut {

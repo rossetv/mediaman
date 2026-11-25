@@ -60,6 +60,8 @@ import logging
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import NamedTuple, cast
 
@@ -508,6 +510,33 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
         minutes = _record_failure_in_tx(conn, username, now, now_iso)
     _maybe_prune_stale_failures(conn)
     return minutes
+
+
+_turns_guard = threading.Lock()
+_turns: dict[str, tuple[threading.Lock, int]] = {}
+
+
+@contextmanager
+def one_attempt_at_a_time(username: str) -> Iterator[None]:
+    """Hold *username*'s turn while its password is checked and the result counted.
+
+    Each attempt then reads the lock as the attempts before it left it, and none is refused
+    for a lock that an attempt still being checked may yet take back. The process runs one
+    worker, so a lock in memory holds every attempt.
+    """
+    with _turns_guard:
+        turn, waiting = _turns.get(username, (threading.Lock(), 0))
+        _turns[username] = (turn, waiting + 1)
+    try:
+        with turn:
+            yield
+    finally:
+        with _turns_guard:
+            turn, waiting = _turns[username]
+            if waiting == 1:
+                del _turns[username]
+            else:
+                _turns[username] = (turn, waiting - 1)
 
 
 def record_success(conn: sqlite3.Connection, username: str) -> None:

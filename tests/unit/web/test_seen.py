@@ -459,6 +459,22 @@ class TestMarkedInTheLibrary:
 
         assert seen_titles.change_part(conn, user, ("tv", 44), part, seen=False) is None
 
+    def test_an_episode_taken_back_leaves_one_the_library_has_lost(self, conn, as_user):
+        self._mark(conn, 1, 2, 3)
+        part = seen_titles.ShowPart("500", 1, 1, {1: frozenset({1, 2})})
+        user = find_user_id(conn, "aoife")
+        seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
+
+        assert _mark_of(conn).episodes == {1: {2, 3}}
+
+    def test_a_season_not_listed_and_marked_again_reaches_no_more_than_it_did(self, conn, as_user):
+        self._mark(conn, 1)
+        part = seen_titles.ShowPart("500", 1, None, {})
+        user = find_user_id(conn, "aoife")
+        seen_titles.change_part(conn, user, ("tv", 44), part, seen=True)
+
+        assert _mark_of(conn).episodes == {1: {1}}
+
     def test_all_it_reached_of_its_seasons_taken_back_ends_it(self, conn, as_user):
         self._mark(conn, 1)
         part = seen_titles.ShowPart("500", 1, 1, {1: frozenset({1, 2})})

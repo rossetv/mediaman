@@ -485,6 +485,11 @@ class Players:
         with self._lock:
             return self._tv(token_hash).play is not None
 
+    def plays(self, token_hash: str, rating_key: str) -> bool:
+        with self._lock:
+            play = self._tv(token_hash).play
+            return play is not None and play.rating_key == rating_key
+
     def view(self, token_hash: str) -> dict[str, Any]:
         """The TV as its owner's devices see it; the ticket is not in it."""
         with self._lock:

@@ -138,7 +138,51 @@
 .keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
 .keep-season-item .pill { flex-shrink: 0; }
-.keep-season-item input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; margin: 0; accent-color: var(--accent-cta); }
+/* A box to tick, the same in every browser; a name in Settings has one too. */
+.keep-season-item input[type="checkbox"],
+.recipient-item input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1.5px solid var(--t3);
+  border-radius: var(--r-xs);
+  background: var(--s1);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .keep-season-item input[type="checkbox"]:hover,
+  .recipient-item input[type="checkbox"]:hover { border-color: var(--t2); }
+}
+.keep-season-item input[type="checkbox"]:checked,
+.recipient-item input[type="checkbox"]:checked { background: var(--accent-cta); border-color: var(--accent-cta); }
+/* The usual ring is the fill's own blue. */
+.keep-season-item input[type="checkbox"]:checked:focus-visible,
+.recipient-item input[type="checkbox"]:checked:focus-visible { outline-color: var(--accent-hi); }
+.keep-season-item input[type="checkbox"]:checked::after,
+.recipient-item input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--t1);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+@media (forced-colors: active) {
+  .keep-season-item input[type="checkbox"],
+  .recipient-item input[type="checkbox"] { appearance: auto; -webkit-appearance: auto; }
+  .keep-season-item input[type="checkbox"]:checked::after,
+  .recipient-item input[type="checkbox"]:checked::after { content: none; }
+  .keep-dur-btn.active { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .keep-dialog .btn--primary:not(:disabled) { forced-color-adjust: none; background: ButtonText; color: ButtonFace; }
+}
 .keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
 .keep-all-row { background: var(--s3); font-weight: 500; }
 .keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-shrink: 0; }

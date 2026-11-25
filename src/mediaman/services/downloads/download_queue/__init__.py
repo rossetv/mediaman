@@ -34,6 +34,7 @@ from mediaman.services.arr.completion import (
     record_verified_completions,
 )
 from mediaman.services.arr.fetcher import fetch_arr_queue_result
+from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.arr.search_trigger import maybe_trigger_search
 from mediaman.services.arr.state import series_has_files, series_ready
 from mediaman.services.downloads.download_queue.classify import (
@@ -432,8 +433,10 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     hero, queue = select_hero(items_as_dicts)
 
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
-    active_ids = {cast(str, item["id"]) for item in items_as_dicts}
-    active_titles = {cast(str, item["title"]) for item in items_as_dicts}
+    active = {(cast(str, item["id"]), cast(str, item["title"])) for item in items_as_dicts}
+    active_ids = {dl_id for dl_id, _ in active}
+    # A film is told by its id: one of its title is not the one that arrived.
+    active_titles = {title for i, title in active if not is_film_id(i, title)}
     recent = cast(
         list[dict[str, object]],
         fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key),

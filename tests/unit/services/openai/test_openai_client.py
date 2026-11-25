@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -117,6 +118,24 @@ class TestCallOpenAi:
         with patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"):
             result = call_openai("some prompt", conn, use_web_search=False)
         assert result == []
+
+    @pytest.mark.parametrize("items", [[], ["no object"]])
+    def test_an_answer_that_holds_nothing_usable_is_logged(
+        self, conn, fake_http, fake_response, caplog, items
+    ):
+        text = json.dumps({"items": items})
+        answer = {
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]
+        }
+        fake_http.queue("POST", fake_response(json_data=answer))
+
+        with (
+            caplog.at_level(logging.INFO, logger=client_mod.__name__),
+            patch("mediaman.services.openai.client.get_openai_key", return_value="sk-test"),
+        ):
+            assert call_openai("hello", conn) == []
+
+        assert [r.args for r in caplog.records if r.levelno == logging.INFO] == [(len(items),)]
 
     def test_a_call_waits_two_minutes_and_is_sent_once(self, conn, monkeypatch):
         sent = []

@@ -2465,6 +2465,34 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+@pytest.mark.parametrize(("how", "told"), [("leave", [10]), ("cancel", [10, None])])
+def test_a_page_left_at_the_end_has_its_way_count_on_as_it_did(markup, how, told):
+    out = elsewhere(markup, "away_count_left", how)
+    assert out == {"counts": told, "beacons": ["/watch/stream/c1/stop"]}
+
+
+@pytest.mark.parametrize(
+    ("how", "told"),
+    [
+        ("ended", ["501"]),
+        ("skipped", ["501"]),
+        # Left in the final credits, as the server counts it watched.
+        ("creditsLeft", ["501"]),
+        ("earlyLeft", []),
+        ("left", []),
+        ("there", []),
+    ],
+)
+def test_the_ways_are_told_what_was_watched_here_to_its_end(markup, how, told):
+    assert elsewhere(markup, "away_watched", how) == told
+
+
+def test_the_keyboard_is_on_a_control_that_shows_as_what_follows_an_end_is_tried_again(markup):
+    out = elsewhere(markup, "away_next_tried")
+    assert (out["message"]["button"], out["ended"]) == ("Try again", True)
+    assert out["hidden"] is False
+
+
 def test_a_tvs_cards_the_skip_button_and_the_words_keep_off_each_other(markup):
     out = elsewhere(markup, "away_cards")
     # The skip button stands on the bar wherever its row goes as the buttons under it wrap.
@@ -2617,9 +2645,21 @@ def test_back_from_the_cache_a_way_is_asked_again(markup):
 
 
 def test_a_tv_refused_to_a_title_that_may_be_on_another_starts_nothing_here(markup):
-    out = elsewhere(markup, "away_again_refused")
+    out = elsewhere(markup, "away_again_refused", "lost")
     assert (out["asked"], out["starts"], out["pressed"]) == (True, 0, 1)
     assert out["message"]["button"] == "Play here"
+
+
+@pytest.mark.parametrize("on", ["tv-5", "cast"])
+def test_a_title_of_another_tab_is_said_to_be_there_still_after_a_tv_refused_it(markup, on):
+    out = elsewhere(markup, "away_again_refused", f"elsewhere {on}")
+    assert "another tab" in out["message"]["text"]
+
+
+def test_a_page_told_that_a_tv_plays_its_title_leaves_it_there(tmp_path_factory):
+    told = _markup(tmp_path_factory, {**EPISODE, "on_tv": True})
+    out = elsewhere(told, "away_opened_on_tv", "told")
+    assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")
 
 
 def test_a_play_found_after_the_next_episode_was_asked_for_is_left(markup, tmp_path_factory):
@@ -2786,6 +2826,32 @@ def test_a_way_whose_tv_does_not_answer_says_so_until_it_does(markup, how):
         assert (out["after"]["away"], out["stops"], out["startsAfter"]) == (False, 1, 1)
 
 
+def test_a_way_whose_tv_is_back_and_silent_says_how_long_it_is_waited_for(markup):
+    out = elsewhere(markup, "away_lost_way", "quiet")
+    message, focused = out["quiet"]
+    assert message["text"] == "Den stopped answering"
+    assert message["line"] == (
+        "It’s back, but hasn’t said what it plays. If it does within 10 minutes, it carries on"
+        " by itself."
+    )
+    # The same card, with only its words changed.
+    assert (message["acts"], focused) == (["Bring it here", "Stop"], True)
+    assert out["lostAgain"]["line"] == CARD
+
+
+def test_a_way_that_lets_go_of_a_silent_tv_says_it_may_still_play(markup):
+    out = elsewhere(markup, "away_gone", "silent")
+    assert out["message"]["text"] == "Den stopped answering"
+    assert out["message"]["line"] == (
+        "It came back, but said nothing of what it plays for 10 minutes. It may still be playing"
+        " there."
+    )
+    assert (out["says"], out["message"]["acts"]) == (
+        "Was playing on Den",
+        ["Bring it here", "Close"],
+    )
+
+
 @pytest.mark.parametrize("how", ["again", "back"])
 def test_a_tv_that_does_not_answer_has_the_remotes_card(markup, how):
     out = elsewhere(markup, "away_lost_tv", how)
@@ -2828,9 +2894,16 @@ def test_the_keyboard_is_on_the_controls_again_as_a_tv_answers(markup):
     assert elsewhere(markup, "away_lost_tv", "back")["focus"] is True
 
 
-def test_the_page_says_what_the_next_episode_waits_for(markup):
-    out = elsewhere(markup, "away_countdown", "cancel")
-    assert out["hint"] == "Keep this page open for the next episode."
+@pytest.mark.parametrize(
+    ("how", "hint"),
+    [
+        ("cancel", "The next episode starts by itself, even if you leave this page."),
+        ("cancelStays", "Keep this page open for the next episode."),
+    ],
+)
+def test_the_page_says_what_the_next_episode_waits_for(markup, how, hint):
+    out = elsewhere(markup, "away_countdown", how)
+    assert out["hint"] == hint
     assert out["after"] == "Den is ready for something else."
     assert out["focus"] is True
 

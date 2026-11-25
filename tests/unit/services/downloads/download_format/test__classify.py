@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from mediaman.services.downloads.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
+    compute_movie_released_at,
     extract_poster_url,
     map_arr_status,
     map_episode_state,
@@ -74,6 +77,34 @@ class TestClassifyMovieUpcoming:
         is_up, label = classify_movie_upcoming(self._movie())
         assert is_up is True
         assert label == "Not yet released"
+
+    @pytest.mark.parametrize(
+        ("waits_for", "label"),
+        [
+            ("released", "Releases 5 Jun 2099"),
+            ("inCinemas", "Releases 5 Jan 2099"),
+            ("announced", "Releases 5 Jan 2099"),
+            (None, "Releases 5 Jan 2099"),
+        ],
+    )
+    def test_the_date_is_of_the_release_radarr_waits_for(self, waits_for, label):
+        movie = self._movie(
+            minimumAvailability=waits_for,
+            inCinemas="2099-01-05T00:00:00Z",
+            digitalRelease="2099-06-05T00:00:00Z",
+        )
+        assert classify_movie_upcoming(movie) == (True, label)
+
+    def test_a_date_in_cinemas_is_not_when_a_film_waiting_to_be_released_arrives(self):
+        movie = self._movie(minimumAvailability="released", inCinemas="2099-01-05T00:00:00Z")
+        assert classify_movie_upcoming(movie) == (True, "Not yet released")
+
+    @pytest.mark.parametrize("dates", [{}, {"inCinemas": None}])
+    def test_a_film_waiting_for_the_cinemas_with_no_date_there_comes_out_at_home(self, dates):
+        movie = self._movie(
+            minimumAvailability="inCinemas", physicalRelease="2099-06-05T00:00:00Z", **dates
+        )
+        assert classify_movie_upcoming(movie) == (True, "Releases 5 Jun 2099")
 
     def test_far_future_date_sentinel_treated_as_no_date(self):
         """A year-9999 sentinel must not produce a 'Releases in 7973 years' label."""
@@ -210,3 +241,33 @@ class TestMapEpisodeState:
     def test_no_progress_no_status_returns_searching(self):
         ep = {"progress": 0, "sizeleft": 500, "size": 500_000_000, "status": ""}
         assert map_episode_state(ep) == "searching"
+
+
+class TestComputeMovieReleasedAt:
+    @pytest.mark.parametrize(
+        ("waits_for", "dates", "released"),
+        [
+            ("released", {"inCinemas": "2020-01-01", "digitalRelease": "2020-05-01"}, "2020-05-01"),
+            ("released", {"inCinemas": "2020-01-01"}, "2020-03-31"),
+            (
+                "inCinemas",
+                {"inCinemas": "2020-01-01", "digitalRelease": "2019-05-01"},
+                "2020-01-01",
+            ),
+            ("inCinemas", {"physicalRelease": "2020-05-01"}, "2020-05-01"),
+            (
+                "announced",
+                {"inCinemas": "2020-01-01", "digitalRelease": "2020-05-01"},
+                "2020-01-01",
+            ),
+        ],
+    )
+    def test_a_film_is_released_on_the_day_radarr_waits_for(self, waits_for, dates, released):
+        movie = {"minimumAvailability": waits_for} | {k: f"{v}T00:00:00Z" for k, v in dates.items()}
+        assert (
+            compute_movie_released_at(movie)
+            == datetime.fromisoformat(f"{released}T00:00:00+00:00").timestamp()
+        )
+
+    def test_a_film_with_no_date_has_no_release(self):
+        assert compute_movie_released_at({"minimumAvailability": "released"}) == 0.0

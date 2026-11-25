@@ -252,9 +252,16 @@ def test_a_code_that_was_entered_counts_though_a_new_one_was_asked_for() -> None
     assert "Connected to tobias" in out["said"] and out["store"] == {"mm-tv": "fresh"}
 
 
+def test_the_page_waits_under_the_icon_and_a_film_that_starts_under_the_ring() -> None:
+    out = _run("bootWaits")
+    assert out["boot"].count('class="brand"') == 1
+    assert out["boot"].count('<div class="spin spin--mark"><svg class="mark"') == 1
+    assert out["later"].count('<div class="spin"></div>') == 1 and "mark" not in out["later"]
+
+
 def test_a_page_that_waits_takes_no_press_for_the_page_before() -> None:
     out = _run("bootHasNoButtons")
-    assert out["said"] == "media man" and out["asked"] == 1
+    assert out["said"] == "mediaman" and out["asked"] == 1
 
 
 @pytest.mark.parametrize("events", ["metadata", "nothing"])
@@ -358,6 +365,106 @@ def test_names_and_titles_are_never_markup() -> None:
     pages = _run("escapes")
     assert sum("&#60;img" in html for html in pages) == 5
     assert not any("<img" in html or 'url(&quot;/x"' in html for html in pages)
+
+
+@pytest.mark.parametrize("page", ["pause", "idle", "code", "out", "ended", "err"])
+def test_a_page_left_alone_dims_in_its_time_and_then_moves_its_words(page: str) -> None:
+    out = _run("rests", page)
+    assert out["before"] == ""
+    assert all("dim" in look.split() for look in out["looks"])
+    assert len(set(out["looks"])) == 4 and out["looks"][4] == out["looks"][0]
+
+
+@pytest.mark.parametrize("page", ["play", "starting", "upnext", "still"])
+def test_a_film_that_plays_waits_or_asks_is_never_dimmed(page: str) -> None:
+    out = _run("neverRests", page)
+    assert out["looks"] == []
+    said = {"play": "Pause", "starting": "is starting it", "upnext": "Play now", "still": "Are you"}
+    assert said[page] in out["says"]
+
+
+@pytest.mark.parametrize(
+    "by", ["key", "pointer", "click", "wheel", "command", "plays", "film", "closed"]
+)
+def test_a_dimmed_page_wakes_at_once_and_waits_its_whole_time_anew(by: str) -> None:
+    out = _run("wakes", by)
+    assert out["dimmed"] and out["woken"] == ""
+    assert out.get("later", "") == ""
+
+
+def test_a_pointer_that_lies_still_wakes_nothing() -> None:
+    dimmed, still = _run("pointerLiesStill")
+    assert dimmed and still == dimmed
+
+
+def test_another_film_wakes_a_page_that_looks_the_same() -> None:
+    dimmed, woken = _run("failsAgain")
+    assert dimmed and woken == ""
+
+
+@pytest.mark.parametrize("page", ["idle", "code", "ended", "err"])
+def test_a_press_that_wakes_a_page_starts_nothing(page: str) -> None:
+    out = _run("wakesWith", page)
+    assert out["first"][0] is False
+    assert out["then"] is True and out["awake"] == ""
+
+
+@pytest.mark.parametrize("how", ["pause", "pausedClick"])
+def test_a_press_that_wakes_a_paused_film_plays_it(how: str) -> None:
+    assert _run("wakesWith", how)["first"] == [False, ["play"]]
+
+
+PRESSES = ["space", "heldSpace", "tap", "heldTap"]
+
+
+@pytest.mark.parametrize(
+    ("page", "how"),
+    [(p, h) for p in ("idle", "unpair", "ended") for h in PRESSES]
+    + [(p, "key") for p in ("out", "press", "old", "conn")],
+)
+def test_a_press_of_any_kind_that_wakes_a_page_does_only_that(page: str, how: str) -> None:
+    out = _run("pressesTwice", page, how)
+    assert out["dimmed"] and out["woken"] == ""
+    assert out["first"] is False and out["then"] is True
+
+
+@pytest.mark.parametrize("how", ["key", "space", "tap"])
+def test_a_paused_film_plays_by_the_press_that_wakes_it(how: str) -> None:
+    out = _run("pressesTwice", "pause", how)
+    assert out["dimmed"] and out["woken"] == ""
+    assert out["calls"] == ["play"]
+
+
+def test_a_click_a_while_after_a_pointer_woke_the_page_counts() -> None:
+    assert _run("pointsThenClicks") == 1
+
+
+def test_words_that_move_stay_in_the_safe_area_and_a_dimmed_code_can_be_read() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    # The 1920 px stage keeps 96 px clear at each side.
+    for place, rest in ((".mid", 160), (".code", 120), (".top > div", 110), (".bot > div", 110)):
+        for d in ("d1", "d2", "d3"):
+            rule = re.escape(f".{d} {place}") + r"[^{]*\{[^}]* transform: translate\((-?\d+)px"
+            assert abs(int(re.findall(rule, css)[-1])) <= rest - 96, (d, place)
+    veil = re.search(r"\.dim:after \{[^}]*opacity: (\.\d+)", css)
+    assert veil
+    light = ((1 - float(veil[1]) + 0.055) / 1.055) ** 2.4
+    assert (light + 0.05) / 0.05 >= 3.5
+
+
+def test_a_dimmed_page_is_darkened_whole_and_each_of_its_places_is_another() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    veil = re.search(r"\.dim:after \{[^}]*opacity: (\.\d+)", css)
+    assert veil and 0.5 <= float(veil[1]) <= 0.8
+    # Unseen, and not there, over a film that plays.
+    assert re.search(r"body:after \{[^}]*visibility: hidden[^}]*opacity: 0", css)
+    words = (".mid", ".code", ".top > div", ".bot > div")
+    moves = {
+        re.search(re.escape(", ".join(f".{d} {w}" for w in words)) + r" \{ ([^}]*)\}", css)[1]
+        for d in ("d1", "d2", "d3")
+    }
+    assert len(moves) == 3
+    assert ".dim .mid" in css[css.index("prefers-reduced-motion") :]
 
 
 def test_a_browser_that_cannot_play_is_told_before_it_pairs() -> None:

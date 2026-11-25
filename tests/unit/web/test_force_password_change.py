@@ -150,10 +150,11 @@ def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
 
 
 @pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
-def test_the_brand_breaks_between_its_parts_where_it_is_too_wide(page) -> None:
+def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     html = (WEB / "templates" / f"{page}.html").read_text()
     brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
-    assert brand and "media<wbr><b>man</b>" in brand[1]
+    assert brand and 'aria-label="mediaman"' in brand[1] and "wordmark" in brand[1]
+    assert "<b>man</b>" not in brand[1]
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:

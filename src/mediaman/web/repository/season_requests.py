@@ -177,9 +177,10 @@ def record_started(
     number: int,
     actor: str,
     started: Collection[int],
+    certain: bool,
 ) -> None:
     """Record the seasons that started though the one *actor* asked for was not added: the show
-    was monitored for it, and could not be put back."""
+    was monitored for it, and could not be put back. Not *certain*, they only may have."""
     names = ", ".join(str(n) for n in sorted(started))
     with conn:
         log_audit(
@@ -187,6 +188,9 @@ def record_started(
             f"show:{show.tvdb_id}",
             "downloaded",
             f"Started season {names} of '{title}' in Sonarr by {actor}; "
-            f"season {number} was not added, but the show was monitored for it",
+            f"season {number} was not added, but the show was monitored for it"
+            if certain
+            else f"May have started season {names} of '{title}' in Sonarr by {actor}; "
+            f"season {number} was not added, and whether the show was monitored for it is not known",
             actor=actor,
         )

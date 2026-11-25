@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 import pytest
 
@@ -217,6 +219,13 @@ class TestAuthenticateIntegration:
         # Counter wiped — one more wrong guess should not lock anyone.
         authenticate(conn, "alice", "wrong-password", client_ip="203.0.113.7")
         assert is_locked_out(conn, login_ip_key("alice", "203.0.113.7")) is False
+
+    def test_the_right_password_as_the_fifth_try_is_accepted_and_leaves_no_lock(self, conn):
+        create_user(conn, "alice", "right-password", enforce_policy=False)
+        for _ in range(4):
+            authenticate(conn, "alice", "wrong", client_ip="203.0.113.7")
+        for _ in range(2):
+            assert authenticate(conn, "alice", "right-password", client_ip="203.0.113.7")
 
     def test_lockout_does_not_leak_to_caller(self, conn):
         """`authenticate` must return False for locked accounts — same
@@ -481,6 +490,95 @@ class TestConcurrentRecordFailure:
         ).fetchone()
         c.close()
         assert row["failure_count"] == 20
+
+
+_DOORS = {
+    "login": lambda conn, password: authenticate(conn, "alice", password, client_ip="203.0.113.7"),
+    "reauth": lambda conn, password: verify_reauth_password(conn, "alice", password),
+    "change_password": lambda conn, password: change_password(
+        conn, "alice", password, "another-password-77", enforce_policy=False
+    ),
+}
+
+
+class TestAttemptsThatMeet:
+    """Tries that overlap, or break off, are judged as if each came alone."""
+
+    @pytest.fixture
+    def alice(self, conn):
+        create_user(conn, "alice", "right-password", enforce_policy=False)
+        return conn
+
+    @pytest.fixture
+    def check_with(self, monkeypatch):
+        from mediaman.web.auth import password_hash
+        from mediaman.web.auth.password_hash import _authenticate, _change_password
+
+        real = _authenticate.verify_password
+
+        def use(check):
+            for module in (password_hash, _authenticate, _change_password):
+                monkeypatch.setattr(module, "verify_password", partial(check, real))
+
+        return use
+
+    @pytest.mark.parametrize("door", ["login", "reauth"])
+    def test_the_right_password_sent_twice_at_once_after_four_wrong_gets_in_twice(
+        self, alice, db_path, check_with, door
+    ):
+        for _ in range(4):
+            assert not _DOORS[door](alice, "wrong")
+        first_in, let_go = threading.Event(), threading.Event()
+
+        def held(real, *args):
+            if not first_in.is_set():
+                first_in.set()
+                let_go.wait(5)
+            return real(*args)
+
+        check_with(held)
+        results = []
+
+        def post():
+            own = init_db(str(db_path))
+            results.append(_DOORS[door](own, "right-password"))
+            own.close()
+
+        first, second = threading.Thread(target=post), threading.Thread(target=post)
+        first.start()
+        assert first_in.wait(5)
+        second.start()
+        second.join(0.2)
+        let_go.set()
+        first.join()
+        second.join()
+
+        assert results == [True, True]
+
+    @pytest.mark.parametrize("door", ["login", "reauth", "change_password"])
+    def test_a_check_that_breaks_off_is_not_counted(self, alice, check_with, door):
+        for _ in range(4):
+            assert not _DOORS[door](alice, "wrong")
+
+        def broken(real, *args):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        check_with(broken)
+        with pytest.raises(sqlite3.OperationalError):
+            _DOORS[door](alice, "right-password")
+        check_with(lambda real, *args: real(*args))
+
+        assert _DOORS[door](alice, "right-password")
+
+    def test_a_right_old_password_ends_a_streak_even_when_the_new_one_is_refused(self, alice):
+        for _ in range(4):
+            assert not change_password(alice, "alice", "wrong", "Another-Password-77")
+        with pytest.raises(ValueError):
+            change_password(alice, "alice", "right-password", "short")
+        for _ in range(4):
+            assert not change_password(alice, "alice", "wrong", "Another-Password-77")
+
+        assert change_password(alice, "alice", "right-password", "Another-Password-77")
 
 
 class TestNoExtendWhileLocked:

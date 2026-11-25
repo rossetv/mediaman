@@ -30,6 +30,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexShow,
     PlexUnavailable,
 )
+from mediaman.services.tv import players
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
 from mediaman.web.repository.watch_progress import (
@@ -1218,6 +1219,26 @@ class TestPlayerPage:
         _play(conn, "aoife", "100", position=position, duration=6000, item="100")
 
         assert get("/watch/play/100").json()["place_s"] == position
+
+    def test_it_says_whether_a_tv_of_the_persons_plays_the_title(self, get, conn, monkeypatch):
+        playing = players.Players(clock=lambda: 1000.0)
+        monkeypatch.setattr(players, "_players", playing)
+        (owner,) = conn.execute("SELECT id FROM admin_users WHERE username = 'aoife'").fetchone()
+        conn.execute(
+            "INSERT INTO tvs (owner_id, kind, name, token_hash, created_at)"
+            " VALUES (?, 'page', 'Living room', 'th', '2026-01-01')",
+            (owner,),
+        )
+        conn.commit()
+        playing.poll("th", ack=0, active=False, report=None)
+        assert get("/watch/play/100").json()["on_tv"] is False
+
+        film = players.Play("aoife", owner, "100", {}, players.Choice(), 0, 0, 0)
+        playing.begin("th", film, over=None)
+
+        assert get("/watch/play/100").json()["on_tv"] is True
+        assert get("/watch/play/511").json()["on_tv"] is False
+        assert get("/watch/play/100", user="cian").json()["on_tv"] is False
 
     def test_a_title_never_played_or_only_marked_has_no_saved_place(self, get, conn):
         mark_watched(conn, "aoife", [MarkTarget("100", "100", None, 6000)], NOW)

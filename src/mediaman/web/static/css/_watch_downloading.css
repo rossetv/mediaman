@@ -90,7 +90,7 @@
   mask-image: linear-gradient(90deg, #000 calc(var(--p) * 1% - 10px), transparent calc(var(--p) * 1% + 6px));
 }
 .dw.is-ready .dw__fill { -webkit-mask-image: none; mask-image: none; }
-.dw__link img:is([data-broken], :not([src])) { visibility: hidden; }
+.dw__link img:is([data-broken=""], :not([src])) { visibility: hidden; }
 .dw__link::before {
   content: "";
   position: absolute;

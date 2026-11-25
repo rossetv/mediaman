@@ -164,6 +164,7 @@ def _make(
     previous = [r["title"] for r in own]
     portrait = _portrait(plays, ratings, read_taste(conn, username), previous)
     items = generate_personal(conn, portrait, secret_key=secret_key)
+    suggested = len(items)
     # Read again: they may have rated or marked something while the model was thinking.
     taste = read_taste(conn, username)
     known = [
@@ -205,6 +206,11 @@ def _make(
         clock=clock,
     )
     if not items:
+        logger.warning(
+            "No picks made from %d titles played: none of the %d suggested was kept",
+            len(plays),
+            suggested,
+        )
         return 0
     uses_plex = bool(ratings) or any(p.in_plex for p in plays)
     return store_batch(

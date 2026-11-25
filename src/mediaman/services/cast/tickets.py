@@ -12,7 +12,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 TICKET_SECONDS = 6 * 3600.0
 
@@ -66,6 +66,13 @@ class TicketStore:
 
     def expired(self, ticket: Ticket) -> bool:
         return self._clock() >= ticket.expires
+
+    def move(self, session_hash: str, new_session_hash: str) -> None:
+        """Hand the tickets of the session *session_hash* to the one that replaces it."""
+        with self._lock:
+            for key, ticket in self._tickets.items():
+                if ticket.session_hash == session_hash:
+                    self._tickets[key] = replace(ticket, session_hash=new_session_hash)
 
     def drop(self, token: str) -> None:
         with self._lock:

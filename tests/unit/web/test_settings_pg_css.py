@@ -12,9 +12,9 @@ CSS = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "static" / "css"
 PANELS = re.sub(r"/\*.*?\*/", "", (CSS / "_settings_pg_panels.css").read_text(), flags=re.S)
 
 
-def _declarations(selector: str) -> str:
+def _declarations(selector: str, css: str = PANELS) -> str:
     """Every declaration block whose selector list ends in `selector`, joined."""
-    blocks = re.findall(r"([^{}]+)\{([^{}]*)\}", PANELS)
+    blocks = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
     return " ".join(
         body for head, body in blocks if any(part.strip() == selector for part in head.split(","))
     )
@@ -258,3 +258,44 @@ def test_a_switch_shows_in_forced_colours_and_no_page_redraws_its_thumb() -> Non
         if sheet.name != "_forms.css":
             css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
             assert not re.search(r"\.tog(\.on)?::after", css), sheet.name
+
+
+def test_an_open_fold_at_rest_is_laid_out_anew_when_its_content_grows() -> None:
+    at_rest = _declarations(".setg-pg .setg-fold:not(.is-moving):not(.is-shut)")
+    assert "display: flow-root" in at_rest  # Safari keeps a grid row's old height
+    assert "display: grid" in _declarations(".setg-pg .setg-fold")
+
+
+def _sheet(name: str) -> str:
+    return re.sub(r"/\*.*?\*/", "", (CSS / name).read_text(), flags=re.S)
+
+
+def test_a_fold_with_a_margin_of_its_own_gives_it_up_as_it_shuts() -> None:
+    # Kept while shut, it goes in one step when the fold is hidden at the end.
+    assert "margin-bottom: -6px" in _declarations("#account-email-fold", _sheet("_profile.css"))
+    assert "margin-bottom: 0" in _declarations(
+        "#account-email-fold.is-shut", _sheet("_profile.css")
+    )
+
+
+def test_a_card_that_holds_only_a_fold_folds_its_padding_and_edge_with_it() -> None:
+    css = _sheet("_settings_pg.css")
+    body = ".setg-pg .setg-card-bd:has(> .setg-fold:only-child)"
+    shut = ".setg-pg .setg-card-bd:has(> .setg-fold.is-shut:only-child)"
+    head = ".setg-pg .setg-card-hd:has(+ .setg-card-bd > .setg-fold.is-shut:only-child)"
+    assert "transition: padding var(--dur-slow) var(--ease-out)" in _declarations(body, css)
+    assert "padding-block: 0" in _declarations(shut, css)
+    assert "border-bottom-width: 0" in _declarations(head, css)
+    assert "border-bottom-width var(--dur-slow)" in _declarations(head.replace(".is-shut", ""), css)
+
+
+def test_a_panel_folds_at_the_speed_of_the_other_folds() -> None:
+    fold = _declarations(".setg-pg .setg-fold")
+    # MM.dom.fold opens a <details> beside it over --dur-slow, as the app's other folds open.
+    assert "'--dur-slow'" in (CSS.parent / "js" / "core" / "dom.js").read_text()
+    for part in ("grid-template-rows", "margin", "padding", "border-width"):
+        assert f"{part} var(--dur-slow)" in fold
+    reduced = (
+        r"prefers-reduced-motion: reduce\)\s*\{\s*\.setg-pg \.setg-fold \{ transition: none; \}"
+    )
+    assert re.search(reduced, PANELS)

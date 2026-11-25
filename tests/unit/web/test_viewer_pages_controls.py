@@ -98,6 +98,11 @@ def test_downloads_abandon_controls_follow_the_role(make_client, role):
     assert body["queue"][0]["abandon_visible"] is shown
 
 
+def test_each_abandon_button_names_the_very_title_it_is_of(make_client):
+    html = _get_downloads(make_client(downloads_router, "admin"))[0].text
+    assert re.findall(r'data-arr-id="(\d+)"', html) == ["1", "1", "9"]
+
+
 @pytest.mark.parametrize("role", ["admin", "viewer"])
 def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
     page, api = _get_downloads(make_client(downloads_router, role))

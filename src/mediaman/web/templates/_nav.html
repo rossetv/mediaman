@@ -37,7 +37,7 @@
 {% macro current(page) %}{% if active == page %} aria-current="page"{% endif %}{% endmacro %}
 
 <header class="nav-glass{% block nav_class %}{% endblock %}">
-  <a class="brand" href="/watch" aria-label="mediaman, home"{{ current('watch') }}>media<b>man</b></a>
+  <a class="brand" href="/watch" aria-label="mediaman, home"{{ current('watch') }}>{{ icon("i-wordmark", "wordmark") }}</a>
   {% block nav_center %}<a class="nav-back" href="/watch">{{ icon("i-chevron-left") }}Watch</a>{% endblock %}
   {% block nav_end %}{% endblock %}
   {# The menu needs its script. #}

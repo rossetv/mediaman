@@ -6,6 +6,7 @@ import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -157,6 +158,18 @@ class TestKeepPageMessages:
         assert "does not work" not in resp.text
         assert re.search(r"<title>\s*Too many requests", resp.text)
         assert re.search(r'<a [^>]*href="" data-count="60">Try again</a>', resp.text)
+        assert resp.headers["Retry-After"] == "60"
+
+    @pytest.mark.parametrize("path", ["/keep/badtoken", "/api/keep/badtoken/forever"])
+    def test_a_rate_limited_json_post_says_when_to_come_back(self, conn, authed_client, path):
+        from mediaman.web.routes.keep import _KEEP_POST_LIMITER
+
+        client = authed_client(self._client(conn).app, conn)
+        with patch.object(_KEEP_POST_LIMITER, "check", return_value=False):
+            resp = client.post(path, data={"duration": "7 days"})
+
+        assert resp.status_code == 429
+        assert resp.headers["Retry-After"] == "60"
 
     def test_rate_limited_form_post_renders_the_styled_page(self, conn):
         from mediaman.web.routes.keep import _KEEP_POST_LIMITER
@@ -168,4 +181,5 @@ class TestKeepPageMessages:
         )
 
         assert resp.status_code == 429
+        assert resp.headers["Retry-After"] == "60"
         assert "One moment" in resp.text
