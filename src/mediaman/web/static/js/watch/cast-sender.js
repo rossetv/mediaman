@@ -211,11 +211,17 @@
       owner: left ? '' : me,
       soft: !p.followed,
       busy: p.changing,
-      wait: p.wait,
+      wait: left && p.followed ? endLeft(p) : p.wait,
+      ended: p.ended,
       auto: p.auto,
       beat: left ? 0 : now(),
       at: now(),
     });
+  }
+
+  /* The wait at the end of what a player that is left has followed. */
+  function endLeft(p) {
+    return p.ended && p.keep && p.keep.next ? { kind: 'upnext', until: p.until } : null;
   }
 
   /* What the player keeps is large beside the place, and changes seldom. */
@@ -281,6 +287,7 @@
       cut: false,        // the page before was left as it changed its stream
       changing: false,   // another stream is on its way
       wait: null,        // at its end: 'upnext' or 'still', and when that is over
+      until: null,       // when the count of the player that follows it is over
       silent: false,     // joined at its end, the TV having named nothing
       auto: 0,           // episodes that began by themselves
       sign: now(),       // when somebody last pressed
@@ -493,6 +500,7 @@
         changed();
       },
       onGone: function (fn) { p.gone.push(fn); },
+      counts: function (until) { p.until = until; },
       keep: function (kept) {
         takeKept(p, kept);
         if (p.done || current !== p) return;
@@ -750,7 +758,7 @@
       function look() {
         var session = context.getCurrentSession();
         if (!session || session.getSessionId() !== rec.session) return;
-        if (mediaOn(session).length || rec.wait) {
+        if (mediaOn(session).length || rec.wait || rec.ended) {
           over({ session: session, ms: mediaOf(session, { stream_id: rec.stream }) });
         } else if (heard !== session) {
           heard = session;

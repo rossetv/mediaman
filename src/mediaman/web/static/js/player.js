@@ -2905,8 +2905,12 @@
     if (countdownTimer === null) return;
     clearInterval(countdownTimer);
     countdownTimer = null;
+    tellCount(null);
     showPlayState();
   }
+
+  /* A way that carries on goes on with the count where the page is left. */
+  function tellCount(until) { if (away && away.play && away.play.counts) away.play.counts(until); }
 
   /* The card, counting down where the next episode begins by itself: not where it is to `wait`. */
   function showUpnext(wait) {
@@ -2931,6 +2935,7 @@
       goOrAsk(function () { goNext(true); });
     };
     countdownTimer = setInterval(count, 250);
+    tellCount(until);
     count();
   }
 
@@ -4304,7 +4309,8 @@
     clearTimeout(backTimer);
     backTimer = null;
     if (away && away.play && away.play.carriesOn) {
-      beaconProgress();
+      if (video.ended) beaconStop();
+      else beaconProgress();
       dropRating();
       keepRating();
       return;

@@ -801,7 +801,7 @@ function elsewhereOf(mode) {
 function castWay(carriesOn) {
   const way = {
     id: 'cast', label: 'Chromecast', sub: '', icon: 'play-on-cast', available: () => true,
-    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'),
+    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'), counts: [],
   };
   way.play = {
     name: 'Den', carriesOn: carriesOn, media: way.media,
@@ -809,6 +809,7 @@ function castWay(carriesOn) {
     stop() { way.stops++; return Promise.resolve(); },
     leave() { way.left++; },
     keep(kept) { way.kept = kept; },
+    counts(until) { way.counts.push(until); },
     onGone(fn) { way.gone = fn; },
   };
   way.start = (what) => { way.what = what; return what.open().then((stream) => { way.stream = stream; return way.play; }); };
@@ -5478,6 +5479,20 @@ const scenarios = {
     await settle();
     out.next = p.calls.some((c) => c.page && /502/.test(c.url));
     out.card = !gone(p.q('[data-upnext]'));
+    return out;
+  },
+
+  /* The page is left while the next episode counts down, or not, and what its way is told of it. */
+  async away_count_left(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    if (p.win.serverPlays === 'cancel') { click(p.q('[data-upnext-cancel]')); await settle(); }
+    const out = { counts: way.counts.map((until) => until && Math.round((until - p.win.Date.now()) / 1000)) };
+    p.leave();
+    out.beacons = p.beacons.map((b) => b.url.replace(/.*\/api/, ''));
     return out;
   },
 

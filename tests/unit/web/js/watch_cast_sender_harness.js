@@ -1426,6 +1426,25 @@ const scenarios = {
     await t.w.clock.advance(12000);
     out.takenLate = { now: look(next), ended: t.w.tv.ended, loads: t.w.tv.loads.length };
 
+    // The player's page is left at the end: while it counts, and while it does not.
+    for (const kind of ['counts', 'waits', 'film']) {
+      const w = world();
+      const player = ready(await casting(w));
+      if (kind !== 'film') player.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+      await w.clock.advance(1000);
+      w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
+      if (kind === 'counts') player.play.counts(w.clock.now() + 10000);
+      await w.clock.advance(4000);
+      const open2 = JSON.parse(w.storage[RECORD]).wait;
+      player.close();
+      w.tv.media = [];
+      const then = ready(await open(w));
+      await w.clock.advance(500);
+      const taken = look(then);
+      await w.clock.advance(7000);
+      out['left ' + kind] = { open: open2, taken, loads: w.tv.loads.length, ended: w.tv.ended, record: RECORD in w.storage };
+    }
+
     // A start that is slow is one start, and a press on the first tab is heard by one that looks.
     t = await make();
     let asked = 0;

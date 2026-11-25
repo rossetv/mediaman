@@ -884,6 +884,25 @@ def test_the_count_is_over_as_the_tv_says_it_plays_something_else() -> None:
     assert _run("waits")["takenLate"] == {"now": None, "ended": [], "loads": 1}
 
 
+def test_a_count_left_in_the_player_goes_on_where_the_person_goes() -> None:
+    out = _run("waits")["left counts"]
+    # Other pages leave it to the player while that is open.
+    assert out["open"] is None
+    assert out["taken"] == ["upnext", 6, None, "101", "Glass Orchard"]
+    assert (out["loads"], out["ended"]) == (2, [])
+
+
+def test_an_end_left_in_the_player_without_a_count_waits_for_a_press() -> None:
+    out = _run("waits")["left waits"]
+    assert out["taken"] == ["upnext", None, None, "101", "Glass Orchard"]
+    assert (out["loads"], out["ended"], out["record"]) == (1, [], True)
+
+
+def test_an_end_left_in_the_player_with_nothing_to_follow_is_over() -> None:
+    out = _run("waits")["left film"]
+    assert (out["taken"], out["ended"], out["record"]) == (None, [], False)
+
+
 def test_the_sitting_is_counted_on_across_pages() -> None:
     assert _run("waits")["sitting"] == "still"
 

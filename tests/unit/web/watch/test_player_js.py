@@ -2465,6 +2465,12 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+@pytest.mark.parametrize(("how", "told"), [("leave", [10]), ("cancel", [10, None])])
+def test_a_page_left_at_the_end_has_its_way_count_on_as_it_did(markup, how, told):
+    out = elsewhere(markup, "away_count_left", how)
+    assert out == {"counts": told, "beacons": ["/watch/stream/c1/stop"]}
+
+
 def test_the_keyboard_is_on_a_control_that_shows_as_what_follows_an_end_is_tried_again(markup):
     out = elsewhere(markup, "away_next_tried")
     assert (out["message"]["button"], out["ended"]) == ("Try again", True)
