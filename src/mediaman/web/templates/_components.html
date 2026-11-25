@@ -248,8 +248,10 @@
     </div>
     <div class="hd-actions">
       {{ conn_pill(service) }}
-      {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
-      {{ icon("i-chevron-down", "intg-chev") }}
+      <div class="hd-btns">
+        {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+        {{ icon("i-chevron-down", "intg-chev") }}
+      </div>
     </div>
   </div>
   {# Outside the role="button" header: a button's children are presentational, so a live region inside may go unannounced. #}
