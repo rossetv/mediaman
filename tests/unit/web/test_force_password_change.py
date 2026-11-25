@@ -149,6 +149,11 @@ def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
     assert "border: 1px solid transparent" in _rule(login, ".login-btn")
 
 
+def test_a_long_unbroken_word_in_a_refusal_breaks_inside_the_card() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    assert "overflow-wrap: anywhere" in _rule(login, ".error-msg")
+
+
 @pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
 def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     html = (WEB / "templates" / f"{page}.html").read_text()

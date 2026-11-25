@@ -147,6 +147,7 @@ form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
   border-radius: var(--r-sm);
   color: var(--danger-text);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 /* Force-password-change extras */

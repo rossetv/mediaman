@@ -199,3 +199,12 @@ def test_a_crashed_form_is_not_offered_a_retry_that_would_not_send_it(client):
 
 def test_an_error_page_carries_the_wordmark(client):
     assert '<use href="#i-wordmark"/>' in client.get("/no/such/page", headers=_HTML).text
+
+
+def test_a_long_unbroken_word_in_the_message_breaks_inside_the_card():
+    from pathlib import Path
+
+    import mediaman.web
+
+    css = (Path(mediaman.web.__file__).parent / "static" / "css" / "_error.css").read_text()
+    assert ".err-title,\n.err-msg { text-wrap: balance; overflow-wrap: anywhere; }" in css

@@ -35,7 +35,7 @@ body:has(> .nav-glass) .login-page { min-height: calc(100vh - var(--nav-h)); }
   margin: 0 0 28px;
 }
 .err-title,
-.err-msg { text-wrap: balance; }
+.err-msg { text-wrap: balance; overflow-wrap: anywhere; }
 
 .err-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 
