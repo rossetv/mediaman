@@ -977,6 +977,15 @@ def test_what_the_open_field_covers_can_have_the_focus() -> None:
         assert "pointer-events: none" in body and "visibility" not in body
 
 
+def test_the_field_stays_between_the_links_and_the_meter_which_drops_its_words_for_it() -> None:
+    assert _run("barBetween") == [
+        ["312px", "878px", False],
+        ["522px", "638px", True],
+        ["522px", "798px", True],
+        [False],
+    ]
+
+
 def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
     out = _run("slashKeepsThePlace")
     assert out == {"sticky": [400, True], "gone": [0, True]}

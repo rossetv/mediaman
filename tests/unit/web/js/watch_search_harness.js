@@ -113,6 +113,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   const $ = (id) => doc.getElementById(id);
+  doc.querySelector('.wbar').style.setProperty = () => {};
   // The server opens on the results when the address has a search; otherwise the rows are on view.
   $('watch-results').hidden = !opened && !/genre=|person=/.test(at || '');
   $('watch-browse').hidden = !$('watch-results').hidden;
@@ -2134,6 +2135,28 @@ scenarios.barGivesBack = async () => {
   const meter = (p) => p.$('meter');
   const list = (p) => p.doc.querySelector('#watch-viewtoggle a');
   return { wide: await at(1280, meter), phone: await at(390, list), clear: await at(1280, list) };
+};
+// Between the links and the meter, whatever size their words are.
+scenarios.barBetween = async () => {
+  const observed = [];
+  const p = await ready(ADMIN, '', null, undefined, { width: 1280, observed });
+  const bar = p.doc.querySelector('.wbar');
+  const set = {};
+  bar.style.setProperty = (name, value) => { set[name] = value; };
+  const at = (end, meter) => {
+    Object.defineProperty(p.$('nav-links'), 'offsetLeft', { value: 150, configurable: true });
+    Object.defineProperty(p.$('nav-links'), 'offsetWidth', { value: end - 150, configurable: true });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: meter, configurable: true });
+    observed.forEach((fn) => fn());
+    return [set['--l'], set['--r'], bar.classList.contains('is-tight')];
+  };
+  const out = [at(310, 880), at(520, 640)];
+  // The room the meter's words leave does not bring them back.
+  out.push(at(520, 800));
+  at(310, 880);
+  p.fire('resize');
+  out.push([bar.classList.contains('is-tight')]);
+  return out;
 };
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {

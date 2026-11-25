@@ -635,6 +635,23 @@
     var scrolled = window.scrollY;
     var framed = false;
 
+    /* The field stays between what is on either side, however large a person has text;
+       where that leaves too little, the meter drops its words till the width changes. */
+    function fitBetween() {
+      var links = bar.querySelector('.nav-links');
+      var l = links.offsetLeft + links.offsetWidth + 2;
+      var r = (meter || bar.querySelector('.profile-btn')).offsetLeft - 2;
+      bar.style.setProperty('--l', l + 'px');
+      bar.style.setProperty('--r', r + 'px');
+      if (wide.matches && meter && r - l < 200) bar.classList.add('is-tight');
+      makeRoom();
+    }
+
+    function fitAgain() {
+      bar.classList.remove('is-tight');
+      fitBetween();
+    }
+
     /* The open field would cover the meter. */
     function covers() {
       return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft;
@@ -1787,10 +1804,15 @@
       // A narrow window shows no titles among the suggestions.
       sayList();
       if (!focused()) hintText.textContent = rest();
-      makeRoom();
+      fitAgain();
     });
-    // Its words arrive after the page, and change.
-    if (meter && window.ResizeObserver) new window.ResizeObserver(makeRoom).observe(meter);
+    // The meter's words arrive after the page, and change.
+    if (window.ResizeObserver) {
+      // In the next frame: it may change the meter's size itself.
+      var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
+      sized.observe(meter || bar.querySelector('.profile-btn'));
+      sized.observe(bar.querySelector('.nav-links'));
+    }
     window.addEventListener('scroll', function () {
       if (framed) return;
       framed = true;
