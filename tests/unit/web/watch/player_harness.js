@@ -801,7 +801,7 @@ function elsewhereOf(mode) {
 function castWay(carriesOn) {
   const way = {
     id: 'cast', label: 'Chromecast', sub: '', icon: 'play-on-cast', available: () => true,
-    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'), counts: [],
+    loads: [], stops: 0, left: 0, kept: null, what: null, gone: null, media: make('video'), counts: [], watched: (key) => way.seen.push(key), seen: [],
   };
   way.play = {
     name: 'Den', carriesOn: carriesOn, media: way.media,
@@ -5494,6 +5494,26 @@ const scenarios = {
     p.leave();
     out.beacons = p.beacons.map((b) => b.url.replace(/.*\/api/, ''));
     return out;
+  },
+
+  /* A title that a way holds as the one to come is watched here. */
+  async away_watched(p) {
+    const how = p.win.serverPlays;
+    p.replies[0] = answer('best', { markers: MARKERS });
+    await streamPlays(p, 30);
+    const way = castWay(true);
+    p.win.MM.playOn.register(way);
+    if (how === 'there') { await openSheet(p); await pickRow(p, 'cast'); mediaPlays(way.media, 2990); await settle(); }
+    const media = how === 'there' ? way.media : p.video;
+    if (how === 'skipped') {
+      media.currentTime = 2710; fire(media, 'timeupdate');
+      click(p.q('[data-skip]'));
+    } else if (how !== 'left') {
+      media.paused = true; media.ended = true; media.currentTime = 2999;
+      fire(media, 'ended');
+    }
+    await settle();
+    return way.seen;
   },
 
   /* The next episode of what ended on a TV is not reached, and is tried again. */

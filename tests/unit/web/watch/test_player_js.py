@@ -2471,6 +2471,13 @@ def test_a_page_left_at_the_end_has_its_way_count_on_as_it_did(markup, how, told
     assert out == {"counts": told, "beacons": ["/watch/stream/c1/stop"]}
 
 
+@pytest.mark.parametrize(
+    ("how", "told"), [("ended", ["501"]), ("skipped", ["501"]), ("left", []), ("there", [])]
+)
+def test_the_ways_are_told_what_was_watched_here_to_its_end(markup, how, told):
+    assert elsewhere(markup, "away_watched", how) == told
+
+
 def test_the_keyboard_is_on_a_control_that_shows_as_what_follows_an_end_is_tried_again(markup):
     out = elsewhere(markup, "away_next_tried")
     assert (out["message"]["button"], out["ended"]) == ("Try again", True)

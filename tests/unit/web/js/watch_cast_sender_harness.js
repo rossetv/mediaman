@@ -1445,6 +1445,20 @@ const scenarios = {
       out['left ' + kind] = { open: open2, taken, loads: w.tv.loads.length, ended: w.tv.ended, record: RECORD in w.storage };
     }
 
+    // What waits is watched here, on a page that has it, and on one that could not join the TV.
+    for (const joins of [true, false]) {
+      t = await make();
+      await atEnd(t.w, t.page);
+      t.page.close();
+      const here = ready(await open(t.w, { player: true, joins }));
+      here.way.again('102');
+      await t.w.clock.advance(1000);
+      here.way.watched('103');
+      const other = RECORD in t.w.storage;
+      here.way.watched('102');
+      out['watched ' + joins] = { other, record: RECORD in t.w.storage, now: look(here), ended: t.w.tv.ended };
+    }
+
     // A start that is slow is one start, and a press on the first tab is heard by one that looks.
     t = await make();
     let asked = 0;

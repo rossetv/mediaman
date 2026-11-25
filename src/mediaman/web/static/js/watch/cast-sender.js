@@ -1319,6 +1319,16 @@
     };
   }
 
+  /* The person has watched `key` here to its end: it waits on the TV no more. */
+  function watched(key) {
+    var rec = readRecord();
+    var p = current;
+    var next = rec && rec.wait && (readKept(rec.stream).keep || {}).next;
+    if (!next || String(next.rating_key) !== String(key)) return;
+    forgetStored();
+    if (p && p.stream.stream_id === rec.stream) letGo(p);
+  }
+
   if (playOn && supported) {
     playOn.register({
       id: 'cast',
@@ -1336,6 +1346,7 @@
       start: start,
       again: again,
       release: release,
+      watched: watched,
     });
   }
 

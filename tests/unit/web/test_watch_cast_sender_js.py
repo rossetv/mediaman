@@ -903,6 +903,16 @@ def test_an_end_left_in_the_player_with_nothing_to_follow_is_over() -> None:
     assert (out["taken"], out["ended"], out["record"]) == (None, [], False)
 
 
+@pytest.mark.parametrize("joined", ["true", "false"])
+def test_what_waits_on_a_tv_is_forgotten_once_it_was_watched_here(joined: str) -> None:
+    assert _run("waits")[f"watched {joined}"] == {
+        "other": True,
+        "record": False,
+        "now": None,
+        "ended": [],
+    }
+
+
 def test_the_sitting_is_counted_on_across_pages() -> None:
     assert _run("waits")["sitting"] == "still"
 

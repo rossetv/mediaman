@@ -1924,6 +1924,7 @@
     }
     dropAim();
     endSaved = saveProgress();
+    watchedHere();
     showSkip();
     atEnd();
     showPlayState();
@@ -2086,6 +2087,9 @@
   /* Only the last credits lead on; a scene may follow the others. */
   function endsEpisode(m) { return !!next && m.kind === 'credits' && m.final; }
 
+  /* A TV on which this one waits to follow another has it wait no more. */
+  function watchedHere() { if (playOn && !away) playOn.watched(String(item.rating_key)); }
+
   function skipOn() {
     if (!skipMarker) return;
     if (!endsEpisode(skipMarker)) {
@@ -2093,6 +2097,7 @@
       return;
     }
     /* Saved as at the end, so that the episode counts as watched. */
+    watchedHere();
     goNext(false, duration());
   }
   els.skip.addEventListener('click', skipOn);
