@@ -90,6 +90,13 @@ def test_a_dialog_that_left_the_page_before_it_closed_gives_the_page_and_the_foc
     assert out["after"] == {"inert": [], "focused": "opener"}
 
 
+def test_closing_what_a_part_of_the_page_opened_closes_what_that_opened_and_nothing_else() -> None:
+    out = _run("closeFrom")
+    assert out["within"] == {"left": [False, 0], "focused": "opener"}
+    assert out["elsewhere"] == {"left": [True, 1], "focused": "Cancel"}
+    assert out["gone"]["left"] == [False, 0]
+
+
 def test_tab_stays_in_a_dialog_with_its_own_focus() -> None:
     assert _run("tabInPlain") == ["plain-yes", "password"]
 

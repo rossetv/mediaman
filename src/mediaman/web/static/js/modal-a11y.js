@@ -23,7 +23,8 @@
  * the focus trap and initial focus, and `ModalA11y.onClosed('delete-modal')`
  * to restore focus to the trigger. Something with a focus of its own calls
  * `MM.inertPage.hold(node)` as it opens and `MM.inertPage.release(node)` as it closes,
- * for the inert page and the Tab trap alone.
+ * for the inert page and the Tab trap alone. What draws a trigger anew, or takes away what
+ * modals were opened from, says so with `ModalA11y.handOn(find)` and `ModalA11y.closeFrom(node)`.
  */
 (function (global) {
   'use strict';
@@ -181,19 +182,40 @@
     entry.node = entry.lastTrigger = null;
     release(modal);
     // What was opened from here, and is still open, hands the focus on to where this one would.
-    open.forEach(function (other) {
-      var over = registry[other.id];
-      if (over && modal.contains(over.lastTrigger)) over.lastTrigger = trigger;
-    });
+    handOn(function (from) { return modal.contains(from) ? trigger : null; });
     if (trigger && typeof trigger.focus === 'function') {
       try { trigger.focus(); } catch (e) { /* ignore */ }
     }
   }
 
+  /* Where the open modals give the focus back to: what *find* makes of each one's
+     trigger, or that itself where it makes nothing of it. */
+  function handOn(find) {
+    open.forEach(function (modal) {
+      var entry = registry[modal.id];
+      if (entry && entry.lastTrigger) entry.lastTrigger = find(entry.lastTrigger) || entry.lastTrigger;
+    });
+  }
+
+  /* Closes what was opened from within *node*, or from what has left the page since,
+     and what was opened from that. */
+  function closeFrom(node) {
+    var within = [node];
+    open.filter(function (modal) {
+      var entry = registry[modal.id];
+      var from = entry && entry.closeFn && entry.lastTrigger;
+      if (!from || (from.isConnected && !within.some(function (n) { return n.contains(from); }))) return false;
+      within.push(modal);
+      return true;
+    }).reverse().forEach(function (modal) { registry[modal.id].closeFn(); });
+  }
+
   global.ModalA11y = {
     register: register,
     onOpened: onOpened,
-    onClosed: onClosed
+    onClosed: onClosed,
+    handOn: handOn,
+    closeFrom: closeFrom
   };
   global.MM = global.MM || {};
   global.MM.inertPage = { hold: hold, release: release };

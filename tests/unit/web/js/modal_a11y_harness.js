@@ -190,6 +190,23 @@ const scenarios = {
     m.close();
     return { alone, over, after: look() };
   },
+  // Close what was opened from the main part: a dialog, and a confirm opened from that.
+  closeFrom() {
+    const run = (from, opener, change) => {
+      const p = page();
+      p.$(opener).focus();
+      p.setup('low').open();
+      p.confirm();
+      if (change) change(p);
+      p.ctx.ModalA11y.closeFrom(p.$(from));
+      return { left: [!p.$('low').hidden, p.doc.querySelectorAll('.ui-confirm-overlay:not(.is-leaving)').length], focused: p.focused() };
+    };
+    return {
+      within: run('main', 'opener'),
+      elsewhere: run('main', 'brand'),
+      gone: run('main', 'brand', (p) => p.$('brand').remove()),
+    };
+  },
   // Escape with a dialog that answers it itself over one that does not.
   escape() {
     const p = page();
