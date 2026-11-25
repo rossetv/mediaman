@@ -7,6 +7,7 @@
 
 {% set chosen = {} %}
 {% for key in ("q", "user", "action", "title", "since", "until") if filters[key] %}{% set _ = chosen.update({key: filters[key]}) %}{% endfor %}
+{% if request.query_params.date %}{% set _ = chosen.update({"date": request.query_params.date}) %}{% endif %}
 {% macro page_href(n) %}/history?{{ (dict(chosen, page=n) | urlencode) }}{% endmacro %}
 
 {% block content %}
@@ -30,7 +31,7 @@
   <div class="hx-sum"><span role="status">{% if total %}{{ "{:,}".format(total) }} event{{ "s" if total != 1 }}{% endif %}</span><button type="button" data-hist-clear hidden>Clear all</button>{% if page > 1 %}<a class="hx-newest" href="{{ page_href(1) }}">Show the newest</a>{% endif %}</div>
 
   {# What shows should the script not load: it replaces all of this. #}
-  <div class="hx-list">
+  <div class="hx-list" tabindex="-1">
     <div class="pill-row hx-plain">
       {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
       {% for at, at_label in action_types %}{{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}{% endfor %}
@@ -41,7 +42,7 @@
       {% set time = item.fields | selectattr("at", "defined") | first %}
       <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
         <summary class="hist-sum">
-          <span class="hx-who">{{ avatar(item.actor, item.avatar) }}</span>
+          <span class="hx-who">{{ avatar(item.who.name, item.avatar) }}</span>
           <span class="hist-msg"><span class="hx-l1"><b>{{ item.line_title }}</b>{% if not item.is_security %} {{ item.action_label }}{% endif %}</span>{% if item.summary %}<span class="hx-l2">{{ item.summary }}</span>{% endif %}</span>
           {% if time %}<time class="hist-date" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
           <span class="hist-chev">{{ c.icon("i-chevron-down") }}</span>

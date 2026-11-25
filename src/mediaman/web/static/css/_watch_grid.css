@@ -160,7 +160,6 @@
 .watch-all__title.is-track { overflow: visible; text-overflow: clip; }
 .watch-ride { position: absolute; z-index: 3; left: 0; top: 0; pointer-events: none; }
 .watch-card.is-gone { position: fixed; z-index: 1; pointer-events: none; }
-.watch-top.is-ghost { position: fixed; left: 0; right: 0; z-index: 3; pointer-events: none; }
 /* Chrome would scroll the page after a block that is on its way. */
 html.is-grid-moving .watch-page { overflow-anchor: none; }
 html.is-grid-moving .watch-card__link:hover .watch-card__poster { transform: none; box-shadow: none; }

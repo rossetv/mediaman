@@ -49,7 +49,9 @@ def test_one_device_is_signed_out_by_its_own_button() -> None:
     assert (out["own"], out["label"]) == (False, "Sign out: Safari on iPhone")
     # one request for each press, however often it is pressed meanwhile
     assert out["sent"] == ["/api/users/sessions/a%2Fb"] * 3 + ["/api/users/sessions/id3"]
-    assert out["busy"] == "Signing out…"
+    # only a spinner at the width the button had, and the words for a screen reader
+    assert out["busy"] == ["", "20px", "Signing out…"]
+    assert out["labelAfter"] == out["label"]
     assert out["words"] == {
         "title": "Confirm it’s you",
         "descText": "Enter your Mediaman password to sign out a device.",
@@ -82,6 +84,14 @@ def test_a_device_signed_out_leaves_the_list_and_hands_the_focus_on() -> None:
         "disabled": True,
         "why": True,
     }
+
+
+def test_only_the_list_of_sign_ins_asked_last_is_shown() -> None:
+    assert _run("lateList") == 1
+
+
+def test_a_list_asked_before_a_device_was_signed_out_does_not_bring_it_back() -> None:
+    assert _run("listBeforeSignOut") == 1
 
 
 def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_when_shut() -> None:
@@ -172,6 +182,7 @@ def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
+    assert out["revealedSending"][-1] == ["account-submit-password", "nearest"]
     field = "account-new-password"
     assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
@@ -182,6 +193,18 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     margin = re.search(r"\.me-msg \{[^}]*scroll-margin-bottom: (\d+)px", css)
     # a 44px button centred on one 18px line reaches 13px below it
     assert margin and int(margin.group(1)) >= 13
+
+
+def test_an_empty_status_takes_no_room_and_can_still_be_announced() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    assert re.search(r"\.me-msg:empty \{ position: absolute; \}", css)
+    assert not re.search(r"\.me-msg:empty[^}]*(display|visibility)", css)
+
+
+def test_a_fold_has_room_at_its_sides_for_the_focus_rings_it_clips() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    rule = re.search(r"is-moving > \.setg-fold-inner \{([^}]*)\}", css)
+    assert rule and "padding-inline: 6px; margin-inline: -6px" in rule[1]
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:

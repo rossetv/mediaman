@@ -31,6 +31,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   const on = {};
   const urls = [];
   const grids = [];
+  const mutated = [];
   const tab = { entries: [{ url: at || '/watch' + (opened ? '?q=' + opened : ''), state: null }], index: 0 };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, e) => (on[type] || []).slice().forEach((fn) => fn(e || {}));
@@ -59,6 +60,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       };
     },
     innerWidth: width,
+    requestAnimationFrame: (fn) => fn(),
+    MutationObserver: class { constructor(fn) { mutated.push(fn); } observe() {} disconnect() {} },
     ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { observed.push(this.fn); } disconnect() {} },
     innerHeight: 800,
     categories,
@@ -110,6 +113,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   const $ = (id) => doc.getElementById(id);
+  doc.querySelector('.wbar').style.setProperty = () => {};
   // The server opens on the results when the address has a search; otherwise the rows are on view.
   $('watch-results').hidden = !opened && !/genre=|person=/.test(at || '');
   $('watch-browse').hidden = !$('watch-results').hidden;
@@ -167,6 +171,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   ctx.MMWatch.search.init();
   ctx.MMWatch.address.start();
   return {
+    mutate: () => mutated.forEach((fn) => fn([])),
     ctx, doc, input, calls, events, urls, timers, tab, grids, $, fire,
     results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'), sheet: $('watch-sheet'),
     url: () => tab.entries[tab.index].url,
@@ -2016,6 +2021,54 @@ scenarios.barTucksOverSeeAll = async () => {
   p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
   return [0, 400, 200, 60, 4].map((y) => scrollTo(p, y));
 };
+// Whatever brought the field's line there, See all scrolled down has none over its header.
+scenarios.barLeavesSeeAllFree = async () => {
+  const seeAll = async (y, width = 390) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const all = p.$('watch-page').appendChild(build(p.doc, ['section', { id: 'watch-all' }]));
+    if (y) scrollTo(p, y);
+    return [p, all];
+  };
+  const out = {};
+  const [a] = await seeAll(400);
+  const bar = a.doc.querySelector('.wbar');
+  a.input.focus();
+  bar.listeners.focusin.forEach((fn) => fn({ target: a.input }));
+  out.focused = tucked(a);
+  a.input.blur();
+  (bar.listeners.focusout || []).forEach((fn) => fn({ target: a.input }));
+  await settle();
+  out.left = tucked(a);
+  const [b] = await seeAll(400);
+  b.ctx.innerWidth = 768;
+  b.fire('width');
+  out.turned = tucked(b);
+  // Forward: the rows had the line, and the grid opens where it was scrolled.
+  const c = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(c, 600);
+  scrollTo(c, 500);
+  out.rows = tucked(c);
+  c.$('watch-page').appendChild(build(c.doc, ['section', { id: 'watch-all' }]));
+  out.forward = scrollTo(c, 300);
+  const d = await ready(ADMIN, '', null, undefined, { width: 390 });
+  scrollTo(d, 600);
+  scrollTo(d, 500);
+  d.$('watch-page').appendChild(build(d.doc, ['section', { id: 'watch-all' }]));
+  d.mutate();
+  out.opened = tucked(d);
+  return out;
+};
+// Less than a person means: a pixel or two down, one event after another in a frame.
+scenarios.barTucksOnPurpose = async () => {
+  const p = load(ADMIN, '', null, undefined, { width: 768 });
+  const out = [300, 100, 101, 106, 107].map((y) => scrollTo(p, y));
+  let frames = 0;
+  let run = null;
+  p.ctx.requestAnimationFrame = (fn) => { frames++; run = fn; };
+  [500, 600, 700].forEach((y) => { p.ctx.scrollY = y; p.fire('scroll'); });
+  if (run) run();
+  return { out, frames, after: tucked(p) };
+};
 scenarios.barSheetHolds = async () => {
   const p = await ready(ADMIN, '', null, undefined, { width: 768 });
   scrollTo(p, 400);
@@ -2056,6 +2109,67 @@ scenarios.barCovers = async () => {
   p.doc.querySelector('.wbar').getBoundingClientRect = () => ({ top: 0, bottom: 106 });
   p.ctx.getComputedStyle = () => ({ display: 'flex', paddingBottom: '54px', getPropertyValue: () => '' });
   return [0, 400].map((y) => { scrollTo(p, y); return p.ctx.MMWatch.core.clearArea().top; });
+};
+// What the open field covers comes back with the focus, which it can have.
+scenarios.barGivesBack = async () => {
+  const at = async (width, of) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const bar = p.doc.querySelector('.wbar');
+    const box = p.doc.querySelector('.watch-search');
+    Object.defineProperty(box, 'offsetLeft', { value: 300 });
+    Object.defineProperty(box, 'offsetWidth', { value: 500 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: 780 });
+    p.type('har');
+    p.input.focus();
+    const open = () => [box.classList.contains('is-open'), bar.classList.contains('is-wide-open')];
+    const out = [open()];
+    const node = of(p);
+    node.focus();
+    bar.listeners.focusin.forEach((fn) => fn({ target: node }));
+    out.push(open());
+    node.blur();
+    bar.listeners.focusout.forEach((fn) => fn({ target: node }));
+    await settle();
+    return out.concat([open()]);
+  };
+  const meter = (p) => p.$('meter');
+  const list = (p) => p.doc.querySelector('#watch-viewtoggle a');
+  return { wide: await at(1280, meter), phone: await at(390, list), clear: await at(1280, list) };
+};
+// Between the links and the meter, whatever size their words are.
+scenarios.barBetween = async () => {
+  const observed = [];
+  const p = await ready(ADMIN, '', null, undefined, { width: 1280, observed });
+  const bar = p.doc.querySelector('.wbar');
+  const set = {};
+  bar.style.setProperty = (name, value) => { set[name] = value; };
+  const at = (end, meter) => {
+    Object.defineProperty(p.$('nav-links'), 'offsetLeft', { value: 150, configurable: true });
+    Object.defineProperty(p.$('nav-links'), 'offsetWidth', { value: end - 150, configurable: true });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: meter, configurable: true });
+    observed.forEach((fn) => fn());
+    return [set['--l'], set['--r'], bar.classList.contains('is-tight')];
+  };
+  const out = [at(310, 880), at(520, 640)];
+  // The room the meter's words leave does not bring them back.
+  out.push(at(520, 800));
+  at(310, 880);
+  p.fire('resize');
+  out.push([bar.classList.contains('is-tight')]);
+  return out;
+};
+// On a phone a figure cut short would say another one.
+scenarios.barCutFigure = async () => {
+  const at = (needs, has) => {
+    const observed = [];
+    const p = load(ADMIN, '', null, undefined, { width: 320, observed });
+    const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
+    Object.defineProperty(free, 'scrollWidth', { value: needs });
+    Object.defineProperty(free, 'clientWidth', { value: has });
+    observed.forEach((fn) => fn());
+    return p.doc.querySelector('.wbar').classList.contains('is-tight');
+  };
+  return [at(90, 90), at(90, 20)];
 };
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {

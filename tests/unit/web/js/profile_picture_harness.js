@@ -12,6 +12,7 @@ Node.prototype.scrollIntoView = () => {};
 const b = (id, text) => ['button', { id }, text || ''];
 const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', role: 'dialog', 'aria-hidden': 'true', ...attrs },
   ['h2', { id: 'pic-title' }], b('pic-close'),
+  ['div', { id: 'pic-body' }],
   ['div', { id: 'pic-pick' }, ['div', { id: 'pic-error' }], ['img', { id: 'pic-now' }], ['div', { id: 'pic-kind' }],
     b('pic-upload'), b('pic-remove'),
     ...[1, 2, 3, 4].map((n) => ['label', {}, ['input', { type: 'radio', value: n }], ['img', { src: '/d' + n }]]),
@@ -20,12 +21,18 @@ const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', r
   ['input', { id: 'pic-file' }]];
 
 // `decode` is the size a chosen file opens at, or null where the browser cannot open it.
-function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], blob = { type: 'image/jpeg' } } = {}) {
+function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], calm = true, wraps = false, blob = { type: 'image/jpeg' } } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.body.appendChild(build(doc, ['main', {}, ['button', { id: 'pic-open' }, ['img', { src: '/d2' }]]]));
   doc.body.appendChild(build(doc, DIALOG(attrs)));
   const $ = (id) => doc.getElementById(id);
+  const vars = {};
+  $('pic-zoom').style.setProperty = (k, v) => { vars[k] = v; };
+  const runs = [];
+  $('pic-body').animate = (frames) => { const run = { cancelled: false, cancel() { run.cancelled = true; } }; runs.push({ run, from: frames[0].height, to: frames[1].height }); return run; };
+  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : ($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)
+    + (wraps && $('pic-place').hidden && !$('pic-remove').hidden ? 51 : 0)) });
   $('pic-dialog').hidden = true;
   $('pic-dialog').querySelectorAll('input').forEach((r) => { r.value = r.getAttribute('value'); });
   const drawn = [];
@@ -48,7 +55,8 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   let revoked = 0;
   class Img {
     set src(_v) {
-      if (decode) { [this.naturalWidth, this.naturalHeight] = decode; this.onload(); } else this.onerror();
+      if (decode && decode.later) decode.later.push(() => { this.naturalWidth = this.naturalHeight = 500; this.onload(); });
+      else if (decode) { [this.naturalWidth, this.naturalHeight] = decode; this.onload(); } else this.onerror();
     }
   }
   class APIError extends Error {
@@ -60,7 +68,8 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     URL: { createObjectURL: () => 'blob:' + (made += 1), revokeObjectURL: () => { revoked += 1; } },
     UIFeedback: { toast: (t) => toasts.push(t), error: (t) => toasts.push('error: ' + t) },
-    setTimeout: () => 0, clearTimeout: () => {}, matchMedia: () => ({ matches: true }),
+    setTimeout: () => 0, clearTimeout: () => {}, matchMedia: () => ({ matches: calm }), parseFloat,
+    getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--dur-slow' ? ' .25s' : ' ease-out') }),
   };
   ctx.ModalA11y = { register() {}, onOpened() {}, onClosed() {} };
   ctx.window = ctx;
@@ -72,11 +81,12 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   const fire = (id, type, e) => ($(id).listeners[type] || []).forEach((fn) => fn({ preventDefault() {}, target: $(id), stopImmediatePropagation() {}, ...e }));
   const radios = $('pic-pick').querySelectorAll('input');
   return {
-    $, drawn, outs, toasts, told, fire,
+    $, vars, runs, drawn, outs, toasts, told, fire,
     click: (id) => { if (!$(id).disabled) fire(id, 'click'); },
     pick: (n) => radios[n - 1].listeners.change.forEach((fn) => fn({})),
     file: (f) => { $('pic-file').files = [f]; fire('pic-file', 'change'); },
     error: () => $('pic-error').textContent,
+    radiosFree: () => radios.every((r) => !r.disabled),
     checked: () => radios.filter((r) => r.checked).map((r) => r.value).join(),
     open: () => $('pic-dialog').getAttribute('aria-hidden') === 'false',
     placing: () => !$('pic-place').hidden,
@@ -207,6 +217,101 @@ const scenarios = {
       left: await run(answer(400, { message: 'Too small.' }), { leave: true }),
       unmade: await run(answer(200, {}), { blob: null }),
     };
+  },
+  // closed while a photo is saved over another, opened again before the answer
+  async reopened() {
+    let give;
+    const sent = [];
+    const p = page({
+      attrs: { 'data-choice': '', 'data-default': '2', 'data-photo': '/old' },
+      api: { delete: (url) => { sent.push('DELETE ' + url); return new Promise(() => {}); } },
+      fetch: (url, o) => { sent.push(o.method + ' ' + url); return new Promise((r) => { give = r; }); },
+    });
+    p.click('pic-open');
+    p.file(JPEG);
+    p.click('pic-use');
+    p.click('pic-save');
+    p.click('pic-close');
+    p.click('pic-open');
+    give(await answer(200, { kind: 'photo', choice: null, url: '/new' })());
+    await settle();
+    const after = { open: p.open(), state: p.state(), now: p.$('pic-now').src };
+    p.$('pic-save').disabled = false;
+    p.click('pic-save');
+    await settle();
+    return { after, sent };
+  },
+  // what can be pressed while a picture is saved, and a photo still being read as Save is pressed
+  async locked() {
+    let give;
+    const decode = { later: [] };
+    const p = page({ decode, api: { put: () => new Promise((r, no) => { give = no; }) } });
+    const free = () => ['pic-upload', 'pic-remove'].map((id) => !p.$(id).disabled).concat(p.radiosFree(), !p.$('pic-close').disabled);
+    p.click('pic-open');
+    p.pick(3);
+    const before = free();
+    p.click('pic-save');
+    const during = free();
+    give(new Error('x'));
+    await settle();
+    const after = free();
+    p.file(JPEG);
+    const reading = p.$('pic-save').disabled;
+    decode.later.forEach((open) => open());
+    return { before, during, after, reading, placing: p.placing(), thenSave: (p.click('pic-back'), p.$('pic-save').disabled) };
+  },
+  async notJson() {
+    const out = [];
+    for (const way of ['photo', 'drawn']) {
+      const p = page({ fetch: answer(200), api: { put: () => Promise.resolve({}) } });
+      p.click('pic-open');
+      if (way === 'photo') { p.file(JPEG); p.click('pic-use'); } else p.pick(3);
+      p.click('pic-save');
+      await settle();
+      out.push({ error: p.error(), told: p.told, toasts: p.toasts, head: p.$('pic-open').querySelector('img').getAttribute('src'), open: p.open() });
+    }
+    return out;
+  },
+  // the height while the photo is placed and left again, in full motion and with motion reduced
+  async height() {
+    const run = (calm) => {
+      const p = page({ calm });
+      p.click('pic-open');
+      p.file(JPEG);
+      p.click('pic-back');
+      return p.runs.map((r) => [r.from, r.to, r.run.cancelled]);
+    };
+    return { full: run(false), calm: run(true) };
+  },
+  // a refused file and its reason gone again, and what is brought into view
+  async errorHeight() {
+    const p = page({ calm: false });
+    const shown = [];
+    Node.prototype.scrollIntoView = function (how) { shown.push([this.className, how.block]); };
+    p.click('pic-open');
+    p.file({ type: 'image/gif', size: 5, name: 'a.gif' });
+    p.pick(3);
+    p.pick(4);
+    return { runs: p.runs.map((r) => [r.from, r.to]), shown };
+  },
+  // on a narrow phone, where Remove goes under Upload: a drawing picked, removed, and a photo placed
+  async wraps() {
+    const p = page({ calm: false, wraps: true });
+    const step = (go) => { go(); return p.runs.splice(0).map((r) => [r.from, r.to]); };
+    p.click('pic-open');
+    return {
+      picked: step(() => p.pick(3)), removed: step(() => p.click('pic-remove')),
+      placed: step(() => { p.file(JPEG); p.click('pic-use'); }),
+    };
+  },
+  async fill() {
+    const p = page();
+    p.click('pic-open');
+    p.file(JPEG);
+    const out = [p.vars['--at']];
+    p.$('pic-zoom').value = 250;
+    p.fire('pic-zoom', 'input');
+    return out.concat(p.vars['--at']);
   },
   async backdrop() {
     const p = page();

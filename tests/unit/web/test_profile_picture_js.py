@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -144,3 +145,70 @@ def test_a_photo_the_browser_could_not_cut_is_said() -> None:
 
 def test_a_drag_that_ends_on_the_backdrop_does_not_close_the_dialog() -> None:
     assert _run("backdrop") == [True, False]
+
+
+def test_a_dialog_opened_again_while_a_photo_is_saved_shows_that_one_and_removes_nothing() -> None:
+    out = _run("reopened")
+    assert out["after"] == {"open": True, "state": ["Your photo", False, True], "now": "/new"}
+    assert out["sent"] == ["PUT /api/account/avatar/photo"]
+
+
+def test_nothing_else_is_chosen_while_a_picture_is_saved() -> None:
+    out = _run("locked")
+    assert out["before"] == out["after"] == [True, True, True, True]
+    # it can still be closed
+    assert out["during"] == [False, False, False, True]
+
+
+def test_a_photo_being_read_is_waited_for_before_anything_is_saved() -> None:
+    out = _run("locked")
+    assert (out["reading"], out["placing"], out["thenSave"]) == (True, True, False)
+
+
+def test_an_answer_that_names_no_picture_is_not_taken_for_a_saved_one() -> None:
+    assert (
+        _run("notJson")
+        == [
+            {
+                "error": "Could not save your picture. Try again.",
+                "told": [],
+                "toasts": [],
+                "head": "/d2",
+                "open": True,
+            }
+        ]
+        * 2
+    )
+
+
+def test_the_height_follows_from_picking_to_placing_and_back() -> None:
+    assert _run("height") == {
+        "full": [["417px", "562px", True], ["562px", "417px", False]],
+        "calm": [],
+    }
+
+
+def test_the_line_of_the_zoom_is_filled_as_far_as_it_is_zoomed() -> None:
+    assert _run("fill") == [0, 0.5]
+
+
+def test_a_reason_comes_and_goes_by_the_height_and_is_brought_into_view() -> None:
+    assert _run("errorHeight") == {
+        "runs": [["417px", "491px"], ["491px", "417px"]],
+        "shown": [["pic-err", "nearest"]],
+    }
+
+
+def test_what_is_brought_into_view_stops_under_the_header_that_stays() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile_picture.css").read_text()
+    room = re.search(r"\.pic \{[^}]*scroll-padding-top: (\d+)px", css)
+    # the header: its padding of 18px at most and a close button of 44px
+    assert room and int(room[1]) >= 18 + 44
+
+
+def test_the_height_goes_to_where_a_wrapped_remove_button_takes_it() -> None:
+    assert _run("wraps") == {
+        "picked": [["417px", "468px"]],
+        "removed": [["468px", "417px"]],
+        "placed": [["417px", "562px"], ["562px", "468px"]],
+    }

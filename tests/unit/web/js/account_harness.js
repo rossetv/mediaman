@@ -116,11 +116,12 @@ const scenarios = {
       const button = p.button(1);
       button.focus();
       for (let i = 0; i < 2; i += 1) button.listeners.click.forEach((fn) => fn({}));
-      const busy = button.textContent;
+      const busy = [button.textContent, button.style.width, button.getAttribute('aria-label')];
       await settle();
       return busy;
     };
     const busy = await push();
+    const labelAfter = p.button(1).getAttribute('aria-label');
     const refused = { rows: p.rows().length, says: p.button(1).textContent, toasts: p.toasts.splice(0), focusKept: p.$('account-sessions').children[1].contains(p.active()) };
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     await push();
@@ -130,7 +131,40 @@ const scenarios = {
     const gone = { rows: p.rows().length, toasts: p.toasts.splice(0), onNext: p.button(1) === p.active(), why: !p.$('account-revoke-why').hidden };
     p.toasts.length = 0;
     await push();
-    return { own: Boolean(own), label, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
+    return { own: Boolean(own), label, labelAfter, busy, sent, words: p.asked[0], refused, cancelled, gone, last: { rows: p.rows().length, focused: p.focused(), disabled: p.$('account-revoke-others').disabled, why: !p.$('account-revoke-why').hidden } };
+  },
+  // the first list, asked before a new password, is answered after the one asked since
+  async lateList() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const p = page({ get: () => new Promise((give, fail) => gives.push({ give, fail })), post: () => Promise.resolve({ ok: true }) });
+    ['old', 'new', 'confirm'].forEach((f) => { p.$('account-' + f + '-password').value = 'a-long-enough-password'; });
+    p.fire('account-password-form', 'submit');
+    await settle();
+    gives[1].give({ sessions: [here] });
+    await settle();
+    gives[0].give({ sessions: [here, session(5), session(5)] });
+    await settle();
+    return p.rows().length;
+  },
+  // a list asked before a device was signed out still holds it
+  async listBeforeSignOut() {
+    const gives = [];
+    const here = session(9, { current: true });
+    const other = session(5);
+    const p = page({
+      get: () => new Promise((give) => gives.push(give)),
+      post: () => Promise.resolve({ ok: true }), delete: () => Promise.resolve({ ok: true }),
+    });
+    gives[0]({ sessions: [here, other, session(5)] });
+    await settle();
+    p.press('account-revoke-others');
+    await settle();
+    p.button(1).listeners.click.forEach((fn) => fn({}));
+    await settle();
+    gives[1]({ sessions: [here, other] });
+    await settle();
+    return p.rows().length;
   },
   async passwordFold() {
     const p = page({ get: () => Promise.resolve({ sessions: [] }) });
@@ -200,7 +234,7 @@ const scenarios = {
     const whileSending = p.focused();
     p.fire('account-password-form', 'input');
     const working = p.say('account-password-result').concat(p.$('account-submit-password').textContent);
-    revealed.splice(0, 1);
+    const revealedSending = revealed.splice(0);
     await settle();
     const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, toasts: p.toasts, shut: p.$('account-password-form').hidden, resets: p.resets() };
     out.revealed = revealed.splice(0);
@@ -211,7 +245,7 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     out.revealedRefusal = revealed.splice(0);
     p.fire('account-password-form', 'input');
-    return { ...out, revealedEmptied: revealed.splice(0) };
+    return { ...out, revealedSending, revealedEmptied: revealed.splice(0) };
   },
   // for each form, what an answer brings into view when the reader is still there (with the keyboard on what is around
   // the button too, as Safari leaves a clicked one), has scrolled its status out of view or under a bar, or has the keyboard in something else

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-
 #: Changing this number changes the default of accounts that never chose one.
 COUNT = 10
 
 
 def default_choice(user_id: int) -> int:
     """The drawing *user_id* has by default; ids are never reused, so it never changes."""
-    digest = hashlib.sha256(f"avatar:{user_id}".encode()).digest()
-    return int.from_bytes(digest[:8]) % COUNT + 1
+    # 7 shares no factor with COUNT, so any ten accounts in a row have ten different ones.
+    return user_id * 7 % COUNT + 1
 
 
 def url(choice: int) -> str:

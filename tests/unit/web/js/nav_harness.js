@@ -64,6 +64,24 @@ const scenarios = {
     out.initials = avatars.map((a) => a.textContent).join('');
     return out;
   },
+  // How the focus goes back to a button in the bar: each way of closing, and the layout changing.
+  focusBack() {
+    const ways = {
+      escape: (p) => p.key('Escape'), tab: (p) => p.key('Tab'), close: (p) => p.click('close'),
+      button: (p) => p.click('phone'), resize: (p) => { p.media.matches = false; p.media.on.forEach((fn) => fn()); },
+    };
+    return Object.fromEntries(Object.entries(ways).map(([name, way]) => {
+      const p = page(true);
+      p.click('phone');
+      const calls = [];
+      ['phone', 'desktop'].forEach((id) => {
+        const focus = p.$(id).focus;
+        p.$(id).focus = function (how) { calls.push(Boolean(how && how.preventScroll)); focus.call(this, how); };
+      });
+      way(p);
+      return [name, calls];
+    }));
+  },
   toggle() {
     const p = page(false);
     p.click('desktop');

@@ -83,6 +83,15 @@ def test_tab_stops_where_the_browser_would_and_nowhere_else() -> None:
     assert _run("stops") == ["first", "more", "frame", "own", "first"]
 
 
+def test_tab_stops_once_at_each_group_of_radios() -> None:
+    assert _run("radios") == {
+        "none": ["a1", "b1", "after", "before"],
+        "checked": ["a3", "b1", "after", "before"],
+        "back": ["after", "b1", "a3", "before"],
+        "from": ["b1", "after", "before", "a3"],
+    }
+
+
 def test_a_dialog_that_left_the_page_before_it_closed_gives_the_page_and_the_focus_back() -> None:
     out = _run("goneFromThePage")
     assert out["alone"] == {"inert": [], "focused": "opener"}

@@ -13,11 +13,12 @@ import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 
 from mediaman.core.audit import CLI_UNLOCK, UNSIGNED_ACTIONS
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.scanner.repository.audit import _FILTER_MAP, SHOW_ACTIONS, AuditRow
+from mediaman.web.history_text import HIDDEN, event_title
 
 PLAYS = "plays"
 #: What each filter group holds beside plays, which are no events: actions, and the beginnings
@@ -53,6 +54,10 @@ OWN_GROUPS = (PLAYS, "downloads", "keeps", "sign_ins")
 PER_PAGE_MAX = 100
 #: What a filter or a search is cut to.
 TEXT_MAX = 200
+_TITLE_MAX = 1000
+_NAME_MAX = 300
+#: The most titles a menu lists.
+TITLES_MAX = 100
 _CURSOR_MAX = 300
 _ID_MAX = 2**63 - 1
 #: Plays of one title further apart than this are two sittings.
@@ -78,7 +83,10 @@ class Viewer:
 
 @dataclass(frozen=True, slots=True)
 class Filters:
-    """*since* is inclusive and *until* exclusive; *action* is a group or a filter's name."""
+    """*since* is inclusive and *until* exclusive; *action* is a group or a filter's name.
+
+    *user* is a Who's value, *title* a whole title.
+    """
 
     q: str = ""
     user: str = ""
@@ -142,12 +150,69 @@ def viewer_for(conn: sqlite3.Connection, username: str) -> Viewer | None:
     return Viewer(row["id"], row["username"], row["created_at"], row["role"] == "admin")
 
 
-def people(conn: sqlite3.Connection, viewer: Viewer) -> list[str]:
-    """The names *viewer* may filter by: everyone's for an admin, else only their own."""
+# In an address a name stands for itself, but one that starts with the mark gets another before
+# it: what the mark starts alone is never an account's name, now or later.
+_MARK = "~"
+_SYSTEM_VALUE = _MARK + "mediaman"
+_FORMER_PREFIX = _MARK + "former:"
+Kind = Literal["account", "former", "system"]
+
+
+@dataclass(frozen=True, slots=True)
+class Who:
+    """Whose an event is: an account's, a removed account's, or mediaman's own.
+
+    A name that was an account's, was removed and is now another's is two Whos.
+    """
+
+    kind: Kind
+    name: str
+
+    @property
+    def value(self) -> str:
+        """What stands for this Who in an address."""
+        if self.kind == "system":
+            return _SYSTEM_VALUE
+        if self.kind == "former":
+            return _FORMER_PREFIX + self.name
+        return self.name if not self.name.startswith(_MARK) else _MARK + self.name
+
+
+SYSTEM = Who("system", "mediaman")
+
+
+def who_of(conn: sqlite3.Connection, value: str) -> Who | None:
+    """The Who of an address's *value*; None when it is none. A name with no account is a
+    former user's."""
+    if value == _SYSTEM_VALUE:
+        return SYSTEM
+    if value.startswith(_FORMER_PREFIX):
+        return Who("former", value.removeprefix(_FORMER_PREFIX))
+    name = value.removeprefix(_MARK) if value.startswith(_MARK * 2) else value
+    if name.startswith(_MARK) and name == value:
+        return None
+    return Who("account" if viewer_for(conn, name) else "former", name)
+
+
+def account_names(conn: sqlite3.Connection, viewer: Viewer) -> list[str]:
+    """The accounts *viewer* may see: all for an admin, else only their own."""
     if not viewer.is_admin:
         return [viewer.username]
     rows = conn.execute("SELECT username FROM admin_users ORDER BY username COLLATE NOCASE")
     return [r["username"] for r in rows]
+
+
+def people(conn: sqlite3.Connection, viewer: Viewer) -> list[Who]:
+    """Whom *viewer* may filter by: for an admin every account, then the former users who left
+    events, then mediaman."""
+    found = [Who("account", name) for name in account_names(conn, viewer)]
+    if not viewer.is_admin:
+        return found
+    rows = conn.execute(
+        f"SELECT DISTINCT al.actor FROM audit_log al {_WHO_JOIN}"
+        f" WHERE al.actor IS NOT NULL AND {_WHO_KIND} = 'former' ORDER BY al.actor COLLATE NOCASE"
+    )
+    return [*found, *(Who("former", r["actor"]) for r in rows), SYSTEM]
 
 
 def parse_filters(
@@ -162,16 +227,17 @@ def parse_filters(
     """Filters from an address's text. A day as *until* is included; what is no date is ignored."""
     return Filters(
         q=_text(q),
-        user=_text(user),
+        user=_text(user, _NAME_MAX),
         action=_text(action),
-        title=_text(title),
+        # Only spaces, which are what SQLite's TRIM takes off the stored titles.
+        title=_text(title, _TITLE_MAX, " "),
         since=_moment(since),
         until=_moment(until, end=True),
     )
 
 
-def _text(value: str) -> str:
-    return value.replace("\0", "").encode(errors="ignore").decode().strip()[:TEXT_MAX]
+def _text(value: str, limit: int = TEXT_MAX, outer: str | None = None) -> str:
+    return value.replace("\0", "").encode(errors="ignore").decode().strip(outer)[:limit]
 
 
 def _moment(value: str, *, end: bool = False) -> datetime | None:
@@ -266,18 +332,16 @@ def _dates(where: _Where, column: str, filters: Filters) -> None:
         where.add(f"{column} < ?", filters.until.isoformat())
 
 
-def _add_text(
-    where: _Where, filters: Filters, titles: Sequence[str], names: Sequence[str], only: str = ""
+def _add_search(
+    where: _Where, text: str, titles: Sequence[str], names: Sequence[str], only: str = ""
 ) -> None:
-    """*names* are what the search reads beside the title; *only* goes with every title match."""
-    for text, columns in ((filters.title, ()), (filters.q, names)):
-        if not text:
-            continue
-        pattern = _like(text)
-        sql = only + _any_like(titles)
-        if columns:
-            sql = f"(({sql}) OR {_any_like(columns)})"
-        where.add(sql, *[pattern] * (len(titles) + len(columns)))
+    """*names* are what the search reads beside the titles; *only* goes with a title match."""
+    if not text:
+        return
+    sql = only + _any_like(titles)
+    if names:
+        sql = f"(({sql}) OR {_any_like(names)})"
+    where.add(sql, *[_like(text)] * (len(titles) + len(names)))
 
 
 _SHOW_ACTIONS_SQL = ",".join(f"'{a}'" for a in SHOW_ACTIONS)
@@ -290,31 +354,81 @@ LEFT JOIN kept_shows ks
   ON ks.show_rating_key = al.media_item_id AND al.action IN ({_SHOW_ACTIONS_SQL})
 """
 
+# The title an event is listed under; empty when it has none.
+_TITLE = (
+    "COALESCE(NULLIF(TRIM(mi.title), ''), NULLIF(TRIM(ks.show_title), ''),"
+    " history_title(al.action, al.media_item_id, al.detail))"
+)
+
+
+def _add_functions(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute("SELECT history_title('', '', NULL)").close()
+    except sqlite3.OperationalError:
+        conn.create_function("history_title", 3, event_title, deterministic=True)
+
+
 _EVENT_COLUMNS = """
 al.id, al.media_item_id, al.action, al.detail, al.space_reclaimed_bytes, al.created_at, al.actor,
 mi.title AS mi_title, mi.plex_rating_key, ks.show_title AS ks_title
 """
 
 
+# Whose an event is. A row without an account's id is that name's account's only from when the
+# account was made.
+_UNSIGNED_SQL = ",".join(f"'{a}'" for a in UNSIGNED_ACTIONS)
+_IS_SYSTEM = (
+    f"(COALESCE(al.actor, '') = '' OR al.action IN ({_UNSIGNED_SQL})"
+    f" OR (al.action = '{CLI_UNLOCK[0]}' AND al.actor = '{CLI_UNLOCK[1]}'))"
+)
+_IS_ACCOUNTS = (
+    "COALESCE(CASE WHEN al.actor_id IS NULL"
+    " THEN julianday(al.created_at) >= julianday(wu.created_at)"
+    " ELSE al.actor_id = wu.id END, 0)"
+)
+_WHO_JOIN = "LEFT JOIN admin_users wu ON wu.username = al.actor"
+_WHO_KIND = (
+    f"CASE WHEN {_IS_SYSTEM} THEN 'system' WHEN {_IS_ACCOUNTS} THEN 'account' ELSE 'former' END"
+)
+
+
 def _scopes(viewer: Viewer) -> list[_Where]:
     """The events *viewer* may see, as conditions that never match the same row."""
-    if viewer.is_admin:
-        return [_Where()]
+    return [_Where()] if viewer.is_admin else _account_scopes(viewer)
+
+
+def _account_scopes(account: Viewer) -> list[_Where]:
+    """The events of one account, as conditions that never match the same row."""
     own = _Where()
-    own.add("al.actor_id = ?", viewer.user_id)
+    own.add("al.actor_id = ?", account.user_id)
     # Rows without an account's id: theirs by name, but not a person's before them of that name.
     # The plus keeps the read on the index of names, not on every row without an id.
     named = _Where()
-    named.add("+al.actor_id IS NULL AND al.actor = ?", viewer.username)
-    named.add("julianday(al.created_at) >= julianday(?)", viewer.created_at)
-    named.add(f"al.action NOT IN ({','.join('?' * len(UNSIGNED_ACTIONS))})", *UNSIGNED_ACTIONS)
-    named.add("NOT (al.action = ? AND al.actor = ?)", *CLI_UNLOCK)
+    named.add("+al.actor_id IS NULL AND al.actor = ?", account.username)
+    named.add("julianday(al.created_at) >= julianday(?)", account.created_at)
+    named.add(f"NOT {_IS_SYSTEM}")
     return [own, named]
 
 
+def _filtered_scopes(conn: sqlite3.Connection, viewer: Viewer, filters: Filters) -> list[_Where]:
+    """The scopes of *viewer*, narrowed to the user filtered by."""
+    if not filters.user:
+        return _scopes(viewer)
+    who = who_of(conn, filters.user)
+    if who is None or (not viewer.is_admin and who != Who("account", viewer.username)):
+        return []
+    where = _Where()
+    if who.kind == "system":
+        where.add(_IS_SYSTEM)
+    elif who.kind == "account" and (account := viewer_for(conn, who.name)):
+        return _account_scopes(account)
+    else:
+        where.add("al.actor = ?", who.name)
+        where.add(f"(SELECT {_WHO_KIND} FROM (SELECT 1) {_WHO_JOIN}) = 'former'")
+    return [where]
+
+
 def _event_filters(where: _Where, viewer: Viewer, filters: Filters) -> None:
-    if filters.user:
-        where.add("al.actor = ?", filters.user)
     if filters.action == "security":
         where.add("al.action >= 'sec:' AND al.action < 'sec;'")
     elif filters.action in GROUPS:
@@ -327,9 +441,20 @@ def _event_filters(where: _Where, viewer: Viewer, filters: Filters) -> None:
         # A removed title is named only in the text, which can also hold what is not a person's
         # own to find by.
         titles.append("al.detail")
-    _add_text(
+    if filters.title:
+        # A title the text names is in the text, unless part of it is hidden: most texts need no
+        # closer look.
+        within = "%" if HIDDEN in filters.title else _like(filters.title)
+        where.add(
+            "COALESCE(NULLIF(TRIM(mi.title), ''), NULLIF(TRIM(ks.show_title), ''),"
+            " CASE WHEN al.detail LIKE ? ESCAPE '\\'"
+            " THEN history_title(al.action, al.media_item_id, al.detail) END) = ? COLLATE NOCASE",
+            within,
+            filters.title,
+        )
+    _add_search(
         where,
-        filters,
+        filters.q,
         titles,
         ["al.actor"] if viewer.is_admin else [],
         only="al.media_item_id != '_security' AND ",
@@ -348,10 +473,12 @@ def _in_group(where: _Where, actions: Sequence[str]) -> None:
     where.add(f"({' OR '.join(sql)})", *whole, *bounds)
 
 
-def _event_sources(viewer: Viewer, filters: Filters) -> list[_Where]:
+def _event_sources(conn: sqlite3.Connection, viewer: Viewer, filters: Filters) -> list[_Where]:
     if filters.action == PLAYS:
         return []
-    scopes = _scopes(viewer)
+    if filters.title:
+        _add_functions(conn)
+    scopes = _filtered_scopes(conn, viewer, filters)
     for where in scopes:
         _event_filters(where, viewer, filters)
     return scopes
@@ -453,7 +580,10 @@ sittings AS (
 
 
 def _plays_query(
-    viewer: Viewer, filters: Filters, window: tuple[str, str] | None = None
+    conn: sqlite3.Connection,
+    viewer: Viewer,
+    filters: Filters,
+    window: tuple[str, str] | None = None,
 ) -> tuple[str, dict[str, object], _Where] | None:
     """The statement's start, what it binds and what its sittings must match.
 
@@ -461,12 +591,12 @@ def _plays_query(
     """
     if filters.action not in ("", PLAYS):
         return None
-    names = {viewer.username} if not viewer.is_admin else set()
+    user = None if viewer.is_admin else viewer.username
     if filters.user:
-        if names and filters.user not in names:
+        who = who_of(conn, filters.user)
+        if who is None or who.kind != "account" or user not in (None, who.name):
             return None
-        names = {filters.user}
-    user = next(iter(names), None)
+        user = who.name
     scoped = "{0}.username = :user" if user is not None else "1"
     windowed = "{0} >= :low AND {0} <= :high" if window else "1"
     sql = _PLAYS_SQL.format(
@@ -482,7 +612,9 @@ def _plays_query(
     if window:
         params |= {"low": window[0], "high": window[1]}
     where = _Where()
-    _add_text(where, filters, ["title"], ["username"] if viewer.is_admin else [])
+    if filters.title:
+        where.add("TRIM(title) = ? COLLATE NOCASE", filters.title)
+    _add_search(where, filters.q, ["title"], ["username"] if viewer.is_admin else [])
     _dates(where, "at", filters)
     return sql, params, where
 
@@ -553,7 +685,7 @@ def _read_window(
     limit: int,
     window: tuple[str, str] | None,
 ) -> list[Play]:
-    query = _plays_query(viewer, filters, window)
+    query = _plays_query(conn, viewer, filters, window)
     if query is None:
         return []
     sql, params, where = query
@@ -667,15 +799,20 @@ def _seconds(value: object) -> float | None:
 # --- the list ---
 
 
+def _joins(filters: Filters) -> str:
+    """What counting needs beside the events: titles, only when they are looked for."""
+    return _JOINS if filters.q or filters.title else ""
+
+
 def _count(conn: sqlite3.Connection, viewer: Viewer, filters: Filters) -> int:
     total = 0
-    joins = _JOINS if filters.q or filters.title else ""
-    for where in _event_sources(viewer, filters):
+    joins = _joins(filters)
+    for where in _event_sources(conn, viewer, filters):
         # rationale: *where* is made of fixed fragments; every value is bound
         total += conn.execute(  # nosec B608
             f"SELECT COUNT(*) FROM audit_log al {joins} WHERE {where}", where.params
         ).fetchone()[0]
-    if query := _plays_query(viewer, filters):
+    if query := _plays_query(conn, viewer, filters):
         condition, params = _bind(query[2], query[1])
         # rationale: *condition* is made of fixed fragments; every value is bound
         total += conn.execute(  # nosec B608
@@ -702,7 +839,7 @@ def history_page(
     per_page = max(1, min(per_page, PER_PAGE_MAX))
     sources: list[list[Entry]] = [
         list(_read_events(conn, where, after, per_page + 1))
-        for where in _event_sources(viewer, filters)
+        for where in _event_sources(conn, viewer, filters)
     ]
     sources.append(list(_read_plays(conn, viewer, filters, after, per_page + 1)))
     merged = list(heapq.merge(*sources, key=_order, reverse=True))
@@ -712,3 +849,136 @@ def history_page(
         next_cursor=_encode(*_order(entries[-1])) if len(merged) > per_page else None,
         total=_count(conn, viewer, filters) if after is None else None,
     )
+
+
+# --- the filters' menus ---
+
+
+@dataclass(frozen=True, slots=True)
+class TitleCount:
+    title: str
+    count: int
+
+
+def _tally(
+    conn: sqlite3.Connection, viewer: Viewer, filters: Filters, key: str, join: str = ""
+) -> list[sqlite3.Row]:
+    """The events *filters* match, counted by *key*: two columns named k1 and k2."""
+    rows: list[sqlite3.Row] = []
+    joins = _joins(filters)
+    for where in _event_sources(conn, viewer, filters):
+        # rationale: every fragment is fixed; every value is bound
+        rows += conn.execute(  # nosec B608
+            f"SELECT {key}, COUNT(*) AS n FROM audit_log al {joins} {join} WHERE {where}"
+            " GROUP BY k1, k2",
+            where.params,
+        ).fetchall()
+    return rows
+
+
+def _tally_plays(
+    conn: sqlite3.Connection, viewer: Viewer, filters: Filters, key: str
+) -> list[sqlite3.Row]:
+    query = _plays_query(conn, viewer, filters)
+    if query is None:
+        return []
+    condition, params = _bind(query[2], query[1])
+    # rationale: every fragment is fixed; every value is bound
+    return conn.execute(  # nosec B608
+        f"{query[0]} SELECT {key} AS k1, COUNT(*) AS n FROM marked WHERE ends AND {condition}"
+        " GROUP BY k1",
+        params,
+    ).fetchall()
+
+
+def user_counts(
+    conn: sqlite3.Connection, viewer: Viewer, filters: Filters
+) -> list[tuple[Who, int]]:
+    """Everyone *viewer* may filter by, with how many rows are theirs."""
+    filters = replace(filters, user="")
+    counts: dict[Who, int] = {}
+    rows = _tally(conn, viewer, filters, f"{_WHO_KIND} AS k1, al.actor AS k2", _WHO_JOIN)
+    for row in rows:
+        kind = cast(Kind, row["k1"])
+        who = SYSTEM if kind == "system" else Who(kind, row["k2"])
+        counts[who] = counts.get(who, 0) + row["n"]
+    for row in _tally_plays(conn, viewer, filters, "username"):
+        who = Who("account", row["k1"])
+        counts[who] = counts.get(who, 0) + row["n"]
+    return [(who, counts.get(who, 0)) for who in people(conn, viewer)]
+
+
+def action_counts(conn: sqlite3.Connection, viewer: Viewer, filters: Filters) -> dict[str, int]:
+    """Each group *viewer* may filter by, with how many rows it holds."""
+    filters = replace(filters, action="")
+    groups = GROUPS if viewer.is_admin else OWN_GROUPS
+    counts = dict.fromkeys(groups, 0)
+    for row in _tally(conn, viewer, filters, "al.action AS k1, NULL AS k2"):
+        group = group_of(row["k1"])
+        if group in counts:
+            counts[group] += row["n"]
+    counts[PLAYS] = sum(r["n"] for r in _tally_plays(conn, viewer, filters, "username"))
+    return counts
+
+
+def group_of(action: str) -> str | None:
+    for group, actions in GROUPS.items():
+        if any(action.startswith(a) if a[-1] in "._" else action == a for a in actions):
+            return group
+    return None
+
+
+def title_counts(
+    conn: sqlite3.Connection, viewer: Viewer, filters: Filters, find: str = ""
+) -> list[TitleCount]:
+    """The titles with the most rows, at most TITLES_MAX of them, that hold *find*."""
+    filters = replace(filters, title="")
+    _add_functions(conn)
+    find = _text(find)
+    rows: list[sqlite3.Row] = []
+    for where in _event_sources(conn, viewer, filters):
+        # rationale: every fragment is fixed; every value is bound
+        rows += conn.execute(  # nosec B608
+            "SELECT LOWER(name) AS k1, name, COUNT(*) AS n FROM ("
+            f"SELECT {_TITLE} AS name FROM audit_log al {_JOINS} WHERE {where}"
+            " AND al.media_item_id != '_security' AND al.action != 'library_left_out'"
+            # What keeps the title from being worked out again for each use of it.
+            " LIMIT -1) WHERE name != '' AND name LIKE ? ESCAPE '\\' GROUP BY k1",
+            (*where.params, _like(find)),
+        ).fetchall()
+    counts: dict[str, int] = {}
+    names: dict[str, str] = {}
+    for row in rows:
+        counts[row["k1"]] = counts.get(row["k1"], 0) + row["n"]
+        names.setdefault(row["k1"], row["name"])
+    play_rows = _tally_plays(conn, viewer, filters, "TRIM(title)")
+    for row in play_rows:
+        key = _ascii_lower(row["k1"])
+        if _ascii_lower(find) not in key:
+            continue
+        counts[key] = counts.get(key, 0) + row["n"]
+        names.setdefault(key, row["k1"])
+    best = sorted(counts, key=lambda k: (-counts[k], k))[:TITLES_MAX]
+    return [TitleCount(names[k], counts[k]) for k in best]
+
+
+def _ascii_lower(text: str) -> str:
+    """As SQLite folds case, so that a count and the filter it stands for agree."""
+    return "".join(c.lower() if c.isascii() else c for c in text)
+
+
+def whose(conn: sqlite3.Connection, entries: Sequence[Entry]) -> dict[int | str, Who]:
+    """Whose each of these entries is, by an event's id or a play's ref."""
+    found: dict[int | str, Who] = {
+        e.ref: Who("account", e.username) for e in entries if isinstance(e, Play)
+    }
+    ids = [e.id for e in entries if not isinstance(e, Play)]
+    rows = conn.execute(
+        f"SELECT al.id, al.actor, {_WHO_KIND} AS kind FROM audit_log al {_WHO_JOIN}"
+        " WHERE al.id IN (SELECT value FROM json_each(?))",
+        (json.dumps(ids),),
+    )
+    for row in rows:
+        kind = cast(Kind, row["kind"])
+        found[row["id"]] = SYSTEM if kind == "system" else Who(kind, row["actor"])
+    return found
