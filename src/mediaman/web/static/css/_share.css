@@ -20,6 +20,10 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 70%, transparent), color-mix(in srgb, var(--scrim) 34%, transparent) 55%, transparent);
   pointer-events: none;
 }
+/* Over a picture that fills the screen, dark enough for the wordmark whatever the picture. */
+@media (max-width: 1279.98px) {
+  .share-bar::before { background: linear-gradient(180deg, color-mix(in srgb, var(--scrim) 86%, transparent), color-mix(in srgb, var(--scrim) 66%, transparent) 55%, transparent); }
+}
 .share-bar .brand { display: inline-flex; align-items: center; min-height: 44px; }
 .share-bar .btn { min-height: 44px; background: color-mix(in srgb, var(--scrim) 45%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 .share-bar .btn:hover { background: color-mix(in srgb, var(--s5) 70%, transparent); }
@@ -47,6 +51,19 @@
 @keyframes share-in { from { opacity: 0; transform: translateY(10px); } }
 .share-hero .watch-banner__bg--art { animation: share-art calc(var(--dur) * 6) var(--ease-out) backwards; }
 @keyframes share-art { from { transform: scale(1.04); } }
+/* The same page again, kept: only its date turns. */
+.share-page.is-just .share-info > *, .share-page.is-just .watch-banner__bg--art { animation: none; }
+
+@media (min-width: 600px) and (max-width: 1279.98px) {
+  /* The dark is the words' own box, faded in from above, and the rest of the picture stays clear. */
+  .share-page .share-hero { --banner-side: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 30%, transparent), transparent 70%); }
+  .share-page .watch-banner__body::before {
+    inset: -120px -180px -100px calc(-1 * var(--pad));
+    background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 84%, transparent) calc(100% - 420px), color-mix(in srgb, var(--scrim) 74%, transparent) calc(100% - 300px), color-mix(in srgb, var(--scrim) 34%, transparent) calc(100% - 130px), transparent);
+    -webkit-mask-image: linear-gradient(transparent, #000 140px);
+    mask-image: linear-gradient(transparent, #000 140px);
+  }
+}
 
 /* The picture has as much colour as --sat says. */
 .share-hero .watch-banner__bg { filter: saturate(var(--sat, 1)) brightness(var(--lum, 1)); transition: opacity var(--dur-slow) var(--ease-out), filter calc(var(--dur) * 6) var(--ease-out); }
@@ -78,14 +95,17 @@
 /* A line of text: the press reaches past it without moving the lines around it. */
 .share-link::after { content: ""; position: absolute; inset: -14px -6px; }
 
-/* Done: the tick draws itself. */
+/* Done: the tick draws itself, once what holds it is there to be seen. */
+.share-info { --share-after: calc(var(--dur-slow) * 1.2); }
+.is-just .share-info { --share-after: var(--dur-fast); }
+.share-act > .is-swapping-in { --share-after: 0s; }
 .share-done { display: flex; align-items: center; gap: 14px; }
 .share-done strong { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
 .share-done strong:focus { outline: none; }
 .share-done span { font-size: 14px; color: var(--t2); }
 .share-tick { flex: none; width: 46px; height: 46px; fill: none; stroke: var(--success); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.share-tick circle { stroke-dasharray: 151; stroke-dashoffset: 0; transform: rotate(-90deg); transform-origin: 50% 50%; animation: share-ring calc(var(--dur) * 3) var(--ease-out) backwards; }
-.share-tick path { stroke-dasharray: 60; animation: share-line calc(var(--dur-slow) * 1.4) calc(var(--dur) * 2) var(--ease-out) backwards; }
+.share-tick circle { stroke-dasharray: 151; stroke-dashoffset: 0; transform: rotate(-90deg); transform-origin: 50% 50%; animation: share-ring calc(var(--dur) * 3) var(--share-after) var(--ease-out) backwards; }
+.share-tick path { stroke-dasharray: 60; animation: share-line calc(var(--dur-slow) * 1.4) calc(var(--dur) * 2 + var(--share-after)) var(--ease-out) backwards; }
 @keyframes share-ring { from { stroke-dashoffset: 151; } }
 @keyframes share-line { from { stroke-dashoffset: 60; } }
 
@@ -110,7 +130,7 @@
 .share-note .share-note__acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 26px; }
 .share-note .share-note__acts > p { margin: 0; }
 .share-note .btn { min-height: 46px; }
-.share-note .btn[data-count] { font-variant-numeric: tabular-nums; }
+.share-note .btn[data-count] { min-width: 11.5rem; font-variant-numeric: tabular-nums; }
 .share-note .share-note__small { margin-top: 18px; font-size: 13px; }
 
 /* ── Phone ── */
@@ -118,7 +138,7 @@
 @media (max-width: 699.98px) {
   .share-page .share-hero { --top: 62vw; min-height: 0; padding-top: var(--top); padding-bottom: 24px; }
   .share-page .share-hero:not(:has(> .watch-banner__bg--art:not([data-broken]))):has(> .watch-banner__poster:not([data-broken])) { --top: 216px; }
-  .share-page .watch-banner__poster { top: 72px; }
+  .share-page .watch-banner__poster { top: 72px; transform: none; }
   .share-page .share-hero:not(:has(> img:not([data-broken]))) { --top: 104px; }
   .share-page .watch-banner__body,
   .share-hero:not(:has(> .watch-banner__bg--art:not([data-broken]))):has(> .watch-banner__poster:not([data-broken])) .watch-banner__body { max-width: none; }
@@ -139,6 +159,12 @@
   .share-note { padding-block: 64px 12px; }
   .share-note .login-card { padding: 18px 24px; }
   .share-note__mark { width: 44px; height: 44px; margin-bottom: 10px; }
+}
+
+@media (forced-colors: active) {
+  /* The picture is gone, and the bar still stands over the hero's top. */
+  .share-page .share-hero { padding-top: 88px !important; }
+  .share-tick, .share-note__mark, .share-note__mark.is-good { stroke: CanvasText; }
 }
 
 /* Nothing travels, pulses or draws itself; what changes fades. */

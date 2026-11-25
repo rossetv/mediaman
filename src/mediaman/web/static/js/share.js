@@ -8,6 +8,11 @@
   var hero = document.querySelector('.share-hero');
   var body = hero && hero.querySelector('.watch-banner__body');
   var player = null;
+  var ours = false; // the entry on top of the history is the trailer's
+
+  function still() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  function on() { return hero.classList.contains('is-trailer'); }
+  function frame() { return player.querySelector('iframe'); }
 
   function buildPlayer() {
     player = document.createElement('div');
@@ -18,10 +23,19 @@
     close.setAttribute('aria-label', 'Close trailer');
     close.appendChild(MM.dom.icon('i-xmark'));
     close.addEventListener('click', stop);
-    var frame = document.createElement('div');
-    frame.className = 'share-player__frame';
-    player.append(close, frame);
+    var box = document.createElement('div');
+    box.className = 'share-player__frame';
+    player.append(close, box);
+    player.addEventListener('transitionend', function (e) {
+      if (e.target === player && !on()) empty();
+    });
     hero.appendChild(player);
+  }
+
+  function empty() { player.querySelector('.share-player__frame').replaceChildren(); }
+
+  function tell(video, message) {
+    if (video.contentWindow) video.contentWindow.postMessage(JSON.stringify(message), ORIGIN);
   }
 
   function play(key) {
@@ -32,18 +46,30 @@
     video.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
     video.setAttribute('referrerpolicy', 'strict-origin');
     video.setAttribute('allowfullscreen', '');
-    video.src = ORIGIN + '/embed/' + key + '?rel=0&autoplay=1';
+    video.src = ORIGIN + '/embed/' + key + '?rel=0&autoplay=1&playsinline=1&enablejsapi=1&origin=' + encodeURIComponent(window.location.origin);
+    // YouTube's player reports its state only to a page that has asked.
+    video.addEventListener('load', function () { tell(video, { event: 'listening' }); });
     player.querySelector('.share-player__frame').replaceChildren(video);
     void player.offsetWidth; // so that a player just made fades in too
     hero.classList.add('is-trailer');
     cover();
     player.querySelector('.ttl__close').focus({ preventScroll: true });
+    hero.scrollIntoView({ block: 'start', behavior: still() ? 'auto' : 'smooth' });
+  }
+
+  /* Back closes the trailer, and leaves the page where it is. */
+  function open(key) {
+    window.history.scrollRestoration = 'manual';
+    window.history.pushState({ trailer: key }, '');
+    ours = true;
+    play(key);
   }
 
   /* What the player lies over goes with it; on a phone held upright the buttons can be clear of
      it, and then they stay of use. */
   function cover() {
     var act = hero.querySelector('.share-act');
+    player.style.setProperty('--clear', act.getBoundingClientRect().top - hero.getBoundingClientRect().top - 16 + 'px');
     var over = player.getBoundingClientRect().bottom > act.getBoundingClientRect().top;
     var loses = over && body.contains(document.activeElement);
     body.inert = over;
@@ -51,28 +77,61 @@
   }
 
   function stop() {
-    if (!hero.classList.contains('is-trailer')) return;
+    if (!on()) return;
+    if (ours) window.history.back();
+    else shut();
+  }
+
+  function shut() {
+    var active = document.activeElement;
+    /* Safari gives a clicked button no focus: it is on the page around it. */
+    var lost = !active || active.contains(player) || player.contains(active);
     hero.classList.remove('is-trailer');
     body.inert = false;
-    player.querySelector('.share-player__frame').replaceChildren();
+    tell(frame(), { event: 'command', func: 'pauseVideo', args: [] });
+    if (still()) empty();
+    setTimeout(function () {
+      if (on()) return;
+      empty();
+      window.history.scrollRestoration = 'auto';
+    }, 400);
     /* The button may have made way for the download's progress. */
-    (hero.querySelector('[data-trailer]') || hero.querySelector('.watch-banner__title')).focus({ preventScroll: true });
+    if (lost) (hero.querySelector('[data-trailer]') || hero.querySelector('.watch-banner__title')).focus({ preventScroll: true });
   }
 
   if (hero) {
+    /* Left from a reload: that trailer is not on. */
+    if (window.history.state && window.history.state.trailer) window.history.replaceState(null, '');
+
     hero.addEventListener('click', function (e) {
       var link = e.target.closest('[data-trailer]');
       if (!link || e.ctrlKey || e.metaKey || e.shiftKey) return;
       var key = link.getAttribute('data-trailer');
       if (!KEY_RE.test(key)) return;
       e.preventDefault();
-      play(key);
+      if (on()) stop();
+      else open(key);
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') stop();
     });
+    window.addEventListener('popstate', function (e) {
+      var key = e.state && e.state.trailer;
+      ours = !!key;
+      if (key && !on()) play(key);
+      else if (!key && on()) shut();
+    });
+    window.addEventListener('message', function (e) {
+      var video = player && frame();
+      if (!video || e.source !== video.contentWindow || e.origin !== ORIGIN) return;
+      var told;
+      try { told = JSON.parse(e.data); } catch (err) { return; }
+      var state = told && (told.event === 'onStateChange' ? told.info
+        : told.event === 'infoDelivery' && told.info ? told.info.playerState : null);
+      if (state === 0) stop();
+    });
     window.addEventListener('resize', function () {
-      if (hero.classList.contains('is-trailer')) cover();
+      if (on()) cover();
     });
   }
 

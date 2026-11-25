@@ -33,6 +33,7 @@
   var STEP_OF = { searching: 1, queued: 1, downloading: 2, almost_ready: 2, ready: 4 };
 
   var page = document.querySelector('.share-page');
+  var hero = document.querySelector('.share-hero');
   var act = document.getElementById('download-action');
   var said = document.querySelector('[data-said]');
 
@@ -41,6 +42,19 @@
   }
 
   /* What can be done and how it goes stand in one place, whose height eases. */
+  function ease(el, from, to, then) {
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || from === to || !el.animate) { if (then) then(); return; }
+    el.style.overflow = 'clip';
+    el.style.overflowClipMargin = '4px';
+    var run = el.animate([{ height: from + 'px' }, { height: to + 'px' }],
+      { duration: 250, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    run.onfinish = run.oncancel = function () {
+      el.style.overflow = el.style.overflowClipMargin = '';
+      if (then) then();
+    };
+  }
+
   function show(node, unasked) {
     /* What comes of itself moves only the focus it takes away. */
     var keepsFocus = unasked ? act.contains(document.activeElement) : MM.dom.focusStillIn(act);
@@ -48,14 +62,8 @@
     node.classList.add('is-swapping-in');
     act.replaceChildren(node);
     var to = act.offsetHeight;
-    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!still && from !== to && act.animate) {
-      act.style.overflow = 'clip';
-      act.style.overflowClipMargin = '4px';
-      var ease = act.animate([{ height: from + 'px' }, { height: to + 'px' }],
-        { duration: 250, easing: 'cubic-bezier(.2,.8,.2,1)' });
-      ease.onfinish = ease.oncancel = function () { act.style.overflow = act.style.overflowClipMargin = ''; };
-    }
+    ease(act, from, to);
+    letGo();
     var first = node.querySelector('[tabindex="-1"]') || node.querySelector('.btn');
     if (keepsFocus && first) first.focus({ preventScroll: true });
   }
@@ -195,6 +203,33 @@
     say({ 1: 'Searching', 2: data.state === 'almost_ready' ? 'Almost ready' : 'Downloading', 4: 'Ready to watch' }[at]);
   }
 
+  /* The words stand at the hero's foot: while the list is open they keep their place, and the
+     hero grows under them. */
+  function hold() {
+    var from = hero.getBoundingClientRect().top + hero.clientTop;
+    hero.style.paddingTop = act.closest('.watch-banner__body').getBoundingClientRect().top - from + 'px';
+    hero.style.alignItems = 'flex-start';
+  }
+
+  function letGo() { hero.style.paddingTop = hero.style.alignItems = ''; }
+
+  function toggleEpisodes(box) {
+    var list = box.querySelector('[data-v="ep-list"]');
+    if (box.hasAttribute('open')) {
+      if (box.classList.contains('is-shutting')) return;
+      box.classList.add('is-shutting');
+      ease(list, list.offsetHeight, 0, function () {
+        box.classList.remove('is-shutting');
+        box.removeAttribute('open');
+        letGo();
+      });
+      return;
+    }
+    hold();
+    box.setAttribute('open', '');
+    ease(list, 0, list.offsetHeight);
+  }
+
   /* Open, the list stays as the person left it while episodes come and go. */
   function drawEpisodes(data) {
     var box = act.querySelector('.share-eps');
@@ -202,6 +237,7 @@
     if (there) MM.downloads.buildDom.syncEpisodes(box, data);
     else if (!box.hidden && box.contains(document.activeElement)) act.querySelector('.share-steps').focus({ preventScroll: true });
     box.hidden = !there;
+    if (!there) letGo();
   }
 
   /* Polling can no longer authenticate: keep the last progress on screen and
@@ -234,16 +270,28 @@
       fail('refused', 'This link has been used already.', 'Reload the page to see where the download is.');
       return;
     }
+    /* The server's own words are an admin's: they name the services behind it. */
     if (status && status !== 429 && status < 500) {
-      fail('refused', '', MM.api.messageOf(err, ''));
+      fail('refused', '', status === 410 ? 'This link does not work any more.' : 'Ask whoever sent you this link.');
       return;
     }
-    fail('try-again', '', MM.api.messageOf(err, 'Try again in a moment.'));
+    fail('try-again', '', status ? 'Try again in a moment.' : MM.api.messageOf(err, 'Try again in a moment.'));
   }
 
   act.addEventListener('click', function(e) {
     var btn = e.target.closest('[data-dl]');
     if (btn) triggerDownload(btn);
+    var summary = e.target.closest('.share-eps summary');
+    if (summary) {
+      e.preventDefault();
+      toggleEpisodes(summary.parentNode);
+    }
+  });
+  /* A phone's address bar comes and goes without a turn of the screen. */
+  var width = window.innerWidth;
+  window.addEventListener('resize', function() {
+    if (window.innerWidth !== width) letGo();
+    width = window.innerWidth;
   });
 
   if (_downloadState === 'queued' && _tmdbId) {

@@ -60,7 +60,7 @@
 
 {% macro trailer_button() %}
 {# Without scripts a plain link. #}
-<a class="btn btn--lg watch-btn--grey" href="https://www.youtube.com/watch?v={{ item.trailer_key }}" target="_blank" rel="noopener noreferrer" data-trailer="{{ item.trailer_key }}">{{ icon("i-film") }}Trailer</a>
+<a class="btn btn--lg watch-btn--grey" href="https://www.youtube.com/watch?v={{ item.trailer_key }}" target="_blank" rel="noopener noreferrer" data-trailer="{{ item.trailer_key }}"><span class="share-trailer-off">{{ icon("i-film") }}Trailer</span><span class="share-trailer-on">{{ icon("i-stop") }}Stop trailer</span></a>
 {% endmacro %}
 
 {% macro there(title, text, watch=True, trailer=False) %}
@@ -125,6 +125,7 @@
         </div>
         {% endif %}
       </div>
+      {% if item.download_state not in ("in_library", "tracked", "queued") %}<noscript><p class="share-say">Downloading from this page needs JavaScript, which is switched off here.</p></noscript>{% endif %}
       <span class="sr-only" role="status" data-said></span>
     </div></div>
   </section>

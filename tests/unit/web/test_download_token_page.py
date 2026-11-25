@@ -841,6 +841,12 @@ class TestDownloadPageTrailer:
         assert ("data-trailer" in shown) is offered
         assert ("/static/js/share.js" in page) is offered
 
+    @pytest.mark.parametrize("state", [None, "in_library", "tracked", "queued"])
+    def test_without_scripts_a_download_button_says_it_does_nothing(self, state):
+        page = _template_page(download_state=state)
+
+        assert ("<noscript>" in page) is (state is None)
+
     def test_a_title_with_no_trailer_has_no_button_for_one(self, app_factory, conn, secret_key):
         page = _offer_page(app_factory, conn, secret_key, trailer_key="<script>evil")
 

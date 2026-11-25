@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from html.parser import HTMLParser
@@ -11,8 +12,11 @@ from pathlib import Path
 import jinja2
 import pytest
 
+from mediaman.web.responses import respond_failure
+
 HARNESS = Path(__file__).parent / "js/download_page_harness.js"
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
+_SUBMIT = TEMPLATES.parent / "routes/download/submit.py"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
 _TRAILER = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 _VOID = frozenset({"meta", "link", "img", "input", "br"})
@@ -66,9 +70,9 @@ def _page(**item: object) -> list:
     return parser.stack[0][2:]
 
 
-def _run(scenario: str, **item: object) -> dict:
+def _run(scenario: str, *args: str, **item: object) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario],
+        ["node", str(HARNESS), scenario, *args],
         input=json.dumps(_page(**item)),
         capture_output=True,
         text=True,
@@ -78,9 +82,24 @@ def _run(scenario: str, **item: object) -> dict:
     return json.loads(result.stdout)
 
 
+def _failures() -> dict[str, tuple[int, dict]]:
+    """Every failure the server answers a press with, by its words."""
+    said = re.findall(
+        r'respond_failure\(\s*((?:"[^"]*"\s*)+),\s*status=(\d+)', _SUBMIT.read_text("utf-8")
+    )
+    found = {}
+    for literals, status in said:
+        message = "".join(re.findall(r'"([^"]*)"', literals))
+        found[message] = (
+            int(status),
+            json.loads(respond_failure(message, status=int(status)).body),
+        )
+    return found
+
+
 @pytest.fixture(scope="module")
 def answers() -> dict:
-    return _run("answers", notify_by_email=True)
+    return _run("answers", json.dumps(_failures()), notify_by_email=True)
 
 
 @pytest.fixture(scope="module")
@@ -129,8 +148,10 @@ def test_a_title_already_there_is_said_where_the_button_was_and_is_no_failure(
     ("answer", "why"),
     [
         ("unanswered", "Could not reach mediaman."),
-        ("down", "Check service connectivity"),
-        ("limited", "Try again in a moment."),
+        ("Download request failed — check service connectivity", "Try again in a moment."),
+        ("Radarr not configured", "Try again in a moment."),
+        ("Sonarr not configured", "Try again in a moment."),
+        ("Too many requests", "Try again in a moment."),
     ],
 )
 def test_a_failure_worth_retrying_keeps_a_button_and_the_focus(
@@ -144,11 +165,26 @@ def test_a_failure_worth_retrying_keeps_a_button_and_the_focus(
 
 
 def test_a_link_that_cannot_work_again_offers_no_retry(answers: dict) -> None:
-    for answer, said in (("expired", "Token expired or invalid"), ("used", "been used already")):
+    for answer, said in (
+        ("Token expired or invalid", "This link does not work any more."),
+        ("This download link has already been used", "been used already"),
+        ("Series not found in Sonarr lookup", "Ask whoever sent you this link."),
+        ("No TVDB ID found for this series", "Ask whoever sent you this link."),
+    ):
         seen = answers[answer]
         assert said in seen["words"] and seen["alert"]
         assert seen["buttons"] == ["Reload this page"] and seen["links"] == [""]
         assert seen["focus"] == "Reload this page"
+
+
+def test_no_failure_the_server_words_for_an_admin_reaches_a_guest(answers: dict) -> None:
+    failures = _failures()
+    assert {status for status, _ in failures.values()} >= {404, 409, 410, 422, 429, 502, 503}
+
+    for message in failures:
+        words = answers[message]["words"]
+        assert message not in words
+        assert not re.search(r"arr\b|TMDB|TVDB|admin|connectivity", words, re.I), words
 
 
 def test_a_refusal_that_gives_no_reason_does_not_say_to_try_again(answers: dict) -> None:
@@ -272,6 +308,9 @@ def test_the_episodes_come_go_and_stay_as_the_person_left_them() -> None:
         "summary": "3 episodes",
         "rows": ["Ready", "Searching", "Queued"],
     }
+    assert out["shut"] == {"open": False, "held": ""}
+    assert out["opened"] == {"open": True, "held": "flex-start"}
+    assert out["narrowed"] == "flex-start" and out["letGo"] == ""
     assert out["gone"] == {"shown": False, "focus": "OL"}
     assert out["back"]["shown"] and out["back"]["open"] and out["back"]["rows"] == ["Queued"]
 
@@ -325,6 +364,7 @@ def test_the_trailer_plays_sandboxed_from_the_no_cookie_origin(trailer: dict) ->
 
 def test_the_trailer_takes_the_focus_and_gives_it_back(trailer: dict) -> None:
     assert trailer["on"]["inert"] and trailer["on"]["focus"] == "Close trailer"
+    assert "watch-btn--grey" in trailer["fading"]["focus"]
     off = trailer["off"]
     assert off["frames"] == [] and not off["on"] and not off["inert"]
     assert "watch-btn--grey" in off["focus"]
@@ -345,3 +385,33 @@ def test_a_resize_with_no_trailer_on_leaves_the_buttons_be(trailer: dict) -> Non
 
 def test_a_trailer_whose_button_is_gone_gives_the_focus_to_the_title(trailer: dict) -> None:
     assert trailer["gone"]["tag"] == "H1" and not trailer["gone"]["on"]
+
+
+def test_a_trailer_pressed_further_down_the_page_is_brought_into_view(trailer: dict) -> None:
+    hero, block, behavior = trailer["scrolled"]
+
+    assert "share-hero" in hero and (block, behavior) == ("start", "auto")
+
+
+def test_the_button_stops_the_trailer_it_started(trailer: dict) -> None:
+    assert not trailer["again"]["on"] and trailer["again"]["frames"] == []
+    assert trailer["told"] == ["pauseVideo"]
+
+
+def test_back_closes_the_trailer_and_forward_opens_it(trailer: dict) -> None:
+    assert trailer["entries"] == 2
+    assert not trailer["back"]["on"] and trailer["back"]["frames"] == []
+    assert trailer["forward"]["on"] and len(trailer["forward"]["frames"]) == 1
+
+
+def test_a_trailer_that_ends_closes_by_its_own_player_s_word_alone(trailer: dict) -> None:
+    assert trailer["played"]["on"] and not trailer["ended"]["on"]
+
+
+def test_the_video_fades_out_before_it_goes(trailer: dict) -> None:
+    assert not trailer["fading"]["on"] and len(trailer["fading"]["frames"]) == 1
+    assert trailer["faded"]["frames"] == []
+
+
+def test_a_reload_under_a_trailer_leaves_no_trailer_s_entry(trailer: dict) -> None:
+    assert trailer["reloaded"]["state"] is None

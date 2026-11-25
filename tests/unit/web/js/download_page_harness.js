@@ -33,6 +33,8 @@ function page() {
     doc, payload: {}, posted: 0, asked: [], timers: [],
     answer: () => Promise.resolve({ service: 'radarr', tmdb_id: 7, poll_token: 'p2' }),
   };
+  const make = doc.createElement;
+  doc.createElement = (tag) => { const n = make(tag); n.style.setProperty = (k, v) => { n.style[k] = v; }; return n; };
   const styles = p.styles = {};
   doc.querySelector('.share-page').style.setProperty = (k, v) => { styles[k] = v; };
   doc.hidden = false;
@@ -44,7 +46,22 @@ function page() {
     setTimeout: (fn) => { p.timers.push(fn); }, MM: {},
   };
   ctx.window = ctx;
-  ctx.addEventListener = (type, fn) => { if (type === 'resize') p.resized = fn; };
+  const heard = {};
+  ctx.addEventListener = (type, fn) => { (heard[type] = heard[type] || []).push(fn); };
+  p.hear = (type, e) => (heard[type] || []).forEach((fn) => fn(e));
+  p.resized = () => p.hear('resize');
+  ctx.matchMedia = () => ({ matches: p.still });
+  p.still = true;
+  ctx.location = { origin: 'https://mediaman.example' };
+  // Two entries of one page, as a browser's history has them.
+  const entries = [null];
+  let at = 0;
+  const go = (by) => { if (entries[at + by] !== undefined) { at += by; p.hear('popstate', { state: entries[at] }); } };
+  ctx.history = { get state() { return entries[at]; }, back: () => go(-1),
+    pushState: (s) => { entries.splice(++at, entries.length, s); }, replaceState: (s) => { entries[at] = s; } };
+  p.back = () => go(-1); p.forward = () => go(1); p.entries = () => entries.length; p.history = ctx.history;
+  Node.prototype.scrollIntoView = function (how) { p.scrolled = [this.className, how.block, how.behavior]; };
+  Object.defineProperty(Node.prototype, 'contentWindow', { configurable: true, get() { return this.win = this.win || { postMessage: (m) => { (p.told = p.told || []).push(JSON.parse(m)); } }; } });
   // Where the player ends and the buttons start.
   const rect = Node.prototype.getBoundingClientRect;
   p.place = (playerEnds, buttonsStart) => {
@@ -114,11 +131,8 @@ const SCENARIOS = {
   async answers() {
     const ANSWERS = {
       unanswered: [0, { message: 'Could not reach mediaman.' }],
-      down: [502, { message: 'Check service connectivity' }],
-      limited: [429, {}],
-      expired: [410, { message: 'Token expired or invalid' }],
       wordless: [403, {}],
-      used: [409, { message: 'This download link has already been used' }],
+      ...JSON.parse(process.argv[3]),
       queued: [409, { poll_token: 'p3', download_state: 'queued' }],
       queuedMailed: [409, { poll_token: 'p3', download_state: 'queued', notify_by_email: true }],
       inLibrary: [409, { poll_token: 'p3', download_state: 'in_library' }],
@@ -197,8 +211,16 @@ const SCENARIOS = {
     box.setAttribute('open', '');
     await p.poll({ ...RUNNING, episodes: [ep('S01E01', 'ready'), ep('S01E02', 'searching'), ep('S01E03', 'queued')] });
     out.after = state();
-    p.doc.activeElement = box.querySelector('summary');
+    const hero = p.one('.share-hero');
+    const summary = box.querySelector('summary');
+    const press = () => { click(p.doc, summary); return { open: box.hasAttribute('open'), held: hero.style.alignItems || '' }; };
+    out.shut = press();
+    out.opened = press();
+    p.resized();
+    out.narrowed = hero.style.alignItems || '';
+    p.doc.activeElement = summary;
     await p.poll({ state: 'searching' });
+    out.letGo = hero.style.alignItems || '';
     out.gone = { shown: !box.hidden, focus: p.doc.activeElement.tagName };
     await p.poll(RUNNING);
     out.back = state();
@@ -269,6 +291,39 @@ const SCENARIOS = {
     out.off = now();
     p.resized();
     out.offResized = now();
+    out.scrolled = p.scrolled;
+    out.told = p.told.map((m) => m.func || m.event);
+    out.entries = p.entries();
+    click(p.doc, link);
+    click(p.doc, link);
+    out.again = now();
+    click(p.doc, link);
+    p.back();
+    out.back = now();
+    p.forward();
+    out.forward = now();
+    const ended = (state, source, origin) => p.hear('message', { source, origin: origin || 'https://www.youtube-nocookie.com',
+      data: JSON.stringify({ event: 'onStateChange', info: state }) });
+    const win = p.one('iframe').contentWindow;
+    ended(1, win);
+    ended(0, {});
+    ended(0, win, 'https://elsewhere.example');
+    out.played = now();
+    ended(0, win);
+    out.ended = now();
+    p.still = false;
+    click(p.doc, link);
+    // Safari leaves the focus of a clicked button on the page around it.
+    p.one('main').focus();
+    click(p.doc, p.one('.ttl__close'));
+    out.fading = now();
+    p.later();
+    out.faded = now();
+    p.still = true;
+    const reloaded = page();
+    reloaded.history.pushState({ trailer: 'dQw4w9WgXcQ' });
+    reloaded.trailer();
+    out.reloaded = { state: reloaded.history.state };
     click(p.doc, link);
     p.act().replaceChildren();
     click(p.doc, p.one('.ttl__close'));
