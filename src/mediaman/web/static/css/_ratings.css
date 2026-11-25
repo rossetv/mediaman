@@ -106,11 +106,19 @@
   .rate__b.pop.is-up.is-double::after { content: ""; position: absolute; left: 50%; top: 50%; border-radius: 50%; opacity: 0; pointer-events: none; }
   .rate__b.pop.is-up::before { width: 44px; height: 44px; margin: -22px; border: 2px solid var(--level); animation: rate-ring calc(var(--dur) * 2.25) var(--ease-out); }
   .rate__b.pop.is-up.is-double::after {
-    width: 4px;
-    height: 4px;
-    margin: -2px;
-    color: var(--level);
-    box-shadow: 0 -26px, 18px -18px, 26px 0, 18px 18px, 0 26px, -18px 18px, -26px 0, -18px -18px;
+    --spark: var(--level) 1.7px, transparent 2.3px;
+    width: 56px;
+    height: 56px;
+    margin: -28px;
+    background:
+      radial-gradient(circle at 28px 2px, var(--spark)),
+      radial-gradient(circle at 46px 10px, var(--spark)),
+      radial-gradient(circle at 54px 28px, var(--spark)),
+      radial-gradient(circle at 46px 46px, var(--spark)),
+      radial-gradient(circle at 28px 54px, var(--spark)),
+      radial-gradient(circle at 10px 46px, var(--spark)),
+      radial-gradient(circle at 2px 28px, var(--spark)),
+      radial-gradient(circle at 10px 10px, var(--spark));
     animation: rate-sparks calc(var(--dur) * 3) var(--ease-out) calc(var(--dur) * .35);
   }
 }

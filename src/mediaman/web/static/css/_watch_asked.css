@@ -36,8 +36,10 @@
   position: absolute;
   z-index: 2;
   inset: 0;
+  border: 2px solid color-mix(in srgb, var(--success) 70%, transparent);
   border-radius: inherit;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--success) 70%, transparent), inset 0 0 22px color-mix(in srgb, var(--success) 22%, transparent);
+  --lit: color-mix(in srgb, var(--success) 14%, transparent), transparent 16px;
+  background: linear-gradient(var(--lit)), linear-gradient(0deg, var(--lit)), linear-gradient(90deg, var(--lit)), linear-gradient(270deg, var(--lit));
   pointer-events: none;
 }
 
@@ -55,7 +57,7 @@
   border-radius: var(--r-sm);
   text-align: center;
   background: color-mix(in srgb, var(--t1) 94%, var(--scrim));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--scrim) 50%, transparent);
+  box-shadow: var(--shadow-card);
 }
 .asked-leaf__month { padding: 2px 6px; font-size: 10px; font-weight: 700; line-height: 1.2; letter-spacing: .04em; text-transform: uppercase; color: var(--t1); background: var(--danger-solid); }
 .asked-leaf__day { padding: 2px 6px 3px; font-size: 18px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; color: var(--s1); }
@@ -72,9 +74,9 @@
 }
 .asked-arriving .asked-state { animation: asked-rise 400ms var(--ease-out) 250ms both; }
 @keyframes asked-arrive {
-  0% { transform: scale(.94); }
-  45% { transform: scale(1.04); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 60%, transparent), 0 0 34px color-mix(in srgb, var(--success) 45%, transparent); }
-  100% { transform: none; box-shadow: 0 0 0 0 transparent; }
+  0% { transform: scale(.94); outline: 3px solid transparent; }
+  45% { transform: scale(1.04); outline: 3px solid color-mix(in srgb, var(--success) 60%, transparent); box-shadow: 0 0 34px color-mix(in srgb, var(--success) 45%, transparent); }
+  100% { transform: none; outline: 3px solid transparent; }
 }
 @keyframes asked-sweep {
   from { transform: translateX(-100%); }
@@ -113,5 +115,5 @@
   .asked-leaf__month,
   .asked-leaf__day,
   .asked-new { color: CanvasText; background: Canvas; }
-  .watch-card--asked[data-asked-state="new"] .watch-card__poster::before { outline: 2px solid Highlight; outline-offset: -2px; box-shadow: none; }
+  .watch-card--asked[data-asked-state="new"] .watch-card__poster::before { outline: 2px solid Highlight; outline-offset: -2px; }
 }
