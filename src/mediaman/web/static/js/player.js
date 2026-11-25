@@ -1002,9 +1002,16 @@
     }
   }
 
+  /* A start that hangs in a drop holds a connection, and presses could pile them up. */
+  var lastStart = null;
+  function endHungStart() {
+    if (lastStart) lastStart.abort();
+  }
+
   /* Start a stream at `pos`; one retry before the error is shown. */
   function startStream(pos) {
     var gen = ++generation;
+    if (lost) endHungStart();
     endLost();
     noneSince = null;
     startedAt = Date.now();
@@ -1028,6 +1035,7 @@
       var again = function () {
         starting = true;
         swapping = true;
+        endHungStart();
         attempt(tries);
       };
       /* The connection that dropped has not come back, or the server hangs. */
@@ -1055,8 +1063,12 @@
         attempts++;
         unanswered();
       }, START_WAIT_MS);
-      var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() });
-      start.then(answered, answered);
+      var abort = lastStart = new AbortController();
+      var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() }, { signal: abort.signal });
+      start.then(answered, function () {
+        /* The server may still come to one that was ended, and replace a later one by it. */
+        if (!abort.signal.aborted) answered();
+      });
       return start
         .then(function (data) {
           if (dropped()) {

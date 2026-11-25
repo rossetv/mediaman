@@ -318,17 +318,28 @@ function boot(html, reduced, saved, serverPlays, came) {
      `lights` is what was asked with. */
   const held = { stop: null, answer: null, light: 'answered', lights: [] };
   const api = {
-    post(url, body) {
-      calls.push({ url: url, body: body });
+    post(url, body, opts) {
+      const call = { url: url, body: body };
+      calls.push(call);
       if (held.stopFails && /\/stop$/.test(url)) return Promise.reject({ status: 0 });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
       if (held.progressFails && /\/progress$/.test(url)) return Promise.reject(held.progressFails);
       if (held.keep && /\/keep$/.test(url)) return Promise.resolve(held.keep);
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
-      return Promise.resolve().then(() => {
-        const reply = replies.shift() || (held.answer && held.answer(body));
-        if (!reply) return new Promise(() => {});
-        return reply.ok ? reply.ok : Promise.reject(reply.err);
+      call.open = true;
+      return new Promise((resolve, reject) => {
+        const settled = (how) => (value) => { call.open = false; how(value); };
+        if (opts && opts.signal) {
+          opts.signal.addEventListener('abort', () => {
+            call.aborted = call.open;
+            settled(reject)(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+          });
+        }
+        Promise.resolve().then(() => {
+          const reply = replies.shift() || (held.answer && held.answer(body));
+          if (!reply) return new Promise(() => {});
+          return reply.ok ? reply.ok : Promise.reject(reply.err);
+        }).then(settled(resolve), settled(reject));
       });
     },
     messageOf(err, fallback) { return fallback; },
@@ -1736,7 +1747,7 @@ const scenarios = {
     out.stream = p.hlsList[p.hlsList.length - 1].src !== '/p1';
     if (p.win.serverPlays !== 'answers') first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     await pass(p, 70000);
-    return Object.assign(out, { message: messageState(p), late: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') });
+    return Object.assign(out, { message: messageState(p), ended: p.calls.filter((c) => c.aborted).length });
   },
 
   /* A move in a drop, between two tries. */
@@ -2204,6 +2215,7 @@ const scenarios = {
     const streams = p.hlsList.length;
     first.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     await settle();
+    out.ended = p.calls.filter((c) => c.aborted).length;
     out.after = { streams: p.hlsList.length - streams, stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop') };
     return out;
   },
@@ -2228,13 +2240,47 @@ const scenarios = {
     out.asked = p.starts().length - starts;
     await streamPlays(p, 105);
     const streams = p.hlsList.length;
+    const ended = p.calls.filter((c) => c.aborted).length;
     if (then === 'answered') hung.reply({ stream_id: 'late', playlist: '/late', quality: 'best' });
     else hung.fail(NET.err);
     await settle();
     p.tick(130000);
     await settle();
-    out.after = { streams: p.hlsList.length - streams, starts: p.starts().length - starts, stopped: p.calls.some((c) => c.url === '/api/watch/stream/late/stop'), message: messageState(p) };
+    out.after = { streams: p.hlsList.length - streams, starts: p.starts().length - starts, ended: ended, message: messageState(p) };
     return out;
+  },
+
+  /* Tries that hang in a drop, one after another by a press, a move or a quality picked; how many
+     are open at once. Then one is answered, and the server comes to one that was ended. */
+  async starts_hang(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.held.light = 'silent';
+    p.replies.push(NET);
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    await pass(p, 2000);
+    const open = () => p.calls.filter((c) => c.open).length;
+    for (let i = 0; i < 3; i++) {
+      key('ArrowRight');
+      p.tick(300);
+      await settle();
+    }
+    const out = { pressed: open() };
+    for (const id of ['medium', 'low']) {
+      click(p.q('[data-quality="' + id + '"]'));
+      await pass(p, 14500);
+    }
+    out.picked = open();
+    out.notice = noticeOf(p);
+    p.held.light = 'answered';
+    p.held.answer = (body) => answer(body.quality);
+    p.online();
+    await streamPlays(p, 105);
+    const starts = p.starts().length;
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced' }));
+    await settle();
+    return Object.assign(out, { replaced: messageState(p), starts: p.starts().length - starts });
   },
 
   /* A server too busy for a while lets the video run dry, twice. */

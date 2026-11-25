@@ -1461,10 +1461,11 @@ def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is
 
 
 @pytest.mark.parametrize("way", ["pressed", "unpressed"])
-def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all(markup, way):
+def test_a_try_never_answered_in_a_drop_is_stopped_or_ended_and_never_plays(markup, way):
     out = run(markup, "start_unanswered_in_drop", plays=way)
-    assert out["message"] == LOST
-    assert out["after"] == {"streams": 0, "stopped": True}
+    ended = way == "pressed"
+    assert (out["message"], out["ended"]) == (LOST, 1 if ended else 0)
+    assert out["after"] == {"streams": 0, "stopped": not ended}
 
 
 @pytest.mark.parametrize("way", ["press", "online", "early"])
@@ -1472,8 +1473,13 @@ def test_a_try_never_answered_in_a_drop_is_stopped_when_it_is_answered_after_all
 def test_a_press_or_coming_online_drops_a_start_that_hangs_and_tries_afresh(markup, way, then):
     out = run(markup, "start_hangs_in_drop", plays=f"{way} {then}")
     assert (out["message"], out["asked"]) == (None if way == "early" else LOST, 1)
-    stopped = then == "answered"
-    assert out["after"] == {"streams": 0, "starts": 1, "stopped": stopped, "message": None}
+    assert out["after"] == {"streams": 0, "starts": 1, "ended": 1, "message": None}
+
+
+def test_tries_that_hang_never_pile_up_and_one_ended_is_not_taken_for_another_page_s(markup):
+    out = run(markup, "starts_hang")
+    assert (out["pressed"], out["picked"], out["notice"]) == (1, 1, NOTICE_LOST)
+    assert (out["replaced"], out["starts"]) == (None, 1)
 
 
 @pytest.mark.parametrize("details", ["fragLoadError", "manifestLoadError"])
@@ -1635,10 +1641,10 @@ def test_a_start_that_hung_is_taken_when_answered_and_else_asked_for_again(marku
         "starts": 2,
         "stream": True,
         "message": None,
-        "late": False,
+        "ended": 0,
     }
     out = run(markup, "hung_back", plays="never")
-    assert (out["starts"], out["stream"], out["message"], out["late"]) == (3, True, None, True)
+    assert (out["starts"], out["stream"], out["message"], out["ended"]) == (3, True, None, 1)
 
 
 def test_a_move_in_a_drop_tries_at_once_and_with_short_waits_again(markup):
