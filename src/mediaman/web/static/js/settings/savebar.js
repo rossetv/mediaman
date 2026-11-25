@@ -62,13 +62,12 @@
     return !active || active === document.body || !!(savebar && savebar.contains(active));
   }
 
-  // The bar hides after a save or a discard. Only a keyboard press restores focus, since a
+  // A save or a discard leaves nothing in the bar to press. Only a keyboard press restores focus, since a
   // pointer user has no focus to lose and a refocus would scroll them back or
   // raise a phone keyboard. Focus already moved elsewhere is left alone; focus
   // lost to the body or the bar returns to the last edited control, or to the
   // page heading when that cannot take focus.
-  function settleAfterHide(fromKeyboard) {
-    markClean();
+  function giveFocusBack(fromKeyboard) {
     if (!fromKeyboard || !focusLost()) return;
     if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
       lastEdited.focus();
@@ -78,6 +77,11 @@
     if (!heading) return;
     heading.setAttribute('tabindex', '-1');
     heading.focus();
+  }
+
+  function settleAfterHide(fromKeyboard) {
+    markClean();
+    giveFocusBack(fromKeyboard);
   }
 
   // The send-newsletter panel holds ephemeral recipient checkboxes, and the
@@ -467,6 +471,12 @@
 
     // The success state, until its timers have run or an edit ends it early.
     var successTimers = [];
+    // What the bar says was left as it was stored, for a toast where an edit takes those words away.
+    var leftOut = [];
+    function tellLeftOut() {
+      askToCheck(leftOut);
+      leftOut = [];
+    }
     function endSuccess() {
       if (!successTimers.length) return;
       successTimers.forEach(clearTimeout);
@@ -490,6 +500,7 @@
         endSuccess();
         savebar.classList.remove('is-partial');
         if (statusEl) statusEl.textContent = STANDING_TEXT;
+        tellLeftOut();
       }
       savebar.classList.toggle('on', !clean);
       if (isUnsure() && statusEl && statusEl.textContent !== UNSURE_TEXT) {
@@ -510,6 +521,7 @@
     function startAsking() {
       var hadFocus = savebar && savebar.contains(document.activeElement);
       saving = true;
+      leftOut = [];
       saveBtn.disabled = true;
       // Discard would put back values the server no longer holds.
       if (discardBtn) discardBtn.disabled = true;
@@ -608,12 +620,14 @@
                 ? (edited ? 'Saved, except what you changed since.' : 'Saved.') + (kept.length ? ' ' + leftAsStored(kept) : '')
                 : ignored.length ? 'Saved · ignored unknown: ' + ignored.join(', ') : 'Settings saved';
             }
+            leftOut = kept;
             if (edited) { reenable(hadFocus); return; }
             if (msgEl) msgEl.textContent = 'No unsaved changes';
+            giveFocusBack(fromKeyboard);
             // What was left out takes as long to read as a toast that names it.
             var hideAfter = kept.length ? 8000 : 600;
             successTimers = [
-              setTimeout(function () { settleAfterHide(fromKeyboard); }, hideAfter),
+              setTimeout(function () { leftOut = []; markClean(); }, hideAfter),
               setTimeout(function () {
                 endSuccess();
                 if (statusEl && !ignored.length) statusEl.textContent = STANDING_TEXT;
@@ -666,6 +680,7 @@
     window.addEventListener('pageshow', function () { onEdit(); });
 
     function putBackSaved(fromKeyboard) {
+      leftOut = [];
       restoreSaved();
       clearSaveError();
       refreshOverviewHero();

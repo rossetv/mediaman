@@ -1686,6 +1686,28 @@ const scenarios = {
     await p.h.flush();
     out.edited = p.says().status;
     out.still = p.on();
+    out.beside = p.toasts.length;
+    p.edit('b');
+    out.undone = { on: p.on(), status: p.says().status, told: p.toasts.slice() };
+    // an edit made before the bar has gone
+    p = await start();
+    p.saveBtn.focus();
+    p.saveBtn.fire('click', { detail: 0 });
+    await p.h.flush();
+    out.focusAtAnswer = p.h.doc.activeElement === p.days.grace_days;
+    p.edit('b');
+    out.early = { on: p.on(), status: p.says().status, told: p.toasts.slice() };
+    p.edit('c');
+    out.earlyOnce = p.toasts.length;
+    // the bar's going moves no focus, wherever that is by then, and is not said again
+    p = await start();
+    p.saveBtn.fire('click', { detail: 0 });
+    await p.h.flush();
+    p.h.doc.activeElement = p.h.body;
+    p.h.timers.shift().fn();
+    out.hidden = { on: p.on(), focus: p.h.doc.activeElement === p.h.body };
+    p.edit('b');
+    out.hidden.told = p.toasts.length;
     // and one that then fails
     p = await start();
     p.edit('b');

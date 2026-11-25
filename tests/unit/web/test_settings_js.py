@@ -541,6 +541,22 @@ def test_a_save_that_left_an_undo_out_says_so_in_the_bar() -> None:
     assert "try again" in out["failed"]["status"].lower()
     assert len(out["failed"]["told"]) == 1 and "Grace days" in out["failed"]["told"][0]
     assert out["still"] is True
+    assert out["beside"] == 0
+
+
+def test_what_was_left_as_stored_is_told_once_when_an_edit_ends_the_bar_that_says_it() -> None:
+    out = _run("keptWords")
+    for after in (out["early"], out["undone"]):
+        assert "as it was stored" not in after["status"]
+        assert len(after["told"]) == 1 and "Grace days" in after["told"][0]
+    assert (out["early"]["on"], out["undone"]["on"]) == (True, False)
+    assert out["earlyOnce"] == 1
+
+
+def test_a_save_gives_the_focus_back_when_it_is_answered_and_not_when_the_bar_goes() -> None:
+    out = _run("keptWords")
+    assert out["focusAtAnswer"] is True
+    assert out["hidden"] == {"on": False, "focus": True, "told": 0}
 
 
 def test_an_emptied_secret_is_removed_only_after_confirming() -> None:
