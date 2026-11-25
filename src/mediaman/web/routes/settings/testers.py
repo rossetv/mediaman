@@ -7,12 +7,14 @@ endpoint in the package __init__ invokes the registered functions.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
 from typing import Protocol
 
 import requests as _requests
+from defusedxml.ElementTree import ParseError
 from fastapi.responses import JSONResponse
 from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
@@ -204,9 +206,23 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
     except Unauthorized:
         logger.warning("settings.test_plex token refused by Plex")
         return _failure("auth_failed", "Plex refused the token.")
-    except (NotFound, BadRequest) as exc:
-        logger.warning("settings.test_plex not a Plex server: %s", type(exc).__name__)
-        return _failure("not_plex", "No Plex server answered at this address.")
+    except BadRequest as exc:
+        # plexapi raises BadRequest for every status but 401 and 404 and carries the
+        # status only in the message, as "(503) service_unavailable; ...".
+        status = re.match(r"\((\d{3})\)", str(exc))
+        if status and int(status.group(1)) >= 500:
+            logger.warning("settings.test_plex Plex answered with an error: status %s", status[1])
+            return _failure("plex_error", "Plex answered with an error. Try again in a moment.")
+        return _not_plex(exc)
+    except (NotFound, ParseError, AttributeError) as exc:
+        # A 200 that isn't Plex's XML (a proxy login page, another app) fails to parse
+        # (ParseError) or lacks the server's identity (AttributeError).
+        return _not_plex(exc)
+
+
+def _not_plex(exc: Exception) -> JSONResponse:
+    logger.warning("settings.test_plex not a Plex server: %s", type(exc).__name__)
+    return _failure("not_plex", "No Plex server answered at this address.")
 
 
 @_register("sonarr")

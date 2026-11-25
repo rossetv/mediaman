@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from defusedxml.ElementTree import ParseError
 from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.infra import SafeHTTPError
@@ -114,3 +115,37 @@ def test_plex_refusals_say_which_it_was_and_log_one_line(exc, code, message, cap
     assert len(caplog.records) == 1
     assert caplog.records[0].exc_info is None
     assert "secret-token" not in caplog.text and "u:p@" not in caplog.text
+
+
+_NOT_PLEX = ("not_plex", "No Plex server answered at this address.")
+_PLEX_ERROR = ("plex_error", "Plex answered with an error. Try again in a moment.")
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        # an HTML page answering 200 is not XML
+        (ParseError("syntax error: line 1, column 0"), _NOT_PLEX),
+        # well-formed XML that is not Plex's has no machine identifier
+        (AttributeError("'NoneType' object has no attribute 'attrib'"), _NOT_PLEX),
+        (BadRequest("(400) bad_request; http://plex:32400/ nope"), _NOT_PLEX),
+        (BadRequest("(500) internal_server_error; http://plex:32400/ boom"), _PLEX_ERROR),
+        (BadRequest("(503) service_unavailable; http://plex:32400/ later"), _PLEX_ERROR),
+        (BadRequest("something with no status"), _NOT_PLEX),
+    ],
+)
+def test_plex_replies_that_are_not_a_plex_answer_are_told_apart(exc, expected, caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient", side_effect=exc),
+    ):
+        resp = _test_plex({"plex_url": "http://u:p@plex:32400", "plex_token": "secret-token"})
+    body = json.loads(resp.body)
+    assert (body["ok"], body["error"], body["message"]) == (False, *expected)
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
+    assert "secret-token" not in caplog.text and "u:p@" not in caplog.text
+    assert "http://" not in caplog.text
