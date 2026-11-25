@@ -169,7 +169,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       await settle();
     },
     // What is still waiting for its time.
-    wait() { timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); },
+    wait(most = Infinity) { timers.filter((t) => t.on && t.ms <= most).forEach((t) => { t.on = false; t.fn(); }); },
     async back() { go(-1); await settle(); },
     key(key, more) {
       const e = { key, target: input, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
@@ -1471,7 +1471,7 @@ const scenarios = {
     const { go } = p.ctx.history;
     p.ctx.history.go = () => {};
     p.type('');
-    p.wait();
+    p.wait(9000);
     p.ctx.history.go = go;
     other.focus();
     await p.back();
@@ -1482,7 +1482,7 @@ const scenarios = {
       await q.search('orchard');
       q.ctx.history.go = () => {};
       q.type('');
-      if (!soon) q.wait();
+      if (!soon) q.wait(9000);
       q.type('lantern');
       q.key('Enter');
       await settle();
@@ -1501,14 +1501,58 @@ const scenarios = {
       const { go } = p.ctx.history;
       p.ctx.history.go = () => {};
       p.type('');
-      p.wait();
+      p.wait(9000);
       p.type('lantern');
       if (asked) p.key('Enter');
       p.ctx.history.go = go;
       await p.back();
-      p.wait();
+      p.wait(9000);
       await settle();
       out.push([p.input.value, p.url(), p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url]);
+    }
+    return out;
+  },
+
+  // The step back from an emptied search is never made, and the person goes Back long after.
+  async emptiedLongAgo() {
+    const p = await ready(ADMIN, '', '/watch?all=movies');
+    p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+    await p.search('orchard');
+    const { go } = p.ctx.history;
+    p.ctx.history.go = () => {};
+    p.type('');
+    p.wait(9000);
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    p.wait(10000);
+    p.ctx.history.go = go;
+    await p.back();
+    p.wait(9000);
+    await settle();
+    return [p.url(), p.input.value, p.shown()];
+  },
+
+  // The search is emptied again while the step back of the first time is still to come.
+  async emptiedTwice() {
+    const out = [];
+    for (const late of [false, true]) {
+      const p = await ready(ADMIN, '', '/watch?all=movies');
+      p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+      await p.search('orchard');
+      const { go } = p.ctx.history;
+      let asked = 0;
+      p.ctx.history.go = () => { asked++; };
+      p.type('');
+      if (late) p.wait(9000);
+      p.type('lantern');
+      p.type('');
+      if (late) p.wait(9000);
+      p.ctx.history.go = (by) => { asked++; go(by); };
+      await p.back();
+      p.wait(9000);
+      await settle();
+      out.push([asked, p.url(), p.input.value, p.shown()]);
     }
     return out;
   },

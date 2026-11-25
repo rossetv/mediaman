@@ -22,6 +22,7 @@
   var LIST_DELAY_MS = 350;
   var COMPOSING_MS = 400;
   var EXAMPLE_MS = 3200;
+  var STEP_MS = 10000; // a step back this late was never made: a Back after it is the person's
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
   var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
@@ -571,6 +572,7 @@
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
     var emptied = false; // the step back to what an emptied search was typed over is on its way; a slow one lands at any time
+    var emptiedTimer = null;
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -1415,6 +1417,12 @@
 
     /* ── Searching ── */
 
+    function setEmptied(on) {
+      clearTimeout(emptiedTimer);
+      emptied = on;
+      if (on) emptiedTimer = setTimeout(function () { emptied = false; }, STEP_MS);
+    }
+
     /* Keep ?q= in the address: a search is an entry, so Back returns to what it was
        typed over, and what is typed next stays in it. *inPlace*: nobody typed it. */
     function syncUrl(q, inPlace) {
@@ -1498,9 +1506,10 @@
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        emptied = true;
+        if (emptied) return;
+        setEmptied(true);
         address.back('search', function () {
-          emptied = false;
+          setEmptied(false);
           // What opens there takes the focus.
           input.focus({ preventScroll: true });
           openSheet(address.top() === null);
@@ -1722,7 +1731,7 @@
         return here.params.get('view') === 'list' ? null : (here.params.get('q') || '').trim() || null;
       },
       open: function (q, how) {
-        if (how === 'pop') emptied = false;
+        if (how === 'pop') setEmptied(false);
         if (input.value.trim() === q && (how === 'start' || (current && current.q === q))) return;
         input.value = q;
         if (tokened) setToken(null);
@@ -1731,7 +1740,7 @@
       },
       close: function (how) {
         var again = emptied && input.value.trim();
-        emptied = false;
+        setEmptied(false);
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
         // Typed since, it is a search of its own in the entry the step led to.

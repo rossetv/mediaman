@@ -749,6 +749,16 @@ def test_what_is_typed_before_a_slow_step_back_is_made_stays_and_is_searched_for
     assert _run("emptiedStepLate") == [searched, searched]
 
 
+def test_a_back_long_after_a_step_that_was_never_made_closes_the_search() -> None:
+    assert _run("emptiedLongAgo") == ["/watch?all=movies", "", "browse"]
+
+
+def test_a_search_emptied_twice_during_a_slow_step_back_goes_back_once() -> None:
+    # The second time before, then after, the step is given up on.
+    back = [1, "/watch?all=movies", "", "browse"]
+    assert _run("emptiedTwice") == [back, back]
+
+
 def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:
     assert _run("emptiedThenCategory") == [
         "/watch?q=lantern",
