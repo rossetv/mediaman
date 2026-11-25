@@ -186,7 +186,8 @@ const scenarios = {
   },
 
   // What each run of edits leaves: [field, value, how, text put in], as the browser tells them; 'redraw'
-  // for the rows being drawn again, 'elsewhere' for a save's answer, 'checked' for the server telling what it has before one, 'mendedElsewhere' for one
+  // for the rows being drawn again, 'elsewhere' for a save's answer, 'checked' for the server telling what it
+  // has before one, 'mendedElsewhere' for one
   // that finds a limit another page has stored.
   async edits(entry, runs) {
     const out = [];
@@ -418,3 +419,4 @@ async function newsletter(people) {
 scenarios[process.argv[2]](...process.argv.slice(3)).then(
   (out) => process.stdout.write(JSON.stringify(out)),
   (err) => { console.error(err); process.exit(1); }
+);
