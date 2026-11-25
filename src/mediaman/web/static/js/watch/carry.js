@@ -189,7 +189,8 @@
     var o = null;
     var moves = [];
     var undo = [];
-    var late = []; // the page's pieces under its title whose dots come after them
+    var late = []; // the page's pieces under its title, whose dots come after them
+    var hushed = []; // the card's pieces of it, whose words go at once
 
     function rect(n) {
       var r = n.getBoundingClientRect();
@@ -276,7 +277,30 @@
     /* *n* from {x, y, sx, sy} at the card to {x1, y1, s1x, s1y} at the page; fade: the places it
        comes or goes between, or 'gone'; cut: px off the top, sides and foot of a pill at the card, all of it there at the place open. */
     function move(n, d) {
-      if (n) moves.push(Object.assign({ n: n, x: 0, y: 0, sx: 1, sy: 1, x1: 0, y1: 0, s1x: 1, s1y: 1, fade: null, cut: null, open: 0.6, full: 1 }, d, { full: d.fade && !d.word ? Number(getComputedStyle(n).opacity) : 1 }));
+      if (n) moves.push(Object.assign({ n: n, x: 0, y: 0, sx: 1, sy: 1, x1: 0, y1: 0, s1x: 1, s1y: 1, fade: null, cut: null, shut: 0, open: 0.6, via: null, full: 1 }, d, { full: d.fade && !d.word ? Number(getComputedStyle(n).opacity) : 1 }));
+    }
+
+    /* A round button into the page's on another row, as its icon: down to that row first, so that it
+       passes under the rest, then along it, and open only once there. */
+    function travelPill(a, b) {
+      var ra = rect(a);
+      var rb = rect(b);
+      var ia = rect(a.querySelector('.ico'));
+      var ib = rect(b.querySelector(b.getAttribute('aria-pressed') === 'true' ? '.watch-mark-btn__on .ico' : '.watch-mark-btn__off .ico') || b);
+      var s = ra.h / rb.h;
+      var x = ia.x + ia.w / 2 - rb.x - (ib.x + ib.w / 2 - rb.x) * s;
+      var y = ia.y + ia.h / 2 - rb.y - (ib.y + ib.h / 2 - rb.y) * s;
+      // Where its row is on the way: as the rest of it comes, from by the first button.
+      var sr = spot.from.h / spot.to.h;
+      var row = { x: spot.from.x + (rb.x - spot.to.x) * sr - rb.x, y: spot.from.y + (rb.y - spot.to.y) * sr - rb.y };
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), shut: 0.5, open: 0.85, via: row, tint: tintOf(a, b, [0.4, 0.8]) });
+      move(a, { fade: 'gone' });
+    }
+
+    /* The colours of a button *b* that looks as *a* does until the place *from*, and as itself by *to*. */
+    function tintOf(a, b, when) {
+      function look(n) { var c = getComputedStyle(n); return [c.backgroundColor, c.color, c.borderTopColor]; }
+      return { from: look(a), to: look(b), when: when };
     }
 
     /* It goes between the places *to* and *from*. */
@@ -319,7 +343,7 @@
         var q = pa[i];
         if (q && !onB[i] && q.x + q.w <= frame.x + frame.w + 1) {
           at[i] = { x: q.x - r.x, y: q.y + (q.h - r.h * s) / 2 - r.y };
-          move(wb[i], { x: at[i].x, y: at[i].y, sx: s, sy: s });
+          move(wb[i], { x: at[i].x, y: at[i].y, sx: q.w / r.w, sy: s });
           move(wa[i], { fade: 'gone', word: true });
           return;
         }
@@ -365,26 +389,22 @@
         }
         next = had.indexOf(a);
         had.splice(next, 1);
-        // Its dot is there at once where the card's was, else it comes after.
-        if (!dotted(a)) late.push(n);
+        late.push(n);
         var ia = insideOf(a);
         var ib = insideOf(n);
         var rb = rect(n);
         var s = fontSize(a) / fontSize(n);
+        var sx = ia.width / ib.width; // its words as wide as the card's, so that none moves at the first step
         var ax = ia.left - o.left;
         var bx = ib.left - o.left;
         var ay = ia.top - o.top + ia.height / 2;
         var by = ib.top - o.top + ib.height / 2;
-        move(n, { x: ax - rb.x - (bx - rb.x) * s, y: ay - rb.y - (by - rb.y) * s, sx: s, sy: s });
-        move(a, { fade: 'gone' });
+        move(n, { x: ax - rb.x - (bx - rb.x) * sx, y: ay - rb.y - (by - rb.y) * s, sx: sx, sy: s });
+        // Its words go at once, its dot as the page's come.
+        hushed.push(a);
+        out(a, 0.15, 0);
       });
-      had.forEach(function (n) { if (n.textContent === ' · ') move(n, { fade: 'gone' }); else out(n, 0.03, 0); });
-    }
-
-    /* Whether a piece of what the card says has a dot before it. */
-    function dotted(a) {
-      if (a.classList.contains('cry-piece')) return !!a.previousElementSibling || !!a.parentNode.previousElementSibling;
-      return !!a.previousElementSibling && !a.classList.contains('pv__cert');
+      had.forEach(function (n) { out(n, n.textContent === ' · ' ? 0.15 : 0.03, 0); });
     }
 
     /* How far inside *b*, moved by *x* and *y* and scaled, *a* stands: top, right, foot and left. */
@@ -402,8 +422,8 @@
       var s = fontSize(a) / fontSize(b);
       var x = inA - rb.x - (inB - rb.x) * s;
       var y = ra.y + ra.h / 2 - rb.y - rb.h * s / 2;
-      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), open: 0.5 });
-      move(a, { x1: inB - ra.x - (inA - ra.x) / s, y1: rb.y + rb.h / 2 - ra.y - ra.h / s / 2, s1x: 1 / s, s1y: 1 / s, fade: [0.08, 0] });
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), open: 0.5, tint: tintOf(a, b, [0.15, 0.5]) });
+      move(a, { fade: 'gone' });
       return { x: x, y: y };
     }
 
@@ -415,8 +435,10 @@
       var s = ra.h / rb.h;
       var x = ra.x + ra.w / 2 - rb.x - rb.w * s / 2;
       var y = ra.y - rb.y;
-      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), fade: fadeB, open: open || 0.6 });
-      move(a, { x1: rb.x + rb.w / 2 - ra.x - ra.w / s / 2, y1: rb.y - ra.y, s1x: 1 / s, s1y: 1 / s, fade: fadeA });
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), fade: fadeB, open: open || 0.6, tint: tintOf(a, b, [0.2, 0.6]) });
+      // Gone before the page's comes, it stays where it is, in nobody's way.
+      if (fadeA && fadeB && fadeA[0] <= fadeB[0]) move(a, { fade: fadeA });
+      else move(a, { x1: rb.x + rb.w / 2 - ra.x - ra.w / s / 2, y1: rb.y - ra.y, s1x: 1 / s, s1y: 1 / s, fade: fadeA });
       return { x: x, y: y };
     }
 
@@ -460,9 +482,16 @@
     var spot = main && go ? { to: rect(main), from: rect(go) } : null;
     function level(b) { return b && (!spot || Math.abs(rect(b).y - spot.to.y) < spot.to.h / 2) ? b : null; }
     // One after the other: the page's words are never under the card's button.
-    pair('[data-play-on]', level(page('.ttl__actions > .ttl__play-on')), [0.2, 0.08], [0.2, 0.45]);
-    pair('.pv__trailerbtn', level(act('trailer')), [0.2, 0.08], [0.2, 0.45]);
-    pair('.pv__eye', level(act('mark')), [0.2, 0.08], [0.2, 0.45]);
+    // The TV button keeps its place by the first, whose words grow beside it.
+    out(own('[data-play-on]'), 0.04, 0);
+    pair('.pv__trailerbtn', level(act('trailer')), [0.12, 0.02], [0.3, 0.5]);
+    // The eye says whether it is watched, so it goes to the page's on whichever row that is.
+    var eye = own('.pv__eye');
+    var mark = act('mark');
+    if (eye && mark && spot && !level(mark)) {
+      paired.push(mark);
+      travelPill(eye, mark);
+    } else pair('.pv__eye', level(mark), [0.12, 0.02], [0.3, 0.5]);
     acts.forEach(function (b) {
       if (paired.indexOf(b) >= 0) return;
       var r = rect(b);
@@ -543,7 +572,7 @@
         var cut = seen && !t.fits && (i === pa.length - 1 || !inSight(i + 1)); // the ellipsis is on it
         if (seen && !cut && onA[i] === onB[i] && Math.abs(pa[i].x - pa[0].x - (r.x - pb[0].x) * s) < 30) {
           at[i] = { x: pa[i].x - r.x, y: pa[i].y + (pa[i].h - r.h * s) / 2 - r.y };
-          later.push([wb[i], { x: at[i].x, y: at[i].y, sx: s, sy: s }]);
+          later.push([wb[i], { x: at[i].x, y: at[i].y, sx: pa[i].w / r.w, sy: s }]);
           later.push([wa[i], { fade: 'gone', word: true }]);
           return;
         }
@@ -596,7 +625,7 @@
       sheet.style.setProperty('--cry-clip', 'inset(' + y + 'px ' + (o.width - x - w) + 'px ' + (o.height - y - ht) + 'px ' + x + 'px round 12px)');
       Object.assign(plate.style, { width: w + 'px', height: ht + 'px', transform: 'translate(' + (o.left + x) + 'px,' + (o.top + y) + 'px)' });
       plate.style.setProperty('--cry-at', at);
-      late.forEach(function (n) { n.style.setProperty('--cry-dot', ramp(at, 0.05, 0.3)); });
+      late.forEach(function (n) { n.style.setProperty('--cry-dot', ramp(at, 0.15, 0.35)); });
       dim.style.opacity = at;
       veil.style.opacity = ramp(at, 0.1, 0.9);
 
@@ -621,8 +650,22 @@
       }
       moves.forEach(function (q) {
         var st = q.n.style;
-        st.transform = 'translate(' + mix(q.x, q.x1, at) + 'px,' + mix(q.y, q.y1, at) + 'px) scale(' + mix(q.sx, q.s1x, at) + ',' + mix(q.sy, q.s1y, at) + ')';
-        if (q.cut) st.clipPath = 'inset(' + q.cut.map(function (px) { return px * (1 - ramp(at, 0, q.open)) + 'px'; }).join(' ') + ' round 999px)';
+        var tx = mix(q.x, q.x1, at);
+        var ty = mix(q.y, q.y1, at);
+        if (q.via) {
+          // Down to its row first, then along it.
+          tx = mix(q.x, mix(q.via.x, q.x1, at), ramp(at, 0.2, 0.9));
+          ty = mix(q.y, mix(q.via.y, q.y1, at), ramp(at, 0, 0.3));
+          q.n.classList.toggle('cry-hush', at < q.shut);
+        }
+        st.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + mix(q.sx, q.s1x, at) + ',' + mix(q.sy, q.s1y, at) + ')';
+        if (q.cut) st.clipPath = 'inset(' + q.cut.map(function (px) { return px * (1 - ramp(at, q.shut, q.open)) + 'px'; }).join(' ') + ' round 999px)';
+        if (q.tint) {
+          var k = Math.round(ramp(at, q.tint.when[0], q.tint.when[1]) * 100);
+          ['backgroundColor', 'color', 'borderColor'].forEach(function (prop, i) {
+            st[prop] = k >= 100 ? '' : 'color-mix(in srgb, ' + q.tint.to[i] + ' ' + k + '%, ' + q.tint.from[i] + ')';
+          });
+        }
         if (q.fade === 'gone') st.opacity = 0;
         else if (q.fade) st.opacity = q.full * (q.fade[0] < q.fade[1] ? ramp(at, q.fade[0], q.fade[1]) : 1 - ramp(at, q.fade[1], q.fade[0]));
       });
@@ -638,7 +681,10 @@
       moves.forEach(function (q) {
         q.n.classList.remove('cry-move');
         if (!at || q.n !== whole) q.n.style.transform = q.n.style.opacity = q.n.style.clipPath = '';
+        if (q.tint) q.n.style.backgroundColor = q.n.style.color = q.n.style.borderColor = '';
+        if (q.via) q.n.classList.remove('cry-hush');
       });
+      hushed.forEach(function (n) { n.classList.remove('cry-hush'); });
       undo.forEach(function (fn) { fn(); });
     }
 
@@ -651,6 +697,7 @@
       undo.push(function () { box.b.style.background = ''; });
     }
     moves.forEach(function (q) { q.n.classList.add('cry-move'); });
+    hushed.forEach(function (n) { n.classList.add('cry-hush'); });
     p.n.classList.add('is-carried');
     draw(0);
     return { draw: draw, end: end, heroFoot: h.y + h.h };

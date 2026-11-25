@@ -321,6 +321,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
 .cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
 .cry-mark { display: inline-block; }
+/* A piece of the card's line whose words have gone to the page's, its dot left for a while. */
+.cry-hush { -webkit-text-fill-color: transparent; }
+.cry-hush::before { -webkit-text-fill-color: currentColor; }
 /* Its pieces go each their own way: none is cut by the line, and their dots come after them. */
 .ttl.is-carried .ttl__meta { clip-path: none; }
 .ttl.is-carried .ttl__meta > span::before { opacity: var(--cry-dot, 1); }
