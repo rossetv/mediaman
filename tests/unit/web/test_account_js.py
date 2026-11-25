@@ -118,9 +118,25 @@ def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_statu
         assert [where for where, seen in out[which].items() if seen[1]] == ["there", "around"]
 
 
-def test_a_refusal_that_moves_the_cursor_is_brought_into_view_wherever_the_reader_is() -> None:
+def test_a_late_refusal_moves_the_cursor_and_the_page_only_for_a_reader_still_at_its_status() -> (
+    None
+):
     out = _run("lateAnswer")
-    assert (out["emailRefused"], out["passwordRefused"]) == ([True, True], [True, True])
+    for which in ("emailRefused", "passwordRefused"):
+        for where, (_pressed, shown, cursor, said) in out[which].items():
+            assert (shown, cursor) == (
+                (True, True) if where in ("there", "around") else (False, False)
+            )
+            assert said, (which, where)
+
+
+def test_a_refusal_takes_the_place_of_what_the_status_said() -> None:
+    assert _run("passwordRefusals")["afterLimit"]["said"] == ["account-old-password-why"]
+
+
+def test_a_field_with_no_place_for_its_reason_has_it_said_at_the_button() -> None:
+    out = _run("passwordRefusals")["noPlace"]
+    assert (out["said"], out["focused"]) == (["account-password-result"], "account-old-password")
 
 
 def test_the_list_of_sign_ins_takes_the_focus_without_pulling_the_page_to_it() -> None:

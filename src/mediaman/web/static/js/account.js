@@ -53,10 +53,12 @@
     if (!form || !result || !submit) return;
 
     // On a short phone the form is taller than the screen, so the reason is said beside its field.
-    function fail(fieldId, text, issues) {
+    function fail(fieldId, text, issues, onlySay) {
+      clear();
       var why = document.getElementById(fieldId + '-why');
+      if (!why) { why = result; why.className = 'inline-form-msg err'; }
       showReason(why, text, issues);
-      MM.dom.refuse(document.getElementById(fieldId), why);
+      if (!onlySay) MM.dom.refuse(document.getElementById(fieldId), why);
     }
     function clear() {
       result.className = 'inline-form-msg';
@@ -99,8 +101,8 @@
         var code = err && err.error;
         if (code === 'reauth_cancelled') { clear(); return; }
         if (code === 'wrong_password' || code === 'weak_password' || code === 'same_password') {
-          clear();
-          fail(code === 'wrong_password' ? 'account-old-password' : 'account-new-password', wordsOf(err), err.issues);
+          var there = MM.dom.stillAt(result, form);
+          fail(code === 'wrong_password' ? 'account-old-password' : 'account-new-password', wordsOf(err), err.issues, !there);
           return;
         }
         answer(result, form, wordsOf(err), 'err');
@@ -139,9 +141,9 @@
       }).catch(function (err) {
         setBusy(submit, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
+        var there = MM.dom.stillAt(result, form);
         say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-        input.focus();
-        reveal(result);
+        if (there) MM.dom.refuse(input, result);
       });
     });
   }
