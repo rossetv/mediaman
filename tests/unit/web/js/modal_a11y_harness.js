@@ -200,6 +200,23 @@ const scenarios = {
     for (let i = 0; i < 4; i++) { p.key('Tab'); out.push(p.focused()); }
     return out;
   },
+  // A group of radios between two buttons: none checked, one checked, and one with the keyboard.
+  radios() {
+    const p = page();
+    p.$('card').textContent = '';
+    const radio = (id, name) => ['input', { type: 'radio', name, id }];
+    p.$('card').append(...[['button', { id: 'before' }], radio('a1', 'a'), radio('a2', 'a'), radio('a3', 'a'), radio('b1', 'b'), ['button', { id: 'after' }]].map((n) => build(p.doc, n)));
+    p.setup('low').open();
+    const go = (from, shiftKey) => {
+      p.$(from).focus();
+      const out = [];
+      for (let i = 0; i < 4; i += 1) { p.key('Tab', { shiftKey }); out.push(p.focused()); }
+      return out;
+    };
+    const none = go('before');
+    p.$('a3').checked = true;
+    return { none, checked: go('before'), back: go('before', true), from: go('a1') };
+  },
   // A confirm closed once it has left the page, over a dialog and alone.
   goneFromThePage() {
     const p = page();
