@@ -1691,12 +1691,22 @@
 
   /* *reason*: what the scan left out, if anything; that stays until the next one. */
   function scanDone(reason) {
-    var took = 'Finished in ' + elapsed() + (reason ? '. ' + String(reason).replace(/\.$/, '') : '');
+    var left = reason ? String(reason).replace(/\.$/, '').split(/; (?=Plex library ')/) : [];
+    var more = left.length > 1 ? ', and ' + (left.length - 1) + ' more, see ' : '';
+    var start = 'Finished in ' + elapsed() + (reason ? '. ' + left[0] : '') + more;
+    var took = start + (more ? 'History' : '');
+    function says(after) {
+      scanSays(more ? start : took + after, reason ? '' : 'ok');
+      if (!more) return;
+      var a = el('a', '', 'History');
+      a.href = '/history';
+      scanStatus.append(a, after);
+    }
     var look = reason ? '' : 'success';
     scanBusy(false);
     scan.classList.add('is-success');
     scanLabel('Scan complete', 'i-check');
-    scanSays(took, reason ? '' : 'ok');
+    says('');
     var said = 'Scan ' + took.replace('F', 'f');
     live.textContent = said;
     tellList();
@@ -1706,7 +1716,7 @@
     }, function () {
       var late = '. Refresh the page to see the results.';
       tellClosed(said + late, look);
-      scanSays(took + late, reason ? '' : 'ok');
+      says(late);
     }).then(function () {
       setTimeout(function () {
         scan.classList.remove('is-success');

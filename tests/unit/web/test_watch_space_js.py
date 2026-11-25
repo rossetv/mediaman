@@ -639,11 +639,32 @@ class TestScan:
         assert re.sub(r"\d+s", "3s", out["said"]) == "F" + said
         assert re.sub(r"\d+s", "3s", out["live"]) == "Scan f" + said
 
+    def test_a_scan_that_left_several_libraries_out_says_the_first_and_where_the_rest_are(self):
+        ends = _run("scanEnds")
+        first = "Plex library 'TV; Kids' was not scanned: Plex failed to answer for it"
+        said = f"Finished in Ns. {first}, and 2 more, see History"
+        out = ends["leftOutMany"]
+        assert re.sub(r"\d+s", "Ns", out["said"]) == said
+        assert re.sub(r"\d+s", "Ns", out["live"]) == "Scan f" + said[1:]
+        assert out["link"] == "/history"
+        assert ends["leftOut"]["link"] is None
+        late = ends["leftOutManyLate"]
+        assert re.sub(r"\d+s", "Ns", late["said"]) == (
+            said + ". Refresh the page to see the results."
+        )
+        assert late["link"] == out["link"]
+
     @pytest.mark.parametrize(
         ("end", "said", "look"),
         [
             ("done", "Scan finished in Ns", "success"),
             ("leftOut", "Scan finished in Ns. Left out: <b>TV</b> could not be read", ""),
+            (
+                "leftOutMany",
+                "Scan finished in Ns. Plex library 'TV; Kids' was not scanned: Plex failed to "
+                "answer for it, and 2 more, see History",
+                "",
+            ),
             ("stale", "Scan finished in Ns. Refresh the page to see the results.", "success"),
             ("skipped", "Scan skipped: Plex is not configured", ""),
             ("error", "Scan failed: see the server log", "error"),

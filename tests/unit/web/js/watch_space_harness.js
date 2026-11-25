@@ -1159,6 +1159,7 @@ const scenarios = {
     return {
       done: await of({ running: false }),
       leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
+      leftOutMany: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }),
       stale: await of({ running: false }, null, { '/api/dashboard': 'down' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log' }),
@@ -1181,6 +1182,8 @@ const scenarios = {
     };
     return {
       leftOut: await of({ running: false, status: 'done', reason: 'Left out: <b>TV</b> could not be read.' }),
+      leftOutMany: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }),
+      leftOutManyLate: await of({ running: false, status: 'done', reason: ['TV; Kids', 'Films', 'Anime'].map((n) => `Plex library '${n}' was not scanned: Plex failed to answer for it`).join('; ') }, { '/api/dashboard': 'down' }),
       skipped: await of({ running: false, status: 'skipped', reason: 'Plex not configured' }),
       error: await of({ running: false, status: 'error', reason: 'see the server log for details' }),
       notStarted: await of({}, { 'scan/trigger': 'Too many scan triggers' }),
