@@ -669,6 +669,7 @@ def test_seasons_whose_states_are_to_come_are_read_again_so_often_and_the_page_s
     assert (comes["go"], comes["still"]) == ("Pick seasons", True)
     assert never["asks"] == 6
     assert never["press"] == {"label": "Check again", "busy": "Checking…"}
+    assert never["go"] != "Checking…"  # the reading came to an end
 
 
 def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
