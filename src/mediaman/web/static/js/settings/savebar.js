@@ -436,6 +436,12 @@
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
 
     savebar = document.getElementById('setg-savebar');
+    // The page's room for the bar follows its height, whatever it says.
+    if (savebar && window.ResizeObserver) {
+      new ResizeObserver(function () {
+        document.documentElement.style.setProperty('--savebar-h', savebar.offsetHeight + 'px');
+      }).observe(savebar, { box: 'border-box' });
+    }
     // An expired session must not redirect away from edits that are not saved.
     MM.api.hasUnsavedChanges = function () {
       return !!savebar && savebar.classList.contains('on');
@@ -523,7 +529,7 @@
     function reenable(hadFocus) {
       saveBtn.disabled = false;
       if (discardBtn) discardBtn.disabled = false;
-      if (hadFocus && focusLost()) saveBtn.focus();
+      if (hadFocus && focusLost()) saveBtn.focus({ preventScroll: true });
     }
 
     // Nothing in the bar answers while the server is asked. Returns whether the focus was in it,

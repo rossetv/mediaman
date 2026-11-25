@@ -132,10 +132,6 @@
 /* ── Dialogs admin.js opens (TV keep, season delete) ── */
 .keep-dialog-note { margin: 14px 0 0; font-size: 12px; color: var(--t3); }
 .keep-dialog-note:empty { display: none; }
-/* A season's keep and its button stay together, on a second line when the first has no room. */
-.keep-season-item--kept { flex-wrap: wrap; }
-.keep-season-item--kept .keep-season-details { flex: 1; margin-left: 0; text-align: right; }
-.keep-season-keep { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
 .wl-dialog.active { animation: wl-dialog-scrim var(--dur) var(--ease-out); }
 .wl-dialog.active > .keep-dialog { animation: wl-dialog-in var(--dur) var(--ease-out); }
 @keyframes wl-dialog-scrim { from { opacity: 0; } }
@@ -164,16 +160,13 @@
 
 /* ── Phone, and narrow windows too tight for seven columns: each row is a card ── */
 @media (max-width: 699.98px) {
-  .keep-season-item--kept { padding-bottom: 8px; }
-  .keep-season-keep { flex: 0 0 100%; justify-content: flex-end; }
-  .keep-season-keep .btn { min-height: 44px; }
 
   .wl,
   .wl-skel { padding-top: 18px; }
   .wl-stat { padding: 14px 16px; }
   .wl-stat__value { font-size: 26px; }
-  .wl-toolbar .wl-pills { width: 100%; flex-wrap: nowrap; justify-content: space-between; gap: 0; }
-  .wl-toolbar .fpill { padding-inline: 10px; min-width: 44px; justify-content: center; }
+  .wl-toolbar .wl-pills { width: 100%; flex-wrap: nowrap; gap: 0; }
+  .wl-toolbar .fpill { flex: 1 1 auto; padding-inline: 10px; min-width: 44px; justify-content: center; }
   .wl-sort { width: 100%; margin-left: 0; }
   .wl-sort .inp { flex: 1; min-height: 44px; }
 

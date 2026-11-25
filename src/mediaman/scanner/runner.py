@@ -227,10 +227,12 @@ def _filter_libraries_by_disk(
     conn: sqlite3.Connection,
     lib_ids: list[str],
     lib_titles: dict[str, str],
+    *,
+    ignore_usage: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Return the libraries to scan, and those left out because their threshold cannot be read.
 
-    Neither holds one whose disk usage is below its threshold. A library with
+    Neither holds one whose disk usage is below its threshold, unless *ignore_usage*. A library with
     no threshold, a threshold of 0, or any OSError from ``get_disk_usage`` is
     scanned (fail open). One whose threshold cannot be read is left out:
     scanning it may schedule what the threshold was set to keep.
@@ -255,7 +257,7 @@ def _filter_libraries_by_disk(
         title = lib_titles.get(lib_id, lib_id)
         try:
             limit = read_disk_threshold(thresholds.get(lib_id))
-            if limit is None:
+            if limit is None or ignore_usage:
                 filtered.append(lib_id)
                 continue
             usage = shutil.disk_usage(limit.path)
@@ -455,8 +457,8 @@ def run_scan_from_db(
         conn: Open SQLite connection with row_factory set to sqlite3.Row.
         secret_key: Application secret used for decrypting stored tokens and
             signing HMAC keep tokens.
-        skip_disk_check: When True, bypass the per-library disk-usage threshold
-            check and scan all configured libraries unconditionally.
+        skip_disk_check: When True, scan a library however little of its disk is used. One
+            whose threshold cannot be read is read, but nothing of it is scheduled or deleted.
     """
     from mediaman.scanner.engine import ScanEngine
 
@@ -473,15 +475,15 @@ def run_scan_from_db(
     plex, lib_ids, lib_types, lib_titles = result
     ticked = lib_ids
 
-    unreadable_limits: dict[str, str] = {}
-    if not skip_disk_check:
-        # One Plex does not list is left out by the scan, however full its disk is.
-        listed = [lib_id for lib_id in lib_ids if lib_id in lib_types]
-        unlisted = [lib_id for lib_id in lib_ids if lib_id not in lib_types]
-        to_scan, left_out = _filter_libraries_by_disk(conn, listed, lib_titles)
-        unreadable_limits = dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE)
-        _audit_left_out(conn, _LEFT_OUT_KEY, unreadable_limits, lib_titles)
-        lib_ids = to_scan + unlisted
+    # One Plex does not list is left out by the scan, however full its disk is.
+    listed = [lib_id for lib_id in lib_ids if lib_id in lib_types]
+    unlisted = [lib_id for lib_id in lib_ids if lib_id not in lib_types]
+    to_scan, left_out = _filter_libraries_by_disk(
+        conn, listed, lib_titles, ignore_usage=skip_disk_check
+    )
+    unreadable_limits = dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE)
+    _audit_left_out(conn, _LEFT_OUT_KEY, unreadable_limits, lib_titles)
+    lib_ids = to_scan + unlisted
 
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
@@ -496,7 +498,8 @@ def run_scan_from_db(
     engine = ScanEngine(
         conn=conn,
         plex_client=plex,
-        library_ids=lib_ids,
+        # A scan started by hand still reads them: what is there may keep what is due elsewhere.
+        library_ids=[*lib_ids, *left_out] if skip_disk_check else lib_ids,
         library_types=lib_types,
         library_titles=lib_titles,
         secret_key=secret_key,
@@ -506,6 +509,7 @@ def run_scan_from_db(
         dry_run=dry_run,
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
+        unreadable_limits=left_out,
     )
     return _say_what_was_left_out(
         conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits, ticked

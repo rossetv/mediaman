@@ -47,14 +47,32 @@ def test_a_long_cast_name_wraps_inside_its_own_column() -> None:
     assert "overflow-wrap: anywhere" in body
 
 
-def test_a_trailer_s_bar_stands_over_the_video_and_not_on_it() -> None:
-    assert "padding: var(--ttl-bar) 0" in _of(".ttl__player")
+def test_close_stands_above_a_trailer_and_not_on_it() -> None:
+    sticky = "(max-width: 699.98px), (max-height: 500px)"
+    assert "padding: var(--ttl-bar) 0" in _of(".ttl__player", sticky)
     assert "height: var(--ttl-bar)" in _of(".ttl__bar")
+    # Elsewhere a strip slides up out of the sheet, and nothing that takes part in layout changes.
+    wide = "(min-width: 700px) and (min-height: 500.02px)"
+    assert "transform: translateY(var(--strip))" in _of(".ttl__sheet::before", wide)
+    assert "transform: none" in _of(".ttl.is-trailer .ttl__sheet::before", wide)
+    assert "overflow: visible" in _of(".ttl__sheet", wide)
+    close = _of(".ttl.is-trailer .ttl__close", wide)
+    assert "scale:" in close and "width" not in close
+    # The strip ends at the window's top: a ring outside the button would be cut.
+    assert re.search(r"outline-offset:\s*-", _of(".ttl.is-trailer .ttl__close:focus-visible", wide))
 
 
-def test_a_trailer_s_frame_never_stands_taller_than_its_box() -> None:
+def test_what_a_trailer_takes_away_fades_before_it_is_hidden() -> None:
+    css = (STYLES / "_watch_detail.css").read_text(encoding="utf-8")
+    for hides in (":is(.ttl__genre, .ttl__director)", ".ttl__trailer > span"):
+        rule = re.escape(hides) + r" \{[^}]*transition:[^;]*visibility var\(--dur"
+        assert re.search(rule, css), hides
+
+
+def test_a_trailer_s_frame_is_16_to_9_and_never_larger_than_its_box() -> None:
     body = _of(".ttl__frame")
-    assert "height: 100%" in body and "aspect-ratio" not in body
+    assert "width: min(100cqw, 100cqh * 16 / 9)" in body and "aspect-ratio: 16 / 9" in body
+    assert "container-type: size" in _of(".ttl__player")
 
 
 def test_close_stays_on_screen_on_a_phone_either_way_up() -> None:

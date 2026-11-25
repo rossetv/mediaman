@@ -19,10 +19,7 @@
   grid-template-columns: var(--rail-w) 1fr;
   gap: 56px;
   align-items: start;
-}
-/* Below 700px the bottom bar's own room does this. */
-@media (min-width: 700px) {
-  .setg-pg .setg-shell { padding-bottom: 64px; }
+  padding-bottom: max(140px, calc(var(--savebar-h, 0px) + 24px)); /* the bar's height, as savebar.js measures it */
 }
 @media (max-width: 960px) {
   .setg-pg .setg-shell { grid-template-columns: 1fr; gap: 20px; }
@@ -327,6 +324,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .savebar .sb-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--warning); box-shadow: var(--glow-warning);
+  flex: none;
 }
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
@@ -356,12 +354,8 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   max-width: 60ch;
   line-height: 1.35;
 }
-/* What is scrolled into view stops above the bar while it is up, which a message makes taller. */
-html:has(.setg-pg .savebar.on) { --savebar-room: 84px; scroll-padding-bottom: var(--savebar-room); }
-html:has(.setg-pg .savebar.on.is-error) { --savebar-room: 112px; }
-/* The page's end scrolls clear of it too. It comes back down with the bar, so that nothing jumps at the end of the page. */
-html:has(.setg-pg .savebar) .foot { transition: padding-bottom var(--dur-slow) var(--ease-out); }
-html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
+/* What is scrolled into view stops above the bar while it is up. */
+html:has(.setg-pg .savebar.on) { --savebar-below: 0px; scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below) + 11px); }
 @media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
@@ -369,16 +363,13 @@ html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
   .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
   .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
   .setg-pg .savebar .btn { flex: 0 0 auto; }
-  html:has(.setg-pg .savebar.on) { --savebar-room: calc(137px + env(safe-area-inset-bottom, 0px)); }
-  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { --savebar-room: calc(212px + env(safe-area-inset-bottom, 0px)); }
+  html:has(.setg-pg .savebar.on) { --savebar-below: calc(64px + env(safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 380px) {
   /* On very narrow phones, stack the action buttons to their own row so
      neither label ("Discard" / "Save Settings") truncates. */
-  .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
+  .setg-pg .savebar .sb-msg { flex: 1 1 calc(100% - 18px); }
   .setg-pg .savebar .btn { flex: 1 1 0; }
-  html:has(.setg-pg .savebar.on) { --savebar-room: calc(184px + env(safe-area-inset-bottom, 0px)); }
-  html:has(.setg-pg .savebar.on:is(.is-error, .is-partial)) { --savebar-room: calc(272px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Reauth modal — narrow variant of .modal-sheet for the savebar
@@ -391,7 +382,7 @@ html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
   font-size: 22px; font-weight: 600; line-height: 1.19;
   letter-spacing: -.011em; color: var(--t1);
   margin: 0 0 8px;
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; text-wrap: balance;
 }
 .reauth-sheet .reauth-desc {
   font-size: 14px; line-height: 1.43; letter-spacing: -.224px;

@@ -135,6 +135,20 @@ def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
     ]
 
 
+def test_what_was_typed_over_an_emptied_search_outlives_the_step_back_to_a_category() -> None:
+    assert _run("emptiedAndTypedOnCategory") == ["/watch?q=lantern", "lantern", "results", True]
+
+
+def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_keep() -> None:
+    rest = ["9", None, 0]
+    assert _run("leavingSeason") == [
+        ["Season 2 leaves any day", "S2 · Any day", "S2 · Due", "S2 leaves any day", *rest],
+        ["Season 2 leaves today", "S2 · Today", "S2 Today", "S2 leaves today", *rest],
+        ["Season 2 leaves in 1 day", "S2 · 1 day", "S2 · 1d", "S2 · 1 day left", *rest],
+        ["Season 2 leaves in 5 days", "S2 · 5 days", "S2 · 5d", "S2 · 5 days left", *rest],
+    ]
+
+
 def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
     out = _run("listView")
     assert out["delay"] == 350
@@ -592,8 +606,8 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
 
 def test_a_result_says_when_it_leaves_and_only_by_tomorrow_is_urgent() -> None:
     assert _run("leaving") == [
-        [["Leaving any day", "Leaving any day", "Any day"], True],
-        [["Leaving today", "Leaving today", "Today"], True],
+        [["Leaving any day", "Any day", "Leaving any day"], True],
+        [["Leaving today", "Today", "Leaving today"], True],
         [["Leaving in 1 day", "1 day left"], True],
         [["Leaving in 2 days", "2 days left"], False],
     ]

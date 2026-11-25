@@ -23,3 +23,21 @@ def test_the_history_link_in_the_scan_reason_reaches_44px_without_covering_the_b
     assert -vertical >= 15
     # The button is 12px off: the reach stays inside half of that.
     assert -horizontal <= 6
+
+
+def _declarations(selector: str) -> str:
+    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
+    block = re.search(re.escape(selector) + r" \{([^{}]*)\}", css)
+    assert block, selector
+    return block.group(1)
+
+
+def test_only_the_bar_s_two_outer_ends_are_round() -> None:
+    # every part's corners are 1px, and only the first part's start and the last part's end
+    # (or the reserved part's end) take the full round, so the corners between parts stay square
+    assert "border-radius: 1px;" in _declarations(".space-seg::before")
+    assert "border-radius: 1px 11px 11px 1px;" in _declarations(".space-bar__rest")
+    first = _declarations(".space-seg--first::before")
+    last = _declarations(".space-seg--last::before")
+    assert "start-start-radius: 11px" in first and "end-start-radius: 11px" in first
+    assert "start-end-radius: 11px" in last and "end-end-radius: 11px" in last

@@ -12,7 +12,12 @@ from fastapi.testclient import TestClient
 from mediaman.crypto import encrypt_value
 from mediaman.services.plex_link import attempts, repository, sync
 from mediaman.services.plex_link.bounded import Pool, TooBusy, TookTooLong
-from mediaman.services.plex_link.plex_tv import Pin, PlexIdentity, PlexTv
+from mediaman.services.plex_link.plex_tv import (
+    Pin,
+    PlexIdentity,
+    PlexTv,
+    PlexTvUnavailable,
+)
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session
@@ -898,3 +903,100 @@ def test_the_record_of_a_link_says_what_happened_and_no_account(client_for, plex
         "sec:plex.unlinked",
     ]
     assert not any("4242" in line or "amyplex" in line for line in lines)
+
+
+def test_the_card_learns_how_long_the_password_is_good_for(client_for):
+    assert client_for("amy", reauth=False).get("/api/account/plex").json()["password_good_for"] == 0
+    assert 290 <= client_for("bob").get("/api/account/plex").json()["password_good_for"] <= 300
+
+
+def test_the_card_learns_when_it_may_start_again(client_for):
+    amy = client_for("amy")
+    assert amy.get("/api/account/plex").json()["start_in"] == 0
+    for _ in range(5):
+        start(amy)
+    assert amy.post("/api/account/plex").status_code == 429
+    assert amy.get("/api/account/plex").json()["start_in"] > 3000
+    assert client_for("bob").get("/api/account/plex").json()["start_in"] == 0
+
+
+@pytest.fixture
+def during_first_pin(monkeypatch):
+    """Run something while the first start waits for its PIN."""
+
+    def arrange(work):
+        real = routes.create_pin
+
+        def slow_pin(plex_tv):
+            monkeypatch.setattr(routes, "create_pin", real)
+            work()
+            return real(plex_tv)
+
+        monkeypatch.setattr(routes, "create_pin", slow_pin)
+
+    return arrange
+
+
+def test_a_slow_start_never_takes_the_place_of_a_later_one(client_for, during_first_pin):
+    amy = client_for("amy")
+    later_one: list[dict] = []
+    during_first_pin(lambda: later_one.append(start(amy)))
+
+    assert amy.post("/api/account/plex").json()["error"] == "expired"
+
+    assert amy.get("/api/account/plex").json()["attempt"]["id"] == later_one[0]["id"]
+    assert routes._starts == {}
+
+
+def test_a_start_outlives_a_later_one_that_fails(client_for, during_first_pin, monkeypatch):
+    amy = client_for("amy")
+
+    def fail_one():
+        with monkeypatch.context() as patched:
+
+            def no_pin(_plex_tv):
+                raise PlexTvUnavailable
+
+            patched.setattr(routes, "create_pin", no_pin)
+            assert amy.post("/api/account/plex").status_code == 503
+
+    during_first_pin(fail_one)
+
+    kept = start(amy)
+
+    assert amy.get("/api/account/plex").json()["attempt"]["id"] == kept["id"]
+
+
+def test_a_start_that_ends_before_a_later_one_is_answered_and_then_replaced(
+    client_for, monkeypatch
+):
+    amy = client_for("amy")
+    other_page = TestClient(amy.app, cookies=dict(amy.cookies))
+    real = routes.create_pin
+    in_first, in_later, first_done = (threading.Event() for _ in range(3))
+    turns = iter(["first", "later"])
+
+    def ordered_pin(plex_tv):
+        if next(turns) == "first":
+            in_first.set()
+            assert in_later.wait(5)
+        else:
+            in_later.set()
+            assert first_done.wait(5)
+        return real(plex_tv)
+
+    monkeypatch.setattr(routes, "create_pin", ordered_pin)
+    answers: dict[str, dict] = {}
+
+    def first():
+        answers["first"] = amy.post("/api/account/plex").json()
+        first_done.set()
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    assert in_first.wait(5)
+    later_one = other_page.post("/api/account/plex").json()
+    thread.join(5)
+
+    assert answers["first"]["attempt"]["state"] == "waiting"
+    assert amy.get("/api/account/plex").json()["attempt"]["id"] == later_one["attempt"]["id"]

@@ -1,7 +1,7 @@
 {# Plex account card of the Profile page; profile-plex.js shows one panel at a time. #}
 {% import "_components.html" as c %}
 {% call c.setg_card(title="Plex account", sub="Let what you play in Plex apps help choose your recommendations.", pad=True) %}
-  <div class="plex-link" id="plex-link" aria-busy="true">
+  <div class="plex-link" id="plex-link" data-password-good-for="{{ password_good_for | default(0) }}" aria-busy="true">
     <div data-plex-panel="loading"><p>Loading…</p></div>
 
     <div data-plex-panel="unset" hidden><p>Plex is not set up on this Mediaman yet.</p></div>
@@ -24,17 +24,19 @@
       <p class="plex-link-fine">A managed Plex Home user, with no Plex sign-in of their own, cannot be linked.</p>
       <div class="plex-link-actions">
         {{ c.btn("Link Plex account", variant="primary", id="plex-start") }}
+        <button type="button" class="btn btn--ghost" id="plex-start-stop" hidden>Cancel</button>
+        <p class="plex-link-fine" id="plex-note"></p>
       </div>
     </div>
 
     <div data-plex-panel="waiting" hidden>
-      <p>Open Plex, sign in with your own account and approve. Then come back to this page.</p>
+      <p class="plex-link-lead"><span class="btn-spinner" aria-hidden="true"></span><span id="plex-lead"></span></p>
+      <p class="plex-link-wait" id="plex-wait" aria-live="polite">Waiting for Plex…</p>
       <p class="plex-link-fine">Plex will name the app “<span id="plex-app">Mediaman</span>”. Only approve a sign-in you started yourself.</p>
       <div class="plex-link-actions">
-        <a class="btn btn--primary" id="plex-open" target="_blank" rel="noopener noreferrer">Open Plex</a>
+        <a class="btn btn--secondary" id="plex-open" target="_blank" rel="noopener noreferrer">Open Plex again</a>
         {{ c.btn("Cancel", variant="ghost", id="plex-cancel") }}
       </div>
-      <p class="plex-link-wait"><span class="btn-spinner" aria-hidden="true"></span><span id="plex-wait">Waiting for Plex…</span></p>
     </div>
 
     <div data-plex-panel="confirm" hidden>
@@ -51,11 +53,13 @@
       <p id="plex-failed"></p>
       <div class="plex-link-actions">
         {{ c.btn("Try again", variant="primary", id="plex-retry") }}
+        <button type="button" class="btn btn--ghost" id="plex-retry-stop" hidden>Cancel</button>
       </div>
     </div>
 
     <div data-plex-panel="linked" hidden>
-      <p>Linked to <strong class="plex-link-name" id="plex-name"></strong> since <span id="plex-since"></span>.</p>
+      <p class="plex-link-done" id="plex-done" hidden>{{ c.icon("i-circle-check") }}<span>Your Plex account <strong class="plex-link-name" id="plex-done-name"></strong> is linked.</span></p>
+      <p id="plex-linked">Linked to <strong class="plex-link-name" id="plex-name"></strong> since <span id="plex-since"></span>.</p>
       <p class="plex-link-fine" id="plex-read"></p>
       <p class="plex-link-fine">Your plays in Plex apps, in the libraries Mediaman looks after, help choose your recommendations. Continue watching and watched marks stay separate. Plays in Plex count for clean-up for everyone, linked or not.</p>
       <div class="plex-link-actions">

@@ -626,6 +626,8 @@ def test_the_bar_marks_chapters_intro_and_credits(markup):
     # Chapters 4 px after another, or at either end of the bar, get no gap.
     assert out["gaps"] == ["10%", "50%"]
     assert out["bands"] == [["2%", "3%"], ["80%", "1.6666666666666667%"], ["90%", "10%"]]
+    # The last reaches the end of the bar, which needs no cut there.
+    assert out["uncut"] == [[], ["90%"]]
     assert out["bubble"] == ["Cold open", "1:30 · Intro"]
 
 
@@ -1008,6 +1010,10 @@ def test_the_question_lets_go_of_the_stream_and_comes_out_of_the_system_s_player
     assert (out["line"], out["fullscreens"], out["skip"]) == ("Next: S2 · E20", 0, True)
 
 
+def test_tab_goes_between_the_two_choices_of_the_question(markup, season):
+    assert run(markup, "ask", pages=season)["tabs"] == ["back", "continue", "back"]
+
+
 def test_a_page_come_back_to_with_the_question_open_starts_nothing(markup, season):
     assert run(markup, "ask", pages=season)["startedByBack"] == 0
 
@@ -1314,6 +1320,10 @@ def test_try_again_and_coming_online_carry_on_with_the_same_stream(markup):
 def test_a_drop_is_no_error_while_there_is_video_left_to_play(markup):
     out = run(markup, "dropped_playing_on")
     assert out == {"playing": None, "waiting": None, "late": True, "starts": 1}
+
+
+def test_leaving_during_a_drop_saves_the_place_reached(markup):
+    assert run(markup, "dropped_left") == [125]
 
 
 def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(markup):

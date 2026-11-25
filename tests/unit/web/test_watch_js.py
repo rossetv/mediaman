@@ -112,6 +112,24 @@ def test_a_finished_keep_and_a_finished_undo_are_announced() -> None:
     assert _run("keepsTold") == {"early": 0, "kept": [kept], "undone": [kept, kept], "refused": 2}
 
 
+def test_a_kept_season_gives_its_badge_up_to_the_next_that_leaves_until_an_undo() -> None:
+    assert _run("seasonKept") == [["S2 in 5"], ["S2", "S1"]]
+
+
+def test_a_seasons_badge_fades_as_the_next_takes_its_place_and_an_undo_takes_the_fade_back() -> (
+    None
+):
+    out = _run("seasonFades")
+    moving = out["moving"]
+    assert sorted(moving["during"]) == [["S1", True, False], ["S2", False, True]]
+    assert moving["frames"] == [{"opacity": 1}, {"opacity": 0}]
+    back = [["S1", False, True], ["S2", True, True]]
+    assert (sorted(moving["undone"]), moving["cancelled"]) == (back, True)
+    assert sorted(moving["after"]) == back
+    assert moving["end"] == [["S1", False, True]]
+    assert out["still"]["during"] == [["S2", False, False]]
+
+
 def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
     out = _run("undoneCardShown")
     # The row does not snap back to the card it stood on, and the focus does not scroll it too.
@@ -124,3 +142,9 @@ def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
 
 def test_ctrl_z_reaches_the_undo_of_a_keep_made_in_details() -> None:
     assert _run("toastDialog") == {"details": "ttl", "page": None}
+
+
+def test_a_block_that_folds_away_gives_up_all_its_room_bit_by_bit() -> None:
+    start, end = _run("fold")
+    assert start[1:] == [420, 24, 44, 16, 0]
+    assert end == [0, 0, 0, 0, 0, 0]

@@ -429,13 +429,14 @@ def _register_probes(app: FastAPI) -> None:
     """
 
     @app.get("/healthz", include_in_schema=False)
-    def healthz() -> dict[str, str]:
+    async def healthz() -> dict[str, str]:
         """Liveness probe for the container HEALTHCHECK.
 
         Returns 200 with a tiny JSON body whenever the ASGI event loop
         is responsive. Deliberately no DB or Plex round-trip — those are
         failure modes the healthcheck should not conflate with the
-        process being alive.
+        process being alive. Runs on the loop, so it answers while stream
+        starts hold the worker threads.
         """
         return {"status": "ok"}
 

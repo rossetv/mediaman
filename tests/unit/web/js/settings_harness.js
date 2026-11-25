@@ -135,6 +135,7 @@ function build() {
     capturing: new Set(),
     revealed: [],
     documentElement: { clientHeight: 844 },
+    dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);
       if (capture) doc.capturing.add(fn);
@@ -247,17 +248,32 @@ const scenarios = {
     const afterOpacity = { present: !!rows[1].parentNode, done };
     rows[1].fire('transitionend', { propertyName: 'height' });
     const focusOnNext = h.doc.activeElement === rows[2].children[0];
+    const noScroll = !!(rows[2].children[0].lastFocusOpts && rows[2].children[0].lastFocusOpts.preventScroll);
     // a second row, left to the timeout fallback
     rows[2].children[0].focus();
     h.ctx.MM.settings.rows.leave(rows[2], { focusSelector: '.link-danger' });
     h.timers.forEach((t) => t.fn());
     return {
-      afterOpacity, afterHeight: { present: !!rows[1].parentNode, done }, focusOnNext,
+      afterOpacity, afterHeight: { present: !!rows[1].parentNode, done }, focusOnNext, noScroll,
       fallbackRemoved: !rows[2].parentNode, focusOnPrev: h.doc.activeElement === rows[0].children[0],
     };
   },
 
   // Discard puts back what was on the page at load, and what was last saved after a save.
+  // The room the page is told to keep for the bar, as the bar changes height.
+  async savebarRoom() {
+    const h = build();
+    const bar = h.add('div', { id: 'setg-savebar' });
+    h.ctx.MM.api = {};
+    const room = {};
+    h.doc.documentElement.style = { setProperty: (k, v) => { room[k] = v; } };
+    let changed;
+    h.ctx.ResizeObserver = function (fn) { this.observe = (el) => { if (el === bar) changed = fn; }; };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    return [61, 258].map((height) => { bar.offsetHeight = height; changed(); return { ...room }; });
+  },
+
   async savebar() {
     const h = build();
     const page = h.add('div', { className: 'setg-pg' });

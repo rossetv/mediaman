@@ -147,6 +147,9 @@ class TestExplore:
 
         assert (show["library_ref"], show["keep_id"]) == ("show-500", None)
 
+        said = ("leaving_days", "leaving_season", "leaving_id")
+        assert [show[k] for k in said] == [3, 1, "501"]
+
     def test_it_says_what_is_shown_and_how_to_go_on(self, viewer, tmdb):
         tmdb["/discover/movie"] = _movies(12, pages=2)
 

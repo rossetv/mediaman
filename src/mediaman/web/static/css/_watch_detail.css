@@ -9,8 +9,8 @@ html.has-ttl .watch-keep-menu { z-index: var(--z-modal); }
 html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 
 .ttl {
-  --ttl-bar: 56px;  /* holds Close, and Back to details while a trailer plays */
-  --ttl-gap: 16px;  /* between a playing trailer and the buttons under it */
+  --ttl-bar: 56px;  /* holds Close, over a trailer on a phone */
+  --ttl-gap: 16px;  /* between a playing trailer and the buttons under it, on a phone */
   position: fixed;
   inset: 0;
   z-index: var(--z-modal-backdrop);
@@ -59,7 +59,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @keyframes ttl-sheet-up   { from { transform: translateY(100%); } }
 @keyframes ttl-sheet-down { to { transform: translateY(100%); } }
 
-/* Over the hero's top edge, and over a trailer rather than on it. */
+/* Over the hero's top edge, and above a trailer rather than on it. */
 .ttl__bar {
   position: relative;
   z-index: 5;
@@ -80,30 +80,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transition: opacity var(--dur) var(--ease-out);
 }
 .ttl.is-trailer .ttl__bar::before { opacity: 1; }
-.ttl__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 16px 0 10px;
-  border-radius: var(--r-pill);
-  color: var(--t1);
-  font-size: 15px;
-  font-weight: 500;
-  pointer-events: auto;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(8px);
-  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur);
-}
-.ttl.is-trailer .ttl__back { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
-.ttl__back:hover { background: var(--s3); }
-.ttl__back:active { background: var(--s4); }
-.ttl__back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ttl__close {
   margin-left: auto;
   pointer-events: auto;
-  translate: -8px 10px; /* off the corner, until a trailer brings it into the bar */
+  translate: -8px 10px; /* off the corner, until a trailer brings it into its strip */
   display: grid;
   place-items: center;
   width: 44px;
@@ -130,7 +110,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   align-items: flex-end;
   gap: 32px;
   min-height: min(calc((100vw - 48px) * .5625), 62vh, 552px); /* 16:9; grows for a long title */
-  padding: 24px 32px 22px;
+  padding: 24px 32px 12px;
   overflow: hidden;
   background: linear-gradient(160deg, var(--s3), var(--s1));
 }
@@ -178,6 +158,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   inset: 0;
   pointer-events: none;
   background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%);
+  transition: opacity var(--dur) var(--ease-out);
 }
 .ttl__head {
   position: relative;
@@ -194,7 +175,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -72px -100vw -22px;
+  inset: -72px -100vw -12px;
   background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--s1) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--s1) 14%, transparent) calc(100% - 18px), transparent);
   pointer-events: none;
 }
@@ -225,7 +206,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
-:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
+:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
 :is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
 :is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
@@ -237,26 +218,77 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__cert { padding-left: 5px; }
 .ttl__meta > .ttl__cert::before { content: none; }
 
-/* The trailer takes the hero's box under the bar, so nothing below it moves (a hero too small for it grows). */
+/* The trailer takes the hero's box, so nothing below it moves (a hero too small for it grows). */
 .ttl__player {
   position: absolute;
   inset: 0;
   z-index: 3;
-  padding: var(--ttl-bar) 0 var(--ttl-gap);
-  background: var(--s1);
+  container-type: size;
+  display: grid;
+  place-items: center;
+  /* Beside the video, the artwork out of focus, which melts into what is above and below. */
+  --above: 0px;
+  --below: 0px;
+  background: linear-gradient(180deg, var(--s1) var(--above), color-mix(in srgb, var(--s1) 78%, transparent) calc(var(--above) + 12%), color-mix(in srgb, var(--s1) 62%, transparent) calc(var(--above) + 30%) calc(70% - var(--below)), color-mix(in srgb, var(--s1) 78%, transparent) calc(88% - var(--below)), var(--s1) calc(100% - var(--below)));
+  -webkit-backdrop-filter: blur(32px) saturate(1.3);
+  backdrop-filter: blur(32px) saturate(1.3);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
 }
 .ttl.is-trailer .ttl__player { opacity: 1; visibility: visible; transition-delay: 0s; }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
-.ttl__frame { display: block; width: 100%; height: 100%; border: 0; background: var(--scrim); }
-.ttl__trailer { transition: opacity var(--dur) var(--ease-out), background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
-.ttl.is-trailer .ttl__trailer { opacity: .45; }
+.ttl.is-trailer .ttl__hero::after { opacity: 0; }
+.ttl__frame {
+  display: block;
+  width: min(100cqw, 100cqh * 16 / 9);
+  aspect-ratio: 16 / 9;
+  border: 0;
+  background: var(--scrim);
+  transform: scale(.97);
+  transition: transform var(--dur) var(--ease-out);
+}
+.ttl.is-trailer .ttl__frame { transform: none; animation: ttl-frame-in var(--dur-slow) var(--ease-out); }
+@keyframes ttl-frame-in { from { opacity: 0; transform: scale(.97); } }
+.ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
+.ttl__trailer { display: inline-grid; }
+.ttl:not(.is-trailer) .ttl__trailer-on,
+.ttl.is-trailer .ttl__trailer-off { opacity: 0; visibility: hidden; }
+
+/* A strip that holds Close, clear of the player's own buttons, rises from behind the hero;
+   everything from the hero down stays where it was. The hero rounds its own corners, as the
+   sheet cannot clip what rises out of it. */
+@media (min-width: 700px) and (min-height: 500.02px) {
+  .ttl__sheet { --strip: 40px; isolation: isolate; overflow: visible; }
+  .ttl__sheet::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: calc(-1 * var(--strip) - 1px) -1px auto;
+    height: calc(var(--strip) + 2 * var(--r-lg));
+    border: solid var(--hair);
+    border-width: 1px 1px 0;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    background: var(--s1);
+    opacity: 0;
+    transform: translateY(var(--strip));
+    transition: transform var(--dur) var(--ease-out), opacity 0s var(--dur);
+  }
+  .ttl.is-trailer .ttl__sheet::before { opacity: 1; transform: none; transition-delay: 0s; }
+  .ttl__hero { clip-path: inset(0 round calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0); transition: clip-path var(--dur) var(--ease-out); }
+  .ttl.is-trailer .ttl__hero { clip-path: inset(0 round 0); }
+  .ttl.is-trailer .ttl__bar::before { opacity: 0; }
+  .ttl__close { transition-property: background-color, transform, translate, scale; transition-duration: var(--dur-fast), var(--dur-fast), var(--dur), var(--dur); }
+  .ttl__close > .ico { transition: scale var(--dur) var(--ease-out); }
+  .ttl.is-trailer .ttl__close { translate: 10px -48px; scale: .8182; }
+  .ttl.is-trailer .ttl__close > .ico { scale: 1.2222; }
+  .ttl.is-trailer .ttl__close::after { content: ""; position: absolute; inset: -5px; }
+  .ttl.is-trailer .ttl__close:focus-visible { outline-width: 2.5px; outline-offset: -4px; }
+}
 
 /* ── Body ── */
 
-.ttl__body { display: flex; flex-direction: column; gap: 32px; padding: 6px 32px 40px; }
+.ttl__body { display: flex; flex-direction: column; gap: 32px; padding: 16px 32px 40px; }
 .ttl__lead { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px 40px; }
 @media (min-width: 900px) { .ttl--admin .ttl__lead { grid-template-columns: minmax(0, 1fr) 280px; } }
 .ttl__main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -505,6 +537,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (max-width: 699.98px), (max-height: 500px) {
   .ttl { scroll-padding-top: var(--ttl-bar); }
   .ttl__bar { position: sticky; top: 0; }
+  .ttl__player { --above: var(--ttl-bar); --below: var(--ttl-gap); padding: var(--ttl-bar) 0 var(--ttl-gap); }
   .ttl.is-past .ttl__bar { pointer-events: auto; }
   .ttl.is-past .ttl__bar::before { opacity: 1; border-bottom: 1px solid var(--hair); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
@@ -524,6 +557,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__hero::after,
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
+  .ttl__player { background: Canvas; }
   .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }

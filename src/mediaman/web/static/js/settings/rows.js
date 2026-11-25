@@ -57,7 +57,7 @@
       finished = true;
       row.remove();
       if (opts.done) opts.done();
-      if (hadFocus && target && document.body.contains(target)) target.focus();
+      if (hadFocus && target && document.body.contains(target)) target.focus({ preventScroll: true });
     }
 
     if (reducedMotion()) { finish(); return; }

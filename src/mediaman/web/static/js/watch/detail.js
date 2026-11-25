@@ -52,7 +52,7 @@
   var fill = part('fill');
   var poster = part('poster');
   var player = part('player');
-  var backBtn = part('back');
+  var closeBtn = root.querySelector('.ttl__close');
   var kindEl = part('kind');
   var taglineEl = part('tagline');
   var metaEl = part('meta');
@@ -73,6 +73,7 @@
   var pictures = '';   // the addresses the hero shows or is trying
   var trying = false;  // the hero's picture is not known yet
   var onSettled = null;
+  var trailerLeftAt = 0;
   var heroEase = null; // the hero's height, easing as the trailer comes or goes
   var seq = 0;
   var pollTimer = null;
@@ -209,7 +210,9 @@
   function show(origin) {
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
+    nameClose();
     lockPage(true);
+    MM.inertPage.hold(root);
     isOpen = true;
     growFrom(origin);
     root.classList.add('is-entering');
@@ -284,7 +287,7 @@
 
   /* What the title on show needs to be found as it is left. */
   function keepPlace() {
-    if (!cur || !cur.data) return;
+    if (!cur || !cur.data || cur.gone) return;
     cur.at = root.scrollTop;
     cur.focus = focusKey();
     cur.ring = !!document.activeElement && document.activeElement.matches(':focus-visible');
@@ -314,8 +317,10 @@
     closeTrailer(false);
     root.hidden = false;
     root.classList.remove('is-entering', 'is-leaving', 'is-trailer', 'ttl--admin');
+    nameClose();
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
+    MM.inertPage.hold(root);
     statusEl.textContent = '';
     body.style.marginBottom = '';
     showPictures(c.data);
@@ -379,6 +384,7 @@
     stopPolling();
     closeTrailer(false);
     closeAdminMenu(false);
+    MM.inertPage.release(root);
     cast.drop();
     if (cur && cur.ctrl) cur.ctrl.abort();
     dropRatings();
@@ -404,6 +410,92 @@
       : cur && (cur.fallback || cardOf(cur.ref) || cardOf(cur.openedAs));
     if (to && document.body.contains(to)) to.focus({ preventScroll: true });
     else if (root.contains(document.activeElement)) document.activeElement.blur();
+  }
+
+  /* The title left the library: its cards and banner go from the library's rows, and those
+     of what can be had lead to it there. The focus goes on from what it was on. */
+  function drop(ref) {
+    var path = '/watch/' + ref.replace('-', '/');
+    var search = document.getElementById('watch-search');
+    function was(c) { return c && (c.ref === ref || c.openedAs === ref); }
+    Object.keys(kept).forEach(function (key) { if (was(kept[key])) delete kept[key]; });
+    var mine = was(cur) ? cur : null;
+    if (mine) mine.gone = true; // not to be kept as it closes
+    /* Where the focus goes from *node*, as *take* takes it away. */
+    function leave(node, take) {
+      var lost = node.contains(document.activeElement);
+      var from = cur && cur.origin && node.contains(cur.origin);
+      var to = take() || search;
+      if (from) {
+        cur.origin = null;
+        cur.fallback = to;
+      }
+      if (lost && to) to.focus({ preventScroll: true });
+    }
+    toArray(document.querySelectorAll('.watch-banner')).forEach(function (banner) {
+      var link = banner.querySelector('[data-title-ref]');
+      if (banner.hasAttribute('inert') || (banner.getAttribute('data-dismiss-ref') !== ref &&
+          !(link && link.getAttribute('data-title-ref') === ref))) return;
+      leave(banner, function () {
+        if (!(window.scrollY > 0)) {
+          window.MMWatch.keep.foldAway(banner);
+          banner.setAttribute('inert', '');
+          return;
+        }
+        // Above what is on the screen, which stays where it is.
+        var below = banner.nextElementSibling;
+        var top = below && below.getBoundingClientRect().top;
+        banner.remove();
+        if (below) window.scrollBy({ top: below.getBoundingClientRect().top - top, behavior: 'instant' });
+      });
+    });
+    toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
+      var link = card.querySelector('.watch-card__link');
+      if (!link || root.contains(card) || card.classList.contains('is-kept') || card.classList.contains('is-gone')) return;
+      var own = link.getAttribute('data-title-ref');
+      if (own !== ref && card.getAttribute('data-dismiss-ref') !== ref &&
+          (link.getAttribute('href') || '').split('?')[0] !== path) return;
+      var tmdb = link.getAttribute('data-tmdb-id');
+      var there = /^tmdb-/.test(own || '') ? own
+        : tmdb ? (/^movie-/.test(ref) ? 'tmdb-movie-' : 'tmdb-tv-') + tmdb : null;
+      if (link.hasAttribute('data-in-library') && there) {
+        link.removeAttribute('data-in-library');
+        link.setAttribute('data-title-ref', there);
+        link.setAttribute('href', '/watch#title=' + there);
+        toArray(card.querySelectorAll('.watch-badge--in, .watch-badge--leaving')).forEach(function (b) { b.remove(); });
+        return;
+      }
+      leave(card, function () {
+        if (card.parentNode.querySelector('[data-results-head]')) return dropResult(card);
+        return window.MMWatch.keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '.watch-card__link').focus;
+      });
+    });
+    // Opened from what stays but leads nowhere now, such as a suggestion.
+    if (!mine || mine.fallback) return;
+    var from = mine.origin && mine.origin.closest('[data-title-ref]');
+    if (!from || from.getAttribute('data-title-ref') === ref) {
+      mine.origin = null;
+      mine.fallback = search;
+    }
+  }
+
+  /* Out of the search results: its group's heading counts one fewer, and goes with the last. */
+  function dropResult(card) {
+    var grid = card.parentNode;
+    function isCard(n) { return n && n.classList.contains('watch-card'); }
+    var before = card.previousElementSibling;
+    var after = card.nextElementSibling;
+    var head = before;
+    while (head && !head.hasAttribute('data-results-head')) head = head.previousElementSibling;
+    card.remove();
+    if (head && (isCard(before) || isCard(after))) {
+      var count = head.querySelector('.results-group__count');
+      count.textContent = count.textContent.replace(/\d+/g, function (n) { return n - 1; }).replace(/^1 titles/, '1 title');
+    } else if (head) head.remove();
+    var next = isCard(after) ? after : isCard(before) ? before : grid.querySelector('.watch-card');
+    if (next) return next.querySelector('.watch-card__link');
+    if (!grid.querySelector('.results-none')) grid.insertBefore(el('p', 'results-none', 'No title matches'), grid.children[0] || null);
+    return null;
   }
 
   /* Where focus goes when the list row the overlay opened from is deleted:
@@ -653,7 +745,15 @@
       c.data = data;
       if (!same) renderContent(false);
       if (hasFacts(c)) loadFacts(c);
-    }).catch(function () {});
+    }).catch(function (err) {
+      if (c === cur && isOpen && err && err.status === 404 && /^(movie|show)-/.test(c.ref)) leftLibrary(c.ref);
+    });
+  }
+
+  /* Deleted from under the overlay: nothing left to show. */
+  function leftLibrary(ref) {
+    drop(ref);
+    if (isOpen && cur && cur.ref === ref) requestClose();
   }
 
   function hasFacts(c) { return isAdmin && /^(movie|show)-/.test(c.ref); }
@@ -667,9 +767,8 @@
     }).catch(function (err) {
       if (c !== cur || !isOpen) return;
       var gone = !!err && err.status === 404;
-      // Deleted from under the overlay: nothing left to show.
       if (gone && c.facts) {
-        requestClose();
+        leftLibrary(c.ref);
         return;
       }
       c.factsError = gone ? 'unknown' : 'failed';
@@ -1749,15 +1848,23 @@
 
   function trailerOn() { return root.classList.contains('is-trailer'); }
 
-  /* It keeps its place in the row while its trailer plays, so nothing moves;
-     the bar over the video is the way back. */
+  /* Both its labels are laid out, so it keeps its width; the one in force shows. */
   function trailerButton(d) {
     if (!trailerKey(d)) return null;
-    var b = button('btn btn--lg watch-btn--grey ttl__trailer', 'Trailer', 'i-film');
+    var b = button('btn btn--lg watch-btn--grey ttl__trailer');
     b.setAttribute('data-ttl-act', 'trailer');
-    b.toggleAttribute('inert', trailerOn());
-    b.addEventListener('click', function () {
-      if (trailerOn()) return;
+    [['ttl__trailer-off', 'Trailer', 'i-film'], ['ttl__trailer-on', 'Stop trailer', 'i-stop']].forEach(function (f) {
+      var face = el('span', f[0]);
+      face.appendChild(icon(f[2]));
+      face.appendChild(document.createTextNode(f[1]));
+      b.appendChild(face);
+    });
+    b.addEventListener('click', function (e) {
+      if (e.detail > 1) return; // the rest of a double click
+      if (trailerOn()) {
+        leaveTrailer();
+        return;
+      }
       address.push('trailer', address.url({}));
       keepPick();
       openTrailer();
@@ -1783,8 +1890,8 @@
     if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
   }
 
-  /* The bar and the player take the hero's box, so nothing below it moves; a
-     hero too small for them grows. */
+  /* The player takes the hero's box, so nothing below it moves; a hero too small
+     for it grows. */
   function openTrailer() {
     var key = cur && trailerKey(cur.data);
     if (!key || trailerOn()) return;
@@ -1802,9 +1909,8 @@
     player.appendChild(frame);
     player.setAttribute('aria-hidden', 'false');
     easeHero(function () { root.classList.add('is-trailer'); });
-    setTrailerButton(true);
-    backBtn.removeAttribute('tabindex');
-    backBtn.focus({ preventScroll: true });
+    nameClose();
+    closeBtn.focus({ preventScroll: true });
     root.scrollTo({ top: 0, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
   }
 
@@ -1813,32 +1919,32 @@
   function closeTrailer(refocus) {
     if (!trailerOn()) return;
     var active = document.activeElement;
-    var lost = !root.contains(active) || player.contains(active) || active === backBtn;
+    var lost = !root.contains(active) || player.contains(active) || active === closeBtn || active === titleEl; // out of sight under a trailer
     easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
-    backBtn.setAttribute('tabindex', '-1');
+    nameClose();
+    trailerLeftAt = Date.now();
     var frame = player.querySelector('iframe');
     if (frame) {
       tellFrame(frame, { event: 'command', func: 'pauseVideo', args: [] });
       if (refocus && !core.reduceMotion()) setTimeout(function () { frame.remove(); }, core.tokenMs('--dur', 200));
       else frame.remove();
     }
-    setTrailerButton(false);
     var b = root.querySelector('[data-ttl-act="trailer"]');
     if (refocus && lost && b) b.focus({ preventScroll: true });
   }
 
-  function setTrailerButton(on) {
-    var b = root.querySelector('[data-ttl-act="trailer"]');
-    if (b) b.toggleAttribute('inert', on);
+  /* Close takes the trailer first. */
+  function nameClose() {
+    closeBtn.setAttribute('aria-label', trailerOn() ? 'Close trailer' : 'Close');
+    if (trailerOn()) closeBtn.setAttribute('title', 'Close trailer');
+    else closeBtn.removeAttribute('title');
   }
 
   /* Leave the trailer at the person's request, or at its end. */
   function leaveTrailer() {
     if (trailerOn()) address.back('trailer');
   }
-
-  backBtn.addEventListener('click', leaveTrailer);
 
   window.addEventListener('message', function (e) {
     var frame = player.querySelector('iframe');
@@ -2328,19 +2434,29 @@
      last season went closes once its facts are gone). */
   document.addEventListener('mm:watch-admin', function (e) {
     var d = e.detail || {};
-    if (!isOpen || !cur || !cur.facts || d.phase !== 'done') return;
+    if (d.phase !== 'done') return;
+    if (d.action === 'delete') {
+      if (!d.showRk) {
+        if (isOpen && cur && cur.ref === 'movie-' + d.id) cur.fallback = rowFallback(cur.origin);
+        leftLibrary('movie-' + d.id);
+        return;
+      }
+      // Closed meanwhile, or another title: was it the show's last season?
+      if (!isOpen || !cur || cur.ref !== 'show-' + d.showRk) {
+        get(apiUrl('show-' + d.showRk)).catch(function (err) {
+          if (err && err.status === 404) leftLibrary('show-' + d.showRk);
+        });
+        return;
+      }
+    }
+    if (!isOpen || !cur || !cur.facts) return;
     var a = cur.facts.actions || {};
     var w = a.keep_wrapper || {};
     var del = a.delete || {};
     var ids = [w.id, del.id].filter(function (x) { return x != null; }).map(String);
     var showRk = w.show_rk || del.show_rk || '';
     var mine = (d.id && ids.indexOf(String(d.id)) >= 0) || (showRk && d.showRk === showRk);
-    if (!mine) return;
-    if (d.action === 'delete' && !d.showRk) {
-      cur.fallback = rowFallback(cur.origin);
-      requestClose();
-    }
-    else refresh();
+    if (mine) refresh();
   });
 
   function menuItems(menu) { return toArray(menu.querySelectorAll('[role="menuitem"]')); }
@@ -2396,16 +2512,6 @@
 
   /* ── Keys and focus ── */
 
-  var FOCUSABLE = 'a[href], button, input, select, textarea, iframe, [tabindex]';
-
-  function focusables() {
-    return toArray(root.querySelectorAll(FOCUSABLE)).filter(function (n) {
-      if (n.getAttribute('tabindex') === '-1' || n.disabled) return false;
-      if (n.closest('[hidden]')) return false;
-      return n.getClientRects().length > 0;
-    });
-  }
-
   /* Elsewhere focus may go while the overlay is open: menus, dialogs and
      toasts opened over it. */
   function allowedOutside(node) {
@@ -2438,19 +2544,6 @@
       e.preventDefault();
       return;
     }
-    if (e.key !== 'Tab' || !inside) return;
-    var list = focusables();
-    if (!list.length) { e.preventDefault(); titleEl.focus(); return; }
-    var first = list[0];
-    var last = list[list.length - 1];
-    var active = document.activeElement;
-    if (e.shiftKey && (active === first || !root.contains(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (active === last || !root.contains(active))) {
-      e.preventDefault();
-      first.focus();
-    }
   });
 
   document.addEventListener('focusin', function (e) {
@@ -2478,7 +2571,9 @@
     if (toggle) toggle.focus({ preventScroll: true }); // Safari leaves a pressed button without it
     if (t.closest && t.closest('[data-ttl-close]')) {
       e.preventDefault();
-      requestClose();
+      if (trailerOn()) leaveTrailer();
+      // The rest of a double click that closed the trailer leaves the title.
+      else if (!(e.detail > 1) || Date.now() - trailerLeftAt > DOUBLE_CLICK_MS) requestClose();
     }
   });
 
@@ -2544,7 +2639,17 @@
       if (isOpen && ref === cur.openedAs && ref !== cur.ref) readdress(cur.ref);
       else if (!isOpen || cur.ref !== ref) openAt(ref, how);
     },
-    close: function (how) { close(how === 'push'); }
+    close: function (how) {
+      close(how === 'push');
+      if (!cur || !cur.gone || how !== 'pop') return false;
+      // The page has been put right for what left it. Safari moves it as it steps back.
+      var y = window.scrollY;
+      Promise.resolve().then(function () {
+        window.scrollTo({ top: y, behavior: 'instant' });
+        address.hold(root);
+      });
+      return true;
+    }
   });
 
   /* In no address: a title opened by a link, or again, starts without it. */

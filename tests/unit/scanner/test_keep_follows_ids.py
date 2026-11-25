@@ -1127,19 +1127,21 @@ class TestListedWithoutItsFiles:
         assert _actions(conn, "old") == ["protected_forever"]
 
     @_season("film new", "season new")
-    def test_files_outside_the_folders_mediaman_deletes_from_count_as_there(
-        self, conn, freezer, library, monkeypatch
+    @pytest.mark.parametrize("seen", [False, True])
+    def test_a_file_outside_the_delete_folders_counts_as_there_only_while_it_is_seen(
+        self, conn, freezer, library, monkeypatch, seen
     ):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(library.folder("new")))
         library.sync("old")
         _keep(conn, "old")
-        library.file("old").unlink()
+        if not seen:
+            library.file("old").unlink()
 
         for _ in range(2):
             freezer.tick(60)
             library.scan("old", "new")
 
-        assert _actions(conn, "new") == ["scheduled_deletion"]
+        assert _actions(conn, "new") == (["scheduled_deletion"] if seen else [])
 
     @pytest.mark.parametrize("read", ["fails", "hangs"])
     @_season("film new", "season new")
@@ -1183,7 +1185,7 @@ class TestListedWithoutItsFiles:
         answered = threading.Event()
         asked = []
 
-        def is_there(path, _):
+        def is_there(path):
             asked.append(path)
             return answered.wait(5)
 

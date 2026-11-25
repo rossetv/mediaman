@@ -142,6 +142,63 @@ const scenarios = {
     return { off: await go(-128), inView: await go(20), grid: await go(-128, true) };
   },
 
+  // The badge of a show's card goes with the Keep of its season, and is back with an Undo.
+  async seasonKept() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100', 'data-leaving-seasons': '[{"id":"1100"}]' },
+      ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-badge--leaving' }, 'S2']]]));
+    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100',
+      'data-leaving-seasons': JSON.stringify([{ id: '1100', season: 1, days: 2 }, { id: '1101', season: 2, days: 5 }]) },
+      ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-badge--leaving' }, 'S1']]]]));
+    page.run();
+    page.ctx.MMWatch.search = { leavingBadge: (item) => build(page.doc, ['span', { class: 'watch-badge--leaving' }, 'S' + item.leaving_season + ' in ' + item.leaving_days]) };
+    const badges = () => page.doc.querySelectorAll('[data-leaving-id] .watch-badge--leaving').map((n) => n.textContent);
+    click(page.doc, page.doc.querySelector('.watch-row [data-watch-keep]'));
+    click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+    await settle();
+    const kept = badges();
+    page.toasts[0].opts.action.onClick();
+    await settle();
+    return [kept, badges()];
+  },
+
+  // The badge of a kept season, and the one that takes its place, as they change over.
+  async seasonFades() {
+    const go = async (still) => {
+      const page = load({ motion: !still });
+      page.doc.body.appendChild(leavingRowPage(page.doc));
+      const runs = [];
+      const badge = (text) => {
+        const node = build(page.doc, ['span', { class: 'watch-badge--leaving' }, text]);
+        node.animate = (frames, opts) => { const run = { frames, opts, cancel() { run.cancelled = true; } }; runs.push(run); return run; };
+        return node;
+      };
+      const card = build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100',
+        'data-leaving-seasons': JSON.stringify([{ id: '1100', season: 1, days: 2 }, { id: '1101', season: 2, days: 5 }]) },
+        ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__poster' }]]]);
+      card.querySelector('.watch-card__poster').appendChild(badge('S1'));
+      page.doc.body.appendChild(card);
+      page.run();
+      page.ctx.MMWatch.search = { leavingBadge: (item) => badge('S' + item.leaving_season) };
+      const badges = () => card.querySelectorAll('.watch-badge--leaving').map((n) => [n.textContent, n.hasAttribute('data-going'), n.classList.contains('fade-in')]);
+      click(page.doc, page.doc.querySelector('.watch-row [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const during = badges();
+      if (!runs.length) return { during };
+      const out = runs[0];
+      page.toasts[0].opts.action.onClick();
+      await settle();
+      const undone = badges();
+      out.onfinish(); // the fade the Undo took back
+      const after = badges();
+      runs[1].onfinish();
+      return { during, frames: out.frames, undone, cancelled: !!out.cancelled, after, end: badges() };
+    };
+    return { moving: await go(false), still: await go(true) };
+  },
+
   // The dialog a Keep's toast says it came from, so that Ctrl+Z reaches its Undo.
   async toastDialog() {
     const keepOnce = async (where) => {
@@ -222,6 +279,19 @@ const scenarios = {
       faded: Math.min(...at('opacity', (v) => v === 0)),
       pinned: card.children.map((c) => c.style.minWidth || ''),
     };
+  },
+
+  // What a block taller than nothing by its own rules is at the start and the end of its fold.
+  async fold() {
+    const page = load({ motion: true });
+    page.ctx.getComputedStyle = () => ({ getPropertyValue: () => '', minHeight: '420px', paddingTop: '24px', paddingBottom: '44px', marginTop: '16px', marginBottom: '0px', rowGap: 'normal' });
+    let frames = null;
+    Node.prototype.animate = function (f) { frames = f; return { cancel() {} }; };
+    const banner = page.doc.body.appendChild(build(page.doc, ['section', {}]));
+    page.run();
+    page.ctx.MMWatch.keep.foldAway(banner);
+    const room = (f) => ['height', 'minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].map((k) => parseFloat(f[k]));
+    return frames.map(room);
   },
 
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.

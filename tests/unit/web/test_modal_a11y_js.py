@@ -114,3 +114,11 @@ def test_the_first_focus_is_on_something_that_can_be_seen() -> None:
         "firstUnseen": "field",
         "nothing": "low",
     }
+
+
+def test_tab_in_a_menu_over_a_dialog_goes_on_from_the_button_it_was_opened_from() -> None:
+    assert _run("menuOver") == "field"
+
+
+def test_the_focus_goes_back_to_what_opened_a_dialog_without_scrolling_the_page() -> None:
+    assert _run("scrolls") == {"preventScroll": True}

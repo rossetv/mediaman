@@ -178,8 +178,8 @@ function build(doc, spec) {
 }
 
 /* Bubble a click from *target* up to the document. */
-function click(doc, target) {
-  const e = { target, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+function click(doc, target, extra) {
+  const e = { target, button: 0, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...extra };
   for (let a = target; a; a = a.parentNode) { e.currentTarget = a; (a.listeners.click || []).forEach((fn) => fn(e)); }
   (doc.listeners.click || []).forEach((fn) => fn(e));
 }

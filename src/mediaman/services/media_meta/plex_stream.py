@@ -95,6 +95,14 @@ MAX_READS_TOTAL = 16
 # The whole of a segment read; the read timeout alone would let a trickling body hold its slot.
 SEGMENT_DEADLINE_SECONDS = 60.0
 
+# A start holds one of the same threads for as long as Plex takes over it. Of a person's starts at
+# the limit, the oldest is given up once it has run longer than Plex takes when it is well.
+MAX_STARTS_PER_USER = 3
+# Of one person's, those given up and not yet ended included.
+MAX_STARTS_HELD = 2 * MAX_STARTS_PER_USER
+MAX_STARTS_TOTAL = 10
+HUNG_START_SECONDS = 10.0
+
 _SEGMENT_NAME_RE = re.compile(r"[0-9]{1,6}\.(ts|m4s|mp4|vtt|aac)")
 _VARIANT_RE = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*/index\.m3u8")
 _EXTINF_RE = re.compile(r"#EXTINF:([0-9]{1,6}(?:\.[0-9]{1,9})?)(?:,.*)?")
@@ -148,6 +156,11 @@ class TooManyStreams(Exception):
     """The user, or mediaman as a whole, already has as many live streams as allowed."""
 
 
+class TooManyStarts(Exception):
+    """The user or mediaman as a whole starts as many streams as allowed right now, or this start
+    hung and was given up for the same user's next."""
+
+
 class TooManyReads(Exception):
     """The stream, its user or mediaman as a whole reads as many segments as allowed right now."""
 
@@ -170,6 +183,8 @@ class StreamInfo:
     saved_played_s: float = 0.0
     #: The viewing's place as last saved, or None before its first save.
     saved_position_s: float | None = None
+    #: Place of its start among all starts.
+    order: int = 0
 
 
 class SegmentRead:
@@ -202,7 +217,35 @@ class SegmentRead:
                 socket.socket.shutdown(self._socket, socket.SHUT_RDWR)
 
 
+class _Start(SegmentRead):
+    """A start under way, from the first question to Plex on; cancelled as a read is."""
+
+    def __init__(self, user: str, rating_key: str, page: str | None, asked: float) -> None:
+        super().__init__("", user)
+        self.rating_key = rating_key
+        self.page = page
+        self.asked = asked
+        self.began = 0.0
+        self._why: Exception | None = None
+
+    def give_up(self, why: Exception) -> None:
+        self._why = why
+        self.cancel()
+
+    def check(self) -> None:
+        """Raise what the start was given up for, if it was."""
+        if self._why is not None:
+            raise self._why
+
+
 _reading = threading.local()
+
+
+def _check_start() -> None:
+    """Raise if this thread runs a start that was given up."""
+    read = getattr(_reading, "read", None)
+    if isinstance(read, _Start):
+        read.check()
 
 
 class _ReadResponse(http.client.HTTPResponse):
@@ -256,9 +299,12 @@ class _Viewing:
     touched: float
     saved_played_s: float = 0.0
     saved_position_s: float | None = None
+    #: The latest start whose stream saved a place.
+    saved_order: int = -1
     #: The latest start of the item that succeeded.
     started: int = -1
-    #: The page that start came from, "" where it gave no name, and when its person asked for it.
+    #: The page that start came from, "" where it gave no name, and when its person asked for it;
+    #: never, once the page has stopped the stream.
     page: str = ""
     asked: float = float("-inf")
 
@@ -341,6 +387,7 @@ class StreamManager:
         self._replaced: dict[str, tuple[float, tuple[str, str], int]] = {}
         # (user and item, start) of each start not yet through -> (its page, when it was asked for).
         self._opening: dict[tuple[tuple[str, str], int], tuple[str, float]] = {}
+        self._starting: set[_Start] = set()
         self._starts = itertools.count()
         # (rating_key, file) -> Plex's word on copying its video.
         self._copies: dict[tuple[str, str], _CopyVerdict] = {}
@@ -351,6 +398,46 @@ class StreamManager:
     def now(self) -> float:
         """The time on the manager's clock, in seconds from no set moment."""
         return self._clock()
+
+    @contextlib.contextmanager
+    def starting(
+        self, user: str, rating_key: str, page: str | None = None, asked_ago: float = 0.0
+    ) -> Iterator[_Start]:
+        """Hold one of *user*'s places among the starts, for all that a start asks Plex.
+
+        *user*'s starts of the item that were asked for earlier are given up, and count no more
+        towards the user's limit while they end. Never waits: raises ``TooManyStarts`` at a limit.
+        Of the user's own at that limit the oldest is given up if it hangs, so that the next try
+        finds its place free; no other is while one is still ending.
+        """
+        now = self._clock()
+        start = _Start(user, rating_key, page, now - asked_ago)
+        start.began = now
+        with self._lock:
+            own = [s for s in self._starting if s.user == user]
+            wanted = [s for s in own if not s.unwanted]
+            earlier = [
+                s
+                for s in wanted
+                if s.rating_key == rating_key and (s.page == page or s.asked <= start.asked)
+            ]
+            full = len(wanted) - len(earlier) >= MAX_STARTS_PER_USER
+            if full and len(wanted) == len(own):
+                oldest = min(own, key=lambda s: s.began)
+                if now - oldest.began >= HUNG_START_SECONDS:
+                    oldest.give_up(TooManyStarts("the start hung"))
+            if full or len(own) >= MAX_STARTS_HELD or len(self._starting) >= MAX_STARTS_TOTAL:
+                raise TooManyStarts("too many streams are starting")
+            for old in earlier:
+                old.give_up(StreamReplaced("the item was started anew", page))
+            self._starting.add(start)
+        _reading.read = start
+        try:
+            yield start
+        finally:
+            _reading.read = None
+            with self._lock:
+                self._starting.discard(start)
 
     def start(
         self,
@@ -389,6 +476,8 @@ class StreamManager:
         creds = self._creds()
         item = (user, rating_key)
         with self._lock:
+            # A start given up must not take the item from the one it made way for.
+            _check_start()
             asked = self._clock() - asked_ago
             if page is not None:
                 later = self._asked_later(item, page, asked)
@@ -615,15 +704,17 @@ class StreamManager:
             elapsed_s=until - stream.viewing_started,
             saved_played_s=viewing.saved_played_s if viewing else 0.0,
             saved_position_s=viewing.saved_position_s if viewing else None,
+            order=stream.order,
         )
 
-    def note_saved(self, user: str, rating_key: str, position_s: float, played_s: float) -> None:
-        """Remember the place and played time just saved for *user*'s viewing of the item."""
+    def note_saved(self, user: str, stream: StreamInfo, position_s: float, played_s: float) -> None:
+        """Remember the place and played time *stream* just saved for *user*'s viewing."""
         with self._lock:
-            viewing = self._viewings.get((user, rating_key))
+            viewing = self._viewings.get((user, stream.rating_key))
             if viewing is not None:
                 viewing.saved_position_s = position_s
                 viewing.saved_played_s = played_s
+                viewing.saved_order = max(viewing.saved_order, stream.order)
 
     def _gone(self, stream_id: str, user: str) -> StreamGone:
         """Why *user* has no such stream; the lock must be held."""
@@ -700,8 +791,8 @@ class StreamManager:
         """Return a stream of *user*'s the reaper stopped lately, for a late save of its progress.
 
         Its played time ends at its last use, since nothing was played once it went idle.
-        Raises ``StreamGone`` for any other stream, someone else's included, and while *user*
-        has a live stream of the same item, whose newer position a late save would overwrite.
+        Raises ``StreamGone`` for any other stream, someone else's included, and once a newer
+        stream of the same item saved a place, which a late save would overwrite.
         """
         with self._lock:
             reaped_at, stream = self._reaped.get(stream_id, (0.0, None))
@@ -709,11 +800,10 @@ class StreamManager:
                 stream is None
                 or stream.user != user
                 or self._clock() - reaped_at > REAPED_KEEP_SECONDS
-                or any(
-                    s.user == user and s.rating_key == stream.rating_key
-                    for s in self._streams.values()
-                )
             ):
+                raise StreamGone("stream is gone")
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None and viewing.saved_order > stream.order:
                 raise StreamGone("stream is gone")
             return self._info(stream, stream.last_access)
 
@@ -723,6 +813,9 @@ class StreamManager:
             if stream is None or stream.user != user:
                 raise StreamGone("stream is gone")
             del self._streams[stream_id]
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None:
+                viewing.asked = float("-inf")
         self._call_quietly("stop", stream.session_id)
 
     def reap(self, now: float | None = None) -> int:
@@ -879,6 +972,8 @@ class StreamManager:
         if action == "stop":
             with self._lock:
                 self._issued.discard(session_id)
+        # A start that is given up must still be able to give its session back.
+        read, _reading.read = getattr(_reading, "read", None), None
         try:
             base, token = self._creds()
             self._get(
@@ -895,6 +990,8 @@ class StreamManager:
         except Exception as exc:
             # Best effort: a failing cleanup must not replace the error that led to it.
             logger.warning("plex_stream: %s failed (%s)", action, type(exc).__name__)
+        finally:
+            _reading.read = read
 
     def _get(
         self,
@@ -916,6 +1013,12 @@ class StreamManager:
         its timeouts never run beyond it, nor the reading of the body. *check* runs before each
         chunk of the body and after a failure to reach Plex, and may raise to end the call.
         """
+
+        def still_wanted() -> None:
+            check()
+            _check_start()
+
+        still_wanted()
         if deadline is not None:
             remaining = deadline - self._clock()
             if remaining <= 0:
@@ -938,7 +1041,7 @@ class StreamManager:
         }
 
         def go_on() -> None:
-            check()
+            still_wanted()
             if deadline is not None and self._clock() > deadline:
                 raise PlexUnavailable("Plex took too long")
 
@@ -971,7 +1074,7 @@ class StreamManager:
             logger.warning("plex_stream: %s got an oversized or encoded body", op)
             raise PlexUnavailable("Plex sent an unusable response") from None
         # Outside the handler, so that what is raised here does not hold the requests error.
-        check()
+        still_wanted()
         logger.warning("plex_stream: %s could not reach Plex (%s)", op, failure)
         raise PlexUnavailable("Plex could not be reached")
 

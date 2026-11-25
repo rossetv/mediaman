@@ -7,10 +7,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.core.time import now_utc
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched, unmark_watched
-from mediaman.web.routes.watch import library_order, library_row_api, pages
-from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
+from mediaman.web.routes.watch import browse_api, library_order, library_row_api, pages
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 _TYPES = {"tv": "tv_season", "anime": "anime_season"}
@@ -51,6 +57,7 @@ def client(app_factory, conn, templates_stub, monkeypatch):
     for username in ("aoife", "cian"):
         insert_admin_user(conn, username=username, role="viewer")
     app = app_factory(
+        browse_api.router,
         pages.router,
         library_row_api.router,
         conn=conn,
@@ -83,6 +90,20 @@ def test_the_pages_of_a_row_are_the_watch_pages_row(client, kind, title):
     rows = {r["title"]: r["items"] for r in client.get("/watch").json()["rows"]}
     assert _all(client, kind, 2) == rows[title]
     assert _page(client, kind)["total"] == len(rows[title])
+
+
+def test_a_show_says_its_leaving_season_in_its_row_and_in_a_search(client, conn):
+    insert_scheduled_action(
+        conn, media_item_id="501", execute_at=(now_utc() + timedelta(days=2, hours=1)).isoformat()
+    )
+
+    [show] = _page(client, "tv")["items"]
+    [found] = client.get("/api/watch/search", params={"q": "coast"}).json()["items"]
+
+    for card in (show, found):
+        said = [card[k] for k in ("leaving_season", "leaving_id", "keep_id")]
+        assert said == [1, "501", None]
+        assert card["leaving_days"] is not None
 
 
 def test_the_watch_pages_cursor_goes_on_where_its_first_page_ends(client, monkeypatch):

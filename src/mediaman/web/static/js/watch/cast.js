@@ -103,7 +103,7 @@
     p.item.type = 'button';
     p.item.setAttribute('data-ttl-act', key);
     p.item.addEventListener('click', function () { openPerson(p); });
-    if (flight && flight.home === key) p.item.classList.add('is-out');
+    if (flight && flight.home === key) p.item.classList.add('is-out', 'is-away');
     return p;
   }
 
@@ -574,9 +574,13 @@
     var photo = page && page.textContent === p.name && document.querySelector('.is-leaving .explore-photo');
     if (!photo && !flight) return;
     var from = photo && photo.getBoundingClientRect();
-    p.item.classList.add('is-out');
+    p.item.classList.add('is-out', 'is-away');
     fly(p, from, homeOf(p), key, function () {
-      people.forEach(function (one) { if (one.key === key && one !== live) one.item.classList.remove('is-out'); });
+      people.forEach(function (one) {
+        if (one.key !== key) return;
+        one.item.classList.remove('is-away');
+        if (one !== live) one.item.classList.remove('is-out');
+      });
     });
     if (photo && flight) photo.style.visibility = 'hidden';
   }

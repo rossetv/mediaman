@@ -32,6 +32,8 @@ def test_leaving_row_goes_when_its_height_closes_and_hands_focus_on() -> None:
     assert out["afterOpacity"] == {"present": True, "done": 0}
     assert out["afterHeight"] == {"present": False, "done": 1}
     assert out["focusOnNext"] is True
+    # the focus handed on must not scroll the page
+    assert out["noScroll"] is True
     # with no transition event at all the row still goes, and focus goes to the row before
     assert out["fallbackRemoved"] is True
     assert out["focusOnPrev"] is True
@@ -44,6 +46,10 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     # a save moves the point Discard returns to
     assert out["afterSave"] == {"value": "kept", "flag": False}
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
+
+
+def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
+    assert _run("savebarRoom") == [{"--savebar-h": "61px"}, {"--savebar-h": "258px"}]
 
 
 def test_an_edit_made_during_a_save_stays_unsaved() -> None:
@@ -837,3 +843,21 @@ def test_integration_card_body_folds_open_and_shut() -> None:
     assert out["open"] == {"hidden": False, "shut": False, "moving": True}
     assert out["closing"] == {"hidden": False, "shut": True}
     assert out["closed"] == {"hidden": True, "expanded": "false"}
+
+
+def test_every_focus_handed_back_after_a_request_keeps_the_page_still() -> None:
+    js = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/js/settings"
+    after_a_request = {
+        "rows.js": ["target.focus("],
+        "savebar.js": ["saveBtn.focus("],
+        "users.js": ["if (there) btn.focus("],
+        "newsletter.js": ["if (keepFocus) btn.focus(", "if (keepFocus) addSubBtn.focus("],
+        "integrations.js": ["if (keepFocus) btn.focus(", "if (keepFocus) syncBtn.focus("],
+    }
+    for name, calls in after_a_request.items():
+        text = (js / name).read_text(encoding="utf-8")
+        for call in calls:
+            found = [m.start() for m in re.finditer(re.escape(call), text)]
+            assert found, (name, call)
+            for at in found:
+                assert text[at:].split(";", 1)[0].endswith("{ preventScroll: true })"), (name, call)

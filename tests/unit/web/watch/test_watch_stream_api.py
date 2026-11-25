@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -580,6 +581,25 @@ def test_a_late_save_from_a_reaped_stream_never_overwrites_a_newer_stream_of_the
     assert row["position_s"] == 900
 
 
+@pytest.mark.parametrize("ended", [False, True])
+@pytest.mark.parametrize(("newer_saved", "kept"), [(True, 900), (False, 60)])
+def test_a_late_save_from_a_reaped_stream_gives_way_only_to_a_newer_one_that_saved(
+    alice, conn, clock, newer_saved, kept, ended
+):
+    old_id = _stream(alice)
+    _reap_after_idle(clock)
+    new_id = _stream(alice)
+    place = {"position_s": 900, "played_s": 0}
+    if newer_saved:
+        alice.post("/api/watch/progress", json={"stream_id": new_id, **place})
+    if ended:
+        alice.post(f"/api/watch/stream/{new_id}/stop")
+    alice.post("/api/watch/progress", json={"stream_id": old_id, "position_s": 60, "played_s": 0})
+    alice.post(f"/api/watch/stream/{old_id}/stop", json={"position_s": 60, "played_s": 0})
+    [row] = _progress_rows(conn)
+    assert row["position_s"] == kept
+
+
 def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
     stream_id = _stream(alice)
     _reap_after_idle(clock)
@@ -1077,3 +1097,60 @@ def test_a_fetch_under_way_when_its_stream_is_replaced_says_so(alice, held, pool
     held.let_go()
 
     assert inside.result(5).json()["error"] == "replaced"
+
+
+def test_starts_past_the_limit_are_told_to_try_again_without_asking_plex(alice, plex):
+    manager = plex_stream.get_stream_manager()
+    with contextlib.ExitStack() as held:
+        for n in range(plex_stream.MAX_STARTS_PER_USER):
+            held.enter_context(manager.starting("alice", str(n)))
+        refused = _start(alice)
+
+    assert (refused.status_code, refused.json()["error"]) == (429, "rate_limited")
+    assert int(refused.headers["retry-after"]) > 0
+    assert plex.calls == []
+    assert _start(alice).status_code == 200
+
+
+def test_a_start_that_waits_for_plex_s_word_on_the_title_counts(alice, monkeypatch):
+    def slow_item(self, key, marks):
+        assert len(plex_stream.get_stream_manager()._starting) == 1
+        return _item(key)
+
+    monkeypatch.setattr(PlexWatch, "get_item", slow_item)
+    assert _start(alice).status_code == 200
+    assert not plex_stream.get_stream_manager()._starting
+
+
+@pytest.mark.parametrize(
+    ("why", "status", "error"),
+    [
+        (plex_stream.TooManyStarts("hung"), 429, "rate_limited"),
+        (plex_stream.StreamReplaced("newer"), 410, "replaced"),
+    ],
+)
+def test_a_start_given_up_while_plex_fails_is_not_answered_as_a_failure_to_try_again(
+    alice, plex, monkeypatch, why, status, error
+):
+    def failing_item(self, key, marks):
+        [start] = plex_stream.get_stream_manager()._starting
+        start.give_up(why)
+        raise PlexUnavailable("Plex could not be reached")
+
+    monkeypatch.setattr(PlexWatch, "get_item", failing_item)
+    answer = _start(alice)
+
+    assert (answer.status_code, answer.json()["error"]) == (status, error)
+    assert plex.calls == []
+
+
+def test_the_question_about_the_title_ends_before_a_start_counts_as_hung(alice, monkeypatch):
+    asked = []
+
+    def item(self, key, marks):
+        asked.append(sum(self._http._default_timeout))
+        return _item(key)
+
+    monkeypatch.setattr(PlexWatch, "get_item", item)
+    assert _start(alice).status_code == 200
+    assert 0 < asked[0] <= plex_stream.HUNG_START_SECONDS

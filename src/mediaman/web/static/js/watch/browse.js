@@ -91,6 +91,7 @@
     if (!ref) return null;
     var article = el('article', 'watch-card');
     if (item.keep_id) article.setAttribute('data-keep-id', item.keep_id);
+    if (item.leaving_id) watch.search.setLeaving(article, item);
     var link = el('a', 'watch-card__link');
     link.setAttribute('href', safePath(item.href) || '/watch#title=' + ref);
     link.setAttribute('data-title-ref', ref);

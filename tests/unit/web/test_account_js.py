@@ -178,3 +178,7 @@ def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> 
     assert out["changed"]["match"] == weak
     assert out["emptied"]["match"] == plain
     assert out["reset"] == {"meter": "0%", "tone": plain, "match": plain}
+
+
+def test_the_plex_card_is_told_after_a_password_may_have_been_given() -> None:
+    assert _run("toldOfPassword") == [[0, ["mm:reauth"]]] * 2

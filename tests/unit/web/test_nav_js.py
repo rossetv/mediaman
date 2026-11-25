@@ -78,7 +78,7 @@ def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes()
     }
     assert out["freed"] == {
         "open": False,
-        "inert": ["already-inert"],
+        "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
         "focused": "phone",
     }
@@ -97,7 +97,7 @@ def test_a_dialog_over_the_phone_sheet_keeps_the_page_out_of_reach_as_the_sheet_
 def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
     assert _run("closeButton") == {
         "open": False,
-        "inert": ["already-inert"],
+        "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
         "focused": "phone",
     }
@@ -106,9 +106,19 @@ def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
 def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_avatar() -> None:
     assert _run("resize") == {
         "open": False,
-        "inert": ["already-inert"],
+        "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
         "focused": "desktop",
+    }
+
+
+def test_a_closed_menu_is_inert_while_it_fades_and_reopening_undoes_it_at_once() -> None:
+    assert _run("fade") == {
+        "fresh": False,
+        "opened": False,
+        "closed": {"inert": True, "focused": "desktop"},
+        "reopened": {"inert": False, "focused": "account"},
+        "sheet": {"inert": True, "focused": "phone"},
     }
 
 

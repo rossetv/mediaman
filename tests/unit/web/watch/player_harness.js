@@ -1354,6 +1354,17 @@ const scenarios = {
     return { playing: playing, waiting: waiting, late: !!messageState(p), starts: p.starts().length };
   },
 
+  /* The person leaves while the picture plays on from what is buffered, the connection gone. */
+  async dropped_left(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 0));
+    playOn(p, 20);
+    p.beacons.length = 0;
+    p.leave();
+    return p.beacons.map((b) => b.body && b.body.position_s);
+  },
+
   /* The browser comes online between two tries, and while the person has paused. */
   async dropped_online(p) {
     await streamPlays(p, 100);
@@ -2847,6 +2858,7 @@ const scenarios = {
     const out = { hidden: p.q('[data-chapters]').hidden, rows: items().map((b) => b.textContent.trim()) };
     out.gaps = pick(p, 'player-gap', 'left');
     out.bands = pick(p, 'player-band', 'left').map((l, i) => [l, pick(p, 'player-band', 'width')[i]]);
+    out.uncut = ['is-first', 'is-last'].map((c) => pick(p, 'player-band', 'left').filter((l, i) => p.q('[data-marks]').querySelectorAll('.player-band')[i].classList.contains(c)));
     fire(p.video, 'timeupdate');
     out.start = look();
     press(p.q('[data-chapter-btn]'));
@@ -3831,6 +3843,11 @@ const scenarios = {
     key('f');
     out.fullscreens = fullscreens;
     out.focus = doc.activeElement.hasAttribute('data-ask-continue');
+    out.tabs = [1, 2, 3].map(() => {
+      key('Tab');
+      const at = doc.activeElement;
+      return at.hasAttribute('data-ask-back') ? 'back' : at.hasAttribute('data-ask-continue') ? 'continue' : at.tagName;
+    });
     out.heldBehind = holdState(p).shown;
     p.leave();
     out.beacons = p.beacons.length;

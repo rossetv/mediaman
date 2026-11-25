@@ -25,6 +25,8 @@
  *                          `dialog`, the aria-modal it came from, Ctrl+Z presses
  *                          the button while that one is open too.
  *
+ *   window.UIFeedback.dismiss(node)   takes away a toast, as toast() returned it
+ *
  *   window.UIFeedback.error(message)  — shorthand for toast(msg, { variant: 'error' })
  *
  * Requires: core/dom.js (MM.dom.holdPage), for confirm().
@@ -319,6 +321,7 @@
     confirm: confirmDialog,
     dismissConfirm: function () { while (open.length) open[open.length - 1](); },
     toast: toast,
+    dismiss: dismissToast,
     error: function (msg) { return toast(msg, { variant: 'error' }); },
     success: function (msg) { return toast(msg, { variant: 'success' }); }
   };

@@ -48,7 +48,12 @@
     var side = node.previousElementSibling ? 'marginTop' : 'marginBottom';
     var from = { offset: 0, height: h, opacity: 1, easing: ease };
     var to = { offset: 1, height: '0px', opacity: 0, easing: ease };
-    from[side] = '0px';
+    // What would hold it open, or go all at once as it does.
+    var own = getComputedStyle(node);
+    ['minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].forEach(function (name) {
+      from[name] = parseFloat(own[name]) ? own[name] : '0px';
+      to[name] = '0px';
+    });
     to[side] = -rowGap + 'px';
     return { duration: tokenMs('--dur-slow', 250), frames: [from, to] };
   }
@@ -307,9 +312,88 @@
     });
   }
 
+  /* The seasons a show's card says are leaving, soonest first. */
+  function leavingSeasons(card) {
+    return JSON.parse(card.getAttribute('data-leaving-seasons') || '[]');
+  }
+
+  var seasonStates = new WeakMap(); // of a show's card: the seasons that leave no more, and the badges it has had
+
+  function seasonState(card) {
+    var state = seasonStates.get(card);
+    if (state) return state;
+    var own = card.getAttribute('data-leaving-id');
+    var badge = card.querySelector('.watch-badge--leaving');
+    state = { gone: {}, badges: {}, host: badge && badge.parentNode, before: badge && badge.nextSibling };
+    if (badge) state.badges[own] = badge;
+    // A copy of a card: what comes before its badge's season was kept on that one.
+    leavingSeasons(card).some(function (s) {
+      if (badge && s.id === own) return true;
+      state.gone[s.id] = true;
+      return false;
+    });
+    seasonStates.set(card, state);
+    return state;
+  }
+
+  var fades = new WeakMap(); // of a badge on its way out
+
+  function stopFade(badge) {
+    var out = fades.get(badge);
+    fades.delete(badge);
+    badge.removeAttribute('data-going');
+    if (out) out.cancel();
+  }
+
+  /* Take a badge off in a fade, over the one that takes its place. */
+  function fadeAway(badge) {
+    if (reduceMotion() || !badge.animate) { badge.remove(); return; }
+    badge.setAttribute('data-going', '');
+    var out = badge.animate([{ opacity: 1 }, { opacity: 0 }], { duration: tokenMs('--dur', 200), easing: token('--ease-out', 'ease-out'), fill: 'forwards' });
+    fades.set(badge, out);
+    out.onfinish = function () {
+      if (fades.get(badge) !== out) return;
+      stopFade(badge);
+      badge.remove();
+    };
+  }
+
+  /* Have the badge of a show's card be of the first season that still leaves. Says whether it changed. */
+  function saySeason(card, state) {
+    var next = leavingSeasons(card).filter(function (s) { return !state.gone[s.id]; })[0];
+    var badge = card.querySelector('.watch-badge--leaving:not([data-going])');
+    var search = window.MMWatch.search;
+    var node = next && (state.badges[next.id] ||
+      (search && search.leavingBadge({ leaving_days: next.days, leaving_season: next.season })));
+    if (node && node === badge && card.getAttribute('data-leaving-id') === next.id) return false;
+    card.setAttribute('data-leaving-id', next ? next.id : '');
+    if (badge && badge !== node) fadeAway(badge);
+    if (!node) return !!badge;
+    state.badges[next.id] = node;
+    var host = state.host || card.querySelector('.watch-card__poster');
+    if (host) host.insertBefore(node, state.before && state.before.parentNode === host ? state.before : null);
+    stopFade(node);
+    if (!reduceMotion()) core.fadeIn(node);
+    return true;
+  }
+
+  function seasonGone(card, id, gone) {
+    var state = seasonState(card);
+    if (gone) state.gone[id] = true; else delete state.gone[id];
+    return saySeason(card, state);
+  }
+
+  /* Bring the badge of a show's card into line with the ids that are leaving. */
+  function seasonsLeaving(card, ids) {
+    var state = seasonState(card);
+    state.gone = {};
+    leavingSeasons(card).forEach(function (s) { if (!ids[s.id]) state.gone[s.id] = true; });
+    saySeason(card, state);
+  }
+
   function cardsFor(id) {
-    return toArray(document.querySelectorAll('.watch-card[data-keep-id]')).filter(function (c) {
-      return c.getAttribute('data-keep-id') === id && !c.classList.contains('is-kept');
+    return toArray(document.querySelectorAll('.watch-card[data-keep-id], .watch-card[data-leaving-id]')).filter(function (c) {
+      return (c.getAttribute('data-keep-id') === id || leavingSeasons(c).some(function (s) { return s.id === id; })) && !c.classList.contains('is-kept');
     });
   }
 
@@ -511,6 +595,11 @@
         if (!focus && shown) focus = taken.focus;
         return;
       }
+      if (card.hasAttribute('data-leaving-id')) {
+        if (seasonGone(card, id, true) && !focus && shown) focus = card.querySelector('.watch-card__link');
+        undos.push(function () { seasonGone(card, id, false); return null; });
+        return;
+      }
       // Anywhere else the card stays, without its leaving badge or Keep.
       var spots = toArray(card.querySelectorAll('.watch-badge--leaving, [data-watch-keep]')).map(takeOut);
       if (!focus && shown && spots.length) focus = card.querySelector('.watch-card__link');
@@ -659,6 +748,7 @@
     foldAway: foldAway,
     growIn: growIn,
     growCard: growCard,
+    seasonsLeaving: seasonsLeaving,
     menuTrigger: function () { return keepMenu && keepMenu.trigger(); },
     closeMenu: function (refocus) { if (keepMenu) keepMenu.close(refocus); },
     isBusy: function (id) { return !!busy[id]; },

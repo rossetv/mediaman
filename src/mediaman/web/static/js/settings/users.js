@@ -334,7 +334,7 @@
             user.role = role;
             changed();
             setTimeout(function () { setBusy(btn, false); }, ROLE_QUIET_MS);
-            if (there) btn.focus();
+            if (there) btn.focus({ preventScroll: true });
           }
           if (behind) setTimeout(apply, REAUTH_FADE_MS); else apply();
           window.UIFeedback.success(user.username + ' is now ' + (role === 'admin' ? 'an admin' : 'a viewer'));
@@ -343,7 +343,7 @@
           setBusy(btn, false);
           btn.textContent = label;
           btn.setAttribute('aria-label', label + ': ' + user.username);
-          if (there) btn.focus();
+          if (there) btn.focus({ preventScroll: true });
           if (err && err.error === 'reauth_cancelled') return;
           window.UIFeedback.error(MM.api.messageOf(err, 'Could not change role'));
         });
@@ -385,7 +385,7 @@
             setBusy(btn, false);
             btn.textContent = 'Delete';
             btn.setAttribute('aria-label', 'Delete: ' + user.username);
-            if (there) btn.focus();
+            if (there) btn.focus({ preventScroll: true });
             if (err && err.error === 'reauth_cancelled') return;
             window.UIFeedback.error(
               MM.api.messageOf(err, 'Could not delete user')

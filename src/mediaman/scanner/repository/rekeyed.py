@@ -533,6 +533,43 @@ def hold_files_of_kept_titles(conn: sqlite3.Connection, media_ids: Iterable[str]
             )
 
 
+def _held_places(pruned: sqlite3.Row) -> set[str]:
+    """Return the normalised paths of the files a row set aside for a title holds.
+
+    Where they cannot be read, the folder the title was in, ending in a separator:
+    all that is known of where they are. With no folder to tell, the title's path,
+    or its key alone.
+    """
+    entries = _entries(pruned["tracked_files"])
+    if entries and all(isinstance(e, dict) and e.get("path") for e in entries):
+        return set(map(os.path.normpath, pruned_files(pruned)))
+    place = pruned["file_path"]
+    if not place:
+        given_to = dict(pruned).get("given_to")
+        keys = (pruned["media_item_id"], *_owners(given_to))
+        return {key for key in keys if key}
+    place = os.path.normpath(place)
+    folder = os.path.dirname(place) if pruned["season_number"] is None else place
+    return {folder + os.sep} if folder.strip(os.sep) else {place}
+
+
+def _owners(given_to: str | None) -> list[str]:
+    return [key for key in _entries(given_to) if isinstance(key, str)]
+
+
+def _any_keep_stands(conn: sqlite3.Connection, now: str) -> bool:
+    """Return True if any title or show is kept, or has its keep set aside."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    row = conn.execute(  # nosec B608
+        f"SELECT 1 FROM scheduled_actions sa WHERE {_LIVE_ITEM_KEEP} "
+        f"UNION ALL SELECT 1 FROM pruned_keeps sa WHERE {_LIVE_ITEM_KEEP} "
+        "UNION ALL SELECT 1 FROM kept_shows "
+        "  WHERE action = 'protected_forever' OR execute_at >= ? LIMIT 1",
+        (now, now, now),
+    ).fetchone()
+    return row is not None
+
+
 def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -> dict[str, bool]:
     """Return the files of titles removed from the library that a keep or a watch still holds.
 
@@ -541,19 +578,26 @@ def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -
     a taker is kept. A file a taker has is not held. False for one held only by
     a watch that would keep its title from being scheduled today. A title
     listed with such a file may be one the keep or the watch is never given
-    to: of another season, or a film at another path. The paths are normalised.
+    to: of another season, or a film at another path. The paths are normalised;
+    one that ends in a separator is a folder, all of which is held.
     """
     now = now_iso()
     held: dict[str, bool] = {}
     for watch in conn.execute(
-        "SELECT tracked_files, last_watched_at FROM pruned_watches WHERE tracked_files IS NOT NULL"
+        "SELECT * FROM pruned_watches WHERE tracked_files IS NOT NULL"
     ).fetchall():
         if _is_lately(watch["last_watched_at"], inactivity_days):
-            held.update(dict.fromkeys(map(os.path.normpath, pruned_files(watch)), False))
+            held.update(dict.fromkeys(_held_places(watch), False))
     for kept in conn.execute("SELECT * FROM pruned_keeps WHERE action = ?", (HELD,)).fetchall():
-        kept_as = _entries(kept["given_to"])
-        if any(_is_kept_now(conn, key, now) for key in kept_as):
-            files = set(map(os.path.normpath, pruned_files(kept))) - _files_of(conn, kept_as)
+        kept_as = _owners(kept["given_to"])
+        # Whose keep it was set aside with is unknown: it may be any that stands.
+        stands = (
+            any(_is_kept_now(conn, key, now) for key in kept_as)
+            if kept_as
+            else _any_keep_stands(conn, now)
+        )
+        if stands:
+            files = _held_places(kept) - _files_of(conn, kept_as)
             held.update(dict.fromkeys(files, True))
     return held
 
@@ -585,8 +629,10 @@ def _files_of(conn: sqlite3.Connection, keys: Iterable[object]) -> set[str]:
     return files
 
 
-def was_held_since_scheduled(conn: sqlite3.Connection, action_id: int, said: str) -> bool:
-    """Return True if the history tells, in the words *said*, of a hold of the deletion row.
+def was_held_since_scheduled(
+    conn: sqlite3.Connection, action_id: int, said: Collection[str]
+) -> bool:
+    """Return True if the history tells, in any of the words *said*, of a hold of the deletion row.
 
     One told since the row was scheduled: its deletion did not happen when its notice said.
     """
@@ -594,8 +640,9 @@ def was_held_since_scheduled(conn: sqlite3.Connection, action_id: int, said: str
         "SELECT 1 FROM scheduled_actions sa "
         "JOIN audit_log a ON a.media_item_id = sa.media_item_id "
         "WHERE sa.id = ? AND a.action = 'delete_awaiting_scan' "
-        "  AND a.created_at >= sa.scheduled_at AND instr(a.detail, ?) > 0 LIMIT 1",
-        (action_id, said),
+        "  AND a.created_at >= sa.scheduled_at "
+        "  AND EXISTS (SELECT 1 FROM json_each(?) w WHERE instr(a.detail, w.value) > 0) LIMIT 1",
+        (action_id, json.dumps(list(said))),
     ).fetchone()
     return row is not None
 

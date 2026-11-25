@@ -8,6 +8,9 @@ both come up.
 
 from __future__ import annotations
 
+import anyio
+import anyio.to_thread
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -112,3 +115,17 @@ class TestReadyzInRealApp:
         client = TestClient(app)
         resp = client.get("/healthz")
         assert resp.status_code == 200
+
+    def test_healthz_answers_while_every_worker_thread_is_taken(self):
+        from mediaman.main import create_app
+
+        async def ask() -> int:
+            threads = anyio.to_thread.current_default_thread_limiter()
+            threads.total_tokens = 1
+            await threads.acquire()
+            transport = httpx.ASGITransport(create_app())
+            with anyio.fail_after(1):
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    return (await client.get("/healthz")).status_code
+
+        assert anyio.run(ask) == 200

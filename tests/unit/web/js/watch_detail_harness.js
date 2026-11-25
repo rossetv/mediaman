@@ -269,7 +269,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+    ['core/dom.js', 'modal-a11y.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -281,7 +281,7 @@ function load(opts = {}) {
   const tick = () => { const due = timers.splice(0); due.forEach((t) => t.fn && t.fn()); };
   const key = (k, extra) => {
     const e = Object.assign({ key: k, target: doc.activeElement, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, extra);
-    (doc.listeners.keydown || []).forEach((fn) => fn(e));
+    (doc.listeners.keydown || []).concat(winListeners.keydown || []).forEach((fn) => fn(e));
     return e;
   };
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
@@ -628,24 +628,24 @@ const scenarios = {
     click(p.doc, p.q('[data-ttl-act="trailer"]'));
     const frame = p.q('.ttl__player iframe');
     const trailer = p.q('[data-ttl-act="trailer"]');
+    const closeName = () => { const x = p.q('.ttl__close'); return [x.getAttribute('aria-label'), x.getAttribute('title') || null]; };
     const playing = {
       trailer: p.ttl().classList.contains('is-trailer'),
-      button: [trailer.textContent.trim(), trailer.hasAttribute('inert')],
-      row: p.q('[data-ttl-part="actions"]').children.map((n) => n.textContent.trim()),
-      back: p.text('.ttl__back'), focus: p.doc.activeElement === p.q('.ttl__back'), tabbable: !p.q('.ttl__back').hasAttribute('tabindex'),
+      faces: trailer.children.map((n) => n.textContent.trim()), usable: !trailer.hasAttribute('inert') && !trailer.disabled,
+      close: closeName(), focus: p.doc.activeElement === p.q('.ttl__close'),
       src: frame.getAttribute('src'), sandbox: frame.getAttribute('sandbox'),
       allow: frame.getAttribute('allow'), referrer: frame.getAttribute('referrerpolicy'),
     };
     p.key('Escape');
     p.tick();
     const afterFirst = { trailer: p.ttl().classList.contains('is-trailer'), frame: !!p.q('.ttl__player iframe'),
-      open: !p.ttl().classList.contains('is-leaving'), button: [trailer.textContent.trim(), trailer.hasAttribute('inert')],
-      focus: p.doc.activeElement === trailer, tabbable: !p.q('.ttl__back').hasAttribute('tabindex') };
+      open: !p.ttl().classList.contains('is-leaving'), close: closeName(),
+      focus: p.doc.activeElement === trailer };
     p.key('Escape');
     return { playing, afterFirst, closedSecond: p.ttl().classList.contains('is-leaving') };
   },
 
-  // The browser's Back and Forward, the bar's two buttons and a reload while a trailer plays, in
+  // The browser's Back and Forward, the Trailer button, Close, a press outside and a reload while a trailer plays, in
   // a title opened from a card or from a link: what is on show and where the address stands.
   async trailerHistory() {
     const routes = { '/api/watch/title/tmdb-movie-77': MOVIE_DL };
@@ -670,16 +670,25 @@ const scenarios = {
     const go = p.ctx.history.go;
     let backs = 0;
     p.ctx.history.go = () => { backs++; };
-    click(p.doc, p.q('.ttl__back'));
-    click(p.doc, p.q('.ttl__back'));
+    click(p.doc, p.q('[data-ttl-act="trailer"]'));
+    click(p.doc, p.q('[data-ttl-act="trailer"]'));
     out.button = { asked: backs };
     go.call(p.ctx.history, -1);
     Object.assign(out.button, look(p));
     for (const [name, opts] of Object.entries({ close: {}, closeLink: { hash: '#title=tmdb-movie-77' } })) {
       p = await playing(opts);
-      click(p.doc, p.q('.ttl__close'));
-      out[name] = look(p);
+      out[name] = ['.ttl__close', '.ttl__close'].map((sel) => { click(p.doc, p.q(sel)); return look(p); });
     }
+    p = await playing();
+    out.outside = [1, 2].map(() => { click(p.doc, p.q('.ttl__scrim')); return look(p); });
+    p = await playing();
+    out.doubleClick = [1, 2].map((detail) => { click(p.doc, p.q('.ttl__close'), { detail }); return look(p); });
+    p = await playing();
+    for (const detail of [2, 3]) click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail });
+    out.trailerTwice = look(p);
+    click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail: 1 });
+    click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail: 2 });
+    out.stopTwice = look(p);
     const last = (await playing()).entries;
     p = load({ routes, hash: '#title=tmdb-movie-77', state: last[2].state, before: last.slice(0, 2) });
     p.run();
@@ -711,6 +720,7 @@ const scenarios = {
     return {
       ended: await run(data({ event: 'onStateChange', info: 0 })),
       endedInfo: await run(data({ event: 'infoDelivery', info: { playerState: 0 } }), '[data-ttl-act="primary"]'),
+      endedOnTitle: await run(data({ event: 'onStateChange', info: 0 }), '.ttl__title'),
       paused: await run(data({ event: 'onStateChange', info: 2 })),
       otherOrigin: await run(Object.assign(data({ event: 'onStateChange', info: 0 }), { origin: 'https://evil.example' })),
       otherFrame: await run(Object.assign(data({ event: 'onStateChange', info: 0 }), { source: {} })),
@@ -751,7 +761,7 @@ const scenarios = {
         return { cancel() { if (easing === ease) { easing = null; ease.cut = true; } } };
       };
       steps.forEach((step) => {
-        if (step === 'press') click(p.doc, p.q(p.ttl().classList.contains('is-trailer') ? '.ttl__back' : '[data-ttl-act="trailer"]'));
+        if (step === 'press') click(p.doc, p.q('[data-ttl-act="trailer"]'));
         else if (step === 'end') easing = null;
         else p.ctx.MMWatch.detail.open('movie-120', {});
       });
@@ -2170,9 +2180,13 @@ const scenarios = {
     const back = p.key('Tab', { shiftKey: true });
     const wrappedToLast = p.doc.activeElement === last;
     const outside = p.doc.getElementById('watch-search');
+    const behind = () => { for (let n = outside; n; n = n.parentNode) if (n.inert) return true; return false; };
+    const held = behind();
     (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: outside }));
-    return { wrappedToFirst, prevented: [fwd.defaultPrevented, back.defaultPrevented], wrappedToLast,
-      pulledBack: p.doc.activeElement === p.q('#ttl-title') };
+    const pulledBack = p.doc.activeElement === p.q('#ttl-title');
+    p.key('Escape');
+    await settle();
+    return { held, freed: !behind(), wrappedToFirst, prevented: [fwd.defaultPrevented, back.defaultPrevented], wrappedToLast, pulledBack };
   },
 
   // Titles opened from cards of pages that are gone by the time the next one is opened.

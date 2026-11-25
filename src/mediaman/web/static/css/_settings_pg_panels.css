@@ -206,9 +206,11 @@
   display: grid; gap: 18px;
   grid-template-columns: 1fr 220px;
   padding: 18px 20px;
-  align-items: end;
+  align-items: start;
 }
 @media (max-width: 680px) { .setg-pg .lp-body { grid-template-columns: 1fr; } }
+/* The path's mono is a smaller size: both boxes are as tall on one line height. */
+.setg-pg .lp-body .inp { line-height: 20px; }
 .setg-pg .lp-body .thresh-field { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .setg-pg .lp-body .thresh-field .inp {
   max-width: 64px; width: 64px; min-width: 0;

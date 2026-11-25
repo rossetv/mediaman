@@ -74,7 +74,7 @@ function row(r) {
     ? [['button', { class: 'btn btn--danger btn--sm', 'data-action': 'pick-season-delete', 'data-show-rk': r.showRk, 'data-title': JSON.stringify(r.title) }, 'Delete']]
     : [['button', { class: 'btn btn--danger btn--sm', 'data-action': 'confirm-delete', 'data-id': r.id, 'data-title': JSON.stringify(r.title), 'data-size': '22.1 GB', 'data-kind': 'movie' }, 'Delete']];
   return ['tr', { class: 'wl-row' + (r.kept ? ' wl-row--kept' : ''), 'data-row-key': key, 'data-id': r.id },
-    ['td', { class: 'title-cell' }, r.title],
+    ['td', { class: 'title-cell' }, r.ref ? ['a', { class: 'wl-title', 'data-title-ref': r.ref }, r.title] : r.title],
     ['td', {}, r.kept ? ['span', { class: 'wl-del wl-del--kept' }, 'Kept']
       : r.deletion ? ['span', { class: 'wl-del' }, 'In 3 days'] : ['span', { class: 'wl-del wl-del--none' }, '—']],
     ['td', { class: 'wl-act' }, ['div', { class: 'wl-actions' }, wrapper, ...del]]];
@@ -155,10 +155,15 @@ function load(opts = {}) {
   const confirms = [];
   const fetches = [];
   const history = [];
+  const scrolls = [];
   const events = [];
   const inputs = []; // what the search field held each time its input event was sent
   search.dispatchEvent = (ev) => { if (ev.type === 'input') inputs.push(search.value); };
   const winListeners = {};
+  const winCaptures = new Set();
+  const docCaptures = new Set();
+  const listen = doc.addEventListener;
+  doc.addEventListener = (t, fn, o) => { listen(t, fn); if (o === true || (o && o.capture)) docCaptures.add(fn); };
   const replies = {}; // url -> function returning a promise
   const pages = {}; // fetch url -> { state, rows } or a deferred
   let confirmAnswer = true;
@@ -175,8 +180,8 @@ function load(opts = {}) {
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Error, Proxy,
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
-    setTimeout: (fn) => { fn(); return 1; },
-    clearTimeout: () => {},
+    setTimeout: opts.timers ? (fn) => opts.timers.push(fn) : (fn) => { fn(); return 1; },
+    clearTimeout: opts.timers ? (id) => { opts.timers[id - 1] = () => {}; } : () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
     matchMedia: () => ({ matches: !opts.motion }),
     innerHeight: 900,
@@ -189,7 +194,8 @@ function load(opts = {}) {
       replaceState(state, _t, url) { this.state = state; if (ready) history.push(['replace', url]); moveTo(url); },
     },
     sessionStorage: { getItem: () => null, setItem() {} },
-    scrollTo() {},
+    scrollTo(o) { scrolls.push(o.top); },
+    scrollY: opts.scrollY,
     Infinity,
     Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
@@ -204,10 +210,9 @@ function load(opts = {}) {
       toast: (message, o) => {
         const entry = { message, dialog: (o && o.dialog && o.dialog.id) || null, undo: !!(o && o.action), action: o && o.action, dismissed: false };
         toasts.push(entry);
-        // Like the real toast: pressing its button dismisses it, then runs the action.
-        const button = { click() { entry.dismissed = true; o.action.onClick(); } };
-        return { querySelector: (sel) => (sel === '.ui-toast__action' && entry.undo ? button : null) };
+        return entry;
       },
+      dismiss: (entry) => { entry.dismissed = true; },
       error: (message) => errors.push(message),
       confirm: (o) => { confirms.push(o); return Promise.resolve(confirmAnswer); },
     },
@@ -221,7 +226,7 @@ function load(opts = {}) {
         }),
       },
     },
-    addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    addEventListener: (t, fn, o) => { (winListeners[t] = winListeners[t] || []).push(fn); if (o === true || (o && o.capture)) winCaptures.add(fn); },
     removeEventListener() {},
   };
   ctx.window = ctx;
@@ -234,7 +239,7 @@ function load(opts = {}) {
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
   return {
-    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, inputs, replies,
+    doc, ctx, calls, toasts, errors, confirms, fetches, history, scrolls, events, inputs, replies,
     /* What GET /watch/list answers for *url*: a list for *state* with *rows*. */
     serve(url, state, rows, wait) { pages[url] = { node: (d) => fragment(d, state, rows), wait }; },
     /* GET /watch/list answers *url* with a server error. */
@@ -242,7 +247,20 @@ function load(opts = {}) {
     /* The browser drops focus to the page when the focused button is disabled. */
     dropFocusIfDisabled() { const a = doc.activeElement; if (a && a.disabled) a.blur(); },
     answerConfirm(v) { confirmAnswer = v; },
-    popstate(search) { ctx.location.search = search; ctx.history.state = null; (winListeners.popstate || []).forEach((fn) => fn({})); },
+    /* A key pressed where the focus is: down from the window, then up to it. */
+    press(key, extra) {
+      const target = doc.activeElement;
+      let stopped = false;
+      const e = { key, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { stopped = true; }, ...extra };
+      const on = (fns, want) => { if (!stopped) (fns || []).filter(want).forEach((fn) => fn(e)); };
+      on(winListeners.keydown, (fn) => winCaptures.has(fn));
+      on(doc.listeners.keydown, (fn) => docCaptures.has(fn));
+      for (let n = target; n; n = n.parentNode) on(n.listeners.keydown, () => true);
+      on(doc.listeners.keydown, (fn) => !docCaptures.has(fn));
+      on(winListeners.keydown, (fn) => !winCaptures.has(fn));
+      return e;
+    },
+    popstate(search, state = null) { ctx.location.search = search; ctx.history.state = state; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
     row(key) { return doc.querySelectorAll('#watch-list tr[data-row-key]').find((r) => r.getAttribute('data-row-key') === key) || null; },
     part(name) { return doc.querySelector('#watch-list [data-list-part="' + name + '"]').textContent; },
@@ -302,7 +320,184 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
   });
 }
 
+/* Going to the list of the heaviest films from what stands over the page. */
+const BY_SIZE = '/watch?view=list&type=movie&sort=size_desc';
+function going(opts) {
+  const timers = [];
+  const p = load({ timers, ...opts });
+  const wait = deferred();
+  p.serve('/watch/list?type=movie&sort=size_desc', { type: 'movie', sort: 'size_desc', said: '35 movies' },
+    [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline' }], wait);
+  const told = [];
+  const hook = (name) => () => told.push(name);
+  return {
+    p, wait, told, timers,
+    go: () => p.ctx.MMWatch.list.open(BY_SIZE, { leave: hook('leave'), arrive: hook('arrive'), fail: hook('fail') }),
+    slow: () => timers.splice(0).forEach((fn) => fn()),
+    now: () => ({
+      told: told.slice(), list: !p.doc.getElementById('watch-list').hidden, browse: !p.doc.getElementById('watch-browse').hidden,
+      history: p.history.slice(), rows: p.rowKeys(), focus: p.doc.activeElement.textContent, on: p.doc.activeElement.id,
+      busy: p.doc.querySelectorAll('#watch-list[aria-busy="true"], [data-list-root][aria-busy="true"]').length,
+      skeleton: p.doc.querySelectorAll('.wl-skel').length, parts: p.doc.querySelectorAll('[data-list-part="results"]').length,
+      said: p.doc.querySelectorAll('p.sr-only').map((n) => n.textContent).join(''),
+    }),
+  };
+}
+
+/* What fades out is never done with it. */
+function fadesForever() { Node.prototype.animate = () => ({ finished: new Promise(() => {}), cancel() {} }); }
+
 const scenarios = {
+  async goWhenIn() {
+    const g = going({ scrollY: 500, motion: true });
+    fadesForever();
+    g.go();
+    await settle();
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    const after = { ...g.now(), scrolls: g.p.scrolls.slice() };
+    return { before, after };
+  },
+  /* The list showing other titles before: none of it may be on its way out when it comes. */
+  async goOverOld() {
+    const g = going({ list: true, motion: true });
+    const at = (i) => click(g.p.doc, g.p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+    at(0);
+    await settle();
+    fadesForever();
+    g.go();
+    await settle();
+    g.wait.resolve();
+    await settle();
+    return g.now();
+  },
+  async goSlow() {
+    const g = going();
+    g.go();
+    await settle();
+    g.slow();
+    await settle();
+    const slow = g.now();
+    g.wait.resolve();
+    await settle();
+    return { slow, after: g.now() };
+  },
+  async goFails() {
+    const g = going();
+    g.p.fail('/watch/list?type=movie&sort=size_desc');
+    g.go();
+    await settle();
+    const over = going({ list: true });
+    over.p.fail('/watch/list?type=movie&sort=size_desc');
+    over.go();
+    await settle();
+    return { ...g.now(), errors: g.p.errors, over: { ...over.now(), errors: over.p.errors } };
+  },
+  async goSlowFails() {
+    const g = going();
+    g.p.fail('/watch/list?type=movie&sort=size_desc');
+    const late = deferred();
+    const get = g.p.ctx.fetch;
+    g.p.ctx.fetch = (url) => late.promise.then(() => get(url));
+    g.go();
+    g.slow();
+    late.resolve();
+    await settle();
+    g.p.ctx.fetch = get;
+    g.p.serve('/watch/list?type=movie&sort=size_desc', { said: '35 movies' }, [{ id: 'm9', title: 'Big', ref: 'movie-9' }]);
+    const failed = g.now();
+    const retry = g.p.doc.querySelector('.watch-notice__retry');
+    retry.focus();
+    click(g.p.doc, retry);
+    const trying = g.now();
+    await settle();
+    return { failed, trying, after: g.now() };
+  },
+  /* Called off when what it asked for has already been replaced by another list. */
+  async goReplaced() {
+    const g = going({ list: true });
+    const tv = deferred();
+    g.p.serve('/watch/list?type=tv', { type: 'tv' }, [{ id: 's9', title: 'Tide' }], tv);
+    const off = g.go();
+    await settle();
+    g.p.popstate('?view=list&type=tv');
+    off();
+    tv.resolve();
+    await settle();
+    return g.now();
+  },
+  async goAtOnce() {
+    const g = going();
+    g.p.ctx.MMWatch.list.show(BY_SIZE);
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    return { before, after: g.now() };
+  },
+  /* A title is deleted from the list; gone back to, the list says what it holds now. */
+  async goAfterDelete() {
+    const g = going({ list: true, state: { type: 'movie', sort: 'size_desc', said: '35 movies' } });
+    g.p.serve('/watch/list?type=movie&sort=size_desc', { type: 'movie', sort: 'size_desc', said: '34 movies' }, [{ id: 'm9', title: 'Big', ref: 'movie-9' }]);
+    g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase: 'done', action: 'delete', id: 'm1' } });
+    await settle();
+    g.go();
+    return g.now();
+  },
+  /* Each view turned back while it fades goes on from how far it was. */
+  async turnedBack() {
+    const g = going({ list: true, motion: true });
+    const fades = [];
+    Node.prototype.animate = function (frames) { fades.push([this.id, frames[0].opacity, frames[1].opacity]); return { cancel() {} }; };
+    const to = async (i, opacity) => {
+      g.p.ctx.getComputedStyle = (n) => ({ getPropertyValue: () => '', display: 'block', opacity: n && opacity[n.id] });
+      fades.length = 0;
+      click(g.p.doc, g.p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+      await settle();
+      return fades.slice();
+    };
+    await to(0, { 'watch-list': '1' });
+    return to(1, { 'watch-list': '0.6', 'watch-browse': '0.3' });
+  },
+  async goCalledOff() {
+    const of = async (opts) => {
+      const g = going(opts);
+      const off = g.go();
+      await settle();
+      off();
+      g.slow();
+      g.wait.resolve();
+      await settle();
+      return g.now();
+    };
+    return { rows: await of(), list: await of({ list: true }) };
+  },
+  async goFromList() {
+    const g = going({ list: true, scrollY: 500 });
+    g.go();
+    await settle();
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    return { before, after: g.now(), scrolls: g.p.scrolls };
+  },
+  /* Back puts the page at its scroll while what fades can still be held in its place. */
+  async backScrolls() {
+    const g = going({ scrollY: 500 });
+    await settle();
+    const entry = g.p.ctx.history.state;
+    g.go();
+    g.wait.resolve();
+    await settle();
+    g.p.scrolls.length = 0;
+    let first = null;
+    g.p.doc.addEventListener('mm:watch-view', () => { first = g.p.doc.getElementById('watch-list'); });
+    const real = g.p.ctx.MMWatch.address.arriving;
+    const during = [];
+    g.p.ctx.scrollTo = (o) => during.push([o.top, !!real()]);
+    g.p.popstate('', entry);
+    return { during: during[0], first: !!first };
+  },
   // Keep a movie that was due for deletion: the Watch keep, so Undo restores the date.
   async keepScheduled() {
     const p = load({ list: true });
@@ -528,7 +723,7 @@ const scenarios = {
     p.replies[url] = () => reply.promise;
     vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
     const at = () => { const a = p.doc.activeElement; return a.id || a.textContent; };
-    const tab = (shiftKey) => (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Tab', shiftKey, preventDefault() {} }));
+    const tab = (shiftKey) => p.press('Tab', { shiftKey });
     const heading = () => p.doc.getElementById('season-delete-title').focus();
     click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
     p.ctx.ModalA11y.onOpened('season-delete-overlay');
@@ -659,6 +854,23 @@ const scenarios = {
       Object.assign(out[name], { sent: p.sent(), errors: p.errors.length, busy: p.row('show:77').classList.contains('is-busy') });
     }
     return out;
+  },
+
+  async keepRoom() {
+    const go = async (has_keeps, seasons) => {
+      const p = load({ list: true });
+      let answer;
+      p.replies['get /api/show/77/seasons'] = () => new Promise((r) => { answer = () => r({ show_title: 'Night Shift', show_kept: null, seasons }); });
+      p.serve('/watch/list', {}, ROWS);
+      p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift', has_keeps }, '30 days');
+      const tall = () => p.doc.getElementById('keep-season-list').classList.contains('has-keeps');
+      const waiting = tall();
+      answer();
+      await settle();
+      return [waiting, tall()];
+    };
+    const kept = seasonsOf({ kept: true, keep: { action: 'protected_forever', label: 'Kept forever' } });
+    return { kept: await go(true, kept), none: await go(false, seasonsOf(null, null)), since: await go(false, kept) };
   },
 
   async keepFromList() {
@@ -1268,6 +1480,74 @@ const scenarios = {
     reply.resolve({ ok: true });
     await settle();
     return { during, after: p.posts().length };
+  },
+
+  // An Undo pressed while the show still saves: what it announces before that save is in.
+  async undoAnnouncedAtOnce() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    await p.reopen();
+    p.replies['postForm /api/media/s2/keep'] = () => deferred().promise;
+    p.tick('s1', false);
+    p.tick('s2', true);
+    await p.confirm();
+    p.phases.length = 0;
+    p.toasts[0].action.onClick();
+    return p.phases;
+  },
+
+  // The dialog's buttons as Safari clicks them, which gives them no focus: where it is while the request runs.
+  async clickedUnfocused() {
+    const p = await keepDialog({ seasons: seasonsOf({ keep: until(30) }, null), seasonId: 's2' });
+    p.replies['postForm /api/media/s2/keep'] = () => deferred().promise;
+    p.doc.body.focus();
+    click(p.doc, p.button('keep-dialog-confirm'));
+    const keep = p.doc.activeElement.id;
+    const r = await keepDialog({ seasons: seasonsOf({ keep: until(30) }, null), seasonId: 's2' });
+    r.doc.body.focus();
+    r.answerConfirm(false);
+    click(r.doc, r.button('keep-dialog-remove'));
+    const asked = r.doc.activeElement.id;
+    await settle();
+    return { keep, asked, cancelled: r.doc.activeElement.id };
+  },
+
+  // A film's keep changed, removed and kept again: the toasts still up after each.
+  async oneKeepToast() {
+    const p = load({ list: true, rows: ROWS });
+    const up = () => p.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const film = { id: 'm9', title: 'Copperline', kept: true, keep: MADE };
+    const out = [];
+    await p.ctx.MMWatch.admin.keep(film, '30 days');
+    await p.ctx.MMWatch.admin.keep(film, '7 days');
+    out.push(up());
+    await p.ctx.MMWatch.admin.removeKeep(film);
+    out.push(up());
+    await p.ctx.MMWatch.admin.keep({ ...film, kept: false, keep: null }, '90 days');
+    out.push(up());
+    p.toasts[p.toasts.length - 1].dismissed = true;
+    p.toasts[p.toasts.length - 1].action.onClick();
+    await settle();
+    await p.ctx.MMWatch.admin.keep(film, 'forever');
+    out.push(up());
+    await p.ctx.MMWatch.admin.keep({ ...film, id: 'm8', title: 'Other' }, 'forever');
+    out.push(up());
+    return out;
+  },
+
+  // A delete refused, as kept by someone else meanwhile or for another reason.
+  async deleteRefusedAsKept() {
+    const out = {};
+    for (const error of ['kept', 'delete_refused']) {
+      const p = load({ list: true });
+      p.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? { ...r, kept: true } : r)));
+      p.replies['post /api/media/m1/delete'] = () => Promise.reject(Object.assign(new Error('no'), { error, status: 409 }));
+      click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+      await settle();
+      out[error] = { reads: p.fetches.length, kept: p.row('id:m1').classList.contains('wl-row--kept'),
+        busy: p.row('id:m1').classList.contains('is-busy'), errors: p.errors.length };
+    }
+    return out;
   },
 
   // A save that fails removes no keep.

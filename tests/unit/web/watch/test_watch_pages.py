@@ -305,6 +305,20 @@ class TestWatchRows:
         assert season["leaving_days"] == 2
         assert movie["keep_id"] == "100"
 
+    def test_a_show_says_its_first_leaving_season_and_offers_no_keep(self, get, conn):
+        _schedule(conn, "502", 2)
+        _schedule(conn, "501", 6)
+
+        rows = _rows(get("/watch").json())
+
+        [show] = rows["TV"]
+        said = [show[k] for k in ("leaving_days", "leaving_season", "leaving_id", "keep_id")]
+        assert said == [2, 2, "502", None]
+        assert show["leaving_seasons"] == [
+            {"season": 2, "days": 2, "id": "502"},
+            {"season": 1, "days": 6, "id": "501"},
+        ]
+
     def test_items_outside_scanned_libraries_appear_nowhere(self, get, conn):
         _schedule(conn, "900", 1)
         _play(conn, "aoife", "900", position=1200, duration=6000, item="900")

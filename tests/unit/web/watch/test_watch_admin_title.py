@@ -145,6 +145,7 @@ def test_a_show_sums_its_seasons_and_deletes_through_the_season_picker(admin):
     }
     assert body["actions"]["keep_wrapper"]["is_tv"] is True
     assert body["actions"]["keep_wrapper"]["seasons"] == 2
+    assert body["actions"]["keep_wrapper"]["has_keeps"] is False
 
 
 def test_a_show_kept_as_a_whole_reads_show_kept(admin, library):
@@ -155,6 +156,7 @@ def test_a_show_kept_as_a_whole_reads_show_kept(admin, library):
     body = _facts(admin, "show-500")
 
     assert body["keep"]["state"] == "show_kept"
+    assert body["actions"]["keep_wrapper"]["has_keeps"] is True
     assert body["actions"]["delete"] is None
 
 
@@ -164,6 +166,7 @@ def test_a_show_with_some_seasons_kept_is_not_kept(admin, library):
     body = _facts(admin, "show-500")
 
     assert body["keep"] == {"state": "none", "label": "1 of 2 seasons kept"}
+    assert body["actions"]["keep_wrapper"]["has_keeps"] is True
     assert body["actions"]["delete"] is not None
 
 

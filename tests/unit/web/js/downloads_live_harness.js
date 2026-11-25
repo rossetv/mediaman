@@ -71,7 +71,7 @@ function page(spec, opts) {
     getComputedStyle: () => ({}), location: { href: '/downloads' },
     toasts: [],
   };
-  ctx.window = ctx;
+  ctx.window = ctx;  ctx.addEventListener = () => {};
   ctx.UIFeedback = { toast: (text, o) => ctx.toasts.push([text, (o || {}).variant]), error: (text) => ctx.toasts.push([text, 'error']) };
   doc.dispatchEvent = (e) => (doc.listeners[e.type] || []).forEach((f) => f(e));
   ctx.MM.api = { get: opts && opts.get, post: opts && opts.post, messageOf: (_e, m) => m };

@@ -9,6 +9,7 @@ import pytest
 from fastapi.templating import Jinja2Templates
 
 from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.routes.account import router as account_router
 from mediaman.web.routes.settings import router as settings_router
 
@@ -127,3 +128,35 @@ def test_what_the_ai_service_and_admins_get_is_in_sight_before_linking(
     assert "AI service" in in_sight
     assert "Admins can see" in in_sight
     assert panel.count("AI service") == panel.count("Admins can see") == 1
+
+
+def test_the_page_knows_how_long_this_sessions_password_is_good_for(
+    app_factory, authed_client, conn
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+    token = client.cookies.get("session_token")
+    username = conn.execute("SELECT username FROM admin_users").fetchone()["username"]
+
+    def good_for() -> int:
+        found = re.search(r'data-password-good-for="(\d+)"', client.get("/account").text)
+        assert found
+        return int(found[1])
+
+    grant_recent_reauth(conn, "another-session", username)
+    assert good_for() == 0
+    grant_recent_reauth(conn, token, "someone-else")
+    assert good_for() == 0
+    grant_recent_reauth(conn, token, username, window_seconds=100)
+    assert 90 <= good_for() <= 100
+    grant_recent_reauth(conn, token, username, window_seconds=9000)
+    assert 290 <= good_for() <= 300
+    grant_recent_reauth(conn, token, username, window_seconds=-1)
+    assert good_for() == 0
+
+
+def test_what_the_plex_card_waits_for_is_announced(app_factory, authed_client, conn):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account").text
+
+    assert re.search(r'<p [^>]*id="plex-wait"[^>]*aria-live="polite"', html)

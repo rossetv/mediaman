@@ -307,10 +307,10 @@ const scenarios = {
       out.push(trips.length);
       trips[0]();
       await settle();
-      out.push(flying(), p.item(0).classList.contains('is-out'));
+      out.push(flying(), p.item(0).classList.contains('is-out'), p.item(0).classList.contains('is-away'));
       trips[1]();
       await settle();
-      out.push(flying(), p.item(0).classList.contains('is-out'));
+      out.push(flying(), p.item(0).classList.contains('is-out'), p.item(0).classList.contains('is-away'));
       return out;
     } finally {
       delete Node.prototype.getAnimations;

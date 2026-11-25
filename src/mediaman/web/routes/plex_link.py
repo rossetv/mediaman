@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import sqlite3
+import threading
 import time
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, Query, Request
@@ -30,7 +33,7 @@ from mediaman.services.plex_link.plex_tv import PlexTv, PlexTvUnavailable
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
-from mediaman.web.auth.reauth import has_recent_reauth
+from mediaman.web.auth.reauth import has_recent_reauth, reauth_seconds_left
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -61,6 +64,20 @@ _SHARED_POLL_LIMITER = ActionRateLimiter(max_in_window=150, window_seconds=60)
 _EVERYONE = "everyone"
 
 _attempts = AttemptStore()
+
+
+@dataclass
+class _Starts:
+    """One session's starts under way, and the latest of them whose attempt was stored."""
+
+    under_way: int = 0
+    stored: int = 0
+
+
+# A start that ends after a later one was stored must not take its place.
+_starts: dict[str, _Starts] = {}
+_starts_lock = threading.Lock()
+_start_numbers = itertools.count(1)
 
 _HOST_RE = re.compile(r"[a-z0-9.-]{1,100}")
 
@@ -158,6 +175,15 @@ def _attempt_view(
     return view
 
 
+def _start_in(username: str) -> int:
+    """Seconds until this person may start again, 0 when they may now."""
+    seconds = max(
+        limiter.retry_after(username) for limiter in (_START_LIMITER, _FAILED_START_LIMITER)
+    )
+    # A limiter that is free says 1.
+    return seconds if seconds > 1 else 0
+
+
 @router.get("/api/account/plex")
 def api_plex_link(
     username: str = Depends(get_current_user), session_token: str | None = Cookie(default=None)
@@ -170,6 +196,8 @@ def api_plex_link(
     return respond_ok(
         {
             "configured": plex_is_configured(conn),
+            "password_good_for": reauth_seconds_left(conn, session_token, username),
+            "start_in": _start_in(username),
             "link": None
             if link is None
             else {
@@ -223,6 +251,27 @@ def api_start_or_confirm(
 
 
 def _start(conn: sqlite3.Connection, request: Request, username: str, session: str) -> JSONResponse:
+    with _starts_lock:
+        number = next(_start_numbers)
+        starts = _starts.setdefault(session, _Starts())
+        starts.under_way += 1
+    try:
+        return _start_as(number, starts, conn, request, username, session)
+    finally:
+        with _starts_lock:
+            starts.under_way -= 1
+            if not starts.under_way:
+                del _starts[session]
+
+
+def _start_as(
+    number: int,
+    starts: _Starts,
+    conn: sqlite3.Connection,
+    request: Request,
+    username: str,
+    session: str,
+) -> JSONResponse:
     previous = _attempts.get(session, username)
     signed_out = True
     if previous is not None and _attempts.drop(session, previous):
@@ -240,7 +289,11 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
             pin=pin,
             expires_at=time.monotonic() + pin.expires_in_s,
         )
-        _attempts.add(session, attempt)
+        with _starts_lock:
+            superseded = starts.stored > number
+            if not superseded:
+                _attempts.add(session, attempt)
+                starts.stored = number
     except PlexNotConfigured:
         _START_LIMITER.give_back(username)
         return _refuse("plex_not_set_up")
@@ -253,6 +306,9 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
             _audit_failure(conn, request, username, "plex_unavailable")
         return _refuse("plex_unavailable")
     _FAILED_START_LIMITER.give_back(username)
+    if superseded:
+        # Nobody was given its address, so nobody can approve it.
+        return _refuse("expired")
     security_event(conn, event="plex.link_started", actor=username, ip=get_client_ip(request))
     return respond_ok({"attempt": _attempt_view(conn, attempt, signed_out=signed_out)})
 

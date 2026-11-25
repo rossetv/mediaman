@@ -233,12 +233,14 @@ def _keep(conn, media_id: str) -> None:
 
 def test_partly_kept_show_row_keeps_its_delete_and_says_how_many_are_kept(client, conn):
     _insert_show(conn, "show-rk")
+    assert 'data-has-keeps="false"' in client.get("/watch/list").text
     _keep(conn, "s3")
 
     html = client.get("/watch/list").text
 
     assert "wl-row--kept" not in html
     assert "1 of 3 seasons kept" in html
+    assert 'data-has-keeps="true"' in html
     assert [b["data-action"] for b in _delete_buttons(html)] == ["pick-season-delete"]
     assert not _elements_with(html, "data-remove-keep-id")
 

@@ -69,12 +69,13 @@ def _cards(
     movies = [t for t in page if isinstance(t, lib.LibraryMovie)]
     shows = [t for t in page if isinstance(t, lib.LibraryShow)]
     cards: dict[lib.LibraryMovie | lib.LibraryShow, dict[str, Any]] = {}
+    pending = lib.pending_deletions(conn, libraries)
     if movies:
-        pending = lib.pending_deletions(conn, libraries)
         films = movie_cards(conn, username, movies, pending, now)
         cards.update(zip(movies, films, strict=True))
     if shows:
-        cards.update(zip(shows, show_cards(conn, username, libraries, shows), strict=True))
+        held = show_cards(conn, username, libraries, shows, pending, now)
+        cards.update(zip(shows, held, strict=True))
     return [cards[title] for title in page]
 
 

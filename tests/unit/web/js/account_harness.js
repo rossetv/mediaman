@@ -46,10 +46,12 @@ function page(api) {
   class FixedDate extends Date { static now() { return NOW; } }
   // A top bar of 64px and a bottom bar of 72px.
   const getComputedStyle = () => ({ scrollPaddingTop: '64px', scrollPaddingBottom: '72px' });
-  const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate, getComputedStyle });
+  const told = [];
+  doc.dispatchEvent = (e) => { told.push(e.type); };
+  const ctx = vm.createContext({ document: doc, MM, window: { MM }, Date: FixedDate, Event, getComputedStyle });
   ['core/dom.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
-    $,
+    $, told,
     fire: (id, type) => $(id).listeners[type].forEach((fn) => fn({ preventDefault() {} })),
     focused: () => doc.activeElement.id || 'body',
     press: (id) => {
@@ -235,6 +237,19 @@ const scenarios = {
     ['pw', 'again'].forEach((id) => { $(id).value = ''; });
     timers.forEach((fn) => fn());
     out.reset = { meter: $('pw-strength-meter').style.width, tone: $('pw-strength-label').className, match: $('again-match').className };
+    return out;
+  },
+  async toldOfPassword() {
+    const out = [];
+    for (const refused of [false, true]) {
+      const p = page({ get: () => Promise.resolve({ sessions: [] }), patch: () => (refused ? Promise.reject(new Error('no')) : Promise.resolve({})) });
+      await settle();
+      p.$('account-email').value = 'vic@example.com';
+      p.fire('account-email-form', 'submit');
+      const during = p.told.length;
+      await settle();
+      out.push([during, p.told]);
+    }
     return out;
   },
   async email() {

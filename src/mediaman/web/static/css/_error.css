@@ -3,9 +3,8 @@
 
 .err-card { text-align: center; }
 
-/* Signed in, the page stands between the nav and the foot and still fits the screen. */
-body:has(> .foot) > main { display: grid; }
-body:has(> .foot) .login-page { min-height: 0; padding-block: 24px; }
+/* Signed in, the page stands under the nav and still fits the screen. */
+body:has(> .nav-glass) .login-page { min-height: calc(100vh - var(--nav-h)); }
 
 .err-brand { font-size: 20px; margin-bottom: 24px; }
 .err-brand a { border-radius: var(--r-xs); }

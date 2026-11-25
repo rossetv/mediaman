@@ -113,3 +113,18 @@ def test_integrations_rail_item_carries_no_fixed_count(settings_html):
 
     assert "#setg-integrations" in rail
     assert [c for c in rail["#setg-integrations"] if "rail-count" in c] == []
+
+
+def test_a_stored_model_outside_the_list_is_shown_not_swapped_for_the_first(
+    app_factory, authed_client, conn
+):
+    from tests.helpers.factories import insert_settings
+
+    insert_settings(conn, openai_model="gpt-5-retired")
+    app = app_factory(settings_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/settings").text
+
+    select = re.search(r'<select[^>]*id="openai_model".*?</select>', html, re.S).group(0)
+    assert re.search(
+        r'<option value="gpt-5-retired" selected>gpt-5-retired \(no longer offered\)<', select
+    )

@@ -182,10 +182,14 @@
   height: 100%;
 }
 .player-band {
-  min-width: 2px;
-  border-radius: var(--r-xxs);
-  background: color-mix(in srgb, var(--purple) 85%, transparent);
+  min-width: 6px;
+  /* A step lighter than whatever of the bar is under it, and cut off as chapters are. */
+  border: solid var(--bg);
+  border-width: 0 2px;
+  background: color-mix(in srgb, var(--t1) 25%, transparent) padding-box;
 }
+.player-band.is-first { border-left-width: 0; border-radius: var(--r-xxs) 0 0 var(--r-xxs); }
+.player-band.is-last { border-right-width: 0; border-radius: 0 var(--r-xxs) var(--r-xxs) 0; }
 .player-gap {
   z-index: 2;
   width: 2px;
@@ -714,7 +718,7 @@
   .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }
   .player-seek-buffered { background: GrayText; }
   .player-seek-played { background: Highlight; }
-  .player-band { background: LinkText; }
+  .player-band { background: Canvas; border-color: CanvasText; }
   .player-gap { top: -4px; height: calc(100% + 8px); }
   .player-volume-slider { forced-color-adjust: none; }
   .player-volume-slider::-webkit-slider-runnable-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }

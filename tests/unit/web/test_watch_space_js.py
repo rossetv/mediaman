@@ -76,6 +76,9 @@ class TestPanel:
         assert out["closed"]["inert"] is True
         assert out["closed"]["focused"].startswith("Storage: ")
 
+    def test_back_with_a_dialog_over_it_keeps_the_page_out_of_reach_until_that_closes(self):
+        assert _run("backUnderDialog") == {"under": ["nav", "main", "space"], "after": []}
+
     def test_goes_under_what_opens_over_it_and_leaves_the_focus_to_that(self):
         out = _run("otherOpensOver")
         assert out["under"] is True
@@ -518,6 +521,7 @@ class TestRefresh:
 class TestThePageBehind:
     def test_a_clear_takes_the_leaving_soon_row_and_the_leaving_badges_and_tells_the_list(self):
         assert _run("pageAfterClear") == {
+            "kept": 2,
             "cards": [],
             "row": False,
             "badges": 0,
@@ -525,6 +529,9 @@ class TestThePageBehind:
             "asked": 0,
             "inPanel": True,
         }
+
+    def test_a_season_off_the_list_gives_its_badge_up_to_the_next_that_leaves(self):
+        assert _run("seasonOffTheList") == ["S2 in 5"]
 
     def test_a_scan_puts_new_cards_in_their_places_and_leaves_the_rest_be(self):
         assert _run("pageAfterScan") == {
@@ -727,3 +734,107 @@ def test_a_session_that_ends_meanwhile_sends_a_scan_its_polls_and_a_clear_to_sig
 
 def test_the_panel_never_reloads_the_page():
     assert "reload" not in (JS / "watch/space.js").read_text()
+
+
+class TestSeeAll:
+    def test_stays_a_link_for_a_modified_click(self):
+        out = _run("seeAll")
+        href = "/watch?view=list&type=movie&sort=size_desc"
+        assert (out["kept"], out["before"]) == ([False] * 4, 0)
+        assert (out["plain"], out["href"]) == ([True, True], [href])
+
+    def test_a_list_that_cannot_be_had_leaves_the_panel_open_with_a_way_to_try_again(self):
+        out = _run("seeAllFails")
+        assert out["asked"] == "true"
+        assert out["after"] == {
+            "open": True,
+            "busy": None,
+            "assigned": [],
+            "said": "Couldn’t load the list.",
+            "label": "Try again",
+        }
+        assert out["again"] == {"asked": 2, "busy": "true", "focused": True}
+
+    def test_asking_again_takes_away_what_said_the_list_could_not_be_had(self):
+        assert _run("seeAllFails")["gone"] is True
+
+    def test_trying_again_once_the_panel_has_closed_shows_the_list_at_once(self):
+        href = "/watch?view=list&type=movie&sort=size_desc"
+        assert _run("seeAllFails")["closed"] == [3, [href]]
+
+    @pytest.mark.parametrize("way", ["escape", "tab", "segment", "all"])
+    def test_is_called_off_by_going_elsewhere_in_the_panel(self, way):
+        assert _run("seeAllLeft")[way] == [1, 0]
+
+    def test_stays_on_its_way_and_busy_while_the_panel_is_brought_up_to_date(self):
+        assert _run("seeAllLeft")["refresh"] == [0, 1]
+
+    def test_gives_way_to_the_list_of_another_type(self):
+        out = _run("seeAllOther")
+        assert ["type=tv" in href for href in out["hrefs"]] == [False, True]
+        assert out["off"] == [1, 0]
+
+    def test_is_called_off_by_closing_the_panel_but_not_by_its_own_leaving(self):
+        assert _run("seeAllCalledOff") == {"off": 1, "gone": 0}
+
+    def test_the_titles_in_both_travel_there_back_and_forward_again(self):
+        out = _run("flights")
+        assert out["there"] == [["Big in full"], "0"]
+        assert out["back"] == [["Big"], "0"]
+        assert out["ahead"] == [["Big in full"], "0"]
+        assert out["landed"] == [[], ""]
+        assert out["eager"] == "eager"
+
+    def test_titles_turned_round_on_their_way_fly_on_at_once_from_where_they_are(self):
+        pic, name = _run("flightTurned")
+        # 48px is how far the panel is from its place.
+        assert pic[1:] == ["translate(548px, 300px) scale(2)", 0]
+        assert name[1:] == ["translate(608px, 310px) scale(2)", 0]
+
+    def test_going_forward_while_the_list_still_fades_flies_there_and_leaves_it_the_focus(self):
+        out = _run("flightForwardSoon")
+        assert out["air"] == ["Big in full"]
+        assert not out["focused"].startswith("Storage: ")
+
+    def test_lands_at_once_for_the_person_but_not_for_back_on_the_keyboard(self):
+        landed, flies = [0, ""], [1, "0"]
+        assert _run("flightEnds") == {
+            "wheel": landed,
+            "key": landed,
+            "back": flies,
+            "opened": landed,
+            "closed": landed,
+        }
+
+    def test_is_drawn_clear_of_the_bars_and_without_the_rows_the_panel_cuts_off(self):
+        out = _run("flightClipped")
+        assert out["clip"] == "inset(0px 0 100px)"
+        assert out["air"] == ["Big in full"]
+
+    def test_heaviest_titles_that_came_meanwhile_are_drawn_after_the_landing(self):
+        out = _run("flightHolds")["heaviest"]
+        assert out["during"] == [["Big", "Small"], 1]
+        assert out["after"] == ["Small", "New"]
+
+    def test_a_title_that_stays_among_the_heaviest_moves_with_its_focus(self):
+        out = _run("flightHolds")["heaviest"]
+        assert (out["same"], out["focused"]) == (True, True)
+
+    def test_what_the_panel_says_changes_after_the_landing(self):
+        assert _run("flightHolds")["panel"] == {"before": [False, "0"], "after": True}
+
+    def test_what_changed_while_the_panel_was_closed_is_drawn_when_it_comes_back(self):
+        assert _run("keptWhileClosed") == 1
+
+    def test_going_forward_leaves_the_focus_to_the_list(self):
+        assert (
+            _run("flights")["focus"]
+            != "Storage: 1.4 TB free of 8 TB. 3 titles scheduled for deletion"
+        )
+
+    def test_with_reduced_motion_the_list_only_fades_in(self):
+        out = _run("flightsReduced")
+        assert (out["air"], out["faded"]) == ([], [["watch-list", ["opacity"]]])
+
+    def test_keeps_the_focus_when_the_panel_is_brought_up_to_date(self):
+        assert "space-all" in _run("focusKept")

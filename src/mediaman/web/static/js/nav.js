@@ -2,7 +2,7 @@
  * key on it, opens the menu; arrows, Home and End move in it; Escape, Tab, a press
  * outside, focus moving away and the sheet's Close button close it. Below 700 px it
  * is a bottom sheet: the rest of the page is inert and does not scroll under it. The
- * fade is CSS; the open state changes at once. */
+ * fade is CSS; the open state changes at once, and a closed menu is inert while it fades. */
 (function () {
   'use strict';
 
@@ -43,6 +43,7 @@
 
   function open(button, last) {
     opener = button;
+    menu.inert = false;
     menu.setAttribute('open', '');
     button.setAttribute('aria-expanded', 'true');
     if (phone.matches) holdPage();
@@ -54,6 +55,8 @@
     if (!isOpen()) return;
     menu.removeAttribute('open');
     releasePage();
+    // CSS keeps the menu visible for the fade, so only this keeps it out of focus and the tree.
+    menu.inert = true;
     opener.setAttribute('aria-expanded', 'false');
     if (returnFocus) opener.focus();
   }

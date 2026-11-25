@@ -296,6 +296,26 @@ def has_recent_reauth(
     return not now - granted > timedelta(seconds=max_age_seconds)
 
 
+def reauth_seconds_left(conn: sqlite3.Connection, session_token: str | None, username: str) -> int:
+    """Whole seconds `has_recent_reauth` goes on saying yes; 0 when it says no.
+
+    A hint of when to ask for the password, never a reason to skip the check itself.
+    """
+    if not session_token or not has_recent_reauth(conn, session_token, username):
+        return 0
+    row = conn.execute(
+        "SELECT granted_at, expires_at FROM reauth_tickets WHERE session_token_hash = ?",
+        (_hash_token(session_token),),
+    ).fetchone()
+    granted = parse_iso_strict_utc(row["granted_at"]) if row else None
+    expires = parse_iso_strict_utc(row["expires_at"]) if row else None
+    if granted is None or expires is None:
+        return 0
+    now = _now()
+    ends = min(expires, granted + timedelta(seconds=reauth_window_seconds()))
+    return max(0, int((ends - now).total_seconds()))
+
+
 def revoke_reauth(conn: sqlite3.Connection, session_token: str) -> None:
     """Delete the reauth ticket for *session_token* if any.
 

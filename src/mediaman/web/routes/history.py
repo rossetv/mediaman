@@ -35,6 +35,8 @@ router = APIRouter()
 
 _PER_PAGE_DEFAULT = 25
 _PER_PAGE_MAX = 100
+# Its offset fits what SQLite can hold.
+_PAGE_MAX = 10**9
 
 ACTION_TYPES = [
     "scheduled",
@@ -104,11 +106,22 @@ ACTION_LABELS = {
     "library_left_out": "library not scanned",
     "delete_root_unavailable": "delete root unavailable",
     "delete_root_available": "delete root available",
-    "delete_awaiting_scan": "waiting for scan",
+    "delete_awaiting_scan": "waiting",
     "delete_incomplete": "delete incomplete",
     "delete_folders_failed": "folder cleanup failed",
     "re_downloaded": "re-downloaded",
 }
+
+# What a waiting deletion waits for, by the first of these its stored text has.
+_WAIT_LABELS = (
+    ("its folder also holds", "waiting for folder"),
+    ("library Plex does not list", "waiting for library"),
+    ("disk limit in Settings", "waiting for disk limit"),
+    ("library is not selected", "library not selected"),
+    ("while that one is kept", "waiting for keep to end"),
+    ("until that watch", "waiting for watch to age"),
+    ("scan to record", "waiting for scan"),
+)
 
 SECURITY_EVENT_LABELS = {
     "login.success": "Signed in",
@@ -191,6 +204,9 @@ def _build_item(r: AuditRow) -> dict[str, object]:
             title = redact_text(scrub_control(library.group(1)))
             line_title = hide_emails(title)
         action_label = ACTION_LABELS.get(action, action)
+        if action == "delete_awaiting_scan":
+            waits = (label for words, label in _WAIT_LABELS if words in (r.detail or ""))
+            action_label = next(waits, action_label)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 
     space_impact = format_bytes(r.space_reclaimed_bytes) if r.space_reclaimed_bytes else ""
@@ -308,7 +324,7 @@ def history_page(request: Request) -> Response:
 @router.get("/api/history")
 def api_history(
     action: str | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=_PAGE_MAX),
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
     _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
@@ -332,7 +348,7 @@ def api_history(
 
 @router.get("/api/security-events")
 def api_security_events(
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=_PAGE_MAX),
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
     _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:

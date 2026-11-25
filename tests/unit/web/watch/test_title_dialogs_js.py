@@ -32,3 +32,40 @@ def test_back_to_the_title_before_closes_a_dialog_of_the_one_after() -> None:
 
 def test_a_dialog_gives_the_focus_back_to_its_button_as_drawn_since_or_to_the_title() -> None:
     assert _run("redrawn") == [["admin-delete", True], ["ttl-title", True]]
+
+
+def test_a_title_deleted_from_its_page_leaves_the_rows_and_its_other_cards_say_not_in_library() -> (
+    None
+):
+    def want(tmdb: str) -> dict:
+        return {
+            "taken": ["own", "continue"],
+            "at": "other",
+            "badges": 0,
+            "links": [[tmdb, f"/watch#title={tmdb}"]] * 2,
+        }
+
+    assert _run("deleted") == {"movie-120": want("tmdb-movie-77"), "show-300": want("tmdb-tv-77")}
+
+
+def test_a_title_deleted_after_it_was_closed_leaves_the_page_and_forward_says_it_is_gone() -> None:
+    for ref, out in _run("deletedAfterClosing").items():
+        assert out["taken"] == ["banner", "own"], ref
+        assert out["at"] == "ttl-title", ref
+        assert out["forward"] == "This title is not available any more.", ref
+
+
+def test_a_search_counts_what_is_left_of_it_and_the_last_one_leaves_the_focus_to_its_field() -> (
+    None
+):
+    assert _run("deletedResult") == [["1 title", "movie-9"], ["No title matches", "watch-search"]]
+
+
+def test_a_deleted_title_s_banner_above_the_screen_goes_without_moving_what_is_on_it() -> None:
+    assert _run("bannerAbove") == {
+        "folded": 0,
+        "by": [-436],
+        "at": 541,
+        "closed": True,
+        "there": False,
+    }

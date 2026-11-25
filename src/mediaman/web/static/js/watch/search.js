@@ -68,22 +68,46 @@
   function leavingBadge(item) {
     if (typeof item.leaving_days !== 'number') return null;
     var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
-    badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
-    badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
-    if (item.leaving_days <= 0) {
+    var days = item.leaving_days;
+    var words = leavingText(days);
+    var short = leavingShortText(days);
+    var tinyWords = days > 0 ? '' : days < 0 ? 'Any day' : 'Today';
+    var least = '';
+    // Of a show, the season that is leaving.
+    if (typeof item.leaving_season === 'number') {
+      var s = 'S' + item.leaving_season;
+      words = words.replace('Leaving', 'Season ' + item.leaving_season + ' leaves');
+      short = days > 0 ? s + ' · ' + short : short.replace('Leaving', s + ' leaves');
+      least = s + (days > 0 ? ' · ' + days + 'd' : days ? ' · Due' : ' Today');
+      tinyWords = s + ' · ' + (tinyWords || days + (days === 1 ? ' day' : ' days'));
+    }
+    badge.appendChild(el('span', 'watch-badge__long', words));
+    if (tinyWords) {
       var tiny = el('span', 'watch-badge__tiny');
-      tiny.setAttribute('data-words', item.leaving_days < 0 ? 'Any day' : 'Today');
+      tiny.setAttribute('data-words', tinyWords);
       tiny.setAttribute('aria-hidden', 'true');
+      if (least) {
+        tiny.appendChild(el('span', 'watch-badge__least'));
+        tiny.firstChild.setAttribute('data-words', least);
+      }
       badge.appendChild(tiny);
     }
+    badge.appendChild(el('span', 'watch-badge__short', short));
     return badge;
+  }
+
+  /* Which of a show's seasons leave, and the one its badge is of. */
+  function setLeaving(card, item) {
+    card.setAttribute('data-leaving-id', item.leaving_id);
+    card.setAttribute('data-leaving-seasons', JSON.stringify(item.leaving_seasons || []));
   }
 
   /* A library title's card; its link carries the ref: it is what takes focus
      back when the detail closes. */
   function libraryCard(item) {
     var card = el('article', 'watch-card');
-    card.setAttribute('data-keep-id', item.keep_id || '');
+    if (item.leaving_id) setLeaving(card, item);
+    else card.setAttribute('data-keep-id', item.keep_id || '');
 
     var link = el('a', 'watch-card__link');
     var at = /^\/watch\/(movie|show)\/([0-9]+)(\?|$)/.exec(item.href || '');
@@ -154,6 +178,7 @@
   function buildTmdbCard(item, plain) {
     var card = el('article', 'watch-card');
     if (item.keep_id) card.setAttribute('data-keep-id', item.keep_id);
+    if (item.leaving_id) setLeaving(card, item);
 
     var link = el('a', 'watch-card__link');
     link.setAttribute('data-title-ref', item.ref || '');
@@ -1746,12 +1771,21 @@
       },
       close: function (how) {
         var again = emptied && input.value.trim();
+        var text = input.value;
         setEmptied(false);
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
         // Typed since, it is a search of its own in the entry the step led to.
         if (again) {
-          setTimeout(function () { if (current && current.q === input.value.trim()) syncUrl(current.q); });
+          setTimeout(function () {
+            // A page the step led to took the field.
+            if (view === 'page' && !input.value) {
+              input.value = text;
+              typed(true);
+            } else if (current && current.q === input.value.trim()) {
+              syncUrl(current.q);
+            }
+          });
           return;
         }
         stop();
@@ -1773,5 +1807,5 @@
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, isHeld: isHeld, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
 })();

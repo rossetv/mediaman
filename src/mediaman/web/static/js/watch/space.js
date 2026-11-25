@@ -1,7 +1,7 @@
 /* Watch: the storage meter and its panel, for admins: what fills the disks, what
  * is scheduled for deletion, what went, and Scan now. Asked for once the page has
  * loaded, so a slow disk never holds it up. Needs watch/core.js, watch/address.js
- * and watch/keep.js.
+ * and watch/keep.js; the way to the list, watch/list.js.
  */
 (function () {
   'use strict';
@@ -191,7 +191,7 @@
       get('/api/dashboard/stats'),
       lists ? get('/api/dashboard/scheduled') : null,
       lists ? get('/api/dashboard/deleted') : null
-    ]).then(function (got) {
+    ]).then(whenLanded).then(function (got) {
       if (seq !== refreshSeq) return false;
       if (gen !== keepGen) return refresh();
       failed.stats = got[0].error && !stats;
@@ -223,7 +223,7 @@
       if (only && k !== only) return;
       if (!stats.storage.counts[k]) { delete heavy[k]; return; }
       if (!heavy[k] || heavy[k].state !== 'ok') heavy[k] = { state: 'loading' };
-      MM.api.get('/api/library?type=' + TYPES[k].list + '&sort=size_desc&per_page=' + HEAVIEST).then(function (data) {
+      MM.api.get('/api/library?type=' + TYPES[k].list + '&sort=size_desc&per_page=' + HEAVIEST).then(whenLanded).then(function (data) {
         if (gen !== heavyGen) return;
         var before = JSON.stringify(heavy[k].items);
         heavy[k] = {
@@ -385,17 +385,12 @@
 
   function closePanel() { watch.address.close('storage'); }
 
-  var held = [];
   var hideTimer = null;
 
   /* The page is out of reach under the panel; its menus and toasts are not, so the
      panel is no aria-modal, which would hide them from a screen reader. */
   function holdPage() {
-    toArray(document.body.children).forEach(function (node) {
-      if (node === root || node.inert || node.id === 'watch-keep-menu' || node.id === 'ui-toast-host') return;
-      node.inert = true;
-      held.push(node);
-    });
+    MM.inertPage.hold(root);
     var html = document.documentElement;
     // The scrollbar goes with the page's scroll; its width is held so nothing shifts.
     var bar = window.innerWidth - html.clientWidth || parseFloat(html.style.paddingRight) || 0;
@@ -404,8 +399,7 @@
   }
 
   function releasePage() {
-    held.forEach(function (node) { node.inert = false; });
-    held = [];
+    MM.inertPage.release(root);
     document.documentElement.classList.remove('has-space');
     document.body.style.paddingRight = '';
   }
@@ -420,6 +414,7 @@
      *byKey*: a key opened it, so the focus goes on to the tabs. */
   function show(name, fresh, byKey) {
     clearTimeout(hideTimer);
+    land();
     watch.keep.closeMenu(false);
     isOpen = true;
     root.hidden = false;
@@ -454,16 +449,18 @@
   function hide(under) {
     if (!isOpen) return;
     isOpen = false;
+    stay();
+    land();
     // What it asks is of the panel: it must not outlive it, over a page that has the focus.
     window.UIFeedback.dismissConfirm();
     clearTimeout(enterTimer);
     clearTimeout(leaveTimer);
     watch.keep.closeMenu(false);
-    root.inert = true;
     root.classList.remove('is-open');
     root.classList.toggle('is-under', !!under);
     panel.style.transform = '';
     releasePage();
+    root.inert = true;
     expanded(false);
     hideTimer = setTimeout(function () { root.hidden = true; }, core.reduceMotion() ? 0 : slow());
     if (under) return;
@@ -482,22 +479,237 @@
     },
     open: function (name, how) {
       if (isOpen) { setTab(name, true); return; }
+      var from = how === 'pop' && listNode && !listNode.hidden && listNode.hasAttribute('inert') ? takeOff(listSpots()) : null;
       // Back to the panel: address.js puts the focus where it was, if that is still there.
       if (how !== 'pop') opener = null;
       show(name, how !== 'pop');
+      if (from) fly(from, panelSpots, panel);
       if (how === 'pop') {
         setTimeout(function () {
           if (isOpen && !root.contains(document.activeElement)) panel.focus({ preventScroll: true });
         }, 0);
       }
     },
-    close: function (how) { hide(how === 'push'); }
+    close: function (how) {
+      // Forward to the list: it has the focus, and its place once the page is back at its scroll.
+      var ahead = how === 'pop' && listNode && (listNode.hidden || listNode.hasAttribute('inert')) && new URLSearchParams(window.location.search).get('view') === 'list';
+      var from = ahead ? takeOff(panelSpots()) : null;
+      hide(ahead || how === 'push');
+      if (ahead) Promise.resolve().then(function () { if (!listNode.hidden) arrive(from); });
+    }
   });
+
+  /* ── To the list and back ── */
+
+  var listNode = byId('watch-list');
+  var going = null; // the list asked for, while it is on its way: its href, and off(), which calls it off
+  var sorry = null; // the toast that says it could not be had
+  var landing = null; // ends the flight in the air
+  var flying = []; // what is in it
+  var waiting = []; // what came meanwhile and would draw the panel again under it
+
+  function seeAll(all, e) {
+    if (!watch.list || !watch.list.plainClick(e)) return;
+    e.preventDefault();
+    goTo(all.href);
+  }
+
+  function goTo(href) {
+    if (going && going.href === href) return;
+    stay();
+    if (sorry) window.UIFeedback.dismiss(sorry);
+    sorry = null;
+    var from = null;
+    var mine = going = { href: href };
+    markBusy();
+    mine.off = watch.list.open(href, {
+      leave: function () { goingOver(); from = takeOff(panelSpots()); },
+      arrive: function () { arrive(from); },
+      fail: function () {
+        goingOver();
+        sorry = window.UIFeedback.toast('Couldn’t load the list.', { variant: 'error', action: {
+          label: 'Try again',
+          onClick: function () {
+            if (!isOpen) { watch.list.show(href); return; }
+            var all = panes.storage.querySelector('.space-layer:not([inert]) .space-all');
+            if (all) all.focus({ preventScroll: true });
+            goTo(href);
+          }
+        } });
+      }
+    });
+  }
+
+  function goingOver() {
+    going = null;
+    markBusy();
+  }
+
+  /* The person goes elsewhere: the list is no longer wanted. */
+  function stay() {
+    if (!going) return;
+    var off = going.off;
+    goingOver();
+    off();
+  }
+
+  function markBusy() {
+    toArray(root.querySelectorAll('.space-all')).forEach(function (all) {
+      if (going && going.href === all.href) all.setAttribute('aria-busy', 'true');
+      else all.removeAttribute('aria-busy');
+    });
+  }
+
+  /* Where each title stands: in the panel's list, and in the list view. A row the panel cuts off
+     is left to it: it would fly over what cuts it. */
+  function panelSpots() {
+    if (tab !== 'storage') return [];
+    var box = panes.storage.getBoundingClientRect();
+    return toArray(panes.storage.querySelectorAll('.space-layer:not([inert]) a.space-heavy__row')).filter(function (a) {
+      return !a.inert;
+    }).map(function (a) {
+      return { ref: a.getAttribute('data-title-ref'), pic: a.querySelector('.space-mini'), name: a.querySelector('b') };
+    }).filter(function (s) {
+      var pic = s.pic.getBoundingClientRect();
+      return pic.top >= box.top && pic.bottom <= box.bottom;
+    });
+  }
+
+  function listRows() { return toArray(listNode.querySelectorAll('[data-list-part="results"]:not([inert]) tr')); }
+
+  function listSpots() {
+    return listRows().map(function (tr) {
+      var name = tr.querySelector('a.wl-title');
+      return name && { ref: name.getAttribute('data-title-ref'), pic: tr.querySelector('.thumb'), name: name, row: tr };
+    }).filter(Boolean);
+  }
+
+  function measure(s) {
+    var look = getComputedStyle(s.name);
+    return { picAt: s.pic.getBoundingClientRect(), nameAt: s.name.getBoundingClientRect(), size: parseFloat(look.fontSize) * new DOMMatrix(look.transform).a };
+  }
+
+  /* The titles in sight, measured before they give way; those in the air, where they are. */
+  function takeOff(spots) {
+    var air = {};
+    flying.forEach(function (s) { air[s.ref] = Object.assign(measure(s), { aloft: true }); });
+    land();
+    var area = core.clearArea();
+    return spots.map(function (s) { return Object.assign(s, air[s.ref] || measure(s)); }).filter(function (s) {
+      return s.aloft || (s.picAt.bottom > area.top && s.picAt.top < area.bottom);
+    });
+  }
+
+  function land() { if (landing) landing(); }
+
+  /* What the server answers, held while titles are in the air: drawn then, the panel would show
+     them a second time. */
+  function whenLanded(got) {
+    return !landing ? got : new Promise(function (resolve) { waiting.push(function () { resolve(got); }); });
+  }
+
+  function arrive(from) {
+    var flown = fly(from, listSpots, listNode);
+    if (core.reduceMotion()) return;
+    listRows().forEach(function (tr) {
+      if (flown.indexOf(tr) >= 0 || !tr.animate) return;
+      tr.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+        { duration: dur(), delay: fast(), easing: core.token('--ease-out', 'ease-out'), fill: 'backwards' });
+    });
+  }
+
+  /* Carry the poster and the name of each title from where it was to where *spots()* has it now,
+     in *box*, which is itself still moving in. Returns the rows that were carried. */
+  function fly(from, spots, box) {
+    if (!box.animate) return [];
+    if (core.reduceMotion()) {
+      box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: fast() });
+      return [];
+    }
+    var m = new DOMMatrix(getComputedStyle(box).transform);
+    var air = el('div', 'space-flight');
+    air.setAttribute('aria-hidden', 'true');
+    var area = core.clearArea();
+    air.style.clipPath = 'inset(' + area.top + 'px 0 ' + (window.innerHeight - area.bottom) + 'px)';
+    var pairs = [];
+    spots().forEach(function (to) {
+      var was = from.filter(function (f) { return f.ref === to.ref; })[0];
+      if (was) pairs.push([was, to]);
+    });
+    if (!pairs.length) return [];
+    var shades = [];
+    var aloft = [];
+
+    function carry(node, was, now, scale, delay) {
+      node.classList.add('space-flight__it');
+      Object.assign(node.style, { left: now.left - m.m41 + 'px', top: now.top - m.m42 + 'px', width: Math.ceil(now.width) + 'px' });
+      air.append(node);
+      node.animate([
+        { transform: 'translate(' + (was.left - now.left + m.m41) + 'px, ' + (was.top - now.top + m.m42) + 'px) scale(' + scale + ')' },
+        { transform: 'none' }
+      ], { duration: slow(), delay: delay, easing: core.token('--ease-out', 'ease-out'), fill: 'backwards' });
+    }
+
+    pairs.forEach(function (pair, i) {
+      var was = pair[0];
+      var to = pair[1];
+      var look = getComputedStyle(to.pic);
+      var picNow = to.pic.getBoundingClientRect();
+      var nameNow = to.name.getBoundingClientRect();
+      var img = was.pic.querySelector('img');
+      var pic = el('span', 'space-flight__pic');
+      if (img && img.naturalWidth) {
+        var copy = el('img');
+        copy.alt = '';
+        copy.src = img.src;
+        pic.append(copy);
+      }
+      // A lazy picture would come only after its place was shown.
+      var there = to.pic.querySelector('img');
+      if (there) there.loading = 'eager';
+      pic.style.height = picNow.height + 'px';
+      pic.style.borderRadius = look.borderRadius;
+      var delay = was.aloft ? 0 : i * 12;
+      carry(pic, was.picAt, picNow, was.picAt.width / picNow.width, delay);
+
+      look = getComputedStyle(to.name);
+      var name = el('span', 'space-flight__name', to.name.textContent);
+      ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'color'].forEach(function (k) { name.style[k] = look[k]; });
+      // A name of one line in a box that cuts it, as the panel's is.
+      if (look.whiteSpace === 'nowrap') name.classList.add('space-flight__name--cut');
+      carry(name, was.nameAt, nameNow, was.size / parseFloat(look.fontSize), delay);
+      aloft.push({ ref: to.ref, pic: pic, name: name });
+      shades.push(was.pic, was.name, to.pic, to.name);
+    });
+
+    shades.forEach(function (n) { n.style.opacity = '0'; });
+    document.body.append(air);
+    var ENDS = ['wheel', 'touchmove', 'keydown', 'resize'];
+    var timer = setTimeout(end, slow() + pairs.length * 12);
+    function end(e) {
+      // Back on the keyboard is pressed with one of these: the titles turn round where they are.
+      if (e && (e.altKey || e.metaKey || e.ctrlKey) && e.type === 'keydown') return;
+      landing = null;
+      flying = [];
+      clearTimeout(timer);
+      ENDS.forEach(function (type) { window.removeEventListener(type, end); });
+      air.remove();
+      shades.forEach(function (n) { n.style.opacity = ''; });
+      // Not before what ended it has had its turn: it can have taken off again.
+      setTimeout(function () { if (!landing) waiting.splice(0).forEach(function (go) { go(); }); }, 0);
+    }
+    ENDS.forEach(function (type) { window.addEventListener(type, end, { passive: true }); });
+    landing = end;
+    flying = aloft;
+    return pairs.map(function (pair) { return pair[1].row; });
+  }
 
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var from = e.target.closest('[data-space-open]');
-    if (from) openPanel(from.getAttribute('data-space-open'), from, !e.detail);
+    var all = e.target.closest('.space-all');
+    if (all) seeAll(all, e);
+    else if (from) openPanel(from.getAttribute('data-space-open'), from, !e.detail);
     else if (isOpen && e.target.closest('[data-space-close]')) closePanel();
   });
 
@@ -555,6 +767,7 @@
   function setTab(name, focus) {
     var ahead = TABS.indexOf(name) > TABS.indexOf(tab) ? 1 : -1;
     var moved = name !== tab;
+    if (moved) stay();
     TABS.forEach(function (k) {
       var on = k === name;
       tabButton(k).setAttribute('aria-selected', on ? 'true' : 'false');
@@ -684,6 +897,7 @@
   function focusKey(node) {
     var k = node.getAttribute('data-k');
     if (k) return '.' + node.classList[0] + '[data-k="' + k + '"]';
+    if (node.classList.contains('space-all')) return '.space-layer:not([inert]) .space-all';
     return node.classList.contains('space-back') ? '.space-layer:not([inert]) .space-back' : '';
   }
 
@@ -819,6 +1033,7 @@
       });
       b.addEventListener('click', function () {
         clearTimeout(enterTimer);
+        stay();
         pinned = !(pinned && act === k);
         if (pinned) { activate(k); markPin(); } else activate(null);
       });
@@ -918,12 +1133,15 @@
 
   /* The heaviest titles of *k* came, or could not be had. */
   function heavyCame(k) {
+    // Drawn anew when the panel is next opened.
+    if (!isOpen) drawn = '';
     if (!isOpen || !Z.stage || !Z.stage.isConnected) return;
     if (act === k) {
       var back = Z.stage.querySelector('.space-layer:not([inert]) .space-back');
       var had = back && document.activeElement && Z.stage.contains(document.activeElement);
       stage(0);
-      if (had) focusBack();
+      var now = document.activeElement;
+      if (had && (!Z.stage.contains(now) || now.closest('[inert]'))) focusBack();
     } else if (!act) {
       peek(Z.stage.querySelector('.space-layer:not([inert]) .space-peek[data-k="' + k + '"]'), k);
     }
@@ -938,6 +1156,7 @@
   function collapse() {
     var seg = segOf(act);
     var row = act;
+    stay();
     pinned = false;
     activate(null);
     if (seg) {
@@ -1080,6 +1299,7 @@
     var all = el('a', 'space-all');
     all.href = '/watch?view=list&type=' + TYPES[k].list + '&sort=size_desc';
     h.append(add(all, document.createTextNode('See all ' + total + ' by size'), MM.dom.icon('i-chevron-right')));
+    if (going && going.href === all.href) all.setAttribute('aria-busy', 'true');
   }
 
   function notes(l, k) {
@@ -1102,30 +1322,46 @@
   }
 
   /* One list to the next: each slot keeps its place and its bar runs on from
-     where it was. */
+     where it was. A title in both moves to its new slot. */
   function morph(k) {
     var l = Z.stage.querySelector('.space-layer:not([inert])');
     var list = l.querySelector('.space-heavy');
     var items = heavy[k].items;
     var max = heaviestOf(k);
     var slots = toArray(list.children).filter(function (li) { return !li.inert; });
+    var bars = slots.map(function (li) { return scaleOf(li.lastElementChild.querySelector('.space-line__fill')); });
+    var active = document.activeElement;
+    var stays = {};
+    slots.forEach(function (li) {
+      var a = li.querySelector('a.space-heavy__row:not([inert])');
+      var ref = a && a.getAttribute('data-title-ref');
+      if (a && items.some(function (item) { return item.ref === ref; })) stays[ref] = a;
+    });
+    var play = core.flip(Object.keys(stays).map(function (ref) { return stays[ref]; }));
     for (var i = 0; i < Math.max(slots.length, items.length); i++) {
       var li = slots[i];
+      var row = items[i] && stays[items[i].ref];
+      toArray(li ? li.children : []).forEach(function (r) {
+        if (r.inert || stays[r.getAttribute('data-title-ref')] === r) return;
+        r.classList.add('is-old');
+        if (items[i]) fadeOut(r);
+      });
       if (!items[i]) { fadeOut(li); continue; }
       if (!li) { li = el('li', 'space-heavy__slot'); list.append(li); }
-      var rows = toArray(li.children);
-      var was = rows.length ? scaleOf(rows[rows.length - 1].querySelector('.space-line__fill')) : 0;
-      rows.forEach(function (r) {
-        if (r.inert) return;
-        r.classList.add('is-old');
-        fadeOut(r);
-      });
-      var row = heavyRow(k, items[i], max);
-      li.append(row);
-      anim(row, [{ opacity: 0 }, { opacity: 1 }], dur());
+      var fresh = heavyRow(k, items[i], max);
+      if (row) {
+        // Its poster stays: a new one would come only once it has loaded.
+        row.replaceChildren.apply(row, [row.firstElementChild].concat(toArray(fresh.children).slice(1)));
+      } else {
+        row = fresh;
+      }
+      if (row.parentNode !== li) li.append(row);
+      if (row === fresh) anim(row, [{ opacity: 0 }, { opacity: 1 }], dur());
       var fill = row.querySelector('.space-line__fill');
-      anim(fill, [{ transform: 'scaleX(' + was + ')' }, { transform: 'scaleX(' + fill.style.getPropertyValue('--share') + ')' }], slow());
+      anim(fill, [{ transform: 'scaleX(' + (bars[i] || 0) + ')' }, { transform: 'scaleX(' + fill.style.getPropertyValue('--share') + ')' }], slow());
     }
+    if (active.isConnected && list.contains(active)) active.focus({ preventScroll: true });
+    play();
     headLine(l.querySelector('.space-back-line'), k);
     notes(l, k);
   }
@@ -1437,6 +1673,7 @@
       var to = watch.keep.fromRow(card, card.closest('[data-watch-leaving-row]'), shown, '[data-watch-keep]').focus;
       if (had && to) core.focusSoftly(to);
     });
+    toArray(document.querySelectorAll('.watch-card[data-leaving-id]')).forEach(function (card) { watch.keep.seasonsLeaving(card, ids); });
     toArray(document.querySelectorAll('.watch-card[data-keep-id]')).forEach(function (card) {
       var badge = card.querySelector('.watch-badge--leaving');
       if (!badge || ids[idOf(card)] || card.closest('[data-watch-leaving-row]')) return;

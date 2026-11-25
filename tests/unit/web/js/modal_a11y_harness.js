@@ -45,6 +45,8 @@ function page() {
     Array, Math, Date, performance, WeakMap, parseFloat, Promise, matchMedia: () => ({ matches: true }),
   });
   ctx.window = ctx;
+  const onWindow = [];
+  ctx.addEventListener = (t, fn) => onWindow.push(fn);
   ['core/dom.js', 'core/modal.js', 'modal-a11y.js', 'ui-feedback.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   ctx.MM.dom.holdPage = () => () => {};
   $('opener').focus();
@@ -53,7 +55,7 @@ function page() {
     doc, $, ctx, focused,
     key(key, extra) {
       const e = { key, defaultPrevented: false, preventDefault() { e.defaultPrevented = true; }, ...extra };
-      (doc.listeners.keydown || []).slice().forEach((fn) => fn(e));
+      (doc.listeners.keydown || []).concat(onWindow).forEach((fn) => fn(e));
       return e.defaultPrevented;
     },
     inert: () => doc.documentElement.descendants().filter((n) => n.inert).map((n) => n.id || n.className),
@@ -75,6 +77,26 @@ const scenarios = {
     const open = p.inert();
     p.key('Escape');
     return { before, open, closed: p.inert(), focused: p.focused() };
+  },
+  // Tab in a menu over a dialog, whose own handler gives the focus back to its button.
+  menuOver() {
+    const p = page();
+    const m = p.setup('low');
+    m.open();
+    p.$('undo').focus();
+    p.doc.addEventListener('keydown', () => p.$('low-no').focus());
+    p.key('Tab');
+    return p.focused();
+  },
+  // A dialog's button, off screen by the time it closes.
+  scrolls() {
+    const p = page();
+    const m = p.setup('low');
+    m.open();
+    let how = null;
+    p.$('opener').focus = (o) => { how = o; };
+    m.close();
+    return how;
   },
   // A dialog that stands inside the page's main part, opened twice.
   inside() {

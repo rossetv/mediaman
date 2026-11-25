@@ -501,6 +501,14 @@ def test_the_keep_dialog_of_a_list_row_picks_the_season_whose_date_the_row_shows
     assert out["past"].endswith("leaves any day")
 
 
+def test_the_keep_dialog_holds_the_room_of_keeps_only_for_a_show_that_has_one() -> None:
+    assert _run("keepRoom") == {
+        "kept": [True, True],
+        "none": [False, False],
+        "since": [False, True],
+    }
+
+
 def test_a_keep_changes_only_by_the_button_of_its_own_season() -> None:
     out = _run("keepChanged")
     assert out["only"] == {"s1": True, "s2": False, "all": False}
@@ -796,3 +804,120 @@ def test_setting_all_seasons_leaves_a_longer_keep_that_is_a_seasons_own() -> Non
 
 def test_ctrl_z_reaches_the_undo_of_an_admin_keep_made_in_details() -> None:
     assert _run("keepToastDialog") == ["ttl", None]
+
+
+def test_an_undo_is_announced_as_it_is_pressed_though_it_waits_for_a_save() -> None:
+    assert _run("undoAnnouncedAtOnce") == ["busy"]
+
+
+def test_a_dialog_button_clicked_without_the_focus_keeps_the_focus_in_the_dialog() -> None:
+    assert _run("clickedUnfocused") == {
+        "keep": "keep-season-list",
+        "asked": "keep-season-list",
+        "cancelled": "keep-dialog-remove",
+    }
+
+
+def test_only_the_last_keep_change_of_a_title_has_a_toast() -> None:
+    assert _run("oneKeepToast") == [
+        ["Kept Copperline for 7 days."],
+        ["Removed the keep on Copperline."],
+        ["Kept Copperline for 90 days."],
+        ["Kept Copperline forever."],
+        ["Kept Copperline forever.", "Kept Other forever."],
+    ]
+
+
+def test_a_delete_refused_as_kept_shows_the_keep_on_its_row() -> None:
+    out = _run("deleteRefusedAsKept")
+    assert out["kept"] == {"reads": 1, "kept": True, "busy": False, "errors": 1}
+    assert out["delete_refused"] == {"reads": 0, "kept": False, "busy": False, "errors": 1}
+
+
+BY_SIZE = ["push", "/watch?view=list&type=movie&sort=size_desc"]
+
+
+def test_going_to_the_list_changes_nothing_until_it_is_in_then_shows_it_at_its_top() -> None:
+    out = _run("goWhenIn")
+    before, after = out["before"], out["after"]
+    assert (before["list"], before["browse"], before["history"]) == (False, True, [])
+    assert (after["list"], after["history"], after["rows"]) == (True, [BY_SIZE], ["id:m9", "id:m1"])
+    assert (after["focus"], after["said"]) == ("Big", "35 movies")
+    assert after["scrolls"][0] == 0
+    assert (after["told"], after["skeleton"]) == (["leave", "arrive"], 0)
+
+
+def test_going_to_the_list_brings_none_of_the_rows_it_had_before() -> None:
+    out = _run("goOverOld")
+    assert (out["rows"], out["parts"]) == (["id:m9", "id:m1"], 1)
+    assert out["said"] == "35 movies"
+
+
+def test_a_list_slow_to_come_is_gone_to_with_its_skeleton_and_told_once_in() -> None:
+    out = _run("goSlow")
+    slow, after = out["slow"], out["after"]
+    assert (slow["list"], slow["skeleton"], slow["history"]) == (True, 1, [BY_SIZE])
+    assert (slow["on"], slow["busy"], slow["said"]) == ("watch-list", 1, "Loading the list.")
+    assert (after["rows"], after["focus"]) == (["id:m9", "id:m1"], "Big")
+    assert (after["said"], after["told"], after["history"]) == ("35 movies", ["leave"], [BY_SIZE])
+
+
+def test_a_list_that_cannot_be_had_is_left_to_what_led_to_it() -> None:
+    out = _run("goFails")
+    assert (out["told"], out["list"], out["history"]) == (["fail"], False, [])
+    assert out["errors"] == []
+
+
+def test_a_list_that_cannot_be_had_leaves_the_one_on_view_usable() -> None:
+    out = _run("goFails")["over"]
+    assert (out["told"], out["busy"], out["errors"]) == (["fail"], 0, [])
+    assert out["rows"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_a_slow_list_that_fails_and_is_tried_again_keeps_the_focus_and_says_where_it_is() -> None:
+    out = _run("goSlowFails")
+    assert (out["failed"]["said"], out["failed"]["on"]) == ("", "watch-list")
+    assert (out["trying"]["said"], out["trying"]["on"]) == ("Loading the list.", "watch-list")
+    assert out["after"]["focus"] == "Big"
+
+
+def test_calling_off_a_list_leaves_the_one_asked_for_since_to_come() -> None:
+    assert _run("goReplaced")["rows"] == ["id:s9"]
+
+
+def test_a_list_gone_to_at_once_waits_with_the_focus_and_says_so() -> None:
+    out = _run("goAtOnce")
+    before, after = out["before"], out["after"]
+    assert (before["history"], before["on"], before["said"]) == (
+        [BY_SIZE],
+        "watch-list",
+        "Loading the list.",
+    )
+    assert after["focus"] == "Big"
+
+
+def test_a_list_gone_to_after_a_delete_says_what_is_left() -> None:
+    assert _run("goAfterDelete")["said"] == "34 movies"
+
+
+def test_a_view_turned_back_while_it_fades_goes_on_from_how_far_it_was() -> None:
+    assert _run("turnedBack") == [["watch-browse", 0.3, 0], ["watch-list", 0.6, 1]]
+
+
+def test_going_to_the_list_can_be_called_off_until_it_is_in() -> None:
+    out = _run("goCalledOff")
+    rows, shown = out["rows"], out["list"]
+    assert (rows["told"], rows["list"], rows["history"]) == ([], False, [])
+    assert (shown["told"], shown["history"]) == ([], [])
+    assert shown["rows"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_going_from_the_list_to_another_list_moves_the_address_once_that_is_in() -> None:
+    out = _run("goFromList")
+    assert out["before"]["history"] == []
+    assert (out["after"]["history"], out["after"]["rows"]) == ([BY_SIZE], ["id:m9", "id:m1"])
+    assert out["scrolls"] == [0]
+
+
+def test_back_from_the_list_puts_the_page_at_its_scroll_as_the_views_change() -> None:
+    assert _run("backScrolls") == {"during": [500, True], "first": True}
