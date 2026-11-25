@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import math
 import secrets
 import threading
@@ -12,7 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from mediaman.services.rate_limit.limiters import _bucket_key
+from mediaman.services.rate_limit.ip_resolver import unmap_ipv4
 
 CODE_SECONDS = 300.0
 MAX_OPEN = 100
@@ -26,9 +27,21 @@ class Asked:
     token_hash: str
     #: The TV's row, where it was paired when it asked.
     tv_id: int | None
-    #: The block of addresses it asked from.
-    block: str
+    #: The block of addresses it asked from, within the wider one a single line may hold.
+    block: tuple[str, str]
     expires: float
+
+
+def _block(address: str) -> tuple[str, str]:
+    try:
+        ip = unmap_ipv4(ipaddress.ip_address(address))
+    except ValueError:
+        return address, address
+    wide, narrow = (48, 64) if ip.version == 6 else (16, 24)
+    return (
+        str(ipaddress.ip_network(f"{ip}/{wide}", strict=False)),
+        str(ipaddress.ip_network(f"{ip}/{narrow}", strict=False)),
+    )
 
 
 class PairingCodes:
@@ -53,8 +66,9 @@ class PairingCodes:
     def issue(self, token_hash: str, tv_id: int | None, address: str) -> str:
         """Return a new code for the TV; a paired TV's last one ends.
 
-        Past the limit the oldest code of the addresses that have the most open gives way, so that
-        whoever asks for many ends their own first and keeps nobody from pairing.
+        Past the limit the oldest code of the block of addresses that has the most open, within the
+        line that has, gives way, so that whoever asks for many ends their own first and keeps
+        nobody from pairing.
         """
         with self._lock:
             self._prune()
@@ -64,12 +78,14 @@ class PairingCodes:
                     for key, a in self._open.items()
                     if a.tv_id != tv_id or key in self._claimed
                 }
-            block = _bucket_key(address)
+            block = _block(address)
             if len(self._open) >= MAX_OPEN:
                 # Kept in the order they were asked for in.
                 may_go = {k: a.block for k, a in self._open.items() if k not in self._claimed}
+                lines = Counter(line for line, _ in [*may_go.values(), block])
+                may_go = {k: b for k, b in may_go.items() if lines[b[0]] == max(lines.values())}
                 held = Counter([*may_go.values(), block])
-                most = max(held.values())
+                most = max((held[b] for b in may_go.values()), default=0)
                 oldest = next((k for k, b in may_go.items() if held[b] == most), None)
                 if oldest is not None:
                     del self._open[oldest]

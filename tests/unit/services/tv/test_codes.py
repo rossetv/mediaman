@@ -82,7 +82,7 @@ def test_whoever_asks_for_many_codes_ends_their_own_and_nobody_elses(store, monk
     monkeypatch.setattr(codes, "MAX_OPEN", 5)
     mine = store.issue("mine", None, HOME)
     first = store.issue("a", None, "198.51.100.1")
-    others = [store.issue(f"b{n}", None, f"203.0.{n}.1") for n in range(3)]
+    others = [store.issue(f"b{n}", None, f"203.{n}.0.1") for n in range(3)]
     theirs = [store.issue(f"c{n}", None, f"198.51.100.{n}") for n in range(2)]
     assert store.look(first) is None
     assert store.look(theirs[0]) is None, "its second, of a block that has the most"
@@ -90,9 +90,45 @@ def test_whoever_asks_for_many_codes_ends_their_own_and_nobody_elses(store, monk
         assert store.look(code) is not None
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        [f"2001:db8:7:{n:x}::1" for n in range(8)],
+        [f"198.51.{n}.1" for n in range(8)],
+        [f"::ffff:198.51.{n}.1" for n in range(8)],
+    ],
+    ids=["IPv6", "IPv4", "IPv4 in IPv6"],
+)
+def test_one_lines_many_blocks_end_their_own_codes_first(store, monkeypatch, line):
+    monkeypatch.setattr(codes, "MAX_OPEN", 4)
+    mine = store.issue("mine", None, HOME)
+    other = store.issue("other", None, "2001:db8:8::1")
+    theirs = [store.issue(f"c{n}", None, address) for n, address in enumerate(line)]
+    for code in (mine, other, *theirs[-2:]):
+        assert store.look(code) is not None
+    assert [c for c in theirs if store.look(c) is not None] == theirs[-2:]
+
+
+def test_homes_behind_a_listener_of_both_kinds_are_not_taken_for_one_line(store, monkeypatch):
+    monkeypatch.setattr(codes, "MAX_OPEN", 3)
+    mine = store.issue("mine", None, f"::ffff:{HOME}")
+    for n in range(4):
+        store.issue(f"c{n}", None, f"::ffff:198.51.100.{n}")
+    assert store.look(mine) is not None
+
+
+def test_within_a_line_the_block_with_the_most_open_gives_way(store, monkeypatch):
+    monkeypatch.setattr(codes, "MAX_OPEN", 4)
+    neighbour = store.issue("n", None, "2001:db8:7:1::1")
+    many = [store.issue(f"c{n}", None, f"2001:db8:7:2::{n}") for n in range(3)]
+    store.issue("new", None, "2001:db8:7:2::9")
+    assert store.look(neighbour) is not None
+    assert store.look(many[0]) is None
+
+
 def test_with_every_place_taken_by_as_many_addresses_a_new_code_is_still_given(store, monkeypatch):
     monkeypatch.setattr(codes, "MAX_OPEN", 3)
-    first, *rest = [store.issue(f"a{n}", None, f"203.0.{n}.1") for n in range(3)]
+    first, *rest = [store.issue(f"a{n}", None, f"203.{n}.0.1") for n in range(3)]
     new = store.issue("new", None, HOME)
     assert store.look(first) is None
     for code in (*rest, new):
