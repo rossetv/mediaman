@@ -532,7 +532,7 @@ class TestDownloadRecommendationSuccess:
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is False
-        assert "Radarr" in body["error"]
+        assert "set up for movies" in body["error"]
 
     def test_sonarr_not_configured_returns_error(self, authed_client, app):
         conn = app.state.db
@@ -544,7 +544,7 @@ class TestDownloadRecommendationSuccess:
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is False
-        assert "Sonarr" in body["error"]
+        assert "set up for shows" in body["error"]
 
     def test_radarr_http_409_treated_as_already_exists(self, authed_client, app):
         """A 409 SafeHTTPError from Radarr is surfaced as an 'already exists' error.

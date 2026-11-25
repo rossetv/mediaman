@@ -922,10 +922,11 @@ const scenarios = {
 
   // All titles, opened by its address or from the search, has no row to go back to.
   async closesToTheLink() {
-    const end = (opts, how) => {
+    const end = (opts, how, linkAt) => {
       const p = load(opts);
       p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }, ['input', { id: 'watch-search' }]]));
       if (opts.link) p.browse.appendChild(build(p.doc, ['p', {}, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']]));
+      if (linkAt) p.doc.querySelector('.watch-all-link').getBoundingClientRect = () => ({ left: 0, right: 100, top: linkAt, bottom: linkAt + 20, width: 100, height: 20 });
       p.grid.open(p.opts({ id: 'library', row: () => null, ...how }));
       p.doc.activeElement.blur();
       p.grid.close();
@@ -933,7 +934,21 @@ const scenarios = {
     };
     const from = { fromSearch: true };
     return { mouse: end({ link: true }, {}), touch: end({ link: true, touch: true }, {}), search: end({ link: true }, from),
-      searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}) };
+      searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}), below: end({ link: true }, {}, 3000) };
+  },
+
+  // Opened by its address there is no place to go back to but where the link stands.
+  async backToTheLink() {
+    const end = (motion) => {
+      const p = load({ motion });
+      const link = p.browse.appendChild(build(p.doc, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']));
+      link.getBoundingClientRect = () => ({ left: 20, right: 120, top: 3000 - win.y, bottom: 3020 - win.y, width: 100, height: 20 });
+      p.grid.open(p.opts({ id: 'library', row: () => null, instant: true }));
+      p.grid.close();
+      p.finish();
+      return [win.y, p.focus()];
+    };
+    return { still: end(false), moving: end(true) };
   },
 
   // With no heading on the screen to come from or go to, the title fades alone.

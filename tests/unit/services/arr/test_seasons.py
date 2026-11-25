@@ -76,6 +76,17 @@ def test_a_show_just_added_whose_episodes_are_not_counted_is_not_called_unaired(
     assert show_seasons(series, {}, {}).states[1].status == "asked"
 
 
+def test_a_show_just_added_still_has_its_seasons_to_come_by_tmdbs_dates():
+    series = {"id": 9, "monitored": True, "seasons": [_season(1), _season(2, monitored=True)]}
+
+    states = show_seasons(series, {}, {1: "2099-01-01", 2: "2099-06-01"}).states
+
+    assert [(states[n].status, states[n].asked) for n in (1, 2)] == [
+        ("not_out", False),
+        ("not_out", True),
+    ]
+
+
 @pytest.mark.parametrize(
     "odd",
     [

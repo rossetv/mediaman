@@ -1116,6 +1116,8 @@
     });
   }
 
+  function allLink() { return toArray(browse.querySelectorAll('.watch-all-link')).filter(shownNow)[0] || null; }
+
   function placeFromLink(opts) {
     var back = arriving();
     if (back) {
@@ -1124,13 +1126,13 @@
         return { node: s, left: (section && back.rows[section.getAttribute('data-row-id')]) || 0 };
       }) };
     }
-    var row = rowOf(opts);
-    if (!row) return { y: 0, lefts: [], focus: null };
+    var to = rowOf(opts) || (opts.id === 'library' && allLink());
+    if (!to) return { y: 0, lefts: [], focus: null };
     var keep = window.scrollY;
     dom.all.style.display = 'none';
     unpin(browse);
     scrollPage(0);
-    var r = row.getBoundingClientRect();
+    var r = to.getBoundingClientRect();
     var y = Math.max(0, r.top - (window.innerHeight - r.height) / 2);
     dom.all.style.display = '';
     scrollPage(keep);
@@ -1558,7 +1560,7 @@
 
   /* The card the person was on, if the row shows it; else what had the focus
      when the grid opened; else the row's heading. All titles has no row: the search it was
-     opened from, or the link to it. */
+     opened from, or the link to it where that is in sight; nothing that is not takes it. */
   function focusRows(opts, key) {
     var row = rowOf(opts);
     say('Back to all rows.');
@@ -1576,7 +1578,12 @@
     if (to && (!shownNow(to) || to.matches('a:not([href])'))) to = null;
     if (!to && row) to = row.querySelector('.watch-row__title a[href]') || row.querySelector('.watch-row__scroll');
     if (!to && opts.fromSearch && !core.coarsePointer()) to = core.spareFocus();
-    if (!to) to = toArray(browse.querySelectorAll('.watch-all-link')).filter(shownNow)[0] || core.spareFocus();
+    if (!to && opts.id === 'library') {
+      var link = allLink();
+      var at = link && link.getBoundingClientRect();
+      to = at && at.bottom > 0 && at.top < window.innerHeight ? link : core.byId('main-content');
+    }
+    if (!to) to = core.spareFocus();
     if (to) to.focus({ preventScroll: true });
   }
 

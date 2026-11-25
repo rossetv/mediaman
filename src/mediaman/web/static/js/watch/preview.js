@@ -831,7 +831,7 @@
     if (!d.download) return null;
     var state = stateOf(p);
     if (state) return pill(state);
-    if (d.sonarr_tracked) return pill('In Sonarr');
+    if (d.sonarr_tracked) return pill('Already added');
     var seasons = wanted(d);
     if (seasons && !seasons.length) return pill('In library');
     if (!d.download.request) return null;

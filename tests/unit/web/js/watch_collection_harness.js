@@ -214,6 +214,11 @@ const scenarios = {
     return { row: !!p.q('.coll'), get: p.get() };
   },
 
+  async unavailable() {
+    const p = await asked({ name: 'X', films: [film(2), film(1, { why_not: 'unavailable' })] });
+    return p.doc.querySelectorAll('.coll-out p').map((n) => n.textContent);
+  },
+
   async confirm() {
     const p = await asked();
     const out = { open: p.isOpen(), rows: p.rows(), boxes: p.doc.querySelectorAll('.coll-item input').map((b) => b.checked),
@@ -242,8 +247,8 @@ const scenarios = {
   async partial() {
     const p = await asked();
     await p.press(p.go());
-    await p.answer(0, new APIError(409, "'Film 2' is already in Radarr"));
-    await p.answer(1, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(0, new APIError(409, "'Film 2' has already been added"));
+    await p.answer(1, new APIError(502, "It didn't work"));
     await p.answer(2);
     const out = { rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent, left: p.get() };
     await p.press(p.go());
@@ -366,7 +371,7 @@ const scenarios = {
     const look = (i) => { const row = p.doc.querySelectorAll('.coll-item')[i]; return [!!row.querySelector('.btn-spinner'), row.classList.contains('is-locked'), row.querySelector('input').disabled]; };
     await p.press(p.go());
     const adding = look(0);
-    await p.answer(0, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(0, new APIError(502, "It didn't work"));
     const failed = look(0);
     await p.answer(1); await p.answer(2);
     return { adding, failed, after: look(0) };
@@ -458,14 +463,14 @@ const scenarios = {
     const spins = !!p.doc.querySelectorAll('.coll-item')[0].querySelector('.btn-spinner');
     await p.press(p.q('.coll-dialog .btn--ghost'));
     await p.answer(0);
-    await p.answer(1, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(1, new APIError(502, "It didn't work"));
     await p.answer(2);
     await p.press(p.q('.coll__get'));
     const out = { spins, rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent };
     await p.press(p.go());
     out.ids = ids(p);
     await p.press(p.q('.coll-dialog .btn--ghost'));
-    await p.answer(3, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(3, new APIError(502, "It didn't work"));
     // Meanwhile it is got another way, and one of those added is taken out.
     p.told(3);
     p.clock.now += 120000;

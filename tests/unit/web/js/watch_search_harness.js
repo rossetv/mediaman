@@ -2151,16 +2151,54 @@ async function between(width) {
 scenarios.barBetween = async () => ({ wide: await between(1280), tablet: await between(768) });
 // On a phone a figure cut short would say another one.
 scenarios.barCutFigure = async () => {
-  const at = (needs, has) => {
+  const at = (needs, has, alone = needs) => {
     const observed = [];
     const p = load(ADMIN, '', null, undefined, { width: 320, observed });
     const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
-    Object.defineProperty(free, 'scrollWidth', { value: needs });
+    const bar = p.doc.querySelector('.wbar');
+    Object.defineProperty(free, 'scrollWidth', { get: () => (bar.classList.contains('is-snug') ? alone : needs) });
     Object.defineProperty(free, 'clientWidth', { value: has });
     observed.forEach((fn) => fn());
-    return p.doc.querySelector('.wbar').classList.contains('is-tight');
+    return ['is-snug', 'is-tight'].map((name) => bar.classList.contains(name));
   };
-  return [at(90, 90), at(90, 20)];
+  return { fits: at(90, 90), figureFits: at(90, 60, 58), neither: at(90, 20, 58) };
+};
+// What the meter's words need, as the page is turned and as they change.
+scenarios.barRefits = async () => {
+  const start = (width) => {
+    const observed = [];
+    const p = load(ADMIN, '', null, undefined, { width, observed });
+    const at = { needs: 90, has: 90 };
+    const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
+    Object.defineProperty(free, 'scrollWidth', { get: () => at.needs });
+    Object.defineProperty(free, 'clientWidth', { get: () => at.has });
+    Object.defineProperty(p.$('brand'), 'offsetWidth', { value: 100 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: 600 });
+    const look = () => ['is-snug', 'is-tight'].map((name) => p.doc.querySelector('.wbar').classList.contains(name));
+    observed.forEach((fn) => fn());
+    return { p, at, look };
+  };
+  const turned = start(844);
+  const out = { wide: turned.look() };
+  // WebKit tells of the new size before it says the page is a phone's.
+  turned.at.has = 20;
+  turned.p.fire('resize');
+  turned.p.ctx.innerWidth = 390;
+  turned.p.fire('width');
+  out.upright = turned.look();
+  turned.at.has = 90;
+  turned.p.fire('resize');
+  turned.p.ctx.innerWidth = 844;
+  turned.p.fire('width');
+  out.sideways = turned.look();
+  const words = start(320);
+  words.at.needs = 120;
+  words.p.mutate();
+  out.grown = words.look();
+  words.at.needs = 80;
+  words.p.mutate();
+  out.shorter = words.look();
+  return out;
 };
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {

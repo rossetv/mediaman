@@ -60,12 +60,10 @@
   .space-meter .space-meter__bar { flex-shrink: 99; width: 36px; min-width: 18px; } /* it gives way before the words */
   .space-meter .space-meter__skel { width: 80px; }
 }
+/* Without room "1.2 TB free" is "1.2 TB", and then the bar alone; never a figure cut short. */
+.wbar.is-snug .space-meter__word { display: none; }
 .wbar.is-tight .space-meter > :is(.space-meter__free, .space-meter__leaving) { display: none; }
 .wbar.is-tight .space-meter { min-width: 0; }
-@media (max-width: 699.98px) { .wbar.is-tight .space-meter__warn ~ .space-meter__info { display: none; } }
-@media (max-width: 359.98px) {
-  .space-meter--off:has(> .space-meter__warn):has(> .space-meter__info) .space-meter__word { display: none; }
-}
 @media (max-width: 339.98px) {
   .space-meter { gap: 6px; padding: 0 6px; }
   .space-meter .space-meter__bar { width: 28px; }

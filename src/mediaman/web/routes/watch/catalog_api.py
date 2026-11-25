@@ -457,6 +457,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "episodes": [],
         "more_seasons": [],
         "seasons_pending": False,
+        "also_starts": [],
         "seasons_request": None,
         "download": None,
         "tmdb_configured": tmdb_configured,

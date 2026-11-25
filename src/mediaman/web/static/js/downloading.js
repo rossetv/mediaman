@@ -82,7 +82,7 @@
   function failed(err) {
     if (err && (err.status === 401 || err.status === 403)) {
       ended = true;
-      lose({ signedOut: true });
+      lose({ signedOut: err.status === 401 });
       return;
     }
     failures += 1;

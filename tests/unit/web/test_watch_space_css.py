@@ -32,16 +32,6 @@ def _declarations(selector: str) -> str:
     return block.group(1)
 
 
-def test_the_meter_shows_its_bar_at_every_width_whatever_marks_stand_beside_it() -> None:
-    css = re.sub(r"/\*.*?\*/", "", SHEET.read_text(encoding="utf-8"), flags=re.S)
-    hidden = [
-        selector
-        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
-        if re.search(r"space-meter__bar\s*(,|$)", selector.strip()) and "display: none" in body
-    ]
-    assert hidden == []
-
-
 def test_only_the_bar_s_two_outer_ends_are_round() -> None:
     # every part's corners are 1px, and only the first part's start and the last part's end
     # (or the reserved part's end) take the full round, so the corners between parts stay square

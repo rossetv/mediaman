@@ -369,7 +369,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__note a::after { content: ""; position: absolute; inset: -14px -6px; }
 .ttl__note-ok { color: var(--success); }
 .ttl__error { display: flex; align-items: baseline; gap: 10px; font-size: 14px; color: var(--danger-text); }
-.ttl__error[inert] { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.ttl__error[inert],
+.ttl__note[inert] { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .ttl__error > .ico { flex: none; }
 .ttl__error > span { min-width: 0; overflow-wrap: anywhere; }
 .ttl__retry { flex: none; min-height: 44px; padding: 0 4px; color: var(--accent); font-weight: 500; }
@@ -433,9 +434,15 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-pick__go[aria-disabled="true"] { opacity: .5; cursor: default; }
 .season-pick.has-ask .season-pick__foot { min-height: 44px; }
 .season-pick__out:empty { display: none; }
+/* To its own opacity, which is less while nothing is picked. */
+.season-pick__go.fade-in { animation-name: season-go-in; }
+@keyframes season-go-in { from { opacity: 0; transform: translateY(4px); } }
 /* Once what is below has made room for them. */
 .season-pick__why.fade-in,
-.season-pick__out > .fade-in { animation-delay: var(--dur); animation-fill-mode: backwards; }
+.season-pick__out > .fade-in,
+.ttl__under > .fade-in { animation-delay: var(--dur); animation-fill-mode: backwards; }
+.season-pick__out > p,
+.ttl__under > .ttl__error { scroll-margin: 80px 0 16px; }
 .season-pick__summary strong { color: var(--t1); font-weight: 500; }
 .season-chip {
   display: grid;
@@ -467,7 +474,6 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-chip[aria-disabled="true"] { background: transparent; border-color: var(--hair-strong); color: var(--t2); cursor: default; transform: none; }
 .season-chip[aria-disabled="true"] .season-chip__box { background: transparent; border-color: transparent; color: transparent; font-size: 14px; }
 .season-chip[data-state="held"] .season-chip__box { background: var(--success); border-color: var(--success); color: #00210b; font-size: 10px; }
-.season-chip[data-state="some"] .season-chip__box { border-color: var(--success); color: var(--success); font-size: 10px; }
 .season-chip[data-state="coming"] .season-chip__box { color: var(--accent); }
 .season-chip[data-state="queued"] .season-chip__box { color: var(--warning); }
 .season-chip[data-icon="i-lock"] .season-chip__box { color: var(--t3); }
@@ -729,12 +735,16 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   /* The note under the button, which it never moves. */
   .season-pick__words { display: contents; }
   .season-pick__summary { flex: 1 0 100%; }
+  .has-ask.has-starts .season-pick__summary { min-height: 2lh; }
   .season-pick__why { order: 1; flex: 1 0 100%; }
   .season-pick__go { width: 100%; }
   .season-pick.has-ask .season-pick__foot { min-height: calc(54px + 1lh); align-content: start; }
 }
 
-@media (max-width: 379.98px) { .has-ask .season-pick__summary { min-height: 2lh; } }
+@media (max-width: 379.98px) {
+  .has-ask .season-pick__summary { min-height: 2lh; }
+  .has-ask.has-starts .season-pick__summary { min-height: 3lh; }
+}
 
 /* The eye alone beside an episode, without its word: its filled ring says it. */
 @media (max-width: 899.98px) {
@@ -796,6 +806,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
   .ttl__sheet,
   .ttl__scrim { transition: opacity var(--dur) linear !important; }
+  .season-pick__why.fade-in,
+  .season-pick__out > .fade-in,
+  .ttl__under > .fade-in { animation-delay: 0s; }
   .ttl .watch-eprow,
   .ttl .watch-eprow:hover,
   .ttl .watch-eprow:has(> .watch-ep:active),

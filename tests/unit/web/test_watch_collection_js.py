@@ -79,6 +79,10 @@ def test_nothing_is_offered_where_none_is_missing() -> None:
     assert _run("noneMissing") == {"row": True, "get": None}
 
 
+def test_a_film_that_cannot_be_checked_is_left_out_in_plain_words() -> None:
+    assert _run("unavailable") == ["Can’t be checked right now: Film 1"]
+
+
 def test_the_dialog_lists_what_is_missing_and_says_what_is_left_out_and_why() -> None:
     out = _run("confirm")
     assert out["open"] is True
@@ -124,8 +128,8 @@ def test_each_film_added_is_told_to_the_page_as_a_single_download_is() -> None:
 def test_a_failure_is_told_at_its_film_and_only_that_one_is_tried_again() -> None:
     out = _run("partial")
     assert out["rows"] == [
-        "Film 2: 2002 · Already in Radarr",
-        "Film 3: 2003 · Failed to add to Radarr",
+        "Film 2: 2002 · Already added",
+        "Film 3: 2003 · It didn't work",
         "Film 4: 2004 · Queued",
     ]
     assert out["said"] == "2 of 3 films are queued. 1 was not."
@@ -252,7 +256,7 @@ def test_what_failed_is_still_told_when_the_dialog_is_opened_again() -> None:
     assert out["spins"] is True
     assert out["rows"] == [
         "Film 2: 2002 · Queued",
-        "Film 3: 2003 · Failed to add to Radarr",
+        "Film 3: 2003 · It didn't work",
         "Film 4: 2004 · Queued",
     ]
     assert (out["said"], out["go"]) == (

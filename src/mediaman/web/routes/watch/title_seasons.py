@@ -92,7 +92,10 @@ def fill_season_status(
         )
     # A view not built yet, unlike one Sonarr gave no answer for, is there when asked for again.
     out["seasons_pending"] = arr.generation is None
-    if tmdb_id is None:
+    # An admin is told before they ask; a viewer may not ask.
+    if is_admin and sonarr is not None and not sonarr.monitored:
+        out["also_starts"] = sorted(sonarr.wanted)
+    if tmdb_id is None or "sonarr" in arr.not_set_up:
         return
     body = {"media_type": "tv", "tmdb_id": tmdb_id, "title": out["title"]}
     out["seasons_request"] = (

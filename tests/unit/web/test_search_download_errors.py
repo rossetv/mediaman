@@ -108,7 +108,7 @@ def test_radarr_not_configured_sends_its_sentence_as_message(authed_client):
         resp = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=11))
     assert resp.status_code == 503
     body = resp.json()
-    assert body["error"] == "Radarr not configured"
+    assert body["error"] == "Downloads aren't set up for movies"
     assert body["message"] == body["error"]
 
 
