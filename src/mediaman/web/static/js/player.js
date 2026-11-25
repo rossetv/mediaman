@@ -1680,7 +1680,8 @@
   function togglePlay(byButton) {
     if (onTv()) return;
     if (shown(els.message)) {
-      if (tryAgain) tryAgain();
+      /* A card came by itself: a press meant for the picture is not for it. */
+      if (tryAgain && (byButton || els.messageActs.hidden)) tryAgain();
       return;
     }
     if (aimS !== null) land();

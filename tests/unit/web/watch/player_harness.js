@@ -5058,6 +5058,8 @@ const scenarios = {
     await settle();
     p.tick(60000);
     await settle();
+    key(' ');
+    await settle();
     const out = Object.assign(awayState(p), { starts: p.starts().length, stopped: p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body.position_s).pop() });
     click(p.q('[data-retry]'));
     await settle();
