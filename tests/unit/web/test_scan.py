@@ -218,9 +218,16 @@ class TestScanErrorStatus:
                 {"failed_reason": "no library could be read from Plex"},
                 {"status": "error", "reason": "no library could be read from Plex"},
             ),
+            (
+                {"failed_reason": "no library was scanned: check the disk limits in Settings"},
+                {
+                    "status": "error",
+                    "reason": "no library was scanned: check the disk limits in Settings",
+                },
+            ),
             ({}, {}),
         ],
-        ids=["some left out", "none read", "all read"],
+        ids=["some left out", "none read", "no disk limit read", "all read"],
     )
     def test_status_says_what_the_scan_left_out(
         self, app_factory, authed_client, conn, db_path, summary, expected

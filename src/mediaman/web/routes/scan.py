@@ -20,7 +20,7 @@ from mediaman.db import (
     start_scan_run,
 )
 from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
-from mediaman.scanner.runner import SCAN_FAILED_NO_LIBRARY
+from mediaman.scanner.runner import SCAN_FAILED_DISK_LIMITS, SCAN_FAILED_NO_LIBRARY
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 from mediaman.services.media_meta._plex_session import _scrub_plex_token
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
@@ -138,7 +138,10 @@ def scan_status(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     if row is None or (row["status"] == "done" and not row["error"]):
         return {"running": False}
     reason = row["error"]
-    if row["status"] == "error" and reason != SCAN_FAILED_NO_LIBRARY:
+    if row["status"] == "error" and reason not in (
+        SCAN_FAILED_DISK_LIMITS,
+        SCAN_FAILED_NO_LIBRARY,
+    ):
         # The stored error text can be an exception message; show a fixed one.
         reason = "see the server log for details"
     return {"running": False, "status": row["status"], "reason": reason}
