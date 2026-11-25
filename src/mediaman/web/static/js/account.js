@@ -1,19 +1,19 @@
 /**
  * Profile page — change-password and email forms, and the list of sign-ins.
  *
- * Requires: core/api.js (MM.api), core/reauth.js (MM.reauth).
+ * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth).
  * The strength meter and match hint of the password form are password-strength.js.
  */
 (function () {
   'use strict';
 
-  function renderApiError(target, err) {
-    var msg = MM.api.messageOf(err, 'Something went wrong. Try again.');
-    var issues = err && err.issues;
+  function wordsOf(err) { return MM.api.messageOf(err, 'Something went wrong. Try again.'); }
+
+  function showReason(target, text, issues) {
     target.textContent = '';
     if (issues && issues.length) {
       var p = document.createElement('div');
-      p.textContent = msg;
+      p.textContent = text;
       target.appendChild(p);
       var ul = document.createElement('ul');
       ul.className = 'inline-form-issues';
@@ -24,7 +24,7 @@
       });
       target.appendChild(ul);
     } else {
-      target.textContent = msg;
+      target.textContent = text;
     }
   }
 
@@ -38,21 +38,9 @@
   // On a narrow phone a status wraps under its button, where the bottom bar may cover it.
   function reveal(result) { result.scrollIntoView({ block: 'nearest' }); }
 
-  // Whether the reader is still where they pressed, so a late answer does not pull the page back.
-  // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
-  function stillAt(result, scope) {
-    var at = document.activeElement;
-    if (!scope.contains(at) && !at.contains(scope)) return false;
-    var root = document.documentElement;
-    var bars = getComputedStyle(root);
-    var box = result.getBoundingClientRect();
-    return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
-      box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
-  }
-
   // Say an answer in a status, which the new words may make taller.
   function answer(result, scope, text, tone) {
-    var there = stillAt(result, scope);
+    var there = MM.dom.stillAt(result, scope);
     result.className = 'inline-form-msg ' + tone;
     result.textContent = text;
     if (there) reveal(result);
@@ -64,19 +52,23 @@
     var submit = document.getElementById('account-submit-password');
     if (!form || !result || !submit) return;
 
-    // The message is announced by the status region; the cursor goes where the fix is.
-    function fail(text, fieldId) {
-      result.className = 'inline-form-msg err';
-      result.textContent = text;
-      document.getElementById(fieldId).focus();
-      reveal(result);
+    // On a short phone the form is taller than the screen, so the reason is said beside its field.
+    function fail(fieldId, text, issues, onlySay) {
+      clear();
+      var why = document.getElementById(fieldId + '-why');
+      if (!why) { why = result; why.className = 'inline-form-msg err'; }
+      showReason(why, text, issues);
+      if (!onlySay) MM.dom.refuse(document.getElementById(fieldId), why);
+    }
+    function clear() {
+      result.className = 'inline-form-msg';
+      result.textContent = '';
+      form.querySelectorAll('.fld-why').forEach(function (why) { why.textContent = ''; });
     }
 
     // A message about what was typed goes once the person types again; a send keeps its message.
     form.addEventListener('input', function () {
-      if (isBusy(submit) || !result.textContent) return;
-      result.className = 'inline-form-msg';
-      result.textContent = '';
+      if (!isBusy(submit)) clear();
     });
 
     form.addEventListener('submit', function (e) {
@@ -85,12 +77,12 @@
       var oldPw = document.getElementById('account-old-password').value;
       var newPw = document.getElementById('account-new-password').value;
       var conf = document.getElementById('account-confirm-password').value;
-      if (!oldPw) { fail('Enter your current password.', 'account-old-password'); return; }
-      if (newPw.length < 12) { fail('New password must be at least 12 characters.', 'account-new-password'); return; }
-      if (newPw !== conf) { fail("Passwords don't match.", 'account-confirm-password'); return; }
+      if (!oldPw) { fail('account-old-password', 'Enter your current password.'); return; }
+      if (newPw.length < 12) { fail('account-new-password', 'New password must be at least 12 characters.'); return; }
+      if (newPw !== conf) { fail('account-confirm-password', "Passwords don't match."); return; }
 
+      clear();
       setBusy(submit, true);
-      result.className = 'inline-form-msg';
       result.textContent = 'Updating…';
       reveal(result);
       MM.reauth.run(function () {
@@ -106,17 +98,14 @@
         reloadSessions();
       }).catch(function (err) {
         setBusy(submit, false);
-        if (err && err.error === 'reauth_cancelled') {
-          result.className = 'inline-form-msg';
-          result.textContent = '';
+        var code = err && err.error;
+        if (code === 'reauth_cancelled') { clear(); return; }
+        if (code === 'wrong_password' || code === 'weak_password' || code === 'same_password') {
+          var there = MM.dom.stillAt(result, form);
+          fail(code === 'wrong_password' ? 'account-old-password' : 'account-new-password', wordsOf(err), err.issues, !there);
           return;
         }
-        result.className = 'inline-form-msg err';
-        renderApiError(result, err);
-        document.getElementById(
-          err && err.error === 'wrong_password' ? 'account-old-password' : 'account-new-password'
-        ).focus();
-        reveal(result);
+        answer(result, form, wordsOf(err), 'err');
       });
     });
   }
@@ -152,9 +141,9 @@
       }).catch(function (err) {
         setBusy(submit, false);
         if (err && err.error === 'reauth_cancelled') { say(''); return; }
+        var there = MM.dom.stillAt(result, form);
         say(MM.api.messageOf(err, 'Could not save. Try again.'), 'err');
-        input.focus();
-        reveal(result);
+        if (there) MM.dom.refuse(input, result);
       });
     });
   }
@@ -187,7 +176,15 @@
         list.textContent = '';
         live.forEach(function (s) {
           var li = document.createElement('li');
-          li.appendChild(line('profile-session-when', 'Signed in ' + when(s.created_at)));
+          var signedIn = line('profile-session-when', 'Signed in ' + when(s.created_at));
+          if (s.current) {
+            signedIn.appendChild(document.createTextNode(' '));
+            var here = document.createElement('span');
+            here.className = 'profile-session-here';
+            here.textContent = 'This device';
+            signedIn.appendChild(here);
+          }
+          li.appendChild(signedIn);
           li.appendChild(line('profile-session-used', 'Last active ' + when(s.last_used_at || s.created_at)));
           list.appendChild(li);
         });

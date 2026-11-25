@@ -8,7 +8,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#000">
   <title>{% block title %}Mediaman{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="48x48" href="/static/icons/favicon.png?v={{ static_v }}">
+  <link rel="icon" type="image/svg+xml" href="/static/icons/favicon.svg?v={{ static_v }}">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png?v={{ static_v }}">
   <!-- CSS is split into per-concern fragments under static/css/.
        Order: tokens first, then _base.css (reset + layout primitives),
        then concern-specific files. Cascade follows source order, so
@@ -21,6 +25,7 @@
   <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_nav.css?v={{ static_v }}">
+  <link rel="stylesheet" href="/static/css/_foot.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_buttons.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tiles.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_hero.css?v={{ static_v }}">
@@ -50,10 +55,13 @@
 <body data-page="{{ nav_active or '' }}">
   {% include "_icons.html" %}
   <a class="skip-link" href="#main-content">Skip to content</a>
-  {% block nav %}{% endblock %}
+  {% set nav %}{% block nav %}{% endblock %}{% endset %}
+  {{ nav }}
   <main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
+  {# Not on the player, nor on the pages of nobody signed in: those have no nav and fill the screen. #}
+  {% block foot %}{% if nav %}{% include "_foot.html" %}{% endif %}{% endblock %}
   {% block overlays %}{% endblock %}
 </body>
 </html>

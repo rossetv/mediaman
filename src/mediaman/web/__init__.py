@@ -65,9 +65,9 @@ def _parse_allowed_hosts(raw: str | None) -> list[str]:
 def register_security_middleware(app: FastAPI) -> None:
     # Order matters: add_middleware is LIFO — the last call added is the
     # outermost middleware.  Execution order (outermost → innermost):
-    #   TrustedHost: hostile Host: header rejected at the door.
-    #   SecurityHeaders: wraps everything below so even 413 / 403 error
+    #   SecurityHeaders: wraps everything below so even 400 / 413 / 403 error
     #     responses from inner middlewares carry the security headers.
+    #   TrustedHost: hostile Host: header rejected before anything else reads it.
     #   BodySizeLimit: caps the body before inner middlewares spend cycles
     #     on a multi-gigabyte upload.
     #   Obscure405: rewrites /api/* 405 → 401 before CSRF sees the response.
@@ -83,17 +83,17 @@ def register_security_middleware(app: FastAPI) -> None:
     # SecurityHeaders (BaseHTTPMiddleware) is outermost of the two.
     # Starlette's add_middleware is LIFO — last added is outermost.
     # With this ordering the execution chain is:
-    #   TrustedHost → SecurityHeaders → BodySizeLimit → Obscure405 → CSRF → ForcePasswordChange
+    #   SecurityHeaders → TrustedHost → BodySizeLimit → Obscure405 → CSRF → ForcePasswordChange
     #     → ViewerGuard
     # SecurityHeaders wraps BodySizeLimit via call_next, so 413 responses
     # (emitted directly by BodySizeLimit's raw ASGI send) are captured by
     # BaseHTTPMiddleware and have the security headers added before egress.
     app.add_middleware(BodySizeLimitMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)
 
     raw_allowed_hosts = os.environ.get("MEDIAMAN_ALLOWED_HOSTS", "")
     allowed_hosts = _parse_allowed_hosts(raw_allowed_hosts)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    app.add_middleware(SecurityHeadersMiddleware)
     if allowed_hosts == ["*"]:
         # The default of ``*`` keeps the door open for operators who
         # haven't yet pinned a hostname, but a Host-header attacker

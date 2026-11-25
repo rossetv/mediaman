@@ -109,7 +109,7 @@ class TestLoginSubmit:
             client.post("/login", data={"username": "admin", "password": "wrong"})
 
         resp = client.post("/login", data={"username": "admin", "password": "wrong"})
-        assert resp.status_code == 200
+        assert resp.status_code == 429
         ctx = resp.json()
         assert ctx.get("error") is not None
         assert "Too many" in ctx["error"]
@@ -251,8 +251,6 @@ class TestLoginRateLimitHeaders:
             client.post("/login", data={"username": "admin", "password": "wrong"})
 
         resp = client.post("/login", data={"username": "admin", "password": "wrong"})
-        # The response is rendered through the template stub so status is 200,
-        # but the rate-limit branch must still set Retry-After.
         assert "retry-after" in {h.lower() for h in resp.headers}
         assert int(resp.headers["retry-after"]) > 0
 

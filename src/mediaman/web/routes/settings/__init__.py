@@ -13,7 +13,9 @@ this module object.
 from __future__ import annotations
 
 import logging
+from functools import cache
 from typing import cast
+from zoneinfo import available_timezones
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -124,6 +126,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: The regions of the zones named after a place; the other names are older ones for the same zones.
+_ZONE_REGIONS = (
+    "Africa/",
+    "America/",
+    "Antarctica/",
+    "Arctic/",
+    "Asia/",
+    "Atlantic/",
+    "Australia/",
+    "Europe/",
+    "Indian/",
+    "Pacific/",
+)
+
+
+@cache
+def _timezones() -> list[str]:
+    return sorted(zone for zone in available_timezones() if zone.startswith(_ZONE_REGIONS))
+
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> Response:
@@ -162,6 +183,7 @@ def settings_page(request: Request) -> Response:
             "nav_active": "settings",
             "settings": settings,
             "plex_libraries_selected": plex_libraries_selected,
+            "timezones": _timezones(),
         },
     )
 

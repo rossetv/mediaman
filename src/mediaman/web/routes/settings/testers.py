@@ -55,6 +55,9 @@ TEST_CACHE_TTL_SECONDS = 120.0
 TEST_CACHE: dict[str, tuple[float, dict[str, object], int]] = {}
 _TEST_CACHE_LOCK = threading.Lock()
 
+#: How often each service's settings were written, so a test that began before a write is not kept.
+_TEST_GENERATIONS: dict[str, int] = {}
+
 #: Registry mapping service name → test callable.
 TESTERS: dict[str, Callable[[dict[str, object]], JSONResponse]] = {}
 
@@ -306,12 +309,23 @@ def cache_get(service: str) -> tuple[dict[str, object], int] | None:
         return payload, status_code
 
 
-def cache_put(service: str, payload: dict[str, object], status_code: int = 200) -> None:
+def cache_generation(service: str) -> int:
+    """Return what `cache_put` takes; read it before the settings the test is of."""
+    with _TEST_CACHE_LOCK:
+        return _TEST_GENERATIONS.get(service, 0)
+
+
+def cache_put(
+    service: str, payload: dict[str, object], status_code: int = 200, *, generation: int
+) -> None:
     """Cache a successful result with the status it was sent with. A failure is never
-    cached, so the next press of Test checks the service again."""
+    cached, so the next press of Test checks the service again; nor is a result whose
+    settings have been written since *generation*."""
     if payload.get("ok") is not True:
         return
     with _TEST_CACHE_LOCK:
+        if generation != _TEST_GENERATIONS.get(service, 0):
+            return
         TEST_CACHE[service] = (
             time.monotonic() + TEST_CACHE_TTL_SECONDS,
             payload,
@@ -326,3 +340,4 @@ def invalidate_test_cache_for_keys(written_keys: set[str]) -> None:
         for service, keys in SERVICE_TESTER_KEYS.items():
             if keys & written_keys:
                 TEST_CACHE.pop(service, None)
+                _TEST_GENERATIONS[service] = _TEST_GENERATIONS.get(service, 0) + 1

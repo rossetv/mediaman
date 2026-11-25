@@ -185,14 +185,15 @@ class TestDiskUsageAPI:
         assert "error" in resp.json()
 
     def test_rejects_path_outside_allowlist(self, app_factory, authed_client, conn):
-        """Paths outside the allow-list are refused with a generic 404 (not 403)
-        so the endpoint cannot be used as a path-existence oracle."""
+        """A path outside the allow-list is refused the same way whether or not it
+        exists, so the endpoint cannot be used as a path-existence oracle."""
         client = _client(app_factory, authed_client, conn)
 
-        resp = client.get("/api/settings/disk-usage?path=/nonexistent")
-        assert resp.status_code == 404
-        assert resp.json().get("error") == "not_found"
-        assert resp.json().get("message") == "Folder not found."
+        missing = client.get("/api/settings/disk-usage?path=/nonexistent")
+        there = client.get("/api/settings/disk-usage?path=/usr")
+        assert missing.status_code == there.status_code == 403
+        assert missing.json() == there.json()
+        assert missing.json().get("error") == "not_allowed"
 
     def test_returns_error_for_nonexistent_allowlisted_path(
         self, app_factory, authed_client, conn, monkeypatch
@@ -237,7 +238,7 @@ class TestDiskUsageAPI:
         assert len(calls) == 1
 
     def test_rejects_symlink_path(self, app_factory, authed_client, conn, tmp_path, monkeypatch):
-        """A path that is or contains a symlink is rejected with a generic 404."""
+        """A path that is or contains a symlink is refused, and not called missing."""
         # Create a real dir inside an allowed root candidate, then a symlink to it.
         real_dir = tmp_path / "real"
         real_dir.mkdir()
@@ -249,8 +250,8 @@ class TestDiskUsageAPI:
         client = _client(app_factory, authed_client, conn)
 
         resp = client.get(f"/api/settings/disk-usage?path={link}")
-        assert resp.status_code == 404
-        assert resp.json().get("error") == "not_found"
+        assert resp.status_code == 403
+        assert resp.json().get("error") == "not_allowed"
 
     def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""

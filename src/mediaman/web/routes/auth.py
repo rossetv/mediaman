@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import sqlite3
 from typing import cast
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
@@ -24,6 +25,7 @@ from mediaman.web.auth.password_hash import (
     user_must_change_password,
 )
 from mediaman.web.auth.password_policy import is_strong
+from mediaman.web.auth.return_path import safe_return_path
 from mediaman.web.auth.session_store import (
     create_session,
     destroy_session,
@@ -36,7 +38,7 @@ from mediaman.web.responses import respond_err
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-# Login bucket: 5 attempts per 5 minutes per /24 IPv4 block (or /64 IPv6).
+# Login bucket: 5 failures per 5 minutes per /24 IPv4 block (or /64 IPv6).
 # CGNAT lumps ~250 customers behind a single /24, so a 60-second window
 # would cap legitimate concurrent attempts at one per 12 seconds across
 # the whole pool.  A 300-second window keeps the bucket large enough that
@@ -50,6 +52,8 @@ router = APIRouter()
 # a legitimate user is never locked out for the full window.
 _LOGIN_RATE_WINDOW_SECONDS = 300
 _limiter = RateLimiter(max_attempts=5, window_seconds=_LOGIN_RATE_WINDOW_SECONDS)
+# Good sign-ins, which the bucket above does not keep: each costs a password hash and a session.
+_success_limiter = RateLimiter(max_attempts=60, window_seconds=_LOGIN_RATE_WINDOW_SECONDS)
 
 # Audit-log usernames are stored verbatim in the ``actor`` column for
 # operator-friendly grep, but the ``detail`` blob is rendered into the
@@ -72,21 +76,24 @@ def login_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
-def _render_rate_limited(request: Request, username: str) -> Response:
-    """Re-render the login form with the throttle message and a Retry-After hint. The value is
-    an upper bound: the actual unblock is sliding-window.
-    """
+def _render_rate_limited(
+    request: Request, username: str, limiter: RateLimiter, reason: str
+) -> Response:
+    """Re-render the login form with how long to wait, said in a Retry-After header too."""
+    wait = limiter.retry_after(get_client_ip(request))
+    minutes = math.ceil(wait / 60)
     templates = cast(Jinja2Templates, request.app.state.templates)
     response: Response = templates.TemplateResponse(
         request,
         "login.html",
         {
-            "error": "Too many attempts. Try again later.",
+            "error": f"{reason} Try again in {minutes} minute{'' if minutes == 1 else 's'}.",
             # Only the posted username comes back (the template escapes it); never the password.
             "username": username,
         },
     )
-    response.headers["Retry-After"] = str(_LOGIN_RATE_WINDOW_SECONDS)
+    response.status_code = 429
+    response.headers["Retry-After"] = str(wait)
     return response
 
 
@@ -154,14 +161,27 @@ def login_submit(
     request: Request,
     username: str = Form(default=""),
     password: str = Form(default=""),
+    next_page: str = Query(default="", alias="next"),
 ) -> Response:
     client_ip = get_client_ip(request)
-    if not _limiter.check(client_ip):
-        return _render_rate_limited(request, username)
+    # Counted before the check, so that guesses sent at once cannot all slip under the limit;
+    # a success takes back its own count only.
+    attempt = _limiter.reserve(client_ip)
+    if attempt is None:
+        return _render_rate_limited(request, username, _limiter, "Too many attempts.")
+    # Before the check too, so that a refusal here says nothing about the password.
+    success = _success_limiter.reserve(client_ip)
+    if success is None:
+        _limiter.release(client_ip, attempt)
+        return _render_rate_limited(
+            request, username, _success_limiter, "Too many sign-ins from this network."
+        )
 
     conn = get_db()
     if not authenticate(conn, username, password, client_ip=client_ip):
+        _success_limiter.release(client_ip, success)
         return _handle_failed_login(conn, username, client_ip, request)
+    _limiter.release(client_ip, attempt)
 
     user_agent = request.headers.get("user-agent", "")
     weak_password = _flag_weak_password(conn, username, password, client_ip)
@@ -182,7 +202,8 @@ def login_submit(
         # UA cannot pollute the audit row.
         detail={"ua_hash": _ua_hash(user_agent), "force_rotation": weak_password},
     )
-    response = RedirectResponse(LANDING_PATH, status_code=302)
+    target = safe_return_path(next_page) or LANDING_PATH
+    response = RedirectResponse(target, status_code=302)
     set_session_cookie(response, token, secure=is_request_secure(request))
     return response
 

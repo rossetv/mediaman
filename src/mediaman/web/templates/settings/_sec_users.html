@@ -14,16 +14,18 @@
     <form class="inline-form inline-form--two setg-fold" id="add-user-form" novalidate hidden>
       <div class="setg-fold-inner">
         <div class="inline-form-grid">
-          <label class="fld">
-            <span class="fld-lbl">Username</span>
-            <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false">
-          </label>
-          <label class="fld">
-            <span class="fld-lbl">Password</span>
-            <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength" data-show-password>
+          <div class="fld">
+            <label class="fld-lbl" for="new-username">Username</label>
+            <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false" aria-describedby="new-username-why">
+            <span class="fld-why" id="new-username-why" role="status"></span>
+          </div>
+          <div class="fld">
+            <label class="fld-lbl" for="new-user-password">Password</label>
+            <input class="inp" type="password" id="new-user-password" autocomplete="new-password" aria-describedby="new-user-password-why" data-strength="new-user-strength" data-show-password>
             <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
+            <span class="fld-why fld-why--caption" id="new-user-password-why" role="status"></span>
             <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
-          </label>
+          </div>
         </div>
         <div class="fld">
           <span class="fld-lbl" id="new-user-role-lbl">Role</span>

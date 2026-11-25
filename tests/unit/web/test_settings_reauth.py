@@ -12,6 +12,7 @@ import pytest
 from mediaman.services.rate_limit.instances import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
+from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.routes.settings import SECRET_FIELDS, SENSITIVE_KEYS, router
 
 
@@ -92,6 +93,27 @@ class TestSensitiveSettingsRequireReauth:
         assert resp.status_code == 403
         row = conn.execute("SELECT value FROM settings WHERE key = 'sonarr_url'").fetchone()
         assert row is None
+
+    def test_no_address_is_looked_up_for_a_save_without_reauth(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
+        looked_up = []
+
+        def refuse(url):
+            looked_up.append(url)
+            return False
+
+        monkeypatch.setattr("mediaman.web.routes.settings.core.is_safe_outbound_url", refuse)
+        body = {"sonarr_url": "https://sonarr.example.com"}
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
+        resp = client.put("/api/settings", json=body)
+        assert (resp.status_code, resp.json()["error"]) == (403, "reauth_required")
+        assert looked_up == []
+
+        grant_recent_reauth(conn, client.cookies["session_token"], "admin")
+        resp = client.put("/api/settings", json=body)
+        assert (resp.status_code, resp.json()["error"]) == (400, "ssrf_blocked")
+        assert looked_up == [body["sonarr_url"]]
 
     def test_base_url_change_without_reauth_is_403(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn, with_reauth=False)

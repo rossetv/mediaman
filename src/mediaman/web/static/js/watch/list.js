@@ -27,9 +27,10 @@
 
   var _view = list.hidden ? 'rows' : 'list';
   var _request = 0;   // the newest list fetch; older replies are dropped
+  var _drawn = 0;     // how many of them have been drawn
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _again = false; // what is scheduled changed while a list was loading
-  var _stale = false; // an admin action changed the library while the list was hidden
+  var _stale = false; // the library changed and the list could not show it, so it is read again when next shown
   var _working = Object.create(null); // the admin actions still running, by the key of their row
 
   /* ── State and addresses ── */
@@ -213,6 +214,7 @@
   list.parentNode.insertBefore(status, list.nextSibling);
 
   /* Show the list for *state*. opts.quiet: nobody asked for it, so it is not told.
+     opts.told: nor is its failure, the one before it was.
      opts.history: 'push' or 'replace' to move
      the address along once the list is in, so a failed load leaves it as
      it was; opts.focus: what to focus once it is in. */
@@ -229,6 +231,7 @@
     return fetchList(state).then(function (fresh) {
       if (request !== _request) return;
       _asked = null;
+      _drawn++;
       _stale = false;
       // Left for the rows meanwhile: the address is theirs.
       if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
@@ -239,7 +242,12 @@
     }, function () {
       if (request !== _request) return;
       _asked = null;
-      showFailure(state);
+      if (!opts.told) showFailure(state);
+      else if (root()) root().removeAttribute('aria-busy');
+      if (!_again) return;
+      if (_view === 'list' && root()) { reload({ told: true }); return; }
+      _again = false;
+      _stale = true;
     });
   }
 
@@ -331,9 +339,11 @@
   /* opts.history: 'push' when the switch was a click, null when the
      address already says where to go (Back and Forward). */
   function setView(view, opts) {
+    // What a row has asked or opened must not outlive it, over a page that would have the focus.
+    if (opts.history === null && window.ModalA11y) window.ModalA11y.closeFrom(list);
     var state = opts.state;
     if (view === _view) {
-      if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history });
+      if (view === 'list' && state && !same(state, wanted())) load(state, { history: opts.history, focus: sameControl });
       if (view === 'list' && state) sayText(state.q)();
       return;
     }
@@ -409,16 +419,48 @@
     return (action === 'delete' ? deleteButton(row) : row.querySelector('.keep-trigger')) || firstAction(row);
   }
 
-  function focusWasIn(row) {
+  /* Where the focus goes in a row: to what *action* starts from, or the title while that is held. */
+  function focusTarget(row, action) {
+    var btn = actionButton(row, action);
+    if (btn && !btn.disabled) return btn;
+    var title = row.querySelector('a.wl-title');
+    if (!title) row.tabIndex = -1;
+    return title || row;
+  }
+
+  /* A dialog opened from *row* gives the focus back to *to*. */
+  function handOn(row, to) {
+    if (window.ModalA11y) window.ModalA11y.handOn(function (from) { return row.contains(from) ? to : null; });
+  }
+
+  /* Nothing has the focus, or a toast whose button was pressed, which takes it along as it
+     goes. Not while Details or a dialog is open over the list: the focus is theirs. */
+  function focusIsFree() {
     var active = document.activeElement;
-    return !active || active === document.body || row.contains(active);
+    if (document.documentElement.classList.contains('has-ttl') || document.querySelector('.wl-dialog.active')) return false;
+    return !active || active === document.body || !!active.closest('.ui-toast.is-leaving');
+  }
+
+  function focusWasIn(row) {
+    return row.contains(document.activeElement) || focusIsFree();
   }
 
   /* Focus is in the row, or was until the row went busy and disabled the
      focused button (the browser then drops focus to the page). */
   function focusBelongsTo(row) {
-    var active = document.activeElement;
-    return row.contains(active) || (row.classList.contains('is-busy') && (!active || active === document.body));
+    return row.contains(document.activeElement) || (row.classList.contains('is-busy') && focusIsFree());
+  }
+
+  /* The focus of an Undo whose row is not on this page: to the first row in sight, or the
+     filter that shows none. */
+  function focusNearby() {
+    if (_view !== 'list' || !root() || !focusIsFree()) return;
+    var top = core.clearArea().top;
+    var row = rows().filter(function (n) {
+      return !n.matches('.is-busy, .is-leaving') && n.getBoundingClientRect().top >= top;
+    })[0];
+    var target = firstAction(row) || root().querySelector('.fpill.on');
+    if (target) target.focus({ preventScroll: true });
   }
 
   function parseJson(value) {
@@ -438,7 +480,8 @@
       var play = core.flip(below);
       row.remove();
       play();
-      if (hadFocus && next) core.focusSoftly(firstAction(next) || next);
+      if (next) handOn(row, focusTarget(next));
+      if (hadFocus && next) core.focusSoftly(focusTarget(next));
       if (!tbody.querySelector('tr') && !_asked) load(stateOf(root()), {});
     }
     if (core.reduceMotion()) { gone(); return; }
@@ -449,15 +492,14 @@
   /* Put the row as it is now in place of the one showing. */
   function replaceRow(row, next, action) {
     var hadFocus = focusBelongsTo(row);
+    var target = focusTarget(next, action);
     row.replaceWith(next);
+    handOn(row, target);
     if (action === 'keep') {
       var pill = next.querySelector('.keep-trigger');
       if (pill) pill.classList.add('is-just-kept');
     }
-    if (hadFocus) {
-      var target = actionButton(next, action);
-      if (target) target.focus({ preventScroll: true });
-    }
+    if (hadFocus) target.focus({ preventScroll: true });
   }
 
   /* A keep can take a row off this page (kept rows sort last by deletion
@@ -505,11 +547,9 @@
     var r = root();
     if (!r) return Promise.resolve();
     var state = stateOf(r);
-    var request = _request;
-    function current() {
-      var now = root();
-      return request === _request && now && same(state, stateOf(now)) ? now : null;
-    }
+    var drawn = _drawn;
+    // Not once another list was drawn: that one is as new.
+    function current() { return drawn === _drawn ? root() : null; }
     return fetchList(state).then(function (fresh) {
       var now = current();
       if (!now) return;
@@ -527,19 +567,20 @@
         if (action === 'delete') { leave(row); return; }
         rowElsewhere(row).then(function (found) {
           if (!current() || !row.parentNode) return;
-          if (found) replaceRow(row, found, action);
-          else letGo(row, d);
+          if (found) { replaceRow(row, found, action); return; }
+          _stale = true;
+          letGo(row, d);
         });
       });
       /* A page the server moved back (its last row went) is loaded whole once the row has left. */
       if (action === 'delete' && same(state, stateOf(fresh))) refill(now, fresh);
     }, function () {
+      _stale = true;
       keys.forEach(function (key) {
         var row = rowByKey(key);
         if (row) letGo(row, d);
       });
       if (_view === 'list') window.UIFeedback.error("Couldn't refresh the list. Reload to see the change.");
-      else _stale = true;
     });
   }
 
@@ -552,8 +593,9 @@
     if (w && d.keep !== undefined) w.setAttribute('data-keep', JSON.stringify(d.keep));
     if (_working[row.getAttribute('data-row-key')]) return;
     if (d.action === 'keep') markKept(row);
-    var btn = actionButton(row, d.action);
-    if (refocus && btn) btn.focus({ preventScroll: true });
+    var btn = focusTarget(row, d.action);
+    handOn(row, btn);
+    if (refocus) btn.focus({ preventScroll: true });
   }
 
   /* The row as the server draws a kept one: a Kept pill, Kept for its
@@ -600,6 +642,19 @@
     btn.removeAttribute('aria-busy');
   }
 
+  /* Draw the row as busy. The focus of a control that is held now, or of the Undo, waits on its title. */
+  function hold(row) {
+    var mine = _view === 'list' && focusWasIn(row);
+    showWorking(row);
+    var to = focusTarget(row);
+    handOn(row, to);
+    // Not before whatever else answers this has moved it.
+    if (mine) Promise.resolve().then(function () {
+      var active = document.activeElement;
+      if (focusIsFree() || (row.contains(active) && active.disabled)) to.focus({ preventScroll: true });
+    });
+  }
+
   /* Draw the row for the actions still running on it: the control the first of them started
      from says what it is doing and the row's other one is held; with none, both are let go. */
   function showWorking(row) {
@@ -637,15 +692,17 @@
       return;
     }
     if (d.phase === 'busy') {
-      if (row) showWorking(row);
+      if (row) hold(row);
+      else if (d.action === 'unkeep') focusNearby();
       return;
     }
     if (d.phase === 'failed') {
       if (!row) return;
       var refocus = _view === 'list' && !more && focusBelongsTo(row);
       showWorking(row);
-      var btn = actionButton(row, d.action);
-      if (refocus && btn) btn.focus({ preventScroll: true });
+      var btn = focusTarget(row, d.action);
+      if (!more) handOn(row, btn);
+      if (refocus) btn.focus({ preventScroll: true });
       return;
     }
     if (d.action === 'delete' && !d.showRk) {
@@ -656,22 +713,22 @@
     refresh([key], d);
   });
 
-  /* The same control in the list coming in, of the row the focus is in. */
+  /* The same control in the list coming in, of the row the focus is in, or else the filter that is on. */
   function sameControl(fresh) {
     var active = document.activeElement;
+    if (!list.contains(active)) return null;
     var find = focusKey(active);
-    if (find) return find(fresh);
-    var row = list.contains(active) ? active.closest('tr[data-row-key]') : null;
-    if (!row) return null;
-    var next = rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]');
-    return next && (active === deleteButton(row) && deleteButton(next) || firstAction(next));
+    var row = active.closest('tr[data-row-key]');
+    var next = row && (rowByKey(row.getAttribute('data-row-key'), fresh) || fresh.querySelector('tr[data-row-key]'));
+    return (find ? find(fresh) : next && focusTarget(next, active === deleteButton(row) ? 'delete' : null)) ||
+      fresh.querySelector('.fpill.on');
   }
 
   /* The list as it is now, its totals and dates too. */
-  function reload() {
+  function reload(opts) {
     _again = false;
     _stale = true; // until it is in, or the next one that is
-    load(stateOf(root()), { focus: sameControl, quiet: true });
+    load(stateOf(root()), Object.assign({ focus: sameControl, quiet: true }, opts));
   }
 
   document.addEventListener('mm:watch-scheduled', function () {

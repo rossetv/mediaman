@@ -40,6 +40,17 @@
  *     True while focus is inside el or nowhere in particular. Used after a
  *     slow request so a user who has moved on keeps their place.
  *
+ *   MM.dom.inView(el)
+ *     Whether some of el shows between the bars at the top and bottom.
+ *
+ *   MM.dom.stillAt(status, scope)
+ *     Whether the reader is still where they pressed, so a late answer in
+ *     status does not pull the page back.
+ *
+ *   MM.dom.refuse(field, reason)
+ *     Puts the cursor in the field to put right and brings both it and the
+ *     element with its reason into view.
+ *
  *   MM.dom.holdPage()
  *     For a dialog that stops the page scrolling: keeps the room of the page's
  *     scrollbar. Returns the function that lets go.
@@ -83,6 +94,27 @@
     focusStillIn: function (el) {
       var active = document.activeElement;
       return !active || active === document.body || el.contains(active);
+    },
+
+    inView: function (el) {
+      var root = document.documentElement;
+      var bars = getComputedStyle(root);
+      var box = el.getBoundingClientRect();
+      return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
+        box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
+    },
+
+    // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
+    stillAt: function (status, scope) {
+      var at = document.activeElement || document.body;
+      return (scope.contains(at) || at.contains(scope)) && global.MM.dom.inView(status);
+    },
+
+    // Safari scrolls to a focused field only later, which would take the reason out of view again.
+    refuse: function (field, reason) {
+      field.focus({ preventScroll: true });
+      field.scrollIntoView({ block: 'nearest' });
+      reason.scrollIntoView({ block: 'nearest' });
     },
 
     /**

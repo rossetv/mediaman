@@ -138,7 +138,7 @@ class Store[T]:
             raise _bare(error)
         if allow_fetch is not None and not allow_fetch():
             raise Refused(key)
-        return self._fetch_once(key, path, fetch, brief, hold_s, _stamp(cached))
+        return self._fetch_once(key, path, fetch, brief, hold_s, _stamp(cached), stale_s)
 
     def peek(
         self,
@@ -161,7 +161,7 @@ class Store[T]:
         if hit is not None:
             return hit[0]
         if _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch, brief, BACKOFF_S, _stamp(cached))
+            self._refresh(key, path, fetch, brief, BACKOFF_S, _stamp(cached), stale_s)
         return None
 
     def _dir(self) -> Path | None:
@@ -190,7 +190,7 @@ class Store[T]:
         with contextlib.suppress(OSError):
             os.utime(path)
         if age >= fresh_s and _backoff((self.name, key)) is None:
-            self._refresh(key, path, fetch, brief, hold_s, stamp)
+            self._refresh(key, path, fetch, brief, hold_s, stamp, stale_s)
         return (value,)
 
     def _read(self, path: Path) -> tuple[float, T, bytes] | None:
@@ -217,12 +217,13 @@ class Store[T]:
         brief: bool,
         hold_s: float,
         seen: bytes | None,
+        stale_s: float,
     ) -> T:
         flight = (self.name, key)
         while True:
             future, owner = _claim(flight)
             if owner:
-                return self._fill(flight, future, path, fetch, brief, hold_s, seen)
+                return self._fill(flight, future, path, fetch, brief, hold_s, seen, stale_s)
             try:
                 result: T = future.result(BRIEF_WAIT_S if brief else WAIT_S)
             except TimeoutError as exc:
@@ -250,16 +251,23 @@ class Store[T]:
         brief: bool,
         hold_s: float,
         seen: bytes | None,
+        stale_s: float,
     ) -> T:
         """Fetch into the claimed *future* and store the value; the future is always
         settled, so no waiter is left blocked. Nothing is fetched when another fetch, ended
-        before the claim, has stored an entry other than the one *seen* or failed and is held."""
+        before the claim, has stored an entry other than the one *seen* or failed and is held.
+        When nothing was *seen* (a read that failed counts) the entry must also be younger
+        than *stale_s*, else it may be an old one the first read could not reach."""
         try:
             held = _backoff(flight)
             if held is not None:
                 raise _bare(held)
             cached = self._read(path)
-            if cached is not None and cached[2] != seen:
+            if (
+                cached is not None
+                and cached[2] != seen
+                and (seen is not None or cached[0] < stale_s)
+            ):
                 future.set_result(cached[1])
                 return cached[1]
             value = fetch()
@@ -293,6 +301,7 @@ class Store[T]:
         brief: bool,
         hold_s: float,
         seen: bytes | None,
+        stale_s: float,
     ) -> None:
         flight = (self.name, key)
         with _guard:
@@ -309,7 +318,7 @@ class Store[T]:
             if not owner:
                 return
             try:
-                self._fill(flight, future, path, fetch, brief, hold_s, seen)
+                self._fill(flight, future, path, fetch, brief, hold_s, seen, stale_s)
             except Exception:
                 logger.info("Background refresh of a %s cache entry failed", self.name)
 

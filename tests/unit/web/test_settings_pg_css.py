@@ -40,12 +40,16 @@ def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     css = (CSS / "_settings_pg.css").read_text()
 
     def kept(state: str, start: str) -> int:
-        head = f"html:has(.setg-pg .savebar.on{state}) {{ scroll-padding-bottom: "
-        found = re.match(
-            r"(?:calc\()?(\d+)px", css[css.index(head, css.index(start)) + len(head) :]
-        )
+        head = f"html:has(.setg-pg .savebar.on{state}) {{"
+        body = css[css.index(head, css.index(start)) + len(head) :].split("}")[0]
+        found = re.search(r"--savebar-room: (?:calc\()?(\d+)px", body)
         assert found
         return int(found.group(1))
+
+    bar = re.search(r"html:has\(\.setg-pg \.savebar\.on\) \{([^{}]*)\}", css)
+    assert bar and "scroll-padding-bottom: var(--savebar-room)" in bar.group(1)
+    # no other rule sets it to a size of its own
+    assert css.count("scroll-padding-bottom") == 1
 
     # the bar's height with its tab bar, and with the longest message it shows, 44px buttons included
     narrow, either = "@media (max-width: 380px)", ":is(.is-error, .is-partial)"

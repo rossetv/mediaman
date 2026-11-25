@@ -331,6 +331,8 @@ class SessionMetadata(TypedDict):
         Opaque string computed by `_client_fingerprint` at session
         creation.  Empty when fingerprint mode is ``"off"`` or no
         client context was available at creation time.
+    current:
+        Whether this is the session of the token the list was asked for with.
     """
 
     created_at: str | None
@@ -338,11 +340,15 @@ class SessionMetadata(TypedDict):
     last_used_at: str | None
     issued_ip: str | None
     fingerprint: str | None
+    current: bool
 
 
-def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMetadata]:
+def list_sessions_for(
+    conn: sqlite3.Connection, username: str, *, current_token: str | None = None
+) -> list[SessionMetadata]:
+    current_hash = _hash_token(current_token) if current_token else None
     rows = conn.execute(
-        "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint "
+        "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint, token_hash "
         "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",
         (username,),
     ).fetchall()
@@ -358,6 +364,7 @@ def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMe
             last_used_at=r["last_used_at"],
             issued_ip=r["issued_ip"],
             fingerprint=r["fingerprint"],
+            current=current_hash is not None and r["token_hash"] == current_hash,
         )
         for r in rows
     ]

@@ -205,15 +205,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Server", "mediaman")
         # Cache-Control: no-store, private on every authenticated response
         # (API, auth, and HTML pages) so a misconfigured reverse proxy /
-        # CDN cannot serve one user's data to another.  ``/static/``
-        # responses are explicitly excluded — StaticFiles sets its own
-        # caching headers and those files are public by definition.
+        # CDN cannot serve one user's data to another.  ``/static/`` files
+        # are public and set their own caching headers; a refusal there has
+        # none, and is checked again so a file that comes later is seen.
         # ``setdefault`` means any handler that deliberately sets its own
         # Cache-Control is left untouched (e.g. poster proxy endpoints
         # that want a longer cache lifetime).
         path = request.url.path
-        if not path.startswith("/static/"):
-            response.headers.setdefault("Cache-Control", "no-store, private")
+        response.headers.setdefault(
+            "Cache-Control", "no-cache" if path.startswith("/static/") else "no-store, private"
+        )
         if _should_emit_hsts(request):
             header = (
                 _HSTS_HEADER_PRELOAD

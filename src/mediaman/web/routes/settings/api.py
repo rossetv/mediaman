@@ -46,7 +46,13 @@ from mediaman.services.infra import (
 from mediaman.services.infra.settings_reader import get_setting
 from mediaman.services.infra.storage.disk_reads import settings_disk_reads
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
+    SETTINGS_AUTO_TEST_LIMITER as _SETTINGS_AUTO_TEST_LIMITER,
+)
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
+from mediaman.services.rate_limit.instances import (
+    SETTINGS_UNTICKETED_LIMITER as _SETTINGS_UNTICKETED_LIMITER,
+)
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
@@ -91,6 +97,9 @@ from mediaman.web.routes.settings.testers import (
     TESTERS as _SERVICE_TESTERS,
 )
 from mediaman.web.routes.settings.testers import (
+    cache_generation as _cache_generation,
+)
+from mediaman.web.routes.settings.testers import (
     cache_get as _cache_get,
 )
 from mediaman.web.routes.settings.testers import (
@@ -99,6 +108,7 @@ from mediaman.web.routes.settings.testers import (
 from mediaman.web.routes.settings.testers import (
     invalidate_test_cache_for_keys as _invalidate_test_cache_for_keys,
 )
+from mediaman.web.routes.users.rate_limits import too_many
 
 logger = logging.getLogger(__name__)
 
@@ -130,15 +140,35 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
     return JSONResponse(settings)
 
 
-def _settings_write_throttled(
-    request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict[str, object]
-) -> JSONResponse | None:
-    """Return a 429 response if the admin has exhausted the write budget, else None. A
-    settings.write.throttled audit event is recorded first so a hit cap is visible in the
-    log.
+def _needs_reauth(
+    conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
+) -> bool:
+    """Return whether the save changes a sensitive key without a recent reauth ticket. One
+    sensitive key is enough, so mixing it with harmless fields cannot get a partial write.
     """
-    if _SETTINGS_WRITE_LIMITER.check(admin):
-        return None
+    return _touches_sensitive_keys(body_dict) and not has_recent_reauth(conn, session_token, admin)
+
+
+def _reserve_settings_write(
+    request: Request,
+    conn: sqlite3.Connection,
+    admin: str,
+    body_dict: dict[str, object],
+    *,
+    needs_reauth: bool,
+) -> float | JSONResponse:
+    """Count one save against the admin's write budget and return the time it is counted at,
+    or a 429 response once that is exhausted. A settings.write.throttled audit event is
+    recorded first so a hit cap is visible in the log. A save that *needs_reauth* has a
+    budget of its own as well.
+    """
+    limiter = _SETTINGS_WRITE_LIMITER
+    if needs_reauth and not _SETTINGS_UNTICKETED_LIMITER.check(admin):
+        limiter = _SETTINGS_UNTICKETED_LIMITER
+    else:
+        reserved = limiter.reserve(admin)
+        if reserved is not None:
+            return reserved
     logger.warning("settings.write_throttled user=%s", _sanitise_log_field(admin))
     security_event(
         conn,
@@ -147,30 +177,19 @@ def _settings_write_throttled(
         ip=get_client_ip(request),
         detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
     )
-    return respond_err(
-        "too_many_requests", status=429, message="Too many settings changes — slow down"
+    return too_many(limiter, admin, "Too many settings changes.")
+
+
+def _settings_reauth_required(admin: str) -> JSONResponse:
+    logger.warning(
+        "settings.write_rejected user=%s reason=reauth_required", _sanitise_log_field(admin)
     )
-
-
-def _settings_reauth_required(
-    conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
-) -> JSONResponse | None:
-    """Return a 403 when a sensitive key change lacks a recent reauth ticket, else None. One
-    sensitive key rejects the whole PUT, so mixing it with harmless fields cannot get a
-    partial write.
-    """
-    sensitive_write = _touches_sensitive_keys(body_dict)
-    if sensitive_write and not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "settings.write_rejected user=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return respond_err(
-            "reauth_required",
-            status=403,
-            message="Recent password re-authentication required for sensitive settings",
-            reauth_required=True,
-        )
-    return None
+    return respond_err(
+        "reauth_required",
+        status=403,
+        message="Recent password re-authentication required for sensitive settings",
+        reauth_required=True,
+    )
 
 
 def _persist_settings(
@@ -309,17 +328,19 @@ def api_update_settings(
         exclude_none=True, exclude={"plex_libraries_base"}
     )
     conn = get_db()
-    throttled = _settings_write_throttled(request, conn, admin, body_dict)
-    if throttled is not None:
-        return throttled
+    needs_reauth = _needs_reauth(conn, body_dict, session_token, admin)
+    reserved = _reserve_settings_write(request, conn, admin, body_dict, needs_reauth=needs_reauth)
+    if isinstance(reserved, JSONResponse):
+        return reserved
+
+    if needs_reauth:
+        # The page asks for the password and sends the save again, which is the one that counts.
+        _SETTINGS_WRITE_LIMITER.release(admin, reserved)
+        return _settings_reauth_required(admin)
 
     url_err = _validate_url_fields(body_dict)
     if url_err is not None:
         return url_err
-
-    reauth_err = _settings_reauth_required(conn, body_dict, session_token, admin)
-    if reauth_err is not None:
-        return reauth_err
 
     config = request.app.state.config
     with _LIBRARY_MERGE_LOCK:
@@ -335,7 +356,7 @@ def api_update_settings(
                 return respond_err(
                     "disk_thresholds_unreadable",
                     status=409,
-                    message="The stored disk thresholds can't be read, so no library is scanned. "
+                    message="The stored disk thresholds can't be read, so scheduled scans skip every library. "
                     "Give every selected library a path and a Scan above limit, then save.",
                 )
             thresholds = _merge_disk_thresholds(conn, body.disk_thresholds)
@@ -347,12 +368,12 @@ def api_update_settings(
 
 
 def _resolve_tester_dispatch(
-    service: str, admin: str
+    service: str, admin: str, *, auto: bool
 ) -> tuple[Callable[[dict[str, object]], JSONResponse] | None, JSONResponse | None]:
     """Look up service's tester and gate cache and rate-limit replies. Returns (tester, None)
     to proceed with a fresh run, or (None, response) for unknown-service, cache-hit and
     rate-limit replies. Cache hits bypass the limiter so a settings page reload does not eat
-    the per-minute budget.
+    the per-minute budget, and a check the page makes by itself (*auto*) has a budget of its own.
     """
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
@@ -369,13 +390,10 @@ def _resolve_tester_dispatch(
     if cached is not None:
         payload, status_code = cached
         return None, JSONResponse(payload, status_code=status_code)
-    if not _SETTINGS_TEST_LIMITER.check(admin):
+    limiter = _SETTINGS_AUTO_TEST_LIMITER if auto else _SETTINGS_TEST_LIMITER
+    if not limiter.check(admin):
         logger.warning("rate_limit.throttled scope=actor actor=%s", _sanitise_log_field(admin))
-        return None, respond_err(
-            "too_many_requests",
-            status=429,
-            message="Too many requests — slow down",
-        )
+        return None, too_many(limiter, admin, "Too many tests.")
     return tester, None
 
 
@@ -406,8 +424,8 @@ def _run_tester_with_timeout(
     the caller can cache the body and keep the original HTTP envelope.
     """
     # No ``with`` block: its exit waits for the hung thread. A thread that outlives the cap
-    # ends when the tester's own HTTP timeout fires; the per-admin rate limit on the route
-    # (10/min, 60/day) bounds how many can be started meanwhile.
+    # ends when the tester's own HTTP timeout fires; the per-admin rate limits on the route
+    # bound how many can be started meanwhile.
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         future = pool.submit(tester, settings)
@@ -427,7 +445,7 @@ def _run_tester_with_timeout(
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse:
+def _cache_tester_response(service: str, response: JSONResponse, generation: int) -> JSONResponse:
     """Decode the tester response body and cache the JSON payload. A non-JSON body returns the
     raw response unchanged, preserving its status code and headers.
     """
@@ -436,13 +454,16 @@ def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
         return response
     if isinstance(payload, dict):
-        _cache_put(service, payload, response.status_code)
+        _cache_put(service, payload, response.status_code, generation=generation)
     return response
 
 
 @router.post("/api/settings/test/{service}")
 def api_test_service(
-    service: str, request: Request, admin: str = Depends(get_current_admin)
+    service: str,
+    request: Request,
+    auto: bool = False,
+    admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Test connectivity for a named service using the stored settings.
 
@@ -450,13 +471,13 @@ def api_test_service(
     return 400. Layered on top:
 
     * A per-admin rate limit (10/min, 60/day) stops a logged-in attacker chaining tests to
-      flood Plex or Mailgun. It guards real invocations only; cache-served replies bypass
-      it.
+      flood Plex or Mailgun. The page's own checks send ``auto`` and have their own
+      (40/min, 400/day). Both guard real invocations only; cache-served replies bypass them.
     * Decryption is limited to the keys the tester needs (see _SERVICE_TESTER_KEYS),
       avoiding a plaintext exposure window for every secret.
     * Each tester runs under a hard _TESTER_TIMEOUT_SECONDS cap.
     """
-    tester, short_circuit = _resolve_tester_dispatch(service, admin)
+    tester, short_circuit = _resolve_tester_dispatch(service, admin, auto=auto)
     if short_circuit is not None:
         return short_circuit
     if tester is None:  # _resolve_tester_dispatch guarantees one or the other
@@ -466,6 +487,7 @@ def api_test_service(
 
     conn = get_db()
     config = request.app.state.config
+    generation = _cache_generation(service)
     settings, decrypt_err = _load_tester_settings(service, conn, config.secret_key)
     if decrypt_err is not None:
         return decrypt_err
@@ -475,7 +497,7 @@ def api_test_service(
         )
 
     response = _run_tester_with_timeout(service, tester, settings)
-    return _cache_tester_response(service, response)
+    return _cache_tester_response(service, response, generation)
 
 
 @router.get("/api/plex/libraries")
@@ -488,7 +510,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
             return respond_err(
                 "plex_not_configured",
                 status=200,
-                message="Plex URL and token are not configured",
+                message="Plex URL and token are not configured.",
                 libraries=[],
             )
         libraries = client.get_libraries()
@@ -510,19 +532,27 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
     ):
         logger.exception("Failed to fetch Plex libraries")
         return respond_err(
-            "fetch_failed", status=200, message="Failed to fetch Plex libraries", libraries=[]
+            "fetch_failed", status=200, message="Failed to fetch Plex libraries.", libraries=[]
         )
 
 
+_MISSING: dict[str, float] = {}
+_NOT_ALLOWED: dict[str, float] = {}
+
+
 def _read_safe_disk_usage(path: str) -> dict[str, float]:
-    """Return the usage of *path*'s disk; empty when it is not there or not allowed."""
+    """Return the usage of *path*'s disk, or ``_NOT_ALLOWED`` or ``_MISSING`` in its place.
+
+    What is not allowed is the same whether or not it exists: only a path under an allowed
+    root may be told from a missing one.
+    """
     resolved = resolve_safe_readonly_path(path, disk_usage_allowed_roots())
     if resolved is None:
-        return {}
+        return _NOT_ALLOWED
     try:
         usage = shutil.disk_usage(str(resolved))
     except FileNotFoundError:
-        return {}
+        return _MISSING
     except OSError:
         logger.exception("Failed to read disk usage for %s", resolved)
         raise
@@ -539,13 +569,15 @@ def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     if not path:
-        return respond_err("path_required", status=400, message="path parameter is required")
+        return respond_err("path_required", status=400, message="path parameter is required.")
     if len(path) > 4096:
         return respond_err("path_too_long", status=400)
 
     usage = settings_disk_reads.read(path, _read_safe_disk_usage)
     if usage is None:
-        return respond_err("fetch_failed", message="Failed to read disk usage")
-    if not usage:
+        return respond_err("fetch_failed", message="Failed to read disk usage.")
+    if usage is _NOT_ALLOWED:
+        return respond_err("not_allowed", status=403, message="This page may not read this folder.")
+    if usage is _MISSING:
         return respond_err("not_found", status=404, message="Folder not found.")
     return JSONResponse(usage)

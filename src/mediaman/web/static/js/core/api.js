@@ -41,7 +41,8 @@
  * ``.message`` is one plain sentence every page can show as is. Aborts are
  * not mapped.
  *
- * A 401 from an admin page sends the browser to /login and never settles,
+ * A 401 from an admin page sends the browser to /login (and back to the page
+ * after signing in) and never settles,
  * so callers do not flash an error while the page unloads. The public keep,
  * download and login pages, reached by emailed token or without a session,
  * keep their own 401 handling.
@@ -87,6 +88,13 @@
 
   /* Pages reached by emailed token (or without a session) handle a 401 themselves. */
   var PUBLIC_PATH = /^\/(keep|download|login)(\/|$)/;
+
+  /* Sign-in, and back to this page after it; the browser keeps the hash over the redirects. */
+  function loginUrl() {
+    var here = window.location.pathname + (window.location.search || '');
+    return '/login' + (here === '/watch' ? '' : '?next=' + encodeURIComponent(here)) +
+      (window.location.hash || '');
+  }
 
   var NETWORK_MESSAGE = 'Could not reach mediaman. Check your connection and try again.';
 
@@ -136,7 +144,7 @@
          * present) is forwarded so the UI can render per-rule failures. */
         if (status === 401 && !PUBLIC_PATH.test(window.location.pathname)) {
           if (!global.MM.api.hasUnsavedChanges()) {
-            window.location.href = '/login';
+            window.location.href = loginUrl();
             return new Promise(function () {});
           }
           if (window.UIFeedback) {

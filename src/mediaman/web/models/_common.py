@@ -81,6 +81,9 @@ _CRLF_RE = re.compile(r"[\r\n\x00]")
 #: TMDB v4 "API Read Access Tokens" are ~220+ character JWTs.
 _API_KEY_RE = re.compile(r"^[\x20-\x7E]{1,1024}$")
 
+#: Asterisks alone, or the "****" a stored secret shows as with something typed before or after it.
+_MASK_EDIT_RE = re.compile(r"^\*+$|^\*{4}|\*{4}$")
+
 #: Allowed URL schemes for service base URLs.
 _ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
 
@@ -109,10 +112,15 @@ def _validate_api_key(v: str | None) -> str | None:
     Rejects CR, LF, NUL, and non-ASCII so an injected key can never
     corrupt an HTTP header line.  An empty string (used by the UI to
     signal "leave unchanged") is passed through so the route can apply
-    its "****" / empty sentinel logic.
+    its "****" / empty sentinel logic.  A key of spaces alone is refused:
+    it is no key, and stored it would replace one.  So is an edit of the mask.
     """
     if v is None or v == "" or v == "****":
         return v
+    if not v.strip():
+        raise ValueError("API key must not be spaces alone")
+    if _MASK_EDIT_RE.search(v.strip()):
+        raise ValueError("A secret cannot start or end with ****.")
     if not _API_KEY_RE.match(v):
         raise ValueError("API key must be 1–1024 ASCII printable characters (no CR, LF, or NUL)")
     return v

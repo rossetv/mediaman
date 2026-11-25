@@ -65,8 +65,8 @@ _CLIENT_CACHE_MAXSIZE = 8
 
 # TMDB attribution notice
 # TMDB requires that all products using their API display the TMDB logo
-# and a "This product uses the TMDB API but is not endorsed or certified
-# by TMDB" attribution notice. Poster image requests to image.tmdb.org
+# and a "This product uses TMDB and the TMDB APIs but is not endorsed,
+# certified, or otherwise approved by TMDB" attribution notice. Poster image requests to image.tmdb.org
 # are standard CDN fetches — they are not tracking pixels. No personal
 # data is embedded in the URLs generated here. See the TMDB API Terms of
 # Use at https://www.themoviedb.org/terms-of-use for the full attribution

@@ -15,10 +15,9 @@ from mediaman.web.auth.reauth import (
     reauth_window_seconds,
     verify_reauth_password,
 )
-from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import ReauthBody
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.users.rate_limits import _REAUTH_LIMITER
+from mediaman.web.routes.users.rate_limits import _REAUTH_LIMITER, too_many
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ router = APIRouter()
 
 
 @router.post("/api/auth/reauth")
-@rate_limit(_REAUTH_LIMITER, key="actor")
 def api_reauth(
     request: Request,
     body: ReauthBody,
@@ -41,6 +39,9 @@ def api_reauth(
     passwords feed the re-auth lockout namespace, kept apart from login counters, so a stolen
     cookie cannot use this endpoint as a password oracle.
     """
+    if not _REAUTH_LIMITER.check(admin):
+        logger.warning("reauth.throttled actor=%s", _sanitise_log_field(admin))
+        return too_many(_REAUTH_LIMITER, admin, "Too many tries.")
     conn = get_db()
     if not session_token:
         # Belt-and-braces: get_current_user would already have raised if

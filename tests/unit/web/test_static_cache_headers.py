@@ -117,10 +117,10 @@ def test_the_downloads_page_loads_no_script_twice(get_page):
 
 def test_static_version_changes_with_a_file_and_stays_put_otherwise(tmp_path):
     (tmp_path / "a.css").write_text("a{}")
-    first = _static_version(tmp_path)
-    assert _static_version(tmp_path) == first
+    first = _static_version(tmp_path).digest
+    assert _static_version(tmp_path).digest == first
     (tmp_path / "a.css").write_text("a{color:red}")
-    assert _static_version(tmp_path) != first
+    assert _static_version(tmp_path).digest != first
 
 
 def test_pages_get_the_version_from_the_app(guarded_app):

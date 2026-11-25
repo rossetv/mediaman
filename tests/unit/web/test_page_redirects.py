@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,7 +33,7 @@ def test_a_signed_out_visitor_goes_to_login_not_to_watch(make, router, path):
     resp = make(router, signed_in=False).get(path, follow_redirects=False)
 
     assert resp.status_code == 302
-    assert resp.headers["location"].endswith("/login")
+    assert resp.headers["location"] == "/login?" + urlencode({"next": path})
 
 
 @pytest.mark.parametrize(

@@ -48,6 +48,8 @@
 
 /* ── Table ── */
 .wl-results { display: block; }
+/* One line at every width, whatever the rows hold: the skeleton's is. */
+.wl-table thead th { white-space: nowrap; }
 .wl-table .col-del { width: 120px; }
 .wl-table .col-act { width: 1%; }
 .wl-table thead th.sortable .th-sort { text-decoration: none; }
@@ -220,12 +222,14 @@
   .wl .page-info { width: 100%; text-align: center; margin: 4px 0 0; order: 9; }
 }
 
-/* The toolbar wraps its sort under its pills. */
-@media (min-width: 700px) and (max-width: 747.98px) {
+/* The sort stands under the pills: with a scrollbar there is no room for it beside them. */
+@media (min-width: 700px) and (max-width: 767.98px) {
+  .wl-sort { flex-basis: 100%; justify-content: flex-end; }
   .wl-skel__bar { margin-bottom: 63px; }
 }
-/* The summary takes two lines. */
-@media (max-width: 459.98px) {
+/* The summary takes two lines, however long its figures are. */
+@media (max-width: 599.98px) {
+  .wl-summary { max-width: 360px; text-wrap: balance; }
   .wl-skel__summary { margin-bottom: calc((1lh - 12px) / 2 + 1lh + 22px); }
 }
 

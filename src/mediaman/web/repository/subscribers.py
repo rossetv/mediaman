@@ -25,6 +25,7 @@ class SubscriberRow:
 class AddSubscriberOutcome(Enum):
     ADDED = "added"
     ALREADY_SUBSCRIBED = "already_subscribed"
+    OPTED_OUT = "opted_out"
 
 
 def list_subscribers(conn: sqlite3.Connection) -> list[SubscriberRow]:
@@ -89,9 +90,12 @@ def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> Add
     """
     try:
         conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute("SELECT id FROM subscribers WHERE email = ?", (email,)).fetchone()
+        existing = find_subscriber_status_by_email(conn, email)
         if existing is not None:
             conn.execute("ROLLBACK")
+            _id, active = existing
+            if not active:
+                return AddSubscriberOutcome.OPTED_OUT
             return AddSubscriberOutcome.ALREADY_SUBSCRIBED
         try:
             conn.execute(

@@ -7,9 +7,8 @@
  *     same control on the next row, the previous row, or a fallback (`leave`)
  *   - Fold an inline form or panel (`.setg-fold`) open and shut (`open`,
  *     `close`, `isOpen`), or open and into view (`openInView`)
- *   - Bring a form's status into view (`reveal`), with the field at fault
- *     (`refuse`), and for a late answer only where
- *     the reader still is (`stillAt`)
+ *   - Bring a form's status into view (`reveal`), for a late answer only
+ *     where the reader still is (`stillAt`)
  *
  * Cross-module dependencies:
  *   MM.dom  (core/dom.js)
@@ -25,7 +24,6 @@
  *   MM.settings.rows.inView(el)
  *   MM.settings.rows.bringIntoView(el)
  *   MM.settings.rows.reveal(status)
- *   MM.settings.rows.refuse(field, status)
  *   MM.settings.rows.stillAt(status, scope)
  */
 (function () {
@@ -123,29 +121,8 @@
   // On a phone a status sits under its buttons, where the bottom bar may cover it.
   function reveal(status) { status.scrollIntoView({ block: 'nearest' }); }
 
-  // The cursor goes to the field to fix, and its reason with it. Safari scrolls to a focused
-  // field only later, which would take the reason out of view again.
-  function refuse(field, status) {
-    field.focus({ preventScroll: true });
-    field.scrollIntoView({ block: 'nearest' });
-    reveal(status);
-  }
-
-  // Whether some of it shows between the bars at the top and bottom.
-  function inView(el) {
-    var root = document.documentElement;
-    var bars = getComputedStyle(root);
-    var box = el.getBoundingClientRect();
-    return box.bottom > (parseFloat(bars.scrollPaddingTop) || 0) &&
-      box.top < root.clientHeight - (parseFloat(bars.scrollPaddingBottom) || 0);
-  }
-
-  // Whether the reader is still where they pressed, so a late answer does not pull the page back.
-  // A button clicked in Safari takes no focus, what is around it does: that is not somewhere else.
-  function stillAt(status, scope) {
-    var at = document.activeElement || document.body;
-    return (scope.contains(at) || at.contains(scope)) && inView(status);
-  }
+  function inView(el) { return MM.dom.inView(el); }
+  function stillAt(status, scope) { return MM.dom.stillAt(status, scope); }
 
   function close(panel, done) {
     done = done || function () {};
@@ -165,6 +142,6 @@
 
   MM.settings.rows = {
     enter: enter, leave: leave, open: open, openInView: openInView, close: close, isOpen: isOpen,
-    holdFocus: holdFocus, inView: inView, bringIntoView: bringIntoView, reveal: reveal, refuse: refuse, stillAt: stillAt,
+    holdFocus: holdFocus, inView: inView, bringIntoView: bringIntoView, reveal: reveal, stillAt: stillAt,
   };
 })();

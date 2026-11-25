@@ -25,8 +25,7 @@ from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry, parse_execute_at
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
-from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.auth.middleware import is_admin as _is_admin
+from mediaman.web.auth.middleware import get_current_admin, resolve_admin_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import (
@@ -98,16 +97,18 @@ def _fetch_protected(
 @router.get("/kept")
 def redirect_kept_to_library(request: Request) -> RedirectResponse:
     """Redirect /kept to the Watch list's Kept filter, auth-gated."""
-    if not _is_admin(request):
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_admin_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
     return RedirectResponse("/watch?view=list&type=kept", status_code=301)
 
 
 @router.get("/kept/page")
 def redirect_kept_page(request: Request) -> RedirectResponse:
     """Redirect legacy /kept/page to the Watch list's Kept filter, auth-gated."""
-    if not _is_admin(request):
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_admin_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
     return RedirectResponse("/watch?view=list&type=kept", status_code=301)
 
 
@@ -231,6 +232,7 @@ def api_show_seasons(
 @router.get("/protected")
 def redirect_protected_page(request: Request) -> RedirectResponse:
     """Redirect old /protected URL to the Watch list's Kept filter, auth-gated."""
-    if not _is_admin(request):
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_admin_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
     return RedirectResponse("/watch?view=list&type=kept", status_code=301)

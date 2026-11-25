@@ -10,7 +10,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
-from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
@@ -28,13 +28,13 @@ from mediaman.web.auth.password_hash import (
 from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
-from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.users.rate_limits import (
+    _UNTICKETED_LIMITER,
     _USER_CREATE_LIMITER,
     _USER_MGMT_LIMITER,
-    OWN_ACCOUNT_LIMIT_MESSAGE,
+    too_many,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,16 +55,51 @@ class _UpdateRoleBody(BaseModel):
     role: Literal["admin", "viewer"]
 
 
-def _unauthorised_reauth() -> Response:
-    """Build the canonical "reauth required" 403, one shape for every privilege-establishing
-    endpoint so the front-end can key off reauth_required: true.
+def _reserve(
+    request: Request,
+    limiter: ActionRateLimiter,
+    admin: str,
+    session_token: str | None,
+    action: str,
+    *,
+    audited: bool = False,
+    target_id: int | None = None,
+    what: str = "Too many changes.",
+) -> float | Response:
+    """Count one try of *action* against *limiter*, or return the refusal of it.
+
+    Without a recent reauth ticket the action's own limit is only looked at, since the front-end
+    asks first and comes back once it has the ticket; such tries have a limit of their own.
     """
-    return respond_err(
-        "reauth_required",
-        status=403,
-        message="Recent password re-authentication required",
-        reauth_required=True,
-    )
+    conn = get_db()
+    actor = _sanitise_log_field(admin)
+    ticketed = has_recent_reauth(conn, session_token, admin)
+    if not ticketed and not _UNTICKETED_LIMITER.check(admin):
+        refusal = too_many(_UNTICKETED_LIMITER, admin, "Too many tries.")
+    else:
+        reserved = limiter.reserve(admin)
+        if reserved is not None and ticketed:
+            return reserved
+        if reserved is not None:
+            limiter.release(admin, reserved)
+            logger.warning("%s_rejected actor=%s reason=reauth_required", action, actor)
+            return respond_err(
+                "reauth_required",
+                status=403,
+                message="Recent password re-authentication required",
+                reauth_required=True,
+            )
+        refusal = too_many(limiter, admin, what)
+    logger.warning("%s_throttled actor=%s", action, actor)
+    if audited:
+        security_event(
+            conn,
+            event=f"{action}.rate_limited",
+            actor=admin,
+            ip=get_client_ip(request),
+            detail=None if target_id is None else {"target_id": target_id},
+        )
+    return refusal
 
 
 @router.get("/api/users")
@@ -74,7 +109,6 @@ def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]
 
 
 @router.post("/api/users")
-@rate_limit(_USER_CREATE_LIMITER, key="actor")
 def api_create_user(
     request: Request,
     body: _CreateUserBody,
@@ -85,29 +119,41 @@ def api_create_user(
     session cookie cannot mint a permanent account that survives session rotation. The new
     user must choose their own password at first sign-in, since the admin knows this one.
     """
+    reserved = _reserve(
+        request,
+        _USER_CREATE_LIMITER,
+        admin,
+        session_token,
+        "user.create",
+        what="Too many new users.",
+    )
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.create_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
 
     username = body.username.strip()
     password = body.password
 
     if not username or len(username) < 3 or len(username) > 64:
+        _USER_CREATE_LIMITER.release(admin, reserved)
         return respond_err(
             "invalid_username", status=400, message="Username must be between 3 and 64 characters"
         )
 
     issues = password_issues(password, username=username)
     if issues:
+        _USER_CREATE_LIMITER.release(admin, reserved)
         return respond_err(
             "weak_password",
             status=400,
             message="Password does not meet the strength policy",
             issues=issues,
         )
+
+    # Refused before the costly hash, so that refusals which do not count stay cheap.
+    if any(user["username"] == username for user in list_users(conn)):
+        _USER_CREATE_LIMITER.release(admin, reserved)
+        return respond_failure(f"User '{username}' already exists", status=409)
 
     # Audit fail-closed: write the audit row and the create_user mutation
     # in one transaction so we never have a "user created but no audit
@@ -153,29 +199,22 @@ def api_delete_user(
     """Delete an admin user (not yourself). Requires a recent reauth ticket, so a stolen
     session cookie alone cannot delete other admins.
     """
+    reserved = _reserve(
+        request,
+        _USER_MGMT_LIMITER,
+        admin,
+        session_token,
+        "user.delete",
+        audited=True,
+        target_id=user_id,
+    )
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
-        logger.warning(
-            "user.delete_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
-        )
-        security_event(
-            conn,
-            event="user.delete.rate_limited",
-            actor=admin,
-            ip=client_ip,
-            detail={"target_id": user_id},
-        )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.delete_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
     target_username = find_username_by_user_id(conn, user_id)
     if target_username is not None and is_last_admin(conn, target_username):
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("last_admin", status=400, message=_LAST_ADMIN_MESSAGE)
     try:
         deleted = delete_user(
@@ -195,6 +234,7 @@ def api_delete_user(
     if deleted:
         logger.info("user.deleted actor=%s target_id=%d", _sanitise_log_field(admin), user_id)
         return respond_ok()
+    _USER_MGMT_LIMITER.release(admin, reserved)
     return respond_err(
         "cannot_delete", status=400, message="Cannot delete yourself or user not found"
     )
@@ -212,28 +252,25 @@ def api_set_user_role(
     session cookie alone must not promote an account to admin. Refuses to change your own
     role and to demote the last admin.
     """
+    reserved = _reserve(request, _USER_MGMT_LIMITER, admin, session_token, "user.role")
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.role_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
 
     target_username = find_username_by_user_id(conn, user_id)
     if target_username is None:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("not_found", status=404, message="User not found")
     if target_username == admin:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err(
             "cannot_change_own_role", status=400, message="You cannot change your own role"
         )
     try:
         set_user_role(conn, target_username, body.role, audit_actor=admin, audit_ip=client_ip)
     except LastAdminError:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("last_admin", status=400, message=_LAST_ADMIN_MESSAGE)
     except sqlite3.Error:
         logger.exception(
@@ -259,28 +296,21 @@ def api_set_my_email(
     """Set or clear the signed-in user's notification email. Requires a recent reauth ticket, so
     a stolen session cookie alone cannot redirect download alerts to an attacker's inbox.
     """
+    reserved = _reserve(
+        request, _USER_MGMT_LIMITER, admin, session_token, "user.email_update", audited=True
+    )
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
-        logger.warning("user.email_update_throttled actor=%s", _sanitise_log_field(admin))
-        security_event(
-            conn,
-            event="user.email_update.rate_limited",
-            actor=admin,
-            ip=client_ip,
-        )
-        return respond_err("too_many_requests", status=429, message=OWN_ACCOUNT_LIMIT_MESSAGE)
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
 
     try:
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("invalid_email", status=400, message=str(exc))
     except EmailTakenError:
+        # Counts, unlike other refused input: it tells that someone else has the address.
         logger.warning("user.email_update_rejected actor=%s", _sanitise_log_field(admin))
         return respond_err(
             "invalid_email",
@@ -308,32 +338,26 @@ def api_set_user_email(
     """Set or clear another user's notification email. Requires a recent reauth ticket, like a
     role change. A newsletter subscriber's address may be given, another user's never.
     """
+    reserved = _reserve(
+        request,
+        _USER_MGMT_LIMITER,
+        admin,
+        session_token,
+        "user.email_update",
+        audited=True,
+        target_id=user_id,
+    )
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
     client_ip = get_client_ip(request)
-    if not _USER_MGMT_LIMITER.check(admin):
-        logger.warning(
-            "user.email_update_throttled actor=%s target_id=%d", _sanitise_log_field(admin), user_id
-        )
-        security_event(
-            conn,
-            event="user.email_update.rate_limited",
-            actor=admin,
-            ip=client_ip,
-            detail={"target_id": user_id},
-        )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.email_update_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
 
     target_username = find_username_by_user_id(conn, user_id)
     if target_username is None:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("not_found", status=404, message="User not found")
     if target_username == admin:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err(
             "cannot_change_own_email", status=400, message="Change your own email on your Profile"
         )
@@ -347,8 +371,10 @@ def api_set_user_email(
             audit_ip=client_ip,
         )
     except ValueError as exc:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("invalid_email", status=400, message=str(exc))
     except EmailTakenError:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("email_taken", status=409, message="Another user has this address.")
     except sqlite3.Error:
         logger.exception(
@@ -379,23 +405,19 @@ def api_unlock_user(
     Refuses to unlock yourself, since a caller with a session gains nothing and it only
     obscures audit trails, and refuses unknown user IDs so existing IDs do not leak.
     """
-    if not _USER_MGMT_LIMITER.check(admin):
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-management operations"
-        )
+    reserved = _reserve(request, _USER_MGMT_LIMITER, admin, session_token, "user.unlock")
+    if isinstance(reserved, Response):
+        return reserved
     conn = get_db()
-    if not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "user.unlock_rejected actor=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return _unauthorised_reauth()
 
     # rationale: admin_users is the auth module's table; routes
     # read it through the sanctioned helper instead of a raw SELECT.
     target_username = find_username_by_user_id(conn, user_id)
     if target_username is None:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("not_found", status=404, message="User not found")
     if target_username == admin:
+        _USER_MGMT_LIMITER.release(admin, reserved)
         return respond_err("cannot_unlock_self", status=400, message="Cannot unlock yourself")
 
     try:

@@ -515,6 +515,17 @@ class TestTrustedHostMiddleware:
         resp = client.get("/ping")
         assert resp.status_code == 400
 
+    def test_a_rejected_host_gets_the_security_headers(self, monkeypatch):
+        """The refusal is a response like any other, so it is dressed like any other."""
+        monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com")
+        resp = TestClient(_build_app(), base_url="http://attacker.example").get("/ping")
+
+        assert resp.status_code == 400
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert "default-src 'self'" in resp.headers["Content-Security-Policy"]
+        assert resp.headers["Cache-Control"] == "no-store, private"
+
     def test_multiple_hosts_accepted(self, monkeypatch):
         """Comma-separated entries are all accepted."""
         monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com, alt.example.com ")

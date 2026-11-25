@@ -55,7 +55,7 @@ class TestPageSessionBinding:
             follow_redirects=False,
         )
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/login"
+        assert resp.headers["location"] == "/login?next=%2Flibrary"
 
     def test_library_redirects_when_no_cookie(self, app_factory, conn, templates_stub):
         app = app_factory(library_router, conn=conn, state_extras={"templates": templates_stub})
@@ -63,4 +63,4 @@ class TestPageSessionBinding:
 
         resp = client.get("/library", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/login"
+        assert resp.headers["location"] == "/login?next=%2Flibrary"

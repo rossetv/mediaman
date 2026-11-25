@@ -127,7 +127,18 @@ class TestAddSubscriber:
         _insert_subscriber(conn, "dupe@example.com")
 
         resp = authed_client.post("/api/subscribers", data={"email": "dupe@example.com"})
-        assert resp.status_code == 409
+        assert (resp.status_code, resp.json()["error"]) == (409, "already_subscribed")
+
+    def test_an_address_that_opted_out_is_told_apart_and_stays_out(self, authed_client, app):
+        conn = app.state.db
+        _insert_subscriber(conn, "out@example.com", active=0)
+
+        resp = authed_client.post("/api/subscribers", data={"email": "Out@Example.com"})
+
+        assert (resp.status_code, resp.json()["error"]) == (409, "opted_out")
+        assert "unsubscribed" in resp.json()["message"]
+        rows = conn.execute("SELECT active FROM subscribers").fetchall()
+        assert [r["active"] for r in rows] == [0]
 
     def test_a_database_failure_answers_with_a_message_for_people(self, authed_client):
         with patch(

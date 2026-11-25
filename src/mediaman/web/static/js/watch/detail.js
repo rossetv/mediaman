@@ -228,6 +228,7 @@
     if (leaving) leaving();
     letGo();
     var wasOpen = isOpen;
+    closeDialogs();
     if (wasOpen) keepPlace();
     stopPolling();
     dropRatings();
@@ -302,6 +303,7 @@
     var wasOpen = isOpen;
     isOpen = true;
     if (leaving) leaving(); // it turns round from where it is
+    closeDialogs();
     if (wasOpen) keepPlace();
     if (cur && cur.ctrl) cur.ctrl.abort();
     stopPolling();
@@ -358,12 +360,19 @@
     })[0];
   }
 
+  /* What the title on show has asked or opened must not outlive it, over a page that
+     would have the focus. */
+  function closeDialogs() {
+    if (window.ModalA11y) window.ModalA11y.closeFrom(root);
+  }
+
   function requestClose() { address.close('title'); }
 
   /* *aside*: another page takes the place of what is under the title, which
      Back will bring back. */
   function close(aside) {
     if (!isOpen) return;
+    closeDialogs();
     keepPlace();
     isOpen = false;
     closedAt = Date.now();
@@ -1133,6 +1142,15 @@
       root.querySelector('[data-ttl-part="actions"] > *');
     if (target) target.focus(Object.assign({ preventScroll: true }, ring === undefined ? null : { focusVisible: ring }));
     else titleEl.focus({ preventScroll: true });
+  }
+
+  /* A dialog opened from a button drawn anew gives the focus back to the one there is. */
+  function handOnDialogs() {
+    if (!window.ModalA11y) return;
+    window.ModalA11y.handOn(function (from) {
+      var act = !from.isConnected && from.getAttribute('data-ttl-act');
+      return act ? byAct(act) || titleEl : null;
+    });
   }
 
   /* ── Actions ── */
@@ -2206,6 +2224,7 @@
     if (fresh) aside.classList.add('is-swapping-in');
     if (key === 'facts-retry' && !cur.factsError) key = 'admin-keep';
     restoreFocus(key);
+    handOnDialogs();
   }
 
   /* The deletion of what the title says leaves, else the first there is. */

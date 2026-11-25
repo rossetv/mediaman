@@ -27,6 +27,11 @@ def test_live_sign_ins_are_listed_and_the_others_can_be_signed_out() -> None:
     assert out["after"]["say"][0].endswith(" ok")
 
 
+def test_the_sign_in_of_this_device_is_told_from_the_others() -> None:
+    marked = [("This device" in row) for row in _run("thisDevice")]
+    assert marked == [False, True]
+
+
 def test_why_the_others_cannot_be_signed_out_is_said_while_there_are_none() -> None:
     assert _run("onlySession") == {"disabled": True, "why": True}
     out = _run("sessions")
@@ -64,12 +69,37 @@ def test_a_new_password_on_its_way_is_said_and_typing_meanwhile_leaves_the_words
     assert tone == "inline-form-msg" and words
 
 
+def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> None:
+    out = _run("passwordRefusals")
+    for refusal, name, words in (
+        ("old", "old", "Enter your current password"),
+        ("new", "new", "12 characters"),
+        ("confirm", "confirm", "match"),
+        ("wrong", "old", "No"),
+        ("weak", "new", "Noa digit"),
+        ("same", "new", "No"),
+    ):
+        field = f"account-{name}-password"
+        assert words in out[refusal]["words"], refusal
+        assert out[refusal]["said"] == [field + "-why"], refusal
+        assert out[refusal]["focused"] == field, refusal
+        assert out[refusal]["last"] == [field, field + "-why"], refusal
+        assert out[refusal]["typed"] == [], refusal
+
+
+def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
+    out = _run("passwordRefusals")["limit"]
+    assert out["said"] == ["account-password-result"]
+    assert out["focused"] == "account-submit-password"
+
+
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
     words = ["account-password-result", "nearest"]
     assert out["revealed"] == [words, words]  # being sent, then updated
-    assert out["revealedRefusal"] == [words]
+    field = "account-new-password"
+    assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
 
 
@@ -88,9 +118,25 @@ def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_statu
         assert [where for where, seen in out[which].items() if seen[1]] == ["there", "around"]
 
 
-def test_a_refusal_that_moves_the_cursor_is_brought_into_view_wherever_the_reader_is() -> None:
+def test_a_late_refusal_moves_the_cursor_and_the_page_only_for_a_reader_still_at_its_status() -> (
+    None
+):
     out = _run("lateAnswer")
-    assert (out["emailRefused"], out["passwordRefused"]) == ([True, True], [True, True])
+    for which in ("emailRefused", "passwordRefused"):
+        for where, (_pressed, shown, cursor, said) in out[which].items():
+            assert (shown, cursor) == (
+                (True, True) if where in ("there", "around") else (False, False)
+            )
+            assert said, (which, where)
+
+
+def test_a_refusal_takes_the_place_of_what_the_status_said() -> None:
+    assert _run("passwordRefusals")["afterLimit"]["said"] == ["account-old-password-why"]
+
+
+def test_a_field_with_no_place_for_its_reason_has_it_said_at_the_button() -> None:
+    out = _run("passwordRefusals")["noPlace"]
+    assert (out["said"], out["focused"]) == (["account-password-result"], "account-old-password")
 
 
 def test_the_list_of_sign_ins_takes_the_focus_without_pulling_the_page_to_it() -> None:

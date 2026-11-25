@@ -19,18 +19,21 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import sys
 import threading
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
+from starlette.types import Scope
 
 from mediaman.bootstrap.crypto import bootstrap_crypto
 from mediaman.bootstrap.data_dir import DataDirNotWritableError
@@ -48,28 +51,64 @@ _STREAM_REAP_INTERVAL_SECONDS = 30.0
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 
+# A file at its own version's URL never changes.
+_KEPT = "public, max-age=31536000, immutable"
 
-def _static_version(static_dir: Path) -> str:
+
+class _StaticVersion(NamedTuple):
+    """The digest of the static files, and what it was read from."""
+
+    digest: str
+    read_at: float
+    files: dict[str, tuple[int, int]]
+    """Each file's real path, with its size and mtime in nanoseconds."""
+
+
+def _static_version(static_dir: Path) -> _StaticVersion:
     """A short digest of every file under *static_dir*, so a changed asset gets a new URL."""
+    read_at = time.time()
     digest = hashlib.sha256()
+    files = {}
     for path in sorted(p for p in static_dir.rglob("*") if p.is_file()):
+        stat_result = path.stat()
+        files[os.path.realpath(path)] = (stat_result.st_size, stat_result.st_mtime_ns)
         digest.update(path.relative_to(static_dir).as_posix().encode())
         digest.update(path.read_bytes())
-    return digest.hexdigest()[:12]
+    return _StaticVersion(digest.hexdigest()[:12], read_at, files)
 
 
 class _RevalidatedStaticFiles(StaticFiles):
-    """Serve /static with ``Cache-Control: no-cache`` on the 200 and the 304.
+    """Serve /static with ``no-cache``, or kept for good at ``?v=<version>``, on the 200 and the 304.
 
-    Templates link assets with ``?v=``, but the fonts a stylesheet loads carry
-    no version, so a browser must check the ETag on every load instead of
-    reusing a stale copy after an update; an unchanged file still costs only
-    a 304.
+    The fonts a stylesheet loads carry no version, and a link from before an
+    update carries an old one; for those a browser must check the ETag on every
+    load, which costs a 304 for an unchanged file. Without a *version* every
+    request is checked.
     """
 
-    def file_response(self, *args: Any, **kwargs: Any) -> Response:
-        response = super().file_response(*args, **kwargs)
-        response.headers["Cache-Control"] = "no-cache"
+    def __init__(self, *, version: _StaticVersion | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._version = version
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        version = self._version
+        # The version was read at startup; a file changed on disk since is not what it names.
+        # The time tells a change made in the same tick of the file's clock as the read.
+        current = (
+            version is not None
+            and scope.get("query_string", b"") == f"v={version.digest}".encode()
+            and stat_result.st_mtime <= version.read_at
+            and version.files.get(os.fspath(full_path))
+            == (stat_result.st_size, stat_result.st_mtime_ns)
+        )
+        response.headers["Cache-Control"] = _KEPT if current else "no-cache"
         return response
 
 
@@ -470,14 +509,17 @@ def create_app() -> FastAPI:
     register_security_middleware(app)
     register_error_pages(app)
 
-    if _STATIC_DIR.is_dir():
-        app.mount("/static", _RevalidatedStaticFiles(directory=str(_STATIC_DIR)), name="static")
+    version = _static_version(_STATIC_DIR) if _STATIC_DIR.is_dir() else None
+    if version:
+        app.mount(
+            "/static",
+            _RevalidatedStaticFiles(directory=str(_STATIC_DIR), version=version),
+            name="static",
+        )
 
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     # Templates link assets as ``?v={{ static_v }}``; computed once, not per request.
-    app.state.templates.env.globals["static_v"] = (
-        _static_version(_STATIC_DIR) if _STATIC_DIR.is_dir() else ""
-    )
+    app.state.templates.env.globals["static_v"] = version.digest if version else ""
 
     _register_routers(app)
     _register_probes(app)

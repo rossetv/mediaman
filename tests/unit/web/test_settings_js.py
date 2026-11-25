@@ -376,7 +376,18 @@ def test_an_undo_never_overrides_what_another_page_has_set_since() -> None:
     # what else was edited is still sent
     assert (higher["sent"], higher["limit"]) == ([{"base_url": "b"}], ["/a", "95"])
     assert (days["sent"], days["days"][2]) == ([], "30")
-    for case, name in ((library, "L3"), (limit, "L1"), (higher, "L1"), (days, "Grace days")):
+    # a value that lets more be deleted than the one put back is the other page's all the same
+    lower, address = out["otherLowerDays"], out["otherAddress"]
+    assert (lower["sent"], lower["days"][2]) == ([], "10")
+    assert (address["sent"], address["url"]) == ([], "c")
+    for case, name in (
+        (library, "L3"),
+        (limit, "L1"),
+        (higher, "L1"),
+        (days, "Grace days"),
+        (lower, "Grace days"),
+        (address, "Base url"),
+    ):
         assert name in case["told"]
         assert case["on"] is False
 
@@ -499,10 +510,199 @@ def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
 def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
     out = _run("unansweredSecret")
     ((told,), puts) = out["putBack"]
-    assert "Plex token" in told and puts == 0
-    assert out["savedAgain"] == [{"plex_token": "new"}, []]
+    assert told.count("Plex token") == 1 and puts == 0
+    assert out["savedAgain"] == [{"plex_token": "new"}, ""]
     assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
     assert out["gone"] == ["", 1]
+
+
+def test_the_bar_does_not_call_saved_changes_unsaved() -> None:
+    out = _run("savedWords")
+    assert out["before"] == "Unsaved changes"
+    assert (out["saved"]["msg"], out["saved"]["button"]) == ("No unsaved changes", "Saved ✓")
+    # with nothing to discard, Discard does not ask
+    assert out["discardDisabled"] is True
+    assert (out["edited"]["msg"], out["edited"]["button"]) == ("Unsaved changes", "Save Settings")
+    assert out["gone"] == [False, "Unsaved changes", False]
+
+
+def test_a_save_that_left_an_undo_out_says_so_in_the_bar() -> None:
+    out = _run("keptWords")
+    kept = out["kept"]
+    assert kept["button"] == "Save Settings"
+    # the bar names it, and no toast says it again
+    assert kept["status"] == "Saved. Grace days was left as it was stored."
+    # with the class by which phones show it
+    assert (kept["msg"], kept["partial"]) == ("No unsaved changes", True)
+    assert (kept["on"], kept["told"]) == (True, 0)
+    assert out["gone"] == [False, False]
+    assert "since" in out["edited"] and "Grace days was left" in out["edited"]
+    # where the save then failed, the bar says that and the toast names it
+    assert "try again" in out["failed"]["status"].lower()
+    assert len(out["failed"]["told"]) == 1 and "Grace days" in out["failed"]["told"][0]
+    assert out["still"] is True
+    assert out["beside"] == 0
+
+
+def test_what_was_left_as_stored_is_told_once_when_an_edit_ends_the_bar_that_says_it() -> None:
+    out = _run("keptWords")
+    for after in (out["early"], out["undone"]):
+        assert "as it was stored" not in after["status"]
+        assert len(after["told"]) == 1 and "Grace days" in after["told"][0]
+    assert (out["early"]["on"], out["undone"]["on"]) == (True, False)
+    assert out["earlyOnce"] == 1
+
+
+def test_a_save_gives_the_focus_back_when_it_is_answered_and_not_when_the_bar_goes() -> None:
+    out = _run("keptWords")
+    assert out["focusAtAnswer"] is True
+    assert out["hidden"] == {"on": False, "focus": True, "told": 0}
+
+
+def test_an_emptied_secret_is_removed_only_after_confirming() -> None:
+    out = _run("clearSecret")
+    removed = out["removed"]
+    assert len(removed["asked"]) == 1 and "Plex Token" in removed["asked"][0]
+    assert removed["atAsk"] == {"button": "Save Settings", "sent": 0}
+    assert removed["sent"] == [{"plex_token": "__CLEAR__"}]
+    assert (removed["field"], removed["on"]) == ("", False)
+    assert out["after"] == {"base_url": "b"}
+    # said no: the field shows the stored secret again
+    assert out["kept"] == {
+        "asked": 1,
+        "sent": 0,
+        "field": "****",
+        "on": False,
+        "disabled": False,
+        "focus": True,
+    }
+    assert out["keptRest"] == {
+        "sent": [],
+        "field": "****",
+        "url": "b",
+        "on": True,
+        "disabled": False,
+    }
+    assert out["then"] == {"base_url": "b"}
+
+
+def test_removing_several_secrets_names_them_and_what_stops_in_one_sentence_each() -> None:
+    assert _run("clearSecret")["several"] == (
+        "mediaman will delete the saved Plex Token and OMDB API Key. "
+        "What uses them stops working until you enter them again."
+    )
+
+
+def test_the_bar_does_not_answer_while_a_confirmed_removal_is_sent() -> None:
+    assert _run("clearSecret")["removing"] == {
+        "sent": 1,
+        "save": True,
+        "discard": True,
+        "label": "Saving…",
+        "labelAfterEdit": "Saving…",
+    }
+
+
+def test_keeping_a_secret_the_server_still_has_ends_the_doubt_of_its_lost_removal() -> None:
+    out = _run("clearSecret")
+    assert out["keptAfterLost"] == {"field": "****", "on": False, "sent": 0}
+    # but what a lost replacement stored is as unknown as before
+    assert out["keptAfterLostReplacement"] == {"field": "****", "on": True, "sent": 0}
+
+
+def test_an_edit_inside_the_mask_never_replaces_the_saved_secret() -> None:
+    out = _run("secretMask")
+    for typed, after in out["sent"].items():
+        assert (after["sent"], after["field"], after["on"]) == ([], "****", False), typed
+        assert "Plex Token stays" in after["says"] or "for Plex Token" in after["says"], typed
+        # what was typed beside the mask breaks the rule; asterisks alone are nothing new
+        assert ("Nothing new" in after["says"]) is (not typed.strip("*")), typed
+        assert ("cannot start or end with ****" in after["says"]) is bool(typed.strip("*")), typed
+    rest = out["rest"]
+    assert (rest["sent"], rest["field"], rest["on"]) == ([{"base_url": "b"}], "****", False)
+    assert "Plex Token" in rest["says"]
+    assert out["real"] == [{"plex_token": "a*b*"}]
+
+
+def test_a_mask_typed_where_no_secret_is_stored_is_refused_by_the_rule() -> None:
+    for typed, after in _run("secretMask")["none"].items():
+        assert (after["sent"], after["field"]) == ([], ""), typed
+        assert "cannot start or end with ****" in after["says"], typed
+        assert "Nothing new" not in after["says"], typed
+
+
+def test_the_mask_of_a_secret_is_selected_as_a_whole() -> None:
+    out = _run("secretMask")
+    assert out["focused"] == out["moved"] == [0, 4]
+    # it selects nothing that is selected already, and leaves what was typed alone
+    assert out["again"] == 0
+    assert out["typed"] == [3, 3]
+
+
+def test_a_secret_of_only_spaces_counts_as_emptied() -> None:
+    spaces = _run("clearSecret")["spaces"]
+    assert spaces == {"asked": 1, "sent": [{"plex_token": "__CLEAR__"}], "on": False}
+
+
+def test_a_secret_saved_on_this_page_can_be_emptied_and_removed() -> None:
+    typed = _run("clearSecret")["typed"]
+    assert typed == {"asked": 1, "sent": [{"plex_token": "new"}, {"plex_token": "__CLEAR__"}]}
+
+
+def test_a_removed_secret_is_not_said_to_be_put_back() -> None:
+    lost = _run("clearSecret")["lost"]
+    assert (lost["sent"], lost["field"]) == ([], "")
+    assert "Plex Token" in lost["told"]
+
+
+def test_a_save_checks_again_only_the_services_it_changed() -> None:
+    out = _run("recheck")
+    failed = ["err", "Connection failed"]
+    assert out["written"] == [
+        ["sonarr?auto=1", "nzbget?auto=1"],
+        ["ok", "Connected"],
+        failed,
+        failed,
+    ]
+    assert out["elsewhere"] == out["refused"] == []
+    assert out["emptied"] == [[], ["off", "Not configured"]]
+
+
+def test_only_checks_nobody_pressed_are_marked_automatic() -> None:
+    out = _run("recheck")
+    assert out["atLoad"] == ["plex?auto=1", "sonarr?auto=1", "nzbget?auto=1"]
+    assert out["pressed"] == ["plex"]
+
+
+def test_a_service_whose_lost_save_is_settled_is_checked_again() -> None:
+    out = _run("recheck")
+    assert out["lost"] == [[], ["plex?auto=1"]]
+    assert out["discarded"] == ["plex?auto=1"]
+
+
+def test_a_service_is_checked_once_a_lost_save_is_known_and_the_rest_is_dropped() -> None:
+    out = _run("recheck")
+    assert out["refusedThenDiscarded"] == ["plex?auto=1"]
+    assert out["refusedThenUndone"] == ["plex?auto=1"]
+
+
+def test_a_check_that_a_newer_one_has_replaced_is_not_made() -> None:
+    assert _run("recheck")["twice"] == ["plex?auto=1"]
+
+
+def test_a_late_check_of_the_old_settings_does_not_replace_the_new_ones() -> None:
+    late = _run("recheck")["late"]
+    assert late == [2, ["ok", "Connected"], "Testing…"]
+
+
+def test_the_page_loads_each_script_once() -> None:
+    pages = [
+        (_TEMPLATE_DIR / name).read_text(encoding="utf-8")
+        for name in ("base.html", "settings.html")
+    ]
+    scripts = re.findall(r'<script src="([^"?]+)', "".join(pages))
+    assert "/static/js/settings/savebar.js" in scripts and "/static/js/core/dom.js" in scripts
+    assert len(scripts) == len(set(scripts))
 
 
 def test_a_form_comes_into_view_once_it_has_unfolded() -> None:
@@ -526,8 +726,9 @@ def test_a_forms_status_comes_into_view_when_it_changes() -> None:
     ]
     field = ["new-username", "nearest", "auto"]
     created = ["create-user-result", "nearest", "auto"]
-    assert out["add"]["tooShort"] == [field, created]
-    assert out["add"]["refused"] == [created, field, created]
+    reason = ["new-username-why", "nearest", "auto"]
+    assert out["add"]["tooShort"] == [field, reason]
+    assert out["add"]["refused"] == [created, field, reason]
     # Safari would scroll to the field later, and the reason out of view
     assert out["add"]["focus"] == {"preventScroll": True}
     sent = ["newsletter-send-status", "nearest", "auto"]
@@ -574,6 +775,37 @@ def test_unreadable_thresholds_can_be_mended_from_the_page() -> None:
         "plex_libraries_base": ["1", "9"],
     }
     assert out["on"] is False
+
+
+def test_typing_the_shown_number_over_an_unreadable_limit_brings_up_the_bar_and_can_be_saved() -> (
+    None
+):
+    out = _run("unreadableLimit")
+    assert (out["start"]["on"], out["over"]["on"]) == (False, True)
+    assert "t be read" in out["start"]["says"] and "t be read" not in out["over"]["says"]
+    assert out["sent"] == {"disk_thresholds": {"1": {"path": "/a", "threshold": 9}}}
+    assert out["saved"]["on"] is False and "t be read" not in out["saved"]["says"]
+
+
+def test_the_bar_goes_when_the_typing_over_an_unreadable_limit_leaves_none_to_save() -> None:
+    out = _run("unreadableLimit")
+    for left in ("undone", "blank", "zero"):
+        assert out[left]["on"] is False, left
+        assert "t be read" in out[left]["says"]
+
+
+def test_a_path_waiting_for_its_limit_outlives_a_save_of_something_else() -> None:
+    out = _run("unreadableLimit")
+    assert out["otherSent"] == {"base_url": "b"}
+    for look in (out["draft"], out["kept"]):
+        assert (look["on"], look["shows"]) == (False, ["/new", "9"])
+        assert "path isn’t saved until you enter a limit" in look["says"]
+    assert out["entered"]["on"] is True
+    assert out["enteredSent"] == {"disk_thresholds": {"1": {"path": "/new", "threshold": 9}}}
+    assert (out["stored"]["on"], out["stored"]["shows"]) == (False, ["/new", "9"])
+    assert out["edited"] == {"disk_thresholds": {"1": {"path": "/new", "threshold": 50}}}
+    assert out["cleared"] == {"disk_thresholds": {"1": {"path": "", "threshold": 0}}}
+    assert out["end"]["on"] is False
 
 
 def test_a_limit_typed_during_a_save_outlives_a_library_chosen_during_it() -> None:

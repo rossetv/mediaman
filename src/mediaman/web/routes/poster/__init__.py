@@ -143,8 +143,10 @@ def proxy_poster(
         if not is_poster_key_allowed(db, scanned_library_ids(db), rating_key):
             return Response(status_code=404)
 
+    # What a session may see is for that browser alone, never for a cache between it and mediaman.
+    scope = "public" if admin is None else "private"
     if kind == "art":
-        art = None if source == "tmdb" else _serve_art(config, rating_key)
+        art = None if source == "tmdb" else _serve_art(config, rating_key, scope)
         if art is not None:
             return art
         # The TMDB image proxy needs a session, so a signed-URL caller is not sent there.
@@ -157,24 +159,24 @@ def proxy_poster(
         # Plex's own backdrop may only be missing for now, so this is kept for minutes.
         answer.headers["Cache-Control"] = f"private, max-age={_ART_FALLBACK_MAX_AGE_SECONDS}"
         return answer
-    return _serve_poster(config, rating_key)
+    return _serve_poster(config, rating_key, scope)
 
 
-def _cached_response(path: Path) -> Response | None:
+def _cached_response(path: Path, scope: str) -> Response | None:
     if not path.exists():
         return None
     return Response(
         content=path.read_bytes(),
         media_type=_read_sidecar_mime(path),
-        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
+        headers={"Cache-Control": f"{scope}, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )
 
 
-def _serve_art(config: Config, rating_key: str) -> Response | None:
+def _serve_art(config: Config, rating_key: str, scope: str) -> Response | None:
     """The item's backdrop from the disk cache or Plex; None when it has none."""
     cache_dir = _get_cache_dir(config.data_dir)
     cached_path = cache_dir / f"{hashlib.sha256(f'{rating_key}:art'.encode()).hexdigest()}.jpg"
-    cached = _cached_response(cached_path)
+    cached = _cached_response(cached_path, scope)
     if cached is not None:
         return cached
 
@@ -190,17 +192,17 @@ def _serve_art(config: Config, rating_key: str) -> Response | None:
     return Response(
         content=content,
         media_type=content_type,
-        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
+        headers={"Cache-Control": f"{scope}, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )
 
 
-def _serve_poster(config: Config, rating_key: str) -> Response:
+def _serve_poster(config: Config, rating_key: str, scope: str) -> Response:
     cache_dir = _get_cache_dir(config.data_dir)
     # Full SHA-256 cache filename — collision-free, filesystem-safe.
     cached_path = cache_dir / f"{hashlib.sha256(rating_key.encode()).hexdigest()}.jpg"
 
     # Serve from disk cache (sidecar carries the true mime type).
-    cached = _cached_response(cached_path)
+    cached = _cached_response(cached_path, scope)
     if cached is not None:
         return cached
 
@@ -220,5 +222,5 @@ def _serve_poster(config: Config, rating_key: str) -> Response:
     return Response(
         content=poster_bytes,
         media_type=content_type,
-        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
+        headers={"Cache-Control": f"{scope}, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )

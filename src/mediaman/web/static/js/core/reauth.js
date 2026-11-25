@@ -63,7 +63,7 @@
     }
 
     if (closeOpen) closeOpen();
-    /* The dialog does not trap focus, so on close it hands it back to what had it. */
+    /* The dialog keeps its own focus, so on close it hands it back to what had it. */
     var opener = document.activeElement;
     document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
 

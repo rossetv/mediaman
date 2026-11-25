@@ -5,6 +5,8 @@
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
+ *   - A stored secret whose field is emptied is removed only once confirmed,
+ *     and one whose mask was edited is kept
  *   - What a save whose answer was lost may have stored stays unsaved until
  *     Save or Discard has asked the server what it has
  *   - Discard-confirm via UIFeedback, then the last saved values put back
@@ -17,6 +19,7 @@
  *   MM.settings.diskThresholds / MM.settings.toggles (Discard puts their
  *                     state back; a save takes in what the server stored)
  *   MM.settings.integrations.paintTests (told of every edit, save and discard)
+ *   MM.settings.integrations.recheck (told what a save has stored)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
@@ -59,13 +62,12 @@
     return !active || active === document.body || !!(savebar && savebar.contains(active));
   }
 
-  // The bar hides after a save or a discard. Only a keyboard press restores focus, since a
+  // A save or a discard leaves nothing in the bar to press. Only a keyboard press restores focus, since a
   // pointer user has no focus to lose and a refocus would scroll them back or
   // raise a phone keyboard. Focus already moved elsewhere is left alone; focus
   // lost to the body or the bar returns to the last edited control, or to the
   // page heading when that cannot take focus.
-  function settleAfterHide(fromKeyboard) {
-    markClean();
+  function giveFocusBack(fromKeyboard) {
     if (!fromKeyboard || !focusLost()) return;
     if (lastEdited && document.body.contains(lastEdited) && !lastEdited.disabled) {
       lastEdited.focus();
@@ -75,6 +77,11 @@
     if (!heading) return;
     heading.setAttribute('tabindex', '-1');
     heading.focus();
+  }
+
+  function settleAfterHide(fromKeyboard) {
+    markClean();
+    giveFocusBack(fromKeyboard);
   }
 
   // The send-newsletter panel holds ephemeral recipient checkboxes, and the
@@ -94,6 +101,14 @@
   var unsure = {};
 
   function isUnsure() { return Object.keys(unsure).length > 0; }
+
+  // The settings of saves with no answer: their services are checked once it is known what is stored.
+  var unchecked = [];
+
+  function recheck(keys) {
+    if (MM.settings.integrations) MM.settings.integrations.recheck(unchecked.concat(keys), saved.values);
+    unchecked = [];
+  }
 
   function settingsControls() {
     return Array.prototype.filter.call(
@@ -192,11 +207,85 @@
     return !!document.querySelector('.inp-reveal[data-reveal-target="' + key + '"]');
   }
 
+  // Asks the server to delete a secret: it takes an empty one as unchanged.
+  var CLEAR_SECRET = '__CLEAR__';
+  // Stands for a stored secret, which only the server knows.
+  var MASKED_SECRET = '****';
+
+  // Spaces are no secret, and would be stored in place of one.
+  function emptyBlankSecrets() {
+    settingsControls().forEach(function (el) {
+      if (isSecret(el.id) && !el.value.trim()) el.value = '';
+    });
+  }
+
+  // Asterisks alone, or the mask with something typed before or after it.
+  function isMaskEdit(value) {
+    return /^\*+$|^\*{4}|\*{4}$/.test(value.trim());
+  }
+
+  // Puts back each secret whose mask was edited, and says so: what is stored cannot be had back once replaced.
+  function putBackMasks() {
+    var back = {};
+    var onlyAsterisks = {};
+    settingsControls().forEach(function (el) {
+      if (!isSecret(el.id) || el.value === saved.values[el.id] || !isMaskEdit(el.value)) return;
+      back[el.id] = saved.values[el.id];
+      onlyAsterisks[el.id] = /^\*+$/.test(el.value.trim());
+    });
+    var keys = Object.keys(back);
+    if (!keys.length) return false;
+    put(back);
+    var untouched = keys.filter(function (key) { return onlyAsterisks[key] && saved.values[key]; });
+    var refused = keys.filter(function (key) { return untouched.indexOf(key) === -1; });
+    var said = [];
+    if (untouched.length) {
+      said.push('Nothing new was entered for ' + inWords(untouched.map(fieldLabel)) + ', so ' +
+        (untouched.length > 1 ? 'they stay as they were.' : 'it stays as it was.'));
+    }
+    if (refused.length) {
+      said.push('A secret cannot start or end with ****. ' + inWords(refused.map(fieldLabel)) +
+        (refused.length > 1 ? ' stay as they were.' : ' stays as it was.'));
+    }
+    window.UIFeedback.toast(said.join(' '), { duration: 8000 });
+    return true;
+  }
+
+  // A caret inside the mask would add what is typed to it.
+  function selectMask(el) {
+    if (!el || el.value !== MASKED_SECRET || !isSecret(el.id)) return;
+    if (el.selectionStart !== 0 || el.selectionEnd !== el.value.length) el.select();
+  }
+
+  function clearedSecrets(sent) {
+    return changedKeys(saved, sent).filter(function (key) { return isSecret(key) && sent.values[key] === ''; });
+  }
+
+  function confirmClear(keys) {
+    var many = keys.length > 1;
+    var labels = keys.map(fieldLabel);
+    return window.UIFeedback.confirm({
+      title: many ? 'Remove ' + keys.length + ' saved secrets?' : 'Remove the saved ' + labels[0] + '?',
+      body: many
+        ? 'mediaman will delete the saved ' + inWords(labels) + '. What uses them stops working until you enter them again.'
+        : 'mediaman deletes what it has stored, and what uses it stops working until you enter it again.',
+      confirmLabel: 'Remove and save',
+      confirmVariant: 'danger',
+      cancelLabel: many ? 'Keep them' : 'Keep it',
+    });
+  }
+
   function thingLabel(key) {
     var part = /^(lib|limit):(.*)$/.exec(key);
     if (!part) return fieldLabel(key);
     var title = MM.settings.diskThresholds.titleOf(part[2]);
     return part[1] === 'lib' ? 'scanning of ' + title : 'disk threshold of ' + title;
+  }
+
+  function leftAsStored(keys) {
+    var names = inWords(keys.map(thingLabel));
+    return names.charAt(0).toUpperCase() + names.slice(1) +
+      (keys.length > 1 ? ' were left as they were stored.' : ' was left as it was stored.');
   }
 
   function askToCheck(keys) {
@@ -237,7 +326,7 @@
 
   // What to send of `now` once the server has told what is stored: a thing put back is sent only
   // where a save with no answer did change it and the undo lets no more be deleted. Otherwise it
-  // is taken from the server, where another page may have set it since.
+  // is taken from the server, where another page may have set it since; `kept` are those that were.
   function settle(now, data) {
     var stored = storedFrom(data);
     var was = things(saved);
@@ -245,20 +334,21 @@
     var has = things(stored);
     function putBack(key) { return !!unsure[key] && mine[key] === unsure[key].old; }
     function undone(key) {
+      if (isSecret(key) && mine[key] === MASKED_SECRET) return false;
       return unsure[key].sent.indexOf(has[key]) !== -1 && !deletesMore(key, mine[key], has[key]);
     }
     var sent = rebase(now, stored, function (key) {
       if (putBack(key)) return undone(key);
       return !!unsure[key] || mine[key] !== was[key];
     });
-    askToCheck(unexpected(stored, Object.keys(unsure).filter(function (key) {
+    var notPutBack = unexpected(stored, Object.keys(unsure).filter(function (key) {
       return putBack(key) && !undone(key);
-    })));
+    }));
     saved = stored;
     var next = things(sent);
     Object.keys(unsure).forEach(function (key) { if (next[key] === has[key]) delete unsure[key]; });
     show(sent, now);
-    return sent;
+    return { sent: sent, kept: notPutBack };
   }
 
   function put(values) {
@@ -293,12 +383,17 @@
     [/must include a host/i, 'needs a server name after http:// or https://.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
+    [/start or end with \*{4}/, 'cannot start or end with ****.'],
     [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
     [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
     [/integer/i, 'must be a whole number.'],
     [/timezone/i, 'is not a time zone mediaman knows.'],
     [/must be one of/i, 'is not one of the choices offered.'],
   ];
+
+  function inWords(names) {
+    return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  }
 
   // The label a person sees for a setting, or its key in words when the page has none.
   function fieldLabel(key) {
@@ -348,7 +443,9 @@
     var saveBtn   = document.getElementById('btn-save');
     var discardBtn = document.getElementById('btn-discard');
     var statusEl  = document.getElementById('save-status');
+    var msgEl = savebar && savebar.querySelector('.sb-msg');
     var SAVE_LABEL = 'Save Settings';
+    var UNSAVED_TEXT = 'Unsaved changes';
     var STANDING_TEXT = 'Edits apply to every section at once.';
     var UNSURE_TEXT = 'The last save may have been stored. Save again to be sure.';
 
@@ -358,6 +455,9 @@
     document.addEventListener('change', function (e) {
       if (isSettingsInput(e.target)) { lastEdited = e.target; markDirty(); }
     }, true);
+
+    document.addEventListener('focusin', function (e) { selectMask(e.target); });
+    document.addEventListener('selectionchange', function () { selectMask(document.activeElement); });
 
     function setSaveError(msg) {
       if (savebar) savebar.classList.add('is-error');
@@ -381,12 +481,21 @@
 
     // The success state, until its timers have run or an edit ends it early.
     var successTimers = [];
+    // What the bar says was left as it was stored, for a toast where an edit takes those words away.
+    var leftOut = [];
+    function tellLeftOut() {
+      askToCheck(leftOut);
+      leftOut = [];
+    }
     function endSuccess() {
       if (!successTimers.length) return;
       successTimers.forEach(clearTimeout);
       successTimers = [];
       saveBtn.textContent = SAVE_LABEL;
       saveBtn.disabled = false;
+      if (discardBtn) discardBtn.disabled = false;
+      if (msgEl) msgEl.textContent = UNSAVED_TEXT;
+      savebar.classList.remove('is-saved', 'is-partial');
     }
     // The bar shows while anything differs from what was saved. A save under way keeps it and its words.
     var saving = false;
@@ -394,12 +503,14 @@
       if (!savebar || saving) return;
       if (savebar.classList.contains('is-error')) clearSaveError();
       var clean = !isUnsure() && !changedKeys(saved, snapshot()).length;
+      if (clean) recheck([]);
       // After a save the bar goes by itself.
       if (clean && successTimers.length) return;
       if (successTimers.length || clean) {
         endSuccess();
         savebar.classList.remove('is-partial');
         if (statusEl) statusEl.textContent = STANDING_TEXT;
+        tellLeftOut();
       }
       savebar.classList.toggle('on', !clean);
       if (isUnsure() && statusEl && statusEl.textContent !== UNSURE_TEXT) {
@@ -420,6 +531,7 @@
     function startAsking() {
       var hadFocus = savebar && savebar.contains(document.activeElement);
       saving = true;
+      leftOut = [];
       saveBtn.disabled = true;
       // Discard would put back values the server no longer holds.
       if (discardBtn) discardBtn.disabled = true;
@@ -438,23 +550,57 @@
 
     function runSave(fromKeyboard) {
       if (!saveBtn) return;
+      if (putBackMasks()) {
+        markDirty();
+        if (!savebar.classList.contains('on')) { settleAfterHide(fromKeyboard); return; }
+      }
       var hadFocus = startAsking();
       saveBtn.textContent = 'Saving…';
+      emptyBlankSecrets();
       var now = snapshot();
-      if (!isUnsure()) { send(now, fromKeyboard, hadFocus); return; }
+      if (!isUnsure()) { send(now, fromKeyboard, hadFocus, false, []); return; }
       askStored(hadFocus, 'saved', function (data) {
-        var sent = settle(now, data);
-        send(sent, fromKeyboard, hadFocus, !changedKeys(saved, sent).length);
+        var settled = settle(now, data);
+        send(settled.sent, fromKeyboard, hadFocus, !changedKeys(saved, settled.sent).length, settled.kept);
+      });
+    }
+
+    function send(sent, fromKeyboard, hadFocus, done, kept) {
+      var cleared = clearedSecrets(sent);
+      if (!cleared.length) { deliver(sent, fromKeyboard, hadFocus, done, kept); return; }
+      saveBtn.textContent = SAVE_LABEL;
+      // The dialog gives the focus back to what has it now.
+      reenable(hadFocus);
+      confirmClear(cleared).then(function (ok) {
+        if (ok) {
+          startAsking();
+          saveBtn.textContent = 'Saving…';
+          deliver(sent, fromKeyboard, hadFocus, done, kept);
+          return;
+        }
+        saving = false;
+        var back = {};
+        cleared.forEach(function (key) {
+          back[key] = saved.values[key];
+          // The server has just shown it is still there, so a lost removal of it was not made.
+          if (unsure[key] && unsure[key].sent.every(function (value) { return value === ''; })) delete unsure[key];
+        });
+        put(back);
+        askToCheck(kept);
+        markDirty();
+        if (!savebar.classList.contains('on')) settleAfterHide(fromKeyboard);
       });
     }
 
     // Routes through MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
-    // flow are applied consistently. With `done` the server has it all.
-    function send(sent, fromKeyboard, hadFocus, done) {
+    // flow are applied consistently. With `done` the server has it all; of `kept`, which the person
+    // put back, it has what it had.
+    function deliver(sent, fromKeyboard, hadFocus, done, kept) {
       // Only what was changed is sent: the rest may be a default nobody chose, or older than what another tab saved.
       var all = getPayload(sent, saved);
       var payload = {};
       changedKeys(saved, sent).forEach(function (key) { if (key in all) payload[key] = all[key]; });
+      clearedSecrets(sent).forEach(function (key) { payload[key] = CLEAR_SECRET; });
       if ('plex_libraries' in payload) payload.plex_libraries_base = saved.disk.libs;
 
       (done ? Promise.resolve({ status: 'saved' }) : MM.reauth.run(function () {
@@ -473,37 +619,41 @@
             var merged = sent.disk && 'plex_libraries' in data;
             saved = { values: sent.values, disk: merged ? MM.settings.diskThresholds.fromServer(data) : sent.disk };
             show(saved, sent);
+            recheck(Object.keys(payload));
             refreshOverviewHero();
-            if (changedKeys(saved, snapshot()).length) {
-              saveBtn.textContent = SAVE_LABEL;
-              savebar.classList.add('is-partial');
-              if (statusEl) statusEl.textContent = 'Saved, except what you changed since.';
-              reenable(hadFocus);
-              return;
-            }
-            if (discardBtn) discardBtn.disabled = false;
-            saveBtn.textContent = 'Saved ✓';
+            var edited = changedKeys(saved, snapshot()).length > 0;
+            var partial = edited || kept.length > 0;
+            saveBtn.textContent = partial ? SAVE_LABEL : 'Saved ✓';
+            savebar.classList.add(partial ? 'is-partial' : 'is-saved');
             if (statusEl) {
-              statusEl.textContent = ignored.length
-                ? 'Saved · ignored unknown: ' + ignored.join(', ')
-                : 'Settings saved';
+              statusEl.textContent = partial
+                ? (edited ? 'Saved, except what you changed since.' : 'Saved.') + (kept.length ? ' ' + leftAsStored(kept) : '')
+                : ignored.length ? 'Saved · ignored unknown: ' + ignored.join(', ') : 'Settings saved';
             }
+            leftOut = kept;
+            if (edited) { reenable(hadFocus); return; }
+            if (msgEl) msgEl.textContent = 'No unsaved changes';
+            giveFocusBack(fromKeyboard);
+            // What was left out takes as long to read as a toast that names it.
+            var hideAfter = kept.length ? 8000 : 600;
             successTimers = [
-              setTimeout(function () { settleAfterHide(fromKeyboard); }, 600),
+              setTimeout(function () { leftOut = []; markClean(); }, hideAfter),
               setTimeout(function () {
                 endSuccess();
                 if (statusEl && !ignored.length) statusEl.textContent = STANDING_TEXT;
-              }, 2200),
+              }, hideAfter + 1600),
             ];
             return;
           }
 
           // Unexpected envelope — surface as a save error.
+          askToCheck(kept);
           setSaveError(summariseSaveError(data, 200));
           reenable(hadFocus);
         })
         .catch(function (err) {
           saving = false;
+          askToCheck(kept);
           // MM.reauth.run() rejects with 'reauth_cancelled' when the user
           // dismisses the modal — show a polite message rather than a server
           // error. All other rejections are APIError instances from MM.api.
@@ -513,7 +663,10 @@
             return;
           }
           // With no answer, or the server's own failure, the settings may be stored all the same.
-          if (!err || !err.status || err.status >= 500) rememberUnsure(sent);
+          if (!err || !err.status || err.status >= 500) {
+            unchecked = unchecked.concat(Object.keys(payload));
+            rememberUnsure(sent);
+          }
           if (err && err.status) {
             // Reconstruct a minimal data envelope so summariseSaveError can
             // read detail / error fields that MM.api.APIError already parsed.
@@ -537,10 +690,12 @@
     window.addEventListener('pageshow', function () { onEdit(); });
 
     function putBackSaved(fromKeyboard) {
+      leftOut = [];
       restoreSaved();
       clearSaveError();
       refreshOverviewHero();
       settleAfterHide(fromKeyboard);
+      recheck([]);
     }
 
     function discardUnsure(fromKeyboard) {
