@@ -500,6 +500,9 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     setInterval: (fn, ms) => addTimer(fn, ms, true),
     clearInterval: clearTimer,
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
+    /* Nothing is laid out here: a scenario calls what watches an element as it grows. */
+    sized: [],
+    ResizeObserver: function ResizeObserver(fn) { this.observe = (el) => { win.sized.push({ el: el, fn: fn }); }; },
     Blob: function Blob(parts) { this.parts = parts; },
     fetch: (url, opts) => (/\/preview\//.test(url) ? fetchFrame(url) : fetchPage(url, opts)),
     URL: class extends URL {
@@ -5456,6 +5459,56 @@ const scenarios = {
     await pickRow(p, 'tv-5');
     const play = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || ''))[0];
     return { stops: way.stops, at: play.body.position_s, says: awayState(p).says, starts: p.starts().length };
+  },
+
+  /* Where the cards and the words of a TV's page go, by how its parts are laid out. */
+  async away_cards(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const lay = (sel, top, bottom) => { p.q(sel).getBoundingClientRect = () => ({ left: 0, right: 900, top: top, bottom: bottom, width: 900, height: bottom - top }); };
+    const grown = (sel) => p.win.sized.filter((s) => s.el === p.q(sel)).forEach((s) => s.fn());
+    const px = (name) => parseInt(p.root.style[name], 10);
+    const wordless = () => p.root.classList.contains('is-wordless');
+    const out = {};
+    lay('.player-top', 0, 64); lay('.player-away-say', 300, 350); lay('.player-bottom', 400, 800);
+    lay('.player-seek-row', 700, 744); lay('[data-away-end]', 750, 786);
+    grown('.player-bottom');
+    out.row = [px('--away-row')];
+    lay('.player-seek-row', 650, 694);
+    grown('.player-bottom');
+    out.row.push(px('--away-row'));
+
+    const rate = p.q('[data-rate]');
+    rate.hidden = false; rate.scrollHeight = 210;
+    grown('[data-rate-set]');
+    out.rateFits = [wordless(), px('--away-foot')];
+    rate.scrollHeight = 230;
+    grown('[data-rate-set]');
+    out.rateDoesNot = [wordless(), px('--away-foot')];
+    rate.hidden = true;
+    grown('[data-rate-set]');
+    out.rateGone = wordless();
+
+    const message = p.q('[data-message]');
+    message.hidden = false;
+    lay('[data-message]', 320, 480);
+    grown('.player-bottom');
+    out.messageMeets = wordless();
+    lay('[data-message]', 370, 480);
+    grown('.player-bottom');
+    out.messageClear = wordless();
+    message.hidden = true;
+
+    const card = p.q('[data-upnext]');
+    card.scrollHeight = 140;
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    out.under = [card.classList.contains('is-under'), px('--away-under'), wordless()];
+    lay('[data-away-end]', 520, 560);
+    p.win.listeners.resize.forEach((fn) => fn());
+    out.noRoom = [card.classList.contains('is-under'), wordless()];
+    return out;
   },
 
   /* Closed, the sheet sinks away over the page, which is there again at once. */

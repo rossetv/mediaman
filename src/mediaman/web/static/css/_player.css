@@ -941,6 +941,10 @@
 .player-away-on .ico { width: 20px; height: 20px; margin-right: 8px; vertical-align: -.3em; }
 .player-away-hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
 .player.is-away [data-away-idle][inert] { opacity: .4; }
+.player.is-away.is-wordless .player-away-say { visibility: hidden; }
+@media (max-width: 1199.98px) {
+  .player.is-away .player-upnext.is-under { top: var(--away-under); bottom: auto; max-height: none; }
+}
 /* Room beside the words. */
 @media (min-width: 1200px) and (min-height: 520.02px) {
   .player.is-away .player-upnext { bottom: calc(var(--player-foot) + 118px); }
@@ -948,6 +952,10 @@
 /* No room for both: the question waits. */
 @media (max-width: 1199.98px) {
   .player.is-away:has(.player-upnext:not([hidden], .is-leaving)) .player-rate { visibility: hidden; }
+}
+/* Its controls may take two rows. */
+@media (min-width: 900px) {
+  .player.is-away .player-skip { position: fixed; bottom: max(calc(var(--player-foot) + 104px), var(--away-row, 0px)); }
 }
 /* A TV with a remote of its own has its controls there. */
 .player.is-on-tv .player-seek-row,

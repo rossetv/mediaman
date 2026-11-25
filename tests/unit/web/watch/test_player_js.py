@@ -2465,6 +2465,23 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+def test_a_tvs_cards_the_skip_button_and_the_words_keep_off_each_other(markup):
+    out = elsewhere(markup, "away_cards")
+    # The skip button stands on the bar wherever its row goes as the buttons under it wrap.
+    assert out["row"] == [800 - 700 + 14, 800 - 650 + 14]
+    # 222 px between the bar and the words: a taller card goes down to the controls, over them.
+    assert out["rateFits"] == [False, 800 - 300 + 14]
+    assert out["rateDoesNot"] == [True, 800 - 400]
+    assert out["rateGone"] is False
+    assert (out["messageMeets"], out["messageClear"]) == (True, False)
+
+
+def test_the_next_episodes_card_stands_under_the_words_where_there_is_room(markup):
+    out = elsewhere(markup, "away_cards")
+    assert out["under"] == [True, 370, False]
+    assert out["noRoom"] == [False, False]
+
+
 def test_the_sheet_sinks_away_out_of_reach_and_can_be_opened_meanwhile(markup):
     out = elsewhere(markup, "away_sheet_sinks")
     assert out["sinks"] == {"open": False, "inert": True, "kind": "manual"}
@@ -2474,7 +2491,11 @@ def test_the_sheet_sinks_away_out_of_reach_and_can_be_opened_meanwhile(markup):
 @pytest.mark.parametrize("how", ["counts", "cancelled", "space", "twice", "film"])
 def test_play_again_starts_it_anew_on_the_same_chromecast(markup, last_episode, how):
     out = elsewhere(last_episode if how == "film" else markup, "away_play_again", how)
-    assert (out["counts"], out["rate"], out["button"]) == (how != "film", how == "film", "Play again")
+    assert (out["counts"], out["rate"], out["button"]) == (
+        how != "film",
+        how == "film",
+        "Play again",
+    )
     assert (out["card"], out["starting"]) == (False, "Starting on Den")
     assert out["loads"] == [["c2", 0, False]]
     # The stream that ended is let go, and nothing comes here.

@@ -306,6 +306,21 @@ def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
 
 
+def test_the_words_of_a_tvs_page_step_aside_for_a_card() -> None:
+    css = _text("_player.css")
+    words = _rule(css, ".player.is-away.is-wordless .player-away-say")
+    assert "visibility: hidden" in words
+    under = _rule(css, ".player.is-away .player-upnext.is-under")
+    assert "top: var(--away-under)" in under and "bottom: auto" in under
+
+
+def test_the_skip_button_of_a_tvs_remote_stands_on_the_bar_of_a_wide_screen() -> None:
+    css = _text("_player.css")
+    wide = css[css.index("@media (min-width: 900px) {") :]
+    skip = _rule(wide, ".player.is-away .player-skip")
+    assert "position: fixed" in skip and "var(--away-row" in skip
+
+
 def test_the_question_of_a_rating_is_never_shrunk_away() -> None:
     css = _text("_player.css")
     # Beside the thumbs, on a phone on its side, it is what wraps.

@@ -3967,18 +3967,42 @@
   });
 
   var lowScreen = window.matchMedia('(max-height: 520px)');
-  /* What stands over the picture of where it plays keeps clear of the bar and of the words under it. */
+  /* What stands over the picture of where it plays keeps clear of the bar and of the words under it.
+     The next episode's card goes under the words where it can; where a card would meet them, or has
+     no room over them, they give way. */
   function placeCards() {
     if (!isAway()) return;
-    /* On a low screen the words give way to them. */
-    var under = q(lowScreen.matches ? '.player-bottom' : '.player-away-say').getBoundingClientRect();
-    var bar = q('.player-top').getBoundingClientRect();
-    root.style.setProperty('--away-foot', Math.max(12, Math.round(window.innerHeight - under.top + (lowScreen.matches ? 0 : 14))) + 'px');
-    root.style.setProperty('--away-head', Math.max(0, Math.round(bar.bottom)) + 'px');
+    function set(name, px) { root.style.setProperty(name, Math.max(0, Math.round(px)) + 'px'); }
+    var low = lowScreen.matches;
+    var head = q('.player-top').getBoundingClientRect().bottom;
+    var say = q('.player-away-say').getBoundingClientRect();
+    var card = 0;
+    if (shown(els.rate)) card = els.rate.scrollHeight;
+    if (upnextOpen()) {
+      var tall = els.upnext.scrollHeight;
+      var under = !low && say.bottom + 20 + tall + 12 <= els.awayEnd.getBoundingClientRect().top;
+      els.upnext.classList.toggle('is-under', under);
+      set('--away-under', say.bottom + 20);
+      if (!under && window.innerWidth < 1200) card = Math.max(card, tall);
+    }
+    var over = low || card > say.top - 14 - head;
+    var foot = over ? q('.player-bottom').getBoundingClientRect().top : say.top - 14;
+    root.style.setProperty('--away-foot', Math.max(12, Math.round(window.innerHeight - foot)) + 'px');
+    set('--away-head', head);
+    set('--away-row', window.innerHeight - q('.player-seek-row').getBoundingClientRect().top + 14);
+    var asks = shown(els.message) && els.message.getBoundingClientRect();
+    var meets = asks && asks.bottom + 12 > say.top && asks.top - 12 < say.bottom;
+    root.classList.toggle('is-wordless', !!meets || over && card > 0);
   }
   els.away.addEventListener('animationend', placeCards);
+  els.message.addEventListener('animationend', placeCards);
   window.addEventListener('resize', placeCards);
   root.addEventListener('scroll', placeCards);
+  if (window.ResizeObserver) {
+    var sizes = new ResizeObserver(placeCards);
+    /* No card itself, whose size placing it may change. */
+    [q('.player-top'), q('.player-away-say'), q('.player-bottom'), els.rateSet].forEach(function (el) { sizes.observe(el); });
+  }
 
   function paintAway() {
     var on = isAway();
