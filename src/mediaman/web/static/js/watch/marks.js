@@ -131,23 +131,47 @@
 
   /* ── Drawing a mark ── */
 
-  /* How far an eye that waits for its answer has shut, from 0 to 1. */
-  function shutOf(button) {
-    var drawn = /^matrix\((?:[^,]+,){3}([^,]+)/.exec(getComputedStyle(button.querySelector('.ico') || button).transform);
-    return drawn ? 1 - Math.min(1, Math.max(0, Number(drawn[1]))) : 0;
+  /* Each page's style is worked out again whenever it is read after a change, which costs as many
+     cards as the page has: what the drawing of a mark needs to know is read before it changes anything. */
+
+  var shut = new WeakMap(); // of an eye that waits for its answer: how far it has shut, from 0 to 1
+  var sight = null; // while a mark is drawn: whether each of its cards is in sight
+
+  /* Read what drawing the mark *key* of the title *ref* needs, then draw it with *fn*. */
+  function readFirst(key, ref, fn) {
+    buttonsOf(key).forEach(function (button) {
+      var drawn = /^matrix\((?:[^,]+,){3}([^,]+)/.exec(getComputedStyle(button.querySelector('.ico') || button).transform);
+      shut.set(button, drawn ? 1 - Math.min(1, Math.max(0, Number(drawn[1]))) : 0);
+    });
+    sight = new Map();
+    cardsOfMark(key).concat(continueCards(document, ref)).forEach(function (card) { sight.set(card, card.getClientRects().length > 0); });
+    try { fn(); } finally { sight = null; }
+  }
+
+  /* Whether *card* is in sight, with motion. */
+  function moving(card) {
+    return !core.reduceMotion() && (sight && sight.has(card) ? sight.get(card) : card.getClientRects().length > 0);
   }
 
   function setToggle(button, watched) {
     var now = watched ? 'true' : 'false';
     if (button.getAttribute('aria-pressed') !== now && button.matches('.card-tool, .card-over__b, .pv__eye')) {
-      button.style.setProperty('--shut', String(shutOf(button)));
-      button.classList.remove('is-blink');
-      void button.offsetWidth;
+      button.style.setProperty('--shut', String(shut.get(button) || 0));
+      shut.delete(button);
+      // One still blinking is made to blink again; one done blinking is told so below.
+      if (button.classList.contains('is-blink')) {
+        button.classList.remove('is-blink');
+        void button.offsetWidth;
+      }
       button.classList.add('is-blink');
     }
     button.setAttribute('aria-pressed', now);
     if (button.hasAttribute('title')) button.setAttribute('title', core.markAction(watched));
   }
+
+  document.addEventListener('animationend', function (e) {
+    if (/^eye-(shuts|opens)$/.test(e.animationName)) e.target.classList.remove('is-blink');
+  });
 
   /* A card's caption; null while it says what an admin's change is doing. */
   function captionOf(card) {
@@ -165,7 +189,7 @@
 
   function draw(card, badge, bar, text) {
     var poster = card.querySelector('.watch-card__poster');
-    var moves = !core.reduceMotion() && card.getClientRects().length > 0;
+    var moves = moving(card);
     [['.watch-badge--watched', badge], ['.watch-bar', bar]].forEach(function (p) {
       var old = poster.querySelector(p[0]);
       if (old === p[1]) return;
@@ -204,7 +228,7 @@
 
   /* The lights go down and come up. */
   function lights(card) {
-    if (core.reduceMotion() || !card.getClientRects().length) return;
+    if (!moving(card)) return;
     ghost(card.querySelector('.watch-card__poster'), el('span', 'card-lights'), 660);
   }
 
@@ -360,7 +384,7 @@
   /* A card of Continue watching shows that it was watched. Returns whether one does. */
   function showWatched(ref, mark, done) {
     return continueCards(document, ref).filter(function (card) {
-      if ((done.part && markOf(card) !== mark) || core.reduceMotion() || !card.getClientRects().length) return false;
+      if ((done.part && markOf(card) !== mark) || !moving(card)) return false;
       var poster = card.querySelector('.watch-card__poster');
       var bar = poster.querySelector('.watch-bar');
       var own = markOf(card);
@@ -724,7 +748,7 @@
     if (card) window.MMWatch.cardTools.close(card);
     started(mark);
     retireUndos(mark, ref);
-    send(mark, watched).then(function (data) {
+    send(mark, watched).then(function (data) { readFirst(mark, ref, function () {
       changes += 1;
       if (done.part) tmdbOf(ref).forEach(function (tmdb) { delete said[tmdb]; });
       done.undos = paint(mark, watched);
@@ -745,7 +769,7 @@
         if (!tmdb) follow(ref, done);
       };
       if (shown) setTimeout(goOn, MARKED_MS); else goOn();
-    }, function (err) {
+    }); }, function (err) {
       setBusy(mark, false);
       var held = err && err.error === 'in_library' && err.data ? err.data.mark_kind + '/' + err.data.mark_key : '';
       if (tmdb && /^(movie|show)\/[0-9]+$/.test(held)) {
@@ -783,7 +807,7 @@
     whenIdle(mark, function () {
       refocus(toggleOf(mark, done.card));
       started(mark);
-      send(mark, !watched, '?undo=1').then(function (data) {
+      send(mark, !watched, '?undo=1').then(function (data) { readFirst(mark, ref, function () {
         var after = putBack(ref, done, !/^movie\//.test(mark));
         // A card that came meanwhile was not there to be put back.
         note(mark, data.watched);
@@ -793,7 +817,7 @@
         setBusy(mark, false);
         announce(mark, ref);
         if (!/^tmdb-/.test(mark)) follow(ref, after);
-      }, function (err) {
+      }); }, function (err) {
         toastFailed(mark, err, name);
         setBusy(mark, false);
       });
