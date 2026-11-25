@@ -2,8 +2,8 @@
 
 A ticket reads its own stream's playlist and segments and nothing else. Whatever a ticket is
 refused for, the answer is the same 404 (429 once an address fails too often), so that a stranger
-learns nothing from it. Any origin
-may read the ticket routes, since a TV's player runs on its maker's; none may send credentials.
+learns nothing from it. Any origin may read the ticket routes, since a TV's player runs on its
+maker's; none may send credentials.
 """
 
 from __future__ import annotations
@@ -200,7 +200,7 @@ def _read_ticket(request: Request, token: str) -> Ticket | Response:
     ticket = store.read(token)
     if ticket is not None and not _is_good(ticket):
         with contextlib.suppress(StreamGone):
-            get_stream_manager().stop(ticket.stream_id, ticket.user)
+            get_stream_manager().end(ticket.stream_id, ticket.user)
         store.drop(token)
         ticket = None
     if ticket is not None and not _stream_lives(ticket):

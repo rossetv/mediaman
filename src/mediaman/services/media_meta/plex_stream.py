@@ -869,6 +869,24 @@ class StreamManager:
                 viewing.asked = float("-inf")
         self._call_quietly("stop", stream.session_id)
 
+    def end(self, stream_id: str, user: str) -> None:
+        """Stop the stream as the reaper does, so that a late save of its progress is kept."""
+        with self._lock:
+            stream = self._streams.get(stream_id)
+            if stream is None or stream.user != user:
+                raise self._gone(stream_id, user)
+            self._end([stream_id], self._clock())
+        self._call_quietly("stop", stream.session_id)
+
+    def _end(self, ids: list[str], now: float) -> list[_Stream]:
+        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held."""
+        ended = {sid: self._streams.pop(sid) for sid in ids}
+        self._reaped = {
+            sid: kept for sid, kept in self._reaped.items() if now - kept[0] <= VIEWING_KEEP_SECONDS
+        }
+        self._reaped.update((sid, (now, s)) for sid, s in ended.items())
+        return list(ended.values())
+
     def reap(self, now: float | None = None) -> int:
         """Stop streams idle past their timeout or no longer allowed, and ping the rest; return
         how many stopped.
@@ -887,13 +905,7 @@ class StreamManager:
                 or now - s.last_access
                 > (TV_IDLE_TIMEOUT_SECONDS if s.tv_read else IDLE_TIMEOUT_SECONDS)
             ]
-            stopped = [self._streams.pop(sid) for sid in ended]
-            self._reaped = {
-                sid: kept
-                for sid, kept in self._reaped.items()
-                if now - kept[0] <= VIEWING_KEEP_SECONDS
-            }
-            self._reaped.update((sid, (now, s)) for sid, s in zip(ended, stopped, strict=True))
+            stopped = self._end(ended, now)
             live = [s.session_id for s in self._streams.values()]
         for stream in stopped:
             self._call_quietly("stop", stream.session_id)

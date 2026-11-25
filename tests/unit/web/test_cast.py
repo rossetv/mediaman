@@ -381,6 +381,19 @@ def test_the_slot_comes_back_when_a_ticket_ends(alice, tv, conn, clock, end, not
     assert _start(alice, "104").status_code == 200
 
 
+def test_a_place_saved_after_the_tv_was_refused_is_kept(alice, tv, conn, clock):
+    started = _cast(alice)
+    clock.now += TICKET_SECONDS
+    assert tv.get(started["url"]).status_code == 404
+    late = alice.post(
+        "/api/watch/progress",
+        json={"stream_id": started["stream_id"], "position_s": 1234, "played_s": 1234},
+    )
+    assert late.status_code == 410
+    rows = conn.execute("SELECT username, position_s FROM watch_progress").fetchall()
+    assert [tuple(r) for r in rows] == [("alice", 1234)]
+
+
 def test_the_session_ending_stops_the_stream_on_plex_without_a_read(alice, conn, plex):
     _cast(alice)
     session = plex.decision()["session"]
