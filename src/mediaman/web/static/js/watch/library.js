@@ -103,6 +103,7 @@
 
   var version = 0; // every change that is saved
   var changed = {}; // at which of them each title was changed last
+  var scheduled = 0; // at which of them what is scheduled changed last, of any title
 
   function ask(sort, type, more) {
     var asked = version;
@@ -110,11 +111,12 @@
       .then(function (got) { return Object.assign(got, { asked: asked }); });
   }
 
-  function isOld(got, key) { return changed[key] > got.asked; }
+  function isOld(got, key) { return scheduled > got.asked || changed[key] > got.asked; }
 
   /* Read again each title of *got*, which stands now, that was read before a change to it was saved. */
   function readChanged(got) {
-    got.items.forEach(function (item) { if (isOld(got, item.key)) setTimeout(function () { readAgain(item.key, {}); }); });
+    if (scheduled > got.asked) setTimeout(function () { readAll(got.items.map(function (item) { return item.key; })); });
+    else got.items.forEach(function (item) { if (isOld(got, item.key)) setTimeout(function () { readAgain(item.key, {}); }); });
   }
 
   function barOf(got) { return { type: got.type, counts: got.counts, fact: got.fact, total: got.total }; }
@@ -292,7 +294,8 @@
     if (!now) return Promise.resolve();
     return ask(now.sort, now.filter, '&only=' + encodeURIComponent(key)).then(function (got) {
       var still = grid.shows('library');
-      if (!still || isOld(got, key)) return;
+      if (!still || changed[key] > got.asked) return;
+      if (isOld(got, key)) return readAgain(key, d);
       if (still.sort === now.sort && still.filter === now.filter) grid.setBar(barOf(got));
       cardsOf(key).forEach(function (card) {
         if (got.items.length) refresh(card, build(got.items[0]));
@@ -338,23 +341,40 @@
     readAgain(key, d);
   });
 
-  /* What is scheduled has changed: every card that stands here is read again. */
-  document.addEventListener('mm:watch-scheduled', function () {
+  /* Read every card that stands here again, and those of *keys* alone that no longer come with them. */
+  function readAll(keys) {
     var now = grid.shows('library');
     if (!now) return;
     var left = document.querySelectorAll('.watch-all .watch-card').length;
-    version++;
+    var missed = new Set(keys);
     (function next(after) {
       ask(now.sort, now.filter, after ? '&after=' + encodeURIComponent(after) : '').then(function (got) {
         var still = grid.shows('library');
         if (!still || still.sort !== now.sort || still.filter !== now.filter) return;
+        if (scheduled > got.asked) {
+          if (missed.size) readAll(Array.from(missed));
+          return;
+        }
         grid.setBar(barOf(got));
         // One changed since has been read again by itself.
-        got.items.forEach(function (item) { if (!isOld(got, item.key)) cardsOf(item.key).forEach(function (card) { refresh(card, build(item)); }); });
+        got.items.forEach(function (item) {
+          missed.delete(item.key);
+          if (!isOld(got, item.key)) cardsOf(item.key).forEach(function (card) { refresh(card, build(item)); });
+        });
         left -= got.items.length;
         if (left > 0 && got.next) next(got.next);
-      }, function () {});
+        else missed.forEach(function (key) { readAgain(key, {}); });
+      }, function () {
+        if (missed.size) window.UIFeedback.error('Couldn’t read the titles again. Reload to see the change.');
+      });
     })('');
+  }
+
+  /* What is scheduled has changed, of titles nobody names here. */
+  document.addEventListener('mm:watch-scheduled', function () {
+    version++;
+    scheduled = version;
+    readAll([]);
   });
 
   /* A mark changes how many are not watched; marks.js draws the card. */

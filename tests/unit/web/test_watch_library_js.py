@@ -606,6 +606,18 @@ def test_a_schedule_read_before_a_change_leaves_the_changed_title_as_it_is() -> 
     assert _run("scheduledBeforeAChange") == [True, True]
 
 
+def test_what_was_read_before_a_schedule_is_read_again_once_and_shows_it() -> None:
+    walk, only = "?limit=60", "?limit=60&only=id%3Am2"
+    assert _run("readBeforeASchedule") == {
+        "sorted": {"reads": [walk], "kept": True},
+        "gone": {"reads": [walk, only], "kept": None},
+        "page": {"reads": [walk], "kept": True},
+        "opened": {"reads": [walk], "kept": True},
+        "alone": {"reads": [only, walk, only], "kept": True, "busy": False},
+        "twice": {"reads": 2, "kept": True, "fact": "new"},
+    }
+
+
 def test_an_older_read_of_a_title_that_lands_after_a_newer_one_says_nothing() -> None:
     assert _run("readsOutOfOrder") == [[True, "second"], [True, "second"]]
 

@@ -1392,6 +1392,77 @@ const scenarios = {
     return [before, keptNow(p, 'id:m2')];
   },
 
+  // Asked for before what is scheduled changes, in once the cards were read again for it.
+  async readBeforeASchedule() {
+    const schedule = (p) => p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    const keptRows = ROWS.map((r) => (r.id === 'm2' ? { ...r, kept: true } : r));
+    /* What *asks* starts is answered as it was; *lands* puts it in, and the reads that follow are told. */
+    const go = async (asks, lands, opts, now) => {
+      const p = load(opts);
+      const wait = deferred();
+      p.serve(ROWS, {}, wait);
+      const asked = asks(p);
+      p.serve(now || keptRows);
+      schedule(p);
+      await settle();
+      const n = p.reads.length;
+      wait.resolve();
+      const got = await asked;
+      const draw = (cards) => { const all = p.doc.querySelector('.watch-all'); all.replaceChildren(); cards.forEach((c) => all.appendChild(c)); };
+      await lands(p, got, draw);
+      await settle();
+      return { reads: p.reads.slice(n).map((u) => u.slice(u.indexOf('?'))), kept: p.row('id:m2') && keptNow(p, 'id:m2') };
+    };
+    const choose = (p) => p.source.sort.choose('size', '');
+    const set = (p, got, draw) => { draw(got.cards); got.placed(); };
+    const timers = [];
+    const fire = () => timers.splice(0).forEach((fn) => fn());
+    return {
+      sorted: await go(choose, set),
+      // One the filter no longer has is read by itself.
+      gone: await go(choose, set, {}, keptRows.filter((r) => r.id !== 'm2')),
+      page: await go((p) => p.source.fetchPage('c'), (_p, got, draw) => { draw(got.cards); fire(); }, { timers }),
+      opened: await go((p) => {
+        let ready = null;
+        p.ctx.MMWatch.expand.library = (_sort, _type, how) => { ready = how.ready; };
+        p.ctx.MMWatch.grid.shows = () => null; // the schedule changes before it opens
+        p.ctx.MMWatch.library.open('/watch?all=library', { leave() {}, arrive() {}, fail() {} });
+        return { read: () => ready };
+      }, async (p, got, draw) => {
+        await settle();
+        p.ctx.MMWatch.grid.shows = () => ({ sort: 'added', filter: '' });
+        draw(p.make({ sort: 'added', type: '', ready: got.read(), cards: () => [] }).cards);
+        fire();
+      }, { timers }),
+      // A title being read by itself then is read once more, and is not left busy.
+      alone: await (async () => {
+        const p = load();
+        const wait = deferred();
+        p.serve(ROWS, {}, wait);
+        ['busy', 'done'].forEach((phase) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase, action: 'keep', id: 'm2', showRk: '' } })));
+        p.serve(keptRows);
+        schedule(p);
+        await settle();
+        wait.resolve();
+        await settle();
+        return { reads: p.reads.map((u) => u.slice(u.indexOf('?'))), kept: keptNow(p, 'id:m2'), busy: look(p, 'id:m2').busy };
+      })(),
+      // Each walk of its own schedule, and no more.
+      twice: await (async () => {
+        const p = load();
+        const wait = deferred();
+        p.serve(ROWS, { fact: 'old' }, wait);
+        schedule(p);
+        p.serve(keptRows, { fact: 'new' });
+        schedule(p);
+        await settle();
+        wait.resolve();
+        await settle();
+        return { reads: p.reads.length, kept: keptNow(p, 'id:m2'), fact: p.bar.fact };
+      })(),
+    };
+  },
+
   // Two changes of one title, each read again after it; the first read lands last.
   async readsOutOfOrder() {
     const p = load();
