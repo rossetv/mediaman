@@ -9,7 +9,7 @@ from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.repository import tv as paired
-from mediaman.web.routes import older_reach, older_tvs
+from mediaman.web.routes import older_reach, older_stream, older_tvs
 from mediaman.web.routes.settings import router as settings_router
 from tests.helpers.factories import insert_settings
 from tests.unit.services.dlna.fake_tv import (
@@ -33,7 +33,7 @@ def tv(monkeypatch) -> FakeTv:
 
 @pytest.fixture
 def app(app_factory, conn, tv):
-    return app_factory(older_tvs.router, settings_router, conn=conn)
+    return app_factory(older_tvs.router, older_stream.router, settings_router, conn=conn)
 
 
 @pytest.fixture

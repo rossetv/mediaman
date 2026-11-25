@@ -27,12 +27,10 @@ from mediaman.web.routes import older_play
 from mediaman.web.routes import older_reach as reaching
 from mediaman.web.routes.older_reach import Refusal
 from mediaman.web.routes.older_stream import offer_picture, picture_media, withdraw_picture
-from mediaman.web.routes.older_stream import router as stream_router
 from mediaman.web.routes.tv import _carry_out, _Name
 from mediaman.web.routes.users.rate_limits import too_many
 
 router = APIRouter()
-router.include_router(stream_router)
 
 _CHECK_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60)
 _CHANGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
