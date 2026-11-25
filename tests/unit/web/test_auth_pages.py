@@ -168,7 +168,11 @@ def test_unsubscribe_button_text_is_readable_in_every_state():
 
 def _eye(html: str, field: str) -> str:
     """The eye of *field*, without what names its field."""
-    eye = re.search(rf'<button type="button" class="pwd-eye"[^>]*aria-controls="{field}".*?</button>', html, re.S)
+    eye = re.search(
+        rf'<button type="button" class="pwd-eye"[^>]*aria-controls="{field}".*?</button>',
+        html,
+        re.S,
+    )
     assert eye, field
     return re.sub(r' aria-(label|controls)="[^"]*"', "", eye[0])
 
