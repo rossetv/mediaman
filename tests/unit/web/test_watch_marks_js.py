@@ -407,6 +407,23 @@ def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
     assert out == {"hidden": [], "shown": ["POST /api/watch/watched/movie/1"]}
 
 
+def test_with_a_mouse_too_the_page_says_a_finger_was_last_until_the_mouse_moves() -> None:
+    # A touch leaves its card under :hover, which then no longer shows the buttons.
+    assert _run("byTouch") == [
+        [[True, True], True, False, False],
+        [[False, False], False, False, False],
+    ]
+
+
+def test_a_card_a_finger_lit_goes_dark_as_the_mouse_moves_or_tab_is_pressed() -> None:
+    assert _run("touchedLetGo") == [[True, False], [True, False], [True, False]]
+
+
+def test_a_finger_s_drag_on_a_button_out_of_sight_leaves_the_keys_free_to_press_it() -> None:
+    sent = ["POST /api/watch/watched/movie/1"]
+    assert _run("unseenThenKey") == {"cancelled": sent, "key": sent}
+
+
 def test_with_a_mouse_too_a_finger_s_first_press_on_hidden_buttons_shows_them() -> None:
     mark = "POST /api/watch/watched/movie/1"
     assert _run("touchShows") == [
@@ -420,7 +437,7 @@ def test_with_a_mouse_too_a_finger_s_first_press_on_hidden_buttons_shows_them() 
     ]
 
 
-def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
+def test_a_big_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
     # Its buttons are then hidden, which spares WebKit drawing thousands of them under the mouse.
     assert _run("farCards") == [
         "100% 0px",
@@ -429,6 +446,26 @@ def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -
         [False, False],
         [False, True],
     ]
+
+
+def test_a_grid_of_500_cards_or_fewer_hides_no_far_card_s_buttons() -> None:
+    # Hiding them gains little there, and takes them from a screen reader's list of buttons.
+    assert _run("fewFarCards") == [False, True, False]
+
+
+def test_a_far_card_keeps_its_buttons_while_it_holds_the_focus_and_takes_it_back_on_undo() -> None:
+    assert _run("farCardRefocused") == [False, True, True]
+
+
+def test_a_thumb_that_goes_while_it_or_its_levels_hold_the_focus_hands_it_to_the_eye() -> None:
+    thumb, level = _run("thumbGoes")
+    assert thumb == ["card-tool card-tool--thumb", True, "eye"]
+    assert "rate__b" in level[0]
+    assert level[1:] == [True, "eye"]
+
+
+def test_a_far_card_taken_off_the_page_no_longer_hides_its_buttons() -> None:
+    assert _run("farCardTaken") == [True, False]
 
 
 def test_a_reader_is_told_that_the_level_given_is_taken_back_by_a_press() -> None:

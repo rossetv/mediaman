@@ -51,6 +51,7 @@ function banner(ref, title, play) {
     ...(ref ? [['button', { 'data-watch-dismiss': ref, 'data-mark-name': title }, 'Dismiss']] : [])];
 }
 
+const fillers = (n) => Array.from({ length: n }, (_, i) => card('movie/' + (1000 + i), 'Filler', 'Movie'));
 const FILM = (over) => card('movie/1', 'Fieldwork', 'Movie · 31 min left', { bar: true, ...over });
 const CONTINUE = [
   card('movie/1', 'Fieldwork', 'Movie · 31 min left', { dismiss: 'movie-1', bar: true }),
@@ -68,6 +69,7 @@ function watchPage(parts) {
    its answer, or a function giving it. */
 function load(page, opts = {}) {
   const doc = makeDocument();
+  doc.mouse = !opts.touch;
   doc.body.appendChild(build(doc, page));
   const calls = [];
   const toasts = [];
@@ -402,6 +404,66 @@ const scenarios = {
     return { hidden: await press(0), shown: await press(1) };
   },
 
+  // Where the screen has a mouse too: a finger, its moves, the mouse's move, a pen; then a touch screen alone.
+  async byTouch() {
+    const go = (opts) => {
+      const p = load(watchPage([row('lib', [FILM()])]), opts);
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      const by = () => p.doc.documentElement.classList.contains('is-by-touch');
+      const out = [];
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+      // A press on buttons the mouse had shown keeps them shown, as the mouse's :hover no longer does.
+      out.push([by(), p.cards()[0].classList.contains('is-touched')]);
+      send(p.doc.listeners.pointermove, { target: eye, pointerType: 'touch', pointerId: 1 });
+      out.push(by());
+      send(p.doc.listeners.pointermove, { target: p.doc.body, pointerType: 'mouse', pointerId: 2 });
+      out.push(by());
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'pen', pointerId: 3 });
+      return out.concat([by()]);
+    };
+    return [go(), go({ touch: true })];
+  },
+
+  // A card a finger, then a pen, lit, as the mouse moves on; and one a finger lit, as Tab is pressed.
+  async touchedLetGo() {
+    const p = load(watchPage([row('lib', [FILM()])]));
+    const film = p.cards()[0];
+    const eye = film.querySelector('.card-tool--eye');
+    const lit = () => film.classList.contains('is-touched');
+    const out = [];
+    ['touch', 'pen'].forEach((pointerType) => {
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType, pointerId: 1 });
+      const was = lit();
+      send(p.doc.listeners.pointermove, { target: p.doc.body, pointerType: 'mouse', pointerId: 2 });
+      out.push([was, lit()]);
+    });
+    send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+    send(p.doc.listeners.keydown, { key: 'Enter', target: eye });
+    const enter = lit();
+    send(p.doc.listeners.keydown, { key: 'Tab', target: eye });
+    return out.concat([[enter, lit()]]);
+  },
+
+  // A finger's drag on a button not in sight, that the browser takes for a scroll, then Enter on it.
+  async unseenThenKey() {
+    const press = async (between) => {
+      const p = load(watchPage([row('lib', [FILM()])]));
+      p.ctx.getComputedStyle = () => ({ opacity: '0', getPropertyValue: () => '', transform: 'none' });
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+      between(p, eye);
+      eye.focus();
+      const e = { target: eye, detail: 0, stopped: false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+      p.doc.listeners.click.forEach((fn) => { if (!e.stopped) fn(e); });
+      await settle();
+      return p.calls;
+    };
+    return {
+      cancelled: await press((p, eye) => { send(p.win.pointercancel, { type: 'pointercancel', target: eye, pointerId: 1 }); send(p.doc.listeners.pointercancel, { type: 'pointercancel', target: eye, pointerId: 1 }); }),
+      key: await press((p, eye) => send(p.doc.listeners.keydown, { key: 'Enter', target: eye })),
+    };
+  },
+
   // A finger on a screen that has a mouse too, where a touch leaves no hover: its first press on a
   // card's hidden buttons shows them, its next acts, and a press elsewhere or a scroll hides them.
   async touchShows() {
@@ -716,8 +778,9 @@ const scenarios = {
 
   // Cards a screen or more out of sight, as they come near, leave and are taken off the page.
   async farCards() {
-    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), card('movie/9', 'Other', 'Movie')], row('lib', [card('movie/8', 'Before', 'Movie')])]));
-    const [film, other, inRow] = p.cards();
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), card('movie/9', 'Other', 'Movie'), ...fillers(499)], row('lib', [card('movie/8', 'Before', 'Movie')])]));
+    const [film, other] = p.cards();
+    const inRow = p.cards('lib')[0];
     const seer = p.seers.filter((s) => s.margin)[0];
     const far = () => [film, other].map((c) => c.classList.contains('is-far'));
     const out = [seer.margin, [film, other, inRow].map((c) => seer.seen.has(c))];
@@ -729,6 +792,74 @@ const scenarios = {
     p.removed(film);
     out.push([film, other].map((c) => seer.seen.has(c)));
     return out;
+  },
+
+  // A grid of 500 cards, where none says it is far, then one more is loaded, then a filter leaves fewer.
+  async fewFarCards() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(499)]]));
+    const film = p.cards()[0];
+    const seer = p.seers.filter((s) => s.margin)[0];
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const out = [film.classList.contains('is-far')];
+    const grid = p.doc.querySelector('.watch-grid');
+    const late = grid.appendChild(build(p.doc, card('movie/9', 'Other', 'Movie')));
+    p.added(late);
+    out.push(film.classList.contains('is-far'));
+    late.remove();
+    p.removed(late);
+    return out.concat([film.classList.contains('is-far')]);
+  },
+
+  // A grid's film marked by the keyboard, scrolled far off, then its toast's Undo pressed.
+  async farCardRefocused() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(500)]]));
+    const film = p.cards()[0];
+    const eye = film.querySelector('.card-tool--eye');
+    const seer = p.seers.filter((s) => s.margin)[0];
+    await p.pick(film, 'mark');
+    send(p.doc.listeners.focusin, { target: eye });
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const out = [film.classList.contains('is-far')];
+    const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast' }, ['button', {}, 'Undo']])).children[0];
+    toast.focus();
+    send(p.doc.listeners.focusout, { target: eye, relatedTarget: toast });
+    send(p.doc.listeners.focusin, { target: toast });
+    out.push(film.classList.contains('is-far'));
+    await p.undo();
+    return out.concat([p.doc.activeElement === film.querySelector('.card-tool--eye')]);
+  },
+
+  // The server says a title cannot be rated while its thumb, then one of its levels, has the focus.
+  async thumbGoes() {
+    const go = async (focus) => {
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' })])]),
+        { hold: true, api: { 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level: null, rateable: false } } }) } });
+      const film = p.cards()[0];
+      focus(p, film);
+      const before = p.doc.activeElement.className;
+      // A copy drawn from a newer answer has the title asked about again.
+      const copy = film.parentNode.appendChild(build(p.doc, FILM({ tmdb: '10', level: 1 })));
+      p.added(copy);
+      await settle();
+      const a = p.doc.activeElement;
+      return [before, film.querySelector('[data-card-rate]').hidden, a === film.querySelector('.card-tool--eye') ? 'eye' : a.className || a.tagName];
+    };
+    return [
+      await go((p, film) => film.querySelector('[data-card-rate]').focus()),
+      await go((p, film) => { const t = film.querySelector('[data-card-rate]'); t.focus(); click(p.doc, t, { detail: 0 }); }),
+    ];
+  },
+
+  // A far card taken off the page, to be put back elsewhere.
+  async farCardTaken() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(500)]]));
+    const film = p.cards()[0];
+    const seer = p.seers.filter((s) => s.margin)[0];
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const before = film.classList.contains('is-far');
+    film.remove();
+    p.removed(film);
+    return [before, film.classList.contains('is-far')];
   },
 
   // A page the browser kept, with a card far off it: its level is read once it nears, as a copy of it made since.

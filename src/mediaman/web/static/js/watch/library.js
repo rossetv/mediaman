@@ -294,7 +294,9 @@
   /* The focus of an Undo, which its toast takes along: to the title it is of. */
   function focusOn(card) {
     var control = card && focusIsFree() && core.controlIn(card, '[data-watch-more]');
-    if (control) control.focus({ preventScroll: true });
+    if (!control) return;
+    core.drawTools(control);
+    control.focus({ preventScroll: true });
   }
 
   function leave(card) {

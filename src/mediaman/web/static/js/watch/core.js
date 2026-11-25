@@ -83,10 +83,18 @@
     return area;
   }
 
+  /* A card far out of sight hides its buttons, which then take no focus: one about to be given it
+     is drawn, and watch/card-tools.js hides it again once the focus has left. */
+  function drawTools(node) {
+    var far = node.closest && node.closest('.watch-card.is-far');
+    if (far) far.classList.remove('is-far');
+  }
+
   /* Focus a node without the instant jump focus() makes to show it; once
      whatever is collapsing has settled, scroll to it only if it is out of
      sight. */
   function focusSoftly(node) {
+    drawTools(node);
     node.focus({ preventScroll: true });
     var reduce = reduceMotion();
     setTimeout(function () {
@@ -411,6 +419,7 @@
     cardExit: cardExit,
     clearArea: clearArea,
     focusSoftly: focusSoftly,
+    drawTools: drawTools,
     spareFocus: spareFocus,
     swap: swap,
     endSwap: endSwap,
