@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 import sqlite3
+import time
 from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
@@ -109,6 +110,10 @@ class _StartRequest(BaseModel):
 
     rating_key: str = Field(pattern=r"^[0-9]{1,18}$")
     quality: QualityId
+    #: The player that asks, by a name it made up, and how long ago its person asked it to play.
+    #: Neither is needed: a start without a page always starts.
+    page: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")
+    asked_s: float = Field(default=0, ge=0)
 
 
 class _ProgressRequest(BaseModel):
@@ -148,7 +153,10 @@ def stream_gone() -> Response:
 
 
 def _gone_answer(exc: StreamGone) -> Response:
-    return respond_err("replaced", status=410) if isinstance(exc, StreamReplaced) else stream_gone()
+    if not isinstance(exc, StreamReplaced):
+        return stream_gone()
+    # The page's own name for itself, no secret: a player told of its own start goes on.
+    return respond_err("replaced", status=410, **({"by": exc.by} if exc.by else {}))
 
 
 def plex_failure(exc: PlexError) -> Response:
@@ -173,7 +181,12 @@ def start_stream(
     body: _StartRequest,
     username: str = Depends(get_current_user),
 ) -> Response:
-    """Start a stream of a movie or episode from offset 0 for the signed-in person."""
+    """Start a stream of a movie or episode from offset 0 for the signed-in person.
+
+    A start the player made by itself is answered 410 ``replaced`` where the person has asked
+    another page to play the title since.
+    """
+    began = time.monotonic()
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
     conn = get_db()
@@ -216,9 +229,14 @@ def start_stream(
             item.subtitle_selected,
             info,
             fallback=resolve_quality(without_original(rows), ORIGINAL),
+            page=body.page,
+            # Plex was asked about the title first, and that may have taken long.
+            asked_ago=body.asked_s + time.monotonic() - began,
         )
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
+    except StreamReplaced as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     with contextlib.suppress(StreamGone):

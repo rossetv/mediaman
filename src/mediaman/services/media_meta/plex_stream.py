@@ -130,7 +130,14 @@ class StreamGone(Exception):
 
 
 class StreamReplaced(StreamGone):
-    """The same user has started the same item anew, so this stream made way or stays ended."""
+    """The same user has started the same item anew, so this stream made way or stays ended.
+
+    *by* is the page that plays the item now, where it gave its name.
+    """
+
+    def __init__(self, message: str, by: str | None = None) -> None:
+        super().__init__(message)
+        self.by = by
 
 
 class _Unservable(PlexUnavailable):
@@ -251,6 +258,9 @@ class _Viewing:
     saved_position_s: float | None = None
     #: The latest start of the item that succeeded.
     started: int = -1
+    #: The page that start came from, "" where it gave no name, and when its person asked for it.
+    page: str = ""
+    asked: float = float("-inf")
 
 
 @dataclass
@@ -329,8 +339,8 @@ class StreamManager:
         # stream id -> (when a newer start of its item dropped it, its user and item, that start),
         # kept as long as a viewing.
         self._replaced: dict[str, tuple[float, tuple[str, str], int]] = {}
-        # (user and item, start) of each start not yet through.
-        self._opening: set[tuple[tuple[str, str], int]] = set()
+        # (user and item, start) of each start not yet through -> (its page, when it was asked for).
+        self._opening: dict[tuple[tuple[str, str], int], tuple[str, float]] = {}
         self._starts = itertools.count()
         # (rating_key, file) -> Plex's word on copying its video.
         self._copies: dict[tuple[str, str], _CopyVerdict] = {}
@@ -347,8 +357,16 @@ class StreamManager:
         info: Mapping[str, Any] | None = None,
         *,
         fallback: str | None = None,
+        page: str | None = None,
+        asked_ago: float = 0.0,
     ) -> str:
         """Open a Plex transcode session at offset 0 and return the new stream id.
+
+        An item plays on the page where its person last asked for it. *page* names the player
+        that starts and *asked_ago* is how many seconds ago its person asked it to play: 0 for
+        a press, more for what the player does by itself, such as trying again after a drop.
+        A start asked for before another page's raises ``StreamReplaced`` and touches nothing.
+        One with no *page* was asked for as it came, and always starts.
 
         A failed start is retried once with a fresh session, since Plex intermittently refuses
         a start right after another one for the same item. An original that Plex would not copy
@@ -365,10 +383,16 @@ class StreamManager:
         if not _RATING_KEY_RE.fullmatch(rating_key):
             raise ValueError("rating key must be numeric")
         creds = self._creds()
+        item = (user, rating_key)
         with self._lock:
+            asked = self._clock() - asked_ago
+            if page is not None:
+                later = self._asked_later(item, page, asked)
+                if later is not None:
+                    raise StreamReplaced("another page was asked to play the item since", later)
             order = next(self._starts)
             dropped = self._replace_same_item(user, rating_key, order)
-            self._opening.add(((user, rating_key), order))
+            self._opening[(item, order)] = (page or "", asked)
         try:
             for session_id in dropped.values():
                 self._call_quietly("stop", session_id)
@@ -377,7 +401,24 @@ class StreamManager:
             )
         finally:
             with self._lock:
-                self._opening.discard(((user, rating_key), order))
+                del self._opening[(item, order)]
+
+    def _asked_later(self, item: tuple[str, str], page: str, asked: float) -> str | None:
+        """The page other than *page* that was asked to play *item* after *asked*, "" where it
+        gave no name; None where there is none. The lock must be held."""
+        viewing = self._viewings.get(item)
+        held = [(viewing.page, viewing.asked)] if viewing is not None else []
+        held += [who for (i, _), who in self._opening.items() if i == item]
+        others = [(at, other) for other, at in held if other != page and at > asked]
+        return max(others)[1] if others else None
+
+    def _playing_page(self, item: tuple[str, str]) -> str | None:
+        """The page of the latest start of *item*, one still opening included; None where it
+        gave no name. The lock must be held."""
+        viewing = self._viewings.get(item)
+        latest = (viewing.started, viewing.page) if viewing is not None else (-1, "")
+        opening = [(order, who[0]) for (i, order), who in self._opening.items() if i == item]
+        return max([latest, *opening])[1] or None
 
     def _start_new(
         self,
@@ -448,6 +489,7 @@ class StreamManager:
                     viewing = self._viewings.setdefault((user, rating_key), _Viewing(now, now))
                     viewing.touched = now
                     viewing.started = max(viewing.started, order)
+                    viewing.page, viewing.asked = self._opening[((user, rating_key), order)]
                     self._streams[stream_id] = _Stream(
                         user=user,
                         rating_key=rating_key,
@@ -585,13 +627,17 @@ class StreamManager:
         if reaped is not None and reaped.user == user:
             since = self._viewings.get(reaped.item)
             if since is not None and since.started > reaped.order:
-                return StreamReplaced("a newer stream of the item was started since")
+                return StreamReplaced(
+                    "a newer stream of the item was started since", self._playing_page(reaped.item)
+                )
         _, item, order = self._replaced.get(stream_id, (0.0, ("", ""), 0))
         viewing = self._viewings.get(item)
         # A start that fails replaces nothing.
         taken = viewing is not None and viewing.started >= order
         if item[0] == user and (taken or any(i == item for i, _ in self._opening)):
-            return StreamReplaced("a newer stream of the item replaced this one")
+            return StreamReplaced(
+                "a newer stream of the item replaced this one", self._playing_page(item)
+            )
         return StreamGone("stream is gone")
 
     def peek(self, stream_id: str, user: str) -> StreamInfo:
