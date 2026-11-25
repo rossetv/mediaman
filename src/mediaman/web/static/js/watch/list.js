@@ -845,16 +845,17 @@
   });
 
   /* The same control in the list coming in, of the row the focus is in, or the first title where that
-     has gone, or else the filter that is on. */
+     has gone, or else the filter that is on. In a busy row the focus waits for the control that is. */
   function sameControl(fresh) {
     var active = document.activeElement;
     if (!list.contains(active)) return null;
     var find = focusKey(active);
     var row = active.closest('tr[data-row-key]');
     var same = row && rowByKey(row.getAttribute('data-row-key'), fresh);
+    var from = (same && row.querySelector('[aria-busy="true"]')) || active;
     var next = same || (row && fresh.querySelector('tr[data-row-key]'));
-    var title = next && (!same || active.matches('a.wl-title')) && next.querySelector('a.wl-title');
-    return (find ? find(fresh) : title || (next && focusTarget(next, active === deleteButton(row) ? 'delete' : null))) ||
+    var title = next && (!same || from.matches('a.wl-title')) && next.querySelector('a.wl-title');
+    return (find ? find(fresh) : title || (next && focusTarget(next, same && from === deleteButton(row) ? 'delete' : null))) ||
       fresh.querySelector('.fpill.on');
   }
 

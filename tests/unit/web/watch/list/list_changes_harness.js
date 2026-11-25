@@ -228,8 +228,34 @@ const scenarios = {
     };
     await run('filter', tv);
     await run('row', (p) => p.row('id:m2').querySelector('a.wl-title'));
+    await run('keep', (p) => trigger(p, 'id:m2'));
+    await run('delete', (p) => p.row('id:m2').querySelector('[data-action="confirm-delete"]'));
+    await run('deleteGone', (p) => p.row('id:m2').querySelector('[data-action="confirm-delete"]'), [{ id: 'm9', title: 'Plain', plain: true }]);
     await run('rowGone', (p) => p.row('id:m2').querySelector('a.wl-title'), []);
     await run('elsewhere', (p) => p.doc.getElementById('watch-search'));
+    return out;
+  },
+
+  // Back to another filter once a change to a row is saved, and its focus waits on the title for the row to be read again.
+  async backWhileTheFocusWaits() {
+    const out = {};
+    for (const [action, start] of [['keep', (p) => trigger(p, 'show:77')], ['delete', (p) => p.row('show:77').querySelector('[data-action="pick-season-delete"]')]]) {
+      const p = load({ list: true });
+      const rows = [{ id: 's1', title: 'Night Shift', showRk: '77' }];
+      p.serve(TV, { type: 'tv' }, rows);
+      p.serve(LIST, {}, ROWS);
+      click(p.doc, tv(p)); await settle();
+      p.serve(TV, { type: 'tv' }, rows, deferred());
+      const emit = (phase) => p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action, id: 's1', showRk: '77' } });
+      const from = start(p);
+      from.focus();
+      emit('busy'); await settle();
+      emit('done'); await settle();
+      out[action] = [at(p)];
+      p.popstate('?view=list'); await settle();
+      const a = p.doc.activeElement;
+      out[action].push(a.isConnected && at(p) === 'show:77 ' + from.className.split(' ')[0]);
+    }
     return out;
   },
 
