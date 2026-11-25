@@ -409,7 +409,10 @@ def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
 
 def test_with_a_mouse_too_the_page_says_a_finger_was_last_until_the_mouse_moves() -> None:
     # A touch leaves its card under :hover, which then no longer shows the buttons.
-    assert _run("byTouch") == [[[True, True], True, False, False], [[False, False], False, False, False]]
+    assert _run("byTouch") == [
+        [[True, True], True, False, False],
+        [[False, False], False, False, False],
+    ]
 
 
 def test_a_finger_s_drag_on_a_button_out_of_sight_leaves_the_keys_free_to_press_it() -> None:
