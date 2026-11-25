@@ -1949,7 +1949,7 @@ const scenarios = {
       const old = [];
       reply = pending ? () => Promise.resolve(bare) : () => new Promise((resolve) => { old.push(() => resolve(copy(before))); });
       m.routes['/api/watch/title/show-300/season/2'] = { ok: true, key: '302', episodes: [] };
-      m.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      m.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
       await settle();
       if (pending) return chipsOf(m);
       reply = () => Promise.resolve(copy(after));
