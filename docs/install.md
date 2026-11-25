@@ -49,12 +49,12 @@ Put your own folder in place of `/path/to/your/media`, and mount it at the path 
 Then make the key, start mediaman and create the first admin:
 
 ```bash
-[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env
+[ -f .env ] || (umask 077 && echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env)
 docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```
 
-Keep `.env` safe. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more.
+Keep `.env` safe; only you can read it. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more.
 
 ### Sign in
 
@@ -76,7 +76,7 @@ docker pull rossetv/mediaman &&
 docker stop mediaman &&
 docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data . &&
 docker rename mediaman mediaman-old &&
-printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env &&
+(umask 077 && printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env) &&
 docker compose up -d
 ```
 

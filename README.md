@@ -118,7 +118,7 @@ volumes:
 Then, in that folder, make the key, start [`rossetv/mediaman`](https://hub.docker.com/r/rossetv/mediaman) and create the first admin:
 
 ```bash
-[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env
+[ -f .env ] || (umask 077 && echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env)
 docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```
