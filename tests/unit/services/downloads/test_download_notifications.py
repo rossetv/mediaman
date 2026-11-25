@@ -66,7 +66,7 @@ class TestDownloadReadyTemplate:
         html = _render(title=title, poster_src="https://x/p.jpg")
         rule = "overflow-wrap:anywhere;word-break:break-word"
         cell = re.search(r'<td class="stack" valign="top" style="([^"]*)"', html)
-        assert cell and rule in cell.group(1)
+        assert cell and cell.group(1).endswith("sans-serif;" + rule + ";")
         heading = re.search(r'<div class="t1 h1" style="([^"]*)"', html)
         assert heading and rule in heading.group(1)
 

@@ -13,7 +13,7 @@
 <tr><td class="pad" style="padding:28px 32px 34px;{{ m.ff }}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
 {%- if poster_src and not backdrop_src %}<td class="stack" width="170" valign="top" style="padding:0 24px 20px 0">{{ m.pic(poster_src,title,170,255) }}</td>{% endif -%}
-<td class="stack" valign="top" style="{{ m.ff }}{{ m.wrap }}">
+<td class="stack" valign="top" style="{{ m.ff }};{{ m.wrap }}">
 <div class="ok" style="font-size:14px;font-weight:700;line-height:20px;color:#1a7f37">&#10003;&nbsp; Ready to watch</div>
 <div class="t1 h1" style="margin-top:8px;font-size:32px;font-weight:700;letter-spacing:-.6px;line-height:1.12;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>
 {%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f;{{ m.wrap }}">{{ season_label }}</div>{% endif -%}
