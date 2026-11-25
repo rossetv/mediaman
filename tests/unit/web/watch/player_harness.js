@@ -1354,6 +1354,17 @@ const scenarios = {
     return { playing: playing, waiting: waiting, late: !!messageState(p), starts: p.starts().length };
   },
 
+  /* The person leaves while the picture plays on from what is buffered, the connection gone. */
+  async dropped_left(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 0));
+    playOn(p, 20);
+    p.beacons.length = 0;
+    p.leave();
+    return p.beacons.map((b) => b.body && b.body.position_s);
+  },
+
   /* The browser comes online between two tries, and while the person has paused. */
   async dropped_online(p) {
     await streamPlays(p, 100);

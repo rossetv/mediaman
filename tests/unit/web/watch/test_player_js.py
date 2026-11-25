@@ -1320,6 +1320,10 @@ def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(mark
     out = run(markup, "dropped_online")
     assert (out["atOnce"], out["message"], out["after"]) == (1, True, None)
     assert (out["plays"], out["paused"]) == (0, True)
+def test_leaving_during_a_drop_saves_the_place_reached(markup):
+    assert run(markup, "dropped_left") == [125]
+
+
 
 
 @pytest.mark.parametrize("way", ["message", "asleep", "awake"])
