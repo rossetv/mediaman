@@ -221,12 +221,15 @@ def test_removing_someone_who_unsubscribed_says_that_it_is_forgotten() -> None:
 
 
 def test_the_focus_of_a_recipient_taken_off_the_list_goes_to_the_one_beside_it() -> None:
-    assert _run("recipientFocus") == [
+    out = _run("recipientFocus")
+    assert out["to"] == [
         "recipient-3",
         "recipient-1",
         "btn-send-newsletter",
         "btn-send-newsletter",
     ]
+    # and the page stays where it is
+    assert out["still"] == [True, True, True]
 
 
 def test_the_page_says_the_libraries_are_loading_until_plex_answers() -> None:

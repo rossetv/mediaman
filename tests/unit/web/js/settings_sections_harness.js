@@ -300,9 +300,15 @@ const scenarios = {
   // Where the focus goes when the recipient that has it is taken off the list.
   async recipientFocus() {
     const p = await newsletter([1, 2, 3]);
+    const still = [];
     const focused = async (n) => {
       p.id('recipient-' + n).focus();
+      const ways = [];
+      const focus = Node.prototype.focus;
+      Node.prototype.focus = function (how) { ways.push(!!(how && how.preventScroll)); return focus.call(this, how); };
       await p.remove(n, true);
+      Node.prototype.focus = focus;
+      still.push(ways[ways.length - 1]);
       const active = p.doc.activeElement;
       return p.doc.documentElement.contains(active) ? active.id : 'nowhere';
     };
@@ -311,7 +317,7 @@ const scenarios = {
     q.list().querySelector('button').focus();
     await q.remove(1, true);
     out.push(q.doc.documentElement.contains(q.doc.activeElement) ? q.doc.activeElement.id : 'nowhere');
-    return out;
+    return { to: out, still };
   },
 
 };

@@ -356,7 +356,7 @@
           var hadFocus = item.contains(document.activeElement);
           var beside = item.nextElementSibling || item.previousElementSibling;
           item.remove();
-          if (hadFocus) beside.querySelector('input, button').focus();
+          if (hadFocus) beside.querySelector('input, button').focus({ preventScroll: true });
         });
         clearUnlessSending();
       }
