@@ -1,6 +1,9 @@
-{# A person's avatar: initials on a colour that follows the name.
+{# A person's avatar: their picture at `url`, or with none initials on a colour that follows the name.
    Decorative, so the name must stand beside it or name the control it sits in. #}
-{% macro avatar(name) -%}
+{% macro avatar(name, url=none) -%}
+{%- if url -%}
+<span class="avatar avatar--pic" aria-hidden="true"><img src="{{ url }}" alt="" data-broken-on-error></span>
+{%- else -%}
 {%- set name = name or '' -%}
 {%- set words = (name.split('@') | first).replace('.', ' ').replace('_', ' ').replace('-', ' ').split() -%}
 {%- if words | length > 1 -%}
@@ -13,4 +16,5 @@
   {%- set ns.n = (ns.n * 31 + 'abcdefghijklmnopqrstuvwxyz0123456789._-@'.find(ch) + 2) % 9973 -%}
 {%- endfor -%}
 <span class="avatar avatar--{{ ns.n % 6 }}" aria-hidden="true">{{ initials | upper }}</span>
+{%- endif -%}
 {%- endmacro %}

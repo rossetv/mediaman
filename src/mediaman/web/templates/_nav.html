@@ -10,6 +10,8 @@
      watch | downloads | history | settings | account
    /watch pages need not set it: the path decides.
 
+   `avatar_url` in the context is the signed-in person's picture.
+
    A page with more in its desktop bar includes a template that extends this one and fills
    `nav_center` and `nav_end` (a block cannot be filled through a plain include).
 
@@ -39,7 +41,7 @@
 
 {% macro profile_button() %}
 <button type="button" class="profile-btn{% if in_menu %} on{% endif %}" aria-haspopup="menu" aria-expanded="false" aria-controls="profile-menu-items" aria-label="Profile menu, {{ who }}{% if in_menu %}, {{ titles[active] }} is open{% endif %}">
-  {{ avatar(who) }}
+  {{ avatar(who, avatar_url) }}
   <span class="profile-btn-name">{{ who }}</span>
   {{ icon("i-chevron-down") }}
 </button>
@@ -83,7 +85,7 @@
   <div class="profile-panel">
     <div class="profile-handle" aria-hidden="true"></div>
     <div class="profile-who">
-      {{ avatar(who) }}
+      {{ avatar(who, avatar_url) }}
       <div class="profile-who-text">
         <div class="profile-who-name">{{ who }}</div>
         <div class="profile-who-role">{{ "Viewer" if is_viewer else "Admin" }}</div>
@@ -93,9 +95,8 @@
     </div>
     <div id="profile-menu-items" role="menu" aria-label="Profile menu">
       <a class="profile-item" role="menuitem" tabindex="-1" href="/account"{{ current('account') }}>{{ icon("i-user") }}Profile</a>
-      <a class="profile-item" role="menuitem" tabindex="-1" href="/account#plex">{{ icon("i-plug") }}Plex account</a>
-      {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/history"{{ current('history') }}>{{ icon("i-clock-rotate-left") }}History</a>
+      {% if not is_viewer %}
       <a class="profile-item" role="menuitem" tabindex="-1" href="/settings"{{ current('settings') }}>{{ icon("i-gear") }}Settings</a>
       {% endif %}
       <div class="profile-sep" role="separator"></div>

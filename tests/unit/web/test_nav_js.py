@@ -122,6 +122,15 @@ def test_a_closed_menu_is_inert_while_it_fades_and_reopening_undoes_it_at_once()
     }
 
 
+def test_a_changed_avatar_takes_the_old_one_s_place_once_loaded_and_the_last_change_wins() -> None:
+    assert _run("avatar") == {
+        "loading": [None, None, None],
+        "stale": [None, None, None],
+        "shown": ["/new", "/new", "/new"],
+        "initials": "",
+    }
+
+
 def test_with_reduced_motion_nothing_in_the_menu_is_still_hidden_when_it_takes_the_focus() -> None:
     reduce = NAV_CSS.read_text().split("(prefers-reduced-motion: reduce) {")[1].split("\n}")[0]
     still = [

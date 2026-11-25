@@ -18,7 +18,7 @@ from tests.helpers.factories import insert_admin_user
 _TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
 _TEMPLATES = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
-_ADMIN_ONLY_LINKS = {"/history", "/settings"}
+_ADMIN_ONLY_LINKS = {"/settings"}
 _RETIRED_LINKS = {"/search", "/library", "/recommended"}
 
 
@@ -74,7 +74,7 @@ def test_a_viewer_gets_watch_and_downloads_and_a_menu_of_what_they_may_open():
     assert _links(_tabbar(html)) == ["/watch", "/downloads"]
     assert _menu_items(html) == [
         ("/account", "Profile"),
-        ("/account#plex", "Plex account"),
+        ("/history", "History"),
         ("/api/auth/logout", "Log out"),
     ]
     assert not _ADMIN_ONLY_LINKS & set(_links(html))
@@ -88,7 +88,6 @@ def test_an_admin_and_a_missing_role_find_history_and_settings_in_the_menu_not_t
     assert _links(_tabbar(html)) == ["/watch", "/downloads"]
     assert _menu_items(html) == [
         ("/account", "Profile"),
-        ("/account#plex", "Plex account"),
         ("/history", "History"),
         ("/settings", "Settings"),
         ("/api/auth/logout", "Log out"),
@@ -162,7 +161,7 @@ def test_every_menu_item_is_a_menuitem_the_tab_key_passes_by():
     items = _menu(_render("admin")).split('role="menu"')[1]
     tags = re.findall(r"<(?:a|button)\b[^>]*>", items)
 
-    assert len(tags) == 5
+    assert len(tags) == 4
     assert all('role="menuitem"' in t and 'tabindex="-1"' in t for t in tags)
 
 
@@ -182,6 +181,14 @@ def test_a_page_of_the_menu_marks_the_avatar_and_its_item(active, href, title):
         assert f'aria-label="Profile menu, robin, {title} is open"' in button
     assert re.findall(r'href="([^"]+)" aria-current="page"', html) == [href]
     assert "nav-btn on" not in html and "nav-tab on" not in html
+
+
+def test_the_menu_shows_the_person_s_picture_wherever_it_shows_them_and_reads_it_to_nobody():
+    html = _render("viewer", avatar_url="/api/avatars/3?v=a&b")
+
+    pictures = re.findall(r'<span class="avatar[^>]*aria-hidden="true"><img ([^>]*)>', html)
+    assert len(pictures) == 3
+    assert all('src="/api/avatars/3?v=a&amp;b" alt=""' in picture for picture in pictures)
 
 
 @pytest.mark.parametrize(
@@ -294,7 +301,7 @@ class TestAccountPage:
         assert 'value="mine@example.com"' in resp.text
         assert "theirs@example.com" not in resp.text
 
-    def test_holds_the_place_the_menu_s_plex_link_goes_to(self, client):
+    def test_keeps_the_place_links_to_the_plex_account_go_to(self, client):
         assert client.get("/account").text.count('id="plex"') == 1
 
     def test_a_viewer_sees_the_viewer_menu_with_profile_highlighted(

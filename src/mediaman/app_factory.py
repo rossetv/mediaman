@@ -512,6 +512,7 @@ def create_app() -> FastAPI:
 
     from mediaman.web import register_security_middleware
     from mediaman.web.error_pages import register_error_pages
+    from mediaman.web.template_context import signed_in_avatar
 
     register_security_middleware(app)
     register_error_pages(app)
@@ -524,7 +525,9 @@ def create_app() -> FastAPI:
             name="static",
         )
 
-    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+    app.state.templates = Jinja2Templates(
+        directory=str(_TEMPLATE_DIR), context_processors=[signed_in_avatar]
+    )
     # Templates link assets as ``?v={{ static_v }}``; computed once, not per request.
     app.state.templates.env.globals["static_v"] = version.digest if version else ""
 

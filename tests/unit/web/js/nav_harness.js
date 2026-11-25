@@ -15,7 +15,7 @@ function page(isPhone) {
   doc.body.appendChild(build(doc, ['header', { id: 'top' }, button('desktop')]));
   doc.body.appendChild(build(doc, ['div', { id: 'phone-top' }, button('phone')]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
-    ['div', { id: 'panel' }, ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
+    ['div', { id: 'panel' }, ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
   doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   const $ = (id) => doc.getElementById(id);
@@ -25,7 +25,9 @@ function page(isPhone) {
   // Only the button of the layout in use has a box.
   $('desktop').getClientRects = () => (media.matches ? [] : [1]);
   $('phone').getClientRects = () => (media.matches ? [1] : []);
-  const ctx = vm.createContext({ window: win, document: doc });
+  const images = [];
+  function Image() { images.push(this); }
+  const ctx = vm.createContext({ window: win, document: doc, Image });
   ['modal-a11y.js', 'nav.js'].forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
 
   const fire = (type, target, extra) => {
@@ -37,7 +39,7 @@ function page(isPhone) {
     return e;
   };
   return {
-    $, win, media, fire,
+    $, win, media, fire, images, doc,
     click: (id) => click(doc, $(id)),
     key: (key) => fire('keydown', doc.activeElement, { key }),
     focused: () => doc.activeElement.id,
@@ -50,6 +52,18 @@ function page(isPhone) {
 }
 
 const scenarios = {
+  avatar() {
+    const p = page(false);
+    const avatars = p.doc.querySelectorAll('.avatar');
+    const shown = () => avatars.map((a) => { const img = a.querySelector('img'); return img && img.src; });
+    p.fire('mm:avatar', p.doc, { detail: { url: '/old' } });
+    p.fire('mm:avatar', p.doc, { detail: { url: '/new' } });
+    const out = { loading: shown() };
+    p.images[0].onload(); out.stale = shown();
+    p.images[1].onload(); out.shown = shown();
+    out.initials = avatars.map((a) => a.textContent).join('');
+    return out;
+  },
   toggle() {
     const p = page(false);
     p.click('desktop');

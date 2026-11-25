@@ -118,6 +118,25 @@
     if (shown) shown.focus();
   });
 
+  // A changed picture is loaded before it takes the place of the one on show; the last change wins.
+  var newest = null;
+  document.addEventListener('mm:avatar', function (e) {
+    var picture = newest = new Image();
+    picture.onload = function () {
+      if (picture !== newest) return;
+      document.querySelectorAll('.profile-btn .avatar, .profile-who .avatar').forEach(function (avatar) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = picture.src;
+        img.className = 'is-new';
+        avatar.className = 'avatar avatar--pic';
+        avatar.textContent = '';
+        avatar.appendChild(img);
+      });
+    };
+    picture.src = e.detail.url;
+  });
+
   // Back brings the page as it was left, open menu and all.
   window.addEventListener('pageshow', function () { close(false); });
 })();

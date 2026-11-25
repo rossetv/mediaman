@@ -128,6 +128,11 @@
 .avatar--4 { background: color-mix(in srgb, var(--warning) 45%, var(--scrim)); }
 .avatar--5 { background: var(--hero-hi); }
 
+.avatar--pic { border: 0; background: var(--s3); }
+.avatar--pic img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.avatar--pic img.is-new { animation: avatar-in var(--dur-slow) var(--ease-out); }
+@keyframes avatar-in { from { opacity: 0; transform: scale(.92); } }
+
 /* Mobile top bar (brand + page title) — visible < 700 px */
 .nav-topbar {
   display: none;
@@ -316,6 +321,7 @@
   .profile-btn > .ico { transition: none; }
   .profile-menu,
   .profile-panel { transform: none; }
+  .avatar--pic img.is-new { animation: none; }
 }
 
 /* Forced colours drop the backgrounds that mark the current page. */
