@@ -473,6 +473,11 @@ def play_item(play: Play) -> dict[str, object]:
     }
 
 
+def shown_name(who: Who) -> str:
+    """*who*'s name as a list says it: an address in a former user's stays in the details."""
+    return hide_emails(who.name) if who.kind == "former" else who.name
+
+
 def with_who(item: dict[str, object], who: Who) -> dict[str, object]:
     """*item* with whose it is; a person with no account now is said to have none."""
     fields = item["fields"]
@@ -484,5 +489,5 @@ def with_who(item: dict[str, object], who: Who) -> dict[str, object]:
         ]
     return item | {
         "fields": fields,
-        "who": {"value": who.value, "name": who.name, "kind": who.kind},
+        "who": {"value": who.value, "name": shown_name(who), "kind": who.kind},
     }

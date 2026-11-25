@@ -901,6 +901,18 @@ class TestWhoReadsWhat:
         assert item["avatar"] is None
         assert item["fields"][0]["value"] == "ana (no longer has an account)"
 
+    def test_a_former_users_email_is_hidden_wherever_their_name_is_listed(self, clients, conn):
+        insert_audit_log(conn, action="snoozed", actor="gone@mail.example")
+        admin = clients[0]
+        island = re.search(r'id="history-data">(.*?)</script>', admin.get("/history").text, re.S)[1]
+        menu = admin.get("/api/history/menu", params={"menu": "user"}).json()["options"]
+        for people in (json.loads(island)["people"], menu):
+            (former,) = [p for p in people if p["kind"] == "former"]
+            assert former["username"] == "[hidden]"
+        body = admin.get("/api/history", params={"user": former["value"]}).json()
+        assert (body["total"], former["count"]) == (1, 1)
+        assert body["items"][0]["who"]["name"] == "[hidden]"
+
     def test_the_cursor_leads_on_to_the_end(self, clients):
         first = clients[0].get("/api/history", params={"per_page": 3}).json()
         rest = clients[0].get("/api/history", params={"cursor": first["next_cursor"]}).json()

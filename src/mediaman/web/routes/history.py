@@ -35,6 +35,7 @@ from mediaman.web.routes._history_view import (
     describe,
     own_item,
     play_item,
+    shown_name,
     split_security_body,
     with_who,
 )
@@ -382,7 +383,7 @@ def _avatars(conn: sqlite3.Connection, viewer: repo.Viewer) -> dict[str, str | N
 def _person(who: repo.Who, avatars: dict[str, str | None]) -> dict[str, object]:
     return {
         "value": who.value,
-        "username": who.name,
+        "username": shown_name(who),
         "kind": who.kind,
         "avatar": avatars.get(who.name) if who.kind == "account" else None,
     }
