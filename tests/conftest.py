@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -84,6 +85,35 @@ def _fake_dns_ok(monkeypatch):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+
+def _is_outside(sock: socket.socket, address: object) -> bool:
+    if sock.family not in (socket.AF_INET, socket.AF_INET6) or not isinstance(address, tuple):
+        return False
+    host = str(address[0])
+    return host != "localhost" and not ipaddress.ip_address(host).is_loopback
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Refuse every connection but to this machine, and fail the test that tried: code under
+    test may swallow the refusal."""
+    tried: list[object] = []
+
+    def guarded(real):
+        def connect(self, address):
+            if _is_outside(self, address):
+                tried.append(address)
+                raise ConnectionRefusedError(f"the network is off in tests: {address}")
+            return real(self, address)
+
+        return connect
+
+    for name in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, name, guarded(getattr(socket.socket, name)))
+    yield tried
+    if tried:
+        pytest.fail(f"the test tried the network: {tried}")
 
 
 @pytest.fixture(autouse=True)

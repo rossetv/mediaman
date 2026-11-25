@@ -84,9 +84,10 @@ class TestIsWebSearchEnabled:
 
 class TestCallOpenAi:
     def test_returns_empty_when_no_api_key(self, conn):
-        with patch("mediaman.services.openai.client.get_openai_key", return_value=None):
+        with patch("mediaman.services.openai.client._OPENAI_CLIENT") as client:
             result = call_openai("some prompt", conn)
         assert result == []
+        client.post.assert_not_called()
 
     def test_parses_valid_json_response(self, conn, fake_http, fake_response):
         payload = [{"title": "Dune", "media_type": "movie", "reason": "Great film"}]
