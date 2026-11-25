@@ -117,6 +117,7 @@ html.has-tv-remote { overflow: hidden; }
 }
 @media (max-width: 350px) {
   .tv-rem .player-controls .player-btn:not([data-fullscreen]) { min-width: 44px; }
+  .tv-rem__end .tv-rem__danger { flex: 0 0 auto; min-width: 72px; }
 }
 /* A short phone: the picture gives way so that every control is on the screen. */
 @media (max-width: 600px) and (max-height: 680px) {
@@ -226,6 +227,9 @@ html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-pad
 @media (max-height: 520px) and (min-width: 700px) {
   .tv-mini { left: auto; right: max(16px, env(safe-area-inset-right)); width: min(380px, calc(100% - 490px)); gap: 6px; }
   .tv-mini .player-btn--skip { display: none; }
+  body:has(> .tv-mini:not([hidden])) .watch-banner .watch-actions { max-width: max(432px, calc(100vw - 404px - var(--pad))); }
+  body:has(> .tv-mini:not([hidden])) .watch-banner .watch-banner__dismiss { flex: none; width: 44px; min-width: 44px; padding: 0; }
+  body:has(> .tv-mini:not([hidden])) .watch-banner__dismiss > span { display: none; }
 }
 @media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
   .tv-mini__pic { display: none; }
