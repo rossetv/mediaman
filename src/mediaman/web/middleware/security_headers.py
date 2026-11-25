@@ -7,9 +7,12 @@ that route handlers / Jinja templates pull off ``request.state``.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import secrets
+from functools import partial
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -101,6 +104,19 @@ def _google_cast_allowed(request: Request) -> bool:
     except Exception:
         logger.warning("The Google Cast setting could not be read; it counts as off")
         return False
+
+
+def _cast_account(request: Request) -> str:
+    """Whose page this is, for what it remembers of a Cast: it says nothing of the account.
+
+    Read as the page is drawn, once the person is known; empty where nobody is signed in.
+    """
+    username = getattr(request.state, "username", None)
+    secret = getattr(getattr(request.app.state, "config", None), "secret_key", "")
+    if not username or not secret:
+        return ""
+    text = f"google-cast account\n{username}"
+    return hmac.new(secret.encode(), text.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 def _build_csp(nonce: str, *, google_cast: bool = False) -> str:
@@ -233,6 +249,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         google_cast = _google_cast_allowed(request)
         # Templates put the script that asks for Google's on the page only where this is true.
         request.state.google_cast = google_cast
+        request.state.google_cast_account = partial(_cast_account, request)
 
         response = await call_next(request)
         for name, value in _STATIC_HEADERS.items():
