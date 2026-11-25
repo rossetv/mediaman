@@ -95,20 +95,46 @@
       paint(card);
       if (nearing) nearing.observe(card);
     }
-    if (inSight && !card.closest('.watch-row__scroll')) inSight.observe(card);
+    if (inSight && !card.closest('.watch-row__scroll')) watchFar(card);
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
   }
 
-  /* A card a screen or more out of sight hides its buttons. Even faded to nothing, those of
+  /* A grid's card a screen or more out of sight hides its buttons. Even faded to nothing, those of
      thousands of cards are drawn, and make every frame under the mouse slow in WebKit. A row, whose
      cards out of sight are beside it, has too few to matter. */
+  var MANY = 500; // below this, hiding them gains a few ms and takes them from a screen reader's list
+  var gridCards = new Set();
+  var outOfSight = new Set();
+
+  function drawFar(card) { card.classList.toggle('is-far', gridCards.size > MANY && outOfSight.has(card)); }
+
+  /* The grid has grown past MANY, or shrunk back under it. */
+  function counted(was) {
+    if ((was > MANY) !== (gridCards.size > MANY)) outOfSight.forEach(drawFar);
+  }
+
   var inSight = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
-    entries.forEach(function (n) { n.target.classList.toggle('is-far', !n.isIntersecting); });
+    entries.forEach(function (n) {
+      if (n.isIntersecting) outOfSight.delete(n.target);
+      else outOfSight.add(n.target);
+      drawFar(n.target);
+    });
   }, { rootMargin: '100% 0px' }) : null;
 
+  function watchFar(card) {
+    var was = gridCards.size;
+    inSight.observe(card);
+    gridCards.add(card);
+    counted(was);
+  }
+
   function letGo(card) {
+    var was = gridCards.size;
     inSight.unobserve(card);
+    gridCards.delete(card);
+    outOfSight.delete(card);
     card.classList.remove('is-far');
+    counted(was);
   }
 
   function forget(root) {

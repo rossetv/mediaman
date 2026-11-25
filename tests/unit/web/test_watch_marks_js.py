@@ -425,7 +425,7 @@ def test_with_a_mouse_too_a_finger_s_first_press_on_hidden_buttons_shows_them() 
     ]
 
 
-def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
+def test_a_big_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
     # Its buttons are then hidden, which spares WebKit drawing thousands of them under the mouse.
     assert _run("farCards") == [
         "100% 0px",
@@ -434,6 +434,11 @@ def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -
         [False, False],
         [False, True],
     ]
+
+
+def test_a_grid_of_500_cards_or_fewer_hides_no_far_card_s_buttons() -> None:
+    # Hiding them gains little there, and takes them from a screen reader's list of buttons.
+    assert _run("fewFarCards") == [False, True, False]
 
 
 def test_a_far_card_taken_off_the_page_no_longer_hides_its_buttons() -> None:

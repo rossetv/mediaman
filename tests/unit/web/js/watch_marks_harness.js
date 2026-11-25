@@ -51,6 +51,7 @@ function banner(ref, title, play) {
     ...(ref ? [['button', { 'data-watch-dismiss': ref, 'data-mark-name': title }, 'Dismiss']] : [])];
 }
 
+const fillers = (n) => Array.from({ length: n }, (_, i) => card('movie/' + (1000 + i), 'Filler', 'Movie'));
 const FILM = (over) => card('movie/1', 'Fieldwork', 'Movie · 31 min left', { bar: true, ...over });
 const CONTINUE = [
   card('movie/1', 'Fieldwork', 'Movie · 31 min left', { dismiss: 'movie-1', bar: true }),
@@ -736,8 +737,9 @@ const scenarios = {
 
   // Cards a screen or more out of sight, as they come near, leave and are taken off the page.
   async farCards() {
-    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), card('movie/9', 'Other', 'Movie')], row('lib', [card('movie/8', 'Before', 'Movie')])]));
-    const [film, other, inRow] = p.cards();
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), card('movie/9', 'Other', 'Movie'), ...fillers(499)], row('lib', [card('movie/8', 'Before', 'Movie')])]));
+    const [film, other] = p.cards();
+    const inRow = p.cards('lib')[0];
     const seer = p.seers.filter((s) => s.margin)[0];
     const far = () => [film, other].map((c) => c.classList.contains('is-far'));
     const out = [seer.margin, [film, other, inRow].map((c) => seer.seen.has(c))];
@@ -751,9 +753,25 @@ const scenarios = {
     return out;
   },
 
+  // A grid of 500 cards, where none says it is far, then one more is loaded, then a filter leaves fewer.
+  async fewFarCards() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(499)]]));
+    const film = p.cards()[0];
+    const seer = p.seers.filter((s) => s.margin)[0];
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const out = [film.classList.contains('is-far')];
+    const grid = p.doc.querySelector('.watch-grid');
+    const late = grid.appendChild(build(p.doc, card('movie/9', 'Other', 'Movie')));
+    p.added(late);
+    out.push(film.classList.contains('is-far'));
+    late.remove();
+    p.removed(late);
+    return out.concat([film.classList.contains('is-far')]);
+  },
+
   // A far card taken off the page, to be put back elsewhere.
   async farCardTaken() {
-    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM()]]));
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(500)]]));
     const film = p.cards()[0];
     const seer = p.seers.filter((s) => s.margin)[0];
     seer.fn([{ target: film, isIntersecting: false }], seer);
