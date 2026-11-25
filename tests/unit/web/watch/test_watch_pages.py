@@ -368,6 +368,8 @@ class TestWatchRows:
                 "mark_kind": "episode",
                 "mark_key": "521",
                 "dismiss_ref": "show-500",
+                "tmdb_ref": None,
+                "level": None,
                 "leaving_days": None,
                 "keep_id": None,
             }

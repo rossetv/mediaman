@@ -17,7 +17,6 @@ from typing import Literal
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.web.repository import watch_library as lib
-from mediaman.web.repository.watch_progress import seen_movies
 
 Kind = Literal["movie", "tv"]
 
@@ -324,7 +323,7 @@ def held_library(
         index,
         movies,
         shows,
-        seen_movies(conn, username) | _films_played_in_plex(conn, username),
+        lib.seen_films(conn, username, libraries) | _films_played_in_plex(conn, username),
         _with_plex_plays(conn, username, lib.show_seen(conn, username, libraries)),
     )
     for m in movies.values():
@@ -350,7 +349,8 @@ def _films_played_in_plex(conn: sqlite3.Connection, username: str) -> set[str]:
 def _with_plex_plays(
     conn: sqlite3.Connection, username: str, seen: dict[str, lib.ShowSeen]
 ) -> dict[str, lib.ShowSeen]:
-    """*seen* with the episodes played in Plex's own apps that it does not count."""
+    """*seen* with the episodes played in Plex's own apps that it does not count, but for a
+    season that a mark of the show covers, which counts them already."""
     rows = conn.execute(
         "SELECT mi.show_rating_key, mi.season_number, COUNT(*) AS played"
         " FROM media_items mi, json_each(mi.episode_keys) e"
@@ -366,7 +366,7 @@ def _with_plex_plays(
     ).fetchall()
     for r in rows:
         season = seen.get(r["show_rating_key"], lib.ShowSeen()).seasons.get(r["season_number"])
-        if season is not None:
+        if season is not None and not (season.marked or season.by_mark):
             seen[r["show_rating_key"]].seasons[r["season_number"]] = replace(
                 season, seen=season.seen + r["played"]
             )

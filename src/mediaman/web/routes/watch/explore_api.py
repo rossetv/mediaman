@@ -19,7 +19,9 @@ from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.watch.card_marks import card_marks, marked
 from mediaman.web.routes.watch.catalog_api import _arr, _discover_cards, _tmdb_client, held_fields
 
 router = APIRouter()
@@ -92,7 +94,8 @@ def api_watch_explore(
     out["library"] = {**_coverage(covered), "titles": len(held)}
     if where == "library":
         end = page * catalog.LIBRARY_PAGE
-        out["items"] = _held_cards(request, conn, username, held[end - catalog.LIBRARY_PAGE : end])
+        shown = held[end - catalog.LIBRARY_PAGE : end]
+        out["items"] = _held_cards(request, conn, client, username, shown)
         out["total"] = len(held)
         out["next_page"] = page + 1 if end < len(held) and page < catalog.MAX_PAGE else None
         return respond_ok(out)
@@ -113,7 +116,9 @@ def api_watch_explore(
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
     out["next_after" if isinstance(following, str) else "next_page"] = following
-    [out["items"]] = _discover_cards(request, conn, client, username, [found])
+    [cards] = _discover_cards(request, conn, client, username, [found])
+    marks = card_marks(person_marks(conn, username), client)
+    out["items"] = [marked(card, marks) for card in cards]
     return respond_ok(out)
 
 
@@ -122,11 +127,16 @@ def _coverage(covered: catalog.Coverage) -> dict[str, object]:
 
 
 def _held_cards(
-    request: Request, conn: sqlite3.Connection, username: str, items: Sequence[Mapping[str, Any]]
+    request: Request,
+    conn: sqlite3.Connection,
+    client: TmdbClient,
+    username: str,
+    items: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, object]]:
     """The cards of titles known to be held, and by which library title."""
     arr = _arr(request, conn)
     fields = held_fields(conn, username, lib.scanned_library_ids(conn))
+    marks = card_marks(person_marks(conn, username), client)
     none_held = catalog.LibraryIndex()
     cards = []
     for item in items:
@@ -134,7 +144,7 @@ def _held_cards(
         if card is not None:
             ref = item["library_ref"]
             held = {"in_library": True, "library_ref": ref, "href": catalog.library_href(ref)}
-            cards.append({**card, **held, **fields(ref)})
+            cards.append(marked({**card, **held, **fields(ref)}, marks))
     return cards
 
 
@@ -242,9 +252,13 @@ def _credit_cards(
 ) -> list[tuple[dict[str, object], bool]]:
     """(card, whether they only appear in it) of each credit, in order."""
     [cards] = _discover_cards(request, conn, client, username, [credits])
+    marks = card_marks(person_marks(conn, username), client)
     by_ref = {f"tmdb-{c['media_type']}-{c['id']}": c for c in credits}
     return [
-        ({**card, "role": by_ref[str(card["ref"])]["role"]}, by_ref[str(card["ref"])]["minor"])
+        (
+            {**marked(card, marks), "role": by_ref[str(card["ref"])]["role"]},
+            by_ref[str(card["ref"])]["minor"],
+        )
         for card in cards
     ]
 

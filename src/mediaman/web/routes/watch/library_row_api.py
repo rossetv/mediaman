@@ -19,9 +19,8 @@ from mediaman.web.routes.watch import all_titles
 from mediaman.web.routes.watch.library_order import is_place, library_page
 from mediaman.web.routes.watch.pages import (
     ROW_PAGE_SIZE,
-    movie_cards,
     recently_added,
-    show_cards,
+    title_cards,
 )
 
 router = APIRouter()
@@ -63,7 +62,7 @@ def api_watch_library_row(
         titles = recently_added(titles, now)
     order = cast(lib.RowOrder, sort)
     page, end = library_page(conn, username, libraries, titles, order, limit, after)
-    items = _cards(conn, username, libraries, page, now)
+    items = title_cards(conn, username, libraries, page, now)
     return respond_ok({"items": items, "next": end, "total": len(titles)})
 
 
@@ -93,7 +92,7 @@ def _library(
         }
 
         def cards_of(refs: list[str]) -> dict[str, dict[str, Any]]:
-            cards = _cards(conn, username, libraries, [by_ref[r] for r in refs], now)
+            cards = title_cards(conn, username, libraries, [by_ref[r] for r in refs], now)
             return dict(zip(refs, cards, strict=True))
 
         library = all_titles.load(conn, username, libraries, movies, shows, admin=admin)
@@ -113,27 +112,6 @@ def _library(
         )
 
     return respond_ok(all_titles.in_one_read(conn, read))
-
-
-def _cards(
-    conn: sqlite3.Connection,
-    username: str,
-    libraries: list[str],
-    page: list[lib.LibraryMovie | lib.LibraryShow],
-    now: datetime,
-) -> list[dict[str, Any]]:
-    """The cards of *page*, in its order."""
-    movies = [t for t in page if isinstance(t, lib.LibraryMovie)]
-    shows = [t for t in page if isinstance(t, lib.LibraryShow)]
-    cards: dict[lib.LibraryMovie | lib.LibraryShow, dict[str, Any]] = {}
-    pending = lib.pending_deletions(conn, libraries)
-    if movies:
-        films = movie_cards(conn, username, movies, pending, now)
-        cards.update(zip(movies, films, strict=True))
-    if shows:
-        held = show_cards(conn, username, libraries, shows, pending, now)
-        cards.update(zip(shows, held, strict=True))
-    return [cards[title] for title in page]
 
 
 __all__ = ["router"]
