@@ -824,14 +824,23 @@ class TestWhoReadsWhat:
         security_event(
             conn, event="user.created", actor="ana", detail={"new_username": "target-name"}
         )
+        conn.execute("UPDATE media_items SET plex_rating_key = 'plex-9' WHERE id = 'm1'")
+        conn.commit()
 
         page, api = clients[1].get("/history").text, clients[1].get("/api/history").text
 
+        island = json.loads(re.search(r'id="history-data">(.*?)</script>', page, re.S)[1])
+        for items in (island["items"], json.loads(api)["items"]):
+            assert [i["title"] for i in items] == ["User created", "Ana Film"]
+            for item in items:
+                shown = {f["key"] for f in item["fields"]}
+                assert shown <= {"who", "when", "event", "address", "title", "space", "id"}
+                values = {f["value"] for f in item["fields"]}
+                assert not {"m1", "plex-9", "snoozed", "sec:user.created"} & values
         for text in (page, api):
-            assert "User created" in text
-            assert "Ana Film" in text
-            for hidden in ("Stored record", "Media ID", "target-name"):
-                assert hidden not in text
+            assert "target-name" not in text
+            for label in ("Stored record", "Library number", "Plex number", "Recorded as"):
+                assert label not in text
 
     def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
         own, every = (
