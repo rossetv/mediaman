@@ -1080,8 +1080,8 @@ const scenarios = {
   async playOn() {
     const make = async (opts) => {
       const p = await page(opts);
-      const sheet = { open: false, host: null };
-      p.win.MM.playOn = { open: (b, host) => { sheet.open = true; sheet.host = host; }, isOpen: () => sheet.open, close: () => { sheet.open = false; } };
+      const sheet = { open: false, host: null, cancels: 0 };
+      p.win.MM.playOn = { open: (b, host) => { sheet.open = true; sheet.host = host; }, isOpen: () => sheet.open, close: () => { sheet.open = false; }, cancel: () => { sheet.cancels += 1; } };
       await p.open();
       await p.press('#tv-remote [data-play-on]');
       return { p, sheet, host: sheet.host };
@@ -1138,6 +1138,28 @@ const scenarios = {
     h.host.here();
     await h.p.pass(600);
     out.here = h.p.win.location.href;
+    // Here after all, while another TV is starting: the old one plays still, or has given it up.
+    out.calledOff = [];
+    for (const given of [false, true]) {
+      const o = await make();
+      o.host.before({ id: 8 });
+      if (given) Object.assign(o.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
+      await o.p.pass(1100);
+      o.host.here();
+      await o.p.pass(600);
+      out.calledOff.push([o.sheet.cancels, o.p.sent().map((x) => x.kind).join(), o.p.win.location.href]);
+    }
+    // The next play's end is said again.
+    const s = await make();
+    s.host.before({ id: 8 });
+    s.host.here();
+    s.p.api.tvs.push(aTv({ id: 9, name: 'Den', play: aPlay({ play_id: 'p7' }) }));
+    await s.p.pass(600);
+    s.p.win.MM.tvRemote.open(9);
+    await settle();
+    Object.assign(s.p.api.tvs[1], { play: null, last: { ...aPlay(), reason: 'stopped' } });
+    await s.p.pass(1100);
+    out.said = s.p.toasts;
     const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
     u.host.before({ id: 8 });
     out.upnext = [u.host.what().rating_key, u.host.before({ id: 8 })];

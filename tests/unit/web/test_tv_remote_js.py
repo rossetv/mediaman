@@ -507,6 +507,9 @@ def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
     assert out["besideMove"] == "Playing on Living room"
     assert out["without"] is True
     assert out["here"] == "/watch/play/9001?resume=1"
+    here = "/watch/play/9001?resume=1"
+    assert out["calledOff"] == [[1, "stop", here], [1, "", here]]
+    assert out["said"] == ["Stopped. Your place is saved at 20:00."]
     assert out["upnext"] == ["9002", 0]
 
 

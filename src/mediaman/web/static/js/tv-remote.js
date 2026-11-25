@@ -618,8 +618,11 @@
         if (from && from.id === CAST && t.id !== CAST) sender.stop();
       },
       here: function () {
+        var given = handing && !play() && !gone; // the TV has given it up for the one that was starting
         handing = false;
-        bring();
+        MM.playOn.cancel();
+        if (given) watchHere(onward(about()) || about());
+        else bring();
       },
     });
   }
