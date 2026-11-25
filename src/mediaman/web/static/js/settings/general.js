@@ -75,6 +75,9 @@
       mailgun_api_key:       v('mailgun_api_key'),
       openai_api_key:        v('openai_api_key'),
       openai_model:          v('openai_model'),
+      // As text: an emptied field is refused, where a 0 would switch the AI off.
+      ai_questions_per_day:  v('ai_questions_per_day'),
+      ai_everyone_per_day:   v('ai_everyone_per_day'),
       tmdb_api_key:          v('tmdb_api_key'),
       tmdb_read_token:       v('tmdb_read_token'),
       omdb_api_key:          v('omdb_api_key'),

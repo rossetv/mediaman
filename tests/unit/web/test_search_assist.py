@@ -547,6 +547,59 @@ class TestRuns:
         conn.commit()
         assert self._start(amy).status_code == 202
 
+    def test_an_admin_sets_how_many_questions_a_day_holds(self, people, conn):
+        insert_settings(conn, ai_questions_per_day="2")
+        self._spent(conn, "amy-secret", 2)
+        resp = self._start(people["amy"])
+        assert (resp.status_code, resp.json()["error"], resp.json()["limit"]) == (429, "limit", 2)
+        assert self._start(people["bob"]).status_code == 202
+
+    def test_an_admin_sets_how_many_runs_everyones_day_holds(self, people, conn):
+        insert_settings(conn, ai_everyone_per_day="3")
+        self._spent(conn, "bob-secret", 3)
+        resp = self._start(people["amy"])
+        assert resp.status_code == 429
+        assert (resp.json()["error"], resp.json()["limit"]) == ("limit_everyone", 3)
+
+    def test_a_limit_above_the_usual_one_lets_more_be_asked(self, amy, conn):
+        insert_settings(conn, ai_questions_per_day="30")
+        self._spent(conn, "amy-secret", repo.QUESTIONS_PER_DAY)
+        assert self._start(amy).status_code == 202
+
+    def test_an_answer_that_is_not_about_a_day_names_no_limit(self, amy, monkeypatch):
+        monkeypatch.setattr(assist.threading, "Thread", HeldThread)
+        self._start(amy)
+        resp = self._start(amy, "quite another question")
+        assert resp.status_code == 409 and "limit" not in resp.json()
+
+    @pytest.mark.parametrize("stored", ["", "lots", "[]", "Infinity"])
+    def test_a_limit_that_cannot_be_read_is_the_usual_one(self, amy, conn, stored):
+        insert_settings(conn, ai_questions_per_day=stored)
+        self._spent(conn, "amy-secret", repo.QUESTIONS_PER_DAY)
+        assert self._start(amy).json()["limit"] == repo.QUESTIONS_PER_DAY
+
+    def test_a_stored_limit_past_the_highest_is_held_to_it(self, amy, conn):
+        insert_settings(conn, ai_questions_per_day="9" * 30)
+        assert repo.daily_limit(conn, "ai_questions_per_day") == 200
+
+    @pytest.mark.parametrize("key", ["ai_questions_per_day", "ai_everyone_per_day"])
+    @pytest.mark.parametrize("stored", ["0", "-5"])
+    def test_none_a_day_is_the_ai_switched_off_for_everyone(self, people, conn, model, key, stored):
+        insert_settings(conn, **{key: stored})
+        _search(people["amy"], "heist")
+        for client in people.values():
+            found = client.get(BASE).json()
+            assert (found["available"], found["personal"]) == (False, False)
+            for resp in (
+                self._start(client),
+                client.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),
+                client.get(f"{BASE}/tonight", params={"minutes": 120}),
+            ):
+                assert (resp.status_code, resp.json()["error"]) == (409, "unavailable")
+        assert model.prompts == []
+        # What is sent for recommendations is still theirs to stop.
+        assert people["amy"].get(f"{BASE}/history").json()["available"] is True
+
     def test_phrases_being_made_do_not_hold_up_a_question(self, amy, monkeypatch):
         monkeypatch.setattr(assist.threading, "Thread", HeldThread)
         _search(amy, "heist")

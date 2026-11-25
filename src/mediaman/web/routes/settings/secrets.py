@@ -46,6 +46,8 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "suggestions_enabled",
         "openai_web_search_enabled",
         "openai_model",
+        "ai_questions_per_day",
+        "ai_everyone_per_day",
         "auto_abandon_enabled",
     }
 )

@@ -31,6 +31,7 @@ from mediaman.services.infra import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
 from mediaman.web.auth.middleware import resolve_admin_page_session
+from mediaman.web.repository.search_assist import DAILY_LIMITS, daily_limit
 from mediaman.web.repository.settings import (
     fetch_encrypted_key_set as _encrypted_keys,
 )
@@ -170,6 +171,8 @@ def settings_page(request: Request) -> Response:
     # Show the value the scanner uses so a saved out-of-range row doesn't fail validation.
     for day_key in DAY_SETTING_RANGES:
         settings[day_key] = get_day_setting(conn, day_key, default=DAY_SETTING_DEFAULTS[day_key])
+    for limit_key in DAILY_LIMITS:
+        settings[limit_key] = daily_limit(conn, limit_key)
 
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []

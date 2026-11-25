@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from mediaman.bootstrap.validators import validate_scan_day, validate_scan_time
 from mediaman.scanner.runner import DAY_SETTING_RANGES
+from mediaman.web.repository.search_assist import DAILY_LIMITS
 
 from ._common import (
     _ALLOWED_URL_SCHEMES,
@@ -142,6 +143,8 @@ class SettingsUpdate(BaseModel):
     openai_web_search_enabled: bool | None = None
     # Allowlisted model identifier; validated by ``validate_openai_model``.
     openai_model: Annotated[str | None, Field(max_length=32)] = None
+    ai_questions_per_day: int | None = None
+    ai_everyone_per_day: int | None = None
 
     omdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
@@ -327,6 +330,16 @@ class SettingsUpdate(BaseModel):
         label, low, high = _DAY_SETTING_BOUNDS[info.field_name or ""]
         if not (low <= v <= high):
             raise ValueError(f"{label} must be between {low} and {high} days")
+        return v
+
+    @field_validator(*DAILY_LIMITS, mode="after")
+    @classmethod
+    def validate_daily_limits(cls, v: int | None, info: ValidationInfo) -> int | None:
+        if v is None:
+            return v
+        _, highest = DAILY_LIMITS[info.field_name or ""]
+        if not (0 <= v <= highest):
+            raise ValueError(f"{info.field_name} must be between 0 and {highest}")
         return v
 
     @field_validator("disk_thresholds", mode="before")

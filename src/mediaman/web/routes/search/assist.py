@@ -2,8 +2,9 @@
 for a question or like a title, and what fits an evening.
 
 Ordinary search is elsewhere and never waits for this. A question is answered in a
-background thread and polled for. Without a key of OpenAI or TMDB nothing of the AI is
-offered; recent searches, Clear and the history switch work all the same.
+background thread and polled for. Without a key of OpenAI or TMDB, or with a daily limit of
+0, nothing of the AI is offered; recent searches, Clear and the history switch work all the
+same.
 """
 
 from __future__ import annotations
@@ -105,6 +106,10 @@ def _secret(request: Request) -> str:
 
 def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
     """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
+    return None if repo.switched_off(conn) else _client_by_keys(request, conn)
+
+
+def _client_by_keys(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
     try:
         get_openai_key(conn, _secret(request))
     except ValueError:
@@ -172,7 +177,8 @@ def _too_many() -> JSONResponse:
 def _refused(refused: repo.Refused) -> JSONResponse:
     if refused.reason in ("running", "stopping"):
         return respond_err(refused.reason, status=409, run_id=refused.run_id)
-    return respond_err(refused.reason, status=429, resets_at=refused.resets_at)
+    limit: dict[str, Any] = {} if refused.limit is None else {"limit": refused.limit}
+    return respond_err(refused.reason, status=429, resets_at=refused.resets_at, **limit)
 
 
 # --- Recent searches, phrases and the history switch -----------------------------
@@ -230,7 +236,8 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
     return respond_ok(
         {
             "enabled": repo.uses_history(conn, user_id),
-            "available": _client(request, conn) is not None,
+            # Recommendations use it too, and no limit of search stops them.
+            "available": _client_by_keys(request, conn) is not None,
         }
     )
 

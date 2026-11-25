@@ -29,7 +29,14 @@ def test_settings_number_and_time_inputs_have_an_accessible_name(app_factory, au
     )
     html = authed_client(app, conn).get("/settings").text
 
-    for input_id in ("min_age_days", "inactivity_days", "grace_days", "scan_time"):
+    for input_id in (
+        "min_age_days",
+        "inactivity_days",
+        "grace_days",
+        "scan_time",
+        "ai_questions_per_day",
+        "ai_everyone_per_day",
+    ):
         tag = re.search(rf"<input\b[^>]*\bid=\"{input_id}\"[^>]*>", html)
         assert tag, input_id
         assert re.search(r"aria-label(ledby)?=\"[^\"]+\"", tag.group(0)), tag.group(0)
