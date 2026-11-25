@@ -201,3 +201,14 @@ def test_a_heading_and_the_link_under_it_take_44px_each_on_the_narrowest_phones(
     # And little of the posters.
     room = int(re.findall(r"margin-bottom: (\d+)px", _of(head, NARROW))[0])
     assert link[1] - room <= 8
+
+
+def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
+    browse = SHEET.with_name("_watch_browse.css")
+    under = (
+        ".watch-card__poster:has(> .watch-badge--leaving) > .watch-badge:not(.watch-badge--leaving)"
+    )
+    for media in (None, "(max-width: 599.98px)"):
+        left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
+        assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
+    assert "right: auto" in _of(under, sheet=browse)
