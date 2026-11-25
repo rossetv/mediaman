@@ -684,6 +684,21 @@ def test_a_seasons_words_wait_for_a_press_to_end() -> None:
     assert (out["held"], out["letGo"]) == (None, "Words on 2")
 
 
+def test_a_press_whose_end_never_comes_holds_a_seasons_words_back_only_so_long() -> None:
+    assert _run("lateWords")["unended"] == [None, "Words on 2", 0]
+
+
+def test_a_mark_made_while_a_seasons_words_come_outlives_them() -> None:
+    held = {
+        "eye": "true",
+        "about": "About it.",
+        "season": "Told.",
+        "facts": "2017 · 2 episodes",
+        "left": "50 min · 10 min left",
+    }
+    assert _run("markBeforeWords") == {"own": [held, held], "picked": [held, held]}
+
+
 def test_words_of_a_season_left_or_that_never_come_change_nothing() -> None:
     out = _run("lateWords")
     assert out["left"] is None

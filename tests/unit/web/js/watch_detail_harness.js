@@ -1619,6 +1619,16 @@ const scenarios = {
       out.letGo = look(p).text;
     }
     {
+      const { p, asks } = await start();
+      p.doc.dispatchEvent({ type: 'pointerdown' });
+      asks[0].resolve();
+      await settle();
+      for (let i = 0; i < 29; i++) p.tick();
+      out.unended = [look(p).text];
+      p.tick();
+      out.unended.push(look(p).text, p.timers.filter((t) => t.ms === 100).length);
+    }
+    {
       const { p, asks } = await start({ words_pending: false });
       click(p.doc, p.q('[data-season="1"]'));
       await settle();
@@ -1633,6 +1643,47 @@ const scenarios = {
       out.failed = look(p);
     }
     return out;
+  },
+
+  // A mark made, and more of an episode seen, while the words of their season were on their way,
+  // of the season the title opens on and of one that was *picked*.
+  async markBeforeWords() {
+    async function run(picked) {
+      const n = picked ? 1 : 2;
+      let seen = false;
+      const eps = (seen, summary) => [
+        { number: 1, key: '21', title: 'Ep 1', minutes: 50, state: seen ? 'watched' : 'none', watched: seen, href: '/watch/play/21', summary },
+        { number: 2, key: '22', title: 'Ep 2', minutes: 50, state: 'in_progress', minutes_left: seen ? 10 : 40, href: '/watch/play/22', summary }];
+      const season = () => ({ ok: true, key: '30' + n, watched: false, summary: '', year: null, words_pending: true, episodes: eps(seen, '') });
+      let answer = null;
+      const routes = { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300',
+        cast: [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }], words_pending: !picked, episodes: eps(seen, '') })))) };
+      routes['/api/watch/title/show-300/season/' + n] = () => Promise.resolve(season());
+      routes['/api/watch/title/show-300/season/' + n + '?words=1'] = () => new Promise((resolve) => {
+        const old = Object.assign(season(), { summary: 'Told.', year: 2017, words_pending: false, episodes: eps(false, 'About it.') });
+        answer = () => resolve(old);
+      });
+      const p = load({ routes });
+      p.run();
+      p.ctx.MMWatch.marks = { paint: () => {} };
+      await openCard(p, 'show-300');
+      if (picked) { click(p.doc, p.q('[data-season="1"]')); await settle(); }
+      seen = true;
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      await settle();
+      answer();
+      await settle();
+      const look = () => ({ eye: p.q('[data-mark-toggle="episode/21"]').getAttribute('aria-pressed'), about: p.text('.watch-ep__about'),
+        season: p.text('.ttl__season-text'), facts: p.text('.ttl__season-facts'),
+        left: p.ttl().querySelectorAll('.watch-ep__meta')[1].textContent });
+      const came = look();
+      // Drawn anew from what is held.
+      click(p.doc, p.q('.ttl-cast__item'));
+      p.tick();
+      p.ctx.history.back();
+      return [came, look()];
+    }
+    return { own: await run(false), picked: await run(true) };
   },
 
   // What stands for a title while it loads: for an admin the facts card, and how far it was watched as its card says.

@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_utc
+from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.plex_watch import PlexUnavailable
@@ -811,6 +812,13 @@ class TestSeasonDescriptions:
             (("", None), ("", None), False),
             (("Episode 1", None), ("Episode 1", "2021-02-03"), True),
             (("Episode 1", "2021-02-03"), ("Episode 1", "2021-02-10"), False),
+            (("Part 1", "2021-02-03"), ("Part 1", "2022-02-03"), False),
+            (("Chapter Two", "2021-02-03"), ("Chapter Two", "2022-02-03"), False),
+            (("Part Twenty-One", "2021-02-03"), ("Part Twenty-One", "2022-02-03"), False),
+            (("Part III", "2021-02-03"), ("Part III", "2022-02-03"), False),
+            (("Folge 4", "2021-02-03"), ("Folge 4", "2022-02-03"), False),
+            (("Folge 4", None), ("Folge 4", "2022-02-03"), True),
+            (("Apollo Thirteenth", "2021-02-03"), ("Apollo Thirteenth", "2022-02-03"), True),
         ],
     )
     def test_tmdb_is_taken_at_its_word_only_of_the_same_episode(
@@ -833,6 +841,85 @@ class TestSeasonDescriptions:
         assert episode["summary"] == ("TMDB on one." if same else "")
         assert episode["aired"] == (aired or (tmdb_says[1] if same else None))
         assert season["summary"] == ("TMDB on season 1." if same else "")
+
+    @pytest.mark.parametrize(
+        ("plex_says", "tmdb_says", "same", "season_told"),
+        [
+            # All out on one day, in two orders.
+            (
+                [("Three Robots", "2019-03-15"), ("Sonnie's Edge", "2019-03-15")],
+                [("Sonnie's Edge", "2019-03-15"), ("Three Robots", "2019-03-15")],
+                [False, False],
+                False,
+            ),
+            # The date is shared in one of the lists alone.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-03")],
+                [("Cc", "2021-02-03"), ("Dd", "2021-02-10")],
+                [False, False],
+                False,
+            ),
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10")],
+                [("Cc", "2021-02-03"), ("Dd", "2021-02-03")],
+                [False, False],
+                False,
+            ),
+            # All out on one day, in one order.
+            (
+                [("Episode 1", "2021-02-03"), ("Episode 2", "2021-02-03")],
+                [("Episode 1", "2021-02-03"), ("Episode 2", "2021-02-03")],
+                [True, True],
+                True,
+            ),
+            # One in its place by chance.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10")],
+                [("Aa", "2021-02-03"), ("Cc", "2021-02-17")],
+                [True, False],
+                False,
+            ),
+            # Most of them in their place.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10"), ("Cc", "2021-02-17")],
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10"), ("Dd", "2021-02-24")],
+                [True, True, False],
+                True,
+            ),
+        ],
+    )
+    def test_a_season_in_another_order_is_not_taken_for_the_same(
+        self, viewer, held, arr, plex, plex_says, tmdb_says, same, season_told
+    ):
+        first = plex.episodes["501"][0]
+        plex.episodes["501"] = [
+            replace(first, rating_key=f"51{n}", index=n, title=title, aired=aired)
+            for n, (title, aired) in enumerate(plex_says, start=1)
+        ]
+        held.seasons[77, 1]["episodes"] = [
+            {"episode_number": n, "name": name, "overview": "Told.", "air_date": aired}
+            for n, (name, aired) in enumerate(tmdb_says, start=1)
+        ]
+
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        assert [bool(e["summary"]) for e in season["episodes"]] == same
+        assert bool(season["summary"]) is season_told
+
+    def test_a_mark_made_while_tmdb_is_waited_for_is_in_the_answer(
+        self, viewer, held, arr, plex, monkeypatch
+    ):
+        ask = held.season
+
+        def season(*asked):
+            _mark(get_db(), "511", item="501")
+            return ask(*asked)
+
+        monkeypatch.setattr(held, "season", season)
+
+        body = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        assert [e["watched"] for e in body["episodes"]] == [True, False]
 
     def test_tmdb_fills_in_what_plex_has_none_of_by_one_ask_of_the_season(
         self, viewer, held, arr, plex

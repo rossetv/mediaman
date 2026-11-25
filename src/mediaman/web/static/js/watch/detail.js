@@ -2346,10 +2346,12 @@
     }, function () { if (c.words === w) c.words = null; });
   }
 
-  /* Run *fn* now, or once what is being pressed has been let go of and has answered. */
-  function betweenPresses(fn) {
-    if (!pressing) { fn(); return; }
-    setTimeout(function () { betweenPresses(fn); }, 100);
+  /* Run *fn* now, or once what is being pressed has been let go of and has answered. A press
+     whose end never comes, such as one that opened a menu, is waited for 3 s. */
+  function betweenPresses(fn, waited) {
+    waited = waited || 0;
+    if (!pressing || waited >= 3000) { fn(); return; }
+    setTimeout(function () { betweenPresses(fn, waited + 100); }, 100);
   }
 
   var pressing = false;
@@ -2359,34 +2361,34 @@
   });
 
   /* The words into the rows on show, which make room for them: what is pointed at or has the
-     focus stays where it is, and the rest slides. */
+     focus stays where it is, and the rest slides. What was seen is as held: a mark may have
+     been made since the words were asked for. */
   function takeWords(c, data) {
     var s = numbered(c.data, c.season);
     if (!s) return;
-    var episodes = data.episodes || [];
-    if (c.picked) {
-      takeEpisodes(c, data);
-    } else {
-      c.data.episodes = episodes;
-      s.summary = data.summary;
-      s.year = data.year;
-      delete c.data.words_pending;
-    }
+    var episodes = c.picked || c.data.episodes || [];
+    var about = c.picked ? c.pickedAbout : s;
+    var told = {};
+    (data.episodes || []).forEach(function (e) { told[e.key] = e; });
+    episodes.forEach(function (e) {
+      var t = told[e.key] || {};
+      e.summary = t.summary || e.summary;
+      e.aired = t.aired || e.aired;
+    });
+    about.summary = data.summary || about.summary;
+    about.year = data.year || about.year;
+    delete (c.picked ? c.pickedAbout : c.data).words_pending;
     var sec = body.querySelector('.ttl__seasonsec');
     var panel = sec && sec.querySelector('.ttl__season');
     if (!panel) return;
     var rows = toArray(panel.querySelectorAll('.watch-eprow'));
-    if (rows.length !== episodes.length) {
-      renderContent(false);
-      return;
-    }
     var still = keptStill(sec, rows);
     var others = toArray(body.children).concat(toArray(sec.children), toArray(panel.children));
     var slide = core.flip(rows.concat(others.filter(function (n) { return n !== sec && n !== panel && !n.contains(rows[0]); })));
     function say() {
-      var about = panel.querySelector('.ttl__season-about');
-      about.querySelector('.ttl__season-facts').textContent = seasonFacts(data, episodes);
-      var fresh = [sayOfSeason(about, data, seasonName(s))];
+      var box = panel.querySelector('.ttl__season-about');
+      box.querySelector('.ttl__season-facts').textContent = seasonFacts(about, episodes);
+      var fresh = [sayOfSeason(box, about, seasonName(s))];
       rows.forEach(function (li, i) {
         li.querySelector('.watch-ep__meta').textContent = episodeFacts(episodes[i]);
         fresh.push(describe(li, episodes[i]));

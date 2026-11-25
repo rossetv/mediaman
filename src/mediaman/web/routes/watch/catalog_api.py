@@ -18,7 +18,8 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -577,25 +578,48 @@ def _tmdb_season(
         found = catalog.season(client, tmdb_id, number, wait=wait)
     except catalog.TmdbUnavailable:
         return None
-    told = found["episodes"] if found else {}
-    same = {
-        str(e.index): told[str(e.index)]
-        for e in episodes
-        if str(e.index) in told and _is_same_episode(e, told[str(e.index)])
-    }
-    return {**found, "episodes": same} if found and same else None
+    if not found:
+        return None
+    told = found["episodes"]
+    own_dates = _single([e.aired for e in episodes]) & _single([t["aired"] for t in told.values()])
+    pairs = [(e, told[str(e.index)]) for e in episodes if str(e.index) in told]
+    same = {str(e.index): t for e, t in pairs if _is_same_episode(e, t, own_dates)}
+    if not same:
+        return None
+    # A season in another order still has an episode or two in their place by chance.
+    compared = sum(bool((e.title and t["title"]) or (e.aired and t["aired"])) for e, t in pairs)
+    about = found if len(same) * 2 > compared else {"overview": "", "aired": None}
+    return {"overview": about["overview"], "aired": about["aired"], "episodes": same}
 
 
-def _is_same_episode(episode: PlexEpisode, told: Mapping[str, Any]) -> bool:
-    """Shows are ordered in more than one way: one number can be two episodes."""
-    if episode.aired and episode.aired == told["aired"]:
+def _single(dates: Sequence[str | None]) -> set[str]:
+    """The dates that stand there once."""
+    return {d for d, times in Counter(dates).items() if d and times == 1}
+
+
+_UNITS = "one|two|three|four|five|six|seven|eight|nine"
+_TENS = "twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+# "Episode 4", "Chapter Two", "Part III", as ``catalog.normalise_title`` leaves them.
+_NUMBERED_RE = re.compile(
+    rf"\w+ (?:\d+|[ivx]+|{_UNITS}|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen"
+    rf"|eighteen|nineteen|(?:{_TENS})(?: (?:{_UNITS}))?)"
+)
+
+
+def _is_same_episode(
+    episode: PlexEpisode, told: Mapping[str, Any], own_dates: Collection[str]
+) -> bool:
+    """Shows are ordered in more than one way: one number can be two episodes. *own_dates*: those
+    of one episode alone."""
+    same_date = episode.aired == told["aired"]
+    if same_date and episode.aired in own_dates:
         return True
     name = catalog.normalise_title(episode.title)
     if not name or name != catalog.normalise_title(told["title"]):
         return False
     # "Episode 4" is the fourth in every order.
-    numbered = re.fullmatch(r"episode \d+", name) is not None
-    return not (numbered and episode.aired and told["aired"])
+    numbered = _NUMBERED_RE.fullmatch(name) is not None
+    return same_date or not (numbered and episode.aired and told["aired"])
 
 
 def _season_about(
@@ -1148,7 +1172,6 @@ def api_watch_title_season(
         return _not_found()
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
-    progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
     client = _tmdb_client(request, conn)
     found, pending = None, False
@@ -1165,6 +1188,8 @@ def api_watch_title_season(
                 found = _tmdb_season(client, tmdb_id, number, episodes, wait=words)
             except disk_cache.Refused:
                 pending = not words
+    # What was seen or marked during the wait counts.
+    progress = show_progress(conn, username, key)
     return respond_ok(
         {
             "key": season.rating_key,
