@@ -194,6 +194,7 @@
 .watch-card__sub { font-variant-numeric: tabular-nums; }
 /* An admin's change of it is on its way. */
 .watch-card .watch-card__sub > .btn-spinner { width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; }
+.watch-card.is-working .watch-card__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-card.is-working .watch-card__poster > img { opacity: .5; }
 /* One Watch cannot open does not look as if it could. */
 .watch-card__link:not([href]) { cursor: default; }

@@ -173,6 +173,11 @@ def test_a_caption_ends_before_the_thumb_of_any_card_that_has_one() -> None:
     assert pad and int(pad.group(1)) >= (30 + 21) / 2 - 5
 
 
+def test_what_is_being_done_of_a_title_stays_on_one_line_beside_its_thumb() -> None:
+    grid = SHEET.with_name("_watch_grid.css")
+    assert "white-space: nowrap" in _of(".watch-card.is-working .watch-card__sub", sheet=grid)
+
+
 def test_every_button_under_a_card_takes_44px_on_a_touch_screen() -> None:
     css = CARDS.read_text(encoding="utf-8")
     size = re.search(r"\.card-tool \{[^}]*?width: (\d+)px;\s*height: (\d+)px", css)
