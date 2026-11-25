@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import socket
 import xml.etree.ElementTree as ET
@@ -11,6 +12,7 @@ import pytest
 
 from mediaman.services.dlna.addresses import check_device_url, own_networks
 from mediaman.services.dlna.errors import (
+    AnotherTv,
     TvBadAnswer,
     TvError,
     TvFault,
@@ -18,7 +20,7 @@ from mediaman.services.dlna.errors import (
     TvUnreachable,
 )
 from mediaman.services.dlna.media import Media
-from mediaman.services.dlna.renderer import Renderer, Status, describe, find
+from mediaman.services.dlna.renderer import Renderer, Status, describe, find, find_again
 from mediaman.services.dlna.wire import MAX_BODY, _open_tcp, _open_udp
 from tests.unit.services.dlna.fake_tv import (
     AVT,
@@ -27,6 +29,7 @@ from tests.unit.services.dlna.fake_tv import (
     TV,
     VOLUME_RANGE,
     FakeTv,
+    MovedTv,
     fault,
     http,
     soap,
@@ -1066,6 +1069,13 @@ def test_a_film_of_no_real_length_is_refused(seconds: float) -> None:
         Media(url="http://a/f.ts", title="x", seconds=seconds)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("size", ['1" x="', "1", -1, 1.5, True])
+def test_a_film_of_no_real_size_is_refused(size: object) -> None:
+    with pytest.raises(ValueError, match="real size"):
+        Media(url="http://a/f.ts", title="x", size=size)  # type: ignore[arg-type]
+    assert ' size="7"' in Media(url="http://a/f.ts", title="x", size=7).didl()
+
+
 @pytest.mark.parametrize(
     "wrong",
     [
@@ -1078,6 +1088,69 @@ def test_a_film_of_no_real_length_is_refused(seconds: float) -> None:
 def test_media_that_could_forge_a_header_is_refused(wrong: dict[str, str]) -> None:
     with pytest.raises(ValueError, match="a TV needs"):
         Media(**{"url": "http://a/f.ts", "title": "x", **wrong})
+
+
+def test_a_picture_is_told_as_one() -> None:
+    picture = Media(url="http://a/p.jpg", title="x", mime="image/jpeg", converted=False)
+    assert "<upnp:class>object.item.imageItem.photo</upnp:class>" in picture.didl()
+    assert "http-get:*:image/jpeg:DLNA.ORG_PN=JPEG_SM;DLNA.ORG_OP=00;" in picture.didl()
+    headers = picture.stream_headers({"getcontentFeatures.dlna.org": "1"})
+    assert headers["transferMode.dlna.org"] == "Interactive"
+    assert "DLNA.ORG_CI=0" in headers["contentFeatures.dlna.org"]
+    assert "object.item.videoItem" in FILM.didl()
+
+
+# --- a TV that moved -------------------------------------------------------
+
+MOVED = "192.168.1.77"
+
+
+def test_a_tv_that_moved_is_found_by_its_own_id() -> None:
+    tv = MovedTv(MOVED)
+    found = find_again("uuid:1234-abcd", TV, tv.wire())
+    assert (found.address, found.udn) == (MOVED, "uuid:1234-abcd")
+    assert {address for address, _ in tv.connects} == {MOVED}
+    assert all(b"ST: uuid:1234-abcd\r\n" in data for data, _ in tv.sent_udp)
+
+
+def test_a_moved_tv_is_looked_for_only_around_where_it_was_and_for_three_seconds() -> None:
+    tv = MovedTv("192.168.2.20")
+    with pytest.raises(TvUnreachable):
+        find_again("uuid:1234-abcd", TV, tv.wire(), skip={"192.168.1.10"})
+    asked = {address for _, (address, _) in tv.sent_udp}
+    assert asked == {f"192.168.1.{n}" for n in range(1, 255)} - {"192.168.1.10"}
+    assert len(tv.sent_udp) == 3 * len(asked)
+    assert tv.now - 1000 <= 3.01
+
+
+def test_mediamans_own_network_is_left_out_of_the_search() -> None:
+    tv = MovedTv(MOVED)
+    tv.own = [ipaddress.IPv4Network("192.168.1.64/26")]
+    with pytest.raises(TvUnreachable):
+        find_again("uuid:1234-abcd", TV, tv.wire())
+    assert not any(address == MOVED for _, (address, _) in tv.sent_udp)
+
+
+def test_an_answer_for_another_device_is_not_the_tv() -> None:
+    tv = MovedTv(MOVED)
+    tv.usn = "uuid:9999"
+    with pytest.raises(TvUnreachable):
+        find_again("uuid:1234-abcd", TV, tv.wire())
+    assert tv.connects == []
+
+
+def test_a_device_that_only_says_it_is_the_tv_is_refused() -> None:
+    tv = MovedTv(MOVED)
+    tv.pages["/smp_14_"] = http(DESCRIPTION.replace("uuid:1234-abcd", "uuid:9999"))
+    with pytest.raises(AnotherTv):
+        find_again("uuid:1234-abcd", TV, tv.wire())
+
+
+def test_an_id_that_could_forge_a_search_is_not_sent() -> None:
+    tv = MovedTv(MOVED)
+    with pytest.raises(TvUnreachable):
+        find_again("uuid:1\r\nST: ssdp:all", TV, tv.wire())
+    assert tv.sent_udp == []
 
 
 # --- real sockets, on this machine only ------------------------------------

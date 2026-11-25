@@ -6,14 +6,16 @@ import contextlib
 import math
 import re
 from codecs import BOM_UTF8, BOM_UTF16_BE, BOM_UTF16_LE
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
+from ipaddress import IPv4Network
 from xml.etree.ElementTree import Element, ParseError
 
 import defusedxml.ElementTree as ET
 
 from mediaman.services.dlna.addresses import check_device_url
 from mediaman.services.dlna.errors import (
+    AnotherTv,
     TvBadAnswer,
     TvError,
     TvFault,
@@ -239,6 +241,20 @@ def find(address: str, wire: Wire) -> Renderer:
             raise
         return guessed
     return describe(address, location, wire)
+
+
+def find_again(udn: str, was: str, wire: Wire, *, skip: Collection[str] = ()) -> Renderer:
+    """Look for the TV *udn* around *was*, the address it had, at none of *skip*."""
+    near = (str(ip) for ip in IPv4Network(f"{wire.check(was)}/24", strict=False).hosts())
+    address, location = wire.search_for(
+        udn,
+        (address for address in near if address not in skip),
+        lambda url, sender: check_device_url(url, sender),
+    )
+    found = describe(address, location, wire)
+    if found.udn != udn:
+        raise AnotherTv("Another device answers in the TV's place.")
+    return found
 
 
 def _guess(address: str, wire: Wire, remaining: Callable[[], float]) -> Renderer | None:
