@@ -40,36 +40,66 @@
     img.dataset.broken = '';
   }
 
-  // This route answers so where it is asked too much at once or its source is
-  // slow, so the same address may well answer a little later.
+  // This route fails where it is asked too much at once or its source is slow,
+  // so the same address may well answer a little later.
   var OWN_ROUTE = '/api/watch/img/';
   var RETRY_MS = [3000, 6000];
-  var tried = new WeakMap(); // image -> { src, times, waiting }
+  // Pictures that failed together are asked for again one after another.
+  var APART_MS = 150;
+  var SPREAD = 20;
+  var turn = 0;
+  var tried = new WeakMap(); // image -> { src, times }
 
   function failedToLoad(img) {
     var src = img.getAttribute('src') || '';
+    var again = !img.dataset.nextSrc && src.indexOf(OWN_ROUTE) === 0;
+    var known = 'broken' in img.dataset && tried.has(img);
+    fail(img);
+    if (!again) { tried.delete(img); return; }
     var state = tried.get(img);
-    if (!state || state.src !== src) state = { src: src, times: 0, waiting: false };
-    if (state.waiting) return;
-    if (img.dataset.nextSrc || src.indexOf(OWN_ROUTE) !== 0 || state.times === RETRY_MS.length) {
-      tried.delete(img);
-      fail(img);
-      return;
+    if (known && state.src === src) return;
+    if (!state || state.src !== src) {
+      state = { src: src, times: 0 };
+      tried.set(img, state);
     }
-    tried.set(img, state);
-    state.waiting = true;
+    retry(img, state);
+  }
+
+  /* Asks for it behind the stand-in, and puts it in where it came and is still wanted. */
+  function retry(img, state) {
+    if (state.times >= RETRY_MS.length) return;
+    function wanted() {
+      return tried.get(img) === state && 'broken' in img.dataset && img.isConnected && !img.hidden &&
+        img.getAttribute('src') === state.src;
+    }
     setTimeout(function () {
-      state.waiting = false;
-      // Meanwhile it may have loaded, been given another picture, or asked again.
-      if (tried.get(img) !== state || img.getAttribute('src') !== src || !img.complete) return;
-      if (!img.isConnected) return;
-      // What shows it has put something else in its place.
-      if (img.hidden) { fail(img); return; }
+      if (!wanted()) { drop(img, state); return; }
       state.times += 1;
-      // Safari asks for an address that failed again only once it has been taken off.
-      img.removeAttribute('src');
-      img.src = src;
-    }, RETRY_MS[state.times]);
+      var probe = new Image();
+      probe.onload = function () {
+        if (!wanted()) { drop(img, state); return; }
+        state.back = true;
+        delete img.dataset.broken;
+        // Safari keeps the failure for an address set where it already stands.
+        img.removeAttribute('src');
+        img.src = state.src;
+      };
+      probe.onerror = function () { retry(img, state); };
+      probe.src = state.src;
+    }, RETRY_MS[state.times] + (turn++ % SPREAD) * APART_MS);
+  }
+
+  function drop(img, state) {
+    if (tried.get(img) === state) tried.delete(img);
+  }
+
+  function fadeIn(img) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var style = getComputedStyle(document.documentElement);
+    img.animate([{ opacity: 0 }, {}], {
+      duration: parseFloat(style.getPropertyValue('--dur')) * 1000 || 200,
+      easing: style.getPropertyValue('--ease-out').trim() || 'ease-out',
+    });
   }
 
   function judge(img, fit) {
@@ -86,7 +116,9 @@
     function (event) {
       var target = event.target;
       if (!target || target.tagName !== 'IMG') return;
+      var state = tried.get(target);
       tried.delete(target);
+      if (state && state.back && state.src === target.getAttribute('src')) fadeIn(target);
       if (target.hasAttribute('data-wide-art')) {
         // A picture judged below can still have its load event to come.
         judge(target, target.dataset.fit || '');

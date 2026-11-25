@@ -24,10 +24,16 @@ const before = { earlyPortrait: image(ART, 1000, 1500, true), earlyWide: image(A
 
 const listeners = {};
 let timers = [];
+let probes = [];
+let reduced = false;
 function run(pictures) {
   vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), {
-    setTimeout: (fn) => { timers.push(fn); },
+    setTimeout: (fn, ms) => { timers.push([fn, ms]); },
+    Image: function Image() { probes.push(this); },
+    matchMedia: () => ({ matches: reduced }),
+    getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--dur' ? ' .2s' : ' ease-out') }),
     document: {
+      documentElement: {},
       addEventListener: (t, fn) => { listeners[t] = fn; },
       querySelectorAll: (sel) => pictures.filter((i) => i.matches(sel)),
     },
@@ -66,49 +72,64 @@ const fits = {
   early: fit(before.earlyWide), earlyTall: fit(before.earlyPortrait), pending: fit(before.pending), poster: fit(events.poster[1]),
   earlyThenItsEvent: reused(before.earlyWide, ...WIDE),
 };
-/* A picture of mediaman's own image route, given 'error', 'load' and 'tick' (the waits end); each step
-   tells whether it is marked and how often its address was set. Others change it under way. */
-function own(steps, { src = '/api/watch/img/tmdb/w342/a.jpg', next, early, wide } = {}) {
+/* A picture of mediaman's own image route, given 'error', 'load', 'tick' (the waits end) and 'found' or 'missing'
+   (the answer to the try behind it); each step tells whether it is marked, how many tries were made, and how
+   often its address was set. Others change it under way. */
+function own(steps, { src = '/api/watch/img/tmdb/w342/a.jpg', next, early, wide, calm } = {}) {
   timers = [];
+  probes = [];
+  reduced = !!calm;
   const img = image(wide ? ART : ['data-broken-on-error'], 0, 0, true);
   let at = src;
   let set = 0;
+  let fades = 0;
   // As Safari does, an address set where it already stands is not asked for again.
-  Object.defineProperty(img, 'src', { get: () => at, set: (v) => { if (v === at) return; at = v; set += 1; img.complete = false; } });
+  Object.defineProperty(img, 'src', { get: () => at, set: (v) => { if (v === at) return; at = v; set += 1; } });
   img.removeAttribute = () => { at = null; };
   img.getAttribute = (a) => (a === 'src' ? at : null);
+  img.animate = () => { fades += 1; };
   img.isConnected = true;
   img.hidden = false;
   if (next) img.dataset.nextSrc = next;
   if (early) run([img]);
   const seen = [];
   steps.forEach((step) => {
-    if (step === 'tick') { const due = timers; timers = []; due.forEach((fn) => fn()); }
-    else if (step === 'other') { at = '/api/watch/img/tmdb/w342/b.jpg'; img.complete = false; }
+    if (step === 'tick') { const due = timers; timers = []; due.forEach(([fn]) => fn()); }
+    else if (step === 'found') probes.length && probes[probes.length - 1].onload();
+    else if (step === 'missing') probes.length && probes[probes.length - 1].onerror();
+    else if (step === 'other') { at = '/api/watch/img/tmdb/w342/b.jpg'; delete img.dataset.broken; }
+    else if (step === 'afresh') delete img.dataset.broken;
     else if (step === 'gone') img.isConnected = false;
     else if (step === 'hide') img.hidden = true;
     else {
-      const size = step === 'load' ? [400, 600] : [0, 0];
-      [img.naturalWidth, img.naturalHeight] = size;
-      img.complete = true;
+      [img.naturalWidth, img.naturalHeight] = step === 'load' ? [400, 600] : [0, 0];
       listeners[step]({ target: img });
     }
-    seen.push([marked(img), set]);
+    seen.push([marked(img), probes.length, set]);
   });
-  return seen;
+  return { seen, fades, waits: timers.map(([, ms]) => ms) };
 }
-const again429 = {
-  thenLoads: own(['error', 'tick', 'load']),
-  early: own(['tick', 'load'], { early: true }),
-  neverLoads: own(['error', 'tick', 'error', 'tick', 'error', 'tick']),
-  afresh: own(['error', 'tick', 'load', 'error', 'tick', 'error', 'tick', 'error']),
-  otherWhileWaiting: own(['error', 'other', 'tick']),
+const tries = {
+  comesBack: own(['error', 'tick', 'found', 'load']),
+  second: own(['error', 'tick', 'missing', 'tick', 'found', 'load']),
+  calm: own(['error', 'tick', 'found', 'load'], { calm: true }),
+  early: own(['tick', 'found'], { early: true }),
+  never: own(['error', 'tick', 'missing', 'tick', 'missing', 'tick']),
+  failsAgain: own(['error', 'tick', 'found', 'error', 'tick', 'found', 'error', 'tick']),
+  laterAgain: own(['error', 'tick', 'found', 'load', 'error', 'tick', 'missing', 'tick']),
+  otherWaiting: own(['error', 'other', 'tick']),
+  otherAsking: own(['error', 'tick', 'other', 'found']),
+  afreshAsking: own(['error', 'tick', 'afresh', 'found']),
   gone: own(['error', 'gone', 'tick']),
+  goneAsking: own(['error', 'tick', 'gone', 'found']),
   hidden: own(['error', 'hide', 'tick']),
+  hiddenAsking: own(['error', 'tick', 'hide', 'found']),
   elsewhere: own(['error', 'tick'], { src: '/api/poster/7' }),
-  next: own(['error', 'error'], { next: '/api/poster/7' }),
+  next: own(['error', 'tick', 'error'], { next: '/api/poster/7' }),
   unfit: own(['load', 'tick'], { wide: true }),
+  plain: own(['load']),
 };
-process.stdout.write(JSON.stringify({ again429, fits, retries, marks: Object.fromEntries(
+const waits = [1, 2, 3, 4].map(() => own(['error']).waits[0]);
+process.stdout.write(JSON.stringify({ tries, waits, fits, retries, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
     .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));

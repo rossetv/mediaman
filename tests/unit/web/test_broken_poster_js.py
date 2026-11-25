@@ -56,27 +56,36 @@ def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() 
     assert out["wide"][0] == {"src": None, "marked": False, "retrying": False}
 
 
-def test_a_picture_of_our_own_image_route_is_tried_twice_more_before_it_is_marked() -> None:
-    out = _run()["again429"]
-    assert out["thenLoads"] == [[False, 0], [False, 1], [False, 1]]
-    assert out["early"] == [[False, 1], [False, 1]]
-    assert out["neverLoads"] == [
-        [False, 0],
-        [False, 1],
-        [False, 1],
-        [False, 2],
-        [True, 2],
-        [True, 2],
-    ]
+def test_a_picture_that_failed_is_marked_at_once_and_tried_twice_behind_its_stand_in() -> None:
+    out = _run()["tries"]
+    assert out["comesBack"]["seen"] == [[True, 0, 0], [True, 1, 0], [False, 1, 1], [False, 1, 1]]
+    assert out["second"]["seen"][3:] == [[True, 2, 0], [False, 2, 1], [False, 2, 1]]
+    assert out["early"]["seen"] == [[True, 1, 0], [False, 1, 1]]
+    assert out["never"]["seen"][-1] == [True, 2, 0]
+    assert all(marked for marked, *_ in out["never"]["seen"])
+    # What the try found may fail on the page all the same; that does not go on for ever.
+    assert out["failsAgain"]["seen"][-1] == [True, 2, 2]
     # One that loaded and failed later has its tries back.
-    assert out["afresh"][-2:] == [[False, 3], [True, 3]]
+    assert out["laterAgain"]["seen"][-1] == [True, 3, 1]
+
+
+def test_a_picture_that_comes_back_fades_in_unless_motion_is_reduced() -> None:
+    out = _run()["tries"]
+    assert out["comesBack"]["fades"] == out["second"]["fades"] == 1
+    assert out["calm"]["fades"] == 0
+    assert out["plain"]["fades"] == 0
 
 
 def test_only_a_picture_still_wanted_at_that_address_is_tried_again() -> None:
-    out = _run()["again429"]
-    assert out["otherWhileWaiting"][-1] == [False, 0]
-    assert out["gone"][-1] == [False, 0]
-    assert out["hidden"][-1] == [True, 0]
-    assert out["elsewhere"] == [[True, 0], [True, 0]]
-    assert out["next"] == [[False, 1], [True, 1]]
-    assert out["unfit"] == [[True, 0], [True, 0]]
+    out = {name: got["seen"][-1] for name, got in _run()["tries"].items()}
+    assert out["otherWaiting"] == [False, 0, 0]
+    assert out["otherAsking"] == out["afreshAsking"] == [False, 1, 0]
+    assert out["gone"] == out["hidden"] == [True, 0, 0]
+    assert out["goneAsking"] == out["hiddenAsking"] == [True, 1, 0]
+    assert out["elsewhere"] == out["unfit"] == [True, 0, 0]
+    assert out["next"] == [True, 0, 1]
+
+
+def test_pictures_that_failed_together_are_not_tried_together() -> None:
+    waits = _run()["waits"]
+    assert len(set(waits)) == len(waits)
