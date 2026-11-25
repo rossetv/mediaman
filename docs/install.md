@@ -54,7 +54,7 @@ docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```
 
-Keep `.env` safe; only you can read it. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more.
+Keep `.env` safe; only you can read it. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more, with three of lowercase, uppercase, digits and symbols, or 20 or more as a phrase of several words. One that is common, holds the username, repeats a few characters or is mostly a run such as 12345 is refused.
 
 ### Sign in
 
@@ -114,7 +114,7 @@ In Settings, under Integrations, fill in a service, save, and press Test.
 | OMDb | API key | Ratings |
 | Mailgun | domain, API key, from address | The weekly email and download alerts |
 
-URLs are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. The browser never talks to Plex: mediaman passes the video on, and the token never leaves mediaman. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+URLs, all but Public URL, are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. Public URL is optional: for Radarr and Sonarr it is the address your browser opens them at, for their links on Downloads. The browser never talks to Plex: mediaman passes the video on, and the token never leaves mediaman. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
 Under Libraries & Paths choose the Plex libraries mediaman reads, and give each the path Plex has for it. Then press Sync now under General & Schedule, and they appear on Watch.
 
@@ -133,7 +133,7 @@ docker compose exec mediaman mediaman-create-user --role viewer   # or admin, th
 docker compose exec mediaman mediaman-unlock-user maren           # after too many wrong passwords
 ```
 
-Fifteen wrong passwords in a row from one address lock that name there for 24 hours; the second line lifts that.
+Five wrong passwords in a row from one address lock that name there for 15 minutes, ten for an hour and fifteen for 24 hours; the second line lifts that.
 
 ## Https and a reverse proxy
 
@@ -174,7 +174,7 @@ Scheduled deletion is off until you name the folders it may delete from.
 
 ![The weekly scan queues a film nobody has watched, with a grace period. If Mailgun, a Base URL and a subscriber are set, the email offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](images/how-it-works.svg)
 
-What counts as unwatched, and how long a title then has, is under Cleanup Rules. To see what would go before anything does, press the storage meter on Watch, then Scan now, and look at its Scheduled tab.
+What counts as unwatched, and how long a title then has, is under Cleanup Rules. To see what would go before anything does, do this before you name any folder, since with folders named Scan now deletes what is due: press the storage meter on Watch, then Scan now, and look at its Scheduled tab.
 
 To turn it on, add your library folders as the container sees them, separated by `:`, and start mediaman again with `docker compose up -d`. The media mount must be writable by uid 1000.
 
@@ -205,7 +205,7 @@ Chrome, or a browser built on it such as Edge, on a computer or an Android devic
 It is off until an admin turns on Allow Chromecast, in Settings under TVs & Casting. Casting needs Google's Cast script, so turning it on lets in:
 
 - That script, from gstatic.com, runs inside mediaman, and can do all that the person signed in there can.
-- It loads only when someone opens Play on in such a browser or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
+- It loads only on Watch's pages and Downloads, when someone opens Play on in such a browser or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
 - Google sees that person's internet address and the address they open mediaman at.
 - Google's player on the TV gets the film's title and a ticket for that one film, never anyone's sign-in.
 
@@ -264,7 +264,7 @@ docker compose pull && docker compose up -d
 
 There are no version numbers: `latest` is the newest build, and each one is also tagged `sha-` and its full commit. To go back, set `image: rossetv/mediaman:sha-<commit>`, put back the backup from before the update, and run `docker compose up -d`.
 
-mediaman does not start on a database last opened by a build from before 13 May 2026. The error names the image to start once, or the two to start in order, to bring it up to date; they are for amd64 only.
+mediaman does not start on a database too old for it. The error names the image to start once, or the two to start in order, to bring it up to date; they are for amd64 only.
 
 ## Environment
 
@@ -281,7 +281,7 @@ mediaman does not start on a database last opened by a build from before 13 May 
 
 - iPhone and iPad need iOS 17.1 or later.
 - In the browser there is no choice of audio or subtitles: what Plex has saved for the title is used, and a chosen subtitle is drawn into the picture.
-- Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
+- Quality is Automatic, Original for plain H.264 up to 1080p and 20 Mbps with no subtitle chosen, or a step from 1080p down to 480p.
 - mediaman runs as one process; a worker count above 1 stops the start.
 
 ## When something is wrong

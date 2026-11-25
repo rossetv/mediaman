@@ -82,7 +82,7 @@ The meter in the bar shows admins what fills the disks, what is about to go and 
 
 ## History
 
-Who watched, asked for and kept what, and what mediaman did by itself. Admins see everyone's; everyone else sees their own.
+Admins see who watched, asked for and kept what, and what mediaman deleted and scanned. Everyone else sees only what they did themselves.
 
 <img src="docs/images/history.webp" width="680" alt="History: a day's events, such as a film started, one finished, one kept and one downloaded, each with who and when. Above are a search and filters by user, action, title and date.">
 
