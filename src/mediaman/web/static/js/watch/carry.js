@@ -280,8 +280,8 @@
       if (n) moves.push(Object.assign({ n: n, x: 0, y: 0, sx: 1, sy: 1, x1: 0, y1: 0, s1x: 1, s1y: 1, fade: null, cut: null, shut: 0, open: 0.6, via: null, full: 1 }, d, { full: d.fade && !d.word ? Number(getComputedStyle(n).opacity) : 1 }));
     }
 
-    /* A round button into the page's on another row, as its icon: down to that row first, so that it
-       passes under the rest, then along it, and open only once there. */
+    /* A round button into the page's on another row, as its icon: on its own row, where it stands among
+       the rest, until the other row comes; then down into it, and open only once there. */
     function travelPill(a, b) {
       var ra = rect(a);
       var rb = rect(b);
@@ -290,10 +290,14 @@
       var s = ra.h / rb.h;
       var x = ia.x + ia.w / 2 - rb.x - (ib.x + ib.w / 2 - rb.x) * s;
       var y = ia.y + ia.h / 2 - rb.y - (ib.y + ib.h / 2 - rb.y) * s;
-      // Where its row is on the way: as the rest of it comes, from by the first button.
+      // Each row goes as the first button does: where its own place on the first row will be, and
+      // where its row below is on the way.
       var sr = spot.from.h / spot.to.h;
-      var row = { x: spot.from.x + (rb.x - spot.to.x) * sr - rb.x, y: spot.from.y + (rb.y - spot.to.y) * sr - rb.y };
-      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), shut: 0.5, open: 0.85, via: row, tint: tintOf(a, b, [0.4, 0.8]) });
+      var via = {
+        x: spot.to.x + (rb.x + x - spot.from.x) / sr - rb.x, y: spot.to.y + (rb.y + y - spot.from.y) / sr - rb.y,
+        x2: spot.from.x + (rb.x - spot.to.x) * sr - rb.x, y2: spot.from.y + (rb.y - spot.to.y) * sr - rb.y
+      };
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), shut: 0.65, open: 0.9, via: via, tint: tintOf(a, b, [0.6, 0.9]) });
       move(a, { fade: 'gone' });
     }
 
@@ -484,7 +488,8 @@
     // One after the other: the page's words are never under the card's button.
     // The TV button keeps its place by the first, whose words grow beside it.
     out(own('[data-play-on]'), 0.04, 0);
-    pair('.pv__trailerbtn', level(act('trailer')), [0.12, 0.02], [0.3, 0.5]);
+    // The page's Trailer, by the first button too: on the way there it would cross the eye.
+    out(own('.pv__trailerbtn'), 0.04, 0);
     // The eye says whether it is watched, so it goes to the page's on whichever row that is.
     var eye = own('.pv__eye');
     var mark = act('mark');
@@ -503,7 +508,7 @@
     });
     var set = page('.rate > .rate__set') || page('.ttl__rate-skel > .skel');
     // One after the other, the page's whole when it is seen: its thumbs are never cut.
-    var rated = pairPill(own('.pv__rate'), set, [0.3, 0.12], [0.3, 0.5], 0.3);
+    var rated = pairPill(own('.pv__rate'), set, [0.06, 0], [0.3, 0.5], 0.3);
     if (!rated) {
       out(own('.pv__rate'), 0.22, 0);
       move(set, { y: 20, fade: [0.5, 0.85] });
@@ -653,9 +658,10 @@
         var tx = mix(q.x, q.x1, at);
         var ty = mix(q.y, q.y1, at);
         if (q.via) {
-          // Down to its row first, then along it.
-          tx = mix(q.x, mix(q.via.x, q.x1, at), ramp(at, 0.2, 0.9));
-          ty = mix(q.y, mix(q.via.y, q.y1, at), ramp(at, 0, 0.3));
+          // With the first row until the second comes, then down into the second.
+          // Straight down, clear of the button beside it, and only then along.
+          tx = mix(mix(q.x, q.via.x, at), mix(q.via.x2, q.x1, at), ramp(at, 0.56, 0.75));
+          ty = mix(mix(q.y, q.via.y, at), mix(q.via.y2, q.y1, at), ramp(at, 0.5, 0.62));
           q.n.classList.toggle('cry-hush', at < q.shut);
         }
         st.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + mix(q.sx, q.s1x, at) + ',' + mix(q.sy, q.s1y, at) + ')';
