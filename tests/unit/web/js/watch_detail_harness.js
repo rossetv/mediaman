@@ -306,6 +306,16 @@ async function openCard(p, ref) {
 }
 
 const scenarios = {
+  // Another part of the page queued the film on show.
+  async queuedElsewhere() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: 'tmdb-movie-77', download_state: 'queued', download_pct: null } });
+    return { before, after: primary(p).text, polls: p.timers.some((t) => t.fn && t.ms === 5000), events: p.events.length };
+  },
+
   async openFromCard() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();

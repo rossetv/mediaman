@@ -137,6 +137,16 @@
     k.year = data.year;
   }
 
+  /* Queued from elsewhere on the page: the title's panel follows it as its own. */
+  document.addEventListener('mm:title-changed', function (e) {
+    var k = stateOf(e.detail.ref);
+    if (e.detail.download_state !== 'queued' || k.state || k.busy) return;
+    k.state = 'queued';
+    k.sentAt = Date.now();
+    redrawActions(e.detail.ref);
+    if (isOpen && cur && cur.ref === e.detail.ref) schedulePoll(POLL_MS);
+  });
+
   function nowInLibrary(ref) {
     var k = stateOf(ref);
     k.state = 'in_library';
@@ -1111,6 +1121,7 @@
     if (d.in_library && d.kind !== 'movie' && d.episodes && d.episodes.length) body.appendChild(episodesSection(d));
     else cur.seasonLoading = null;
     if (d.cast && d.cast.length) body.appendChild(cast.section(d.cast));
+    if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind);
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
     if (fresh) {

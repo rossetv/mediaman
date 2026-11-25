@@ -1,0 +1,95 @@
+/* Watch page: the films of a film's collection at the end of its detail, and the dialog that
+   asks for the missing ones (watch/collection.js). */
+
+/* ── The row: to the sheet's edges, which its cards scroll under ── */
+
+.ttl__collsec { --pad: 32px; --watch-card-w: 128px; --watch-gap: 14px; margin-inline: calc(-1 * var(--pad)); min-width: 0; }
+.ttl__collsec[hidden] { display: none; }
+.coll__head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-inline: var(--pad); margin-bottom: 14px; }
+.coll__words { flex: 1 1 220px; min-width: 0; min-height: 44px; display: flex; flex-direction: column; justify-content: center; }
+.coll__words > .ttl__sec-title { margin-bottom: 2px; }
+.coll__name { font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
+.coll__get { flex: none; min-height: 44px; padding-inline: 18px; font-size: 14px; }
+.coll__get[hidden] { display: none; }
+.coll .watch-card[data-mark] .watch-card__sub { padding-right: 0; }
+.watch-row__scroll > .watch-card.is-here { scroll-snap-align: center; }
+.coll .is-here .watch-card__poster { box-shadow: 0 0 0 2px var(--s1), 0 0 0 4px var(--t1); }
+.coll__here { font-size: 12px; font-weight: 600; color: var(--t1); margin-top: -4px; }
+.coll .watch-row__scroll { padding-top: 8px; margin-top: -8px; }
+@media (max-width: 699.98px) {
+  .ttl__collsec { --pad: 20px; --watch-card-w: 112px; --watch-gap: 10px; }
+  .coll__get { flex: 1 0 100%; }
+}
+
+/* ── The dialog ── */
+
+.coll-dialog .keep-dialog { overflow: hidden; }
+.coll-dialog .keep-dialog h3 { margin-bottom: 2px; }
+.coll-dialog__lead { margin-bottom: 14px; font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
+.coll-dialog__body { flex: 0 1 auto; min-height: 0; max-height: 440px; overflow-y: auto; overscroll-behavior: contain; }
+.coll-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.coll-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--s1);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.coll-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.coll-item input { grid-area: 1 / 1; width: 20px; height: 20px; margin: 0; accent-color: var(--accent-cta); cursor: inherit; transition: opacity var(--dur-fast) var(--ease-out); }
+.coll-item input:focus-visible { outline: none; }
+.coll-item__mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; }
+.coll-item__sign { grid-area: 1 / 1; display: grid; place-items: center; font-size: 18px; color: var(--t3); pointer-events: none; }
+.coll-item__sign > .btn-spinner { width: 18px; height: 18px; margin: 0; color: var(--t1); }
+.coll-item.is-locked input { opacity: 0; }
+.coll-item:has(input:disabled) { cursor: default; }
+.coll-item__poster { flex: none; width: 32px; aspect-ratio: 2 / 3; border-radius: var(--r-xxs); overflow: hidden; background: linear-gradient(160deg, var(--s4), var(--s3)); }
+.coll-item__poster > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.coll-item__poster > img[data-broken] { visibility: hidden; }
+.coll-item__poster,
+.coll-item__words { transition: opacity var(--dur-fast) var(--ease-out); }
+.coll-item.is-off :is(.coll-item__poster, .coll-item__words) { opacity: .6; }
+.coll-item__words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.coll-item__name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.coll-item__sub { min-height: 1lh; font-size: 12px; line-height: 1.35; color: var(--t2); overflow-wrap: anywhere; }
+.coll-item.is-done :is(.coll-item__sign, .coll-item__sub) { color: var(--success); }
+.coll-item.is-failed :is(.coll-item__sign, .coll-item__sub) { color: var(--danger-text); }
+.coll-out { margin-top: 14px; padding: 0 4px 4px; font-size: 13px; line-height: 1.45; color: var(--t2); }
+.coll-out[hidden] { display: none; }
+.coll-out > h4 { margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--t1); }
+.coll-out > p { overflow-wrap: anywhere; }
+.coll-out > p + p { margin-top: 4px; }
+.coll-out b { font-weight: 500; color: var(--t1); }
+/* Its line is there before it says something, so that nothing moves. */
+.coll-dialog__said { flex: none; min-height: 1lh; margin-top: 8px; font-size: 13px; line-height: 1.4; color: var(--t2); }
+.coll-dialog .keep-dialog-actions { justify-content: flex-end; margin-top: 10px; }
+.coll-dialog .keep-dialog-actions .btn { min-height: 44px; }
+.coll-dialog .keep-dialog-actions .btn[hidden] { display: none; }
+.coll-dialog .keep-dialog-actions .btn--primary { min-width: 132px; }
+@media (hover: hover) { .coll-item:not(:has(input:disabled)):hover { background: var(--s3); } }
+@media (max-width: 479.98px) {
+  .coll-dialog .keep-dialog { padding: 20px; }
+  .coll-dialog .keep-dialog-actions .btn { flex: 1 1 0; }
+}
+@media (max-height: 460px) {
+  .coll-dialog .keep-dialog { overflow-y: auto; }
+  .coll-dialog__body { flex-shrink: 0; max-height: none; overflow: visible; }
+}
+@media (forced-colors: active) {
+  .coll .is-here .watch-card__poster { outline: 3px solid Highlight; outline-offset: 2px; }
+  .coll-item { border: 1px solid CanvasText; }
+}

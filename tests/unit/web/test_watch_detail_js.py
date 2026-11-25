@@ -1150,3 +1150,12 @@ def test_a_title_that_cannot_be_rated_has_no_thumbs_and_waits_for_that_only_so_l
     assert out["late"] == [True, True]
     assert out["told"] is True
     assert out["again"] == [True, False]
+
+
+def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
+    assert _run("queuedElsewhere") == {
+        "before": "Download",
+        "after": "Queued",
+        "polls": True,
+        "events": 1,
+    }
