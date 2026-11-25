@@ -13,8 +13,8 @@ from collections.abc import Callable
 from typing import Protocol
 
 import requests as _requests
-from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 from fastapi.responses import JSONResponse
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
