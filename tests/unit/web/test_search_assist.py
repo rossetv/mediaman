@@ -233,6 +233,31 @@ class TestSearches:
         assert amy != bob and amy == people["amy"].get(BASE).json()["account"]
         assert len(amy) >= 16 and "amy" not in amy
 
+    def test_a_page_of_someone_else_keeps_asks_and_clears_nothing(self, people, conn, model):
+        bob = people["bob"]
+        _search(bob, "his own")
+        page = {"X-Assist-Account": people["amy"].get(BASE).json()["account"]}
+        for resp in (
+            bob.post(f"{BASE}/searches", json={"q": "her words"}, headers=page),
+            bob.request("DELETE", f"{BASE}/searches", headers=page),
+            bob.post(f"{BASE}/ask", json={"q": Q}, headers=page),
+            bob.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}, headers=page),
+            bob.post(f"{BASE}/searches", json={"q": "x"}, headers={"X-Assist-Account": b"caf\xe9"}),
+        ):
+            assert (resp.status_code, resp.json()["error"]) == (409, "other_account")
+        assert model.prompts == []
+        assert bob.get(BASE).json()["recent"] == ["his own"]
+        assert (
+            conn.execute("SELECT COUNT(*) FROM user_ai_runs WHERE kind = 'ask'").fetchone()[0] == 0
+        )
+
+    def test_a_page_of_ones_own_or_that_does_not_say_is_served(self, people):
+        bob = people["bob"]
+        own = {"X-Assist-Account": bob.get(BASE).json()["account"]}
+        resp = bob.post(f"{BASE}/searches", json={"q": "mine"}, headers=own)
+        assert resp.json()["recorded"] is True
+        assert _search(bob, "older page") == [True]
+
     def test_control_characters_are_not_kept(self, amy):
         resp = amy.post(
             f"{BASE}/searches",

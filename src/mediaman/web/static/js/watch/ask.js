@@ -16,7 +16,6 @@
   var safePath = core.safePath;
 
   var URL = '/api/search/assist';
-  var FRESH_MS = 60000; // how long what the panel knows is not asked for again
   var POLL_MS = 1200;
   var SLOW_MS = 12000;
   var STOPPING_MS = 1500; // between tries while the call of a stopped question ends
@@ -39,19 +38,18 @@
   /* ── What the panel knows ── */
 
   var state = null; // { account, available, records, recent, phrases, min_words }
-  var asked = 0; // when it was asked for
   var loading = null;
   var wipes = 0; // times the searches were forgotten
+  var pageLeft = false; // the page is being left for the next person's
 
+  /* Ask the server again: what it knows changes, and so may who is signed in. */
   function load() {
-    if (loading) return loading;
-    if (state && Date.now() - asked < FRESH_MS) return Promise.resolve();
-    asked = Date.now();
+    if (loading || pageLeft) return loading || Promise.resolve();
     var mine = wipes;
     loading = MM.api.get(URL).then(function (data) {
       if (mine !== wipes) return;
       var was = available();
-      if (state && state.account !== data.account) dropAll();
+      if (state && state.account !== data.account) { leavePage(); return; }
       state = {
         account: data.account || '',
         available: data.available === true,
@@ -63,6 +61,30 @@
       if (available() !== was) sayAvailable();
     }).catch(function () { /* nothing of it is offered */ }).then(function () { loading = null; });
     return loading;
+  }
+
+  /* Someone else is signed in now: nothing of the person before is left on the page, in the
+     bar, the address or the tab. */
+  function leavePage() {
+    if (pageLeft) return;
+    pageLeft = true;
+    keep(null);
+    leave();
+    items.clear();
+    views.forEach(function (v) { v.hide(); });
+    state = null;
+    core.byId('watch-sheet').textContent = '';
+    core.byId('watch-search').value = '';
+    window.location.replace('/watch');
+  }
+
+  /* Send what is the person's own, with whose page this is: the server refuses it for another. */
+  function send(method, path, body) {
+    var opts = { headers: { 'X-Assist-Account': state ? state.account : '' } };
+    return (method === 'delete' ? MM.api.delete(URL + path, opts) : MM.api.post(URL + path, body, opts)).catch(function (err) {
+      if (err && err.error === 'other_account') leavePage();
+      throw err;
+    });
   }
 
   function sayAvailable() {
@@ -80,8 +102,8 @@
     var phrase = tidy(text);
     if (!state || !state.records || !phrase || (state.recent[0] && same(state.recent[0], phrase))) return;
     var mine = wipes;
-    MM.api.post(URL + '/searches', { q: phrase }).then(function (data) {
-      if (!data.recorded || mine !== wipes) return;
+    send('post', '/searches', { q: phrase }).then(function (data) {
+      if (!data.recorded || mine !== wipes || !state) return;
       var rest = state.recent.filter(function (r) { return !same(r, phrase); });
       state = Object.assign({}, state, { recent: [phrase].concat(rest).slice(0, RECENT) });
     }).catch(function () { /* the search itself is not held up by it */ });
@@ -89,7 +111,7 @@
 
   /* Forget them, with the phrases and the answers made from them. */
   function forget() {
-    return MM.api.delete(URL + '/searches').then(function () {
+    return send('delete', '/searches').then(function () {
       wipes++;
       state = Object.assign({}, state, { recent: [], phrases: [] });
       keep(null);
@@ -140,11 +162,14 @@
     if (!e.persisted) return;
     if (items.size && !isKept()) dropAll();
     wipes++;
-    asked = 0;
     loading = null;
     if (state) state = Object.assign({}, state, { recent: [], phrases: [] });
     load();
   });
+
+  // Another tab may have signed someone else in.
+  document.addEventListener('visibilitychange', function () { if (state && document.visibilityState === 'visible') load(); });
+  window.addEventListener('focus', function () { if (state) load(); });
 
   /* ── Questions ── */
 
@@ -253,7 +278,7 @@
     var item = g.item;
     var body = item.kind === 'like' ? { ref: item.value } : { q: item.value };
     if (g.chip) body.refine = g.chip;
-    return MM.api.post(URL + '/' + item.kind, body).then(function (data) {
+    return send('post', '/' + item.kind, body).then(function (data) {
       if (data.status !== 'running') {
         if (!g.left) done(g, data);
         return null;

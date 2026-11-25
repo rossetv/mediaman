@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MIN_WORDS = 3
+_ACCOUNT_HEADER = "X-Assist-Account"
 _OWNED_CHIP = "Only in your library"
 # Plays worth making phrases from, when nothing was searched for.
 _MIN_PLAYS = 3
@@ -164,6 +165,22 @@ def _person(username: str) -> tuple[sqlite3.Connection, int | None]:
     return conn, repo.user_id_of(conn, username)
 
 
+def _account(request: Request, user_id: int, username: str) -> str:
+    """Whose page this is, for what it remembers and sends: it says nothing of the account."""
+    return _digest(request, "account", str(user_id), username)[:32]
+
+
+def _of_another(request: Request, user_id: int, username: str) -> JSONResponse | None:
+    """The refusal of what a page still open of someone else sends. A page that does not say
+    whose it is is served."""
+    said = request.headers.get(_ACCOUNT_HEADER)
+    if not said or hmac.compare_digest(
+        said.encode(), _account(request, user_id, username).encode()
+    ):
+        return None
+    return respond_err("other_account", status=409)
+
+
 def _unavailable() -> JSONResponse:
     return respond_err("unavailable", status=409)
 
@@ -206,8 +223,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         _make_phrases_later(request, conn, user_id, username)
     return respond_ok(
         {
-            # Whose this is, for what a page remembers of them: it says nothing of the account.
-            "account": _digest(request, "account", str(user_id), username)[:32],
+            "account": _account(request, user_id, username),
             "available": available,
             "history": repo.uses_history(conn, user_id),
             "records": _records(request, conn, user_id),
@@ -226,6 +242,9 @@ def api_record_search(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     if not _WRITE_LIMITER.check(username):
         return _too_many()
     recorded = _records(request, conn, user_id) and repo.record_search(
@@ -235,10 +254,13 @@ def api_record_search(
 
 
 @router.delete("/api/search/assist/searches")
-def api_clear_searches(username: str = Depends(get_current_user)) -> JSONResponse:
+def api_clear_searches(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     repo.clear_searches(conn, user_id)
     _forget(user_id)
     return respond_ok()
@@ -345,6 +367,9 @@ def api_ask(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     client = _client(request, conn)
     if client is None:
         return _unavailable()
@@ -364,6 +389,9 @@ def api_like(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     client = _client(request, conn)
     if client is None:
         return _unavailable()

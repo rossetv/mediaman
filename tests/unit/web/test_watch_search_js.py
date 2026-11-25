@@ -1286,7 +1286,7 @@ def test_a_page_back_brings_is_brought_up_to_date() -> None:
     out = _run("askRestored")
     assert out["head"].startswith("Ask AI")
     assert out["tries"] == ["popular action movies", "popular comedy movies", "top rated sci-fi"]
-    assert out["other"].startswith("Ask AI")
+    assert out["other"] == [["/watch"], None]
     assert out["first"].endswith("already here")
 
 
@@ -1301,3 +1301,33 @@ def test_what_is_read_out_stands_outside_what_is_busy() -> None:
     out = _run("askStatus")
     assert out["text"] == ["Looking for titles that fit"]
     assert out["busy"] == [False]
+
+
+def test_a_page_of_someone_else_s_is_left_when_it_is_looked_at_again() -> None:
+    out = _run("askOtherTab")
+    assert out["hidden"] == []
+    for way in ("visible", "focused", "opened"):
+        # With none of their words in the address, the bar or what the tab remembers.
+        assert out[way] == [["/watch"], "", False], way
+    assert out["sheet"] == 0
+    assert out["same"] == []
+
+
+def test_what_is_sent_says_whose_page_it_is_of_and_a_refusal_leaves_it() -> None:
+    out = _run("askOtherTab")
+    for way, urls in (
+        ("record", ["/searches"]),
+        ("ask", ["/searches", "/ask"]),
+        ("like", ["/like"]),
+    ):
+        sent, left = out[way]
+        assert [url for _, url, _ in sent] == urls
+        assert all(headers == {"X-Assist-Account": "a1"} for _, _, headers in sent), way
+        assert left == [["/watch"], "", False], way
+
+
+def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result() -> None:
+    out = _run("askArrived")
+    assert out["arrived"] == []
+    assert out["typed"] == ["salt"]
+    assert out["entered"] == ["orchard"]

@@ -617,6 +617,7 @@
     var asking = null; // the place of a question over the results
     var ordinary = null; // what parts it from them
     var recorded = ''; // the search kept last
+    var ownWords = ''; // what was typed or pressed last on this page: other words came with the address
 
     function canExplore() { return data.tmdb_configured === true && !listView; }
 
@@ -1843,7 +1844,7 @@
        when the person pauses, for longer inside a word that an input method is
        still composing. */
     function typed(now, inWord) {
-      var q = input.value.trim();
+      var q = ownWords = input.value.trim();
       clearTimeout(timer);
       composed = inWord ? input.value : '';
       if (tokened) setToken(null);
@@ -1992,7 +1993,8 @@
       if (e.target.closest('.watch-suggestion')) e.preventDefault();
     });
     results.addEventListener('click', function (e) {
-      if (view === 'results' && e.target.closest('.watch-suggestion, [data-title-ref]')) record(input.value.trim());
+      var q = input.value.trim();
+      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref]')) record(q);
     });
     veil.addEventListener('click', leaveSheet);
     clear.addEventListener('click', function () {

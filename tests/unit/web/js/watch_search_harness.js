@@ -32,6 +32,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   const urls = [];
   const grids = [];
   const mutated = [];
+  const gone = []; // where the page was sent
   const tab = { entries: [{ url: at || '/watch' + (opened ? '?q=' + opened : ''), state: null }], index: 0 };
   const here = () => new URL(tab.entries[tab.index].url, 'http://mm');
   const fire = (type, e) => (on[type] || []).slice().forEach((fn) => fn(e || {}));
@@ -74,6 +75,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       get pathname() { return here().pathname; },
       get search() { return here().search; },
       get hash() { return here().hash; },
+      replace: (to) => { gone.push(to); },
     },
     history: {
       get state() { return tab.entries[tab.index].state; },
@@ -91,8 +93,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
         get: (url) => (url === '/api/watch/explore' && ctx.categories ? Promise.resolve(ctx.categories)
           : url === '/api/search/assist' ? Promise.resolve({ ...assist })
           : new Promise((resolve, reject) => { calls.push({ url, resolve, reject }); })),
-        post: (url, body) => new Promise((resolve, reject) => { calls.push({ method: 'POST', url, body, resolve, reject }); }),
-        delete: (url) => new Promise((resolve, reject) => { calls.push({ method: 'DELETE', url, resolve, reject }); }),
+        post: (url, body, opts) => new Promise((resolve, reject) => { calls.push({ method: 'POST', url, body, opts, resolve, reject }); }),
+        delete: (url, opts) => new Promise((resolve, reject) => { calls.push({ method: 'DELETE', url, opts, resolve, reject }); }),
         messageOf: (_e, fallback) => fallback,
       },
     },
@@ -176,6 +178,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
   ctx.MMWatch.address.start();
   return {
     mutate: () => mutated.forEach((fn) => fn([])),
+    gone, session,
     ctx, doc, input, calls, events, urls, timers, tab, grids, $, fire,
     results: $('watch-results'), browse: $('watch-browse'), status: $('watch-search-status'), sheet: $('watch-sheet'),
     url: () => tab.entries[tab.index].url,
@@ -2489,13 +2492,79 @@ scenarios.askRestored = async () => {
   await other.reply('POST', '/ask', ANSWER);
   other.assist.account = 'b2';
   other.fire('pageshow', { persisted: true }); await settle();
-  out.other = other.head();
+  out.other = [other.gone, other.head()];
   // A page shown for the first time asks nothing twice.
   const first = await asking();
   await first.ask(Q);
   await first.reply('POST', '/ask', ANSWER);
   first.fire('pageshow', { persisted: false }); await settle();
   out.first = first.head();
+  return out;
+};
+
+// Another person signs in in another tab while this page stands open.
+scenarios.askOtherTab = async () => {
+  const open = async () => {
+    const session = {};
+    const p = await asking({}, { session }, '', '/watch?view=rows');
+    await p.ask(Q);
+    await p.reply('POST', '/ask', ANSWER);
+    p.assist.account = 'b2';
+    p.assist.recent = [];
+    return p;
+  };
+  const left = (p) => [p.gone, p.input.value, JSON.stringify(p.session).includes(Q)];
+  const seen = await open();
+  seen.doc.visibilityState = 'hidden';
+  (seen.doc.listeners.visibilitychange || []).forEach((fn) => fn({})); await settle();
+  const out = { hidden: seen.gone.slice() };
+  seen.doc.visibilityState = 'visible';
+  (seen.doc.listeners.visibilitychange || []).forEach((fn) => fn({})); await settle();
+  out.visible = left(seen);
+  const focused = await open();
+  focused.fire('focus'); await settle();
+  out.focused = left(focused);
+  const opened = await open();
+  opened.key('Escape'); await settle();
+  opened.press(); await settle();
+  out.opened = left(opened);
+  out.sheet = opened.sheet.querySelectorAll('.watch-recent .watch-try').length;
+  // The server says so first.
+  const refused = async (act) => {
+    const p = await open();
+    const before = p.calls.length;
+    await act(p);
+    const sent = p.calls.slice(before).filter((c) => c.url.includes('assist/'));
+    const asked = sent.map((c) => [c.method, c.url.replace('/api/search/assist', ''), c.opts && c.opts.headers]);
+    sent.forEach((c) => c.reject({ error: 'other_account', status: 409, data: {} }));
+    await settle();
+    return [asked, left(p)];
+  };
+  out.record = await refused(async (p) => { p.input.value = 'a word'; p.key('Enter'); await settle(); });
+  out.ask = await refused((p) => p.ask('another question of three'));
+  out.like = await refused(async (p) => { p.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle(); });
+  const same = await asking();
+  same.fire('focus'); await settle();
+  out.same = same.gone;
+  return out;
+};
+
+// Words that came with the address are nobody's of this page.
+scenarios.askArrived = async () => {
+  const said = (p) => p.sent('/searches').filter((c) => c[0] === 'POST').map((c) => c[2].q);
+  const follow = async (p) => {
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    click(p.doc, p.doc.querySelector('.watch-card__link')); await settle();
+  };
+  const p = await asking({}, {}, 'orchard', '/watch?q=orchard');
+  await follow(p);
+  const out = { arrived: said(p) };
+  await p.search('salt');
+  await follow(p);
+  out.typed = said(p);
+  const entered = await asking({}, {}, 'orchard', '/watch?q=orchard');
+  entered.key('Enter'); await settle();
+  out.entered = said(entered);
   return out;
 };
 
