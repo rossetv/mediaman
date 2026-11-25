@@ -409,6 +409,34 @@
     else if (root.contains(document.activeElement)) document.activeElement.blur();
   }
 
+  /* The title left the library: its cards go from the library's rows, and those of what
+     can be had lead to it there. The focus goes on from the card the overlay opened from. */
+  function dropCards(ref) {
+    var path = '/watch/' + ref.replace('-', '/');
+    toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
+      var link = card.querySelector('.watch-card__link');
+      if (!link || root.contains(card) || card.classList.contains('is-kept') || card.classList.contains('is-gone')) return;
+      var own = link.getAttribute('data-title-ref');
+      if (own !== ref && card.getAttribute('data-dismiss-ref') !== ref &&
+          (link.getAttribute('href') || '').split('?')[0] !== path) return;
+      var tmdb = link.getAttribute('data-tmdb-id');
+      var there = /^tmdb-/.test(own || '') ? own
+        : tmdb ? (/^movie-/.test(ref) ? 'tmdb-movie-' : 'tmdb-tv-') + tmdb : null;
+      if (link.hasAttribute('data-in-library') && there) {
+        link.removeAttribute('data-in-library');
+        link.setAttribute('data-title-ref', there);
+        link.setAttribute('href', '/watch#title=' + there);
+        toArray(card.querySelectorAll('.watch-badge--in, .watch-badge--leaving')).forEach(function (b) { b.remove(); });
+        return;
+      }
+      var taken = window.MMWatch.keep.fromRow(card, card.closest('.watch-row'), card.getClientRects().length > 0, '.watch-card__link');
+      if (cur.origin && card.contains(cur.origin)) {
+        cur.origin = null;
+        cur.fallback = taken.focus;
+      }
+    });
+  }
+
   /* Where focus goes when the list row the overlay opened from is deleted:
      the next row's first action, else the previous row's, else the list. */
   function rowFallback(origin) {
@@ -672,6 +700,7 @@
       var gone = !!err && err.status === 404;
       // Deleted from under the overlay: nothing left to show.
       if (gone && c.facts) {
+        dropCards(c.ref);
         requestClose();
         return;
       }
@@ -2341,6 +2370,7 @@
     if (!mine) return;
     if (d.action === 'delete' && !d.showRk) {
       cur.fallback = rowFallback(cur.origin);
+      dropCards('movie-' + d.id);
       requestClose();
     }
     else refresh();

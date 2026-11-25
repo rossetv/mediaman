@@ -11,6 +11,7 @@ const shared = new Module(file);
 shared.filename = file;
 const [source] = fs.readFileSync(file, 'utf8').split('scenarios[process.argv[2]]()');
 shared._compile(source + '\nmodule.exports = { load, openCard, settle, LIB_SHOW, LIB_MOVIE, FACTS };', file);
+const { build, click } = require('../js/fake_dom');
 const { load, openCard, settle, LIB_SHOW, LIB_MOVIE, FACTS } = shared.exports;
 
 const SHOW_FACTS = { ...FACTS, actions: { keep_wrapper: { id: '3010', is_tv: true, show_rk: '300' }, delete: { kind: 'show', show_rk: '300', title: 'Brightwater' } } };
@@ -44,6 +45,34 @@ const scenarios = {
     p.ctx.history.go(1);
     await settle();
     out.forward = p.at();
+    return out;
+  },
+  // A film, or the last season of a show, deleted from its title page.
+  async deleted() {
+    const out = {};
+    for (const [ref, del] of [['movie-120', { action: 'delete', id: '120' }], ['show-300', { action: 'delete', id: '3010', showRk: '300' }]]) {
+      const p = await asked();
+      const card = (id, attrs, ...more) => ['article', { class: 'watch-card', id }, ['a', { class: 'watch-card__link', ...attrs }, ...more]];
+      const path = '/watch/' + ref.replace('-', '/');
+      const tmdb = ref === 'movie-120' ? 'tmdb-movie-77' : 'tmdb-tv-77';
+      const taken = [];
+      p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-row' },
+        card('own', { href: path + '?season=2', 'data-title-ref': ref }), card('other', { href: path + '9', 'data-title-ref': ref + '9' })]));
+      p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-row' },
+        card('trending', { href: path, 'data-title-ref': tmdb, 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']),
+        card('pick', { href: path, 'data-title-ref': ref, 'data-tmdb-id': '77', 'data-in-library': '' }, ['span', { class: 'watch-badge watch-badge--in' }, 'In library'])]));
+      p.doc.body.appendChild(build(p.doc, ['article', { class: 'watch-card', id: 'continue', 'data-dismiss-ref': ref }, ['a', { class: 'watch-card__link', href: '/watch/play/9' }]]));
+      p.ctx.MMWatch.keep.fromRow = (c) => { if (c.id) taken.push(c.id); return { focus: p.doc.getElementById('other') }; };
+      p.ctx.history.back();
+      await settle();
+      click(p.doc, p.doc.getElementById('own').querySelector('a'));
+      await settle();
+      if (ref === 'show-300') delete p.routes['/api/watch/admin/title/show-300'];
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', ...del } }));
+      await settle();
+      out[ref] = { taken, at: p.at(), badges: p.doc.querySelectorAll('.watch-badge--in').length,
+        links: ['trending', 'pick'].map((id) => { const a = p.doc.getElementById(id).querySelector('a'); return [a.getAttribute('data-title-ref'), a.getAttribute('href')]; }) };
+    }
     return out;
   },
   // Back to the title before.
