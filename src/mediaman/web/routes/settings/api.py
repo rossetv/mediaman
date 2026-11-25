@@ -333,14 +333,14 @@ def api_update_settings(
     if isinstance(reserved, JSONResponse):
         return reserved
 
-    url_err = _validate_url_fields(body_dict)
-    if url_err is not None:
-        return url_err
-
     if needs_reauth:
         # The page asks for the password and sends the save again, which is the one that counts.
         _SETTINGS_WRITE_LIMITER.release(admin, reserved)
         return _settings_reauth_required(admin)
+
+    url_err = _validate_url_fields(body_dict)
+    if url_err is not None:
+        return url_err
 
     config = request.app.state.config
     with _LIBRARY_MERGE_LOCK:

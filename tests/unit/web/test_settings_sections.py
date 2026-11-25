@@ -179,7 +179,7 @@ def test_many_saves_without_a_password_check_shut_nobody_out_for_the_day(
 
 
 def test_saves_with_a_refused_address_count(client, conn) -> None:
-    revoke_reauth(conn, client.cookies["session_token"])
+    grant_recent_reauth(conn, client.cookies["session_token"], "admin")
     body = {"json": {"sonarr_url": "http://169.254.169.254/"}}
     answers = [client.put("/api/settings", **body).status_code for _ in range(21)]
     assert answers == [400] * 20 + [429]
