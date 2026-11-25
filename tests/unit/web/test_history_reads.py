@@ -176,6 +176,22 @@ def test_a_persons_own_details_hold_nothing_of_anyone_else(db):
     assert set(_build_item(_read(db, "ana").entries[0])) == set(items[0])
 
 
+def test_a_stored_key_named_like_a_shown_line_is_not_shown(db):
+    detail = 'actor=ana ip=10.0.0.1 {"event":"bob","time":"bob","title":"bob","event_id":"bob"}'
+    _event(db, "sec:user.created", "_security", owner="ana", detail=detail)
+    (event,) = _read(db, "ana").entries
+    assert "bob" not in json.dumps(own_item(_build_item(event), "ana"))
+
+
+def test_a_search_of_ones_own_does_not_read_the_stored_text_or_the_names(db):
+    _event(db, owner="ana", detail="Kept for bob", item="m")
+    for filters in (Filters(q="bob"), Filters(title="bob"), Filters(q="ana")):
+        assert _ids(_read(db, "ana", filters)) == []
+    assert len(_ids(_read(db, "root", Filters(q="ana")))) == 1
+    _plex(db, "ana", "1", 0)
+    assert _ids(_read(db, "ana", Filters(q="ana"))) == []
+
+
 # --- filters ---
 
 
@@ -268,6 +284,63 @@ def test_plays_are_everyones_for_an_admin_and_else_only_ones_own(db):
     ]
     assert _read(db, "ana", Filters(action="plays", user="bob")).entries == []
     assert _ids(_read(db, "ana"))[0] == event
+
+
+@pytest.mark.parametrize("table", ["watch_progress", "played_titles"])
+def test_what_another_person_played_here_is_not_shown(db, table):
+    insert_media_item(db, id="mv", title="Dune")
+    for name in ("ana", "bob"):
+        if table == "watch_progress":
+            _progress(db, name, "mv", 0)
+        else:
+            db.execute(
+                "INSERT INTO played_titles VALUES (?, 'movie', 'Dune', NULL, ?)", (name, _at(0))
+            )
+    page = _read(db, "ana")
+    assert ([e.username for e in page.entries], page.total) == (["ana"], 1)
+    assert _read(db, "root").total == 2
+
+
+def test_pages_of_plays_over_years_hold_each_sitting_once_and_whole(db):
+    day = 60 * 24
+    # A long run of one show, whose end is on one page's edge, and sparse plays before it.
+    run = [-200 * 60 + i * 200 for i in range(61)]
+    for i, minutes in enumerate(run):
+        _plex(db, "ana", f"r{i}", minutes, title=f"E{i}", show="Lost", episode=i)
+    old = [-day * d for d in (29, 30, 31, 179, 400, 900)]
+    for i, minutes in enumerate(old):
+        _plex(db, "ana", f"o{i}", minutes, title="Dune")
+    expected = [(_at(run[-1]), 61), *((_at(m), 1) for m in sorted(old, reverse=True))]
+    for per_page in (1, 2, 100):
+        seen, cursor = [], None
+        while True:
+            page = _read(db, "ana", cursor=cursor, per_page=per_page)
+            seen += [(p.created_at, len(p.parts)) for p in page.entries]
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+            assert len(seen) < 50
+        assert seen == expected
+    assert _read(db, "ana").total == len(expected)
+
+
+def test_a_sitting_still_going_at_the_end_of_the_dates_is_listed_by_its_end(db):
+    for i, minutes in enumerate((0, 200)):
+        _plex(db, "ana", f"r{i}", minutes, title=f"E{i}", show="Lost", episode=i)
+    for i in (1, 2, 3):
+        _plex(db, "ana", f"o{i}", -i * 600)
+    page = _read(db, "ana", Filters(until=NOON + timedelta(minutes=100)), per_page=1)
+    assert ([e.created_at for e in page.entries], page.total) == ([_at(-600)], 3)
+
+
+def test_a_sitting_begun_before_the_span_first_read_is_whole(db):
+    day = 60 * 24
+    _plex(db, "ana", "new", 0)
+    for i in range(21):
+        _plex(db, "ana", f"r{i}", -31 * day + i * 200, title=f"E{i}", show="Lost", episode=i)
+    _plex(db, "ana", "old", -30 * day + 1)
+    (_, sitting) = _read(db, "ana", per_page=2).entries
+    assert len(sitting.parts) == 21
 
 
 def test_one_sitting_with_a_show_is_one_line(db):

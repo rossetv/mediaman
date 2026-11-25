@@ -357,6 +357,9 @@ def own_item(item: dict[str, object], username: str) -> dict[str, object]:
             fields += [_field("Who", username), field]
         elif field["label"] in _OWN_FIELDS:
             fields.append(field)
+        if field["label"] == "Event ID":
+            # The stored text's own keys follow, and may have any name.
+            break
     security = bool(item["is_security"])
     return {k: item[k] for k in _OWN_KEYS} | {
         "media_item_id": "",
