@@ -11,7 +11,7 @@ HARNESS = Path(__file__).parent / "js" / "pair_harness.js"
 
 def _run(scenario: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False, timeout=60
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
