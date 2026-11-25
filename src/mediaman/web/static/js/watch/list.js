@@ -27,6 +27,7 @@
 
   var _view = list.hidden ? 'rows' : 'list';
   var _request = 0;   // the newest list fetch; older replies are dropped
+  var _drawn = 0;     // how many of them have been drawn
   var _asked = null;  // the state that fetch asks for, until its reply is in or fails
   var _again = false; // what is scheduled changed while a list was loading
   var _stale = false; // the library changed and the list could not show it, so it is read again when next shown
@@ -213,6 +214,7 @@
   list.parentNode.insertBefore(status, list.nextSibling);
 
   /* Show the list for *state*. opts.quiet: nobody asked for it, so it is not told.
+     opts.told: nor is its failure, the one before it was.
      opts.history: 'push' or 'replace' to move
      the address along once the list is in, so a failed load leaves it as
      it was; opts.focus: what to focus once it is in. */
@@ -229,6 +231,7 @@
     return fetchList(state).then(function (fresh) {
       if (request !== _request) return;
       _asked = null;
+      _drawn++;
       _stale = false;
       // Left for the rows meanwhile: the address is theirs.
       if (opts.history && _view === 'list') address[opts.history]('list', pageUrl(state));
@@ -239,9 +242,12 @@
     }, function () {
       if (request !== _request) return;
       _asked = null;
-      if (_again) _stale = true;
+      if (!opts.told) showFailure(state);
+      else if (root()) root().removeAttribute('aria-busy');
+      if (!_again) return;
+      if (_view === 'list' && root()) { reload({ told: true }); return; }
       _again = false;
-      showFailure(state);
+      _stale = true;
     });
   }
 
@@ -525,11 +531,9 @@
     var r = root();
     if (!r) return Promise.resolve();
     var state = stateOf(r);
-    var request = _request;
-    function current() {
-      var now = root();
-      return request === _request && now && same(state, stateOf(now)) ? now : null;
-    }
+    var drawn = _drawn;
+    // Not once another list was drawn: that one is as new.
+    function current() { return drawn === _drawn ? root() : null; }
     return fetchList(state).then(function (fresh) {
       var now = current();
       if (!now) return;
@@ -690,10 +694,10 @@
   }
 
   /* The list as it is now, its totals and dates too. */
-  function reload() {
+  function reload(opts) {
     _again = false;
     _stale = true; // until it is in, or the next one that is
-    load(stateOf(root()), { focus: sameControl, quiet: true });
+    load(stateOf(root()), Object.assign({ focus: sameControl, quiet: true }, opts));
   }
 
   document.addEventListener('mm:watch-scheduled', function () {

@@ -39,5 +39,21 @@ def test_a_row_that_could_not_be_found_after_a_change_has_the_list_read_when_sho
     assert "id:m2" not in out["keys"]
 
 
-def test_a_change_during_a_load_that_failed_has_the_list_read_when_shown_again() -> None:
-    assert _run("changeDuringAFailedLoad") == {"reads": 1, "summary": "summary now"}
+def test_a_change_during_a_load_that_failed_has_the_list_read_once_more_in_sight_or_when_shown() -> (
+    None
+):
+    now = "summary now"
+    assert _run("changeDuringAFailedLoad") == {
+        "seen": {"read": 1, "errors": 1, "again": 0, "summary": now},
+        "refused": {"read": 1, "errors": 1, "again": 1, "summary": now},
+        "left": {"read": 0, "errors": 0, "again": 1, "summary": now},
+    }
+
+
+def test_a_saved_row_shows_it_though_another_list_was_asked_for_meanwhile_and_failed() -> None:
+    shown = {"label": "Kept", "disabled": False, "kept": True, "summary": "summary kept"}
+    assert _run("refreshBesideAFailedLoad") == {"last": shown, "first": shown}
+
+
+def test_what_was_read_for_a_row_changes_nothing_in_a_list_drawn_since() -> None:
+    assert _run("refreshAfterALoad") == {"summary": "summary tv", "label": "Kept"}

@@ -9,11 +9,15 @@ const file = path.resolve(__dirname, '../../js/watch_list_harness.js');
 const shared = new Module(file);
 shared.filename = file;
 const [source] = fs.readFileSync(file, 'utf8').split('const name = process.argv[2];');
-shared._compile(source + '\nmodule.exports = { load, click, keepOption, ROWS, settle };', file);
-const { load, click, keepOption, ROWS, settle } = shared.exports;
+const linked = source.replace("{ class: 'title-cell' }, r.title]",
+  "{ class: 'title-cell' }, r.plain ? r.title : ['a', { class: 'wl-title', href: '#' }, r.title]]");
+shared._compile(linked + '\nmodule.exports = { load, click, keepOption, ROWS, settle, deferred };', file);
+const { load, click, keepOption, ROWS, settle, deferred } = shared.exports;
 
 const trigger = (p, key) => p.row(key).querySelector('.keep-trigger');
 const LIST = '/watch/list';
+const TV = '/watch/list?type=tv';
+const tv = (p) => p.doc.querySelectorAll('#watch-list .fpill').find((n) => n.getAttribute('data-type') === 'tv');
 
 /* m2 kept from the list, and the focus on its toast's Undo. */
 async function kept(state) {
@@ -117,18 +121,60 @@ const scenarios = {
     return { reads: await thereAndBack(p), keys: p.rowKeys() };
   },
 
-  // What is scheduled changed while a filter loaded that then failed.
+  // What is scheduled changed while a filter loaded that then failed: in sight, with the next read failing too, and not in sight.
   async changeDuringAFailedLoad() {
-    const p = load({ list: true });
-    let fail;
-    p.serve('/watch/list?type=tv', {}, [], { promise: new Promise((_res, rej) => { fail = rej; }) });
-    click(p.doc, p.doc.querySelectorAll('#watch-list .fpill').find((n) => n.getAttribute('data-type') === 'tv'));
-    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
-    fail(new Error('gone')); await settle();
-    p.serve(LIST, { label: 'now' }, ROWS);
-    const reads = await thereAndBack(p);
-    return { reads, summary: p.part('summary') };
+    const out = {};
+    const run = async (name, before) => {
+      const p = load({ list: true });
+      const loading = deferred();
+      p.serve(TV, {}, [], loading);
+      p.serve(LIST, { label: 'now' }, ROWS);
+      click(p.doc, tv(p));
+      p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+      if (before) await before(p);
+      const was = p.fetches.length;
+      loading.reject(new Error('gone')); await settle();
+      const read = p.fetches.length - was;
+      p.serve(LIST, { label: 'now' }, ROWS);
+      out[name] = { read, errors: p.errors.length, again: await thereAndBack(p), summary: p.part('summary') };
+    };
+    await run('seen');
+    await run('refused', (p) => p.fail(LIST));
+    await run('left', async (p) => { click(p.doc, p.doc.querySelector('#watch-viewtoggle [data-view="rows"]')); await settle(); });
+    return out;
   },
+
+  // A keep is saved and a filter loads before the list is read again for it; the filter then fails, first or last.
+  async refreshBesideAFailedLoad() {
+    const out = {};
+    for (const last of [true, false]) {
+      const p = load({ list: true });
+      const refresh = deferred();
+      const loading = deferred();
+      p.serve(LIST, { label: 'kept' }, ROWS.map((r) => (r.id === 'm2' ? { ...r, kept: true } : r)), refresh);
+      p.serve(TV, {}, [], loading);
+      click(p.doc, keepOption(p, 'id:m2', 'forever')); await settle();
+      click(p.doc, tv(p));
+      const steps = [() => refresh.resolve(), () => loading.reject(new Error('gone'))];
+      for (const step of last ? steps : steps.reverse()) { step(); await settle(); }
+      out[last ? 'last' : 'first'] = { label: trigger(p, 'id:m2').textContent, disabled: !!trigger(p, 'id:m2').disabled,
+        kept: p.row('id:m2').classList.contains('wl-row--kept'), summary: p.part('summary') };
+    }
+    return out;
+  },
+
+  // Another list was drawn before it came: that one stays.
+  async refreshAfterALoad() {
+    const p = load({ list: true });
+    const refresh = deferred();
+    p.serve(LIST, {}, ROWS, refresh);
+    p.serve(TV, { type: 'tv', label: 'tv' }, [{ id: 'm2', title: 'Saltmarsh', kept: true }]);
+    click(p.doc, keepOption(p, 'id:m2', 'forever')); await settle();
+    click(p.doc, tv(p)); await settle();
+    refresh.resolve(); await settle();
+    return { summary: p.part('summary'), label: trigger(p, 'id:m2').textContent };
+  },
+
 };
 
 scenarios[process.argv[2]]().then((out) => {
