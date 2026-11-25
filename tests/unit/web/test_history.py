@@ -438,6 +438,12 @@ class TestSchedulerAndMaintenanceActions:
             ("it may be a title of a library Plex does not list now", "waiting for library"),
             ("its files are not recorded yet; it waits for a scan to record", "waiting for scan"),
             ("its library is not selected in Settings", "library not selected"),
+            (
+                "its file is of a kept title; it waits while that one is kept",
+                "waiting for keep to end",
+            ),
+            ("it waits until that watch is too long ago", "waiting for watch to age"),
+            ("of a library whose disk limit in Settings is bad", "waiting for disk limit"),
             ("its folder also holds media whose own deletion waits", "waiting for folder"),
         ],
     )

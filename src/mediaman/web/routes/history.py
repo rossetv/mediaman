@@ -116,6 +116,7 @@ ACTION_LABELS = {
 _WAIT_LABELS = (
     ("its folder also holds", "waiting for folder"),
     ("library Plex does not list", "waiting for library"),
+    ("disk limit in Settings", "waiting for disk limit"),
     ("library is not selected", "library not selected"),
     ("while that one is kept", "waiting for keep to end"),
     ("until that watch", "waiting for watch to age"),

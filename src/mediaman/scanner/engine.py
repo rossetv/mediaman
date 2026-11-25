@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import ParseError
@@ -145,6 +145,9 @@ class ScanEngine:
             are not refreshed, and the on-disk rm + ``cleanup_expired_snoozes``
             in the deletion executor are also skipped. Use this for
             "what would happen" previews. Defaults to False.
+        unreadable_limits: The ids of the libraries whose disk limit cannot be read.
+            Nothing is scheduled or deleted of them, even where *library_ids* has them
+            read, nor deleted that may be theirs.
     """
 
     def __init__(
@@ -162,6 +165,7 @@ class ScanEngine:
         dry_run: bool = False,
         sonarr_client: ArrClient | None = None,
         radarr_client: ArrClient | None = None,
+        unreadable_limits: Collection[str] = (),
     ) -> None:
         self._conn = conn
         self._plex = plex_client
@@ -177,6 +181,7 @@ class ScanEngine:
         self._dry_run = dry_run
         self._sonarr = sonarr_client
         self._radarr = radarr_client
+        self._unreadable_limits = unreadable_limits
         # When the current run began, before it listed anything in Plex.
         self._started_at: str | None = None
         # The keys Plex lists in the current run, as far as it has been read.
@@ -388,6 +393,8 @@ class ScanEngine:
         self._listed_keys = set()
         self._skipped_places = set()
         self._left_out = {}
+        for lib_id in self._unreadable_limits:
+            self._skip_places(lib_id)
         summary = {
             "scanned": 0,
             "scheduled": 0,
@@ -456,7 +463,8 @@ class ScanEngine:
                 self._leave_out(lib_id, "Plex failed to answer for it", summary)
                 continue
             seen_by_lib[lib_id] = seen
-            evaluations.append(evaluate)
+            if lib_id not in self._unreadable_limits:
+                evaluations.append(evaluate)
             self._conn.commit()
         self._settle_keeps(dry_run=self._dry_run)
         for evaluate in evaluations:
@@ -488,6 +496,9 @@ class ScanEngine:
         """Note that nobody knows what library *lib_id* holds now, nor who watched it."""
         summary["errors"] += 1
         self._left_out[lib_id] = reason
+        self._skip_places(lib_id)
+
+    def _skip_places(self, lib_id: str) -> None:
         if lib_id.isdecimal():
             ids = repository.fetch_ids_in_libraries(self._conn, [int(lib_id)])
             self._skipped_places.update(repository.fetch_places(self._conn, ids))
@@ -579,13 +590,17 @@ class ScanEngine:
 
         Delegates to DeletionExecutor. The items of a library this run could not
         read wait: one of them may no longer be what Plex lists. So does one that
-        may be one of a library Plex does not list, or that has a file a keep or a
+        may be one of a library Plex does not list or whose disk limit cannot be read, or that has a file a keep or a
         late watch of a title removed from the library holds.
         """
         gone = (
             fetch_gone_library_ids(self._conn, self._library_types) if self._library_types else ()
         )
-        return self._deletions.execute(unread_libraries=self._left_out, gone_libraries=gone)
+        return self._deletions.execute(
+            unread_libraries=self._left_out,
+            gone_libraries=gone,
+            unreadable_limits=self._unreadable_limits,
+        )
 
     def _resolve_added_at(self, item: dict[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.

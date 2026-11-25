@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner import deletions
+from mediaman.scanner import deletions, engine, runner
 from mediaman.scanner.deletions import DeletionExecutor
 from mediaman.scanner.phases.upsert import schedule_deletion
 from mediaman.scanner.repository import is_already_scheduled
@@ -248,3 +249,99 @@ def test_a_removal_finished_before_its_library_was_unselected_is_booked(conn, ro
 
     assert _status(conn, "m1") is None
     assert _audits(conn, "m1") == ["deleted"]
+
+
+def test_a_wait_seen_while_no_delete_folder_is_set_still_ends_the_notice(conn, root, monkeypatch):
+    film = _due(conn, "m1", root / "Film" / "film.mkv")
+    _select(conn, '["1"]')
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "")
+    DeletionExecutor(conn=conn).execute(gone_libraries=[1])
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+
+    DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    assert _audits(conn, "m1") == ["delete_awaiting_scan", "delete_refused"]
+
+
+class TestLibraryWithAnUnreadableDiskLimit:
+    @pytest.fixture(autouse=True)
+    def _plex(self, conn, root, monkeypatch):
+        self.conn, self.listed = conn, {"1": [], "2": []}
+        self.watched = {}
+        _select(conn, '["1", "2"]')
+        plex = MagicMock()
+        plex.get_movie_items.side_effect = self.listed.__getitem__
+        plex.get_watch_history.side_effect = lambda key: self.watched.get(key, [])
+        bundle = runner.PlexClientBundle(
+            plex, ["1", "2"], {"1": "movie", "2": "movie"}, {"1": "Films", "2": "More"}
+        )
+        monkeypatch.setattr(runner, "_build_plex_client", lambda *_: bundle)
+        for name in ("_read_plays", "_refresh_recommendations", "_refresh_people"):
+            monkeypatch.setattr(engine, name, lambda *a, **k: None)
+        monkeypatch.setattr(engine, "_send_newsletter", lambda **k: None)
+
+    def _scan(self, limits, by_hand):
+        self.conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            "VALUES ('disk_thresholds', ?, '2026')",
+            (json.dumps(limits),),
+        )
+        self.conn.commit()
+        runner.run_scan_from_db(self.conn, "k" * 64, skip_disk_check=by_hand)
+
+    def _list(self, key, file, library="1"):
+        self.listed[library].append(
+            {
+                "plex_rating_key": key,
+                "title": key,
+                "added_at": datetime(2020, 1, 1, tzinfo=UTC),
+                "file_path": str(file),
+                "file_size_bytes": 4,
+                "tracked_files": [{"path": str(file), "size": 4}],
+            }
+        )
+
+    @pytest.mark.parametrize("by_hand", [True, False])
+    @pytest.mark.parametrize("case", ["listed", "not listed", "new key, watched"])
+    def test_its_due_film_stays_and_gets_a_new_notice_once_the_limit_is_put_right(
+        self, conn, root, case, by_hand
+    ):
+        film = _due(conn, "m1", root / "Film" / "film.mkv")
+        if case == "listed":
+            self._list("m1", film)
+        elif case == "new key, watched":
+            self._list("m9", film)
+            self.watched["m9"] = [{"viewed_at": datetime.now(UTC) - timedelta(days=1)}]
+
+        self._scan({"1": "x"}, by_hand)
+        assert film.exists()
+        if case == "listed":
+            said = conn.execute(
+                "SELECT detail FROM audit_log WHERE action = 'delete_awaiting_scan'"
+            ).fetchall()
+            assert len(said) == 1
+            assert "disk limit in Settings cannot be read" in said[0][0]
+
+        self._scan({}, by_hand)
+        assert film.exists()
+        assert _status(conn, "m1") is None
+
+    @pytest.mark.parametrize("by_hand", [True, False])
+    def test_a_copy_of_its_film_elsewhere_waits_too_and_none_of_it_is_scheduled(
+        self, conn, root, by_hand
+    ):
+        copy = _due(conn, "m2", root / "Copy" / "film.mkv", library=2)
+        film = _due(conn, "m1", root / "Film" / "film.mkv")
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = 'm1'")
+        conn.execute("UPDATE media_items SET tmdb_id = 7")
+        conn.commit()
+        self._list("m1", film)
+        self._list("m2", copy, "2")
+        for item in (*self.listed["1"], *self.listed["2"]):
+            item["tmdb_id"] = 7
+
+        self._scan({"1": "x"}, by_hand)
+
+        assert copy.exists()
+        assert _status(conn, "m1") is None

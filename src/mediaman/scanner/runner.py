@@ -458,7 +458,7 @@ def run_scan_from_db(
         secret_key: Application secret used for decrypting stored tokens and
             signing HMAC keep tokens.
         skip_disk_check: When True, scan a library however little of its disk is used. One
-            whose threshold cannot be read is still left out.
+            whose threshold cannot be read is read, but nothing of it is scheduled or deleted.
     """
     from mediaman.scanner.engine import ScanEngine
 
@@ -498,7 +498,8 @@ def run_scan_from_db(
     engine = ScanEngine(
         conn=conn,
         plex_client=plex,
-        library_ids=lib_ids,
+        # A scan started by hand still reads them: what is there may keep what is due elsewhere.
+        library_ids=[*lib_ids, *left_out] if skip_disk_check else lib_ids,
         library_types=lib_types,
         library_titles=lib_titles,
         secret_key=secret_key,
@@ -508,6 +509,7 @@ def run_scan_from_db(
         dry_run=dry_run,
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
+        unreadable_limits=left_out,
     )
     return _say_what_was_left_out(
         conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits, ticked
