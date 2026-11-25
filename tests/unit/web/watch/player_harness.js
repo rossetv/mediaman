@@ -5768,11 +5768,13 @@ const scenarios = {
   /* It may be on a TV, and another TV that is picked does not start. */
   async away_again_refused(p) {
     const way = castWay(true);
-    const opened = p.reopen((win) => { way.again = () => Promise.reject(Object.assign(new Error(), { code: 'lost' })); win.MM.playOn.register(way); });
+    const [code, on] = p.win.serverPlays.split(' ');
+    const opened = p.reopen((win) => { way.again = () => Promise.reject(Object.assign(new Error(), { code: code })); win.MM.playOn.register(way); });
     await settle();
     opened.elsewhere.plays.push(() => opened.elsewhere.refuse(409, 'tv_off'));
+    opened.elsewhere.castFails.push(() => opened.elsewhere.refuse(502, 'unreachable'));
     await openSheet(opened);
-    await pickRow(opened, 'tv-5');
+    await pickRow(opened, on || 'tv-5');
     const out = { asked: opened.elsewhere.sent.some((c) => /\/play$/.test(c.post || '')), starts: opened.starts().length, message: messageState(opened) };
     click(opened.q('[data-retry]'));
     await settle();

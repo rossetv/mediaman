@@ -2539,9 +2539,15 @@ def test_back_from_the_cache_a_way_is_asked_again(markup):
 
 
 def test_a_tv_refused_to_a_title_that_may_be_on_another_starts_nothing_here(markup):
-    out = elsewhere(markup, "away_again_refused")
+    out = elsewhere(markup, "away_again_refused", "lost")
     assert (out["asked"], out["starts"], out["pressed"]) == (True, 0, 1)
     assert out["message"]["button"] == "Play here"
+
+
+@pytest.mark.parametrize("on", ["tv-5", "cast"])
+def test_a_title_of_another_tab_is_said_to_be_there_still_after_a_tv_refused_it(markup, on):
+    out = elsewhere(markup, "away_again_refused", f"elsewhere {on}")
+    assert "another tab" in out["message"]["text"]
 
 
 def test_a_play_found_after_the_next_episode_was_asked_for_is_left(markup, tmp_path_factory):

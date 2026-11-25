@@ -3504,7 +3504,7 @@
       holding = held;
       pendingStart = at;
       showAway();
-      showMessage(MSG_MAYBE_TV, playAnyway);
+      showMessage(held.says, playAnyway);
       return;
     }
     wantPlaying = playing;
@@ -4157,6 +4157,7 @@
     var mine = holding = {
       way: asked ? asked.way : null,
       told: !!holding,
+      says: holding ? holding.says : MSG_MAYBE_TV,
       heard: false,
       at: position(),
       pressed: false,
@@ -4176,9 +4177,10 @@
 
     function tell(text) {
       clearTimeout(timer);
+      if (text) mine.says = text;
       if (mine !== holding || mine.told) return;
       mine.told = true;
-      showMessage(text || MSG_MAYBE_TV, playAnyway);
+      showMessage(mine.says, playAnyway);
     }
 
     function tellAfter(ms) {
@@ -4234,7 +4236,7 @@
       });
     }).catch(function (err) {
       mine.heard = true;
-      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : null);
+      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : MSG_MAYBE_TV);
     });
   }
 
