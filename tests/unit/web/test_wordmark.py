@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 from fastapi.templating import Jinja2Templates
@@ -93,13 +94,17 @@ def test_the_name_is_drawn_and_never_spelt_out_in_two_colours():
 
 
 def test_the_tv_shows_the_same_drawing_by_itself_under_a_name_that_is_heard():
-    html = _TEMPLATES.get_template("tv.html").render()
+    html = _tv_page()
     picture = re.search(r"<svg([^>]*)>(.*?)</svg>", html, flags=re.S)
 
     assert 'role="img"' in picture[1] and 'aria-label="mediaman"' in picture[1]
     assert picture[2].strip() == _DRAWING
     # An old TV's browser knows no colour from a custom property, and no symbol by its href.
     assert "var(" not in _DRAWING and "<use" not in html
+
+
+def _tv_page() -> str:
+    return _TEMPLATES.get_template("tv.html").render()
 
 
 def test_every_drawing_of_the_name_has_the_same_box():
@@ -132,6 +137,39 @@ def test_a_failed_sign_in_shows_its_error_beside_a_name_that_stands_still():
     html = _TEMPLATES.get_template("login.html").render(error="Wrong")
     assert "Wrong" in html and "login-brand" in html
     assert "login-brand--drawn" not in html
+
+
+def _tv_css(opening: str) -> str:
+    """What stands in the TV page's one block that starts as named."""
+    css = (_WEB / "static" / "css" / "tv.css").read_text()
+    return re.search(re.escape(opening) + r"[^{]*\{\n(.*?)\n\}", css, flags=re.S)[1]
+
+
+def test_the_tv_waits_with_the_icon_s_own_two_arches():
+    waits = re.search(r'<div class="spin spin--mark">(.*?)</div>', _tv_page(), flags=re.S)[1]
+    svg = "{http://www.w3.org/2000/svg}"
+    icon = ElementTree.parse(_WEB / "static" / "icons" / "favicon.svg").getroot()
+    large = next(g for g in icon.iter(f"{svg}g") if g.get("class") == "large")
+
+    assert re.findall(r' d="([^"]*)"', waits) == [p.get("d") for p in large.iter(f"{svg}path")]
+    assert 'aria-hidden="true"' in waits
+
+
+def test_the_tv_s_icon_takes_the_ring_s_place_only_where_a_stroke_is_known_to_animate():
+    css = (_WEB / "static" / "css" / "tv.css").read_text()
+    drawn = _tv_css("@supports (stroke-dashoffset: 1px) and (animation-name: a1)")
+
+    assert ".mark { display: none; }" in css.split("@supports")[0]
+    assert ".mark { display: block;" in drawn
+    assert re.search(r"\.spin--mark \{[^}]*border: 0;[^}]*animation: none;", drawn)
+    assert "animation: a1 1.8s linear infinite" in drawn
+    assert "animation: a2 1.8s .3s linear infinite" in drawn
+
+
+def test_the_tv_s_icon_stands_still_and_whole_under_reduced_motion():
+    css = (_WEB / "static" / "css" / "tv.css").read_text()
+    assert css.index("@supports") < css.index("prefers-reduced-motion")
+    assert ".spin--mark, .mark path { animation: none; }" in _tv_css("@media (prefers-reduced")
 
 
 def test_the_second_half_keeps_the_page_s_blue_and_takes_the_text_colour_where_colours_are_forced():

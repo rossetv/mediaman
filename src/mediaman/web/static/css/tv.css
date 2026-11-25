@@ -65,6 +65,16 @@ video::-webkit-media-controls { display: none !important; }
 .spin { width: 96px; height: 96px; border: 8px solid #4a4a4e; border-top-color: #fff; border-radius: 50%; -webkit-animation: sp 1s linear infinite; animation: sp 1s linear infinite; margin: 30px 0 40px; -webkit-flex: none; flex: none; }
 @-webkit-keyframes sp { to { -webkit-transform: rotate(360deg); } }
 @keyframes sp { to { transform: rotate(360deg); } }
+/* The icon drawn over and over, where the browser can: each dash is as long as its arch. Others have the ring. */
+.mark { display: none; }
+@supports (stroke-dashoffset: 1px) and (animation-name: a1) {
+  .spin--mark { width: 120px; border: 0; border-radius: 0; animation: none; }
+  .mark { display: block; width: 120px; height: 96px; }
+  .a1 { stroke-dasharray: 57.2px 114.4px; animation: a1 1.8s linear infinite both; }
+  .a2 { stroke-dasharray: 43.9px 87.8px; animation: a2 1.8s .3s linear infinite both; }
+}
+@keyframes a1 { 0% { stroke-dashoffset: 57.2px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -57.2px; opacity: 1; } 100% { stroke-dashoffset: -57.2px; opacity: 0; } }
+@keyframes a2 { 0% { stroke-dashoffset: 43.9px; opacity: 0; } 2% { opacity: 1; } 35%, 65% { stroke-dashoffset: 0; } 95% { stroke-dashoffset: -43.9px; opacity: 1; } 100% { stroke-dashoffset: -43.9px; opacity: 0; } }
 @keyframes pu { 50% { opacity: .4; } }
 .idle .brand { opacity: .9; }
 @media (prefers-reduced-motion: reduce) {
@@ -72,6 +82,7 @@ video::-webkit-media-controls { display: none !important; }
   .in > div, #o > div { animation: none; }
   #o { display: none; }
   .spin { animation: pu 1.6s ease-in-out infinite; }
+  .spin--mark, .mark path { animation: none; }
 }
 @media (forced-colors: active) {
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }

@@ -889,8 +889,9 @@
   };
   function glyph(name) { return '<svg class="i" viewBox="0 0 24 24"><path d="' + ICONS[name] + '"/></svg>'; }
 
-  // The page holds the name as drawn, until the first of these pages takes its place.
+  // The page holds the name and its first wait as drawn, until the first of these pages takes its place.
   var BRAND = document.querySelector('.brand').outerHTML;
+  var BOOT = document.querySelector('.mid').outerHTML;
   var SPIN = '<div class="spin"></div>';
   var buttons = [];          // what the page offers: [label, action]
 
@@ -956,7 +957,7 @@
   }
 
   var PAGES = {
-    boot: function () { return page('<div class="mid">' + BRAND + SPIN + '</div>') + offer([]); },
+    boot: function () { return page(BOOT) + offer([]); },
     code: function () {
       if (!pending) return PAGES.boot();
       var address = base.replace(/^https?:\/\//, '') + '/pair';
