@@ -4,6 +4,7 @@
    Usage: node player_harness.js <markup.html> <scenario> [reduced]
           node player_harness.js <markup.html> <scenario> '<saved settings as JSON>' [<quality the server plays>]
    PLAYER_PAGES in the environment names the file of each other page, by address.
+   A scenario named away_... has the Play on sheet, AirPlay and the API of the TVs too.
    Prints the scenario's observations as one JSON object. */
 'use strict';
 
@@ -33,6 +34,16 @@ class Node {
     this.childNodes.push(child);
     return child;
   }
+  insertBefore(child, at) {
+    this.appendChild(child);
+    this.childNodes.pop();
+    this.childNodes.splice(at ? this.childNodes.indexOf(at) : this.childNodes.length, 0, child);
+    return child;
+  }
+  get nextSibling() { const all = this.parentNode.childNodes; return all[all.indexOf(this) + 1] || null; }
+  remove() { if (this.parentNode) { this.parentNode.childNodes.splice(this.parentNode.childNodes.indexOf(this), 1); this.parentNode = null; } }
+  get isConnected() { return doc.contains(this); }
+  get children() { return this.childNodes.filter((c) => c instanceof Element); }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   removeEventListener(type, fn) {
     const l = this.listeners[type] || [];
@@ -109,6 +120,7 @@ class Element extends Node {
   hasAttribute(n) { return n in this.attrs; }
   toggleAttribute(n, on) { if (on) this.attrs[n] = ''; else delete this.attrs[n]; }
   get id() { return this.attrs.id || ''; }
+  set id(v) { this.attrs.id = v; }
   set type(v) { this.attrs.type = v; }
   get className() { return this.attrs.class || ''; }
   set className(v) { this.attrs.class = v; }
@@ -138,6 +150,7 @@ class Element extends Node {
   focus() { doc.activeElement = this; fire(this, 'focusin', { bubbles: true }); }
   blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
   get offsetWidth() { return 200; }
+  getClientRects() { return this.closest('[hidden]') ? [] : [{}]; }
   getBoundingClientRect() { return { left: 0, top: 0, width: 1000, height: 44 }; }
   setPointerCapture() {}
 }
@@ -177,6 +190,7 @@ class Canvas extends Element {
 class Dialog extends Element {
   get open() { return 'open' in this.attrs; }
   showModal() { this.before = doc.activeElement; this.attrs.open = ''; this.querySelector('button').focus(); }
+  get offsetWidth() { return 372; }
   /* Like the browser: the close event comes after what closed it. */
   close(value) {
     delete this.attrs.open;
@@ -270,7 +284,7 @@ async function pass(p, ms) {
 /* ---- the page ------------------------------------------------------------ */
 
 /* *came*: how the page was opened: { referrer, length (of the history), state }. */
-function boot(html, reduced, saved, serverPlays, came) {
+function boot(html, reduced, saved, serverPlays, came, elsewhere) {
   doc = new Node();
   doc.documentElement = make('html');
   doc.appendChild(doc.documentElement);
@@ -331,6 +345,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       }
       if (held.progressFails && /\/progress$/.test(url)) return Promise.reject(held.progressFails);
       if (held.keep && /\/keep$/.test(url)) return Promise.resolve(held.keep);
+      if (elsewhere && /\/api\/(tvs|cast)\//.test(url)) return elsewhere.post(url, body);
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
       call.open = true;
       return new Promise((resolve, reject) => {
@@ -348,7 +363,7 @@ function boot(html, reduced, saved, serverPlays, came) {
         }).then(settled(resolve), settled(reject));
       });
     },
-    get: () => Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: !held.unrateable }, 'show-77': { level: null, rateable: true } } }),
+    get: (url) => (elsewhere && /\/api\/tvs/.test(url)) ? elsewhere.get(url) : Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: !held.unrateable }, 'show-77': { level: null, rateable: true } } }),
     put(url, body) {
       calls.push({ url: url, body: body });
       return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
@@ -476,7 +491,7 @@ function boot(html, reduced, saved, serverPlays, came) {
       back() { this.backs++; },
     },
     MediaMetadata: function MediaMetadata(init) { Object.assign(this, init); },
-    location: { href: '/watch/play/1', origin: 'http://mm' },
+    location: { href: '/watch/play/1', origin: 'http://mm', host: 'mm' },
     navigator: { mediaSession: {}, sendBeacon(url, blob) { beacons.push({ url: url, body: blob && JSON.parse(blob.parts[0]) }); return true; } },
     matchMedia: (q) => ({ get matches() { return /prefers-reduced-motion:\s*reduce/.test(q) ? !!reduced : /max-height: 599/.test(q) && !!held.tight; } }),
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
@@ -491,14 +506,20 @@ function boot(html, reduced, saved, serverPlays, came) {
       static revokeObjectURL() { frames.freed++; }
     },
     innerWidth: 1000,
+    innerHeight: 800,
     console: console,
     listeners: {},
     addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
+    removeEventListener() {},
   };
   win.window = win;
   win.navigator = win.navigator;
   const ctx = vm.createContext(win);
-  ['core/dom.js', 'ratings.js', 'player.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f }));
+  if (elsewhere) elsewhere.setup(win);
+  const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
+  ['core/dom.js', 'ratings.js'].concat(elsewhere ? elsewhere.scripts : []).forEach(run);
+  if (elsewhere && elsewhere.ready) elsewhere.ready(win);
+  run('player.js');
 
   const root = doc.getElementById('player');
   return {
@@ -714,6 +735,132 @@ async function restedOnBar(p, move) {
   move();
   out.moved = await look();
   return out;
+}
+
+/* ---- elsewhere ----------------------------------------------------------- */
+
+const LIVING = { id: 5, kind: 'page', name: 'Living room', on: true, last_seen_at: null, play: null, last: null };
+const BEDROOM = { id: 6, kind: 'page', name: 'Bedroom TV', on: false, last_seen_at: null, play: null, last: null };
+const KITCHEN = { id: 7, kind: 'older', name: 'Kitchen TV', on: true, busy: true, last_seen_at: null, play: null, last: null };
+const SUBS = [{ id: '31', label: 'English', selected: true }, { id: '32', label: 'Polski', selected: false }];
+
+/* The TVs, streams for TVs, AirPlay and a way such as Google Cast, as *mode* has them. */
+function elsewhereOf(mode) {
+  const e = {
+    scripts: mode === 'nosheet' ? [] : ['watch/play-on.js', 'watch/airplay.js'],
+    tvs: [LIVING, BEDROOM, KITCHEN],
+    tv: null,                  // what one TV answers
+    pairs: [],                 // answers to codes
+    plays: [],                 // answers to starts on a TV; taken when there are none left
+    sent: [],
+    casts: 0,
+    castFails: [],
+    wireless: false,
+    picked: 0,
+    refuse: (status, error, data) => Promise.reject({ status: status, error: error, data: data || null }),
+    get(url) {
+      e.sent.push({ get: url });
+      if (/tvs$/.test(url)) return mode === 'absent' || mode === 'airOnly' ? e.refuse(404, 'http_404') : mode === 'offline' ? e.refuse(0, 'network_error') : Promise.resolve({ tvs: e.tvs });
+      return e.tv ? e.tv() : Promise.resolve({ tv: Object.assign({}, LIVING, { play: { rating_key: '501', state: 'playing', position_s: 40 } }) });
+    },
+    post(url, body) {
+      e.sent.push({ post: url, body: body });
+      if (/tvs\/pair$/.test(url)) return e.pairs.shift()();
+      if (/cast\/stream$/.test(url)) {
+        if (e.castFails.length) return e.castFails.shift()();
+        e.casts++;
+        return Promise.resolve({ stream_id: 'c' + e.casts, url: '/api/cast/T' + e.casts + '/index.m3u8', duration_s: 3000, quality: body.quality, subtitle: body.subtitle === 'off' ? null : body.subtitle || '31', subtitle_tracks: SUBS });
+      }
+      if (/\/play$/.test(url)) return e.plays.length ? e.plays.shift()() : Promise.resolve({ tv: Object.assign({}, LIVING, { play: { rating_key: body.rating_key, state: 'starting' } }) });
+      if (/\/commands$/.test(url)) return Promise.resolve({ tv: Object.assign({}, LIVING, { last: { reason: 'stopped', rating_key: '501', position_s: 77 } }) });
+      return Promise.resolve({});
+    },
+    setup(win) {
+      e.win = win;
+      Video.prototype.load = function () {};
+      delete Video.prototype.webkitShowPlaybackTargetPicker;
+      if (mode === 'plain' || mode === 'absent') return;
+      win.WebKitPlaybackTargetAvailabilityEvent = function () {};
+      Video.prototype.webkitShowPlaybackTargetPicker = function () { e.picked++; };
+      Object.defineProperty(Video.prototype, 'webkitCurrentPlaybackTargetIsWireless', { configurable: true, get() { return e.wireless && this.classList.contains('player-air'); } });
+    },
+    starts: () => e.sent.filter((c) => /cast\/stream$/.test(c.post || '')).map((c) => c.body),
+    air: () => doc.querySelector('.player-air'),
+    nearby() { fire(e.air(), 'webkitplaybacktargetavailabilitychanged', { availability: 'available' }); },
+    onTv(on) { e.wireless = on; fire(e.air(), 'webkitcurrentplaybacktargetiswirelesschanged'); },
+  };
+  return e;
+}
+
+/* A way such as Google Cast; what it plays is followed as a video is. */
+function castWay(carriesOn) {
+  const way = {
+    id: 'cast', label: 'Chromecast', sub: '', icon: 'play-on-cast', available: () => true,
+    loads: [], stops: 0, left: 0, what: null, gone: null, media: make('video'),
+  };
+  way.play = {
+    name: 'Den', carriesOn: carriesOn, media: way.media,
+    load(stream) { way.loads.push(stream); way.media.readyState = 1; return Promise.resolve(); },
+    stop() { way.stops++; return Promise.resolve(); },
+    leave() { way.left++; },
+    onGone(fn) { way.gone = fn; },
+  };
+  way.start = (what) => { way.what = what; return what.open().then((stream) => { way.stream = stream; return way.play; }); };
+  return way;
+}
+
+const sheet = () => doc.querySelector('.play-on');
+const rowOf = (key) => sheet().querySelector('[data-key="' + key + '"]');
+const said = () => { const s = sheet() && sheet().querySelector('.play-on__say'); return s ? s.textContent : null; };
+
+async function openSheet(p) {
+  await settle();
+  click(p.q('.player-controls').querySelector('[data-play-on]'));
+  await settle();
+}
+
+async function pickRow(p, key) { click(rowOf(key)); await settle(); }
+
+function awayState(p) {
+  return {
+    away: p.root.classList.contains('is-away'),
+    says: p.q('[data-away]').hidden ? null : p.q('[data-away-on]').textContent,
+    hint: p.q('[data-away-hint]').textContent,
+    message: messageState(p),
+  };
+}
+
+/* What plays elsewhere plays, from *pos*. */
+function mediaPlays(media, pos) {
+  media.readyState = 4; media.currentTime = pos;
+  fire(media, 'playing');
+}
+
+/* AirPlay is picked, its stream loads and plays. */
+async function airPlays(p, pos) {
+  const air = p.elsewhere.air();
+  p.elsewhere.nearby();
+  await openSheet(p);
+  await pickRow(p, 'airplay');
+  p.elsewhere.onTv(true);
+  await settle();
+  air.readyState = 1;
+  fire(air, 'loadedmetadata');
+  await settle();
+  const at = air.currentTime;
+  mediaPlays(air, pos === undefined ? at : pos);
+  await settle();
+  return { air: air, at: at };
+}
+
+async function castPlays(p, carriesOn) {
+  const way = castWay(carriesOn);
+  p.win.MM.playOn.register(way);
+  await openSheet(p);
+  await pickRow(p, 'cast');
+  mediaPlays(way.media, way.stream.position_s);
+  await settle();
+  return way;
 }
 
 /* ---- scenarios ----------------------------------------------------------- */
@@ -4522,12 +4669,443 @@ const scenarios = {
     fire(a, 'click', { bubbles: true, button: 0 });
     return { at: p.win.history.urls, through: p.win.history.backs, href: a.getAttribute('href'), state: p.win.history.state };
   },
+
+  /* Whether the button is there, and what the sheet lists. */
+  async away_sheet(p) {
+    await streamPlays(p, 30);
+    if (p.win.WebKitPlaybackTargetAvailabilityEvent) p.elsewhere.nearby();
+    await settle();
+    const shown = !p.q('.player-controls').querySelector('[data-play-on]').hidden;
+    if (!shown) return { shown: shown };
+    await openSheet(p);
+    const rows = sheet().querySelectorAll('[data-key]').map((r) => r.getAttribute('data-key'));
+    const out = { shown: shown, rows: rows, says: said(), text: sheet().textContent };
+    key('Escape');
+    sheet().close();
+    await settle();
+    p.tick(1000);
+    out.left = !sheet();
+    return out;
+  },
+
+  /* A TV is picked; `serverPlays` is what then happens here while it plays there. */
+  async away_tv(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    const play = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || ''))[0];
+    const out = {
+      stopped: p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body),
+      play: { url: play.post, key: play.body.rating_key, at: play.body.position_s, quality: play.body.quality },
+      sheet: !!sheet() && sheet().open,
+    };
+    out.starts = p.starts().length;
+    key(' ');
+    key('ArrowRight');
+    click(p.q('[data-play]'));
+    click(p.q('[data-next-btn]'));
+    p.online();
+    p.comeBack();
+    p.tick(60000);
+    await settle();
+    out.startsThere = p.starts().length + p.elsewhere.casts;
+    out.state = awayState(p);
+    click(p.q('[data-bring]'));
+    await settle();
+    out.startsHere = p.starts().length;
+    out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    out.after = awayState(p);
+    return out;
+  },
+
+  /* Stopped on the TV by its own remote, unpaired, or lost. */
+  async away_tv_over(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'tv-5');
+    const starts = p.starts().length;
+    const why = p.win.serverPlays;
+    p.elsewhere.tv = () => (why === 'unpaired' ? p.elsewhere.refuse(410, 'unpaired', { last: { rating_key: '501', position_s: 88 } })
+      : Promise.resolve({ tv: Object.assign({}, LIVING, { last: { reason: why, rating_key: '501', position_s: 88 } }) }));
+    p.tick(6000);
+    await settle();
+    const out = Object.assign(awayState(p), { started: p.starts().length - starts, time: p.q('[data-elapsed]').textContent });
+    click(p.q('[data-play]'));
+    await settle();
+    out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    return out;
+  },
+
+  /* The TV does not start it. */
+  async away_tv_refused(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 30);
+    await openSheet(p);
+    p.elsewhere.plays.push(() => p.elsewhere.refuse(409, how === 'limit' ? 'too_many_streams' : 'tv_off'));
+    let answer;
+    if (how === 'closed') p.elsewhere.plays[0] = () => new Promise((r, no) => { answer = () => no({ status: 409, error: 'tv_off' }); });
+    click(rowOf('tv-5'));
+    await settle();
+    const out = { starting: how === 'closed' ? awayState(p).says : null };
+    if (how === 'closed') { sheet().close(); await settle(); answer(); await settle(); }
+    out.says = how === 'closed' ? null : sheet().querySelector('.play-on__say').textContent;
+    out.state = awayState(p);
+    out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    out.toasts = p.toasts.map((t) => t.text);
+    await settle();
+    if (how === 'again') {
+      await pickRow(p, 'again');
+      out.plays = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || '')).length;
+      out.second = awayState(p).says;
+    }
+    return out;
+  },
+
+  /* A TV is paired from the sheet: a wrong code, somebody else's, then a name. */
+  async away_pair(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    await pickRow(p, 'pair');
+    const e = p.elsewhere;
+    const type = async (code) => { const input = rowOf('code'); input.value = code; fire(input, 'input'); await settle(); };
+    const why = () => sheet().querySelector('.play-on__why').textContent;
+    const out = { focus: doc.activeElement === rowOf('code'), steps: sheet().textContent };
+    e.pairs.push(() => e.refuse(404, 'wrong_code'), () => e.refuse(409, 'in_use', { playing: true }), () => Promise.resolve({ tv: { id: 9, name: 'TV' } }));
+    await type('12 34');
+    out.early = e.sent.filter((c) => /pair$/.test(c.post || '')).length;
+    await type('123456');
+    out.wrong = [why(), rowOf('code').value];
+    await type('482 916');
+    out.others = [why(), !!rowOf('take')];
+    await pickRow(p, 'take');
+    out.sent = e.sent.filter((c) => /pair$/.test(c.post || '')).map((c) => [c.body.code, c.body.confirm || false]);
+    out.name = rowOf('name').value;
+    p.win.MM.api.patch = (url, body) => { e.sent.push({ patch: url, body: body }); return Promise.resolve({}); };
+    e.tvs = [Object.assign({}, LIVING, { id: 9, name: 'Den' })];
+    rowOf('name').value = 'Den';
+    fire(rowOf('name'), 'input');
+    await pickRow(p, 'play');
+    out.named = e.sent.filter((c) => c.patch).map((c) => [c.patch, c.body.name]);
+    out.plays = e.sent.filter((c) => /\/play$/.test(c.post || '')).map((c) => c.post);
+    return out;
+  },
+
+  /* A TV that is not open, or that somebody watches on. */
+  async away_tv_asks(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    const plays = () => p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || '')).map((c) => c.body.confirm || false);
+    await pickRow(p, 'tv-6');
+    const out = { off: said(), untouched: plays().length === 0 && !p.q('[data-away-on]').textContent && !p.hlsList[0].destroyed };
+    await pickRow(p, 'tv-7');
+    out.busy = said();
+    await pickRow(p, 'unsay');
+    out.cancelled = said();
+    out.before = plays();
+    await pickRow(p, 'tv-7');
+    await pickRow(p, 'take');
+    out.after = plays();
+    out.says = awayState(p).says;
+    return out;
+  },
+
+  /* Nobody was known to watch on it, but somebody does. */
+  async away_tv_in_use(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    p.elsewhere.plays.push(() => p.elsewhere.refuse(409, 'in_use'));
+    await pickRow(p, 'tv-5');
+    const out = { asks: said(), from: p.hlsList[p.hlsList.length - 1].config.startPosition };
+    await pickRow(p, 'take');
+    out.plays = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || '')).map((c) => c.body.confirm || false);
+    return out;
+  },
+
+  /* Brought here again before the TV has begun. */
+  async away_tv_called_back(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    let answer;
+    p.elsewhere.plays.push(() => new Promise((r) => { answer = () => r({ tv: LIVING }); }));
+    await pickRow(p, 'tv-5');
+    const starts = p.starts().length;
+    click(p.q('[data-bring]'));
+    await settle();
+    const out = { here: p.starts().length - starts, state: awayState(p).away };
+    answer();
+    await settle();
+    out.stopped = p.elsewhere.sent.some((c) => /\/commands$/.test(c.post || '') && c.body.kind === 'stop');
+    out.after = awayState(p).away;
+    return out;
+  },
+
+  /* AirPlay: until a TV is picked nothing changes. */
+  async away_airplay(p) {
+    await streamPlays(p, 30);
+    const e = p.elsewhere;
+    e.nearby();
+    await openSheet(p);
+    await pickRow(p, 'airplay');
+    const out = {
+      picked: e.picked,
+      chooser: said(),
+      waits: { casts: e.starts().length, destroyed: p.hlsList[0].destroyed, away: awayState(p).away, clip: e.air().src },
+    };
+    p.video.currentTime = 34;
+    e.onTv(true);
+    await settle();
+    out.order = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body.position_s).concat(e.starts().map((b) => b.rating_key));
+    out.starting = awayState(p).says;
+    out.src = e.air().src;
+    out.sheet = said();
+    e.air().readyState = 1;
+    fire(e.air(), 'loadedmetadata');
+    await settle();
+    out.at = e.air().currentTime;
+    mediaPlays(e.air(), 34);
+    await settle();
+    out.playing = awayState(p);
+    out.local = p.starts().length;
+    /* The place is saved as ever, by the stream of the TV's. */
+    for (let i = 0; i < 12; i++) { e.air().currentTime += 1; fire(e.air(), 'timeupdate'); p.tick(1000); }
+    await settle();
+    out.saved = p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body).pop();
+    /* The picture comes back to this device: Safari pauses it, then says so. */
+    e.wireless = false;
+    e.air().pause();
+    e.onTv(false);
+    p.tick(1600);
+    await settle();
+    out.back = { away: awayState(p).away, from: p.hlsList[p.hlsList.length - 1].config.startPosition, starts: p.starts().length, clip: e.air().src };
+    out.stopped = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.url + ' ' + c.body.position_s).pop();
+    await streamPlays(p, 46);
+    out.playsOn = p.video.plays;
+    return out;
+  },
+
+  /* A TV chosen long after the list was asked for, or after a TV's own page was. */
+  async away_airplay_dropped(p) {
+    await streamPlays(p, 30);
+    p.elsewhere.nearby();
+    await openSheet(p);
+    await pickRow(p, 'airplay');
+    if (p.win.serverPlays === 'late') p.tick(95000);
+    else await pickRow(p, 'tv-5');
+    await settle();
+    p.elsewhere.onTv(true);
+    await settle();
+    return { casts: p.elsewhere.starts().length, says: awayState(p).says, started: p.starts().length };
+  },
+
+  /* The server refuses the stream for the TV that was picked. */
+  async away_airplay_refused(p) {
+    await streamPlays(p, 30);
+    p.elsewhere.nearby();
+    p.elsewhere.castFails.push(() => p.elsewhere.refuse(429, 'too_many_streams'));
+    await openSheet(p);
+    await pickRow(p, 'airplay');
+    p.elsewhere.onTv(true);
+    await settle();
+    return { says: said(), state: awayState(p).away, from: p.hlsList[p.hlsList.length - 1].config.startPosition, clip: p.elsewhere.air().src };
+  },
+
+  /* A new quality or other subtitles restart the picture on the TV, not here. */
+  async away_choices(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 200;
+    const out = { qualities: menuState(p).ids, first: p.elsewhere.starts().map((b) => [b.quality, b.subtitle]) };
+    click(p.q('[data-quality="low"]'));
+    await settle();
+    out.quality = way.loads.map((s) => [s.position_s, s.paused]);
+    mediaPlays(way.media, 200);
+    click(p.q('[data-tracks]').querySelector('[data-subtitle="off"]'));
+    await settle();
+    out.asked = p.elsewhere.starts().map((b) => [b.quality, b.subtitle]);
+    mediaPlays(way.media, 200);
+    p.elsewhere.castFails.push(() => p.elsewhere.refuse(409, 'track_unavailable'));
+    click(p.q('[data-tracks]').querySelector('[data-subtitle="32"]'));
+    await settle();
+    out.refused = p.elsewhere.starts().slice(3).map((b) => b.subtitle);
+    out.saved = p.storage['mediaman.watch.quality'] || null;
+    out.local = p.starts().length;
+    click(p.q('[data-bring]'));
+    await settle();
+    out.here = { qualities: menuState(p).ids, start: p.starts().pop(), tracks: p.q('[data-tracks]').hidden, stops: way.stops };
+    return out;
+  },
+
+  /* The next episode goes on where this one played. */
+  async away_next(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    click(p.q('[data-next-btn]'));
+    await settle();
+    return {
+      title: p.q('.player-subtitle').textContent, loads: way.loads.map((s) => s.title.rating_key),
+      casts: p.elsewhere.starts().map((b) => b.rating_key), local: p.starts().length, away: awayState(p).away,
+      qualities: menuState(p).ids,
+    };
+  },
+
+  /* The credits, the end, and what follows it, as at home. */
+  async away_end(p) {
+    p.replies[0] = answer('best', { markers: MARKERS });
+    p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    await streamPlays(p, 30);
+    const { air } = await airPlays(p);
+    air.currentTime = 2699;
+    for (let i = 0; i < 13; i++) { air.currentTime += 1; fire(air, 'timeupdate'); await settle(); }
+    const out = { rate: !gone(p.q('[data-rate]')) };
+    air.paused = true; air.ended = true; air.currentTime = 2997;
+    fire(air, 'ended');
+    await settle();
+    out.saved = p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => [c.body.stream_id, c.body.position_s]).pop();
+    out.upnext = !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]'));
+    out.says = awayState(p).says;
+    click(p.q('[data-rate-close]'));
+    await settle();
+    out.leaves = p.win.location.href;
+    out.buttons = [p.q('[data-bring]').textContent, p.q('[data-stop-away]').textContent];
+    return out;
+  },
+
+  /* Leaving the page: AirPlay ends with it, and says so first; another way carries on. */
+  async away_leave(p) {
+    await streamPlays(p, 30);
+    const cast = p.win.serverPlays === 'cast';
+    const way = cast ? await castPlays(p, true) : await airPlays(p);
+    const media = cast ? way.media : way.air;
+    media.currentTime = 60;
+    for (let i = 0; i < 2; i++) { media.currentTime += 1; fire(media, 'timeupdate'); }
+    let kept = false;
+    fire(p.q('.player-back'), 'click', { bubbles: true, button: 0, preventDefault() { kept = true; } });
+    const out = { asked: p.q('[data-leave-card]').open, kept: kept };
+    if (out.asked) click(p.q('[data-leave-stay]'));
+    p.leave();
+    out.beacons = p.beacons.map((b) => [b.url.replace(/.*\/api/, ''), b.body && b.body.position_s]);
+    out.stops = cast ? way.stops : null;
+    const starts = p.starts().length;
+    p.comeBack();
+    await settle();
+    out.started = p.starts().length - starts;
+    out.casts = p.elsewhere.casts;
+    return out;
+  },
+
+  async away_leave_and_stop(p) {
+    await streamPlays(p, 30);
+    const { air } = await airPlays(p, 60);
+    fire(p.q('.player-back'), 'click', { bubbles: true, button: 0 });
+    click(p.q('[data-leave-stop]'));
+    return { beacons: p.beacons.map((b) => [b.url, b.body.position_s]), went: p.win.location.href, clip: air.src };
+  },
+
+  /* The stream ends under the TV: twice another one, then it says so. */
+  async away_error(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 90;
+    for (let i = 0; i < 3; i++) {
+      way.media.error = {};
+      fire(way.media, 'error');
+      await settle();
+    }
+    return { loads: way.loads.map((s) => s.position_s), casts: p.elsewhere.casts, local: p.starts().length, message: messageState(p) };
+  },
+
+  /* It ended elsewhere by itself: this page waits for a press. */
+  async away_gone(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 120;
+    way.gone(p.win.serverPlays);
+    await settle();
+    p.tick(60000);
+    await settle();
+    const out = Object.assign(awayState(p), { starts: p.starts().length, stopped: p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => c.body.position_s).pop() });
+    click(p.q('[data-retry]'));
+    await settle();
+    out.from = p.hlsList[p.hlsList.length - 1].config.startPosition;
+    return out;
+  },
+
+  /* Paused for long: the stream is kept, and nothing is saved anew. */
+  async away_paused(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 50;
+    way.media.paused = false;
+    way.media.pause();
+    await settle();
+    const saves = () => p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => [c.body.stream_id, c.body.position_s, c.body.played_s]);
+    const first = saves();
+    p.tick(30 * 60 * 1000);
+    await settle();
+    const all = saves();
+    const out = { first: first, more: all.length - first.length, same: all.every((s) => JSON.stringify(s) === JSON.stringify(first[0])) };
+    click(p.q('[data-bring]'));
+    await settle();
+    const here = saves().length;
+    p.tick(10 * 60 * 1000);
+    await settle();
+    out.here = saves().length - here;
+    return out;
+  },
+
+  /* Another page plays the title since. */
+  async away_replaced(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 50;
+    p.held.progressFails = { status: 410, error: 'replaced', data: { by: 'other' } };
+    way.media.paused = false;
+    for (let i = 0; i < 12; i++) { way.media.currentTime += 1; fire(way.media, 'timeupdate'); p.tick(1000); }
+    await settle();
+    return Object.assign(awayState(p), { stops: way.stops, starts: p.starts().length + p.elsewhere.casts });
+  },
+
+  /* The sheet opens another stream's way while one plays already. */
+  async away_moves(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.currentTime = 150;
+    click(p.q('.player-top').querySelector('[data-play-on]'));
+    await settle();
+    await pickRow(p, 'tv-5');
+    const play = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || ''))[0];
+    return { stops: way.stops, at: play.body.position_s, says: awayState(p).says, starts: p.starts().length };
+  },
+
+  /* A way finds what it plays as the page opens. */
+  async away_again(p) {
+    const media = make('video');
+    media.readyState = 4; media.paused = false; media.currentTime = 300;
+    const way = castWay(true);
+    way.play.media = media;
+    const other = p.win.serverPlays === 'other';
+    const found = { play: way.play, stream: { stream_id: 'k1', position_s: 300, paused: false, rating_key: other ? '999' : '501', keep: { quality: 'low', subtitle: 'off', played_s: 120 } } };
+    const opened = await p.reopen((win) => { way.again = () => Promise.resolve(found); win.MM.playOn.register(way); });
+    await settle();
+    const out = { starts: opened.starts().length, left: way.left, says: awayState(opened).says };
+    if (!other) {
+      media.currentTime = 301; fire(media, 'timeupdate'); media.currentTime = 302; fire(media, 'timeupdate');
+      media.pause();
+      await settle();
+      out.saved = opened.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body).pop();
+    }
+    return out;
+  },
 };
 
 (async () => {
   const [file, name, reduced, serverPlays] = process.argv.slice(2);
   const saved = reduced && reduced[0] === '{' ? JSON.parse(reduced) : null;
-  const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays);
+  const elsewhere = /^away_/.test(name) ? elsewhereOf(serverPlays) : null;
+  const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays, null, elsewhere);
+  p.elsewhere = elsewhere;
+  if (elsewhere) p.held.answer = () => answer('best');
+  p.reopen = (ready) => boot(fs.readFileSync(file, 'utf8'), false, null, serverPlays, null, Object.assign(elsewhereOf(serverPlays), { ready: ready }));
   Object.entries(JSON.parse(process.env.PLAYER_PAGES || '{}')).forEach(([href, f]) => {
     p.pages[href] = { html: fs.readFileSync(f, 'utf8') };
   });
