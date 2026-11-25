@@ -9,6 +9,7 @@ import pytest
 from mediaman.services.openai.recommendations import prompts
 from mediaman.services.openai.recommendations.prompts import (
     _PLEX_STRING_MAX_LEN,
+    make_portrait,
     parse_recommendations,
     sanitise_plex_string,
     strip_season_suffix,
@@ -50,6 +51,14 @@ class TestSanitisePlexString:
     def test_newlines_stripped(self):
         result = sanitise_plex_string("Title\nWith\nNewline")
         assert "\n" not in result
+
+    @pytest.mark.parametrize(
+        "mark", ["\n", "\r", "\x0b", "\x0c", "\x1c", "\x85", "\u2028", "\u2029"]
+    )
+    def test_no_title_can_start_a_line_of_its_own(self, mark):
+        portrait = make_portrait([{"title": f"Film{mark}Ratings:", "type": "movie"}])
+        assert "Ratings:" not in portrait.block.splitlines()
+        assert len(sanitise_plex_string(f"Film{mark}Ratings:").splitlines()) == 1
 
     def test_truncated_to_max_len(self):
         long_title = "A" * (_PLEX_STRING_MAX_LEN + 50)

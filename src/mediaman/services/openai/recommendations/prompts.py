@@ -149,11 +149,13 @@ def strip_season_suffix(title: str) -> str:
 
 def sanitise_plex_string(s: str, max_len: int = _PLEX_STRING_MAX_LEN) -> str:
     """Sanitise a Plex-derived string before embedding it in a prompt: NFC-normalise, strip
-    C0/C1 control characters (keeping space and tab), drop characters outside the
-    Unicode L, N, P and Z categories, and truncate to *max_len*.
+    C0/C1 control characters (keeping space and tab), make every separator a space (some
+    break a line), drop characters outside the Unicode L, N, P and Z categories, and truncate
+    to *max_len*.
     """
     s = unicodedata.normalize("NFC", s)
     s = _CTRL_CHAR_RE.sub("", s)
+    s = "".join(" " if unicodedata.category(c)[0] == "Z" else c for c in s)
     s = "".join(c for c in s if unicodedata.category(c)[:1] in _SAFE_CATEGORY_PREFIXES)
     return s[:max_len]
 
