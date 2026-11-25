@@ -1749,11 +1749,15 @@ def test_stopping_a_stream_leaves_the_title_to_a_later_press_still_opening(manag
     assert refused == ["den-page"]
 
 
-def test_a_start_made_by_itself_is_refused_where_the_later_page_s_stream_was_reaped(manager, clock):
+def test_a_start_made_by_itself_goes_through_once_the_later_page_s_stream_was_reaped(
+    manager, clock
+):
+    # The phone took the episode, then was locked and went silent.
     phone = _start(manager, page="phone-page")
     _reap_one_idle(manager, clock)
     with pytest.raises(StreamGone):
         manager.stop(phone, "alice")
 
-    with pytest.raises(StreamReplaced):
-        _start(manager, page="tv-page", asked_ago=500.0)
+    laptop = _start(manager, page="laptop-page", asked_ago=500.0)
+
+    assert manager.get(laptop, "alice")

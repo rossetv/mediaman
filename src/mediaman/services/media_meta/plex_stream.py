@@ -879,8 +879,16 @@ class StreamManager:
         self._call_quietly("stop", stream.session_id)
 
     def _end(self, ids: list[str], now: float) -> list[_Stream]:
-        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held."""
+        """Drop the streams as reaped and return them, to stop on Plex; the lock must be held.
+
+        As with a stop, their pages give up their claim on the items, so another page's own
+        start of one plays.
+        """
         ended = {sid: self._streams.pop(sid) for sid in ids}
+        for stream in ended.values():
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None:
+                viewing.asked = float("-inf")
         self._reaped = {
             sid: kept for sid, kept in self._reaped.items() if now - kept[0] <= VIEWING_KEEP_SECONDS
         }
