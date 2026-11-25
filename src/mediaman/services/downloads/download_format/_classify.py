@@ -85,6 +85,18 @@ def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
     return latest.timestamp()
 
 
+def next_movie_release(movie: _ArrLike) -> datetime | None:
+    """The earliest release (digital, physical, in cinemas) still to come, or None when unknown."""
+    now = now_utc()
+    candidates = []
+    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
+        raw = movie.get(key, "")
+        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
+        if dt and now < dt and dt.year <= now.year + _MAX_FUTURE_YEARS:
+            candidates.append(dt)
+    return min(candidates, default=None)
+
+
 def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     if not movie.get("monitored"):
         return False, ""
@@ -93,18 +105,9 @@ def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     if movie.get("isAvailable"):
         return False, ""
 
-    now = now_utc()
-    max_year = now.year + _MAX_FUTURE_YEARS
-    candidates = []
-    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        raw = movie.get(key, "")
-        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
-        if dt and dt > now and dt.year <= max_year:
-            candidates.append(dt)
-
-    if candidates:
-        earliest = min(candidates)
-        return True, f"Releases {_format_release_date(earliest)}"
+    released = next_movie_release(movie)
+    if released is not None:
+        return True, f"Releases {_format_release_date(released)}"
     return True, "Not yet released"
 
 
