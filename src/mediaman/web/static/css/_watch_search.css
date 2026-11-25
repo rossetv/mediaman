@@ -481,6 +481,9 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
   .watch-option.is-picked { outline: 2px solid Highlight; outline-offset: -2px; }
   .watch-suggestions__bar { display: none; }
   .watch-line { color: CanvasText; }
+  .watch-tile > .watch-line,
+  .watch-tile:hover > .watch-line,
+  .watch-tile.is-picked > .watch-line { forced-color-adjust: auto; color: CanvasText; }
   .watch-veil { display: none; }
   .results-fail { border: 1px solid CanvasText; }
 }

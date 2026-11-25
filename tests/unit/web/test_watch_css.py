@@ -255,3 +255,15 @@ def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
         left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
         assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
     assert "right: auto" in _of(under, sheet=browse)
+
+
+def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -> None:
+    search = SHEET.with_name("_watch_search.css")
+    # The tile's own rule for the drawing's grey is more specific than a bare `.watch-line` one.
+    for selector in (
+        ".watch-tile > .watch-line",
+        ".watch-tile:hover > .watch-line",
+        ".watch-tile.is-picked > .watch-line",
+    ):
+        rules = _of(selector, FORCED, search)
+        assert "color: CanvasText" in rules and "forced-color-adjust: auto" in rules
