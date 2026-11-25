@@ -92,7 +92,7 @@ class SeasonSeen:
     seen: int
     total: int | None  # None until a scan has counted the episodes
     marked: bool = False  # whole, with what a mark of the show covers, whatever is counted
-    by_mark: int = 0  # of the seen ones, how many a mark of the show alone covers
+    by_mark: frozenset[str] = frozenset()  # of the seen ones, those a mark alone covers
 
     @property
     def watched(self) -> bool:
@@ -402,9 +402,12 @@ def show_seen(
     for r in rows:
         seasons = found.setdefault(r["show_rating_key"], ShowSeen()).seasons
         season = covered.get(r["id"])
-        by_mark = len(season.episodes) if season else 0
+        by_mark = season.episodes if season else frozenset()
         seasons[r["season_number"]] = SeasonSeen(
-            r["seen"] + by_mark, r["episode_count"], season is not None and season.whole, by_mark
+            r["seen"] + len(by_mark),
+            r["episode_count"],
+            season is not None and season.whole,
+            by_mark,
         )
     return found
 

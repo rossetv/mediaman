@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -16,8 +17,10 @@ from mediaman.web.middleware.csrf import CSRFOriginMiddleware
 from mediaman.web.repository import ratings, seen_titles
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.watch_progress import (
+    MarkTarget,
     continue_watching,
     get_progress,
+    mark_watched,
     save_progress,
     show_progress,
     unmark_watched,
@@ -337,7 +340,11 @@ class TestAShowMarkedBeforeItJoined:
         before = _rows(conn)
         client.delete("/api/watch/watched/episode/511")
 
-        assert (_covered(conn), _rows(conn)) == (["512", "522"], before)
+        assert (_covered(conn), _rows(conn)) == (["512", "521", "522"], before)
+        read = seen_titles.with_covered(
+            conn, "aoife", ["1"], "500", show_progress(conn, "aoife", "500")
+        )
+        assert pages.resumable(read["521"])
 
     def test_marking_it_again_in_the_library_and_undoing_it_leaves_it_as_it_was(
         self, client, conn, joined
@@ -480,6 +487,22 @@ class TestWhatIsLeftOfAMark:
         client.post("/api/watch/watched/season/501")
 
         assert seen_titles.person_marks(conn, "aoife").partly == {("tv", 44)}
+
+    @pytest.mark.parametrize("taken_back", [True, False])
+    def test_a_season_the_library_has_dropped_is_as_it_was_left(
+        self, client, conn, matched, plex, taken_back
+    ):
+        client.post("/api/watch/watched/show/500")
+        if taken_back:
+            client.delete("/api/watch/watched/season/501")
+        conn.execute("DELETE FROM media_items WHERE id = '501'")
+        conn.commit()
+        plex.add_show("500", "The Long Coast", {2: ("502", ["521", "522"])})
+
+        client.delete("/api/watch/watched/episode/521")
+        client.post("/api/watch/watched/episode/521")
+
+        assert bool(seen_titles.person_marks(conn, "aoife").partly) is taken_back
 
     def test_an_episode_gone_since_it_was_taken_back_leaves_the_show_whole(
         self, client, conn, joined, plex
@@ -708,7 +731,77 @@ class TestCopiesOfAFilm:
         assert "movie-100" not in _watched(conn)
 
 
+class TestAtTheSameMoment:
+    """Another tab's change of the same title comes between the two things one writes."""
+
+    @pytest.fixture
+    def other(self, conn, db_path, matched):
+        connection = sqlite3.connect(db_path, timeout=0, check_same_thread=False)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
+        yield connection
+        connection.close()
+
+    def _unmarks(self, other):
+        user = ratings.find_user_id(other, "aoife")
+        seen_titles.unmark(other, user, ratings.RatedTitle("movie", 603))
+        unmark_watched(other, "aoife", "movie", "100")
+
+    def _marks(self, other):
+        user = ratings.find_user_id(other, "aoife")
+        mark_watched(other, "aoife", [MarkTarget("100", "100", None, 0)], NOW)
+        seen_titles.mark(other, user, ratings.RatedTitle("movie", 603), None, NOW, in_library=True)
+
+    @pytest.mark.parametrize(
+        ("method", "query", "between", "then"),
+        [
+            ("POST", "", (marks_api, "_mark_title"), "_unmarks"),
+            ("DELETE", "", (marks_api, "unmark_watched"), "_marks"),
+            ("DELETE", "?undo=1", (seen_titles, "restore"), "_marks"),
+        ],
+    )
+    def test_the_film_and_its_title_end_marked_alike(
+        self, client, conn, other, monkeypatch, method, query, between, then
+    ):
+        path = "/api/watch/watched/movie/100"
+        if method == "DELETE":
+            client.post(path)
+        change, write = getattr(self, then), getattr(*between)
+        late = []
+
+        def interrupted(*args, **kwargs):
+            monkeypatch.setattr(*between, write)
+            try:
+                change(other)
+            except sqlite3.OperationalError:
+                late.append(change)
+            return write(*args, **kwargs)
+
+        monkeypatch.setattr(*between, interrupted)
+        client.request(method, path + query)
+        for change in late:
+            change(other)
+
+        assert _seen(conn, ["100"]) == ["100"] * len(_title_marks(conn))
+
+
 class TestUndo:
+    @pytest.mark.parametrize("matched_too", [True, False])
+    def test_an_undo_that_puts_nothing_back_says_it_is_too_late(
+        self, client, conn, request, matched_too
+    ):
+        if matched_too:
+            request.getfixturevalue("matched")
+        path = "/api/watch/watched/movie/100"
+        client.post(path)
+        user = ratings.find_user_id(conn, "aoife")
+        unmark_watched(conn, "aoife", "movie", "100")
+        seen_titles.unmark(conn, user, ratings.RatedTitle("movie", 603))
+
+        answer = client.delete(f"{path}?undo=1")
+
+        assert (answer.status_code, answer.json()["error"]) == (409, "too_late")
+
     def test_undoing_a_show_mark_restores_only_what_it_changed(self, client, conn):
         _play(conn, "511", position=3000)
         _play(conn, "512", position=900)
@@ -752,6 +845,19 @@ class TestUndo:
         client.post("/api/watch/watched/movie/100")
         assert client.delete("/api/watch/watched/movie/100?undo=1").status_code == 200
         assert _seen(conn, ["100"]) == []
+
+
+@pytest.mark.parametrize("uncounted", [["501"], ["501", "502"]])
+def test_a_show_marked_with_a_season_not_counted_reads_as_watched(client, conn, matched, uncounted):
+    conn.executemany(
+        "UPDATE media_items SET episode_count = NULL, episode_keys = NULL WHERE id = ?",
+        [(key,) for key in uncounted],
+    )
+    conn.commit()
+
+    assert client.post("/api/watch/watched/show/500").json()["changed"] == 4
+
+    assert _watched(conn) == {"show-500"}
 
 
 class TestRefusals:

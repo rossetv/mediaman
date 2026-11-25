@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.time import now_utc
-from mediaman.db import get_db
+from mediaman.db import get_db, write_transaction
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -192,16 +192,22 @@ def _may_unmark(
     return show_key is not None and lib.find_show(conn, libraries, show_key) is not None
 
 
+def _too_late() -> JSONResponse:
+    return respond_err("too_late", status=409, message="This can no longer be undone.")
+
+
 def undone(slot: mark_undo.Slot, username: str, *, watched: bool) -> JSONResponse:
     """Take back this person's last change of *slot*, when it set the opposite of *watched*."""
     held = mark_undo.take(slot, watched=watched, now=now_utc())
     if held is None:
-        return respond_err("too_late", status=409, message="This can no longer be undone.")
+        return _too_late()
     conn = get_db()
-    restore_marks(conn, username, held.changes)
-    if held.title is not None:
-        seen_titles.restore(conn, held.title)
-    changed = len(held.changes) or int(held.title is not None)
+    with write_transaction(conn):
+        changed = restore_marks(conn, username, held.changes)
+        if held.title is not None and seen_titles.restore(conn, held.title):
+            changed = changed or 1
+    if not changed:
+        return _too_late()
     return respond_ok({"watched": watched, "changed": changed})
 
 
@@ -231,9 +237,10 @@ def api_watch_mark(
     except PlexError as exc:
         return respond_err(plex_error_code(exc), status=503)
     now = now_utc()
-    changes = mark_watched(conn, username, targets, now)
     marked = _marked(conn, libraries, kind, key)
-    title = _mark_title(conn, user_id, marked, numbers, now) if marked else None
+    with write_transaction(conn):
+        changes = mark_watched(conn, username, targets, now)
+        title = _mark_title(conn, user_id, marked, numbers, now) if marked else None
     mark_undo.hold(
         (user_id, kind, key),
         marked.key if marked else None,
@@ -266,13 +273,14 @@ def api_watch_unmark(
     if not _may_unmark(conn, username, libraries, kind, key):
         return _not_found()
     marked = _marked(conn, libraries, kind, key)
-    title = _unmark_title(conn, user_id, marked) if marked else None
-    keys = [key]
-    if marked and title and not marked.part:
-        # The mark was of every copy, and one left marked would keep the title watched.
-        refs = seen_titles.library_refs(conn, libraries, marked.key)
-        keys = [ref.partition("-")[2] for ref in refs]
-    changes = [c for k in keys for c in unmark_watched(conn, username, kind, k)]
+    with write_transaction(conn):
+        title = _unmark_title(conn, user_id, marked) if marked else None
+        keys = [key]
+        if marked and title and not marked.part:
+            # The mark was of every copy, and one left marked would keep the title watched.
+            refs = seen_titles.library_refs(conn, libraries, marked.key)
+            keys = [ref.partition("-")[2] for ref in refs]
+        changes = [c for k in keys for c in unmark_watched(conn, username, kind, k)]
     mark_undo.hold(
         (user_id, kind, key),
         marked.key if marked else None,
