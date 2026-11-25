@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     must_change_password INTEGER NOT NULL DEFAULT 0,
     email TEXT,
     role TEXT NOT NULL DEFAULT 'admin',
-    -- 1 while this person lets their searches, plays and ratings go to the AI.
+    -- 1 while this person lets their searches, ratings, requests and how their plays went go
+    -- to the AI. The titles they played go for their picks either way.
     ai_history INTEGER NOT NULL DEFAULT 1
 );
 
