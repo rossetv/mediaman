@@ -121,8 +121,27 @@
 .pv__actions > .pv__round > .ico { font-size: 15px; }
 .pv__gap { flex: 1; }
 .pv__actions > .pv__waiting { height: 40px; color: transparent; opacity: 1; cursor: inherit; }
-.pv__actions > .pv__state { opacity: .8; cursor: default; }
+.pv__actions > .pv__state { padding-inline: 12px; opacity: .8; cursor: default; }
 .pv__keep { position: absolute; right: 0; top: 0; width: 40px; height: 40px; opacity: 0; pointer-events: none; }
+
+/* Rating. What it opens lies over the buttons, and its line has its place from the start. */
+.pv__round > .rate-th { --th-bg: color-mix(in srgb, var(--t1) 14%, var(--s1)); width: 22px; height: 20px; }
+.pv__round.is-up { color: var(--accent-hi); }
+.pv__round.is-down { color: var(--orange); }
+.pv__strip {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  transform: scaleX(.3);
+  transform-origin: 100% 50%;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur);
+}
+.is-rating > .pv__strip { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
+.pv__said { padding: 0; color: var(--t2); }
+.pv__said[hidden] { display: block !important; visibility: hidden; }
 
 /* Placed, not yet shown: nothing may move to here. */
 .pv.is-placing,
@@ -136,6 +155,12 @@
 .pv.is-handed > .pv__shadow { visibility: hidden; }
 .pv.is-handed > .pv__shell { background: none; }
 .pv__held { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 25%; }
+
+.watch-more-menu { width: 258px; }
+.watch-menu-rate { flex: none; padding: 8px 10px 6px; }
+.watch-menu-rate > .rate__line { min-height: 24px; padding: 0 4px 6px; font-size: 12px; line-height: 18px; }
+.watch-menu-rate:has(> .rate[hidden]),
+.watch-menu-rate:has(> .rate[hidden]) + .pv-menu__line { display: none; }
 
 .pv-menu { transform-origin: top right; }
 .pv-menu.is-above { transform-origin: bottom right; }

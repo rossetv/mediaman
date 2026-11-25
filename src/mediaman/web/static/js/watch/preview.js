@@ -4,7 +4,7 @@
  * data-dismiss-ref), so a row or grid that draws cards needs nothing more.
  * It is for the mouse alone: nothing is in it that the card, its More menu and
  * the title detail do not offer a keyboard, a touch screen or a screen reader.
- * Needs watch/core.js, watch/keep.js, watch/marks.js and watch/detail.js.
+ * Needs watch/core.js, watch/keep.js, watch/marks.js, watch/detail.js and ratings.js.
  */
 (function () {
   'use strict';
@@ -314,6 +314,7 @@
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
     shell.appendChild(posterCopy(p));
+    if (window.MM.ratings) rating(p);
     n.addEventListener('mousedown', function (e) { e.preventDefault(); }); // the focus stays where it was
     n.addEventListener('focusin', function (e) {
       if (!e.target.hasAttribute('data-watch-keep')) focusCard(p);
@@ -461,6 +462,7 @@
     clearTimeout(p.timer);
     if (closing === p) closing = null;
     stopTrailer(p);
+    if (p.rating) p.rating.destroy();
     p.n.remove();
   }
 
@@ -574,6 +576,7 @@
     p.body.appendChild(head);
     p.actions = p.body.appendChild(el('div', 'pv__actions'));
     actions(p);
+    if (p.rating) p.body.appendChild(p.rating.line);
     if (!d && p.card.pick) p.body.appendChild(reason('')).appendChild(lines(['92%', '60%']));
     else if (d && (d.reason || p.card.pick)) p.body.appendChild(reason(d.reason || ''));
     p.n.classList.toggle('pv--reason', !!p.card.pick || !!(d && d.reason));
@@ -665,8 +668,6 @@
       first.classList.add('pv__first');
       p.actions.appendChild(first);
     }
-    var details = p.actions.appendChild(button('watch-btn--grey', 'Details'));
-    details.addEventListener('click', function () { openDetail(p); });
     p.actions.appendChild(el('span', 'pv__gap'));
     p.trailerButton = null;
     if (d && trailerKey(d)) {
@@ -675,6 +676,7 @@
       p.trailerButton.addEventListener('click', function () { pressTrailer(p); });
       faceTrailer(p);
     }
+    if (p.rating) p.actions.appendChild(p.rate);
     // Kept through every redraw: its menu may be open.
     p.more = p.more || moreButton();
     p.actions.appendChild(p.more);
@@ -682,6 +684,32 @@
       p.keep = p.keep || keepTrigger(p);
       p.actions.appendChild(p.keep);
     }
+    if (p.rating) p.actions.appendChild(p.strip);
+  }
+
+  /* ── Rate ──
+     A press opens the four thumbs over the buttons; they fold away once one is
+     pressed, or the mouse has gone back up to the picture. */
+
+  function rating(p) {
+    p.rating = window.MM.ratings.mount(p.card.ref, { variant: 'strip' });
+    p.rating.line.classList.add('pv__said');
+    p.strip = el('div', 'pv__strip');
+    p.strip.appendChild(p.rating.node);
+    core.toArray(p.strip.querySelectorAll('button')).forEach(function (b) { b.setAttribute('tabindex', '-1'); });
+    p.rate = round('Rate');
+    p.rate.addEventListener('click', function () { p.actions.classList.add('is-rating'); });
+    p.body.addEventListener('mouseleave', function () { p.actions.classList.remove('is-rating'); });
+    faceRate(p);
+  }
+
+  function faceRate(p) {
+    var level = window.MM.ratings.get(p.card.ref) || null;
+    p.rate.hidden = window.MM.ratings.canRate(p.card.ref) === false;
+    p.rate.classList.toggle('is-up', level > 0);
+    p.rate.classList.toggle('is-down', level < 0);
+    p.rate.textContent = '';
+    p.rate.appendChild(window.MM.ratings.thumb(level || 1, !!level));
   }
 
   function moreButton() {
@@ -807,7 +835,7 @@
   /* A press on the picture or the words is a press on the card. */
   function pressed(p, e) {
     // A press that redrew its button has left a target that is in nothing.
-    if (e.target.closest('button, .btn') || !p.n.contains(e.target)) return;
+    if (e.target.closest('button, .btn, .pv__strip') || !p.n.contains(e.target)) return;
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // the picture is a real link
     e.preventDefault();
     p.link.click();
@@ -909,6 +937,7 @@
 
   var menuNode = null;
   var menu = null;
+  var fillRating = null;
 
   function item(act, iconName, label) {
     var b = el('button', 'watch-keep-menu__item');
@@ -930,10 +959,12 @@
     var card = cardOf(live.link);
     var mark = /^(movie|episode|season|show)\//.exec((card && card.getAttribute('data-mark')) || '');
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
+    if (fillRating) fillRating(live.card.ref);
     if (mark) item('mark', 'i-eye', core.markAction(seen(live)).replace('Mark ', mark[1] === 'movie' ? 'Mark ' : 'Mark ' + mark[1] + ' '));
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');
     if (keepIdOf(live)) item('keep', 'i-clock', 'Keep' + (leavingOf(live).season === null ? '' : ' Season ' + leavingOf(live).season));
-    if (menuNode.children.length) menuNode.appendChild(el('hr', 'pv-menu__line'));
+    item('details', 'i-circle-info', 'Details');
+    menuNode.appendChild(el('hr', 'pv-menu__line'));
     var trailers = item('trailers', 'i-check', 'Play trailers on hover');
     trailers.setAttribute('role', 'menuitemcheckbox');
     trailers.setAttribute('aria-checked', trailersOn() ? 'true' : 'false');
@@ -969,6 +1000,8 @@
     } else if (act === 'dismiss') {
       close(p);
       press({ 'data-watch-dismiss': card.getAttribute('data-dismiss-ref'), 'data-mark-name': p.card.title });
+    } else if (act === 'details') {
+      openDetail(p);
     } else if (act === 'keep') {
       p.keep.click();
     }
@@ -992,6 +1025,7 @@
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
     (document.getElementById('watch-page') || document.body).appendChild(menuNode);
+    if (watch.marks) fillRating = watch.marks.menuRating(menuNode, function () { menu.close(true); });
     menu = watch.keep.menu(menuNode, {
       trigger: '[data-preview-more]',
       fill: fillMenu,
@@ -1245,6 +1279,12 @@
     live.data.download.pct = d.download_pct;
     actions(live);
     core.fadeIn(live.actions.querySelector('.pv__first') || live.actions);
+  });
+
+  document.addEventListener('mm:rating', function (e) {
+    if (!live || !live.rating || e.detail.refs.indexOf(live.card.ref) < 0) return;
+    if (e.detail.from === live.rating.node) live.actions.classList.remove('is-rating');
+    faceRate(live);
   });
 
   document.addEventListener('mm:watch-kept', function (e) { keptOrUndone(e.detail.id); });

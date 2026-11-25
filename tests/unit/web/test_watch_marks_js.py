@@ -487,3 +487,69 @@ def test_dismissing_a_show_meanwhile_loses_nothing_of_its_episode_s_mark() -> No
 
 def test_marking_the_whole_show_meanwhile_still_says_what_is_left_of_it() -> None:
     assert _run("wholeShowMeanwhile") == [False, "TV"]
+
+
+def test_a_rating_in_the_menu_is_saved_and_shuts_it_and_one_taken_back_does_not() -> None:
+    out = _run("menuRating")
+    rated = "PUT /api/watch/ratings/movie-1 1"
+    assert out["first"] == [False, [rated], "movie/1"]
+    assert out["back"] == [True, ["DELETE /api/watch/ratings/movie-1"]]
+
+
+def test_the_menus_keys_reach_the_four_thumbs_and_the_items() -> None:
+    assert _run("menuKeys") == [
+        "Strong no",
+        "Not for me",
+        "I like it",
+        "Mark as watched",
+        "Strong no",
+        "I love it",
+        "Mark as watched",
+    ]
+
+
+def test_a_strong_no_takes_the_title_out_of_the_picks_alone_and_undo_gives_the_old_level_back() -> (
+    None
+):
+    out = _run("strongNo")
+    assert out["gone"] == ["movie/8", "movie/9", "movie/1"]
+    assert out["toast"] == "Fieldwork is gone from your picks. Search still finds it."
+    assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+    assert out["calls"] == [f"PUT /api/watch/ratings/movie-1 {level}" for level in (1, -2, 1)]
+
+
+def test_the_focus_goes_to_the_next_pick_and_back_with_undo() -> None:
+    assert _run("strongNoFocus") == {"next": "movie/9", "back": "movie/1"}
+
+
+def test_a_pick_rated_in_details_goes_behind_it_and_closing_lands_on_the_next() -> None:
+    assert _run("strongNoInDetails") == {
+        "open": [["movie/8"], "inside", "ttl"],
+        "closed": "movie/8",
+    }
+
+
+def test_a_strong_no_that_was_not_saved_takes_nothing_out_and_is_said() -> None:
+    assert _run("ratingFails") == {
+        "picks": ["movie/8", "movie/1", "movie/9"],
+        "toasts": ["Your rating wasn’t saved. Try again."],
+    }
+
+
+def test_an_undo_that_is_refused_takes_the_pick_out_again() -> None:
+    out = _run("undoFails")
+    assert out["now"] == ["movie/8", "movie/1", "movie/9"]
+    assert out["after"] == ["movie/8", "movie/9"]
+    assert out["toast"] == "Couldn’t bring Fieldwork back. It stays out of your picks."
+
+
+def test_a_title_rated_otherwise_later_is_back_among_the_picks_and_its_toast_goes() -> None:
+    assert _run("secondThoughts") == {
+        "gone": ["movie/8", "movie/9"],
+        "back": ["movie/8", "movie/1", "movie/9"],
+        "dismissed": 1,
+    }
+
+
+def test_an_undo_leaves_a_row_filled_anew_alone_and_brings_an_emptied_one_back() -> None:
+    assert _run("undoLater") == {"anew": ["movie/8"], "emptied": False, "back": ["movie/1"]}

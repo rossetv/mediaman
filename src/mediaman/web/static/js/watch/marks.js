@@ -1,8 +1,8 @@
-/* Watch: the person's own Watched marks and Dismiss. One More menu serves every
- * card, a toggle every film, episode, season and show that has one, and each
- * change can be undone from its toast. What a change means for the rest of the
- * page is read from the server's own page. Needs watch/core.js and
- * watch/keep.js; on window.MMWatch.marks.
+/* Watch: the person's own Watched marks and Dismiss, and their rating in the menus and
+ * of a pick. One More menu serves every card, a toggle every film, episode, season and
+ * show that has one, and each change can be undone from its toast. What a change means
+ * for the rest of the page is read from the server's own page. Needs watch/core.js,
+ * watch/keep.js and ratings.js; on window.MMWatch.marks.
  */
 (function () {
   'use strict';
@@ -18,6 +18,8 @@
   var TITLE_URL = '/api/watch/title/';
   var SEARCH_URL = '/api/watch/search?q=';
   var LEFT_RE = / · [^·]* left$/;
+  var RATED_MS = 650; // how long a rating is looked at before what it was given in goes
+  var STRONG_NO = -2;
 
   var page = byId('watch-page');
   if (!page) return;
@@ -594,11 +596,175 @@
     });
   }
 
+  /* ── A strong no takes the title out of the picks ── */
+
+  var goneTitles = []; // { title, undos, toast }: each title that has left them, to come back if rated otherwise
+
+  /* Whether *a* and *b*, each with refs, mediaType and tmdbId, are one title. */
+  function sameTitle(a, b) {
+    return (!!a.tmdbId && a.tmdbId === b.tmdbId && a.mediaType === b.mediaType) ||
+      a.refs.some(function (ref) { return b.refs.indexOf(ref) >= 0; });
+  }
+
+  function pickOf(card) {
+    var link = card.querySelector('[data-pick-ref]');
+    return {
+      refs: [link.getAttribute('data-title-ref'), link.getAttribute('data-pick-ref')],
+      mediaType: link.getAttribute('data-kind') === 'movie' ? 'movie' : 'tv',
+      tmdbId: Number(link.getAttribute('data-tmdb-id'))
+    };
+  }
+
+  /* The cards of *title* among the picks, the open grid's last, so that an Undo has it back first. */
+  function pickCards(title) {
+    return toArray(document.querySelectorAll('.watch-card')).filter(function (card) {
+      return card.querySelector('[data-pick-ref]') && !card.classList.contains('is-kept') &&
+        !card.classList.contains('is-gone') && sameTitle(pickOf(card), title);
+    }).sort(function (a, b) { return (a.closest('.watch-row') ? 0 : 1) - (b.closest('.watch-row') ? 0 : 1); });
+  }
+
+  function controlIn(card) { return card.querySelector('[data-watch-more]') || card.querySelector('.watch-card__link'); }
+
+  /* Details gives the focus back to the card it opened from: *node* has it if that has gone. */
+  function focusAfter(details, node) {
+    var watcher = new MutationObserver(function () {
+      var shut = details.classList.contains('is-leaving');
+      if (!shut && !details.classList.contains('is-aside')) return;
+      watcher.disconnect();
+      var active = document.activeElement;
+      if (shut && (active === document.body || details.contains(active))) refocus(node);
+    });
+    watcher.observe(details, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  /* Returns what puts it back, or null: it is not in the picks shown. */
+  function leavePicks(title) {
+    var grid = window.MMWatch.grid;
+    var preview = window.MMWatch.preview;
+    var left = { title: title, name: '', undos: [], toast: null };
+    var focus = null;
+    var next = null;
+    pickCards(title).forEach(function (card) {
+      var row = card.closest('.watch-row');
+      if (!row && !(grid && grid.isOpen())) return; // a grid on its way out takes it along
+      left.name = titleOf(card);
+      closeMenu(card);
+      if (preview && card.querySelector('.is-previewed')) preview.close();
+      var lost = card.contains(document.activeElement);
+      var taken = keep.fromRow(card, row, card.getClientRects().length > 0, '[data-watch-more]');
+      if (lost) focus = taken.focus;
+      next = taken.focus;
+      left.undos.push(function () {
+        if (row) showInRow(row, card, taken.undo);
+        else taken.undo();
+        return card;
+      });
+    });
+    if (detailsShown()) focusAfter(detailsShown(), next);
+    else if (focus) core.focusSoftly(focus);
+    if (!left.undos.length) return null;
+    goneTitles.push(left);
+    return left;
+  }
+
+  function backInPicks(title) {
+    goneTitles.filter(function (left) { return sameTitle(left.title, title); }).forEach(function (left) {
+      goneTitles.splice(goneTitles.indexOf(left), 1);
+      if (left.toast) window.UIFeedback.dismiss(left.toast);
+      var cards = left.undos.reverse().map(function (fn) { return fn(); });
+      if (!focusLost(null)) return;
+      var shown = cards.filter(function (card) { return canFocus(card); })[0];
+      if (shown) refocus(controlIn(shown));
+    });
+  }
+
+  function saidNo(title) {
+    if (MM.ratings.get(title.ref) !== STRONG_NO) return;
+    var left = leavePicks(title);
+    if (!left) return;
+    left.toast = window.UIFeedback.toast(left.name + ' is gone from your picks. Search still finds it.', {
+      variant: 'info',
+      dialog: detailsShown(),
+      action: { label: 'Undo', onClick: function () { MM.ratings.set(title.ref, title.was); } }
+    });
+  }
+
+  document.addEventListener('mm:rating', function (e) {
+    var d = e.detail;
+    if (d.phase === 'saved' && d.level === STRONG_NO) {
+      setTimeout(function () { saidNo(d); }, RATED_MS);
+    } else if (d.phase === 'pending' || d.phase === 'saved') {
+      if (d.level !== STRONG_NO) backInPicks(d);
+    } else if (d.phase === 'failed') {
+      var again = d.level === STRONG_NO ? leavePicks(d) : null;
+      var where = d.from && d.from.closest('.watch-keep-menu, .pv');
+      if (again) core.toast('Couldn’t bring ' + again.name + ' back. It stays out of your picks.', { variant: 'error' });
+      // The menu or preview that would say so has gone.
+      else if (!d.from || (d.from.matches('.rate--menu, .rate--strip') &&
+          !(where && document.body.contains(where) && where.matches('.is-open:not(.is-fading):not(.is-handed)')))) {
+        core.toast('Your rating wasn’t saved. Try again.', { variant: 'error' });
+      }
+    }
+  });
+
+  /* ── The rating in a More menu ──
+     At its top: *node* is the menu, close() shuts it. Returns fill(ref). */
+
+  function menuRating(node, close) {
+    var set = null;
+    var closing = null;
+
+    function fill(ref) {
+      clearTimeout(closing);
+      if (set) set.destroy();
+      set = null;
+      if (!MM.ratings || !ref || MM.ratings.canRate(ref) === false) return;
+      set = MM.ratings.mount(ref, { variant: 'menu' });
+      var block = node.appendChild(el('div', 'watch-menu-rate'));
+      block.appendChild(set.line);
+      block.appendChild(set.node);
+      // A press elsewhere than on an item closes a menu.
+      block.addEventListener('click', function (e) { e.stopPropagation(); });
+      node.appendChild(el('hr', 'pv-menu__line'));
+    }
+
+    document.addEventListener('mm:rating', function (e) {
+      var d = e.detail;
+      if (!set || d.phase !== 'pending' || d.from !== set.node) return;
+      clearTimeout(closing);
+      if (d.level !== null) closing = setTimeout(close, RATED_MS);
+    });
+
+    /* The four are one stop of the menu's up and down keys; left and right go between them. */
+    node.addEventListener('keydown', function (e) {
+      if (!set || set.node.hidden) return;
+      var thumbs = toArray(set.node.querySelectorAll('.rate__b'));
+      var stops = [thumbs.filter(function (b) { return b.getAttribute('aria-checked') === 'true'; })[0] || thumbs[0]]
+        .concat(toArray(node.querySelectorAll('.watch-keep-menu__item')));
+      var at = thumbs.indexOf(document.activeElement);
+      var stop = at < 0 ? stops.indexOf(document.activeElement) : 0;
+      var to = null;
+      if (e.key === 'ArrowDown') to = stops[(stop + 1) % stops.length];
+      else if (e.key === 'ArrowUp') to = stops[(Math.max(stop, 0) - 1 + stops.length) % stops.length];
+      else if (e.key === 'Home') to = stops[0];
+      else if (e.key === 'End') to = stops[stops.length - 1];
+      else if (at >= 0 && e.key === 'ArrowRight') to = thumbs[(at + 1) % thumbs.length];
+      else if (at >= 0 && e.key === 'ArrowLeft') to = thumbs[(at - 1 + thumbs.length) % thumbs.length];
+      if (!to) return;
+      e.preventDefault();
+      e.stopPropagation();
+      to.focus();
+    });
+
+    return fill;
+  }
+
   /* ── The More menu ── */
 
   var WHAT = { movie: '', episode: 'episode ', season: 'season ', show: 'show ' };
   var menuNode = null;
   var moreMenu = null;
+  var fillRating = null;
 
   function menuItem(act, iconName, label) {
     var item = el('button', 'watch-keep-menu__item');
@@ -616,6 +782,7 @@
     var kind = card.getAttribute('data-mark').split('/')[0];
     menuNode.textContent = '';
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
+    fillRating(refOf(card));
     menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[kind] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
   }
@@ -635,6 +802,7 @@
     menuNode.setAttribute('role', 'menu');
     menuNode.hidden = true;
     page.appendChild(menuNode);
+    fillRating = menuRating(menuNode, function () { moreMenu.close(true); });
     moreMenu = keep.menu(menuNode, {
       trigger: '[data-watch-more]',
       canOpen: function (trigger) { return trigger.getAttribute('aria-disabled') !== 'true'; },
@@ -656,5 +824,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, showInRow: showInRow };
+  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating };
 })();
