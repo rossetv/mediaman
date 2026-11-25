@@ -274,13 +274,17 @@ MOUSE = "(hover: hover) and (pointer: fine)"
 
 
 def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
-    # Those not seen at rest: a rating given stays drawn, as a card nears faster than it is told.
-    far = ".watch-card.is-far > .card-tools > .card-tool:not(.is-up, .is-down)"
+    # The whole row, which WebKit then skips at once; a rating given stays drawn, as a card nears
+    # faster than it is told.
+    far = ".watch-card.is-far > .card-tools"
+    rated = far + " > .card-tool:is(.is-up, .is-down)"
     assert "visibility: hidden" in _of(far, MOUSE, CARDS)
+    assert "visibility: visible" in _of(rated, MOUSE, CARDS)
     assert "opacity: 1" in _of(".card-tool--thumb:is(.is-up, .is-down)", MOUSE, CARDS)
-    assert not _of(".watch-card.is-far > .card-tools", MOUSE, CARDS)
+    assert not _of(far + " > .card-tool:not(.is-up, .is-down)", MOUSE, CARDS)
     # A touch screen's thumbs, drawn at rest, are as they were.
-    assert not _of(far, sheet=CARDS) and not _of(far, FINGER, CARDS)
+    for rule in (far, rated):
+        assert not _of(rule, sheet=CARDS) and not _of(rule, FINGER, CARDS)
 
 
 _TOOLS = " > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
