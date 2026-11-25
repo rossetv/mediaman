@@ -54,8 +54,9 @@
     return card;
   }
 
-  /* Have *card* say what *fresh*, the same title as it is now, says. */
-  function refresh(card, fresh) {
+  /* Have *card* say what *fresh*, the same title as it is now, says; of a title just *marked*, whether
+     it is watched stays as marks.js draws it. */
+  function refresh(card, fresh, marked) {
     ['data-key', 'data-tone', 'data-admin', 'data-keep-id', 'data-leaving-id', 'data-leaving-seasons'].forEach(function (name) {
       if (fresh.hasAttribute(name)) card.setAttribute(name, fresh.getAttribute(name));
       else card.removeAttribute(name);
@@ -66,14 +67,14 @@
       var old = poster.querySelector(name);
       var next = now.querySelector(name);
       // A mark just given is still on its way in.
-      if (old && next && name === '.watch-badge--watched') return;
+      if ((marked || (old && next)) && name === '.watch-badge--watched') return;
       if (old && next) old.replaceWith(next);
       else if (old) old.remove();
       else if (next) poster.appendChild(next);
     });
     toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) {
       var own = fresh.querySelector('[data-mark-toggle]');
-      if (own) ['aria-pressed', 'title'].forEach(function (name) { b.setAttribute(name, own.getAttribute(name)); });
+      if (own && !marked) ['aria-pressed', 'title'].forEach(function (name) { b.setAttribute(name, own.getAttribute(name)); });
     });
     labels.delete(card);
     card.querySelector('.watch-card__title').textContent = fresh.querySelector('.watch-card__title').textContent;
@@ -295,7 +296,7 @@
       if (isOld(got, key)) return readAgain(key, d);
       if (still.sort === now.sort && still.filter === now.filter) grid.setBar(barOf(got));
       cardsOf(key).forEach(function (card) {
-        if (got.items.length) refresh(card, build(got.items[0]));
+        if (got.items.length) refresh(card, build(got.items[0]), d.marked);
         else leave(card);
         if (!d.marked) focusOn(got.items.length ? card : null);
       });
