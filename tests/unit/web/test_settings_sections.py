@@ -287,3 +287,25 @@ def test_an_address_with_a_password_in_it_is_refused_for_that(client) -> None:
     assert resp.status_code == 400
     message = resp.json()["message"]
     assert "password" in message and "secret" not in message
+
+
+def test_the_page_has_no_plex_or_nzbget_public_url_but_keeps_the_arr_ones(client) -> None:
+    context = client.get("/settings").json()
+    env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
+    html = env.get_template("settings/_sec_integrations.html").render(**context)
+    for gone in ("plex_public_url", "nzbget_public_url"):
+        assert f'id="{gone}"' not in html
+    for kept in ("sonarr_public_url", "radarr_public_url"):
+        assert f'id="{kept}"' in html
+
+
+def test_a_save_without_the_removed_fields_keeps_what_is_stored(client, conn) -> None:
+    from tests.helpers.factories import insert_settings
+
+    insert_settings(
+        conn, plex_public_url="http://plex.example.com", nzbget_public_url="http://n.example.com"
+    )
+    assert client.put("/api/settings", json={"grace_days": 9}).status_code == 200
+    stored = client.get("/api/settings").json()
+    assert stored["plex_public_url"] == "http://plex.example.com"
+    assert stored["nzbget_public_url"] == "http://n.example.com"

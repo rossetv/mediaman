@@ -2059,7 +2059,7 @@ const scenarios = {
     const save = h.add('button', { id: 'btn-save' }, bar);
     const discard = h.add('button', { id: 'btn-discard' }, bar);
     const f = {};
-    ['plex_url', 'plex_token', 'plex_public_url', 'sonarr_url', 'sonarr_api_key', 'nzbget_url', 'nzbget_username', 'base_url'].forEach((id) => { f[id] = h.add('input', { id, value: 'v', type: 'text' }, page); });
+    ['plex_url', 'plex_token', 'sonarr_url', 'sonarr_api_key', 'nzbget_url', 'nzbget_username', 'base_url'].forEach((id) => { f[id] = h.add('input', { id, value: 'v', type: 'text' }, page); });
     const pills = {};
     ['plex', 'sonarr', 'nzbget'].forEach((s) => {
       pills[s] = h.add('span', { className: 'conn' }, page);
@@ -2100,7 +2100,7 @@ const scenarios = {
     out.written = [await saveNow(), look('plex'), look('sonarr'), look('nzbget')];
     check = () => Promise.resolve({});
     edit('base_url', 'b');
-    edit('plex_public_url', 'p');
+    edit('base_url', 'q');
     out.elsewhere = await saveNow();
     edit('sonarr_url', '');
     out.emptied = [await saveNow(), look('sonarr')];
