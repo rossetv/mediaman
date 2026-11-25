@@ -1352,7 +1352,8 @@
         return;
       }
       if (plain()) {
-        if (s.sum < watch.carry.OPENS) return;
+        // Nothing moves to show it is under way: a notch, its own scroll, is enough.
+        if (s.sum < watch.carry.OPENS && !s.notches) return;
         s.owner = 'over';
         remember(SCROLLED, 'yes');
         openDetail(live);

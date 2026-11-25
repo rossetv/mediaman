@@ -1658,3 +1658,11 @@ def test_a_title_opened_while_it_downloads_shows_its_sizes_and_time_left_at_the_
 
 def test_only_a_title_asked_for_on_the_chance_it_opens_says_so_to_the_server() -> None:
     assert _run("aheadMarked") == {"hovered": ["/api/watch/title/movie-120?ahead=1"], "drawn": 1}
+
+
+def test_a_title_opened_on_what_was_asked_ahead_and_then_refused_is_asked_again_and_opens() -> None:
+    assert _run("aheadRefusedOnOpen") == {
+        "meanwhile": {"asked": 2, "failed": False},
+        "director": "DirectorAda Rimmington",
+        "failed": False,
+    }

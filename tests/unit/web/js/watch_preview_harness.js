@@ -1588,6 +1588,19 @@ const scenarios = {
     await h.pass(1500);
     return { steps: h.steps.filter((s) => !/ahead/.test(s)), back: h.places.some((at, i) => at < h.places[i - 1]) };
   },
+  /* Less motion: a notched wheel opens it, at its first notch, however far apart the notches come. */
+  async plainNotches() {
+    const out = [];
+    for (const [opts, over, gap] of [[{ reduced: true }, {}, 250], [{ forced: true }, {}, 400], [{ reduced: true }, { deltaMode: 1 }, 250]]) {
+      const h = load(opts);
+      await h.rest('film', 1100);
+      const first = h.wheel(over.deltaMode ? 3 : 100, over);
+      const opened = h.details.length;
+      await h.pass(gap);
+      out.push([first, opened]);
+    }
+    return out;
+  },
   /* Opened plainly, the rest of the scroll that opened it is kept from the page; the next one is not. */
   async plainRest() {
     const out = [];

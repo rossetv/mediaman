@@ -682,7 +682,12 @@
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
     if (window.MM.ratings) window.MM.ratings.read([c.ref]);
-    (early ? early.promise : get(apiUrl(c.ref), ctrl)).then(function (data) {
+    // What was asked for ahead may be refused by its own limit, which a title opened is not.
+    var asked = early ? early.promise.catch(function (err) {
+      if (err && err.name === 'AbortError') throw err;
+      return get(apiUrl(c.ref), ctrl);
+    }) : get(apiUrl(c.ref), ctrl);
+    asked.then(function (data) {
       if (c !== cur || !isOpen) return;
       if (c.ref === c.pickRef) takePick(c, data);
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {

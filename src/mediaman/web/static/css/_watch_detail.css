@@ -321,6 +321,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
 .cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
 .cry-mark { display: inline-block; }
+/* A piece of the card's line whose words have gone to the page's, its dot left for a while. */
+.cry-hush { -webkit-text-fill-color: transparent; }
+.cry-hush::before { -webkit-text-fill-color: currentColor; }
 /* Its pieces go each their own way: none is cut by the line, and their dots come after them. */
 .ttl.is-carried .ttl__meta { clip-path: none; }
 .ttl.is-carried .ttl__meta > span::before { opacity: var(--cry-dot, 1); }
@@ -462,7 +465,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .dl-progress .watch-bar--banner { width: 100%; }
 .dl-progress .watch-bar--banner::-webkit-progress-value { background: var(--accent); }
 .dl-progress .watch-bar--banner::-moz-progress-bar { background: var(--accent); }
-.dl-progress__line { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.dl-progress__line { display: flex; justify-content: space-between; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
 
 /* ── A show's seasons ── */
 
