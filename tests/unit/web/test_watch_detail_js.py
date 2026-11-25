@@ -1483,3 +1483,7 @@ def test_a_title_opened_while_it_downloads_shows_its_sizes_and_time_left_at_the_
     assert before == ""
     assert "3.1 GB of 7.4 GB" in after and "about 6 min left" in after
     assert events == 1  # the share did not move, so nothing else is told
+
+
+def test_only_a_title_asked_for_on_the_chance_it_opens_says_so_to_the_server() -> None:
+    assert _run("aheadMarked") == {"hovered": ["/api/watch/title/movie-120?ahead=1"], "drawn": 1}

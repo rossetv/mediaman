@@ -415,7 +415,7 @@
     if (!REF_RE.test(ref) || aheadAt.length >= AHEAD_MOST) return null;
     aheadAt.push(now);
     var a = ahead = { ref: ref, at: now, ctrl: new AbortController(), promise: null, data: null, failed: false };
-    a.promise = get(apiUrl(ref), a.ctrl);
+    a.promise = get(apiUrl(ref) + (wanted ? '' : '?ahead=1'), a.ctrl);
     a.promise.then(function (data) { a.data = data; }, function () { a.failed = true; });
     return a;
   }

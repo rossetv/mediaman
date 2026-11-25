@@ -139,6 +139,7 @@ function load(opts = {}) {
   const toasts = [];
   const timers = [];
   const gets = [];
+  const aheads = [];
   const posts = [];
   const answers = []; // to the ratings sent, not answered yet
   const events = [];
@@ -228,6 +229,9 @@ function load(opts = {}) {
     MM: { api: {
       APIError,
       get: (url, o) => {
+        // Asked ahead or not, a title is the same title.
+        if (/\?ahead=1$/.test(url)) aheads.push(url);
+        url = url.replace(/\?ahead=1$/, '');
         gets.push(url);
         const r = routes[url];
         if (r instanceof Error) return Promise.reject(r);
@@ -289,7 +293,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { answers, message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, aheads, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -429,6 +433,18 @@ const scenarios = {
     await settle();
     out.own = p.gets.filter((u) => /title\/tmdb-movie-77$/.test(u)).length;
     return out;
+  },
+
+  // Only what a preview asks for on the chance it is opened says so to the server, which limits it apart.
+  async aheadMarked() {
+    const p = carried();
+    p.detail.ahead('movie-120');
+    const hovered = p.aheads.slice();
+    p.clock.now += 61000;
+    p.draw();
+    p.detail.undraw();
+    await settle();
+    return { hovered, drawn: p.aheads.length };
   },
 
   // A show whose seasons are picked, drawn from its preview: Download waits for the page, through a failed try.
