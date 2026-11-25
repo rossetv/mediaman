@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -26,7 +25,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
 from mediaman.core.format import normalise_media_type
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.crypto import sign_poster_url
 from mediaman.db import get_db
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -34,7 +33,6 @@ from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
     apply_keep_forever,
     apply_keep_snooze,
-    format_added_display,
     is_keep_token_consumed,
     is_pending,
     lookup_verified_action,
@@ -44,8 +42,8 @@ from mediaman.services.scheduled_actions import (
 )
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_optional_admin_from_token
-from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
+from mediaman.web.repository.library_query import title_ref
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download._season import season_name
 
@@ -101,14 +99,17 @@ def _consume_keep_token_and_apply(
     return None
 
 
-_FORM_ERROR_MESSAGES = {
-    "already_processed": "This link has already been used, so nothing more was changed.",
-    "invalid_or_expired": "This link is no longer valid. It may have expired or the deletion date may have passed.",
-    "rate_limited": "Too many requests. Try again later.",
+# The page a browser is shown for a failed keep.
+_FAILED_STATES = {
+    "already_processed": "used",
+    "invalid_or_expired": "invalid",
+    "rate_limited": "limited",
 }
 
 
-_DEFAULT_FORM_ERROR = "Something went wrong, so nothing was changed."
+def _signed_in(request: Request) -> bool:
+    token = request.cookies.get("session_token")
+    return get_optional_admin_from_token(token, request=request) is not None
 
 
 def _wants_html_form(request: Request) -> bool:
@@ -148,10 +149,9 @@ def _submit_failure(
         request,
         "keep.html",
         {
-            "state": "error",
+            "state": _FAILED_STATES.get(error, "error"),
             "item": None,
-            "error_message": _FORM_ERROR_MESSAGES.get(error, _DEFAULT_FORM_ERROR),
-            "is_admin": _is_admin(request),
+            "signed_in": _signed_in(request),
         },
         status_code=status,
     )
@@ -174,6 +174,34 @@ def _keep_state(row: VerifiedKeepAction, now: datetime) -> str:
     return "already_kept"
 
 
+def _lengths(execute_at: datetime, now: datetime) -> list[dict[str, object]]:
+    """The lengths the page offers: one that ends no later than the day the title leaves would
+    keep nothing.
+
+    A post of one of those is not refused: a caller that is no page may send it.
+    """
+    ends = {d: now + timedelta(days=n) for d, n in VALID_KEEP_DURATIONS.items() if n is not None}
+    return [
+        {"duration": d, "until": until}
+        for d, until in ends.items()
+        if until.date() > execute_at.date()
+    ]
+
+
+def _watch_href(row: VerifiedKeepAction, kind: str) -> str:
+    """The title's own address on the Watch page, which signing in leads back to."""
+    if kind == "movie":
+        ref = title_ref("movie", row.plex_rating_key)
+    else:
+        media = (
+            get_db()
+            .execute("SELECT show_rating_key FROM media_items WHERE id = ?", (row.media_item_id,))
+            .fetchone()
+        )
+        ref = title_ref("show", media["show_rating_key"] if media else None)
+    return f"/watch#title={ref}" if ref else ""
+
+
 def _keep_context(
     request: Request, token: str, row: VerifiedKeepAction, secret_key: str
 ) -> dict[str, object]:
@@ -182,39 +210,38 @@ def _keep_context(
     execute_at = parse_execute_at(row.execute_at, default=now)
     state = _keep_state(row, now)
 
-    # Format added_at for display (e.g. "14 May 2025"). The template
-    # consumes ``item.<field>`` attribute access, so the dataclass is
-    # converted to a plain dict here and the derived display field added.
-    item_dict = asdict(row)
-    item_dict["kind"] = kind = normalise_media_type(row.media_type)
-    item_dict["heading"] = (row.show_title if kind != "movie" else None) or row.title
-    item_dict["season_label"] = (
-        season_name(row.season_number) if kind != "movie" and row.season_number is not None else ""
-    )
-    item_dict["added_display"] = format_added_display(item_dict["added_at"])
-    watched = (
-        get_db()
-        .execute("SELECT last_watched_at FROM media_items WHERE id = ?", (row.media_item_id,))
-        .fetchone()
-    )
-    item_dict["last_watched_display"] = format_added_display(watched[0]) if watched else ""
+    kind = normalise_media_type(row.media_type)
+    # Only what the page says: whoever holds the link may read it.
+    item = {
+        "kind": kind,
+        "heading": (row.show_title if kind != "movie" else None) or row.title,
+        "season_label": (
+            season_name(row.season_number)
+            if kind != "movie" and row.season_number is not None
+            else ""
+        ),
+        "snooze_duration": row.snooze_duration,
+        "forever": row.action == ACTION_PROTECTED_FOREVER,
+    }
 
     # The page is opened logged out from an email, so the poster needs a signed URL.
-    rating_key = item_dict.get("plex_rating_key")
-    poster_url = sign_poster_url(rating_key, secret_key) if rating_key else ""
-
-    item_dict["snoozed_display"] = format_added_display(item_dict["snoozed_at"])
+    rating_key = row.plex_rating_key
+    poster_url = sign_poster_url(rating_key, secret_key, whole_days=True) if rating_key else ""
 
     return {
         "state": state,
-        "item": item_dict,
+        "item": item,
         # Set on the redirect after a keep, so the page can say what just happened.
         "just_kept": request.query_params.get("kept") == "1",
         "poster_url": poster_url,
+        "watch_href": _watch_href(row, kind) if state != "deleting" else "",
         "token": token,
-        "is_admin": _is_admin(request),
+        "signed_in": _signed_in(request),
+        "now": now,
         "execute_at": execute_at,
         "days_left": days_left(execute_at, now),
+        "snoozed_at": parse_iso_strict_utc(row.snoozed_at),
+        "lengths": _lengths(execute_at, now),
     }
 
 
@@ -229,12 +256,9 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             request,
             "keep.html",
             {
-                "state": "error",
+                "state": "limited",
                 "item": None,
-                "error_pill": "Rate limited",
-                "error_heading": "Too many requests",
-                "error_message": "Wait a minute and open the link again.",
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
             status_code=429,
         )
@@ -245,7 +269,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "invalid",
                 "item": None,
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
         )
 
@@ -258,7 +282,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "invalid",
                 "item": None,
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
         )
 

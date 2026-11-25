@@ -684,7 +684,6 @@ class TestYoutubeTrailerKeyValidation:
         ctx = TestClient(app).get(f"/download/{token}").json()
 
         assert ctx["item"]["backdrop_url"] == wide
-        assert ctx["hero_backdrop"] == wide
         assert ctx["item"]["description"] == "A first sentence."
 
 
@@ -721,7 +720,7 @@ def _render_queued_page(
     with patch.object(_download_confirm, "_get_radarr_cache_cached", return_value=queued_in_radarr):
         resp = TestClient(app).get(f"/download/{token}")
     assert resp.status_code == 200
-    assert "dl-hint" in resp.text
+    assert "share-steps" in resp.text
     return resp.text
 
 
@@ -736,7 +735,7 @@ class TestDownloadPageEmailPromise:
     def test_link_without_email_promises_no_email(self, app_factory, conn, secret_key):
         page = _render_queued_page(app_factory, conn, secret_key, email=None)
 
-        assert "notified by email" not in page
+        assert "send you a mail" not in page
         assert '"notify_by_email": false' in page
 
     def test_a_queued_title_the_person_asked_for_promises_one(self, app_factory, conn, secret_key):
@@ -752,7 +751,7 @@ class TestDownloadPageEmailPromise:
 
         page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
-        assert "notified by email" in page
+        assert "send you a mail" in page
         assert '"notify_by_email": true' in page
 
     def test_a_queued_title_they_did_not_ask_for_promises_none(self, app_factory, conn, secret_key):
@@ -768,7 +767,7 @@ class TestDownloadPageEmailPromise:
 
         page = _render_queued_page(app_factory, conn, secret_key, email="a@example.com")
 
-        assert "notified by email" not in page
+        assert "send you a mail" not in page
         assert '"notify_by_email": false' in page
 
 
@@ -778,9 +777,7 @@ class TestDownloadPageBackdrop:
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def test_the_script_is_given_the_wide_backdrop_for_the_card_it_builds(
-        self, app_factory, conn, secret_key
-    ):
+    def test_the_wide_backdrop_is_behind_a_title_on_its_way(self, app_factory, conn, secret_key):
         wide = "https://image.tmdb.org/t/p/w1280/wide.jpg"
         sid = insert_suggestion(conn, title="Dune", tmdb_id=42, created_at="2026-01-01")
         with conn:
@@ -788,43 +785,188 @@ class TestDownloadPageBackdrop:
 
         page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
 
+        assert f'<img class="watch-banner__bg watch-banner__bg--art" src="{wide}"' in page
         bootstrap = re.search(r'<script id="page-bootstrap"[^>]*>(.*?)</script>', page, re.S)
         assert bootstrap is not None
-        assert json.loads(bootstrap.group(1))["backdrop_url"] == wide
+        assert set(json.loads(bootstrap.group(1))) == {
+            "token",
+            "poll_token",
+            "service",
+            "tmdb_id",
+            "download_state",
+            "notify_by_email",
+        }
+
+
+def _offer_page(app_factory, conn, secret_key, **suggestion) -> str:
+    """The page of a title nothing holds yet."""
+    _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+    sid = insert_suggestion(conn, title="Dune", tmdb_id=42, **suggestion)
+    token = generate_download_token(
+        email="amy@example.com",
+        action="download",
+        title="Dune",
+        media_type="movie",
+        tmdb_id=42,
+        recommendation_id=sid,
+        secret_key=secret_key,
+    )
+    nothing = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
+    with patch.object(_download_confirm, "_get_radarr_cache_cached", return_value=nothing):
+        resp = TestClient(_app_with_real_templates(app_factory, conn)).get(f"/download/{token}")
+    assert resp.status_code == 200 and 'id="btn-download"' in resp.text
+    return resp.text
 
 
 class TestDownloadPageTrailer:
-    @pytest.fixture(autouse=True)
-    def _clear_state(self):
-        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
-        _download_confirm._reset_arr_cache_for_tests()
+    def test_the_trailer_is_a_link_and_the_page_itself_asks_youtube_nothing(
+        self, app_factory, conn, secret_key
+    ):
+        page = _offer_page(app_factory, conn, secret_key, trailer_key="dQw4w9WgXcQ")
 
-    def test_trailer_iframe_uses_no_cookie_origin(self, app_factory, conn, secret_key):
-        sid = insert_suggestion(
-            conn,
-            title="Dune",
-            media_type="movie",
-            category="personal",
-            tmdb_id=42,
-            trailer_key="dQw4w9WgXcQ",
-            created_at="2026-01-01",
+        assert "<iframe" not in page
+        link = re.search(r'<a [^>]*data-trailer="dQw4w9WgXcQ"[^>]*>', page)
+        assert link and 'href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"' in link[0]
+        assert 'rel="noopener noreferrer"' in link[0]
+        assert set(re.findall(r"[^\"]*youtube[^\"]*", page)) == {
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        }
+
+    @pytest.mark.parametrize("state", [None, "in_library", "tracked", "queued"])
+    def test_every_state_but_on_its_way_has_the_trailer_and_its_script(self, state):
+        page = _template_page(download_state=state, trailer_key="dQw4w9WgXcQ")
+
+        offered = state != "queued"
+        shown = re.sub(r"<template.*?</template>", "", page, flags=re.S)
+        assert ("data-trailer" in shown) is offered
+        assert ("/static/js/share.js" in page) is offered
+
+    @pytest.mark.parametrize("state", [None, "in_library", "tracked", "queued"])
+    def test_without_scripts_a_download_button_says_it_does_nothing(self, state):
+        page = _template_page(download_state=state)
+
+        assert ("<noscript>" in page) is (state is None)
+
+    def test_a_title_with_no_trailer_has_no_button_for_one(self, app_factory, conn, secret_key):
+        page = _offer_page(app_factory, conn, secret_key, trailer_key="<script>evil")
+
+        assert "data-trailer" not in page and "evil" not in page
+
+
+class TestDownloadPagePeople:
+    def test_who_asked_for_it_is_not_on_the_page(self, app_factory, conn, secret_key):
+        page = _offer_page(app_factory, conn, secret_key)
+
+        assert "example.com" not in page and "Requested" not in page
+
+    @pytest.mark.parametrize(
+        ("media_type", "credit"), [("movie", "Directed by"), ("tv", "Created by")]
+    )
+    def test_a_show_is_created_and_a_film_directed(self, media_type, credit):
+        page = _template_page(media_type=media_type, director="L. M.")
+
+        assert f'<span class="ttl__credit-label">{credit}</span><span>L. M.</span>' in page
+
+
+def _template_page(**item) -> str:
+    from pathlib import Path
+
+    import jinja2
+
+    templates = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(templates), autoescape=True)
+    item = {"title": "Dune", "media_type": "movie", "tmdb_id": 42, **item}
+    return env.get_template("download.html").render(state="confirm", item=item)
+
+
+def _previews(page: str) -> dict[str, str]:
+    return dict(
+        re.findall(r'<meta (?:property|name)="((?:og|twitter):\w+)" content="([^"]*)">', page)
+    )
+
+
+class TestLinkPreview:
+    _WIDE = "https://image.tmdb.org/t/p/w1280/wide.jpg"
+    _POSTER = "https://image.tmdb.org/t/p/w300/p.jpg"
+
+    def test_it_is_the_title_and_its_picture(self):
+        assert _previews(_template_page(poster_url=self._POSTER, backdrop_url=self._WIDE)) == {
+            "og:site_name": "mediaman",
+            "og:type": "website",
+            "og:title": "Dune",
+            "og:image": self._WIDE,
+            "twitter:card": "summary_large_image",
+        }
+
+    def test_with_no_wide_picture_it_has_the_poster(self):
+        preview = _previews(_template_page(poster_url=self._POSTER, season_number=2))
+
+        assert preview["og:image"] == "https://image.tmdb.org/t/p/w500/p.jpg"
+        assert preview["og:title"] == "Dune · Season 2"
+
+    def test_a_picture_of_another_host_and_the_mail_s_reader_are_not_in_it(self):
+        page = _template_page(
+            poster_url="https://elsewhere.example/p.jpg", reason="Because.", email="amy@example.com"
         )
 
-        page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
+        assert "og:image" not in _previews(page)
+        assert not {"Because.", "amy@example.com"} & set(_previews(page).values())
 
-        iframe = re.search(r'<iframe src="([^"]+)"', page)
-        assert iframe is not None
-        assert iframe.group(1) == "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0"
-        sandbox = re.search(r'<iframe[^>]*\ssandbox="([^"]+)"', page)
-        assert sandbox is not None
-        # popups let the player's own "Watch on YouTube" link open, outside the sandbox
-        assert set(sandbox.group(1).split()) == {
-            "allow-scripts",
-            "allow-same-origin",
-            "allow-presentation",
-            "allow-popups",
-            "allow-popups-to-escape-sandbox",
-        }
+    def test_a_title_cannot_leave_its_attribute(self):
+        page = _template_page(title='"><script>x</script>')
+
+        assert "<script>x" not in page
+
+    def test_a_dead_link_has_none(self, app_factory, conn):
+        page = TestClient(_app_with_real_templates(app_factory, conn)).get("/download/bad").text
+
+        assert _previews(page) == {} and "This link does not work any more" in page
+
+    def test_a_chat_that_fetches_it_leaves_the_link_unspent(self, app_factory, conn, secret_key):
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_confirm._reset_arr_cache_for_tests()
+        _download_tokens._USED_TOKENS.clear()
+        client = TestClient(_app_with_real_templates(app_factory, conn))
+        token = _valid_token(secret_key)
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        before = list(conn.iterdump())
+        with (
+            patch.object(_download_confirm, "build_radarr_from_db", return_value=None),
+            patch.object(_download_submit, "build_radarr_from_db", return_value=radarr),
+        ):
+            for _ in range(2):
+                assert client.get(f"/download/{token}", headers={"user-agent": "bot"}).is_success
+            assert list(conn.iterdump()) == before
+            assert client.post(f"/download/{token}").json()["ok"] is True
+
+
+class TestWatchLink:
+    @pytest.mark.parametrize(
+        ("item", "href"),
+        [
+            ({}, "/watch#title=tmdb-movie-42"),
+            ({"media_type": "tv"}, "/watch#title=tmdb-tv-42"),
+            ({"tmdb_id": None}, "/watch"),
+            ({"tmdb_id": "//evil.example"}, "/watch"),
+        ],
+    )
+    def test_it_opens_the_title_itself_on_this_site(self, item, href):
+        page = _template_page(download_state="in_library", **item)
+
+        assert f'<a class="btn btn--lg watch-btn--play" href="{href}">' in page
+        assert "evil" not in page.split("page-bootstrap")[0]
+
+    def test_its_title_is_one_watch_opens(self):
+        from mediaman.web.auth.return_path import safe_return_path
+        from mediaman.web.routes.watch.catalog_api import REF_RE
+
+        href = re.search(
+            r'watch-btn--play" href="([^"]+)"', _template_page(download_state="in_library")
+        )
+        assert href is not None
+        path, _, ref = href[1].partition("#title=")
+        assert REF_RE.fullmatch(ref) and safe_return_path(path) == "/watch"
 
 
 class TestDownloadPageCast:
@@ -848,8 +990,52 @@ class TestDownloadPageCast:
 
         page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
 
-        assert re.findall(r'class="cast-name">([^<]*)<', page) == ["Ada Vale"]
-        assert re.findall(r'class="cast-char">([^<]*)<', page) == ["Lead"]
+        assert re.findall(r'class="ttl-cast__name">([^<]*)<', page) == ["Ada Vale"]
+        assert re.findall(r'class="ttl-cast__char">([^<]*)<', page) == ["Lead"]
+        assert "AV</span></span></span>" in page  # no photo: the letters stand
+
+    @pytest.mark.parametrize(
+        ("path", "photo"),
+        [
+            ("/ada.jpg", "https://image.tmdb.org/t/p/w185/ada.jpg"),
+            ("/../../etc/ada.jpg", None),
+            ("//evil.example/ada.jpg", None),
+            ('/a".jpg', None),
+            (7, None),
+            (None, None),
+        ],
+    )
+    def test_a_photo_is_tmdbs_or_none(self, path, photo):
+        (person,) = _download_confirm._coerce_cast([{"name": "Ada Vale", "profile_path": path}])
+
+        assert person["photo_url"] == photo
+
+    def test_the_photo_tmdb_gives_is_stored_and_a_person_with_none_has_no_entry_for_it(self):
+        from mediaman.services.media_meta.tmdb import TmdbClient
+
+        people = [
+            {"name": "Ada Vale", "character": "Lead", "profile_path": "/ada.jpg"},
+            {"name": "Bo Ek", "character": "", "profile_path": None},
+        ]
+        detail = TmdbClient.shape_detail({"id": 1, "credits": {"cast": people}}, media_type="tv")
+
+        assert json.loads(detail["cast_json"] or "") == [
+            people[0],
+            {"name": "Bo Ek", "character": ""},
+        ]
+
+    def test_a_stored_photo_is_shown_and_does_not_name_the_page_to_its_host(
+        self, app_factory, conn, secret_key
+    ):
+        page = _offer_page(
+            app_factory,
+            conn,
+            secret_key,
+            cast_json='[{"name": "Ada Vale", "character": "Lead", "profile_path": "/ada.jpg"}]',
+        )
+
+        photo = re.search(r'<img src="https://image.tmdb.org/t/p/w185/ada.jpg"[^>]*>', page)
+        assert photo and 'referrerpolicy="no-referrer"' in photo[0] and 'alt=""' in photo[0]
 
 
 class TestDownloadPageReason:
@@ -883,7 +1069,7 @@ def test_a_genre_is_shown_once(app_factory, conn, secret_key):
         conn, title="Dune", tmdb_id=42, genres='["Drama", "Comedy", "drama ", " Drama"]'
     )
     page = _render_queued_page(app_factory, conn, secret_key, email=None, recommendation_id=sid)
-    assert re.findall(r'class="genre-pill">([^<]*)<', page) == ["Drama", "Comedy"]
+    assert "<span>Drama, Comedy</span>" in page
 
 
 class TestDownloadPageOfAnOwnPick:
@@ -952,6 +1138,7 @@ class TestRateLimitedPage:
 
         assert resp.status_code == 429
         assert "/static/css/" in resp.text
-        assert '<h1 class="dl-expired-title">Too many requests</h1>' in resp.text
-        assert '<a href="">Try again</a>' in resp.text
+        assert "<h1>One moment</h1>" in resp.text
+        assert resp.headers["retry-after"] == "60"
+        assert re.search(r'<a [^>]*href="" data-count="60">Try again</a>', resp.text)
         assert "expired" not in resp.text.split("<title>")[1].split("</title>")[0].lower()

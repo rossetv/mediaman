@@ -286,7 +286,7 @@ def _render_result(
     return templates.TemplateResponse(
         request,
         "subscribers/unsubscribe_result.html",
-        {"message": message, "success": success},
+        {"message": message, "success": success, "limited": status_code == 429},
         status_code=status_code,
     )
 

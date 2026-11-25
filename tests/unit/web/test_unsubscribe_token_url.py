@@ -165,6 +165,17 @@ class TestUnsubscribeRoute:
         assert real_row["active"] == 0, "real@example.com should be unsubscribed"
         assert attacker_row["active"] == 1, "attacker@example.com must NOT be unsubscribed"
 
+    @pytest.mark.parametrize(("method", "retries"), [("GET", True), ("POST", False)])
+    def test_too_many_requests_offer_the_link_again_where_it_still_holds_the_token(
+        self, client, method, retries
+    ):
+        with patch.object(_UNSUB_LIMITER, "check", return_value=False):
+            resp = client.request(method, "/unsubscribe?token=x")
+
+        assert resp.status_code == 429
+        assert "One moment" in resp.text and "Could not unsubscribe" not in resp.text
+        assert ("data-count" in resp.text) is retries
+
 
 class TestUnsubscribeAuditAtomicity:
     """Deactivation and its audit row must land atomically.

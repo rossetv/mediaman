@@ -1,241 +1,115 @@
 {% extends "base.html" %}
-{% import "_components.html" as c %}
+{% import "_share.html" as share %}
 
 {% block title %}
   {% if state == "active" %}Keep · {{ item.heading }} · Mediaman
-  {% elif state == "already_kept" %}Protected · {{ item.heading }} · Mediaman
+  {% elif state == "already_kept" %}Kept · {{ item.heading }} · Mediaman
   {% elif state == "deleting" %}Being deleted · {{ item.heading }} · Mediaman
-  {% elif state == "error" %}{{ error_heading or "Could not keep" }} · Mediaman
+  {% elif state == "limited" %}Too many requests · Mediaman
+  {% elif state == "used" %}Link already used · Mediaman
+  {% elif state == "error" %}Could not keep · Mediaman
   {% elif state == "invalid" %}Invalid link · Mediaman
   {% else %}Expired · Mediaman
   {% endif %}
 {% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/css/_watch_page.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">
+{% endblock %}
+
+{# Signed out, the title's own address asks for a sign-in and comes back to it. #}
+{% block nav %}{% if signed_in %}{{ share.bar() }}{% else %}{{ share.bar("Sign in", watch_href or "/login") }}{% endif %}{% endblock %}
+
+{# keep-days.js says the day again as it falls where the reader is. #}
+{% macro day(at) %}<time data-keep-day datetime="{{ at.isoformat() }}">{{ at.strftime("%-d %B" if at.year == now.year else "%-d %B %Y") }}</time>{% endmacro %}
+
+{% macro tile(at) %}
+<span class="share-date" aria-hidden="true"><small><time data-keep-day="month" datetime="{{ at.isoformat() }}">{{ at.strftime("%b") }}</time></small><b><time data-keep-day="number" datetime="{{ at.isoformat() }}">{{ at.day }}</time></b></span>
+{% endmacro %}
+
+{% macro sign_in(words="Sign in", style="watch-btn--grey") %}
+{% if signed_in %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/watch' }}">Back to Watch</a>
+{% else %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/login' }}">{{ words }}</a>{% endif %}
+{% endmacro %}
+
 {% block content %}
-{% macro day(at, text) %}<time data-keep-day datetime="{{ at }}">{{ text }}</time>{% endmacro %}
-<div class="keep-page">
+{% if state in ("active", "already_kept", "deleting", "expired") %}
+<div class="watch-page watch-detail share-page is-only{% if just_kept and state == "already_kept" %} is-just{% endif %}{% if state in ('deleting', 'expired') %} is-over{% endif %}">
+  <section class="watch-banner share-hero">
+    {# The signature in the poster's address is for the title, so it covers its wide picture too. #}
+    {{ share.pictures(poster_url ~ '&kind=art' if poster_url, poster_url) }}
+    <div class="watch-banner__body"><div class="watch-hero__info share-info">
+      <span class="ttl__kind">{{ {"movie": "Movie", "tv": "TV series", "anime": "Anime"}[item.kind] }}</span>
+      {{ share.heading(item.heading) }}
+      {% if item.season_label %}<p class="share-season">{{ item.season_label }}</p>{% endif %}
+      <div class="share-act"><div class="share-stack share-stack--wide">
 
-  <nav class="keep-nav">
-    <a class="brand" href="/">media<b>man</b></a>
-  </nav>
-
-  <div class="keep-container">
-
-    {% if state == "active" %}
-
-      <div class="status-pill status-scheduled">
-        <span class="status-dot dot-danger"></span>
-        Scheduled for deletion
-      </div>
-
-      <div class="poster-container">
-        {% if item.plex_rating_key %}
-          <img src="{{ poster_url }}" alt="" data-broken-on-error>
-          <div class="item-poster-empty">
-            {{ c.icon("i-image") }}
-          </div>
-        {% else %}
-          <div class="item-poster-empty">
-            {{ c.icon("i-image") }}
-          </div>
-        {% endif %}
-      </div>
-
-      <h1 class="item-title">
-        {{ item.heading }}
-      </h1>
-      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
-
-      <div class="meta-row">
-        {{ c.pill({"movie": "Movie", "tv": "TV", "anime": "Anime"}[item.kind], variant=item.kind) }}
-        {% if item.last_watched_display %}{{ c.pill("Last watched " ~ item.last_watched_display, variant="neutral") }}
-        {% else %}{{ c.pill("Never watched", variant="stale") }}{% endif %}
-        {% if item.file_size_bytes %}
-          {% set gb = item.file_size_bytes / 1073741824 %}
-          {{ c.pill(("%.1f"|format(gb) ~ " GB") if gb >= 1 else ("%.0f"|format(item.file_size_bytes / 1048576) ~ " MB"), variant="neutral") }}
-        {% endif %}
-        {% if item.added_at %}{{ c.pill("Added " ~ item.added_display, variant="neutral") }}{% endif %}
-      </div>
-
-      <div class="info-box">
-        <div class="label">Scheduled for deletion</div>
-        <div class="value danger">
-          {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}
-          {% if days_left < 0 %} — leaving any day
-          {% else %} — <span data-keep-in>{% if days_left == 0 %}today{% elif days_left == 1 %}tomorrow{% else %}in {{ days_left }} days{% endif %}</span>
+        {% if state == "active" %}
+        <div class="share-leave">
+          {{ tile(execute_at) }}
+          {% if days_left < 0 %}
+          <div><strong>Leaving any day</strong><span>The date has passed, but it can still be kept.</span></div>
+          {% else %}
+          <div><strong>Leaving on {{ day(execute_at) }}</strong><span data-keep-in="{{ execute_at.isoformat() }}">{% if days_left == 0 %}today{% elif days_left == 1 %}tomorrow{% else %}in {{ days_left }} days{% endif %}</span></div>
           {% endif %}
         </div>
-      </div>
-
-      <div class="snooze-section">
-        <div class="snooze-label">{% if days_left < 0 %}The date has passed, but you can keep this item until it is deleted{% else %}Keep this item and delay deletion{% endif %}</div>
-        <form method="post" action="/keep/{{ token }}" data-submit-guard>
-          <div class="snooze-buttons">
-            <button class="snooze-btn" type="submit" name="duration" value="7 days">
-              Keep for <span class="duration">7 days</span>
-            </button>
-            <button class="snooze-btn" type="submit" name="duration" value="30 days">
-              Keep for <span class="duration">30 days</span>
-            </button>
-            <button class="snooze-btn" type="submit" name="duration" value="90 days">
-              Keep for <span class="duration">90 days</span>
-            </button>
-            {# 'forever' is admin-only and is rejected by POST /keep/{token}.
-               Admins manage forever-keeps via the authenticated /library or /protected
-               pages instead, so the button is intentionally absent here. #}
-          </div>
+        {% if lengths %}
+        <form class="share-keep" method="post" action="/keep/{{ token }}" data-submit-guard>
+          <fieldset>
+            <legend>Keep it for</legend>
+            <div class="share-keep__row">
+              {% for length in lengths %}
+              <button class="btn" type="submit" name="duration" value="{{ length.duration }}" data-busy-label="Keeping…"><span>{{ length.duration }}</span><small>until <time data-keep-day="short" datetime="{{ length.until.isoformat() }}">{{ length.until.strftime("%-d %b") }}</time></small></button>
+              {% endfor %}
+            </div>
+          </fieldset>
         </form>
-      </div>
-
-      <div class="keep-footer">
-        {% if is_admin %}<a href="/watch">Back to Watch →</a>
-        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
-      </div>
-
-    {% elif state == "already_kept" %}
-
-      <div class="status-pill status-protected">
-        <span class="status-dot dot-success"></span>
-        Protected
-      </div>
-
-      <div class="poster-container">
-        {% if item.plex_rating_key %}
-          <img src="{{ poster_url }}" alt="" data-broken-on-error>
-          <div class="item-poster-empty">
-            {{ c.icon("i-image") }}
-          </div>
-        {% else %}
-          <div class="item-poster-empty">
-            {{ c.icon("i-image") }}
-          </div>
         {% endif %}
-      </div>
+        <p class="share-say" data-keep-none{% if lengths %} hidden{% endif %}>It stays longer than a keep from here would hold it.</p>
 
-      <h1 class="item-title">
-        {{ item.heading }}
-      </h1>
-      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
+        {% elif state == "already_kept" and item.forever %}
+        <div class="share-done">{{ share.tick() }}<div><strong>Kept for good</strong><span>It stays until somebody here changes that.</span></div></div>
+        <div class="watch-actions">{{ sign_in("Sign in for more") }}</div>
 
-      <div class="info-box">
-        <div class="label">Status</div>
-        <div class="value success">
-          {% if item.snooze_duration == "forever" %}Protected forever
-          {% elif execute_at %}Protected until {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}
-          {% else %}Protected{% endif %}
-        </div>
-      </div>
-
-      <div class="already-kept-msg">
-        <div class="check-icon">
-          {{ c.icon("i-check", "text-success") }}
-        </div>
-        <div class="msg-title">
-          {% if just_kept and item.snooze_duration %}Kept for {{ item.snooze_duration }}
-          {% elif just_kept %}Kept
-          {% elif item.snooze_duration %}Already kept for {{ item.snooze_duration }}
-          {% else %}Already kept{% endif %}
-        </div>
-        <div class="msg-detail">
+        {% elif state == "already_kept" %}
+        <div class="share-leave is-kept">
+          {{ tile(execute_at) }}
           {% if just_kept %}
-          {% if item.snooze_duration == "forever" %}It will be kept indefinitely.
-          {% elif execute_at %}It will be re-evaluated for deletion on {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}.
-          {% endif %}
-          {% elif item.snoozed_at %}This item was kept on {{ day(item.snoozed_at, item.snoozed_display) }}.
-          {% if item.snooze_duration == "forever" %}It will be kept indefinitely.
-          {% elif execute_at %}It will be re-evaluated for deletion on {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}.
-          {% endif %}
+          <div><strong>Kept{% if item.snooze_duration %} for {{ item.snooze_duration }}{% endif %}</strong><span>It stays until {{ day(execute_at) }}, then it is looked at again.</span></div>
+          {% else %}
+          <div><strong>Already kept until {{ day(execute_at) }}</strong>{% if snoozed_at %}<span>Kept on {{ day(snoozed_at) }}{% if item.snooze_duration %}, for {{ item.snooze_duration }}{% endif %}.</span>{% endif %}</div>
           {% endif %}
         </div>
-      </div>
+        <div class="watch-actions">{{ sign_in("Sign in for more") }}</div>
 
-      <div class="keep-footer">
-        {% if is_admin %}<a href="/watch">Back to Watch →</a>
-        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
-      </div>
+        {% elif state == "deleting" %}
+        <p class="share-say share-say--big">This is being deleted now, so it cannot be kept.</p>
 
-    {% elif state == "deleting" %}
+        {% else %}
+        <p class="share-say share-say--big">This link has run out. <span>The time this was kept for is over. {% if signed_in %}Watch shows{% else %}Sign in to see{% endif %} where it stands.</span></p>
+        <div class="watch-actions">{{ sign_in() }}</div>
+        {% endif %}
 
-      <div class="status-pill status-expired">
-        <span class="status-dot dot-muted"></span>
-        Being deleted
-      </div>
-
-      <h1 class="item-title">
-        {{ item.heading }}
-      </h1>
-      {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
-
-      <div class="expired-msg">
-        <div class="expired-title">This is being deleted now.</div>
-      </div>
-
-      <div class="keep-footer">
-        {% if is_admin %}<a href="/watch">Back to Watch →</a>
-        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
-      </div>
-
-    {% elif state == "error" %}
-
-      <div class="status-pill status-expired">
-        <span class="status-dot dot-muted"></span>
-        {{ error_pill or "Not changed" }}
-      </div>
-
-      <div class="expired-msg">
-        <div class="expired-icon">
-          {{ c.icon("i-circle-xmark-regular") }}
-        </div>
-        <h1 class="expired-title">{{ error_heading or "We could not keep this item" }}</h1>
-        <div class="expired-detail">{{ error_message }}</div>
-      </div>
-
-      <div class="keep-footer">
-        {% if is_admin %}<a href="/watch">Back to Watch →</a>
-        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
-      </div>
-
-    {% else %}
-
-      <div class="status-pill status-expired">
-        <span class="status-dot dot-muted"></span>
-        {% if state == "invalid" %}Invalid{% else %}Expired{% endif %}
-      </div>
-
-      {% if item and item.plex_rating_key %}
-        <div class="poster-container poster-faded">
-          <img src="{{ poster_url }}" alt="" data-broken-on-error>
-          <div class="item-poster-empty">
-            {{ c.icon("i-image") }}
-          </div>
-        </div>
-        <h1 class="item-title item-title--secondary">{{ item.heading }}</h1>
-        {% if item.season_label %}<div class="item-season">{{ item.season_label }}</div>{% endif %}
-      {% endif %}
-
-      <div class="expired-msg">
-        <div class="expired-icon">
-          {{ c.icon("i-clock-regular") }}
-        </div>
-        {# The item's title, when shown above, is the page's h1. #}
-        {% set level = "h2" if item and item.plex_rating_key else "h1" %}
-        <{{ level }} class="expired-title">{% if state == "invalid" %}This link isn't valid{% else %}This link has expired{% endif %}</{{ level }}>
-        <div class="expired-detail">
-          {% if state == "invalid" %}This link is no longer valid or has expired.
-          {% else %}The protection window for this item has passed.{% endif %}<br>
-          Sign in to mediaman to manage your library.
-        </div>
-      </div>
-
-      <div class="keep-footer">
-        {% if is_admin %}<a href="/watch">Back to Watch →</a>
-        {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
-      </div>
-
-    {% endif %}
-
-  </div>
+      </div></div>
+    </div></div>
+  </section>
 </div>
 {% if state in ("active", "already_kept") %}<script src="/static/js/keep-days.js?v={{ static_v }}" defer></script>{% endif %}
 {% if state == "active" %}<script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>{% endif %}
+
+{% elif state == "limited" %}
+{{ share.limited() }}
+<script src="/static/js/share.js?v={{ static_v }}" defer></script>
+
+{% elif state == "used" %}
+{% call share.notice("broken", "This link has been used already", "Nothing more was changed.") %}{{ sign_in(style="btn--primary") }}{% endcall %}
+
+{% elif state == "error" %}
+{% call share.notice("broken", "This could not be kept", "Something went wrong, so nothing was changed.") %}{{ sign_in(style="btn--primary") }}{% endcall %}
+
+{% else %}
+{% call share.notice("broken", "This link does not work", "It may have run out, or part of it may be missing." ~ ("" if signed_in else " Sign in to keep a title yourself.")) %}{{ sign_in(style="btn--primary") }}{% endcall %}
+{% endif %}
 {% endblock %}

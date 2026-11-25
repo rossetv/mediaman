@@ -355,12 +355,7 @@
   html:has(.nav-tabs) { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
   /* Reserve room for the bottom tab bar so content isn't hidden under it. */
   .container,
-  .keep-page,
-  .login-page,
-  .dl-content,
-  .dl-result,
-  .dl-hint,
-  .dl-expired { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .login-page { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 }
 
 
