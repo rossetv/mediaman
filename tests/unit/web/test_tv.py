@@ -438,6 +438,22 @@ def test_a_code_stays_good_where_the_person_has_too_many_tvs_by_then(tv, amy, bo
     assert bob.post("/api/tvs/pair", json={"code": code}).status_code == 200
 
 
+def test_a_pairing_that_cannot_be_read_back_is_not_stored(tv, amy, conn, monkeypatch):
+    code, token = tv.code()
+
+    def unreadable(conn, tv_id):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    with monkeypatch.context() as broken:
+        broken.setattr(repo, "find", unreadable)
+        with pytest.raises(sqlite3.OperationalError):
+            amy.post("/api/tvs/pair", json={"code": code})
+    assert tv.post("poll", token=token).json()["state"] == "pairing"
+    assert amy.post("/api/tvs/pair", json={"code": code}).status_code == 200
+    (held,) = conn.execute("SELECT COUNT(*) FROM tvs").fetchone()
+    assert held == 1
+
+
 def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home, amy, bob, conn):
     was = repo.find(conn, home)
     tv.pair(amy)
@@ -934,6 +950,30 @@ def test_subtitles_and_quality_restart_the_picture_where_it_is(tv, home, amy, pl
     assert _command(amy, home, "quality", quality="low").status_code == 200
     assert plex.decision()["subtitleStreamID"] == "31", "the subtitles stay"
     assert _tv_of(amy, home)["play"]["quality"] == "low"
+
+
+def test_only_a_change_made_while_paused_is_loaded_paused(tv, home, amy, clock):
+    def started_paused(begin) -> bool:
+        assert begin.status_code == 200, begin.text
+        return tv.poll()["play"]["paused"]
+
+    assert not started_paused(_play(amy, home))
+    tv.poll("paused", 70)
+    assert not started_paused(_play(amy, home)), "the title asked for anew"
+    tv.poll("paused", 70)
+    assert started_paused(_command(amy, home, "quality", quality="low"))
+    assert started_paused(_command(amy, home, "subtitles", subtitle="off")), "nor loaded since"
+    tv.poll("paused", 70)
+    assert not started_paused(_command(amy, home, "again"))
+    tv.poll("playing", 70)
+    assert not started_paused(_command(amy, home, "quality", quality="auto"))
+
+
+def test_a_film_played_on_since_is_not_loaded_paused_by_a_page_opened_again(tv, home, amy):
+    _play(amy, home)
+    tv.poll("paused", 70)
+    _command(amy, home, "quality", quality="low")
+    assert tv.poll("playing", 80)["play"]["paused"] is False
 
 
 def test_the_next_episode_is_not_asked_for_in_the_lasts_subtitle_track(tv, home, amy, plex):

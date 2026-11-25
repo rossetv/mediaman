@@ -116,7 +116,8 @@ def pair(
         security_event_or_raise(
             conn, event="tv.taken_over" if taken else "tv.paired", actor=username, ip=ip
         )
-    return find(conn, tv_id or 0)
+        # Where this fails, nothing is stored.
+        return find(conn, tv_id or 0)
 
 
 def rename(conn: sqlite3.Connection, tv_id: int, name: str) -> None:
