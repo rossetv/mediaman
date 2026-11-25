@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     email TEXT,
     role TEXT NOT NULL DEFAULT 'admin',
     -- 1 while this person lets their searches, ratings, requests and how their plays went go
-    -- to the AI. The titles they played go for their picks either way.
+    -- to the AI. The titles they played, their earlier picks and, of the server's owner, the
+    -- stars in Plex go for their picks either way.
     ai_history INTEGER NOT NULL DEFAULT 1
 );
 
