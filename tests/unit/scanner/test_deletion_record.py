@@ -649,6 +649,22 @@ class TestRemovalWithNoRecordedOutcome:
         ).fetchone()
         assert not said[0].startswith("Not deleted")
 
+    def test_one_whose_record_goes_as_what_went_before_is_booked_is_told(self, conn, two_parts):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+        conn.commit()
+
+        with conn:
+            delete_show_scheduled_deletions(conn, "show")
+
+        assert _booked(conn) == [4]
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
+        ).fetchall()
+        assert [row[0].partition(":")[0] for row in said] == ["Removal cut off"]
+
     @pytest.mark.parametrize("ticked", [True, False])
     def test_a_row_dropped_with_no_removal_begun_is_not_told(self, conn, film, ticked):
         if ticked:
