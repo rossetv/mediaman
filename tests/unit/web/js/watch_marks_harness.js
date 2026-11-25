@@ -303,6 +303,8 @@ const scenarios = {
     await settle();
     const open = [p.marks(), p.focus(), p.toasts[0].dialog];
     p.changed();
+    // Closed over See all, its heading has been given the focus by then.
+    if (process.argv[3]) p.doc.body.appendChild(build(p.doc, ['h1', { id: process.argv[3], class: 'title' }])).focus();
     details.classList.add('is-leaving');
     p.changed();
     return { open, closed: p.focus() };

@@ -650,7 +650,8 @@
       if (!shut && !details.classList.contains('is-aside')) return;
       watcher.disconnect();
       var active = document.activeElement;
-      if (shut && (active === document.body || details.contains(active))) refocus(node);
+      // Over See all its heading has been given it already.
+      if (shut && (active === document.body || active.id === 'watch-all-title' || details.contains(active))) refocus(node);
     });
     watcher.observe(details, { attributes: true, attributeFilter: ['class'] });
   }

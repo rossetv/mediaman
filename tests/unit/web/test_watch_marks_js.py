@@ -555,6 +555,14 @@ def test_a_pick_rated_in_details_goes_behind_it_and_closing_lands_on_the_next() 
     }
 
 
+def test_a_pick_rated_in_details_over_see_all_leaves_the_focus_on_the_next_not_the_heading() -> (
+    None
+):
+    assert _run("strongNoInDetails", "watch-all-title")["closed"] == "movie/8"
+    # What else has the focus keeps it.
+    assert _run("strongNoInDetails", "elsewhere")["closed"] == "title"
+
+
 def test_a_strong_no_that_was_not_saved_takes_nothing_out_and_is_said() -> None:
     assert _run("ratingFails") == {
         "picks": ["movie/8", "movie/1", "movie/9"],
