@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,27 @@ def client():
     return TestClient(create_app(), headers={"Accept": "text/html"})
 
 
+class _Hidden(HTMLParser):
+    """Where each link goes that aria-hidden takes from a screen reader."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.links: list[str | None] = []
+        self._open: list[tuple[str, bool]] = []
+
+    def handle_starttag(self, tag, attrs):
+        found = dict(attrs)
+        hidden = found.get("aria-hidden") == "true" or any(h for _, h in self._open)
+        if tag == "a" and hidden:
+            self.links.append(found.get("href"))
+        self._open.append((tag, hidden))
+
+    def handle_endtag(self, tag):
+        # What has no end, such as <input>, goes with what holds it.
+        while self._open and self._open.pop()[0] != tag:
+            pass
+
+
 def _links(html: str) -> list[tuple[str, str]]:
     """Each link that shows the name: where it goes and what a screen reader hears."""
     body = re.sub(r'<svg class="ico-sprite".*?</svg>', "", html, flags=re.S)
@@ -33,6 +55,9 @@ def _links(html: str) -> list[tuple[str, str]]:
         if _FROM_SPRITE in inner or _DRAWING in inner
     ]
     assert shown == len(links)
+    hidden = _Hidden()
+    hidden.feed(html)
+    assert hidden.links == []
     return links
 
 
