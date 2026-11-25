@@ -1796,10 +1796,19 @@ const scenarios = {
     const moved = await page(early);
     moved.p.ctx.MMWatch.detail.open('tmdb-movie-77', {});
     await settle();
+    out.dropped = [moved.answers[0].signal.aborted === true];
     moved.answers[0].resolve({ ok: true, ratings: { imdb: '8.3', rt: null, tmdb: 7.4, metascore: null } });
     await settle();
     out.moved = moved.p.text('.ttl__ratings');
     out.others = moved.p.gets.filter((g) => /ratings$/.test(g));
+    const shut = await page(early);
+    click(shut.p.doc, shut.p.q('.ttl-cast__item'));
+    shut.p.tick();
+    out.dropped.push(shut.answers[0].signal.aborted === true);
+    shut.answers[0].reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    shut.p.ctx.history.back();
+    await settle();
+    out.again = [shut.answers.length, shut.look().waiting.length];
     return out;
   },
 

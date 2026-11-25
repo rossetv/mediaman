@@ -230,6 +230,7 @@
     var wasOpen = isOpen;
     if (wasOpen) keepPlace();
     stopPolling();
+    dropRatings();
     cur = {
       ref: ref,
       origin: opts.origin || (wasOpen && cur ? cur.origin : null),
@@ -304,6 +305,7 @@
     if (wasOpen) keepPlace();
     if (cur && cur.ctrl) cur.ctrl.abort();
     stopPolling();
+    dropRatings();
     cur = c;
     c.ctrl = null;
     c.seasonLoading = null;
@@ -370,6 +372,7 @@
     closeAdminMenu(false);
     cast.drop();
     if (cur && cur.ctrl) cur.ctrl.abort();
+    dropRatings();
     if (window.MMWatch.keep) window.MMWatch.keep.closeMenu(false);
     var origin = cur && cur.origin;
     seq++;
@@ -1095,6 +1098,14 @@
       for (var n = node.nextElementSibling; n; n = n.nextElementSibling) out.push(n);
     }
     return out;
+  }
+
+  /* For when the title is come back to, they are asked for again. */
+  function dropRatings() {
+    var w = cur && cur.ratings;
+    if (!w || !w.asked || w.came) return;
+    w.asked.abort();
+    w.asked = null;
   }
 
   /* ── Focus ── */

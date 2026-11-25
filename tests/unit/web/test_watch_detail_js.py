@@ -1104,3 +1104,11 @@ def test_no_place_is_left_for_ratings_when_none_came() -> None:
     out = _run("lateRatings")
     assert (out["held"]["line"], len(out["held"]["waiting"])) == (True, 3)
     assert out["empty"] == {"shown": [], "line": False, "waiting": []}
+
+
+def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_when_it_is_back() -> (
+    None
+):
+    out = _run("lateRatings")
+    assert out["dropped"] == [True, True]
+    assert out["again"] == [2, 3]
