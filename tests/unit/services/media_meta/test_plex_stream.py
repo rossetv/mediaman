@@ -1388,10 +1388,12 @@ class SlowPlex:
             if self._tls:
                 conn = self._tls.wrap_socket(conn, server_side=True)
             with conn:
-                while self._read_request(conn):
-                    conn.sendall(next(self._answers))
-                    self.latest = conn
-                    self.asked.release()
+                # A hang-up with bytes still on their way to the client arrives as a reset.
+                with contextlib.suppress(ConnectionError):
+                    while self._read_request(conn):
+                        conn.sendall(next(self._answers))
+                        self.latest = conn
+                        self.asked.release()
                 self.hung_up.release()
 
     def _read_request(self, conn: socket.socket) -> bool:
