@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mediaman.services.arr.base import ArrError, SearchUnanswered
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.arr.state import (
     ExistingMovieError,
     add_or_remonitor_movie,
