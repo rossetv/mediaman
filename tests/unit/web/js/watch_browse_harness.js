@@ -37,7 +37,7 @@ const BATCHES = [
 
 function recommended(opts = {}) {
   const batches = opts.batches || BATCHES;
-  const out = { ok: true, enabled: opts.enabled !== false, batch: opts.batch || batches[0].id,
+  const out = { ok: true, enabled: opts.enabled !== false, batch: opts.batch || (batches.length ? batches[0].id : null),
     batches: opts.enabled === false ? [] : batches,
     items: opts.items || [card('rec-7', { rec_id: 7, reason: 'Because' }), card('rec-8', { rec_id: 8 })] };
   if (opts.enabled === false) out.items = [];
@@ -218,6 +218,32 @@ function lineOf(p) {
   return { text: text(line.querySelector('.rec-line__text')), button: text(button), off: button && button.getAttribute('aria-disabled') === 'true' };
 }
 
+/* The picks in three batches of five cards (*far*: forty), the older two loaded as the row goes on. */
+async function threeBatches(opts = {}) {
+  layout();
+  Object.defineProperty(Node.prototype, 'offsetWidth', { configurable: true, get: () => CARD_PX - 10 });
+  const batches = [...BATCHES, { id: '2026-11-07', label: 'Two weeks ago', date_label: '7 Nov' }];
+  const n = opts.far ? 40 : 5;
+  const items = (from) => range(from, from + n).map((i) => card('rec-' + (100 + i)));
+  const older = (batch) => 'GET /api/watch/recommended?batch=' + batch + '&start=2026-11-21';
+  const lost = () => Promise.reject(apiError(opts.lost, {}));
+  const answer = (batch, from, next) => Promise.resolve({ ...recommended({ batches, batch, items: items(from) }), next_batch: next });
+  const second = () => (opts.slow ? opts.slow() : Promise.resolve()).then(() => answer('2026-11-14', n, '2026-11-07'));
+  const p = load({ batches, routes: {
+    'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+    'GET /api/watch/recommended': () => answer('2026-11-21', 0, opts.emptied ? '2026-11-07' : '2026-11-14'),
+    [older('2026-11-14')]: opts.lost ? lost : second,
+    [older('2026-11-07')]: () => answer('2026-11-07', 2 * n, null),
+  } });
+  await settle();
+  const button = () => rec(p.doc).querySelector('[data-picks-menu]');
+  const open = () => { click(p.doc, button()); return p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item'); };
+  return { p,
+    pill: () => { const on = button().querySelectorAll('.is-on'); return on.map((o) => [text(o.querySelector('.row-tool__long')), text(o.querySelector('.picks-name__short'))]); },
+    menu: () => open().filter((i) => i.getAttribute('aria-checked') === 'true').map(text),
+    choose: async (i) => { click(p.doc, open()[i]); await settle(); await settle(); } };
+}
+
 const scenarios = {
   // Pages shift (a title again), one is all repeats, one title is scanned meanwhile: none twice.
   async pagesToTheEnd() {
@@ -332,7 +358,7 @@ const scenarios = {
     return { atStart, atEnd, back: src(0), cards: scroller.querySelectorAll('.watch-card').length };
   },
 
-  // The picks go on to older batches from the one the row starts at, past one that is gone, then from the one chosen.
+  // The picks go on to older batches from the one the row starts at, past one that is gone.
   async olderPicks() {
     layout();
     const older = (batch, start) => 'GET /api/watch/recommended?batch=' + batch + '&start=' + start;
@@ -340,20 +366,14 @@ const scenarios = {
     const p = load({ batches, routes: {
       'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
       'GET /api/watch/recommended': () => Promise.resolve({ ...recommended({ batches }), next_batch: '2026-11-14' }),
-      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: '2026-11-07' }),
       [older('2026-11-14', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-9'), card('rec-10', { title: 'Title rec-7' })] }), next_batch: '2026-11-07' }),
       [older('2026-11-07', '2026-11-21')]: () => Promise.reject(apiError(404, {})),
       [older('2026-10-31', '2026-11-21')]: () => Promise.resolve({ ...recommended({ batch: '2026-10-31', items: [card('rec-12'), card('rec-13', { title: 'Title rec-9' })] }), next_batch: null }),
-      [older('2026-11-07', '2026-11-14')]: () => Promise.resolve({ ...recommended({ batch: '2026-11-07', items: [card('rec-11')] }), next_batch: null }),
     } });
     await settle();
     await scroll(scrollerOf(p, 'recommended'), 0);
     const first = { refs: refsOf(scrollerOf(p, 'recommended')), more: scrollerOf(p, 'recommended').parentNode.hasAttribute('data-row-more') };
-    click(p.doc, rec(p.doc).querySelector('[data-picks-menu]'));
-    click(p.doc, p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item')[1]);
-    await settle();
-    await scroll(scrollerOf(p, 'recommended'), 0);
-    return { first, chosen: refsOf(scrollerOf(p, 'recommended')), pill: text(rec(p.doc).querySelector('[data-picks-menu]')) };
+    return first;
   },
 
   // The batch the row starts at is gone; the one it goes on to is not.
@@ -373,7 +393,7 @@ const scenarios = {
   async picksPill() {
     const p = load({ batches: BATCHES });
     await settle();
-    return rec(p.doc).querySelector('[data-picks-menu]').children.map((n) => n.textContent);
+    return rec(p.doc).querySelector('[data-picks-menu]').children.map((n) => n.className);
   },
 
   // Every batch the row goes on to is gone, and the last is one the menu does not know.
@@ -419,18 +439,21 @@ const scenarios = {
   async refreshedWhileLoading() {
     layout();
     let answer;
+    let done = false;
     const p = load({ batches: BATCHES, routes: {
       'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
-      'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(), next_batch: '2026-11-14' }),
-      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve({ ...recommended({ batch: '2026-11-14', items: [card('rec-30')] }), next_batch: null }),
+      'GET /api/watch/recommended': () => Promise.resolve(done ? recommended({ mine: MINE.wait, items: [pick('pick-30')] }) : { ...recommended({ mine: MINE.ready }), next_batch: '2026-11-14' }),
       'GET /api/watch/recommended?batch=2026-11-14&start=2026-11-21': () => new Promise((resolve) => { answer = resolve; }),
+      'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'done' }),
     } });
     await settle();
     const old = scrollerOf(p, 'recommended');
     await scroll(old, 0);
-    click(p.doc, rec(p.doc).querySelector('[data-picks-menu]'));
-    click(p.doc, p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item')[1]);
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
     await settle();
+    done = true;
+    await tick(p);
     answer({ ...recommended({ batch: '2026-11-14', items: [card('rec-9')] }), next_batch: null });
     await settle();
     return { old: refsOf(old), now: refsOf(scrollerOf(p, 'recommended')) };
@@ -611,152 +634,121 @@ const scenarios = {
     return held;
   },
 
-  // Without a key the shared picks cannot be made either.
-  async sharedWithoutAKey() {
-    const at = async (opts) => {
-      const p = load({ admin: true, mine: MINE.noKey, ...opts });
-      await settle();
-      const button = p.doc.querySelector('[data-picks-refresh]');
-      click(p.doc, button);
-      return { label: text(button), disabled: button.getAttribute('aria-disabled'), why: button.getAttribute('title'),
-        toasts: p.toasts.map((t) => t.message), posts: p.calls.filter((c) => /^POST/.test(c)).length, row: text(rec(p.doc)) };
-    };
-    const next = new Date(Date.now() + 14 * HOUR - 60000).toISOString();
-    return { ready: await at({}), cooling: await at({ refresh: { available: false, next_available_at: next, running: false } }),
-      none: (await at({ items: [] })).row, withKey: await at({ mine: MINE.ready }) };
-  },
-
-  // A batch with no picks.
+  // No picks at all: what the first ones are, and for an admin the way to make them.
   async noPicks() {
-    const viewer = load({ items: [] });
-    const admin = load({ items: [], admin: true });
-    await settle();
-    return { viewer: text(rec(viewer.doc).querySelector('.watch-row__note')), admin: text(rec(admin.doc).querySelector('.watch-row__note')) };
+    const at = async (opts) => {
+      const p = load({ items: [], batches: [], ...opts });
+      await settle();
+      const note = rec(p.doc).querySelector('.watch-row__note');
+      const link = note.querySelector('a');
+      return [text(note.children[0]), link && link.getAttribute('href')];
+    };
+    return { viewer: await at({}), admin: await at({ admin: true }), noKey: await at({ admin: true, mine: MINE.noKey }) };
   },
 
-  // Viewers can switch batches but get no Refresh; admins get both.
+  // The tools of the row and every Refresh in it.
   async tools() {
-    const viewer = load();
-    const admin = load({ admin: true });
-    await settle();
-    const names = (doc) => rec(doc).querySelectorAll('.row-tool').map((b) => b.hasAttribute('data-picks-menu') ? 'picks' : b.hasAttribute('data-picks-refresh') ? 'refresh' : '?');
-    return { viewer: names(viewer.doc), admin: names(admin.doc), refresh: text(rec(admin.doc).querySelector('[data-picks-refresh]')) };
+    const at = async (opts) => {
+      const p = load({ mine: MINE.ready, ...opts });
+      await settle();
+      return [rec(p.doc).querySelector('.watch-row__tools').children.map((b) => b.hasAttribute('data-picks-menu')), rec(p.doc).querySelectorAll('.row-tool--refresh').map(text),
+        p.calls.filter((c) => /recommended\/refresh/.test(c))];
+    };
+    const running = { available: false, next_available_at: null, running: true };
+    return [await at({}), await at({ admin: true }), await at({ admin: true, refresh: running })];
   },
 
-  // The earlier-picks menu: the Keep menu's component, and choosing a batch swaps the row in place.
-  async batch() {
-    const p = load({ routes: { 'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve(recommended({ batch: '2026-11-14', items: [card('rec-9')] })) } });
-    await settle();
+  // A row of three batches, the last two loaded as it is scrolled; what the button says and the calls made.
+  async follows() {
+    const { p, pill, menu } = await threeBatches();
+    const s = scrollerOf(p, 'recommended');
+    const out = { start: pill(), sizers: rec(p.doc).querySelectorAll('.picks-name__sizer .row-tool__long').map((n) => n.textContent) };
+    const at = async (left) => { await scroll(s, left); return pill(); };
+    await at(0);
+    const calls = p.calls.length;
+    out.refs = refsOf(s).length;
+    out.halfway = await at(3.4 * CARD_PX);
+    out.over = await at(3.6 * CARD_PX);
+    out.fading = rec(p.doc).querySelectorAll('.picks-name__one').length;
+    await at(3.7 * CARD_PX);
+    out.still = rec(p.doc).querySelectorAll('.picks-name__one').length;
+    p.timers.splice(0).filter((t) => t.ms < 1000).forEach((t) => t.fn());
+    out.faded = rec(p.doc).querySelectorAll('.picks-name__one').length;
+    out.last = await at(13 * CARD_PX);
+    out.label = rec(p.doc).querySelector('[data-picks-menu]').getAttribute('aria-label');
+    out.live = rec(p.doc).querySelector('[data-picks-menu]').closest('[aria-live], [role="status"]') !== null;
+    out.checked = menu();
+    out.back = await at(0);
+    out.asked = p.calls.length - calls;
+    return out;
+  },
+
+  // Choosing a date scrolls the same row to it, loading on when it is not there yet; the scroll it
+  // makes does not choose again, and the person's own does.
+  async chooses() {
+    const { p, pill, choose } = await threeBatches({ far: true });
     const section = rec(p.doc);
-    const pill = section.querySelector('[data-picks-menu]');
-    click(p.doc, pill);
-    const menu = p.doc.getElementById('watch-picks-menu');
-    const open = {
-      expanded: pill.getAttribute('aria-expanded'),
-      keepMenuLook: menu.classList.contains('watch-keep-menu'),
-      items: menu.querySelectorAll('.watch-keep-menu__item').map((i) => [text(i), i.getAttribute('aria-checked')]),
-      focus: p.doc.activeElement === menu.querySelectorAll('.watch-keep-menu__item')[0],
+    const s = scrollerOf(p, 'recommended');
+    const out = { before: refsOf(s).length };
+    await choose(2);
+    out.loaded = refsOf(s).length;
+    out.unique = new Set(refsOf(s)).size;
+    out.at = s.scrollLeft / CARD_PX;
+    out.name = pill();
+    await scroll(s, 4 * CARD_PX); // on the way there
+    out.onTheWay = pill();
+    out.busy = s.parentNode.getAttribute('aria-busy');
+    s.parentNode.listeners.wheel.forEach((fn) => fn());
+    await scroll(s, 6 * CARD_PX);
+    out.theirs = pill();
+    const calls = p.calls.length;
+    await choose(0);
+    out.latest = [s.scrollLeft, pill(), p.calls.length - calls, scrollerOf(p, 'recommended') === s, rec(p.doc) === section];
+    return out;
+  },
+
+  // The date chosen cannot be loaded: the row stays, says so, and its name is still true.
+  async choosesLost() {
+    const at = async (status) => {
+      const { p, pill, choose } = await threeBatches({ far: true, lost: status });
+      const s = scrollerOf(p, 'recommended');
+      await choose(2);
+      return { name: pill(), left: s.scrollLeft, busy: s.parentNode.getAttribute('aria-busy'), toasts: p.toasts.map((t) => t.message) };
     };
-    click(p.doc, menu.querySelectorAll('.watch-keep-menu__item')[1]);
+    return [await at(502), await at(429)];
+  },
+
+  // A date with nothing left in the row: to the next older one with some.
+  async choosesEmptied() {
+    const { p, pill, choose } = await threeBatches({ far: true, emptied: true });
+    await choose(1);
+    const s = scrollerOf(p, 'recommended');
+    return { name: pill(), at: refsOf(s)[s.scrollLeft / CARD_PX] };
+  },
+
+  // The person scrolls on their own while the date they chose is on its way: the row is theirs.
+  async choosesLeft() {
+    let answer;
+    const { p, pill, choose } = await threeBatches({ far: true, slow: () => new Promise((resolve) => { answer = resolve; }) });
+    const s = scrollerOf(p, 'recommended');
+    await choose(2);
+    const busy = s.parentNode.getAttribute('aria-busy');
+    s.parentNode.listeners.wheel.forEach((fn) => fn());
+    s.scrollLeft = 5;
+    answer();
     await settle();
-    return {
-      open,
-      sameRow: rec(p.doc) === section,
-      cards: section.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
-      pill: text(section.querySelector('[data-picks-menu]')),
-      checked: menu.querySelectorAll('[aria-checked="true"]').map(text),
-    };
+    return { busy, after: s.parentNode.getAttribute('aria-busy'), left: s.scrollLeft, name: pill() };
   },
 
   // A first batch of picks from two days has no date: the pill and menu say Latest alone.
   async undatedFirstBatch() {
     const p = load({ batches: [{ id: '2026-11-21', label: 'Latest picks', date_label: '' }, ...BATCHES.slice(1)] });
     await settle();
-    const pill = rec(p.doc).querySelector('[data-picks-menu]');
-    click(p.doc, pill);
-    const long = pill.querySelector('.row-tool__long');
-    const out = { pill: pill.textContent, phone: pill.textContent.replace(long.textContent, '') };
-    return { ...out, label: pill.getAttribute('aria-label'), items: p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item').map(text) };
-  },
-
-  // Refresh while cooling down: the server's 429 shows the time left, not an error.
-  async refreshCooldown() {
-    const next = new Date(Date.now() + 14 * HOUR - 60000).toISOString();
-    const p = load({ admin: true, routes: {
-      'POST /api/recommended/refresh': () => Promise.reject(apiError(429, { message: 'Already refreshed', next_available_at: next })),
-    } });
-    await settle();
-    click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
-    await settle();
-    const button = p.doc.querySelector('[data-picks-refresh]');
-    const errors = p.toasts.length;
+    const button = rec(p.doc).querySelector('[data-picks-menu]');
     click(p.doc, button);
-    return {
-      label: text(button),
-      disabled: button.getAttribute('aria-disabled'),
-      error: errors > 0,
-      pressed: p.toasts.map((t) => t.message),
-      widest: button.getAttribute('data-widest'),
-      note: text(p.doc.querySelector('.rec-menu__note')),
-    };
-  },
-
-  // Refresh that the server refuses for another reason: a toast, so the row below stays where it
-  // is, and Refresh is back.
-  async refreshFailed() {
-    const p = load({ admin: true, routes: {
-      'POST /api/recommended/refresh': () => Promise.reject(apiError(200, { message: 'Plex not configured' })),
-    } });
-    await settle();
-    const things = rec(p.doc).children.length;
-    click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
-    await settle();
-    const button = p.doc.querySelector('[data-picks-refresh]');
-    return { toasts: p.toasts.map((t) => [t.message, t.opts.variant]), moved: rec(p.doc).children.length - things,
-      label: text(button), disabled: button.getAttribute('aria-disabled') };
-  },
-
-  // A session that ran out mid-refresh goes to the login page.
-  async refreshLoggedOut() {
-    const p = load({ admin: true, routes: {
-      'POST /api/recommended/refresh': () => Promise.resolve({ status: 'started' }),
-      'GET /api/recommended/refresh/status': () => Promise.reject(apiError(401, {})),
-    } });
-    await settle();
-    click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
-    await settle();
-    await tick(p);
-    return { href: p.ctx.location.href };
-  },
-
-  // Refresh runs, shows it is busy, and when done the row's picks change in place.
-  async refreshDone() {
-    let status = 'running';
-    let fresh = false;
-    const next = new Date(Date.now() + 24 * HOUR - 60000).toISOString();
-    const p = load({ admin: true, routes: {
-      'POST /api/recommended/refresh': () => Promise.resolve({ status: 'started' }),
-      'GET /api/recommended/refresh/status': () => Promise.resolve(status === 'done' ? { status, result: { ok: true } } : { status }),
-      'GET /api/watch/recommended': () => Promise.resolve(fresh
-        ? recommended({ admin: true, items: [card('rec-20')], refresh: { available: false, next_available_at: next, running: false } })
-        : recommended({ admin: true })),
-    } });
-    await settle();
-    const section = rec(p.doc);
-    click(p.doc, p.doc.querySelector('[data-picks-refresh]'));
-    await settle();
-    const busy = { label: text(p.doc.querySelector('[data-picks-refresh]')), spinning: p.doc.querySelector('[data-picks-refresh]').classList.contains('is-busy') };
-    await tick(p);
-    status = 'done';
-    fresh = true;
-    await tick(p);
-    return {
-      busy,
-      sameRow: rec(p.doc) === section,
-      cards: section.querySelectorAll('[data-title-ref]').map((a) => a.getAttribute('data-title-ref')),
-      after: text(p.doc.querySelector('[data-picks-refresh]')),
-      toast: p.toasts.map((t) => t.message),
-    };
+    const on = button.querySelector('.is-on');
+    const out = { pill: text(on.querySelector('.row-tool__long')), phone: text(on.querySelector('.picks-name__short')) };
+    return { ...out, label: button.getAttribute('aria-label'), items: p.doc.getElementById('watch-picks-menu').querySelectorAll('.watch-keep-menu__item').map(text) };
   },
 
   // A person's own picks, one of them in the library, before a shared one; then an older batch
@@ -885,8 +877,7 @@ const scenarios = {
     };
   },
 
-  // Another tab's refresh, or a scan, is found running by a later answer: followed to its end. Then the
-  // same when the one followed ends with another already running.
+  // The refresh followed ends with another, another tab's or a scan's, already running: that is followed too.
   async ownRunningElsewhere() {
     let mine = MINE.ready;
     let items = OWN_ITEMS;
@@ -894,13 +885,12 @@ const scenarios = {
     const statuses = (p) => p.calls.filter((c) => c === 'GET /api/watch/picks/refresh').length;
     const p = load({ routes: {
       'GET /api/watch/recommended': () => Promise.resolve(recommended({ mine, items })),
-      'GET /api/watch/recommended?batch=2026-11-14': () => Promise.resolve(recommended({ mine, batch: '2026-11-14', items: [pick('pick-30')] })),
+      'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
       'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status }),
     } });
     await settle();
     mine = MINE.running;
-    click(p.doc, p.doc.querySelector('[data-picks-menu]'));
-    click(p.doc, p.doc.querySelector('[data-batch="2026-11-14"]'));
+    click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
     await settle();
     const busy = lineOf(p);
     status = 'failed';
@@ -987,13 +977,12 @@ const scenarios = {
     return { ...out, posts: p.calls.filter((c) => /^POST/.test(c)).length };
   },
 
-  // On a phone Refresh of the own picks keeps a word; the shared one is its icon alone.
+  // On a phone Refresh has fewer words.
   async ownNarrow() {
     const at = async (mine) => {
-      const p = load({ mine, admin: true });
+      const p = load({ mine });
       await settle();
-      const said = (attr) => p.doc.querySelector('[' + attr + '] .row-tool__face').getAttribute('data-narrow');
-      return { own: said('data-own-refresh'), shared: said('data-picks-refresh') };
+      return p.doc.querySelector('[data-own-refresh] .row-tool__face').getAttribute('data-narrow');
     };
     return { ready: await at(MINE.ready), wait: await at(MINE.wait), busy: await at(MINE.running) };
   },
@@ -1027,12 +1016,12 @@ const scenarios = {
       return { top, bottom: top + menu.offsetHeight };
     };
     menu.getBoundingClientRect = () => ({ ...box(), left: 0, right: 200, width: 200, height: menu.offsetHeight });
-    menu.querySelectorAll('.watch-keep-menu__item').forEach((item, i) => {
-      item.getBoundingClientRect = () => {
-        const top = box().top + PAD + i * ITEM - menu.scrollTop;
-        return { top, bottom: top + ITEM - 2, left: 0, right: 200, width: 200, height: ITEM - 2 };
-      };
-    });
+    const rect = Node.prototype.getBoundingClientRect;
+    Node.prototype.getBoundingClientRect = function () {
+      if (this.parentNode !== menu) return rect.call(this);
+      const top = box().top + PAD + menu.children.indexOf(this) * ITEM - menu.scrollTop;
+      return { top, bottom: top + ITEM - 2, left: 0, right: 200, width: 200, height: ITEM - 2 };
+    };
     click(p.doc, pill);
     const opened = box();
     const items = menu.querySelectorAll('.watch-keep-menu__item');
