@@ -958,6 +958,7 @@ class TestWhoReadsWhat:
             " VALUES ('m1', 'deleted', '2026-04-01T12:00:00+00:00')",
             [()] * 301,
         )
+        conn.commit()
         params = {"action": "deleted", "per_page": 100, "page": 4}
         assert self._titles(clients[0], **params) == ["Ana Film"]
 
