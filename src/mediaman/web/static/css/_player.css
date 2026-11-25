@@ -766,11 +766,13 @@
 }
 @media (max-width: 899.98px) and (min-height: 600px) {
   /* Above the skip button, and then above the other card at its tallest. */
-  .player-rate--beside { --rate-up: -144px; left: 0; right: 0; bottom: calc(var(--player-foot) + 156px); }
+  .player-rate--beside { --rate-up: -144px; left: auto; right: max(32px, env(safe-area-inset-right)); bottom: calc(var(--player-foot) + 156px); }
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { width: 480px; }
 }
 @media (max-width: 600px) and (min-height: 600px) {
   /* Below the picture of a phone held upright. */
-  .player-rate--beside { --rate-up: -160px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 140px); }
+  .player-rate--beside { left: 12px; right: 12px; width: auto; max-width: none; --rate-up: -160px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 140px); }
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: 12px; width: auto; }
   .player-rate--beside .player-card-title { font-size: 17px; }
   .player .player-rate--beside .rate__b { height: 56px; }
   .player-rate--beside .player-rate-close { top: 0; }
