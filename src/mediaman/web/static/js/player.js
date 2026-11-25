@@ -84,6 +84,8 @@
   var CREDITS_PLAYED_S = 10;
   /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
   var CREDITS_FROM = 0.7;
+  /* Where the server counts a title watched from, unless its final credits begin before. */
+  var WATCHED_FROM = 0.9;
   /* What comes after them is a scene where it is longer than this. */
   var SCENE_S = 10;
   /* The longest a title's end waits to hear whether to ask for a rating. */
@@ -2090,6 +2092,11 @@
   /* A TV on which this one waits to follow another has it wait no more. */
   function watchedHere() { if (playOn && !away) playOn.watched(String(item.rating_key)); }
 
+  function countsWatched(t) {
+    var credits = lastCredits();
+    return duration() > 0 && t >= Math.min(WATCHED_FROM * duration(), credits ? credits.start_s : Infinity);
+  }
+
   function skipOn() {
     if (!skipMarker) return;
     if (!endsEpisode(skipMarker)) {
@@ -4006,7 +4013,7 @@
     if (lost || over) hint = 'Your place is saved at ' + fmt(position()) + '.';
     else if (failed) hint = tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
     else if (begins) hint = 'Starting. This can take a few seconds.';
-    else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? 'Keep this page open for the next episode.' : awayName() + ' waits for you to choose.';
+    else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? (away.play && away.play.carriesOn ? 'The next episode starts by itself, even if you leave this page.' : 'Keep this page open for the next episode.') : awayName() + ' waits for you to choose.';
     else if (ended) hint = awayName() + ' is ready for something else.';
     else if (tv && !isThis(tv.play)) hint = 'It plays ' + [tv.play.title, tv.play.episode_title].filter(Boolean).join(', ') + ' now.';
     else if (away.play && away.play.carriesOn) hint = 'You can leave this page. The TV carries on.';
@@ -4321,6 +4328,7 @@
       return;
     }
     var resumeAt = position();
+    if (hasPlayed && countsWatched(resumeAt)) watchedHere();
     beaconStop();
     dropRating();
     keepRating();

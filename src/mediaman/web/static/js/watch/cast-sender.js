@@ -30,6 +30,8 @@
   var REJOIN_WAIT_MS = 10000;
   /* A TV that was lost may come back for this long. */
   var LOST_MS = 120000;
+  /* One that is back and says nothing for this long is not followed any more, and left to play. */
+  var SILENT_MS = 10 * 60 * 1000;
   var TICK_MS = 500;
   var BEAT_MS = 5000;
   /* A page in the background hardly runs: it counts as there for this long after its last beat. */
@@ -720,7 +722,13 @@
   function find(p, session) {
     clearTimeout(p.timers.lost);
     if (session !== p.session) p.join(session);
-    if (!mediaOn(session).length) return;
+    if (!mediaOn(session).length) {
+      p.timers.lost = setTimeout(function () {
+        drop(p);
+        changed();
+      }, SILENT_MS);
+      return;
+    }
     p.lost = null;
     p.detach();
     var ms = mediaOf(session, p.stream);

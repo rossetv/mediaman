@@ -382,21 +382,27 @@ def test_a_tv_that_names_what_it_plays_seconds_after_it_was_joined_is_gone_on_wi
 
 
 @pytest.mark.parametrize(
-    ("how", "gone", "lost", "at"),
+    ("how", "gone", "lost", "at", "kept"),
     [
-        ("back", [], False, 110),
-        ("another", ["taken"], False, 105),
-        # It may play on for as long as it says nothing; away again, for two minutes.
-        ("never", [], True, 105),
-        ("lostAgain", ["lost"], False, 105),
+        ("back", [], False, 110, True),
+        ("another", ["taken"], False, 105, False),
+        # It may play on while it says nothing; away again, for two minutes.
+        ("never", [], True, 105, True),
+        ("lostAgain", ["lost"], False, 105, False),
     ],
 )
 def test_a_lost_tv_that_is_back_and_silent_is_no_tv_that_stopped(
-    how: str, gone: list[str], lost: bool, at: int
+    how: str, gone: list[str], lost: bool, at: int, kept: bool
 ) -> None:
     out = _run("saysLate")[how]
     assert out["early"] == {"gone": [], "lost": True}
     assert (out["gone"], out["lost"], out["at"], out["ended"]) == (gone, lost, at, [])
+    assert out["kept"] is kept
+
+
+def test_a_tv_silent_for_long_is_let_go_of_and_what_it_plays_left_to_it() -> None:
+    out = _run("saysLate")["silentLong"]
+    assert (out["kept"], out["stops"], out["ended"], out["gone"]) == (False, [], [], [])
 
 
 def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:

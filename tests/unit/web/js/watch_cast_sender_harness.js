@@ -789,7 +789,7 @@ const scenarios = {
       await w.clock.advance(1000);
       out[player ? 'player' : 'bar'] = { early, plays: player ? !!(await asked) : !!page.sender.now(), ended: w.tv.ended };
     }
-    for (const how of ['back', 'another', 'never', 'lostAgain']) {
+    for (const how of ['back', 'another', 'never', 'lostAgain', 'silentLong']) {
       const w = world();
       const page = await casting(w);
       await w.clock.advance(5000);
@@ -803,7 +803,9 @@ const scenarios = {
       if (w.tv.media.length) page.context.session.emit('mediasession', { mediaSession: w.tv.media[0] });
       if (how === 'lostAgain') page.context.over('disconnected');
       if (how === 'never' || how === 'lostAgain') await w.clock.advance(125000);
-      out[how] = { early, gone: page.gone, lost: page.play.lost, at: page.play.media.currentTime, ended: w.tv.ended };
+      if (how === 'silentLong') await w.clock.advance(600000);
+      const stops = places(page).filter((x) => /stop$/.test(x[0]));
+      out[how] = { early, gone: page.gone, lost: page.play.lost, at: page.play.media.currentTime, ended: w.tv.ended, kept: RECORD in w.storage, stops };
     }
     return out;
   },

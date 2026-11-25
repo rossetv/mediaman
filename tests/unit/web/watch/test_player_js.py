@@ -2472,7 +2472,16 @@ def test_a_page_left_at_the_end_has_its_way_count_on_as_it_did(markup, how, told
 
 
 @pytest.mark.parametrize(
-    ("how", "told"), [("ended", ["501"]), ("skipped", ["501"]), ("left", []), ("there", [])]
+    ("how", "told"),
+    [
+        ("ended", ["501"]),
+        ("skipped", ["501"]),
+        # Left in the final credits, as the server counts it watched.
+        ("creditsLeft", ["501"]),
+        ("earlyLeft", []),
+        ("left", []),
+        ("there", []),
+    ],
 )
 def test_the_ways_are_told_what_was_watched_here_to_its_end(markup, how, told):
     assert elsewhere(markup, "away_watched", how) == told
@@ -2775,9 +2784,16 @@ def test_the_keyboard_is_on_the_controls_again_as_a_tv_answers(markup):
     assert elsewhere(markup, "away_lost_tv", "back")["focus"] is True
 
 
-def test_the_page_says_what_the_next_episode_waits_for(markup):
-    out = elsewhere(markup, "away_countdown", "cancel")
-    assert out["hint"] == "Keep this page open for the next episode."
+@pytest.mark.parametrize(
+    ("how", "hint"),
+    [
+        ("cancel", "The next episode starts by itself, even if you leave this page."),
+        ("cancelStays", "Keep this page open for the next episode."),
+    ],
+)
+def test_the_page_says_what_the_next_episode_waits_for(markup, how, hint):
+    out = elsewhere(markup, "away_countdown", how)
+    assert out["hint"] == hint
     assert out["after"] == "Den is ready for something else."
     assert out["focus"] is True
 

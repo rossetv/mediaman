@@ -5464,12 +5464,12 @@ const scenarios = {
   /* What becomes of the next-episode countdown where the title comes back meanwhile. */
   async away_countdown(p) {
     await streamPlays(p, 30);
-    const way = await castPlays(p, true);
+    const way = await castPlays(p, p.win.serverPlays !== 'cancelStays');
     way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
     fire(way.media, 'ended');
     await settle();
     const out = { counts: !gone(p.q('[data-upnext]')) };
-    if (p.win.serverPlays === 'cancel') { out.hint = awayState(p).hint; p.q('[data-upnext-cancel]').focus(); click(p.q('[data-upnext-cancel]')); await settle(); return Object.assign(out, { after: awayState(p).hint, focus: doc.activeElement === p.q('[data-bring]') }); }
+    if (/^cancel/.test(p.win.serverPlays)) { out.hint = awayState(p).hint; p.q('[data-upnext-cancel]').focus(); click(p.q('[data-upnext-cancel]')); await settle(); return Object.assign(out, { after: awayState(p).hint, focus: doc.activeElement === p.q('[data-bring]') }); }
     const how = p.win.serverPlays;
     if (how === 'stop') click(p.q('[data-stop-away]'));
     else if (how === 'here') { click(p.q('.player-top').querySelector('[data-play-on]')); await settle(); await pickRow(p, 'here'); }
@@ -5508,6 +5508,9 @@ const scenarios = {
     if (how === 'skipped') {
       media.currentTime = 2710; fire(media, 'timeupdate');
       click(p.q('[data-skip]'));
+    } else if (/Left$/.test(how)) {
+      media.currentTime = how === 'creditsLeft' ? 2710 : 1000; fire(media, 'timeupdate');
+      p.leave();
     } else if (how !== 'left') {
       media.paused = true; media.ended = true; media.currentTime = 2999;
       fire(media, 'ended');
