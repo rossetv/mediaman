@@ -8,13 +8,10 @@ from functools import lru_cache
 import requests
 
 from mediaman.services.infra import SafeHTTPError
+from mediaman.services.watch_catalog import tmdb_image_url
 
 logger = logging.getLogger(__name__)
 
-
-#: TMDB poster image base URL — w200 thumbnail size used for the storage panel.
-#: Callers elsewhere that use w300 keep their own URL deliberately distinct.
-_TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 
 # Outer wall-clock budget for the parallel poster fan-out. 3s timeout × 10
 # misses serially would be a 30s page render in the worst case. We fan out to a
@@ -71,8 +68,8 @@ def _fill_tmdb_posters(
         except (SafeHTTPError, requests.RequestException, ValueError):
             logger.debug("dashboard.poster_lookup_failed title=%r", title, exc_info=True)
             return title, ""
-        if best and best.get("poster_path"):
-            return title, f"{_TMDB_POSTER_BASE_URL}{best['poster_path']}"
+        if best:
+            return title, tmdb_image_url(best.get("poster_path"), "w185") or ""
         return title, ""
 
     pool = _get_poster_executor()
