@@ -32,6 +32,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/watch/title/{ref}/ratings"),
     ("GET", "/api/watch/title/{ref}/collection"),
     ("GET", "/api/watch/title/{ref}/season/{number}"),
+    ("GET", "/api/watch/title/{ref}/season/{number}/words"),
     ("GET", "/api/watch/recommended"),
     ("POST", "/api/watch/stream"),
     ("GET", "/api/watch/stream/{stream_id}/index.m3u8"),

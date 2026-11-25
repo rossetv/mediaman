@@ -555,20 +555,47 @@ def _show_tmdb_id(
     )
 
 
+def _held_show_tmdb_id(conn: sqlite3.Connection, listed: lib.LibraryShow) -> int | None:
+    """As ``_show_tmdb_id``, from what is held: neither Sonarr nor TMDB is asked."""
+    own, _year = catalog.library_ids(conn).get(f"show-{listed.key}", (None, None))
+    if own or not listed.tvdb_id:
+        return own
+    return catalog.held_tmdb_id_for_tvdb(listed.tvdb_id)
+
+
+def _is_described(season: PlexSeason, episodes: Sequence[PlexEpisode]) -> bool:
+    return bool(season.summary) and all(e.summary and e.aired for e in episodes)
+
+
 def _tmdb_season(
-    client: TmdbClient | None,
-    tmdb_id_of: Callable[[TmdbClient], int | None],
-    season: PlexSeason,
-    episodes: Sequence[PlexEpisode],
+    client: TmdbClient, tmdb_id: int, number: int, episodes: Sequence[PlexEpisode], *, wait: bool
 ) -> dict[str, Any] | None:
-    """What TMDB says of the season, asked only when Plex does not describe all of it."""
-    if client is None or (season.summary and all(e.summary and e.aired for e in episodes)):
-        return None
+    """What TMDB says of the season, with only the episodes it has at the same number as Plex;
+    None when it has none so, or no answer. Raises as ``catalog.season`` when it is not to
+    *wait*."""
     try:
-        tmdb_id = tmdb_id_of(client)
-        return catalog.season(client, tmdb_id, season.index) if tmdb_id is not None else None
-    except (catalog.TmdbUnavailable, disk_cache.Refused):
+        found = catalog.season(client, tmdb_id, number, wait=wait)
+    except catalog.TmdbUnavailable:
         return None
+    told = found["episodes"] if found else {}
+    same = {
+        str(e.index): told[str(e.index)]
+        for e in episodes
+        if str(e.index) in told and _is_same_episode(e, told[str(e.index)])
+    }
+    return {**found, "episodes": same} if found and same else None
+
+
+def _is_same_episode(episode: PlexEpisode, told: Mapping[str, Any]) -> bool:
+    """Shows are ordered in more than one way: one number can be two episodes."""
+    if episode.aired and episode.aired == told["aired"]:
+        return True
+    name = catalog.normalise_title(episode.title)
+    if not name or name != catalog.normalise_title(told["title"]):
+        return False
+    # "Episode 4" is the fourth in every order.
+    numbered = re.fullmatch(r"episode \d+", name) is not None
+    return not (numbered and episode.aired and told["aired"])
 
 
 def _season_about(
@@ -693,7 +720,12 @@ def _show_title(
                 if season["episode_count"] is None:
                     season["episode_count"] = counts.get(season["number"])
             if show is not None and selected is not None:
-                found = _tmdb_season(client, lambda _client: tmdb_id, selected, episodes)
+                found = None
+                if not _is_described(selected, episodes):
+                    try:
+                        found = _tmdb_season(client, tmdb_id, selected.index, episodes, wait=False)
+                    except disk_cache.Refused:
+                        out["words_pending"] = True
                 for season in out["seasons"]:
                     if season["selected"]:
                         season.update(_season_about(selected, episodes, found))
@@ -1089,7 +1121,23 @@ def _why_not_to_request(
 def api_watch_title_season(
     ref: str, number: int, request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """The episodes of one season of a library show, with this person's progress."""
+    """The episodes of one season of a library show, with this person's progress. TMDB is not
+    waited for here: ``words_pending`` says that it may have more to say, which the season's
+    words wait for."""
+    return _season_reply(ref, number, request, username, wait=False)
+
+
+@router.get("/api/watch/title/{ref}/season/{number}/words")
+def api_watch_title_season_words(
+    ref: str, number: int, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
+    """The season, once TMDB has said what it has to say of it."""
+    return _season_reply(ref, number, request, username, wait=True)
+
+
+def _season_reply(
+    ref: str, number: int, request: Request, username: str, *, wait: bool
+) -> JSONResponse:
     if not REF_RE.fullmatch(ref) or not ref.startswith("show-") or not 0 <= number <= 9999:
         return _not_found()
     key = ref.removeprefix("show-")
@@ -1113,12 +1161,21 @@ def api_watch_title_season(
         return respond_err(plex_error_code(exc), status=503)
     progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
-    found = _tmdb_season(
-        _tmdb_client(request, conn),
-        lambda client: _show_tmdb_id(request, conn, client, listed),
-        season,
-        episodes,
-    )
+    client = _tmdb_client(request, conn)
+    found, pending = None, False
+    if client is not None and not _is_described(season, episodes):
+        tmdb_id = (
+            _show_tmdb_id(request, conn, client, listed)
+            if wait
+            else _held_show_tmdb_id(conn, listed)
+        )
+        # Who knows a show by its TVDB id alone is yet to be asked.
+        pending = tmdb_id is None and not wait and bool(listed.tvdb_id)
+        if tmdb_id is not None:
+            try:
+                found = _tmdb_season(client, tmdb_id, number, episodes, wait=wait)
+            except disk_cache.Refused:
+                pending = not wait
     return respond_ok(
         {
             "key": season.rating_key,
@@ -1126,6 +1183,7 @@ def api_watch_title_season(
             **_season_about(season, episodes, found),
             "episode_count": len(episodes),
             "episodes": _described_rows(episodes, progress, origin, found),
+            "words_pending": pending,
         }
     )
 

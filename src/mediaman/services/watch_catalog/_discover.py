@@ -129,6 +129,19 @@ def _cached(
             raise TmdbUnavailable("still being asked") from exc
 
 
+def _peeked(
+    client: TmdbClient, key: str, fresh_s: float, stale_s: float, fetch: Callable[[], Any]
+) -> Any:
+    """What is cached, as ``_cached``; None at once when nothing is, TMDB then being asked in the
+    background unless ``gate`` pauses it."""
+
+    def refreshed() -> Any:
+        gate.check(client.token)
+        return _noted(client, fetch)
+
+    return _cache().peek(key, fresh_s, stale_s, refreshed)
+
+
 def _noted(client: TmdbClient, fetch: Callable[[], Any]) -> Any:
     try:
         value = _shaped(fetch)()

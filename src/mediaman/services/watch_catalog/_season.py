@@ -9,18 +9,22 @@ from typing import Any
 
 import requests
 
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient, dicts_in
 
-from ._discover import _DAY, _cached, _failure, _is_gone
+from ._discover import _DAY, _cached, _failure, _is_gone, _peeked
 from ._explore import _iso_date
 
 _wall = time.time
 
 
-def season(client: TmdbClient, tmdb_id: int, number: int) -> dict[str, Any] | None:
+def season(
+    client: TmdbClient, tmdb_id: int, number: int, *, wait: bool = True
+) -> dict[str, Any] | None:
     """The ``overview`` and ``aired`` date of a season, and those of its ``episodes`` by their
-    number, as text. None when TMDB has no such season. Raises TmdbUnavailable and TmdbBusy."""
+    number with their ``title``, as text. None when TMDB has no such season. Raises
+    TmdbUnavailable and TmdbBusy, and disk_cache.Refused when TMDB has yet to answer and it is
+    not to *wait*: TMDB is then asked in the background."""
 
     def fetch() -> dict[str, Any]:
         try:
@@ -33,20 +37,33 @@ def season(client: TmdbClient, tmdb_id: int, number: int) -> dict[str, Any] | No
         return {
             **_about(payload),
             "episodes": {
-                str(e.get("episode_number")): _about(e) for e in dicts_in(payload, "episodes")
+                str(e.get("episode_number")): {**_about(e), "title": _text(e.get("name"))}
+                for e in dicts_in(payload, "episodes")
             },
         }
 
-    key = f"tmdb:season:v1:{tmdb_id}:{number}"
-    result: dict[str, Any] = _cached(client, key, 7 * _DAY, 90 * _DAY, fetch)
+    # "v2": entries before it lack the episodes' titles.
+    key = f"tmdb:season:v2:{tmdb_id}:{number}"
+    result: dict[str, Any] | None
+    if wait:
+        result = _cached(client, key, 7 * _DAY, 90 * _DAY, fetch)
+    else:
+        result = _peeked(client, key, 7 * _DAY, 90 * _DAY, fetch)
+    if result is None:
+        raise disk_cache.Refused(key)
     if result.get("gone") and _wall() - float(result.get("at", 0)) >= _DAY:
+        if not wait:
+            raise disk_cache.Refused(key)
         result = _cached(client, key, 0, 0, fetch)
-    return None if result.get("gone") else result
+    return None if not result or result.get("gone") else result
+
+
+def _text(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _about(payload: Mapping[str, Any]) -> dict[str, Any]:
-    overview = payload.get("overview")
     return {
-        "overview": overview.strip() if isinstance(overview, str) else "",
+        "overview": _text(payload.get("overview")),
         "aired": _iso_date(payload.get("air_date")),
     }

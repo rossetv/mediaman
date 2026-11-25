@@ -33,7 +33,12 @@ from ._explore import (
 )
 from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable, gate
 from ._genres import GENRES, Genre
-from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
+from ._library import (
+    clear_library_index,
+    held_tmdb_id_for_tvdb,
+    library_index,
+    tmdb_id_for_tvdb,
+)
 from ._season import season
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
@@ -81,6 +86,7 @@ __all__ = [
     "gate",
     "genre_posters",
     "held_details",
+    "held_tmdb_id_for_tvdb",
     "invalidate",
     "library_href",
     "library_ids",
