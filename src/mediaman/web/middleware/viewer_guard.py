@@ -52,6 +52,13 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/watch/stream/{stream_id}/stop"),
         ("POST", "/api/watch/progress"),
         ("POST", "/api/cast/stream"),
+        ("POST", "/api/tvs/pair"),
+        ("GET", "/api/tvs"),
+        ("GET", "/api/tvs/{tv_id}"),
+        ("PATCH", "/api/tvs/{tv_id}"),
+        ("DELETE", "/api/tvs/{tv_id}"),
+        ("POST", "/api/tvs/{tv_id}/play"),
+        ("POST", "/api/tvs/{tv_id}/commands"),
         ("GET", "/api/watch/stream/{stream_id}/preview/{n}"),
         ("POST", "/api/watch/dismissed/{ref}"),
         ("DELETE", "/api/watch/dismissed/{ref}"),
@@ -147,16 +154,18 @@ def _matched_template(request: Request) -> str | None:
 
 
 def is_ticket_route(request: Request) -> bool:
-    """True when a ticket in the address, and no session, will authorise *request*.
+    """True when a ticket in the address or a TV's own token, and no session, will authorise
+    *request*.
 
     A TV may send the cookie of the person who cast to it, which checking would end, since the
     TV's browser and address are not the ones the session is bound to.
     """
     # Walking the routes is slow; the match alone decides.
-    if "/api/cast/" not in request.scope["path"]:
+    path = request.scope["path"]
+    if "/api/cast/" not in path and "/api/tv/device/" not in path:
         return False
     template = _matched_template(request)
-    return template is not None and template.startswith("/api/cast/{ticket}/")
+    return template is not None and template.startswith(("/api/cast/{ticket}/", "/api/tv/device/"))
 
 
 def _viewer_may_reach(method: str, template: str | None) -> bool:

@@ -37,6 +37,7 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import user_must_change_password
+from mediaman.web.repository.tv import is_paired
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.watch.stream_api import (
     _gone_answer,
@@ -175,19 +176,20 @@ def _stream_lives(ticket: Ticket) -> bool:
 
 
 def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
-    """Whether the session that started the stream, and its user, are still good.
+    """Whether the session that started the stream, or the pairing of the TV it was started for,
+    and its user are still good.
 
-    Signing out, a new password and removing the user each end the session.
+    Signing out, a new password and removing the user each end the session; unpairing and the
+    last two each end the pairing.
     """
     row = conn.execute(
         "SELECT expires_at FROM admin_sessions WHERE token_hash = ?", (ticket.session_hash,)
     ).fetchone()
     expires = parse_iso_strict_utc(row["expires_at"]) if row is not None else None
+    lasts = expires is not None and expires >= now_utc()
     return (
-        expires is not None
-        and expires >= now_utc()
-        and not user_must_change_password(conn, ticket.user)
-    )
+        lasts or is_paired(conn, ticket.session_hash, ticket.user)
+    ) and not user_must_change_password(conn, ticket.user)
 
 
 def _is_good(ticket: Ticket) -> bool:
