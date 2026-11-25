@@ -152,23 +152,23 @@ def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
     assert level(".player-gap") <= level(".player-seek-thumb")
 
 
-def test_the_intro_and_credits_bands_are_greys_that_stand_out_from_the_bar_on_any_frame() -> None:
+def test_an_intro_or_credits_band_is_a_plain_grey_of_the_bar_s_height_cut_off_at_its_ends() -> None:
     css = _text("_player.css")
+    band = _rule(css, ".player-band")
+    opaque = re.search(r"background: color-mix\(in srgb, var\(--t1\) (\d+)%, var\(--bg\)\)", band)
+    assert opaque
+    grey = 255 * int(opaque.group(1)) / 100
 
-    def share(selector: str, prop: str) -> float:
-        m = re.search(prop + r":[^;]*var\(--t1\) (\d+)%", _rule(css, selector))
+    def share(selector: str) -> float:
+        m = re.search(r"var\(--t1\) (\d+)%", _rule(css, selector))
         assert m, selector
         return int(m.group(1)) / 100
 
-    parts = [
-        share(s, "background") for s in (".player-seek-track::before", ".player-seek-buffered")
-    ]
-    ring, fill = (255 * share(".player-band", prop) for prop in ("border", "background"))
-    for frame in (0, 45, 90):  # the bar's shade leaves no brighter frame under it
-        track = frame + (255 - frame) * parts[0]
-        for bar in (track, track + (255 - track) * parts[1]):
-            assert max(_contrast(ring, bar), _contrast(fill, bar)) >= 3, (frame, bar)
-    assert "--purple" not in _rule(css, ".player-band")
+    track = 255 * share(".player-seek-track::before")  # over a dark frame
+    buffered = track + (255 - track) * share(".player-seek-buffered")
+    assert _contrast(grey, track) >= 1.8 and _contrast(grey, buffered) >= 1.8
+    assert "border: solid var(--bg)" in band and "border-width: 0 2px" in band
+    assert not re.search(r"\b(top|bottom|height|outline|box-shadow|z-index):", band)
 
 
 def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_pressed_by() -> None:
