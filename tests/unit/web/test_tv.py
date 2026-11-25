@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -12,6 +13,7 @@ import defusedxml.ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.db import get_db
 from mediaman.services.cast import tickets
 from mediaman.services.cast.tickets import TICKET_SECONDS, TicketStore
 from mediaman.services.media_meta import plex_stream
@@ -30,13 +32,18 @@ from mediaman.services.media_meta.plex_watch import (
 from mediaman.services.tv import codes, players
 from mediaman.services.tv.codes import CODE_SECONDS, PairingCodes
 from mediaman.services.tv.players import HOLD_SECONDS, Players
+from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import (
     create_user,
     delete_user,
     get_user_role,
     set_must_change_password,
 )
-from mediaman.web.auth.session_store import create_session, destroy_session
+from mediaman.web.auth.session_store import (
+    create_session,
+    destroy_all_sessions_for,
+    destroy_session,
+)
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.watch_progress import get_progress, save_progress
 from mediaman.web.routes import tv as tv_routes
@@ -291,7 +298,7 @@ def test_an_address_cannot_go_on_guessing_codes_under_many_names(person):
 
 
 def test_nobody_can_go_on_guessing_codes_from_many_addresses(person, monkeypatch):
-    addresses = (f"203.0.{n}.1" for n in range(200))
+    addresses = (f"203.{n // 250}.{n % 250}.1" for n in range(10_000))
     monkeypatch.setattr(tv_routes, "get_client_ip", lambda request: next(addresses))
     for n in range(10):
         guesser = person(f"p{n}")
@@ -455,6 +462,105 @@ def test_a_pairing_that_cannot_be_read_back_is_not_stored(tv, amy, conn, monkeyp
     assert held == 1
 
 
+def test_pairing_needs_a_session_that_is_there_when_it_is_stored(tv, amy, conn):
+    destroy_session(conn, amy.cookies["session_token"])
+    with pytest.raises(repo.SessionEnded):
+        repo.pair(
+            conn,
+            username="amy",
+            session_hash=tv_routes.hash_token(amy.cookies["session_token"]),
+            token_hash="hash",
+            name=None,
+            again=None,
+            ip="",
+            now=tv_routes.now_utc(),
+        )
+    assert repo.every(conn) == []
+
+
+def test_pairing_needs_a_session_of_the_person_it_is_stored_for(tv, amy, bob, conn):
+    with pytest.raises(repo.SessionEnded):
+        repo.pair(
+            conn,
+            username="amy",
+            session_hash=tv_routes.hash_token(bob.cookies["session_token"]),
+            token_hash="hash",
+            name=None,
+            again=None,
+            ip="",
+            now=tv_routes.now_utc(),
+        )
+
+
+def test_a_code_stays_good_where_the_session_ended_before_it_was_stored(tv, amy, bob, monkeypatch):
+    code, _ = tv.code()
+    store = repo.pair
+
+    def ended(conn, **kwargs):
+        raise repo.SessionEnded
+
+    monkeypatch.setattr(repo, "pair", ended)
+    refused = amy.post("/api/tvs/pair", json={"code": code})
+    assert (refused.status_code, refused.json()) == (401, {"detail": "Not authenticated"})
+    monkeypatch.setattr(repo, "pair", store)
+    assert bob.post("/api/tvs/pair", json={"code": code}).status_code == 200
+
+
+def test_what_a_body_asks_for_is_done_for_a_session_that_is_still_there(app, tv, home, amy, conn):
+    """Whatever was known of the session before the body had come."""
+    _play(amy, home)
+    play_id = tv.poll()["play"]["play_id"]
+    app.dependency_overrides[get_current_user] = lambda: "amy"
+    code, _ = tv.code()
+    destroy_session(conn, amy.cookies["session_token"])
+    for answer in (
+        amy.post("/api/tvs/pair", json={"code": code}),
+        _play(amy, home, "102"),
+        _command(amy, home, "stop"),
+        _command(amy, home, "again"),
+        amy.patch(f"/api/tvs/{home}", json={"name": "Den"}),
+    ):
+        assert (answer.status_code, answer.json()) == (401, {"detail": "Not authenticated"})
+    ready = tv.poll()
+    assert (ready["play"]["play_id"], ready["name"]) == (play_id, "TV")
+
+
+def test_signing_out_everywhere_while_a_film_starts_leaves_nothing_on(
+    tv, home, amy, manager, monkeypatch
+):
+    read = PlexWatch._metadata
+
+    def sign_out(self, key, query=""):
+        monkeypatch.setattr(PlexWatch, "_metadata", read)
+        destroy_all_sessions_for(get_db(), "amy")
+        tv_routes.end_plays_of("amy")
+        return read(self, key, query)
+
+    monkeypatch.setattr(PlexWatch, "_metadata", sign_out)
+    assert _play(amy, home).status_code == 401
+    assert tv.poll()["play"] is None
+    assert not manager._streams
+
+
+def test_a_tv_that_changed_hands_meanwhile_keeps_its_name(tv, home, amy, bob, conn, person):
+    was = repo.find(conn, home)
+    tv.pair(bob, confirm=True)
+    assert not repo.rename(conn, was, "Mine", username="amy")
+    root = person("root", role="admin")
+    assert not repo.rename(conn, was, "Root's", username="root")
+    assert root.get("/api/tvs/all").json()["tvs"][0]["name"] == "TV"
+
+
+def test_somebody_who_is_no_admin_by_then_renames_no_tv_of_anothers(home, bob, person, conn):
+    held = repo.find(conn, home)
+    person("root", role="admin")
+    assert repo.rename(conn, held, "Den", username="root")
+    conn.execute("UPDATE admin_users SET role = 'viewer' WHERE username = 'root'")
+    conn.commit()
+    assert not repo.rename(conn, held, "Attic", username="root")
+    assert repo.find(conn, home).name == "Den"
+
+
 def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home, amy, bob, conn):
     was = repo.find(conn, home)
     tv.pair(amy)
@@ -463,6 +569,7 @@ def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home,
     taken = repo.pair(
         conn,
         username="bob",
+        session_hash=tv_routes.hash_token(bob.cookies["session_token"]),
         token_hash="other",
         name=None,
         again=was,
@@ -473,14 +580,21 @@ def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home,
     assert repo.find(conn, home) == now
 
 
-def test_the_audit_log_tells_pairing_taking_over_and_unpairing_apart(tv, home, bob, conn):
-    tv.pair(bob, confirm=True)
-    bob.delete(f"/api/tvs/{home}")
+def test_the_audit_log_says_which_tv_and_whose(tv, amy, bob, person, conn):
+    home = tv.pair(amy, name="Den")
+    tv.pair(bob, confirm=True, name="Attic")
+    person("root", role="admin").delete(f"/api/tvs/{home}")
     rows = conn.execute("SELECT action, actor FROM audit_log ORDER BY id").fetchall()
     assert [tuple(r) for r in rows] == [
         ("sec:tv.paired", "amy"),
         ("sec:tv.taken_over", "bob"),
-        ("sec:tv.unpaired", "bob"),
+        ("sec:tv.unpaired", "root"),
+    ]
+    details = [r[0] for r in conn.execute("SELECT detail FROM audit_log ORDER BY id")]
+    assert [json.loads(d[d.index("{") :]) for d in details] == [
+        {"device": "Den", "user": "amy"},
+        {"device": "Den", "user": "amy"},
+        {"device": "Attic", "user": "bob"},
     ]
 
 

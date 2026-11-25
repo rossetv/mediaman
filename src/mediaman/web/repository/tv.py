@@ -12,6 +12,10 @@ MAX_TVS_PER_PERSON = 20
 _DEFAULT_NAME = "TV"
 
 
+class SessionEnded(Exception):
+    """The session that asks has ended."""
+
+
 class TooManyTvs(Exception):
     """The person has as many TVs as a person may."""
 
@@ -65,10 +69,24 @@ def every(conn: sqlite3.Connection) -> list[Tv]:
     return [Tv(**dict(row)) for row in conn.execute(f"{_SELECT} ORDER BY tvs.id")]
 
 
+def has_session(conn: sqlite3.Connection, username: str, session_hash: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM admin_sessions WHERE token_hash = ? AND username = ?",
+        (session_hash, username),
+    ).fetchone()
+    return row is not None
+
+
+def _which(name: str, owner: str | None) -> dict[str, object]:
+    """A TV and whose it is, by the names the history shows as they stand."""
+    return {"device": name, "user": owner} if owner is not None else {"device": name}
+
+
 def pair(
     conn: sqlite3.Connection,
     *,
     username: str,
+    session_hash: str,
     token_hash: str,
     name: str | None,
     again: Tv | None,
@@ -78,11 +96,14 @@ def pair(
     """Pair the TV that holds the token with *username*.
 
     *again* is the TV's row where it was paired before; None is returned, and nothing changed,
-    where that is no longer whose it was.
+    where that is no longer whose it was. Raises ``SessionEnded`` unless the session is still the
+    person's when it is stored.
     """
     at = now.isoformat()
     with conn:
         conn.execute("BEGIN IMMEDIATE")
+        if not has_session(conn, username, session_hash):
+            raise SessionEnded("the session has ended")
         user = conn.execute(
             "SELECT id FROM admin_users WHERE username = ? AND must_change_password = 0",
             (username,),
@@ -95,34 +116,47 @@ def pair(
             ).fetchone()
             if held >= MAX_TVS_PER_PERSON:
                 raise TooManyTvs("the person has too many TVs")
+        # Someone else's name for it stays theirs.
+        kept = again.name if again is not None and again.owner == username else _DEFAULT_NAME
+        called = name or kept
         if again is None:
             tv_id = conn.execute(
                 "INSERT INTO tvs (owner_id, kind, name, token_hash, created_at, last_seen_at)"
                 " VALUES (?, 'page', ?, ?, ?, ?)",
-                (user["id"], name or _DEFAULT_NAME, token_hash, at, at),
+                (user["id"], called, token_hash, at, at),
             ).lastrowid
         else:
             tv_id = again.id
-            # Someone else's name for it stays theirs.
-            kept = again.name if again.owner == username else _DEFAULT_NAME
             changed = conn.execute(
                 "UPDATE tvs SET owner_id = ?, name = ?, token_hash = ?, created_at = ?,"
                 " last_seen_at = ? WHERE id = ? AND token_hash = ?",
-                (user["id"], name or kept, token_hash, at, at, tv_id, again.token_hash),
+                (user["id"], called, token_hash, at, at, tv_id, again.token_hash),
             )
             if changed.rowcount == 0:
                 return None
         taken = again is not None and again.owner != username
+        was = (again.name, again.owner) if again is not None and taken else (called, username)
         security_event_or_raise(
-            conn, event="tv.taken_over" if taken else "tv.paired", actor=username, ip=ip
+            conn,
+            event="tv.taken_over" if taken else "tv.paired",
+            actor=username,
+            ip=ip,
+            detail=_which(*was),
         )
         # Where this fails, nothing is stored.
         return find(conn, tv_id or 0)
 
 
-def rename(conn: sqlite3.Connection, tv_id: int, name: str) -> None:
+def rename(conn: sqlite3.Connection, tv: Tv, name: str, *, username: str) -> bool:
+    """Name *tv*; False where it is another person's by now, and *username* no admin or its owner."""
     with conn:
-        conn.execute("UPDATE tvs SET name = ? WHERE id = ?", (name, tv_id))
+        named = conn.execute(
+            "UPDATE tvs SET name = ?1 WHERE id = ?2 AND owner_id IS ?3 AND EXISTS ("
+            "SELECT 1 FROM admin_users u WHERE u.username = ?4"
+            " AND (u.role = 'admin' OR u.id = tvs.owner_id))",
+            (name, tv.id, tv.owner_id, username),
+        )
+    return named.rowcount > 0
 
 
 def remove(conn: sqlite3.Connection, tv: Tv, *, actor: str, ip: str) -> bool:
@@ -133,7 +167,9 @@ def remove(conn: sqlite3.Connection, tv: Tv, *, actor: str, ip: str) -> bool:
             "DELETE FROM tvs WHERE id = ? AND token_hash IS ?", (tv.id, tv.token_hash)
         )
         if gone.rowcount:
-            security_event_or_raise(conn, event="tv.unpaired", actor=actor, ip=ip)
+            security_event_or_raise(
+                conn, event="tv.unpaired", actor=actor, ip=ip, detail=_which(tv.name, tv.owner)
+            )
     return gone.rowcount > 0
 
 

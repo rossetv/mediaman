@@ -51,6 +51,7 @@ from mediaman.services.tv.players import (
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.auth.session_store import validate_session
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
@@ -211,6 +212,25 @@ _PairBody = Annotated[_Pair, Depends(_read(_Pair))]
 _NameBody = Annotated[_Rename, Depends(_read(_Rename))]
 _PlayBody = Annotated[_PlayOn, Depends(_read(_PlayOn))]
 _CommandBody = Annotated[_Command, Depends(_read(_Command))]
+
+
+def _session(request: Request, username: str) -> str:
+    """The hash of the person's session, which may have ended while the body was on its way."""
+    token = request.cookies.get("session_token", "")
+    still = validate_session(
+        get_db(),
+        token,
+        user_agent=request.headers.get("user-agent") or None,
+        client_ip=get_client_ip(request) or None,
+        request_supplied=True,
+    )
+    if still != username:
+        raise _not_signed_in()
+    return hash_token(token)
+
+
+def _not_signed_in() -> HTTPException:
+    return HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _too_many(retry_after: int, error: str = "rate_limited") -> Response:
@@ -438,10 +458,12 @@ def _start_on(
     renewed: bool = False,
     pressed: bool = True,
     offer: older_play.Offer | None = None,
+    asked_by: str | None = None,
 ) -> int | Response:
     """Play a title on the TV, as its owner's stream; the command's id, or the refusal.
 
     *start_s* None goes on from the saved place. With *over* it starts only while that plays.
+    *asked_by* is the session that asks, where one does, and nothing starts once it has ended.
     With *offer* the TV is taken only for a stream that has started, where that can be.
     """
     user, user_id, key = held.owner, held.owner_id, held.token_hash
@@ -510,6 +532,10 @@ def _start_on(
                 players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed)
             )
             begun.append(play)
+            # Not before: signing out everywhere ends what has begun by then.
+            if asked_by is not None and not repo.has_session(conn, user, asked_by):
+                players.stop(key, play.id)
+                raise _not_signed_in()
             # What played counts among the owner's streams until it has ended.
             _carry_out(players)
             answer = started or _start_cast(request, body, user, session, manager, began)
@@ -591,6 +617,7 @@ def _carry_on(
     pressed: bool,
     paused: bool = False,
     change: Callable[[Choice], Choice] = lambda choice: choice,
+    asked_by: str | None = None,
 ) -> int | Response:
     """Go on from what plays on the TV; the command's id, or the refusal."""
     players, key = get_players(), held.token_hash or ""
@@ -609,7 +636,7 @@ def _carry_on(
     except (NotPlaying, Stale) as exc:
         return _refusal(exc)
     if what in ("next", "auto"):
-        return _start_next(request, held, play, by_itself=what == "auto")
+        return _start_next(request, held, play, by_itself=what == "auto", asked_by=asked_by)
     over = play.state in ("ended", "upnext", "still")
     if over and what == "restart":
         return _refusal(NotPlaying())
@@ -627,10 +654,13 @@ def _carry_on(
         paused=was_paused if what == "restart" else renewed,
         renewed=renewed,
         pressed=pressed,
+        asked_by=asked_by,
     )
 
 
-def _start_next(request: Request, held: repo.Tv, play: Play, *, by_itself: bool) -> int | Response:
+def _start_next(
+    request: Request, held: repo.Tv, play: Play, *, by_itself: bool, asked_by: str | None
+) -> int | Response:
     if play.next_state == "unknown":
         try:
             plex = _open_plex(request, get_db())
@@ -649,7 +679,15 @@ def _start_next(request: Request, held: repo.Tv, play: Play, *, by_itself: bool)
     choice = play.choice
     if choice.subtitle != "off":
         choice = replace(choice, subtitle=None)
-    return _start_on(request, held, item["rating_key"], choice, over=play.id, by_itself=by_itself)
+    return _start_on(
+        request,
+        held,
+        item["rating_key"],
+        choice,
+        over=play.id,
+        by_itself=by_itself,
+        asked_by=asked_by,
+    )
 
 
 # ── the person ──
@@ -695,6 +733,7 @@ def _shown(held: repo.Tv) -> dict[str, Any]:
 @router.post("/api/tvs/pair")
 def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
     """Pair the TV that shows the code with the person."""
+    session_hash = _session(request, username)
     address = get_client_ip(request)
     limits: tuple[tuple[RateLimiter | ActionRateLimiter, str], ...] = (
         (_WRONG_LIMITER, username),
@@ -737,6 +776,7 @@ def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
         paired = repo.pair(
             conn,
             username=username,
+            session_hash=session_hash,
             token_hash=asked.token_hash,
             name=body.name,
             again=again,
@@ -747,6 +787,8 @@ def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
         get_codes().release(code)
         if isinstance(exc, repo.TooManyTvs):
             return too_many
+        if isinstance(exc, repo.SessionEnded):
+            raise _not_signed_in() from None
         raise
     # Only now: until it is stored, the TV is to go on waiting.
     get_codes().end(code)
@@ -826,14 +868,14 @@ def _own_or_admins(username: str, tv_id: _TvId) -> repo.Tv | None:
 
 
 @router.patch("/api/tvs/{tv_id}")
-def rename_tv(tv_id: _TvId, body: _NameBody, username: _Username) -> Response:
+def rename_tv(request: Request, tv_id: _TvId, body: _NameBody, username: _Username) -> Response:
+    _session(request, username)
     limited = _limited(_CHANGE_LIMITER, username)
     if limited is not None:
         return limited
     held = _own_or_admins(username, tv_id)
-    if held is None:
+    if held is None or not repo.rename(get_db(), held, body.name, username=username):
         return _not_found()
-    repo.rename(get_db(), tv_id, body.name)
     return respond_ok({"tv": {"id": tv_id, "name": body.name}})
 
 
@@ -860,6 +902,7 @@ def _unpair(request: Request, held: repo.Tv, *, actor: str) -> None:
 
 @router.post("/api/tvs/{tv_id}/play")
 def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Username) -> Response:
+    session_hash = _session(request, username)
     limited = _limited(_COMMAND_LIMITER, username)
     if limited is not None:
         return limited
@@ -885,6 +928,7 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
         start_s=body.position_s,
         asked_s=body.asked_s,
         offer=offer,
+        asked_by=session_hash,
     )
     if isinstance(done, Response):
         return done
@@ -893,19 +937,20 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
 
 @router.post("/api/tvs/{tv_id}/commands")
 def command_tv(request: Request, tv_id: _TvId, body: _CommandBody, username: _Username) -> Response:
+    session_hash = _session(request, username)
     limited = _limited(_COMMAND_LIMITER, username)
     if limited is not None:
         return limited
     held = _own(username, tv_id)
     if isinstance(held, Response):
         return held
-    done = _run(request, held, body)
+    done = _run(request, held, body, session_hash)
     if isinstance(done, Response):
         return done
     return respond_ok({"id": done, "tv": _shown(held)})
 
 
-def _run(request: Request, held: repo.Tv, body: _Command) -> int | Response:
+def _run(request: Request, held: repo.Tv, body: _Command, asked_by: str) -> int | Response:
     missing = respond_err("invalid", status=422)
     if body.kind == "quality":
         quality = body.quality
@@ -918,6 +963,7 @@ def _run(request: Request, held: repo.Tv, body: _Command) -> int | Response:
             body.play_id,
             pressed=True,
             change=lambda c: replace(c, quality=quality),
+            asked_by=asked_by,
         )
     if body.kind == "subtitles":
         if body.subtitle is None:
@@ -929,9 +975,10 @@ def _run(request: Request, held: repo.Tv, body: _Command) -> int | Response:
             body.play_id,
             pressed=True,
             change=lambda c: replace(c, subtitle=body.subtitle),
+            asked_by=asked_by,
         )
     if body.kind in ("next", "again", "cancel", "stop"):
-        return _carry_on(request, held, body.kind, body.play_id, pressed=True)
+        return _carry_on(request, held, body.kind, body.play_id, pressed=True, asked_by=asked_by)
     args: dict[str, Any] = {}
     if body.kind == "seek":
         args = {"position_s": body.position_s}
