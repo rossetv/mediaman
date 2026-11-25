@@ -50,10 +50,20 @@ def test_a_leaving_badge_is_dark_and_turns_red_only_when_it_leaves_now() -> None
     assert css.index(".watch-badge--leaving-now {") > css.index(".watch-badge--leaving {")
 
 
-def test_a_leaving_badge_says_the_days_left_at_every_width() -> None:
+def test_a_leaving_badge_says_the_days_left_but_on_the_narrowest_phones() -> None:
     assert "display: none" in _of(".watch-badge__long")
     assert "display: none" not in _of(".watch-badge__short")
-    assert not any(_of(s, "width") for s in (".watch-badge__long", ".watch-badge__short"))
+    wider = "max-width: 599.98px"
+    assert not any(_of(s, wider) for s in (".watch-badge__long", ".watch-badge__short"))
+
+
+def test_a_leaving_badge_is_shorter_on_the_narrowest_phones_and_still_read_in_full() -> None:
+    narrow = "max-width: 359.98px"
+    assert "display: none" in _of(".watch-badge__short", narrow)
+    assert "attr(data-words)" in _of(".watch-badge__tiny::after", narrow)
+    long = _of(".watch-badge__long", narrow)
+    assert "display: block" in long and "clip-path: inset(50%)" in long
+    assert "content" not in _of(".watch-badge__tiny::after")
 
 
 @pytest.mark.parametrize(

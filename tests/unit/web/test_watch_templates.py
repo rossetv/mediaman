@@ -238,6 +238,16 @@ def test_leaving_badge_wording(days: int, text: str) -> None:
     assert f">{text}<" in html
 
 
+@pytest.mark.parametrize(
+    ("days", "words"), [(-3, "Any day"), (0, "Today"), (1, "In 1 day"), (5, "In 5 days")]
+)
+def test_a_leaving_badge_has_words_for_the_narrowest_phones(days: int, words: str) -> None:
+    html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
+    assert (
+        f'<span class="watch-badge__tiny" data-words="{words}" aria-hidden="true"></span>' in html
+    )
+
+
 @pytest.mark.parametrize(("days", "now"), [(-3, True), (0, True), (1, True), (2, False)])
 def test_only_what_leaves_by_tomorrow_stands_out(days: int, now: bool) -> None:
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])

@@ -591,10 +591,10 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
 
 def test_a_result_says_when_it_leaves_and_only_by_tomorrow_is_urgent() -> None:
     assert _run("leaving") == [
-        [["Leaving any day", "Leaving any day"], True],
-        [["Leaving today", "Leaving today"], True],
-        [["Leaving in 1 day", "1 day left"], True],
-        [["Leaving in 2 days", "2 days left"], False],
+        [["Leaving any day", "Leaving any day", "Any day"], True],
+        [["Leaving today", "Leaving today", "Today"], True],
+        [["Leaving in 1 day", "1 day left", "In 1 day"], True],
+        [["Leaving in 2 days", "2 days left", "In 2 days"], False],
     ]
 
 

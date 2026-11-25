@@ -19,7 +19,7 @@
 
 {# "N days left"; the preview reads the words that are not drawn. Today and tomorrow stand out. #}
 {% macro leaving_badge(days) -%}
-<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}{{ leaving_text(days) }}{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
+<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}{{ leaving_text(days) }}{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span><span class="watch-badge__tiny" data-words="{% if days < 0 %}Any day{% elif days == 0 %}Today{% elif days == 1 %}In 1 day{% else %}In {{ days }} days{% endif %}" aria-hidden="true"></span></span>
 {%- endmacro %}
 
 {# The Keep trigger. One shared menu (keep_menu) opens under whichever trigger is pressed. #}

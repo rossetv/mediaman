@@ -65,11 +65,21 @@
     return days === 1 ? '1 day left' : days + ' days left';
   }
 
+  function leavingTinyText(days) {
+    if (days < 0) return 'Any day';
+    if (!days) return 'Today';
+    return days === 1 ? 'In 1 day' : 'In ' + days + ' days';
+  }
+
   function leavingBadge(item) {
     if (typeof item.leaving_days !== 'number') return null;
     var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
     badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
     badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
+    var tiny = el('span', 'watch-badge__tiny');
+    tiny.setAttribute('data-words', leavingTinyText(item.leaving_days));
+    tiny.setAttribute('aria-hidden', 'true');
+    badge.appendChild(tiny);
     return badge;
   }
 
