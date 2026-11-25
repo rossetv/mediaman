@@ -348,6 +348,10 @@ class StreamManager:
         # way around the limits.
         self._reads: set[SegmentRead] = set()
 
+    def now(self) -> float:
+        """The time on the manager's clock, in seconds from no set moment."""
+        return self._clock()
+
     def start(
         self,
         user: str,
