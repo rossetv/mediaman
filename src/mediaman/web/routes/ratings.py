@@ -223,7 +223,7 @@ def api_rating_ask(
             fields = _details(request, conn, title, ask=False)
         except catalog.TitleNotFound:
             fields = None
-        # The last episode held is not the end of a season still on air.
+        # The last episode held may not be the season's: not while it is still on air.
         total = next(
             (
                 s["episode_count"]
@@ -232,7 +232,7 @@ def api_rating_ask(
             ),
             None,
         )
-        if total and end.episode < total:
+        if not total or end.episode < total:
             return nothing
     if not ratings.claim_ask(conn, user_id, title, season, now_utc()):
         return nothing

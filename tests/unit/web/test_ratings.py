@@ -258,7 +258,12 @@ class TestAsking:
         _rate(client, "movie-100", 1)
         assert not _ask(client, "100")["ask"]
 
-    def test_a_season_is_asked_of_at_its_last_episode_and_each_season_once(self, client, conn):
+    def test_a_season_is_asked_of_at_its_last_episode_and_each_season_once(
+        self, client, conn, tmdb
+    ):
+        tmdb.titles["tv", 44] = {
+            "tmdb_seasons": [{"number": 1, "episode_count": 2}, {"number": 2, "episode_count": 1}]
+        }
         _season(conn, "502", 2, [("521", 1)], tmdb_id=44)
         _finish(conn, "511", show="500", item="501")
         assert not _ask(client, "511")["ask"]
@@ -273,7 +278,17 @@ class TestAsking:
         _finish(conn, "512", show="500", item="501")
         assert not _ask(client, "512")["ask"]
 
-    def test_a_special_is_not_asked_of(self, client, conn):
+    def test_a_season_of_unknown_length_is_asked_of_only_once_it_is_known(self, client, conn, tmdb):
+        _finish(conn, "512", show="500", item="501")
+        tmdb.down = True
+        assert not _ask(client, "512")["ask"]
+        tmdb.down = False
+        for count in (None, 2):
+            tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 1, "episode_count": count}]}
+            assert _ask(client, "512")["ask"] is (count == 2)
+
+    def test_a_special_is_not_asked_of(self, client, conn, tmdb):
+        tmdb.titles["tv", 44] = {"tmdb_seasons": [{"number": 0, "episode_count": 1}]}
         _season(conn, "503", 0, [("531", 1)], tmdb_id=44)
         _finish(conn, "531", show="500", item="503")
         assert not _ask(client, "531")["ask"]
