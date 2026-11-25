@@ -17,7 +17,7 @@ from mediaman.services.media_meta.plex_watch import (
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched, save_progress
-from mediaman.web.routes.watch import browse_api, pages
+from mediaman.web.routes.watch import all_titles, browse_api, pages
 from tests.helpers.factories import insert_admin_user, insert_media_item, insert_settings
 
 
@@ -122,6 +122,27 @@ class TestSearch:
 
         assert [i["title"] for i in body["items"]] == ["Glass", "Glass Elsewhere"]
         assert body["total"] == 3
+
+    def test_an_admin_search_reads_only_the_titles_it_finds(self, client, conn, monkeypatch):
+        _movie(conn, "100", "Amber Glass")
+        _movie(conn, "101", "Winter Road")
+        _season(conn, "700", "70", "Night City")
+        _movie(conn, "900", "Glass Elsewhere", library=9)
+        _movie(conn, "901", "Other Elsewhere", library=9)
+        read: list[str] = []
+        fetch = all_titles.fetch_display_rows
+
+        def spy(*args, **kwargs):
+            rows = fetch(*args, **kwargs)
+            read.extend(r["title"] for r in rows)
+            return rows
+
+        monkeypatch.setattr(all_titles, "fetch_display_rows", spy)
+
+        body = _as_admin(client, conn).get("/api/watch/search", params={"q": "glass"}).json()
+
+        assert [i["title"] for i in body["items"]] == ["Glass Elsewhere", "Amber Glass"]
+        assert read and all("Glass" in title for title in read)
 
     @pytest.mark.parametrize(("q", "expected"), [("%", ["100% Wolf"]), ("_", ["Under_score"])])
     def test_like_wildcards_match_only_themselves(self, client, conn, q, expected):

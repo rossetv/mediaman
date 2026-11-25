@@ -136,6 +136,12 @@ def load(
     # By its items: the lowest of a row's ids need not be among the stale ones.
     key_of = {item: key for key, row in rows.items() for item in row_items(row)}
     stale = {key_of[r["id"]]: r["file_size_bytes"] or 0 for r in fetch_display_rows(conn, "stale")}
+    return Library(_admin_titles(rows, held, stale), seen, rows)
+
+
+def _admin_titles(
+    rows: dict[str, sqlite3.Row], held: dict[str, lib.LibraryTitle], stale: dict[str, int]
+) -> list[lib.LibraryTitle]:
     titles = []
     for key, row in rows.items():
         kind = cast(Any, "movies" if row["display_type"] == "movie" else row["display_type"])
@@ -156,7 +162,7 @@ def load(
                 stale_bytes=stale.get(key),
             )
         )
-    return Library(titles, seen, rows)
+    return titles
 
 
 def _is_of(title: lib.LibraryTitle, type_: str, seen: set[str]) -> bool:
@@ -398,10 +404,14 @@ def one_of(
 
 
 def unheld(
-    conn: sqlite3.Connection, username: str, libraries: list[str], search: TitleSearch
+    conn: sqlite3.Connection,
+    libraries: list[str],
+    term: str,
+    found: Sequence[lib.LibraryMovie | lib.LibraryShow],
 ) -> list[dict[str, Any]]:
-    """An admin's cards of the titles *search* finds that Watch cannot open."""
-    # The whole library is read for them, which a search is too often for with none there.
+    """An admin's cards of the titles *term* finds that Watch cannot open; *found* is every library
+    title it finds."""
+    # Finding their rows reads every title's name, which a search need not do with none there.
     if not conn.execute(
         "SELECT 1 FROM media_items WHERE CAST(plex_library_id AS TEXT) NOT IN"
         " (SELECT CAST(value AS TEXT) FROM json_each(?))"
@@ -409,13 +419,16 @@ def unheld(
         (json.dumps(libraries),),
     ).fetchone():
         return []
-    movies, shows = lib.library_movies(conn, libraries), lib.library_shows(conn, libraries)
-    library = load(conn, username, libraries, movies, shows, admin=True)
-    held = _held(movies, shows)
-    found = [
-        t for t in library.titles if t.key not in held and search.distance(t.title) is not None
-    ]
-    return _cards(conn, library, found, lambda _refs: {}, DEFAULT_SORT, "", now_utc())
+    held = _held(
+        [t for t in found if isinstance(t, lib.LibraryMovie)],
+        [t for t in found if isinstance(t, lib.LibraryShow)],
+    )
+    # Neither what was seen nor what is stale is on such a card.
+    rows = {display_key(r): r for r in fetch_display_rows(conn, q=term)}
+    library = Library(_admin_titles(rows, held, {}), set(), rows)
+    search = TitleSearch(conn, term)
+    page = [t for t in library.titles if t.key not in held and search.distance(t.title) is not None]
+    return _cards(conn, library, page, lambda _refs: {}, DEFAULT_SORT, "", now_utc())
 
 
 __all__ = [

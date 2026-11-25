@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
 import threading
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -109,12 +110,14 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         return JSONResponse({"items": [], "total": 0})
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
-    found, total = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
-    items = library_items(conn, username, libraries, found)
-    if get_user_role(conn, username) == "admin":
+    admin = get_user_role(conn, username) == "admin"
+    # An admin's search has every title it finds, to tell those Watch cannot open from the rest.
+    found, total = lib.search_library(conn, libraries, term, sys.maxsize if admin else SEARCH_LIMIT)
+    items = library_items(conn, username, libraries, found[:SEARCH_LIMIT])
+    if admin:
         search = TitleSearch(conn, term)
         unheld = all_titles.in_one_read(
-            conn, lambda: all_titles.unheld(conn, username, libraries, search)
+            conn, lambda: all_titles.unheld(conn, libraries, term, found)
         )
         items += [{**card, "ref": None} for card in unheld]
         items.sort(key=lambda i: (search.distance(i["title"]), lib.sort_title(i["title"])))
