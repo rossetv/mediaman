@@ -356,6 +356,7 @@ def _register_routers(app: FastAPI) -> None:
     """
     from mediaman.web.routes.account import router as account_router
     from mediaman.web.routes.auth import router as auth_router
+    from mediaman.web.routes.avatars import router as avatars_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
@@ -367,9 +368,11 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.library_api import router as library_api_router
     from mediaman.web.routes.plex_link import router as plex_link_router
     from mediaman.web.routes.poster import router as poster_router
+    from mediaman.web.routes.ratings import router as ratings_router
     from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.scan import router as scan_router
     from mediaman.web.routes.search import router as search_router
+    from mediaman.web.routes.search.assist import router as search_assist_router
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.users import router as users_router
@@ -401,15 +404,18 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(settings_router)
     app.include_router(subscribers_router)
     app.include_router(search_router)
+    app.include_router(search_assist_router)
     app.include_router(recommended_router)
     app.include_router(users_router)
     app.include_router(account_router)
+    app.include_router(avatars_router)
     app.include_router(plex_link_router)
     app.include_router(watch_pages_router)
     app.include_router(watch_browse_api_router)
     app.include_router(watch_stream_api_router)
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
+    app.include_router(ratings_router)
     app.include_router(watch_library_row_api_router)
     app.include_router(watch_image_api_router)
     app.include_router(watch_catalog_api_router)
