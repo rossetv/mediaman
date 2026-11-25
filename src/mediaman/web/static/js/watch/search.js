@@ -170,6 +170,18 @@
     return card;
   }
 
+  /* One Watch cannot open, which only an admin finds: its menu has what can be done of it. */
+  function buildUnheldCard(item) {
+    var card = libraryCard(item);
+    var link = card.querySelector('.watch-card__link');
+    link.removeAttribute('href');
+    link.tabIndex = 0;
+    card.setAttribute('data-key', item.key);
+    card.setAttribute('data-admin', JSON.stringify(item.admin));
+    core.addMore(card, item.title);
+    return card;
+  }
+
   /* One found by its category, in the library. */
   function buildHeldCard(item) {
     return addKeep(buildTmdbCard(item, true), item);
@@ -1590,7 +1602,7 @@
        to; titles of a category that was named in full come after the matches. */
     function gather(c) {
       var held = c.tmdb.held || []; // what the library's own search did not find
-      var lib = (c.lib.items || []).concat(held).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
+      var lib = (c.lib.items || []).concat(held).map(function (item) { return { item: item, key: item.ref || item.href || item.key, build: item.admin ? buildUnheldCard : buildCard }; });
       var out = [];
       var total = (c.lib.total || 0) + held.length;
       var seen = new Set(lib.map(function (x) { return x.key; }));
@@ -1733,6 +1745,10 @@
       live.grid.removeAttribute('aria-busy');
       live.drawn = lib.state !== 'loading';
       draw(c.q, c, rows, settled);
+      if (lib.state !== 'loading' && c.afterLib) {
+        c.afterLib();
+        c.afterLib = null;
+      }
       refocus(c, 'lib', lib);
       refocus(c, 'tmdb', tmdb);
       if (settled) {
@@ -1774,6 +1790,49 @@
         return { state: 'failed', text: MM.api.messageOf(err, SEARCH_FAILED) };
       });
     }
+
+    function cardOf(key) {
+      return core.toArray(live && live.grid ? live.grid.querySelectorAll('.watch-card') : []).filter(function (card) {
+        return card.getAttribute('data-key') === key;
+      })[0] || null;
+    }
+
+    function cardFrom(node, step) {
+      for (var n = node[step]; n; n = n[step]) if (n.classList.contains('watch-card')) return n;
+      return null;
+    }
+
+    function focusIsFree() {
+      var active = document.activeElement;
+      if (document.documentElement.classList.contains('has-ttl') || document.querySelector('.wl-dialog.active')) return false;
+      return !active || active === document.body || !document.body.contains(active) || !!active.closest('.ui-toast.is-leaving');
+    }
+
+    /* An admin's change to a title Watch cannot open is read again where it was found. */
+    document.addEventListener('mm:watch-admin', function (e) {
+      var d = e.detail;
+      var key = d.showRk ? 'show:' + d.showRk : 'id:' + d.id;
+      var card = current && cardOf(key);
+      if (!card) return;
+      card.classList.toggle('is-working', d.phase === 'busy');
+      core.toArray(card.querySelectorAll('[data-watch-more]')).forEach(function (more) {
+        if (d.phase === 'busy') more.setAttribute('aria-disabled', 'true');
+        else more.removeAttribute('aria-disabled');
+      });
+      if (d.phase !== 'done') return;
+      var after = cardFrom(card, 'nextElementSibling');
+      var before = cardFrom(card, 'previousElementSibling');
+      // The one beside it in its group, before one past a heading.
+      var next = after && after === card.nextElementSibling ? after : (before && before === card.previousElementSibling ? before : after || before);
+      current.afterLib = function () {
+        var to = cardOf(key) || next;
+        // The menu or the dialog gave the focus back to a button that is gone, or to an Undo that is going.
+        if (!focusIsFree()) return;
+        var control = to && live.grid.contains(to) && core.controlIn(to, '[data-watch-more]');
+        if (control) control.focus({ preventScroll: true });
+      };
+      fetchLibrary(current);
+    });
 
     function fetchTmdb(c) {
       ask(c, 'tmdb', TMDB_URL + encodeURIComponent(c.q), function (reply) {

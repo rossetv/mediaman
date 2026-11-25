@@ -929,6 +929,26 @@ def _title_of_fields(
     return out
 
 
+def _held_title(
+    request: Request,
+    conn: sqlite3.Connection,
+    username: str,
+    is_admin: bool,
+    libraries: list[str],
+    ref: str,
+) -> dict[str, Any] | None:
+    """The library title *ref*; None when it is not in the scanned libraries."""
+    listed = _library_title(conn, libraries, ref)
+    if listed is None:
+        return None
+    try:
+        if isinstance(listed, lib.LibraryMovie):
+            return _movie_title(request, conn, username, is_admin, libraries, listed)
+        return _show_title(request, conn, username, is_admin, libraries, listed)
+    except _OutsideLibraries:
+        return None
+
+
 @router.get("/api/watch/title/{ref}")
 def api_watch_title(
     ref: str, request: Request, username: str = Depends(get_current_user)
@@ -939,19 +959,23 @@ def api_watch_title(
     libraries = lib.scanned_library_ids(conn)
     is_admin = get_user_role(conn, username) == "admin"
     kind, _, rest = ref.partition("-")
-    try:
-        if kind == "movie":
-            movie = lib.find_movie(conn, libraries, rest)
-            if movie is None:
-                return _not_found()
-            return respond_ok(_movie_title(request, conn, username, is_admin, libraries, movie))
-        if kind == "show":
-            listed = lib.find_show(conn, libraries, rest)
-            if listed is None:
-                return _not_found()
-            return respond_ok(_show_title(request, conn, username, is_admin, libraries, listed))
-    except _OutsideLibraries:
-        return _not_found()
+
+    def held(library_ref: str) -> dict[str, Any] | None:
+        return _held_title(request, conn, username, is_admin, libraries, library_ref)
+
+    def without_tmdb(otherwise: JSONResponse) -> JSONResponse:
+        """The library's own copy of the TMDB title asked for; *otherwise* when it has none."""
+        if kind != "tmdb":
+            return otherwise
+        media_type, _, tmdb_id = rest.partition("-")
+        for copy in seen_titles.library_refs(conn, libraries, (media_type, int(tmdb_id))):
+            if (title := held(copy)) is not None:
+                return respond_ok(title)
+        return otherwise
+
+    if kind in ("movie", "show"):
+        title = held(ref)
+        return _not_found() if title is None else respond_ok(title)
 
     client = _tmdb_client(request, conn)
     try:
@@ -961,7 +985,7 @@ def api_watch_title(
                 return _not_found()
             return respond_ok(_recommended_title(request, conn, username, client, ref, kind, rec))
         if client is None:
-            return respond_err("tmdb_not_configured", status=503)
+            return without_tmdb(respond_err("tmdb_not_configured", status=503))
         media_type, _, tmdb_id = rest.partition("-")
         # Any id can be asked for, so only a title TMDB must answer counts against the limit;
         # a cached one is free.
@@ -978,12 +1002,14 @@ def api_watch_title(
                 lambda: _QUERY_LIMITER.check(username),
             )
         )
-    except (disk_cache.Refused, catalog.TmdbBusy):
+    except disk_cache.Refused:
         return respond_err("too_many_requests", status=429)
+    except catalog.TmdbBusy:
+        return without_tmdb(respond_err("too_many_requests", status=429))
     except catalog.TitleNotFound:
         return _not_found()
     except catalog.TmdbUnavailable:
-        return respond_err("tmdb_request_failed", status=502)
+        return without_tmdb(respond_err("tmdb_request_failed", status=502))
 
 
 def _recommended(

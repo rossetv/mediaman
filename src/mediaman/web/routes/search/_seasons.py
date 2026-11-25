@@ -222,10 +222,16 @@ def _add_all(
                     if result == "asked":
                         sonarr.take_back_season(series_id, number, change)
                     result = refusal
-            if also and result not in ("asked", "unrecorded") and change.left_on:
+            if also and result not in ("asked", "unrecorded") and change.left_on is not False:
                 try:
                     record_started(
-                        conn, show, title=title, number=number, actor=actor, started=also
+                        conn,
+                        show,
+                        title=title,
+                        number=number,
+                        actor=actor,
+                        started=also,
+                        certain=change.left_on is True,
                     )
                 except sqlite3.Error:
                     logger.exception("Started seasons %s could not be recorded", sorted(also))

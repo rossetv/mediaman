@@ -63,6 +63,12 @@ _MAX_BYTES = 102_000
 # What Mailgun adds to an address when its domain tracks clicks.
 _TRACKING_BYTES = 300
 
+_MAX_TITLE = 200
+
+
+def _shown_title(title: str) -> str:
+    return title if len(title) <= _MAX_TITLE else title[: _MAX_TITLE - 1].rstrip() + "…"
+
 
 def _fits(html: str) -> bool:
     return len(html.encode()) + html.count("<a ") * _TRACKING_BYTES <= _MAX_BYTES
@@ -81,8 +87,12 @@ def render_to_fit(
 
     A long list of leaving titles shows the soonest as they are and the rest as short rows,
     then gives up picks and deleted titles, so that each keeps its Keep link. Only when even
-    short rows do not fit are the latest left out, with a link to mediaman.
+    short rows do not fit are the latest left out, with a link to mediaman. A title too long to
+    read is cut, so that it takes no other's place.
     """
+    scheduled_items = [{**i, "title": _shown_title(i["title"])} for i in scheduled_items]
+    deleted_items = [{**i, "title": _shown_title(i["title"])} for i in deleted_items]
+    this_week_items = [{**i, "title": _shown_title(i["title"])} for i in this_week_items]
     count = len(scheduled_items)
     soonest = sorted(scheduled_items, key=lambda item: item["days_left"])
 

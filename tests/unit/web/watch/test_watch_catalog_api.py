@@ -574,6 +574,41 @@ class TestTitleRefs:
         assert resp.status_code == 503
         assert resp.json()["error"] == "tmdb_not_configured"
 
+    @pytest.mark.parametrize(
+        ("ref", "library_ref"), [("tmdb-movie-11", "movie-100"), ("tmdb-tv-77", "show-500")]
+    )
+    @pytest.mark.parametrize("why", ["down", "busy", "not_set_up"])
+    def test_a_title_the_library_holds_opens_without_tmdb(
+        self, request, viewer, library, arr, plex, monkeypatch, ref, library_ref, why
+    ):
+        if why == "not_set_up":
+            request.getfixturevalue("no_tmdb")
+        else:
+            request.getfixturevalue("tmdb").failing = True
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '502'")
+        library.commit()
+        if why == "busy":
+            busy = MagicMock(side_effect=catalog.TmdbBusy("busy"))
+            monkeypatch.setattr(catalog, "details", busy)
+
+        body = viewer.get(f"/api/watch/title/{ref}").json()
+
+        assert (body["in_library"], body["library_ref"]) == (True, library_ref)
+
+    def test_a_held_copy_outside_the_scanned_libraries_is_not_opened_for_want_of_tmdb(
+        self, viewer, library, no_tmdb, arr, plex
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 12 WHERE id = '900'")
+        library.commit()
+        plex.items["100"] = replace(plex.items["100"], library_section_id="9")
+
+        answers = {
+            ref: viewer.get(f"/api/watch/title/{ref}").status_code
+            for ref in ("tmdb-movie-11", "tmdb-movie-12")
+        }
+
+        assert answers == {"tmdb-movie-11": 503, "tmdb-movie-12": 503}
+
 
 class TestLibraryTitle:
     def test_a_movie_is_built_from_plex_alone_without_tmdb(self, viewer, no_tmdb, arr, plex):

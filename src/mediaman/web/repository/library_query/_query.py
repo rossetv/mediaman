@@ -277,9 +277,12 @@ def _fetch_protection_maps(
     return sa_map, ks_map
 
 
-def fetch_display_rows(conn: sqlite3.Connection, media_type: str = "") -> list[sqlite3.Row]:
-    """Every movie, and every show once, as fetch_library groups them, unshaped."""
-    where_sql, params, kept_filter = _build_where_clause(conn, "", media_type)
+def fetch_display_rows(
+    conn: sqlite3.Connection, media_type: str = "", q: str = ""
+) -> list[sqlite3.Row]:
+    """Every movie, and every show once, as fetch_library groups them, unshaped; with *q*, only
+    those of the items whose own title, or whose show's, holds it."""
+    where_sql, params, kept_filter = _build_where_clause(conn, q, media_type)
     cte_sql, order = _build_cte_sql(where_sql, "added_desc")
     # rationale: kept_where is a closed literal and the rest as in _execute_paged_query
     kept_where = " WHERE is_kept = 1" if kept_filter else ""
