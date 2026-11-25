@@ -296,6 +296,18 @@ def test_a_title_without_a_poster_shows_its_name_in_the_posters_place(env: Envir
     assert place and place.group(1) == "Ad Astra"
 
 
+def test_the_plain_text_part_names_a_title_without_a_poster_once(env: Environment) -> None:
+    ctx = _full_context()
+    for key in ("scheduled_items", "deleted_items", "this_week_items"):
+        for item in ctx[key]:
+            item["poster_url"] = ""
+
+    text = html_to_text(env.get_template("newsletter.html").render(**ctx))
+
+    for title in ("Ad Astra", "Forgotten Film", "Dune: Part Two"):
+        assert text.count(title) == 1
+
+
 @pytest.mark.parametrize(("used_tb", "share"), [(11, 50), (20, 91), (30, 100), (0, 0)])
 def test_the_bar_is_filled_to_the_share_of_the_disk_in_use(
     env: Environment, used_tb: int, share: int
