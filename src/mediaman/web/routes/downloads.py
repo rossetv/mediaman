@@ -76,21 +76,32 @@ def _former_id(item: dict[str, object]) -> str | None:
     return f"radarr:{title}" if is_film_id(dl_id, title) else None
 
 
+def _is_shown_as(item: dict[str, object], dl_id: str) -> bool:
+    """Whether *item* is the title a page showed as *dl_id*: a film by its TMDB id, which stays
+    with it when it is renamed, and anything else by its id. Radarr and Sonarr hand a number
+    out again once reinstalled, so that alone does not tell."""
+    item_id = str(item["id"])
+    _, has_number, tmdb_id = dl_id.rpartition("#")
+    if dl_id.startswith("radarr:") and has_number and tmdb_id.isdecimal():
+        return is_film_id(item_id, str(item["title"])) and item_id.endswith(f"#{tmdb_id}")
+    return item_id == dl_id
+
+
 def _lookup_dl_item(
     conn: sqlite3.Connection, secret_key: str, dl_id: str, arr_id: int | None = None
 ) -> dict[str, object] | None:
-    """Find the queue item named by the service of *dl_id* and *arr_id* in a freshly built
-    response, never trusting stale client-side state. Without an arr_id it is the one with the
-    dl_id, which of a film may be the one it had when films had none of their own. Raises 409
-    when that is more than one title, and 503 when none is while a service is unreachable.
+    """Find the queue item a page showed as *dl_id* in a freshly built response, never trusting
+    stale client-side state: with *arr_id*, the one of that number that is still the same title.
+    Without an arr_id it is the one with the dl_id, which of a film may be the one it had when
+    films had none of their own. Raises 409 when that is more than one title, and 503 when none
+    is while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
     items = [*payload.get("queue", []), *payload.get("upcoming", [])]
     if hero := payload.get("hero"):
         items.append(hero)
     if arr_id:
-        service = dl_id.partition(":")[0] + ":"
-        found = [i for i in items if i.get("arr_id") == arr_id and str(i["id"]).startswith(service)]
+        found = [i for i in items if i.get("arr_id") == arr_id and _is_shown_as(i, dl_id)]
     else:
         found = [i for i in items if dl_id in (i["id"], _former_id(i))]
     if len({item.get("arr_id") for item in found}) > 1:

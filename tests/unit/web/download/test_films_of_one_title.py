@@ -347,3 +347,16 @@ def test_films_of_one_title_are_named_by_their_years_and_a_film_alone_is_not(dow
     body = downloads.page()
     titles = sorted(i["title"] for i in [body["hero"], *body["queue"]])
     assert titles == ["Alone", "Twin (2021)", "Twin (2022)"]
+
+
+def test_a_film_whose_number_radarr_gave_to_another_since_is_not_abandoned(downloads):
+    shown = downloads.ids()[_OLD]
+    downloads.films = [_film(_OLD, title="Other", tmdbId=5000)]
+    assert downloads.abandon(shown, arr_id=_OLD).status_code == 404
+    assert downloads.unmonitored() == []
+
+
+def test_a_show_whose_number_sonarr_gave_to_another_since_is_not_abandoned(downloads):
+    downloads.sonarr.get_series.return_value = [{**_show(3), "title": "Other"}]
+    assert downloads.abandon("sonarr:Twin", seasons=[1], arr_id=3).status_code == 404
+    downloads.sonarr.unmonitor_season.assert_not_called()
