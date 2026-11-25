@@ -5,14 +5,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import requests
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
     import sqlite3
 
 from mediaman.services.arr.add_outcome import series_add_landed
-from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.state import season_on_disk
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
@@ -23,19 +22,6 @@ from mediaman.web.routes.download._season import already_there, season_name
 from mediaman.web.routes.library_api._redownload_match import AddRefused, _redownload_audit_id
 
 logger = logging.getLogger(__name__)
-
-
-def _put_back_unmonitored(client: ArrClient, series_id: int, season_number: int) -> None:
-    """Best effort: a failure here is logged, so the error being raised is not hidden."""
-    try:
-        client.unmonitor_season(series_id, season_number, max_retries=1, lone_episodes=False)
-    except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as exc:
-        logger.error(
-            "Could not put sonarr series_id=%s season=%s back to unmonitored: %s",
-            series_id,
-            season_number,
-            type(exc).__name__,
-        )
 
 
 def _redownload_season(
@@ -65,17 +51,7 @@ def _redownload_season(
         )
         if season is not None and season_on_disk(season):
             return respond_failure(f"{already_there(season_number, title)} in Sonarr", status=409)
-        was_unmonitored = season is not None and not season.get("monitored")
-        try:
-            client.remonitor_season(int(series_id), season_number)
-        except SearchUnanswered:
-            raise
-        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-            # The monitor may have landed before the search failed. A season already
-            # monitored before this request stays as it was.
-            if was_unmonitored:
-                _put_back_unmonitored(client, int(series_id), season_number)
-            raise
+        client.remonitor_season(int(series_id), season_number)
         message = f"Re-monitored {what} in Sonarr and started a search"
     else:
         try:
