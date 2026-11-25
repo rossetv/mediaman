@@ -8,14 +8,20 @@ shape.
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
-from collections.abc import Sequence
-from typing import cast
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from time import monotonic, sleep
+from typing import Any, cast
 
 import requests
 
 from mediaman.services.arr._transport import (
+    _ARR_TIMEOUT_SECONDS,
     ArrConfigError,
     ArrError,
     ArrUpstreamError,
@@ -23,12 +29,100 @@ from mediaman.services.arr._transport import (
     SeasonsNotListed,
 )
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
-from mediaman.services.infra import SafeHTTPError
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
 # A write sends the whole series back as it was read, so two at once would undo each other.
-_series_writes = threading.Lock()
+_series_locks: dict[tuple[str, int], threading.Lock] = {}
+#: How long a change of a series waits for its turn, and then how long it may take.
+_STEP_SECONDS = 15.0
+#: How long putting a failed change back may take, whatever the change used up.
+_UNDO_SECONDS = 5.0
+_READ_AGAIN_AFTER = (0.5, 1.0)
+_READ_AGAIN_ON = (0, 429, 502, 503, 504)
+
+
+#: When every call of a Sonarr client made here must have ended by; None for no such time.
+_deadline: ContextVar[float | None] = ContextVar("sonarr_deadline", default=None)
+
+
+@contextmanager
+def _due(deadline: float) -> Iterator[None]:
+    token = _deadline.set(deadline)
+    try:
+        yield
+    finally:
+        _deadline.reset(token)
+
+
+def _time_left() -> float:
+    deadline = _deadline.get()
+    return _STEP_SECONDS if deadline is None else deadline - monotonic()
+
+
+class _TimedHttp:
+    """An HTTP client whose calls end by the time that is set; one begun after it is an ArrError."""
+
+    def __init__(self, base: Any) -> None:
+        self._base = base
+
+    # Any: the base client's own keyword arguments and response, passed through.
+    def _call(self, verb: str, path: str, **kwargs: Any) -> Any:
+        left = _time_left()
+        if left <= 0:
+            raise ArrError(f"No time left to ask for {path}")
+        connect, read = kwargs.pop("timeout", None) or _ARR_TIMEOUT_SECONDS
+        kwargs["timeout"] = (min(connect, left), min(read, left))
+        return getattr(self._base, verb)(path, **kwargs, retry=False)
+
+    def get(self, path: str, *, retry: bool = True, **kwargs: Any) -> Any:
+        for pause in _READ_AGAIN_AFTER if retry else ():
+            try:
+                return self._call("get", path, **kwargs)
+            except SafeHTTPError as exc:
+                if exc.status_code not in _READ_AGAIN_ON or _time_left() <= pause:
+                    raise
+            sleep(pause)
+        return self._call("get", path, **kwargs)
+
+    def put(self, path: str, **kwargs: Any) -> Any:
+        return self._call("put", path, **kwargs)
+
+    def post(self, path: str, **kwargs: Any) -> Any:
+        return self._call("post", path, **kwargs)
+
+    def delete(self, path: str, **kwargs: Any) -> Any:
+        return self._call("delete", path, **kwargs)
+
+
+def _season_in(series: Mapping[str, Any], season_number: int) -> dict[str, Any]:
+    """The season of *series*. Raises ArrUpstreamError when it lists none of that number."""
+    seasons = series.get("seasons")
+    if not isinstance(seasons, list):
+        raise ArrUpstreamError(f"Sonarr series {series.get('id')} has no 'seasons' list")
+    for season in seasons:
+        if isinstance(season, dict) and season.get("seasonNumber") == season_number:
+            return season
+    raise ArrUpstreamError(f"Sonarr series {series.get('id')} has no season {season_number}")
+
+
+def _monitored_in(series: Mapping[str, Any]) -> set[object]:
+    return {
+        s.get("seasonNumber")
+        for s in series.get("seasons") or []
+        if isinstance(s, dict) and s.get("monitored")
+    }
+
+
+@dataclass
+class _Change:
+    """What a re-monitor changed, to put back."""
+
+    season: bool = False
+    series: bool = False
+    #: The seasons monitored once it was made: one monitored beside them was asked for since.
+    monitored: frozenset[object] = frozenset()
 
 
 class _SonarrMixin:
@@ -58,7 +152,7 @@ class _SonarrMixin:
         if not ids:
             return
         try:
-            self._http.delete(  # type: ignore[attr-defined]
+            self._http.delete(
                 "/api/v3/episodefile/bulk",
                 headers=self._headers,  # type: ignore[attr-defined]
                 json={"episodeFileIds": ids},
@@ -149,31 +243,21 @@ class _SonarrMixin:
         self._require_series("unmonitor_season")  # type: ignore[attr-defined]
         was_monitored = False
 
-        def fetch_entity() -> SonarrSeries:
-            series = self.get_series_by_id(series_id)
-            seasons = series.get("seasons")
-            if not isinstance(seasons, list):
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
-            if not any(s.get("seasonNumber") == season_number for s in seasons):
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
-            return series
-
         def is_already_unmonitored(entity: SonarrSeries) -> bool:
-            seasons = entity.get("seasons", [])
-            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
-            if target is None:
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
-            return not bool(target.get("monitored", False))
+            return not _season_in(entity, season_number).get("monitored", False)
 
         def apply_unmonitor(entity: SonarrSeries) -> None:
             nonlocal was_monitored
             was_monitored = True
-            seasons = entity.get("seasons", [])
-            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
-            if target is not None:
-                target["monitored"] = False
+            _season_in(entity, season_number)["monitored"] = False
 
-        with _series_writes:
+        with self._series_step(series_id):
+
+            def fetch_entity() -> SonarrSeries:
+                series = self.get_series_by_id(series_id)
+                _season_in(series, season_number)
+                return series
+
             self._unmonitor_with_retry(  # type: ignore[attr-defined]
                 fetch_entity=fetch_entity,
                 put_url=f"/api/v3/series/{series_id}",
@@ -195,12 +279,21 @@ class _SonarrMixin:
                 "/api/v3/episode/monitor", {"episodeIds": ids, "monitored": False}
             )
 
-    def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
+    def remonitor_season(
+        self,
+        series_id: int,
+        season_number: int,
+        *,
+        max_retries: int = 3,
+        guard: Callable[[SonarrSeries], None] | None = None,
+    ) -> None:
         """Set ``monitored=True`` for *season_number* and its series, and trigger a search.
 
-        Sonarr fetches nothing for an unmonitored series, whatever its seasons say. A series
-        monitored here is put back when the search cannot be started, and left as it is when
-        the search may be running all the same (``SearchUnanswered``).
+        Sonarr fetches nothing for an unmonitored series, whatever its seasons say. What is
+        monitored here is put back when the search cannot be started, the series only if no
+        other season was asked for since, and left as it is when the search may be running all
+        the same (``SearchUnanswered``). *guard* is called with the series each time it is read
+        to be changed, and raises to stop that.
 
         Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
@@ -211,37 +304,31 @@ class _SonarrMixin:
         by a SeasonSearch for a season Sonarr never re-monitored.
         """
         self._require_series("remonitor_season")  # type: ignore[attr-defined]
-        series_was_unmonitored = False
-
-        def fetch_entity() -> SonarrSeries:
-            series = self.get_series_by_id(series_id)
-            seasons = series.get("seasons")
-            if not isinstance(seasons, list):
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
-            if not any(s.get("seasonNumber") == season_number for s in seasons):
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
-            return series
+        change = _Change()
 
         def is_already_remonitored(entity: SonarrSeries) -> bool:
-            seasons = entity.get("seasons", [])
-            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
-            if target is None:
-                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
-            # "already done" for remonitor means it's already monitored.
-            return bool(target.get("monitored", False)) and entity.get("monitored") is not False
+            monitored = bool(_season_in(entity, season_number).get("monitored", False))
+            return monitored and entity.get("monitored") is not False
 
         def apply_remonitor(entity: SonarrSeries) -> None:
-            nonlocal series_was_unmonitored
-            if entity.get("monitored") is False:
-                series_was_unmonitored = True
+            season = _season_in(entity, season_number)
+            change.season = change.season or not season.get("monitored")
+            change.series = change.series or entity.get("monitored") is False
+            season["monitored"] = True
+            if change.series:
                 entity["monitored"] = True
-            seasons = entity.get("seasons", [])
-            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
-            if target is not None:
-                target["monitored"] = True
+            change.monitored = frozenset(_monitored_in(entity))
 
-        try:
-            with _series_writes:
+        with self._series_step(series_id):
+
+            def fetch_entity() -> SonarrSeries:
+                series = self.get_series_by_id(series_id)
+                _season_in(series, season_number)
+                if guard is not None:
+                    guard(series)
+                return series
+
+            try:
                 self._unmonitor_with_retry(  # type: ignore[attr-defined]
                     fetch_entity=fetch_entity,
                     put_url=f"/api/v3/series/{series_id}",
@@ -251,35 +338,76 @@ class _SonarrMixin:
                     log_id=f"series_id={series_id} season={season_number}",
                     max_retries=max_retries,
                 )
-            self._start_search(  # type: ignore[attr-defined]
-                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number}
-            )
-        except SearchUnanswered:
-            raise
-        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-            if series_was_unmonitored:
-                self._put_series_back_unmonitored(series_id)
-            raise
+                self._start_search(  # type: ignore[attr-defined]
+                    {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number}
+                )
+            except SearchUnanswered:
+                raise
+            except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+                if change.season or change.series:
+                    self._put_back(series_id, season_number, change)
+                raise
 
-    def _put_series_back_unmonitored(self, series_id: int) -> None:
+    @property
+    def _http(self) -> SafeHTTPClient:
+        base: SafeHTTPClient = self._untimed_http
+        return base if _deadline.get() is None else cast(SafeHTTPClient, _TimedHttp(base))
+
+    @_http.setter
+    def _http(self, http: SafeHTTPClient) -> None:
+        self._untimed_http = http
+
+    @contextmanager
+    def within(self, seconds: float) -> Iterator[None]:
+        """*seconds* for all that is asked here together; what is begun later is an ArrError."""
+        deadline = monotonic() + seconds
+        outer = _deadline.get()
+        with _due(deadline if outer is None else min(outer, deadline)):
+            yield
+
+    @contextmanager
+    def _series_step(self, series_id: int) -> Iterator[None]:
+        """The turn to change a series, with a short time for all it asks."""
+        lock = _series_locks.setdefault((self._url, series_id), threading.Lock())  # type: ignore[attr-defined]
+        if not lock.acquire(timeout=max(0.0, min(_time_left(), _STEP_SECONDS))):
+            raise ArrError(f"Sonarr series {series_id} is being changed for too long")
+        try:
+            with self.within(_STEP_SECONDS):
+                yield
+        finally:
+            lock.release()
+
+    def _put_back(self, series_id: int, season_number: int, change: _Change) -> None:
         """Best effort: a failure here is logged, so the error being raised is not hidden."""
 
-        def apply_unmonitor(entity: SonarrSeries) -> None:
-            entity["monitored"] = False
+        def put_back(entity: SonarrSeries) -> None:
+            seasons = entity.get("seasons") or []
+            if change.series and not _monitored_in(entity) - change.monitored:
+                entity["monitored"] = False
+            for season in seasons if change.season else ():
+                if isinstance(season, dict) and season.get("seasonNumber") == season_number:
+                    season["monitored"] = False
+
+        def nothing_to_put_back(entity: SonarrSeries) -> bool:
+            after = copy.deepcopy(entity)
+            put_back(after)
+            return after == entity
 
         try:
-            with _series_writes:
+            with _due(monotonic() + _UNDO_SECONDS):
                 self._unmonitor_with_retry(  # type: ignore[attr-defined]
                     fetch_entity=lambda: self.get_series_by_id(series_id),
                     put_url=f"/api/v3/series/{series_id}",
-                    is_already_unmonitored=lambda series: not series.get("monitored"),
-                    apply_unmonitor=apply_unmonitor,
+                    is_already_unmonitored=nothing_to_put_back,
+                    apply_unmonitor=put_back,
                     log_prefix="sonarr.remonitor_season",
-                    log_id=f"series_id={series_id}",
+                    log_id=f"series_id={series_id} season={season_number}",
                     max_retries=1,
                 )
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
-            logger.exception("Could not put sonarr series_id=%s back to unmonitored", series_id)
+            logger.exception(
+                "Could not put sonarr series_id=%s season=%s back", series_id, season_number
+            )
 
     def search_series(self, series_id: int) -> None:
         self._require_series("search_series")  # type: ignore[attr-defined]
