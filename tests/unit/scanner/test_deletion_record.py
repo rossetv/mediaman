@@ -284,6 +284,14 @@ def _lost(conn):
     ).fetchone()[0]
 
 
+def _cut_off(conn):
+    """Return how each history line of a cut-off removal of the film begins."""
+    said = conn.execute(
+        "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
+    )
+    return [row[0].partition(":")[0] for row in said]
+
+
 class TestRemovalWithNoRecordedOutcome:
     @pytest.mark.parametrize("recovered_at_startup", [True, False])
     @pytest.mark.parametrize("name", ["film.mkv", "Film 2160p.mkv"])
@@ -624,6 +632,8 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert _action(conn) is None
         assert _lost(conn) == 1
+        if lost == "deleted by a person":
+            assert _cut_off(conn) == ["Removal cut off"]
 
     @pytest.mark.parametrize("copy_back", [False, True])
     def test_one_booked_with_what_went_before_is_told(self, conn, two_parts, copy_back):
@@ -649,6 +659,34 @@ class TestRemovalWithNoRecordedOutcome:
         ).fetchone()
         assert not said[0].startswith("Not deleted")
 
+    def test_a_show_keep_leaves_a_removal_begun_untold_with_its_row(self, conn, film, monkeypatch):
+        _die_at_the_removal(conn, monkeypatch)
+        conn.execute("UPDATE media_items SET show_rating_key = 'show'")
+        conn.commit()
+
+        with conn:
+            delete_show_scheduled_deletions(conn, "show")
+
+        assert _action(conn) is not None
+        assert _lost(conn) == 0
+
+    def test_one_dropped_for_an_unticked_library_is_not_told_as_not_deleted_beside_what_it_removed(
+        self, conn, two_parts
+    ):
+        cd1, cd2 = two_parts
+        record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
+        conn.execute("UPDATE scheduled_actions SET removed_files = ?", (json.dumps(record),))
+        conn.execute("DELETE FROM settings WHERE key = 'plex_libraries'")
+        conn.commit()
+        cd1.unlink()
+        cd2.unlink()
+        cd2.parent.rmdir()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _booked(conn) == [4]
+        assert _cut_off(conn) == ["Removal cut off"]
+
     def test_one_whose_record_goes_as_what_went_before_is_booked_is_told(self, conn, two_parts):
         cd1, cd2 = two_parts
         record = {"paths": [str(cd1)], "bytes": 4, "intent": {str(cd2): [1, 1, 1]}}
@@ -660,10 +698,7 @@ class TestRemovalWithNoRecordedOutcome:
             delete_show_scheduled_deletions(conn, "show")
 
         assert _booked(conn) == [4]
-        said = conn.execute(
-            "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
-        ).fetchall()
-        assert [row[0].partition(":")[0] for row in said] == ["Removal cut off"]
+        assert _cut_off(conn) == ["Removal cut off"]
 
     @pytest.mark.parametrize("ticked", [True, False])
     def test_a_row_dropped_with_no_removal_begun_is_not_told(self, conn, film, ticked):
