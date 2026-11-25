@@ -1442,6 +1442,17 @@
   // It may come to be known after the title has opened.
   document.addEventListener('mm:search-assist', function () { if (cur) redrawActions(cur.ref); });
 
+  var shownLooked = '';
+  if (window.MM.downloading) {
+    window.MM.downloading.subscribe(function () {
+      var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
+      var says = looked ? cur.ref + looked.state + looked.line : '';
+      if (says === shownLooked) return;
+      shownLooked = says;
+      if (cur) redrawActions(cur.ref);
+    });
+  }
+
   /* ── Watched marks: watch/marks.js works them, then says so. ── */
 
   function markRef() { return cur.data.library_ref || cur.ref; }
@@ -1601,6 +1612,15 @@
     return s;
   }
 
+  /* The download of the title *c* while it is looked for, as its card in the row says it; else null. */
+  function lookedFor(c) {
+    var state = window.MM.downloading && window.MM.downloading.last();
+    var refs = [c.ref, c.openedAs, c.data && c.data.library_ref];
+    return (state && state.items.filter(function (item) {
+      return (item.state === 'searching' || item.state === 'stuck') && item.ref && refs.indexOf(item.ref) >= 0;
+    })[0]) || null;
+  }
+
   function followNote(text) {
     var p = el('p', 'ttl__note');
     var words = p.appendChild(el('span', '', text + 'Follow it in '));
@@ -1620,8 +1640,11 @@
       return;
     }
     if (k.state === 'queued') {
-      actions.appendChild(statePill('dl-state--queued', 'Queued', 'i-clock'));
-      under.appendChild(followNote('Waiting for a download slot. '));
+      var looked = lookedFor(cur);
+      actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for the best version', 'i-magnifying-glass')
+        : statePill('dl-state--queued', 'Queued', 'i-clock'));
+      under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
+        : looked.state === 'stuck' ? window.MMWatch.downloading.line(looked) + '. ' : ''));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
