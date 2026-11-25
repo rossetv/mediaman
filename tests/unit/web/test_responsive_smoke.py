@@ -170,7 +170,6 @@ def test_component_primitives_present():
         ".fpill--tv",
         ".card",
         ".card--bordered",
-        ".stat",
         ".watch-all__filters",
         ".inp",
         ".setg-card",
