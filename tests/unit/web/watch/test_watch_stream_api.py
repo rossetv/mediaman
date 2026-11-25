@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -341,6 +342,48 @@ def test_progress_is_saved_for_the_owner_with_item_season_and_duration_from_the_
     assert row["duration_s"] == 1500
     assert row["position_s"] == 1400
     assert row["credited_at"] is not None
+
+
+@pytest.mark.parametrize(
+    ("markers", "watched_from"),
+    [
+        ((("credits", 5000.0, True),), 5000),
+        ((("credits", 5000.0, False),), 5400),
+        ((("intro", 5000.0, True),), 5400),
+        ((("credits", 3000.0, True),), 5400),
+        ((("credits", 5700.0, True),), 5400),
+        ((("credits", 4000.0, True), ("credits", 5000.0, True)), 5000),
+        ((("credits", 4000.0, True), ("credits", 5000.0, False)), 4000),
+        ((("credits", 4000.0, True), ("credits", 6000.0, True)), 4000),
+    ],
+    ids=[
+        "final",
+        "not final",
+        "an intro",
+        "half way",
+        "past 90%",
+        "two final",
+        "a later one not final",
+        "a later one at the end",
+    ],
+)
+def test_a_title_is_watched_from_its_last_final_credits_or_ninety_percent(
+    alice, monkeypatch, markers, watched_from
+):
+    item = replace(
+        _item("101"), markers=tuple(PlexMarker(k, s, 6000.0, final) for k, s, final in markers)
+    )
+    monkeypatch.setattr(PlexWatch, "get_item", lambda self, key, marks: item)
+    stream_id = _stream(alice)
+
+    answers = [
+        alice.post(
+            "/api/watch/progress",
+            json={"stream_id": stream_id, "position_s": position, "played_s": 0},
+        ).json()["watched"]
+        for position in (watched_from - 10, watched_from)
+    ]
+    assert answers == [False, True]
 
 
 def _post_played(client, stream_id: str, played_s: float):
