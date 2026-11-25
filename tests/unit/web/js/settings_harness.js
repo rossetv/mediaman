@@ -2376,6 +2376,7 @@ const scenarios = {
     return {
       named: await press({ status: 502, message: 'Plex refused the token.' }),
       unnamed: await press({ status: 502, message: 'Couldn\'t reach the service.' }),
+      inside: await press({ status: 502, message: 'No Plex server answered at this address.' }),
       longerWord: await press({ status: 502, message: 'Plexamp answered.' }),
     };
   },
