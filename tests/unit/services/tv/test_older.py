@@ -93,7 +93,7 @@ class Home:
         self.driver = self.make(self.claim)
         self.players.poll(self.claim.key, ack=0, active=True, report=None)
 
-    def make(self, claim: Claim) -> Driver:
+    def make(self, claim: Claim, *, handed: bool = False) -> Driver:
         return Driver(
             claim,
             self.tv,
@@ -111,6 +111,7 @@ class Home:
             players=self.players,
             clock=lambda: self.now,
             work=self._work,
+            handed=handed,
         )
 
     def _ends(self) -> str | None:
@@ -136,14 +137,16 @@ class Home:
         if self.stream_is_gone and playing is not None:
             self.players.stream_gone(self.claim.key, playing[0], moved=False)
 
-    def play(self, start_s=0.0, paused=False, duration=LENGTH, next_state="end") -> str:
+    def play(
+        self, start_s=0.0, paused=False, duration=LENGTH, next_state="end", autoplay=True
+    ) -> str:
         self.streams += 1
         play = Play(
             user="amy",
             user_id=1,
             rating_key="101",
             about={"title": "Film", "duration_s": duration},
-            choice=Choice(),
+            choice=Choice(autoplay=autoplay),
             start_s=start_s,
             played_s=0,
             asked=self.now,
@@ -156,6 +159,12 @@ class Home:
             key, play.id, stream_id=f"s{self.streams}", url=f"film{self.streams}", tracks={}
         )
         return play.id
+
+    def play_nothing(self) -> None:
+        """Begin a play whose stream then fails to start."""
+        play = Play("amy", 1, "101", {}, Choice(), start_s=0, played_s=0, asked=self.now)
+        self.players.begin(self.claim.key, play, over=None)
+        self.players.failed(self.claim.key, play.id, "unreachable")
 
     def step(self, seconds=1.0) -> bool:
         self.now += seconds
@@ -243,6 +252,68 @@ def test_a_seek_while_paused_stays_paused(home):
     home.steps(3, playing=False)
     assert home.tv.state == "PAUSED_PLAYBACK"
     assert home.film()["state"] == "paused"
+
+
+def _paused_load(home):
+    home.play(paused=True)
+    home.step()
+
+
+def test_a_film_loaded_paused_is_paused_once_it_plays(home):
+    _paused_load(home)
+    home.steps(2)
+    assert home.tv.state == "PAUSED_PLAYBACK"
+    assert home.tv.names().count("pause") == 1
+
+
+@pytest.mark.parametrize("wrong", [TvUnreachable("gone"), TvFault("not now", 701)])
+def test_a_pause_the_tv_did_not_take_is_not_lost(home, wrong):
+    _paused_load(home)
+    home.tv.fails["pause"] = wrong
+    home.step()
+    del home.tv.fails["pause"]
+    home.steps(3)
+    assert home.tv.state == "PAUSED_PLAYBACK"
+
+
+def test_a_film_played_on_meanwhile_is_not_paused_late(home):
+    _paused_load(home)
+    home.tv.fails["pause"] = TvFault("not now", 701)
+    home.step()
+    home.command("play")
+    home.step()
+    del home.tv.fails["pause"]
+    home.steps(2)
+    assert home.tv.state == "PLAYING"
+
+
+def test_a_tv_that_knows_no_pause_is_asked_for_it_once(home):
+    _paused_load(home)
+    home.tv.fails["pause"] = TvFault("no", 401)
+    home.steps(3)
+    assert home.tv.names().count("pause") == 1
+
+
+def test_a_pause_does_not_land_on_the_film_of_whoever_took_the_tv(home):
+    _paused_load(home)
+    real = home.tv.status
+
+    def taken_meanwhile():
+        home.claims.take(Claim(7, "bob", 2, "other"))
+        return real()
+
+    home.tv.status = taken_meanwhile
+    home.step()
+    assert "pause" not in home.tv.names()
+
+
+def test_a_tv_whose_controls_are_in_use_is_paused_only_after(home):
+    _paused_load(home)
+    held = []
+    real = home.tv.pause
+    home.tv.pause = lambda: (held.append(home.claims.steering(7).locked()), real())
+    home.step()
+    assert held == [True]
 
 
 def test_the_remotes_commands_reach_the_tv(home):
@@ -468,6 +539,22 @@ def test_who_lost_the_tv_to_another_does_not_stop_what_that_one_plays(home):
     assert home.tv.calls == []
 
 
+def test_a_taken_tv_is_stopped_where_nothing_starts_on_it(home):
+    home.tv.state = "PLAYING"
+    driver = home.make(home.claim, handed=True)
+    home.play_nothing()
+    assert driver.step()
+    assert home.tv.names() == ["stop"]
+
+
+def test_another_device_is_not_stopped_in_a_taken_tvs_place(home):
+    home.moved = TvRefused("another")
+    driver = home.make(home.claim, handed=True)
+    home.play_nothing()
+    driver.step()
+    assert home.tv.calls == []
+
+
 def test_a_tv_taken_over_is_handed_nothing_of_the_earlier_persons(home):
     home.claims.take(Claim(7, "bob", 2, "other"))
     home.play()
@@ -485,6 +572,43 @@ def test_the_next_episode_is_asked_for_once_the_countdown_is_over(home):
     assert home.asked == []
     home.steps(8)
     assert home.asked == [("auto", False)]
+
+
+def _up_next(home, autoplay=True):
+    home.play(start_s=LENGTH - 10, next_state="next", autoplay=autoplay)
+    home.steps(3)
+    home.tv.state = "STOPPED"
+    home.step()
+    assert home.film()["state"] == "upnext"
+
+
+def test_the_next_episode_is_asked_for_again_after_a_while_and_not_for_ever(home):
+    _up_next(home)
+    home.steps(12)
+    first = len(home.asked)
+    home.steps(2)
+    assert len(home.asked) == first
+    home.steps(older.AUTO_TRIES * 5 + 10)
+    assert home.asked == [("auto", False)] * older.AUTO_TRIES
+    assert home.film()["state"] == "ended"
+
+
+def test_what_follows_only_at_a_press_is_put_away_after_a_while(home):
+    _up_next(home, autoplay=False)
+    for _ in range(int(older.OVER_SECONDS // 60)):
+        assert home.step(60)
+    home.step(60)
+    assert home.step() is False
+    assert home.asked == []
+
+
+def test_a_tv_turned_off_between_two_episodes_is_lost(home):
+    _up_next(home, autoplay=False)
+    home.tv.off = True
+    home.steps(25)
+    assert home.view()["on"] is False
+    assert home.step(HOLD_SECONDS) is False
+    assert home.view()["last"]["reason"] == "lost"
 
 
 def test_a_stream_that_ended_under_the_tv_is_asked_for_again_twice_at_most(home):

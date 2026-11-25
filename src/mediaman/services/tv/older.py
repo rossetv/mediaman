@@ -20,7 +20,7 @@ from mediaman.db import close_db
 from mediaman.services.dlna.errors import TvError, TvFault
 from mediaman.services.dlna.media import Media
 from mediaman.services.dlna.renderer import Renderer, Status
-from mediaman.services.tv.players import Players, Report, Reported
+from mediaman.services.tv.players import NotPlaying, Players, Report, Reported, Stale
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,17 @@ STOPPED_SECONDS = 20.0
 NEAR_END_SECONDS = 30.0
 #: How long a film that is over or failed is left for its person to look at.
 OVER_SECONDS = 600.0
+#: How often a TV with no film on is asked whether it is still there.
+IDLE_ASK_SECONDS = 10.0
+#: How often the next episode is asked for, and how long after a try that came to nothing.
+AUTO_TRIES = 6
+AUTO_WAIT_SECONDS = 5.0
 _START_WAIT_SECONDS = 120.0
 _LAST_WORK_SECONDS = 60.0
 _VOLUME_STEPS = 5
 _AGAIN_TRIES = 2
+# UPnP's code for what a TV does not know how to do.
+_NOT_KNOWN = 401
 # A TV's clock and mediaman's are read apart.
 _CLOCK_SLACK_SECONDS = 5.0
 
@@ -178,7 +185,9 @@ class Driver:
         players: Players,
         clock: Callable[[], float] = time.monotonic,
         work: Callable[[Callable[[], None]], threading.Thread | None] | None = None,
+        handed: bool = False,
     ) -> None:
+        """With *handed* the TV may be playing what the claim before this one's handed it."""
         self._claim = claim
         self._renderer = renderer
         self._server = server
@@ -191,13 +200,17 @@ class Driver:
         self._film: _Film | None = None
         self._failed = False
         #: Whether the TV may be playing what it was handed.
-        self._handed = False
+        self._handed = handed
         self._had_play = False
-        self._away = False
+        # It may be a while since it was looked for.
+        self._away = handed
+        self._asked_idle = clock()
         self._ack = 0
         self._steps = 0
         self._again = 0
-        self._asked_auto = ""
+        self._auto_for = ""
+        self._auto_tries = 0
+        self._auto_at = 0.0
         self._over: tuple[str, float] | None = None
         self._volume = 1.0
         self._unmuted = 1.0
@@ -273,8 +286,8 @@ class Driver:
 
     def _silence(self) -> None:
         """Stop what the TV was handed."""
-        film, self._film = self._film, None
-        if film is None or not self._handed:
+        self._film = None
+        if not self._handed:
             return
         self._handed = False
         with self._claims.steering(self._claim.tv_id):
@@ -332,6 +345,7 @@ class Driver:
         """Ask the TV what it does; raises ``TvError`` where it does not say."""
         film = self._film
         if film is None:
+            self._ask_idle()
             return None
         if self._failed:
             return self._report(film, "error")
@@ -342,6 +356,12 @@ class Driver:
         self._steps += 1
         state = self._judge(film, status)
         return None if state is None else self._report(film, state)
+
+    def _ask_idle(self) -> None:
+        now = self._clock()
+        if now - self._asked_idle >= IDLE_ASK_SECONDS:
+            self._asked_idle = now
+            self._renderer.status()
 
     def _ask_volume(self) -> None:
         if not self._renderer.has_volume:
@@ -363,9 +383,7 @@ class Driver:
             film.seen_playing, film.begun, film.on, film.paused = now, True, True, False
             self._again = 0
             if film.pause:
-                film.pause = False
-                with contextlib.suppress(TvFault):
-                    self._renderer.pause()
+                self._pause_late(film)
             return "playing"
         film.seen_playing = None
         if status.state == "PAUSED_PLAYBACK":
@@ -377,6 +395,18 @@ class Driver:
         if not film.on and now - film.at > LOAD_SECONDS:
             return "error"
         return "buffering" if film.begun else "loading"
+
+    def _pause_late(self, film: _Film) -> None:
+        """Pause what was to be paused once it plays; tried again where the TV does not yet."""
+        with self._claims.steering(self._claim.tv_id):
+            if not self._ours():
+                return
+            try:
+                self._renderer.pause()
+            except TvFault as exc:
+                film.pause = exc.code != _NOT_KNOWN
+            else:
+                film.pause = False
 
     def _stopped(self, film: _Film, status: Status, now: float) -> Reported | None:
         all_sent, broke_off = self._server.sent(film.stream_id)
@@ -405,18 +435,36 @@ class Driver:
             return
         paused = self._film is not None and self._film.paused
         self._silence()
-        if state == "upnext" and play["upnext_in_s"] == 0 and self._asked_auto != play_id:
-            self._asked_auto = play_id
-            self._work(lambda: self._server.carry_on("auto", play_id, False))
+        if state == "upnext" and play["upnext_in_s"] == 0:
+            self._ask_next(play_id)
         elif state == "failed" and play["error"] == "gone" and self._again < _AGAIN_TRIES:
             self._again += 1
             self._work(lambda: self._server.carry_on("again", play_id, paused))
-        elif state in ("ended", "failed"):
+        elif state in ("ended", "failed") or (state == "upnext" and play["upnext_in_s"] is None):
             if self._over is None or self._over[0] != play_id:
                 self._over = (play_id, self._clock())
             elif self._clock() - self._over[1] > OVER_SECONDS:
                 self._players.stop(self._claim.key)
                 self._server.carry_out()
+
+    def _ask_next(self, play_id: str) -> None:
+        if self._auto_for != play_id:
+            self._auto_for, self._auto_tries, self._auto_at = play_id, 0, 0.0
+        if self._clock() < self._auto_at:
+            return
+        if self._auto_tries >= AUTO_TRIES:
+            with contextlib.suppress(NotPlaying, Stale):
+                self._players.cancel(self._claim.key, play_id)
+            return
+        self._auto_tries += 1
+
+        def ask() -> None:
+            try:
+                self._server.carry_on("auto", play_id, False)
+            finally:
+                self._auto_at = self._clock() + AUTO_WAIT_SECONDS
+
+        self._work(ask)
 
     def _hand(self, play: dict[str, Any]) -> None:
         playing = self._players.stream(self._claim.key)
@@ -495,6 +543,7 @@ class Driver:
         """Carry out a command; whether the film must be handed over anew for it."""
         kind = command["kind"]
         if kind == "play":
+            film.pause = False
             try:
                 self._renderer.play()
             except TvFault:
