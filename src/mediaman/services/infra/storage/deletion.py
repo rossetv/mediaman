@@ -246,7 +246,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
         if os.path.islink(str(root)):
             raise DeletionRefused(
                 f"Refusing to delete: allowed root '{root}' is a symlink. "
-                "Configure delete_allowed_roots with real directories only."
+                "Set MEDIAMAN_DELETE_ROOTS to real directories only."
             )
 
     # Missing: silent no-op.
