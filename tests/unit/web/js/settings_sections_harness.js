@@ -286,6 +286,17 @@ const scenarios = {
     return out;
   },
 
+  // What the dialog says of removing someone who gets the newsletter, and of one who opted out.
+  async removalWords() {
+    const p = await newsletter([1]);
+    await p.add(p.person(2, false));
+    const said = [];
+    p.ctx.UIFeedback.confirm = (o) => { said.push(o.body); return Promise.resolve(false); };
+    await p.remove(1);
+    await p.remove(2);
+    return said;
+  },
+
   // Where the focus goes when the recipient that has it is taken off the list.
   async recipientFocus() {
     const p = await newsletter([1, 2, 3]);

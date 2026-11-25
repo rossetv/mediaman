@@ -212,6 +212,12 @@ def test_recipients_that_cannot_be_read_again_stay_as_they_were_and_say_so() -> 
     assert out["reopened"] == {"ticks": 3, "note": ""}
 
 
+def test_removing_someone_who_unsubscribed_says_that_it_is_forgotten() -> None:
+    active, opted_out = _run("removalWords")
+    assert "add them again" in active and "unsubscribed" not in active
+    assert "have unsubscribed" in opted_out and "forgets that" in opted_out
+
+
 def test_the_focus_of_a_recipient_taken_off_the_list_goes_to_the_one_beside_it() -> None:
     assert _run("recipientFocus") == [
         "recipient-3",

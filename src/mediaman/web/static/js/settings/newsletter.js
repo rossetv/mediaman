@@ -116,7 +116,9 @@
         rows.holdFocus(btn);
         window.UIFeedback.confirm({
           title: 'Remove ' + s.email + '?',
-          body: 'They stop getting the newsletter. You can add them again later.',
+          body: s.active
+            ? 'They stop getting the newsletter. You can add them again later.'
+            : 'They have unsubscribed. Removing them forgets that, so the address could be added again.',
           confirmLabel: 'Remove',
           confirmVariant: 'danger',
         }).then(function (ok) {
