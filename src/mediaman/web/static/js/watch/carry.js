@@ -297,7 +297,14 @@
         x: spot.to.x + (rb.x + x - spot.from.x) / sr - rb.x, y: spot.to.y + (rb.y + y - spot.from.y) / sr - rb.y,
         x2: spot.from.x + (rb.x - spot.to.x) * sr - rb.x, y2: spot.from.y + (rb.y - spot.to.y) * sr - rb.y
       };
-      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), shut: 0.65, open: 0.9, via: via, tint: tintOf(a, b, [0.6, 0.9]) });
+      // Those of its row it would pass on its way along come once it has; with none to come before
+      // it there, it goes down only as it opens, not to wait there by itself.
+      var row = toArray(b.parentNode.children).filter(function (n) { return n !== b && shown(n) && Math.abs(rect(n).y - rb.y) < rb.h / 2; });
+      var from = rb.x + via.x + (ib.x - rb.x);
+      row.forEach(function (n) { if (rect(n).x > rb.x && rect(n).x < from) passed.push(n); });
+      var alone = row.length === passed.length;
+      via.drop = alone ? 0.6 : 0.5;
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rb, x, y, s), shut: alone ? 0.68 : 0.65, open: 0.9, via: via, tint: tintOf(a, b, [0.6, 0.9]) });
       move(a, { fade: 'gone' });
     }
 
@@ -487,6 +494,7 @@
     // Buttons
     var acts = toArray(root.querySelectorAll('.ttl__actions > *')).filter(shown);
     var paired = [];
+    var passed = []; // on the eye's way along its row
     function pair(sel, b, fadeA, fadeB) {
       var a = own(sel);
       var by = pairPill(a, b, fadeA, fadeB);
@@ -524,7 +532,7 @@
       var s = spot ? spot.from.h / spot.to.h : 0.9;
       move(b, {
         x: spot ? spot.from.x + (r.x - spot.to.x) * s - r.x : first.x, y: spot ? spot.from.y + (r.y - spot.to.y) * s - r.y : first.y,
-        sx: s, sy: s, fade: level(b) ? [0.9, 1] : [0.45, 0.8] // on its row, once those coming by it have passed
+        sx: s, sy: s, fade: level(b) || passed.indexOf(b) >= 0 ? [0.9, 1] : [0.45, 0.8] // on its row, once those coming by it have passed
       });
     });
     var set = page('.rate > .rate__set') || page('.ttl__rate-skel > .skel');
@@ -680,8 +688,8 @@
         if (q.via) {
           // With the first row until the second comes, then down into the second.
           // Straight down, clear of the button beside it, and only then along.
-          tx = mix(mix(q.x, q.via.x, at), mix(q.via.x2, q.x1, at), ramp(at, 0.56, 0.75));
-          ty = mix(mix(q.y, q.via.y, at), mix(q.via.y2, q.y1, at), ramp(at, 0.5, 0.62));
+          tx = mix(mix(q.x, q.via.x, at), mix(q.via.x2, q.x1, at), ramp(at, q.via.drop + 0.06, q.via.drop + 0.25));
+          ty = mix(mix(q.y, q.via.y, at), mix(q.via.y2, q.y1, at), ramp(at, q.via.drop, q.via.drop + 0.12));
           q.n.classList.toggle('cry-hush', at < q.shut);
         }
         st.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + mix(q.sx, q.s1x, at) + ',' + mix(q.sy, q.s1y, at) + ')';
