@@ -436,6 +436,22 @@ const scenarios = {
     return out;
   },
 
+  // What was asked for ahead is refused (its own limit) after the title has been opened on it: the title
+  // is asked for again, plainly, and opens, with no failure shown meanwhile.
+  async aheadRefusedOnOpen() {
+    const waits = [];
+    const p = carried({ routes: { '/api/watch/title/movie-120': () => new Promise((resolve, reject) => { waits.push({ resolve, reject }); }) } });
+    p.detail.ahead('movie-120');
+    p.detail.open('movie-120', {});
+    await settle();
+    waits[0].reject(new APIError(429, 'too_many_requests'));
+    await settle();
+    const meanwhile = { asked: waits.length, failed: !!p.q('.ttl__failed') };
+    if (waits[1]) waits[1].resolve(LIB_MOVIE);
+    await settle();
+    return { meanwhile, director: p.text('.ttl__credit'), failed: !!p.q('.ttl__failed') };
+  },
+
   // Only what a preview asks for on the chance it is opened says so to the server, which limits it apart.
   async aheadMarked() {
     const p = carried();
