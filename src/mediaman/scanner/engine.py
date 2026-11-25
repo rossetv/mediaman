@@ -575,9 +575,13 @@ class ScanEngine:
         """Execute pending deletions where the grace period has passed.
 
         Delegates to DeletionExecutor. The items of a library this run could not
-        read wait: one of them may no longer be what Plex lists.
+        read wait: one of them may no longer be what Plex lists. So does one that
+        may have moved from a library not yet confirmed to be gone.
         """
-        return self._deletions.execute(unread_libraries=self._left_out)
+        gone = (
+            fetch_gone_library_ids(self._conn, self._library_types) if self._library_types else ()
+        )
+        return self._deletions.execute(unread_libraries=self._left_out, gone_libraries=gone)
 
     def _resolve_added_at(self, item: dict[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.
