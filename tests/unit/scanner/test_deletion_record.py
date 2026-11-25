@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mediaman.db import init_db
+from mediaman.db import init_db, start_scan_run
 from mediaman.scanner import deletions
 from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from mediaman.scanner.engine import ScanEngine
@@ -18,7 +18,11 @@ from mediaman.scanner.repository import clear_pending_deletions, delete_show_sch
 from mediaman.services.infra import DeletionRefused
 from mediaman.services.infra.storage import deletion as storage
 from mediaman.web.repository.kept import delete_protections, set_protected_state
-from mediaman.web.repository.library_api import apply_keep_in_tx
+from mediaman.web.repository.library_api import (
+    MediaDeleteSnapshot,
+    apply_keep_in_tx,
+    finalise_delete_in_tx,
+)
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 _ADDED = datetime(2020, 1, 1, tzinfo=UTC)
@@ -567,6 +571,60 @@ class TestRemovalWithNoRecordedOutcome:
         assert _action(conn) is None
         assert _lost(conn) == 1
 
+    @pytest.mark.parametrize(
+        "lost", ["keep removed", "keep replaced", "snooze ran out", "deleted by a person"]
+    )
+    def test_one_dropped_with_the_row_of_a_keep_or_of_a_title_a_person_deletes_is_told(
+        self, conn, film, monkeypatch, lost
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        if lost == "deleted by a person":
+            snapshot = MediaDeleteSnapshot(
+                title="Film",
+                media_type="movie",
+                file_path=str(film),
+                file_size_bytes=4,
+                radarr_id=None,
+                sonarr_id=None,
+                season_number=None,
+                plex_rating_key="m1",
+                show_rating_key=None,
+                tmdb_id=10,
+                tvdb_id=None,
+                tracked_files=None,
+            )
+            intent = conn.execute(
+                "INSERT INTO delete_intents (media_item_id, target_kind, target_id, started_at) "
+                "VALUES ('m1', 'radarr', '1', '2026')"
+            )
+            conn.commit()
+            finalise_delete_in_tx(
+                conn,
+                snapshot,
+                media_id="m1",
+                intent_id=intent.lastrowid,
+                audit_detail="Deleted: Film",
+                actor="admin",
+            )
+        elif lost == "snooze ran out":
+            conn.execute("UPDATE scheduled_actions SET action = 'snoozed', token_used = 0")
+            conn.commit()
+            DeletionExecutor(conn=conn).execute()
+        else:
+            _keep_item(conn)
+            action_id = conn.execute("SELECT id FROM scheduled_actions").fetchone()[0]
+            with conn:
+                if lost == "keep removed":
+                    delete_protections(conn, "m1")
+                else:
+                    set_protected_state(conn, to_update=[], to_insert=[], to_delete=[action_id])
+
+        assert _action(conn) is None
+        assert _lost(conn) == 1
+
     @pytest.mark.parametrize("copy_back", [False, True])
     def test_one_booked_with_what_went_before_is_told(self, conn, two_parts, copy_back):
         cd1, cd2 = two_parts
@@ -586,6 +644,10 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert _booked(conn) == [4]
         assert _lost(conn) == 1
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = 'm1' AND detail LIKE '%cut off%'"
+        ).fetchone()
+        assert not said[0].startswith("Not deleted")
 
     @pytest.mark.parametrize("ticked", [True, False])
     def test_a_row_dropped_with_no_removal_begun_is_not_told(self, conn, film, ticked):
@@ -599,12 +661,21 @@ class TestRemovalWithNoRecordedOutcome:
         assert _action(conn) is None
         assert _lost(conn) == 0
 
-    def test_a_removal_running_now_is_not_told_as_lost(self, conn, film, monkeypatch):
+    @pytest.mark.parametrize("scan", ["running", "died", "none"])
+    def test_a_removal_cleared_as_it_began_is_told_as_lost_unless_a_scan_is_running(
+        self, conn, film, monkeypatch, scan
+    ):
+        if scan != "none":
+            assert start_scan_run(conn)
         _die_at_the_removal(conn, monkeypatch)
+        if scan == "died":
+            conn.execute("UPDATE scan_runs SET heartbeat_at = '2020-01-01T00:00:00+00:00'")
+            conn.commit()
 
         clear_pending_deletions(conn)
 
-        assert _lost(conn) == 0
+        assert _action(conn) is None
+        assert _lost(conn) == (0 if scan == "running" else 1)
 
     @pytest.mark.parametrize(
         ("mount_down", "action"),

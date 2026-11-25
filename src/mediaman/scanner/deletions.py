@@ -400,7 +400,7 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
                 row.id,
                 row.file_path,
             )
-            audit_lost_removal(conn, row)
+            audit_lost_removal(conn, row, booked=True)
             book_deletion(
                 conn, row, "Deleted (recovered)", row.removed_bytes or None, unmonitor=True
             )
@@ -1426,7 +1426,7 @@ class DeletionExecutor:
                         f"Not deleted: {row.title} — a new copy is on disk, so only the removal "
                         "of the old one is recorded",
                     )
-                audit_lost_removal(self._conn, row)
+                audit_lost_removal(self._conn, row, booked=True)
                 book_deletion(
                     self._conn,
                     row,
@@ -1559,7 +1559,7 @@ class DeletionExecutor:
                 "delete_failed_permanent",
                 f"Permanent delete error: {row.title} — empty file_path, action parked",
             )
-            audit_lost_removal(self._conn, row)
+            audit_lost_removal(self._conn, row, booked=False)
             repository.delete_scheduled_action(self._conn, row.id)
             self._conn.commit()
             return [], 0
