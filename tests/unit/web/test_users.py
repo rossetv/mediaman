@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.services.plex_link import repository as plex_links
+from mediaman.services.plex_link.plex_tv import PlexIdentity
 from mediaman.web.auth.password_hash import authenticate, create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
@@ -74,6 +76,25 @@ class TestListUsers:
         assert body["current"] == "admin"
         assert len(body["users"]) == 1
         assert body["users"][0]["username"] == "admin"
+
+    def test_list_says_since_when_each_user_has_plex_linked_and_nothing_of_the_account(
+        self, app_factory, authed_client, conn
+    ):
+        client = _client(app_factory, authed_client, conn)
+        _make_second_user(conn)
+        plex_links.save_link(
+            conn, "other", PlexIdentity(3141592653, 3141592653, "secretname"), "server", ip=""
+        )
+
+        resp = client.get("/api/users")
+
+        since = plex_links.linked_users(conn)[0]["linked_at"]
+        assert {u["username"]: u["plex_linked_at"] for u in resp.json()["users"]} == {
+            "admin": None,
+            "other": since,
+        }
+        assert "secretname" not in resp.text
+        assert "3141592653" not in resp.text
 
 
 class TestCreateUser:

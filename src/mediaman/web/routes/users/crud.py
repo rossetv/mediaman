@@ -10,6 +10,7 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event
 from mediaman.db import get_db
+from mediaman.services.plex_link import repository as plex_links
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
@@ -105,7 +106,9 @@ def _reserve(
 @router.get("/api/users")
 def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     conn = get_db()
-    return {"users": list_users(conn), "current": admin}
+    linked = {link["username"]: link["linked_at"] for link in plex_links.linked_users(conn)}
+    users = [{**user, "plex_linked_at": linked.get(user["username"])} for user in list_users(conn)]
+    return {"users": users, "current": admin}
 
 
 @router.post("/api/users")
