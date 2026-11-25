@@ -316,8 +316,18 @@ def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
 
 def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
     css = _text("_play_on.css")
-    assert "opacity: 0" in _rule(css, ".play-on:not([open])::backdrop")
-    assert re.search(r"\.play-on::backdrop \{ transition: opacity[^}]*allow-discrete", css)
+    out = {}
+    for part in ("", "::backdrop"):
+        body = _rule(css, f".play-on:popover-open{part}")
+        name, rest = re.search(r"animation: ([\w-]+) ([^;]*);", body).groups()
+        assert re.search(rf"@keyframes {name} \{{ to \{{ opacity: 0;", css)
+        assert rest.endswith("forwards")
+        out[part] = rest
+    assert out[""] == out["::backdrop"]
+    # It takes no press meant for the page under it, and where less is to move it goes at once.
+    assert "pointer-events: none" in _rule(css, ".play-on:popover-open")
+    still = css[css.index("prefers-reduced-motion") :]
+    assert "display: none" in _rule(still, ".play-on:popover-open")
 
 
 def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:

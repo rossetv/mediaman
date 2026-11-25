@@ -993,10 +993,21 @@
     clearInterval(poll);
     global.removeEventListener('resize', place);
     was.btn.setAttribute('aria-expanded', 'false');
+    sink(was.node);
     /* Safari focuses no button that is clicked, and playing elsewhere has another one. */
     var back = [was.btn].concat(MM.dom.qa('[data-play-on]')).filter(function (b) { return b.getClientRects().length; })[0];
     if (back) back.focus({ preventScroll: true });
     setTimeout(function () { was.node.remove(); }, LEAVE_MS);
+  }
+
+  /* A dialog leaves the top of the page at once: what sinks away stays there, out of reach. */
+  function sink(node) {
+    if (!node.showPopover) return;
+    var top = node.scrollTop;
+    node.inert = true;
+    node.popover = 'manual';
+    node.showPopover();
+    node.scrollTop = top;
   }
 
   /* ---- a title on a page without a player -------------------------------- */

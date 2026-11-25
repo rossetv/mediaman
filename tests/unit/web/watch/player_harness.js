@@ -5458,6 +5458,23 @@ const scenarios = {
     return { stops: way.stops, at: play.body.position_s, says: awayState(p).says, starts: p.starts().length };
   },
 
+  /* Closed, the sheet sinks away over the page, which is there again at once. */
+  async away_sheet_sinks(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    const was = sheet();
+    const out = {};
+    was.showPopover = () => { out.sinks = { open: !!was.open, inert: was.inert, kind: was.popover }; };
+    key('Escape');
+    const button = p.q('.player-controls').querySelector('[data-play-on]');
+    out.focus = doc.activeElement === button;
+    await openSheet(p);
+    out.again = sheet() !== was && sheet().open && !sheet().inert;
+    p.tick(1000);
+    out.left = doc.querySelectorAll('.play-on').length;
+    return out;
+  },
+
   /* Played to its end on a Chromecast, which then holds nothing, and asked for once more. */
   async away_play_again(p) {
     const how = p.win.serverPlays;

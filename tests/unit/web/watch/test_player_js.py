@@ -2465,6 +2465,12 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+def test_the_sheet_sinks_away_out_of_reach_and_can_be_opened_meanwhile(markup):
+    out = elsewhere(markup, "away_sheet_sinks")
+    assert out["sinks"] == {"open": False, "inert": True, "kind": "manual"}
+    assert (out["focus"], out["again"], out["left"]) == (True, True, 1)
+
+
 @pytest.mark.parametrize("how", ["counts", "cancelled", "space", "twice", "film"])
 def test_play_again_starts_it_anew_on_the_same_chromecast(markup, last_episode, how):
     out = elsewhere(last_episode if how == "film" else markup, "away_play_again", how)
