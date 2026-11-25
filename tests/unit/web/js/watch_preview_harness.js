@@ -160,7 +160,8 @@ function load(opts = {}) {
         undraw: () => { steps.push('undraw'); html.remove('has-ttl'); },
       };
     }
-    if (f === 'watch/carry.js') ctx.MMWatch.carry.stage = () => ({ draw: (place) => places.push(place), end: () => steps.push('end'), heroFoot: 500 });
+    // A busy page gives its first frame on the way late.
+    if (f === 'watch/carry.js') ctx.MMWatch.carry.stage = () => ({ draw: (place) => { if (!places.length) clock += opts.busy || 0; places.push(place); }, end: () => steps.push('end'), heroFoot: 500 });
   });
 
   const h = {
@@ -186,7 +187,7 @@ function load(opts = {}) {
         due.fn();
         await settle();
       }
-      clock = end;
+      clock = Math.max(clock, end);
     },
     link: (id) => doc.querySelector('#' + id + ' .watch-card__link'),
     x: 0,
@@ -1509,6 +1510,18 @@ const scenarios = {
       out.push([kept.every(Boolean), short, h.details, h.steps.some((s) => /draw/.test(s))]);
     }
     return out;
+  },
+  /* A gentle scroll on a page busy at its first frame: it opens once, and never runs back on the way. */
+  async busyPage() {
+    const h = load({ busy: 600 });
+    await h.rest('film', 1100);
+    h.wheel(20);
+    await h.pass(20);
+    // What the hand did meanwhile is heard a little later.
+    await h.pass(100);
+    await h.scroll([20, 20, 20, 20, 20, 20, 20]);
+    await h.pass(1500);
+    return { steps: h.steps.filter((s) => !/ahead/.test(s)), back: h.places.some((at, i) => at < h.places[i - 1]) };
   },
   /* Opened plainly, the rest of the scroll that opened it is kept from the page; the next one is not. */
   async plainRest() {

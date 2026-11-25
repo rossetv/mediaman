@@ -1505,9 +1505,9 @@
   /* Back at the card. */
   function giveBack() {
     var p = carried.p;
+    var r = p.shell.getBoundingClientRect(); // before the page goes, which a read after would wait for
     putDown();
     if (live !== p) return;
-    var r = p.shell.getBoundingClientRect();
     if (pos && pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom) planTrailer(p);
     else close(p);
   }

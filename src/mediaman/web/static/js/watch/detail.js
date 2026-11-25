@@ -367,7 +367,6 @@
       renderContent(false);
       settleHero();
     }
-    root.scrollTop = 0;
     return true;
   }
 
@@ -561,7 +560,10 @@
     root.classList.add(aside ? 'is-aside' : 'is-leaving');
     leaving = afterAnimation(sheet, aside ? core.tokenMs('--dur-slow', 250) : core.tokenMs('--dur', 200), function () {
       leaving = null;
-      if (!isOpen) shut();
+      if (isOpen) return;
+      // Set here, where it costs nothing, not where a page is drawn.
+      root.scrollTop = 0;
+      shut();
     });
     var to = aside ? null : origin && document.body.contains(origin) && !origin.closest('.is-leaving') ? origin
       : cur && (cur.fallback || cardOf(cur.ref) || cardOf(cur.openedAs));

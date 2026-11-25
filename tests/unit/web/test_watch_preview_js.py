@@ -665,6 +665,10 @@ def test_with_less_motion_or_forced_colours_a_scroll_opens_the_page_as_a_press_d
     assert _run("scrolledPlainly") == [[True, 0, ["movie-1"], False]] * 2
 
 
+def test_a_gentle_scroll_on_a_busy_page_opens_it_once_and_never_runs_back_on_the_way() -> None:
+    assert _run("busyPage") == {"steps": ["draw movie-1", "end", "open"], "back": False}
+
+
 def test_opened_plainly_the_rest_of_its_scroll_does_not_scroll_the_page_and_the_next_one_does() -> (
     None
 ):

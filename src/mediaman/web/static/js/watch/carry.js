@@ -37,8 +37,8 @@
     var target = 0;
     var byHand = true;
     var down = true;
-    var heard = now();
-    var still = 0;    // ms without a push that are the end of it
+    var quiet = 0;    // s since the last push, a frame a busy page gave late counted short
+    var still = 0;    // s without a push that are the end of it
     var raf = 0;
     var last = 0;
 
@@ -46,7 +46,8 @@
       raf = 0;
       var dt = Math.min(LONGEST, Math.max(0.001, (t - last) / 1000));
       last = t;
-      if (byHand && now() - heard > still) go(pushed >= OPENS && down ? 1 : 0);
+      quiet += dt;
+      if (byHand && quiet > still) go(pushed >= OPENS && down ? 1 : 0);
       var w = byHand ? FOLLOW : SETTLE;
       var off = place - target;
       // Never past its end, however hard it was thrown.
@@ -91,8 +92,8 @@
           byHand = true;
           pushed = place * FULL;
         }
-        heard = now();
-        still = rest;
+        quiet = 0;
+        still = rest / 1000;
         if (dy) down = dy > 0;
         pushed = Math.max(0, Math.min(FULL, pushed + dy));
         target = pushed / FULL;
@@ -160,8 +161,7 @@
     var sheet = root.querySelector('.ttl__sheet');
     var hero = root.querySelector('.ttl__hero');
     var dim = document.querySelector('.ttl__dim');
-    var words = p.body.getBoundingClientRect();
-    var o = sheet.getBoundingClientRect();
+    var o = null;
     var moves = [];
     var undo = [];
 
@@ -172,14 +172,14 @@
     function shown(n) { return n && n.getClientRects().length ? n : null; }
     function page(sel) { return shown(root.querySelector(sel)); }
 
-    // Everything is put in its place first, and then read: one layout.
+    // Everything is put in its place first, and then read: on a page of many cards each layout
+    // after a change of what is in it costs as much as all of them.
 
     // The preview's words go along in the sheet, as a copy, for what is under them to come through.
     var ghost = p.body.cloneNode(true);
     ghost.classList.add('cry-ghost');
     if (p.n.classList.contains('pv--reason')) ghost.classList.add('pv--reason');
     if (p.hint) ghost.appendChild(p.hint.cloneNode(true));
-    Object.assign(ghost.style, { left: words.left - o.left - 1 + 'px', top: words.top - o.top - 1 + 'px', width: words.width + 'px', height: words.height + 'px' });
     root.classList.add('is-carried');
     sheet.appendChild(ghost);
     function own(sel) { return shown(ghost.querySelector(sel)); }
@@ -197,15 +197,24 @@
       var b = root.querySelector(sels[1]);
       var t = { a: a, b: b, same: !!a && !!b && a.textContent === b.textContent };
       if (!t.same) return t;
-      var real = p.body.querySelector(sels[0]);
-      // Words in boxes of their own count as more than fits, for Safari, where they just do.
-      if (real.scrollHeight <= real.clientHeight + 1) a.style.display = 'block';
+      t.real = p.body.querySelector(sels[0]);
       var text = b.textContent;
       undo.push(function () { b.textContent = text; });
       t.wa = splitWords(a);
       t.wb = splitWords(b);
       return t;
     });
+    var box = { a: ghost.querySelector('.pv__reason'), b: root.querySelector('.ttl__reason') };
+    var under = box.a && box.b ? { n: sheet.appendChild(el('div', 'cry-under')) } : null;
+    var underNode = under && under.n;
+
+    // The one read of it all.
+    var words = p.body.getBoundingClientRect();
+    o = sheet.getBoundingClientRect();
+    texts.forEach(function (t) { t.fits = t.same && t.real.scrollHeight <= t.real.clientHeight + 1; });
+    Object.assign(ghost.style, { left: words.left - o.left - 1 + 'px', top: words.top - o.top - 1 + 'px', width: words.width + 'px', height: words.height + 'px' });
+    // Words in boxes of their own count as more than fits, for Safari, where they just do.
+    texts.forEach(function (t) { if (t.fits) t.a.style.display = 'block'; });
 
     var media = rect(p.media);
     var card = rect(p.shell);
@@ -340,12 +349,16 @@
     out(own('.pv__hint'), 0.1, 0, { y1: 10 });
 
     // Reading
-    var box = { a: own('.pv__reason'), b: page('.ttl__reason') };
-    var under = null;
-    if (box.a && box.b) {
+    box = { a: shown(box.a), b: shown(box.b) };
+    if (under && !(box.a && box.b)) {
+      under.n.style.display = 'none';
+      under = null;
+    }
+    if (under) {
       var ba = rect(box.a);
       var bb = rect(box.b);
-      under = { n: el('div', 'cry-under'), a: ba, b: bb };
+      under.a = ba;
+      under.b = bb;
       var la = box.a.querySelector('.ai-label');
       var lb = box.b.querySelector('.ai-label');
       var ra = rect(la);
@@ -473,7 +486,7 @@
       root.classList.remove('is-carried');
       sheet.style.removeProperty('--cry-clip');
       dim.style.opacity = '';
-      [ghost, plate, shade].concat(under ? under.n : []).forEach(function (n) { n.remove(); });
+      [ghost, plate, shade].concat(marks, underNode || []).forEach(function (n) { n.remove(); });
       moves.forEach(function (q) {
         q.n.classList.remove('cry-move');
         if (!at || q.n !== whole) q.n.style.transform = q.n.style.opacity = q.n.style.clipPath = '';
@@ -482,12 +495,10 @@
     }
 
     // Read; from here on it is written alone.
-    marks.forEach(function (n) { n.remove(); });
     Object.assign(shade.style, { width: pw + 'px', height: ph + 'px' });
     Object.assign(veil.style, { left: h.x - hx + 'px', top: h.y - hy + 'px', width: h.w + 'px', height: h.h + 'px' });
     low.style.height = lowH + 'px';
     if (under) {
-      sheet.appendChild(under.n);
       box.a.style.background = box.b.style.background = 'none';
       undo.push(function () { box.b.style.background = ''; });
     }
