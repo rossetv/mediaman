@@ -42,7 +42,7 @@
       {% set time = item.fields | selectattr("at", "defined") | first %}
       <details class="hist" id="event-{{ item.id }}" data-event="{{ item.id }}"{% if item.id == open_id %} open{% endif %}>
         <summary class="hist-sum">
-          <span class="hx-who">{{ avatar(item.actor, item.avatar) }}</span>
+          <span class="hx-who">{{ avatar(item.who.name, item.avatar) }}</span>
           <span class="hist-msg"><span class="hx-l1"><b>{{ item.line_title }}</b>{% if not item.is_security %} {{ item.action_label }}{% endif %}</span>{% if item.summary %}<span class="hx-l2">{{ item.summary }}</span>{% endif %}</span>
           {% if time %}<time class="hist-date" datetime="{{ time.at }}" title="{{ time.value }}">{{ time.value[:16] }} UTC</time>{% else %}<span class="hist-date">{{ item.created_at[:16] }}</span>{% endif %}
           <span class="hist-chev">{{ c.icon("i-chevron-down") }}</span>

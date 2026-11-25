@@ -21,12 +21,20 @@ class FixedDate extends RealDate {
   constructor(...a) { if (a.length) super(...a); else super(NOW); }
 }
 
-const at = (t) => ({ label: 'Time', value: t.replace('T', ' ').replace('Z', ' UTC'), at: t, empty: false });
-const item = (id, more) => ({
+const at = (t) => ({ key: 'when', label: 'When', value: t.replace('T', ' ').replace('Z', ' UTC'), at: t, empty: false });
+const whose = (i) => {
+  const kind = !i.actor || /login.failed|opted_out/.test(i.action) ? 'system' : i.avatar ? 'account' : 'former';
+  return { kind, name: kind === 'system' ? 'mediaman' : i.actor, value: kind === 'former' ? '~former:' + i.actor : kind === 'system' ? '~mediaman' : i.actor };
+};
+const item = (id, more) => { const i = raw(id, more); return { who: whose(i), ...i }; };
+const raw = (id, more) => ({
   id, action: 'downloaded', action_label: 'downloaded', line_title: 'Film ' + id, title: 'Film ' + id, summary: 'Added to Radarr',
   is_security: false, created_at: '2026-11-24T20:15:03Z', actor: 'ana', avatar: '/a/1', ip: null,
-  fields: [at('2026-11-24T20:15:03Z'), { label: 'Who', value: 'ana', empty: false }, { label: 'IP address', value: '1.2.3.4', empty: false }], ...more,
+  fields: [at('2026-11-24T20:15:03Z'), { key: 'who', label: 'Who', value: 'ana', empty: false }, { key: 'space', label: 'Space freed', value: 'Not recorded', empty: true },
+    { key: 'record', label: 'Stored record', value: '<i>', empty: false }], ...more,
 });
+const PEOPLE = [{ value: 'ana', username: 'ana', kind: 'account', avatar: '/a/1' }, { value: 'bob', username: 'bob', kind: 'account', avatar: '/a/2' },
+  { value: '~former:bob', username: 'bob', kind: 'former', avatar: null }, { value: '~mediaman', username: 'mediaman', kind: 'system', avatar: null }];
 const page = (ids, next, total, n) => ({ page: n || 1, items: ids.map((i) => item(i)), next_cursor: next, total: total === undefined ? ids.length : total });
 
 function open(opts) {
@@ -38,6 +46,7 @@ function open(opts) {
   const copied = [];
   const steps = [];
   const asked = [];
+  const menus = [];
   const listeners = {};
   const win = {
     location: { href: 'http://mm.test/history' + opts.search },
@@ -69,7 +78,7 @@ function open(opts) {
   doc.body.appendChild(build(doc, ['div', { class: 'hx-veil' }]));
   doc.body.appendChild(build(doc, ['div', { class: 'hx-menu' }]));
   doc.body.appendChild(build(doc, ['script', { id: 'history-data' }, JSON.stringify({
-    admin: opts.admin, me: 'ana', people: [{ username: 'ana', avatar: '/a/1' }, { username: 'bob', avatar: '/a/2' }],
+    admin: opts.admin, me: 'ana', people: PEOPLE,
     actions: [['kept', 'Kept'], ['plays', 'Plays']], filters: opts.filters, filterLabel: '',
     items: opts.items, cursor: opts.cursor, total: opts.total, page: opts.page || 1, openId: null,
   })]));
@@ -79,14 +88,14 @@ function open(opts) {
   more.getBoundingClientRect = () => ({ top: far ? 5000 : 500 });
   vm.runInContext(fs.readFileSync(path.join(JS, 'core/dom.js'), 'utf8'), ctx);
   win.MM.api = {
-    get: (url, o) => new Promise((resolve, reject) => asked.push({ url, resolve, reject, signal: o && o.signal })),
+    get: (url, o) => new Promise((resolve, reject) => (url.startsWith('/api/history/menu') ? menus : asked).push({ url, resolve, reject, signal: o && o.signal })),
   };
   vm.runInContext(fs.readFileSync(path.join(JS, 'history.js'), 'utf8'), ctx);
   const q = (s) => doc.querySelector(s);
   const input = root.querySelector('input');
   const fire = (el, type, e) => (el.listeners[type] || []).forEach((fn) => fn({ target: el, preventDefault() {}, ...e }));
   return {
-    doc, win, root, more, toasts, copied, steps, asked, timers, q, input, fire,
+    doc, win, root, more, toasts, copied, steps, asked, menus, timers, q, input, fire,
     rows: () => root.querySelectorAll('.hist'),
     ids: () => root.querySelectorAll('.hist').map((r) => r.getAttribute('data-event')),
     tick: (max) => timers.splice(0).filter((t) => (t.ms <= (max || 1e9) ? (t.fn(), false) : true)).forEach((t) => timers.push(t)),
@@ -335,7 +344,7 @@ const scenarios = {
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });
-    const part = { finished: false, summary: 'stopped at 1 h of 2 h', progress: { fraction: 0.5 }, fields: [{ label: 'Stopped at', value: '1 h of 2 h' }] };
+    const part = { finished: false, summary: 'stopped at 1 h of 2 h', progress: { fraction: 0.5 }, fields: [{ key: 'progress', label: 'Progress', value: '1 h of 2 h' }] };
     const h = open({ items: [{ ...film(part), id: 'w:1' }, { ...film({ finished: true, runtime_text: '2 h' }), id: 'w:2' }, { ...tv({ finished: true, runtime_text: '46 min' }), id: 'w:3' },
       { ...tv({ finished: true, runtime_text: '46 min', episodes: [{}, {}], summary: 'S1E2 to E3' }), id: 'w:4' }] });
     return { subs: h.root.querySelectorAll('.hx-l2').map((l) => l.textContent), bars: h.root.querySelectorAll('.hx-bar i').map((b) => b.style.width) };
@@ -390,14 +399,78 @@ const scenarios = {
     h.fire(form, 'submit');
     return { asked: h.asked.length, told: !form.querySelector('.hx-dates__e').hidden };
   },
+  details: () => {
+    const h = open({});
+    const fields = h.rows()[0].querySelectorAll('.hist-field').map((f) => f.querySelector('dt').textContent + ': ' + f.querySelector('dd').textContent);
+    return { fields, utc: h.rows()[0].querySelector('.hist-field dd').getAttribute('title') };
+  },
+  who: () => {
+    const h = open({ items: [item(1, { actor: 'bob', avatar: null }), item(2, { actor: null, avatar: null })] });
+    const only = h.rows().map((r) => { const b = r.querySelector('[data-user]'); return b && b.getAttribute('data-user'); });
+    h.press('[data-user]');
+    const chip = h.q('[data-menu="user"]');
+    const out = { only, url: h.win.location.href, chip: chip.children[1].textContent, gone: !!chip.querySelector('.is-gone') };
+    h.pick('user', '~mediaman');
+    const m = h.q('[data-menu="user"]');
+    return { ...out, mediaman: m.children[1].textContent, gear: !!m.querySelector('.is-mm') };
+  },
+  counts: async () => {
+    const h = open({ search: '?q=x&action=kept', filters: { q: 'x', action: 'kept' } });
+    h.press('[data-menu="user"]');
+    const opts = () => h.q('.hx-menu').querySelectorAll('.hx-opt');
+    const before = opts();
+    const names = before.map((o) => o.querySelector('.n').textContent);
+    before[2].focus();
+    h.menus[0].resolve({ options: PEOPLE.map((p, i) => ({ ...p, count: 1200 - i })) });
+    await settle();
+    const same = opts().every((o, i) => o === before[i]);
+    const out = { asked: h.menus[0].url, names, same, counts: opts().map((o) => o.querySelector('small').textContent), focus: h.doc.activeElement === before[2] };
+    h.press('[data-menu="user"]');
+    h.press('[data-menu="action"]');
+    h.press('[data-menu="action"]');
+    h.press('[data-menu="action"]');
+    h.menus[2].resolve({ options: [{ value: 'plays', label: 'Plays', count: 7 }] });
+    await settle();
+    h.menus[1].resolve({ options: [{ value: 'plays', label: 'Plays', count: 1 }] });
+    await settle();
+    return { ...out, late: opts().map((o) => o.querySelector('small').textContent) };
+  },
   titles: async () => {
+    const h = open({ search: '?user=bob', filters: { user: 'bob' } });
+    const titled = (o) => ({ options: Object.keys(o).map((t) => ({ value: t, label: t, count: o[t] })), more: false });
+    const menu = h.q('.hx-menu');
+    const shown = () => menu.querySelectorAll('.hx-opt').filter((o) => !o.hidden).map((o) => o.getAttribute('data-v'));
+    h.press('[data-menu="title"]');
+    const waiting = menu.querySelectorAll('.hx-opt-skel').length;
+    h.menus[0].resolve(titled({ 'Low Tide': 9, 'Aces': 4, 'Tide Two': 1 }));
+    await settle();
+    const all = shown();
+    const find = menu.querySelector('input');
+    find.value = 'tide';
+    h.fire(find, 'input');
+    const narrowed = shown();
+    h.tick(200);
+    find.value = 'zz';
+    h.fire(find, 'input');
+    const early = menu.querySelector('.hx-none').hidden;
+    h.tick(200);
+    h.menus[2].resolve(titled({}));
+    await settle();
+    h.menus[1].resolve(titled({ 'Low Tide': 9 }));
+    await settle();
+    return { waiting, all, narrowed, early, asked: h.menus.map((a) => a.url), last: shown(), none: !menu.querySelector('.hx-none').hidden };
+  },
+  titlesFail: async () => {
     const h = open({});
     h.press('[data-menu="title"]');
-    h.tick(0);
-    h.asked[0].resolve(page([70], null));
+    h.menus[0].reject(new Error('no'));
     await settle();
-    return h.q('.hx-menu').querySelectorAll('.hx-opt').map((o) => o.getAttribute('data-v'));
+    return h.q('.hx-menu').querySelector('.hx-none').textContent;
   },
+  handTyped: () => ['?since=20261110', '?since=2026-11-12%2010:00', '?since=2026-02-30', '?until=2026-02-30T10:00', '?since=2026-11-01T24:00', '?since=2026-11-01'].map((search) => {
+    const h = open({ search });
+    return [h.q('[data-menu="date"]').textContent, h.asked.map((a) => a.url), h.win.location.href.split('/history')[1]];
+  }),
 };
 
 Promise.resolve(scenarios[process.argv[2]]()).then((o) => console.log(JSON.stringify(o)));

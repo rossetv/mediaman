@@ -11,7 +11,7 @@
  *  - Each row is a <details>. Opening one keeps `?event=<id>` in the address (replaceState, so
  *    Back does not step through every row). What lies below a row slides along with it, and the
  *    edge of its card moves with them; with reduced motion it opens and folds at once.
- *  - Times are shown in the reader's zone, the details with the UTC time beside it.
+ *  - Times are shown in the reader's zone; the details copied hold the UTC time too.
  */
 (function () {
   'use strict';
@@ -20,8 +20,9 @@
   var TYPING_MS = 180;
   var SLOW_MS = 600;
   var DAY_MS = 864e5;
+  var MAX = { title: 1000, user: 300 };
   var KEYS = ['q', 'user', 'action', 'title', 'date', 'since', 'until'];
-  var MOMENT = /^\d{4}-\d\d-\d\d(T\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?)?$/;
+  var MOMENT = /^[12]\d{3}-\d\d-\d\d(T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?)?$/;
   var DATES = { today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'Last 30 days' };
   var NAMES = { user: 'User', action: 'Action', title: 'Title', date: 'Date' };
 
@@ -184,8 +185,8 @@
     var menu = q('.hx-menu');
     var veil = q('.hx-veil');
 
-    var faces = Object.create(null);
-    data.people.forEach(function (p) { faces[p.username] = p.avatar; });
+    var people = Object.create(null); // by what stands for them in the address
+    data.people.forEach(function (p) { people[p.value] = p; });
 
     var F = {};            // what is searched and filtered by
     var cursor = null;     // where the next page begins
@@ -200,7 +201,7 @@
     var typed = null;      // the timer of the search being typed
     var typing = false;    // the address's step is already this search's
     var menuOf = null;     // the filter whose menu is open
-    var titles = {};       // the titles seen, to choose from
+    var titlesOf = null;   // the last titles to choose from, and the question they answer
     var menuAsked = 0;
     var at = '';           // the address listed, without its hash
 
@@ -218,17 +219,21 @@
 
     /* --- the address --- */
 
+    /* Whether the address's moments include one this page does not read, as the server may have. */
     function readAddress() {
+      var unread = false;
       var p = new URL(window.location.href).searchParams;
-      KEYS.forEach(function (k) { F[k] = (p.get(k) || '').trim().slice(0, 200); });
+      KEYS.forEach(function (k) { F[k] = (p.get(k) || '').trim().slice(0, MAX[k] || 200); });
       if (!data.admin) F.user = '';
       if (F.date && !moments(F.date, new Date())) F.date = '';
       /* A date named in the address stands for both ends. */
       ['since', 'until'].forEach(function (k) {
-        if (F.date || !MOMENT.test(F[k]) || isNaN(new Date(F[k]))) F[k] = '';
+        var text = p.get(k) || '';
+        F[k] = !F.date && MOMENT.test(text) && localDay(text.slice(0, 10)) && !isNaN(new Date(text)) ? text : '';
+        if (text && !F[k]) unread = true;
       });
       opened = p.get('event');
-      return p;
+      return unread;
     }
 
     function address(withoutEvent) {
@@ -239,14 +244,14 @@
       return '/history' + (text ? '?' + text : '');
     }
 
-    function query(extra) {
+    function query(extra, path) {
       var p = new URLSearchParams();
       ['q', 'user', 'action', 'title', 'since', 'until'].forEach(function (k) { if (F[k]) p.set(k, F[k]); });
       var when = F.date ? moments(F.date, new Date()) : null;
       Object.keys(when || {}).forEach(function (k) { p.set(k, when[k]); });
       Object.keys(extra || {}).forEach(function (k) { p.set(k, extra[k]); });
       var text = p.toString();
-      return '/api/history' + (text ? '?' + text : '');
+      return '/api/history' + (path || '') + (text ? '?' + text : '');
     }
 
     /* --- a row --- */
@@ -291,14 +296,23 @@
 
     /* Who a line names. A name typed or an address is never on it. */
     function whoOf(item) {
-      var unsigned = item.action === 'sec:login.failed' || item.action === 'sec:subscriber.opted_out' ||
-        (item.action === 'sec:user.unlocked' && item.actor === 'cli');
-      if (!item.actor) return { name: 'mediaman' };
-      if (item.avatar) return { name: item.actor, known: true };
+      var who = item.who;
+      if (who.kind === 'account') return { name: who.name };
+      if (who.kind === 'former') return { name: who.name.indexOf('@') >= 0 ? '' : who.name, gone: true };
       if (item.action === 'sec:login.failed') return { name: '', unsigned: true };
-      if (unsigned) return { name: item.action === 'sec:user.unlocked' ? 'the command line' : 'a subscriber', unsigned: true };
-      return { name: item.actor.indexOf('@') >= 0 ? '' : item.actor, gone: true };
+      if (item.action === 'sec:subscriber.opted_out') return { name: 'a subscriber', unsigned: true };
+      if (item.action === 'sec:user.unlocked' && item.actor) return { name: 'the command line', unsigned: true };
+      return { name: 'mediaman' };
     }
+
+    /* Whom a value of the address stands for, also one no longer among the people. */
+    function person(value) {
+      return people[value] || { value: value, username: value.replace(/^~former:/, ''), kind: 'former', avatar: null };
+    }
+
+    function nameOf(p) { return p.username + (p.kind === 'former' ? ' (former)' : ''); }
+
+    function faceOf(p) { return face(p.kind === 'system' ? '' : p.username, p.avatar); }
 
     function deedOf(item) {
       var out = { verb: item.action_label, object: item.line_title, sub: item.summary, kind: 'scan', icon: 'i-gear' };
@@ -324,11 +338,16 @@
         if (/failed|throttled|rate_limited/.test(event)) { out.kind = 'bad'; out.icon = 'i-triangle-exclamation'; }
         out.verb = deed || '';
         out.object = '';
+        if (event === 'newsletter.sent') {
+          var sent = /^(\d+) sent$/.exec(out.sub);
+          if (sent) out.sub = 'To ' + sent[1] + (sent[1] === '1' ? ' person' : ' people');
+        }
         if (!deed) out.label = item.line_title;
         else if (NAMED.indexOf(event) >= 0 && item.summary) { out.object = item.summary; out.sub = ''; }
       } else if (act) {
         out.verb = act[0];
         out.kind = act[1];
+        if (item.space_impact && out.sub === item.space_impact) out.sub += ' freed';
         out.icon = act[2];
         if (item.action.indexOf('delete_root') === 0) out.object = 'delete folder';
       }
@@ -346,7 +365,7 @@
       }
       if (item.action === 'sec:login.failed') {
         put(marked('span', 'Sign-in failed for'));
-        put(faces[item.actor] !== undefined ? marked('b', item.actor) : marked('span', 'an unknown name'));
+        put(people[item.actor] && people[item.actor].kind === 'account' ? marked('b', item.actor) : marked('span', 'an unknown name'));
         return line;
       }
       if (data.admin) {
@@ -372,12 +391,9 @@
 
     function clock(at) { return at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 
-    function fullTime(text, stored) {
-      var at = new Date(text);
-      if (isNaN(at)) return stored;
-      return at.toLocaleString('en-GB', {
-        day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
-      }) + ' (' + stored + ')';
+    function fullTime(at) {
+      return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ', ' +
+        at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
 
     function hasTitle(item) {
@@ -402,17 +418,20 @@
       var time = el(at ? 'time' : 'span', 'hist-date', at ? clock(at) : String(item.created_at).slice(0, 16));
       if (at) {
         time.setAttribute('datetime', at.toISOString());
-        time.setAttribute('title', fullTime(at.toISOString(), timeField(item).value));
+        time.setAttribute('title', fullTime(at) + ' (' + timeField(item).value + ')');
       }
       row.appendChild(el('summary', 'hist-sum', [
-        el('span', 'hx-who', [face(who.name === 'mediaman' && !item.actor ? '' : who.name || '?', item.avatar, who.unsigned), act]),
+        el('span', 'hx-who', [face(item.who.kind === 'system' ? '' : who.name || '?', item.avatar, who.unsigned), act]),
         msg, time, el('span', 'hist-chev', icon('i-chevron-down'))
       ]));
 
       var fields = el('dl', 'hist-fields');
       item.fields.forEach(function (f) {
-        var dd = el('dd', f.empty ? 'is-empty' : '', f.at ? fullTime(f.at, f.value) : f.value);
-        if (item.progress && f.label === 'Stopped at') {
+        if (f.empty) return;
+        var moment = f.at ? new Date(f.at) : NaN;
+        var dd = el('dd', '', isNaN(moment) ? f.value : fullTime(moment));
+        if (!isNaN(moment)) dd.setAttribute('title', f.value);
+        if (item.progress && f.key === 'progress') {
           var done = el('i');
           done.style.width = Math.round(item.progress.fraction * 100) + '%';
           dd.appendChild(el('span', 'hx-bar', done));
@@ -421,8 +440,8 @@
       });
       var acts = el('div', 'hx-acts', button('btn btn--ghost btn--sm', 'Copy details', { 'data-hist-copy': '' }));
       if (hasTitle(item)) acts.appendChild(button('btn btn--ghost btn--sm', 'Only this title', { 'data-title': item.line_title }));
-      if (data.admin && who.known) {
-        acts.appendChild(button('btn btn--ghost btn--sm', 'Only ' + (item.actor.length > 22 ? 'this user' : item.actor), { 'data-user': item.actor }));
+      if (data.admin && item.who.kind !== 'system' && who.name) {
+        acts.appendChild(button('btn btn--ghost btn--sm', 'Only ' + (who.name.length > 22 ? 'this user' : who.name), { 'data-user': item.who.value }));
       }
       row.appendChild(el('div', 'hist-body', [fields, acts]));
       return row;
@@ -449,7 +468,6 @@
         if (Object.prototype.hasOwnProperty.call(seen, id)) return;
         seen[id] = true;
         lastRow = item;
-        if (hasTitle(item)) titles[item.line_title] = true;
         var name = dayName(momentOf(item));
         var day = list.lastElementChild;
         if (!day || day.getAttribute('data-day') !== name.join('|')) {
@@ -514,7 +532,7 @@
     function words() {
       var w = [];
       if (F.q) w.push('“' + F.q + '”');
-      if (F.user) w.push(F.user);
+      if (F.user) w.push(nameOf(person(F.user)));
       if (F.action) w.push(actionLabel(F.action).toLowerCase());
       if (F.title) w.push('“' + F.title + '”');
       if (F.since || F.until) w.push(momentsLabel(F.since, F.until));
@@ -695,6 +713,7 @@
     function chipLabel(k) {
       if (k === 'date' && (F.since || F.until)) return momentsLabel(F.since, F.until);
       if (!F[k]) return '';
+      if (k === 'user') return nameOf(person(F.user));
       return k === 'action' ? actionLabel(F[k]) : k === 'date' ? dateLabel(F[k]) : F[k];
     }
 
@@ -707,7 +726,7 @@
         var open = button('hx-chip__open', [], {
           'data-menu': k, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': NAMES[k] + (label ? ': ' + label : '')
         });
-        if (k === 'user' && F.user) open.appendChild(face(F.user, faces[F.user]));
+        if (k === 'user' && F.user) open.appendChild(faceOf(person(F.user)));
         open.appendChild(el('span', '', label || NAMES[k]));
         open.appendChild(icon('i-chevron-down'));
         var chip = el('span', 'hx-chip' + (label ? ' is-set' : ''), open);
@@ -780,56 +799,112 @@
       return o;
     }
 
+    function countOf(n) {
+      var small = el('small');
+      if (n != null) small.textContent = n.toLocaleString('en-GB');
+      return small;
+    }
+
     function userOptions() {
       return data.people.map(function (p) {
-        return option('user', p.username, [face(p.username, p.avatar), el('span', 'n', p.username + (p.username === data.me ? ' (you)' : ''))]);
+        var you = p.kind === 'account' && p.username === data.me ? ' (you)' : '';
+        return option('user', p.value, [faceOf(p), el('span', 'n', nameOf(p) + you), countOf()]);
       });
     }
 
     function actionOptions() {
       return data.actions.map(function (a) {
-        return option('action', a[0], [el('span', 'k', icon(FILTER_ICONS[a[0]] || 'i-gear')), el('span', 'n', a[1])]);
+        return option('action', a[0], [el('span', 'k', icon(FILTER_ICONS[a[0]] || 'i-gear')), el('span', 'n', a[1]), countOf()]);
       });
     }
 
-    function titleOptions(names) {
-      return names.map(function (t) { return option('title', t, el('span', 'n', t)); });
-    }
-
-    function sorted(set) {
-      return Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'en-GB'); });
-    }
-
-    /* The title menu: what is listed, and what the server finds by the text typed. */
-    function fillTitles(scroll, none, field) {
-      var find = field.value.trim().slice(0, 200);
-      var low = find.toLowerCase();
-      function fill(set, done) {
-        var names = sorted(set).filter(function (t) { return t.toLowerCase().indexOf(low) >= 0; });
-        MM.dom.qa('.hx-opt', scroll).forEach(function (o) { o.remove(); });
-        titleOptions(names).forEach(function (o) { scroll.insertBefore(o, none); });
-        none.hidden = !done || names.length > 0;
-      }
+    /* A menu's choices with their counts, unless another menu was opened since. */
+    function askMenu(k, extra, then, fail) {
       menuAsked += 1;
       var me = menuAsked;
-      var set = {};
-      Object.keys(titles).forEach(function (t) { set[t] = true; });
-      if (F.title) set[F.title] = true;
-      fill(set, false);
-      window.setTimeout(function () {
-        if (me !== menuAsked || menuOf !== 'title') return;
-        var p = new URLSearchParams({ per_page: '100' });
-        if (find) p.set('title', find);
-        MM.api.get('/api/history?' + p).then(function (res) {
-          if (me !== menuAsked || menuOf !== 'title') return;
-          res.items.forEach(function (item) { if (hasTitle(item)) { titles[item.line_title] = true; set[item.line_title] = true; } });
-          var active = document.activeElement;
-          var at = active && active.getAttribute('data-k') === 'title' ? active.getAttribute('data-v') : null;
-          fill(set, true);
-          var same = at && MM.dom.findByAttr(scroll, 'data-v', at);
-          if (same) same.focus({ preventScroll: true });
-        }, function () { if (me === menuAsked) fill(set, true); });
-      }, find ? TYPING_MS : 0);
+      var ifStill = function (fn) {
+        return function (res) { if (me === menuAsked && menuOf === k) fn(res); };
+      };
+      MM.api.get(query(Object.assign({ menu: k }, extra), '/menu')).then(ifStill(then), ifStill(fail || function () {}));
+    }
+
+    /* The choices stand already: only their counts are new. */
+    function fillCounts(k, scroll) {
+      askMenu(k, {}, function (res) {
+        res.options.forEach(function (o) {
+          var row = MM.dom.findByAttr(scroll, 'data-v', o.value);
+          if (!row) return;
+          var small = row.querySelector('small');
+          small.textContent = o.count.toLocaleString('en-GB');
+          small.classList.add('hx-in');
+        });
+      });
+    }
+
+    /* The titles with the most events, of those the text typed is in. */
+    function titleMenu(scroll, field) {
+      var none = el('p', 'hx-none', 'No title by that name.');
+      var wait = null;
+      none.setAttribute('role', 'status');
+
+      function rows() { return MM.dom.qa('.hx-opt', scroll); }
+
+      function show(options) {
+        var active = document.activeElement;
+        var at = active && scroll.contains(active) ? active.getAttribute('data-v') : null;
+        var top = scroll.scrollTop;
+        empty(scroll);
+        options.forEach(function (o) {
+          scroll.appendChild(option('title', o.value, [el('span', 'n', o.label), countOf(o.count)]));
+        });
+        scroll.appendChild(none);
+        none.hidden = true;
+        scroll.scrollTop = top;
+        var same = at && MM.dom.findByAttr(scroll, 'data-v', at);
+        if (same) same.focus({ preventScroll: true });
+        else if (at) field.focus({ preventScroll: true });
+      }
+
+      function say(text) {
+        none.textContent = text;
+        none.hidden = !text;
+      }
+
+      function narrow(low) {
+        rows().forEach(function (o) { o.hidden = o.getAttribute('data-v').toLowerCase().indexOf(low) < 0; });
+      }
+
+      function look() {
+        var find = field.value.trim().slice(0, 200);
+        var question = query({ find: find });
+        var ask = function () {
+          if (!scroll.isConnected) return;
+          askMenu('title', find ? { find: find } : {}, function (res) {
+            titlesOf = { question: question, options: res.options };
+            show(res.options);
+            say(res.options.length ? (res.more ? 'These have the most events. Type to find others.' : '') : find ? 'No title by that name.' : 'No titles yet.');
+          }, function () {
+            MM.dom.qa('.hx-opt-skel', scroll).forEach(function (s) { s.remove(); });
+            say('The titles did not load.');
+          });
+        };
+        window.clearTimeout(wait);
+        menuAsked += 1;
+        if (titlesOf && titlesOf.question === question) show(titlesOf.options);
+        else if (rows().length || q('.hx-none', scroll)) {
+          say('');
+          narrow(find.toLowerCase());
+        } else {
+          for (var i = 0; i < 8; i++) scroll.appendChild(el('div', 'hx-opt-skel', el('i', 'skel')));
+          scroll.appendChild(none);
+          none.hidden = true;
+        }
+        if (find) wait = window.setTimeout(ask, TYPING_MS);
+        else ask();
+      }
+
+      field.addEventListener('input', look);
+      look();
     }
 
     function dateForm(scroll) {
@@ -868,6 +943,7 @@
       menuAsked += 1;
       empty(menu);
       menu.setAttribute('aria-label', NAMES[k]);
+      menu.classList.toggle('hx-menu--titles', k === 'title');
       menu.appendChild(el('div', 'hx-menu__h', [el('span', '', NAMES[k]), button('', icon('i-xmark'), { 'aria-label': 'Close', 'data-menu-close': '' })]));
       var find = null;
       if (k === 'title') {
@@ -885,13 +961,9 @@
       if (k === 'user') userOptions().forEach(function (o) { scroll.appendChild(o); });
       if (k === 'action') actionOptions().forEach(function (o) { scroll.appendChild(o); });
       if (k === 'date') dateForm(scroll);
+      if (k === 'user' || k === 'action') fillCounts(k, scroll);
       if (find) {
-        var none = el('p', 'hx-none', 'No title by that name.');
-        none.hidden = true;
-        none.setAttribute('role', 'status');
-        scroll.appendChild(none);
-        find.addEventListener('input', function () { fillTitles(scroll, none, find); });
-        fillTitles(scroll, none, find);
+        titleMenu(scroll, find);
       }
       var r = btn.getBoundingClientRect();
       var left = Math.max(12, Math.min(r.left, document.documentElement.clientWidth - 312));
@@ -931,7 +1003,7 @@
         return;
       }
       if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || (e.target.getAttribute && e.target.getAttribute('type') === 'date')) return;
-      var opts = MM.dom.qa('.hx-opt', menu);
+      var opts = MM.dom.qa('.hx-opt', menu).filter(function (o) { return !o.hidden; });
       if (!opts.length) return;
       e.preventDefault();
       var down = e.key === 'ArrowDown';
@@ -998,7 +1070,9 @@
 
     function onCopy(btn) {
       var text = Array.prototype.map.call(btn.closest('.hist').querySelectorAll('.hist-field'), function (f) {
-        return f.querySelector('dt').textContent + ': ' + f.querySelector('dd').textContent;
+        var dd = f.querySelector('dd');
+        var utc = dd.getAttribute('title');
+        return f.querySelector('dt').textContent + ': ' + dd.textContent + (utc ? ' (' + utc + ')' : '');
       }).join('\n');
       copyText(text).then(function () {
         btn.focus();
@@ -1113,12 +1187,13 @@
     });
 
     at = here();
-    readAddress();
+    var unread = readAddress();
     /* The server's words for what it filtered by, where the address has them. */
     ['q', 'user', 'action', 'title'].forEach(function (k) { F[k] = data.filters[k] || ''; });
     input.value = F.q;
     chips();
-    if (F.date) load(true);
+    if (unread) go('replaceState');
+    if (F.date || unread) load(true);
     else {
       show({ items: data.items, cursor: data.cursor, total: data.total, page: data.page });
       tellEverything();
