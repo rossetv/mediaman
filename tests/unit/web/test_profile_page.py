@@ -213,6 +213,32 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
     assert {"account-history-lbl", "account-clear-searches"} <= _parse(html).ids
 
 
+@pytest.mark.parametrize("page", ["profile", "settings"])
+def test_all_that_openai_is_sent_is_said_beside_its_switch(
+    app_factory, authed_client, conn, settings_html, page
+):
+    html = settings_html
+    if page == "profile":
+        app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+        html = authed_client(app, conn, username="second").get("/account").text
+    start = 'id="account-history-sub">' if page == "profile" else ">AI recommendations</div>"
+    said = html.split(start)[1].split("</div>")[0]
+
+    for part in (
+        "account name",
+        "recent picks",
+        "Plex stars",
+        "suggestions to choose from",
+        "question",
+        "more like",
+        "narrow",
+        "searches, ratings, requests",
+        "searches, plays and ratings",
+        "daily phrases to try",
+    ):
+        assert part in said, part
+
+
 @pytest.mark.parametrize(("role", "lists"), [("admin", 2), ("viewer", 1)])
 def test_only_an_admins_profile_has_a_list_of_other_peoples_tvs(
     app_factory, authed_client, conn, role, lists

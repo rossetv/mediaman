@@ -78,7 +78,7 @@
 
   {% call c.setg_card(title="AI features", sub="GPT-powered recommendations surfaced in newsletters and on Watch.") %}
     {% set sugg_on = settings.get('suggestions_enabled', True) not in (False, 'false', 'False', 0, '0') %}
-    {% call c.setg_row("AI recommendations", "Picks for each person from the titles they played, and new and popular ones for everyone, using your OpenAI key. OpenAI gets the titles each person played, the picks they had before and the Plex stars of the server’s owner, and, unless the person turns off the use of their history, their searches, ratings, requests and how their plays went; never a name. Disabling hides the picks entirely.") %}
+    {% call c.setg_row("AI recommendations", "Picks for each person, and new and popular ones for everyone, using your OpenAI key. OpenAI gets recent picks, its own suggestions to choose from and, for a person’s picks, the titles they played and, for the server’s owner, Plex stars; never an account name. Unless they turn off Use my history, also their searches, ratings, requests and how their plays went. Disabling hides the picks entirely. Asking in search still sends the question or the title to find more like and, to narrow an answer, the choice and its titles; with history, questions, and daily phrases to try, also send searches, plays and ratings.") %}
       <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0" aria-label="AI recommendations"
             data-toggle data-target="suggestions_enabled"
             aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
