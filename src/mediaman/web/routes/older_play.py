@@ -16,20 +16,21 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from fastapi import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import Ticket
-from mediaman.services.dlna.errors import TvError
+from mediaman.services.dlna.errors import AnotherTv, TvError, TvUnreachable
 from mediaman.services.dlna.media import Media
 from mediaman.services.dlna.renderer import Renderer
 from mediaman.services.media_meta.plex_stream import StreamGone
 from mediaman.services.media_meta.plex_watch import PlexError
-from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.tv import older
 from mediaman.services.tv.older import CannotPlay, Claim, Driver
 from mediaman.services.tv.players import NotPlaying, Players, get_players
 from mediaman.web.auth._token_hashing import hash_token
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.responses import respond_err
@@ -181,6 +182,8 @@ class Offer:
         """Take the TV; the refusal, where somebody plays on it whom nobody was asked about."""
         claims, players = older.get_claims(), get_players()
         with _TAKING:
+            if not repo.has_session(get_db(), self._claim.user, self.session_hash):
+                return JSONResponse({"detail": "Not authenticated"}, status_code=401)
             if not self._confirm and _others_play(self._claim.tv_id, self._claim.user_id):
                 return _in_use()
             before = claims.take(self._claim)
@@ -199,6 +202,7 @@ class Offer:
 
     def drive(self) -> None:
         """Let the TV play what began, or stop what it played where nothing did."""
+        older.get_claims().started(self._claim)
         _drive(
             Driver(
                 self._claim,
@@ -217,7 +221,9 @@ def _in_use() -> Response:
 
 def _others_play(tv_id: int, user_id: int) -> bool:
     held = older.get_claims().of(tv_id)
-    return held is not None and held.user_id != user_id and _active(held.key)
+    if held is None or held.user_id == user_id:
+        return False
+    return _active(held.key) or older.get_claims().is_starting(held)
 
 
 def ask_for(
@@ -235,14 +241,25 @@ def ask_for(
     if not confirm and _others_play(tv.id, user_id):
         return _in_use()
     claims = older.get_claims()
+    admin = get_user_role(conn, username) == "admin"
+    seeker = reaching.Seeker(username, get_client_ip(request), admin)
     try:
         reaching.media_base(conn)
-        found = reaching.reach(conn, tv.id)
+        found = reaching.reach(conn, tv.id, seeker=seeker)
     except Refusal as exc:
         return exc.response
     except TvError as exc:
         claims.note(tv.id, answered=False)
-        return reaching.told(exc).response
+        refusal = reaching.told(exc)
+        if not admin and isinstance(exc, (TvUnreachable, AnotherTv)):
+            # Only an admin's look goes further than the kept address.
+            return respond_err(
+                refusal.error,
+                status=refusal.response.status_code,
+                message=f"{tv.name} does not answer. If it is on, its address may have changed: "
+                "an admin can Check it in Settings.",
+            )
+        return refusal.response
     claims.note(tv.id, answered=True)
     reaching.note_seen(conn, tv.id)
     claim = Claim(tv.id, username, user_id, hash_token(request.cookies.get("session_token", "")))
@@ -273,7 +290,7 @@ def _server(request: Request, held: repo.Tv, claim: Claim, steering: Steering) -
         try:
             base = reaching.media_base(get_db())
             number, at = place_of(segments(stream_id, user), position_s)
-        except (Refusal, PlexError, StreamGone) as exc:
+        except (Refusal, PlexError, StreamGone, ValueError) as exc:
             raise CannotPlay(type(exc).__name__) from exc
         token = url.split("/")[3]
         duration = about.get("duration_s")

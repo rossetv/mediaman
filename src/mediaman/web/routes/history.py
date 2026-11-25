@@ -175,6 +175,7 @@ SECURITY_EVENT_LABELS = {
     "session.revoke_one": "Device signed out",
     "session.revoke_all": "All sessions ended",
     "tv.added": "Older TV added",
+    "tv.moved": "Older TV found at a new address",
     "tv.paired": "TV paired",
     "tv.removed": "Older TV removed",
     "tv.taken_over": "TV taken over",

@@ -12,6 +12,7 @@ to ``_common``.
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import Annotated, Any
 from urllib.parse import urlsplit
 
@@ -63,6 +64,11 @@ _HOME_NETWORKS = tuple(
 )
 
 
+_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_HOST_RE = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(?:\.{_LABEL})*")
+_NUMBER_RE = re.compile("[0-9]+|0x[0-9a-f]*")
+
+
 def _validate_tv_address(v: str) -> str:
     """Return the address TVs fetch films from: an origin, and over http a home one."""
     _validate_url(v)
@@ -77,12 +83,18 @@ def _validate_tv_address(v: str) -> str:
         ip = ipaddress.IPv4Address(host)
     except ValueError:
         ip = None
-    home = ip is not None and any(ip in net for net in _HOME_NETWORKS)
-    named = ip is None and ":" not in host and host.rstrip(".") != "localhost"
-    if not home and not (
-        named and parts.scheme == "https" and not host.rstrip(".").endswith(".localhost")
-    ):
-        raise ValueError("must be a home address")
+    if ip is None or not any(ip in net for net in _HOME_NETWORKS):
+        try:
+            host = host.rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError as exc:
+            raise ValueError("must be a home address") from exc
+        # A last part like a number makes the whole an address in some other spelling.
+        named = _HOST_RE.fullmatch(host) and not _NUMBER_RE.fullmatch(host.rpartition(".")[2])
+        local = host == "localhost" or host.endswith(".localhost")
+        if not named or local or parts.scheme != "https":
+            raise ValueError("must be a home address")
+    if port == 0:
+        raise ValueError("must be a home address with a port in use")
     return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
 
 

@@ -7,11 +7,12 @@ it for a TV that moved, within what :mod:`mediaman.services.dlna` allows.
 from __future__ import annotations
 
 import contextlib
+import threading
 import time
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import Response
 
@@ -21,13 +22,14 @@ from mediaman.services.dlna.errors import TvError, TvFault
 from mediaman.services.dlna.renderer import Renderer
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes import older_play
 from mediaman.web.routes import older_reach as reaching
 from mediaman.web.routes.older_reach import Refusal
 from mediaman.web.routes.older_stream import offer_picture, picture_media, withdraw_picture
-from mediaman.web.routes.tv import _carry_out, _Name
+from mediaman.web.routes.tv import _carry_out, _Name, _session
 from mediaman.web.routes.users.rate_limits import too_many
 
 router = APIRouter()
@@ -37,6 +39,7 @@ _CHANGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 # How long a TV that was shown the test picture may take to fetch it, and how long it stays.
 _FETCH_SECONDS = 10.0
 _SHOWN_SECONDS = 3.0
+_SHOWS = threading.BoundedSemaphore(1)
 
 _Admin = Annotated[str, Depends(get_current_admin)]
 _TvId = Annotated[int, Path(ge=1, le=2**53)]
@@ -75,7 +78,14 @@ def _limited(admin: str) -> None:
 def _look(admin: str, address: str) -> Renderer:
     """Ask the TV at *address* who it is."""
     _limited(admin)
-    return reaching.find(get_db(), address)
+    return reaching.find(get_db(), address, admin)
+
+
+def _still_admin(request: Request, admin: str) -> None:
+    """Refuse where the session has ended while the body, or the TV's answer, was on its way."""
+    _session(request, admin)
+    if get_user_role(get_db(), admin) != "admin":
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _shown(tv: repo.OlderTv) -> dict[str, object]:
@@ -90,8 +100,9 @@ def list_older_tvs(admin: _Admin) -> Response:
 
 
 @router.post("/api/settings/older-tvs/check")
-def check_address_of_tv(body: _AddressBody, admin: _Admin) -> Response:
+def check_address_of_tv(request: Request, body: _AddressBody, admin: _Admin) -> Response:
     """Look for a TV at an address; nothing is kept."""
+    _still_admin(request, admin)
     try:
         found = _look(admin, body.address)
         same = repo.same(get_db(), found.address, found.udn)
@@ -103,8 +114,9 @@ def check_address_of_tv(body: _AddressBody, admin: _Admin) -> Response:
 
 
 @router.post("/api/settings/older-tvs/picture")
-def show_test_picture(body: _AddressBody, admin: _Admin) -> Response:
+def show_test_picture(request: Request, body: _AddressBody, admin: _Admin) -> Response:
     """Show a picture on the TV at an address for a moment, to see that it can reach mediaman."""
+    _still_admin(request, admin)
     conn = get_db()
     try:
         base = reaching.media_base(conn)
@@ -112,8 +124,13 @@ def show_test_picture(body: _AddressBody, admin: _Admin) -> Response:
         if same is not None:
             raise _already(same)
         found = _look(admin, body.address)
-        with reaching.looking():
+        _still_admin(request, admin)
+        if not _SHOWS.acquire(blocking=False):
+            raise Refusal("busy", 503, "A test picture is on show. Try again in a moment.")
+        try:
             fetched = _show_picture(found, base)
+        finally:
+            _SHOWS.release()
     except Refusal as exc:
         return exc.response
     if not fetched:
@@ -146,9 +163,11 @@ def _show_picture(tv: Renderer, base: str) -> bool:
 @router.post("/api/settings/older-tvs")
 def add_older_tv(request: Request, body: _AddBody, admin: _Admin) -> Response:
     """Add the TV at an address, which is asked again: only a TV that answers is added."""
+    _still_admin(request, admin)
     conn = get_db()
     try:
         found = _look(admin, body.address)
+        _still_admin(request, admin)
         try:
             tv_id = repo.add(
                 conn,
@@ -172,7 +191,7 @@ def add_older_tv(request: Request, body: _AddBody, admin: _Admin) -> Response:
 
 
 @router.post("/api/settings/older-tvs/{tv_id}/check")
-def check_older_tv(tv_id: _TvId, admin: _Admin) -> Response:
+def check_older_tv(request: Request, tv_id: _TvId, admin: _Admin) -> Response:
     """Ask whether the TV still answers at its address, and is still the same one."""
     conn = get_db()
     tv = repo.find(conn, tv_id)
@@ -180,7 +199,8 @@ def check_older_tv(tv_id: _TvId, admin: _Admin) -> Response:
         return _not_found()
     try:
         _limited(admin)
-        reaching.reach(conn, tv_id)
+        seeker = reaching.Seeker(admin, get_client_ip(request), admin=True)
+        reaching.reach(conn, tv_id, seeker=seeker)
     except Refusal as exc:
         return exc.response
     except TvError as exc:
@@ -191,7 +211,8 @@ def check_older_tv(tv_id: _TvId, admin: _Admin) -> Response:
 
 
 @router.patch("/api/settings/older-tvs/{tv_id}")
-def rename_older_tv(tv_id: _TvId, body: _NameBody, admin: _Admin) -> Response:
+def rename_older_tv(request: Request, tv_id: _TvId, body: _NameBody, admin: _Admin) -> Response:
+    _still_admin(request, admin)
     if not _CHANGE_LIMITER.check(admin):
         return too_many(_CHANGE_LIMITER, admin)
     if not repo.rename(get_db(), tv_id, body.name):

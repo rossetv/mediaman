@@ -253,6 +253,7 @@
       }
       MM.api.post(OLDER + '/' + tv.id + '/check', {}).then(function (got) {
         tv.last_seen_at = got.tv.last_seen_at;
+        tv.address = got.tv.address;
         sub.textContent = says(tv);
         say([['ok', 'The TV answered', 'mediaman can reach it at ' + tv.address + '.']]);
       }, function (err) { say(failed(err, tv.address)); });

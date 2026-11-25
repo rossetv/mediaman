@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.config import Config
-from mediaman.db import set_connection
+from mediaman.db import get_db, set_connection
 from mediaman.main import create_app
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_watch import PlexWatch
@@ -25,6 +26,7 @@ from mediaman.web.routes import tv as tv_routes
 from tests.helpers.factories import insert_settings
 from tests.unit.services.dlna.fake_tv import DESCRIPTION, TV, FakeTv, MovedTv, http, soap
 from tests.unit.web.test_cast import ORIGIN, Clock, FakeResponse
+from tests.unit.web.test_older_stream import Reader
 from tests.unit.web.test_tv import (  # noqa: F401
     _command,
     _lives,
@@ -184,6 +186,31 @@ def test_a_viewer_plays_on_an_admins_tv_and_it_fetches_the_film_without_a_sessio
     assert (tv["play"]["state"], tv["play"]["position_s"]) == ("playing", 180)
     assert "url" not in tv["play"]
     assert url.split("/")[5] not in amy.get("/api/tvs").text
+
+
+@pytest.mark.parametrize("hangs_up", [True, False])
+def test_behind_the_whole_app_a_tv_that_reads_no_more_lets_go_of_the_film(
+    amy, home, kitchen, whole, monkeypatch, hangs_up
+):
+    monkeypatch.setattr(older_stream, "_LIVES_SECONDS", 0.02)
+    _play(amy, kitchen)
+    home.step()
+    (stream,) = _streams()
+    feed = older_stream._feed(stream)
+
+    async def run():
+        reader = await Reader(whole, _path(home)).open().reads()
+        assert len(feed.readers) == 1
+        if hangs_up:
+            reader.hung_up.set()
+        else:
+            plex_stream.get_stream_manager().end(stream, "amy")
+        await reader.until(lambda: not feed.readers)
+        reader.hung_up.set()
+        reader.takes.set()
+        await reader.is_over()
+
+    asyncio.run(run())
 
 
 def test_the_remote_steers_it_as_any_tv(amy, home, kitchen):
@@ -584,14 +611,108 @@ def test_another_device_at_the_address_is_handed_nothing(amy, home, kitchen):
     assert _streams() == []
 
 
-def test_a_tv_that_moved_is_played_on_where_it_is_now(amy, home, kitchen, conn, monkeypatch):
+def test_a_viewers_play_looks_nowhere_but_at_the_kept_address(
+    amy, home, kitchen, conn, monkeypatch
+):
+    moved = MovedTv("192.168.1.77")
+    monkeypatch.setattr(older_reach, "Wire", moved.wire)
+    refused = _play(amy, kitchen)
+    assert (refused.status_code, refused.json()["error"]) == (502, "unreachable")
+    assert "an admin can Check it in Settings" in refused.json()["message"]
+    assert {address for _, (address, _) in moved.sent_udp} == {TV}
+    assert repo.every(conn)[0].address == TV
+
+
+def test_a_person_looks_for_one_tv_at_a_time(amy, bob, home, kitchen):
+    with older_reach.looking("person amy"):
+        refused = _play(amy, kitchen)
+        assert (refused.status_code, refused.json()["error"]) == (409, "looking")
+        assert _play(bob, kitchen).status_code == 200
+
+
+@pytest.mark.parametrize("kept", ["https://a b", "https://*.example"])
+def test_an_address_kept_before_that_no_tv_can_use_is_told(amy, home, kitchen, conn, kept):
+    conn.execute("UPDATE settings SET value = ? WHERE key = 'tv_address'", (kept,))
+    conn.commit()
+    refused = _play(amy, kitchen)
+    assert (refused.status_code, refused.json()["error"]) == (409, "bad_tv_address")
+    assert home.tv.connects == []
+
+
+def test_a_session_that_ended_while_the_tv_was_asked_plays_and_ends_nothing(
+    amy, bob, home, kitchen, conn, monkeypatch
+):
+    _play(bob, kitchen)
+    home.playing()
+    (stream,) = _streams()
+    real = older_reach.reach
+
+    def slow(*args, **kwargs):
+        found = real(*args, **kwargs)
+        destroy_session(get_db(), amy.cookies["session_token"])
+        return found
+
+    with monkeypatch.context() as slowly:
+        slowly.setattr(older_reach, "reach", slow)
+        refused = _play(amy, kitchen, "102", confirm=True)
+    assert (refused.status_code, refused.json()) == (401, {"detail": "Not authenticated"})
+    assert _streams() == [stream]
+    assert home.step(driver=0)
+    assert _tv_of(bob, kitchen)["play"]["state"] == "playing"
+
+
+def test_a_session_that_ended_as_the_play_began_leaves_nothing_on(
+    amy, home, kitchen, conn, monkeypatch
+):
+    real = players.Players.begin
+
+    def begin(self, *args, **kwargs):
+        destroy_session(get_db(), amy.cookies["session_token"])
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(players.Players, "begin", begin)
+    assert _play(amy, kitchen).status_code == 401
+    assert _streams() == []
+    assert home.step() is False
+    assert home.urls() == []
+
+
+def test_a_tv_taken_for_a_play_that_is_about_to_begin_is_asked_for(
+    amy, bob, home, kitchen, monkeypatch
+):
+    real = players.Players.begin
+    asked = []
+
+    def begin(self, *args, **kwargs):
+        if not asked:
+            asked.append(_play(bob, kitchen, "102"))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(players.Players, "begin", begin)
+    assert _play(amy, kitchen).status_code == 200
+    assert (asked[0].status_code, asked[0].json()["error"]) == (409, "in_use")
+
+
+def test_a_tv_whose_start_came_to_nothing_is_free(amy, bob, home, kitchen, monkeypatch):
+    def off(self, *args, **kwargs):
+        raise players.TvOff("x")
+
+    with monkeypatch.context() as broken:
+        broken.setattr(players.Players, "begin", off)
+        assert _play(amy, kitchen).status_code == 409
+    assert _play(bob, kitchen).status_code == 200
+
+
+def test_a_tv_that_moved_is_played_on_where_it_is_now(admin, home, kitchen, conn, monkeypatch):
     moved = MovedTv("192.168.1.77")
     monkeypatch.setattr(older_reach, "Wire", moved.wire)
     home.tv = moved
     home.status("STOPPED")
-    assert _play(amy, kitchen).status_code == 200
+    assert _play(admin, kitchen).status_code == 200
     home.step()
     assert len(home.urls()) == 1
+    row = conn.execute("SELECT * FROM audit_log WHERE action = 'sec:tv.moved'").fetchone()
+    assert row["actor"] == "admin"
     assert repo.every(conn)[0].address == "192.168.1.77"
 
 

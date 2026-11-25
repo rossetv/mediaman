@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.db import get_db
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository import older_tvs as repo
@@ -172,6 +174,10 @@ def test_a_kept_tv_that_moved_is_found_again_and_its_new_address_kept(
     got = client.post(f"{URL}/{tv_id}/check")
     assert (got.status_code, got.json()["tv"]["address"]) == (200, MOVED)
     assert repo.every(conn)[0].address == MOVED
+    row = conn.execute("SELECT * FROM audit_log WHERE action = 'sec:tv.moved'").fetchone()
+    assert row["actor"] == "admin"
+    assert TV in row["detail"]
+    assert MOVED in row["detail"]
 
 
 def test_a_moved_tv_is_not_looked_for_at_mediamans_own_address(client, conn, monkeypatch) -> None:
@@ -296,6 +302,16 @@ def test_no_picture_is_shown_without_an_address_tvs_may_use(
     assert shown.urls == []
 
 
+@pytest.mark.parametrize("kept", ["https://a b", "https://*.example", "ftp://x", "x"])
+def test_an_address_kept_before_that_no_tv_can_use_is_told(shown, client, conn, kept) -> None:
+    conn.execute("UPDATE settings SET value = ? WHERE key = 'tv_address'", (kept,))
+    conn.commit()
+    got = _picture(client)
+    assert (got.status_code, got.json()["error"]) == (409, "bad_tv_address")
+    assert "Settings" in got.json()["message"]
+    assert shown.urls == []
+
+
 def test_https_needs_no_switch(shown, client, conn, monkeypatch) -> None:
     monkeypatch.setattr(older_reach.socket, "getaddrinfo", lambda *a: [])
     conn.execute("UPDATE settings SET value = 'false' WHERE key = 'older_tvs_http'")
@@ -359,11 +375,97 @@ def test_a_tv_is_not_asked_while_two_are(client, tv) -> None:
     assert client.post(f"{URL}/check", json={"address": TV}).status_code == 200
 
 
+def test_a_person_looks_for_one_tv_at_a_time(client, tv) -> None:
+    with older_reach.looking("person admin"):
+        got = client.post(f"{URL}/check", json={"address": TV})
+        assert (got.status_code, got.json()["error"]) == (409, "looking")
+        assert not _asked(tv)
+    assert client.post(f"{URL}/check", json={"address": TV}).status_code == 200
+
+
+def test_a_tv_is_looked_for_by_one_person_at_a_time(client, tv) -> None:
+    with older_reach.looking("person amy", f"tv {TV}"):
+        got = client.post(f"{URL}/check", json={"address": TV})
+        assert (got.status_code, got.json()["error"]) == (409, "looking")
+        assert not _asked(tv)
+
+
+def test_a_test_picture_on_show_keeps_nobody_from_looking(shown, client, monkeypatch) -> None:
+    looked = []
+    real = older_tvs._show_picture
+
+    def show(*args):
+        with older_reach.looking("person amy"), older_reach.looking("person bob"):
+            looked.append(True)
+        return real(*args)
+
+    monkeypatch.setattr(older_tvs, "_show_picture", show)
+    assert _picture(client).status_code == 200
+    assert looked == [True]
+
+
+def test_one_test_picture_is_shown_at_a_time(shown, client) -> None:
+    with older_tvs._SHOWS:
+        got = _picture(client)
+    assert (got.status_code, got.json()["error"]) == (503, "busy")
+    assert shown.urls == []
+
+
 def test_checks_are_limited(client, tv) -> None:
     answers = [
         client.post(f"{URL}/check", json={"address": "8.8.8.8"}).status_code for _ in range(21)
     ]
     assert answers == [422] * 20 + [429]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "", {"address": TV, "name": "x"}),
+        ("POST", "/check", {"address": TV}),
+        ("POST", "/picture", {"address": TV}),
+        ("PATCH", "/1", {"name": "Den"}),
+    ],
+)
+def test_a_session_that_ended_while_the_body_came_changes_nothing(
+    app, client, conn, tv, method, path, body
+) -> None:
+    tv_id = _add(client).json()["tv"]["id"]
+    app.dependency_overrides[get_current_admin] = lambda: "admin"
+    conn.execute("DELETE FROM admin_sessions")
+    conn.commit()
+    tv.sent_udp.clear()
+    got = client.request(method, f"{URL}{path.replace('1', str(tv_id))}", json=body)
+    assert (got.status_code, got.json()) == (401, {"detail": "Not authenticated"})
+    assert not tv.sent_udp
+    assert [kept.name for kept in repo.every(conn)] == ["Kitchen TV"]
+
+
+def test_an_admin_who_is_one_no_more_by_then_changes_nothing(app, client, conn) -> None:
+    tv_id = _add(client).json()["tv"]["id"]
+    app.dependency_overrides[get_current_admin] = lambda: "admin"
+    conn.execute("UPDATE admin_users SET role = 'viewer'")
+    conn.commit()
+    assert client.patch(f"{URL}/{tv_id}", json={"name": "Den"}).status_code == 401
+    assert repo.every(conn)[0].name == "Kitchen TV"
+
+
+@pytest.mark.parametrize("ask", [_add, _picture])
+def test_a_session_that_ended_while_the_tv_was_asked_adds_and_shows_nothing(
+    shown, client, conn, monkeypatch, ask
+) -> None:
+    real = older_reach.find
+
+    def slow(*args):
+        found = real(*args)
+        with get_db() as here:
+            here.execute("DELETE FROM admin_sessions")
+        return found
+
+    monkeypatch.setattr(older_reach, "find", slow)
+    assert ask(client).status_code == 401
+    assert repo.every(conn) == []
+    assert shown.urls == []
 
 
 def test_a_viewer_reaches_none_of_it(app, client, conn) -> None:
@@ -419,6 +521,10 @@ def test_both_switches_are_off_until_saved_on(app_factory, authed_client, conn) 
     [
         ("http://192.168.1.10:8282/", "http://192.168.1.10:8282"),
         ("https://mediaman.example", "https://mediaman.example"),
+        ("https://Media-Man.example:8443/", "https://media-man.example:8443"),
+        ("https://fernseh-gerät.example", "https://xn--fernseh-gert-qcb.example"),
+        ("https://4k.example", "https://4k.example"),
+        ("https://192.168.1.10", "https://192.168.1.10"),
         ("", ""),
     ],
 )
@@ -440,6 +546,19 @@ def test_an_address_tvs_can_use_is_kept(client, typed, kept) -> None:
         "http://a:b@192.168.1.10",
         "http://192.168.1.10/path",
         "http://192.168.1.10:99999",
+        "http://192.168.1.10:0",
+        "https://a b",
+        'https://a"b.example',
+        "https://*.example",
+        "https://a_b.example",
+        "https://-a.example",
+        "https://a..example",
+        "https://12345",
+        "https://1.2.3",
+        "https://mediaman.0x7f",
+        "https://8.8.8.8",
+        "https://[::1]",
+        "https://" + "a" * 64 + ".example",
     ],
 )
 def test_an_address_tvs_cannot_use_is_refused(client, typed) -> None:

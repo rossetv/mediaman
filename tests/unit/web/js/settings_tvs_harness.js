@@ -164,7 +164,7 @@ const scenarios = {
     const p = await page(answers);
     await p.press(p.row(1), 'Check');
     const off = p.states(p.row(1));
-    answers['POST /api/settings/older-tvs/2/check'] = { tv: { last_seen_at: new Date().toISOString() } };
+    answers['POST /api/settings/older-tvs/2/check'] = { tv: { last_seen_at: new Date().toISOString(), address: '192.168.1.77' } };
     await p.press(p.row(1), 'Check');
     return { off, on: p.states(p.row(1)), says: p.row(1).querySelector('.tv-sub').textContent };
   },

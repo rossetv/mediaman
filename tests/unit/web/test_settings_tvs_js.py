@@ -91,6 +91,7 @@ def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
     assert got["off"] == ["ok", "no"]
     assert got["on"] == ["ok"]
     assert "Last seen today" in got["says"]
+    assert "Older TV at 192.168.1.77" in got["says"]
 
 
 def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_address() -> None:

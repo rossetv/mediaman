@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import socket
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from mediaman.core.time import now_utc
@@ -17,13 +17,14 @@ from mediaman.services.dlna.errors import AnotherTv, TvError, TvRefused, TvUnrea
 from mediaman.services.dlna.renderer import Renderer
 from mediaman.services.dlna.wire import Wire
 from mediaman.services.infra.settings_reader import get_bool_setting, get_string_setting
+from mediaman.web.models.settings import _validate_tv_address
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.responses import respond_err
 
-logger = logging.getLogger(__name__)
-
 # Looking for a TV can hold a thread for over ten seconds.
 _LOOKS = threading.BoundedSemaphore(2)
+_looked: set[str] = set()
+_looked_lock = threading.Lock()
 # A new address of a TV is looked for around its old one, once at a time.
 _SEARCH = threading.Lock()
 
@@ -44,6 +45,14 @@ def media_base(conn: sqlite3.Connection) -> str:
     base = get_string_setting(conn, "tv_address")
     if not base:
         raise Refusal("no_tv_address", 409, "Set the address TVs use in Settings first.")
+    try:
+        base = _validate_tv_address(base)
+    except ValueError as exc:
+        raise Refusal(
+            "bad_tv_address",
+            409,
+            "The address TVs use is not one a TV can use. Change it in Settings.",
+        ) from exc
     if not base.startswith("https://") and not get_bool_setting(
         conn, "older_tvs_http", default=False
     ):
@@ -72,12 +81,19 @@ def own_addresses(conn: sqlite3.Connection) -> set[str]:
 
 
 @contextmanager
-def looking() -> Iterator[None]:
-    if not _LOOKS.acquire(blocking=False):
-        raise Refusal("busy", 503, "Other TVs are being checked. Try again in a moment.")
+def looking(*whose: str) -> Iterator[None]:
+    """Hold one of the few looks, and the one look each of *whose* has."""
+    with _looked_lock:
+        if not _looked.isdisjoint(whose):
+            raise Refusal("looking", 409, "mediaman is already looking for a TV. Wait a moment.")
+        if not _LOOKS.acquire(blocking=False):
+            raise Refusal("busy", 503, "Other TVs are being checked. Try again in a moment.")
+        _looked.update(whose)
     try:
         yield
     finally:
+        with _looked_lock:
+            _looked.difference_update(whose)
         _LOOKS.release()
 
 
@@ -97,11 +113,11 @@ def may_ask(conn: sqlite3.Connection, typed: str, wire: Wire) -> str:
         raise Refusal("own_network", 409, str(exc)) from exc
 
 
-def find(conn: sqlite3.Connection, typed: str) -> Renderer:
+def find(conn: sqlite3.Connection, typed: str, username: str) -> Renderer:
     """Ask the TV at an address who it is."""
     wire = Wire()
     address = may_ask(conn, typed, wire)
-    with looking():
+    with looking(f"person {username}", f"tv {address}"):
         try:
             return renderer.find(address, wire)
         except TvError as exc:
@@ -138,10 +154,25 @@ def recognise(conn: sqlite3.Connection, tv_id: int, known: Renderer) -> Renderer
     return same_tv(tv, renderer.describe(address, known.location, wire))
 
 
-def reach(conn: sqlite3.Connection, tv_id: int, known: Renderer | None = None) -> Renderer:
-    """The kept TV, wherever it is now; raises ``TvError`` or ``Refusal``.
+@dataclass(frozen=True)
+class Seeker:
+    """Who asks for a TV, and from where."""
 
-    One that moved is told by its own id, and its new address kept.
+    username: str
+    ip: str
+    admin: bool
+
+
+def reach(
+    conn: sqlite3.Connection,
+    tv_id: int,
+    known: Renderer | None = None,
+    *,
+    seeker: Seeker | None = None,
+) -> Renderer:
+    """The kept TV; raises ``TvError`` or ``Refusal``.
+
+    For an admin one that moved is looked for, told by its own id, and its new address kept.
     """
     if known is not None:
         try:
@@ -150,11 +181,14 @@ def reach(conn: sqlite3.Connection, tv_id: int, known: Renderer | None = None) -
             pass
     tv, wire = _kept(conn, tv_id), Wire()
     address = may_ask(conn, tv.address, wire)
-    with looking():
+    whose = [f"tv {address}"] + ([f"person {seeker.username}"] if seeker is not None else [])
+    with looking(*whose):
         try:
             return same_tv(tv, renderer.find(address, wire))
         except TvError as exc:
-            if not tv.udn or not _SEARCH.acquire(blocking=False):
+            if seeker is None or not seeker.admin or not tv.udn:
+                raise
+            if not _SEARCH.acquire(blocking=False):
                 raise
             try:
                 found = renderer.find_again(tv.udn, address, wire, skip=own_addresses(conn))
@@ -163,9 +197,8 @@ def reach(conn: sqlite3.Connection, tv_id: int, known: Renderer | None = None) -
                 raise exc from None
             finally:
                 _SEARCH.release()
-    if not repo.move(conn, tv_id, found.address):
+    if not repo.move(conn, tv, found.address, actor=seeker.username, ip=seeker.ip):
         raise TvRefused("Another TV in the list has that address.")
-    logger.info("older tv: tv %d was found at a new address", tv_id)
     return found
 
 
