@@ -454,6 +454,9 @@ html.has-sheet { overflow: hidden; scrollbar-gutter: stable; }
 /* ── Still ── */
 
 @media (prefers-reduced-motion: reduce) {
+  .wbar *,
+  .wbar *::before,
+  .wbar *::after { transition-delay: 0s !important; }
   .watch-sheet.is-on .is-staged,
   .watch-search.is-pending .watch-search__arc { animation: none; }
   .watch-search .watch-search__lens,
