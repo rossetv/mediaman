@@ -1633,6 +1633,16 @@ const scenarios = {
     return { starts: p.starts().length, destroyed: h.destroyed, notice: noticeOf(p) };
   },
 
+  /* The video plays and runs dry before it has moved on at all; then nothing answers. */
+  async waits_unmoved(p) {
+    await streamPlays(p, 100);
+    p.video.readyState = 2;
+    fire(p.video, 'waiting');
+    p.held.light = 'silent';
+    await pass(p, 16000);
+    return { notice: noticeOf(p), starts: p.starts().length };
+  },
+
   async light_request(p) {
     await streamPlays(p, 100);
     p.hlsList[0].emit('hlsError', Object.assign(loadError('fragLoadTimeOut'), { response: undefined }));

@@ -1611,6 +1611,10 @@ def test_a_wait_gone_silent_once_a_refusal_or_a_drop_is_over_is_a_drop(markup, w
     assert out == {"before": None, "notice": NOTICE_LOST, "starts": 1}
 
 
+def test_a_wait_that_begins_before_the_video_has_moved_on_is_looked_at_too(markup):
+    assert run(markup, "waits_unmoved") == {"notice": NOTICE_LOST, "starts": 1}
+
+
 def test_the_light_request_carries_no_session(markup):
     assert run(markup, "light_request") == ["omit"]
 
