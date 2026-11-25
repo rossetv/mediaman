@@ -3,16 +3,15 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
-from mediaman.core.audit import CLI_UNLOCK, UNSIGNED_ACTIONS
 from mediaman.core.format import format_bytes, title_from_audit_detail
 from mediaman.db import get_db
 from mediaman.scanner.repository.audit import (
@@ -21,18 +20,23 @@ from mediaman.scanner.repository.audit import (
     fetch_security_audit_rows,
 )
 from mediaman.web.auth.middleware import get_current_admin, get_current_user, resolve_page_session
+from mediaman.web.history_text import (
+    DELETE_ROOT_PREFIX,
+    event_title,
+    hide_emails,
+    redact_text,
+    scrub_control,
+)
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
 from mediaman.web.repository import history as repo
 from mediaman.web.repository.avatars import avatar_url
 from mediaman.web.responses import respond_err
 from mediaman.web.routes._history_view import (
     describe,
-    hide_emails,
     own_item,
     play_item,
-    redact_text,
-    scrub_control,
     split_security_body,
+    with_who,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,9 +192,6 @@ SECURITY_EVENT_LABELS = {
     "user.email_update.rate_limited": "User email change throttled",
 }
 
-# Deletion problems whose stored text quotes paths and errors, so a quoted phrase is no title.
-_DELETE_PREFIX = "delete_"
-_DELETE_ROOT_PREFIX = "_delete_root:"
 # The library a scan left out, whose name may hold a quote or a slash.
 _LEFT_OUT_RE = re.compile(r"Plex library '(.*)' was not scanned", re.S)
 
@@ -217,19 +218,16 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         badge = "badge-action-security"
     else:
         resolved_title = r.mi_title or r.ks_title
-        line_title = resolved_title or ""
+        line_title = resolved_title or event_title(action, r.media_item_id, r.detail)
         if not resolved_title and r.detail:
             resolved_title = title_from_audit_detail(r.detail, strict=True)
-            line_title = hide_emails(resolved_title)
             if resolved_title == "Unknown":
                 m = re.search(r"'([^'/\\][^']*)'", r.detail)
                 resolved_title = redact_text(m.group(1)) if m else resolved_title
-                if not action.startswith(_DELETE_PREFIX):
-                    line_title = hide_emails(resolved_title)
         title = resolved_title or "Unknown"
         line_title = line_title or "Unknown"
-        if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
-            title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]
+        if r.media_item_id.startswith(DELETE_ROOT_PREFIX):
+            title = r.media_item_id[len(DELETE_ROOT_PREFIX) :]
             line_title = "Delete folder"
         elif action == "library_left_out" and (library := _LEFT_OUT_RE.match(r.detail or "")):
             title = redact_text(scrub_control(library.group(1)))
@@ -376,29 +374,35 @@ def _filters(
     )
 
 
-def _people(conn: sqlite3.Connection, viewer: repo.Viewer) -> dict[str, str | None]:
-    """The avatar of each person *viewer* may see, by name."""
-    return {name: avatar_url(conn, name) for name in repo.people(conn, viewer)}
+def _avatars(conn: sqlite3.Connection, viewer: repo.Viewer) -> dict[str, str | None]:
+    """The avatar of each account *viewer* may see, by name."""
+    return {name: avatar_url(conn, name) for name in repo.account_names(conn, viewer)}
+
+
+def _person(who: repo.Who, avatars: dict[str, str | None]) -> dict[str, object]:
+    return {
+        "value": who.value,
+        "username": who.name,
+        "kind": who.kind,
+        "avatar": avatars.get(who.name) if who.kind == "account" else None,
+    }
 
 
 def _items(
-    viewer: repo.Viewer, entries: Iterable[repo.Entry], avatars: dict[str, str | None]
+    conn: sqlite3.Connection, viewer: repo.Viewer, entries: Sequence[repo.Entry]
 ) -> list[dict[str, object]]:
+    avatars = _avatars(conn, viewer)
+    whose = repo.whose(conn, entries)
     items = []
     for entry in entries:
         if isinstance(entry, repo.Play):
-            item = play_item(entry)
-            signed_in = True
+            item, who = play_item(entry), whose[entry.ref]
         else:
-            item = _build_item(entry)
+            item, who = _build_item(entry), whose[entry.id]
             if not viewer.is_admin:
                 item = own_item(item, viewer.username)
-            # A name typed at sign-in, or the command line's, is nobody's account.
-            signed_in = (
-                entry.action not in UNSIGNED_ACTIONS and (entry.action, entry.actor) != CLI_UNLOCK
-            )
-        avatar = avatars.get(str(item["actor"])) if signed_in else None
-        items.append({**item, "avatar": avatar})
+        avatar = avatars.get(who.name) if who.kind == "account" else None
+        items.append({**with_who(item, who), "avatar": avatar})
     return items
 
 
@@ -426,7 +430,7 @@ def history_page(request: Request) -> Response:
     if listing.page > total_pages:
         listing = _read_page(conn, viewer, filters, total_pages, per_page)
 
-    avatars = _people(conn, viewer)
+    avatars = _avatars(conn, viewer)
     action = filters.action
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
@@ -436,8 +440,8 @@ def history_page(request: Request) -> Response:
             "username": username,
             "nav_active": "history",
             "is_admin": viewer.is_admin,
-            "items": _items(viewer, listing.entries, avatars),
-            "people": [{"username": n, "avatar": a} for n, a in avatars.items()],
+            "items": _items(conn, viewer, listing.entries),
+            "people": [_person(who, avatars) for who in repo.people(conn, viewer)],
             "open_id": listing.open_id,
             "action_types": [
                 (name, label)
@@ -499,12 +503,51 @@ def api_history(
         }
     return JSONResponse(
         {
-            "items": _items(viewer, entries, _people(conn, viewer)),
+            "items": _items(conn, viewer, entries),
             "per_page": per_page,
             "next_cursor": next_cursor,
             **place,
         }
     )
+
+
+@router.get("/api/history/menu")
+def api_history_menu(
+    menu: Literal["user", "action", "title"],
+    find: str = "",
+    q: str = "",
+    user: str = "",
+    action: str = "",
+    title: str = "",
+    since: str = "",
+    until: str = "",
+    username: str = Depends(get_current_user),
+) -> JSONResponse:
+    """The choices of one filter's menu, each with how many rows it would show while the other
+    filters stay as they are. *find* narrows the titles."""
+    conn = get_db()
+    viewer = repo.viewer_for(conn, username)
+    if viewer is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    filters = _filters(viewer, q=q, user=user, action=action, title=title, since=since, until=until)
+    if menu == "user":
+        avatars = _avatars(conn, viewer)
+        options: list[dict[str, object]] = [
+            {**_person(who, avatars), "count": n}
+            for who, n in repo.user_counts(conn, viewer, filters)
+        ]
+    elif menu == "action":
+        options = [
+            {"value": name, "label": _GROUP_LABELS[name], "count": n}
+            for name, n in repo.action_counts(conn, viewer, filters).items()
+        ]
+    else:
+        options = [
+            {"value": t.title, "label": t.title, "count": t.count}
+            for t in repo.title_counts(conn, viewer, filters, find)
+        ]
+    more = menu == "title" and len(options) == repo.TITLES_MAX
+    return JSONResponse({"menu": menu, "options": options, "more": more})
 
 
 @router.get("/api/security-events")

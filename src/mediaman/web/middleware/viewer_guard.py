@@ -90,6 +90,7 @@ _VIEWER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/poster/{rating_key}"),
         ("GET", "/history"),
         ("GET", "/api/history"),
+        ("GET", "/api/history/menu"),
         ("GET", "/account"),
         ("GET", "/api/account/plex"),
         ("POST", "/api/account/plex"),

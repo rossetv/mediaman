@@ -602,9 +602,9 @@ def test_a_long_library_name_is_whole_in_the_details(app_factory, authed_client,
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
-    from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
+    from mediaman.web.history_text import DELETE_ROOT_PREFIX
 
-    assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
+    assert DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
 
 
 class TestScannerAuditTitles:
@@ -849,7 +849,7 @@ class TestWhoReadsWhat:
         [
             ({"user": "bob", "action": "kept"}, ["Bob Film"]),
             ({"action": "plays"}, ["Bob Film"]),
-            ({"title": "ana"}, ["Ana Film"]),
+            ({"title": "ana film"}, ["Ana Film"]),
             ({"q": "ana"}, ["Ana Film"]),
             ({"until": "2026-03-01"}, ["Bob Film"]),
             ({"since": "2026-03-02", "action": "plays"}, []),
@@ -857,6 +857,40 @@ class TestWhoReadsWhat:
     )
     def test_an_admin_searches_and_filters(self, clients, params, titles):
         assert self._titles(clients[0], **params) == titles
+
+    def test_the_menus_count_everyones_for_an_admin_and_ones_own_for_others(self, clients):
+        def menu(client, name, **params):
+            body = client.get("/api/history/menu", params={"menu": name, **params}).json()
+            return [(o["value"], o["count"]) for o in body["options"]]
+
+        admin, ana = clients
+        assert menu(admin, "user") == [
+            ("admin", 0),
+            ("ana", 1),
+            ("bob", 3),
+            ("~mediaman", 0),
+        ]
+        assert menu(admin, "title", find="film") == [("Bob Film", 2), ("Ana Film", 1)]
+        assert menu(ana, "user", user="bob") == [("ana", 1)]
+        assert menu(ana, "title") == [("Ana Film", 1)]
+        assert menu(ana, "action") == [
+            ("plays", 0),
+            ("downloads", 0),
+            ("keeps", 1),
+            ("sign_ins", 0),
+        ]
+        assert admin.get("/api/history/menu", params={"menu": "x"}).status_code == 422
+
+    def test_a_former_users_rows_say_so_and_wear_no_later_accounts_picture(self, clients, conn):
+        insert_audit_log(
+            conn, action="snoozed", actor="ana", created_at="2020-01-01T00:00:00+00:00"
+        )
+        page = clients[0].get("/history").text
+        assert '"~former:ana"' in page
+        (item,) = clients[0].get("/api/history", params={"user": "~former:ana"}).json()["items"]
+        assert item["who"] == {"value": "~former:ana", "name": "ana", "kind": "former"}
+        assert item["avatar"] is None
+        assert item["fields"][0]["value"] == "ana (no longer has an account)"
 
     def test_the_cursor_leads_on_to_the_end(self, clients):
         first = clients[0].get("/api/history", params={"per_page": 3}).json()
