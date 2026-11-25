@@ -1378,6 +1378,7 @@
 
   function fillActions(actions, under) {
     var d = cur.data;
+    shownLooked = saysLooked();
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
       if (window.MM.playOn) {
@@ -1442,14 +1443,16 @@
   // It may come to be known after the title has opened.
   document.addEventListener('mm:search-assist', function () { if (cur) redrawActions(cur.ref); });
 
-  var shownLooked = '';
+  var shownLooked = ''; // what was last drawn of it
+
+  function saysLooked() {
+    var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
+    return looked ? cur.ref + looked.state + looked.line : '';
+  }
+
   if (window.MM.downloading) {
     window.MM.downloading.subscribe(function () {
-      var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
-      var says = looked ? cur.ref + looked.state + looked.line : '';
-      if (says === shownLooked) return;
-      shownLooked = says;
-      if (cur) redrawActions(cur.ref);
+      if (cur && saysLooked() !== shownLooked) redrawActions(cur.ref);
     });
   }
 

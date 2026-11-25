@@ -1391,6 +1391,7 @@ def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
     queued = ["Queued", "Waiting for a download slot. Follow it in Downloads."]
     assert _run("lookedFor") == {
         "searching": ["Looking for the best version", "Follow it in Downloads."],
+        "redrawn": False,  # nothing new: an open menu stays
         "stuck": [
             "Looking for the best version",
             "Nothing found yet · next attempt in ~4h. Follow it in Downloads.",

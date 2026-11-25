@@ -1011,6 +1011,9 @@ const scenarios = {
     await openCard(p, 'tmdb-movie-77');
     const look = () => [primary(p).text, p.text('.ttl__note')];
     const out = { searching: look() };
+    const pill = p.q('[data-ttl-act="primary"]');
+    tell();
+    out.redrawn = p.q('[data-ttl-act="primary"]') !== pill;
     const to = (item) => { state = { items: [Object.assign({ ref: 'tmdb-movie-77' }, item)] }; tell(); return look(); };
     out.stuck = to({ state: 'stuck', line: 'next attempt in ~4h' });
     out.queued = to({ state: 'queued', line: '' });

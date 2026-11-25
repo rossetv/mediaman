@@ -394,9 +394,17 @@ def test_leaving_all_titles_gives_the_focus_to_its_link_and_never_to_the_field_b
         "touch": "watch-all-link",
         "search": "watch-search",
         "searchTouch": "watch-all-link",
-        "bare": "watch-search",
+        "bare": "main-content",
         "bareTouch": "main-content",
+        # Out of sight, the next Tab would jump to it.
+        "below": "main-content",
     }
+
+
+def test_all_titles_opened_by_its_address_goes_back_to_where_its_link_stands() -> None:
+    out = _run("backToTheLink")
+    assert out["still"] == [3000 - (800 - 20) / 2, "watch-all-link"]
+    assert out["moving"] == out["still"]
 
 
 def test_the_open_grid_asked_for_again_stays_as_it_is_or_takes_the_order_asked_for() -> None:
