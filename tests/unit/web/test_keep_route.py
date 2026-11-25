@@ -84,9 +84,18 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
     return token
 
 
+def _pictures(html: str) -> list[str]:
+    """The addresses of the hero's wide picture, its fill and its poster."""
+    return re.findall(
+        r'<img class="watch-banner__[^"]*" src="([^"]+)"[^>]*referrerpolicy="no-referrer"'
+        r"[^>]*data-broken-on-error>",
+        html,
+    )
+
+
 def _shown(html: str) -> str:
-    """The page with its spaces run together, and no tag around its days and their count."""
-    return " ".join(re.sub(r"</?time\b[^>]*>|<span data-keep-in>", "", html).split())
+    """The page with its spaces run together, and no tag around its days."""
+    return " ".join(re.sub(r"</?time\b[^>]*>", "", html).split())
 
 
 class TestLookupVerifiedAction:
@@ -264,7 +273,7 @@ class TestKeepPageRoute:
         assert resp.status_code == 200
         assert "active" in resp.text
 
-    def test_logged_out_poster_is_signed_and_falls_back_to_placeholder(self, conn):
+    def test_logged_out_pictures_are_signed_and_the_poster_stands_in_for_the_wide_one(self, conn):
         _insert_media_item(conn)
         token = _make_keep_token(conn, "mi1", _insert_action(conn))
         app = self._make_app(conn)
@@ -273,15 +282,14 @@ class TestKeepPageRoute:
 
         html = client.get(f"/keep/{token}").text
 
-        img = re.search(r'<img src="([^"]+)"[^>]*data-broken-on-error', html)
-        assert img is not None
-        path, _, query = img.group(1).partition("?sig=")
+        wide, fill, poster = _pictures(html)
+        assert wide == f"{poster}&amp;kind=art" and fill == poster
+        path, _, query = poster.partition("?sig=")
         assert path == "/api/poster/rk1"
         payload = validate_poster_token(query, SECRET)
         assert payload is not None and payload["rk"] == "rk1"
-        assert "item-poster-empty" in html
 
-    def test_expired_poster_is_followed_by_the_placeholder(self, conn, freezer):
+    def test_an_expired_link_still_shows_the_pictures_without_colour(self, conn, freezer):
         freezer.move_to("2026-05-10T12:00:00+00:00")
         _insert_media_item(conn)
         action_id = insert_scheduled_action(
@@ -298,18 +306,16 @@ class TestKeepPageRoute:
 
         html = client.get(f"/keep/{token}").text
 
-        assert "status-expired" in html
-        assert re.search(
-            r"<img [^>]*data-broken-on-error>\s*<div class=\"item-poster-empty\">", html
-        )
+        assert len(_pictures(html)) == 3
+        assert "share-page is-only is-over" in html
 
     @pytest.mark.parametrize(
         ("now", "deadline", "date_text", "word"),
         [
-            ("2026-05-01T09:00:00+00:00", "2026-05-01T12:00:00+00:00", "1 May 2026", "today"),
-            ("2026-05-01T23:00:00+00:00", "2026-05-02T02:00:00+00:00", "2 May 2026", "tomorrow"),
-            ("2026-05-01T12:00:00+00:00", "2026-05-02T14:00:00+00:00", "2 May 2026", "tomorrow"),
-            ("2026-05-01T12:00:00+00:00", "2026-05-04T02:00:00+00:00", "4 May 2026", "in 3 days"),
+            ("2026-05-01T09:00:00+00:00", "2026-05-01T12:00:00+00:00", "1 May", "today"),
+            ("2026-05-01T23:00:00+00:00", "2026-05-02T02:00:00+00:00", "2 May", "tomorrow"),
+            ("2026-05-01T12:00:00+00:00", "2026-05-02T14:00:00+00:00", "2 May", "tomorrow"),
+            ("2026-05-01T12:00:00+00:00", "2026-05-04T02:00:00+00:00", "4 May", "in 3 days"),
         ],
         ids=["same_day", "just_after_midnight", "one_day_two_hours", "three_days"],
     )
@@ -329,7 +335,8 @@ class TestKeepPageRoute:
         page = client.get(f"/keep/{token}").text
         text = _shown(page)
 
-        assert f"{date_text} — {word}" in text
+        assert f"Leaving on {date_text}</strong><span" in text
+        assert re.search(rf'<span data-keep-in="2026-05-0\dT[^"]+">{word}</span>', text)
         # What the page's script needs to say the day as it falls where the reader is.
         assert re.search(r'<time data-keep-day datetime="2026-05-0\dT[^"]+\+00:00">', page)
         assert "/static/js/keep-days.js" in page
@@ -353,15 +360,22 @@ class TestKeepPageRoute:
 
         text = _shown(TestClient(app).get(f"/keep/{token}").text)
 
-        assert f"{date} 2026 — leaving any day </div>" in text
-        assert "The date has passed, but you can keep this item until it is deleted" in text
-        assert "Keep for" in text
+        day, month = date.split()
+        assert f"<small>{month}</small><b>{day}</b>" in text
+        assert "Leaving any day" in text
+        assert "The date has passed, but it can still be kept." in text
+        assert text.count('name="duration"') == 3
 
     @pytest.mark.parametrize(
         ("action", "execute_at", "duration", "text"),
         [
-            ("snoozed", "2099-01-01T00:00:00+00:00", "30 days", "Protected until 1 January 2099"),
-            ("protected_forever", None, "forever", "Protected forever"),
+            (
+                "snoozed",
+                "2099-01-01T00:00:00+00:00",
+                "30 days",
+                "Already kept until 1 January 2099",
+            ),
+            ("protected_forever", None, "forever", "Kept for good"),
         ],
     )
     def test_row_kept_elsewhere_shows_the_kept_state(
@@ -388,8 +402,8 @@ class TestKeepPageRoute:
         html = _shown(client.get(f"/keep/{token}").text)
 
         assert text in html
-        assert "Scheduled for deletion" not in html
-        assert "snooze-btn" not in html
+        assert "Leaving" not in html
+        assert 'name="duration"' not in html
 
     def _kept_page(self, conn, freezer, follow_up: str):
         freezer.move_to("2026-11-23T12:00:00+00:00")
@@ -413,15 +427,78 @@ class TestKeepPageRoute:
     def test_reopening_the_link_later_says_already_kept(self, conn, freezer):
         text = self._kept_page(conn, freezer, "reopen")
 
-        assert "Already kept for 30 days" in text
-        assert "This item was kept on 23 November 2026." in text
+        assert "Already kept until 23 December" in text
+        assert "Kept on 23 November, for 30 days." in text
 
     @pytest.mark.parametrize("follow_up", ["redirect", "reopen"])
     def test_dates_on_the_kept_page_share_one_format(self, conn, freezer, follow_up):
         text = self._kept_page(conn, freezer, follow_up)
 
         assert not re.search(r"\d{4}-\d{2}-\d{2}", text)
-        assert "23 December 2026" in text
+        assert "23 December" in text
+
+    @pytest.mark.parametrize(
+        ("leaves_in", "offered"),
+        [
+            (timedelta(days=5), ["7 days", "30 days", "90 days"]),
+            (timedelta(days=7, minutes=-1), ["7 days", "30 days", "90 days"]),
+            (timedelta(days=7), ["30 days", "90 days"]),
+            (timedelta(days=40), ["90 days"]),
+            (timedelta(days=120), []),
+        ],
+        ids=["all", "just after", "the same moment", "only the longest", "none"],
+    )
+    def test_a_length_that_ends_before_the_leaving_date_is_not_offered(
+        self, conn, freezer, leaves_in, offered
+    ):
+        freezer.move_to("2026-11-25T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            execute_at=(datetime.now(UTC) + leaves_in).isoformat(),
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app)
+
+        html = client.get(f"/keep/{token}").text
+
+        assert re.findall(r'name="duration" value="([^"]*)"', html) == offered
+        assert ("<form" in html) is bool(offered)
+        until = {"7 days": "2 Dec", "30 days": "25 Dec", "90 days": "23 Feb"}
+        assert re.findall(r"until <time [^>]*>([^<]*)<", html) == [until[d] for d in offered]
+        # A caller that is no page may still send it.
+        sent = client.post(f"/keep/{token}", data={"duration": "7 days"}, follow_redirects=False)
+        assert sent.status_code == 302
+
+    def test_the_page_says_nothing_of_the_household(self, conn):
+        insert_media_item(
+            conn,
+            id="mi1",
+            title="Test",
+            plex_rating_key="rk1",
+            file_path="/films/secret/f.mkv",
+            file_size_bytes=12_240_656_794,
+            added_at="2019-03-02T10:00:00+00:00",
+            last_watched_at="2025-05-14T10:00:00+00:00",
+        )
+        token = _make_keep_token(conn, "mi1", _insert_action(conn))
+        app = self._make_app(conn)
+        given = {}
+        app.state.templates.TemplateResponse.side_effect = lambda req, tmpl, ctx: (
+            given.update(ctx)
+            or Jinja2Templates(directory=str(_TEMPLATE_DIR)).TemplateResponse(req, tmpl, ctx)
+        )
+
+        html = TestClient(app).get(f"/keep/{token}").text
+
+        assert "Test" in html and given["item"]["heading"] == "Test"
+        for private in ("2019", "2025", "11.4", "12240656794", "atched", "/films/secret"):
+            assert private not in html, private
+            assert private not in str(given["item"]), private
 
     @pytest.mark.parametrize("action", ["snoozed", "scheduled_deletion"])
     def test_row_being_deleted_shows_that_state_and_no_buttons(self, conn, action):
@@ -444,10 +521,10 @@ class TestKeepPageRoute:
 
         html = _shown(client.get(f"/keep/{token}").text)
 
-        assert "This is being deleted now." in html
+        assert "This is being deleted now, so it cannot be kept." in html
         assert "Already kept" not in html
-        assert "Scheduled for deletion" not in html
-        assert "snooze-btn" not in html
+        assert "Leaving" not in html
+        assert 'name="duration"' not in html
 
 
 class TestKeepSubmitTokenInvalidation:
@@ -796,7 +873,7 @@ class TestKeepFormFailurePage:
 
         assert resp.status_code == 409
         assert resp.headers["content-type"].startswith("text/html")
-        assert "already been used" in resp.text
+        assert "This link has been used already" in resp.text
         assert "already_processed" not in resp.text
         assert '"ok"' not in resp.text
         assert 'href="/login"' in resp.text
@@ -807,7 +884,7 @@ class TestKeepFormFailurePage:
         )
 
         assert resp.status_code == 400
-        assert "no longer valid" in resp.text
+        assert "This link does not work" in resp.text
         assert "invalid_or_expired" not in resp.text
 
     def test_json_caller_still_gets_the_envelope(self, conn):
@@ -826,8 +903,8 @@ class TestKeepFormFailurePage:
         )
 
         assert resp.status_code == 409
-        assert "Protected until" in resp.text
-        assert "We could not keep this item" not in resp.text
+        assert "Already kept until" in resp.text
+        assert "used already" not in resp.text
 
     def test_used_token_on_an_unprotected_item_says_it_could_not_keep(self, conn):
         token = self._used_token(conn)
@@ -838,13 +915,13 @@ class TestKeepFormFailurePage:
         )
 
         assert resp.status_code == 409
-        assert "We could not keep this item" in resp.text
-        assert "Sign in for more options" in resp.text
+        assert "Nothing more was changed." in resp.text
+        assert 'href="/login">Sign in</a>' in resp.text
 
-    def test_expired_page_offers_the_same_sign_in_link_as_the_other_states(self, conn):
+    def test_a_dead_link_offers_the_same_sign_in_as_the_other_states(self, conn):
         resp = self._client(conn).get("/keep/badtoken")
 
-        assert "Sign in for more options" in resp.text
+        assert 'href="/login">Sign in</a>' in resp.text
         assert "Back to Watch" not in resp.text
 
     def test_an_unknown_error_code_still_renders_a_page(self, conn):
@@ -914,8 +991,8 @@ class TestItemKeptMeanwhile:
         )
 
         assert resp.status_code == 409
-        assert "Protected until" in resp.text
-        assert "no longer valid" not in resp.text
+        assert "Already kept until" in resp.text
+        assert "This link does not work" not in resp.text
         assert self._action_row(conn) == before
 
     def test_json_post_answers_like_a_repeat_keep(self, conn):
@@ -958,7 +1035,7 @@ class TestItemKeptMeanwhile:
         api = self._client(conn).post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert form.status_code == 400
-        assert "no longer valid" in form.text
+        assert "This link does not work" in form.text
         assert api.status_code == 400
         assert api.json()["error"] == "invalid_or_expired"
 
@@ -978,7 +1055,7 @@ class TestItemKeptMeanwhile:
         )
 
         assert resp.status_code == 400
-        assert "This is being deleted now." in resp.text
+        assert "This is being deleted now," in resp.text
         assert self._action_row(conn) == before
 
     @pytest.mark.parametrize("forever", [False, True])
@@ -1037,10 +1114,10 @@ class TestItemKeptMeanwhile:
             follow_redirects=False,
         )
 
-        assert ("Keep for" in page, resp.status_code) == (bool(left), status)
+        assert ('name="duration"' in page, resp.status_code) == (bool(left), status)
         action = conn.execute("SELECT action FROM scheduled_actions").fetchone()["action"]
         assert action == ("snoozed" if left else "scheduled_deletion")
-        assert ("This is being deleted now." in page) is (not left)
+        assert ("This is being deleted now," in page) is (not left)
 
     def test_a_forever_keep_made_past_the_date_reads_protected(
         self, app_factory, authed_client, conn
@@ -1056,8 +1133,8 @@ class TestItemKeptMeanwhile:
         assert client.post(f"/api/keep/{token}/forever").status_code == 200
 
         html = client.get(f"/keep/{token}").text
-        assert "This link has expired" not in html
-        assert "Protected" in html
+        assert "This link has run out" not in html
+        assert "Kept for good" in html
 
     def test_a_token_that_fails_verification_never_shows_the_protected_page(self, conn):
         token = self._kept_by_admin(conn)
@@ -1067,5 +1144,5 @@ class TestItemKeptMeanwhile:
         )
 
         assert resp.status_code == 400
-        assert "Protected" not in resp.text
-        assert "no longer valid" in resp.text
+        assert "Already kept" not in resp.text
+        assert "This link does not work" in resp.text

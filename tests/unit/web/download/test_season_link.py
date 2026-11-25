@@ -391,7 +391,7 @@ class TestPage:
 
         assert f'"download_state": "{state}"' in page
         assert ('"notify_by_email": true' in page) == (state != "queued")
-        assert ("Re-Download Season 2" in page) == (state == "")
+        assert ("Download season 2" in page) == (state == "")
 
     def test_the_button_for_season_0_says_specials(self, client, secret_key):
         _delete_season(client.app.state.db, 0)
@@ -399,7 +399,7 @@ class TestPage:
         with patch(f"{_ROUTES}.confirm.build_sonarr_from_db", return_value=_sonarr(None)):
             page = client.get(link).text
 
-        assert "Re-Download Specials" in page
+        assert "Download specials" in page
         assert "Season 0" not in page
 
     def test_a_reopened_link_still_promises_the_season_s_email(self, client, secret_key):
@@ -411,7 +411,7 @@ class TestPage:
         ):
             page = client.get(link).text
 
-        assert "notified by email" in page
+        assert "send you a mail" in page
 
     def test_a_season_the_person_asked_for_in_the_library_promises_its_email(
         self, client, secret_key
@@ -434,7 +434,7 @@ class TestPage:
         ):
             page = client.get(link).text
 
-        assert "notified by email" in page
+        assert "send you a mail" in page
 
 
 class TestProgress:

@@ -1,230 +1,194 @@
 {% extends "base.html" %}
 {% from "_components.html" import icon %}
+{% import "_share.html" as share %}
+
+{% if state == "confirm" %}
+{% set season = none if item.season_number is not defined or item.season_number is none else 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number %}
+{% set poster = (item.poster_url or '') | replace('/w300/', '/w500/') | replace('/w200/', '/w500/') %}
+{% set watch_href = '/watch' ~ ('#title=tmdb-%s-%d' % ('movie' if item.media_type == 'movie' else 'tv', item.tmdb_id) if item.tmdb_id is integer else '') %}
+{% endif %}
 
 {% block title %}
   {% if state == "confirm" %}Download · {{ item.title }} · Mediaman
   {% elif state == "limited" %}Too many requests · Mediaman
-  {% else %}Expired · Mediaman
+  {% else %}Link does not work · Mediaman
   {% endif %}
 {% endblock %}
 
-{% block content %}
-
-{# Nav #}
-<nav class="dl-nav">
-  <a class="nav-brand" href="/">media<span>man</span></a>
-</nav>
-
+{% block head %}
+<link rel="stylesheet" href="/static/css/_watch_page.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_cast.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">
 {% if state == "confirm" %}
+{% set wide = item.backdrop_url if (item.backdrop_url or '').startswith('https://image.tmdb.org/') %}
+{% set preview = wide or (poster if poster.startswith('https://image.tmdb.org/')) %}
+<meta property="og:site_name" content="mediaman">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ item.title }}{% if season %} · {{ season }}{% endif %}">
+{% if preview %}<meta property="og:image" content="{{ preview }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if wide else 'summary' }}">
+{% endif %}
+{% endblock %}
 
-{# Hero: the wide backdrop; with none, or one that is no wide picture, the poster as a poster
-   over a blurred copy of itself. Lazy, so those are only fetched when they show. #}
-{% set poster = (item.poster_url or '') | replace('/w300/', '/w500/') | replace('/w200/', '/w500/') %}
-<div class="dl-cinema" id="dl-cinema"{% if item.download_state == "queued" %} hidden{% endif %}>
-  {% if item.backdrop_url %}<img class="dl-cinema__art" src="{{ item.backdrop_url }}" alt="" referrerpolicy="no-referrer" data-wide-art data-broken-on-error>{% endif %}
-  {% if poster %}<img class="dl-cinema__fill" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}
-  <div class="dl-cinema-gradient"></div>
-  <div class="dl-cinema-info">
-    {% if poster %}<img class="dl-cinema__poster" src="{{ poster }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}
-    <div class="dl-cinema-text{% if (item.title or '')|length > 40 %} dl-cinema-text--long{% endif %}">
-      <h1 class="dl-cinema-title">{{ item.title }}{% if item.year %} <span class="year">({{ item.year }})</span>{% endif %}</h1>
-      {% if item.tagline %}
-      <div class="dl-cinema-tagline">&ldquo;{{ item.tagline }}&rdquo;</div>
+{% block nav %}{{ share.bar() }}{% endblock %}
+
+{# The parts that take each other's place under the title. #}
+{% macro steps() %}
+<ol class="share-steps" aria-label="Where it is" tabindex="-1">
+  {% for word in ("Asked for", "Searching", "Downloading", "Ready") %}
+  <li{% if loop.index0 == 0 %} class="is-done"{% elif loop.index0 == 1 %} class="is-now" aria-current="step"{% endif %}><i>{{ icon("i-check") }}</i><span>{{ word }}</span></li>
+  {% endfor %}
+</ol>
+{% endmacro %}
+
+{% macro on_its_way(mail=False) %}
+<div class="share-stack">
+  {{ steps() }}
+  <div class="share-fold is-shut" data-fold><div><div class="dl-progress">
+    <progress class="watch-bar watch-bar--banner" max="100" value="0" aria-label="Download"></progress>
+    <p class="dl-progress__line"><span data-done></span><span data-eta></span></p>
+  </div></div></div>
+  <details class="share-eps" hidden>
+    <summary data-v="ep-toggle">{{ icon("i-chevron-right") }}<span></span></summary>
+    <div class="dl-hero-episodes" data-v="ep-list"></div>
+  </details>
+  <p class="share-say" data-say><b data-already hidden>This was already on its way. </b>You can close this page: the download carries on without it.{% if mail %}<span data-mail> We will send you a mail when it is ready to watch.</span>{% endif %}</p>
+  <p class="share-say" data-stopped hidden>Updates have stopped. <a class="share-link" href="">Reload the page</a> to see where it is now.</p>
+</div>
+{% endmacro %}
+
+{% macro trailer_button() %}
+{# Without scripts a plain link. #}
+<a class="btn btn--lg watch-btn--grey" href="https://www.youtube.com/watch?v={{ item.trailer_key }}" target="_blank" rel="noopener noreferrer" data-trailer="{{ item.trailer_key }}">{{ icon("i-film") }}Trailer</a>
+{% endmacro %}
+
+{% macro there(title, text, watch=True, trailer=False) %}
+<div class="share-stack">
+  <div class="share-done">{{ share.tick() }}<div><strong tabindex="-1">{{ title }}</strong><span>{{ text }}</span></div></div>
+  {% if watch %}<div class="watch-actions">
+    <a class="btn btn--lg watch-btn--play" href="{{ watch_href }}">{{ icon("i-play") }}Watch on mediaman</a>
+    {% if trailer %}{{ trailer_button() }}{% endif %}
+  </div>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro failed(again) %}
+<div class="share-stack">
+  <div class="watch-actions">
+    {% if again %}<button type="button" class="btn btn--lg btn--primary" data-dl aria-describedby="dl-failed">{{ icon("i-rotate-right") }}Try again</button>
+    {% else %}<a class="btn btn--lg watch-btn--grey" href="" aria-describedby="dl-failed">{{ icon("i-rotate-right") }}Reload this page</a>{% endif %}
+  </div>
+  <p class="share-say share-say--bad" id="dl-failed" role="alert">{{ icon("i-circle-exclamation") }}<b data-what>The download could not start.</b> <span data-why></span></p>
+</div>
+{% endmacro %}
+
+{% macro in_library(trailer=False) %}{{ there("Already in the library", "Nothing to download.", trailer=trailer) }}{% endmacro %}
+{% macro tracked() %}{{ there("Already on the list", "There is nothing to download for it right now.", watch=False) }}{% endmacro %}
+
+{% block content %}
+{% if state == "confirm" %}
+{% set has_body = item.description or item.reason or item.director or item.cast_list %}
+<div class="watch-page watch-detail share-page{% if not has_body %} is-only{% endif %}{% if item.download_state == 'queued' %} is-searching{% endif %}">
+  <section class="watch-banner share-hero">
+    {{ share.pictures(item.backdrop_url, poster) }}
+    <div class="watch-banner__body"><div class="watch-hero__info share-info">
+      {# Every download link but a re-download's was made for a recommendation. #}
+      <span class="ttl__kind">{{ 'Movie' if item.media_type == 'movie' else 'TV series' }}{% if item.action == "download" %} · AI pick{% endif %}</span>
+      {{ share.heading(item.title or '') }}
+      {% if season %}<p class="share-season">{{ season }}</p>{% endif %}
+      {% if item.tagline %}<p class="ttl__tagline">{{ item.tagline }}</p>{% endif %}
+      {% set runtime = item.runtime if item.media_type == 'movie' and item.runtime is integer and item.runtime > 0 %}
+      {% if item.year or runtime or item.genres_list %}
+      <p class="ttl__meta">
+        {%- if item.year %}<span>{{ item.year }}</span>{% endif %}
+        {%- if runtime %}<span>{{ '%d h %02d min' % (runtime // 60, runtime % 60) if runtime >= 60 else '%d min' % runtime }}</span>{% endif %}
+        {%- if item.genres_list %}<span>{{ item.genres_list | join(', ') }}</span>{% endif -%}
+      </p>
       {% endif %}
-    </div>
-  </div>
-</div>
-
-<div class="dl-content" id="dl-content"{% if item.download_state == "queued" %} hidden{% endif %}>
-
-  {# Quick info bar #}
-  <div class="dl-quick">
-    <span class="type-pill{{ ' type-pill--movie' if item.media_type == 'movie' else '' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
-    {# Every download link but a re-download's was made for a recommendation. #}
-    {% if item.action == "download" %}<span class="genre-pill genre-pill--ai">{{ icon("i-sparkles") }}AI pick</span>{% endif %}
-    <span class="meta-text">
-      {% if item.runtime %}{{ item.runtime }} min{% endif %}
-      {% if item.runtime and item.director %} &middot; {% endif %}
-      {% if item.director %}Directed by {{ item.director }}{% endif %}
-    </span>
-    {% if item.genres_list %}
-      {% for genre in item.genres_list %}
-      <span class="genre-pill">{{ genre }}</span>
-      {% endfor %}
-    {% endif %}
-  </div>
-
-  {# Ratings #}
-  <div class="dl-ratings">
-    {% if item.rating %}
-    <span class="rating-pill r-tmdb">&#9733; {{ item.rating }}</span>
-    {% endif %}
-    {% if item.imdb_rating %}
-    <span class="rating-pill r-imdb">IMDb {{ item.imdb_rating }}</span>
-    {% endif %}
-    {% if item.rt_rating %}
-    <span class="rating-pill r-rt">&#127813; {{ item.rt_rating }}</span>
-    {% endif %}
-    {% if item.metascore %}
-    <span class="rating-pill r-meta">MC {{ item.metascore }}</span>
-    {% endif %}
-  </div>
-
-  {# Two-column: description + AI reason #}
-  {% if item.description or item.reason %}
-  <div class="dl-columns">
-    {% if item.description %}
-    <div class="dl-description">{{ item.description }}</div>
-    {% endif %}
-    {% if item.reason %}
-    <div class="dl-reason">
-      <h2 class="eyebrow">Why it's here</h2>
-      <p>{{ item.reason }}</p>
-    </div>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  {# Trailer — key must be exactly 11 URL-safe base64 chars (validated server-side
-     by confirm.py validate_youtube_id); uses restrictive sandbox + referrerpolicy. #}
-  {% if item.trailer_key %}
-  <div class="dl-trailer">
-    <div class="eyebrow">Trailer</div>
-    <iframe src="https://www.youtube-nocookie.com/embed/{{ item.trailer_key }}?rel=0"
-            sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
-            allow="autoplay; encrypted-media; fullscreen"
-            referrerpolicy="strict-origin"
-            allowfullscreen loading="lazy"></iframe>
-  </div>
-  {% endif %}
-
-  {# Cast #}
-  {% if item.cast_list %}
-  <div class="eyebrow">Cast</div>
-  <div class="detail-modal-cast">
-    {% for c in item.cast_list %}
-    <div class="cast-item">
-      <div class="cast-avatar">{{ c.name[:1] }}{{ c.name.split(' ')[-1][:1] if ' ' in c.name else '' }}</div>
-      <div class="cast-name">{{ c.name }}</div>
-      <div class="cast-char">{{ c.character }}</div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {# Requested by #}
-  {% if item.email and '@' in item.email %}
-    {% set _local, _domain = item.email.split('@', 1) %}
-    <div class="dl-requested">Requested by {{ _local[0] }}***@{{ _domain }}</div>
-  {% elif item.email %}
-    <div class="dl-requested">Requested</div>
-  {% endif %}
-
-
-  {% if item.download_state == "in_library" %}
-    {# Already in library — success message #}
-    <div class="dl-result">
-      {{ icon("i-circle-check", "dl-result-icon dl-result-icon--success") }}
-      <div class="dl-result-title dl-result-title--success">Already in your library</div>
-      <div class="dl-result-detail">This title is available to watch in Plex.</div>
-    </div>
-
-  {% elif item.download_state == "tracked" %}
-    {# Held by Sonarr, with nothing it would fetch now: nothing to download from here #}
-    <div class="dl-result">
-      {{ icon("i-circle-check", "dl-result-icon dl-result-icon--success") }}
-      <div class="dl-result-title dl-result-title--success">Already tracked by Sonarr</div>
-      <div class="dl-result-detail">Sonarr has nothing to download for it right now.</div>
-    </div>
-
-  {% elif item.download_state != "queued" %}
-    {# Normal confirm — download button #}
-    <div class="dl-action" id="download-action">
-      <button class="btn-download-hero" id="btn-download" type="button">
-        {{ 'Re-Download' if item.action == 'redownload' else 'Download' }}{% if item.season_number is defined and item.season_number is not none %} {{ 'Specials' if item.season_number == 0 else 'Season %d' % item.season_number }}{% endif %}
-      </button>
-    </div>
-    <div id="download-result" class="dl-result" role="alert" tabindex="-1" hidden></div>
-  {% endif %}
-
-  {# Footer #}
-  <div class="dl-footer">
-    <a href="/">Open mediaman &rarr;</a>
-  </div>
-
-</div>
-
-{# Outside dl-content, so hiding that does not hide the card. #}
-{% if item.download_state != "in_library" %}
-<div id="dl-hero-wrapper" {% if item.download_state != 'queued' %}hidden{% endif %}>
-  {% if item.download_state == "queued" and hero_item %}
-    {# When queued the .dl-cinema h1 above is hidden; expose the title to AT here. #}
-    <h1 class="sr-only">{{ hero_item.title }}</h1>
-    {% with item=hero_item %}
-    {% include "_dl_hero_card.html" %}
-    {% endwith %}
-    <div role="status">
-      <div class="dl-hint" id="dl-hint">
-        You may close this page &mdash; the download will continue in the background.
-        {% if item.notify_by_email %}<br>
-        You’ll be notified by email when this {{ 'movie' if item.media_type == 'movie' else 'show' }} is available to watch.
+      {% if item.rating or item.imdb_rating or item.rt_rating or item.metascore %}
+      <div class="ttl__ratings">
+        {%- if item.rating %}<span class="ttl-rating ttl-rating--tmdb"><span class="ttl-rating__words">&#9733; TMDB {{ item.rating }}</span></span>{% endif %}
+        {%- if item.imdb_rating %}<span class="ttl-rating ttl-rating--imdb"><span class="ttl-rating__words">&#9733; IMDb {{ item.imdb_rating }}</span></span>{% endif %}
+        {%- if item.rt_rating %}<span class="ttl-rating ttl-rating--rt"><span class="ttl-rating__words">&#127813; RT {{ item.rt_rating }}</span></span>{% endif %}
+        {%- if item.metascore %}<span class="ttl-rating ttl-rating--meta"><span class="ttl-rating__words">Metascore {{ item.metascore }}</span></span>{% endif -%}
+      </div>
+      {% endif %}
+      <div class="share-act" id="download-action">
+        {% if item.download_state == "in_library" %}{{ in_library(trailer=item.trailer_key) }}
+        {% elif item.download_state == "tracked" %}{{ tracked() }}
+        {% elif item.download_state == "queued" %}{{ on_its_way(item.notify_by_email) }}
+        {% else %}
+        <div class="watch-actions">
+          <button type="button" class="btn btn--lg btn--primary" id="btn-download" data-dl>{{ icon("i-download") }}Download{% if season %} {{ season | lower }}{% endif %}</button>
+          {% if item.trailer_key %}{{ trailer_button() }}{% endif %}
+        </div>
         {% endif %}
       </div>
+      <span class="sr-only" role="status" data-said></span>
+    </div></div>
+  </section>
+
+  {% if has_body %}
+  <div class="share-body">
+    {% if item.description or item.director %}
+    <div class="ttl__main">
+      {% if item.description %}<p class="ttl__overview">{{ item.description }}</p>{% endif %}
+      {% if item.director %}<p class="ttl__credit"><span class="ttl__credit-label">{{ 'Directed by' if item.media_type == 'movie' else 'Created by' }}</span><span>{{ item.director }}</span></p>{% endif %}
     </div>
-    <div class="dl-footer u-mt-24">
-      <a href="/">Open mediaman &rarr;</a>
-    </div>
+    {% endif %}
+    {% if item.reason %}
+    <div class="ttl__reason"><h2 class="ttl__reason-head">{{ icon("i-sparkles") }}Why this one</h2><p>{{ item.reason }}</p></div>
+    {% endif %}
+    {% if item.cast_list %}
+    <section class="share-cast">
+      <h2 class="ttl__sec-title">Cast</h2>
+      <ul class="ttl-cast">
+        {% for c in item.cast_list %}
+        <li class="ttl-cast__item">
+          <span class="ttl-cast__avatar" aria-hidden="true"><span class="cast-face"><span class="cast-face__letters">{{ c.name[:1] }}{{ c.name.split(' ')[-1][:1] if ' ' in c.name else '' }}</span>{% if c.photo_url %}<img src="{{ c.photo_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>{% endif %}</span></span>
+          <span class="ttl-cast__name">{{ c.name }}</span>
+          <span class="ttl-cast__char">{{ c.character }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
+
+{% if item.download_state not in ("in_library", "tracked") %}
+<template data-part="ready">{{ there("Ready to watch", "It shows in the library in a few minutes.") }}</template>
+{% if item.download_state != "queued" %}
+<template data-part="on-its-way">{{ on_its_way(item.notify_by_email) }}</template>
+<template data-part="in-library">{{ in_library() }}</template>
+<template data-part="tracked">{{ tracked() }}</template>
+<template data-part="try-again">{{ failed(True) }}</template>
+<template data-part="refused">{{ failed(False) }}</template>
+{% endif %}
 {% endif %}
 
-{% elif state == "limited" %}
-  <div class="dl-expired">
-    <div class="status-pill status-expired">
-      <div class="status-dot dot-muted"></div> Please wait
-    </div>
-    <div class="dl-expired-icon-wrap">
-      {{ icon("i-hourglass-half-regular", "dl-expired-icon") }}
-    </div>
-    <h1 class="dl-expired-title">Too many requests</h1>
-    <div class="dl-expired-sub">Wait a minute, then open this link again.</div>
-    <div class="dl-expired-back"><a href="">Try again</a></div>
-  </div>
-
-{% else %}
-  {# EXPIRED STATE #}
-  <div class="dl-expired">
-    <div class="status-pill status-expired">
-      <div class="status-dot dot-muted"></div> Expired
-    </div>
-    <div class="dl-expired-icon-wrap">
-      {{ icon("i-clock-regular", "dl-expired-icon") }}
-    </div>
-    <h1 class="dl-expired-title">This download link has expired</h1>
-    <div class="dl-expired-sub">Download links are valid for 14 days after the newsletter is sent.</div>
-    <div class="dl-expired-back"><a href="/">Open mediaman &rarr;</a></div>
-  </div>
-{% endif %}
-
-{% if state == "confirm" %}
-{# Server-supplied values for download.js. Keep schema in sync with
-   src/mediaman/web/static/js/download.js. Jinja's ``tojson`` filter HTML-
-   escapes ``<``/``>``/``&``/``'`` so a ``</script`` breakout in any
-   string field is impossible. download.js still asserts on this for
-   defence in depth. #}
+{# Server-supplied values for download.js; tojson escapes what could end the script. #}
 <script id="page-bootstrap" type="application/json">{{ {
   "token": (token or ""),
   "poll_token": (poll_token or ""),
   "service": ("radarr" if item.media_type == "movie" else "sonarr"),
   "tmdb_id": (item.tmdb_id or 0),
-  "poster_url": (item.poster_url or ""),
-  "backdrop_url": (item.backdrop_url or ""),
-  "title": (item.title or ""),
-  "media_type": (item.media_type or "movie"),
   "download_state": (item.download_state or ""),
   "notify_by_email": (item.notify_by_email or false)
 } | tojson }}</script>
 <script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
 <script src="/static/js/download.js?v={{ static_v }}" defer></script>
+{% if item.trailer_key %}<script src="/static/js/share.js?v={{ static_v }}" defer></script>{% endif %}
+
+{% elif state == "limited" %}
+{{ share.limited() }}
+<script src="/static/js/share.js?v={{ static_v }}" defer></script>
+
+{% else %}
+{% call share.notice("clock", "This link does not work any more", "Links in our mail work for 14 days. If you copied it by hand, part of it may be missing.") %}
+<a class="btn btn--lg btn--primary" href="/watch">Open mediaman</a>
+{% endcall %}
 {% endif %}
 {% endblock %}

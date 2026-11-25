@@ -14,30 +14,38 @@ POSTER = "https://image.tmdb.org/t/p/w300/p.jpg"
 BACKDROP = "https://image.tmdb.org/t/p/w1280/b.jpg"
 
 
+def _css(name: str) -> str:
+    return (WEB / "static/css" / name).read_text(encoding="utf-8")
+
+
+def _page(**item: object) -> str:
+    item = {"title": "Ember Coast", "media_type": "movie", "notify_by_email": False, **item}
+    return _ENV.get_template("download.html").render(state="confirm", item=item)
+
+
 def _hero_images(**item: object) -> dict[str, str]:
     """Each hero picture's tag by its class."""
-    item = {"title": "Ember Coast", "media_type": "movie", "notify_by_email": False, **item}
-    html = _ENV.get_template("download.html").render(state="confirm", item=item)
-    return {
-        m.group(1): m.group(0) for m in re.finditer(r'<img class="dl-cinema__(\w+)"[^>]*>', html)
-    }
+    tags = re.finditer(
+        r'<img class="(?:watch-banner__bg )?watch-banner__([\w-]+)"[^>]*>', _page(**item)
+    )
+    return {m.group(1): m.group(0) for m in tags}
 
 
 def test_a_poster_is_never_the_hero_backdrop() -> None:
     images = _hero_images(poster_url=POSTER)
 
-    assert set(images) == {"fill", "poster"}
+    assert set(images) == {"bg--fill", "poster"}
     assert all("/w500/p.jpg" in tag and 'loading="lazy"' in tag for tag in images.values())
 
 
 def test_the_backdrop_leads_and_the_poster_stands_in_when_it_is_unfit() -> None:
     images = _hero_images(poster_url=POSTER, backdrop_url=BACKDROP)
 
-    assert list(images) == ["art", "fill", "poster"]
-    assert BACKDROP in images["art"] and "data-wide-art" in images["art"]
-    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
-    for stand_in in (".dl-cinema__fill", ".dl-cinema-info .dl-cinema__poster"):
-        assert f".dl-cinema__art:not([data-broken]) ~ {stand_in}" in css
+    assert list(images) == ["bg--art", "bg--fill", "poster"]
+    assert BACKDROP in images["bg--art"] and "data-wide-art" in images["bg--art"]
+    assert all("data-broken-on-error" in tag for tag in images.values())
+    for stand_in in (".watch-banner__bg--fill", ".watch-banner__poster"):
+        assert f".watch-banner__bg--art:not([data-broken]) ~ {stand_in}" in _css("_watch.css")
 
 
 def test_no_hero_picture_tells_its_host_the_link_it_is_on() -> None:
@@ -47,49 +55,50 @@ def test_no_hero_picture_tells_its_host_the_link_it_is_on() -> None:
     assert all('referrerpolicy="no-referrer"' in tag for tag in images.values())
 
 
-def test_the_rate_limited_page_retry_is_a_fingers_width_and_fits_a_phone_held_sideways() -> None:
-    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
-    coarse = css[css.index("@media (pointer: coarse)") :]
+def test_a_page_with_only_something_to_say_has_a_fingers_button_and_fits_a_phone_held_sideways() -> (
+    None
+):
+    css = _css("_share.css")
 
-    assert re.search(r"\.dl-expired-back a \{[^}]*min-height: 44px", coarse)
-    sideways = re.search(r"@media \(max-height: 500px\) and[^{]*\{(.*?)\n\}", css, re.S)
-    assert sideways and re.search(r"\.dl-expired \{ margin: 12px auto; padding: 14px", sideways[1])
-
-
-def test_a_hero_with_no_picture_is_a_short_head() -> None:
-    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
-    rule = re.search(r"\.dl-cinema:not\(:has\(img:not\(\[data-broken\]\)\)\) \{([^}]*)\}", css)
-
-    assert rule and "min-height: 0" in rule[1] and "var(--hero-hi)" in rule[1]
+    assert re.search(r"\.share-note \.btn \{[^}]*min-height: 46px", css)
+    sideways = re.search(
+        r"@media \(max-height: 500px\) and \(orientation: landscape\) \{(.*?)\n\}", css, re.S
+    )
+    assert sideways and re.search(r"\.share-note \.login-card \{ padding: 18px", sideways[1])
 
 
-def test_the_hero_takes_no_more_height_than_it_needs_on_a_short_screen() -> None:
-    css = (WEB / "static/css/_download_page.css").read_text(encoding="utf-8")
-    short = re.search(r"@media \(max-height: 500px\) \{(.*?)\n\}", css, re.S)
+def test_a_hero_with_no_picture_keeps_no_room_for_one_on_a_phone() -> None:
+    phone = re.search(r"@media \(max-width: 699\.98px\) \{(.*?)\n\}", _css("_share.css"), re.S)
 
-    assert short and re.search(r"\.dl-cinema \{[^}]*min-height: 0", short[1])
-    assert re.search(r"\.dl-cinema__poster \{ width: min\([^}]*34vh\)", short[1])
+    assert phone and re.search(
+        r"\.share-hero:not\(:has\(> img:not\(\[data-broken\]\)\)\) \{ --top: 104px", phone[1]
+    )
 
 
 def test_the_backdrop_waits_to_be_known_for_a_wide_picture_before_it_shows() -> None:
-    css = (WEB / "static/css/_hero.css").read_text(encoding="utf-8")
+    css = _css("_watch.css")
 
     assert re.search(
-        r"@media \(scripting: enabled\) \{\s*\.dl-cinema__art:not\(\[data-fit\]\) \{ opacity: 0; \}",
+        r"@media \(scripting: enabled\) \{\s*"
+        r"\.watch-banner__bg--art:not\(\[data-fit\]\) \{ opacity: 0; \}",
         css,
     )
-    assert '.dl-cinema__art[data-fit="at-once"]' in css
+    assert '.watch-banner__bg--art[data-fit="at-once"]' in css
 
 
 def test_the_reason_has_a_heading_and_is_no_taller_than_its_own_text() -> None:
-    html = _ENV.get_template("download.html").render(
-        state="confirm",
-        item={"title": "Ember Coast", "media_type": "movie", "reason": "Because sand."},
-    )
-    css = (WEB / "static/css/_hero.css").read_text(encoding="utf-8")
+    html = _page(reason="Because sand.")
 
-    assert re.search(r'<div class="dl-reason">\s*<h2[^>]*>Why it\'s here</h2>', html)
-    assert re.search(r"\.dl-columns \.dl-reason \{ align-self: start; \}", css)
+    assert re.search(r'<div class="ttl__reason"><h2[^>]*>.*?Why this one</h2>', html)
+    assert re.search(
+        r"\.share-body \.ttl__reason \{ align-self: start; \}", _css("_download_page.css")
+    )
+
+
+def test_the_button_comes_before_the_summary_and_the_cast() -> None:
+    html = _page(description="Salt.", cast_list=[{"name": "Ada Vale", "character": "Lead"}])
+
+    assert html.index('id="btn-download"') < html.index("Salt.") < html.index("Ada Vale")
 
 
 def _queued_card(**context: object) -> str:
@@ -108,7 +117,7 @@ def test_the_queued_card_is_filled_with_the_wide_backdrop_when_there_is_one() ->
 
 
 def test_a_title_pill_never_wraps_its_count() -> None:
-    css = (WEB / "static/css/_dl.css").read_text(encoding="utf-8")
+    css = _css("_dl.css")
     rule = re.search(r"\.dl-hero-episodes-toggle,\s*\.dl-compact-episodes-toggle \{([^}]*)\}", css)
 
     assert rule and "white-space: nowrap" in rule[1]
