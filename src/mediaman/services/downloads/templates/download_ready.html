@@ -13,10 +13,10 @@
 <tr><td class="pad" style="padding:28px 32px 34px;{{ m.ff }}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
 {%- if poster_src and not backdrop_src %}<td class="stack" width="170" valign="top" style="padding:0 24px 20px 0">{{ m.pic(poster_src,title,170,255) }}</td>{% endif -%}
-<td class="stack" valign="top" style="{{ m.ff }}">
+<td class="stack" valign="top" style="{{ m.ff }}{{ m.wrap }}">
 <div class="ok" style="font-size:14px;font-weight:700;line-height:20px;color:#1a7f37">&#10003;&nbsp; Ready to watch</div>
 <div class="t1 h1" style="margin-top:8px;font-size:32px;font-weight:700;letter-spacing:-.6px;line-height:1.12;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>
-{%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f">{{ season_label }}</div>{% endif -%}
+{%- if season_label %}<div class="t1" style="margin-top:6px;font-size:18px;font-weight:600;color:#1d1d1f;{{ m.wrap }}">{{ season_label }}</div>{% endif -%}
 {%- set mins = meta.runtime|int %}
 {%- set length = "" if mins <= 0 else mins ~ " min" if mins < 60 else (mins // 60) ~ " h" ~ (" " ~ mins % 60 ~ " min" if mins % 60 else "") %}
 <div class="t2" style="margin-top:8px;font-size:15px;line-height:22px;color:#5f5f66;{{ m.wrap }}">{% for p in (meta.year, meta.media_label, length) if p %}{% if not loop.first %} &middot; {% endif %}{{ p }}{% endfor %}</div>
@@ -32,7 +32,7 @@
 <div class="t2" style="margin-top:14px;font-size:16px;line-height:1.55;color:#4a4a50;{{ m.wrap }}">{{ description }}</div>
 {%- endif %}
 {%- if meta.director %}
-<div class="t2" style="margin-top:12px;font-size:14px;color:#5f5f66">{#- What is stored for a show is its creator. -#}
+<div class="t2" style="margin-top:12px;font-size:14px;color:#5f5f66;{{ m.wrap }}">{#- What is stored for a show is its creator. -#}
 {{ "Directed" if meta.media_label == "Movie" else "Created" }} by <span class="t1" style="color:#1d1d1f">{{ meta.director }}</span></div>
 {%- endif %}
 {% if watch_url %}<div style="margin-top:26px">{{ m.btn(watch_url,"Watch now",110) }}</div>{% endif %}

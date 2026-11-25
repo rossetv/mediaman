@@ -60,6 +60,16 @@ class TestDownloadReadyTemplate:
         assert "<img " in html
         assert 'alt="Example"' not in html
 
+    def test_a_long_unbroken_word_in_the_title_can_wrap_inside_the_text_cell(self):
+        title = "Specials " + "x" * 60 + " " + "y" * 26
+        assert len(title) == 96
+        html = _render(title=title, poster_src="https://x/p.jpg")
+        rule = "overflow-wrap:anywhere;word-break:break-word"
+        cell = re.search(r'<td class="stack" valign="top" style="([^"]*)"', html)
+        assert cell and rule in cell.group(1)
+        heading = re.search(r'<div class="t1 h1" style="([^"]*)"', html)
+        assert heading and rule in heading.group(1)
+
     def test_declares_both_colour_schemes(self):
         html = _render()
         assert '<meta name="color-scheme" content="light dark">' in html
