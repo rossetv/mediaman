@@ -45,6 +45,8 @@ def _template_duration_literals() -> dict[str, list[str]]:
             + _MACRO_DURATION_RE.findall(text)
             + _BUTTON_VALUE_RE.findall(text)
         )
+        # The keep page's come from VALID_KEEP_DURATIONS itself.
+        values = [v for v in values if not v.startswith("{{")]
         if values:
             found[str(path.relative_to(REPO))] = values
     return found

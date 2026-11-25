@@ -65,7 +65,7 @@ function load(reply) {
   ctx.window = ctx;
   vm.createContext(ctx);
   const run = (f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx);
-  ['core/dom.js', 'modal-a11y.js', 'core/modal.js', 'watch/core.js'].forEach(run);
+  ['core/dom.js', 'modal-a11y.js', 'core/modal.js', 'watch/core.js', 'watch/keep.js'].forEach(run);
   ctx.MMWatch.browse = { card: (f) => build(doc, ['article', { class: 'watch-card' },
     ['a', { class: 'watch-card__link', href: f.href || '#' }, ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, f.title], ...(f.download_state ? [['span', { class: 'watch-badge--state' }, f.download_state]] : [])]],
     ['button', { class: 'watch-more' }]]) };
@@ -76,7 +76,8 @@ function load(reply) {
   const redraw = async (ref) => { body.textContent = ''; await into(ref); };
   const q = (sel) => doc.querySelector(sel);
   const cards = () => doc.querySelectorAll('.coll .watch-card');
-  const get = () => { const b = q('.coll__get'); return b && !b.hidden ? b.textContent : null; };
+  const get = () => { const b = q('.coll__get'); return b && !b.hidden ? b.querySelector('.coll__get-full').textContent : null; };
+  const brief = () => q('.coll__get-brief').textContent;
   const isOpen = () => !!q('.coll-dialog') && q('.coll-dialog').classList.contains('active');
   const press = async (node, e) => { clock.now += 1000; click(doc, node, e); await settle(); };
   const go = () => q('.coll-dialog .btn--primary');
@@ -96,7 +97,7 @@ function load(reply) {
   };
   const told = (n, over) => doc.dispatchEvent({ type: 'mm:title-changed', detail: Object.assign({ ref: 'tmdb-movie-' + n,
     download_state: 'queued', download_pct: null, title: 'Film ' + n, kind: 'movie', year: 2000 + n }, over) });
-  return { reply: (r) => { reply = r; }, win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
+  return { reply: (r) => { reply = r; }, win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, brief, isOpen, press, go, rows, answer, tick };
 }
 
 const ids = (p) => p.posts.map((x) => x.body.tmdb_id);
@@ -118,7 +119,7 @@ const scenarios = {
     const here = p.cards().filter((c) => c.classList.contains('is-here'));
     return { waiting, gets: p.gets, titles: titles(p), last: p.body.children[p.body.children.length - 1].className.split(' ')[0],
       here: here.map((c) => c.querySelector('.watch-card__title').textContent), current: here[0].querySelector('a').getAttribute('aria-current'),
-      name: p.q('.coll__name').textContent, stops: p.cards().map((c) => c.querySelector('a').tabIndex), get: p.get() };
+      name: p.q('.coll__name').textContent, stops: p.cards().map((c) => c.querySelector('a').tabIndex), get: p.get(), brief: p.brief() };
   },
 
   async nothing() {
@@ -131,6 +132,24 @@ const scenarios = {
     const show = load(SAGA());
     await show.into('show-3', 'show');
     out.show = show.gets.length;
+    return out;
+  },
+
+  // The film's details say that it is in a collection, before its films are known.
+  async expected() {
+    const out = {};
+    for (const [name, r] of [['films', SAGA()], ['none', null], ['failed', new APIError(429, 'too_many_requests')]]) {
+      const p = load(r);
+      const before = !!p.ctx.MMWatch.collection.skeleton('tmdb-movie-2');
+      p.ctx.MMWatch.collection.into(p.body, 'tmdb-movie-2', 'movie', true);
+      const held = [!p.q('.ttl__collsec').hidden, !!p.q('.coll-skel'), p.q('.coll-skel').getAttribute('aria-hidden')];
+      p.body.textContent = '';
+      p.ctx.MMWatch.collection.into(p.body, 'tmdb-movie-2', 'movie', true); // drawn again meanwhile
+      const again = !!p.q('.coll-skel');
+      await settle();
+      out[name] = { before, held, again, skeleton: !!p.q('.coll-skel'), films: p.cards().length,
+        shown: !!p.q('.ttl__collsec') && !p.q('.ttl__collsec').hidden, next: !!p.ctx.MMWatch.collection.skeleton('tmdb-movie-2') };
+    }
     return out;
   },
 
@@ -183,6 +202,11 @@ const scenarios = {
     return { row: !!p.q('.coll'), get: p.get() };
   },
 
+  async unavailable() {
+    const p = await asked({ name: 'X', films: [film(2), film(1, { why_not: 'unavailable' })] });
+    return p.doc.querySelectorAll('.coll-out p').map((n) => n.textContent);
+  },
+
   async confirm() {
     const p = await asked();
     const out = { open: p.isOpen(), rows: p.rows(), boxes: p.doc.querySelectorAll('.coll-item input').map((b) => b.checked),
@@ -211,8 +235,8 @@ const scenarios = {
   async partial() {
     const p = await asked();
     await p.press(p.go());
-    await p.answer(0, new APIError(409, "'Film 2' is already in Radarr"));
-    await p.answer(1, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(0, new APIError(409, "'Film 2' has already been added"));
+    await p.answer(1, new APIError(502, "It didn't work"));
     await p.answer(2);
     const out = { rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent, left: p.get() };
     await p.press(p.go());
@@ -335,7 +359,7 @@ const scenarios = {
     const look = (i) => { const row = p.doc.querySelectorAll('.coll-item')[i]; return [!!row.querySelector('.btn-spinner'), row.classList.contains('is-locked'), row.querySelector('input').disabled]; };
     await p.press(p.go());
     const adding = look(0);
-    await p.answer(0, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(0, new APIError(502, "It didn't work"));
     const failed = look(0);
     await p.answer(1); await p.answer(2);
     return { adding, failed, after: look(0) };
@@ -427,14 +451,14 @@ const scenarios = {
     const spins = !!p.doc.querySelectorAll('.coll-item')[0].querySelector('.btn-spinner');
     await p.press(p.q('.coll-dialog .btn--ghost'));
     await p.answer(0);
-    await p.answer(1, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(1, new APIError(502, "It didn't work"));
     await p.answer(2);
     await p.press(p.q('.coll__get'));
     const out = { spins, rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent };
     await p.press(p.go());
     out.ids = ids(p);
     await p.press(p.q('.coll-dialog .btn--ghost'));
-    await p.answer(3, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(3, new APIError(502, "It didn't work"));
     // Meanwhile it is got another way, and one of those added is taken out.
     p.told(3);
     p.clock.now += 120000;

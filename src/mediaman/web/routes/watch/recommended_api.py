@@ -31,6 +31,8 @@ from mediaman.web.routes.watch.catalog_api import held_fields
 
 router = APIRouter()
 
+_FEW_RATINGS = 5
+
 
 def _attach_states(
     conn: sqlite3.Connection, rows: list[dict[str, object]], arr: catalog.ArrView, username: str
@@ -152,7 +154,7 @@ def api_watch_recommended(
     the batch the row began with, and what the batches from it to this one hold is left
     out. No title they rated a strong no is among them, and one rated down comes last in
     its batch. ``next_batch`` is the older batch to go on with, or None when the picks are
-    finished."""
+    finished. ``few_ratings`` says whether they have rated fewer than five titles."""
     conn = get_db()
     is_admin = get_user_role(conn, username) == "admin"
     enabled = get_bool_setting(conn, "suggestions_enabled", default=True)
@@ -166,6 +168,7 @@ def api_watch_recommended(
 
     user_id = find_user_id(conn, username)
     levels = levels_for(conn, user_id) if user_id is not None else {}
+    payload["few_ratings"] = len(levels) < _FEW_RATINGS
     batches = group_into_batches(fetch_recommendations(conn, username), date.today(), levels)
     places = {b["id"]: place for place, b in enumerate(batches)}
     if any(b is not None and b not in places for b in (batch, start)):

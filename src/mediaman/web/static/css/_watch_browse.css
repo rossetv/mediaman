@@ -34,6 +34,7 @@
 /* A row's heading; with tools on its right for Recommended (the batch of picks). */
 .watch-row__head {
   position: relative;
+  z-index: 1; /* over the room above the cards, or it takes the foot of See all's 44px */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -44,65 +45,90 @@
 .watch-row__tools { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
 .watch-row__tools:not(:empty) { min-height: 34px; }
 
-/* The way into a row's grid: its heading, and after three screens of the row the offer. */
-.row-open { position: relative; display: inline-flex; align-items: baseline; gap: 12px; max-width: 100%; border-radius: var(--r-xs); color: inherit; }
+/* The way into a row's grid: its heading. See all keeps room for the chip it takes
+   under the pointer, on focus, and once the row was scrolled far; until then its
+   words stand where the title ends (on a phone the arrow alone) and its count is not shown. */
+.row-open { --row-swell: .14; --row-chip: .18; --row-nudge: 8px; --row-arrow: 10px; --row-near: 6px; position: relative; display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; border-radius: var(--r-xs); color: inherit; transform-origin: 0 50%; }
 .row-open[href]::after { content: ""; position: absolute; inset: -12px -10px; } /* 44px to tap */
 .row-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
-.row-open__cue { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 500; letter-spacing: -.01em; color: var(--t3); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
-.row-open__cue > .ico { font-size: 10px; transition: transform var(--dur) var(--ease-out); }
-.row-open:is(:hover, :focus-visible) .row-open__cue { color: var(--t1); }
-.row-open:hover .row-open__cue > .ico { transform: translateX(3px); }
-.row-open:active .row-open__cue { color: var(--t2); }
+.row-open__cue { position: relative; isolation: isolate; display: inline-flex; padding: 0 10px; font-size: 13px; font-weight: 500; letter-spacing: -.01em; color: var(--t3); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.row-open__cue::before { content: ""; position: absolute; z-index: -1; inset: -5px 0; border-radius: var(--r-pill); background: var(--rgba-overlay-md); opacity: 0; transform: scale(.92); transform-origin: 0 50%; transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+/* The arrow stands past the end of the words, then of the count: either, moved left by its own width, takes it along. */
+.row-open__words { position: relative; display: inline-flex; transform: translateX(calc(-1 * var(--row-near))); transition: transform var(--dur-slow) var(--ease-out); }
+.row-open__word { transition: opacity var(--dur-fast) var(--ease-out); }
+.row-open__end { position: relative; margin-right: calc(var(--row-arrow) * 1.25 + 3px); transform: translateX(-100%); transition: transform var(--dur-slow) var(--ease-out); }
+.row-open__end::before { content: "\200b"; } /* a line for the arrow, with no count too */
+.row-open__total { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.row-open__total:not(:empty) { padding-left: 4px; }
+.row-open__cue .ico { font-size: var(--row-arrow); transition: transform var(--dur) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.row-open__end > .ico { position: absolute; left: calc(100% + 3px); top: 50%; margin-top: -.5em; }
+.row-open:is(:focus-visible, .is-offered) .row-open__cue { color: var(--t1); }
+.row-open:is(:focus-visible, .is-offered) .row-open__cue::before { opacity: 1; transform: none; }
+.row-open:is(:focus-visible, .is-offered) :is(.row-open__words, .row-open__end) { transform: none; }
+.row-open:is(:focus-visible, .is-offered) :is(.row-open__word, .row-open__total) { opacity: 1; }
+.row-open.is-offered .row-open__cue::before { background: var(--rgba-accent-chip); }
+.row-open.is-offered .row-open__cue .ico { color: var(--accent-text); }
+/* A tap leaves its hover behind. */
+@media (hover: hover) {
+  .row-open[href]:hover .row-open__cue { color: var(--t1); }
+  .row-open[href]:hover .row-open__cue::before { opacity: 1; transform: none; }
+  .row-open[href]:hover :is(.row-open__words, .row-open__end) { transform: none; }
+  .row-open[href]:hover :is(.row-open__word, .row-open__total) { opacity: 1; }
+  .row-open[href]:hover .row-open__cue .ico { transform: translateX(2px); }
+  .row-open.is-offered:hover .row-open__cue::before { background: var(--rgba-accent-bg-hover); }
+}
+.row-open[href]:active .row-open__cue { color: var(--t2); }
+/* Leaving soon's own link beside it counts already. */
+.watch-row__head:has(> .space-row-link) .row-open__total { display: none; }
 @media (max-width: 599.98px) {
-  .row-open { align-items: center; gap: 6px; }
-  .row-open__word { display: none; }
-  .row-open__cue > .ico { font-size: 13px; }
+  .row-open { --row-swell: .08; --row-arrow: 13px; --row-near: 11px; align-items: center; gap: 6px; }
+  .row-open__words { transform: translateX(calc(-100% + var(--row-arrow) * 1.25 + 3px - var(--row-near))); }
+  .row-open__end { transform: none; }
+  .row-open__word { opacity: 0; }
+  /* They come once they are clear of the title they stood under. */
+  .row-open:is(:focus-visible, .is-offered) :is(.row-open__word, .row-open__total) { transition-delay: .12s; }
+  /* Beside the row's own tools or link there is room for the arrow alone. */
+  .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open { --row-near: 9px; --row-nudge: 5px; }
+  .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open__cue { padding: 0 6px 0 3px; }
+  .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) :is(.row-open__word, .row-open__total) { display: none; }
 }
-.row-offer {
-  position: absolute;
-  z-index: 2; /* over what the heading's links reach for */
-  right: var(--pad);
-  top: 50%;
-  margin-top: -17px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 14px 0 12px;
-  border-radius: var(--r-pill);
-  background: var(--t1);
-  color: var(--scrim);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(14px);
-  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), background-color var(--dur-fast) var(--ease-out), visibility 0s linear var(--dur-slow);
-}
-.row-offer.is-on { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
-.row-offer::after { content: ""; position: absolute; inset: -5px; } /* 44px to tap */
-.row-offer:hover { background: color-mix(in srgb, var(--t1) 86%, var(--scrim)); }
-.row-offer:active { background: color-mix(in srgb, var(--t1) 72%, var(--scrim)); }
-.row-offer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.row-offer > .ico { font-size: 12px; }
-/* Beside the row's own tools it needs their line's room. */
-.watch-row__head:has(> .watch-row__tools) > .row-offer { position: relative; right: auto; top: auto; margin: 0 0 0 auto; }
-.watch-row__head:has(> .watch-row__tools) > .row-offer ~ .watch-row__tools { margin-left: 0; }
-@media (max-width: 899.98px) {
-  .watch-row__head:has(> .watch-row__tools) > .row-offer { display: none; }
-  .watch-row__head:has(> .watch-row__tools) > .row-offer ~ .watch-row__tools { margin-left: auto; }
-}
-/* Here its words would cover the heading: the icon alone is drawn. */
-@media (max-width: 499.98px) {
-  .row-offer { width: 34px; padding: 0; justify-content: center; }
-  .row-offer__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (hover: hover) and (max-width: 599.98px) {
+  .row-open[href]:hover :is(.row-open__word, .row-open__total) { transition-delay: .12s; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .row-offer { transform: none; }
-  .row-open:hover .row-open__cue > .ico { transform: none; }
+  .row-open .row-open__cue::before { transform: none; }
+  .row-open[href]:hover .row-open__cue .ico { transform: none; }
 }
-@media (forced-colors: active) { .row-offer { border: 1px solid ButtonText; } }
+/* Scrolled far along its row, the heading swells once and settles; See all follows it.
+   --row-room: the part of it there is room for. */
+@media (prefers-reduced-motion: no-preference) {
+  .row-open.is-calling { animation: row-swell 1.1s var(--ease-out); }
+  .row-open.is-calling .row-open__cue::before { animation: row-chip .65s .15s var(--ease-out) backwards; }
+  .row-open.is-calling .row-open__cue .ico { animation: row-nudge .9s .15s ease-in-out; }
+}
+@keyframes row-swell {
+  0%, 100% { transform: none; }
+  30% { transform: scale(calc(1 + var(--row-swell) * var(--row-room, 1))); }
+  58% { transform: scale(.985); }
+  78% { transform: scale(calc(1 + .015 * var(--row-room, 1))); }
+}
+@keyframes row-chip {
+  0% { opacity: 0; transform: scale(.5); }
+  45% { transform: scale(calc(1 + var(--row-chip) * var(--row-room, 1))); }
+  72% { transform: scale(.96); }
+}
+@keyframes row-nudge {
+  0%, 40%, 100% { transform: none; }
+  20% { transform: translateX(var(--row-nudge)); }
+  65% { transform: translateX(calc(var(--row-nudge) * .875)); }
+}
+/* The backplates of the words would cover one another. */
+@media (forced-colors: active) {
+  .row-open[href] .row-open__cue,
+  .row-open[href]:hover .row-open__cue,
+  .row-open[href]:active .row-open__cue { forced-color-adjust: none; color: LinkText; }
+  .row-open:is(:hover, :focus-visible, .is-offered) .row-open__cue::before { border: 1px solid LinkText; }
+}
 
 .row-tool {
   position: relative;
@@ -140,11 +166,7 @@
 .row-tool__face { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 7px; }
 .row-tool--refresh::before { content: attr(data-widest); grid-area: 1 / 1; height: 0; overflow: hidden; visibility: hidden; padding-inline-start: 22px; }
 .row-tool.is-busy { cursor: progress; }
-.row-tool.is-busy .ico { animation: spin 1s linear infinite; }
 .row-tool:not([aria-disabled="true"]):active { background: var(--s4); color: var(--t1); }
-@media (prefers-reduced-motion: reduce) {
-  .row-tool.is-busy .ico { animation: loading-pulse 1.6s ease-in-out infinite !important; }
-}
 @media (max-width: 699.98px) {
   .watch-row__tools:not(:empty) { min-height: 44px; }
   .row-tool { height: 44px; min-width: 44px; }

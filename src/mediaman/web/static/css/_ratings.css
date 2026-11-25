@@ -11,22 +11,37 @@
   stroke-width: 1.7;
   stroke-linejoin: round;
   stroke-linecap: round;
-  transition: transform var(--dur) var(--ease-out);
 }
 .rate-th--2 { width: 32px; }
 .rate-th--down { rotate: x 180deg; }
-.rate-th g { transform-box: fill-box; transform-origin: 20% 90%; }
+.rate-th :is(g, .ink) { transform-box: fill-box; transform-origin: 20% 90%; }
 .rate-th .b { opacity: .9; }
 .rate-th .halo { fill: var(--th-bg); stroke: var(--th-bg); stroke-width: 5; }
+.rate-th .ink { fill: currentColor; stroke: none; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .rate__b.is-on > .rate-th,
-.rate-th.is-on { fill: currentColor; stroke-width: 1.1; }
+.rate-th.is-on { stroke-width: 1.1; }
+.rate__b.is-on > .rate-th .ink,
+.rate-th.is-on .ink { opacity: 1; }
 .rate__b.is-on > .rate-th .b,
 .rate-th.is-on .b { opacity: .6; }
 
-.rate { --rate-bg: var(--s2); display: flex; flex-direction: column; gap: 6px; width: fit-content; max-width: 100%; }
-.rate__set { display: inline-flex; gap: 2px; width: fit-content; padding: 3px; border: 1px solid var(--hair); border-radius: 26px; background: var(--rate-bg); }
+.rate {
+  --wash-0: color-mix(in srgb, color-mix(in srgb, var(--orange) 45%, var(--danger-text)) 24%, var(--s2));
+  --wash-1: color-mix(in srgb, var(--orange) 16%, var(--s2));
+  --wash-2: color-mix(in srgb, var(--accent) 18%, var(--s2));
+  --wash-3: color-mix(in srgb, var(--accent) 34%, var(--s2));
+  --rate-bg: var(--s2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+}
+.rate__set { --gap: 2px; isolation: isolate; display: inline-flex; gap: var(--gap); width: fit-content; padding: 3px; border: 1px solid var(--hair); border-radius: 26px; background: var(--rate-bg); }
 .rate__b {
   --b-bg: var(--rate-bg);
+  --lit: 0;
+  --strong: 1;
   position: relative;
   display: grid;
   place-items: center;
@@ -40,27 +55,127 @@
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
-.rate__b .rate-th { --th-bg: var(--b-bg); }
-.rate__b:active .rate-th { transform: scale(.86); }
-.rate__b.is-up.is-on { --b-bg: color-mix(in srgb, var(--accent) 18%, var(--s2)); color: var(--accent-hi); background: var(--b-bg); }
-.rate__b.is-down.is-on { --b-bg: color-mix(in srgb, var(--orange) 16%, var(--s2)); color: var(--orange); background: var(--b-bg); }
-.rate.has .rate__b:not(.is-on) { opacity: .55; }
+.rate__b.is-up { --level: var(--accent-hi); --wash: var(--wash-2); }
+.rate__b.is-down { --level: var(--orange); --wash: var(--wash-1); }
+.rate__b.is-up.is-double { --level: color-mix(in srgb, var(--accent-hi) 72%, var(--t1)); --wash: var(--wash-3); }
+.rate__b.is-down.is-double { --level: color-mix(in srgb, var(--orange) 45%, var(--danger-text)); --wash: var(--wash-0); }
+.rate__b.is-double { --strong: 1.35; }
+.rate__b .rate-th { --th-bg: var(--b-bg); transition: opacity var(--dur-fast) var(--ease-out); }
+.rate__b.is-on { --b-bg: var(--wash); color: var(--level); }
+.rate.has .rate__b:not(.is-on) > :is(.rate-th, .rate__lab) { opacity: .55; }
 /* A touch leaves its hover behind, which would keep a thumb taken back lit. */
 @media (hover: hover) {
-  .rate__b:not(.is-on):hover { --b-bg: var(--s4); color: var(--t1); background: var(--b-bg); }
-  .rate.has .rate__b:hover { opacity: 1; }
+  .rate__b:hover { --lit: 1; color: var(--level); }
+  .rate__b:not(.is-on):hover { --b-bg: var(--s4); background: var(--b-bg); }
+  .rate.has .rate__b:hover > :is(.rate-th, .rate__lab) { opacity: 1; }
 }
-.rate.has .rate__b:focus-visible { opacity: 1; }
-.rate__b:focus-visible { border-radius: 22px; }
+.rate__b:focus-visible { --lit: 1; border-radius: 22px; color: var(--level); }
+.rate.has .rate__b:focus-visible > :is(.rate-th, .rate__lab) { opacity: 1; }
 
-.rate__b.pop .f { animation: rate-pop calc(var(--dur) * 1.5) var(--ease-out); }
-.rate__b.pop .b { animation: rate-pop calc(var(--dur) * 1.5) var(--ease-out) calc(var(--dur) * .35) backwards; }
-@keyframes rate-pop {
-  0% { transform: none; }
-  35% { transform: translateY(-4px) rotate(-9deg); }
-  70% { transform: translateY(1px) rotate(2deg); }
+/* Under the thumbs of all four, so that it can slide past the others. */
+.rate__hl { position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--b-bg); opacity: 0; pointer-events: none; }
+.rate__b.is-on > .rate__hl { opacity: 1; }
+
+/* Without it, colour and fill alone answer. */
+@media (prefers-reduced-motion: no-preference) {
+  .rate__set { --spring: cubic-bezier(.3, 1.6, .5, 1); --spring-dur: calc(var(--dur) * 1.4); }
+  .rate__b .rate-th {
+    translate: calc(2.5px * var(--aside, 0)) calc(-3px * var(--lit));
+    scale: calc(1 + .16 * var(--lit));
+    transform: rotate(calc(-7deg * var(--lit)));
+    transition: opacity var(--dur-fast) var(--ease-out), translate var(--spring-dur) var(--spring), scale var(--spring-dur) var(--spring), transform var(--spring-dur) var(--spring);
+  }
+  .rate__b :is(.f, .b) { transition: transform var(--spring-dur) var(--spring); }
+  .rate__b.is-double .f { transform: translate(calc(-1px * var(--lit)), calc(.5px * var(--lit))) rotate(calc(-3deg * var(--lit))); }
+  .rate__b.is-double .b { transform: translate(calc(1px * var(--lit)), calc(-.75px * var(--lit))) rotate(calc(5deg * var(--lit))); }
+  /* The ones beside it give way. */
+  .rate__b:focus-visible + .rate__b { --aside: 1; }
+  .rate__b:has(+ .rate__b:focus-visible) { --aside: -1; }
+  .rate__b:active .rate-th { scale: .84; translate: 0 1px; transition-duration: calc(var(--dur-fast) * .6); }
+
+  .rate__b .ink { transform: scale(.2); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+  .rate__b.is-on .ink { transform: none; }
+  .rate__b .b > .ink { transition-delay: calc(var(--dur) * .35); }
+
+  .rate__hl { transform: scale(.6); transition: opacity var(--dur) var(--ease-out), transform var(--spring-dur) var(--spring); }
+  .rate__b.is-on > .rate__hl { transform: none; }
+  .rate[data-from] .rate__b:not(.is-on) > .rate__hl { transition: none; }
+  .rate[data-from] .rate__b.is-on > .rate__hl { transition: none; animation: rate-slide var(--spring-dur) cubic-bezier(.3, 1.2, .4, 1); }
+
+  .rate__b.pop.is-up .f { animation: rate-up calc(var(--dur) * 2) var(--ease-out); }
+  .rate__b.pop.is-up .b { animation: rate-up calc(var(--dur) * 2) var(--ease-out) calc(var(--dur) * .35) backwards; }
+  .rate__b.pop.is-down .f { animation: rate-down calc(var(--dur) * 2.5) var(--ease-out); }
+  .rate__b.pop.is-down .b { animation: rate-down calc(var(--dur) * 2.5) var(--ease-out) calc(var(--dur) * .35) backwards; }
+  .rate__b.pop.is-down.is-double .rate-th { animation: rate-shake calc(var(--dur) * 2) linear; }
+  .rate__b.back .f,
+  .rate__b.back .b { animation: rate-back calc(var(--dur) * 1.5) var(--ease-out); }
+
+  /* A ring for a like; a love scatters sparks beyond it. */
+  .rate__b.pop.is-up::before,
+  .rate__b.pop.is-up.is-double::after { content: ""; position: absolute; left: 50%; top: 50%; border-radius: 50%; opacity: 0; pointer-events: none; }
+  .rate__b.pop.is-up::before { width: 44px; height: 44px; margin: -22px; border: 2px solid var(--level); animation: rate-ring calc(var(--dur) * 2.25) var(--ease-out); }
+  .rate__b.pop.is-up.is-double::after {
+    --spark: var(--level) 1.7px, transparent 2.3px;
+    width: 56px;
+    height: 56px;
+    margin: -28px;
+    background:
+      radial-gradient(circle at 28px 2px, var(--spark)),
+      radial-gradient(circle at 46px 10px, var(--spark)),
+      radial-gradient(circle at 54px 28px, var(--spark)),
+      radial-gradient(circle at 46px 46px, var(--spark)),
+      radial-gradient(circle at 28px 54px, var(--spark)),
+      radial-gradient(circle at 10px 46px, var(--spark)),
+      radial-gradient(circle at 2px 28px, var(--spark)),
+      radial-gradient(circle at 10px 10px, var(--spark));
+    animation: rate-sparks calc(var(--dur) * 3) cubic-bezier(.2, .4, .7, .8) calc(var(--dur) * .35);
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .rate__b:hover + .rate__b { --aside: 1; }
+  .rate__b:has(+ .rate__b:hover) { --aside: -1; }
+}
+/* Sliding needs no measure: the four are as wide as each other. */
+.rate__b:nth-child(1) { --i: 0; }
+.rate__b:nth-child(2) { --i: 1; }
+.rate__b:nth-child(3) { --i: 2; }
+.rate__b:nth-child(4) { --i: 3; }
+.rate[data-from="0"] { --from: 0; --from-wash: var(--wash-0); }
+.rate[data-from="1"] { --from: 1; --from-wash: var(--wash-1); }
+.rate[data-from="2"] { --from: 2; --from-wash: var(--wash-2); }
+.rate[data-from="3"] { --from: 3; --from-wash: var(--wash-3); }
+/* In the colour of the thumb it leaves. */
+@keyframes rate-slide { from { background-color: var(--from-wash); transform: translateX(calc((var(--from) - var(--i)) * (100% + var(--gap)))); } }
+/* A thumb down is drawn turned over, so up here is down there. */
+@keyframes rate-up {
+  0% { transform: scale(.84); }
+  38% { transform: translateY(calc(-4px * var(--strong))) rotate(calc(-13deg * var(--strong))) scale(1.16); }
+  70% { transform: translateY(1px) rotate(3deg) scale(.97); }
+}
+@keyframes rate-down {
+  0% { transform: scale(.88); }
+  28% { transform: translateY(calc(-5px * var(--strong))) rotate(calc(-17deg * var(--strong))) scale(1.1); }
+  52% { transform: translateY(calc(-4px * var(--strong))) rotate(calc(-14deg * var(--strong))) scale(1.08); }
+  80% { transform: translateY(1px) rotate(3deg); }
+}
+@keyframes rate-shake {
+  20%, 60% { translate: -2.5px 1px; }
+  40%, 80% { translate: 2.5px 1px; }
+}
+@keyframes rate-back {
+  40% { transform: translateY(1px) scale(.82); }
+  75% { transform: scale(1.05); }
+}
+@keyframes rate-ring {
+  from { opacity: .8; transform: scale(.45); }
+  to { opacity: 0; transform: scale(1.35); }
+}
+@keyframes rate-sparks {
+  from { opacity: 1; transform: scale(.35); }
+  25% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.15); }
 }
 
 .rate__tip {
@@ -95,9 +210,9 @@
 @keyframes rate-rise { from { opacity: 0; transform: translateY(10px); } }
 
 .rate--grid { --rate-bg: var(--s3); width: 100%; }
-.rate--grid .rate__set { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; width: 100%; padding: 4px; border-radius: 16px; }
+.rate--grid .rate__set { --gap: 4px; display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; padding: 4px; border-radius: 16px; }
 .rate--grid .rate__b { width: auto; height: 72px; gap: 5px; align-content: center; border-radius: 13px; }
-.rate__lab { font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
+.rate__lab { transition: opacity var(--dur-fast) var(--ease-out); font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
 
 .rate--strip { --rate-bg: var(--s3); }
 .rate--strip .rate__set { padding: 0; box-shadow: var(--shadow-card); }
@@ -110,24 +225,26 @@
 }
 @media (max-width: 599.98px) {
   .rate__b { width: 56px; }
+  .rate--plain { width: 100%; }
+  .rate--plain .rate__set { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+  .rate--plain .rate__b { width: auto; }
   .rate__tip { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rate__b.pop .f,
-  .rate__b.pop .b,
   .rate__line > .is-new { animation: none; }
-  .rate__b:active .rate-th { transform: none; }
 }
 
 @media (forced-colors: active) {
-  .rate { --rate-bg: ButtonFace; }
+  .rate { --rate-bg: ButtonFace; --wash-0: Highlight; --wash-1: Highlight; --wash-2: Highlight; --wash-3: Highlight; }
   .rate__set { border: 1px solid ButtonBorder; }
-  .rate.has .rate__b:not(.is-on) { opacity: 1; }
+  .rate.has .rate__b:not(.is-on) > :is(.rate-th, .rate__lab) { opacity: 1; }
   .rate__b { forced-color-adjust: none; color: ButtonText; background: ButtonFace; }
-  .rate__b.is-up.is-on,
-  .rate__b.is-down.is-on { --b-bg: Highlight; color: HighlightText; background: Highlight; }
+  .rate__b.is-on { --b-bg: Highlight; color: HighlightText; background: Highlight; }
   .rate__b:not(.is-on):hover { --b-bg: ButtonFace; color: Highlight; background: ButtonFace; }
   .rate__b:focus-visible { outline-color: Highlight; }
+  .rate__b:not(.is-on):focus-visible { color: ButtonText; }
+  .rate__b.pop::before,
+  .rate__b.pop::after { content: none; }
   .rate__tip { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
 }

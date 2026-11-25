@@ -192,6 +192,8 @@
     return new Promise(function (resolve) { fade.waiting.push(resolve); });
   }
 
+  var flights = new WeakMap(); // the slide each node is on
+
   /* Take the places of *nodes* now; the function returned, called after the
      page has been rearranged, slides each from where it was to where it is. */
   function flip(nodes) {
@@ -201,16 +203,19 @@
     return function play() {
       if (reduceMotion()) return;
       var opts = { duration: tokenMs('--dur', 200), easing: token('--ease-out', 'ease-out') };
+      // One still on its way slides on from where it is seen.
+      first.forEach(function (f) { if (flights.has(f.node)) flights.get(f.node).cancel(); });
       first.forEach(function (f) {
         if (!f.node.animate) return;
         var now = f.node.getBoundingClientRect();
         var dx = f.rect.left - now.left;
         var dy = f.rect.top - now.top;
         if (!dx && !dy) return;
-        f.node.animate([
+        var flight = f.node.animate([
           { transform: 'translate(' + dx + 'px, ' + dy + 'px)' },
           { transform: 'none' }
         ], opts);
+        if (flight) flights.set(f.node, flight);
       });
     };
   }

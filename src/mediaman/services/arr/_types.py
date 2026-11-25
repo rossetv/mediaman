@@ -95,6 +95,7 @@ class SonarrSeries(TypedDict, total=False):
     titleSlug: str
     path: str
     monitored: bool
+    status: str
     seasons: list[ArrSeason]
     statistics: ArrSeriesStatistics
     images: list[ArrImage]
