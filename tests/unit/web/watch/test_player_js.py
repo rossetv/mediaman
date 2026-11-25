@@ -1415,6 +1415,25 @@ def test_play_here_takes_only_a_place_the_other_one_saved(tmp_path_factory, way,
     assert out == at
 
 
+@pytest.mark.parametrize(
+    ("follows", "place", "at"),
+    [
+        # Nothing follows: from the end it would leave the player at once.
+        (None, 3000.0, 110),
+        (None, 2999.5, 110),
+        (None, 2990.0, 2990),
+        ({"href": "/watch/play/502", "label": "S2 · E5"}, 3000.0, 2999),
+    ],
+)
+def test_play_here_keeps_this_tab_s_place_where_the_title_ended_there_and_nothing_follows(
+    tmp_path_factory, follows, place, at
+):
+    here = _markup(tmp_path_factory, {**EPISODE, "next": follows})
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "next": follows, "place_s": place})
+    out = run(here, "replaced_after_save", plays="save", pages={"/elsewhere": elsewhere})
+    assert out == [at]
+
+
 def test_a_press_as_play_here_asks_for_the_place_starts_nothing_from_this_one(
     markup, tmp_path_factory
 ):

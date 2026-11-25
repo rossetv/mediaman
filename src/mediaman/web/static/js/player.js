@@ -1270,6 +1270,8 @@
         var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
         if (gen !== generation || !(place >= 0) || place === placeS || sent[place]) return;
         placeS = place;
+        /* Ended there with nothing to follow, it would end here at once and leave the player. */
+        if (!next && !nextUnknown && place >= duration() - 1) return;
         pendingStart = within(place);
       })
       .catch(function () { /* from where this one stands */ })
