@@ -867,6 +867,160 @@
   body:has(.player) .ui-toast__action { padding-inline: 8px; }
 }
 
+/* Playing elsewhere: the page says where, its controls are the remote. */
+.player-play-on .ico--tv { width: 1.35em; height: 1.35em; }
+.player-top .player-play-on,
+.player-brk,
+.player:not(.is-away) .player-away-end { display: none; }
+.player-away-end { display: flex; gap: 8px; }
+.player-away-stop { color: var(--danger-soft); }
+.player-menu-note { flex: none; padding: 8px 12px 10px; font-size: 13px; line-height: 1.45; color: var(--t2); white-space: normal; }
+.player-no-volume { padding: 0 8px; font-size: 13px; line-height: 1.35; color: var(--t2); }
+.player.has-no-volume :is([data-mute], .player-volume-slider) { display: none; }
+.player-air { z-index: -1; }
+.player.is-away { display: flex; flex-direction: column; overflow-y: auto; }
+.player.is-away :is(.player-video, .player-spinner, .player-dim, .player-hold, [data-fullscreen], .player-controls .player-play-on) { display: none !important; }
+/* Out of sight but there: Safari sends to a TV only what the page shows. */
+.player.is-away .player-air { display: block !important; opacity: 0; pointer-events: none; }
+.player.is-away .player-top { position: relative; flex: none; padding-bottom: 12px; background: none; }
+.player.is-away .player-top .player-play-on { display: grid; color: var(--accent-hi); }
+.player.is-away .player-bottom { position: relative; flex: none; padding-top: 20px; background: none; }
+.player.is-away .player-pill { gap: 8px; }
+.player-away { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 32px; }
+.player-away-bg { position: fixed; inset: 0; opacity: .22; overflow: hidden; pointer-events: none; }
+.player-away-bg::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, var(--bg) 22%, transparent 70%); }
+.player-away-bg img,
+.player-away-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.player-away-art {
+  position: relative;
+  flex: none;
+  width: min(640px, 100%, 62vh);
+  aspect-ratio: 16 / 9;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--s1);
+  box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card);
+  transition: opacity var(--dur) var(--ease-out);
+  animation: player-away-art var(--dur-slow) var(--ease-out);
+}
+@keyframes player-away-art { from { opacity: .2; transform: scale(1.5); } }
+.player-away-say { position: relative; max-width: 560px; text-align: center; animation: player-pop var(--dur-slow) var(--ease-out); }
+.player.is-away-paused .player-away-art { opacity: .72; }
+.player:is(.is-lost, .is-gone) .player-away-art { opacity: .4; filter: grayscale(.6); }
+.player:is(.is-lost, .is-gone) .player-away-on { color: var(--t2); }
+/* Its card asks in front of everything but the way out. */
+.player:is(.is-lost, .is-gone) .player-dim { display: block !important; z-index: 4; opacity: .6; }
+.player:is(.is-lost, .is-gone) :is(.player-top, .player-message) { z-index: 5; }
+.player.is-away .player-message { position: fixed; background: var(--s2); }
+.player.is-away .player-message .player-card-line { -webkit-line-clamp: 4; }
+/* Its cards stand over the picture, as high as player.js measures it. */
+.player.is-away :is(.player-upnext, .player-rate) { position: fixed; bottom: var(--away-foot, 340px); }
+.player.is-away .player-upnext { left: 0; right: 0; margin-inline: auto; }
+.player.is-away .player-rate--beside { left: 0; right: 0; margin-inline: auto; translate: none; }
+/* The end of it leaves what may be done next alone. */
+.player.is-ended .player-seek-row,
+.player.is-ended .player-controls > :not(.player-away-end) { display: none; }
+.player.is-ended .player-controls { justify-content: center; }
+.player.is-away [data-next-btn] { order: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: var(--r-pill); background: var(--player-glass); font-size: 13px; }
+.player.is-away [data-next-btn]:hover { background: var(--player-glass-hover); }
+.player.is-away [data-next-btn] .ico { font-size: 14px; }
+.player.is-away [data-next-btn]::after { content: 'Next'; }
+.player.is-away .player-away-end { order: 2; }
+.player:not(.is-begun) .player-away-art::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
+.player-away-ring { position: absolute; z-index: 1; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border-width: 3px; }
+.player.is-begun .player-away-ring { display: none; }
+.player-away-on { font-size: 15px; font-weight: 500; color: var(--accent-hi); text-wrap: balance; overflow-wrap: anywhere; }
+.player-away-on .ico { width: 20px; height: 20px; margin-right: 8px; vertical-align: -.3em; }
+.player-away-hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
+.player.is-away [data-away-idle][inert] { opacity: .4; }
+/* A TV with a remote of its own has its controls there. */
+.player.is-on-tv .player-seek-row,
+.player.is-on-tv .player-controls > :not(.player-away-end) { visibility: hidden; }
+.player.is-on-tv .player-controls > :is(.player-opt, .player-chapters, .player-slot) { display: none; }
+@media (max-width: 899.98px) {
+  .player.is-away .player-away { gap: 18px; padding: 8px 20px 0; }
+  .player-away-art { width: min(100%, 520px); }
+  .player.is-away .player-bottom { width: 100%; padding: 14px max(20px, calc(50% - 280px)) max(18px, env(safe-area-inset-bottom)); }
+  .player.is-away .player-controls { flex-wrap: wrap; justify-content: center; gap: 4px 10px; }
+  .player.is-away .player-spacer { display: none; }
+  .player.is-away .player-brk { display: block; flex-basis: 100%; height: 0; }
+  .player.is-away [data-back10] { order: 1; }
+  .player.is-away [data-play] { order: 2; }
+  .player.is-away [data-fwd10] { order: 3; }
+  .player.is-away .player-brk--1 { order: 4; }
+  .player.is-away .player-volume { order: 5; flex: 1 1 100%; justify-content: center; min-height: 44px; }
+  .player.is-away .player-brk--2 { order: 6; }
+  .player.is-away :is(.player-opt, .player-chapters) { order: 7; }
+  .player.is-away [data-next-btn] { order: 8; }
+  .player.is-away .player-brk--3 { order: 9; height: 8px; }
+  .player.is-away .player-away-end { order: 10; flex: 1 1 100%; flex-wrap: wrap; }
+  .player.is-on-tv .player-away-end [data-open-remote]:not([hidden]) { flex: 1 1 100%; }
+  .player.is-away .player-btn { min-width: 56px; height: 56px; font-size: 24px; }
+  .player.is-away .player-btn--skip { min-width: 72px; font-size: 32px; }
+  .player.is-away [data-play] { width: 72px; height: 72px; border-radius: 50%; background: var(--t1); color: var(--bg); font-size: 26px; }
+  .player.is-away [data-play] .player-btn-ring { width: 26px; height: 26px; border-color: color-mix(in srgb, var(--bg) 25%, transparent); border-top-color: var(--bg); }
+  .player.is-away .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
+  .player.is-away [data-next-btn] { min-width: 44px; height: 36px; margin: 4px 0; font-size: 13px; }
+  .player.is-away:not(.has-no-volume) .player-volume-slider { display: block; flex: 1; max-width: 380px; }
+  .player.is-away .player-chapter-name { display: none; }
+  .player.is-away .player-chapters .player-pill::after { content: 'Chapters'; }
+  .player.is-away .player-away-end .player-pill { flex: 1; height: 52px; }
+  /* Menus open over the rows above theirs, within the screen. */
+  .player.is-away .player-opt,
+  .player.is-away .player-chapters { position: static; }
+  .player.is-away .player-bottom .player-menu { position: fixed; left: 20px; right: 20px; bottom: 150px; width: auto; max-width: 560px; max-height: calc(100vh - 166px); max-height: calc(100dvh - 166px); margin-inline: auto; }
+  .player.is-away .player-skip { position: fixed; bottom: var(--away-foot, 340px); }
+  .player.is-away .player-upnext { width: min(360px, calc(100% - 40px)); }
+  .player.is-away .player-rate--beside { width: min(480px, calc(100% - 24px)); max-width: none; }
+  /* No room for both: the remote has Next, and the bar. */
+  .player.is-away:has(.player-rate:not([hidden], .is-leaving)) .player-skip { visibility: hidden; }
+}
+@media (max-width: 600px) {
+  .player.is-away .player-top { padding-bottom: 0; }
+  .player-away-art { border-radius: 14px; }
+  .player.is-away .player-bottom { padding-inline: 20px; }
+  .player.is-away .player-titles { flex-basis: 120px; }
+  .player.is-away .player-top .player-play-on { order: 1; }
+  .player.is-away .player-top .player-slot > * { order: 2; }
+  .player.is-away :is(.player-opt, .player-chapters) { flex: 1 1 0; }
+  .player.is-away .player-chapters { opacity: 1 !important; visibility: visible !important; }
+  .player.is-away :is(.player-opt, .player-chapters) .player-pill { width: 100%; padding: 0 12px; }
+  .player.is-away .player-chapters .ico { display: none; }
+}
+/* A short phone: the picture gives way so that every control is on the screen. */
+@media (max-width: 600px) and (max-height: 680px) {
+  .player-away-art { width: min(100%, 32vh); }
+}
+/* A phone on its side: the words alone, so that every control is on the screen. */
+@media (max-height: 520px) {
+  .player-away-art { display: none; }
+  .player.is-away :is(.player-skip, .player-upnext) { bottom: 12px; }
+  .player.is-away .player-rate { top: 66px; bottom: auto; }
+  .player.is-away .player-bottom .player-menu { bottom: 64px; max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); }
+}
+@media (max-width: 350px) {
+  .player.is-away .player-away-end .player-pill { flex: 1 1 100%; }
+  .player.is-on-tv .player-controls > :is(.player-volume, .player-brk--1) { display: none; }
+}
+@media (max-width: 899.98px) and (max-height: 520px) {
+  .player.is-away .player-bottom { padding: 8px 20px max(10px, env(safe-area-inset-bottom)); }
+  .player.is-away :is(.player-brk--1, .player-brk--3) { display: none; }
+  .player.is-away .player-volume { flex: 0 1 300px; }
+  .player.is-away [data-play] { width: 56px; height: 56px; }
+  .player.is-away .player-away-end { flex: 0 0 auto; }
+  .player.is-away .player-away-end .player-pill { flex: none; height: 44px; }
+}
+/* One control more in the row. */
+@media (max-width: 600px) {
+  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-btn { min-width: 38px; }
+  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-pill { padding: 0 8px; }
+  .player:not(.is-away):has(.player-controls .player-play-on:not([hidden])) .player-controls { gap: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .player-away-art,
+  .player-away-say { animation: none; }
+}
+
 /* Forced colours drop the fills that draw the bar and the edges of the rest. */
 @media (forced-colors: active) {
   .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }

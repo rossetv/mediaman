@@ -383,6 +383,143 @@ def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:
     assert out["stays"].endswith("Bedroom TV")
 
 
+def test_a_chromecast_has_the_bar_and_the_remote_of_what_it_can_do_without_a_request() -> None:
+    out = _run("cast")
+    assert out["bar"] == {"shown": True, "says": "Playing on Den"}
+    assert out["title"] == "Glass Orchard · S1 E4"
+    assert out["asks"] == 0
+    assert out["subtitle"] == "S1 · E4 · The Grafting Knife"
+    # all of the remote's controls, and no word that there is no volume
+    assert out["shown"] == 11
+    assert out["nextName"] == "Next episode, S1 · E5 — Windfall"
+    assert out["paused"] == "Paused on Den"
+    assert out["byItsOwnRemote"] == "Playing on Den"
+    assert (out["at"], out["follows"]) == ("20:20", "21:40")
+    assert (out["quality"], out["next"]) == ("720p", "S1 · E5 · The Grafting Knife")
+    assert out["did"] == [
+        "pause",
+        ["seek", 1220],
+        ["volume", 0.7],
+        ["mute", True],
+        ["start", {"subtitle": "11"}],
+        ["start", {"quality": "medium"}],
+        ["start", {"next": True}],
+    ]
+    assert out["sent"] == []
+    assert out["least"] == "[data-no-volume]"
+
+
+def test_of_a_series_on_a_chromecast_no_more_is_promised_than_the_episode() -> None:
+    out = _run("cast")
+    assert out["hint"] == "You can leave this page. Keep mediaman open for the next episode."
+    assert out["film"] == "You can leave this page. The TV carries on."
+
+
+def test_a_press_on_pause_does_not_start_a_chromecast_its_own_remote_has_paused() -> None:
+    assert _run("castRaced") == {"did": [], "says": "Paused on Den"}
+
+
+def test_a_refused_change_on_a_chromecast_is_said_and_leaves_what_plays() -> None:
+    out = _run("castRefused")
+    assert len(out["toasts"]) == 1
+    assert "three screens" in out["toasts"][0]
+    assert (out["on"], out["quality"]) == ("Playing on Den", "Auto")
+
+
+def test_the_next_episode_on_a_chromecast_is_offered_and_the_question_after_three() -> None:
+    out = _run("castUpnext")
+    assert (out["card"], out["line"]) == ("Next episode in 8 s", "S1 · E5 — Windfall")
+    assert out["waits"] == "Next episode"
+    assert out["playing"] == "Playing on Den"
+    assert out["still"] == ["Are you still watching?", True, True]
+    assert out["did"] == ["cancel", ["start", {"next": True}]]
+
+
+def test_a_chromecast_is_stopped_from_the_bar_and_brought_here_from_the_remote() -> None:
+    out = _run("castStop")
+    assert out["bar"] is False
+    assert out["toasts"] == ["Stopped. Your place is saved at 20:00."]
+    assert out["did"] == [["stop"], ["stop"]]
+    assert out["href"] == "/watch/play/9001?resume=1"
+    assert out["said"] == []
+    assert out["unsaved"] == ["Stopped. Your place couldn’t be saved."]
+
+
+def test_a_stop_that_takes_long_leaves_the_remote_on_what_is_being_stopped() -> None:
+    out = _run("castStopSlow")
+    assert (out["on"], out["dead"], out["open"]) == ("Playing on Den", True, True)
+    assert out["after"] == [False, "Playing on Living room"]
+    assert (out["sent"], out["did"], len(out["toasts"])) == ([], ["stop"], 1)
+
+
+def test_a_lost_chromecast_may_come_back_and_past_that_is_offered_here() -> None:
+    out = _run("castLost")
+    assert (out["card"], out["dead"]) == ("Den stopped answering", True)
+    assert out["acts"] == ["Bring it here", "Stop"]
+    assert out["back"] is None
+    title, line, acts = out["over"]
+    assert title == "Den stopped answering"
+    assert "21:08" in line
+    assert acts == ["Bring it here", "Close"]
+    assert out["hidden"] == {"shown": True, "says": "Lost Den. Tap to see why."}
+    assert out["dismissed"] == [False, True]
+
+
+def test_a_chromecast_that_ended_is_said_and_one_another_tab_follows_is_not() -> None:
+    out = _run("castOver")
+    shut = {"open": False, "bar": False, "card": None}
+    assert out["ended"] == {**shut, "toasts": ["Nothing is playing on Den now."]}
+    assert out["stopped"] == {**shut, "toasts": ["Stopped."]}
+    assert (out["taken"]["open"], out["taken"]["card"]) == (True, "Den plays something else")
+    assert out["elsewhere"] == {**shut, "toasts": []}
+
+
+def test_a_chromecast_is_found_later_beside_a_tv_and_with_mediaman_out_of_reach() -> None:
+    out = _run("castBeside")
+    assert out["late"] == [False, {"shown": True, "says": "Playing on Den"}]
+    assert out["says"] == ["Playing on Living room", "Playing on Den", "Playing on Den"]
+    assert out["after"] == ["Playing on Living room"] * 2 + ["Playing on Den"] * 4
+    assert out["did"] == ["pause"]
+    assert out["alone"] is False
+
+
+def test_play_on_in_the_remote_moves_what_plays_to_another_tv_or_here() -> None:
+    out = _run("playOn")
+    assert out["shown"] == [False, True]
+    assert (out["on"], out["at"]) == ("tv-7", 1200)
+    assert out["what"] == {
+        "quality": "auto",
+        "autoplay": True,
+        "asked_s": 0,
+        "subtitle": "off",
+        "rating_key": "9001",
+        "position_s": 1200,
+    }
+    # the TV that gives it up says nothing of it meanwhile
+    assert out["between"] == [None, True]
+    assert out["moved"] == "Playing on Bedroom TV"
+    assert out["failed"] == [False, False]
+    assert out["cast"] == ["cast", False]
+    assert out["fromCast"] == [["stop"], "Playing on Bedroom TV"]
+    assert out["toCast"] == ["Playing on Den", []]
+    assert out["unpressed"] == 0
+    assert out["failedThenStopped"] == 1
+    assert out["besideMove"] == "Playing on Living room"
+    assert out["without"] is True
+    assert out["here"] == "/watch/play/9001?resume=1"
+    here = "/watch/play/9001?resume=1"
+    assert out["calledOff"] == [[1, "stop", here], [1, "", here]]
+    assert out["said"] == ["Stopped. Your place is saved at 20:00."]
+    assert out["upnext"] == ["9002", 0]
+
+
+def test_a_titles_button_says_whether_a_tv_plays_it() -> None:
+    assert _run("paintsTitles") == [
+        [True, "Playing on a TV", False, True],
+        [False, "Play on a TV", False, False],
+    ]
+
+
 def test_a_tv_that_cannot_set_its_volume_gets_words_and_no_slider() -> None:
     assert _run("noVolume") == {"slider": False, "words": True}
 

@@ -72,7 +72,7 @@
   /* Something is open over the cards (the detail, a dialog or a menu), or a grid carries them. */
   function covered() {
     return detailOpen() || document.documentElement.classList.contains('is-grid-moving') ||
-      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open');
+      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open, .play-on[open], #tv-remote:not([hidden])');
   }
 
   /* ── What a card says ── */
@@ -669,6 +669,16 @@
       p.actions.appendChild(first);
     }
     p.actions.appendChild(el('span', 'pv__gap'));
+    var plays = p.card.plays ? p.card.href : d && d.in_library && d.play && safePath(d.play.href);
+    if (plays && window.MM.playOn) {
+      // Its sheet may be open, which goes on with what it was opened for.
+      if (!p.playOn || p.plays !== plays && p.playOn.getAttribute('aria-expanded') !== 'true') {
+        p.plays = plays;
+        p.playOn = window.MM.playOn.button(plays, 'btn watch-btn--grey pv__round');
+        p.playOn.setAttribute('tabindex', '-1');
+      }
+      p.actions.appendChild(p.playOn);
+    }
     p.trailerButton = null;
     if (d && trailerKey(d)) {
       p.trailerButton = p.actions.appendChild(round('', 'i-film'));
@@ -1210,7 +1220,7 @@
     if (live) close(live);
   });
   document.addEventListener('scroll', function (e) {
-    if (e.target.closest && e.target.closest('.watch-keep-menu')) return;
+    if (e.target.closest && e.target.closest('.watch-keep-menu, .play-on')) return;
     scrolledAt = now();
     fadeLive();
   }, { capture: true, passive: true });
@@ -1219,7 +1229,9 @@
     viewChanged();
     core.toArray(document.querySelectorAll('.pv__held')).forEach(function (n) { n.remove(); });
   });
-  document.addEventListener('input', fadeLive);
+  document.addEventListener('input', function (e) {
+    if (!e.target.closest('.play-on')) fadeLive();
+  });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) return;
     disarm();

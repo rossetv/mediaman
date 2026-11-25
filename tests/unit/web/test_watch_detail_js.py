@@ -19,6 +19,15 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_play_on_a_tv_stands_beside_play_only_where_there_is_something_to_play_and_a_way() -> None:
+    out = _run("playOn")
+    assert out["shown"] == {"label": "Play on a TV", "hidden": False, "afterPlay": True}
+    assert out["redrawn"] is True
+    assert out["noTvs"]["hidden"] is True
+    assert out["notHeld"] is None
+    assert out["without"] is None
+
+
 def test_a_card_opens_at_once_with_its_title_and_its_own_address() -> None:
     out = _run("openFromCard")
     assert out["afterModifiers"] == {"hidden": True, "gets": 0}

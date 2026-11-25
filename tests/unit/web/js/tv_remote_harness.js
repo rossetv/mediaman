@@ -44,6 +44,15 @@ function aTv(more) {
   return { id: 7, name: 'Living room', on: true, lost_s: null, acked: 0, volume: 0.4, muted: false, can_volume: true, play: aPlay(), last: null, ...more };
 }
 
+function aCast(more) {
+  return {
+    id: 's1', name: 'Den', rating_key: '9001', title: 'Glass Orchard', subtitle: 'S1 · E4 — The Grafting Knife',
+    season: 1, episode: 4, episode_title: 'The Grafting Knife', position_s: 1200, duration_s: 2880, paused: false, lost: false,
+    state: 'playing', volume: 0.4, muted: false, can_volume: true, markers: [], chapters: [], quality: 'auto', subtitle_id: 'off',
+    subtitle_tracks: [], next: null, upnext_in_s: null, still_in_s: null, ...more,
+  };
+}
+
 async function page(opts = {}) {
   const doc = makeDocument();
   if (opts.player) parse(doc, '<div id="player"></div>', doc.body);
@@ -110,6 +119,40 @@ async function page(opts = {}) {
     ModalA11y: { register() {}, onOpened() {}, onClosed() {} },
     MM: { api: { get: (u, o) => call('GET', u, null, o), post: (u, b) => call('POST', u, b), messageOf: (e, f) => f } },
   };
+  // What cast-sender.js tells and does; the tab that follows the play is another with `away`.
+  const cast = { now: null, over: null, did: [], away: false, saved: true, hold: null, refuse: null, change() {}, ...opts.cast };
+  // It goes by itself.
+  cast.end = (reason) => { cast.over = { ...cast.now, reason }; cast.now = null; cast.change(cast.over); };
+  if (opts.cast) {
+    const note = (...what) => { cast.did.push(what.length > 1 ? what : what[0]); };
+    const paused = (on) => { if (cast.now.paused === on) return; note(on ? 'pause' : 'play'); Object.assign(cast.now, { paused: on, state: on ? 'paused' : 'playing' }); cast.change(null); };
+    win.MM.castSender = {
+      now: () => cast.now && { ...cast.now },
+      over: () => cast.over,
+      on(fn) { cast.change = fn; },
+      play: () => paused(false),
+      pause: () => paused(true),
+      seek(s) { note('seek', Math.round(s)); cast.now.position_s = s; },
+      setVolume(v) { note('volume', v); cast.now.volume = v; },
+      setMuted(m) { note('mute', m); cast.now.muted = m; },
+      cancel() { note('cancel'); cast.now.upnext_in_s = null; cast.change(null); },
+      async start(what) {
+        note('start', what);
+        if (cast.hold) await cast.hold;
+        if (cast.refuse) throw Object.assign(new Error(cast.refuse), { code: cast.refuse });
+        Object.assign(cast.now, what.quality ? { quality: what.quality } : what.subtitle ? { subtitle_id: what.subtitle } : { id: 's2', episode: 5, state: 'playing', position_s: 0 });
+      },
+      async stop() {
+        note('stop');
+        const at = cast.now.position_s;
+        cast.now = null;
+        cast.change(null);
+        if (cast.hold) await cast.hold;
+        return { position_s: at, saved: cast.saved };
+      },
+      holds: () => cast.away,
+    };
+  }
   const $ = (sel) => doc.querySelector(sel);
   const ctx = vm.createContext({
     window: win, document: doc, AbortController,
@@ -125,7 +168,7 @@ async function page(opts = {}) {
   vm.runInContext(fs.readFileSync(path.join(JS, 'tv-remote.js'), 'utf8'), ctx);
   await settle();
   const p = {
-    $, doc, win, api, toasts, history, heardByPage,
+    $, doc, win, api, toasts, history, heardByPage, cast,
     async step(by) { history.go(by); await p.pass(20); },
     trail: () => ({ at: history.index, entries: history.entries.length, open: p.isOpen(), menu: p.seen('[data-po]') }),
     seen: (sel) => !p.$(sel).hidden && !p.$(sel).classList.contains('is-leaving'),
@@ -153,6 +196,7 @@ async function page(opts = {}) {
     },
     sent: () => api.calls.filter((c) => c.method === 'POST').map((c) => c.body),
     reads: () => api.calls.filter((c) => c.method === 'GET').map((c) => c.url),
+    clock: (ms) => { const d = new Date(clock + ms); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); },
     at: () => $('[data-elapsed]').textContent,
     bar: () => ({ shown: !$('#tv-mini').hidden && !$('#tv-mini').classList.contains('is-leaving'), says: $('[data-mini-say]').textContent }),
     card: () => ($('[data-card]').hidden || $('[data-card]').classList.contains('is-leaving') ? null : $('[data-card-title]').textContent),
@@ -830,6 +874,312 @@ const scenarios = {
     await p.press('[data-mini-play]');
     await p.pass(6000);
     return { says: out, to: p.api.calls.find((c) => c.method === 'POST').url, stays: p.bar().says };
+  },
+  // A Chromecast beside no TV of mediaman's, with all the sender knows of it, and with the least.
+  async cast() {
+    const full = aCast({ chapters: [{ title: 'The boat', start_s: 0 }, { title: 'The shore', start_s: 1500 }],
+      subtitle_tracks: [{ id: '11', label: 'English' }], next: { rating_key: '9002', label: 'S1 · E5 — Windfall' } });
+    const p = await page({ tvs: [], cast: { now: full } });
+    const reads = p.reads().length;
+    const out = { bar: p.bar(), title: p.$('[data-mini-title]').textContent };
+    await p.pass(30000);
+    out.asks = p.reads().length - reads;
+    await p.open();
+    const controls = ['[data-play]', '[data-back10]', '[data-seek-row]', '[data-bring]', '[data-stop]', '[data-volume]', '[data-mute]',
+      '[data-menu="chapters"]', '[data-menu="subtitles"]', '[data-menu="quality"]', '[data-next]', '[data-no-volume]'];
+    out.shown = controls.filter((c) => p.seen(c)).length;
+    out.nextName = p.$('[data-next]').getAttribute('aria-label');
+    out.hint = p.$('[data-hint]').textContent;
+    out.subtitle = p.$('[data-subtitle]').textContent;
+    await p.press('[data-play]');
+    out.paused = p.$('[data-on]').textContent;
+    Object.assign(p.cast.now, { paused: false, state: 'playing' });
+    await p.pass(600);
+    out.byItsOwnRemote = p.$('[data-on]').textContent;
+    await p.press('[data-fwd10]');
+    await p.press('[data-fwd10]');
+    await p.pass(400);
+    out.at = p.at();
+    p.cast.now.position_s = 1300;
+    await p.pass(600);
+    out.follows = p.at();
+    p.$('[data-volume]').value = '70';
+    await p.on('[data-volume]', 'change', {});
+    await p.press('[data-mute]');
+    await p.press('[data-menu="subtitles"]');
+    await p.pressText('English');
+    await p.press('[data-menu="quality"]');
+    await p.pressText('720p4 Mbps');
+    out.quality = p.$('[data-quality]').textContent;
+    await p.press('[data-next]');
+    await p.pass(600);
+    out.next = p.$('[data-subtitle]').textContent;
+    out.did = p.cast.did;
+    out.sent = p.sent();
+    const q = await page({ tvs: [], cast: { now: aCast({ can_volume: false, quality: null, season: null, episode: null }) } });
+    await q.open();
+    out.least = controls.filter((c) => q.seen(c)).slice(5).join();
+    out.film = q.$('[data-hint]').textContent;
+    return out;
+  },
+  // The TV's own remote was quicker: what was pressed holds already.
+  async castRaced() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    Object.assign(p.cast.now, { paused: true, state: 'paused' });
+    await p.press('[data-mini-play]');
+    return { did: p.cast.did, says: p.bar().says };
+  },
+  async castRefused() {
+    const p = await page({ tvs: [], cast: { now: aCast(), refuse: 'too_many_streams' } });
+    await p.open();
+    await p.press('[data-menu="quality"]');
+    await p.pressText('720p4 Mbps');
+    return { toasts: p.toasts, on: p.$('[data-on]').textContent, quality: p.$('[data-quality]').textContent };
+  },
+  async castUpnext() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    await p.open();
+    Object.assign(p.cast.now, { state: 'upnext', upnext_in_s: 8, next: { rating_key: '9002', label: 'S1 · E5 — Windfall' } });
+    p.cast.change(null);
+    const out = { card: p.card(), line: p.$('[data-card-line]').textContent };
+    await p.pressText('Cancel');
+    out.waits = p.card();
+    await p.pressText('Play now');
+    await p.pass(600);
+    out.playing = p.$('[data-on]').textContent;
+    Object.assign(p.cast.now, { state: 'still', still_in_s: 540 });
+    p.cast.change(null);
+    out.still = [p.card(), p.$('[data-card-line]').textContent.includes('in 9 minutes'), p.$('[data-card-line]').textContent.includes('since ' + p.clock(-60000))];
+    out.did = p.cast.did;
+    return out;
+  },
+  async castStop() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    await p.press('[data-mini-stop]');
+    await p.pass(600);
+    const q = await page({ tvs: [], cast: { now: aCast() } });
+    await q.open();
+    await q.press('[data-bring]');
+    await q.pass(600);
+    const r = await page({ tvs: [], cast: { now: aCast(), saved: false } });
+    await r.press('[data-mini-stop]');
+    await r.pass(600);
+    return { bar: p.bar().shown, toasts: p.toasts, did: [p.cast.did, q.cast.did], href: q.win.location.href, said: q.toasts, unsaved: r.toasts };
+  },
+  // The server takes its time over the place, with another TV playing.
+  async castStopSlow() {
+    let go;
+    const p = await page({ cast: { now: aCast(), hold: new Promise((r) => { go = r; }) } });
+    await p.press('[data-other]');
+    await p.open();
+    await p.press('[data-stop]');
+    await p.pass(3000);
+    const out = { on: p.$('[data-on]').textContent, dead: p.$('[data-stop]').disabled, open: p.isOpen() };
+    await p.press('[data-stop]');
+    go();
+    await p.pass(600);
+    return { ...out, after: [p.isOpen(), p.bar().says], sent: p.sent(), did: p.cast.did, toasts: p.toasts };
+  },
+  async castLost() {
+    const p = await page({ tvs: [], cast: { now: aCast() } });
+    await p.open();
+    const acts = () => p.$('[data-card-actions]').querySelectorAll('button').map((b) => b.textContent);
+    const lost = (on) => { p.cast.now.lost = on; p.cast.change(null); };
+    lost(true);
+    const out = { card: p.card(), acts: acts(), dead: p.$('[data-play]').inert };
+    lost(false);
+    out.back = p.card();
+    lost(true);
+    p.cast.now.position_s = 1268;
+    p.cast.end('lost');
+    await settle();
+    out.over = [p.card(), p.$('[data-card-line]').textContent, acts()];
+    // The page was hidden, or asleep, all the while.
+    const h = await page({ tvs: [], cast: { now: aCast() } });
+    h.doc.hidden = true;
+    h.cast.end('lost');
+    await h.pass(1000);
+    out.hidden = h.bar();
+    // Dismissed, back and lost again.
+    const d = await page({ tvs: [], cast: { now: aCast() } });
+    const turn = async (on) => { d.cast.now.lost = on; d.cast.change(null); await d.pass(300); };
+    await turn(true);
+    await d.press('[data-dismiss]');
+    await d.pass(300);
+    out.dismissed = [d.bar().shown];
+    await turn(false);
+    await turn(true);
+    out.dismissed.push(d.bar().shown);
+    return out;
+  },
+  // It ends by itself, something else plays there, or a tab of its own goes on with it.
+  async castOver() {
+    const over = async (reason, away) => {
+      const p = await page({ tvs: [], cast: { now: aCast(), away } });
+      await p.open();
+      p.cast.end(reason);
+      await p.pass(600);
+      return { open: p.isOpen(), bar: p.bar().shown, toasts: p.toasts, card: p.card() };
+    };
+    return { ended: await over('ended'), stopped: await over('stopped'), taken: await over('taken'), elsewhere: await over('ended', true) };
+  },
+  // What begins later than the page, beside a TV, and with mediaman out of reach.
+  async castBeside() {
+    const late = await page({ tvs: [], cast: {} });
+    const before = late.bar().shown;
+    late.cast.now = aCast();
+    late.cast.change(null);
+    // It ends while the list of TVs is on its way.
+    const left = await page({ cast: { now: aCast() } });
+    await left.press('[data-other]');
+    const held = [];
+    const get = left.win.MM.api.get;
+    left.win.MM.api.get = async (...a) => { const r = await get(...a); await new Promise((go) => held.push(go)); return r; };
+    await left.pass(8000);
+    left.cast.end('ended');
+    held.forEach((go) => go());
+    await settle();
+    const ended = await page({ cast: { now: aCast() } });
+    await ended.press('[data-other]');
+    await ended.pass(1000);
+    ended.cast.end('ended');
+    await settle();
+    // A TV's play ends under the open remote: what else plays has the bar, then and later.
+    const after = [];
+    for (const when of ['before', 'later']) {
+      const t = await page({ cast: { now: when === 'before' ? aCast() : null } });
+      await t.open();
+      Object.assign(t.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
+      await t.pass(1100);
+      if (when === 'later') { t.cast.now = aCast(); t.cast.change(null); }
+      await t.pass(600);
+      after.push(t.bar().says);
+      // The list of TVs does not come.
+      const f = await page({ cast: { now: null } });
+      await f.open();
+      Object.assign(f.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
+      const one = f.win.MM.api.get;
+      f.win.MM.api.get = (u, o) => (u === '/api/tvs' ? Promise.reject(new Error('down')) : one(u, o));
+      await f.pass(1100);
+      f.cast.now = aCast();
+      f.cast.change(null);
+      await f.pass(600);
+      after.push(f.bar().says);
+    }
+    const two = await page({ cast: { now: aCast() } });
+    const says = [two.bar().says];
+    await two.press('[data-other]');
+    says.push(two.bar().says);
+    two.api.fail = ['down', 502];
+    await two.pass(20000);
+    says.push(two.bar().says);
+    await two.press('[data-mini-play]');
+    return { late: [before, late.bar()], says, after: [left.bar().says, ended.bar().says, ...after], did: two.cast.did, alone: (await page({ tvs: [], cast: {} })).bar().shown };
+  },
+  // Play on from the remote: what its sheet is told, and what becomes of both TVs.
+  async playOn() {
+    const make = async (opts) => {
+      const p = await page(opts);
+      const sheet = { open: false, host: null, cancels: 0 };
+      p.win.MM.playOn = { open: (b, host) => { sheet.open = true; sheet.host = host; }, isOpen: () => sheet.open, close: () => { sheet.open = false; }, cancel: () => { sheet.cancels += 1; } };
+      await p.open();
+      await p.press('#tv-remote [data-play-on]');
+      return { p, sheet, host: sheet.host };
+    };
+    const a = await make();
+    const b = a.p.$('#tv-remote [data-play-on]');
+    const out = { shown: p_shown(b), on: a.host.on(), at: a.host.before({ id: 8 }), what: a.host.what() };
+    function p_shown(n) { return [n.hidden, n.classList.contains('is-on')]; }
+    // The TV it is on ends first; then the other has it.
+    Object.assign(a.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
+    await a.p.pass(1100);
+    out.between = [a.p.card(), a.p.isOpen()];
+    const other = aTv({ id: 8, name: 'Bedroom TV', play: aPlay({ play_id: 'p9' }) });
+    a.p.api.tvs.push(other);
+    a.host.started(other);
+    await settle();
+    out.moved = a.p.$('[data-on]').textContent;
+    const f = await make();
+    f.host.before({ id: 8 });
+    Object.assign(f.p.api.tvs[0], { play: null });
+    await f.p.pass(1100);
+    f.host.failed();
+    await settle();
+    out.failed = [f.p.isOpen(), f.sheet.open];
+    const g = await make();
+    out.unpressed = g.host.what().asked_s;
+    g.host.before({ id: 8 });
+    g.host.failed();
+    Object.assign(g.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'stopped' } });
+    await g.p.pass(1100);
+    out.failedThenStopped = g.p.toasts.length;
+    // Another that plays is not shown while one is moved.
+    const m = await make({ cast: { now: aCast() } });
+    m.host.before({ id: 8 });
+    Object.assign(m.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
+    await m.p.pass(1100);
+    m.p.cast.change(null);
+    out.besideMove = m.p.$('[data-on]').textContent;
+    const none = await page();
+    await none.open();
+    out.without = none.$('#tv-remote [data-play-on]').hidden;
+    const c = await make({ tvs: [], cast: { now: aCast({ subtitle_id: null, next: { rating_key: '9002', label: 'x' } }) } });
+    out.cast = [c.host.on(), 'subtitle' in c.host.what()];
+    c.p.api.tvs.push(other);
+    c.host.started(other);
+    await settle();
+    out.fromCast = [c.p.cast.did, c.p.$('[data-on]').textContent];
+    const t = await make({ cast: { now: null } });
+    t.p.cast.now = aCast();
+    t.host.started({ id: 'cast', name: 'Den' });
+    await settle();
+    out.toCast = [t.p.$('[data-on]').textContent, t.p.toasts];
+    const h = await make();
+    h.host.here();
+    await h.p.pass(600);
+    out.here = h.p.win.location.href;
+    // Here after all, while another TV is starting: the old one plays still, or has given it up.
+    out.calledOff = [];
+    for (const given of [false, true]) {
+      const o = await make();
+      o.host.before({ id: 8 });
+      if (given) Object.assign(o.p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'moved' } });
+      await o.p.pass(1100);
+      o.host.here();
+      await o.p.pass(600);
+      out.calledOff.push([o.sheet.cancels, o.p.sent().map((x) => x.kind).join(), o.p.win.location.href]);
+    }
+    // The next play's end is said again.
+    const s = await make();
+    s.host.before({ id: 8 });
+    s.host.here();
+    s.p.api.tvs.push(aTv({ id: 9, name: 'Den', play: aPlay({ play_id: 'p7' }) }));
+    await s.p.pass(600);
+    s.p.win.MM.tvRemote.open(9);
+    await settle();
+    Object.assign(s.p.api.tvs[1], { play: null, last: { ...aPlay(), reason: 'stopped' } });
+    await s.p.pass(1100);
+    out.said = s.p.toasts;
+    const u = await make({ tvs: [aTv({ play: aPlay({ state: 'upnext', next: { rating_key: '9002', season: 1, episode: 5, title: 'x' } }) })] });
+    u.host.before({ id: 8 });
+    out.upnext = [u.host.what().rating_key, u.host.before({ id: 8 })];
+    return out;
+  },
+  async paintsTitles() {
+    const p = await page();
+    const b = p.doc.createElement('button');
+    b.setAttribute('data-play-on-key', '9001');
+    const c = p.doc.createElement('button');
+    c.setAttribute('data-play-on-key', '42');
+    p.doc.body.appendChild(b);
+    p.doc.body.appendChild(c);
+    await p.pass(5100);
+    const look = () => [b.classList.contains('is-on'), b.getAttribute('aria-label'), c.classList.contains('is-on'), p.win.MM.tvRemote.plays('9001')];
+    const out = [look()];
+    await p.open();
+    p.api.tvs[0].play.state = 'ended';
+    await p.pass(1100);
+    return out.concat([look()]);
   },
   async noVolume() {
     const p = await page({ tvs: [aTv({ can_volume: false })] });

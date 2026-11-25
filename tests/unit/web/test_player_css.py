@@ -221,3 +221,64 @@ def test_the_one_row_question_has_room_for_its_words_beside_the_next_episode_on_
     assert taken
     # The four thumbs in their frame, the close button, two gaps and the card's edges.
     assert 660 - int(taken.group(1)) - 188 - 44 - 2 * 8 - 18 >= 100
+
+
+def test_the_end_of_a_title_on_a_tv_leaves_only_what_may_be_done_next() -> None:
+    css = _text("_player.css")
+    gone = ".player.is-ended .player-seek-row, .player.is-ended .player-controls > :not(.player-away-end)"
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    assert "display: none" in rules[gone]
+
+
+def test_next_is_named_and_stands_after_the_quality_on_a_tvs_remote() -> None:
+    css = _text("_player.css")
+    assert "'Next'" in _rule(css, ".player.is-away [data-next-btn]::after")
+    order = [
+        int(re.search(r"order: (\d+)", _rule(css, s)).group(1))
+        for s in (".player.is-away [data-next-btn]", ".player.is-away .player-away-end")
+    ]
+    assert order == sorted(order) == [1, 2]
+    phone = css[css.index("\n@media (max-width: 899.98px) {\n  .player.is-away") :]
+    row = [
+        int(re.search(rf"{re.escape(s)} \{{ order: (\d+)", phone).group(1))
+        for s in (
+            ".player.is-away :is(.player-opt, .player-chapters)",
+            ".player.is-away [data-next-btn]",
+            ".player.is-away .player-brk--3",
+            ".player.is-away .player-away-end",
+        )
+    ]
+    assert row == sorted(set(row))
+
+
+def test_the_menus_of_a_tvs_remote_stay_inside_a_low_screen() -> None:
+    css = _text("_player.css")
+    menus = re.findall(r"\.player\.is-away \.player-bottom \.player-menu \{([^}]*)\}", css)
+    assert len(menus) == 2
+    for body in menus:
+        foot = int(re.search(r"bottom: (\d+)px", body).group(1))
+        taken = int(re.search(r"max-height: calc\(100dvh - (\d+)px\)", body).group(1))
+        assert taken >= foot + 12
+
+
+def test_the_page_under_a_tvs_remote_is_laid_out_as_the_remote() -> None:
+    # Hidden and not gone, the rows keep the picture where the remote has it.
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    kept = ".player.is-on-tv .player-seek-row, .player.is-on-tv .player-controls > :not(.player-away-end)"
+    assert "visibility: hidden" in rules[kept]
+    stacked = rules[".player.is-on-tv .player-away-end [data-open-remote]:not([hidden])"]
+    assert "flex: 1 1 100%" in stacked
+    assert "flex-wrap: wrap" in re.search(r"\.player-away-end \{ order: 10;[^}]*", css).group(0)
+
+
+def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:
+    css = _text("_play_on.css")
+    tokens = _text("_tokens.css")
+
+    def grey(body: str) -> int:
+        name = re.search(r"background:[^;]*var\(--(s\d)\)", body).group(1)
+        return int(re.search(rf"--{name}:\s*#(..)", tokens).group(1), 16)
+
+    box = grey(_rule(css, ".play-on__say"))
+    assert _contrast(grey(_rule(css, ".play-on__say .btn--secondary")), box) >= 1.2

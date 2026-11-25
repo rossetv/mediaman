@@ -274,7 +274,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js')
+    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', opts.playOn ? 'watch/play-on.js' : [], 'watch/detail.js')
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -1502,6 +1502,33 @@ const scenarios = {
       return { during, kept, deleted: look(p).eps };
     }
     return { loaded: await run(false), loading: await run(true) };
+  },
+
+  // Play on a TV, beside Play: with TVs to choose, with none of mediaman's to ask, and of no such page.
+  async playOn() {
+    const open = async (title, o) => {
+      const ref = title.ref;
+      const p = load({ routes: { ['/api/watch/title/' + ref]: title, '/api/tvs': { tvs: [] } }, ...o });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      const b = p.q('[data-ttl-act="play-on"]');
+      return { p, says: b && { label: b.getAttribute('aria-label'), hidden: b.hidden, afterPlay: p.q('[data-ttl-act="primary"]').nextElementSibling === b } };
+    };
+    const film = { ...LIB_MOVIE, play: { label: 'Play', href: '/watch/play/120', progress_pct: null, minutes_left: null } };
+    const shown = await open(film, { playOn: true });
+    shown.p.q('[data-ttl-act="play-on"]').focus();
+    shown.p.doc.dispatchEvent(new shown.p.ctx.CustomEvent('mm:watch-marked', { detail: { refs: [film.ref] } }));
+    shown.p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: film.ref, download_state: null, download_pct: null } });
+    await settle();
+    const now = shown.p.q('[data-ttl-act="play-on"]');
+    return {
+      shown: shown.says,
+      redrawn: shown.p.doc.activeElement === now,
+      noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
+      notHeld: (await open(MOVIE_DL, { playOn: true })).says,
+      without: (await open(film, {})).says,
+    };
   },
 
   // Undo pressed in a toast, which goes with the focus it had.
