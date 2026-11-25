@@ -50,7 +50,7 @@ def suggestible(
 ) -> list[dict[str, object]]:
     """The suggestions (with ``media_type`` and ``tmdb_id``) to show a person with *levels*: none
     of their strong noes, and those they rated down after the rest."""
-    kept = [(row, levels.get((row["media_type"], row["tmdb_id"]), 0)) for row in rows]  # type: ignore[arg-type]
+    kept = [(row, levels.get((row.get("media_type"), row.get("tmdb_id")), 0)) for row in rows]  # type: ignore[arg-type]
     shown = [(row, level) for row, level in kept if level != STRONG_NO]
     return [row for row, _ in sorted(shown, key=lambda pair: pair[1] < 0)]
 

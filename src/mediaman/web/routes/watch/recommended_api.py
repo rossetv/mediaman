@@ -22,6 +22,7 @@ from mediaman.services.openai.recommendations.throttle import refresh_cooldown_r
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.ratings import find_user_id, levels_for
 from mediaman.web.repository.recommended import fetch_recommendations, group_into_batches
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.recommended.own import my_refresh
@@ -149,7 +150,8 @@ def api_watch_recommended(
     *batch* names another), the list of batches, whether they may have their own made again, and for
     an admin the cooldown of the shared ones. No title comes twice: *start* names
     the batch the row began with, and what the batches from it to this one hold is left
-    out. ``next_batch`` is the older batch to go on with, or None when the picks are
+    out. No title they rated a strong no is among them, and one rated down comes last in
+    its batch. ``next_batch`` is the older batch to go on with, or None when the picks are
     finished."""
     conn = get_db()
     is_admin = get_user_role(conn, username) == "admin"
@@ -162,15 +164,27 @@ def api_watch_recommended(
     if not enabled:
         return respond_ok(payload)
 
-    batches = group_into_batches(fetch_recommendations(conn, username), date.today())
+    user_id = find_user_id(conn, username)
+    levels = levels_for(conn, user_id) if user_id is not None else {}
+    batches = group_into_batches(fetch_recommendations(conn, username), date.today(), levels)
     places = {b["id"]: place for place, b in enumerate(batches)}
     if any(b is not None and b not in places for b in (batch, start)):
         return respond_err("not_found", status=404)
-    payload["batches"] = [{k: b[k] for k in ("id", "label", "date_label")} for b in batches]
-    if not batches:
+    payload["batches"] = [
+        {k: b[k] for k in ("id", "label", "date_label")} for b in batches if b["items"]
+    ]
+    # A batch whose every title the person said a strong no to gives way to the next older one.
+    chosen = next(
+        (
+            p
+            for p in range(places[batch] if batch is not None else 0, len(batches))
+            if batches[p]["items"]
+        ),
+        None,
+    )
+    if chosen is None:
         return respond_ok(payload)
 
-    chosen = places[batch] if batch is not None else 0
     rows, payload["next_batch"] = _unseen(
         batches, places[start] if start is not None else chosen, chosen
     )

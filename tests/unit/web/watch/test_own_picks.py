@@ -10,13 +10,14 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import ConfigDecryptError, SSRFRefused
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.openai.recommendations import prompts, user_picks
 from mediaman.services.watch_catalog import _arr, _discover, _library
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository import ratings
 from mediaman.web.repository.recommended import group_into_batches
 from mediaman.web.routes import recommended
 from mediaman.web.routes.recommended import api as recommended_api_module
@@ -200,6 +201,90 @@ class TestRow:
         assert user_picks.fetch_pick(conn, "amy", pick).downloaded_at is None
         row = conn.execute("SELECT downloaded_at FROM suggestions").fetchone()
         assert row["downloaded_at"] is not None
+
+
+class TestRatedRow:
+    """The row once a person rated some of its titles."""
+
+    @pytest.fixture
+    def picks(self, people, conn):
+        insert_suggestion(conn, title="S3", tmdb_id=3, media_type="movie", batch_id="2099-01-03")
+        insert_user_pick(
+            conn, "amy", title="A3", tmdb_id=30, media_type="movie", batch_id="2099-01-03"
+        )
+        insert_suggestion(conn, title="S2", tmdb_id=2, media_type="movie", batch_id="2099-01-02")
+        for n in (1, 4):
+            insert_suggestion(
+                conn, title=f"S{n}", tmdb_id=n, media_type="movie", batch_id="2099-01-01"
+            )
+        conn.commit()
+
+        def rate(level, *ids):
+            user_id = ratings.find_user_id(conn, "amy")
+            for tmdb_id in ids:
+                title = ratings.RatedTitle("movie", tmdb_id)
+                ratings.set_level(conn, user_id, title, level, now_utc())
+
+        return rate
+
+    def test_a_strong_no_leaves_that_persons_row_alone(self, people, picks):
+        picks(-2, 3, 30)
+        assert _titles(people["amy"]) == ["S2"]
+        assert _titles(people["bob"]) == ["S3"]
+        picks(1, 3)
+        assert _titles(people["amy"]) == ["S3"]
+
+    def test_a_title_rated_down_comes_last_in_its_own_batch(self, people, picks):
+        picks(-1, 30, 1)
+        assert _titles(people["amy"]) == ["S3", "A3"]
+        assert _titles(people["amy"], batch="2099-01-01") == ["S4", "S1"]
+
+    def test_a_batch_left_empty_is_not_listed_and_the_next_is_the_latest(self, people, picks):
+        picks(-2, 3, 30)
+        body = _row(people["amy"])
+        assert next((b["id"], b["label"], b["date_label"]) for b in body["batches"]) == (
+            "2099-01-02",
+            "Latest picks",
+            "2 Jan",
+        )
+        assert len(body["batches"]) == 2
+        assert (body["batch"], body["next_batch"]) == ("2099-01-02", "2099-01-01")
+
+    def test_a_row_being_read_goes_on_past_a_batch_rated_away_with_none_lost_or_twice(
+        self, people, picks
+    ):
+        assert _row(people["amy"])["next_batch"] == "2099-01-02"
+        # The batch it began with, and the one it is to ask for, are emptied in between.
+        picks(-2, 3, 30, 2)
+        body = _row(people["amy"], batch="2099-01-02", start="2099-01-03")
+        assert [i["title"] for i in body["items"]] == ["S1", "S4"]
+        assert (body["batch"], body["next_batch"]) == ("2099-01-01", None)
+
+    def test_rating_a_title_of_the_first_batch_borrows_none_of_the_older_ones(
+        self, people, picks, conn
+    ):
+        insert_user_pick(
+            conn, "amy", title="A2", tmdb_id=20, media_type="movie", batch_id="2099-01-02"
+        )
+        conn.commit()
+        assert _titles(people["amy"]) == ["A3", "S3"]
+        picks(-2, 30)
+        assert _titles(people["amy"]) == ["S3"]
+        assert _titles(people["amy"], batch="2099-01-02", start="2099-01-03") == ["A2", "S2"]
+
+    def test_the_first_batch_says_the_day_of_what_is_left_in_it(self, people, picks, conn):
+        insert_user_pick(
+            conn, "amy", title="A4", tmdb_id=40, media_type="movie", batch_id="2099-01-04"
+        )
+        conn.commit()
+        assert _row(people["amy"])["batches"][0]["date_label"] == ""
+        picks(-2, 40)
+        assert _row(people["amy"])["batches"][0]["date_label"] == "3 Jan"
+
+    def test_with_every_title_rated_away_the_row_is_empty(self, people, picks):
+        picks(-2, 1, 2, 3, 4, 30)
+        body = _row(people["amy"])
+        assert (body["batch"], body["batches"], body["items"]) == (None, [], [])
 
 
 class TestDetail:
