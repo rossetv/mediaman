@@ -1183,6 +1183,18 @@ class TestPlayerPage:
 
         assert get("/watch/play/100?resume=1").json()["start_s"] == 0
 
+    @pytest.mark.parametrize("position", [5, 1200, 5900])
+    def test_the_saved_place_is_told_where_nothing_is_resumed_too(self, get, conn, position):
+        _play(conn, "aoife", "100", position=position, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["place_s"] == position
+
+    def test_a_title_never_played_or_only_marked_has_no_saved_place(self, get, conn):
+        mark_watched(conn, "aoife", [MarkTarget("100", "100", None, 6000)], NOW)
+
+        assert get("/watch/play/100").json()["place_s"] is None
+        assert get("/watch/play/100", user="cian").json()["place_s"] is None
+
     def test_resume_uses_only_the_persons_own_position(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")
 

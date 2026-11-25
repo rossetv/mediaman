@@ -1235,6 +1235,8 @@ def play_page(
         if progress is not None and not progress.watched and (resume == "1" or resumable(progress))
         else 0
     )
+    # Where the title plays somewhere else it is gone on with from there, however far that is.
+    place_s = progress.position_s if progress is not None and progress.played else None
     return _render(
         request,
         "watch_player.html",
@@ -1248,6 +1250,7 @@ def play_page(
             },
             "qualities": quality_rows(item),
             "start_s": start_s,
+            "place_s": place_s,
             "back_href": back_href,
             "next": next_episode,
             "next_state": next_state,
