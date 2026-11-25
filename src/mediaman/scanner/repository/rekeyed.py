@@ -573,6 +573,21 @@ def _files_of(conn: sqlite3.Connection, keys: Iterable[object]) -> set[str]:
     return files
 
 
+def was_held_since_scheduled(conn: sqlite3.Connection, action_id: int, said: str) -> bool:
+    """Return True if the history tells, in the words *said*, of a hold of the deletion row.
+
+    One told since the row was scheduled: its deletion did not happen when its notice said.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM scheduled_actions sa "
+        "JOIN audit_log a ON a.media_item_id = sa.media_item_id "
+        "WHERE sa.id = ? AND a.action = 'delete_awaiting_scan' "
+        "  AND a.created_at >= sa.scheduled_at AND instr(a.detail, ?) > 0 LIMIT 1",
+        (action_id, said),
+    ).fetchone()
+    return row is not None
+
+
 def is_kept_under_another_key(conn: sqlite3.Connection, media_id: str) -> bool:
     """Return True if a kept film, season or show of the library is the title *media_id*.
 

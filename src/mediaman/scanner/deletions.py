@@ -45,6 +45,7 @@ from mediaman.scanner.repository.rekeyed import (
     is_watched_lately,
     title_files,
     title_ids,
+    was_held_since_scheduled,
 )
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
@@ -1176,6 +1177,10 @@ def _audit_root_unavailable(conn: sqlite3.Connection, row: DeletionRow, folder: 
     _audit_once(conn, row, "delete_root_unavailable", detail)
 
 
+# What the history says of a title whose keep or watch holds a file: the deletion waits for it.
+_GONE = "Plex lists no more"
+
+
 class _Title(NamedTuple):
     """What tells whether two items are one title; its files as normalised paths."""
 
@@ -1318,6 +1323,7 @@ class DeletionExecutor:
             for row in rows
             if row.library_selected
             and not self._must_wait(row)
+            and not was_held_since_scheduled(self._conn, row.id, _GONE)
             and not is_kept_deletion(self._conn, row.id, now.isoformat())
         ]
         # Read the disk before writing anything, so a hung mount cannot hold the lock.
@@ -1407,8 +1413,11 @@ class DeletionExecutor:
         return (
             row.library_id in self._unread_libraries
             or bool(self._gone_twins(row))
-            or self._held_by(row) is not None
+            or self._is_file_held(row)
         )
+
+    def _is_file_held(self, row: DeletionRow) -> bool:
+        return self._held_by(row) is not None
 
     def _held_by(self, row: DeletionRow) -> bool | None:
         """Return what holds a file of *row* for a title removed from the library.
@@ -1448,12 +1457,12 @@ class DeletionExecutor:
             )
         if self._held_by(row):
             return (
-                "one of its files is of a kept title Plex lists no more; the deletion waits "
-                "while that one is kept"
+                f"one of its files is of a kept title {_GONE}; the deletion waits while that "
+                "one is kept"
             )
         return (
-            "one of its files is of a title watched lately that Plex lists no more; the "
-            "deletion waits until that watch is too long ago"
+            f"one of its files is of a title watched lately that {_GONE}; the deletion waits "
+            "until that watch is too long ago"
         )
 
     def _book_over(
@@ -1608,6 +1617,10 @@ class DeletionExecutor:
                     "delete_awaiting_scan",
                     f"Not deleted yet: {row.title} — {self._why_it_waits(row)}",
                 )
+            self._conn.commit()
+            return [], 0
+
+        if self._cancel_if_released(row):
             self._conn.commit()
             return [], 0
 
@@ -1885,12 +1898,14 @@ class DeletionExecutor:
             [other.id for other in waiting],
         )
         names = ", ".join(str(other.title) for other in waiting)
+        # Said so that this row too is scheduled afresh once the wait is over.
+        whom = f" for a title {_GONE}" if any(map(self._is_file_held, waiting)) else ""
         _audit_once(
             self._conn,
             row,
             "delete_awaiting_scan",
             f"Not deleted yet: {row.title} — its folder also holds media whose own deletion "
-            f"waits ({names})",
+            f"waits{whom} ({names})",
         )
 
     def _refuse_unselected(self, row: DeletionRow) -> None:
@@ -1904,6 +1919,33 @@ class DeletionExecutor:
             row.id,
             row.media_item_id,
         )
+        self._cancel(
+            row, "its library is not selected in Settings, so its scheduled deletion is cancelled"
+        )
+
+    def _cancel_if_released(self, row: DeletionRow) -> bool:
+        """Cancel a claimed row that waited for a keep or a watch of a title that is gone.
+
+        Its notice named a day long past, and it may have been watched since:
+        the next scan decides afresh, with a new notice.
+        """
+        if not was_held_since_scheduled(self._conn, row.id, _GONE):
+            return False
+        logger.info(
+            "engine.delete.released id=%s media_id=%s — what it waited for is over; cancelling "
+            "the deletion, whose notice is past",
+            row.id,
+            row.media_item_id,
+        )
+        self._cancel(
+            row,
+            "what it waited for is over, but the day its notice named is past, so its scheduled "
+            "deletion is cancelled and the next scan decides afresh",
+        )
+        return True
+
+    def _cancel(self, row: DeletionRow, why: str) -> None:
+        """Cancel a claimed row, booking what it removed and auditing *why* it is not deleted."""
         audit_lost_removal(self._conn, row)
         finished = is_fully_removed(row)
         if row.removed_paths:
@@ -1912,11 +1954,7 @@ class DeletionExecutor:
             return
         repository.delete_scheduled_action(self._conn, row.id)
         log_audit(
-            self._conn,
-            row.media_item_id,
-            "delete_refused",
-            f"Not deleted: {row.title} — its library is not selected in Settings, so its "
-            "scheduled deletion is cancelled",
+            self._conn, row.media_item_id, "delete_refused", f"Not deleted: {row.title} — {why}"
         )
 
     def _cancel_if_kept(self, row: DeletionRow, now_iso: str) -> bool:

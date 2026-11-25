@@ -193,7 +193,8 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
         assert "watched lately" in self._said("20")[0]
 
         self.freezer.tick(timedelta(days=20))
-        self._scan(1)
+        self._scan(2)
+        self._scan_past_grace()
         assert not shared.exists()
 
     def test_the_deletion_held_stays_as_it_was_scheduled_and_says_once_that_a_keep_holds_it(self):
@@ -232,6 +233,24 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
         self._scan_until_due("20", "21")
 
         assert (film.exists(), episode.exists()) == (True, True)
+
+    def test_a_folder_that_waited_with_such_a_title_is_scheduled_afresh_with_it(self):
+        film, part, episode = self._file("film.mkv"), self._file("part.mkv"), self._file("E1.mkv")
+        self._gone(film, [film])
+        runs_out = datetime.now(UTC) + timedelta(days=30)
+        self._keep(action="snoozed", execute_at=runs_out.isoformat())
+        self._scan_until_pruned()
+        self._list(
+            "20", 4, self.folder, [episode], season_number=1, show_rating_key="s2", **_SEASON
+        )
+        self._list("21", 2, part, [part, film])
+        self._scan_until_due("20", "21")
+
+        self.freezer.tick(timedelta(days=20))
+        self._scan(1)
+
+        assert (film.exists(), part.exists(), episode.exists()) == (True, True, True)
+        assert self._scheduled() == set()
 
     def test_a_file_spelled_another_way_is_held_too(self):
         a, b, d = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
@@ -308,6 +327,13 @@ class TestFilesOfAKeepATitleTook(_GoneLibrary):
         self._list("30", 2, a, [a])
         self._list("20", 2, b, [b])
         return b
+
+    def _when_due(self, key):
+        return self.conn.execute(
+            "SELECT execute_at FROM scheduled_actions WHERE media_item_id = ? "
+            "AND action = 'scheduled_deletion'",
+            (key,),
+        ).fetchone()[0]
 
     @pytest.mark.parametrize("taken", ["before the prune", "after the prune"])
     @pytest.mark.parametrize("other", ["alone", "with another file"])
@@ -424,3 +450,50 @@ class TestFilesOfAKeepATitleTook(_GoneLibrary):
         self._scan_past_grace()
 
         assert b.exists() is not removed
+
+    def test_once_its_keep_ends_the_other_film_is_scheduled_afresh_and_only_then_deleted(self):
+        b = self._listed_as_two()
+        self._scan_until_due("20")
+        assert b.exists()
+        was_due = self._when_due("20")
+
+        with self.conn:
+            delete_protections(self.conn, "30")
+        self._scan(1)
+        assert b.exists()
+        assert "20" not in self._scheduled()
+
+        self._scan(1)
+        assert self._when_due("20") > was_due
+        assert b.exists()
+        self._scan_past_grace()
+        assert not b.exists()
+
+    def test_one_watched_while_it_was_held_is_not_scheduled_again(self):
+        b = self._listed_as_two()
+        self._scan_until_due("20")
+        self.plex.get_watch_history.side_effect = lambda key: (
+            [{"viewed_at": datetime.now(UTC)}] if key == "20" else []
+        )
+        with self.conn:
+            delete_protections(self.conn, "30")
+
+        self._scan(2)
+        self._scan_past_grace()
+
+        assert "20" not in self._scheduled()
+        assert b.exists()
+
+    def test_the_hold_that_ended_is_told_in_the_history(self):
+        self._listed_as_two()
+        self._scan_until_due("20")
+        with self.conn:
+            delete_protections(self.conn, "30")
+
+        self._scan(1)
+
+        said = self.conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' AND action = 'delete_refused'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "cancelled" in said[0][0]
