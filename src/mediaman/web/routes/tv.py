@@ -437,10 +437,12 @@ def _start_on(
     paused: bool = False,
     renewed: bool = False,
     pressed: bool = True,
+    offer: older_play.Offer | None = None,
 ) -> int | Response:
     """Play a title on the TV, as its owner's stream; the command's id, or the refusal.
 
     *start_s* None goes on from the saved place. With *over* it starts only while that plays.
+    With *offer* the TV is taken only for a stream that has started, where that can be.
     """
     user, user_id, key = held.owner, held.owner_id, held.token_hash
     if user is None or user_id is None or key is None:
@@ -487,15 +489,40 @@ def _start_on(
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
         )
-        command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
-        begun.append(play)
-        # What played counts among the owner's streams until it has ended.
-        _carry_out(players)
-        session = older_play.session_of(key)
-        answer = _start_cast(request, body, user, session, manager, began)
-        if answer.status_code == 200:
-            return _take_stream(answer, manager, held, play)
-        return answer
+        session = older_play.session_of(key) if offer is None else offer.session_hash
+        started: Response | None = None
+        if offer is not None:
+            own = offer.own_title()
+            # The title's own stream makes way at once, whatever comes of it.
+            if own != rating_key:
+                started = _start_cast(request, body, user, session, manager, began)
+                if started.status_code != 200:
+                    if own is None or _error_of(started) != "too_many_streams":
+                        return started
+                    started = None
+            refused = offer.take()
+            if refused is not None:
+                if started is not None:
+                    _end_started(manager, started, user)
+                return refused
+        try:
+            command.append(
+                players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed)
+            )
+            begun.append(play)
+            # What played counts among the owner's streams until it has ended.
+            _carry_out(players)
+            answer = started or _start_cast(request, body, user, session, manager, began)
+            if answer.status_code == 200:
+                answer = _take_stream(answer, manager, held, play)
+            return answer
+        except BaseException:
+            if started is not None:
+                _end_started(manager, started, user)
+            raise
+        finally:
+            if offer is not None:
+                offer.drive()
 
     answer: Response | None = None
     try:
@@ -504,7 +531,7 @@ def _start_on(
         return _refusal(exc)
     finally:
         if begun and (answer is None or answer.status_code != 200):
-            error = "unreachable" if answer is None else json.loads(bytes(answer.body))["error"]
+            error = "unreachable" if answer is None else _error_of(answer)
             players.failed(key, begun[0].id, error)
             _carry_out(players)
     if answer.status_code != 200:
@@ -512,6 +539,15 @@ def _start_on(
     if begun[0].next_state == "unknown":
         _look_up_next(plex[0], key, begun[0])
     return command[0]
+
+
+def _error_of(answer: Response) -> str:
+    return str(json.loads(bytes(answer.body))["error"])
+
+
+def _end_started(manager: StreamManager, answer: Response, user: str) -> None:
+    with contextlib.suppress(StreamGone):
+        manager.end(json.loads(bytes(answer.body))["stream_id"], user)
 
 
 def _take_stream(answer: Response, manager: StreamManager, held: repo.Tv, play: Play) -> Response:
@@ -530,8 +566,7 @@ def _take_stream(answer: Response, manager: StreamManager, held: repo.Tv, play: 
         return _gone_answer(exc)
     if taken:
         return answer
-    with contextlib.suppress(StreamGone):
-        manager.end(stream_id, user)
+    _end_started(manager, answer, user)
     return respond_err("superseded", status=409)
 
 
@@ -829,14 +864,18 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
     if limited is not None:
         return limited
     tv = repo.find(get_db(), tv_id)
-    held: repo.Tv | Response
+    offer: older_play.Offer | None = None
     if tv is not None and tv.kind == "older":
         steering = older_play.Steering(_carry_on, _carry_out, _keep_alive)
-        held = older_play.claim_tv(request, tv, username, confirm=body.confirm, steering=steering)
+        asked = older_play.ask_for(request, tv, username, confirm=body.confirm, steering=steering)
+        if isinstance(asked, Response):
+            return asked
+        offer, held = asked, asked.held
     else:
-        held = _own(username, tv_id)
-    if isinstance(held, Response):
-        return held
+        own = _own(username, tv_id)
+        if isinstance(own, Response):
+            return own
+        held = own
     choice = Choice(quality=body.quality, subtitle=body.subtitle, autoplay=body.autoplay)
     done = _start_on(
         request,
@@ -845,6 +884,7 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
         choice,
         start_s=body.position_s,
         asked_s=body.asked_s,
+        offer=offer,
     )
     if isinstance(done, Response):
         return done

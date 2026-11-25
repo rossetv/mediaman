@@ -7,6 +7,7 @@ session that made it ends.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 import threading
@@ -144,10 +145,85 @@ def end(tv_id: int, reason: str, carry_out: Callable[[Players], None]) -> None:
     carry_out(get_players())
 
 
-def claim_tv(
+class Offer:
+    """A TV that answered, for one person to take once their film has started.
+
+    Until then whatever is on it goes on.
+    """
+
+    def __init__(
+        self,
+        request: Request,
+        tv: repo.Tv,
+        found: Renderer,
+        claim: Claim,
+        steering: Steering,
+        *,
+        confirm: bool,
+    ) -> None:
+        self._claim, self._confirm, self._steering = claim, confirm, steering
+        self.held = replace(tv, owner=claim.user, owner_id=claim.user_id, token_hash=claim.key)
+        self.session_hash = claim.session_hash
+        self._found = found
+        self._server = _server(request, self.held, claim, steering)
+        self._was_on = False
+
+    def own_title(self) -> str | None:
+        """The title of the person's own film on the TV, which makes room for the next."""
+        claim = older.get_claims().of(self._claim.tv_id)
+        if claim is None or claim.user_id != self._claim.user_id or not _active(claim.key):
+            return None
+        with contextlib.suppress(NotPlaying):
+            return get_players().current(claim.key).rating_key
+        return None
+
+    def take(self) -> Response | None:
+        """Take the TV; the refusal, where somebody plays on it whom nobody was asked about."""
+        claims, players = older.get_claims(), get_players()
+        with _TAKING:
+            if not self._confirm and _others_play(self._claim.tv_id, self._claim.user_id):
+                return _in_use()
+            before = claims.take(self._claim)
+        if before is not None:
+            self._was_on = players.stream(before.key) is not None
+            taken = before.user_id != self._claim.user_id
+            players.forget(
+                before.key,
+                "taken" if taken else "stopped",
+                self._claim.tv_id if taken else None,
+            )
+            self._steering.carry_out(players)
+        # What begins next asks whether the TV answers, and it did.
+        players.poll(self._claim.key, ack=0, active=True, report=None)
+        return None
+
+    def drive(self) -> None:
+        """Let the TV play what began, or stop what it played where nothing did."""
+        _drive(
+            Driver(
+                self._claim,
+                self._found,
+                self._server,
+                claims=older.get_claims(),
+                players=get_players(),
+                handed=self._was_on,
+            )
+        )
+
+
+def _in_use() -> Response:
+    return respond_err("in_use", status=409, playing=True)
+
+
+def _others_play(tv_id: int, user_id: int) -> bool:
+    held = older.get_claims().of(tv_id)
+    return held is not None and held.user_id != user_id and _active(held.key)
+
+
+def ask_for(
     request: Request, tv: repo.Tv, username: str, *, confirm: bool, steering: Steering
-) -> repo.Tv | Response:
-    """Let *username* have the TV, which must answer; the answer to give where they cannot."""
+) -> Offer | Response:
+    """Ask the TV whether *username* can have it; the answer to give where they cannot."""
     conn = get_db()
     user_id = find_user_id(conn, username)
     if user_id is None or not reaching.are_on(conn):
@@ -156,15 +232,9 @@ def claim_tv(
         refused = respond_err("rate_limited", status=429)
         refused.headers["Retry-After"] = str(_CLAIM_LIMITER.retry_after(username))
         return refused
+    if not confirm and _others_play(tv.id, user_id):
+        return _in_use()
     claims = older.get_claims()
-    in_use = respond_err("in_use", status=409, playing=True)
-
-    def others_play() -> bool:
-        held = claims.of(tv.id)
-        return held is not None and held.user_id != user_id and _active(held.key)
-
-    if others_play() and not confirm:
-        return in_use
     try:
         reaching.media_base(conn)
         found = reaching.reach(conn, tv.id)
@@ -176,25 +246,7 @@ def claim_tv(
     claims.note(tv.id, answered=True)
     reaching.note_seen(conn, tv.id)
     claim = Claim(tv.id, username, user_id, hash_token(request.cookies.get("session_token", "")))
-    players = get_players()
-    with _TAKING:
-        # Somebody may have begun while the TV was asked.
-        if others_play() and not confirm:
-            return in_use
-        before = claims.take(claim)
-    if before is not None:
-        taken = before.user_id != user_id
-        players.forget(before.key, "taken" if taken else "stopped", tv.id if taken else None)
-        steering.carry_out(players)
-    held = replace(tv, owner=username, owner_id=user_id, token_hash=claim.key)
-    # What begins next asks whether the TV answers, and it just did.
-    players.poll(claim.key, ack=0, active=True, report=None)
-    _drive(
-        Driver(
-            claim, found, _server(request, held, claim, steering), claims=claims, players=players
-        )
-    )
-    return held
+    return Offer(request, tv, found, claim, steering, confirm=confirm)
 
 
 def _drive(driver: Driver) -> None:

@@ -11,6 +11,7 @@ from mediaman.config import Config
 from mediaman.db import set_connection
 from mediaman.main import create_app
 from mediaman.services.media_meta import plex_stream
+from mediaman.services.media_meta.plex_watch import PlexWatch
 from mediaman.services.tv import older, players
 from mediaman.services.tv.older import Claims
 from mediaman.services.tv.players import HOLD_SECONDS
@@ -20,6 +21,7 @@ from mediaman.web.auth.session_store import create_session, destroy_session
 from mediaman.web.repository import older_tvs as repo
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.routes import older_play, older_reach, older_stream
+from mediaman.web.routes import tv as tv_routes
 from tests.helpers.factories import insert_settings
 from tests.unit.services.dlna.fake_tv import DESCRIPTION, TV, FakeTv, MovedTv, http, soap
 from tests.unit.web.test_cast import ORIGIN, Clock, FakeResponse
@@ -296,6 +298,145 @@ def test_another_person_is_asked_before_they_take_it_over(amy, bob, home, kitche
     assert _tv_of(bob, kitchen)["play"]["state"] == "loading"
     # And back, from a phone that was told it lost the TV.
     assert _play(amy, kitchen, confirm=True).status_code == 200
+
+
+def _plex_fails(amy, plex, monkeypatch):  # noqa: F811
+    real = plex.request
+
+    def request(method, url, **kwargs):
+        return FakeResponse(500) if url.endswith("/decision") else real(method, url, **kwargs)
+
+    monkeypatch.setattr(plex, "request", request)
+
+
+def _no_such_title(amy, plex, monkeypatch):  # noqa: F811
+    real = PlexWatch._metadata
+
+    def metadata(self, key, query=""):
+        return real(self, "999" if key == "102" else key, query)
+
+    monkeypatch.setattr(PlexWatch, "_metadata", metadata)
+
+
+def _three_screens(amy, plex, monkeypatch):  # noqa: F811
+    for key in ("111", "112", "113"):
+        amy.post("/api/cast/stream", json={"rating_key": key, "quality": "auto"})
+
+
+@pytest.mark.parametrize(
+    ("refuse", "status"), [(_plex_fails, 502), (_no_such_title, 404), (_three_screens, 429)]
+)
+def test_a_refused_takeover_leaves_the_film_that_is_on(
+    amy,
+    bob,
+    home,
+    kitchen,
+    plex,  # noqa: F811
+    monkeypatch,
+    manager,  # noqa: F811
+    refuse,
+    status,
+):
+    _play(bob, kitchen)
+    home.playing()
+    (stream,) = _streams()
+    refuse(amy, plex, monkeypatch)
+    assert _play(amy, kitchen, "102", confirm=True).status_code == status
+    assert _lives(manager, stream, "bob")
+    stops = home.did("Stop")
+    assert home.step(driver=0)
+    assert home.did("Stop") == stops
+    assert _tv_of(bob, kitchen)["play"]["state"] == "playing"
+    assert len(home.drivers) == 1
+
+
+@pytest.mark.parametrize(("refuse", "status"), [(_plex_fails, 502), (_no_such_title, 404)])
+def test_a_refused_play_leaves_the_persons_own_film_on(
+    amy,
+    home,
+    kitchen,
+    plex,  # noqa: F811
+    monkeypatch,
+    refuse,
+    status,
+):
+    _play(amy, kitchen)
+    home.playing()
+    refuse(amy, plex, monkeypatch)
+    assert _play(amy, kitchen, "102").status_code == status
+    assert home.step()
+    play = _tv_of(amy, kitchen)["play"]
+    assert (play["rating_key"], play["state"]) == ("101", "playing")
+
+
+def test_a_stream_that_started_for_a_tv_it_cannot_play_on_is_given_back(
+    amy, home, kitchen, monkeypatch
+):
+    def off(self, *args, **kwargs):
+        raise players.TvOff("x")
+
+    monkeypatch.setattr(players.Players, "begin", off)
+    assert _play(amy, kitchen).status_code == 409
+    assert _streams() == []
+
+
+def test_a_play_that_fails_once_the_tv_is_taken_stops_the_tv(
+    amy,
+    home,
+    kitchen,
+    plex,  # noqa: F811
+    monkeypatch,
+):
+    _play(amy, kitchen)
+    home.playing()
+    _plex_fails(amy, plex, monkeypatch)
+    assert _play(amy, kitchen).status_code == 502
+    stops = home.did("Stop")
+    home.step(driver=0)
+    home.step()
+    assert home.did("Stop") == stops + 1
+    assert _tv_of(amy, kitchen)["play"]["state"] == "failed"
+
+
+def test_a_persons_own_film_on_the_tv_makes_room_for_the_next(amy, home, kitchen):
+    _play(amy, kitchen)
+    home.playing()
+    for key in ("111", "112"):
+        amy.post("/api/cast/stream", json={"rating_key": key, "quality": "auto"})
+    assert _play(amy, kitchen, "102").status_code == 200
+    home.step()
+    assert _tv_of(amy, kitchen)["play"]["rating_key"] == "102"
+    assert len(_streams()) == 3
+
+
+def test_the_same_title_asked_for_again_goes_on_where_it_was_asked_to(amy, home, kitchen):
+    _play(amy, kitchen)
+    home.playing()
+    assert _play(amy, kitchen, position_s=600).status_code == 200
+    home.step()
+    assert home.urls()[-1].endswith("/from/10.ts")
+    assert len(_streams()) == 1
+
+
+def test_a_tv_taken_while_the_next_persons_film_starts_is_asked_for_again(
+    amy, bob, home, kitchen, monkeypatch
+):
+    _play(amy, kitchen)
+    home.playing()
+    _command(amy, kitchen, "stop")
+    home.step()
+    real = tv_routes._start_cast
+
+    def start(request, body, user, *rest):
+        answer = real(request, body, user, *rest)
+        if user == "bob":
+            assert _play(amy, kitchen).status_code == 200
+        return answer
+
+    monkeypatch.setattr(tv_routes, "_start_cast", start)
+    refused = _play(bob, kitchen, "102")
+    assert (refused.status_code, refused.json()["error"]) == (409, "in_use")
+    assert len(_streams()) == 1
 
 
 def test_a_tv_with_nothing_on_is_taken_without_a_question(amy, bob, home, kitchen):
