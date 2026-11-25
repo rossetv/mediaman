@@ -133,7 +133,10 @@ def test_every_card_that_says_a_library_is_left_out_speaks_of_scheduled_scans() 
 def test_the_sections_say_what_scan_now_does_with_the_limits() -> None:
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     libraries = env.get_template("settings/_sec_libraries.html").render(settings={})
-    assert "Scheduled scans" in libraries and "Scan now takes a library however full its disk is" in libraries
+    assert (
+        "Scheduled scans" in libraries
+        and "Scan now takes a library however full its disk is" in libraries
+    )
     assert "leaves out one whose saved limit cannot be read" in libraries
 
 
