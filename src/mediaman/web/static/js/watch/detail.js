@@ -1318,6 +1318,10 @@
     var d = cur.data;
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
+      if (window.MM.playOn) {
+        var tv = actions.appendChild(window.MM.playOn.button(d.play.href, 'btn btn--lg watch-btn--grey ttl__play-on'));
+        tv.setAttribute('data-ttl-act', 'play-on');
+      }
       if (d.play.progress_pct) {
         var progress = el('div', 'ttl__progress');
         var bar = el('progress', 'watch-bar watch-bar--banner');

@@ -221,3 +221,159 @@ def test_the_one_row_question_has_room_for_its_words_beside_the_next_episode_on_
     assert taken
     # The four thumbs in their frame, the close button, two gaps and the card's edges.
     assert 660 - int(taken.group(1)) - 188 - 44 - 2 * 8 - 18 >= 100
+
+
+def test_the_end_of_a_title_on_a_tv_leaves_only_what_may_be_done_next() -> None:
+    css = _text("_player.css")
+    gone = ".player.is-ended .player-seek-row, .player.is-ended .player-controls > :not(.player-away-end)"
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    assert "visibility: hidden" in rules[gone]
+
+
+def test_next_is_named_and_stands_after_the_quality_on_a_tvs_remote() -> None:
+    css = _text("_player.css")
+    assert "'Next'" in _rule(css, ".player.is-away [data-next-btn]::after")
+    order = [
+        int(re.search(r"order: (\d+)", _rule(css, s)).group(1))
+        for s in (".player.is-away [data-next-btn]", ".player.is-away .player-away-end")
+    ]
+    assert order == sorted(order) == [1, 2]
+    phone = css[css.index("\n@media (max-width: 899.98px) {\n  .player.is-away") :]
+    row = [
+        int(re.search(rf"{re.escape(s)} \{{ order: (\d+)", phone).group(1))
+        for s in (
+            ".player.is-away :is(.player-opt, .player-chapters)",
+            ".player.is-away [data-next-btn]",
+            ".player.is-away .player-brk--3",
+            ".player.is-away .player-away-end",
+        )
+    ]
+    assert row == sorted(set(row))
+
+
+def test_the_menus_of_a_tvs_remote_stay_inside_a_low_screen() -> None:
+    css = _text("_player.css")
+    menus = re.findall(r"\.player\.is-away \.player-bottom \.player-menu \{([^}]*)\}", css)
+    assert len(menus) == 2
+    for body in menus:
+        foot = int(re.search(r"bottom: (\d+)px", body).group(1))
+        taken = int(re.search(r"max-height: calc\(100dvh - (\d+)px\)", body).group(1))
+        assert taken >= foot + 12
+
+
+def test_the_page_under_a_tvs_remote_is_laid_out_as_the_remote() -> None:
+    # Hidden and not gone, the rows keep the picture where the remote has it.
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    kept = ".player.is-on-tv .player-seek-row, .player.is-on-tv .player-controls > :not(.player-away-end)"
+    assert "visibility: hidden" in rules[kept]
+    stacked = rules[".player.is-on-tv .player-away-end [data-open-remote]:not([hidden])"]
+    assert "flex: 1 1 100%" in stacked
+    assert "flex-wrap: wrap" in re.search(r"\.player-away-end \{ order: 10;[^}]*", css).group(0)
+
+
+def test_the_page_behind_a_tvs_card_is_dimmed_under_its_bar() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    # No rule takes the dim away while the title plays elsewhere.
+    for selector, body in rules.items():
+        if ".is-away" in selector and ".player-dim" in selector:
+            assert "display: none" not in body
+    assert (
+        float(
+            re.search(
+                r"opacity: ([.\d]+)", rules[".player:is(.is-lost, .is-gone) .player-dim"]
+            ).group(1)
+        )
+        >= 0.5
+    )
+    under = int(re.search(r"z-index: (\d+)", rules[".player.is-away .player-dim"]).group(1))
+    over = rules[".player.is-away :is(.player-top, .player-message)"]
+    assert int(re.search(r"z-index: (\d+)", over).group(1)) > under
+
+
+def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    cards = rules[".player.is-away :is(.player-upnext, .player-rate)"]
+    assert re.search(
+        r"max-height: calc\(100vh - var\(--away-foot, \d+px\) - var\(--away-head", cards
+    )
+    assert "overflow-y: auto" in cards
+    # At no size is one, or the skip button, let down over the controls.
+    for body in re.findall(r"\.player\.is-away [^{}]*player-(?:skip|upnext)\)? \{([^{}]*)\}", css):
+        assert not re.search(r"(?<!-)bottom: \d", body)
+    assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
+
+
+def test_the_words_of_a_tvs_page_step_aside_for_a_card() -> None:
+    css = _text("_player.css")
+    words = _rule(css, ".player.is-away.is-wordless .player-away-say")
+    assert "visibility: hidden" in words
+    under = _rule(css, ".player.is-away .player-upnext.is-under")
+    assert "top: var(--away-under)" in under and "bottom: auto" in under
+
+
+def test_nothing_turns_behind_a_card_on_a_tvs_page() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    still = next(
+        s for s in rules if "player-message:not([hidden]" in s and s.endswith(".player-away-ring")
+    )
+    assert ".player.is-away:has(" in still and "display: none" in rules[still]
+
+
+def test_the_skip_button_of_a_tvs_remote_stands_on_the_bar_of_a_wide_screen() -> None:
+    css = _text("_player.css")
+    wide = css[css.index("@media (min-width: 900px) {") :]
+    skip = _rule(wide, ".player.is-away .player-skip")
+    assert "position: fixed" in skip and "var(--away-row" in skip
+
+
+def test_the_question_of_a_rating_is_never_shrunk_away() -> None:
+    css = _text("_player.css")
+    # Beside the thumbs, on a phone on its side, it is what wraps.
+    column = css[css.index("@media (min-height: 520.02px), (orientation: portrait) {") :]
+    assert "flex: none" in _rule(column, ".player.is-away .player-rate .player-card-title")
+    assert len(re.findall(r"-rate \.player-card-title \{[^}]*flex: none", css)) == 1
+
+
+def test_chapters_go_with_the_other_controls_at_the_end_on_a_tv() -> None:
+    body = _rule(_text("_player.css"), ".player.is-ended .player-chapters")
+    assert "transition: none" in body
+
+
+def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
+    css = _text("_player.css")
+    assert not re.search(r"\.is-away \.player-chapters \{[^}]*opacity: 1", css)
+    for selector in re.findall(r"([^{}]+)\{ opacity: 0; visibility: hidden; \}", css):
+        if selector.strip().endswith(".player-chapters"):
+            assert ":not(.is-away)" in selector
+
+
+def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
+    css = _text("_play_on.css")
+    out = {}
+    for part in ("", "::backdrop"):
+        body = _rule(css, f".play-on:popover-open{part}")
+        name, rest = re.search(r"animation: ([\w-]+) ([^;]*);", body).groups()
+        assert re.search(rf"@keyframes {name} \{{ to \{{ opacity: 0;", css)
+        assert rest.endswith("forwards")
+        out[part] = rest
+    assert out[""] == out["::backdrop"]
+    # It takes no press meant for the page under it, and where less is to move it goes at once.
+    assert "pointer-events: none" in _rule(css, ".play-on:popover-open")
+    still = css[css.index("prefers-reduced-motion") :]
+    assert "display: none" in _rule(still, ".play-on:popover-open")
+
+
+def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:
+    css = _text("_play_on.css")
+    tokens = _text("_tokens.css")
+
+    def grey(body: str) -> int:
+        name = re.search(r"background:[^;]*var\(--(s\d)\)", body).group(1)
+        return int(re.search(rf"--{name}:\s*#(..)", tokens).group(1), 16)
+
+    box = grey(_rule(css, ".play-on__say"))
+    assert _contrast(grey(_rule(css, ".play-on__say .btn--secondary")), box) >= 1.2

@@ -138,6 +138,7 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
+  if (opts.tvs) ctx.MM.playOn = { button(href, className) { const b = doc.createElement('button'); b.className = className; b.setAttribute('data-play-on', href); return b; } };
   ['core/dom.js', 'watch/core.js', 'watch/keep.js', ...(opts.ratings ? ['ratings.js', 'watch/marks.js'] : []), ...(opts.grid ? ['watch/rows-load.js', 'watch/grid.js'] : []), 'watch/preview.js'].forEach((f) => {
     vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f });
     if (f === 'watch/core.js') ctx.MMWatch.detail = { open: (ref, o) => { details.push(ref); origins.push(o); doc.documentElement.classList.add('has-ttl'); } };
@@ -217,6 +218,64 @@ function rateLook(h) {
 function pressRate(h) { h.pv().querySelectorAll('button').filter((n) => n.getAttribute('aria-label') === 'Rate')[0].click(); }
 
 const scenarios = {
+  async playOn() {
+    const on = async (id, opts) => {
+      const h = load(opts);
+      await h.rest(id);
+      const b = h.pv().querySelector('[data-play-on]');
+      return b && [b.getAttribute('data-play-on'), b.getAttribute('tabindex')];
+    };
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const dialog = h.doc.createElement('dialog');
+    dialog.className = 'play-on';
+    dialog.setAttribute('open', '');
+    dialog.addEventListener('keydown', (ev) => ev.stopPropagation());
+    h.doc.body.appendChild(dialog);
+    const e = h.key('Escape', dialog);
+    return { film: await on('film', { tvs: true }), next: await on('going', { tvs: true }), outside: await on('outside', { tvs: true }), without: await on('film', {}), underSheet: [e.defaultPrevented, h.title()] };
+  },
+  // The episode Play plays is another once the title is marked; a sheet that is open goes on with its own.
+  async playOnMarked() {
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const on = () => h.pv().querySelectorAll('[data-play-on]').map((b) => b.getAttribute('data-play-on'));
+    const mark = async (href) => {
+      h.answers['movie-1'] = { ...FILM, play: { ...FILM.play, href } };
+      h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1' } }));
+      await h.pass(50);
+      return on();
+    };
+    const same = h.pv().querySelector('[data-play-on]');
+    const out = { unmoved: (await mark('/watch/play/1')) && h.pv().querySelector('[data-play-on]') === same };
+    out.moved = await mark('/watch/play/2');
+    h.pv().querySelector('[data-play-on]').setAttribute('aria-expanded', 'true');
+    out.sheetOpen = await mark('/watch/play/3');
+    return out;
+  },
+  // What is done in the sheet, and the remote over the preview.
+  async playOnOver() {
+    const out = {};
+    for (const how of ['input', 'scroll']) {
+      const h = load({ tvs: true });
+      await h.rest('film');
+      const dialog = h.doc.createElement('dialog');
+      dialog.className = 'play-on';
+      const field = dialog.appendChild(h.doc.createElement('input'));
+      h.doc.body.appendChild(dialog);
+      h.fire(h.doc, how, { target: how === 'input' ? field : dialog });
+      await h.pass(50);
+      out[how] = h.title();
+    }
+    const h = load({ tvs: true });
+    await h.rest('film');
+    const remote = h.doc.body.appendChild(h.doc.createElement('div'));
+    remote.id = 'tv-remote';
+    const e = h.key('Escape', remote);
+    h.changed();
+    await h.pass(50);
+    return { ...out, escape: e.stopped, under: h.title() };
+  },
   async rate() {
     const h = load({ ratings: true });
     await h.rest('film');

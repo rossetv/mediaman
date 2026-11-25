@@ -46,6 +46,8 @@ ITEM = """<MediaContainer librarySectionID="{section}"><Video type="movie" ratin
  <Stream id="31" streamType="3" displayTitle="English"/>
  <Stream id="32" streamType="3" displayTitle="Polski"/>
 </Part></Media><Marker type="credits" final="1" startTimeOffset="5000000" endTimeOffset="6000000"/>
+<Chapter tag="The boat" startTimeOffset="0" endTimeOffset="3000000"/>
+<Chapter tag="The shore" startTimeOffset="3000000" endTimeOffset="6000000"/>
 </Video></MediaContainer>"""
 
 
@@ -513,6 +515,17 @@ def test_the_chosen_tracks_are_played_and_listed(alice, plex):
         {"id": "22", "label": "Polski (AAC Stereo)", "selected": False},
     ]
     assert [t["id"] for t in started["subtitle_tracks"]] == ["31", "32"]
+
+
+def test_a_start_answers_the_marks_the_player_draws_and_skips_by(alice):
+    started = _cast(alice)
+    assert started["markers"] == [
+        {"kind": "credits", "start_s": 5000.0, "end_s": 6000.0, "final": True}
+    ]
+    assert [(c["title"], c["start_s"]) for c in started["chapters"]] == [
+        ("The boat", 0.0),
+        ("The shore", 3000.0),
+    ]
 
 
 def test_without_a_choice_the_tracks_selected_in_plex_play(alice):
