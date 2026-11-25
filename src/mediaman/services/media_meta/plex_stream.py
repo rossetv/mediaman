@@ -673,7 +673,7 @@ class StreamManager:
         """
         now = self._clock()
         own = [(sid, s) for sid, s in self._streams.items() if s.user == user]
-        ended: list[_Stream] = []
+        ending: list[str] = []
         if len(own) >= MAX_STREAMS_PER_USER:
             silent = [
                 (s.last_access, sid)
@@ -683,10 +683,10 @@ class StreamManager:
             ]
             if not silent:
                 raise TooManyStreams(f"at most {MAX_STREAMS_PER_USER} streams can be open at once")
-            ended = self._end([min(silent)[1]], now)
-        if len(self._streams) >= MAX_STREAMS_TOTAL:
+            ending = [min(silent)[1]]
+        if len(self._streams) - len(ending) >= MAX_STREAMS_TOTAL:
             raise TooManyStreams("too many streams are open")
-        return ended
+        return self._end(ending, now)
 
     def playlist(self, stream_id: str, user: str, *, base_path: str | None = None) -> str:
         """Return the media playlist with every URI rewritten to mediaman's segment route.
