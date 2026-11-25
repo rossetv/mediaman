@@ -712,8 +712,17 @@
     left.toast = window.UIFeedback.toast(left.name + ' is gone from your picks. Search still finds it.', {
       variant: 'info',
       dialog: detailsShown(),
-      action: { label: 'Undo', onClick: function () { MM.ratings.set(title.ref, title.was); } }
+      // With no level known to go back to, there is none.
+      action: title.was === undefined ? null : { label: 'Undo', onClick: function () { undoNo(title); } }
     });
+  }
+
+  function undoNo(title) {
+    var details = detailsShown();
+    var active = document.activeElement;
+    var lost = !active || active === document.body || active.closest('.ui-toast');
+    MM.ratings.set(title.ref, title.was);
+    if (details && lost) refocus(details.querySelector('[data-ttl-act="rate-' + (title.was || STRONG_NO) + '"]'));
   }
 
   document.addEventListener('mm:rating', function (e) {
@@ -756,18 +765,32 @@
     }
   });
 
+  /* Whether the title *ref* of the card's *link* can be rated, or may be: a pick with no TMDB title cannot. */
+  function canRate(ref, link) {
+    return !!MM.ratings && !!ref && MM.ratings.canRate(ref) !== false &&
+      !(/^(rec|pick)-/.test(ref) && !link.hasAttribute('data-tmdb-id'));
+  }
+
   /* ── The rating in a More menu ──
-     At its top: *node* is the menu, close() shuts it. Returns fill(ref). */
+     At its top: *node* is the menu, close() shuts it. Returns fill(ref, link). */
 
   function menuRating(node, close) {
     var set = null;
     var closing = null;
 
-    function fill(ref) {
+    function drop() {
       clearTimeout(closing);
       if (set) set.destroy();
       set = null;
-      if (!MM.ratings || !ref || MM.ratings.canRate(ref) === false) return;
+    }
+
+    new MutationObserver(function () {
+      if (!node.classList.contains('is-open')) drop();
+    }).observe(node, { attributes: true, attributeFilter: ['class'] });
+
+    function fill(ref, link) {
+      drop();
+      if (!canRate(ref, link)) return;
       set = MM.ratings.mount(ref, { variant: 'menu' });
       var block = node.appendChild(el('div', 'watch-menu-rate'));
       block.appendChild(set.line);
@@ -779,10 +802,21 @@
 
     document.addEventListener('mm:rating', function (e) {
       var d = e.detail;
-      if (!set || d.phase !== 'pending' || d.from !== set.node) return;
+      if (!set) return;
+      if (d.phase === 'read' && set.node.hidden) sayNone();
+      if (d.from !== set.node || (d.phase !== 'pending' && d.phase !== 'failed')) return;
       clearTimeout(closing);
-      if (d.level !== null) closing = setTimeout(close, RATED_MS);
+      if (d.phase === 'pending' && d.level !== null) closing = setTimeout(close, RATED_MS);
     });
+
+    /* The thumbs turned out to be of no use: what is below them stays where it is. */
+    function sayNone() {
+      var block = set.node.parentNode;
+      if (!block || block.querySelector('.watch-menu-rate__none')) return;
+      var lost = set.node.contains(document.activeElement);
+      block.insertBefore(el('p', 'rate__line watch-menu-rate__none', 'This title can’t be rated.'), set.line);
+      if (lost) node.querySelector('.watch-keep-menu__item').focus({ preventScroll: true });
+    }
 
     /* The four are one stop of the menu's up and down keys; left and right go between them. */
     node.addEventListener('keydown', function (e) {
@@ -831,7 +865,7 @@
     var mark = card.getAttribute('data-mark');
     menuNode.textContent = '';
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
-    fillRating(refOf(card));
+    fillRating(refOf(card), card.querySelector('.watch-card__link'));
     if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
     if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
@@ -877,5 +911,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating };
+  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating, canRate: canRate };
 })();

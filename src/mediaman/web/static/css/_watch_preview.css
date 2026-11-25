@@ -159,8 +159,9 @@
 .watch-more-menu { width: 258px; }
 .watch-menu-rate { flex: none; padding: 8px 10px 6px; }
 .watch-menu-rate > .rate__line { min-height: 24px; padding: 0 4px 6px; font-size: 12px; line-height: 18px; }
-.watch-menu-rate:has(> .rate[hidden]),
-.watch-menu-rate:has(> .rate[hidden]) + .pv-menu__line { display: none; }
+/* Found not to be rateable, the thumbs keep their room. */
+.watch-menu-rate > .rate[hidden] { display: flex !important; visibility: hidden; }
+.pv__actions > .pv__round[hidden] { display: inline-flex !important; visibility: hidden; }
 
 .pv-menu { transform-origin: top right; }
 .pv-menu.is-above { transform-origin: bottom right; }

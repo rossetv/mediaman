@@ -178,10 +178,12 @@ function pieces(node, kind = '') {
 // Recommended, with the film of the library among the picks, and the same film in the library's own row.
 const PICKS = () => [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }), card('movie/9', 'After', 'Movie', { pick: 'rec-9', tmdb: '90' })];
 const RATE = 'PUT /api/watch/ratings/movie-1 ';
-const FILM_10 = { ok: true, media_type: 'movie', tmdb_id: 10 };
+const FILM_10 = { ok: true, media_type: 'movie', tmdb_id: 10, was: null };
 function rated(api, opts) {
+  let stored = null;
+  const save = (level) => () => { const was = stored; stored = level; return { ...FILM_10, was }; };
   return load(watchPage([row('picks', PICKS()), row('lib', [FILM()])]), {
-    api: { [RATE + '-2']: FILM_10, [RATE + '1']: FILM_10, 'DELETE /api/watch/ratings/movie-1': FILM_10, ...api }, ...opts,
+    api: { [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'DELETE /api/watch/ratings/movie-1': save(null), ...api }, ...opts,
   });
 }
 
@@ -231,6 +233,18 @@ const scenarios = {
     await p.pick(wanted, 'details');
     p.open(held);
     return { ...out, pressed, marked: p.calls.filter((c) => /watched/.test(c)), held: p.menu() };
+  },
+
+  // Two strong noes undone in the order they were given.
+  async strongNoesUndone() {
+    const p = load(watchPage([row('picks', PICKS())]), { api: { 'PUT /api/watch/ratings/movie-8 -2': { ok: true, media_type: 'movie', tmdb_id: 80 }, [RATE + '-2']: FILM_10,
+      'DELETE /api/watch/ratings/movie-8': { ok: true, media_type: 'movie', tmdb_id: 80 }, 'DELETE /api/watch/ratings/movie-1': FILM_10 } });
+    await thumb(p, p.cards('picks')[1], 0);
+    await thumb(p, p.cards('picks')[0], 0);
+    const gone = p.marks('picks');
+    await p.undo(0);
+    await p.undo(1);
+    return { gone, back: p.marks('picks') };
   },
 
   // See all opened without the pick, then its Undo: the grid's own card has the focus, the row stands hidden behind it.
@@ -328,7 +342,7 @@ const scenarios = {
     for (const [after, status] of [[false, 409], [true, 409], [true, 500], [false, 500]]) {
       const no = later();
       let level = null;
-      const save = (to) => () => { level = to; return FILM_10; };
+      const save = (to) => () => { const was = level; level = to; return { ...FILM_10, was }; };
       const p = rated({ [RATE + '2']: () => no.answer.then(() => Promise.reject(Object.assign(new Error('http'), { status }))),
         [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
       await thumb(p, p.cards('picks')[1], 2);
@@ -354,8 +368,9 @@ const scenarios = {
     const go = async (lost) => {
       let level = 1;
       const save = (to) => () => {
+        const was = level;
         level = to;
-        return to === lost ? Promise.reject(Object.assign(new Error('http'), { status: 500 })) : FILM_10;
+        return to === lost ? Promise.reject(Object.assign(new Error('http'), { status: 500 })) : { ...FILM_10, was };
       };
       const p = rated({ [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
       p.ctx.MM.ratings.read(['movie-1']);
@@ -369,6 +384,71 @@ const scenarios = {
       return { gone, back: p.marks('picks'), told: p.toasts.map((t) => t.message), dismissed: p.gone };
     };
     return [await go(-2), await go(1)];
+  },
+
+  // A save that fails at once, with the menu open.
+  async menuFails() {
+    const p = rated({ [RATE + '1']: 429, 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level: null, rateable: true } } }) }, { hold: true });
+    await thumb(p, p.cards('lib')[0], 2);
+    p.pass();
+    const menu = p.doc.querySelector('#watch-more-menu');
+    return [menu.classList.contains('is-open'), menu.querySelector('.rate__line').textContent, p.toasts.length];
+  },
+
+  // The menu of a pick whose card has no TMDB title; and of a film that the server then says cannot be rated,
+  // with the focus on a thumb.
+  async cannotRate() {
+    const p = load(watchPage([row('picks', [card('movie/8', 'Pick', 'Movie', { ref: 'rec-8', pick: 'rec-8' })]), row('lib', [FILM()])]),
+      { hold: true, api: { 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level: null, rateable: false } } }) } });
+    p.doc.querySelector('#picks [data-pick-ref]').removeAttribute('data-tmdb-id');
+    const menu = p.doc.querySelector('#watch-more-menu');
+    p.doc.querySelector('#picks .watch-card').removeAttribute('data-mark');
+    p.open(p.cards('picks')[0]);
+    const pick = menu.querySelectorAll('.rate__b').length;
+    p.open(p.cards('lib')[0]);
+    menu.querySelectorAll('.rate__b')[2].focus();
+    await settle();
+    return { pick, said: menu.querySelector('.watch-menu-rate').textContent.replace(/Rate it.*/, ''), focus: p.doc.activeElement.textContent };
+  },
+
+  // Undo of a strong no over Details, pressed in its toast: a level from before, and none.
+  async undoInDetails() {
+    const out = [];
+    for (const level of [1, null]) {
+      const p = rated();
+      const details = p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }, ...[-2, -1, 1, 2].map((n) => ['button', { 'data-ttl-act': 'rate-' + n }])]));
+      if (level) { p.ctx.MM.ratings.set('movie-1', level); await settle(); }
+      p.doc.documentElement.classList.add('has-ttl');
+      p.ctx.MM.ratings.set('movie-1', -2);
+      await settle();
+      const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast' }, ['button', {}]]));
+      toast.querySelector('button').focus();
+      await p.undo();
+      out.push(details.contains(p.doc.activeElement) && p.doc.activeElement.getAttribute('data-ttl-act'));
+    }
+    return out;
+  },
+
+  // A strong no whose level before is not known has nothing to go back to.
+  async unknownBefore() {
+    const p = rated();
+    p.ctx.MM.ratings.get = () => -2;
+    p.doc.listeners['mm:rating'].forEach((fn) => fn({ detail: { phase: 'saved', ref: 'movie-1', refs: ['movie-1'], level: -2, was: undefined, from: null, mediaType: 'movie', tmdbId: 10 } }));
+    return [p.marks('picks'), !!p.toasts[0].undo];
+  },
+
+  // The sets of menus that are still there once they have closed.
+  async menuSets() {
+    const p = rated();
+    let sets = 0;
+    const mount = p.ctx.MM.ratings.mount;
+    p.ctx.MM.ratings.mount = (ref, o) => { const set = mount(ref, o); const own = set.destroy; sets += 1; set.destroy = () => { sets -= 1; own(); }; return set; };
+    p.open(p.cards('lib')[0]);
+    p.changed();
+    const open = sets;
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
+    p.changed();
+    return [open, sets];
   },
 
   // The menu opened again on another card before the time to shut it for the first is up.

@@ -556,3 +556,11 @@ def test_a_strip_opened_before_the_reply_stays_open_as_it_comes() -> None:
 
 def test_a_preview_that_has_gone_leaves_no_rating_behind() -> None:
     assert _run("setsLeft") == [1, 0]
+
+
+def test_a_title_known_not_to_be_rateable_has_no_rate_button() -> None:
+    assert _run("cannotRate") == {"pick": 0, "again": 0}
+
+
+def test_a_strip_folds_as_the_server_says_the_title_cannot_be_rated() -> None:
+    assert _run("stripNotRateable") == [False, True]
