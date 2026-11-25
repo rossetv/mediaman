@@ -214,7 +214,9 @@ def test_single_shadow_token():
         # A field a browser filled in is painted over in its own surface colour with an
         # inset spread: no offset, no blur, so nothing lifts.
         is_autofill_paint = bool(re.fullmatch(r"inset 0 0 0 99px var\(--s[23]\)", v))
-        assert is_glow or is_hero_poster or is_autofill_paint, f"unexpected box-shadow literal: {v!r}"
+        assert is_glow or is_hero_poster or is_autofill_paint, (
+            f"unexpected box-shadow literal: {v!r}"
+        )
 
 
 def test_nav_template_emits_all_surfaces():
