@@ -328,6 +328,10 @@ const scenarios = {
     h.back('');
     return { same, back, left: h.asked.length };
   },
+  oddName: () => {
+    const h = open({ search: '?user=constructor', filters: { user: 'constructor' }, items: [item(1, { action: 'sec:login.failed', is_security: true, actor: 'constructor', avatar: null })] });
+    return { imgs: h.q('.hx-chips').querySelectorAll('img').length, line: h.line(0) };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });

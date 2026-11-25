@@ -184,7 +184,7 @@
     var menu = q('.hx-menu');
     var veil = q('.hx-veil');
 
-    var faces = {};
+    var faces = Object.create(null);
     data.people.forEach(function (p) { faces[p.username] = p.avatar; });
 
     var F = {};            // what is searched and filtered by

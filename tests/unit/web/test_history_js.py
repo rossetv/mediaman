@@ -245,3 +245,7 @@ def test_focus_stays_in_the_page_when_what_held_it_goes() -> None:
 
 def test_a_change_of_the_addresss_hash_alone_leaves_the_list_as_it_is() -> None:
     assert _run("hash") == {"same": 0, "back": 0, "left": 2}
+
+
+def test_a_name_every_object_has_is_no_account_and_has_no_picture() -> None:
+    assert _run("oddName") == {"imgs": 0, "line": "Sign-in failed for an unknown name"}
