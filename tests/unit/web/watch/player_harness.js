@@ -500,6 +500,9 @@ function boot(html, reduced, saved, serverPlays, came, elsewhere) {
     setInterval: (fn, ms) => addTimer(fn, ms, true),
     clearInterval: clearTimer,
     requestAnimationFrame: (fn) => addTimer(fn, 16, false),
+    /* Nothing is laid out here: a scenario calls what watches an element as it grows. */
+    sized: [],
+    ResizeObserver: function ResizeObserver(fn) { this.observe = (el) => { win.sized.push({ el: el, fn: fn }); }; },
     Blob: function Blob(parts) { this.parts = parts; },
     fetch: (url, opts) => (/\/preview\//.test(url) ? fetchFrame(url) : fetchPage(url, opts)),
     URL: class extends URL {
@@ -5456,6 +5459,194 @@ const scenarios = {
     await pickRow(p, 'tv-5');
     const play = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || ''))[0];
     return { stops: way.stops, at: play.body.position_s, says: awayState(p).says, starts: p.starts().length };
+  },
+
+  /* Where the cards and the words of a TV's page go, by how its parts are laid out. */
+  async away_cards(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const lay = (sel, top, bottom) => { p.q(sel).getBoundingClientRect = () => ({ left: 0, right: 900, top: top, bottom: bottom, width: 900, height: bottom - top }); };
+    const grown = (sel) => p.win.sized.filter((s) => s.el === p.q(sel)).forEach((s) => s.fn());
+    const px = (name) => parseInt(p.root.style[name], 10);
+    const wordless = () => p.root.classList.contains('is-wordless');
+    const out = {};
+    lay('.player-top', 0, 64); lay('.player-away-say', 300, 350); lay('.player-bottom', 400, 800);
+    lay('.player-seek-row', 700, 744); lay('[data-away-end]', 750, 786);
+    grown('.player-bottom');
+    out.row = [px('--away-row')];
+    lay('.player-seek-row', 650, 694);
+    grown('.player-bottom');
+    out.row.push(px('--away-row'));
+
+    const rate = p.q('[data-rate]');
+    rate.hidden = false; rate.scrollHeight = 210;
+    grown('[data-rate-set]');
+    out.rateFits = [wordless(), px('--away-foot')];
+    rate.scrollHeight = 230;
+    grown('[data-rate-set]');
+    out.rateDoesNot = [wordless(), px('--away-foot')];
+    rate.hidden = true;
+    grown('[data-rate-set]');
+    out.rateGone = wordless();
+
+    const message = p.q('[data-message]');
+    message.hidden = false;
+    lay('[data-message]', 320, 480);
+    grown('.player-bottom');
+    out.messageMeets = wordless();
+    lay('[data-message]', 370, 480);
+    grown('.player-bottom');
+    out.messageClear = wordless();
+    message.hidden = true;
+
+    const card = p.q('[data-upnext]');
+    card.scrollHeight = 140;
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    out.under = [card.classList.contains('is-under'), px('--away-under'), wordless()];
+    lay('[data-away-end]', 520, 560);
+    p.win.listeners.resize.forEach((fn) => fn());
+    out.noRoom = [card.classList.contains('is-under'), wordless()];
+    return out;
+  },
+
+  /* Closed, the sheet sinks away over the page, which is there again at once. */
+  async away_sheet_sinks(p) {
+    await streamPlays(p, 30);
+    await openSheet(p);
+    const was = sheet();
+    const out = {};
+    was.showPopover = () => { out.sinks = { open: !!was.open, inert: was.inert, kind: was.popover }; };
+    was.scrollTop = 120;
+    fire(was, 'scroll');
+    const close = was.close;
+    was.close = () => { close.call(was); was.scrollTop = 0; fire(was, 'scroll'); };
+    key('Escape');
+    out.top = was.scrollTop;
+    const button = p.q('.player-controls').querySelector('[data-play-on]');
+    out.focus = doc.activeElement === button;
+    await openSheet(p);
+    out.again = sheet() !== was && sheet().open && !sheet().inert;
+    p.tick(1000);
+    out.left = doc.querySelectorAll('.play-on').length;
+    return out;
+  },
+
+  /* Played to its end on a Chromecast, which then holds nothing, and asked for once more. */
+  async away_play_again(p) {
+    const how = p.win.serverPlays;
+    if (how === 'film') p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const media = way.media;
+    /* As the sender's: what the TV holds no more cannot be played, and a new stream is no end. */
+    media.play = () => (media.ended ? Promise.reject(new Error('failed')) : make('video').play.call(media));
+    const load = way.play.load;
+    way.play.load = (stream) => { media.ended = false; media.paused = stream.paused; return load(stream); };
+    media.paused = true; media.ended = true; media.currentTime = 2997;
+    fire(media, 'ended');
+    await settle();
+    const card = () => !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]'));
+    const out = { counts: card(), rate: !gone(p.q('[data-rate]')), button: p.q('[data-bring]').textContent };
+    if (how === 'cancelled' || how === 'space') { click(p.q('[data-upnext-cancel]')); await settle(); }
+    const before = p.beacons.length;
+    if (how === 'space') { doc.activeElement.blur(); key(' '); } else fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 1 });
+    if (how === 'twice') fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 2 });
+    out.card = card() || !gone(p.q('[data-rate]'));
+    out.bar = [p.q('[data-elapsed]').textContent, p.q('[data-played]').style.width];
+    out.starting = awayState(p).says;
+    if (how === 'stop') click(p.q('[data-stop-away]'));
+    await settle();
+    out.stopped = p.beacons.slice(before).map((b) => b.url);
+    out.loads = way.loads.map((s) => [s.stream_id, s.position_s, s.paused]);
+    out.casts = p.elsewhere.casts;
+    out.local = p.starts().length;
+    out.saved = p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body.position_s);
+    out.href = p.win.location.href;
+    out.stops = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => [c.url, c.body && c.body.position_s]);
+    if (how === 'stop') { out.after = awayState(p).away; return out; }
+    mediaPlays(media, 0);
+    p.tick(30000);
+    await settle();
+    out.says = awayState(p).says;
+    out.next = p.calls.some((c) => c.page && /502/.test(c.url));
+    return out;
+  },
+
+  /* Played again from its start on a Chromecast, which never shows it. */
+  async away_anew(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const media = way.media;
+    const load = way.play.load;
+    const loaded = (stream) => { media.ended = false; media.paused = stream.paused; return load(stream); };
+    way.play.load = loaded;
+    media.currentTime = 2990;
+    for (let i = 0; i < 2; i++) { media.currentTime += 1; fire(media, 'timeupdate'); }
+    media.paused = true; media.ended = true; media.currentTime = 2997;
+    fire(media, 'ended');
+    await settle();
+    click(p.q('[data-upnext-cancel]'));
+    const out = {};
+    if (how === 'goneAtEnd') {
+      way.gone('lost');
+      await settle();
+      click(act(p, 'Bring it here'));
+    } else if (how === 'deviceAtEnd') {
+      click(p.q('.player-top').querySelector('[data-play-on]'));
+      await settle();
+      await pickRow(p, 'here');
+    } else if (how === 'tvAtEnd') {
+      const other = castWay(true);
+      other.id = 'other';
+      p.win.MM.playOn.register(other);
+      click(p.q('.player-top').querySelector('[data-play-on]'));
+      await settle();
+      await pickRow(p, 'other');
+      out.other = awayState(p).says;
+    } else {
+      if (how === 'refused') way.play.load = (stream) => { loaded(stream); return Promise.reject(new Error('failed')); };
+      if (how === 'unanswered') for (let i = 0; i < 2; i++) p.elsewhere.castFails.push(() => p.elsewhere.refuse(404, 'not_found'));
+      click(p.q('[data-bring]'));
+    }
+    await settle();
+    media.currentTime = 0;
+    out.saved_s = way.loads.map((s) => s.saved_s);
+    if (how === 'stop') click(p.q('[data-stop-away]'));
+    if (how === 'here') click(p.q('[data-bring]'));
+    if (how === 'paused') { media.paused = true; fire(media, 'pause'); p.tick(30 * 60 * 1000); }
+    if (how === 'gone') way.gone('lost');
+    await settle();
+    out.says = awayState(p).says;
+    out.hint = awayState(p).hint;
+    out.begun = p.root.classList.contains('is-begun');
+    out.message = !gone(p.q('[data-message]'));
+    if (how === 'plays') {
+      mediaPlays(media, 12);
+      media.paused = false;
+      media.pause();
+      await settle();
+    }
+    p.leave();
+    await settle();
+    out.saved = p.calls.concat(p.beacons).filter((c) => /\/(progress|stop)$/.test(c.url) && c.body && 'position_s' in c.body && c.body.stream_id !== 's1' && !/s1/.test(c.url)).map((c) => c.body.position_s);
+    out.toasts = p.toasts.map((t) => t.text);
+    return out;
+  },
+
+  /* A page opened as a Chromecast has yet to play it from its start again, and left again. */
+  async away_anew_opened(p) {
+    const way = castWay(true);
+    way.again = () => Promise.resolve({ play: way.play, stream: { stream_id: 'k1', position_s: 0, saved_s: 2997, paused: false, rating_key: '501', keep: null } });
+    p.win.MM.playOn.register(way);
+    p.leave();
+    p.comeBack();
+    await settle();
+    const says = awayState(p).says;
+    p.leave();
+    return { says: says, saved: p.beacons.filter((b) => b.body).map((b) => b.body.position_s) };
   },
 
   /* What becomes of the next-episode countdown where the title comes back meanwhile. */
