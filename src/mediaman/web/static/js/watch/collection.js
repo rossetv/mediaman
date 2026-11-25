@@ -511,7 +511,7 @@
     var tried = job.items.some(function (i) { return i.state; });
     d.go.textContent = job.busy ? 'Adding ' + Math.min(job.count, job.at + 1) + ' of ' + job.count + '…'
       : !rest ? 'Done'
-      : !n ? 'Pick films' : (tried ? 'Try again: download ' : 'Download ') + n;
+      : !n ? 'Pick films' : (tried ? 'Try again with ' : 'Download ') + n;
     if (job.busy || (rest && !n)) d.go.setAttribute('aria-disabled', 'true');
     else d.go.removeAttribute('aria-disabled');
     d.cancel.textContent = tried ? 'Close' : 'Cancel';

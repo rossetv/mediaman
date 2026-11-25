@@ -112,7 +112,7 @@ def test_a_failure_is_told_at_its_film_and_only_that_one_is_tried_again() -> Non
         "Film 4: 2004 · Queued",
     ]
     assert out["said"] == "2 of 3 films are queued. 1 was not."
-    assert (out["go"], out["left"]) == ("Try again: download 1", "Download the missing film")
+    assert (out["go"], out["left"]) == ("Try again with 1", "Download the missing film")
     assert out["again"] == [2, 3, 4, 3]
     assert out["then"] == ["Done", None]
     # What opened the dialog has gone, so the focus is on the row's heading.
@@ -240,7 +240,7 @@ def test_what_failed_is_still_told_when_the_dialog_is_opened_again() -> None:
     ]
     assert (out["said"], out["go"]) == (
         "2 of 3 films are queued. 1 was not.",
-        "Try again: download 1",
+        "Try again with 1",
     )
     assert out["ids"] == [2, 3, 4, 3]
     # Got another way it is no failure any more, and what was taken out is missing again.
@@ -251,7 +251,7 @@ def test_a_session_that_ends_stops_the_run_without_a_question_about_leaving() ->
     out = _run("signedOut")
     assert (out["before"], out["unsaved"], out["after"]) == (True, False, False)
     assert [r.split(" · ")[1] for r in out["rows"]] == ["Not asked yet"] * 3
-    assert (out["go"], out["disabled"]) == ("Try again: download 3", None)
+    assert (out["go"], out["disabled"]) == ("Try again with 3", None)
     assert out["ids"] == [2, 2]
     assert out["still"] == [2, 2]
 
