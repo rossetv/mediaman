@@ -1,0 +1,311 @@
+/* WATCH: the thumb and the eye under a card's poster, and the four levels that rise over it
+   (watch/card-tools.js, ratings.js). A touch screen's look comes first; a mouse's is added. */
+
+:root {
+  --dur-spring: calc(var(--dur) * 1.9);
+  /* Livelier than --ease-spring, for a thumb alone. */
+  --ease-pop: cubic-bezier(.3, 1.6, .5, 1);
+}
+
+.watch-card { position: relative; }
+.watch-card:has(> .card-tools) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
+
+/* Level with the caption's first line, at its end. The percentage is of the card's width, so it
+   finds the poster's foot at every size. */
+.card-tools {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: -5px;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  height: 28px;
+  margin-top: calc(150% + 1px);
+  pointer-events: none;
+}
+.card-tool {
+  position: relative;
+  isolation: isolate;
+  display: none;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t3);
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+/* On a touch screen the thumb alone; the rest are in the panel it opens, if there is a thumb. */
+.card-tool--thumb,
+.card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool { display: grid; }
+.card-tool[hidden] { display: none; }
+.card-tool--thumb { touch-action: pan-x; }
+.card-tool::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 1px;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--s3);
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-spring) var(--ease-pop), background-color var(--dur-fast) var(--ease-out);
+}
+/* 44px to press. */
+.card-tool::after { content: ""; position: absolute; inset: -8px -6px -8px -10px; }
+.card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset-inline: -7px; }
+.card-tool > .rate-th { --th-bg: var(--card-rest, var(--bg)); width: 18px; height: 17px; }
+.card-tool > .rate-th--2 { width: 21px; height: 16px; }
+.card-tool > .ico,
+.card-tool > .rate-th { transition: transform var(--dur-spring) var(--ease-pop); }
+.is-up:is(.card-tool, .card-flier) { --rate-c: var(--accent-hi); }
+.is-down:is(.card-tool, .card-flier) { --rate-c: var(--orange); }
+.card-tool--thumb:is(.is-up, .is-down) { color: var(--rate-c); }
+.card-tool:is(:focus-visible, [aria-expanded="true"])::before { opacity: 1; transform: none; }
+.card-tool:is(:focus-visible, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s3); }
+.card-tool:focus-visible { outline: none; }
+.card-tool:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-tool:active > :is(.ico, .rate-th) { transform: scale(.8); transition-duration: var(--dur-fast); }
+.card-tool[aria-busy="true"] { cursor: progress; }
+.card-tool[aria-busy="true"] > .ico { transform: scaleY(.06); transition: transform var(--dur-fast) var(--ease-out) var(--dur); }
+.card-tool--eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; }
+html.is-grid-moving .card-tool { pointer-events: none; }
+
+/* Its preview grows out of it, or it is a copy on the move. */
+.watch-card:has(.is-previewed) .card-tool { opacity: 0; pointer-events: none; transition-duration: calc(var(--dur-fast) * .5); }
+
+@media (hover: hover) and (pointer: fine) {
+  .card-tool { display: grid; color: var(--t2); opacity: 0; transform: translateY(5px); pointer-events: none; }
+  .card-tool::after,
+  .card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset: -8px 0; }
+  .card-tool--thumb { touch-action: manipulation; }
+  /* At rest, a rating that was given. */
+  .card-tool--thumb:is(.is-up, .is-down) { opacity: 1; transform: none; }
+  .watch-card:is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .card-tool { opacity: 1; transform: none; pointer-events: auto; }
+  html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
+  .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool::before { opacity: 1; transform: none; }
+  .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool > .rate-th { --th-bg: var(--s3); }
+  .watch-card:hover .card-tool--eye { transition-delay: 30ms; }
+  .watch-card:hover .card-tool:is(.card-tool--more, .card-tool--x) { transition-delay: 60ms; }
+  .watch-card .card-tool:hover { color: var(--t1); transition-delay: 0s; }
+  .watch-card .card-tool--thumb:is(.is-up, .is-down):hover { color: var(--rate-c); }
+  .watch-card .card-tool:is(:hover, [aria-expanded="true"])::before { background: var(--s5); }
+  .watch-card .card-tool:is(:hover, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s5); }
+  .card-tool:hover > .rate-th { transform: scale(1.2) rotate(-7deg); }
+  .card-tool.is-down:hover > .rate-th { transform: scale(1.2) rotate(7deg); }
+  .card-tool:hover > .ico { transform: scale(1.18); }
+  .card-tool[aria-busy="true"]:hover > .ico { transform: scaleY(.06); }
+  .card-tool:active > :is(.ico, .rate-th) { transform: scale(.8); }
+  /* The caption goes under them, and does not move. */
+  .watch-card:has(> .card-tools):is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .watch-card__sub {
+    --tools-w: 56px;
+    -webkit-mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));
+    mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));
+  }
+  .watch-card:has(> .card-tools > :nth-child(3)) .watch-card__sub { --tools-w: 86px !important; }
+  /* Off the picture and on its buttons, the card is still the one under the mouse. */
+  .watch-card:is(.is-lifted, :has(> .card-tools:hover)) .watch-card__link[href] > .watch-card__poster,
+  .watch-card.is-lifted > .card-over { transform: scale(1.03); }
+  .watch-card:is(.is-lifted, :has(> .card-tools:hover)) .watch-card__link[href] > .watch-card__poster { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); }
+}
+
+/* ── Over the poster ── */
+.card-over { position: absolute; z-index: 4; top: 0; left: 0; right: 0; aspect-ratio: 2 / 3; container-type: inline-size; transition: transform var(--dur) var(--ease-out); }
+.watch-card.is-lifted { z-index: 2; }
+.card-over__scrim { position: absolute; inset: 0; border-radius: var(--r-md); background: color-mix(in srgb, var(--scrim) 84%, transparent); opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.is-lifted > .card-over:not([inert]) > .card-over__scrim { opacity: 1; }
+.card-over__col { position: absolute; left: 3px; bottom: 3px; display: flex; flex-direction: column; }
+.card-over__b {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font-size: 15px;
+  opacity: 0;
+  transform: translateY(10px) scale(.7);
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-spring) var(--ease-pop);
+}
+.card-over__b::before { content: ""; position: absolute; z-index: -1; inset: 3px; border-radius: 50%; background: var(--s4); border: 1px solid var(--hair-strong); }
+.is-lifted > .card-over:not([inert]) .card-over__b { opacity: 1; transform: none; transition-delay: 60ms; }
+.card-over__b:active { transform: scale(.9) !important; }
+.card-over__b:focus-visible { outline: none; }
+.card-over__b:focus-visible::before { outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-over__b[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; color: var(--bg); }
+.card-over__b[aria-pressed="true"]::before { background: var(--t1); }
+.card-over__b[aria-busy="true"] > .ico { transform: scaleY(.06); transition: transform var(--dur-fast) var(--ease-out) var(--dur); }
+
+.rate--lift { --rate-bg: var(--s2); position: absolute; z-index: 1; right: 5px; bottom: 5px; display: block; width: 44px; height: min(180px, 100% - 10px); max-width: none; }
+.rate--lift .rate__set {
+  --gap: 0px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  padding: 4px;
+  border-color: var(--hair-strong);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--s2) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  box-shadow: var(--shadow-card);
+  clip-path: inset(100% 0 0 round 22px);
+  visibility: hidden;
+  transition: clip-path var(--dur) var(--ease-out), visibility 0s var(--dur);
+}
+.rate--lift.is-open .rate__set { clip-path: inset(0 round 22px); visibility: visible; transition: clip-path var(--dur-spring) var(--ease-spring, var(--ease-out)), visibility 0s; }
+/* Past its edges, for the ring and the sparks. */
+.rate--lift.is-open .rate__set:has(.pop) { clip-path: inset(-30px round 22px); transition: none; }
+.rate--lift .rate__b { flex: 1; width: auto; min-height: 0; height: auto; border-radius: 18px; }
+.rate--lift .rate__b:nth-of-type(1) { --i: 3; }
+.rate--lift .rate__b:nth-of-type(2) { --i: 2; }
+.rate--lift .rate__b:nth-of-type(3) { --i: 1; }
+.rate--lift .rate__b:nth-of-type(4) { --i: 0; }
+.rate--lift .rate__b > .rate-th { width: 23px; height: 21px; }
+.rate--lift .rate__b > .rate-th--2 { width: 28px; }
+.rate--lift .rate__b:not(.is-on) { background: none; }
+.rate--lift.has .rate__b:not(.is-on) > .rate-th { opacity: .8; }
+.rate--lift .rate__hl { display: none; }
+.rate--lift .rate__b.is-at { --lit: 1; color: var(--level); }
+.rate--lift .rate__b.is-at:not(.is-on) { --b-bg: var(--s5); }
+.rate--lift .rate__b:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rate__puck {
+  --wash: var(--s5);
+  position: absolute;
+  z-index: -1;
+  left: 4px;
+  right: 4px;
+  top: 4px;
+  height: calc((100% - 8px) / 4);
+  border-radius: 18px;
+  background: var(--wash);
+  opacity: 0;
+  transform: translateY(calc(var(--at, 1) * 100%));
+  transition: transform var(--dur-slow) var(--ease-spring, var(--ease-out)), opacity var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.rate__puck.is-up { --wash: var(--wash-2); }
+.rate__puck.is-down { --wash: var(--wash-1); }
+.rate__puck.is-up.is-double { --wash: var(--wash-3); }
+.rate__puck.is-down.is-double { --wash: var(--wash-0); }
+.rate--lift.has-at .rate__puck { opacity: 1; }
+.rate__name { position: absolute; right: calc(100% + 7px); top: 0; height: 100%; width: max-content; pointer-events: none; }
+.rate__name > span {
+  position: absolute;
+  right: 0;
+  top: calc(4px + (100% - 8px) / 4 * (var(--at, 1) + .5));
+  translate: 0 -50%;
+  padding: 4px 9px;
+  border-radius: var(--r-sm);
+  background: var(--s5);
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: top var(--dur-slow) var(--ease-spring, var(--ease-out)), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.rate--lift.is-open .rate__name.is-on > span { opacity: 1; transform: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  /* Off the levels a press is the card's. */
+  .card-over { pointer-events: none; }
+  .card-over > .rate--lift.is-open > .rate__set { pointer-events: auto; }
+  .card-over__col { display: none; }
+  .card-over__scrim { background: linear-gradient(to left, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 45%, transparent) 45%, color-mix(in srgb, var(--scrim) 10%, transparent)); }
+}
+@media (hover: none), (pointer: coarse) {
+  /* Four of 44px. A short poster's stand past its top: in a row, which cuts them there, past its foot too. */
+  .card-over > .rate--lift { --h: max(184px, min(200px, 100% - 8px)); right: 4px; top: calc(100% - var(--h) - 4px); bottom: auto; width: 46px; height: var(--h); }
+  .watch-row__scroll > .watch-card > .card-over > .rate--lift { top: max(-5px, 100% - var(--h) - 4px); }
+  .card-over .rate__b::after { content: ""; position: absolute; inset: 0 -5px; }
+  .card-over .rate__b.pop.is-up.is-double::after { inset: auto; }
+  .card-over .rate__name { right: calc(100% + 4px); top: 7px; width: calc(100cqi - 62px); }
+  .card-over .rate__name > span { position: static; display: block; translate: none; padding: 0; background: none; font-size: 13px; font-weight: 700; line-height: 1.2; white-space: normal; }
+}
+
+/* The thumb just given, on its way to the caption. */
+.card-flier { position: absolute; z-index: 8; display: grid; pointer-events: none; color: var(--rate-c); }
+.card-flier > .rate-th { width: 100%; height: 100%; }
+
+/* ── Marked as watched ── */
+.watch-card__poster > .card-lights { position: absolute; z-index: 2; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; }
+.card-barend { position: absolute; z-index: 2; left: var(--card-pad); bottom: 8px; width: calc(100% - 2 * var(--card-pad)); height: 4px; border-radius: var(--r-xxs); overflow: hidden; background: color-mix(in srgb, var(--t1) 30%, transparent); }
+.card-barend > i { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; }
+.watch-card__poster:has(> .card-barend) { padding-bottom: 20px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .rate--lift .rate__b { --aside: 0 !important; }
+  .rate--lift .rate__b > .rate-th { opacity: 0; }
+  .rate--lift.is-open .rate__b > .rate-th { opacity: 1; animation: lift-grow var(--dur-spring) var(--ease-pop) calc(var(--i) * 28ms) backwards; }
+  .card-tool--eye.is-blink > .ico,
+  .card-over__b.is-blink > .ico,
+  .pv__eye.is-blink > .ico { animation: eye-blink calc(var(--dur) * 2.1) var(--ease-out); }
+  .is-blink[aria-pressed="true"] { animation: eye-shuts calc(var(--dur) * 2.1) linear; }
+  .is-blink[aria-pressed="false"] { animation: eye-opens calc(var(--dur) * 2.1) linear; }
+  .card-lights { animation: card-lights calc(var(--dur) * 3.1) ease-in-out; }
+  .watch-badge--watched.is-new { animation: badge-drop calc(var(--dur) * 2.1) var(--ease-pop) calc(var(--dur) * .9) backwards; }
+  .watch-badge--unwatched { animation: badge-lift calc(var(--dur) * .8) ease-in forwards; }
+  .card-barend > i { animation: bar-end calc(var(--dur) * 2.2) var(--ease-out) backwards; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-lights,
+  .watch-badge--unwatched,
+  .card-barend { display: none; }
+  .watch-card.is-lifted > .card-over,
+  .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
+  .watch-card:has(> .card-tools:hover) .watch-card__link[href] > .watch-card__poster,
+  .card-tool > :is(.ico, .rate-th) { transform: none !important; }
+}
+@keyframes lift-grow { from { opacity: 0; transform: translateY(16px) scale(.5); } }
+@keyframes eye-blink {
+  38%, 50% { transform: scaleY(.06); }
+  78% { transform: scale(1.22, 1.16); }
+}
+/* Its other face comes while it is shut. */
+@keyframes eye-shuts { 0%, 42% { --eye-open: inline; --eye-seen: none; } 43%, 100% { --eye-open: none; --eye-seen: inline; } }
+@keyframes eye-opens { 0%, 42% { --eye-open: none; --eye-seen: inline; } 43%, 100% { --eye-open: inline; --eye-seen: none; } }
+@keyframes card-lights { 38% { opacity: .62; } }
+@keyframes badge-drop { from { opacity: 0; transform: translateY(-8px) scale(.7); } }
+@keyframes badge-lift { to { opacity: 0; transform: translateY(-5px) scale(.85); } }
+@keyframes bar-end { from { transform: scaleX(var(--from)); } }
+
+@media (forced-colors: active) {
+  .card-tool { color: ButtonText; }
+  .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
+  .card-tool > .rate-th { --th-bg: ButtonFace !important; forced-color-adjust: none; }
+  .card-tool--thumb:is(.is-up, .is-down),
+  .card-tool[aria-pressed="true"] { color: Highlight; }
+  .card-over__scrim { background: Canvas; opacity: 0; }
+  .card-over__b { color: ButtonText; }
+  .card-over__b::before { border-color: ButtonBorder; background: ButtonFace; }
+  .card-over__b[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }
+  .card-over__b[aria-pressed="true"]::before { background: Highlight; }
+  .rate--lift .rate__set { background: ButtonFace; }
+  .rate--lift .rate__b.is-at:not(.is-on) { color: Highlight; }
+  .rate__puck { forced-color-adjust: none; background: Highlight; }
+  .rate__puck:not(.is-up, .is-down) { visibility: hidden; }
+  .rate__name > span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+  .watch-badge--unwatched { display: none; }
+}

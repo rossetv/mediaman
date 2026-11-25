@@ -466,7 +466,8 @@
 .watch-badge__least::after { display: inline-block; }
 .watch-badge__long + .watch-badge__short { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
-.watch-badge--watched {
+.watch-badge--watched,
+.watch-badge--unwatched {
   right: 8px;
   display: flex;
   align-items: center;
@@ -475,7 +476,7 @@
   border: 1px solid color-mix(in srgb, var(--t1) 28%, transparent);
   font-weight: 600;
 }
-.watch-badge--watched > .ico { flex: none; font-size: 13px; }
+:is(.watch-badge--watched, .watch-badge--unwatched) > .ico { flex: none; font-size: 13px; }
 .watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
 .watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state) > .watch-badge--watched { top: 36px; }
 /* A caption of two parts is one line. Where both do not fit, the lines are laid out from the foot up
@@ -515,7 +516,7 @@
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); max-width: calc(100% - 12px); }
   .watch-badge--leaving { --badge-pad: 3px 7px; --badge-r: var(--r-md); left: 6px; right: 6px; max-width: none; padding: 0; }
   .watch-badge--watched { right: 6px; gap: 4px; }
-  .watch-badge--watched > .ico { font-size: 12px; }
+  :is(.watch-badge--watched, .watch-badge--unwatched) > .ico { font-size: 12px; }
 }
 @media (max-width: 359.98px) {
   .watch-badge--watched { gap: 0; }
@@ -539,51 +540,6 @@
 }
 .ai-label > .ico { font-size: 12px; }
 
-/* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
-   percentage is of the card's width, so it finds the poster's foot at every size. */
-.watch-card { position: relative; }
-.watch-card:has(> .watch-more) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
-.watch-more {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: -8px;
-  margin-top: calc(150% - 8px);
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  color: var(--t3);
-  font-size: 14px;
-  transition: color var(--dur-fast) var(--ease-out);
-  isolation: isolate;
-}
-.watch-more::before {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  z-index: -1;
-  border-radius: 50%;
-  background: var(--s4);
-  opacity: 0;
-  transform: scale(.85);
-  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
-}
-.watch-more:hover,
-.watch-more[aria-expanded="true"] { color: var(--t1); }
-.watch-more:hover::before,
-.watch-more[aria-expanded="true"]::before { opacity: 1; transform: none; }
-.watch-more:active::before { opacity: 1; transform: scale(.92); }
-.watch-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -8px; border-radius: 50%; color: var(--t1); }
-.watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
-/* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
-@media (max-width: 599.98px) {
-  .watch-card:has(> .watch-more) .watch-card__sub { padding-right: 18px; }
-  .watch-more { place-items: center end; padding-right: 7px; }
-  .watch-more::before { inset: 8px 2px 8px 14px; }
-  .watch-more:focus-visible { outline: none; }
-  .watch-more:focus-visible::before { opacity: 1; transform: none; outline: 2px solid var(--accent); }
-}
 .watch-more-menu .watch-keep-menu__item { display: flex; align-items: center; gap: 12px; }
 .watch-more-menu .watch-keep-menu__item > .ico { font-size: 14px; color: var(--t3); }
 
@@ -980,7 +936,6 @@
   .watch-pill:active,
   .watch-ep:active,
   .watch-keep:active,
-  .watch-more::before,
   .watch-mark:active::before,
   .watch-btn--play:active,
   .watch-btn--grey:active { transform: none; }

@@ -164,29 +164,32 @@ def test_a_watched_badge_is_its_icon_alone_on_the_narrowest_phones_and_still_say
     assert "display: none" not in word
 
 
-def test_a_caption_ends_before_the_more_of_any_card_that_has_one() -> None:
-    caption = ".watch-card:has(> .watch-more) .watch-card__sub"
-    wide = re.search(r"padding-right: (\d+)px", _of(caption))
-    phone = re.search(r"padding-right: (\d+)px", _of(caption, "max-width: 599.98px"))
-    # The dots are 14px wide: in the middle of 44px that end 8px past the card, on a phone 7px from that end.
-    assert wide and int(wide.group(1)) >= 44 / 2 + 14 / 2 - 8
-    assert phone and int(phone.group(1)) >= 14 + 7 - 8
-    assert "data-mark" not in "".join(
-        line for line in SHEET.read_text(encoding="utf-8").splitlines() if "__sub" in line
-    )
+CARDS = SHEET.with_name("_watch_cards.css")
 
 
-def test_the_ring_and_the_disc_of_more_stand_around_the_dots_on_a_phone() -> None:
-    phone = "max-width: 599.98px"
-    more = _of(".watch-more", phone)
-    _, right, _, left = (int(v) for v in re.findall(r"(\d+)px", _of(".watch-more::before", phone)))
-    dots = int(re.findall(r"font-size: (\d+)px", _of(".watch-more"))[0])
-    edge = int(re.findall(r"padding-right: (\d+)px", more)[0])
-    # An icon is 1.25em wide.
-    assert abs(edge + dots * 1.25 / 2 - (right + (44 - right - left) / 2)) < 0.5
-    assert "outline: none" in _of(".watch-more:focus-visible", phone)
-    ring = _of(".watch-more:focus-visible::before", phone)
-    assert "outline: 2px solid" in ring and "opacity: 1" in ring
+def test_a_caption_ends_before_the_thumb_of_any_card_that_has_one() -> None:
+    css = CARDS.read_text(encoding="utf-8")
+    pad = re.search(r":has\(> \.card-tools\) \.watch-card__sub \{ padding-right: (\d+)px", css)
+    # The widest thumb is 21px, in the middle of 30 that end 5px past the card.
+    assert pad and int(pad.group(1)) >= (30 + 21) / 2 - 5
+
+
+def test_every_button_under_a_card_takes_44px_on_a_touch_screen() -> None:
+    css = CARDS.read_text(encoding="utf-8")
+    size = re.search(r"\.card-tool \{[^}]*?width: (\d+)px;\s*height: (\d+)px", css)
+    grown = re.search(r"\.card-tool::after \{[^}]*inset: -(\d+)px -(\d+)px -(\d+)px -(\d+)px", css)
+    assert size and grown
+    top, right, bottom, left = map(int, grown.groups())
+    assert int(size.group(1)) + left + right >= 44 and int(size.group(2)) + top + bottom >= 44
+    # Four levels of 44px and the 4px round them.
+    assert "--h: max(184px," in css
+
+
+def test_no_button_under_a_card_moves_where_motion_is_unwanted() -> None:
+    css = CARDS.read_text(encoding="utf-8")
+    still = css.split("@media (prefers-reduced-motion: no-preference)")
+    assert "animation:" not in still[0]
+    assert "animation:" not in still[1].split("@media (prefers-reduced-motion: reduce)")[1]
 
 
 def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:

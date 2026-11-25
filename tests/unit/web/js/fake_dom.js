@@ -47,6 +47,7 @@ class Node {
     this.attrs = {};
     this.listeners = {};
     this.style = {};
+    Object.defineProperty(this.style, 'setProperty', { writable: true, value(k, v) { this[k] = v; } });
     this._text = '';
     this.inert = false;
   }

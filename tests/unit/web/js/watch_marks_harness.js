@@ -1,4 +1,4 @@
-// Runs watch/core.js, keep.js, ratings.js and marks.js against the fake DOM and prints one scenario's outcome as
+// Runs watch/core.js, keep.js, ratings.js, card-tools.js and marks.js against the fake DOM and prints one scenario's outcome as
 // JSON. Usage: node watch_marks_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -26,14 +26,19 @@ Object.defineProperty(Node.prototype, 'hidden', {
 function card(mark, title, sub, over = {}) {
   const at = /^(movie|show)\/(\d+)$/.exec(mark);
   const ref = over.ref || (at && at[1] + '-' + at[2]);
-  return ['article', { class: 'watch-card', ...(mark ? { 'data-mark': mark } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
+  const tmdb = over.tmdb && 'tmdb-movie-' + over.tmdb;
+  const eye = mark || tmdb;
+  return ['article', { class: 'watch-card', ...(tmdb ? { 'data-tmdb-ref': tmdb } : {}), ...(over.level ? { 'data-level': over.level } : {}), ...(eye ? { 'data-mark': eye } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
     ['a', { class: 'watch-card__link', ...(ref && !over.dismiss ? { 'data-title-ref': ref } : {}),
       ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie', 'data-tmdb-id': over.tmdb || '' } : {}) },
       ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, title],
         ...(over.watched ? [['span', { class: 'watch-badge watch-badge--watched' }, 'Watched']] : []),
         ...(over.bar ? [['progress', { class: 'watch-bar' }]] : [])],
       ['span', { class: 'watch-card__sub' }, sub]],
-    ['button', { class: 'watch-more', 'data-watch-more': '' }]];
+    ['div', { class: 'card-tools' },
+      ...(tmdb ? [['button', { class: 'card-tool card-tool--thumb', 'data-card-rate': '' }]] : []),
+      ...(eye ? [['button', { class: 'card-tool card-tool--eye', 'data-mark-toggle': eye, 'aria-pressed': over.watched ? 'true' : 'false' }, ['svg', {}]]] : []),
+      ...(over.dismiss ? [['button', { class: 'card-tool card-tool--x', 'data-watch-dismiss': over.dismiss, 'data-mark-name': title }, ['svg', {}]]] : [])]];
 }
 
 function row(title, cards) {
@@ -84,16 +89,19 @@ function load(page, opts = {}) {
     if (typeof answer === 'function') answer = answer();
     if (answer instanceof Promise) return answer;
     if (typeof answer === 'number') return Promise.reject(Object.assign(new Error('http'), { status: answer }));
-    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST', ratings: {} });
+    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST' || method === 'PUT', ratings: {} });
   };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, parseInt,
-    setTimeout: (fn, ms) => { if (opts.hold && ms === 650) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
+    setTimeout: (fn, ms) => { if (opts.hold && ms === (opts.hold === true ? 650 : opts.hold)) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
     clearTimeout(id) { if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
     matchMedia: () => ({ matches: true }),
     requestAnimationFrame: (fn) => fn(),
+    performance: { now: () => 1e6 },
+    Number,
+    Date,
     innerHeight: 900,
     innerWidth: 1280,
     location: { pathname: '/watch/show/2', search: '' },
@@ -111,28 +119,28 @@ function load(page, opts = {}) {
       dismiss: (message) => gone.push(message),
     },
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { watchers.add(this); } disconnect() { watchers.delete(this); } },
-    MM: { api: { get: call('GET'), post: call('POST'), put: (url, body) => call('PUT')(url + ' ' + body.level), delete: call('DELETE'), messageOf: (_e, f) => f } },
+    MM: { api: { get: call('GET'), post: call('POST'), put: (url, body) => call('PUT')(url + (body ? ' ' + body.level : '')), delete: call('DELETE'), messageOf: (_e, f) => f } },
     addEventListener() {},
     scrollBy() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'ratings.js', 'watch/marks.js']
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'ratings.js', 'watch/card-tools.js', 'watch/marks.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const cards = (id) => doc.querySelectorAll('.watch-card').filter((c) => !id || c.closest('#' + id));
   const started = [];
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
-    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); },
+    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); }, added(n) { [...watchers].forEach((w) => w.fn([{ addedNodes: [n] }])); },
     ctx, started, doc, calls, toasts, events, continues, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
     marks: (id) => cards(id).map((c) => c.getAttribute('data-mark')),
-    menu: () => doc.querySelectorAll('#watch-more-menu .watch-keep-menu__item').map((i) => i.textContent),
-    open(c) { const m = c.querySelector('[data-watch-more]'); m.focus(); click(doc, m); },
+    open(c) { const m = c.querySelector('[data-card-rate]'); m.focus(); click(doc, m); },
     async pick(c, act) {
-      p.open(c);
-      click(doc, doc.querySelector('#watch-more-menu [data-act="' + act + '"]'));
+      const b = c.querySelector(act === 'dismiss' ? '.card-tool--x' : '.card-tool--eye');
+      b.focus();
+      click(doc, b);
       await settle();
     },
     async undo(n = toasts.length - 1) { toasts[n].undo(); await settle(); },
@@ -179,15 +187,16 @@ function pieces(node, kind = '') {
 }
 
 // Recommended, with the film of the library among the picks, and the same film in the library's own row.
-const PICKS = () => [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }), card('movie/9', 'After', 'Movie', { pick: 'rec-9', tmdb: '90' })];
-const RATE = 'PUT /api/watch/ratings/movie-1 ';
+const PICKS = (level) => [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10', level }), card('movie/9', 'After', 'Movie', { pick: 'rec-9', tmdb: '90' })];
+const RATE = 'PUT /api/watch/ratings/tmdb-movie-10 ';
 const FILM_10 = { ok: true, media_type: 'movie', tmdb_id: 10, was: null };
 function rated(api, opts) {
   let stored = null;
   const save = (level) => () => { const was = stored; stored = level; return { ...FILM_10, was }; };
-  return load(watchPage([row('picks', PICKS()), row('lib', [FILM()])]), {
-    api: { [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'DELETE /api/watch/ratings/movie-1': save(null), ...api }, ...opts,
-  });
+  const own = { [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'DELETE /api/watch/ratings/tmdb-movie-10': save(null), ...api };
+  // Details names the same title by its library ref.
+  Object.keys(own).forEach((k) => { own[k.replace('/tmdb-movie-10', '/movie-1').replace('=tmdb-movie-10', '=movie-1')] = own[k]; });
+  return load(watchPage([row('picks', PICKS((opts || {}).level)), row('lib', [FILM({ tmdb: '10', level: (opts || {}).level })])]), { api: own, ...opts });
 }
 
 /* A click that goes no further up than where it is stopped. */
@@ -198,50 +207,82 @@ function clickThumb(doc, b) {
   if (!stopped) doc.listeners.click.forEach((fn) => fn(e));
 }
 
+/* A level, the worst first. */
 async function thumb(p, c, i) {
   p.open(c);
-  clickThumb(p.doc, p.doc.querySelectorAll('#watch-more-menu .rate__b')[i]);
+  clickThumb(p.doc, c.querySelectorAll('.card-over .rate__b')[3 - i]);
   await settle();
 }
 
 const scenarios = {
-  // The rating in a card's More menu: a level, then the same one taken back.
+  // A rating from a card: a level, then the same one taken back.
   async menuRating() {
     const p = rated();
-    const shut = () => p.doc.querySelector('#watch-more-menu').classList.contains('is-open');
+    const open = () => p.cards().some((c) => c.classList.contains('is-lifted'));
     await thumb(p, p.cards('lib')[0], 2);
-    const first = [shut(), p.calls.slice(), p.focus()];
+    const first = [open(), p.calls.slice(), p.focus()];
+    const levels = p.cards().map((c) => c.getAttribute('data-level'));
     await thumb(p, p.cards('lib')[0], 2);
-    return { first, back: [shut(), p.calls.slice(1)] };
+    return { first, levels, back: [open(), p.calls.slice(1), p.cards().map((c) => c.getAttribute('data-level'))] };
   },
 
-  // A pick that is not in the library: what its menu holds, a rating from it, and its Details; and one that is.
+  // A pick that is not in the library, and one that is: rated and marked from its card.
   async pickMenu() {
-    const p = load(watchPage([row('picks', [card('', 'Wanted', 'Movie · 2024', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' }), ...PICKS().slice(0, 1)])]), {
-      api: { 'PUT /api/watch/ratings/rec-5 1': { ok: true, media_type: 'movie', tmdb_id: 50 } } });
-    const [wanted, held] = p.cards();
-    const pressed = [];
-    const link = wanted.querySelector('.watch-card__link');
-    link.click = () => pressed.push('link');
-    p.open(wanted);
-    const menu = p.doc.querySelector('#watch-more-menu');
-    const out = { menu: p.menu(), label: menu.getAttribute('aria-label'), focus: p.doc.activeElement.textContent };
-    out.keys = ['ArrowUp', 'ArrowUp'].map((key) => {
-      menu.listeners.keydown.forEach((fn) => fn({ key, preventDefault() {}, stopPropagation() {} }));
-      return p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.textContent;
-    });
-    p.open(wanted);
+    const p = load(watchPage([row('picks', [card('', 'Wanted', 'Movie · 2024', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' }), ...PICKS().slice(0, 1)]), row('found', [card('', 'Wanted', 'Movie · 2024', { ref: 'tmdb-movie-50', tmdb: '50' })])]), {
+      api: { 'PUT /api/watch/ratings/tmdb-movie-50 1': { ok: true, media_type: 'movie', tmdb_id: 50 }, 'PUT /api/watch/seen/tmdb-movie-50': { ok: true, watched: true } } });
+    const [wanted, held, found] = p.cards();
     await thumb(p, wanted, 2);
-    out.calls = p.calls.filter((c) => /^PUT/.test(c));
-    await p.pick(wanted, 'details');
-    p.open(held);
-    return { ...out, pressed, marked: p.calls.filter((c) => /watched/.test(c)), held: p.menu() };
+    await p.pick(wanted, 'mark');
+    const marked = [p.calls.slice(), p.look(), found.getAttribute('data-level'), p.fetched.length, p.events.slice()];
+    await p.undo();
+    await p.pick(held, 'mark');
+    return { marked, undone: p.look('found'), calls: p.calls.slice(2) };
+  },
+
+  // A mark of a title the library has come to hold, one TMDB has not, and one whose seasons are not known.
+  async seenRefused() {
+    const go = async (status, error, data) => {
+      const p = load(watchPage([row('found', [card('', 'Wanted', 'Movie', { ref: 'tmdb-movie-50', tmdb: '50' }), card('', 'Wanted', 'Movie', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' })])]), {
+        api: { 'PUT /api/watch/seen/tmdb-movie-50': () => Promise.reject(Object.assign(new Error('x'), { status, error, data })) } });
+      await p.pick(p.cards()[0], 'mark');
+      return { calls: p.calls, look: p.look(), toggles: p.doc.querySelectorAll('[data-mark-toggle]').map((b) => [b.getAttribute('data-mark-toggle'), b.hidden]), toasts: p.toasts.map((t) => [t.message, !!t.undo]) };
+    };
+    return { held: await go(409, 'in_library', { mark_kind: 'movie', mark_key: '5' }), odd: await go(409, 'in_library', { mark_kind: 'movie', mark_key: 'x/../9' }), none: await go(409, 'no_tmdb_id'), seasons: await go(503, 'seasons_unknown') };
+  },
+
+  // A card that comes late: drawn from an answer asked for before the mark; and long after it.
+  async lateCard() {
+    const p = load(watchPage([row('lib', [card('', 'Wanted', 'Movie', { ref: 'tmdb-movie-50', tmdb: '50' })])]), { api: { 'PUT /api/watch/ratings/tmdb-movie-50 2': { ok: true, media_type: 'movie', tmdb_id: 50 } } });
+    await thumb(p, p.cards()[0], 3);
+    await p.pick(p.cards()[0], 'mark');
+    const bring = (after) => {
+      const own = p.ctx.Date.now;
+      p.ctx.Date = { now: () => Date.now() + after };
+      const late = p.doc.querySelector('.watch-row__scroll').appendChild(build(p.doc, card('', 'Wanted', 'Movie', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' })));
+      p.added(late);
+      p.ctx.Date = { now: own };
+      return [late.getAttribute('data-level'), !!late.querySelector('.watch-badge--watched'), late.querySelector('.card-tool--eye').getAttribute('aria-pressed')];
+    };
+    const soon = bring(1000);
+    const long = bring(60000);
+    await p.undo();
+    return { soon, long, undone: p.look().map((l) => l[1]) };
+  },
+
+  // A part of a show is marked after the whole, with its Undo still there; and another title.
+  async partAfterWhole() {
+    const p = load(watchPage([row('lib', [card('show/2', 'Brightwater', 'TV'), card('season/21', 'Brightwater', 'Season 1', { ref: 'show-2' }), FILM()])]));
+    await p.pick(p.cards()[0], 'mark');
+    await p.pick(p.cards()[2], 'mark');
+    const before = p.gone.slice();
+    await p.pick(p.cards()[1], 'mark');
+    return { before, after: p.gone };
   },
 
   // Two strong noes undone in the order they were given.
   async strongNoesUndone() {
-    const p = load(watchPage([row('picks', PICKS())]), { api: { 'PUT /api/watch/ratings/movie-8 -2': { ok: true, media_type: 'movie', tmdb_id: 80, was: null }, [RATE + '-2']: FILM_10,
-      'DELETE /api/watch/ratings/movie-8': { ok: true, media_type: 'movie', tmdb_id: 80 }, 'DELETE /api/watch/ratings/movie-1': FILM_10 } });
+    const p = load(watchPage([row('picks', PICKS())]), { api: { 'PUT /api/watch/ratings/tmdb-movie-80 -2': { ok: true, media_type: 'movie', tmdb_id: 80, was: null }, [RATE + '-2']: FILM_10,
+      'DELETE /api/watch/ratings/tmdb-movie-80': { ok: true, media_type: 'movie', tmdb_id: 80 }, 'DELETE /api/watch/ratings/tmdb-movie-10': FILM_10 } });
     await thumb(p, p.cards('picks')[1], 0);
     await thumb(p, p.cards('picks')[0], 0);
     const gone = p.marks('picks');
@@ -260,17 +301,33 @@ const scenarios = {
     const rects = Node.prototype.getClientRects;
     Node.prototype.getClientRects = function () { return this.closest('#picks') ? [] : rects.call(this); };
     await p.undo(0);
-    return p.doc.activeElement === twin.querySelector('[data-watch-more]');
+    return p.doc.activeElement === twin.querySelector('[data-card-rate]');
   },
 
-  // Up and down take the four as one stop; left and right go between them.
+  // The four are one stop, which the arrow keys move in; the focus starts on the level given, else on a like.
   async menuKeys() {
-    const p = rated();
-    p.open(p.cards('lib')[0]);
-    const menu = p.doc.querySelector('#watch-more-menu');
-    return ['ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'Home', 'ArrowLeft', 'End'].map((key) => {
-      menu.listeners.keydown.forEach((fn) => fn({ key, preventDefault() {}, stopPropagation() {} }));
-      return p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.textContent;
+    const said = async (level) => {
+      const p = rated({}, { level });
+      const thumbButton = p.cards('lib')[0].querySelector('[data-card-rate]');
+      click(p.doc, thumbButton, { detail: 0 });
+      const group = p.doc.querySelector('.card-over .rate__set');
+      const out = [p.doc.activeElement.getAttribute('aria-label')].concat(['ArrowUp', 'ArrowUp', 'ArrowDown', 'End', 'Home', 'ArrowRight'].map((key) => {
+        group.listeners.keydown.forEach((fn) => fn({ key, target: p.doc.activeElement, preventDefault() {}, stopPropagation() {} }));
+        return p.doc.activeElement.getAttribute('aria-label');
+      }));
+      p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', target: p.doc.activeElement, preventDefault() {}, stopImmediatePropagation() {} }));
+      return out.concat([p.doc.activeElement === thumbButton, thumbButton.getAttribute('aria-expanded')]);
+    };
+    return [await said(), await said(-1)];
+  },
+
+  // Left and right go between a card's buttons, which stand from the right to the left; up to the card.
+  async toolKeys() {
+    const p = load(watchPage([row('cont', [card('movie/1', 'Fieldwork', 'Movie', { dismiss: 'movie-1', tmdb: '10' })])]));
+    p.doc.querySelector('[data-card-rate]').focus();
+    return ['ArrowLeft', 'ArrowLeft', 'ArrowLeft', 'ArrowRight', 'ArrowUp'].map((key) => {
+      p.doc.listeners.keydown.forEach((fn) => fn({ key, target: p.doc.activeElement, preventDefault() {}, stopImmediatePropagation() {} }));
+      return p.doc.activeElement.className;
     });
   },
 
@@ -349,7 +406,7 @@ const scenarios = {
       let level = null;
       const save = (to) => () => { const was = level; level = to; return { ...FILM_10, was }; };
       const p = rated({ [RATE + '2']: () => no.answer.then(() => Promise.reject(Object.assign(new Error('http'), { status }))),
-        [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
+        [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level, rateable: true } } }) }, { hold: true });
       await thumb(p, p.cards('picks')[1], 2);
       p.pass();
       await thumb(p, p.cards('picks')[1], 0);
@@ -377,9 +434,7 @@ const scenarios = {
         level = to;
         return to === lost ? Promise.reject(Object.assign(new Error('http'), { status: 500 })) : { ...FILM_10, was };
       };
-      const p = rated({ [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
-      p.ctx.MM.ratings.read(['movie-1']);
-      await settle();
+      const p = rated({ [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level, rateable: true } } }) }, { hold: true, level: 1 });
       await thumb(p, p.cards('picks')[1], 0);
       p.pass();
       await settle();
@@ -391,29 +446,21 @@ const scenarios = {
     return [await go(-2), await go(1)];
   },
 
-  // A save that fails at once, with the menu open.
+  // A save that fails at once, with the levels over the card.
   async menuFails() {
-    const p = rated({ [RATE + '1']: 429, 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level: null, rateable: true } } }) }, { hold: true });
+    const p = rated({ [RATE + '1']: 429 }, { hold: true, level: 2 });
     await thumb(p, p.cards('lib')[0], 2);
-    p.pass();
-    const menu = p.doc.querySelector('#watch-more-menu');
-    return [menu.classList.contains('is-open'), menu.querySelector('.rate__line').textContent, p.toasts.length];
+    return [p.cards().map((c) => c.getAttribute('data-level')), p.toasts.map((t) => t.message)];
   },
 
-  // The menu of a pick whose card has no TMDB title; and of a film that the server then says cannot be rated,
-  // with the focus on a thumb.
+  // A film that has no TMDB match, and one whose ref the server then says cannot be rated.
   async cannotRate() {
-    const p = load(watchPage([row('picks', [card('movie/8', 'Pick', 'Movie', { ref: 'rec-8', pick: 'rec-8' })]), row('lib', [FILM()])]),
-      { hold: true, api: { 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level: null, rateable: false } } }) } });
-    p.doc.querySelector('#picks [data-pick-ref]').removeAttribute('data-tmdb-id');
-    const menu = p.doc.querySelector('#watch-more-menu');
-    p.doc.querySelector('#picks .watch-card').removeAttribute('data-mark');
-    p.open(p.cards('picks')[0]);
-    const pick = menu.querySelectorAll('.rate__b').length;
-    p.open(p.cards('lib')[0]);
-    menu.querySelectorAll('.rate__b')[2].focus();
-    await settle();
-    return { pick, said: menu.querySelector('.watch-menu-rate').textContent.replace(/Rate it.*/, ''), focus: p.doc.activeElement.textContent };
+    const p = load(watchPage([row('lib', [card('movie/4', 'Home video', 'Movie'), FILM({ tmdb: '10' })])]),
+      { hold: true, api: { 'GET /api/watch/ratings?refs=tmdb-movie-10': () => ({ ratings: { 'tmdb-movie-10': { level: null, rateable: false } } }), [RATE + '1']: 500 } });
+    const has = () => p.cards('lib').map((c) => c.querySelectorAll('.card-tool').filter((b) => !b.hidden).map((b) => b.className.split('--')[1]));
+    const before = has();
+    await thumb(p, p.cards('lib')[1], 2);
+    return [before, has()];
   },
 
   // Undo of a strong no, pressed in its toast over Details of the same title: a level from before, none, and the
@@ -444,32 +491,33 @@ const scenarios = {
     return [p.marks('picks'), !!p.toasts[0].undo];
   },
 
-  // The sets of menus that are still there once they have closed.
+  // The sets that are still there once the levels have folded.
   async menuSets() {
     const p = rated();
     let sets = 0;
     const mount = p.ctx.MM.ratings.mount;
     p.ctx.MM.ratings.mount = (ref, o) => { const set = mount(ref, o); const own = set.destroy; sets += 1; set.destroy = () => { sets -= 1; own(); }; return set; };
     p.open(p.cards('lib')[0]);
-    p.changed();
     const open = sets;
-    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', target: p.doc.activeElement, preventDefault() {}, stopImmediatePropagation() {} }));
+    const folded = sets;
+    p.open(p.cards('lib')[0]);
+    p.cards('lib')[0].remove();
     p.changed();
-    return [open, sets];
+    return [open, folded, sets];
   },
 
-  // The menu opened again on another card before the time to shut it for the first is up.
+  // Another card's levels opened before the time to fold those of the first is up.
   async menuAgain() {
-    const p = rated({}, { hold: true });
+    const p = rated({}, { hold: 560 });
     await thumb(p, p.cards('lib')[0], 2);
-    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
     p.open(p.cards('picks')[0]);
     p.pass();
-    return p.doc.querySelector('#watch-more-menu').classList.contains('is-open');
+    return p.cards().map((c) => c.classList.contains('is-lifted'));
   },
 
   async undoFails() {
-    const p = rated({ 'DELETE /api/watch/ratings/movie-1': 500 });
+    const p = rated({ 'DELETE /api/watch/ratings/tmdb-movie-10': 500 });
     await thumb(p, p.cards('picks')[1], 0);
     p.toasts[0].undo();
     const now = p.marks('picks');
@@ -499,11 +547,10 @@ const scenarios = {
     return { anew: anew.marks('picks'), emptied, back: only.marks('picks') };
   },
 
-  // What the one menu offers for each kind of card.
+  // What the eye of each kind of card marks.
   async menus() {
-    const p = load(watchPage([row('cont', CONTINUE), row('lib', [FILM(), card('show/2', 'Brightwater', 'TV', { watched: true }),
-      card('season/21', 'Brightwater', 'Season 1', { ref: 'show-2' })])]));
-    return p.cards().map((c) => { p.open(c); return p.menu(); });
+    const p = load(watchPage([row('lib', [FILM()])]));
+    return ['movie/1', 'episode/22', 'season/21', 'show/2', 'tmdb-movie-5', 'tmdb-tv-5'].map((m) => p.ctx.MMWatch.core.markLabel(m));
   },
 
   // The pieces of a caption.
@@ -533,9 +580,9 @@ const scenarios = {
     const p = load(watchPage([row('lib', [FILM()]), row('rec', [FILM(), card('movie/9', 'Other', 'Movie')])]));
     await p.pick(p.cards('lib')[0], 'mark');
     const marked = p.look();
-    const menuNow = (p.open(p.cards('rec')[0]), p.menu());
+    const eyes = pressed(p);
     await p.undo();
-    return { marked, menuNow, undone: p.look(), calls: p.calls, toasts: p.toasts.map((t) => t.message), fetched: p.fetched, events: p.events };
+    return { marked, eyes, undone: p.look(), calls: p.calls, toasts: p.toasts.map((t) => t.message), fetched: p.fetched, events: p.events };
   },
 
   // Undo refused: the change stands and it says so.
@@ -543,14 +590,14 @@ const scenarios = {
     const p = load(watchPage([row('lib', [FILM()])]), { api: { 'DELETE /api/watch/watched/movie/1?undo=1': 409 } });
     await p.pick(p.cards()[0], 'mark');
     await p.undo();
-    return { look: p.look(), variant: p.toasts[1].variant, busy: p.cards()[0].querySelector('[data-watch-more]').getAttribute('aria-disabled') };
+    return { look: p.look(), variant: p.toasts[1].variant, busy: p.cards()[0].querySelector('.card-tool--eye').getAttribute('aria-disabled') };
   },
 
   // A mark that fails, then one that changed nothing.
   async markFails() {
     const p = load(watchPage([row('lib', [card('show/2', 'Brightwater', 'TV · 2 seasons · 3 left')])]), { api: { 'POST /api/watch/watched/show/2': 503 } });
     await p.pick(p.cards()[0], 'mark');
-    const more = p.cards()[0].querySelector('[data-watch-more]');
+    const more = p.cards()[0].querySelector('.card-tool--eye');
     const q = load(watchPage([row('lib', [FILM()])]), { api: { 'POST /api/watch/watched/movie/1': { ok: true, changed: 0, watched: true } } });
     await q.pick(q.cards()[0], 'mark');
     return { look: p.look(), toast: p.toasts[0].message, free: more.getAttribute('aria-disabled'), noChange: { look: q.look(), undo: !!q.toasts[0].undo } };
@@ -813,7 +860,7 @@ const scenarios = {
   async underDetails() {
     const p = load(watchPage([row('cont', CONTINUE), ['div', { id: 'ttl' }, ['button', { class: 'in-details', 'data-mark-toggle': 'movie/1', 'data-mark-name': 'Fieldwork', 'aria-pressed': 'false' }]]]));
     p.doc.documentElement.classList.add('has-ttl');
-    const b = p.doc.querySelector('[data-mark-toggle]');
+    const b = p.doc.querySelector('.in-details');
     b.focus();
     click(p.doc, b);
     await settle();
@@ -894,27 +941,28 @@ const scenarios = {
     return p.marks('cont');
   },
 
-  // A card gives way with its menu open: by its mark, by the Undo, and by leaving.
+  // A card gives way with its levels open: by its mark, by the Undo, and by leaving.
   async menuOfAGoneCard() {
     const first = later();
     let sent = first.answer;
-    const episode = card('episode/23', 'Brightwater', 'S1 · E3', { dismiss: 'show-2' });
-    const p = load(watchPage([row('cont', CONTINUE)]), { next: () => sent });
-    const open = () => p.doc.getElementById('watch-more-menu').classList.contains('is-open');
+    const rows = [card('movie/1', 'Fieldwork', 'Movie', { dismiss: 'movie-1', tmdb: '1' }), card('episode/22', 'Brightwater', 'S1 · E2', { dismiss: 'show-2', tmdb: '2' }), card('movie/3', 'Salt', 'Movie', { dismiss: 'movie-3', tmdb: '3' })];
+    const episode = card('episode/23', 'Brightwater', 'S1 · E3', { dismiss: 'show-2', tmdb: '2' });
+    const p = load(watchPage([row('cont', rows)]), { next: () => sent });
+    const open = () => p.doc.querySelectorAll('.card-over').length > 0;
     await p.pick(p.cards()[1], 'mark');
     p.open(p.cards()[1]);
-    first.send(watchPage([row('cont', [CONTINUE[0], episode, CONTINUE[2]])]));
+    first.send(watchPage([row('cont', [rows[0], episode, rows[2]])]));
     await settle();
     const replaced = [open(), p.focus()];
     p.open(p.cards()[1]);
-    sent = watchPage([row('cont', CONTINUE)]);
+    sent = watchPage([row('cont', rows)]);
     await p.undo();
     const undone = open();
     p.open(p.cards()[1]);
     p.dismissed('movie-3');
     p.open(p.cards()[1]);
     await settle();
-    const another = [open(), !!p.doc.activeElement.closest('#watch-more-menu')];
+    const another = [open(), p.focus()];
     const last = later();
     sent = last.answer;
     click(p.doc, p.doc.body);
@@ -1167,22 +1215,15 @@ const scenarios = {
   },
 };
 
-// The menu of a film where an AI answers, then where none does.
+// What to find more like each card's title by, where an AI answers, then where none does.
 scenarios.like = async () => {
   const p = load(watchPage([row('row', [FILM(), card('episode/22', 'Brightwater', 'S1 · E2', { dismiss: 'show-2' }),
     card('', 'Salt', 'Movie', { ref: 'rec-5', pick: 'pick-9', tmdb: '77' }), card('', 'Reef', 'Movie', { ref: 'rec-6', pick: 'pick-8' })])]));
-  const asked = [];
-  p.ctx.MMWatch.search = { canLike: (ref) => /^(movie|show|tmdb-movie)-/.test(ref), like: (...args) => asked.push(args) };
-  p.cards()[0].querySelector('.watch-card__poster').appendChild(build(p.doc, ['img', { src: '/api/poster/1' }]));
-  for (const c of p.cards().slice(0, 3)) await p.pick(c, 'like');
-  p.open(p.cards()[3]);
-  const unknown = p.menu();
-  p.open(p.cards()[0]);
-  const out = { asked, unknown, menu: p.menu() };
+  p.ctx.MMWatch.search = { canLike: (ref) => /^(movie|show|tmdb-movie)-/.test(ref) };
+  const refs = () => p.cards().map((c) => p.ctx.MMWatch.marks.likeRef(c.getAttribute('data-dismiss-ref') || c.querySelector('[data-title-ref]').getAttribute('data-title-ref'), c.querySelector('.watch-card__link')));
+  const out = [refs()];
   p.ctx.MMWatch.search.canLike = () => false;
-  p.open(p.cards()[1]);
-  out.without = p.menu();
-  return out;
+  return out.concat([refs()]);
 };
 
 scenarios[process.argv[2]]().then((out) => process.stdout.write(JSON.stringify(out)), (e) => { console.error(e); process.exit(1); });

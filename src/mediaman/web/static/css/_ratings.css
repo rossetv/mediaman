@@ -214,15 +214,6 @@
 .rate--grid .rate__b { width: auto; height: 72px; gap: 5px; align-content: center; border-radius: 13px; }
 .rate__lab { transition: opacity var(--dur-fast) var(--ease-out); font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
 
-.rate--strip { --rate-bg: var(--s3); }
-.rate--strip .rate__set { padding: 0; box-shadow: var(--shadow-card); }
-.rate--strip .rate__b { height: 40px; }
-
-.rate--menu .rate__set { padding: 0; border: 0; background: none; }
-
-@media (max-width: 699.98px) {
-  .rate--strip .rate__b { height: 44px; }
-}
 @media (max-width: 599.98px) {
   .rate__b { width: 56px; }
   .rate--plain { width: 100%; }

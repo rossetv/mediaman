@@ -48,21 +48,10 @@
       // Watch cannot open it; its menu has what can be done of it.
       link.removeAttribute('href');
       link.tabIndex = 0;
-      if (item.admin) card.appendChild(more(item.title));
     }
+    if (item.admin) core.addMore(card, item.title);
     showWorking(card);
     return card;
-  }
-
-  function more(title) {
-    var b = el('button', 'watch-more');
-    b.type = 'button';
-    b.setAttribute('data-watch-more', '');
-    b.setAttribute('aria-haspopup', 'menu');
-    b.setAttribute('aria-expanded', 'false');
-    b.setAttribute('aria-label', 'More for ' + title);
-    b.appendChild(window.MM.dom.icon('i-ellipsis'));
-    return b;
   }
 
   /* Have *card* say what *fresh*, the same title as it is now, says. */
@@ -79,6 +68,10 @@
       if (old && next) old.replaceWith(next);
       else if (old) old.remove();
       else if (next) poster.appendChild(next);
+    });
+    toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) {
+      var own = fresh.querySelector('[data-mark-toggle]');
+      if (own) ['aria-pressed', 'title'].forEach(function (name) { b.setAttribute(name, own.getAttribute(name)); });
     });
     labels.delete(card);
     card.querySelector('.watch-card__title').textContent = fresh.querySelector('.watch-card__title').textContent;
@@ -262,7 +255,8 @@
 
   /* The focus of an Undo, which its toast takes along: to the title it is of. */
   function focusOn(card) {
-    if (card && focusIsFree()) moreOf(card).focus({ preventScroll: true });
+    var control = card && focusIsFree() && core.controlIn(card, '[data-watch-more]');
+    if (control) control.focus({ preventScroll: true });
   }
 
   function leave(card) {

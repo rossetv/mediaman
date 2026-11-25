@@ -78,10 +78,10 @@ const scenarios = {
   async levels() {
     const p = load();
     const all = {};
-    for (const variant of ['plain', 'grid', 'strip', 'menu']) {
+    for (const variant of ['plain', 'grid', 'lift']) {
       const set = p.R.mount('movie-' + variant.length + variant, { variant });
       all[variant] = [set.line.textContent];
-      [0, 1, 2, 3, 3].forEach((i) => { p.press(set, i); all[variant].push(set.line.textContent); });
+      (variant === 'lift' ? [3, 2, 1, 0, 0] : [0, 1, 2, 3, 3]).forEach((i) => { p.press(set, i); all[variant].push(set.line.textContent); });
     }
     return all;
   },
@@ -120,7 +120,7 @@ const scenarios = {
   async fails() {
     const p = load();
     const set = p.R.mount('movie-1');
-    const other = p.R.mount('movie-1', { variant: 'menu' });
+    const other = p.R.mount('movie-1', { variant: 'grid' });
     await p.go();
     await p.ratings({ 'movie-1': lv(-1) });
     p.press(set, 3);
@@ -222,7 +222,7 @@ const scenarios = {
     await p.ratings({ 'movie-1': lv(null) });
     p.press(set, 3);
     await p.refuse();
-    const later = p.R.mount('movie-1', { variant: 'menu' });
+    const later = p.R.mount('movie-1', { variant: 'lift' });
     return { later: p.look(later), set: p.look(set), log: p.log.slice(2) };
   },
 
@@ -403,7 +403,7 @@ const scenarios = {
   // A set that has gone; another title is then saved.
   async destroyed() {
     const p = load();
-    const gone = p.R.mount('movie-2', { variant: 'menu' });
+    const gone = p.R.mount('movie-2', { variant: 'lift' });
     const set = p.R.mount('movie-1');
     await p.go();
     await p.ratings({ 'movie-1': lv(null), 'movie-2': lv(null) });
@@ -443,7 +443,41 @@ const scenarios = {
       return [g.getAttribute('role'), g.getAttribute('aria-label'), b.getAttribute('role'), b.getAttribute('aria-label'),
         b.getAttribute('aria-pressed'), b.getAttribute('aria-checked'), b.getAttribute('tabindex'), set.line.getAttribute('role')];
     };
-    return { plain: of('plain'), menu: of('menu') };
+    return { plain: of('plain'), lift: of('lift') };
+  },
+
+  // What a page was drawn with: known unasked under each of its refs, not over a press, and not over what is known.
+  async known() {
+    const p = load();
+    const library = p.R.mount('movie-1');
+    const pressed = p.R.mount('tmdb-movie-8');
+    p.press(pressed, 0);
+    p.R.know('tmdb-movie-7', 1, ['movie-1', 'rec-2']);
+    p.R.know('tmdb-movie-8', 2, []);
+    const drawn = [p.R.get('movie-1'), p.R.get('rec-2'), p.look(library).on, p.look(pressed).on];
+    p.R.set('tmdb-movie-7', 2);
+    p.R.know('tmdb-movie-7', -1, ['movie-1']);
+    return { drawn, pending: [p.R.get('movie-1'), p.look(library).on], refs: p.events.filter((e) => e.ref === 'tmdb-movie-7').pop().refs.sort() };
+  },
+
+  // What the name by the levels says as the person goes over them, presses and goes back.
+  async pointed() {
+    const p = load();
+    const set = p.R.mount('movie-1', { variant: 'lift' });
+    const b = set.node.querySelectorAll('.rate__b');
+    const name = set.node.querySelector('.rate__name');
+    const look = () => [name.classList.contains('is-on') && name.textContent, set.node.style['--at'], b.findIndex((n) => n.classList.contains('is-at'))];
+    const out = [look()];
+    const step = (fn) => { fn(); out.push(look()); };
+    step(() => set.pointAt(b[2]));
+    step(() => set.pointAt(b[0]));
+    step(() => p.press(set, 0));
+    step(() => set.pointAt(b[0]));
+    step(() => set.pointAt(b[1]));
+    step(() => set.pointAt(b[0]));
+    step(() => p.press(set, 0));
+    step(() => set.pointAt(null));
+    return out;
   },
 
   // An Undo from elsewhere, and a set that is gone.

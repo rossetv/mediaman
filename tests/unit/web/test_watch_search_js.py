@@ -604,7 +604,7 @@ def test_an_enter_held_down_or_ending_a_composition_searches_nothing() -> None:
     assert _run("enterNotAsked") == 0
 
 
-def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
+def test_a_library_result_carries_its_mark_and_eye_beside_its_keep() -> None:
     assert _run("marks") == [["movie/1", True, 1, 1], [None, False, 0, 0]]
 
 

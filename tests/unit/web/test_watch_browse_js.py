@@ -542,23 +542,26 @@ def test_a_library_row_loads_on_from_the_page_s_cards_to_its_end() -> None:
         "GET /api/watch/library/tv/row?after=b2",
     ]
     assert out["more"] is False
-    # As the page draws it: its mark and More, and no Keep outside Leaving soon.
+    # As the page draws it: its mark and its eye, and no Keep outside Leaving soon.
     assert out["third"] == ["show/3", True, True, False]
 
 
-def test_a_discover_card_has_a_mark_and_more_only_for_a_title_of_the_library() -> None:
+def test_a_discover_card_is_rated_and_marked_by_the_library_s_title_or_tmdb_s_and_nothing_else() -> (
+    None
+):
     assert _run("discoverMarks") == [
-        ["movie/11", True, 1, False],
-        [None, False, 0, False],
-        [None, False, 0, False],
+        ["movie/11", True, ["Mark as watched"], None, False],
+        [None, False, [], None, False],
+        ["tmdb-movie-4", True, ["Rate Title tmdb-movie-4", "Mark as watched"], "-2", False],
+        [None, False, [], None, False],
     ]
 
 
-def test_a_pick_has_its_more_button_whether_the_library_holds_it_or_not() -> None:
+def test_a_pick_has_its_thumb_and_eye_whether_the_library_holds_it_or_not() -> None:
     caption = ["watch-card__lead", "watch-card__tail"]
     assert _run("pickMore") == [
-        [None, ["More for Title rec-1"], caption],
-        ["movie/11", ["More for Title pick-2"], caption],
+        ["tmdb-tv-5", ["Rate Title rec-1", "Mark show as watched"], caption],
+        ["movie/11", ["Rate Title pick-2", "Mark as watched"], caption],
         [None, [], []],
     ]
 

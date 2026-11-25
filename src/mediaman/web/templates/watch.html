@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="/static/css/_watch_asked.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_cards.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_cast.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_collection.css?v={{ static_v }}">
@@ -160,7 +161,7 @@
 
   {{ w.keep_menu() }}
   {# Read out on the way into a row: watch-rows.js. #}
-  <p id="watch-row-keys" hidden>Left and right arrow keys move along the row, Home and End go to its ends. Down arrow goes to a title’s own buttons. Tab leaves the row.</p>
+  <p id="watch-row-keys" hidden>Left and right arrow keys move along the row, Home and End go to its ends. Down arrow goes to a title’s own buttons, left and right arrows go between them. Tab leaves the row.</p>
   <div class="page-bottom-spacer"></div>
 </div>
 
@@ -169,6 +170,7 @@
 <script src="/static/js/watch/address.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/keep.js?v={{ static_v }}" defer></script>
 <script src="/static/js/ratings.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/card-tools.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/marks.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/search.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/ask.js?v={{ static_v }}" defer></script>

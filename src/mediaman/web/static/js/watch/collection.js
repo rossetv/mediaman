@@ -255,8 +255,7 @@
   function cardOf(v, film) {
     var card = watch.browse.card(film);
     card.setAttribute('role', 'listitem');
-    var more = card.querySelector('.watch-more');
-    if (more) more.remove(); // each opens its own page, which has all that menu has
+    core.toArray(card.querySelectorAll('.card-tool')).forEach(function (b) { b.tabIndex = -1; });
     var link = linkOf(card);
     link.setAttribute('data-ttl-act', 'film-' + film.ref);
     link.tabIndex = -1;
@@ -320,6 +319,14 @@
   function alongRow(v, e) {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     var i = v.cards.findIndex(function (c) { return c.contains(e.target); });
+    if (i >= 0 && e.key === 'ArrowDown' && e.target === linkOf(v.cards[i])) {
+      var tool = core.controlIn(v.cards[i], '.card-tool');
+      if (tool && tool !== e.target) {
+        e.preventDefault();
+        tool.focus({ preventScroll: true });
+      }
+      return;
+    }
     var to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1
       : e.key === 'Home' ? 0 : e.key === 'End' ? v.cards.length - 1 : -2;
     if (i < 0 || to === -2) return;

@@ -1185,7 +1185,7 @@ const scenarios = {
     await scroll(scroller, 0);
     const third = scroller.querySelectorAll('.watch-card')[2];
     return { refs: refsOf(scroller), calls: p.calls.filter((c) => /library/.test(c)), more: scroller.parentNode.hasAttribute('data-row-more'),
-      third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('[data-watch-more]'), !!third.querySelector('[data-watch-keep]')] };
+      third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('.card-tool--eye'), !!third.querySelector('[data-watch-keep]')] };
   },
 
   // A row whose rest the server has goes on from there as a grid too, in the grid's pages and orders.
@@ -1205,24 +1205,25 @@ const scenarios = {
     return out;
   },
 
-  // Discover cards carry a mark and More only for a title the library holds, whatever the server sends.
+  // Discover cards carry the mark of the library's title, else of TMDB's, whatever the server sends.
   async discoverMarks() {
     const p = load({ routes: { 'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [
       card('movie-11', { in_library: true, mark_kind: 'movie', mark_key: '11', watched: true }),
       card('tmdb-movie-2', { mark_kind: null, mark_key: null, watched: false }),
-      card('tmdb-movie-3', { mark_kind: 'movie', mark_key: '1/../x', watched: true })] }] }) } });
+      card('tmdb-movie-4', { tmdb_ref: 'tmdb-movie-4', level: -2, mark_kind: null, mark_key: null, watched: true }),
+      card('tmdb-movie-3', { mark_kind: 'movie', mark_key: '1/../x', tmdb_ref: 'tmdb-movie-3/x', watched: true })] }] }) } });
     await settle();
     return scrollerOf(p, 'trending').querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
-      c.querySelectorAll('[data-watch-more]').length, !!c.querySelector('.watch-card__link [data-watch-more]')]);
+      c.querySelectorAll('.card-tool').map((b) => b.getAttribute('aria-label')), c.getAttribute('data-level'), !!c.querySelector('.watch-card__link .card-tool')]);
   },
 
-  // A pick has its More button whether the library holds it or not, a Discover card of the same title does not.
+  // A pick has its thumb and eye whether the library holds it or not.
   async pickMore() {
     const p = load({ routes: {
-      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11' })] })),
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1', { tmdb_ref: 'tmdb-tv-5' }), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11', tmdb_ref: 'tmdb-movie-6' })] })),
       'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [card('tmdb-movie-2')] }] }) } });
     await settle();
-    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('[data-watch-more]').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
+    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('.card-tool').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
     return [...rec(p.doc).querySelectorAll('.watch-card'), scrollerOf(p, 'trending').querySelector('.watch-card')].map(look);
   },
 

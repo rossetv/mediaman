@@ -1,4 +1,4 @@
-"""The Watched marks, the More menu and Dismiss on the Watch pages, run under node against a fake
+"""The Watched marks, the levels over a card and Dismiss on the Watch pages, run under node against a fake
 DOM."""
 
 from __future__ import annotations
@@ -23,14 +23,14 @@ def _run(scenario: str, *args: str):
     return json.loads(result.stdout)
 
 
-def test_the_menu_says_what_it_marks_and_offers_dismiss_only_in_continue_watching() -> None:
+def test_an_eye_says_what_it_marks() -> None:
     assert _run("menus") == [
-        ["Mark as watched", "Dismiss"],
-        ["Mark episode as watched", "Dismiss"],
-        ["Mark as watched", "Dismiss"],
-        ["Mark as watched"],
-        ["Mark show as not watched"],
-        ["Mark season as watched"],
+        "Mark as watched",
+        "Mark episode as watched",
+        "Mark season as watched",
+        "Mark show as watched",
+        "Mark as watched",
+        "Mark show as watched",
     ]
 
 
@@ -38,7 +38,7 @@ def test_a_film_marked_shows_it_on_all_its_cards_and_undo_puts_them_back() -> No
     out = _run("markFilm")
     other = ["movie/9", False, "Movie", False]
     assert out["marked"] == [["movie/1", True, "Movie", False]] * 2 + [other]
-    assert out["menuNow"] == ["Mark as not watched"]
+    assert out["eyes"] == ["true", "true", "false"]
     assert out["undone"] == [["movie/1", False, "Movie · 31 min left", True]] * 2 + [other]
     assert out["calls"] == [
         "POST /api/watch/watched/movie/1",
@@ -376,11 +376,11 @@ def test_rows_whose_answer_came_too_late_follow_with_the_next_change() -> None:
     assert _run("lateRows") == ["movie/1", "episode/23", "movie/3"]
 
 
-def test_a_card_s_open_menu_closes_when_the_card_goes_and_another_s_stays() -> None:
+def test_a_card_s_levels_go_when_the_card_goes_and_another_s_stay() -> None:
     out = _run("menuOfAGoneCard")
     assert out["replaced"] == [False, "episode/23"]
     assert out["undone"] is False
-    assert out["another"] == [True, True]
+    assert out["another"] == [True, "episode/22"]
     assert out["left"] == [False, "movie/1"]
 
 
@@ -501,26 +501,69 @@ def test_marking_the_whole_show_meanwhile_still_says_what_is_left_of_it() -> Non
     assert _run("wholeShowMeanwhile") == [False, "TV"]
 
 
-def test_a_rating_in_the_menu_is_saved_and_shuts_it_and_one_taken_back_does_not() -> None:
+def test_a_rating_from_a_card_is_on_every_card_of_the_title_and_so_is_one_taken_back() -> None:
     out = _run("menuRating")
-    rated = "PUT /api/watch/ratings/movie-1 1"
-    assert out["first"] == [False, [rated], "movie/1"]
-    assert out["back"] == [True, ["DELETE /api/watch/ratings/movie-1"]]
+    assert out["first"] == [False, ["PUT /api/watch/ratings/tmdb-movie-10 1"], "movie/1"]
+    assert out["levels"] == [None, "1", None, "1"]
+    assert out["back"] == [False, ["DELETE /api/watch/ratings/tmdb-movie-10"], [None] * 4]
 
 
-def test_a_pick_that_is_not_in_the_library_is_rated_and_opened_from_its_menu_and_not_marked() -> (
-    None
-):
-    assert _run("pickMenu") == {
-        "menu": ["Details"],
-        "label": "More for Wanted",
-        "focus": "Details",
-        "keys": ["Strong no", "Details"],
-        "calls": ["PUT /api/watch/ratings/rec-5 1"],
-        "pressed": ["link"],
-        "marked": [],
-        "held": ["Mark as watched", "Details"],
-    }
+def test_a_title_not_in_the_library_is_rated_and_marked_by_its_tmdb_ref_on_all_its_cards() -> None:
+    out = _run("pickMenu")
+    calls, look, level, pages, told = out["marked"]
+    assert calls == [
+        "PUT /api/watch/ratings/tmdb-movie-50 1",
+        "PUT /api/watch/seen/tmdb-movie-50",
+    ]
+    assert [(mark, seen) for mark, seen, *_ in look] == [
+        ("tmdb-movie-50", True),
+        ("movie/8", False),
+        ("tmdb-movie-50", True),
+    ]
+    # Continue watching has nothing of it, so the page is not read again; Details is told by each of its refs.
+    assert (level, pages, sorted(told)) == ("1", 0, ["rec-5", "tmdb-movie-50"])
+    assert out["undone"][0][1] is False
+    assert out["calls"] == [
+        "DELETE /api/watch/seen/tmdb-movie-50?undo=1",
+        "POST /api/watch/watched/movie/8",
+    ]
+
+
+def test_a_mark_the_server_refuses_goes_where_the_title_is_now_or_says_why() -> None:
+    out = _run("seenRefused")
+    assert out["held"]["calls"][1:] == ["POST /api/watch/watched/movie/5"]
+    assert [look[:2] for look in out["held"]["look"]] == [["movie/5", True]] * 2
+    assert out["held"]["toggles"] == [["movie/5", False]] * 2
+    assert out["held"]["toasts"] == [["Marked Wanted as watched.", True]]
+    # Nothing but a library title's mark is taken from the answer.
+    assert len(out["odd"]["calls"]) == 1 and out["odd"]["toggles"][0][0] == "tmdb-movie-50"
+    assert out["none"]["toggles"] == [["tmdb-movie-50", True]] * 2
+    assert out["seasons"]["look"][0][1] is False
+    assert [undo for _, undo in out["seasons"]["toasts"]] == [False]
+
+
+def test_a_card_drawn_from_an_older_answer_says_what_was_rated_and_marked_since() -> None:
+    out = _run("lateCard")
+    assert out["soon"] == ["2", True, "true"]
+    # Long after, its own answer is the newer one.
+    assert out["long"] == ["2", False, "false"]
+    assert out["undone"] == [False, False, False]
+
+
+def test_a_part_marked_takes_the_undo_of_its_whole_show_away_and_no_other_title_s() -> None:
+    out = _run("partAfterWhole")
+    assert out["before"] == []
+    assert out["after"] == ["Marked Brightwater as watched."]
+
+
+def test_the_arrow_keys_go_between_a_card_s_buttons_and_back_up_to_it() -> None:
+    assert [name.split("--")[-1] for name in _run("toolKeys")] == [
+        "eye",
+        "x",
+        "thumb",
+        "x",
+        "watch-card__link",
+    ]
 
 
 def test_strong_noes_undone_in_the_order_they_were_given_stand_as_they_did() -> None:
@@ -534,15 +577,12 @@ def test_a_strong_no_undone_in_see_all_gives_the_focus_to_the_card_there() -> No
     assert _run("strongNoUndoneInGrid") is True
 
 
-def test_the_menus_keys_reach_the_four_thumbs_and_the_items() -> None:
+def test_the_levels_take_the_focus_at_the_one_given_and_the_keys_go_round_them() -> None:
+    love, like, no, strong = "I love it", "I like it", "Not for me", "Strong no"
+    folded = [True, "false"]
     assert _run("menuKeys") == [
-        "Strong no",
-        "Not for me",
-        "I like it",
-        "Mark as watched",
-        "Strong no",
-        "I love it",
-        "Mark as watched",
+        [like, love, strong, love, strong, love, like, *folded],
+        [no, like, love, like, strong, love, like, *folded],
     ]
 
 
@@ -553,7 +593,7 @@ def test_a_strong_no_takes_the_title_out_of_the_picks_alone_and_undo_gives_the_o
     assert out["gone"] == ["movie/8", "movie/9", "movie/1"]
     assert out["toast"] == "Fieldwork is gone from your picks. Search still finds it."
     assert out["back"] == ["movie/8", "movie/1", "movie/9"]
-    assert out["calls"] == [f"PUT /api/watch/ratings/movie-1 {level}" for level in (1, -2, 1)]
+    assert out["calls"] == [f"PUT /api/watch/ratings/tmdb-movie-10 {level}" for level in (1, -2, 1)]
 
 
 def test_the_focus_goes_to_the_next_pick_and_back_with_undo() -> None:
@@ -591,7 +631,7 @@ def test_a_level_not_saved_over_a_strong_no_leaves_that_to_stand_with_its_own_un
         ]
         assert out["gone"] == ["movie/8", "movie/9"]
         assert out["back"] == ["movie/8", "movie/1", "movie/9"]
-        assert out["last"] == "PUT /api/watch/ratings/movie-1 1"
+        assert out["last"] == "PUT /api/watch/ratings/tmdb-movie-10 1"
 
 
 def test_a_rating_stored_though_its_answer_was_lost_is_followed_once_the_server_says_so() -> None:
@@ -601,21 +641,20 @@ def test_a_rating_stored_though_its_answer_was_lost_is_followed_once_the_server_
     for out in (strong_no, undo):
         assert out["gone"] == ["movie/8", "movie/9"]
         assert out["back"] == ["movie/8", "movie/1", "movie/9"]
-    assert strong_no["told"] == [gone]
+    assert strong_no["told"] == ["Your rating wasn’t saved. Try again.", gone]
     assert undo["told"] == [gone, stays]
     assert undo["dismissed"] == [gone, stays]
 
 
-def test_a_rating_that_fails_at_once_keeps_the_menu_open_with_why() -> None:
-    assert _run("menuFails") == [True, "Your rating wasn’t saved. Try again.", 0]
+def test_a_rating_that_fails_puts_every_card_back_and_is_said() -> None:
+    assert _run("menuFails") == [
+        [None, "2", None, "2"],
+        ["Your rating wasn’t saved. Try again."],
+    ]
 
 
-def test_a_title_that_cannot_be_rated_shows_no_thumbs_or_says_so_in_their_place() -> None:
-    assert _run("cannotRate") == {
-        "pick": 0,
-        "said": "This title can’t be rated.",
-        "focus": "Mark as watched",
-    }
+def test_a_title_that_cannot_be_rated_has_its_eye_alone() -> None:
+    assert _run("cannotRate") == [[["eye"], ["thumb", "eye"]], [["eye"], ["eye"]]]
 
 
 def test_undo_over_details_lands_on_the_thumb_of_that_title_alone_and_else_on_the_heading() -> None:
@@ -627,12 +666,12 @@ def test_a_strong_no_over_a_level_not_known_offers_no_undo() -> None:
     assert _run("unknownBefore") == [["movie/8", "movie/9"], False]
 
 
-def test_a_menu_that_has_closed_leaves_no_rating_behind() -> None:
-    assert _run("menuSets") == [1, 0]
+def test_levels_that_have_folded_or_gone_with_their_card_leave_no_set_behind() -> None:
+    assert _run("menuSets") == [1, 0, 0]
 
 
-def test_a_menu_opened_again_is_not_shut_for_the_rating_before() -> None:
-    assert _run("menuAgain") is True
+def test_levels_opened_on_another_card_are_not_folded_for_the_rating_before() -> None:
+    assert _run("menuAgain") == [True, False, False, False]
 
 
 def test_an_undo_that_is_refused_takes_the_pick_out_again() -> None:
@@ -667,13 +706,5 @@ def test_dismissing_again_takes_the_toasts_of_the_last_dismiss_and_its_undo_away
     ]
 
 
-def test_a_menu_finds_more_like_its_title_only_where_there_is_an_ai() -> None:
-    out = _run("like")
-    assert out["asked"] == [
-        ["movie-1", "Fieldwork", "/api/poster/1"],
-        ["show-2", "Brightwater", None],
-        ["tmdb-movie-77", "Salt", None],
-    ]
-    assert out["unknown"] == ["Details"]
-    assert out["menu"] == ["Find more like this", "Mark as watched"]
-    assert "Find more like this" not in out["without"] and out["without"]
+def test_more_like_a_title_is_found_only_where_there_is_an_ai() -> None:
+    assert _run("like") == [["movie-1", "show-2", "tmdb-movie-77", ""], [""] * 4]

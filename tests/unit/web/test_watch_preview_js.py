@@ -196,7 +196,6 @@ def test_a_continue_watching_card_resumes_at_once_and_its_menu_works_the_episode
     assert (out["label"], out["href"]) == ("Resume", "/watch/play/22?resume=1")
     assert out["where"] == "S2 · E4, 23 min left · Drama"
     assert out["menu"] == [
-        "Mark episode as watched",
         "Dismiss",
         "Details",
         "Play trailers on hover",
@@ -261,6 +260,10 @@ def test_escape_closes_the_preview_alone_before_the_grid_or_the_search_under_it(
     out = _run("escapeInGrid")
     assert out["page"] == ["Fieldwork", [None, True, 0, 0], [None, True, 1, 0]]
     assert out["search"] == ["Fieldwork", [None, True, 0, 0], [None, True, 0, 1]]
+
+
+def test_it_opens_from_the_picture_alone_and_not_over_the_levels_or_once_one_was_given() -> None:
+    assert _run("offPicture") == [None, None, None, None, "Fieldwork"]
 
 
 def test_a_previews_menu_finds_more_like_its_title_first_of_all() -> None:
@@ -532,11 +535,13 @@ def test_rate_opens_the_four_and_a_press_rates_and_folds_them() -> None:
     assert out["first"] == [False, "", "Only you see your rating.", False]
     assert out["stops"] == 0
     assert out["open"] is True
-    assert out["loved"] == [False, "is-up", "I love it. Counts most in your picks.", False]
-    assert out["left"] is False
-    # The menu shows the same level, and stays long enough to see the new one.
-    assert out["menu"] == ["false", "false", "false", "true"]
-    assert (out["looked"], out["shut"]) == (True, False)
+    assert out["loved"] == [True, "is-up", "I love it. Counts most in your picks.", False]
+    assert out["folded"] is False
+    assert out["levels"] == ["true", "false", "false", "false"]
+    # Off them for a moment is not away.
+    assert (out["back"], out["left"]) == (True, False)
+    # A mouse that rests on the button opens them, and its own press then does not fold them.
+    assert (out["crossed"], out["rested"], out["own"]) == (False, True, True)
     assert out["after"][1] == "is-down"
     assert out["rates"] == [["/api/watch/ratings/movie-1", level] for level in (2, -1)]
     assert out["title"] == "Fieldwork"
@@ -553,11 +558,11 @@ def test_a_rating_that_fails_is_said_in_the_preview_or_in_a_toast_once_that_has_
     assert _run("rateFails") == [[0, ["", said]], [1, None]]
 
 
-def test_a_strip_opened_again_stays_open_as_the_level_is_saved() -> None:
+def test_levels_opened_again_stay_open_as_the_level_is_saved() -> None:
     assert _run("stripAgain") == [1, True]
 
 
-def test_a_strip_opened_before_the_reply_stays_open_as_it_comes() -> None:
+def test_levels_opened_before_the_reply_stay_open_as_it_comes() -> None:
     assert _run("stripEarly") == ["A field.", True]
 
 
@@ -596,5 +601,5 @@ def test_the_preview_stays_under_its_sheet_and_leaves_the_remote_its_escape() ->
     }
 
 
-def test_a_strip_folds_as_the_server_says_the_title_cannot_be_rated() -> None:
+def test_the_levels_fold_as_the_server_says_the_title_cannot_be_rated() -> None:
     assert _run("stripNotRateable") == [False, True]
