@@ -449,6 +449,29 @@ const scenarios = {
     h.resize();
     return { before, low, on: h.q('.hx-menu').classList.contains('on') };
   },
+  titlesUnseen: async () => {
+    const h = open({});
+    const menu = h.q('.hx-menu');
+    h.press('[data-menu="title"]');
+    h.menus[0].resolve({ options: [{ value: 'Aces', label: 'Aces', count: 1 }], more: false });
+    await settle();
+    const find = menu.querySelector('input');
+    const type = (t) => { find.value = t; h.fire(find, 'input'); };
+    const rows = () => menu.querySelectorAll('.hx-opt-skel').length;
+    type('ac');
+    const matched = rows();
+    type('tide');
+    const waiting = rows();
+    h.tick(200);
+    h.menus[1].resolve({ options: [{ value: 'Low Tide', label: 'Low Tide', count: 1 }], more: false });
+    await settle();
+    const answered = rows();
+    type('zz');
+    h.tick(200);
+    h.menus[2].reject(new Error('no'));
+    await settle();
+    return { matched, waiting, answered, failed: rows() };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });

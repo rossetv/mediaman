@@ -346,3 +346,7 @@ def test_only_the_spaces_round_a_title_are_left_out() -> None:
 
 def test_a_menu_whose_screen_turns_low_is_let_go_of_its_height_and_stays_open() -> None:
     assert _run("resized") == {"before": "440px", "low": ["", True], "on": False}
+
+
+def test_a_title_typed_that_none_listed_holds_shows_a_row_to_come_until_the_answer() -> None:
+    assert _run("titlesUnseen") == {"matched": 0, "waiting": 1, "answered": 0, "failed": 0}

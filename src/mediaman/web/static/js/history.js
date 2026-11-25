@@ -921,7 +921,11 @@
         menuAsked += 1;
         if (byHand) { ask(); return; }
         if (!find && titlesOf && titlesOf.question === query()) show(titlesOf.options);
-        else if (known.length) show(known.filter(function (o) { return o.label.toLowerCase().indexOf(low) >= 0; }));
+        else if (known.length) {
+          var held = known.filter(function (o) { return o.label.toLowerCase().indexOf(low) >= 0; });
+          show(held);
+          if (!held.length) scroll.appendChild(el('div', 'hx-opt-skel is-late', el('i', 'skel')));
+        }
         else {
           show([]);
           for (var i = 0; i < 8; i++) scroll.appendChild(el('div', 'hx-opt-skel', el('i', 'skel')));

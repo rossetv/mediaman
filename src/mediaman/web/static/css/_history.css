@@ -352,6 +352,8 @@ body[data-page="history"] { overflow-x: clip; }
 .hx-menu--titles { height: min(440px, calc(100dvh - 90px)); }
 .hx-opt-skel { display: flex; align-items: center; height: 44px; padding: 0 12px; }
 .hx-opt-skel .skel { width: 55%; height: 12px; border-radius: var(--r-pill); background: var(--s3); }
+/* Not shown for an answer that comes soon. */
+.hx-opt-skel.is-late { animation: fade-in var(--dur) var(--ease-out) backwards; animation-delay: .35s; }
 .hx-opt-skel:nth-child(even) .skel { width: 40%; }
 .hx-opt .k { width: 20px; text-align: center; color: var(--t3); }
 .hx-opt[aria-checked=true] { color: var(--t1); }
@@ -433,9 +435,11 @@ body[data-page="history"] { overflow-x: clip; }
     top: auto!important;
     bottom: 0;
     width: auto;
+    max-width: 640px;
     max-height: 80dvh;
+    margin-inline: auto;
     padding: 8px 12px calc(16px + env(safe-area-inset-bottom, 0px));
-    border-width: 1px 0 0;
+    border-width: 1px 1px 0;
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     transform: translateY(24px);
   }
