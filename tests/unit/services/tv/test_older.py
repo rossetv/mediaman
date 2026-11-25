@@ -385,11 +385,40 @@ def test_a_command_for_a_film_the_tv_was_not_handed_yet_waits_for_it(home):
 
 
 def test_a_film_that_ran_to_its_end_has_ended(home):
-    home.play(start_s=LENGTH - 10)
+    home.play(start_s=LENGTH - 2)
     home.steps(3)
-    home.tv.state = "STOPPED"
+    home.tv.state, home.sent = "STOPPED", (True, False)
     home.step()
     assert home.film()["state"] == "ended"
+
+
+def test_a_film_whose_end_a_slow_tv_tells_late_has_ended(home):
+    home.play(start_s=LENGTH - 48)
+    home.steps(34)
+    home.tv.state, home.sent = "STOPPED", (True, False)
+    home.step(6)
+    assert home.film()["state"] == "ended"
+
+
+def _stopped_near_the_end(home, start_s, sent, paused=False):
+    home.play(start_s=start_s, next_state="next")
+    home.steps(3)
+    if paused:
+        home.tv.state = "PAUSED_PLAYBACK"
+        home.step()
+    home.tv.state, home.sent = "STOPPED", (sent, False)
+    home.step()
+
+
+@pytest.mark.parametrize(
+    ("start_s", "sent", "paused"),
+    [(LENGTH - 2, False, False), (LENGTH - 24, True, False), (LENGTH - 2, True, True)],
+)
+def test_a_persons_own_stop_near_the_end_starts_nothing(home, start_s, sent, paused):
+    _stopped_near_the_end(home, start_s, sent, paused)
+    assert home.view()["last"]["reason"] == "stopped"
+    assert home.step() is False
+    assert home.asked == []
 
 
 def test_a_film_of_no_known_length_has_ended_once_all_of_it_was_sent(home):
@@ -630,9 +659,9 @@ def test_a_tv_taken_over_is_handed_nothing_of_the_earlier_persons(home):
 
 
 def test_the_next_episode_is_asked_for_once_the_countdown_is_over(home):
-    home.play(start_s=LENGTH - 10, next_state="next")
+    home.play(start_s=LENGTH - 2, next_state="next")
     home.steps(3)
-    home.tv.state = "STOPPED"
+    home.tv.state, home.sent = "STOPPED", (True, False)
     home.step()
     assert home.film()["state"] == "upnext"
     home.step(5)
@@ -642,9 +671,9 @@ def test_the_next_episode_is_asked_for_once_the_countdown_is_over(home):
 
 
 def _up_next(home, autoplay=True):
-    home.play(start_s=LENGTH - 10, next_state="next", autoplay=autoplay)
+    home.play(start_s=LENGTH - 2, next_state="next", autoplay=autoplay)
     home.steps(3)
-    home.tv.state = "STOPPED"
+    home.tv.state, home.sent = "STOPPED", (True, False)
     home.step()
     assert home.film()["state"] == "upnext"
 
@@ -698,9 +727,9 @@ def test_a_paused_tvs_stream_is_kept_alive(home):
 
 
 def test_what_is_over_is_put_away_after_a_while(home):
-    home.play(start_s=LENGTH - 10)
+    home.play(start_s=LENGTH - 2)
     home.steps(3)
-    home.tv.state = "STOPPED"
+    home.tv.state, home.sent = "STOPPED", (True, False)
     home.steps(2)
     for _ in range(int(older.OVER_SECONDS // 60)):
         assert home.step(60)

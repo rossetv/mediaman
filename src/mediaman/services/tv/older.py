@@ -29,8 +29,10 @@ STEP_SECONDS = 1.0
 #: How long a TV may take to start a film, and how long one told to play may still say it has none.
 LOAD_SECONDS = 90.0
 STOPPED_SECONDS = 20.0
-#: A TV that stops this close to the end has come to it.
-NEAR_END_SECONDS = 30.0
+#: A TV that was sent all of a film and stops this close to its end has come to it.
+NEAR_END_SECONDS = 10.0
+# A slow TV's answer says it has stopped this much after it last said it plays.
+_LATE_SECONDS = 7.0
 #: How long a film that is over or failed is left for its person to look at.
 OVER_SECONDS = 600.0
 #: How often a TV with no film on is asked whether it is still there.
@@ -171,6 +173,8 @@ class _Film:
     #: The TV's count is of the film's time, not of what it was handed. None: not known yet.
     absolute: bool | None = None
     seen_playing: float | None = None
+    #: When it was last heard to play; None while it is paused.
+    last_played: float | None = None
 
     def take_place(self, count: int | None, now: float) -> None:
         if count is None:
@@ -186,9 +190,13 @@ class _Film:
             )
         self.position_s = count if self.absolute else self.base_s + count
 
-    def near_end(self) -> bool:
-        duration = self.about.get("duration_s") or 0
-        return bool(duration) and self.position_s >= duration - NEAR_END_SECONDS
+    def is_at_end(self, now: float) -> bool:
+        """Whether a TV that was sent all of it, and has stopped, came to its end."""
+        if self.last_played is None:
+            return False
+        duration = self.about.get("duration_s")
+        place = self.position_s + min(now - self.last_played, _LATE_SECONDS)
+        return not duration or place >= duration - NEAR_END_SECONDS
 
 
 class Driver:
@@ -407,6 +415,7 @@ class Driver:
             if film.seen_playing is not None:
                 film.played_s += now - film.seen_playing
             film.seen_playing, film.begun, film.on, film.paused = now, True, True, False
+            film.last_played = now
             self._again = 0
             if film.pause:
                 self._pause_late(film)
@@ -414,6 +423,7 @@ class Driver:
         film.seen_playing = None
         if status.state == "PAUSED_PLAYBACK":
             film.begun = film.on = film.paused = True
+            film.last_played = None
             film.take_place(status.position, now)
             return "paused"
         if status.state in ("STOPPED", "NO_MEDIA_PRESENT"):
@@ -436,7 +446,7 @@ class Driver:
 
     def _stopped(self, film: _Film, status: Status, now: float) -> Reported | None:
         all_sent, broke_off = self._server.sent(film.stream_id)
-        if film.on and (film.near_end() or (all_sent and not film.about.get("duration_s"))):
+        if film.on and all_sent and film.is_at_end(now):
             self._handed = False
             return "ended"
         if status.trouble or broke_off:
