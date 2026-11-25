@@ -939,3 +939,4 @@ def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
     out = _run("announced")
     assert out["named"] == ["", "Plex refused the token."]
     assert out["unnamed"] == ["", "Plex: Couldn't reach the service."]
+    assert out["longerWord"] == ["", "Plex: Plexamp answered."]

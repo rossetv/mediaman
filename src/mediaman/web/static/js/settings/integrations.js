@@ -321,10 +321,11 @@
         return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
       }
 
-      // An answer that already begins with the service's name is not given it twice.
+      // An answer that already begins with the service's name as a word is not given it twice.
       function said(btn, label) {
         var name = serviceName(btn);
-        return label.indexOf(name) === 0 ? label : name + ': ' + label;
+        var named = label === name || label.indexOf(name + ' ') === 0;
+        return named ? label : name + ': ' + label;
       }
 
       function testService(service, btn) {
