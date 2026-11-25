@@ -8,11 +8,15 @@ offered; recent searches, Clear and the history switch work all the same.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import re
 import sqlite3
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -52,8 +56,23 @@ _WRITE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _ASK_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _TONIGHT_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
-# (kind, key) of the question each run answers. Held in memory: a run dies with the process.
-_asked: dict[int, tuple[str, str]] = {}
+
+@dataclass(slots=True)
+class _Asked:
+    """What one run was asked, by digest, and what it answered. *base* is the answer before
+    narrowing. In memory: a run dies with the process, and an answer of someone whose history
+    is not used is kept nowhere else."""
+
+    user_id: int
+    kind: str
+    key: str
+    base: str
+    at: datetime
+    answer: dict[str, Any] | None = None
+
+
+_asked: dict[int, _Asked] = {}
+_ASKED_FOR = timedelta(hours=1)
 _ASKED_MAX = 512
 _asked_lock = threading.Lock()
 
@@ -93,8 +112,44 @@ def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
     return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
 
 
+def _forget(user_id: int) -> None:
+    with _asked_lock:
+        for run_id in [r for r, asked in _asked.items() if asked.user_id == user_id]:
+            del _asked[run_id]
+
+
+def _sweep(conn: sqlite3.Connection) -> None:
+    """Forget what is past its time, or of an account that is gone with its runs."""
+    if not _asked:
+        return
+    there, since = repo.runs_there(conn), now_utc() - _ASKED_FOR
+    with _asked_lock:
+        for run_id in [r for r, a in _asked.items() if r not in there or a.at < since]:
+            del _asked[run_id]
+
+
+def _fetch(conn: sqlite3.Connection, user_id: int, kind: str, key: str) -> dict[str, Any] | None:
+    stored = repo.fetch_answer(conn, user_id, kind, key, now_utc())
+    if stored is not None:
+        return cast(dict[str, Any], stored)
+    with _asked_lock:
+        found = [
+            a.answer
+            for a in _asked.values()
+            if a.answer and (a.user_id, a.kind, a.key) == (user_id, kind, key)
+        ]
+    return found[-1] if found else None
+
+
+def _digest(request: Request, *parts: str) -> str:
+    """What a question is found again by; its words are not kept."""
+    text = "\n".join(parts)
+    return hmac.new(_secret(request).encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
 def _person(username: str) -> tuple[sqlite3.Connection, int | None]:
     conn = get_db()
+    _sweep(conn)
     return conn, repo.user_id_of(conn, username)
 
 
@@ -111,8 +166,8 @@ def _too_many() -> JSONResponse:
 
 
 def _refused(refused: repo.Refused) -> JSONResponse:
-    if refused.reason == "running":
-        return respond_err("running", status=409, run_id=refused.run_id)
+    if refused.reason in ("running", "stopping"):
+        return respond_err(refused.reason, status=409, run_id=refused.run_id)
     return respond_err(refused.reason, status=429, resets_at=refused.resets_at)
 
 
@@ -126,6 +181,7 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    repo.drop_expired(conn, now_utc())
     available = _client(request, conn) is not None
     phrases = repo.stored_phrases(conn, user_id) if available else []
     if available:
@@ -157,7 +213,8 @@ def api_clear_searches(username: str = Depends(get_current_user)) -> JSONRespons
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
-    repo.clear_searches(conn, user_id, now_utc())
+    repo.clear_searches(conn, user_id)
+    _forget(user_id)
     return respond_ok()
 
 
@@ -179,7 +236,9 @@ def api_set_history(body: _HistoryBody, username: str = Depends(get_current_user
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
-    repo.set_uses_history(conn, user_id, body.enabled, now_utc())
+    repo.set_uses_history(conn, user_id, body.enabled)
+    if not body.enabled:
+        _forget(user_id)
     return respond_ok({"enabled": body.enabled})
 
 
@@ -190,7 +249,7 @@ def _start_thread(
     work: Callable[[sqlite3.Connection, Callable[[], bool]], None],
 ) -> None:
     """Do *work* of the run in the background; it is given its own connection, and what says
-    whether the run was ended meanwhile. Left unended by it, the run failed."""
+    whether the run was ended meanwhile. Not ended by it, the run failed."""
     db_path = request.app.state.db_path
 
     def run() -> None:
@@ -208,7 +267,7 @@ def _start_thread(
             logger.exception("search assist: a run failed")
         finally:
             try:
-                repo.end_run(conn, user_id, run_id, "failed", now_utc())
+                repo.call_ended(conn, run_id, now_utc())
             except sqlite3.Error:  # released as stale later
                 logger.warning("search assist: a run could not be ended", exc_info=True)
             finally:
@@ -235,9 +294,11 @@ def _make_phrases_later(
     secret_key = _secret(request)
 
     def work(own: sqlite3.Connection, stopped: Callable[[], bool]) -> None:
-        if stopped():
+        # Read only now: what is cleared from here on stops the run.
+        fresh = repo.taste_of(own, user_id, _played(own, username))
+        if fresh.is_empty or stopped():
             return
-        phrases = ai.make_phrases(own, taste, secret_key=secret_key)
+        phrases = ai.make_phrases(own, fresh, secret_key=secret_key)
         if phrases:
             repo.finish_with_phrases(own, user_id, run_id, phrases, now_utc())
 
@@ -260,7 +321,7 @@ def api_ask(
     client = _client(request, conn)
     if client is None:
         return _unavailable()
-    if len(text.split()) < MIN_WORDS:
+    if ai.words(text) < MIN_WORDS:
         return respond_err("too_short", status=400)
     question = ai.Question(text=text)
     return _answer(
@@ -328,6 +389,8 @@ def _like_question(
         except catalog.TitleNotFound:
             return None
         title, year = found["title"], found["year"]
+    if not ai.words(title):
+        return None
     return ai.Question(like=title, like_year=year, like_key=(kind, tmdb_id))
 
 
@@ -342,16 +405,17 @@ def _answer(
     question: ai.Question,
     refine: str,
 ) -> JSONResponse:
-    now = now_utc()
     base = None
+    asked_key = key
+    key = base_key = _digest(request, kind, asked_key)
     if refine:
         # Only a chip that was offered: it is words of the server's own answer.
-        base = repo.fetch_answer(conn, user_id, kind, key, now)
+        base = _fetch(conn, user_id, kind, key)
         if base is None or refine not in [*base["chips"], _OWNED_CHIP]:
             return _not_found()
         if refine == _OWNED_CHIP:
             return _done(request, conn, client, user_id, username, base, base, owned_only=True)
-        key = f"{key}\n{refine.casefold()}"
+        key = _digest(request, kind, asked_key, refine.casefold())
         question = ai.Question(
             text=question.text,
             like=question.like,
@@ -360,27 +424,33 @@ def _answer(
             refine=refine,
             narrowing=tuple(t["title"] for t in base["titles"]),
         )
-    stored = repo.fetch_answer(conn, user_id, kind, key, now)
+    stored = _fetch(conn, user_id, kind, key)
     if stored is not None:
         return _done(request, conn, client, user_id, username, stored, base or stored)
     if not _ASK_LIMITER.check(username):
         return _too_many()
-    taste = repo.taste_of(conn, user_id, _played(conn, username))
-    run_id = repo.start_run(conn, user_id, kind, now)
+    run_id = repo.start_run(conn, user_id, kind, now_utc())
     if isinstance(run_id, repo.Refused):
-        if run_id.run_id is not None and _asked.get(run_id.run_id) == (kind, key):
+        going = _asked.get(run_id.run_id) if run_id.run_id is not None else None
+        if going is not None and (going.kind, going.key) == (kind, key):
             return respond_ok({"status": "running", "run_id": run_id.run_id}, status=202)
         return _refused(run_id)
     with _asked_lock:
         while len(_asked) >= _ASKED_MAX:
             del _asked[next(iter(_asked))]
-        _asked[run_id] = (kind, key)
+        asked = _asked[run_id] = _Asked(user_id, kind, key, base_key, now_utc())
     secret_key = _secret(request)
 
     def work(own: sqlite3.Connection, stopped: Callable[[], bool]) -> None:
+        def taste() -> ai.Taste:
+            return repo.taste_of(own, user_id, _played(own, username))
+
         made = ai.make_answer(own, client, question, taste, secret_key=secret_key, stopped=stopped)
-        if made is not None:
-            repo.finish_with_answer(own, user_id, run_id, kind, key, made, now_utc())
+        if made is None:
+            return
+        asked.answer = cast(dict[str, Any], made)
+        if not repo.finish_with_answer(own, user_id, run_id, kind, key, made, now_utc()):
+            asked.answer = None
 
     _start_thread(request, user_id, run_id, work)
     return respond_ok({"status": "running", "run_id": run_id}, status=202)
@@ -402,21 +472,23 @@ def api_run(
         return _not_found()
     if status != "done" or asked is None:
         return respond_ok({"status": status, "run_id": run_id})
-    stored = repo.fetch_answer(conn, user_id, *asked, now_utc())
+    stored = _fetch(conn, user_id, asked.kind, asked.key)
     if stored is None:
         return _not_found()
-    kind, key = asked
-    base = repo.fetch_answer(conn, user_id, kind, key.partition("\n")[0], now_utc())
+    base = _fetch(conn, user_id, asked.kind, asked.base)
     return _done(request, conn, client, user_id, username, stored, base or stored)
 
 
 @router.delete("/api/search/assist/runs/{run_id}")
 def api_stop(run_id: int, username: str = Depends(get_current_user)) -> JSONResponse:
-    """Stop a run. One that has ended stays as it is; it still counts as a question asked."""
+    """Stop a run: it keeps nothing, counts as a question asked, and holds its place until
+    the call it made has ended."""
     conn, user_id = _person(username)
     if user_id is None or repo.run_status(conn, user_id, run_id, now_utc()) is None:
         return _not_found()
-    repo.end_run(conn, user_id, run_id, "cancelled", now_utc())
+    repo.stop_run(conn, user_id, run_id)
+    with _asked_lock:
+        _asked.pop(run_id, None)
     return respond_ok()
 
 

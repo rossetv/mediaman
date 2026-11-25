@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -15,8 +16,14 @@ from mediaman.services.openai.recommendations.prompts import (
 
 _LIST_MAX = 20
 
-# An address, an id in brackets, markup or markdown.
-_REFUSED = re.compile(rf"https?:|www\.|{DOMAIN_RE.pattern}|[@<>\[\]{{}}*`|\\]|__", re.IGNORECASE)
+# An address, a source, markup or markdown. Titles hold some of its signs: "M*A*S*H", "[REC]".
+_REFUSED = re.compile(
+    rf"https?:|www\.|{DOMAIN_RE.pattern}|[@<>{{}}`|\\【】†]|__"
+    r"|(?<!\w)\*|\*(?!\w)|\[[^\]]*\]\(|\[[\d,\s]*\]",
+    re.IGNORECASE,
+)
+# Format characters (zero-width, text direction) and line separators.
+_UNSEEN = frozenset({"Cf", "Zl", "Zp"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +54,17 @@ def clean_list(values: Sequence[str]) -> list[str]:
     return [clean for v in values[:_LIST_MAX] if (clean := sanitise_plex_string(v).strip())]
 
 
+def clean_text(text: str) -> str:
+    """*text* of any length as it may stand in a prompt."""
+    cuts = range(0, len(text), 100)
+    return "".join(sanitise_plex_string(text[at : at + 100]) for at in cuts).strip()
+
+
+def words(text: str) -> int:
+    """The words of *text* that a prompt would hold."""
+    return sum(any(c.isalnum() for c in word) for word in clean_text(text).split())
+
+
 def data_block(data: dict[str, object]) -> str:
     """*data* as JSON between markers. Cleaned text holds no angle bracket, so it cannot close
     the block."""
@@ -63,4 +81,6 @@ def checked_line(value: object, max_len: int) -> str | None:
     if not isinstance(value, str) or len(value.strip()) > max_len:
         return None
     line = _validate_llm_string(value, max_len, "search_assist")
-    return None if line is None or _REFUSED.search(line) else line
+    if line is None or _REFUSED.search(line) or not words(line):
+        return None
+    return None if any(unicodedata.category(c) in _UNSEEN for c in line) else line

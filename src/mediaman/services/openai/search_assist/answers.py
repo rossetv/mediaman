@@ -13,7 +13,7 @@ import requests
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.tmdb import TmdbClient, year_of
-from mediaman.services.openai.client import call_openai, holds_domain
+from mediaman.services.openai.client import _title_hostile, call_openai
 from mediaman.services.openai.recommendations.enrich import _exact_result
 from mediaman.services.openai.recommendations.prompts import strip_season_suffix
 from mediaman.services.watch_catalog import (
@@ -23,7 +23,7 @@ from mediaman.services.watch_catalog import (
     normalise_title,
 )
 
-from .taste import Taste, checked_line, clean_list, data_block
+from .taste import Taste, checked_line, clean_list, clean_text, data_block
 
 _ASK_FOR = 16
 MAX_TITLES = 10
@@ -87,7 +87,7 @@ def _prompt(question: Question, taste: Taste) -> str:
         data["year"] = question.like_year
         wish = 'Find titles like the one under "title", in what makes it itself. Leave it out.'
     else:
-        data["question"] = clean_list([question.text])
+        data["question"] = clean_text(question.text)
         wish = 'Find movies and TV shows for the wish under "question".'
     if question.refine:
         data["narrow_to"] = clean_list([question.refine])
@@ -118,7 +118,7 @@ def make_answer(
     conn: sqlite3.Connection,
     client: TmdbClient,
     question: Question,
-    taste: Taste,
+    taste: Callable[[], Taste],
     *,
     secret_key: str,
     stopped: Callable[[], bool],
@@ -126,9 +126,10 @@ def make_answer(
 ) -> AssistAnswer | None:
     """The answer to *question*; None when the model or TMDB gave none, or it was *stopped*.
     No titles at all means nothing real fits."""
+    prompt = _prompt(question, taste())
     if stopped():
         return None
-    items = call_openai(_prompt(question, taste), conn, secret_key=secret_key)
+    items = call_openai(prompt, conn, secret_key=secret_key)
     if not items or stopped():
         return None
     ends_at = clock() + _CHECK_S
@@ -160,10 +161,11 @@ def make_answer(
 def _checked(client: TmdbClient, item: dict[str, object], question: Question) -> AnswerTitle | None:
     """The title the model named as TMDB knows it; None when it is not real, is the one the
     others should be like, or has no reason that may be shown."""
-    name, year = checked_line(item.get("title"), _TITLE_LEN), _year(item.get("year"))
+    # Only what TMDB is asked for: the name shown is TMDB's.
+    name, year = str(item.get("title") or "").strip(), _year(item.get("year"))
     reason = checked_line(item.get("reason"), _REASON_LEN)
     kind = item.get("media_type")
-    if not name or holds_domain(name) or not reason or kind not in ("movie", "tv"):
+    if len(name) > _TITLE_LEN or _title_hostile(name) or not reason or kind not in ("movie", "tv"):
         return None
     kind = str(kind)
     if kind == "tv":

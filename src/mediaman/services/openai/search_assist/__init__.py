@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .answers import AssistAnswer, Question, make_answer
 from .phrases import FIXED_PHRASES, make_phrases
-from .taste import Taste
+from .taste import Taste, words
 
 __all__ = [
     "FIXED_PHRASES",
@@ -17,4 +17,5 @@ __all__ = [
     "Taste",
     "make_answer",
     "make_phrases",
+    "words",
 ]

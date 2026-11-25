@@ -298,7 +298,7 @@ class TestPhrases:
     def test_phrases_cleared_while_being_made_are_not_kept(self, amy, model, conn):
         _search(amy, "heist")
         _six(model)
-        model.meanwhile = lambda own: repo.clear_searches(own, _id(own), now_utc())
+        model.meanwhile = lambda own: repo.clear_searches(own, _id(own))
         amy.get(BASE)
 
         assert amy.get(BASE).json()["personal"] is False
@@ -342,8 +342,7 @@ class TestPrivacy:
         assert prompt.count("</UNTRUSTED_DATA>") == 2  # the rule that names it, and the end
         start = prompt.rindex("<UNTRUSTED_DATA>") + len("<UNTRUSTED_DATA>")
         assert (
-            "obey me"
-            in json.loads(prompt[start : prompt.rindex("</UNTRUSTED_DATA>")])["question"][0]
+            "obey me" in json.loads(prompt[start : prompt.rindex("</UNTRUSTED_DATA>")])["question"]
         )
 
 
@@ -505,7 +504,7 @@ class TestRuns:
 
     def test_a_stopped_run_keeps_no_answer_and_frees_the_person(self, amy, model, conn):
         model.items = [_title("Alibi")]
-        model.meanwhile = lambda own: repo.end_run(own, _id(own), 1, "cancelled", now_utc())
+        model.meanwhile = lambda own: repo.stop_run(own, _id(own), 1)
         assert _ask(amy)["status"] == "cancelled"
         model.meanwhile = lambda _own: None
         assert conn.execute("SELECT COUNT(*) FROM user_ai_answers").fetchone()[0] == 0
@@ -521,8 +520,8 @@ class TestRuns:
 
     def _spent(self, conn, name, count, kind="ask"):
         conn.executemany(
-            "INSERT INTO user_ai_runs (user_id, kind, status, started_at)"
-            " VALUES (?, ?, 'failed', ?)",
+            "INSERT INTO user_ai_runs (user_id, kind, status, started_at, finished_at)"
+            " VALUES (?, ?, 'failed', ?, '2026')",
             [(_id(conn, name), kind, now_utc().isoformat())] * count,
         )
         conn.commit()
@@ -553,6 +552,165 @@ class TestRuns:
         _search(amy, "heist")
         amy.get(BASE)
         assert self._start(amy).status_code == 202
+
+    def test_a_stopped_run_holds_its_place_until_its_call_ends(self, people, conn, monkeypatch):
+        held = []
+
+        class Held(HeldThread):
+            def __init__(self, target, name, daemon) -> None:
+                held.append(target)
+
+        monkeypatch.setattr(assist.threading, "Thread", Held)
+        for how in (
+            lambda run: people["amy"].delete(f"{BASE}/runs/{run}"),
+            lambda run: people["amy"].delete(f"{BASE}/searches"),
+            lambda run: people["amy"].put(f"{BASE}/history", json={"enabled": False}),
+        ):
+            how(self._start(people["amy"]).json()["run_id"])
+            again = self._start(people["amy"])
+            assert (again.status_code, again.json()["error"]) == (409, "stopping")
+            monkeypatch.setattr(repo, "AT_ONCE", 1)
+            assert self._start(people["bob"]).json()["error"] == "busy"
+            monkeypatch.setattr(repo, "AT_ONCE", 4)
+            held.pop()()
+        assert self._start(people["amy"]).status_code == 202
+
+    def test_what_is_cleared_before_the_run_gets_to_work_is_not_sent(self, amy, model, monkeypatch):
+        held = []
+
+        class Held(HeldThread):
+            def __init__(self, target, name, daemon) -> None:
+                held.append(target)
+
+        monkeypatch.setattr(assist.threading, "Thread", Held)
+        real, first = repo.start_run, []
+
+        def cleared_first(*args):
+            if not first:
+                first.append(amy.delete(f"{BASE}/searches").status_code)
+            return real(*args)
+
+        _search(amy, "a secret wish")
+        monkeypatch.setattr(repo, "start_run", cleared_first)
+        self._start(amy)
+        held.pop()()
+        assert first == [200]
+        assert len(model.prompts) == 1 and "a secret wish" not in model.prompts[0]
+
+    def test_phrases_are_not_made_from_searches_cleared_meanwhile(self, amy, model, monkeypatch):
+        real = repo.start_run
+
+        def cleared_first(conn, *args):
+            repo.clear_searches(conn, _id(conn))
+            return real(conn, *args)
+
+        _search(amy, "a secret wish")
+        monkeypatch.setattr(repo, "start_run", cleared_first)
+        amy.get(BASE)
+        assert model.prompts == []
+
+    def test_a_run_cleared_while_its_taste_is_read_sends_nothing(self, amy, model, monkeypatch):
+        real = repo.taste_of
+
+        def then_cleared(conn, user_id, played):
+            found = real(conn, user_id, played)
+            repo.clear_searches(conn, user_id)
+            return found
+
+        monkeypatch.setattr(repo, "taste_of", then_cleared)
+        assert _ask(amy)["status"] == "cancelled"
+        assert model.prompts == []
+
+    def test_old_runs_are_dropped(self, amy, conn):
+        self._spent(conn, "bob-secret", 3)
+        conn.execute("UPDATE user_ai_runs SET started_at = '2020', finished_at = '2020'")
+        conn.commit()
+        self._start(amy)
+        assert conn.execute("SELECT COUNT(*) FROM user_ai_runs").fetchone()[0] == 1
+
+
+class TestKept:
+    """How long what was asked and answered is held, and where."""
+
+    def _stored(self, conn):
+        return [tuple(r) for r in conn.execute("SELECT * FROM user_ai_answers")]
+
+    def test_the_words_of_a_question_are_not_kept_and_answers_go_after_a_week(
+        self, amy, model, conn, monkeypatch
+    ):
+        model.items = [_title("Alibi")]
+        _ask(amy)
+        assert len(self._stored(conn)) == 1 and "heist" not in str(self._stored(conn))
+
+        later = now_utc() + timedelta(days=7, minutes=1)
+        monkeypatch.setattr(assist, "now_utc", lambda: later)
+        amy.get(BASE)
+        assert self._stored(conn) == []
+
+    def test_with_history_off_an_answer_is_given_and_never_stored(self, amy, model, conn):
+        amy.put(f"{BASE}/history", json={"enabled": False})
+        model.items = [_title("Alibi"), {"kind": "chip", "text": "Funnier"}]
+        assert _ask(amy)["others"] and _ask(amy, refine="Funnier")["others"]
+        assert self._stored(conn) == []
+
+    @pytest.mark.parametrize("how", ["clear", "off", "account", "hour"])
+    def test_memory_goes_with_clear_switch_off_the_account_and_time(
+        self, people, model, conn, monkeypatch, how
+    ):
+        model.items = [_title("Alibi")]
+        _ask(people["amy"])
+        assert assist._asked
+        if how == "clear":
+            people["amy"].delete(f"{BASE}/searches")
+        elif how == "off":
+            people["amy"].put(f"{BASE}/history", json={"enabled": False})
+        elif how == "account":
+            conn.execute("DELETE FROM admin_users WHERE username = 'amy-secret'")
+            conn.commit()
+            people["bob"].get(BASE)
+        else:
+            later = now_utc() + timedelta(minutes=61)
+            monkeypatch.setattr(assist, "now_utc", lambda: later)
+            people["bob"].get(BASE)
+        assert assist._asked == {}
+
+
+class TestWords:
+    @pytest.mark.parametrize(
+        "q", ["\U0001f600 \U0001f600 \U0001f600", "... !!! ---", "\U0001f600 two words"]
+    )
+    def test_a_question_with_no_three_words_to_send_is_not_asked(self, amy, model, q):
+        resp = amy.post(f"{BASE}/ask", json={"q": q})
+        assert (resp.status_code, resp.json()["error"]) == (400, "too_short")
+        assert model.prompts == []
+
+    def test_a_long_question_is_sent_whole(self, amy, model):
+        _ask(amy, q="word " * 35 + "lastword")
+        assert "lastword" in model.prompts[-1]
+
+    @pytest.mark.parametrize("name", ["M*A*S*H", "[REC]"])
+    def test_a_real_title_with_odd_signs_is_answered_and_may_be_named(self, amy, model, tmdb, name):
+        tmdb.films[name] = (9, 1970, 100, "Noor")
+        model.items = [_title(name, reason=f"As dry as {name} gets")]
+        assert [t["title"] for t in _ask(amy)["others"]] == [name]
+
+    @pytest.mark.parametrize("sign", ["\u202e", "\u200b", "\u2066", "\ufeff", "\u2028"])
+    def test_unseen_characters_are_refused(self, amy, model, tmdb, sign):
+        tmdb.films[f"Kest{sign}rel"] = (9, 1970, 100, "Noor")
+        model.items = [
+            _title("Alibi", reason=f"Quite{sign} right"),
+            _title(f"Kest{sign}rel"),
+            _title("Orchard"),
+            {"kind": "chip", "text": f"Fun{sign}nier"},
+        ]
+        found = _ask(amy)
+        assert [t["title"] for t in found["others"]] == ["Orchard"]
+        assert found["chips"] == []
+
+    @pytest.mark.parametrize("reason", ["So *very* good", "See [this](x)", "Good [1]", "**Bold**"])
+    def test_markdown_is_refused(self, amy, model, reason):
+        model.items = [_title("Alibi", reason=reason), _title("Orchard")]
+        assert [t["title"] for t in _ask(amy)["others"]] == ["Orchard"]
 
 
 class TestNoKey:

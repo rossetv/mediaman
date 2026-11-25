@@ -26,6 +26,8 @@ PHRASES_LAST = timedelta(days=1)
 ANSWERS_LAST = timedelta(days=7)
 # A run left unfinished this long ago died with its process.
 _RUN_STALE = timedelta(minutes=5)
+# Longer than either limit looks back.
+_RUNS_KEPT = timedelta(days=2)
 _TASTE_LIMIT = 20
 
 PHRASES = "phrases"
@@ -46,21 +48,20 @@ def uses_history(conn: sqlite3.Connection, user_id: int) -> bool:
     return bool(row and row["ai_history"])
 
 
-def set_uses_history(conn: sqlite3.Connection, user_id: int, enabled: bool, now: datetime) -> None:
+def set_uses_history(conn: sqlite3.Connection, user_id: int, enabled: bool) -> None:
     """Switched off, what was made from the history goes, and what is being made stops."""
     with conn:
         conn.execute("UPDATE admin_users SET ai_history = ? WHERE id = ?", (enabled, user_id))
         if not enabled:
-            _drop_made(conn, user_id, now)
+            _drop_made(conn, user_id)
 
 
-def _drop_made(conn: sqlite3.Connection, user_id: int, now: datetime) -> None:
+def _drop_made(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("DELETE FROM user_ai_phrases WHERE user_id = ?", (user_id,))
     conn.execute("DELETE FROM user_ai_answers WHERE user_id = ?", (user_id,))
     conn.execute(
-        "UPDATE user_ai_runs SET status = 'cancelled', finished_at = ?"
-        " WHERE user_id = ? AND status = 'running'",
-        (now.isoformat(), user_id),
+        "UPDATE user_ai_runs SET status = 'cancelled' WHERE user_id = ? AND status = 'running'",
+        (user_id,),
     )
 
 
@@ -97,11 +98,11 @@ def recent_searches(conn: sqlite3.Connection, user_id: int, limit: int) -> list[
     return [r["phrase"] for r in rows]
 
 
-def clear_searches(conn: sqlite3.Connection, user_id: int, now: datetime) -> None:
+def clear_searches(conn: sqlite3.Connection, user_id: int) -> None:
     """Forget the person's searches, and the phrases and answers made from them."""
     with conn:
         conn.execute("DELETE FROM user_searches WHERE user_id = ?", (user_id,))
-        _drop_made(conn, user_id, now)
+        _drop_made(conn, user_id)
 
 
 def taste_of(conn: sqlite3.Connection, user_id: int, played: list[str]) -> Taste:
@@ -156,12 +157,21 @@ def fetch_answer(
     return json.loads(row["answer"]) if row else None
 
 
+def drop_expired(conn: sqlite3.Connection, now: datetime) -> None:
+    """Delete everyone's answers that are past their time."""
+    with conn:
+        conn.execute(
+            "DELETE FROM user_ai_answers WHERE made_at <= ?", ((now - ANSWERS_LAST).isoformat(),)
+        )
+
+
 # --- Runs ----------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class Refused:
-    """Why there can be no run now: "running" (*run_id* goes on), "busy", "limit" (the
+    """Why there can be no run now: "running" (*run_id* goes on), "stopping" (the call of one
+    that was stopped has yet to end), "busy", "limit" (the
     person's) or "limit_everyone"."""
 
     reason: str
@@ -177,38 +187,47 @@ def start_run(conn: sqlite3.Connection, user_id: int, kind: str, now: datetime) 
     """Record a run and return its id, or why there can be none now.
 
     Checked and recorded under the write lock, so two requests at once start one run. The
-    phrases are made unasked, so they neither hold up a question nor count as one.
+    phrases are made unasked, so they neither hold up a question nor count as one. A stopped
+    run holds its place until its call has ended.
     """
     today = _midnight(now)
     own = "kind = :phrases" if kind == PHRASES else "kind <> :phrases"
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
-            "UPDATE user_ai_runs SET status = 'failed', finished_at = ?"
-            " WHERE status = 'running' AND started_at <= ?",
+            "UPDATE user_ai_runs SET finished_at = ?,"
+            " status = CASE status WHEN 'running' THEN 'failed' ELSE status END"
+            " WHERE finished_at IS NULL AND started_at <= ?",
             (now.isoformat(), (now - _RUN_STALE).isoformat()),
+        )
+        conn.execute(
+            "DELETE FROM user_ai_runs WHERE finished_at IS NOT NULL AND started_at < ?",
+            ((now - _RUNS_KEPT).isoformat(),),
         )
         # rationale: only the fixed fragment above is interpolated; every value is bound
         mine = conn.execute(  # nosec B608
-            "SELECT MAX(CASE WHEN status = 'running' THEN id END) AS running,"
+            "SELECT MAX(CASE WHEN finished_at IS NULL THEN id END) AS open,"
+            " MAX(CASE WHEN status = 'running' THEN id END) AS running,"
             " COUNT(CASE WHEN started_at >= :today THEN 1 END) AS today"
             f" FROM user_ai_runs WHERE user_id = :user AND {own}",
             {"today": today.isoformat(), "user": user_id, "phrases": PHRASES},
         ).fetchone()
         everyone = conn.execute(
-            "SELECT COUNT(CASE WHEN status = 'running' THEN 1 END) AS running,"
+            "SELECT COUNT(CASE WHEN finished_at IS NULL THEN 1 END) AS open,"
             " COUNT(CASE WHEN started_at >= ? THEN 1 END) AS today FROM user_ai_runs"
-            " WHERE started_at >= ? OR status = 'running'",
+            " WHERE started_at >= ? OR finished_at IS NULL",
             (today.isoformat(), today.isoformat()),
         ).fetchone()
         if mine["running"] is not None:
             return Refused("running", run_id=mine["running"])
+        if mine["open"] is not None:
+            return Refused("stopping")
         resets_at = (today + timedelta(days=1)).isoformat()
         if kind != PHRASES and mine["today"] >= QUESTIONS_PER_DAY:
             return Refused("limit", resets_at=resets_at)
         if everyone["today"] >= EVERYONE_PER_DAY:
             return Refused("limit_everyone", resets_at=resets_at)
-        if everyone["running"] >= AT_ONCE:
+        if everyone["open"] >= AT_ONCE:
             return Refused("busy")
         cursor = conn.execute(
             "INSERT INTO user_ai_runs (user_id, kind, started_at) VALUES (?, ?, ?)",
@@ -231,12 +250,14 @@ def run_status(conn: sqlite3.Connection, user_id: int, run_id: int, now: datetim
     return str(row["status"])
 
 
-def end_run(
-    conn: sqlite3.Connection, user_id: int, run_id: int, status: str, now: datetime
-) -> bool:
-    """End the run unless it has ended; whether this ended it."""
+def stop_run(conn: sqlite3.Connection, user_id: int, run_id: int) -> None:
+    """Have the run keep nothing; it ends once its call has."""
     with conn:
-        return _end(conn, user_id, run_id, status, now)
+        conn.execute(
+            "UPDATE user_ai_runs SET status = 'cancelled'"
+            " WHERE id = ? AND user_id = ? AND status = 'running'",
+            (run_id, user_id),
+        )
 
 
 def _end(conn: sqlite3.Connection, user_id: int, run_id: int, status: str, now: datetime) -> bool:
@@ -248,6 +269,21 @@ def _end(conn: sqlite3.Connection, user_id: int, run_id: int, status: str, now: 
     return cursor.rowcount > 0
 
 
+def call_ended(conn: sqlite3.Connection, run_id: int, now: datetime) -> None:
+    """Free the place of the run, which failed if nothing has said otherwise."""
+    with conn:
+        conn.execute(
+            "UPDATE user_ai_runs SET finished_at = ?,"
+            " status = CASE status WHEN 'running' THEN 'failed' ELSE status END"
+            " WHERE id = ? AND finished_at IS NULL",
+            (now.isoformat(), run_id),
+        )
+
+
+def runs_there(conn: sqlite3.Connection) -> set[int]:
+    return {r["id"] for r in conn.execute("SELECT id FROM user_ai_runs")}
+
+
 def finish_with_phrases(
     conn: sqlite3.Connection, user_id: int, run_id: int, phrases: list[str], now: datetime
 ) -> None:
@@ -256,8 +292,8 @@ def finish_with_phrases(
         if _end(conn, user_id, run_id, "done", now):
             conn.execute(
                 "INSERT OR REPLACE INTO user_ai_phrases (user_id, phrases, made_at)"
-                " VALUES (?, ?, ?)",
-                (user_id, json.dumps(phrases), now.isoformat()),
+                " SELECT id, ?, ? FROM admin_users WHERE id = ? AND ai_history = 1",
+                (json.dumps(phrases), now.isoformat(), user_id),
             )
 
 
@@ -269,15 +305,18 @@ def finish_with_answer(
     key: str,
     answer: Any,
     now: datetime,
-) -> None:
-    """As ``finish_with_phrases``, for an answer."""
+) -> bool:
+    """As ``finish_with_phrases``, for an answer. Of someone whose history is not used it is
+    not stored. Whether the run was not cancelled."""
     with conn:
-        if _end(conn, user_id, run_id, "done", now):
+        kept = _end(conn, user_id, run_id, "done", now)
+        if kept:
             conn.execute(
                 "INSERT OR REPLACE INTO user_ai_answers (user_id, kind, query_key, answer, made_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (user_id, kind, key, json.dumps(answer), now.isoformat()),
+                " SELECT id, ?, ?, ?, ? FROM admin_users WHERE id = ? AND ai_history = 1",
+                (kind, key, json.dumps(answer), now.isoformat(), user_id),
             )
+    return kept
 
 
 # --- Tonight -------------------------------------------------------------------
