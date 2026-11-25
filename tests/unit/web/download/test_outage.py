@@ -485,3 +485,44 @@ def test_a_recent_show_with_no_file_or_two_verdicts_claims_no_episodes(
         )
     services[1].get_series.return_value = shows
     assert [r["readiness"] for r in _get(client)["recent"]] == ["unknown"]
+
+
+def test_a_recent_show_that_is_not_sonarrs_is_not_asked_of_sonarr(services, client, conn):
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type)"
+            " VALUES ('nzb:Some.Show.S01', 'Some Show', 'series')"
+        )
+
+    services[1].get_series.return_value = [_show("Some Show", 8, 0)]
+
+    assert [r["readiness"] for r in _get(client)["recent"]] == ["ready"]
+
+
+def test_a_read_of_the_shows_that_failed_is_asked_again_sooner_than_one_that_answered(
+    services, client, conn, monkeypatch
+):
+    sonarr = services[1]
+    clock = [1000.0]
+    monkeypatch.setattr(
+        "mediaman.services.downloads.download_queue.time.monotonic", lambda: clock[0]
+    )
+    with conn:
+        conn.execute(
+            "INSERT INTO recent_downloads (dl_id, title, media_type, poster_url)"
+            " VALUES ('sonarr:Half', 'Half', 'series', ?)",
+            (_POSTER,),
+        )
+
+    def readiness() -> str:
+        return _get(client)["recent"][0]["readiness"]
+
+    # Each request reads the queue's shows first, then, when it is due, the recent ones.
+    sonarr.get_series.side_effect = [[], _DOWN, [], [_show("Half", 8, 0)]]
+    assert readiness() == "unknown"
+    clock[0] += 6
+    assert readiness() == "part", "a failed read is not held for the half minute"
+
+    sonarr.get_series.side_effect = [[], [_show("Half", 8, 8)]]
+    clock[0] += 20
+    assert readiness() == "part", "one that answered is"
