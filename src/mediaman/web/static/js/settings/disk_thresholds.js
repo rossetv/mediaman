@@ -253,6 +253,10 @@
     thrInput.addEventListener('input', function (e) {
       card.anew = isAnew(e, thrInput, limitWas, card.anew);
       limitWas = thrInput.value;
+      if (unreadOf(DISK_THRESHOLDS[card.dataset.libId]) === undefined) return;
+      // The save bar hears the edit first, and a number typed over itself is told by no change event.
+      markDirty();
+      refresh();
     });
     pathInput.addEventListener('blur', check);
     thrInput.addEventListener('change', check);
@@ -316,7 +320,11 @@
   function scanOf(card) {
     var typed = typedIn(card);
     var stored = isObject(STORED) ? STORED[card.dataset.libId] : undefined;
-    var limit = limitOf(limitOf(stored) !== 'unreadable' && same(typed, shown(stored)) ? stored : entryOf(card));
+    var entry = limitOf(stored) !== 'unreadable' && same(typed, shown(stored)) ? stored : entryOf(card);
+    var limit = limitOf(entry);
+    if (limit === 'unreadable' && typed.path && typed.path !== shown(unreadOf(entry)).path) {
+      return { tone: 'crit', text: 'Saved limit can’t be read — scheduled scans skip this library. This path isn’t saved until you enter a limit, then save.' };
+    }
     if (limit === 'unreadable') {
       return { tone: 'crit', text: 'Saved limit can’t be read — scheduled scans skip this library. Enter a path and a limit, then save.' };
     }
@@ -513,7 +521,9 @@
     function kept(id) { return keep('lib:' + id); }
     var disk = {};
     Object.keys(Object.assign({}, mine.disk, stored.disk)).forEach(function (id) {
-      var entry = (keep('limit:' + id) ? mine : stored).disk[id];
+      // A path with no limit yet is not sent, so a save has not stored it.
+      var draft = isObject(mine.disk[id]) && mine.disk[id].unread !== undefined && limitOf(mine.disk[id]) === 'unreadable';
+      var entry = (draft || keep('limit:' + id) ? mine : stored).disk[id];
       // Typed over an entry that could not be read and since can be: a limit is an ordinary edit, and no more is kept.
       if (unreadOf(entry) !== undefined && limitOf(stored.disk[id]) !== 'unreadable') {
         entry = limitOf(entry) === 'unreadable' ? stored.disk[id] : shown(entry);

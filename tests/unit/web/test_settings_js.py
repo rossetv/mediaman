@@ -777,6 +777,37 @@ def test_unreadable_thresholds_can_be_mended_from_the_page() -> None:
     assert out["on"] is False
 
 
+def test_typing_the_shown_number_over_an_unreadable_limit_brings_up_the_bar_and_can_be_saved() -> (
+    None
+):
+    out = _run("unreadableLimit")
+    assert (out["start"]["on"], out["over"]["on"]) == (False, True)
+    assert "t be read" in out["start"]["says"] and "t be read" not in out["over"]["says"]
+    assert out["sent"] == {"disk_thresholds": {"1": {"path": "/a", "threshold": 9}}}
+    assert out["saved"]["on"] is False and "t be read" not in out["saved"]["says"]
+
+
+def test_the_bar_goes_when_the_typing_over_an_unreadable_limit_leaves_none_to_save() -> None:
+    out = _run("unreadableLimit")
+    for left in ("undone", "blank", "zero"):
+        assert out[left]["on"] is False, left
+        assert "t be read" in out[left]["says"]
+
+
+def test_a_path_waiting_for_its_limit_outlives_a_save_of_something_else() -> None:
+    out = _run("unreadableLimit")
+    assert out["otherSent"] == {"base_url": "b"}
+    for look in (out["draft"], out["kept"]):
+        assert (look["on"], look["shows"]) == (False, ["/new", "9"])
+        assert "path isn’t saved until you enter a limit" in look["says"]
+    assert out["entered"]["on"] is True
+    assert out["enteredSent"] == {"disk_thresholds": {"1": {"path": "/new", "threshold": 9}}}
+    assert (out["stored"]["on"], out["stored"]["shows"]) == (False, ["/new", "9"])
+    assert out["edited"] == {"disk_thresholds": {"1": {"path": "/new", "threshold": 50}}}
+    assert out["cleared"] == {"disk_thresholds": {"1": {"path": "", "threshold": 0}}}
+    assert out["end"]["on"] is False
+
+
 def test_a_limit_typed_during_a_save_outlives_a_library_chosen_during_it() -> None:
     out = _run("pillDuringSave")
     assert out["shown"] == ["/a", "80"]

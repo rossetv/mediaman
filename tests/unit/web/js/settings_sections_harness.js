@@ -186,7 +186,7 @@ const scenarios = {
   },
 
   // What each run of edits leaves: [field, value, how, text put in], as the browser tells them; 'redraw'
-  // for the rows being drawn again, 'elsewhere' for a save of something else, 'mendedElsewhere' for one
+  // for the rows being drawn again, 'elsewhere' for a save's answer, 'checked' for the server telling what it has before one, 'mendedElsewhere' for one
   // that finds a limit another page has stored.
   async edits(entry, runs) {
     const out = [];
@@ -195,11 +195,14 @@ const scenarios = {
       let base = p.disk.state();
       for (const step of run) {
         if (step === 'redraw') { p.click(p.pill(1)); p.click(p.pill(1)); continue; }
-        if (step === 'elsewhere' || step === 'mendedElsewhere') {
-          const was = p.disk.things(base);
+        if (['elsewhere', 'checked', 'mendedElsewhere'].includes(step)) {
+          // as the save bar does: after a save, what was not changed since it was sent is as the server has it
           const mine = p.disk.state();
+          const was = step === 'elsewhere' ? p.disk.things(mine) : p.disk.things(base);
           const now = p.disk.things(mine);
-          base = p.disk.fromServer({ plex_libraries: ['1'], disk_thresholds: { 1: step === 'elsewhere' ? JSON.parse(entry) : { path: '/else', threshold: 70 } } });
+          base = p.disk.fromServer({ plex_libraries: ['1'], disk_thresholds: step === 'mendedElsewhere'
+            ? { 1: { path: '/else', threshold: 70 } }
+            : Object.assign({ 1: JSON.parse(entry) }, step === 'elsewhere' && p.disk.changes(base.disk, mine.disk)) });
           p.disk.show(p.disk.rebase(mine, base, (key) => now[key] !== was[key]));
           continue;
         }
@@ -415,4 +418,3 @@ async function newsletter(people) {
 scenarios[process.argv[2]](...process.argv.slice(3)).then(
   (out) => process.stdout.write(JSON.stringify(out)),
   (err) => { console.error(err); process.exit(1); }
-);

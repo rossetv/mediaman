@@ -205,6 +205,7 @@ def test_only_a_limit_typed_anew_replaces_an_unreadable_one() -> None:
             [folder],
             [folder, "redraw"],
             [folder, "elsewhere"],
+            [folder, "checked"],
             [folder, _insert("95", "5"), _delete("9")],
             [folder, _delete("")],
             [folder, ["threshold", "0", "insertText", "0"]],
@@ -212,8 +213,8 @@ def test_only_a_limit_typed_anew_replaces_an_unreadable_one() -> None:
         ):
             assert out["changes"] is None
             assert _card_says(out["says"]) == "never" and "a limit, then save" in out["says"]
-        kept = _edits(entry, [folder, "redraw"], [folder, "elsewhere"])
-        assert [out["shows"] for out in kept] == [["/new", "9"]] * 2
+        kept = _edits(entry, [folder, "redraw"], [folder, "elsewhere"], [folder, "checked"])
+        assert [out["shows"] for out in kept] == [["/new", "9"]] * 3
 
 
 def test_the_shown_number_typed_in_whole_counts_as_a_limit() -> None:
@@ -224,7 +225,7 @@ def test_the_shown_number_typed_in_whole_counts_as_a_limit() -> None:
             [folder, _insert("9", "9")],
             [folder, _delete(""), _insert("9", "9")],
             [folder, _delete(""), _insert("9", "9"), "redraw"],
-            [folder, _delete(""), _insert("9", "9"), "elsewhere"],
+            [folder, _delete(""), _insert("9", "9"), "checked"],
         ):
             assert out["changes"] == {"1": {"path": "/new", "threshold": 9}}
             assert _card_says(out["says"]) == "limited"

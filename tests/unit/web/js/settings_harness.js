@@ -105,8 +105,10 @@ class El {
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
   dispatchEvent(e) {
+    const top = this.doc.listeners[e.type] || [];
+    top.filter((f) => this.doc.capturing.has(f)).forEach((f) => f(e));
     for (let n = this; n; n = n.parentNode) (n.listeners[e.type] || []).forEach((f) => f.call(n, e));
-    (this.doc.listeners[e.type] || []).forEach((f) => f(e));
+    top.filter((f) => !this.doc.capturing.has(f)).forEach((f) => f(e));
   }
   fire(t, extra) { this.dispatchEvent(Object.assign({ type: t, target: this, detail: 1, preventDefault() {} }, extra)); }
   focus(opts) { this.doc.activeElement = this; this.lastFocusOpts = opts; }
@@ -130,9 +132,13 @@ function build() {
     querySelector: (s) => body.querySelector(s),
     querySelectorAll: (s) => body.querySelectorAll(s),
     listeners: docListeners,
+    capturing: new Set(),
     revealed: [],
     documentElement: { clientHeight: 844 },
-    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    addEventListener: (t, fn, capture) => {
+      (docListeners[t] = docListeners[t] || []).push(fn);
+      if (capture) doc.capturing.add(fn);
+    },
   };
   const body = new El('body', doc);
   doc.body = body;
@@ -1634,6 +1640,65 @@ const scenarios = {
     p.stored = () => Promise.resolve({});
     await p.discard();
     out.gone = [p.token.value, p.toasts.length];
+    return out;
+  },
+
+  // A library whose stored limit cannot be read, with a server that answers as the real one: every save
+  // with the libraries and thresholds it then has.
+  async unreadableLimit() {
+    const open = async (entry) => {
+      const stored = { 1: entry || { path: '/a', threshold: '9x' } };
+      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: JSON.parse(JSON.stringify(stored)) });
+      p.reply = (b) => {
+        Object.entries(b.disk_thresholds || {}).forEach(([id, cfg]) => {
+          if (cfg.path || cfg.threshold) stored[id] = cfg; else delete stored[id];
+        });
+        return Promise.resolve({ status: 'saved', plex_libraries: ['1'], disk_thresholds: JSON.parse(JSON.stringify(stored)) });
+      };
+      const key = (f, value, inputType, data) => { p.input(1, f).value = value; p.input(1, f).fire('input', { inputType, data }); };
+      const state = () => p.card(1).all().find((e) => e.dataset.role === 'state').textContent;
+      const look = () => ({ on: p.on(), says: state(), shows: p.shows(1) });
+      return Object.assign(p, { key, look, over: () => { p.key('threshold', '9', 'insertText', '9'); }, change: (f) => { p.input(1, f).fire('change'); p.input(1, f).fire('blur'); } });
+    };
+    const out = {};
+    let p = await open();
+    out.start = p.look();
+    p.over();
+    await p.h.flush();
+    out.over = p.look();
+    out.sent = await p.save();
+    out.saved = p.look();
+
+    p = await open();
+    p.key('threshold', '', 'deleteContentBackward');
+    p.key('threshold', '9', 'historyUndo');
+    out.undone = p.look();
+    p.over();
+    p.key('threshold', '', 'deleteContentBackward');
+    p.change('threshold');
+    out.blank = p.look();
+    p.key('threshold', '0', 'insertText', '0');
+    p.change('threshold');
+    out.zero = p.look();
+
+    p = await open();
+    p.key('path', '/new', 'insertText', 'w');
+    p.change('path');
+    out.draft = p.look();
+    p.edit('b');
+    out.otherSent = await p.save();
+    out.kept = p.look();
+    p.over();
+    out.entered = p.look();
+    out.enteredSent = await p.save();
+    out.stored = p.look();
+    // an ordinary limit from now on
+    p.key('threshold', '50', 'insertText', '0');
+    out.edited = await p.save();
+    p.key('path', '', 'deleteContentBackward');
+    p.key('threshold', '', 'deleteContentBackward');
+    out.cleared = await p.save();
+    out.end = p.look();
     return out;
   },
 
