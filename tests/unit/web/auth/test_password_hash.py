@@ -485,37 +485,53 @@ class TestChangePasswordRaces:
             is None
         )
 
-    def test_of_two_changes_at_once_only_one_succeeds(self, conn, db_path):
+    def test_of_two_changes_checked_at_once_one_is_made_and_the_other_counts_no_failure(
+        self, conn, db_path
+    ):
         import sqlite3
         import threading
 
         import bcrypt
 
+        from mediaman.web.auth.login_lockout import reauth_key
+
         quick = bcrypt.hashpw(b"old-pass", bcrypt.gensalt(rounds=4)).decode()
+        real_hashpw = bcrypt.hashpw
         create_user(conn, "alice", "unused", enforce_policy=False)
 
-        def attempt(new_password, barrier, results):
+        def attempt(new_password, results):
             c = sqlite3.connect(str(db_path))
             c.row_factory = sqlite3.Row
             c.execute("PRAGMA busy_timeout=5000")
             try:
-                barrier.wait(timeout=5)
                 results[new_password] = change_password(
                     c, "alice", "old-pass", new_password, enforce_policy=False
                 )
             finally:
                 c.close()
 
-        with patch("mediaman.web.auth.password_hash._change_password.BCRYPT_ROUNDS", 4):
-            for _ in range(15):
-                conn.execute(
-                    "UPDATE admin_users SET password_hash = ? WHERE username = 'alice'", (quick,)
-                )
-                conn.commit()
-                barrier = threading.Barrier(2)
-                results: dict[str, bool] = {}
+        for _ in range(5):
+            conn.execute(
+                "UPDATE admin_users SET password_hash = ? WHERE username = 'alice'", (quick,)
+            )
+            conn.commit()
+            # Both have checked the old password before either writes.
+            checked = threading.Barrier(2)
+
+            def hash_once_both_checked(*args, _checked=checked):
+                _checked.wait(timeout=5)
+                return real_hashpw(*args)
+
+            results: dict[str, bool] = {}
+            with (
+                patch("mediaman.web.auth.password_hash._change_password.BCRYPT_ROUNDS", 4),
+                patch(
+                    "mediaman.web.auth.password_hash._change_password.bcrypt.hashpw",
+                    side_effect=hash_once_both_checked,
+                ),
+            ):
                 threads = [
-                    threading.Thread(target=attempt, args=(new, barrier, results))
+                    threading.Thread(target=attempt, args=(new, results))
                     for new in ("new-pass-a", "new-pass-b")
                 ]
                 for t in threads:
@@ -523,11 +539,17 @@ class TestChangePasswordRaces:
                 for t in threads:
                     t.join(timeout=10)
 
-                assert sorted(results.values()) == [False, True]
-                winner = next(p for p, ok in results.items() if ok)
-                loser = next(p for p, ok in results.items() if not ok)
-                assert verify_password(conn, "alice", winner) is True
-                assert verify_password(conn, "alice", loser) is False
+            assert sorted(results.values()) == [False, True]
+            winner = next(p for p, ok in results.items() if ok)
+            loser = next(p for p, ok in results.items() if not ok)
+            assert verify_password(conn, "alice", winner) is True
+            assert verify_password(conn, "alice", loser) is False
+            assert (
+                conn.execute(
+                    "SELECT 1 FROM login_failures WHERE username = ?", (reauth_key("alice"),)
+                ).fetchone()
+                is None
+            )
 
 
 class TestChangePasswordReauthInsideTransaction:
