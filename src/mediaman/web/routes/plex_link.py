@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 import sqlite3
 import threading
 import time
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Cookie, Depends, Query, Request
@@ -62,10 +64,20 @@ _SHARED_POLL_LIMITER = ActionRateLimiter(max_in_window=150, window_seconds=60)
 _EVERYONE = "everyone"
 
 _attempts = AttemptStore()
-# The newest start of each session that is still under way: an older one that ends later must not
-# take its place.
-_newest_start: dict[str, object] = {}
-_newest_start_lock = threading.Lock()
+
+
+@dataclass
+class _Starts:
+    """One session's starts under way, and the latest of them whose attempt was stored."""
+
+    under_way: int = 0
+    stored: int = 0
+
+
+# A start that ends after a later one was stored must not take its place.
+_starts: dict[str, _Starts] = {}
+_starts_lock = threading.Lock()
+_start_numbers = itertools.count(1)
 
 _HOST_RE = re.compile(r"[a-z0-9.-]{1,100}")
 
@@ -239,19 +251,26 @@ def api_start_or_confirm(
 
 
 def _start(conn: sqlite3.Connection, request: Request, username: str, session: str) -> JSONResponse:
-    this = object()
-    with _newest_start_lock:
-        _newest_start[session] = this
+    with _starts_lock:
+        number = next(_start_numbers)
+        starts = _starts.setdefault(session, _Starts())
+        starts.under_way += 1
     try:
-        return _start_as(this, conn, request, username, session)
+        return _start_as(number, starts, conn, request, username, session)
     finally:
-        with _newest_start_lock:
-            if _newest_start.get(session) is this:
-                del _newest_start[session]
+        with _starts_lock:
+            starts.under_way -= 1
+            if not starts.under_way:
+                del _starts[session]
 
 
 def _start_as(
-    this: object, conn: sqlite3.Connection, request: Request, username: str, session: str
+    number: int,
+    starts: _Starts,
+    conn: sqlite3.Connection,
+    request: Request,
+    username: str,
+    session: str,
 ) -> JSONResponse:
     previous = _attempts.get(session, username)
     signed_out = True
@@ -270,10 +289,11 @@ def _start_as(
             pin=pin,
             expires_at=time.monotonic() + pin.expires_in_s,
         )
-        with _newest_start_lock:
-            superseded = _newest_start.get(session) is not this
+        with _starts_lock:
+            superseded = starts.stored > number
             if not superseded:
                 _attempts.add(session, attempt)
+                starts.stored = number
     except PlexNotConfigured:
         _START_LIMITER.give_back(username)
         return _refuse("plex_not_set_up")
