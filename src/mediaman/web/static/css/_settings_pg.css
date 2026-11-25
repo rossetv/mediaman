@@ -189,9 +189,9 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .setg-card-bd:has(> [hidden]:only-child) { display: none; }
 .setg-pg .setg-card-hd:has(+ .setg-card-bd > [hidden]:only-child) { border-bottom: 0; }
 /* A card that holds only a fold shuts its padding and edge with it, so nothing drops once it is hidden. */
-.setg-pg .setg-card-hd:has(+ .setg-card-bd > .setg-fold:only-child) { transition: border-bottom-width var(--dur) var(--ease-out); }
+.setg-pg .setg-card-hd:has(+ .setg-card-bd > .setg-fold:only-child) { transition: border-bottom-width var(--dur-slow) var(--ease-out); }
 .setg-pg .setg-card-hd:has(+ .setg-card-bd > .setg-fold.is-shut:only-child) { border-bottom-width: 0; }
-.setg-pg .setg-card-bd:has(> .setg-fold:only-child) { transition: padding var(--dur) var(--ease-out); }
+.setg-pg .setg-card-bd:has(> .setg-fold:only-child) { transition: padding var(--dur-slow) var(--ease-out); }
 .setg-pg .setg-card-bd:has(> .setg-fold.is-shut:only-child) { padding-block: 0; }
 
 .setg-pg .setg-row {

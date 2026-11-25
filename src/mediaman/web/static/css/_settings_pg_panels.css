@@ -377,12 +377,12 @@
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
 .setg-pg .setg-fold {
   display: grid; grid-template-rows: 1fr;
-  transition: grid-template-rows var(--dur) var(--ease-out),
+  transition: grid-template-rows var(--dur-slow) var(--ease-out),
               opacity var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out),
-              margin var(--dur) var(--ease-out),
-              padding var(--dur) var(--ease-out),
-              border-width var(--dur) var(--ease-out);
+              transform var(--dur-slow) var(--ease-out),
+              margin var(--dur-slow) var(--ease-out),
+              padding var(--dur-slow) var(--ease-out),
+              border-width var(--dur-slow) var(--ease-out);
 }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
 /* Safari keeps the row at its old height when what it holds grows by a line. */
