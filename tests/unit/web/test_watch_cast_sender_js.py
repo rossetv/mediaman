@@ -45,7 +45,7 @@ def test_a_script_that_does_not_come_says_so_where_it_is_pressed_and_is_got_over
     assert (out["told"], out["there"], out["looking"], out["asks"]) == (True, False, False, False)
     assert out["trouble"] == "Chromecast isn’t answering"
     assert (out["start"], out["open"]) == ({"code": "failed", "says": True}, 0)
-    assert out["after"] == {"there": True, "trouble": None}
+    assert out["after"] == {"there": True, "trouble": None, "asks": True}
 
 
 @pytest.mark.parametrize("how", ["blocked", "refuses"])
@@ -60,6 +60,7 @@ def test_a_script_that_failed_is_asked_for_again_and_google_is_not_told_the_page
 def test_a_slow_script_is_used_when_it_comes_and_never_loaded_twice() -> None:
     assert _run("slowScript") == {
         "gaveUp": True,
+        "setUps": 1,
         "tags": 1,
         "then": True,
         "after": 1,
@@ -356,6 +357,10 @@ def test_a_tv_found_after_the_person_plays_here_is_ended_there() -> None:
     assert _run("releasedMeanwhile") == {"found": None, "ended": [True], "kept": [], "posts": []}
 
 
+def test_a_tv_found_after_somebody_signs_in_is_left_to_itself() -> None:
+    assert _run("clearedMeanwhile") == {"found": None, "ended": [], "posts": []}
+
+
 @pytest.mark.parametrize(
     ("page", "gone", "posts"),
     [("player", ["stopped"], []), ("keeper", [], [["stream/st1/stop", 101, 1]])],
@@ -383,6 +388,7 @@ def test_a_start_called_back_does_not_end_the_session_of_the_one_chosen_after_it
     out = _run("chosenAgain")
     for name in ("secondPlays", "firstFailsEarly"):
         assert out[name] == {
+            "pickers": 1,
             "one": {"code": "superseded", "says": False},
             "two": "taken",
             "ended": [],
@@ -580,7 +586,7 @@ def test_a_press_does_what_it_says_and_nothing_where_that_holds_already() -> Non
 def test_a_page_without_a_player_hears_of_each_change_and_how_it_ended() -> None:
     out = _run("bar")
     assert out["buffering"] == ["buffering", ["buffering"]]
-    assert out["lost"] == [True, True]
+    assert out["lost"] == [True, True, True]
     assert (out["gone"], out["over"], out["at"]) == ("lost", "lost", 100.3)
     assert out["followed"] == []
 
@@ -619,6 +625,8 @@ def test_another_stream_is_put_on_the_tv_with_no_player(
 def test_the_next_episode_ends_the_one_before_at_its_place_and_knows_what_follows() -> None:
     out = _run("other")["next"]
     assert out["posts"][1] == ["stream/st1/stop", 110, 10]
+    # A subtitle track is one film's own.
+    assert _run("other")["track"] == ["102", False]
     assert out["now"][6] == {"rating_key": "103", "label": "S1 · E6"}
     # Its own played time, at its own place.
     assert out["saves"] == [["st2", 30.5, 0], ["st2", 40.5, 10]]
@@ -661,6 +669,9 @@ def test_of_two_changes_the_later_plays_and_the_stream_of_the_first_is_stopped()
 
 def test_the_old_streams_end_is_no_end_while_another_is_on_its_way() -> None:
     out = _run("savesMeanwhile")
+    assert out["told"] == ["loading"]
+    # Nor is its place saved, or an answer to a save taken for the end.
+    assert out["quiet"] == ["/api/cast/stream"]
     assert (out["posts"], out["state"], out["ended"]) == (["/api/cast/stream"], "loading", [])
 
 
@@ -701,12 +712,16 @@ def test_after_three_episodes_by_themselves_somebody_is_asked_and_silence_ends_i
     out = _run("upnext")["asked"]
     assert out["shown"] == ["upnext", "upnext", "upnext", "still"]
     assert (out["asked"], out["in"], out["loads"]) == (["still", None], 589, 4)
+    # Each end was saved once.
+    assert out["stops"] == 4
     assert (out["over"], out["ended"], out["record"]) == ("stopped", [True], False)
 
 
 def test_a_press_meanwhile_is_a_sign_of_somebody_and_two_hours_without_one_are_not() -> None:
     out = _run("upnext")
     assert (out["signs"], out["long"]) == ("upnext", "still")
+    # Nothing begins by itself without autoplay, so nobody is asked.
+    assert out["longOff"] == "upnext"
 
 
 def test_a_next_episode_that_cannot_begin_waits_for_a_press() -> None:

@@ -124,7 +124,7 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
 
   class Context extends Emitter {
     constructor() { super(); this.session = null; this.state = devices ? 'NOT_CONNECTED' : 'NO_DEVICES_AVAILABLE'; }
-    setOptions(o) { page.options = o; if (joins && world.session) this.resume(); }
+    setOptions(o) { page.options = o; page.setUps = (page.setUps || 0) + 1; if (joins && world.session) this.resume(); }
     getCastState() { return this.state; }
     getCurrentSession() { return this.session; }
     requestSession() {
@@ -317,7 +317,7 @@ const scenarios = {
       page.way.look();
       if (sdk === 'silent') page.arrive();
       await settle();
-      out[sdk].after = { there: page.way.available(), trouble: page.way.trouble() };
+      out[sdk].after = { there: page.way.available(), trouble: page.way.trouble(), asks: page.way.asks() };
     }
     const w = world();
     const none = await open(w, { player: true, devices: false });
@@ -341,12 +341,13 @@ const scenarios = {
     const tags = page.scripts.length;
     page.arrive();
     await settle();
+    page.arrive();
     page.way.look();
     const other = await open(world(), { player: true });
     other.arrive();
     other.way.look();
     await settle();
-    return { gaveUp, tags, then: page.way.available(), after: page.scripts.length, trouble: page.way.trouble(), there: other.way.available(), asked: other.scripts };
+    return { gaveUp, setUps: page.setUps, tags, then: page.way.available(), after: page.scripts.length, trouble: page.way.trouble(), there: other.way.available(), asked: other.scripts };
   },
   async throws() {
     const w = world();
@@ -793,6 +794,18 @@ const scenarios = {
     await settle();
     return { found: await asked, ended: w.tv.ended, kept: Object.keys(w.storage), posts: page.posts };
   },
+  // The sign-in page was opened while it was looked for.
+  async clearedMeanwhile() {
+    const w = world();
+    (await casting(w)).close();
+    const page = await open(w, { player: true, joins: false });
+    const asked = page.way.again('101');
+    await w.clock.advance(5000);
+    delete w.storage[RECORD];
+    page.context.resume();
+    await settle();
+    return { found: await asked, ended: w.tv.ended, posts: page.posts };
+  },
   // "Play here" in a second tab, while the first follows the TV.
   async releasedElsewhere() {
     const out = {};
@@ -838,7 +851,7 @@ const scenarios = {
       const no = Object.assign(new Error('x'), { code: 'superseded' });
       await go(a, b, no);
       await settle();
-      out[name] = { one: await one, two: await two, ended: w.tv.ended, loads: w.tv.loads.map((l) => l.url.split('/')[5]) };
+      out[name] = { pickers: page.asked.length, one: await one, two: await two, ended: w.tv.ended, loads: w.tv.loads.map((l) => l.url.split('/')[5]) };
     };
     await run('secondPlays', async (a, b, no) => { b.resolve(stream(2)); await settle(); a.reject(no); });
     await run('firstFailsEarly', async (a, b, no) => { a.reject(no); await settle(); b.resolve(stream(2)); });
@@ -1053,6 +1066,8 @@ const scenarios = {
     const w = world();
     const page = await casting(w);
     const heard = [];
+    let told = false;
+    page.sender.on(() => { told = told || !!(page.sender.now() || {}).lost; });
     page.sender.on((over) => heard.push(over ? over.reason : (page.sender.now() || {}).state));
     const before = page.sender.now();
     page.play.keep({
@@ -1088,7 +1103,7 @@ const scenarios = {
     w.tv.media[0].say('PLAYING');
     heard.length = 0;
     page.context.over('disconnected');
-    const lost = [page.sender.now().lost, heard.splice(0).length > 0];
+    const lost = [page.sender.now().lost, heard.splice(0).length > 0, told];
     await w.clock.advance(121000);
     return { before, now, films, calls, state, after: w.tv.calls, said, buffering, lost, gone: heard.pop(), over: page.sender.over().reason, at: page.sender.over().position_s, followed: page.gone };
   },
@@ -1143,6 +1158,13 @@ const scenarios = {
     n.page.posts.length = 0;
     await n.w.clock.advance(11000);
     out.next.saves = n.page.posts.map(([, b]) => [b.stream_id, b.position_s, b.played_s]);
+    const own = world();
+    const p = await casting(own);
+    p.play.keep({ subtitle: '44', next: { rating_key: '102', label: 'x' } });
+    p.play.leave();
+    p.pages = n.page.pages;
+    p.replies['/api/cast/stream'] = (body) => { out.track = [body.rating_key, 'subtitle' in body]; return Promise.reject({ error: 'x' }); };
+    await refused(p.sender.start({ next: true }));
     await run('noPage', (page) => { page.pages = {}; }, { next: true });
     await run('refused', (page) => { page.replies['/api/cast/stream'] = { error: 'rate_limited', status: 429 }; }, { quality: 'low' });
     // Refused, and the stream that played is gone with it: the old one is opened again.
@@ -1189,12 +1211,22 @@ const scenarios = {
     page.play.keep({ quality: 'best' });
     page.play.leave();
     await w.clock.advance(1000);
+    // One save is on its way as the change begins, and finds the old stream gone.
+    let late;
+    page.replies['/api/watch/progress'] = () => new Promise((_, reject) => { late = () => reject({ status: 410 }); });
+    await w.clock.advance(10000);
     page.posts.length = 0;
     page.replies['/api/cast/stream'] = () => new Promise(() => {});
+    const heard = [];
+    page.sender.on(() => heard.push((page.sender.now() || {}).state));
     page.sender.start({ quality: 'low' });
+    const told = heard.slice();
+    late();
+    await w.clock.advance(15000);
+    const quiet = page.posts.map((x) => x[0]);
     w.tv.media[0].say('IDLE', { idleReason: 'ERROR' });
     await w.clock.advance(30000);
-    return { posts: page.posts.map((x) => x[0]), state: page.sender.now().state, ended: w.tv.ended };
+    return { told, quiet, posts: page.posts.map((x) => x[0]), state: page.sender.now().state, ended: w.tv.ended };
   },
   // The end of an episode with no player open.
   async upnext() {
@@ -1257,7 +1289,7 @@ const scenarios = {
     }
     const asked = look(t.page);
     await t.w.clock.advance(600000);
-    out.asked = { shown, asked: asked.slice(0, 2), in: asked[2], loads: t.w.tv.loads.length, over: t.page.sender.over().reason, ended: t.w.tv.ended, record: RECORD in t.w.storage };
+    out.asked = { shown, asked: asked.slice(0, 2), in: asked[2], stops: places(t.page).filter((x) => /stop$/.test(x[0])).length, loads: t.w.tv.loads.length, over: t.page.sender.over().reason, ended: t.w.tv.ended, record: RECORD in t.w.storage };
 
     t = await make();
     for (let i = 0; i < 4; i++) {
@@ -1273,6 +1305,10 @@ const scenarios = {
     await t.w.clock.advance(2 * 3600 * 1000);
     await t.end();
     out.long = look(t.page)[0];
+    t = await make(false);
+    await t.w.clock.advance(2 * 3600 * 1000);
+    await t.end();
+    out.longOff = look(t.page)[0];
 
     t = await make();
     t.page.pages = {};

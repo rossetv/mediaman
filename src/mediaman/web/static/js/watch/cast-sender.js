@@ -117,11 +117,11 @@
   var heard = null;
 
   function addTag() {
-    var mine = tag = document.createElement('script');
-    mine.src = SDK;
-    mine.referrerPolicy = 'no-referrer';
-    mine.onerror = function () { if (mine === tag) arrived(false); };
-    document.head.appendChild(mine);
+    tag = document.createElement('script');
+    tag.src = SDK;
+    tag.referrerPolicy = 'no-referrer';
+    tag.onerror = function () { arrived(false); };
+    document.head.appendChild(tag);
   }
 
   function arrived(ok) {
@@ -188,7 +188,7 @@
 
   function readRecord() {
     var rec = readStored(RECORD);
-    var mine = rec && account && rec.account === account && typeof rec.stream === 'string';
+    var mine = rec && rec.account === account && typeof rec.stream === 'string';
     return mine && now() - rec.at < RECORD_MS ? rec : null;
   }
 
@@ -684,7 +684,6 @@
     p.ready = 1;
     p.emit('waiting');
     p.timers.lost = setTimeout(function () { goneBy(p, 'lost'); }, LOST_MS);
-    changed();
   }
 
   /* The TV is back. */
@@ -1007,7 +1006,6 @@
         paused: about ? false : p.paused,
         title: about ? about.title : p.title,
       }).then(function () {
-        p.saved = null;
         p.keep = {
           quality: quality,
           subtitle: subtitle || null,
@@ -1232,7 +1230,7 @@
       available: available,
       looking: looking,
       /* Why pressing it would lead nowhere. */
-      trouble: function () { return failed && !context ? NO_SCRIPT : null; },
+      trouble: function () { return failed ? NO_SCRIPT : null; },
       /* Whether pressing it opens the browser's list. */
       asks: function () { return !failed && !ownSession(); },
       look: function () { loadSdk().catch(function () {}); },
