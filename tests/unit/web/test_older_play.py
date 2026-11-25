@@ -238,10 +238,11 @@ def test_the_remote_steers_it_as_any_tv(amy, home, kitchen):
     assert home.did("Stop") == before + 1
 
 
-def test_the_next_episode_follows_by_itself(amy, home, kitchen, clock):  # noqa: F811
+def test_the_next_episode_follows_by_itself(amy, home, kitchen, set_up, plex):  # noqa: F811
     _play(amy, kitchen, "501", position_s=2860)
     home.playing(55)
-    older_stream._feed(_streams()[0]).done = True
+    _has_every_segment(plex)
+    set_up.get(_path(home))
     home.status("STOPPED", 55)
     home.step()
     assert _tv_of(amy, kitchen)["play"]["state"] == "upnext"
@@ -249,6 +250,34 @@ def test_the_next_episode_follows_by_itself(amy, home, kitchen, clock):  # noqa:
         home.step()
     assert _tv_of(amy, kitchen)["play"]["rating_key"] == "502"
     assert home.urls()[-1].endswith("/from/0.ts")
+
+
+def _has_every_segment(plex):  # noqa: F811
+    real = plex.request
+
+    def request(method, url, **kwargs):
+        return FakeResponse(200, b"x") if url.endswith(".ts") else real(method, url, **kwargs)
+
+    plex.request = request
+
+
+def test_a_seek_within_the_segment_it_is_in_is_a_film_not_sent_yet(
+    amy,
+    home,
+    kitchen,
+    set_up,
+    plex,  # noqa: F811
+):
+    _play(amy, kitchen)
+    home.playing()
+    _has_every_segment(plex)
+    set_up.get(_path(home))
+    (stream,) = _streams()
+    assert older_stream.sent(stream) == (True, False)
+    _command(amy, kitchen, "seek", position_s=1)
+    home.step()
+    assert home.urls()[-1] == home.urls()[-2]
+    assert older_stream.sent(stream) == (False, False)
 
 
 def test_the_place_is_kept_with_where_the_credits_start(

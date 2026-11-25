@@ -37,7 +37,7 @@ from mediaman.web.responses import respond_err
 from mediaman.web.routes import older_reach as reaching
 from mediaman.web.routes.cast import _may_still_watch
 from mediaman.web.routes.older_reach import Refusal
-from mediaman.web.routes.older_stream import film_media, place_of, segments, sent
+from mediaman.web.routes.older_stream import film_media, hand_over, place_of, segments, sent
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +298,7 @@ def _server(request: Request, held: repo.Tv, claim: Claim, steering: Steering) -
             number, at = place_of(segments(stream_id, user), position_s)
         except (Refusal, PlexError, StreamGone, ValueError) as exc:
             raise CannotPlay(type(exc).__name__) from exc
+        hand_over(stream_id, number)
         token = url.split("/")[3]
         duration = about.get("duration_s")
         seconds = max(0, round(duration - at)) if duration else None

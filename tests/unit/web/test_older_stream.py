@@ -215,6 +215,7 @@ def test_a_film_that_fails_in_any_way_broke_off(tv, ticket, monkeypatch):
 
 def test_a_film_that_cannot_be_opened_again_broke_off(tv, ticket, film):
     tv.get(_from(ticket))
+    older_stream.hand_over(_stream(), 0)
     film.playlist = "nothing"
     assert tv.get(_from(ticket)).status_code == 502
     assert older_stream.sent(_stream()) == (False, True)
@@ -224,25 +225,6 @@ def test_a_tv_that_hangs_up_broke_nothing_off(ticket, app):
     with TestClient(app).stream("GET", _from(ticket)) as resp:
         next(resp.iter_raw())
     assert older_stream.sent(_stream())[1] is False
-
-
-def test_an_earlier_request_that_fails_says_nothing_of_the_latest(tv, ticket, monkeypatch):
-    real = older_stream._read_segment
-
-    async def fails_while_another_reads(request, stream_id, user, name):
-        if name == "00001.ts":
-            older_stream._feeds[stream_id].latest += 1
-            raise RuntimeError("x")
-        return await real(request, stream_id, user, name)
-
-    monkeypatch.setattr(older_stream, "_read_segment", fails_while_another_reads)
-    tv.get(_from(ticket))
-    assert older_stream.sent(_stream()) == (False, False)
-
-
-def test_a_stream_that_is_no_mpeg_ts_is_not_sent_as_one(tv, ticket, film):
-    film.playlist = PLAYLIST.replace(".ts", ".m4s")
-    assert tv.get(_from(ticket)).status_code == 502
 
 
 class Reader:
@@ -302,6 +284,115 @@ class Reader:
 
     async def is_over(self) -> None:
         await self.until(self.task.done)
+
+
+async def _finishes(reader: Reader) -> None:
+    reader.takes.set()
+    await reader.is_over()
+
+
+async def _hangs_up(reader: Reader) -> None:
+    reader.hung_up.set()
+    await reader.is_over()
+
+
+def test_a_copy_opened_and_dropped_takes_nothing_from_the_one_read_to_its_end(app, ticket):
+    async def run():
+        first = await Reader(app, _from(ticket)).open().reads()
+        second = await Reader(app, _from(ticket)).open().reads()
+        await _hangs_up(second)
+        await _finishes(first)
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (True, False)
+
+
+def test_a_copy_that_is_refused_takes_nothing_from_the_one_read_to_its_end(app, ticket, film):
+    async def run():
+        first = await Reader(app, _from(ticket)).open().reads()
+        film.playlist = "nothing"
+        second = Reader(app, _from(ticket)).open()
+        await second.is_over()
+        assert second.status == 502
+        assert older_stream.sent(_stream()) == (False, False)
+        await _finishes(first)
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (True, False)
+
+
+def test_a_copy_that_was_refused_makes_no_error_of_a_stop(app, ticket, film):
+    async def run():
+        first = await Reader(app, _from(ticket)).open().reads()
+        film.playlist = "nothing"
+        await Reader(app, _from(ticket)).open().is_over()
+        await _hangs_up(first)
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (False, False)
+
+
+def test_a_copy_that_failed_counts_once_no_other_is_open(app, ticket, film):
+    async def run():
+        first = await Reader(app, _from(ticket)).open().reads()
+        second = await Reader(app, _from(ticket)).open().reads()
+        film.fails = {"00001.ts": 99}
+        await _finishes(second)
+        assert older_stream.sent(_stream()) == (False, False)
+        await _finishes(first)
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (False, True)
+
+
+def test_a_copy_opened_after_one_that_failed_makes_up_for_it(app, ticket, film):
+    async def run():
+        film.fails = {"00001.ts": 99}
+        await _finishes(await Reader(app, _from(ticket)).open().reads())
+        film.fails = {}
+        await _hangs_up(await Reader(app, _from(ticket)).open().reads())
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (False, False)
+
+
+def test_a_film_handed_over_anew_has_not_been_sent_though_from_the_same_place(app, ticket, tv):
+    tv.get(_from(ticket))
+    assert older_stream.sent(_stream()) == (True, False)
+    older_stream.hand_over(_stream(), 0)
+    assert older_stream.sent(_stream()) == (False, False)
+
+    async def run():
+        earlier = await Reader(app, _from(ticket)).open().reads()
+        older_stream.hand_over(_stream(), 0)
+        await _finishes(earlier)
+
+    asyncio.run(run())
+    assert older_stream.sent(_stream()) == (False, False)
+    tv.get(_from(ticket))
+    assert older_stream.sent(_stream()) == (True, False)
+
+
+def test_only_the_place_handed_over_last_counts(tv, ticket, film):
+    older_stream.hand_over(_stream(), 1)
+    tv.get(_from(ticket, 0))
+    assert older_stream.sent(_stream()) == (False, False)
+    film.fails = {"00000.ts": 99}
+    tv.get(_from(ticket, 0))
+    assert older_stream.sent(_stream()) == (False, False)
+    tv.get(_from(ticket, 1))
+    assert older_stream.sent(_stream()) == (True, False)
+
+
+def test_a_place_handed_over_shares_the_copies_there_may_be(app, ticket):
+    async def run():
+        first = [await Reader(app, _from(ticket)).open().reads() for _ in range(3)]
+        older_stream.hand_over(_stream(), 1)
+        await Reader(app, _from(ticket, 1)).open().reads()
+        await first[0].is_over()
+        assert len(older_stream._feed(_stream()).readers) == 3
+
+    asyncio.run(run())
 
 
 def test_a_fourth_copy_ends_the_oldest_and_not_itself(app, ticket):

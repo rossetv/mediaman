@@ -88,35 +88,60 @@ def place_of(parts: list[tuple[str, float]], position_s: float) -> tuple[int, fl
 
 
 @dataclass
+class _HandOver:
+    """What a TV was sent since it was handed a film from a place on, however often it asked."""
+
+    place: int
+    #: Requests for it that are not over yet.
+    open: int = 0
+    done: bool = False
+    failed: bool = False
+
+
+@dataclass
 class _Feed:
-    """What a TV was sent of a stream, as of its latest request."""
+    """What a TV asks for of a stream."""
 
     #: Requests whose film has yet to be found.
     opening: int = 0
     #: The films being sent, the oldest first.
     readers: list[_FilmResponse] = field(default_factory=list)
-    #: The number of its latest request.
-    latest: int = 0
-    done: bool = False
-    broke_off: bool = False
+    latest: _HandOver | None = None
 
 
 _feeds: dict[str, _Feed] = {}
+# The thread that hands a film over is not the one that sends it.
+_feeds_lock = threading.Lock()
+
+
+def hand_over(stream_id: str, place: int) -> None:
+    """Note that a TV is handed the stream from its segment number *place* on."""
+    _feed(stream_id).latest = _HandOver(place)
 
 
 def sent(stream_id: str) -> tuple[bool, bool]:
-    feed = _feeds.get(stream_id, _Feed())
-    return feed.done, feed.broke_off
+    """Whether the TV was sent all of what it was handed, and whether sending it broke off."""
+    latest = _feed(stream_id).latest
+    if latest is None:
+        return False, False
+    return latest.done, latest.failed and not latest.open
 
 
 def _feed(stream_id: str) -> _Feed:
-    if stream_id not in _feeds:
-        for old in [k for k, f in _feeds.items() if not f.readers][
-            : max(0, len(_feeds) - _KEPT_FEEDS)
-        ]:
-            del _feeds[old]
-        _feeds[stream_id] = _Feed()
-    return _feeds[stream_id]
+    with _feeds_lock:
+        if stream_id not in _feeds:
+            idle = [k for k, f in _feeds.items() if not f.readers and not f.opening]
+            for old in idle[: max(0, len(_feeds) - _KEPT_FEEDS)]:
+                del _feeds[old]
+            _feeds[stream_id] = _Feed()
+        return _feeds[stream_id]
+
+
+def _handed(feed: _Feed, place: int) -> _HandOver:
+    """The hand-over a request for a place is part of; one of its own where that is past."""
+    if feed.latest is None:
+        feed.latest = _HandOver(place)
+    return feed.latest if feed.latest.place == place else _HandOver(place)
 
 
 def _may_go_on(ticket: Ticket) -> bool:
@@ -153,27 +178,30 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
     feed = _feed(held.stream_id)
     if feed.opening >= _MAX_OPEN:
         return respond_err("rate_limited", status=429)
-    feed.latest += 1
-    number = feed.latest
-    # Until it goes on, whatever happens to it.
-    feed.done, feed.broke_off = False, True
+    first = int(match[1])
+    handed = _handed(feed, first)
+    names: list[str] = []
     feed.opening += 1
+    handed.open += 1
     try:
         parts = await run_in_threadpool(segments, held.stream_id, held.user)
+        names = [name for name, _ in parts[first:]]
     except StreamGone:
-        return _refused(request)
+        pass
     except PlexError as exc:
         return plex_failure(exc)
     finally:
         feed.opening -= 1
-    names = [name for name, _ in parts[int(match[1]) :]]
+        if not names:
+            handed.open -= 1
+            # What another copy is sent is no worse for it.
+            handed.failed = handed.failed or not handed.open
     if not names:
         return _refused(request)
-    if feed.latest == number:
-        feed.broke_off = False
+    handed.failed = False
     while len(feed.readers) >= _MAX_OPEN:
         feed.readers.pop(0).end()
-    reader = _FilmResponse(_film(request, held, names, feed, number), held, feed, headers)
+    reader = _FilmResponse(_film(request, held, names, handed), held, feed, handed, headers)
     feed.readers.append(reader)
     return reader
 
@@ -189,12 +217,13 @@ class _FilmResponse(Response):
         film: AsyncGenerator[bytes],
         held: Ticket,
         feed: _Feed,
+        handed: _HandOver,
         headers: dict[str, str],
     ) -> None:
         super().__init__(media_type="video/mpeg", headers=headers)
         # Nobody knows the length.
         del self.headers["content-length"]
-        self._film, self._held, self._feed = film, held, feed
+        self._film, self._held, self._feed, self._handed = film, held, feed, handed
         self._scope = anyio.CancelScope()
 
     def end(self) -> None:
@@ -219,6 +248,7 @@ class _FilmResponse(Response):
         finally:
             if self in self._feed.readers:
                 self._feed.readers.remove(self)
+            self._handed.open -= 1
             with anyio.CancelScope(shield=True):
                 await self._film.aclose()
         # A TV that reads no more holds this up for as long as it holds the connection.
@@ -236,7 +266,7 @@ class _FilmResponse(Response):
 
 
 async def _film(
-    request: Request, held: Ticket, names: list[str], feed: _Feed, number: int
+    request: Request, held: Ticket, names: list[str], handed: _HandOver
 ) -> AsyncGenerator[bytes]:
     for name in names:
         body = await _segment(request, held, name)
@@ -245,9 +275,9 @@ async def _film(
         for start in range(0, len(body), _CHUNK):
             yield body[start : start + _CHUNK]
     else:
-        feed.done = feed.latest == number or feed.done
+        handed.done = True
         return
-    feed.broke_off = feed.latest == number or feed.broke_off
+    handed.failed = True
 
 
 async def _segment(request: Request, held: Ticket, name: str) -> bytes | None:
