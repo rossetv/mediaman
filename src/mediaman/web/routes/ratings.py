@@ -237,7 +237,7 @@ def api_rating_ask(
             return nothing
         season = end.number
         try:
-            fields = title_details(request, conn, title, ask=False)
+            fields = title_details(request, conn, title, ask=True)
         except catalog.TitleNotFound:
             fields = None
         # The last episode held may not be the season's: not while it is still on air.
