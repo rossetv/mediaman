@@ -329,11 +329,32 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__ratings { display: flex; flex-wrap: wrap; gap: 6px; }
 /* A title that turns out late to have no rating keeps the room, so that nothing moves. */
 .ttl__main > .rate[hidden] { display: flex !important; visibility: hidden; }
-.ttl__main > .rate { margin-top: 2px; }
 /* As tall as the set and the line under it. */
-.ttl__rate-skel { height: 78px; margin-top: 2px; }
+.ttl__rate-skel { height: 78px; }
 .ttl__rate-skel > .skel--pill { width: 222px; max-width: 100%; height: 52px; }
 @media (max-width: 599.98px) { .ttl__rate-skel > .skel--pill { width: 238px; } }
+.ttl__ratings-skel { align-items: center; height: calc(1lh + 8px); font-size: 12px; }
+/* The thumbs have the right end of the buttons' row, whatever the buttons are: over the facts
+   and as wide as they are, or without them in a corner of their own. */
+@media (min-width: 700px) {
+  .ttl__main { position: relative; }
+  .ttl__main > :is(.rate, .ttl__rate-skel) { position: absolute; top: -4px; right: 0; width: 222px; }
+  /* Its words may be wider than it is. */
+  .ttl__main > .rate > .rate__line { margin-inline: -14px; padding: 0; text-align: center; }
+  .ttl__main:has(> :is(.rate, .ttl__rate-skel)) > :is(.ttl__actions, .ttl__under, .ttl__ratings) { margin-right: 236px; }
+  /* With nothing beside the words of the thumbs, the text starts below them. */
+  .ttl__under[hidden] + .rate + :not(.ttl__ratings) { margin-top: 30px; }
+}
+@media (min-width: 900px) {
+  .ttl--admin .ttl__main > :is(.rate, .ttl__rate-skel) { right: auto; left: calc(100% + 40px); width: 280px; }
+  .ttl--admin .ttl__main > .rate > .rate__set { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
+  .ttl--admin .ttl__main > .rate .rate__b { width: auto; }
+  .ttl--admin .ttl__rate-skel > .skel--pill { width: 100%; }
+  .ttl--admin .ttl__main:has(> .rate) > :is(.ttl__actions, .ttl__under, .ttl__ratings),
+  .ttl--admin .ttl__main:has(> .ttl__rate-skel) > :is(.ttl__actions, .ttl__ratings) { margin-right: 0; }
+  .ttl--admin .ttl__under[hidden] + .rate + :not(.ttl__ratings) { margin-top: 0; }
+  .ttl--admin .ttl__main:has(> .rate) + .ttl-facts { margin-top: 90px; }
+}
 .ttl__overview { max-width: 68ch; font-size: 15px; line-height: 1.55; color: var(--t2); }
 .ttl__credit { display: flex; gap: 10px; font-size: 14px; color: var(--t1); }
 .ttl__credit-label { color: var(--t3); }

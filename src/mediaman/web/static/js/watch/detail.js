@@ -838,7 +838,8 @@
 
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
-    root.classList.remove('ttl--admin', 'is-short', 'is-late');
+    root.classList.remove('is-short', 'is-late');
+    root.classList.toggle('ttl--admin', hasFacts(cur));
     if (heroEase) heroEase.cancel();
     hide(heroSkel, false);
     clearPictures();
@@ -860,14 +861,17 @@
     var actions = el('div', 'ttl__actions');
     actions.appendChild(skel('skel--pill', '150px'));
     actions.appendChild(skel('skel--pill', '120px'));
+    if (/^(movie|show)-/.test(cur.ref)) actions.appendChild(skel('skel--pill', '200px')); // Watched
     main.appendChild(actions);
     if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
       var thumbsSkel = el('div', 'ttl__rate-skel');
       thumbsSkel.appendChild(skel('skel--pill'));
       main.appendChild(thumbsSkel);
     }
+    var pills = el('div', 'ttl__ratings ttl__ratings-skel');
+    pills.appendChild(skel('skel--line', '220px'));
+    main.appendChild(pills);
     var lines = el('div', 'ttl-skel-lines');
-    lines.appendChild(skel('skel--line', '220px'));
     lines.appendChild(skel('skel--line'));
     lines.appendChild(skel('skel--line'));
     lines.appendChild(skel('skel--line', '72%'));

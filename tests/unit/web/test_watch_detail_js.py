@@ -1161,6 +1161,14 @@ def test_a_thumb_pressed_stays_on_and_keeps_the_focus_when_the_title_is_drawn_ag
     assert out["redrawn"] == [True, True, loved]
 
 
+def test_the_thumbs_place_is_held_where_they_will_be_while_a_title_loads() -> None:
+    assert _run("thumbsWait") == {
+        "admin": {"columns": True, "buttons": 3},
+        "viewer": {"columns": False, "buttons": 3},
+        "tmdb": {"columns": False, "buttons": 2},
+    }
+
+
 def test_thumbs_go_with_their_title() -> None:
     out = _run("thumbs")
     assert out["next"] == ["false"] * 4

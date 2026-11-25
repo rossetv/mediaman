@@ -117,6 +117,16 @@ def test_a_button_s_label_never_wraps_on_a_phone() -> None:
     assert "white-space" not in _of(".ttl__actions .watch-mark-btn", PHONE)
 
 
+def test_the_thumbs_stand_out_of_the_flow_so_their_words_move_nothing() -> None:
+    wide = {", ".join(heads): body for heads, body in _rules("(min-width: 700px)")}
+    thumbs = wide[".ttl__main > :is(.rate, .ttl__rate-skel)"]
+    beside = ":is(.ttl__actions, .ttl__under, .ttl__ratings)"
+    room = wide[f".ttl__main:has(> :is(.rate, .ttl__rate-skel)) > {beside}"]
+    assert "position: absolute" in thumbs
+    held, kept = (int(re.findall(r"(?:width|right): ([1-9]\d*)px", b)[0]) for b in (thumbs, room))
+    assert kept > held
+
+
 def test_the_facts_labels_take_the_room_there_is_where_the_panel_is_wide() -> None:
     wide = "(min-width: 360px) and (max-width: 899.98px)"
     assert "grid-template-columns: max-content" in _of(".ttl-facts__list", wide)

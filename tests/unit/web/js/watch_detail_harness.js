@@ -2555,6 +2555,17 @@ scenarios.like = async () => {
   return out;
 };
 
+// What holds the thumbs' place while a title loads, of the library and not, for an admin and not.
+scenarios.thumbsWait = async () => {
+  const look = (admin, ref) => {
+    const p = load({ admin, thumbs: true, routes: {} });
+    p.run();
+    p.ctx.MMWatch.detail.open(ref, {});
+    return { columns: p.ttl().classList.contains('ttl--admin'), buttons: p.q('.ttl__actions').children.length };
+  };
+  return { admin: look(true, 'movie-120'), viewer: look(false, 'movie-120'), tmdb: look(true, 'tmdb-movie-77') };
+};
+
 // *rateable* unknown: the answer comes after the wait is over.
 scenarios.thumbsNone = async () => {
   const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };
