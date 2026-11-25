@@ -30,6 +30,8 @@
   var REJOIN_WAIT_MS = 10000;
   /* How long a TV that was joined may take to say what it plays. */
   var SAY_WAIT_MS = 3000;
+  /* A place this far past the one a stream started at has been played to. */
+  var MOVED_S = 3;
   /* A TV that was lost may come back for this long. */
   var LOST_MS = 120000;
   var TICK_MS = 500;
@@ -833,6 +835,8 @@
     } else {
       p.duration = ms.media.duration || 0;
       p.place = safely(function () { return ms.getEstimatedTime(); }, Number(rec.place) || 0);
+      /* It has played there while no page was open. */
+      if (p.place > (Number(rec.place) || 0) + MOVED_S) p.savedAt = null;
       p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
       p.begun = true;
       p.attach(ms);

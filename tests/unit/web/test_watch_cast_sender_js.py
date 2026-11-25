@@ -928,3 +928,12 @@ def test_a_play_from_the_start_again_keeps_the_place_before_it_until_it_plays() 
     # Once it plays, its own place is what counts.
     assert 0 < out["played"][1] < 20
     assert out["plays"]["posts"][0][1] < 10
+
+
+def test_what_played_again_with_no_page_open_is_saved_where_it_was_paused() -> None:
+    out = _run("leftAnew")
+    assert out["moved"]["last"][1] == 1200
+    assert "saved" not in out["movedPlayer"]
+    # Paused where it starts, it has not played.
+    assert out["still"]["last"][1] == 3000
+    assert out["stillPlayer"]["saved"] == 3000

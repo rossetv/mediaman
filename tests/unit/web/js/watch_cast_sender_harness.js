@@ -1720,6 +1720,15 @@ const scenarios = {
     await leave('refused', (m, at) => { at.tv.media = []; });
     await leave('plays', (m) => m.say('PLAYING'));
     await leave('player', () => {}, true);
+    // Played and paused with the TV's own remote while no page is open, or paused where it starts.
+    for (const [name, at] of [['moved', 1200], ['still', 1]]) {
+      // No page is told.
+      const pause = (m) => { m.currentTime = at; m.playerState = 'PAUSED'; };
+      const { page: later } = await leave(name, pause);
+      await later.sender.stop();
+      out[name].last = places(later).pop();
+      await leave(name + 'Player', pause, true);
+    }
     const other = await leave('changed', () => {});
     await other.page.sender.start({ quality: 'low' });
     other.page.sender.stop();
