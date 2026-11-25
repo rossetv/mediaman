@@ -15,6 +15,10 @@ class TvUnreachable(TvError):
     """The TV did not answer, or went away."""
 
 
+class TvLost(TvUnreachable):
+    """The TV was sent a request, and may have acted on it, but the answer never came."""
+
+
 class TvBadAnswer(TvError):
     """The TV answered with something that cannot be used."""
 

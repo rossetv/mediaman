@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 
 from mediaman.services.dlna.wire import Wire
@@ -18,9 +19,13 @@ DESCRIPTION = f"""<?xml version="1.0"?>
 <UDN>uuid:1234-abcd</UDN>
 <friendlyName>[TV] Living
  room</friendlyName><serviceList>
-<service><serviceType>{RC}</serviceType><controlURL>/smp_17_</controlURL></service>
+<service><serviceType>{RC}</serviceType><controlURL>/smp_17_</controlURL>
+<SCPDURL>/rc.xml</SCPDURL></service>
 <service><serviceType>{AVT}</serviceType><controlURL>/smp_22_</controlURL></service>
 </serviceList></device></root>"""
+
+VOLUME_RANGE = """<scpd xmlns="urn:schemas-upnp-org:service-1-0"><serviceStateTable>
+<stateVariable><name>Volume</name></stateVariable></serviceStateTable></scpd>"""
 
 
 def http(body: str | bytes, status: str = "200 OK", headers: str = "") -> bytes:
@@ -56,12 +61,16 @@ class FakeTv:
         self.now = 1000.0
         self.off = False
         self.datagrams = [ssdp(LOCATION)]
-        self.pages: dict[str, bytes] = {"/smp_14_": http(DESCRIPTION)}
+        self.pages: dict[str, bytes] = {
+            "/smp_14_": http(DESCRIPTION),
+            "/rc.xml": http(VOLUME_RANGE),
+        }
         self.actions: dict[str, bytes] = {}
         self.seconds_per_read = 0.0
         self.seconds_to_connect = 0.0
         self.slow: dict[str, float] = {}
         self.reset_after_answer = False
+        self.hold_after_answer = False
         self.read_size = 65536
         self.connect_timeouts: list[float] = []
         self.connects: list[tuple[str, int]] = []
@@ -135,6 +144,8 @@ class _Tcp(_Base):
             self.pass_time(self.tv.seconds_per_read)
         if self.tv.reset_after_answer and not self.answer:
             raise ConnectionResetError
+        if self.tv.hold_after_answer and not self.answer:
+            self.pass_time(math.inf)
         chunk = self.answer[: min(len(buffer), self.tv.read_size)]
         buffer[: len(chunk)] = chunk
         self.answer = self.answer[len(chunk) :]

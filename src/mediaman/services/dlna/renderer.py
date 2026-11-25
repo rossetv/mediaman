@@ -6,14 +6,21 @@ import contextlib
 import math
 import re
 from codecs import BOM_UTF8, BOM_UTF16_BE, BOM_UTF16_LE
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from xml.etree.ElementTree import Element, ParseError
 
 import defusedxml.ElementTree as ET
 
 from mediaman.services.dlna.addresses import check_device_url
-from mediaman.services.dlna.errors import TvBadAnswer, TvError, TvFault, TvUnreachable
+from mediaman.services.dlna.errors import (
+    TvBadAnswer,
+    TvError,
+    TvFault,
+    TvLost,
+    TvRefused,
+    TvUnreachable,
+)
 from mediaman.services.dlna.media import Media, clock_time, xml_text
 from mediaman.services.dlna.wire import Wire
 
@@ -78,6 +85,7 @@ class _Service:
     type: str
     port: int
     path: str
+    description: str
     loudest: int = 100
 
 
@@ -93,16 +101,22 @@ class Renderer:
     _transport: _Service = field(repr=False)
     _rendering: _Service | None = field(repr=False)
 
-    def load(self, media: Media) -> None:
-        """Hand the TV what to play; :meth:`play` starts it."""
-        with self._stopped_if_lost():
+    def start(self, media: Media) -> None:
+        """Hand the TV what to play and start it."""
+        try:
             self._command(
                 "SetAVTransportURI", CurrentURI=media.url, CurrentURIMetaData=media.didl()
             )
+            self.play()
+        except TvLost:
+            # It may have started although its answer never came.
+            with contextlib.suppress(TvError):
+                self._command("Stop", seconds=_ASK_SECONDS)
+            raise
 
     def play(self) -> None:
-        with self._stopped_if_lost():
-            self._command("Play", Speed="1")
+        """Go on from a pause."""
+        self._command("Play", Speed="1")
 
     def pause(self) -> None:
         self._command("Pause")
@@ -143,23 +157,14 @@ class Renderer:
     def set_volume(self, volume: int) -> None:
         service = self._volume_service()
         wanted = round(min(100, max(0, volume)) * service.loudest / 100)
-        self._call(service, "SetVolume", {"Channel": "Master", "DesiredVolume": str(wanted)})
-
-    @contextlib.contextmanager
-    def _stopped_if_lost(self) -> Iterator[None]:
-        """Stop a TV that may have started although its answer never came."""
-        try:
-            yield
-        except TvUnreachable:
-            with contextlib.suppress(TvError):
-                self._call(self._transport, "Stop", {})
-            raise
+        arguments = {"Channel": "Master", "DesiredVolume": str(wanted)}
+        self._call(service, "SetVolume", arguments, status_is_enough=True)
 
     def _av(self, action: str) -> dict[str, str]:
         return self._ask(self._transport, action, {})
 
-    def _command(self, action: str, **arguments: str) -> None:
-        self._call(self._transport, action, arguments, _COMMAND_SECONDS)
+    def _command(self, action: str, *, seconds: float = _COMMAND_SECONDS, **arguments: str) -> None:
+        self._call(self._transport, action, arguments, seconds, status_is_enough=True)
 
     def _volume_service(self) -> _Service:
         if self._rendering is None:
@@ -179,6 +184,7 @@ class Renderer:
         action: str,
         arguments: dict[str, str],
         seconds: float = _ASK_SECONDS,
+        status_is_enough: bool = False,
     ) -> bytes:
         fields = "".join(
             f"<{name}>{xml_text(value)}</{name}>"
@@ -201,18 +207,20 @@ class Renderer:
                 "SOAPACTION": f'"{service.type}#{action}"',
             },
             seconds,
+            status_is_enough,
         )
         if status in (401, 403):
             raise TvFault("The TV did not allow mediaman. Allow it on the TV, then try again.", 0)
-        if status not in (200, 500):
+        done = 200 <= status < 300
+        if not done and status != 500:
             raise TvBadAnswer(_CANNOT_READ)
         try:
             root = _parse(answer)
         except TvBadAnswer:
-            if status == 200:
+            if done:
                 return answer
             raise
-        if status == 500 or any(_local(e) == "Fault" for e in root.iter()):
+        if not done or any(_local(e) == "Fault" for e in root.iter()):
             code = next((_text(e) for e in root.iter() if _local(e) == "errorCode"), "")
             number = int(code) if re.fullmatch(r"[0-9]{3}", code) else 0
             raise TvFault(_FAULTS.get(number, "The TV could not do that."), number)
@@ -235,6 +243,7 @@ def find(address: str, wire: Wire) -> Renderer:
 
 def _guess(address: str, wire: Wire, remaining: Callable[[], float]) -> Renderer | None:
     silent: set[int] = set()
+    refusal: TvRefused | None = None
     for port, path in _GUESSES:
         if port in silent:
             continue
@@ -246,8 +255,12 @@ def _guess(address: str, wire: Wire, remaining: Callable[[], float]) -> Renderer
             return describe(address, f"http://{address}:{port}{path}", wire, seconds)
         except TvUnreachable:
             silent.add(port)
+        except TvRefused as exc:
+            refusal = refusal or exc
         except TvError:
             continue
+    if refusal is not None:
+        raise refusal
     return None
 
 
@@ -264,7 +277,7 @@ def describe(address: str, location: str, wire: Wire, seconds: float = _ASK_SECO
     check_device_url(base, address)
     for device in root.iter():
         if _local(device) == "device" and _child(device, "deviceType").startswith(_RENDERER):
-            services = _services(device, address, base, wire, remaining)
+            services = _services(device, address, base)
             if "AVTransport" in services:
                 return Renderer(
                     address=address,
@@ -273,14 +286,14 @@ def describe(address: str, location: str, wire: Wire, seconds: float = _ASK_SECO
                     udn=_clean(_child(device, "UDN"))[:_MAX_UDN],
                     _wire=wire,
                     _transport=services["AVTransport"],
-                    _rendering=services.get("RenderingControl"),
+                    _rendering=_with_range(
+                        services.get("RenderingControl"), address, base, wire, remaining
+                    ),
                 )
     raise TvBadAnswer("That device cannot be told what to play.")
 
 
-def _services(
-    device: Element, address: str, base: str, wire: Wire, remaining: Callable[[], float]
-) -> dict[str, _Service]:
+def _services(device: Element, address: str, base: str) -> dict[str, _Service]:
     found: dict[str, _Service] = {}
     for services in device:
         if _local(services) != "serviceList":
@@ -295,28 +308,37 @@ def _services(
                 if match[1] == "AVTransport":
                     raise
                 continue
-            found[match[1]] = _Service(match[0], port, path)
-            if match[1] == "RenderingControl":
-                url = _child(service, "SCPDURL")
-                loudest = _loudest(url, address, base, wire, remaining)
-                found[match[1]] = _Service(match[0], port, path, loudest)
+            found[match[1]] = _Service(match[0], port, path, _child(service, "SCPDURL"))
     return found
 
 
-def _loudest(url: str, address: str, base: str, wire: Wire, remaining: Callable[[], float]) -> int:
-    """Return the number the TV counts its volume to, 100 when it does not say."""
+def _with_range(
+    service: _Service | None,
+    address: str,
+    base: str,
+    wire: Wire,
+    remaining: Callable[[], float],
+) -> _Service | None:
+    """Return *service* knowing what it counts to; None when that cannot be told."""
+    if service is None:
+        return None
     try:
-        port, path = check_device_url(url, address, base)
-        _, answer = wire.request(address, port, path, seconds=remaining())
+        port, path = check_device_url(service.description, address, base)
+        status, answer = wire.request(address, port, path, seconds=remaining())
         root = _parse(answer)
     except (TvError, TimeoutError):
-        return 100
+        return None
+    if status != 200 or _local(root) != "scpd":
+        return None
+    maximum = ""
     for variable in root.iter():
         if _local(variable) == "stateVariable" and _child(variable, "name") == "Volume":
             maximum = next((_text(e) for e in variable.iter() if _local(e) == "maximum"), "")
-            if re.fullmatch(r"[1-9][0-9]{0,4}", maximum):
-                return int(maximum)
-    return 100
+    if not maximum:
+        return service
+    if not re.fullmatch(r"[1-9][0-9]{0,4}", maximum):
+        return None
+    return replace(service, loudest=int(maximum))
 
 
 def _clean(value: str) -> str:

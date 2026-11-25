@@ -12,12 +12,13 @@ from collections.abc import Callable
 from typing import Any, Protocol, cast
 
 from mediaman.services.dlna.addresses import ALLOWED_PORTS, check_address, own_networks
-from mediaman.services.dlna.errors import TvBadAnswer, TvRefused, TvUnreachable
+from mediaman.services.dlna.errors import TvBadAnswer, TvError, TvLost, TvRefused, TvUnreachable
 
 MAX_BODY = 64 * 1024
 _MAX_HEADERS = 16 * 1024
 _MAX_SECONDS = 3.0
 _SEARCHES = 3
+_SPARE_BODY_SECONDS = 1.0
 _MAX_DATAGRAMS = 16
 _SSDP_PORT = 1900
 
@@ -57,12 +58,12 @@ class _Bounded:
 
     def __init__(self, sock: Socket, remaining: Callable[[], float]) -> None:
         self._sock = sock
-        self._remaining = remaining
+        self.remaining = remaining
         self._budget = MAX_BODY + _MAX_HEADERS
         self.reset_is_end = False
 
     def sendall(self, data: bytes) -> None:
-        self._sock.settimeout(self._remaining())
+        self._sock.settimeout(self.remaining())
         self._sock.sendall(data)
 
     def makefile(self, _mode: str) -> io.BufferedReader:
@@ -72,7 +73,7 @@ class _Bounded:
         """Do nothing: ``http.client`` closes before the body is read; ``Wire`` closes after."""
 
     def recv_into(self, buffer: Any) -> int:
-        self._sock.settimeout(self._remaining())
+        self._sock.settimeout(self.remaining())
         try:
             count = self._sock.recv_into(buffer)
         except ConnectionResetError:
@@ -136,12 +137,18 @@ class Wire:
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
         seconds: float = _MAX_SECONDS,
+        status_is_enough: bool = False,
     ) -> tuple[int, bytes]:
-        """GET, or POST when there is a *body*. Never follows a redirect."""
+        """GET, or POST when there is a *body*. Never follows a redirect.
+
+        With *status_is_enough* a broken or late body is not an error, and what
+        came of it is returned.
+        """
         address = self.check(address)
         if port not in ALLOWED_PORTS:
             raise TvRefused(f"mediaman does not allow port {port} on a TV.")
         remaining = self.deadline(seconds)
+        sent = False
         sock: Socket | None = None
         try:
             sock = self._open_tcp(address, port, min(_MAX_SECONDS, remaining()))
@@ -154,16 +161,19 @@ class Wire:
                 body,
                 {"Connection": "close", **(headers or {})},
             )
+            sent = True
             response = connection.getresponse()
             if 300 <= response.status < 400:
                 raise TvRefused("The TV tried to send mediaman to another address.")
+            bounded.reset_is_end = not response.chunked
+            if status_is_enough:
+                return response.status, self._what_came(bounded, response)
             encoding = response.getheader("Content-Encoding", "").strip().lower()
             if encoding not in ("", "identity"):
                 raise TvBadAnswer("The TV gave an answer that cannot be read.")
-            bounded.reset_is_end = not response.chunked
             data = response.read(MAX_BODY + 1)
         except OSError as exc:
-            raise TvUnreachable(_GONE) from exc
+            raise (TvLost if sent else TvUnreachable)(_GONE) from exc
         except (http.client.HTTPException, ValueError) as exc:
             raise TvBadAnswer("The TV gave an answer that cannot be read.") from exc
         finally:
@@ -175,6 +185,14 @@ class Wire:
         if response.length:
             raise TvUnreachable(_GONE)
         return response.status, data
+
+    def _what_came(self, bounded: _Bounded, response: http.client.HTTPResponse) -> bytes:
+        data = b""
+        with contextlib.suppress(OSError, http.client.HTTPException, ValueError, TvError):
+            bounded.remaining = self.deadline(min(_SPARE_BODY_SECONDS, bounded.remaining()))
+            while chunk := response.read1(MAX_BODY):
+                data += chunk
+        return data
 
     def search(self, address: str, usable: Callable[[str], object]) -> str:
         """Ask *address* where its description is, and return the first *usable* answer.

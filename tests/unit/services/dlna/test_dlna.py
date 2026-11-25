@@ -25,6 +25,7 @@ from tests.unit.services.dlna.fake_tv import (
     DESCRIPTION,
     LOCATION,
     TV,
+    VOLUME_RANGE,
     FakeTv,
     fault,
     http,
@@ -387,8 +388,32 @@ def test_a_deaf_tv_answering_drip_by_drip_ends_within_ten_seconds(tv: FakeTv) ->
 def test_a_guessed_description_gets_the_same_checks(tv: FakeTv) -> None:
     tv.datagrams = []
     tv.pages = {"/dmr": http(DESCRIPTION.replace("/smp_22_", "http://10.0.0.1:7676/x"))}
+    with pytest.raises(TvRefused, match="other than its own"):
+        find(TV, tv.wire())
+
+
+def test_the_first_refusal_among_guesses_is_the_one_told(tv: FakeTv) -> None:
+    tv.datagrams = []
+    tv.pages = {
+        "/dmr": http(DESCRIPTION.replace("/smp_22_", f"http://{TV}:22/x")),
+        "/dmr.xml": http(DESCRIPTION.replace("/smp_22_", "http://10.0.0.1:7676/x")),
+    }
+    with pytest.raises(TvRefused, match="port 22"):
+        find(TV, tv.wire())
+
+
+def test_a_refused_guess_does_not_hide_a_good_one(tv: FakeTv) -> None:
+    tv.datagrams = []
+    tv.pages["/dmr"] = http(DESCRIPTION.replace("/smp_22_", "http://10.0.0.1:7676/x"))
+    assert find(TV, tv.wire()).location == LOCATION
+
+
+def test_ports_that_each_answer_slowly_do_not_stretch_the_ten_seconds(tv: FakeTv) -> None:
+    tv.datagrams, tv.pages, tv.seconds_per_read = [], {}, 0.95
+    started = tv.now
     with pytest.raises(TvUnreachable):
         find(TV, tv.wire())
+    assert tv.now - started <= 10.0
 
 
 # --- size, time and XML ----------------------------------------------------
@@ -410,7 +435,7 @@ def test_an_oversized_answer_is_cut_off(tv: FakeTv, answer: bytes) -> None:
     with pytest.raises(TvBadAnswer):
         find(TV, tv.wire())
     assert tv.bytes_read < 120_000
-    assert tv.closed == 2
+    assert tv.closed == len(tv.connects) + 1
 
 
 def test_an_answer_of_exactly_the_limit_is_read(tv: FakeTv) -> None:
@@ -498,7 +523,7 @@ def test_a_tv_that_closes_after_its_answer_is_read_to_the_end(
     tv.pages["/smp_14_"] = head + body
     tv.read_size = len(head)
     assert find(TV, tv.wire()).name == "[TV] Living room"
-    assert tv.closed == 2
+    assert tv.closed == len(tv.connects) + 1
 
 
 @pytest.mark.parametrize("value", ["", " ", "identity", "Identity "])
@@ -579,9 +604,7 @@ def test_a_bad_volume_address_costs_the_volume_and_nothing_else(tv: FakeTv) -> N
 
 def _with_volume_range(tv: FakeTv, scpd_url: str, maximum: str = "50") -> Renderer:
     tv.pages["/smp_14_"] = http(
-        DESCRIPTION.replace(
-            "/smp_17_</controlURL>", f"/smp_17_</controlURL><SCPDURL>{scpd_url}</SCPDURL>"
-        )
+        DESCRIPTION.replace("<SCPDURL>/rc.xml</SCPDURL>", f"<SCPDURL>{scpd_url}</SCPDURL>")
     )
     tv.pages["/rc.xml"] = http(
         '<scpd xmlns="urn:schemas-upnp-org:service-1-0"><serviceStateTable>'
@@ -608,15 +631,28 @@ def test_volume_is_scaled_to_what_the_tv_counts_to(tv: FakeTv) -> None:
     assert _volume_sent(tv) == "50"
 
 
-@pytest.mark.parametrize("maximum", ["0", "-5", "x", "", "9" * 5000])
-def test_a_made_up_volume_range_counts_as_a_hundred(tv: FakeTv, maximum: str) -> None:
-    assert _with_volume_range(tv, "/rc.xml", maximum).volume() == 20
+@pytest.mark.parametrize("missing", ["<maximum>50</maximum>", "50"])
+def test_a_volume_range_without_a_maximum_counts_to_a_hundred(tv: FakeTv, missing: str) -> None:
+    _with_volume_range(tv, "/rc.xml")
+    tv.pages["/rc.xml"] = http(
+        tv.pages["/rc.xml"].split(b"\r\n\r\n", 1)[1].replace(missing.encode(), b"")
+    )
+    assert describe(TV, LOCATION, tv.wire()).volume() == 20
 
 
-@pytest.mark.parametrize("url", ["http://10.0.0.1:7676/rc.xml", f"http://{TV}:22/rc.xml", "/gone"])
-def test_a_volume_range_that_cannot_be_had_counts_as_a_hundred(tv: FakeTv, url: str) -> None:
-    assert _with_volume_range(tv, url).volume() == 20
+@pytest.mark.parametrize("maximum", ["0", "-5", "x", "9" * 5000])
+def test_a_made_up_volume_range_leaves_the_volume_out(tv: FakeTv, maximum: str) -> None:
+    assert not _with_volume_range(tv, "/rc.xml", maximum).has_volume
+
+
+@pytest.mark.parametrize(
+    "url", ["http://10.0.0.1:7676/rc.xml", f"http://{TV}:22/rc.xml", "/gone", "/smp_14_", ""]
+)
+def test_a_volume_range_that_cannot_be_read_leaves_the_volume_out(tv: FakeTv, url: str) -> None:
+    renderer = _with_volume_range(tv, url)
+    assert not renderer.has_volume
     assert set(tv.connects) == {(TV, 7676)}
+    renderer.play()
 
 
 def test_a_slow_volume_range_does_not_make_describing_slower(tv: FakeTv) -> None:
@@ -624,7 +660,22 @@ def test_a_slow_volume_range_does_not_make_describing_slower(tv: FakeTv) -> None
     started = tv.now
     renderer = _with_volume_range(tv, "/rc.xml")
     assert tv.now - started <= 3.0
-    assert renderer.volume() == 20
+    assert not renderer.has_volume
+
+
+def test_an_error_page_is_not_a_volume_range(tv: FakeTv) -> None:
+    tv.pages["/rc.xml"] = http(VOLUME_RANGE, "500 Internal Server Error")
+    assert not describe(TV, LOCATION, tv.wire()).has_volume
+
+
+def test_the_volume_range_is_read_once_for_the_chosen_device_alone(tv: FakeTv) -> None:
+    device = DESCRIPTION[DESCRIPTION.index("<device>") : DESCRIPTION.index("</root>")]
+    other = device.replace(AVT, "urn:other")
+    tv.pages["/smp_14_"] = http(
+        f'<root xmlns="urn:schemas-upnp-org:device-1-0">{other * 20}{device}{device * 20}</root>'
+    )
+    assert describe(TV, LOCATION, tv.wire()).has_volume
+    assert len(tv.connects) == 2
 
 
 def test_a_bad_play_address_is_refused_by_its_cause(tv: FakeTv) -> None:
@@ -667,8 +718,8 @@ def _body(request: bytes) -> ET.Element:
 
 
 def test_a_title_cannot_break_out_of_the_request(tv: FakeTv, found: Renderer) -> None:
-    found.load(FILM)
-    (action,) = _body(tv.requests[-1])[0]
+    found.start(FILM)
+    (action,) = _body(tv.requests[-2])[0]
     assert action.tag == f"{{{AVT}}}SetAVTransportURI"
     assert [e.tag for e in action] == ["InstanceID", "CurrentURI", "CurrentURIMetaData"]
     assert action[1].text == FILM.url
@@ -714,7 +765,7 @@ def test_each_command_is_the_action_upnp_defines(
 
 
 COMMANDS = {
-    "SetAVTransportURI": lambda r: r.load(FILM),
+    "SetAVTransportURI": lambda r: r.start(FILM),
     "Play": lambda r: r.play(),
     "Pause": lambda r: r.pause(),
     "Stop": lambda r: r.stop(),
@@ -759,20 +810,34 @@ def test_asking_and_volume_keep_three_seconds(tv: FakeTv, found: Renderer, actio
         ask()
 
 
-@pytest.mark.parametrize("action", ["SetAVTransportURI", "Play"])
+@pytest.mark.parametrize(
+    ("action", "sent"),
+    [
+        ("SetAVTransportURI", ["SetAVTransportURI", "Stop"]),
+        ("Play", ["SetAVTransportURI", "Play", "Stop"]),
+    ],
+)
 def test_a_tv_that_is_too_slow_to_start_is_told_once_to_stop(
-    tv: FakeTv, found: Renderer, action: str
+    tv: FakeTv, found: Renderer, action: str, sent: list[str]
 ) -> None:
     tv.slow = {action: 60.0, "Stop": 60.0}
     started = tv.now
     with pytest.raises(TvUnreachable):
-        COMMANDS[action](found)
-    assert _sent(tv) == [action, "Stop"]
+        found.start(FILM)
+    assert _sent(tv) == sent
     assert tv.now - started <= 23.0
 
 
-@pytest.mark.parametrize("action", ["Pause", "Seek"])
-def test_a_slow_command_on_a_playing_film_does_not_stop_it(
+def test_a_tv_that_never_got_the_request_is_not_told_to_stop(tv: FakeTv, found: Renderer) -> None:
+    connects = len(tv.connects)
+    tv.off = True
+    with pytest.raises(TvUnreachable):
+        found.start(FILM)
+    assert len(tv.connects) == connects + 1
+
+
+@pytest.mark.parametrize("action", ["Play", "Pause", "Seek"])
+def test_a_slow_command_on_a_loaded_film_does_not_stop_it(
     tv: FakeTv, found: Renderer, action: str
 ) -> None:
     tv.slow[action] = 60.0
@@ -784,8 +849,73 @@ def test_a_slow_command_on_a_playing_film_does_not_stop_it(
 def test_a_refused_start_is_not_followed_by_a_stop(tv: FakeTv, found: Renderer) -> None:
     tv.actions["Play"] = fault("701")
     with pytest.raises(TvFault):
+        found.start(FILM)
+    assert _sent(tv) == ["SetAVTransportURI", "Play"]
+
+
+OK = b"HTTP/1.1 200 OK\r\n"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        OK + b"Content-Length: 500\r\n\r\nshort",
+        OK + b"Transfer-Encoding: chunked\r\n\r\n500\r\ncut",
+        OK + b"Transfer-Encoding: chunked\r\n\r\nzz\r\n",
+        OK + b"Content-Encoding: gzip\r\nContent-Length: 2\r\n\r\n\x1f\x8b",
+        OK + b"\r\nno length",
+        OK + b"\r\n",
+        OK + b"\r\n" + b"x" * 500_000,
+        b"HTTP/1.1 204 No Content\r\n\r\n",
+        b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n",
+    ],
+)
+@pytest.mark.parametrize("ending", ["close", "reset", "hold"])
+@pytest.mark.parametrize("action", ["SetAVTransportURI", "Play", "SetVolume"])
+def test_a_command_that_got_a_success_is_done_whatever_its_body(
+    tv: FakeTv, found: Renderer, action: str, ending: str, answer: bytes
+) -> None:
+    tv.actions[action] = answer
+    tv.reset_after_answer = ending == "reset"
+    tv.hold_after_answer = ending == "hold"
+    started = tv.now
+    if action == "SetVolume":
+        found.set_volume(5)
+    else:
+        found.start(FILM)
+        assert _sent(tv) == ["SetAVTransportURI", "Play"]
+    assert tv.now - started <= 3.0
+    assert tv.bytes_read < 200_000
+
+
+@pytest.mark.parametrize("status", [b"200 OK", b"500 Internal Server Error"])
+@pytest.mark.parametrize("ending", ["close", "reset", "hold"])
+def test_a_fault_that_can_be_read_counts_however_the_answer_ends(
+    tv: FakeTv, found: Renderer, status: bytes, ending: str
+) -> None:
+    body = fault("704").split(b"\r\n\r\n", 1)[1]
+    tv.actions["Play"] = b"HTTP/1.1 " + status + b"\r\n\r\n" + body
+    tv.reset_after_answer = ending == "reset"
+    tv.hold_after_answer = ending == "hold"
+    with pytest.raises(TvFault, match="kind of video"):
+        found.start(FILM)
+    assert _sent(tv) == ["SetAVTransportURI", "Play"]
+
+
+def test_a_success_at_the_last_moment_is_still_a_success(tv: FakeTv, found: Renderer) -> None:
+    tv.slow["Play"] = 19.9
+    tv.actions["Play"] = OK + b"\r\n"
+    tv.hold_after_answer = True
+    started = tv.now
+    found.play()
+    assert tv.now - started <= 20.0 + 1e-6
+
+
+def test_a_reset_inside_the_headers_is_not_a_success(tv: FakeTv, found: Renderer) -> None:
+    tv.actions["Play"] = OK + b"Content-Type: text/xml\r\n"
+    tv.reset_after_answer = True
+    with pytest.raises(TvUnreachable):
         found.play()
-    assert _sent(tv) == ["Play"]
 
 
 @pytest.mark.parametrize("body", ["", "OK", "<root/>", "<a>"])
@@ -885,8 +1015,7 @@ def test_a_tv_that_has_not_allowed_mediaman_says_what_to_do(
 def test_a_tv_that_vanishes_mid_film_is_unreachable_and_can_come_back(
     tv: FakeTv, found: Renderer
 ) -> None:
-    found.load(FILM)
-    found.play()
+    found.start(FILM)
     tv.off = True
     with pytest.raises(TvUnreachable):
         found.status()
@@ -969,13 +1098,21 @@ def test_the_real_connection_sends_and_reads() -> None:
         client.close()
 
 
-def test_a_connection_that_fails_is_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_connection_is_given_a_limit_and_closed_when_it_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     opened: list[socket.socket] = []
+
+    timeouts: list[float | None] = []
 
     class Recorded(socket.socket):
         def __init__(self, *args: int) -> None:
             super().__init__(*args)
             opened.append(self)
+
+        def connect(self, address: tuple[str, int]) -> None:
+            timeouts.append(self.gettimeout())
+            super().connect(address)
 
     with socket.create_server(("127.0.0.1", 0)) as server:
         port = server.getsockname()[1]
@@ -983,6 +1120,7 @@ def test_a_connection_that_fails_is_closed(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(ConnectionRefusedError):
         _open_tcp("127.0.0.1", port, 2.0)
     assert [sock.fileno() for sock in opened] == [-1]
+    assert timeouts == [2.0]
 
 
 def test_the_real_datagram_socket_asks_and_hears_the_sender() -> None:
