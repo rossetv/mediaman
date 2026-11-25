@@ -509,8 +509,8 @@ def test_discard_after_a_failed_save_goes_back_to_what_the_server_has() -> None:
 
 def test_a_secret_a_failed_save_may_have_stored_is_named_when_it_cannot_be_put_back() -> None:
     out = _run("unansweredSecret")
-    (told, puts) = out["putBack"]
-    assert "Plex token" in told and puts == 0
+    ((told,), puts) = out["putBack"]
+    assert told.count("Plex token") == 1 and puts == 0
     assert out["savedAgain"] == [{"plex_token": "new"}, ""]
     assert out["discarded"][0] == "****" and "Plex token" in out["discarded"][1][0]
     assert out["gone"] == ["", 1]

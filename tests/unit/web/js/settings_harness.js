@@ -1624,7 +1624,7 @@ const scenarios = {
     p.type('****');
     const puts = p.sent.length;
     await p.save();
-    out.putBack = [p.told(), p.sent.length - puts];
+    out.putBack = [p.toasts.concat(p.said), p.sent.length - puts];
     p = await open();
     out.savedAgain = [(await p.save()), p.told()];
     p = await open();
