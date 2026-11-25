@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from mediaman.db import close_db
 from mediaman.services.dlna.errors import TvError, TvFault
@@ -70,13 +71,25 @@ class Claims:
         self._by_tv: dict[int, Claim] = {}
         self._locks: dict[int, threading.Lock] = {}
         self._answered: dict[int, bool] = {}
+        # Claims made for a play that is about to begin.
+        self._starting: set[str] = set()
 
     def take(self, claim: Claim) -> Claim | None:
         """Let *claim* have its TV, and return the one it takes it from."""
         with self._lock:
             before = self._by_tv.get(claim.tv_id)
             self._by_tv[claim.tv_id] = claim
+            self._starting.add(claim.key)
         return before
+
+    def is_starting(self, claim: Claim) -> bool:
+        with self._lock:
+            return claim.key in self._starting
+
+    def started(self, claim: Claim) -> None:
+        """The play the claim was made for has begun, or will not."""
+        with self._lock:
+            self._starting.discard(claim.key)
 
     def of(self, tv_id: int) -> Claim | None:
         with self._lock:
@@ -148,6 +161,10 @@ class _Film:
     #: Whether it is to be paused as soon as it plays.
     pause: bool = False
     begun: bool = False
+    #: What the address the TV names holds where it plays this.
+    mark: str = ""
+    #: Whether the TV has named this as what it plays.
+    named: bool = False
     #: Whether it has played since the TV was handed it last.
     on: bool = False
     paused: bool = False
@@ -374,8 +391,17 @@ class Driver:
                 self._volume = level
 
     def _judge(self, film: _Film, status: Status) -> Reported | None:
-        """What the TV's status means for the film; None where it stopped it itself."""
+        """What the TV's status means for the film; None where the TV plays it no more."""
         now = self._clock()
+        if status.uri:
+            if film.mark in unquote(status.uri):
+                film.named = True
+            elif film.named or now - film.at > STOPPED_SECONDS:
+                self._leave()
+                return None
+            else:
+                # It may still name what played before.
+                return "loading"
         if status.state == "PLAYING":
             film.take_place(status.position, now)
             if film.seen_playing is not None:
@@ -419,10 +445,14 @@ class Driver:
             if now - film.at > STOPPED_SECONDS:
                 return "error"
             return "buffering" if film.begun else "loading"
-        # Its own remote, or another device.
+        # Its own remote.
+        self._leave()
+        return None
+
+    def _leave(self) -> None:
+        """End the play without a word to the TV, which has gone on to something else."""
         self._handed = False
         self._players.stop(self._claim.key)
-        return None
 
     # ── what is asked of it ──
 
@@ -508,6 +538,7 @@ class Driver:
                         self._renderer.stop()
                     self._handed = True
                     self._renderer.start(media)
+                film.mark = urlsplit(media.url).path.rpartition("/")[0]
                 film.base_s, film.position_s = base, max(place, base)
                 film.at, film.on = self._clock(), False
                 film.absolute = film.seen_playing = None

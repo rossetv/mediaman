@@ -28,6 +28,8 @@ class Renderer:
         self.state = "STOPPED"
         self.count: int | None = 0
         self.trouble = False
+        self.uri = ""
+        self.says_uri = False
         self.level = 40
         self.fails: dict[str, Exception] = {}
         self.off = False
@@ -42,6 +44,8 @@ class Renderer:
     def start(self, media):
         self._call("start", media.url)
         self.state, self.count = "PLAYING", 0
+        if self.says_uri:
+            self.uri = media.url
 
     def stop(self):
         self._call("stop")
@@ -65,7 +69,7 @@ class Renderer:
     def status(self):
         if self.off:
             raise TvUnreachable("gone")
-        return Status(self.state, self.trouble, self.count, None)
+        return Status(self.state, self.trouble, self.count, None, self.uri)
 
     def names(self) -> list[str]:
         return [call[0] for call in self.calls]
@@ -405,6 +409,69 @@ def test_a_stop_on_the_tvs_own_remote_ends_the_play_and_is_no_error(home):
     assert home.view()["last"]["position_s"] == 29
     assert home.step() is False
     assert home.tv.names().count("stop") == 1
+
+
+THEIRS = "http://192.168.1.9:8200/MediaItems/22.mkv"
+
+
+@pytest.mark.parametrize("state", ["PLAYING", "PAUSED_PLAYBACK", "STOPPED"])
+def test_another_controllers_film_is_neither_followed_nor_stopped(home, state):
+    home.tv.says_uri = True
+    home.play()
+    home.steps(30)
+    home.tv.uri, home.tv.count, home.tv.state = THEIRS, 4000, state
+    home.tv.calls.clear()
+    home.step()
+    assert home.step() is False
+    home.driver._let_go()
+    assert home.tv.calls == []
+    assert home.view()["last"]["position_s"] == 29
+    assert [left.position_s for left in home.left if left.end] == [29]
+
+
+def test_another_controllers_film_is_told_at_once_where_the_tv_named_ours(home):
+    home.tv.says_uri = True
+    home.play()
+    home.steps(3)
+    home.tv.uri = THEIRS
+    home.step()
+    assert home.film() is None
+
+
+def test_what_a_tv_named_before_is_not_taken_for_anothers_while_it_loads(home):
+    home.tv.uri = THEIRS
+    home.play()
+    home.steps(3)
+    assert home.film()["state"] == "loading"
+    home.tv.uri = "http://tv/film1/0"
+    home.steps(2)
+    assert home.film()["state"] == "playing"
+
+
+def test_a_tv_that_goes_on_naming_another_film_is_left_to_it(home):
+    home.tv.uri = THEIRS
+    home.play()
+    assert not all(home.step() for _ in range(40))
+    home.driver._let_go()
+    assert home.tv.names().count("stop") == 1
+    assert [left.position_s for left in home.left] == [None]
+
+
+@pytest.mark.parametrize("uri", ["", "http://tv/film1/0"])
+def test_a_tv_that_names_no_other_film_is_followed(home, uri):
+    home.tv.uri = uri
+    home.play()
+    home.steps(3)
+    assert home.film()["state"] == "playing"
+
+
+def test_a_seek_is_no_other_film(home):
+    home.tv.says_uri = True
+    home.play()
+    home.steps(3)
+    home.command("seek", position_s=4000)
+    home.steps(4)
+    assert home.film()["state"] == "playing"
 
 
 def test_a_stream_that_broke_off_is_an_error_and_no_stop(home):

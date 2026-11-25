@@ -80,6 +80,8 @@ class Status:
     trouble: bool
     position: int | None
     duration: int | None
+    #: Where the TV says what it plays comes from; empty where it names no web address.
+    uri: str = ""
 
 
 @dataclass(frozen=True)
@@ -136,11 +138,13 @@ class Renderer:
         transport = self._av("GetTransportInfo")
         position = self._av("GetPositionInfo")
         state = transport.get("CurrentTransportState", "")
+        uri = position.get("TrackURI", "")
         return Status(
             state=state if state in _STATES else "UNKNOWN",
             trouble=transport.get("CurrentTransportStatus") == "ERROR_OCCURRED",
             position=_seconds(position.get("RelTime", "")),
             duration=_seconds(position.get("TrackDuration", "")) or None,
+            uri=uri if uri.startswith(("http://", "https://")) else "",
         )
 
     @property

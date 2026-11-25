@@ -953,9 +953,18 @@ def test_status_is_read_by_asking(tv: FakeTv, found: Renderer) -> None:
         "<CurrentTransportStatus>ERROR_OCCURRED</CurrentTransportStatus>",
     )
     tv.actions["GetPositionInfo"] = soap(
-        "GetPositionInfo", "<RelTime>0:10:05.250</RelTime><TrackDuration>01:30:00</TrackDuration>"
+        "GetPositionInfo",
+        "<RelTime>0:10:05.250</RelTime><TrackDuration>01:30:00</TrackDuration>"
+        "<TrackURI>http://192.168.1.10/a?b=1&amp;c=2</TrackURI>",
     )
-    assert found.status() == Status("PLAYING", True, 605, 5400)
+    uri = "http://192.168.1.10/a?b=1&c=2"
+    assert found.status() == Status("PLAYING", True, 605, 5400, uri)
+
+
+def test_a_tv_that_names_no_web_address_names_nothing(tv: FakeTv, found: Renderer) -> None:
+    for uri in ("NOT_IMPLEMENTED", "x-file:///a", ""):
+        tv.actions["GetPositionInfo"] = soap("GetPositionInfo", f"<TrackURI>{uri}</TrackURI>")
+        assert found.status().uri == ""
 
 
 def test_values_a_tv_makes_up_are_not_passed_on(tv: FakeTv, found: Renderer) -> None:
