@@ -328,7 +328,7 @@
 
   function gridOf() {
     function page() { return { cards: items.map(card).filter(Boolean), next: null }; }
-    var empty = { title: 'Nothing is waiting for you', text: 'What you ask for shows up here until you start it.', link: 'Back to all rows', href: '/watch' };
+    var empty = { title: 'Nothing to show here now', text: 'What you ask for shows up here until you start it.', link: 'Back to all rows', href: '/watch' };
     if (section) return Object.assign(page(), { total: items.length, empty: empty });
     return { cards: [], next: 'first', empty: empty, fetchPage: function () { return ask().then(page); } };
   }

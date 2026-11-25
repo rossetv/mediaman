@@ -60,12 +60,13 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
     but not yet in Plex, downloading, queued or coming), ``started`` and ``arrived_at`` of a
     ready one and ``release_date`` of one that is coming, None when unknown. ``held_ref`` is the
     library's own title of it, for a season on its way too, or None. ``complete`` is False when
-    Radarr or Sonarr, set up, did not answer, so that some on their way may be missing."""
+    Radarr or Sonarr is not set up or did not answer, so that some on their way may be missing."""
     if not _LIMITER.check(username):
         return respond_err("too_many_requests", status=429)
     conn = get_db()
     requests = asked.requests_of(conn, username)
     if not requests:
+        asked.remember_shown(conn, username, requests, {})
         return respond_ok({"items": [], "complete": True})
     secret_key = request.app.state.config.secret_key
     libraries = lib.scanned_library_ids(conn)
@@ -84,7 +85,7 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
         held_fields(conn, username, libraries),
     )
     items = row.items(requests)
-    asked.remember_shown(username, row.shown)
+    asked.remember_shown(conn, username, requests, row.shown)
     complete = all(row.arr.answers_for(kind) for kind in row.asked_of)
     return respond_ok({"items": items[:_LIMIT], "complete": complete})
 
@@ -99,8 +100,8 @@ class _Row:
     now: datetime = field(default_factory=now_utc)
     #: The kinds of title Radarr or Sonarr was asked about.
     asked_of: set[str] = field(default_factory=set)
-    #: Whether each request gave a card.
-    shown: dict[asked.Request, bool] = field(default_factory=dict)
+    #: The state of the card each request gave, None where it gave none.
+    shown: dict[asked.Request, str | None] = field(default_factory=dict)
     _named: dict[str, list[tuple[asked.Kind, int]]] = field(default_factory=dict)
     _by_tvdb: dict[object, int] = field(default_factory=dict)
 
@@ -140,7 +141,7 @@ class _Row:
                 items.append(item)
             # Missing while its service does not answer, it may still be on its way.
             if item or ref or (request.kind and self.arr.answers_for(request.kind)):
-                self.shown[asked_for] = item is not None
+                self.shown[asked_for] = item["state"] if item else self.shown.get(asked_for)
         # A title may be known by its own ref in one request and by TMDB's in another.
         shown: set[str] = set()
         unique = []

@@ -195,14 +195,14 @@ def _audit(conn, title, *, by="aoife", to="Radarr", at=None, actor_id=None):
     conn.commit()
 
 
-def _delete(conn, title, tmdb_id, at):
+def _delete(conn, title, tmdb_id, at, *, media_type="movie", tvdb_id=None):
     audit_id = insert_audit_log(conn, media_item_id="x", action="deleted", created_at=at)
     record_deleted_media(
         conn,
         audit_id,
-        media_type="movie",
+        media_type=media_type,
         tmdb_id=tmdb_id,
-        tvdb_id=None,
+        tvdb_id=tvdb_id,
         season_number=None,
         title=title,
     )
@@ -868,3 +868,61 @@ class TestHasAny:
 
         assert _titles(aoife) == []
         assert any_of() is True
+
+    def test_a_coming_season_of_a_deleted_show_holds_its_place_once_it_was_shown(
+        self, any_of, aoife, conn, sonarr
+    ):
+        airs = (NOW + timedelta(days=12)).isoformat()
+        season = {"seasonNumber": 2, "monitored": True, "statistics": {"nextAiring": airs}}
+        show = {"tmdbId": 70, "tvdbId": 77, "title": "Coast", "monitored": True}
+        sonarr.series = [{**show, "seasons": [season]}]
+        _ask(conn, "Coast", tvdb_id=77, notified=0)
+        _delete(conn, "Coast", None, _ago(days=2), media_type="tv", tvdb_id=77)
+
+        assert _titles(aoife) == ["Coast"]
+        assert any_of() is True
+
+    def test_a_film_shown_as_coming_and_deleted_since_holds_no_place(
+        self, any_of, aoife, conn, radarr
+    ):
+        radarr.movies = [_waited(12, "Far Shore")]
+        _ask(conn, "Far Shore", 12)
+        assert _titles(aoife) == ["Far Shore"]
+
+        _delete(conn, "Far Shore", 12, _ago(days=2))
+        assert any_of() is False
+
+    def test_one_whose_email_has_just_gone_out_keeps_its_place(self, any_of, aoife, conn, radarr):
+        radarr.movies = [
+            _waited(11, "Glass House", hasFile=True, movieFile={"dateAdded": NOW.isoformat()})
+        ]
+        _ask(conn, "Glass House", 11, notified=0)
+        assert _titles(aoife) == ["Glass House"]
+
+        conn.execute("UPDATE download_notifications SET notified = 1")
+        conn.commit()
+        assert any_of() is True
+
+    def test_only_what_was_just_asked_for_and_whose_account_is_there_is_remembered(
+        self, aoife, client_of, conn, radarr
+    ):
+        other = client_of("cian", email="cian@example.com")
+        radarr.movies = [_waited(11, "Glass House"), _waited(12, "Far Shore")]
+        _ask(conn, "Glass House", 11)
+        _ask(conn, "Far Shore", 12)
+        _ask(conn, "Far Shore", 12, by="cian", email="cian@example.com")
+        assert len(_titles(aoife)) == 2
+        assert len(_titles(other)) == 1
+
+        conn.execute("DELETE FROM download_notifications WHERE tmdb_id = 12 AND username = 'aoife'")
+        conn.execute("DELETE FROM admin_users WHERE username = 'cian'")
+        conn.commit()
+        assert _titles(aoife) == ["Glass House"]
+        assert {u: [r.title for r in asked._shown[u]] for u in asked._shown} == {
+            "aoife": ["Glass House"]
+        }
+
+        conn.execute("DELETE FROM download_notifications")
+        conn.commit()
+        assert _titles(aoife) == []
+        assert asked._shown["aoife"] == {}

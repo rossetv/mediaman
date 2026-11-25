@@ -39,7 +39,8 @@ class Request:
     tvdb_id: int | None
     season: int | None  # None for the film or the whole show
     asked_at: datetime
-    waiting: bool  # the email that it is there is still to be sent
+    # The email that it is there is still to be sent. It is the same request once it is.
+    waiting: bool = field(compare=False)
 
     @property
     def has_id(self) -> bool:
@@ -419,13 +420,25 @@ def _end_keys(
     return keys
 
 
-# Whether each request was in the row when it was last loaded, by the person: what is not in
-# the library is known to Radarr and Sonarr alone. Lost with a restart.
-_shown: dict[str, dict[Request, bool]] = {}
+# The state each request had in the row when it was last loaded, by the person, None when it
+# was not in it: what is not in the library is known to Radarr and Sonarr alone. Lost with a
+# restart.
+_shown: dict[str, dict[Request, str | None]] = {}
 
 
-def remember_shown(username: str, shown: Mapping[Request, bool]) -> None:
-    _shown[username] = {**_shown.get(username, {}), **shown}
+def remember_shown(
+    conn: sqlite3.Connection,
+    username: str,
+    requests: Iterable[Request],
+    shown: Mapping[Request, str | None],
+) -> None:
+    """*shown* is of those of the person's *requests* it is known of now. What is remembered of
+    others than *requests*, and of accounts deleted since, is dropped."""
+    earlier = _shown.get(username, {})
+    _shown[username] = {r: earlier[r] for r in requests if r in earlier} | dict(shown)
+    accounts = {r["username"] for r in conn.execute("SELECT username FROM admin_users")}
+    for gone in set(_shown) - accounts:
+        _shown.pop(gone, None)
 
 
 def has_any(
@@ -449,7 +462,11 @@ def has_any(
         if ref in continuing:
             continue
         if ref is None or not held.is_there(ref, request.season):
-            if shown.get(request, request.waiting and request.asked_at >= young):
+            state = shown.get(request)
+            # Of a show, what is not out yet is none of what was deleted.
+            if state == "coming" and request.kind != "movie":
+                return True
+            if state or (request not in shown and request.waiting and request.asked_at >= young):
                 unsure.append(request)
         elif not held.is_watched(ref, request.season):
             if request.has_id:
