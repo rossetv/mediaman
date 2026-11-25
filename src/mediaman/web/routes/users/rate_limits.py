@@ -7,7 +7,8 @@ _USER_MGMT_LIMITER: general operations (delete, unlock); wide enough for real ad
 workflows, tight enough to contain a stolen session.
 
 _UNTICKETED_LIMITER: per-actor cap (30/min, as reauth) on tries of either kind without a recent
-reauth ticket, which use up neither limit.
+reauth ticket, which use up neither limit. No daily cap: it would keep out for a day a person who
+has yet to be asked for the password.
 
 _USER_CREATE_LIMITER: tighter (3/hour, 5/day) so a compromised session cannot mass-create
 accounts before being spotted.
@@ -41,7 +42,7 @@ from mediaman.web.responses import respond_err
 
 _USER_MGMT_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 _USER_CREATE_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=3600, max_per_day=5)
-_UNTICKETED_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+_UNTICKETED_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 _REAUTH_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 _PASSWORD_CHANGE_LIMITER = ActionRateLimiter(max_in_window=10, window_seconds=60, max_per_day=100)
 _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(

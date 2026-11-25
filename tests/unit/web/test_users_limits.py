@@ -153,6 +153,21 @@ def test_a_flood_without_a_recent_password_check_takes_nothing_from_one_with_it(
     assert sent(method, path, json=body).status_code == 200
 
 
+def test_many_tries_without_a_password_check_shut_nobody_out_for_the_day(send, conn, now):
+    sent = send(reauth=False)
+    body = {"username": "riley", "password": _GOOD}
+    for _ in range(200):
+        now[0] += 3
+        assert sent("POST", "/api/users", json=body).status_code == 403
+    now[0] += 60
+
+    asked = sent("POST", "/api/users", json=body)
+    sent("POST", "/api/auth/reauth", json={"password": "password1234"})
+
+    assert (asked.status_code, asked.json()["error"]) == (403, "reauth_required")
+    assert sent("POST", "/api/users", json=body).status_code == 200
+
+
 def test_a_spent_limit_is_said_before_the_password_is_asked_for(send):
     sent = send(reauth=False)
     _spend(_USER_CREATE_LIMITER)

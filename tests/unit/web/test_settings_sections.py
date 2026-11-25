@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from jinja2 import Environment, FileSystemLoader
 
 from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.services.rate_limit import limiters
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER
 from mediaman.web.auth.reauth import grant_recent_reauth, revoke_reauth
 from mediaman.web.routes.settings import _SERVICE_TESTERS, _TEST_CACHE, router
@@ -161,6 +162,20 @@ def test_saves_without_a_password_check_have_a_limit_of_their_own(client, conn) 
     assert answers[:30] == [(403, "reauth_required")] * 30
     assert answers[30] == (429, "too_many_requests")
     assert client.put("/api/settings", json={"scan_time": "10:00"}).status_code == 200
+
+
+def test_many_saves_without_a_password_check_shut_nobody_out_for_the_day(
+    client, conn, monkeypatch
+) -> None:
+    clock = [1000.0]
+    monkeypatch.setattr(limiters.time, "monotonic", lambda: clock[0])
+    for _ in range(200):
+        clock[0] += 3
+        assert _unticketed_save(client, conn) == (403, "reauth_required")
+    clock[0] += 60
+    assert _unticketed_save(client, conn) == (403, "reauth_required")
+    grant_recent_reauth(conn, client.cookies["session_token"], "admin")
+    assert client.put("/api/settings", json=_SENSITIVE).status_code == 200
 
 
 def test_saves_with_a_refused_address_count(client, conn) -> None:
