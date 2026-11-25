@@ -1797,10 +1797,11 @@
       var key = d.showRk ? 'show:' + d.showRk : 'id:' + d.id;
       var card = current && cardOf(key);
       if (!card) return;
-      var more = card.querySelector('[data-watch-more]');
       card.classList.toggle('is-working', d.phase === 'busy');
-      if (d.phase === 'busy') more.setAttribute('aria-disabled', 'true');
-      else more.removeAttribute('aria-disabled');
+      core.toArray(card.querySelectorAll('[data-watch-more]')).forEach(function (more) {
+        if (d.phase === 'busy') more.setAttribute('aria-disabled', 'true');
+        else more.removeAttribute('aria-disabled');
+      });
       if (d.phase !== 'done') return;
       var next = card.nextElementSibling || card.previousElementSibling;
       current.afterLib = function () {
