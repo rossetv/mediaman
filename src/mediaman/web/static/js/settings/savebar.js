@@ -552,7 +552,11 @@
         }
         saving = false;
         var back = {};
-        cleared.forEach(function (key) { back[key] = saved.values[key]; });
+        cleared.forEach(function (key) {
+          back[key] = saved.values[key];
+          // The server has just shown it is still there, so a lost removal of it was not made.
+          if (unsure[key] && unsure[key].sent.every(function (value) { return value === ''; })) delete unsure[key];
+        });
         put(back);
         markDirty();
         if (!savebar.classList.contains('on')) settleAfterHide(fromKeyboard);
