@@ -621,6 +621,15 @@
       });
     }
 
+    /* The button goes, so its focus waits on the list and then takes what came. */
+    function retry() {
+      list.focus({ preventScroll: true });
+      load(true).then(function () {
+        var next = q('.hist-sum', list) || q('button', list);
+        if (document.activeElement === list && next) next.focus({ preventScroll: true });
+      });
+    }
+
     /* How many there are in all, for "12 of 340": asked once, and never waited for. */
     function tellEverything() {
       if (everything !== null || !filtered() || !total) return;
@@ -643,16 +652,20 @@
         var held = more.contains(document.activeElement);
         foot();
         if (rows.length) said.textContent = rows.length + ' more event' + (rows.length === 1 ? '' : 's') + (cursor ? '' : ', the last');
-        if ((byHand || held) && rows.length) rows[0].querySelector('.hist-sum').focus({ preventScroll: !byHand });
+        var sums = MM.dom.qa('.hist-sum', list);
+        var next = rows.length ? rows[0].querySelector('.hist-sum') : sums[sums.length - 1];
+        if ((byHand || held) && next) next.focus({ preventScroll: !byHand });
         near();
       }, function () {
         if (me.n !== asked) return;
         loadingMore = false;
+        var held = more.contains(document.activeElement);
         empty(more);
         var fail = el('div', 'hx-fail', [el('span', '', 'The earlier events did not load.'),
           button('btn btn--secondary btn--sm', 'Try again', { 'data-hist-more': '' })]);
         fail.setAttribute('role', 'alert');
         more.appendChild(fail);
+        if (held) q('button', fail).focus({ preventScroll: true });
       });
     }
 
@@ -725,6 +738,7 @@
       if (k === 'date') { F.since = ''; F.until = ''; }
       closeMenu(true);
       change(false);
+      focusChip(k);
     }
 
     function clearAll() {
@@ -1008,14 +1022,16 @@
       else if ((b = e.target.closest('[data-clear]'))) {
         var k = b.getAttribute('data-clear');
         choose(k, '');
-        focusChip(k);
       } else if ((b = e.target.closest('[data-title]'))) choose('title', b.getAttribute('data-title'));
       else if ((b = e.target.closest('[data-user]'))) choose('user', b.getAttribute('data-user'));
       else if (e.target.closest('[data-hist-clear]')) clearAll();
-      else if (e.target.closest('[data-hist-retry]')) load(true);
+      else if (e.target.closest('[data-hist-retry]')) retry();
       else if (e.target.closest('[data-hist-more]')) {
         var failing = q('.hx-fail', more);
-        if (failing) foot();
+        if (failing) {
+          foot();
+          q('[data-hist-more]', more).focus({ preventScroll: true });
+        }
         loadMore(true);
       } else if (e.target.closest('.hx-x')) {
         input.value = '';

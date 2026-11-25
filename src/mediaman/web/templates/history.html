@@ -31,7 +31,7 @@
   <div class="hx-sum"><span role="status">{% if total %}{{ "{:,}".format(total) }} event{{ "s" if total != 1 }}{% endif %}</span><button type="button" data-hist-clear hidden>Clear all</button>{% if page > 1 %}<a class="hx-newest" href="{{ page_href(1) }}">Show the newest</a>{% endif %}</div>
 
   {# What shows should the script not load: it replaces all of this. #}
-  <div class="hx-list">
+  <div class="hx-list" tabindex="-1">
     <div class="pill-row hx-plain">
       {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
       {% for at, at_label in action_types %}{{ c.fpill(at_label, on=(pill_on == at), tag="a", href="/history?action=" ~ at) }}{% endfor %}

@@ -65,7 +65,7 @@ function open(opts) {
     ['div', { class: 'hx-tools' }, ['form', { class: 'hx-line' },
       ['div', { class: 'hx-search' }, ['input', {}], ['button', { class: 'hx-x' }]], ['div', { class: 'hx-chips' }]]],
     ['div', { class: 'hx-sum' }, ['span', {}], ['button', { 'data-hist-clear': '' }]],
-    ['div', { class: 'hx-list' }], ['div', { class: 'hx-more' }], ['span', { 'data-hist-said': '' }]]));
+    ['div', { class: 'hx-list', tabindex: '-1' }], ['div', { class: 'hx-more' }], ['span', { 'data-hist-said': '' }]]));
   doc.body.appendChild(build(doc, ['div', { class: 'hx-veil' }]));
   doc.body.appendChild(build(doc, ['div', { class: 'hx-menu' }]));
   doc.body.appendChild(build(doc, ['script', { id: 'history-data' }, JSON.stringify({
@@ -275,6 +275,48 @@ const scenarios = {
     out.cleared = h.asked[h.asked.length - 1].url;
     const bad = open({ search: '?since=soon', filters: { since: 'soon' } });
     return { ...out, bad: bad.q('[data-menu="date"]').textContent };
+  },
+  focus: async () => {
+    const out = {};
+    const only = async (key, sel) => {
+      const h = open({});
+      const b = h.rows()[0].querySelector(sel);
+      b.focus();
+      click(h.doc, b);
+      h.asked[0].resolve(page([8], null));
+      await settle();
+      out[key] = h.doc.activeElement.isConnected && h.doc.activeElement.getAttribute('data-menu');
+    };
+    await only('title', '[data-title]');
+    await only('user', '[data-user]');
+    const h = open({ search: '?date=week' });
+    const at = () => (h.doc.activeElement.isConnected ? h.doc.activeElement : h.doc.body);
+    const retry = () => { const b = h.q('[data-hist-retry]'); b.focus(); click(h.doc, b); };
+    h.asked[0].reject(new Error('no'));
+    await settle();
+    retry();
+    out.waiting = at() === h.q('.hx-list');
+    h.asked[1].reject(new Error('no'));
+    await settle();
+    out.again = at().hasAttribute('data-hist-retry');
+    retry();
+    h.asked[2].resolve(page([3], 'c', 30));
+    await settle();
+    out.loaded = at().closest('.hist') && at().closest('.hist').getAttribute('data-event');
+    h.scroll();
+    h.asked[h.asked.length - 1].reject(new Error('no'));
+    await settle();
+    const more = () => { const b = h.q('.hx-fail [data-hist-more]'); b.focus(); click(h.doc, b); };
+    more();
+    out.moreWaiting = h.more.contains(at());
+    h.asked[h.asked.length - 1].reject(new Error('no'));
+    await settle();
+    out.moreAgain = h.more.contains(at());
+    more();
+    h.asked[h.asked.length - 1].resolve(page([], null));
+    await settle();
+    out.moreNone = at().closest('.hist') && at().closest('.hist').getAttribute('data-event');
+    return out;
   },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });

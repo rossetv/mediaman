@@ -228,3 +228,16 @@ def test_the_moments_an_address_names_stay_a_filter_until_cleared() -> None:
         "cleared": "/api/history?q=x&user=bob",
         "bad": "Date",
     }
+
+
+def test_focus_stays_in_the_page_when_what_held_it_goes() -> None:
+    assert _run("focus") == {
+        "title": "title",
+        "user": "user",
+        "waiting": True,
+        "again": True,
+        "loaded": "3",
+        "moreWaiting": True,
+        "moreAgain": True,
+        "moreNone": "3",
+    }

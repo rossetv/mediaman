@@ -232,6 +232,7 @@ body[data-page="history"] { overflow-x: clip; }
 }
 .hx-bar i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
 .hx-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.hx-list:focus { outline: 0; }
 .hx-list { transition: opacity var(--dur-fast) var(--ease-out); }
 .hx-list.is-old { opacity: .4; }
 .hx-in { animation: fade-in var(--dur-slow) var(--ease-out) backwards; }
