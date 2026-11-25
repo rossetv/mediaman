@@ -638,6 +638,10 @@
   transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .player-rate-close:hover { color: var(--t1); background: var(--hair); }
+/* Names of large text go on to a second line. */
+.player .player-rate .rate__set { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.player .player-rate .rate__b { height: auto; min-height: var(--rate-h, 72px); padding: 4px 0; }
+.player-rate .rate__lab { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 /* Where it stands clear of subtitles, above where it stands by the other card. */
 .player-rate--beside {
   --rate-up: max(0px, 18vh - var(--player-foot) - 118px);
@@ -766,16 +770,29 @@
 }
 @media (max-width: 899.98px) and (min-height: 600px) {
   /* Above the skip button, and then above the other card at its tallest. */
-  .player-rate--beside { --rate-up: -144px; left: auto; right: max(32px, env(safe-area-inset-right)); bottom: calc(var(--player-foot) + 156px); }
+  .player-rate--beside {
+    --rate-up: -144px;
+    --rate-h: 56px;
+    --card-y: 12px;
+    gap: 8px;
+    padding-bottom: 8px;
+    left: auto;
+    right: max(32px, env(safe-area-inset-right));
+    bottom: calc(var(--player-foot) + 156px);
+  }
+  .player-rate--beside .player-card-title { font-size: 17px; }
+  .player-rate--beside .player-rate-close { top: 0; }
   .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { width: 480px; }
+}
+@media (min-width: 720px) and (max-width: 899.98px) and (min-height: 600px) {
+  /* Beside the skip button, and so below the picture. */
+  .player-rate--beside { --rate-up: -182px; left: max(32px, env(safe-area-inset-left)); right: auto; bottom: calc(var(--player-foot) + 118px); }
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: max(32px, env(safe-area-inset-left)); right: auto; }
 }
 @media (max-width: 600px) and (min-height: 600px) {
   /* Below the picture of a phone held upright. */
-  .player-rate--beside { left: 12px; right: 12px; width: auto; max-width: none; --rate-up: -160px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 140px); }
+  .player-rate--beside { left: 12px; right: 12px; width: auto; max-width: none; --rate-up: -160px; bottom: calc(var(--player-foot) + 140px); }
   .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: 12px; width: auto; }
-  .player-rate--beside .player-card-title { font-size: 17px; }
-  .player .player-rate--beside .rate__b { height: 56px; }
-  .player-rate--beside .player-rate-close { top: 0; }
 }
 @media (max-width: 899.98px) and (max-height: 599.98px), (max-width: 1040px) and (max-height: 520px) {
   .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: auto; width: 300px; padding-left: var(--card-x); }
@@ -789,15 +806,38 @@
 }
 @media (max-width: 659.98px) and (max-height: 599.98px) and (orientation: portrait) {
   /* At the top: below there is no room clear of subtitles. */
-  .player-rate--beside { --card-x: 12px; --card-y: 12px; gap: 8px; padding-bottom: 8px; top: calc(var(--player-top) + 50px); bottom: auto; max-width: calc(100% - 32px); }
+  .player-rate--beside { --rate-h: 56px; --card-x: 12px; --card-y: 12px; gap: 8px; padding-bottom: 8px; top: calc(var(--player-top) + 50px); bottom: auto; max-width: calc(100% - 32px); }
   .player-rate--beside .player-card-title { font-size: 17px; }
   .player-rate--beside .player-rate-close { top: 0; right: 0; }
-  .player .player-rate--beside .rate__b { height: 56px; }
+  .player .player-rate--beside .rate__set { gap: 2px; padding: 2px; }
+  .player-rate--beside .rate__lab { font-size: 11px; }
+  .player-rate--beside .rate__line { font-size: 12px; padding-left: 0; }
 }
 @media (max-height: 520px) {
-  .player-rate { --card-x: 14px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 100px); }
-  .player-rate-close { top: 0; right: 4px; }
-  .player .player-rate .rate__b { height: 56px; }
+  .player-rate { --rate-h: 44px; flex-direction: row; align-items: center; gap: 12px; width: fit-content; padding: 4px 4px 4px 14px; bottom: calc(var(--player-foot) + 100px); }
+  .player-rate .player-card-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 0;
+    font-size: 14px;
+  }
+  .player-rate > [data-rate-set] { flex: none; }
+  .player-rate-close { position: static; flex: none; }
+  .player .player-rate .rate__set { grid-template-columns: repeat(4, 44px); gap: 2px; padding: 2px; border-radius: 24px; }
+  .player .player-rate .rate__b { padding: 0; border-radius: 22px; }
+  .player-rate .rate__lab,
+  .player-rate .rate__line:not(.is-bad) { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .player-rate .rate__line { max-width: 186px; }
+}
+
+@media (max-width: 659.98px) and (max-height: 520px) {
+  .player-rate { gap: 8px; padding-left: 12px; }
+  .player-rate--beside { left: max(8px, env(safe-area-inset-left)); max-width: calc(100% - 176px); }
+  .player-rate .player-card-title { font-size: 13px; }
 }
 
 /* "Kept until" with its whole date and Undo, on one line of the narrow toast. */
