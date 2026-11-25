@@ -1,0 +1,155 @@
+"""GET /api/downloads/strip: one answer for everybody, with titles a viewer may open."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+import requests
+
+from mediaman.services.downloads import strip
+from mediaman.services.downloads.download_queue import _reset_previous_queue
+from mediaman.services.watch_catalog import clear_library_index, invalidate
+from mediaman.web.auth.session_store import create_session
+from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
+from mediaman.web.routes.downloads_strip import router
+from tests.helpers.factories import insert_media_item
+
+_TMDB = "https://image.tmdb.org/t/p/original"
+
+
+def _movie(n: int, title: str, **over: object) -> dict[str, object]:
+    return {
+        "id": n,
+        "tmdbId": n,
+        "title": title,
+        "year": 2024,
+        "monitored": True,
+        "hasFile": False,
+        "isAvailable": True,
+        "images": [
+            {"coverType": "poster", "remoteUrl": f"{_TMDB}/p{n}.jpg"},
+            {"coverType": "fanart", "remoteUrl": f"{_TMDB}/f{n}.jpg"},
+        ],
+    } | over
+
+
+@pytest.fixture
+def services(monkeypatch):
+    """Radarr, Sonarr and NZBGet; Radarr downloads two films."""
+
+    def clear():
+        _reset_previous_queue()
+        strip.shared.clear()
+        clear_library_index()
+        invalidate()
+
+    clear()
+    radarr, sonarr, nzbget = MagicMock(), MagicMock(), MagicMock()
+    for client in (radarr, sonarr, nzbget):
+        client.get_queue.return_value = []
+    radarr.get_movies.return_value = [_movie(11, "Ember Coast"), _movie(12, "Dry Harbour")]
+    radarr.get_queue.return_value = [
+        {
+            "movie": movie,
+            "title": movie["title"],
+            "status": "downloading",
+            "size": 1000,
+            "sizeleft": 600,
+            "downloadId": str(movie["id"]),
+        }
+        for movie in radarr.get_movies.return_value
+    ]
+    sonarr.get_series.return_value = []
+    nzbget.get_status.return_value = {}
+    for target, client in (
+        ("arr.build.build_radarr_from_db", radarr),
+        ("arr.build.build_sonarr_from_db", sonarr),
+        ("downloads.download_queue.build_nzbget_from_db", nzbget),
+    ):
+        monkeypatch.setattr(f"mediaman.services.{target}", lambda *a, client=client: client)
+    yield radarr, sonarr, nzbget
+    clear()
+
+
+@pytest.fixture
+def viewer(app_factory, conn):
+    from fastapi.testclient import TestClient
+
+    # Not create_user: hashing a password takes a second.
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, role, created_at)"
+        " VALUES ('guest', 'x', 'viewer', '2026-01-01')"
+    )
+    app = app_factory(router, conn=conn)
+    app.add_middleware(ViewerGuardMiddleware)
+    client = TestClient(app)
+    client.cookies.set("session_token", create_session(conn, "guest"))
+    return client
+
+
+def _get(client):
+    return client.get("/api/downloads/strip")
+
+
+def test_a_viewer_gets_every_download_with_a_title_to_open(services, viewer, conn):
+    insert_media_item(conn, id="900", title="Dry Harbour", media_type="movie")
+    conn.execute("UPDATE media_items SET tmdb_id = 12")
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES ('plex_libraries', '[1]', '2026-01-01')"
+    )
+    conn.commit()
+    body = _get(viewer).json()
+    ember, harbour = body["items"]
+    assert (ember["state"], ember["percent"]) == ("downloading", 40)
+    assert (ember["ref"], ember["href"]) == ("tmdb-movie-11", "/watch#title=tmdb-movie-11")
+    assert ember["poster_url"] == "/api/watch/img/tmdb/w342/p11.jpg"
+    assert ember["art_url"] == "/api/watch/img/tmdb/w1280/f11.jpg"
+    assert (harbour["ref"], harbour["href"]) == ("movie-900", "/watch/movie/900")
+    assert body["summary"] == {"total": 2, "active": 2, "waiting": 0, "ready": 0, "percent": 40}
+
+
+def test_a_viewer_is_told_nothing_the_downloads_page_keeps_from_one(services, viewer):
+    body = _get(viewer)
+    assert not {"arr_link", "arr_id", "arr_source", "abandon_visible", "queued_since"} & set(
+        body.json()["items"][0]
+    )
+    assert "image.tmdb.org" not in body.text
+
+
+def test_a_service_that_stops_answering_leaves_the_row_as_it_was(services, viewer, monkeypatch):
+    monkeypatch.setattr(strip, "HOLD_S", 0.0)
+    _get(viewer)
+    services[0].get_queue.side_effect = requests.ConnectionError("http://10.0.0.9:7878 refused")
+    services[0].get_movies.side_effect = services[0].get_queue.side_effect
+    resp = _get(viewer)
+    body = resp.json()
+    assert [(i["title"], i["percent"], i["held"]) for i in body["items"]] == [
+        ("Ember Coast", 40, True),
+        ("Dry Harbour", 40, True),
+    ]
+    assert body["outage"] == "Can't reach Radarr"
+    assert "10.0.0.9" not in resp.text
+
+
+def test_when_nothing_is_known_and_it_fails_it_says_so_rather_than_nothing_downloads(
+    services, viewer, monkeypatch
+):
+    def broken(*_args):
+        raise RuntimeError("no")
+
+    monkeypatch.setattr("mediaman.web.routes.downloads_strip.build_downloads_response", broken)
+    resp = _get(viewer)
+    assert (resp.status_code, resp.json()["error"]) == (503, "busy")
+
+
+def test_two_people_asking_cost_the_services_one_ask(services, viewer):
+    _get(viewer)
+    asked = services[0].get_queue.call_count
+    _get(viewer)
+    assert services[0].get_queue.call_count == asked
+
+
+def test_nobody_is_told_without_a_session(services, viewer):
+    viewer.cookies.clear()
+    assert _get(viewer).status_code == 401

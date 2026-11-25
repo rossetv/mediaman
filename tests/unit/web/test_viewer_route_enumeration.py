@@ -96,6 +96,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/search/assist/tonight"),
     ("GET", "/downloads"),
     ("GET", "/api/downloads"),
+    ("GET", "/api/downloads/strip"),
     ("GET", "/api/download/status"),
     ("GET", "/recommended"),
     ("GET", "/api/recommended"),

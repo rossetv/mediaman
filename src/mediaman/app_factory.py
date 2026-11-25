@@ -415,6 +415,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
+    from mediaman.web.routes.downloads_strip import router as downloads_strip_router
     from mediaman.web.routes.force_password_change import router as force_pw_router
     from mediaman.web.routes.history import router as history_router
     from mediaman.web.routes.keep import router as keep_router
@@ -453,6 +454,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(dashboard_router)
     app.include_router(download_router)
     app.include_router(downloads_router)
+    app.include_router(downloads_strip_router)
     app.include_router(history_router)
     app.include_router(keep_router)
     app.include_router(library_router)
