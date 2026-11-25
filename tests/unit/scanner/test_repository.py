@@ -530,6 +530,20 @@ class TestReadDeleteAllowedRoots:
         assert "MEDIAMAN_DELETE_ROOTS" in message
         assert "delete_allowed_roots" not in message
 
+    def test_an_env_var_with_no_valid_root_is_an_error_and_not_called_unset(
+        self, conn, monkeypatch, caplog
+    ):
+        import logging
+
+        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
+        conn.commit()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", ":")
+        with caplog.at_level(logging.DEBUG, logger="mediaman.scanner.repository.settings"):
+            roots = repository.read_delete_allowed_roots_setting(conn)
+        assert roots == []
+        own = [r for r in caplog.records if r.name == "mediaman.scanner.repository.settings"]
+        assert [r.levelno for r in own] == [logging.ERROR]
+
     def test_quiet_read_logs_nothing_and_still_fails_closed(self, conn, monkeypatch, caplog):
         import logging
 

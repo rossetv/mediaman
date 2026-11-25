@@ -78,6 +78,7 @@ def read_delete_allowed_roots_setting(
                     row["value"],
                     exc_info=True,
                 )
+    env_val = ""
     if not roots:
         env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
         if env_val:
@@ -93,7 +94,7 @@ def read_delete_allowed_roots_setting(
                     "parsed from %r — deletions will be refused.",
                     env_val,
                 )
-    if not roots and not quiet:
+    if not roots and not env_val and not quiet:
         logger.info(
             "Scheduled deletion is off until MEDIAMAN_DELETE_ROOTS is set "
             "(the folders it may delete from, separated by ':')."
