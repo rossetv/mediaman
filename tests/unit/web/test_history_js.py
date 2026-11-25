@@ -290,10 +290,37 @@ def test_titles_come_in_the_servers_order_and_are_found_by_what_is_typed() -> No
 
 
 def test_titles_that_do_not_load_say_so() -> None:
-    assert _run("titlesFail") == "The titles did not load."
+    assert _run("titlesFail") == "The titles did not load.Try again"
 
 
 def test_a_hand_typed_day_is_a_filter_only_where_the_page_shows_it() -> None:
     out = _run("handTyped")
     assert out[:5] == [["Date", ["/api/history"], ""]] * 5
     assert out[5] == ["From 1 Nov", ["/api/history?per_page=1"], "?since=2026-11-01"]
+
+
+def test_typing_filters_every_title_seen_at_once_and_the_menu_is_used_by_keyboard() -> None:
+    assert _run("titlesMore") == {
+        "other": ["Low Tide", "Tide Two"],
+        "cleared": ["Low Tide", "Aces", "Tide Two"],
+        "again": ["Aces", "Two Aces"],
+        "crossed": "",
+        "kept": True,
+        "inField": True,
+        "end": "Tide Two",
+        "home": "Low Tide",
+    }
+
+
+def test_titles_that_did_not_load_can_be_tried_again_without_losing_the_focus() -> None:
+    assert _run("titlesRetry") == {
+        "waiting": True,
+        "again": True,
+        "asked": 3,
+        "focus": "Aces",
+        "left": False,
+    }
+
+
+def test_on_a_low_screen_a_menu_is_not_held_to_the_room_under_its_filter() -> None:
+    assert _run("lowScreen") == {"low": "", "high": "440px"}

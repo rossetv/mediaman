@@ -316,11 +316,16 @@ body[data-page="history"] { overflow-x: clip; }
   border-radius: var(--r-sm);
   background: var(--s1);
   color: var(--t1);
-  padding: 0 12px;
+  padding: 0 44px 0 12px;
   font: inherit;
   font-size: 14px;
   outline: 0;
+  appearance: none;
+  -webkit-appearance: none;
 }
+.hx-menu__f input::-webkit-search-cancel-button { display: none; }
+.hx-menu__f .hx-x { right: 4px; top: 4px; }
+.hx-none .btn { margin-left: 12px; }
 .hx-menu__f input::placeholder { color: var(--t3); }
 .hx-menu__f input:focus { border-color: var(--accent); }
 .hx-opt {
@@ -417,6 +422,10 @@ body[data-page="history"] { overflow-x: clip; }
   .hx .hist-date { font-size: 12px; padding-top: 3px; }
   .hx .hist-body { padding: 8px 14px 16px 62px; }
   .hx-skel { padding: 0 14px; }
+}
+
+/* A phone, or a screen too low for a menu under its filter: a sheet. */
+@media (max-width: 699.98px), (max-height: 519.98px) {
   .hx-veil { background: color-mix(in srgb, var(--scrim) 55%, transparent); }
   .hx-menu {
     left: 0!important;
@@ -443,6 +452,12 @@ body[data-page="history"] { overflow-x: clip; }
   .hx-opt, .hx-opt-skel { min-height: 50px; font-size: 16px; }
   .hx-menu__f input,
   .hx-dates input { font-size: 16px; height: 44px; }
+}
+
+@media (max-height: 519.98px) {
+  .hx-menu,
+  .hx-menu--titles { max-height: 94dvh; }
+  .hx-menu--titles { height: 94dvh; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -791,7 +791,8 @@
 
     /* --- a filter's menu --- */
 
-    function phone() { return window.innerWidth < 700; }
+    /* The filter's menu is a sheet, as the styles have it. */
+    function phone() { return window.innerWidth < 700 || window.innerHeight < 520; }
 
     function option(k, value, kids) {
       var o = button('hx-opt', kids, { role: 'menuitemradio', 'aria-checked': String(F[k] === value), 'data-k': k, 'data-v': value });
@@ -841,9 +842,11 @@
       });
     }
 
-    /* The titles with the most events, of those the text typed is in. */
+    /* The titles with the most events, of those the text typed is in: at once of those this menu
+       has had, then of all. */
     function titleMenu(scroll, field) {
-      var none = el('p', 'hx-none', 'No title by that name.');
+      var none = el('p', 'hx-none');
+      var known = titlesOf && titlesOf.question === query() ? titlesOf.options : [];
       var wait = null;
       none.setAttribute('role', 'status');
 
@@ -870,40 +873,68 @@
         none.hidden = !text;
       }
 
-      function narrow(low) {
-        rows().forEach(function (o) { o.hidden = o.getAttribute('data-v').toLowerCase().indexOf(low) < 0; });
+      function keep(options) {
+        options.forEach(function (o) {
+          if (!known.some(function (k) { return k.value === o.value; })) known = known.concat(o);
+        });
       }
 
-      function look() {
+      function failed(byHand) {
+        MM.dom.qa('.hx-opt-skel', scroll).forEach(function (s) { s.remove(); });
+        say('The titles did not load.');
+        var again = button('btn btn--secondary btn--sm', 'Try again', { 'data-titles-retry': '' });
+        none.appendChild(again);
+        if (byHand) again.focus({ preventScroll: true });
+      }
+
+      function look(byHand) {
         var find = field.value.trim().slice(0, 200);
-        var question = query({ find: find });
+        var low = find.toLowerCase();
         var ask = function () {
           if (!scroll.isConnected) return;
           askMenu('title', find ? { find: find } : {}, function (res) {
-            titlesOf = { question: question, options: res.options };
+            var held = byHand && none.contains(document.activeElement);
+            if (!find) {
+              titlesOf = { question: query(), options: res.options };
+              known = res.options;
+            }
+            keep(res.options);
             show(res.options);
             say(res.options.length ? (res.more ? 'These have the most events. Type to find others.' : '') : find ? 'No title by that name.' : 'No titles yet.');
-          }, function () {
-            MM.dom.qa('.hx-opt-skel', scroll).forEach(function (s) { s.remove(); });
-            say('The titles did not load.');
-          });
+            if (held) (q('.hx-opt', scroll) || menu).focus({ preventScroll: true });
+          }, function () { failed(byHand && none.contains(document.activeElement)); });
         };
         window.clearTimeout(wait);
         menuAsked += 1;
-        if (titlesOf && titlesOf.question === question) show(titlesOf.options);
-        else if (rows().length || q('.hx-none', scroll)) {
-          say('');
-          narrow(find.toLowerCase());
-        } else {
+        if (byHand) { ask(); return; }
+        if (!find && titlesOf && titlesOf.question === query()) show(titlesOf.options);
+        else if (known.length) show(known.filter(function (o) { return o.label.toLowerCase().indexOf(low) >= 0; }));
+        else {
+          show([]);
           for (var i = 0; i < 8; i++) scroll.appendChild(el('div', 'hx-opt-skel', el('i', 'skel')));
-          scroll.appendChild(none);
-          none.hidden = true;
         }
         if (find) wait = window.setTimeout(ask, TYPING_MS);
         else ask();
       }
 
-      field.addEventListener('input', look);
+      var clear = q('.hx-x', menu);
+      clear.addEventListener('click', function () {
+        field.value = '';
+        field.focus();
+        typedIn();
+      });
+      none.addEventListener('click', function (e) {
+        var again = e.target.closest('[data-titles-retry]');
+        if (!again) return;
+        /* Safari focuses no button that is clicked. */
+        again.focus({ preventScroll: true });
+        look(true);
+      });
+      function typedIn() {
+        field.parentNode.classList.toggle('has-q', !!field.value);
+        look();
+      }
+      field.addEventListener('input', typedIn);
       look();
     }
 
@@ -952,7 +983,7 @@
         find.setAttribute('placeholder', 'Find a title');
         find.setAttribute('aria-label', 'Find a title');
         find.setAttribute('maxlength', '200');
-        menu.appendChild(el('div', 'hx-menu__f', find));
+        menu.appendChild(el('div', 'hx-menu__f', [find, button('hx-x', icon('i-xmark'), { 'aria-label': 'Clear' })]));
       }
       var scroll = el('div', 'hx-menu__scroll');
       scroll.setAttribute('role', 'menu');
@@ -995,17 +1026,21 @@
       if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
       if (e.key === 'Tab') {
         var stops = MM.dom.qa('button, input', menu).filter(function (n) { return n.getClientRects().length; });
-        var edge = e.shiftKey ? stops[0] : stops[stops.length - 1];
-        if (document.activeElement === edge || document.activeElement === menu) {
+        var last = e.shiftKey ? stops[0] : stops[stops.length - 1];
+        if (document.activeElement === last || document.activeElement === menu) {
           e.preventDefault();
           (e.shiftKey ? stops[stops.length - 1] : stops[0]).focus();
         }
         return;
       }
-      if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || (e.target.getAttribute && e.target.getAttribute('type') === 'date')) return;
+      var edge = e.key === 'Home' || e.key === 'End';
+      var inField = e.target.tagName === 'INPUT';
+      if (!edge && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (inField && (edge || e.target.getAttribute('type') === 'date')) return;
       var opts = MM.dom.qa('.hx-opt', menu).filter(function (o) { return !o.hidden; });
       if (!opts.length) return;
       e.preventDefault();
+      if (edge) { opts[e.key === 'Home' ? 0 : opts.length - 1].focus(); return; }
       var down = e.key === 'ArrowDown';
       var i = opts.indexOf(document.activeElement);
       opts[i < 0 ? (down ? 0 : opts.length - 1) : (i + (down ? 1 : -1) + opts.length) % opts.length].focus();
@@ -1171,7 +1206,8 @@
       near();
     }, { passive: true });
     window.addEventListener('resize', function () {
-      if (!menuOf || !phone()) closeMenu(false);
+      if (phone()) menu.style.maxHeight = '';
+      else closeMenu(false);
       near();
     });
     window.addEventListener('popstate', function () {

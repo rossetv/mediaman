@@ -341,6 +341,65 @@ const scenarios = {
     const h = open({ search: '?user=constructor', filters: { user: 'constructor' }, items: [item(1, { action: 'sec:login.failed', is_security: true, actor: 'constructor', avatar: null })] });
     return { imgs: h.q('.hx-chips').querySelectorAll('img').length, line: h.line(0) };
   },
+  titlesMore: async () => {
+    const h = open({});
+    const titled = (...t) => ({ options: t.map((v, i) => ({ value: v, label: v, count: 9 - i })), more: false });
+    const menu = h.q('.hx-menu');
+    const shown = () => menu.querySelectorAll('.hx-opt').filter((o) => !o.hidden).map((o) => o.getAttribute('data-v'));
+    h.press('[data-menu="title"]');
+    h.menus[0].resolve(titled('Low Tide', 'Aces', 'Tide Two'));
+    await settle();
+    const find = menu.querySelector('input');
+    const type = (t) => { find.value = t; h.fire(find, 'input'); };
+    type('aces');
+    h.tick(200);
+    h.menus[1].resolve(titled('Aces', 'Two Aces'));
+    await settle();
+    type('tide');
+    const other = shown();
+    type('');
+    const cleared = shown();
+    type('ace');
+    const again = shown();
+    const cross = menu.querySelector('.hx-x');
+    click(h.doc, cross);
+    const key = (k, target) => h.fire(menu, 'keydown', { key: k, target: target || h.doc.activeElement });
+    const out = { other, cleared, again, crossed: find.value, kept: h.doc.activeElement === find };
+    key('End');
+    out.inField = h.doc.activeElement === find;
+    key('ArrowDown');
+    key('End');
+    out.end = h.doc.activeElement.getAttribute('data-v');
+    key('Home');
+    out.home = h.doc.activeElement.getAttribute('data-v');
+    return out;
+  },
+  titlesRetry: async () => {
+    const h = open({});
+    const menu = h.q('.hx-menu');
+    h.press('[data-menu="title"]');
+    const fail = async () => { h.menus[h.menus.length - 1].reject(new Error('no')); await settle(); };
+    await fail();
+    const b = menu.querySelector('[data-titles-retry]');
+    click(h.doc, b);
+    const waiting = menu.contains(h.doc.activeElement);
+    await fail();
+    const again = h.doc.activeElement.hasAttribute('data-titles-retry');
+    click(h.doc, h.doc.activeElement);
+    h.menus[h.menus.length - 1].resolve({ options: [{ value: 'Aces', label: 'Aces', count: 1 }], more: false });
+    await settle();
+    return { waiting, again, asked: h.menus.length, focus: h.doc.activeElement.getAttribute('data-v'), left: !!menu.querySelector('[data-titles-retry]') };
+  },
+  lowScreen: () => {
+    const h = open({});
+    h.win.innerHeight = 390;
+    h.press('[data-menu="action"]');
+    const low = h.q('.hx-menu').style.maxHeight;
+    h.press('[data-menu="action"]');
+    h.win.innerHeight = 900;
+    h.press('[data-menu="action"]');
+    return { low, high: h.q('.hx-menu').style.maxHeight };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });
