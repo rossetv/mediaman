@@ -157,6 +157,8 @@
 @media (max-height: 500px) and (orientation: landscape) {
   .share-page .share-hero { min-height: 100vh; min-height: 100svh; padding-top: 64px; padding-bottom: 18px; }
   .share-hero .watch-banner__bg--art { inset: 0; height: 100%; aspect-ratio: auto; -webkit-mask-image: none; mask-image: none; }
+  /* Over the poster's empty place too, so the buttons have room to share a line. */
+  .share-page .watch-banner .share-act { grid-column: 1 / -1; }
   .share-page .watch-banner .share-act .watch-actions { grid-column: 1; }
   .share-page .watch-banner .share-act .watch-actions .btn { flex: 0 1 auto !important; padding-inline: 22px; }
   .share-note { padding-block: 64px 12px; }
