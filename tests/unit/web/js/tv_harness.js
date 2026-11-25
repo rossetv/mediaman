@@ -352,6 +352,42 @@ const scenarios = {
     await t.step(9000);
     return { report: t.last('poll').body.report, said: t.says(), sets: t.video.sets.length, reported: t.paths('poll').map((c) => c.body.report).filter(Boolean).map((b) => b.position_s) };
   },
+  // mediaman goes away over a film and answers again: as another, or as the same with nothing on
+  async restarts(how) {
+    const t = await playing();
+    let boot = 'a';
+    t.now = film({ title: '<b>Orchard', state: how === 'over' ? 'upnext' : 'playing', url: how === 'over' ? null : film().url });
+    t.answers.poll = () => ready({ play: t.now, boot });
+    await t.step(1500);
+    t.answers.poll = [502, null];
+    await t.step(3000);
+    t.answers.poll = () => ready({ play: t.now, boot });
+    if (how !== 'same') boot = 'b';
+    t.now = how === 'goes on' ? film({ play_id: 'p2' }) : null;
+    await t.step(2500);
+    const said = t.says();
+    const src = t.video.attrs.src || null;
+    const html = t.html();
+    if (how === 'key') t.key(LEFT);
+    if (how === 'press') t.click('b0');
+    const pressed = t.says();
+    const stays = how === 'key' || how === 'press' ? 1000 : 4000;
+    await t.step(stays);
+    const still = t.says();
+    await t.step(8000);
+    return { said, src, pressed, still, then: t.says(), raw: html.includes('<b>Orchard') };
+  },
+  // a page opened after the restart knew of no film, and one that shows nothing has nothing to say
+  async restartsIdle() {
+    const t = tv({ kept: 'old' });
+    let boot = 'a';
+    t.answers.poll = () => ready({ boot });
+    t.run();
+    await t.step(1500);
+    boot = 'b';
+    await t.step(4000);
+    return t.says();
+  },
   async pages() {
     const t = await playing();
     const out = { toPlay: [t.left().includes('is starting it') || t.entering(), /\b(id|style)=/.test(t.left())] };

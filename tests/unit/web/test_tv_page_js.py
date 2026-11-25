@@ -155,6 +155,32 @@ def test_a_film_that_says_it_plays_only_while_it_seeks_is_shown(off: str) -> Non
     assert out["sets"] <= 3 and min(out["reported"]) > 1180
 
 
+def test_a_film_that_ended_with_mediaman_says_its_place_is_kept_for_a_while() -> None:
+    out = _run("restarts", "waits")
+    assert "mediaman restarted" in out["said"] and "Orchard is kept" in out["said"]
+    assert (out["src"], out["raw"]) == (None, False)
+    assert "mediaman restarted" in out["still"] and "is ready" in out["then"]
+
+
+@pytest.mark.parametrize("how", ["key", "press"])
+def test_any_key_goes_on_from_the_page_that_says_mediaman_restarted(how: str) -> None:
+    out = _run("restarts", how)
+    assert "mediaman restarted" in out["said"] and "is ready" in out["pressed"]
+    # and unpairs nothing, whatever button came next
+    assert "is ready" in out["then"]
+
+
+def test_no_place_is_promised_in_a_film_that_was_over() -> None:
+    out = _run("restarts", "over")
+    assert "mediaman restarted" in out["said"] and "place" not in out["said"]
+
+
+def test_only_a_film_that_ended_with_a_restart_says_so() -> None:
+    assert "is ready" in _run("restarts", "same")["said"]
+    assert "restarted" not in _run("restarts", "goes on")["said"]
+    assert "is ready" in _run("restartsIdle")
+
+
 def test_a_page_gives_way_to_the_next_and_a_page_that_stays_does_not_move() -> None:
     out = _run("pages")
     assert out["toPlay"] == ["in", False]

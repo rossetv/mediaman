@@ -12,6 +12,7 @@
   var KEPT = 'mm-tv';
   var KEPT_PLACE = 'mm-tv-place';
   var MAX_CODES = 12;        // shown by themselves, with no key pressed
+  var RESTARTED_MS = 8000;
   var LOST_AFTER = 8000;
   var OVERLAY_MS = 4000;
   var STALL_MS = 1500;
@@ -467,10 +468,24 @@
     mode = 'out';
   }
 
+  var boot;                  // which run of mediaman last answered
+  var endedWith = null;      // what played as it restarted
+
+  function restarted(was) {
+    endedWith = was;
+    mode = 'restarted';
+    setTimeout(function () {
+      if (mode === 'restarted' && endedWith === was) { mode = 'idle'; show(); }
+    }, RESTARTED_MS);
+  }
+
   function take(got) {
     me = { name: got.name, owner: got.owner };
     if (mode === 'boot') mode = 'idle';
+    var was = play;
     playing(got.play);
+    if (was && !got.play && boot !== got.boot) restarted(was);
+    boot = got.boot;
     obey(got.commands || []);
     show();
   }
@@ -492,7 +507,7 @@
       asked = null;
       return;
     }
-    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code') mode = 'idle';
+    if (mode === 'conn' || mode === 'unpair' || mode === 'taken' || mode === 'code' || mode === 'restarted') mode = 'idle';
     if (!was || was.play_id !== next.play_id) {
       unload();
       asked = null;
@@ -968,6 +983,10 @@
       return page(middle('Signed out', 'This TV was unpaired. Nothing of yours is left on it.<br>Pair it again to watch.', [['Pair this TV', 'n']]));
     },
     taken: function () { return page(middle('Someone else has this TV now', 'The film stopped. Its place is kept.', [], SPIN)); },
+    restarted: function () {
+      var over = /^(ended|upnext|still)$/.test(endedWith.state);
+      return page(middle('mediaman restarted', over ? 'The TV is ready for something else.' : 'Your place in ' + esc(endedWith.title) + ' is kept.', [['OK', 'i']]));
+    },
     lost: function () {
       return page(middle('mediaman isn&rsquo;t answering', 'Trying again by itself. If it stays like this,<br>check the TV is on the internet.', [], SPIN));
     },
@@ -1137,7 +1156,8 @@
   document.onkeydown = function (e) {
     var key = e.keyCode, used = true;
     pressed();
-    if (MEDIA[key]) media(MEDIA[key]);
+    if (shown === 'restarted') act('i');
+    else if (MEDIA[key]) media(MEDIA[key]);
     else if (key === 10009 || key === 461 || key === 27 || key === 8) used = back();
     else if (shown === 'play' && hidden && (key === 9 || (key >= 13 && key <= 40))) wake();
     else if (key === 37 || key === 39) {
