@@ -1447,6 +1447,17 @@ def test_a_drawn_page_that_cannot_be_had_keeps_what_its_preview_said_and_can_be_
     assert out["then"] == {"line": None, "director": "DirectorAda Rimmington"}
 
 
+def test_a_page_drawn_from_an_early_reply_opens_up_to_date_after_a_change_made_while_it_was_drawn() -> (
+    None
+):
+    assert _run("changedWhileDrawn") == {
+        "mm:watch-marked": "true",
+        "mm:watch-kept": "true",
+        "mm:title-changed": "true",
+        "own": 1,
+    }
+
+
 def test_a_title_is_asked_for_ahead_once_one_at_a_time_few_a_minute_and_again_when_it_changes() -> (
     None
 ):

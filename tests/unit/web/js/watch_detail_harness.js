@@ -405,6 +405,32 @@ const scenarios = {
     return { failed, then: { line: p.text('.ttl__failed-line'), director: p.text('.ttl__credit') } };
   },
 
+  // Marked, kept or queued elsewhere while it is drawn from what was asked ahead: it opens as the server says now.
+  // Its own download state, told to the page as it is drawn, asks nothing again.
+  async changedWhileDrawn() {
+    const out = {};
+    for (const name of ['mm:watch-marked', 'mm:watch-kept', 'mm:title-changed']) {
+      let watched = false;
+      const p = carried({ routes: { '/api/watch/title/movie-120': () => Promise.resolve(Object.assign({}, LIB_MOVIE, { mark_kind: 'movie', mark_key: '120', watched })) } });
+      p.detail.ahead('movie-120');
+      await settle();
+      p.draw();
+      watched = true;
+      p.doc.dispatchEvent({ type: name, detail: { ref: 'movie-120', download_state: 'queued' } });
+      p.detail.openDrawn();
+      await settle();
+      out[name] = p.q('[data-ttl-act="mark"]').getAttribute('aria-pressed');
+    }
+    const p = carried({ data: Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'downloading', pct: 40 }) }) });
+    p.detail.ahead('tmdb-movie-77');
+    await settle();
+    p.draw();
+    p.detail.openDrawn();
+    await settle();
+    out.own = p.gets.filter((u) => /title\/tmdb-movie-77$/.test(u)).length;
+    return out;
+  },
+
   // What is asked for before it is opened: once, one at a time, few a minute, and not once it has gone stale.
   async askedAhead() {
     const never = {};

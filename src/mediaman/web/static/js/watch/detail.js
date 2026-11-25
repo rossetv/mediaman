@@ -76,6 +76,7 @@
   var drawn = null;    // while the title on show is only drawn: { was }, the one before it
   var ahead = null;    // the title asked for before it is opened: { ref, at, ctrl, promise, data, failed }
   var aheadAt = [];    // when those of the last minute were
+  var telling = false; // this page is saying what it knows of a title
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
   var closedAt = 0;
@@ -132,12 +133,17 @@
   function fire(ref, state, pct) {
     if (typeof CustomEvent !== 'function') return;
     var k = stateOf(ref);
-    document.dispatchEvent(new CustomEvent('mm:title-changed', {
-      detail: {
-        ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
-        title: k.title, kind: k.kind, year: k.year
-      }
-    }));
+    telling = true;
+    try {
+      document.dispatchEvent(new CustomEvent('mm:title-changed', {
+        detail: {
+          ref: ref, download_state: state, download_pct: pct === undefined ? null : pct,
+          title: k.title, kind: k.kind, year: k.year
+        }
+      }));
+    } finally {
+      telling = false;
+    }
   }
 
   function learn(ref, data) {
@@ -423,10 +429,14 @@
     return a;
   }
 
-  /* Something has changed that a title asked for ahead does not know of. */
+  /* Something has changed that a title asked for ahead does not know of. A page drawn from
+     it is asked for again as it opens; what the drawn page tells of itself is no change. */
   ['mm:title-changed', 'mm:watch-marked', 'mm:watch-kept', 'mm:watch-admin', 'mm:watch-scheduled'].forEach(function (name) {
     document.addEventListener(name, function (e) {
-      if (!drawn && ahead && (name !== 'mm:title-changed' || e.detail.ref === ahead.ref)) ahead = null;
+      if (drawn && telling) return;
+      if (name === 'mm:title-changed' && !(ahead && e.detail.ref === ahead.ref) && !(drawn && e.detail.ref === cur.ref)) return;
+      ahead = null;
+      if (drawn) cur.stale = true;
     });
   });
 
@@ -850,7 +860,8 @@
   function arrive(c, data) {
     if (c.data === data) settleDrawn();
     else {
-      var old = c.data && c.data.draft ? leadParts() : null;
+      var old = c.data && (c.data.draft || c.stale) ? leadParts() : null;
+      c.stale = false;
       if (old && c.ratings) c.ratings = { early: c.ratings.early, came: data.ratings_pending ? null : {}, asked: null };
       if (old) c.picks = null;
       c.data = data;
