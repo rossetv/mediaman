@@ -29,7 +29,7 @@ def test_an_edited_mask_is_refused_and_the_secret_kept(client, conn, secret_key,
     resp = client.put("/api/settings", json={"nzbget_password": sent})
 
     assert resp.status_code == 422
-    assert "asterisks" in resp.json()["detail"][0]["msg"]
+    assert "A secret cannot start or end with ****." in resp.json()["detail"][0]["msg"]
     assert _stored(conn, secret_key) == "stored"
 
 

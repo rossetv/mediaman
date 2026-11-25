@@ -172,7 +172,7 @@ async function openLibraries(answer, opts) {
   const field = h.add('input', { id: 'base_url', value: 'a', type: 'text' }, page);
   const days = {};
   ['min_age_days', 'inactivity_days', 'grace_days'].forEach((id) => { days[id] = h.add('input', { id, value: '14', type: 'number' }, page); });
-  h.add('input', { id: 'plex_token', value: '****', type: 'password' }, page);
+  h.add('input', { id: 'plex_token', value: opts.noSecret ? '' : '****', type: 'password' }, page);
   h.add('button', { className: 'inp-reveal' }, page).setAttribute('data-reveal-target', 'plex_token');
   const bar = h.add('div', { id: 'setg-savebar' });
   const msg = h.add('span', { className: 'sb-msg', textContent: 'Unsaved changes' }, bar);
@@ -1832,8 +1832,8 @@ const scenarios = {
 
   // A secret field that holds the mask, or an edit made inside it.
   async secretMask() {
-    const open = async () => {
-      const p = await openLibraries(plexLists(1), { selectedLibs: ['1'], diskThresholds: {} });
+    const open = async (opts) => {
+      const p = await openLibraries(plexLists(1), Object.assign({ selectedLibs: ['1'], diskThresholds: {} }, opts));
       const token = p.page.querySelector('#plex_token');
       token.setAttribute('aria-label', 'Plex Token');
       token.selected = 0;
@@ -1856,6 +1856,13 @@ const scenarios = {
     p.type('****x');
     await p.save();
     out.rest = { sent: p.sent.slice(), field: p.token.value, on: p.on(), says: p.toasts.join() };
+    out.none = {};
+    for (const typed of ['***', '****', 'x****']) {
+      p = await open({ noSecret: true });
+      p.type(typed);
+      await p.save();
+      out.none[typed] = { sent: p.sent.slice(), field: p.token.value, says: p.toasts.join() };
+    }
     p = await open();
     p.type('a*b*');
     await p.save();

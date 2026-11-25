@@ -120,7 +120,7 @@ def _validate_api_key(v: str | None) -> str | None:
     if not v.strip():
         raise ValueError("API key must not be spaces alone")
     if _MASK_EDIT_RE.search(v.strip()):
-        raise ValueError("value must not be the asterisks that stand for the saved secret")
+        raise ValueError("A secret cannot start or end with ****.")
     if not _API_KEY_RE.match(v):
         raise ValueError("API key must be 1–1024 ASCII printable characters (no CR, LF, or NUL)")
     return v

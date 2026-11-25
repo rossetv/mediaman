@@ -227,17 +227,27 @@
   // Puts back each secret whose mask was edited, and says so: what is stored cannot be had back once replaced.
   function putBackMasks() {
     var back = {};
+    var onlyAsterisks = {};
     settingsControls().forEach(function (el) {
-      if (isSecret(el.id) && el.value !== saved.values[el.id] && isMaskEdit(el.value)) back[el.id] = saved.values[el.id];
+      if (!isSecret(el.id) || el.value === saved.values[el.id] || !isMaskEdit(el.value)) return;
+      back[el.id] = saved.values[el.id];
+      onlyAsterisks[el.id] = /^\*+$/.test(el.value.trim());
     });
     var keys = Object.keys(back);
     if (!keys.length) return false;
     put(back);
-    window.UIFeedback.toast(
-      'Nothing new was entered for ' + inWords(keys.map(fieldLabel)) + ', so ' +
-      (keys.length > 1 ? 'they stay as they were.' : 'it stays as it was.'),
-      { duration: 8000 }
-    );
+    var untouched = keys.filter(function (key) { return onlyAsterisks[key] && saved.values[key]; });
+    var refused = keys.filter(function (key) { return untouched.indexOf(key) === -1; });
+    var said = [];
+    if (untouched.length) {
+      said.push('Nothing new was entered for ' + inWords(untouched.map(fieldLabel)) + ', so ' +
+        (untouched.length > 1 ? 'they stay as they were.' : 'it stays as it was.'));
+    }
+    if (refused.length) {
+      said.push('A secret cannot start or end with ****. ' + inWords(refused.map(fieldLabel)) +
+        (refused.length > 1 ? ' stay as they were.' : ' stays as it was.'));
+    }
+    window.UIFeedback.toast(said.join(' '), { duration: 8000 });
     return true;
   }
 
@@ -373,7 +383,7 @@
     [/must include a host/i, 'needs a server name after http:// or https://.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
-    [/asterisks/i, 'cannot be the asterisks that stand for the saved one.'],
+    [/start or end with \*{4}/, 'cannot start or end with ****.'],
     [/CR, LF, or NUL|ASCII printable/i, 'has characters that are not allowed.'],
     [/must be between (\d+) and (\d+)( \w+)?/i, 'must be between $1 and $2$3.'],
     [/integer/i, 'must be a whole number.'],

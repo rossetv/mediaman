@@ -614,11 +614,21 @@ def test_an_edit_inside_the_mask_never_replaces_the_saved_secret() -> None:
     out = _run("secretMask")
     for typed, after in out["sent"].items():
         assert (after["sent"], after["field"], after["on"]) == ([], "****", False), typed
-        assert "Nothing new was entered for Plex Token" in after["says"], typed
+        assert "Plex Token stays" in after["says"] or "for Plex Token" in after["says"], typed
+        # what was typed beside the mask breaks the rule; asterisks alone are nothing new
+        assert ("Nothing new" in after["says"]) is (not typed.strip("*")), typed
+        assert ("cannot start or end with ****" in after["says"]) is bool(typed.strip("*")), typed
     rest = out["rest"]
     assert (rest["sent"], rest["field"], rest["on"]) == ([{"base_url": "b"}], "****", False)
     assert "Plex Token" in rest["says"]
     assert out["real"] == [{"plex_token": "a*b*"}]
+
+
+def test_a_mask_typed_where_no_secret_is_stored_is_refused_by_the_rule() -> None:
+    for typed, after in _run("secretMask")["none"].items():
+        assert (after["sent"], after["field"]) == ([], ""), typed
+        assert "cannot start or end with ****" in after["says"], typed
+        assert "Nothing new" not in after["says"], typed
 
 
 def test_the_mask_of_a_secret_is_selected_as_a_whole() -> None:
