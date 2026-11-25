@@ -49,9 +49,9 @@ def _all_values(view) -> str:
 class TestDetailList:
     def test_security_event_lists_who_ip_time_and_id(self):
         fields = _by_label(_describe())
-        assert fields["Event"] == "Signed in (sec:login.success)"
-        assert fields["Time"] == "2026-11-24 10:15:03 UTC"
-        assert (fields["Who"], fields["IP address"], fields["Event ID"]) == (
+        assert fields["Event"] == "Signed in"
+        assert fields["When"] == "2026-11-24 10:15:03 UTC"
+        assert (fields["Who"], fields["Address"], fields["Event number"]) == (
             "admin",
             "1.2.3.4",
             "7",
@@ -69,19 +69,46 @@ class TestDetailList:
             detail='actor=admin ip=1.2.3.4 {"new_username":"bob","role":"viewer"}',
         )
         fields = _by_label(view)
-        assert (fields["New username"], fields["Role"]) == ("bob", "viewer")
+        assert (fields["New user"], fields["Role"]) == ("bob", "Viewer")
         assert view.summary == "bob (viewer)"
+
+    def test_the_details_read_as_words_and_the_stored_record_comes_last(self):
+        view = _describe(
+            action="sec:future.thing",
+            action_label="Future thing",
+            detail='actor=admin ip=1.2.3.4 {"force_rotation":false,"window_seconds":900,'
+            '"reason":"wrong_old_password","keys":["plex_url","disk_limit"],"some_new_key":null,'
+            '"nested":{"a_b":true},"ended_at":"2026-11-24T10:00:00+00:00"}',
+        )
+        fields = _by_label(view)
+        assert {k: fields[k] for k in list(fields)[4:-3]} == {
+            "Must change password": "No",
+            "Lasts": "15 min",
+            "Reason": "The current password was wrong",
+            "Settings": "Plex url, Disk limit",
+            "Some new key": "Not recorded",
+            "Nested": "A b: Yes",
+            "Ended at": "2026-11-24 10:00:00 UTC",
+        }
+        assert list(fields)[-1] == "Stored record"
+        assert '"force_rotation":false' in fields["Stored record"]
+        assert fields["Recorded as"] == "sec:future.thing"
+
+    def test_a_name_that_looks_like_a_code_is_left_as_it_is(self):
+        view = _describe(detail='actor=a ip=1.1.1.1 {"target_username":"old_bob"}')
+        assert _by_label(view)["User"] == "old_bob"
 
     def test_empty_values_say_not_recorded(self):
         view = _describe(detail="actor=- ip=-", actor="")
         fields = _by_label(view)
-        assert fields["Who"] == fields["IP address"] == fields["Details"] == "Not recorded"
+        assert fields["Address"] == fields["Details"] == "Not recorded"
+        assert fields["Who"] == "mediaman, by itself"
         assert view.ip is None and view.actor is None
 
     def test_old_rows_without_an_actor_column_still_read(self):
         view = _describe(detail="actor=bob ip=2.2.2.2 hello there", actor=None)
         fields = _by_label(view)
-        assert (fields["Who"], fields["IP address"], fields["Details"]) == (
+        assert (fields["Who"], fields["Address"], fields["Details"]) == (
             "bob",
             "2.2.2.2",
             "hello there",
@@ -92,7 +119,7 @@ class TestDetailList:
         assert broken["Details"] == '{"half":'
         odd = _by_label(_describe(action="sec:future.thing", detail="something else entirely"))
         assert odd["Details"] == "something else entirely"
-        assert odd["Event"] == "Signed in (sec:future.thing)"
+        assert odd["Event"] == "Signed in"
 
     def test_media_event_lists_title_ids_and_space(self):
         view = _describe(
@@ -108,8 +135,8 @@ class TestDetailList:
         )
         fields = _by_label(view)
         assert fields["Title"] == "Heat"
-        assert (fields["Media ID"], fields["Plex key"]) == ("m1", "55")
-        assert fields["Space reclaimed"] == "1.5 GB"
+        assert (fields["Library number"], fields["Plex number"]) == ("m1", "55")
+        assert fields["Space freed"] == "1.5 GB"
         assert fields["Details"] == "Deleted: Heat [rk:55]"
         assert view.summary == "1.5 GB"
 
@@ -140,7 +167,7 @@ class TestDetailList:
         "stored", ["0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00", "soon"]
     )
     def test_a_time_out_of_range_is_shown_as_stored(self, stored):
-        assert _by_label(_describe(created_at=stored))["Time"] == stored
+        assert _by_label(_describe(created_at=stored))["When"] == stored
 
     def test_a_long_value_is_whole_and_a_runaway_one_says_how_much_is_cut(self):
         long = "word " * 3000
@@ -322,7 +349,7 @@ class TestNothingSensitive:
             detail='actor=admin ip=1.2.3.4 {"new_username":"bob@x.example","role":"viewer"}',
         )
         assert view.summary == "[hidden] (viewer)"
-        assert _by_label(view)["New username"] == "bob@x.example"
+        assert _by_label(view)["New user"] == "bob@x.example"
 
     def test_failed_sign_in_names_the_typed_name_only_in_the_details(self):
         view = _describe(
@@ -330,7 +357,7 @@ class TestNothingSensitive:
             detail='actor=typed-name ip=8.8.8.8 {"reason":"bad_credentials"}',
             actor="typed-name",
         )
-        assert _by_label(view)["Name typed"] == "typed-name"
+        assert _by_label(view)["Name tried"] == "typed-name"
         assert "Who" not in _by_label(view)
         assert "typed-name" not in view.summary
 
@@ -448,7 +475,9 @@ class TestPage:
         assert item["title"] == "User created"
         assert item["detail"] == "admin from 1.2.3.4"
         assert (item["summary"], item["actor"], item["ip"]) == ("bob (viewer)", "admin", "1.2.3.4")
-        assert {"label": "Role", "value": "viewer", "empty": False} in item["fields"]
+        assert {"key": "detail", "label": "Role", "value": "Viewer", "empty": False} in item[
+            "fields"
+        ]
 
     def test_a_typed_name_cannot_pose_as_the_address_in_the_api_detail(
         self, app_factory, authed_client, conn

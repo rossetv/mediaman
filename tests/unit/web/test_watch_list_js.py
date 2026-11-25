@@ -178,7 +178,7 @@ def test_keeping_a_show_from_its_dialog_closes_it_and_updates_the_row_in_place()
 
 def test_the_detail_can_keep_and_delete_with_a_plain_wrapper_and_no_list_on_the_page() -> None:
     out = _run("detailCalls")
-    assert out["keys"] == ["confirmDelete", "keep", "pickSeasonDelete", "removeKeep"]
+    assert out["keys"] == ["confirmDelete", "keep", "pickSeasonDelete", "removeKeep", "retireToast"]
     assert out["calls"] == [
         ["postForm", "/api/media/42/keep", {"duration": "7 days", "read_action": "none"}],
         ["post", "/api/media/42/delete", None],
@@ -818,6 +818,11 @@ def test_a_dialog_button_clicked_without_the_focus_keeps_the_focus_in_the_dialog
     }
 
 
+def test_a_change_in_a_show_s_dialog_names_the_seasons_it_changes_as_it_starts() -> None:
+    both = ["s1", "s2"]
+    assert _run("seasonsAnnounced") == {"some": [["s2"], ["s2"]], "show": [both], "end": [both]}
+
+
 def test_only_the_last_keep_change_of_a_title_has_a_toast() -> None:
     assert _run("oneKeepToast") == [
         ["Kept Copperline for 7 days."],
@@ -879,6 +884,28 @@ def test_a_slow_list_that_fails_and_is_tried_again_keeps_the_focus_and_says_wher
     assert (out["failed"]["said"], out["failed"]["on"]) == ("", "watch-list")
     assert (out["trying"]["said"], out["trying"]["on"]) == ("Loading the list.", "watch-list")
     assert out["after"]["focus"] == "Big"
+
+
+def test_forward_to_a_list_still_on_its_way_waits_with_the_focus_and_tells_it_when_in() -> None:
+    out = _run("goSlowBackForward")
+    assert (out["waiting"]["on"], out["waiting"]["said"]) == ("watch-list", "Loading the list.")
+    assert (out["after"]["focus"], out["after"]["said"]) == ("Big", "35 movies")
+
+
+def test_forward_to_a_list_that_came_meanwhile_focuses_its_first_title_and_tells_it() -> None:
+    out = _run("goSlowForwardWhenIn")
+    assert (out["focus"], out["said"]) == ("Big", "35 movies")
+
+
+def test_forward_to_a_list_whose_focused_row_was_deleted_focuses_its_first_title() -> None:
+    out = _run("forwardAfterDelete")
+    assert out["left"] == {"focus": "Big", "said": "1 title"}
+    assert out["late"] == {"focus": "Big", "said": "1 title"}
+    assert (out["own"], out["ownLate"]) == ("watch-search", "watch-search")
+
+
+def test_forward_to_a_list_takes_the_focus_from_what_is_hidden_now() -> None:
+    assert _run("forwardAfterDelete")["hidden"] == {"focus": "Big", "said": "1 title"}
 
 
 def test_calling_off_a_list_leaves_the_one_asked_for_since_to_come() -> None:

@@ -67,7 +67,7 @@ function load(opts = {}) {
     history: { pushState() {} },
     DOMParser: class { parseFromString(html) { return seasonDoc(Number(html)); } },
     fetch: (href) => Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve(href.slice(-1)) }),
-    UIFeedback: { toast: (message, opts) => toasts.push({ message, opts }) },
+    UIFeedback: { toast: (message, opts) => { const t = { message, opts }; toasts.push(t); return t; }, dismiss: (t) => { t.dismissed = true; } },
     MM: { api: { post: () => Promise.resolve({}), get: () => Promise.resolve({ items: [] }), messageOf: (_e, f) => f } },
     addEventListener() {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
@@ -292,6 +292,81 @@ const scenarios = {
     page.ctx.MMWatch.keep.foldAway(banner);
     const room = (f) => ['height', 'minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].map((k) => parseFloat(f[k]));
     return frames.map(room);
+  },
+
+  // Where a row in a group that has no box of its own ends its fold, in a column of rows 30px apart.
+  async foldInGroup() {
+    const page = load({ motion: true });
+    page.ctx.getComputedStyle = (n) => ({ getPropertyValue: () => '', ...(n.id === 'rows' ? { display: 'flex', rowGap: '30px' } : { display: n.id === 'group' ? 'contents' : 'block', rowGap: 'normal' }) });
+    const ends = [];
+    Node.prototype.animate = function (f) { ends.push([f[1].marginTop, f[1].marginBottom]); return { cancel() {} }; };
+    page.doc.body.appendChild(build(page.doc, ['div', { id: 'rows' }, ['div', { id: 'group' }, ['section', { id: 'first' }], ['section', { id: 'next' }]]]));
+    page.run();
+    ['first', 'next'].forEach((id) => page.ctx.MMWatch.keep.foldAway(page.doc.getElementById(id)));
+    return ends;
+  },
+
+  // The toasts still there: after an undo, after the next keep of that title and one of another, and once each is changed elsewhere.
+  async oneToast() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    const left = () => page.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const out = [];
+    const keep = async (id) => {
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      out.push(left());
+    };
+    const said = (phase, id) => (page.doc.listeners['mm:watch-admin'] || []).forEach((fn) => fn({ detail: { phase, id } }));
+    await keep('1100');
+    const undo = page.toasts[0].opts.action.onClick;
+    page.toasts[0].dismissed = true; // as a press on its button does
+    undo();
+    await settle();
+    out.push(left());
+    await keep('1100');
+    await keep('1101');
+    said('failed', '1101');
+    said('busy', '1100');
+    out.push(left());
+    return out;
+  },
+
+  // The toasts still there after a keep in the admin's menus, and as the card's keep of that title and of another starts.
+  async oneToastAcross() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.doc.dispatchEvent = (e) => (page.doc.listeners[e.type] || []).forEach((fn) => fn(e));
+    page.run();
+    vm.runInContext(fs.readFileSync(path.join(JS, 'watch/admin.js'), 'utf8'), page.ctx);
+    const left = () => page.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const out = [];
+    const start = (id) => {
+      page.ctx.MM.api.post = () => new Promise(() => {});
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      out.push(left());
+    };
+    await page.ctx.MMWatch.admin.keep({ id: '1100', title: 'Leaving Film', deletion: true }, '30 days');
+    start('1101');
+    start('1100');
+    return out;
+  },
+
+  // A change of a whole show, announced with its seasons, takes away the toast of each.
+  async showChanged() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    for (const id of ['1100', '1101']) {
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+    }
+    (page.doc.listeners['mm:watch-admin'] || []).forEach((fn) => fn({ detail: { phase: 'busy', id: '', ids: ['1100', '1101'], showRk: '77' } }));
+    return page.toasts.map((t) => !!t.dismissed);
   },
 
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.

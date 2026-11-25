@@ -620,7 +620,7 @@
       box.classList.toggle('is-focus', on);
       box.classList.toggle('has-value', !!input.value);
       box.classList.toggle('has-token', tokened);
-      box.classList.toggle('is-open', on || !!input.value || tokened);
+      box.classList.toggle('is-open', on || ((!!input.value || tokened) && !asked()));
       // Another script may have hidden it; whether it shows is the bar's to say.
       clear.hidden = false;
       makeRoom();
@@ -633,11 +633,41 @@
     var toggle = byId('watch-viewtoggle');
     var meter = bar.querySelector('.space-meter');
     var scrolled = window.scrollY;
+    var framed = false;
+
+    /* The field stays between what is on either side, however large a person has text;
+       where that leaves too little, or cuts the meter's figure, the meter drops its words
+       till the width changes. */
+    function fitBetween() {
+      var links = bar.querySelector('.nav-links');
+      var l = links.offsetLeft + links.offsetWidth + 2;
+      var r = (meter || bar.querySelector('.profile-btn')).offsetLeft - 2;
+      bar.style.setProperty('--l', l + 'px');
+      bar.style.setProperty('--r', r + 'px');
+      var figure = meter && meter.querySelector('.space-meter__free');
+      var short = wide.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
+      if (meter && short) bar.classList.add('is-tight');
+      makeRoom();
+    }
+
+    function fitAgain() {
+      bar.classList.remove('is-tight');
+      fitBetween();
+    }
 
     /* The open field would cover the meter. */
+    function covers() {
+      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft;
+    }
+
     function makeRoom() {
-      bar.classList.toggle('is-wide-open', !!meter && wide.matches && box.classList.contains('is-open') &&
-        box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft);
+      bar.classList.toggle('is-wide-open', box.classList.contains('is-open') && covers());
+    }
+
+    /* The focus is on what the open field covers. */
+    function asked() {
+      var active = document.activeElement;
+      return active === meter ? covers() : phone.matches && !!toggle && toggle.contains(active);
     }
 
     /* The elements stand in the order they are read: below 1100px the field's line,
@@ -651,7 +681,8 @@
       if (phone.matches && toggle) bar.appendChild(toggle);
       // Moving a node takes the focus off it.
       if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
-      bar.classList.remove('is-tucked');
+      tuck(false);
+      settleLine(0);
     }
 
     function onLine(node) { return box.contains(node) || (!!toggle && toggle.contains(node)); }
@@ -660,16 +691,21 @@
 
     /* Below 1100px the field's line goes while the page is scrolled down, and comes back on
        the way up; over the See all view, whose own header is there, at the top alone. */
-    function onScroll() {
+    function settleLine(by) {
       var y = window.scrollY;
-      var by = y - scrolled;
-      // Slow steps up add up.
-      if (by > 0 || by < -6) scrolled = y;
       var all = byId('watch-all');
-      var top = all && !all.hidden ? 8 : 80;
-      if (sheetOn || wide.matches || y < top || onLine(document.activeElement)) tuck(false);
-      else if (by > 0) tuck(true);
-      else if (by < -6 && top === 80) tuck(false);
+      var grid = !!all && !all.hidden;
+      if (sheetOn || wide.matches || y < (grid ? 8 : 80) || onLine(document.activeElement)) tuck(false);
+      else if (grid || by > 6) tuck(true);
+      else if (by < -6) tuck(false);
+    }
+
+    function onScroll() {
+      framed = false;
+      var by = window.scrollY - scrolled;
+      // Slow steps add up.
+      if (Math.abs(by) > 6) scrolled = window.scrollY;
+      settleLine(by);
     }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
@@ -1771,14 +1807,27 @@
       // A narrow window shows no titles among the suggestions.
       sayList();
       if (!focused()) hintText.textContent = rest();
-      makeRoom();
+      fitAgain();
     });
-    // Its words arrive after the page, and change.
-    if (meter && window.ResizeObserver) new window.ResizeObserver(makeRoom).observe(meter);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    // The meter's words arrive after the page, and change.
+    if (window.ResizeObserver) {
+      // In the next frame: it may change the meter's size itself.
+      var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
+      sized.observe(meter || bar.querySelector('.profile-btn'));
+      sized.observe(bar.querySelector('.nav-links'));
+    }
+    window.addEventListener('scroll', function () {
+      if (framed) return;
+      framed = true;
+      window.requestAnimationFrame(onScroll);
+    }, { passive: true });
+    // See all opens.
+    new MutationObserver(function () { settleLine(0); }).observe(page, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
     bar.addEventListener('focusin', function (e) {
       if (onLine(e.target)) tuck(false);
+      sync();
     });
+    bar.addEventListener('focusout', function () { setTimeout(function () { sync(); settleLine(0); }); });
     [wide, phone].forEach(function (m) { m.addEventListener('change', place); });
     place();
 

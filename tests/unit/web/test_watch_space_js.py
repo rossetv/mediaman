@@ -130,6 +130,9 @@ class TestPanel:
         out = _run("backFocus")
         assert out == {"lost": "Storage", "kept": "Scheduled for deletion, 3 titles"}
 
+    def test_back_from_the_list_finds_see_all_drawn_again_meanwhile_with_the_focus(self):
+        assert _run("backFocusSeeAll") == {"drawn": True, "focus": True, "left": True}
+
     def test_a_failure_is_told_in_every_tab_and_try_again_fills_them(self):
         out = _run("panelFails")
         assert out["was"] == {
@@ -800,7 +803,9 @@ class TestSeeAll:
         assert _run("flightEnds") == {
             "wheel": landed,
             "key": landed,
+            "end": landed,
             "back": flies,
+            "stepBack": flies,
             "opened": landed,
             "closed": landed,
         }

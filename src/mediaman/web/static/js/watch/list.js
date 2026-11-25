@@ -393,6 +393,23 @@
       var y = opts.top ? 0 : arriving && arriving.y;
       if (typeof y === 'number') window.scrollTo({ left: 0, top: y, behavior: 'instant' });
     });
+    if (view === 'list' && opts.history === null) Promise.resolve().then(takeFocus);
+  }
+
+  /* Back and Forward have put the focus where it was, if that is still there: else it goes to
+     the list, which says what it shows. */
+  function takeFocus() {
+    if (_view !== 'list' || address.top() !== 'list') return;
+    var active = document.activeElement;
+    if (!focusIsFree() && active !== list && active.getClientRects().length && !active.closest('[inert]')) return;
+    if (_asked || !root()) { holdFocus(); return; }
+    status.textContent = root().dataset.said || '';
+    focusFirst();
+  }
+
+  function focusFirst() {
+    var first = firstTitle(part(root(), 'results')) || firstTitle(root());
+    if (first) first.focus({ preventScroll: true });
   }
 
   /* With text in the field the search shows its results instead. Back may lead to a row's grid,
@@ -449,8 +466,7 @@
       }
       if (_asked || !root()) { holdFocus(); return; }
       status.textContent = root().dataset.said || '';
-      var first = firstTitle(part(root(), 'results')) || firstTitle(root());
-      if (first) first.focus({ preventScroll: true });
+      focusFirst();
       hooks.arrive();
     }
 

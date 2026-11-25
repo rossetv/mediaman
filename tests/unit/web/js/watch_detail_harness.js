@@ -140,6 +140,7 @@ function load(opts = {}) {
   const timers = [];
   const gets = [];
   const posts = [];
+  const answers = []; // to the ratings sent, not answered yet
   const events = [];
   const history = [];
   const routes = Object.assign({}, opts.routes);
@@ -236,6 +237,10 @@ function load(opts = {}) {
         if (typeof r === 'function') return r(o);
         return r ? Promise.resolve(JSON.parse(JSON.stringify(r))) : Promise.reject(new APIError(404, 'not_found'));
       },
+      put: (url, body) => {
+        posts.push({ url, body });
+        return new Promise((resolve) => { answers.push(resolve); });
+      },
       post: (url, body) => {
         posts.push({ url, body });
         const r = posted[url];
@@ -269,7 +274,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'modal-a11y.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js')
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -287,7 +292,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -301,6 +306,16 @@ async function openCard(p, ref) {
 }
 
 const scenarios = {
+  // Another part of the page queued the film on show.
+  async queuedElsewhere() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: 'tmdb-movie-77', download_state: 'queued', download_pct: null } });
+    return { before, after: primary(p).text, polls: p.timers.some((t) => t.fn && t.ms === 5000), events: p.events.length };
+  },
+
   async openFromCard() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();
@@ -2416,6 +2431,79 @@ const scenarios = {
     out.plain = [q.text('.ttl__credit'), !!q.q('.ttl__credit a')];
     return out;
   },
+};
+
+// The set of thumbs: the request held, then its answer; and what the page is when the answer comes.
+scenarios.thumbs = async () => {
+  const URL = '/api/watch/ratings?refs=';
+  const asked = [];
+  const p = load({ thumbs: true, routes: {
+    '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/show-300': LIB_SHOW,
+    [URL + 'movie-120']: () => new Promise((resolve) => asked.push(resolve)),
+    [URL + 'show-300']: { ok: true, ratings: { 'show-300': { level: null, rateable: true } } },
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL,
+  } });
+  p.run();
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const set = () => p.q('.ttl__main .rate');
+  const on = () => set().querySelectorAll('button').map((b) => b.getAttribute('aria-pressed'));
+  await open('movie-120');
+  const out = { skel: !!p.q('.ttl__rate-skel') };
+  await due(0);
+  out.waits = !!p.q('.ttl__overview');
+  asked[0]({ ok: true, ratings: { 'movie-120': { level: 1, rateable: true } } });
+  await settle();
+  out.order = p.q('.ttl__main').children.map((n) => n.className.split(' ')[0]);
+  out.rated = on();
+  const b = set().querySelectorAll('button')[3];
+  b.focus();
+  click(p.doc, b);
+  out.pressed = [on(), p.posts.slice()];
+  // Drawn again, as when an episode is marked: the same thumb keeps the focus.
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120' } });
+  await settle();
+  out.redrawn = [set().querySelectorAll('button')[3] !== b, p.doc.activeElement === set().querySelectorAll('button')[3], on()];
+  const left = set().querySelectorAll('button');
+  await open('show-300');
+  await due(0);
+  out.next = on();
+  click(p.doc, left[0]); // a set no longer on show is not painted
+  out.old = left[0].getAttribute('aria-pressed');
+  p.ctx.history.back();
+  await settle();
+  out.back = on();
+  const last = set().querySelectorAll('button');
+  p.key('Escape');
+  p.tick();
+  p.ctx.MM.ratings.set('movie-120', 1);
+  out.closed = last.map((n) => n.getAttribute('aria-pressed'));
+  return out;
+};
+
+// *rateable* unknown: the answer comes after the wait is over.
+scenarios.thumbsNone = async () => {
+  const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };
+  const asked = [];
+  const p = load({ thumbs: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE,
+    '/api/watch/ratings?refs=movie-120': () => new Promise((resolve) => asked.push(resolve)) } });
+  p.run();
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const open = async () => { p.ctx.MMWatch.detail.open('movie-120', { push: true }); await settle(); };
+  await open();
+  await due(0);
+  const out = { before: !!p.q('.ttl__overview') };
+  await due(400);
+  out.late = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  asked[0](none);
+  await settle();
+  out.told = p.q('.ttl__main .rate').hidden;
+  p.key('Escape');
+  p.tick();
+  await open();
+  await due(400);
+  out.again = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  return out;
 };
 
 scenarios[process.argv[2]]().then((out) => {

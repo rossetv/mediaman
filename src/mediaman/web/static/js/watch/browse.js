@@ -713,12 +713,13 @@
       return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
     }
     var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    function line(card) { return batchLine(card.getAttribute('data-batch'), rec.payload); }
     if (at.row && rec && rec.payload.batch) {
       return { cards: lines(at.cards(), rec.payload), next: recLoader ? recLoader.next() : null,
-        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty };
+        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty, line: line };
     }
     var rest = null;
-    return { cards: [], next: 'first', empty: empty, fetchPage: function (batch) {
+    return { cards: [], next: 'first', empty: empty, line: line, fetchPage: function (batch) {
       if (batch !== 'first') return rest(batch);
       return fetchRec(null).then(function (payload) {
         if (!payload.batch) return { cards: [], next: null };

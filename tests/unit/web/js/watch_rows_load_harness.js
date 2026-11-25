@@ -140,6 +140,18 @@ const scenarios = {
     return { first, still, asked, next: p.row.next(), loaded };
   },
 
+  // A card taken out of the row by someone else must not hold a place in the range of posters kept awake.
+  async cardsTakenOut() {
+    const p = load([1, 2, 3], [{ cards: [], next: null }]);
+    p.seen.near = false;
+    p.seen.range = [2, 3];
+    p.row.check();
+    p.grid.children[0].remove();
+    p.seen.range = [0, 1];
+    p.row.check();
+    return p.grid.querySelectorAll('img').map((i) => i.hasAttribute('src'));
+  },
+
   async stopped() {
     const p = load([1], [{ cards: [2], next: null }]);
     const listens = () => [p.grid.listeners.scroll.length, p.resizes.size];

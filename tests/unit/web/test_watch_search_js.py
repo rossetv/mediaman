@@ -4,6 +4,7 @@ node against a fake DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -959,6 +960,36 @@ def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None
     assert out["grows"] == [False, False, True, False]
 
 
+def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
+    out = _run("barGivesBack")
+    assert out["wide"] == [[True, True], [False, False], [True, True]]
+    assert out["phone"] == [[True, False], [False, False], [True, False]]
+    # Nothing covers the switch there.
+    assert out["clear"] == [[True, True], [True, True], [True, True]]
+
+
+def test_what_the_open_field_covers_can_have_the_focus() -> None:
+    sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
+    rules = re.findall(r"([^{}]*(?:space-meter|viewtoggle)) \{([^}]*)\}", sheet.read_text())
+    hidden = [body for _, body in rules if "opacity: 0" in body]
+    assert hidden
+    for body in hidden:
+        assert "pointer-events: none" in body and "visibility" not in body
+
+
+def test_the_field_stays_between_the_links_and_the_meter_which_drops_its_words_for_it() -> None:
+    assert _run("barBetween") == [
+        ["312px", "878px", False],
+        ["522px", "638px", True],
+        ["522px", "798px", True],
+        [False],
+    ]
+
+
+def test_a_phone_s_meter_drops_a_figure_that_would_be_cut() -> None:
+    assert _run("barCutFigure") == [False, True]
+
+
 def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
     out = _run("slashKeepsThePlace")
     assert out == {"sticky": [400, True], "gone": [0, True]}
@@ -966,3 +997,16 @@ def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
 
 def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
     assert _run("barCovers") == [106, 52]
+
+
+def test_nothing_leaves_the_field_s_line_over_the_header_of_see_all() -> None:
+    out = _run("barLeavesSeeAllFree")
+    assert (out.pop("focused"), out.pop("rows")) == (False, False)
+    assert out == {"left": True, "turned": True, "forward": True, "opened": True}
+
+
+def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
+    out = _run("barTucksOnPurpose")
+    # Far down, back up, then by 1, 6 and 7 in all.
+    assert out["out"] == [True, False, False, False, True]
+    assert (out["frames"], out["after"]) == (1, True)

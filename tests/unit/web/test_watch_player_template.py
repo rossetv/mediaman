@@ -98,6 +98,13 @@ def test_hls_loads_before_the_player_script():
     assert srcs.index("/static/vendor/hls/hls.min.js?v=") < srcs.index("/static/js/player.js?v=")
 
 
+def test_what_rates_a_title_loads_before_the_player_script():
+    _, page = _render(MOVIE)
+    srcs = [a["src"] for t, a in page.elements if t == "script" and a.get("src")]
+    assert srcs.index("/static/js/ratings.js?v=") < srcs.index("/static/js/player.js?v=")
+    assert "/static/css/_ratings.css?v=" in [a.get("href") for t, a in page.elements if t == "link"]
+
+
 @pytest.mark.parametrize("name", CONTEXTS)
 def test_data_attributes_carry_the_context(name):
     ctx = CONTEXTS[name]

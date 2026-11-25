@@ -35,11 +35,12 @@
 .me-card { background: var(--s1); border: 1px solid var(--hair); border-radius: var(--r-lg); padding: 0 20px; }
 .me-row { padding: 16px 0; border-bottom: 1px solid var(--hair); }
 .me-row:last-child { border-bottom: 0; }
-.me-line { display: flex; align-items: center; gap: 12px 24px; min-height: 40px; }
-.me-txt { flex: 1 1 0; min-width: 0; }
+.me-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; min-height: 40px; }
+/* What stands beside the words goes under them where they would have a few letters a line. */
+.me-txt { flex: 1 1 8.5em; min-width: 0; }
 .me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
 .me-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
-.me-end { flex: none; display: flex; align-items: center; gap: 8px; }
+.me-end { flex: none; max-width: 100%; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .me-end .inp { width: 300px; }
 .profile-pg .inp[aria-invalid="true"] { border-color: var(--danger-text); }
 .me-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -51,16 +52,18 @@
 .me-msg.err { color: var(--danger-text); }
 .me-msg ul { margin: 6px 0 0 16px; font-size: 12px; }
 .me-acts--end .me-msg { flex: 0 0 100%; padding-left: calc(100% - 300px); }
-/* Kept in the tree while empty, or its first words are not announced. */
-.me-acts--end .me-msg:empty { margin-bottom: -8px; }
+/* Out of the layout while empty but kept in the tree, or its first words are not announced. */
+.me-msg:empty { position: absolute; }
 
 .setg-pg.profile-pg .setg-fold { scroll-margin-block: 80px 24px; }
-/* Clipped at all times, with room for the focus rings, so nothing shows outside while it folds. */
+/* Clipped at all times, so nothing shows outside while it folds, with room for the focus rings. */
 .setg-pg.profile-pg .setg-fold-inner,
-.setg-pg.profile-pg .setg-fold.is-moving > .setg-fold-inner { overflow: clip; overflow-clip-margin: 6px; }
+.setg-pg.profile-pg .setg-fold.is-moving > .setg-fold-inner { overflow: clip; padding-inline: 6px; margin-inline: -6px; }
+#account-email-fold { margin-bottom: -6px; }
+.me-acts--end { padding-bottom: 6px; }
 #account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 #account-open-password.is-gone { opacity: 0; visibility: hidden; }
-.me-pw-in { display: grid; gap: 16px; max-width: 400px; padding: 14px 0 4px; }
+.me-pw-in { display: grid; gap: 16px; max-width: 400px; padding: 14px 0 6px; }
 .setg-pg .me-pw .fld { gap: 5px; }
 .setg-pg .me-pw .fld-lbl { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 .setg-pg .me-pw .fld-why { min-height: 1.1em; }
@@ -68,7 +71,7 @@
 
 .dev-list { list-style: none; }
 .dev-list:focus { outline: none; }
-.dev { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--hair); }
+.dev { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--hair); }
 .dev.is-leaving {
   overflow: hidden; pointer-events: none;
   opacity: 0; padding-block: 0; border-bottom-width: 0;
@@ -85,7 +88,9 @@
   font-size: 11px; font-weight: 600; white-space: nowrap;
 }
 .dev-sub { display: flex; flex-wrap: wrap; gap: 0 14px; }
-.dev .btn { flex: none; min-width: 84px; }
+.dev-date { white-space: nowrap; }
+.dev .btn { flex: none; min-width: 84px; margin-left: auto; }
+.dev .btn-spinner { margin-right: 0; }
 .dev-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 0; }
 .dev-skel { width: 150px; height: 12px; border-radius: var(--r-xxs); background: var(--s3); animation: loading-pulse 1.6s ease-in-out infinite; }
 .dev-skel--long { width: 220px; max-width: 90%; margin-top: 9px; }
@@ -96,7 +101,8 @@
   .me-id h1 { font-size: 26px; }
   .me-sec { margin-top: 28px; }
   .me-card { padding: 0 16px; }
-  .me-line--stack { flex-direction: column; align-items: stretch; }
+  .me-line--stack { flex-flow: column nowrap; align-items: stretch; }
+  .me-line--stack .me-end { margin-left: 0; }
   .me-line--stack .me-txt { flex: none; }
   .me-line--stack .me-end .inp { width: 100%; }
   .me-acts--end .btn { flex: 1; }

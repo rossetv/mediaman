@@ -102,6 +102,8 @@
     var width = window.innerWidth;
     var loader = null;
     var status = null;
+    var marks = new Map(); // where each card and dated line taken out stood: a mark in its place, by it
+    var spots = new Map(); // the same marks of the cards, by what a card is known by
 
     host.classList.add('watch-grid-host');
     var grid = host.querySelector('.watch-grid') || host.appendChild(el('div', 'watch-grid'));
@@ -258,6 +260,8 @@
       busy(false);
       tail.replaceChildren();
       grid.replaceChildren();
+      marks.clear();
+      spots.clear();
       content.cards.forEach(function (node) {
         var kept = isCard(node) && old.get(keyOf(node));
         if (kept) {
@@ -274,21 +278,21 @@
 
     function travel(before, gone) {
       before.forEach(function (from, key) {
-        var card = gone.get(key);
-        if (!card) return;
-        card.classList.add('is-gone');
-        card.setAttribute('inert', '');
-        card.style.left = from.left + 'px';
-        card.style.top = from.top + 'px';
-        card.style.width = from.width + 'px';
-        host.appendChild(card);
-        var fade = animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.96)' }], {
+        var node = gone.get(key);
+        if (!node) return;
+        node.classList.add('is-gone');
+        node.setAttribute('inert', '');
+        node.style.left = from.left + 'px';
+        node.style.top = from.top + 'px';
+        node.style.width = from.width + 'px';
+        host.appendChild(node);
+        var fade = animate(node, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: isCard(node) ? 'scale(.96)' : 'none' }], {
           duration: core.tokenMs('--dur', 200), fill: 'forwards'
         });
         fade.onfinish = function () {
-          if (!card.classList.contains('is-gone')) return;
-          card.remove();
-          fade.cancel(); // held, it would hide the card put back by an Undo
+          if (!node.classList.contains('is-gone')) return;
+          node.remove();
+          fade.cancel(); // held, it would hide what an Undo put back
         };
       });
       var n = 0;
@@ -308,33 +312,119 @@
           });
         }
       });
+      // A line that comes to stand first loses the space over it: its words stand by its foot.
+      linesOnScreen().forEach(function (line) {
+        var from = before.get(line);
+        var by = from && from.bottom - line.getBoundingClientRect().bottom;
+        if (from) animate(line, [{ transform: 'translateY(' + by + 'px)' }, { transform: 'none' }], { duration: 380 });
+        else animate(line, [{ opacity: 0 }, { opacity: 1 }], { duration: core.tokenMs('--dur-slow', 250) });
+      });
     }
 
-    /* Take *card* out, the others closing up. Returns what puts it back. */
+    function linesOnScreen() {
+      return groups().filter(function (line) {
+        var r = line.getBoundingClientRect();
+        return r.bottom > 0 && r.top < window.innerHeight;
+      });
+    }
+
+    /* Leave a mark in the place of *node*, which goes. */
+    function markOut(node) {
+      var mark = document.createTextNode('');
+      marks.set(mark, node);
+      node.replaceWith(mark);
+      return mark;
+    }
+
+    function putIn(mark) {
+      var node = marks.get(mark);
+      marks.delete(mark);
+      mark.replaceWith(still(node));
+    }
+
+    /* As it stood, whatever it was doing on its way out. */
+    function still(node) {
+      (node.getAnimations ? node.getAnimations() : []).forEach(function (a) { a.cancel(); });
+      node.classList.remove('is-gone', 'is-flyer');
+      node.removeAttribute('inert');
+      ['left', 'top', 'width', 'paddingTop'].forEach(function (name) { node.style[name] = ''; });
+      return node;
+    }
+
+    function isLine(node) { return node.nodeType === 1 && node.hasAttribute('data-group'); }
+
+    /* The dated line over *node*, or the mark of one that went. */
+    function lineOver(node) {
+      var all = toArray(grid.childNodes);
+      for (var i = all.indexOf(node) - 1; i >= 0; i--) {
+        if (isLine(all[i]) || (marks.has(all[i]) && isLine(marks.get(all[i])))) return all[i];
+      }
+      return null;
+    }
+
+    function bare(line) {
+      var next = line.nextElementSibling;
+      return !next || !isCard(next);
+    }
+
+    /* Take *card* out, the others closing up, and the dated line it leaves with none under it.
+       Returns what puts them back. */
     function take(card) {
-      var after = [];
-      for (var n = card.nextElementSibling; n; n = n.nextElementSibling) after.push(n);
-      closeUp(function () { card.remove(); }, card);
+      var key = keyOf(card);
+      var mark;
+      closeUp(function () {
+        var line = lineOver(card);
+        mark = markOut(card);
+        spots.set(key, mark);
+        if (!line || !isLine(line) || !bare(line)) return [];
+        // Off the grid it would have the space over it that it does without when first.
+        line.style.paddingTop = getComputedStyle(line).paddingTop;
+        markOut(line);
+        return [line];
+      }, card);
       if (loader.next() === null) ending();
       return function () {
-        (card.getAnimations ? card.getAnimations() : []).forEach(function (a) { a.cancel(); });
-        card.classList.remove('is-gone', 'is-flyer');
-        card.removeAttribute('inert');
-        ['left', 'top', 'width'].forEach(function (name) { card.style[name] = ''; });
         closeUp(function () {
-          grid.insertBefore(wake(card), after.filter(function (node) { return node.parentNode === grid; })[0] || null);
+          spots.delete(key);
+          wake(card);
+          putIn(mark);
+          lineBack(card);
         }, null);
         if (loader.next() === null) ending();
       };
     }
 
+    function lineBack(card) {
+      var line = lineOver(card);
+      if (line && marks.has(line)) putIn(line);
+    }
+
+    /* Where the card known by *key* stands, or stood before it was taken out. */
+    function spot(key) {
+      return spots.get(key) || cards().filter(function (card) { return keyOf(card) === key; })[0] || null;
+    }
+
+    /* Put *card* after the spot *after*, else before the spot *before*, else first; under
+       *line*, a dated line of its own, when it has one. */
+    function put(card, after, before, line) {
+      closeUp(function () {
+        if (line && before) before = lineOver(before) || before;
+        grid.insertBefore(wake(card), after ? after.nextSibling : before || grid.firstChild);
+        if (line) card.before(line);
+        else lineBack(card);
+      }, null);
+      if (loader.next() === null) ending();
+    }
+
+    /* Make *change*, which returns the lines it takes out, the cards and lines left travelling to their places. */
     function closeUp(change, leaving) {
       var gone = new Map();
       var before = new Map();
       if (held || core.reduceMotion() || !grid.animate) { change(); return; }
       if (leaving) gone.set(keyOf(leaving), leaving);
       onScreen().forEach(function (card) { before.set(keyOf(card), card.getBoundingClientRect()); });
-      change();
+      linesOnScreen().forEach(function (line) { before.set(line, line.getBoundingClientRect()); });
+      (change() || []).forEach(function (line) { gone.set(line, line); });
       travel(before, gone);
     }
 
@@ -347,9 +437,21 @@
 
     function groups() { return toArray(grid.querySelectorAll('.grid-group')); }
 
+    function idOf(line) { return line.getAttribute('data-group'); }
+
+    /* Of *ids*, in the order of their lines, those of a line that is there or may come yet. */
+    function toCome(ids) {
+      var there = groups().map(idOf);
+      var gone = Array.from(marks.values()).filter(isLine).map(idOf);
+      var last = ids.reduce(function (at, id, i) { return there.indexOf(id) < 0 ? at : i; }, -1);
+      return ids.filter(function (id, i) {
+        return there.indexOf(id) >= 0 || (i > last && loader.next() !== null && gone.indexOf(id) < 0);
+      });
+    }
+
     /* Scroll to the line *id*, loading until it is there; *done*: there is no more to load. */
     function jump(id, done) {
-      var line = groups().filter(function (g) { return g.getAttribute('data-group') === id; })[0];
+      var line = groups().filter(function (g) { return idOf(g) === id; })[0];
       wanted = line || done ? null : id;
       wantedAt = Date.now();
       if (line) {
@@ -365,7 +467,7 @@
       var edge = clearTop() + 60;
       var under = all.filter(function (g) { return g.getBoundingClientRect().top < edge; });
       var line = under[under.length - 1] || all[0];
-      return line ? line.getAttribute('data-group') : null;
+      return line ? idOf(line) : null;
     }
 
     /* ── Keyboard ── */
@@ -466,9 +568,12 @@
       onScreen: onScreen,
       set: set,
       take: take,
+      spot: spot,
+      put: put,
       busy: busy,
       jump: function (id) { jump(id, false); },
       groupNow: groupNow,
+      toCome: toCome,
       enter: enter,
       hold: function (on) {
         held = on;
@@ -501,7 +606,6 @@
   var BLOCKS = '.watch-banner, .watch-notice, .watch-group-label, .watch-row, .watch-empty, [data-grid-block]';
 
   var html = document.documentElement;
-  var topBar = page.querySelector('.watch-top');
   var dom = null; // the layer's own nodes
   var now = null; // what it holds: { opts, list, value }
   var move = null; // what moves: { to, gridY, tracks, token }
@@ -574,6 +678,14 @@
 
   /* ── The header ── */
 
+  /* A date with nothing under it any more is not there to jump to. */
+  function options() {
+    var sort = now.opts.sort;
+    if (!sort.jump) return sort.options;
+    var left = now.list.toCome(sort.options.map(function (o) { return o.id; }));
+    return sort.options.filter(function (o) { return left.indexOf(o.id) >= 0; });
+  }
+
   function optionNow() {
     return now.opts.sort.options.filter(function (o) { return o.id === now.value; })[0] || now.opts.sort.options[0];
   }
@@ -633,7 +745,7 @@
   function fillMenu() {
     dom.menu.setAttribute('aria-label', now.opts.sort.label);
     dom.menu.replaceChildren();
-    now.opts.sort.options.forEach(function (o) {
+    options().forEach(function (o) {
       var item = el('button', 'watch-keep-menu__item');
       item.type = 'button';
       item.setAttribute('role', 'menuitemradio');
@@ -704,6 +816,8 @@
     }
     var back = mine.list.take(card);
     count(-1);
+    mine.jumped = false;
+    nameLine();
     return {
       focus: next ? next.querySelector(control) || linkOf(next) : dom.title,
       // Filled anew since, there is no place to go back to: bring() fills it again.
@@ -711,20 +825,25 @@
         if (now !== mine || mine.fills !== fills) return null;
         back();
         count(1);
+        nameLine();
         return card.querySelector(control);
       }
     };
   }
 
   /* *card* is back in its row, whose grid may be open without it. Returns its card
-     in there when the grid was filled again for it. */
+     in there when the grid was filled again for it, or has it put in. */
   function bring(card) {
-    var row = now && now.opts.contents && rowOf(now.opts);
+    var row = now && (now.opts.contents || now.opts.line) && rowOf(now.opts);
     if (!row || !row.contains(card)) return null;
     function twin() { return now.list.cards().filter(function (c) { return keyOf(c) === keyOf(card); })[0] || null; }
     if (twin()) return null;
     settle();
     if (!now) return null; // it was closing
+    if (now.opts.line) {
+      putIn(card, row);
+      return twin();
+    }
     var content = now.opts.contents(now.value);
     var none = !now.opts.total;
     now.opts.total = content.total;
@@ -732,6 +851,26 @@
     now.fills++;
     now.list.set(content, { move: true, stay: true });
     return twin();
+  }
+
+  /* Put a copy of *card* in the open grid of dated cards, where *row* has it, beside a card of its
+     date; the first of its date comes with its line. */
+  function putIn(card, row) {
+    var all = toArray(row.querySelectorAll('.watch-row__scroll .watch-card'));
+    var i = all.indexOf(card);
+    var date = card.getAttribute('data-batch');
+    function near(list, any) {
+      for (var n = 0; n < list.length; n++) {
+        var spot = (any || list[n].getAttribute('data-batch') === date) && now.list.spot(keyOf(list[n]));
+        if (spot) return spot;
+      }
+      return null;
+    }
+    var before = all.slice(0, i).reverse();
+    var after = all.slice(i + 1);
+    var own = near(before) || near(after);
+    now.list.put(copy(card), near(before, !own), own ? near(after) : near(after, true), own ? null : now.opts.line(card));
+    nameLine();
   }
 
   /* ── The two layers ── */
@@ -764,9 +903,8 @@
   }
 
   /* Put the layer *to* in the page's flow at the scroll *y* says, the other fixed
-     where it stands. Returns where the search bar was. */
+     where it stands. */
   function swapLayers(to, y) {
-    var bar = topBar ? topBar.getBoundingClientRect() : null;
     // Too short for its scroll, even for a moment, Safari places what is fixed by the scroll it had.
     page.style.minHeight = page.offsetHeight + 'px';
     var from = to === 'grid' ? browse : dom.all;
@@ -786,22 +924,6 @@
       dom.head.style.top = '0px';
       dom.head.style.top = headAt - dom.head.getBoundingClientRect().top + 'px';
     }
-    return bar;
-  }
-
-  /* The search bar leaves softly when the new scroll takes it off the screen. */
-  function ghost(was) {
-    if (!was) return;
-    var edge = core.clearArea().top;
-    if (was.bottom < edge + 10 || topBar.getBoundingClientRect().bottom >= edge) return;
-    var twin = topBar.cloneNode(true);
-    [twin].concat(toArray(twin.querySelectorAll('[id]'))).forEach(function (n) { n.removeAttribute('id'); });
-    twin.classList.add('is-ghost');
-    twin.setAttribute('inert', '');
-    twin.style.top = was.top + 'px';
-    page.appendChild(twin);
-    animate(twin, [{ opacity: 1 }, { opacity: 0 }], { duration: OUT_MS, fill: 'forwards' })
-      .onfinish = function () { twin.remove(); };
   }
 
   /* ── Where the rows were ── */
@@ -1153,7 +1275,7 @@
     dom.sortMenu.close(false);
     if (move && now && now.opts.id === opts.id && !resorted(opts)) {
       if (move.to === 'grid') return true;
-      ghost(swapLayers('grid', function () { return move.gridY; }));
+      swapLayers('grid', function () { return move.gridY; });
       play('grid');
       announce();
       return true;
@@ -1181,9 +1303,8 @@
       return !back;
     }
     now.list.hold(true);
-    var bar = swapLayers('grid', function () { return back ? back.y : Math.min(y, headScroll()); });
+    swapLayers('grid', function () { return back ? back.y : Math.min(y, headScroll()); });
     aim(first);
-    ghost(bar);
     lastY = window.scrollY;
     dom.head.classList.remove('is-stuck');
     move = { to: 'grid', gridY: window.scrollY, tracks: null, token: null };
@@ -1200,7 +1321,7 @@
       if (move.to === 'rows') return;
       move.gridY = window.scrollY;
       restoreLefts();
-      ghost(swapLayers('rows', function () { return place.y; }));
+      swapLayers('rows', function () { return place.y; });
       play('rows');
       focusRows(now.opts, null);
       return;
@@ -1225,7 +1346,7 @@
     restoreLefts();
     pin(browse, 0);
     scrollPage(y);
-    ghost(swapLayers('rows', function () { return place.y; }));
+    swapLayers('rows', function () { return place.y; });
     move = { to: 'rows', gridY: y, tracks: null, token: null };
     move.tracks = measure(opts);
     play('rows');
@@ -1282,14 +1403,18 @@
       return;
     }
     stuck();
-    if (now.opts.sort && now.opts.sort.jump && !now.jumped) {
-      var id = now.list.groupNow();
-      if (id !== null && id !== now.value) {
-        now.value = id;
-        labelSort();
-      }
-    }
+    nameLine();
   }, { passive: true });
+
+  /* Name the date the screen stands under. */
+  function nameLine() {
+    if (!now.opts.sort || !now.opts.sort.jump || now.jumped) return;
+    var id = now.list.groupNow();
+    if (id !== null && id !== now.value) {
+      now.value = id;
+      labelSort();
+    }
+  }
 
   /* A batch jumped to stays named, even where the page is too short to bring it
      to the top, until the person scrolls on. */

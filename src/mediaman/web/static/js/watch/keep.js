@@ -13,7 +13,6 @@
   var cardExit = core.cardExit;
   var clearArea = core.clearArea;
   var focusSoftly = core.focusSoftly;
-  var toast = core.toast;
 
   var KEEP_URL = '/api/watch/keep';
   var FOREVER = 'forever';
@@ -24,7 +23,12 @@
      (downwards), gap included, so nothing beside it jumps. A card fades and
      shrinks in place while its slot closes behind it. */
   function shrinkMotion(node, sideways) {
-    var parentStyle = getComputedStyle(node.parentNode);
+    var box = node.parentNode;
+    var parentStyle = getComputedStyle(box);
+    while (parentStyle.display === 'contents') { // its children stand in the box around it
+      box = box.parentNode;
+      parentStyle = getComputedStyle(box);
+    }
     var ease = token('--ease-out', 'ease-out');
     if (sideways) {
       var w = node.offsetWidth + 'px';
@@ -658,7 +662,29 @@
     return MM.api.postForm('/api/media/' + encodeURIComponent(id) + '/keep', form);
   }
 
+  /* The toast of each title's last Keep or Undo, taken away as a later change starts:
+     it would say what is no longer so, and its Undo would undo the wrong thing. */
+  var toasts = {};
+
+  function tell(id, message, opts) {
+    retireToast(id);
+    toasts[id] = window.UIFeedback.toast(message, opts);
+  }
+
+  function retireToast(id) {
+    if (!toasts[id]) return;
+    window.UIFeedback.dismiss(toasts[id]);
+    delete toasts[id];
+  }
+
+  document.addEventListener('mm:watch-admin', function (e) {
+    if (e.detail.phase === 'busy') (e.detail.ids || [e.detail.id]).forEach(retireToast);
+  });
+
   function started(id) {
+    retireToast(id);
+    var admin = window.MMWatch.admin; // on an admin's page
+    if (admin) admin.retireToast(id);
     setBusy(id, true);
     if (panel) panel.started();
   }
@@ -687,9 +713,9 @@
       var done = applyKept(id, days, trigger);
       if (moveFocus && done.focus) moveTo(done.focus);
       if (data && data.deletion_running && data.message) {
-        toast(data.message, { duration: 8000 });
+        tell(id, data.message, { duration: 8000 });
       } else {
-        toast('Kept ' + (name || 'this') + ' ' + span(days) + '.', {
+        tell(id, 'Kept ' + (name || 'this') + ' ' + span(days) + '.', {
           variant: 'success',
           dialog: dialog,
           action: undoable && !(data && data.undo === false) ? { label: 'Undo', onClick: function () { undoKeep(id, days, done, name); } } : null
@@ -697,7 +723,7 @@
       }
       settled(id, true);
     }).catch(function (err) {
-      toast(MM.api.messageOf(err, 'Could not keep ' + (name || 'this') + '. Try again.'), { variant: 'error' });
+      tell(id, MM.api.messageOf(err, 'Could not keep ' + (name || 'this') + '. Try again.'), { variant: 'error' });
       settled(id, false);
     });
   }
@@ -718,14 +744,14 @@
       moveTo(back);
     }
     MM.api.post(UNKEEP_URL, { media_item_id: id }).then(function () {
-      toast('Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
+      tell(id, 'Keep undone' + (name ? ' for ' + name : ''), { variant: 'info' });
       settled(id, true);
     }).catch(function (err) {
       var trigger = back || triggersFor(id)[0];
       var moveFocus = trigger ? focusLost(trigger) : false;
       var again = applyKept(id, days, trigger);
       if (moveFocus && again.focus) moveTo(again.focus);
-      toast(MM.api.messageOf(err, 'Could not undo' + (name ? ' for ' + name : '') + '. It stays kept for ' + days + ' days.'), { variant: 'error' });
+      tell(id, MM.api.messageOf(err, 'Could not undo' + (name ? ' for ' + name : '') + '. It stays kept for ' + days + ' days.'), { variant: 'error' });
       settled(id, false);
     });
   }

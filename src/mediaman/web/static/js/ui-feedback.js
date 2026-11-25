@@ -21,9 +21,10 @@
  *                          adds a button to the toast; clicking it runs onClick
  *                          and dismisses the toast. A toast with an action stays
  *                          8s unless `duration` says otherwise, and is not
- *                          dismissed while the button has keyboard focus. With
- *                          `dialog`, the aria-modal it came from, Ctrl+Z presses
- *                          the button while that one is open too.
+ *                          dismissed while the button has keyboard focus. The
+ *                          label 'Undo' marks an undo: Ctrl+Z presses its button.
+ *                          With `dialog`, the aria-modal it came from, it does
+ *                          while that one is open too.
  *
  *   window.UIFeedback.dismiss(node)   takes away a toast, as toast() returned it
  *
@@ -124,7 +125,7 @@
       return m.getClientRects().length > 0 && getComputedStyle(m).visibility !== 'hidden';
     });
   }
-  // Ctrl/Cmd+Z presses the newest action toast's button, except in a text
+  // Ctrl/Cmd+Z presses the newest Undo, except in a text
   // field where it is the field's own undo.
   function listenForUndo() {
     if (undoListening) return;
@@ -133,7 +134,7 @@
       if (!e.key || e.key.toLowerCase() !== 'z' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
-      var btns = document.querySelectorAll('.ui-toast--action:not(.is-leaving) .ui-toast__action');
+      var btns = document.querySelectorAll('.ui-toast--undo:not(.is-leaving) .ui-toast__action');
       var last = btns[btns.length - 1];
       if (!last || modalOpen(raisedFrom.get(last))) return;
       e.preventDefault();
@@ -152,9 +153,7 @@
     var action = opts.action;
     if (action && action.label && typeof action.onClick === 'function') {
       node.classList.add('ui-toast--action');
-      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label,
-                               'aria-keyshortcuts': 'Control+Z Meta+Z',
-                               'aria-label': action.label + ' (' + undoHint + ')' });
+      var btn = el('button', { type: 'button', class: 'ui-toast__action', text: action.label });
       if (opts.dialog) raisedFrom.set(btn, opts.dialog);
       btn.addEventListener('click', function () {
         if (node.classList.contains('is-leaving')) return;
@@ -167,12 +166,13 @@
       action = null;
       node.textContent = message;
     }
-    if (action) {
-      // Only the newest action toast answers the shortcut.
-      Array.prototype.forEach.call(host.querySelectorAll('.ui-toast__action'), function (b) {
+    if (action && action.label === 'Undo') {
+      // Only the newest Undo answers the shortcut.
+      Array.prototype.forEach.call(host.querySelectorAll('.ui-toast--undo .ui-toast__action'), function (b) {
         b.removeAttribute('aria-keyshortcuts');
         b.setAttribute('aria-label', b.textContent);
       });
+      node.classList.add('ui-toast--undo');
       btn.setAttribute('aria-keyshortcuts', 'Control+Z Meta+Z');
       btn.setAttribute('aria-label', action.label + ' (' + undoHint + ')');
       listenForUndo();

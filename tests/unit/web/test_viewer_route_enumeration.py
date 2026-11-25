@@ -30,6 +30,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/watch/discover"),
     ("GET", "/api/watch/title/{ref}"),
     ("GET", "/api/watch/title/{ref}/ratings"),
+    ("GET", "/api/watch/title/{ref}/collection"),
     ("GET", "/api/watch/title/{ref}/season/{number}"),
     ("GET", "/api/watch/recommended"),
     ("POST", "/api/watch/stream"),
@@ -77,6 +78,7 @@ _VIEWER_MAY_REACH = {
     ("GET", "/api/poster/{rating_key}"),
     ("GET", "/history"),
     ("GET", "/api/history"),
+    ("GET", "/api/history/menu"),
     ("GET", "/account"),
     ("GET", "/api/account/plex"),
     ("POST", "/api/account/plex"),
@@ -181,6 +183,7 @@ def test_an_admin_reaches_every_route(guarded_app, conn, authed_client):
         "/api/watch/ratings",
         "/api/search/assist",
         "/api/history",
+        "/api/history/menu",
         "/api/security-events",
     ],
 )

@@ -129,8 +129,11 @@
     var stopped = false;
     var awake = new Set(cards);
 
+    function present() { return cards.filter(function (card) { return card.parentNode === scroller; }); }
+
     function step() {
-      return cards.length > 1 ? cards[1].offsetLeft - cards[0].offsetLeft : 0;
+      var here = present();
+      return here.length > 1 ? here[1].offsetLeft - here[0].offsetLeft : 0;
     }
 
     /* Whether the end of the cards, not of what stands after them, is near. */
@@ -277,20 +280,21 @@
 
     /* ── Posters near and far ── */
 
-    function inStrip() {
+    function inStrip(here) {
       var width = step();
       if (!width) return null;
       var seen = scroller.clientWidth;
       return [
         Math.max(0, Math.floor((scroller.scrollLeft - AWAKE_VIEWS * seen) / width)),
-        Math.min(cards.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * seen) / width))
+        Math.min(here.length, Math.ceil((scroller.scrollLeft + (AWAKE_VIEWS + 1) * seen) / width))
       ];
     }
 
     function sweep() {
-      var range = view ? view.range(cards) : inStrip();
+      var here = present();
+      var range = view ? view.range(here) : inStrip(here);
       if (!range) return;
-      var keep = new Set(cards.slice(range[0], range[1]));
+      var keep = new Set(here.slice(range[0], range[1]));
       awake.forEach(function (card) { if (!keep.has(card)) unload(card); });
       keep.forEach(function (card) { if (!awake.has(card)) reload(card); });
       awake = keep;

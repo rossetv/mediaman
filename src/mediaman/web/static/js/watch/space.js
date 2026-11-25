@@ -385,6 +385,7 @@
   function closePanel() { watch.address.close('storage'); }
 
   var hideTimer = null;
+  var left = null; // what had the focus as the panel went under something, and the key it is drawn again by
 
   /* The page is out of reach under the panel; its menus and toasts are not, so the
      panel is no aria-modal, which would hide them from a screen reader. */
@@ -444,11 +445,19 @@
     refreshQuietly();
   }
 
+  /* What had the focus may have been drawn again since: the one now in its place has it. */
+  function refocus() {
+    var to = left && left.key && !root.contains(left.node) ? root.querySelector(left.key) : null;
+    if (to) to.focus({ preventScroll: true });
+  }
+
   /* *under*: something opened over it, and has the focus. */
   function hide(under) {
     if (!isOpen) return;
     isOpen = false;
     stay();
+    var active = document.activeElement;
+    left = root.contains(active) ? { node: active, key: focusKey(active) } : null;
     land();
     // What it asks is of the panel: it must not outlive it, over a page that has the focus.
     window.UIFeedback.dismissConfirm();
@@ -484,6 +493,7 @@
       show(name, how !== 'pop');
       if (from) fly(from, panelSpots, panel);
       if (how === 'pop') {
+        refocus();
         setTimeout(function () {
           if (isOpen && !root.contains(document.activeElement)) panel.focus({ preventScroll: true });
         }, 0);
@@ -684,10 +694,12 @@
     shades.forEach(function (n) { n.style.opacity = '0'; });
     document.body.append(air);
     var ENDS = ['wheel', 'touchmove', 'keydown', 'resize'];
+    var SCROLLS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
     var timer = setTimeout(end, slow() + pairs.length * 12);
     function end(e) {
       // Back on the keyboard is pressed with one of these: the titles turn round where they are.
-      if (e && (e.altKey || e.metaKey || e.ctrlKey) && e.type === 'keydown') return;
+      // What scrolls with one, such as Cmd and Down, moves the page under them.
+      if (e && (e.altKey || e.metaKey || e.ctrlKey) && e.type === 'keydown' && !SCROLLS.test(e.key)) return;
       landing = null;
       flying = [];
       clearTimeout(timer);

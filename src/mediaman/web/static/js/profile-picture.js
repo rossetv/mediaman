@@ -74,10 +74,18 @@
     /* A photo read or drawn after the person has moved on is dropped. */
     var turn = 0;
     var place = null;
+    /* A chosen photo is being read; it is not saved past. */
+    var reading = false;
+
+    function isOpen() { return dialog.getAttribute('aria-hidden') === 'false'; }
 
     function addressOf(pick) { return pick.url || drawn[(pick.choice || own) - 1]; }
 
     function showError(text) {
+      if (text || errorBox.firstChild) eased(function () { putError(text); });
+    }
+
+    function putError(text) {
       errorBox.textContent = '';
       if (!text) return;
       var p = document.createElement('p');
@@ -107,22 +115,54 @@
       removeBtn.hidden = !(draft.url || draft.choice);
       removeBtn.textContent = draft.url ? 'Remove photo' : 'Remove';
       radios.forEach(function (r) { r.checked = !draft.url && Number(r.value) === (draft.choice || own); });
-      save.disabled = draft.url === kept.url && draft.choice === kept.choice;
+      save.disabled = reading || draft.url === kept.url && draft.choice === kept.choice;
+    }
+
+    function setReading(on) {
+      reading = on;
+      paint(true);
     }
 
     function choose(pick) {
+      eased(function () { putPick(pick); });
+    }
+
+    function putPick(pick) {
       draft = pick;
-      showError('');
+      putError('');
       paint();
     }
 
+    var body = byId('pic-body');
+    var sizing = null;
+    /* Runs a change of what the dialog holds, and lets its height follow. */
+    function eased(change) {
+      var from = body.offsetHeight;
+      if (sizing) sizing.cancel();
+      sizing = null;
+      change();
+      var to = body.offsetHeight;
+      if (!from || from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var tokens = getComputedStyle(document.documentElement);
+      sizing = body.animate(
+        [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
+        { duration: parseFloat(tokens.getPropertyValue('--dur-slow')) * 1000, easing: tokens.getPropertyValue('--ease-out').trim() }
+      );
+    }
+
     function pane(placing) {
+      eased(function () { showPane(placing); });
+    }
+
+    function showPane(placing) {
       byId('pic-pick').hidden = placing;
       byId('pic-place').hidden = !placing;
       byId('pic-title').textContent = placing ? 'Place your photo' : 'Your picture';
     }
 
+    /* Nothing else can be chosen while a picture is sent, as the answer closes the dialog. */
     function setSaving(on) {
+      radios.concat(byId('pic-upload'), removeBtn).forEach(function (control) { control.disabled = on; });
       save.textContent = '';
       if (on) {
         save.setAttribute('aria-disabled', 'true');
@@ -150,6 +190,7 @@
         letGo = null;
         turn += 1;
         place = null;
+        reading = false;
         fileInput.value = '';
         made.forEach(function (url) { URL.revokeObjectURL(url); });
         made = [];
@@ -185,6 +226,7 @@
 
     function take(file) {
       var mine = turn += 1;
+      if (reading) setReading(false);
       showError('');
       if (!/^image\/(jpeg|png|webp)$/.test(file.type) && !isHeic(file)) { showError(WORDS.type); return; }
       if (file.size > MAX_BYTES) {
@@ -192,10 +234,12 @@
         return;
       }
       var url = URL.createObjectURL(file);
+      setReading(true);
       var img = new Image();
       img.onload = function () {
         URL.revokeObjectURL(url);
         if (mine !== turn) return;
+        setReading(false);
         var w = img.naturalWidth, h = img.naturalHeight;
         if (Math.min(w, h) < MIN_SIDE) {
           showError('That photo is ' + w + ' × ' + h + ' pixels. It needs at least ' + MIN_SIDE + ' each way.');
@@ -205,7 +249,9 @@
       };
       img.onerror = function () {
         URL.revokeObjectURL(url);
-        if (mine === turn) showError(isHeic(file) ? WORDS.heic : WORDS.type);
+        if (mine !== turn) return;
+        setReading(false);
+        showError(isHeic(file) ? WORDS.heic : WORDS.type);
       };
       img.src = url;
     }
@@ -257,6 +303,7 @@
       place.y = (place.y - (cy || 0)) * k + (cy || 0);
       place.zoom = zoom;
       zoomInput.value = Math.round(zoom * 100);
+      zoomInput.style.setProperty('--at', (zoom - 1) / (MAX_ZOOM - 1));
       draw();
     }
 
@@ -337,21 +384,26 @@
       out.toBlob(function (blob) {
         if (mine !== turn) return;
         place = null;
-        pane(false);
         if (!blob) {
-          showError(WORDS.place);
+          eased(function () {
+            showPane(false);
+            putError(WORDS.place);
+          });
           byId('pic-upload').focus({ preventScroll: true });
           return;
         }
         var url = URL.createObjectURL(blob);
         made.push(url);
-        choose({ choice: null, url: url, blob: blob });
+        eased(function () {
+          showPane(false);
+          putPick({ choice: null, url: url, blob: blob });
+        });
         save.focus({ preventScroll: true });
       }, place.type, 0.9);
     });
 
     save.addEventListener('click', function () {
-      if (isBusy(save)) return;
+      if (isBusy(save) || (draft.url && !draft.blob)) return;
       var sent = draft;
       showError('');
       setSaving(true);
@@ -359,17 +411,24 @@
         : sent.choice ? MM.api.put('/api/account/avatar', { choice: sent.choice })
           : MM.api.delete('/api/account/avatar');
       request.then(function (data) {
+        /* A proxy may answer with a page of its own. */
+        if (!data.url) throw new Error('no picture in the answer');
+        return data;
+      }).then(function (data) {
         setSaving(false);
         kept = { choice: data.choice, url: data.kind === 'photo' ? data.url : null };
         MM.dom.qa('img', opener).forEach(function (img) { swapIn(img, data.url); });
         document.dispatchEvent(new CustomEvent('mm:avatar', { detail: { url: data.url } }));
         UIFeedback.toast(data.kind === 'default' ? 'Picture removed.' : 'Picture saved.', { variant: 'success' });
-        if (draft === sent) modal.close();
-        else paint(true);
+        if (!isOpen()) return;
+        if (draft === sent) { modal.close(); return; }
+        /* Opened again meanwhile, at the picture there was before this one. */
+        draft = { choice: kept.choice, url: kept.url };
+        paint(true);
       }, function (err) {
         setSaving(false);
         var words = MM.api.messageOf(err, WORDS.save);
-        if (dialog.getAttribute('aria-hidden') === 'true') UIFeedback.error(words);
+        if (!isOpen()) UIFeedback.error(words);
         else showError(words);
       });
     });

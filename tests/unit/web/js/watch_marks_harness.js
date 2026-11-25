@@ -1,4 +1,4 @@
-// Runs watch/core.js, keep.js and marks.js against the fake DOM and prints one scenario's outcome as
+// Runs watch/core.js, keep.js, ratings.js and marks.js against the fake DOM and prints one scenario's outcome as
 // JSON. Usage: node watch_marks_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -26,8 +26,9 @@ Object.defineProperty(Node.prototype, 'hidden', {
 function card(mark, title, sub, over = {}) {
   const at = /^(movie|show)\/(\d+)$/.exec(mark);
   const ref = over.ref || (at && at[1] + '-' + at[2]);
-  return ['article', { class: 'watch-card', 'data-mark': mark, ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
-    ['a', { class: 'watch-card__link', ...(ref && !over.dismiss ? { 'data-title-ref': ref } : {}) },
+  return ['article', { class: 'watch-card', ...(mark ? { 'data-mark': mark } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
+    ['a', { class: 'watch-card__link', ...(ref && !over.dismiss ? { 'data-title-ref': ref } : {}),
+      ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie', 'data-tmdb-id': over.tmdb || '' } : {}) },
       ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, title],
         ...(over.watched ? [['span', { class: 'watch-badge watch-badge--watched' }, 'Watched']] : []),
         ...(over.bar ? [['progress', { class: 'watch-bar' }]] : [])],
@@ -67,19 +68,25 @@ function load(page, opts = {}) {
   const toasts = [];
   const events = [];
   const fetched = [];
-  doc.dispatchEvent = (e) => { events.push(e.detail.ref); };
+  doc.dispatchEvent = (e) => {
+    if (e.type === 'mm:rating') doc.listeners['mm:rating'].forEach((fn) => fn(e));
+    else events.push(e.detail.ref);
+  };
+  const gone = [];
+  const held = []; // the timers of a rating just given, with opts.hold
+  const watchers = new Set();
   const call = (method) => (url) => {
     calls.push(method + ' ' + url);
     let answer = (opts.api || {})[method + ' ' + url];
     if (typeof answer === 'function') answer = answer();
     if (answer instanceof Promise) return answer;
     if (typeof answer === 'number') return Promise.reject(Object.assign(new Error('http'), { status: answer }));
-    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST' });
+    return Promise.resolve(answer || { ok: true, changed: 1, watched: method === 'POST', ratings: {} });
   };
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Error, parseFloat, parseInt,
-    setTimeout: (fn) => { fn(); return 0; },
-    clearTimeout() {},
+    setTimeout: (fn, ms) => { if (opts.hold && ms === 650) return held.push(fn); if (opts.hold && ms === 0) { Promise.resolve().then(fn); return 0; } fn(); return 0; },
+    clearTimeout(id) { if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
     matchMedia: () => ({ matches: true }),
@@ -96,19 +103,24 @@ function load(page, opts = {}) {
       const sent = typeof opts.next === 'function' ? opts.next(fetched.length, calls) : undone ? page : opts.next;
       return Promise.resolve(sent).then((spec) => ({ ok: true, redirected: !!opts.redirected, text: () => Promise.resolve(JSON.stringify(spec)) }));
     },
-    UIFeedback: { toast: (message, o) => toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick, dialog: o.dialog ? o.dialog.id : null }) },
-    MM: { api: { get: call('GET'), post: call('POST'), delete: call('DELETE'), messageOf: (_e, f) => f } },
+    UIFeedback: {
+      toast: (message, o) => { toasts.push({ message, variant: o.variant, undo: o.action && o.action.onClick, dialog: o.dialog ? o.dialog.id : null }); return message; },
+      dismiss: (message) => gone.push(message),
+    },
+    MutationObserver: class { constructor(fn) { this.fn = fn; } observe() { watchers.add(this); } disconnect() { watchers.delete(this); } },
+    MM: { api: { get: call('GET'), post: call('POST'), put: (url, body) => call('PUT')(url + ' ' + body.level), delete: call('DELETE'), messageOf: (_e, f) => f } },
     addEventListener() {},
     scrollBy() {},
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'watch/marks.js']
+  ['core/dom.js', 'watch/core.js', 'watch/keep.js', 'ratings.js', 'watch/marks.js']
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const cards = (id) => doc.querySelectorAll('.watch-card').filter((c) => !id || c.closest('#' + id));
   const started = [];
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
+    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); },
     ctx, started, doc, calls, toasts, events, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
@@ -163,7 +175,243 @@ function pieces(node, kind = '') {
   });
 }
 
+// Recommended, with the film of the library among the picks, and the same film in the library's own row.
+const PICKS = () => [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }), card('movie/9', 'After', 'Movie', { pick: 'rec-9', tmdb: '90' })];
+const RATE = 'PUT /api/watch/ratings/movie-1 ';
+const FILM_10 = { ok: true, media_type: 'movie', tmdb_id: 10 };
+function rated(api, opts) {
+  return load(watchPage([row('picks', PICKS()), row('lib', [FILM()])]), {
+    api: { [RATE + '-2']: FILM_10, [RATE + '1']: FILM_10, 'DELETE /api/watch/ratings/movie-1': FILM_10, ...api }, ...opts,
+  });
+}
+
+/* A click that goes no further up than where it is stopped. */
+function clickThumb(doc, b) {
+  let stopped = false;
+  const e = { target: b, preventDefault() {}, stopPropagation() { stopped = true; } };
+  for (let n = b; n && !stopped; n = n.parentNode) (n.listeners.click || []).forEach((fn) => fn(e));
+  if (!stopped) doc.listeners.click.forEach((fn) => fn(e));
+}
+
+async function thumb(p, c, i) {
+  p.open(c);
+  clickThumb(p.doc, p.doc.querySelectorAll('#watch-more-menu .rate__b')[i]);
+  await settle();
+}
+
 const scenarios = {
+  // The rating in a card's More menu: a level, then the same one taken back.
+  async menuRating() {
+    const p = rated();
+    const shut = () => p.doc.querySelector('#watch-more-menu').classList.contains('is-open');
+    await thumb(p, p.cards('lib')[0], 2);
+    const first = [shut(), p.calls.slice(), p.focus()];
+    await thumb(p, p.cards('lib')[0], 2);
+    return { first, back: [shut(), p.calls.slice(1)] };
+  },
+
+  // A pick that is not in the library: what its menu holds, a rating from it, and its Details; and one that is.
+  async pickMenu() {
+    const p = load(watchPage([row('picks', [card('', 'Wanted', 'Movie · 2024', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' }), ...PICKS().slice(0, 1)])]), {
+      api: { 'PUT /api/watch/ratings/rec-5 1': { ok: true, media_type: 'movie', tmdb_id: 50 } } });
+    const [wanted, held] = p.cards();
+    const pressed = [];
+    const link = wanted.querySelector('.watch-card__link');
+    link.click = () => pressed.push('link');
+    p.open(wanted);
+    const menu = p.doc.querySelector('#watch-more-menu');
+    const out = { menu: p.menu(), label: menu.getAttribute('aria-label'), focus: p.doc.activeElement.textContent };
+    out.keys = ['ArrowUp', 'ArrowUp'].map((key) => {
+      menu.listeners.keydown.forEach((fn) => fn({ key, preventDefault() {}, stopPropagation() {} }));
+      return p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.textContent;
+    });
+    p.open(wanted);
+    await thumb(p, wanted, 2);
+    out.calls = p.calls.filter((c) => /^PUT/.test(c));
+    await p.pick(wanted, 'details');
+    p.open(held);
+    return { ...out, pressed, marked: p.calls.filter((c) => /watched/.test(c)), held: p.menu() };
+  },
+
+  // See all opened without the pick, then its Undo: the grid's own card has the focus, the row stands hidden behind it.
+  async strongNoUndoneInGrid() {
+    const p = rated();
+    const twin = build(p.doc, card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }));
+    p.ctx.MMWatch.grid = { isOpen: () => true, take: () => null, bring: () => p.doc.body.appendChild(twin) };
+    await thumb(p, p.cards('picks')[1], 0);
+    p.doc.activeElement.blur();
+    const rects = Node.prototype.getClientRects;
+    Node.prototype.getClientRects = function () { return this.closest('#picks') ? [] : rects.call(this); };
+    await p.undo(0);
+    return p.doc.activeElement === twin.querySelector('[data-watch-more]');
+  },
+
+  // Up and down take the four as one stop; left and right go between them.
+  async menuKeys() {
+    const p = rated();
+    p.open(p.cards('lib')[0]);
+    const menu = p.doc.querySelector('#watch-more-menu');
+    return ['ArrowUp', 'ArrowRight', 'ArrowRight', 'ArrowDown', 'Home', 'ArrowLeft', 'End'].map((key) => {
+      menu.listeners.keydown.forEach((fn) => fn({ key, preventDefault() {}, stopPropagation() {} }));
+      return p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.textContent;
+    });
+  },
+
+  // A strong no from the library's card, then Undo.
+  async strongNo() {
+    const p = rated();
+    await thumb(p, p.cards('lib')[0], 2);
+    await thumb(p, p.cards('lib')[0], 0);
+    const out = { gone: p.marks(), toast: p.toasts[0].message };
+    await p.undo();
+    return { ...out, back: p.marks('picks'), calls: p.calls };
+  },
+
+  // From the pick's own card, with the keyboard; then Undo from its toast.
+  async strongNoFocus() {
+    const p = rated();
+    await thumb(p, p.cards('picks')[1], 0);
+    const next = p.focus();
+    const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast' }, ['button', {}]]));
+    toast.querySelector('button').focus();
+    await p.undo();
+    return { next, back: p.focus() };
+  },
+
+  // Named by another ref, in Details, which is then closed.
+  async strongNoInDetails() {
+    const p = load(watchPage([row('picks', [card('movie/8', 'Before', 'Movie', { pick: 'rec-8', tmdb: '80' }), card('movie/7', 'Pick', 'Movie', { ref: 'rec-7', pick: 'rec-7', tmdb: '70' })])]),
+      { api: { 'PUT /api/watch/ratings/tmdb-movie-70 -2': { media_type: 'movie', tmdb_id: 70 } } });
+    const details = p.doc.body.appendChild(build(p.doc, ['div', { id: 'ttl' }, ['button', { class: 'inside' }]]));
+    p.doc.documentElement.classList.add('has-ttl');
+    details.querySelector('button').focus();
+    p.ctx.MM.ratings.set('tmdb-movie-70', -2);
+    await settle();
+    const open = [p.marks(), p.focus(), p.toasts[0].dialog];
+    p.changed();
+    details.classList.add('is-leaving');
+    p.changed();
+    return { open, closed: p.focus() };
+  },
+
+  // Each toast that was taken away by the time of the next change: marked, marked back, another film, and undone.
+  async markToasts() {
+    const p = load(watchPage([row('lib', [FILM(), card('movie/3', 'Salt', 'Movie')])]));
+    const at = [];
+    const step = async (go) => { await go(); at.push(p.gone.slice()); };
+    await step(() => p.pick(p.cards()[0], 'mark'));
+    await step(() => p.pick(p.cards()[1], 'mark'));
+    await step(() => p.pick(p.cards()[0], 'mark'));
+    await step(() => p.undo(1));
+    return at;
+  },
+
+  async dismissToasts() {
+    const p = load(watchPage([row('cont', CONTINUE)]));
+    await p.pick(p.cards()[0], 'dismiss');
+    await p.undo();
+    p.dismissed('movie-1');
+    await settle();
+    return p.gone;
+  },
+
+  async ratingFails() {
+    const p = rated({ [RATE + '-2']: 500 });
+    await thumb(p, p.cards('picks')[1], 0);
+    return { picks: p.marks('picks'), toasts: p.toasts.map((t) => t.message) };
+  },
+
+  // A strong no is saved, and another level pressed before it has left; that is not saved, before its time is up or after,
+  // or the server does not say, and is asked.
+  async otherLevelFails() {
+    const out = [];
+    for (const [after, status] of [[false, 409], [true, 409], [true, 500], [false, 500]]) {
+      const no = later();
+      let level = null;
+      const save = (to) => () => { level = to; return FILM_10; };
+      const p = rated({ [RATE + '2']: () => no.answer.then(() => Promise.reject(Object.assign(new Error('http'), { status }))),
+        [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
+      await thumb(p, p.cards('picks')[1], 2);
+      p.pass();
+      await thumb(p, p.cards('picks')[1], 0);
+      await thumb(p, p.cards('picks')[1], 3);
+      if (after) p.pass();
+      const before = p.marks('picks').length;
+      no.send();
+      await settle();
+      p.pass();
+      const told = p.toasts.map((t) => t.message);
+      const gone = p.marks('picks');
+      p.toasts.filter((t) => t.undo).forEach((t) => t.undo());
+      await settle();
+      out.push({ before, told, gone, back: p.marks('picks'), last: p.calls.filter((c) => /^PUT/.test(c)).pop() });
+    }
+    return out;
+  },
+
+  // A save is stored and its answer lost: a strong no's, or that of the Undo of one. The server is asked after each.
+  async answerLost() {
+    const go = async (lost) => {
+      let level = 1;
+      const save = (to) => () => {
+        level = to;
+        return to === lost ? Promise.reject(Object.assign(new Error('http'), { status: 500 })) : FILM_10;
+      };
+      const p = rated({ [RATE + '-2']: save(-2), [RATE + '1']: save(1), 'GET /api/watch/ratings?refs=movie-1': () => ({ ratings: { 'movie-1': { level, rateable: true } } }) }, { hold: true });
+      p.ctx.MM.ratings.read(['movie-1']);
+      await settle();
+      await thumb(p, p.cards('picks')[1], 0);
+      p.pass();
+      await settle();
+      const gone = p.marks('picks');
+      p.toasts.filter((t) => t.undo).forEach((t) => t.undo());
+      await settle();
+      return { gone, back: p.marks('picks'), told: p.toasts.map((t) => t.message), dismissed: p.gone };
+    };
+    return [await go(-2), await go(1)];
+  },
+
+  // The menu opened again on another card before the time to shut it for the first is up.
+  async menuAgain() {
+    const p = rated({}, { hold: true });
+    await thumb(p, p.cards('lib')[0], 2);
+    p.doc.listeners.keydown.forEach((fn) => fn({ key: 'Escape', preventDefault() {} }));
+    p.open(p.cards('picks')[0]);
+    p.pass();
+    return p.doc.querySelector('#watch-more-menu').classList.contains('is-open');
+  },
+
+  async undoFails() {
+    const p = rated({ 'DELETE /api/watch/ratings/movie-1': 500 });
+    await thumb(p, p.cards('picks')[1], 0);
+    p.toasts[0].undo();
+    const now = p.marks('picks');
+    await settle();
+    return { now, after: p.marks('picks'), toast: p.toasts[1].message };
+  },
+
+  // Rated otherwise elsewhere: it is back, and the toast that says it is gone goes.
+  async secondThoughts() {
+    const p = rated();
+    await thumb(p, p.cards('picks')[1], 0);
+    const gone = p.marks('picks');
+    await thumb(p, p.cards('lib')[0], 2);
+    return { gone, back: p.marks('picks'), dismissed: p.gone.length };
+  },
+
+  // The row was filled anew before the Undo, or the last pick took the row along.
+  async undoLater() {
+    const anew = rated();
+    await thumb(anew, anew.cards('picks')[1], 0);
+    anew.doc.querySelector('#picks .watch-row__viewport').replaceWith(build(anew.doc, row('fresh', PICKS().slice(0, 1))[2]));
+    await anew.undo();
+    const only = load(watchPage([row('picks', PICKS().slice(1, 2)), row('lib', [FILM()])]), { api: { [RATE + '-2']: FILM_10, 'DELETE /api/watch/ratings/movie-1': FILM_10 } });
+    await thumb(only, only.cards('picks')[0], 0);
+    const emptied = !!only.doc.querySelector('#picks');
+    await only.undo();
+    return { anew: anew.marks('picks'), emptied, back: only.marks('picks') };
+  },
+
   // What the one menu offers for each kind of card.
   async menus() {
     const p = load(watchPage([row('cont', CONTINUE), row('lib', [FILM(), card('show/2', 'Brightwater', 'TV', { watched: true }),
