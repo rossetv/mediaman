@@ -448,6 +448,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     Date: Object.assign(function (ms) { return new Date(ms); }, { now: () => clock.now }),
     AbortController: AbortController,
     TextDecoder: TextDecoder,
+    crypto: require('crypto').webcrypto,
     DOMParser: DOMParser,
     history: {
       urls: [], backs: 0, length: came ? came.length : 1, state: (came && came.state) || null,
@@ -563,6 +564,10 @@ function loadError(details, code, body, headers) {
     },
   };
 }
+
+/* The start requests, and the name this page gives itself in them. */
+function startCalls(p) { return p.calls.filter((c) => /\/api\/watch\/stream$/.test(c.url)); }
+function pageOf(p) { return startCalls(p)[0].body.page; }
 
 function messageState(p) {
   if (gone(p.q('[data-message]'))) return null;
@@ -1925,11 +1930,17 @@ const scenarios = {
     first.reply(answer('480p-1500').ok);
     await settle();
     p.replies.push(answer('720p-4000'), answer('720p-4000'));
-    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    const replacedBy = (by) => p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced', by: by }));
+    replacedBy(pageOf(p));
     await streamPlays(p, 105);
     const restarted = { message: messageState(p), starts: p.starts().length };
-    /* From then on it can only be another page. */
-    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    /* However long after: the server says whose start it was. */
+    p.tick(300000);
+    playOn(p, 60);
+    replacedBy(pageOf(p));
+    await streamPlays(p, 165);
+    restarted.muchLater = { message: messageState(p), starts: p.starts().length };
+    replacedBy('another-page');
     await settle();
     return Object.assign(restarted, { later: messageState(p).text, after: p.starts().length });
   },
@@ -1950,9 +1961,9 @@ const scenarios = {
     h.emit('hlsFragLoading');
     if (way !== 'never') first.reply(answer('480p-1500').ok);
     await settle();
-    const replaced = () => h.emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    const replaced = () => h.emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced', by: 'another-page' }));
     if (way === 'asked before') {
-      /* Asked for while the other start was still open, it says nothing of what followed. */
+      /* Asked for while this page's other start was still open. */
       h.emit('hlsFragLoaded');
     } else if (way === 'save') {
       playOn(p, 5);
@@ -1969,6 +1980,42 @@ const scenarios = {
     replaced();
     await settle();
     return { message: messageState(p), starts: p.starts().length - starts };
+  },
+
+  /* What this page starts by itself the server refuses, the person having asked another page
+     since: after the stream went for idleness, or as a start left by a drop gets through. */
+  async start_refused(p) {
+    const way = p.win.serverPlays;
+    const refusal = { err: { status: 410, error: 'replaced', data: { error: 'replaced', by: 'another-page' } } };
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.tick(20000);
+    if (way === 'drop') p.replies.push(NET, NET);
+    p.replies.push(refusal);
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    await settle();
+    if (way === 'drop') {
+      p.tick(1000);
+      await settle();
+      p.online();
+      await settle();
+    }
+    const sent = startCalls(p).map((c) => c.body);
+    const out = {
+      message: messageState(p), frame: holdState(p).shown, loading: p.root.classList.contains('is-loading'),
+      pages: sent.map((b) => b.page === sent[0].page && /^[A-Za-z0-9_-]{8,64}$/.test(b.page)),
+      asked: sent.map((b) => b.asked_s),
+    };
+    p.tick(600000);
+    p.online();
+    await settle();
+    out.byItself = startCalls(p).length - sent.length;
+    p.pages['/watch/play/1'] = 'offline';
+    p.replies.push(answer('1080p-8000'));
+    press(p.q('[data-retry]'));
+    await streamPlays(p, 105);
+    out.here = { asked: startCalls(p).pop().body.asked_s, at: p.hlsList[p.hlsList.length - 1].config.startPosition, message: messageState(p) };
+    return out;
   },
 
   /* A start is never answered; Try again is, and then the first answer comes after all. */
@@ -2278,7 +2325,7 @@ const scenarios = {
     p.online();
     await streamPlays(p, 105);
     const starts = p.starts().length;
-    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced' }));
+    p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced', by: pageOf(p) }));
     await settle();
     return Object.assign(out, { replaced: messageState(p), starts: p.starts().length - starts });
   },

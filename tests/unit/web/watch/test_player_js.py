@@ -764,7 +764,7 @@ def test_the_next_episode_takes_over_in_the_same_page_and_video(in_place):
         0.4,
         True,
     )
-    assert in_place["start"] == {"rating_key": "502", "quality": "low"}
+    assert (in_place["start"]["rating_key"], in_place["start"]["quality"]) == ("502", "low")
 
 
 def test_the_old_stream_is_saved_and_stopped_before_the_new_one_starts(in_place):
@@ -880,7 +880,7 @@ def test_the_card_and_the_question_carry_a_picture_of_the_next_episode_where_the
 
 def test_a_page_that_never_opens_leaves_this_episode_as_it_was(markup):
     out = run(markup, "next_never_opens")
-    assert out["start"] == {"rating_key": "501", "quality": "low"}
+    assert (out["start"]["rating_key"], out["start"]["quality"]) == ("501", "low")
 
 
 def test_a_next_episode_that_is_gone_is_not_offered_again(markup):
@@ -1439,18 +1439,25 @@ def test_a_stream_this_page_replaced_is_never_taken_for_another_page_s(markup):
     assert run(markup, "replaced_by_itself", plays="save") == {"message": None, "starts": 2}
     out = run(markup, "replaced_by_itself", plays="start")
     assert (out["message"], out["starts"]) == (None, 4)
-    assert (out["later"], out["after"]) == (REPLACED["text"], 4)
+    assert out["muchLater"] == {"message": None, "starts": 5}
+    assert (out["later"], out["after"]) == (REPLACED["text"], 5)
 
 
-@pytest.mark.parametrize("way", ["segment", "save", "never"])
-def test_a_title_started_somewhere_else_long_after_a_quick_pick_stops_here(markup, way):
+@pytest.mark.parametrize("way", ["segment", "save", "never", "asked before"])
+def test_a_title_started_somewhere_else_after_a_quick_pick_stops_here_at_any_moment(markup, way):
     out = run(markup, "replaced_long_after", plays=way)
     assert out == {"message": REPLACED, "starts": 0}
 
 
-def test_a_segment_asked_for_before_the_other_start_was_answered_settles_nothing(markup):
-    out = run(markup, "replaced_long_after", plays="asked before")
-    assert out == {"message": None, "starts": 1}
+@pytest.mark.parametrize(("way", "asked"), [("idle", [0, 20]), ("drop", [0, 20, 21, 21])])
+def test_what_the_page_starts_by_itself_says_when_it_was_asked_and_stops_where_refused(
+    markup, way, asked
+):
+    out = run(markup, "start_refused", plays=way)
+    assert (out["message"], out["frame"], out["loading"]) == (REPLACED, True, False)
+    assert (out["pages"], out["asked"]) == ([True] * len(asked), asked)
+    # Nothing more by itself; the person's press is asked for now, and plays here.
+    assert (out["byItself"], out["here"]) == (0, {"asked": 0, "at": 105, "message": None})
 
 
 def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is_stopped(markup):

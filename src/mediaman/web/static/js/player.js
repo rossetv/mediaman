@@ -7,8 +7,8 @@
  * person out.
  *
  * Requests:
- *   POST /api/watch/stream            {rating_key, quality} → {stream_id, playlist,
- *                                     quality, qualities, previews, markers, chapters}
+ *   POST /api/watch/stream            {rating_key, quality, page, asked_s} → {stream_id,
+ *                                     playlist, quality, qualities, previews, markers, chapters}
  *   GET  <playlist> and its segments  (made by hls.js)
  *   GET  /api/watch/stream/<id>/preview/<n>  (a frame for the play bar)
  *   POST /api/watch/progress          {stream_id, position_s, played_s}
@@ -19,9 +19,12 @@
  *
  * A 410 from any stream URL means the server has dropped the stream (a
  * long pause, a restart): a new one is started at the current position,
- * which is also how a quality change works. One that says the stream was
- * replaced means that the person plays the title elsewhere now: this player
- * stops until they press Play here. What answers 429 is asked again when it
+ * which is also how a quality change works. A title plays where its person
+ * last asked for it: every start says which page asks and how long ago the
+ * person pressed for it there, and the server starts none asked for before
+ * another page's. A 410 that says the stream was replaced by another page
+ * means that the person plays the title there now: this player stops until
+ * they press Play here. What answers 429 is asked again when it
  * says. If the server refuses the stream of a new quality, the quality that
  * was playing comes back.
  * Automatic steps the quality down when playback keeps stalling, and
@@ -259,8 +262,12 @@
   var streamId = null;
   var generation = 0;        // bumps on every new stream; stale replies are dropped
   var starting = false;
-  var startsOpen = 0;        // starts not answered yet, dropped ones included
-  var ownRival = false;      // one of them may have replaced the stream now playing
+  /* This page's name among the person's players. No secret: it opens nothing. */
+  var pageId = Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(12)), function (b) {
+    return (b < 16 ? '0' : '') + b.toString(16);
+  }).join('');
+  var pressedAt = Date.now(); // when the person last asked this page to play
+  function pressedPlay() { pressedAt = Date.now(); }
   var noneSince = null;      // the first refusal since a request was taken, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
   var startedAt = null;      // when the stream that has not played yet was asked for
@@ -519,6 +526,7 @@
 
   function chooseQuality(value) {
     var same = value === quality && !override;
+    pressedPlay();
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
     var stopped = shown(els.message) && tryAgain;
@@ -889,6 +897,7 @@
 
   /* Try again. */
   function tryLost() {
+    pressedPlay();
     lost.at = Date.now();
     wantPlaying = true;
     if (streamId && video.paused && !video.ended) play();
@@ -1043,7 +1052,6 @@
         if (lost) waitOut(again, gaveUp);
         else fail();
       };
-      startsOpen++;
       var open = true;
       var waits = function () { return open && !dropped(); };
       /* It may still be answered: asked again only once the server is there. */
@@ -1053,7 +1061,6 @@
       };
       watchSlow(waits, function () { waitOut(again, gaveUp, look); });
       var answered = function () {
-        if (open) startsOpen--;
         open = false;
         clearTimeout(limit);
       };
@@ -1064,11 +1071,13 @@
         unanswered();
       }, START_WAIT_MS);
       var abort = lastStart = new AbortController();
-      var start = MM.api.post('/api/watch/stream', { rating_key: item.rating_key, quality: asked() }, { signal: abort.signal });
-      start.then(answered, function () {
-        /* The server may still come to one that was ended, and replace a later one by it. */
-        if (!abort.signal.aborted) answered();
-      });
+      var start = MM.api.post('/api/watch/stream', {
+        rating_key: item.rating_key,
+        quality: asked(),
+        page: pageId,
+        asked_s: Math.max(0, Date.now() - pressedAt) / 1000,
+      }, { signal: abort.signal });
+      start.then(answered, answered);
       return start
         .then(function (data) {
           if (dropped()) {
@@ -1077,7 +1086,6 @@
           }
           starting = false;
           reached();
-          ownRival = startsOpen > 0;
           streamId = data.stream_id;
           streamChoice = choice();
           takeQualities(data);
@@ -1095,6 +1103,8 @@
             return;
           }
           reached();
+          /* Asked for by itself, after the person asked another page. */
+          if (status === 410 && code === 'replaced') { streamReplaced(); return; }
           if (tries < 1 && RETRY_STATUS[status]) return attempt(tries + 1);
           if (status === 422 && quality !== 'auto' && !hasPlayed) {
             /* A saved choice the server does not know. It stays saved. */
@@ -1150,11 +1160,8 @@
       if (wantPlaying) play();
       else setLoading(false);
     });
-    var askedAlone = false;  // the segment now loading was asked for with no start open
-    h.on(Hls.Events.FRAG_LOADING, function () { askedAlone = startsOpen === 0; });
     h.on(Hls.Events.FRAG_LOADED, function () {
       if (h !== hls) return;
-      if (askedAlone) ownRival = false;
       taken();
       reached();
     });
@@ -1228,11 +1235,16 @@
     restartStream(false);
   }
 
+  /* A 410 of the stream's. Replaced by a start of this page's own, one that reached the
+     server late, it goes on as after any other. */
+  function streamEnded(answer) {
+    if (answer && answer.error === 'replaced' && answer.by !== pageId) streamReplaced();
+    else streamGone();
+  }
+
   /* The same title was started somewhere else. This stream's place is no longer
      the one to save. */
   function streamReplaced() {
-    /* By an earlier start of this page that reached the server after this one's. */
-    if (ownRival) { streamGone(); return; }
     wantPlaying = false;
     swapping = true;
     leaveNative();
@@ -1248,6 +1260,7 @@
   var hereGeneration = null; // the generation that is asking it
   function playHere() {
     var gen = hereGeneration = ++generation;
+    pressedPlay();
     swapping = true;         // a press starts nothing from this place meanwhile
     hideMessage();
     setLoading(true);
@@ -1263,15 +1276,20 @@
       .then(function () { if (gen === generation) retry(); });
   }
 
-  /* The code of the server's own in a failed answer; null where it has none. */
-  function codeOf(data) {
+  /* The server's own failed answer; null where it is none of its own. */
+  function answerOf(data) {
     var xhr = data.networkDetails;
     try {
       var text = xhr.responseType === 'arraybuffer' ? new TextDecoder().decode(xhr.response) : xhr.responseText;
-      return JSON.parse(text).error || null;
+      return JSON.parse(text);
     } catch (e) {
       return null;
     }
+  }
+
+  function codeOf(data) {
+    var answer = answerOf(data);
+    return answer && answer.error || null;
   }
 
   function retryAfterMs(data) {
@@ -1283,8 +1301,7 @@
     var h = hls;
     var status = data.response ? data.response.code : undefined;
     if (status === 410) {
-      if (codeOf(data) === 'replaced') streamReplaced();
-      else streamGone();
+      streamEnded(answerOf(data));
       return;
     }
     /* hls.js would ask for a refused segment again at once, six times over, before it
@@ -1397,15 +1414,11 @@
     var body = unsaved();
     if (!body) return;
     var id = streamId;
-    var alone = startsOpen === 0;
     MM.api.post('/api/watch/progress', withStream(body)).then(function () {
-      if (id !== streamId) return;
-      savedAs = JSON.stringify(body);
-      if (alone) ownRival = false;
+      if (id === streamId) savedAs = JSON.stringify(body);
     }).catch(function (err) {
       if (!err || err.status !== 410 || id !== streamId) return;
-      if (err.error === 'replaced') streamReplaced();
-      else streamGone();
+      streamEnded({ error: err.error, by: err.data && err.data.by });
     });
   }
 
@@ -1461,6 +1474,7 @@
 
   /* Try again after an error. */
   function retry() {
+    pressedPlay();
     unstopped.forEach(sendStop);
     clearTrouble();
     wantPlaying = true;
@@ -1487,7 +1501,7 @@
       return;
     }
     if (video.paused || video.ended) {
-      if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
+      if (!streamId && !starting) { wantPlaying = true; pressedPlay(); restartStream(false); return; }
       play();
     } else {
       wantPlaying = false;
@@ -2500,6 +2514,7 @@
     if (!next || switching) return;
     var href = next.href;
     if (byItself) sitting.count++;
+    else pressedPlay();
     switching = true;
     swapping = true;
     wantPlaying = true;
@@ -2847,6 +2862,7 @@
     /* Playing somewhere else it stays so. */
     if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
+    pressedPlay();
     startStream(pendingStart || 0);
   });
 
