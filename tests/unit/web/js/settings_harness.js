@@ -127,6 +127,7 @@ function build() {
   const doc = {
     activeElement: null,
     createElement: (t) => new El(t, doc),
+    createElementNS: (ns, t) => new El(t, doc),
     createTextNode: (t) => { const e = new El('#text', doc); e._text = t; return e; },
     getElementById: (id) => body.all().find((e) => e.id === id) || null,
     querySelector: (s) => body.querySelector(s),
@@ -228,6 +229,32 @@ async function openLibraries(answer, opts) {
 const plexLists = (...ids) => () => Promise.resolve({ libraries: ids.map((id) => ({ id, title: 'L' + id })) });
 
 const names = (list, cls) => list.children.filter((c) => c.classList.contains(cls));
+
+function plexPage(refusal) {
+  const h = build();
+  h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
+  const userList = h.add('div', { id: 'user-list' });
+  const p = { h, sent: [], toasts: [], errors: [], say: { ok: true }, rows: () => names(userList, 'usr-row') };
+  p.unlink = async () => {
+    p.rows()[1].querySelector('[data-user-action="unlink"]').fire('click');
+    await h.flush();
+  };
+  h.ctx.MM.api = {
+    get: () => Promise.resolve({ current: 'ann', users: [
+      { id: 1, username: 'ann', role: 'admin', plex_linked_at: '2026-10-01T12:00:00+00:00' },
+      { id: 2, username: 'bob', role: 'viewer', plex_linked_at: '2026-11-12T12:00:00+00:00' },
+      { id: 3, username: 'cat', role: 'viewer', plex_linked_at: null },
+    ] }),
+    delete: (u) => {
+      p.sent.push(u);
+      return refusal ? Promise.reject({ status: refusal }) : Promise.resolve({});
+    },
+    messageOf: () => 'why',
+  };
+  h.ctx.UIFeedback = { success: (m) => p.toasts.push(m), error: (m) => p.errors.push(m), confirm: () => Promise.resolve(p.say.ok) };
+  h.ctx.MM.settings.users.init();
+  return p;
+}
 
 const scenarios = {
   // The row goes only when its height has closed, and focus moves to the next row.
@@ -521,18 +548,51 @@ const scenarios = {
     return list.querySelectorAll('.sub-stat').map((s) => s.textContent);
   },
 
-  // The avatar each name gets in the Team list.
+  // The picture each person gets in the Team list.
   async avatars() {
     const h = build();
     h.load('core/dom.js'); h.load('settings/rows.js'); h.load('settings/users.js');
     const userList = h.add('div', { id: 'user-list' });
-    const given = JSON.parse(process.argv[3]);
-    h.ctx.MM.api = {
-      get: () => Promise.resolve({ current: 'x', users: given.map((username, id) => ({ id, username, role: 'viewer' })) }),
-    };
+    h.ctx.MM.api = { get: () => Promise.resolve({ current: 'x', users: [
+      { id: 1, username: 'x', role: 'admin', avatar_url: '/static/avatars/avatar-03.svg' },
+      { id: 2, username: 'bob', role: 'viewer', avatar_url: '/api/avatars/2?v=ab' },
+    ] }) };
     h.ctx.MM.settings.users.init();
     await h.flush();
-    return names(userList, 'usr-row').map((r) => [r.children[0].className, r.children[0].textContent]);
+    return names(userList, 'usr-row').map((r) => {
+      const img = r.querySelector('img');
+      return { src: img.src, alt: img.alt, hidden: img.parentNode.getAttribute('aria-hidden') };
+    });
+  },
+
+  // Whose Plex account is linked, then one unlinked: the question declined, and answered.
+  async plexLinks() {
+    const p = plexPage();
+    await p.h.flush();
+    const states = p.rows().map((r) => {
+      const el = r.querySelector('.usr-plex');
+      const btn = r.querySelector('[data-user-action="unlink"]');
+      return el && { text: el.children[0].textContent, unlink: btn && btn.getAttribute('aria-label') };
+    });
+    const row = p.rows()[1];
+    const there = () => Boolean(row.querySelector('.usr-plex'));
+    p.say.ok = false;
+    await p.unlink();
+    const declined = { sent: p.sent.slice(), there: there() };
+    p.say.ok = true;
+    await p.unlink();
+    p.h.drain();
+    return { states, declined, sent: p.sent, gone: !there(), toasts: p.toasts, focused: p.h.doc.activeElement.dataset.userAction };
+  },
+
+  async plexUnlinkRefused() {
+    const p = plexPage(Number(process.argv[3]));
+    await p.h.flush();
+    const btn = p.rows()[1].querySelector('[data-user-action="unlink"]');
+    await p.unlink();
+    p.h.drain();
+    const there = Boolean(p.rows()[1].querySelector('.usr-plex'));
+    return { there, errors: p.errors, busy: there ? btn.getAttribute('aria-disabled') : null };
   },
 
   // New rows land where the server lists them.

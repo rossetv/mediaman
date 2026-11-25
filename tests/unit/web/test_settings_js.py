@@ -11,8 +11,6 @@ import re
 import subprocess
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
-
 from mediaman.app_factory import _TEMPLATE_DIR
 
 HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
@@ -108,11 +106,33 @@ def test_new_rows_land_where_the_server_lists_them() -> None:
     assert out["roleName"] == {"text": "Make admin", "aria": "Make admin: bob"}
 
 
-def test_a_person_has_the_same_avatar_in_the_team_list_as_everywhere_else() -> None:
-    people = ["viewer", "casey.lane@example.com", "Jo_de-Vries", "İnci", "ßeta", "...", "7"]
-    macro = Environment(loader=FileSystemLoader(_TEMPLATE_DIR)).get_template("_avatar.html").module
-    drawn = [re.search(r'class="(.+?)".*>(.*)<', str(macro.avatar(n))) for n in people]
-    assert _run("avatars", json.dumps(people)) == [list(m.groups()) for m in drawn]
+def test_the_team_list_shows_each_person_s_own_picture_as_decoration() -> None:
+    assert _run("avatars") == [
+        {"src": "/static/avatars/avatar-03.svg", "alt": "", "hidden": "true"},
+        {"src": "/api/avatars/2?v=ab", "alt": "", "hidden": "true"},
+    ]
+
+
+def test_the_team_list_says_whose_plex_is_linked_and_offers_unlink_for_others_only() -> None:
+    assert _run("plexLinks")["states"] == [
+        {"text": "Plex linked", "unlink": None},
+        {"text": "Plex linked 12 Nov 2026", "unlink": "Unlink the Plex account of bob"},
+        None,
+    ]
+
+
+def test_unlinking_someone_s_plex_folds_their_state_away_and_hands_the_focus_on() -> None:
+    out = _run("plexLinks")
+    assert out["declined"] == {"sent": [], "there": True}
+    assert out["sent"] == ["/api/users/2/plex-link"]
+    assert out["gone"] is True
+    assert out["focused"] == "email"
+    assert out["toasts"] == ["Unlinked bob’s Plex account."]
+
+
+def test_a_link_already_gone_is_unlinked_and_a_failed_unlink_stays_and_says_why() -> None:
+    assert _run("plexUnlinkRefused", "404") == {"there": False, "errors": [], "busy": None}
+    assert _run("plexUnlinkRefused", "500") == {"there": True, "errors": ["why"], "busy": None}
 
 
 def test_add_user_form_that_is_sending_stays_open_with_what_was_typed() -> None:

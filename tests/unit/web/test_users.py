@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.services.avatars.drawn import default_choice
 from mediaman.services.plex_link import repository as plex_links
 from mediaman.services.plex_link.plex_tv import PlexIdentity
 from mediaman.web.auth.password_hash import authenticate, create_user
 from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 from mediaman.web.auth.session_store import create_session, list_sessions_for, validate_session
+from mediaman.web.repository.avatars import avatar_url, find_user_id, set_drawn
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
@@ -83,6 +85,18 @@ class TestListUsers:
         assert body["current"] == "admin"
         assert len(body["users"]) == 1
         assert body["users"][0]["username"] == "admin"
+
+    def test_list_gives_each_user_s_own_picture(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
+        _make_second_user(conn)
+        second = find_user_id(conn, "other")
+        set_drawn(conn, second, 10 if default_choice(second) != 10 else 9)
+
+        users = client.get("/api/users").json()["users"]
+
+        assert {u["username"]: u["avatar_url"] for u in users} == {
+            name: avatar_url(conn, name) for name in ("admin", "other")
+        }
 
     def test_list_says_since_when_each_user_has_plex_linked_and_nothing_of_the_account(
         self, app_factory, authed_client, conn

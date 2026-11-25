@@ -30,6 +30,7 @@ from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
+from mediaman.web.repository.avatars import avatar_urls
 from mediaman.web.responses import respond_err, respond_failure, respond_ok
 from mediaman.web.routes.users.rate_limits import (
     _UNTICKETED_LIMITER,
@@ -107,7 +108,16 @@ def _reserve(
 def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]:
     conn = get_db()
     linked = {link["username"]: link["linked_at"] for link in plex_links.linked_users(conn)}
-    users = [{**user, "plex_linked_at": linked.get(user["username"])} for user in list_users(conn)]
+    people = list_users(conn)
+    pictures = avatar_urls(conn, [user["id"] for user in people])
+    users = [
+        {
+            **user,
+            "plex_linked_at": linked.get(user["username"]),
+            "avatar_url": pictures[user["id"]],
+        }
+        for user in people
+    ]
     return {"users": users, "current": admin}
 
 
