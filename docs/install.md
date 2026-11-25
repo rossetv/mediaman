@@ -54,7 +54,7 @@ docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```
 
-Keep `.env` safe; only you can read it. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more, with three of lowercase, uppercase, digits and symbols, or 20 or more as a phrase of several words. One that is common, holds the username, repeats a few characters or is mostly a run such as 12345 is refused.
+Keep `.env` safe; only you can read it (an older `.env` needs `chmod 600 .env`). The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more, with three of lowercase, uppercase, digits and symbols, or 20 or more as a phrase of several words. One that is common, holds the username, repeats a few characters or is mostly a run such as 12345 is refused.
 
 ### Sign in
 
@@ -94,9 +94,11 @@ If the new one had started, put the backup back now, with the `docker run` line 
 
 ```bash
 docker start mediaman
-docker update --restart=unless-stopped mediaman   # if you gave --restart: as you gave it
+docker update --restart=unless-stopped mediaman
 rm .env
 ```
+
+If you gave `--restart` with another value, use that one in the `docker update` line.
 
 Once you have signed in and Settings shows your services, `docker rm mediaman-old`. From then on you [update](#backup-update-roll-back) like everyone else.
 
@@ -129,11 +131,11 @@ A viewer can watch, search, ask for films and shows, see downloads and picks, an
 From the command line:
 
 ```bash
-docker compose exec mediaman mediaman-create-user --role viewer   # or admin, the default
-docker compose exec mediaman mediaman-unlock-user maren           # after too many wrong passwords
+docker compose exec mediaman mediaman-create-user --role viewer
+docker compose exec mediaman mediaman-unlock-user maren
 ```
 
-Five wrong passwords in a row from one address lock that name there for 15 minutes, ten for an hour and fifteen for 24 hours; the second line lifts that.
+The first line makes a viewer; leave out `--role viewer` for an admin. Five wrong passwords in a row from one address lock that name there for 15 minutes, ten for an hour and fifteen for 24 hours; the second line lifts that.
 
 ## Https and a reverse proxy
 
@@ -225,14 +227,14 @@ For these, mediaman must be in a container network of its own, as it is above. W
 
 With an OpenAI key, these go to OpenAI, never with the name of an account:
 
-- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, draft reason and the played titles that led to them, to choose from;
+- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, and draft reason, to choose from. To mix them, the same data about the person goes again, with each candidate's type (film or show);
 - for the new and popular picks everyone sees: those of the last 30 days, and the titles it proposed in the same way. Nothing of what anyone watched;
 - when somebody asks the AI in search: their question, or the name and year of the title they want more like. When they narrow the answer, also its titles and the narrowing they chose;
 - unless they turn off Use my history on their Profile:
   - for their picks: their searches, ratings, requests and how their plays went, such as finished, watched again or left part way;
   - with each question, and once a day as they open search, for the phrases to try: their searches and the titles they played, liked and disliked.
 
-AI recommendations, under General & Schedule, turns both kinds of picks off. A mark as watched is not sent, but a title already played counts as finished once marked, and one only begun as played.
+AI recommendations, under General & Schedule, turns both kinds of picks off. A mark as watched is not sent on its own. Once a title is marked, one already played is sent as finished, and one only started is sent as played.
 
 Each person may ask 20 questions a day, and everyone together makes 100 calls. Both are under OpenAI in Settings, and 0 turns asking off.
 
