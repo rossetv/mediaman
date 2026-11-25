@@ -370,6 +370,7 @@
           // Gone already is what was asked for.
           if (err.error !== 'not_found') throw err;
         }).then(function () {
+          if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           MM.settings.rows.leave(li, {
             focusSelector: '.tv-acts .btn--danger',
             fallback: addBtn,

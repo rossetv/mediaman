@@ -587,6 +587,7 @@
           return false;
         }).then(function (ok) {
           if (!ok) return;
+          if (MM.tvRemote) MM.tvRemote.drop(tv.id);
           drop(tv);
           done('Unpaired. That TV now says it was signed out.');
         });

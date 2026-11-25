@@ -367,3 +367,5 @@ def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it()
     assert out["one"] == [1, False, ["Unpaired. That TV now says it was signed out."]]
     assert out["sent"] == ["/api/tvs/1", "/api/tvs/1", "/api/tvs/2"]
     assert out["last"] == [0, True] and out["asked"] == 0
+    # the bar of what plays on a TV lets it go at once, and only once it is unpaired
+    assert out["kept"] == 0 and out["dropped"] == [1, 2]

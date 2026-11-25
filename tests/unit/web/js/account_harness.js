@@ -63,6 +63,8 @@ function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   $('account-email').value = $('account-email').defaultValue = 'was@example.com';
   ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; });
   const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f, words) => { asked.push(words); return f(); } } };
+  const dropped = [];
+  MM.tvRemote = { drop: (id) => dropped.push(id) };
   const asked = [];
   const toasts = [];
   const UIFeedback = { toast: (text) => toasts.push(text), error: (text) => toasts.push('error: ' + text), confirm: (words) => { asked.push(words); return Promise.resolve(yes); } };
@@ -77,7 +79,7 @@ function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, window: { MM, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
   ['core/dom.js', 'settings/rows.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
-    $, told, asked, toasts, session,
+    $, dropped, told, asked, toasts, session,
     wait: () => timers.splice(0).forEach((fn) => fn()),
     resets: () => resets,
     key: (id, key) => $(id).listeners.keydown.forEach((fn) => fn({ key })),
@@ -157,13 +159,14 @@ const scenarios = {
     };
     await press();
     const failed = [tvRows(p).length, p.toasts.splice(0)];
+    const kept = p.dropped.length;
     answer = () => Promise.resolve({ ok: true });
     await press();
     const one = [tvRows(p).length, p.$('account-tvs').hidden, p.toasts.splice(0)];
     // already unpaired by someone else
     answer = () => Promise.reject({ status: 404 });
     await press();
-    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length };
+    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length, kept, dropped: p.dropped };
   },
   async sessions() {
     const here = session(9, { current: true });

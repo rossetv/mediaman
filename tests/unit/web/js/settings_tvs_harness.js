@@ -39,12 +39,14 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   answers['GET /api/tvs/all'] = answers['GET /api/tvs/all'] || { tvs: all };
   answers['GET /api/settings/older-tvs'] = { tvs: [{ id: 2, name: 'Kitchen TV', address: '192.168.1.44' }] };
   const said = [];
+  const dropped = [];
   const ctx = {
     document: doc, console, Promise, Date, setTimeout: (f, ms) => { if (!ms) f(); },
     matchMedia: () => ({ matches: reduced }),
     MM: {
       api: { get: call('GET'), post: call('POST'), patch: call('PATCH'), delete: call('DELETE'),
         messageOf: (e, words) => e.message || words },
+      tvRemote: { drop: (id) => dropped.push(id) },
       dom: { focusStillIn: () => true, icon: (name) => build(doc, ['svg', { class: name }]) },
       settings: { rows: { enter() {}, bringIntoView() {}, leave: (row, o) => { row.remove(); if (o.done) o.done(); } } },
     },
@@ -58,6 +60,7 @@ async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   const within = (root, words) => root.querySelectorAll('button').find((b) => b.textContent === words);
   const row = (n) => doc.querySelectorAll('.tv-li')[n];
   return {
+    dropped,
     doc, calls, said, row,
     press: async (root, words) => { click(doc, within(root, words)); await settle(); },
     button: within,
@@ -219,7 +222,7 @@ const scenarios = {
     await p.press(p.row(1), 'Forget this TV');
     await p.press(p.row(0), 'Forget');
     await p.press(p.row(0), 'Forget this TV');
-    return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent };
+    return { asked, kept, deleted: p.calls.filter((c) => c[0] === 'DELETE').map((c) => c[1]), left: p.list.textContent, dropped: p.dropped };
   },
   async rename() {
     const answers = { 'PATCH /api/tvs/1': refused('x', 'No such luck') };

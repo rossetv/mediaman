@@ -100,6 +100,7 @@ def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_addres
     assert (got["asked"], got["kept"]) == (False, 2)
     assert got["deleted"] == ["/api/settings/older-tvs/2", "/api/tvs/1"]
     assert "No TVs yet" in got["left"]
+    assert got["dropped"] == [2, 1]
 
 
 def test_a_rename_that_failed_keeps_what_was_typed() -> None:
