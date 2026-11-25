@@ -41,6 +41,15 @@
 }
 .nav-links::-webkit-scrollbar { display: none; }
 
+/* Watch's bar draws its own glass and has a smaller gap: its brand and links still stand
+   where every other page has them. */
+.nav-glass.wbar { border-bottom: 1px solid transparent; }
+.nav-glass.wbar::before { bottom: -1px; }
+@media (min-width: 700px) {
+  .nav-glass.wbar .brand { margin-right: 24px; }
+  .nav-glass.wbar .nav-links { margin-left: -3px; }
+}
+
 .nav-btn,
 .nav-links a,
 .nav-links button {
