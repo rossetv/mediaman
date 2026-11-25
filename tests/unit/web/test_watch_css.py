@@ -347,13 +347,61 @@ def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_te
     assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)
 
 
-def test_the_search_sheet_ends_above_the_tv_bar_at_every_width() -> None:
-    remote = SHEET.with_name("_tv_remote.css").read_text()
-    sheets = re.findall(
-        r"tv-mini:not\(\[hidden\]\)\) \.watch-sheet \{ max-height: (.+?); \}", remote
-    )
-    # The bar is 60px on 16px at the foot of a window; a phone's is on the bar at the foot.
-    assert [s.split(", ")[-1] for s in sheets] == [
-        "100dvh - 160px)",
-        "100dvh - 160px - var(--foot))",
-    ]
+REMOTE = SHEET.with_name("_tv_remote.css")
+SEARCH = SHEET.with_name("_watch_search.css")
+WIDE, PHONE = "(min-width: 700px)", "(max-width: 699.98px)"
+BAR_SHOWN = "body:has(> .tv-mini:not([hidden]))"
+
+
+def _last(name: str, css: str) -> str:
+    return re.findall(rf"(?<![\w-]){re.escape(name)}:\s*([^;]+)", css)[-1]
+
+
+def _px(value: str, foot: int, height: int) -> float:
+    """What a length of a window *height* high with *foot* at its foot comes to in pixels."""
+    wide_nav = _last("--nav-h", _of(":root", sheet=SHEET.with_name("_tokens.css")))
+    value = re.sub(r"env\([^()]*\)", "0px", value)
+    for name, px in (("--foot", f"{foot}px"), ("--nav-h", wide_nav), ("--seen", "100dvh")):
+        value = re.sub(rf"var\({name}(?:, [^()]+)?\)", px, value)
+    value = value.replace("var(--seen-top, 0px)", "0px").replace("calc", "")
+    value = re.sub(r"([\d.]+)dvh", lambda m: str(float(m[1]) / 100 * height), value)
+    return float(eval(value.replace("px", ""), {"__builtins__": {}, "min": min, "max": max}))
+
+
+def _bar_top(narrow: bool, foot: int, height: int) -> float:
+    """How far the top of the TV bar is from the foot of the window."""
+    css = _of(".tv-mini", sheet=REMOTE) + (_of(".tv-mini", PHONE, REMOTE) if narrow else "")
+    pads = re.findall(r"(\d+)px", _last("padding", css))
+    inside = _last("min-height", _of(".tv-mini__open", sheet=REMOTE))
+    tall = int(pads[0]) + int(pads[2]) + _px(inside, foot, height)
+    return _px(_last("bottom", css), foot, height) + tall
+
+
+@pytest.mark.parametrize(
+    ("narrow", "foot", "height"),
+    [(False, 0, 800), (False, 0, 390), (True, 72, 844), (True, 60, 375)],
+)
+def test_the_search_sheet_ends_above_the_tv_bar_at_every_width(narrow, foot, height) -> None:
+    top = _of(".watch-sheet", sheet=SEARCH)
+    if narrow:
+        top += _of(".watch-sheet", PHONE, SEARCH)
+    tallest = _of(f"{BAR_SHOWN} .watch-sheet", PHONE if narrow else WIDE, REMOTE)
+    end = _px(_last("top", top), foot, height) + _px(_last("max-height", tallest), foot, height)
+    assert end <= height - _bar_top(narrow, foot, height)
+
+
+@pytest.mark.parametrize("foot", [60, 72])
+def test_a_phone_s_tv_bar_is_above_the_foot_and_below_toasts_and_what_is_scrolled_to(foot) -> None:
+    bar = _of(".tv-mini", PHONE, REMOTE)
+    assert _px(_last("bottom", bar), foot, 844) >= foot
+    over = _bar_top(True, foot, 844)
+    toast = _of(f"{BAR_SHOWN}:has(.watch-search) .ui-toast-host", PHONE, REMOTE)
+    assert _px(_last("bottom", toast), foot, 844) >= over
+    scrolled = _of("html:has(.tv-mini:not([hidden]))", PHONE, REMOTE)
+    assert _px(_last("scroll-padding-bottom", scrolled), foot, 844) >= over
+
+
+def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> None:
+    nav = _last("--nav-h", _of(".nav-glass", PHONE, SHEET.with_name("_nav.css")))
+    page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
+    assert _last("min-height", page) == f"calc(100vh - {nav})"

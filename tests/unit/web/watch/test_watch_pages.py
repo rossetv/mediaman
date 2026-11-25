@@ -1504,6 +1504,8 @@ def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_w
     assert [i["title"] for i in data["downloading"]["items"]] == ["Dune"]
     assert data["downloading"]["summary"]["percent"] == 42
     assert "/static/js/watch/downloading.js" in html
+    assert "/static/js/downloading.js" in html
+    assert "/static/css/_watch_downloading.css" in html
 
 
 def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
