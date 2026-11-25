@@ -521,6 +521,7 @@ class TestRefresh:
 class TestThePageBehind:
     def test_a_clear_takes_the_leaving_soon_row_and_the_leaving_badges_and_tells_the_list(self):
         assert _run("pageAfterClear") == {
+            "kept": 2,
             "cards": [],
             "row": False,
             "badges": 0,

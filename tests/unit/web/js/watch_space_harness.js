@@ -712,9 +712,12 @@ const scenarios = {
   // The page behind follows what is scheduled.
   async pageAfterClear() {
     const p = await page(['1', '2'].map((id) => row(id)));
+    p.$('recent-scroll').append(build(p.doc, ['article', { class: 'watch-card', 'data-leaving-id': '2' }, ['span', { class: 'watch-badge watch-badge--leaving' }, 'Season 2 leaves in 3 days']]));
+    await p.refresh();
+    const kept = p.all('.watch-badge--leaving').length;
     await p.open();
     await p.click(p.one('#space-scheduled .btn--danger'));
-    return { cards: p.cards(), row: p.one('[data-row-id="leaving"]') !== null, badges: p.all('.watch-badge--leaving').length, told: p.told, asked: p.server.pages, inPanel: !!p.doc.activeElement.closest('#space') };
+    return { kept, cards: p.cards(), row: p.one('[data-row-id="leaving"]') !== null, badges: p.all('.watch-badge--leaving').length, told: p.told, asked: p.server.pages, inPanel: !!p.doc.activeElement.closest('#space') };
   },
   async pageAfterScan() {
     const p = await page();
