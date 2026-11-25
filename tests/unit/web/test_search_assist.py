@@ -223,6 +223,16 @@ class TestSearches:
         assert _search(amy, "heist") == [False]
         assert amy.get(BASE).json()["recent"] == []
 
+    def test_the_panel_says_whether_searches_are_kept(self, amy):
+        assert amy.get(BASE).json()["records"] is True
+        amy.put(f"{BASE}/history", json={"enabled": False})
+        assert amy.get(BASE).json()["records"] is False
+
+    def test_each_account_has_a_value_of_its_own_that_says_nothing_of_it(self, people):
+        amy, bob = (people[name].get(BASE).json()["account"] for name in ("amy", "bob"))
+        assert amy != bob and amy == people["amy"].get(BASE).json()["account"]
+        assert len(amy) >= 16 and "amy" not in amy
+
     def test_control_characters_are_not_kept(self, amy):
         resp = amy.post(
             f"{BASE}/searches",
@@ -814,10 +824,13 @@ class TestNoKey:
             conn.commit()
         else:
             monkeypatch.setattr(TmdbClient, "from_db", lambda *_a, **_k: None)
-        assert _search(amy, "heist") == [True]
+        # Without a key of OpenAI's nothing may use them, and their switch is not shown.
+        assert _search(amy, "heist") == [lacking != "openai"]
 
         found = amy.get(BASE).json()
-        assert (found["available"], found["personal"], found["recent"]) == (False, False, ["heist"])
+        assert (found["available"], found["personal"]) == (False, False)
+        assert found["recent"] == ([] if lacking == "openai" else ["heist"])
+        assert found["records"] is (lacking != "openai")
         for resp in (
             amy.post(f"{BASE}/ask", json={"q": Q}),
             amy.post(f"{BASE}/like", json={"ref": "tmdb-movie-2"}),

@@ -186,6 +186,12 @@ def _refused(refused: repo.Refused) -> JSONResponse:
 # --- Recent searches, phrases and the history switch -----------------------------
 
 
+def _records(request: Request, conn: sqlite3.Connection, user_id: int) -> bool:
+    """Whether the person's searches are kept: never where nothing could use them, since the
+    switch that stops it is not shown there."""
+    return _has_openai_key(request, conn) and repo.uses_history(conn, user_id)
+
+
 @router.get("/api/search/assist")
 def api_assist(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     """What the search panel shows at once: recent searches and the phrases made before. New
@@ -200,8 +206,11 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         _make_phrases_later(request, conn, user_id, username)
     return respond_ok(
         {
+            # Whose this is, for what a page remembers of them: it says nothing of the account.
+            "account": _digest(request, "account", str(user_id), username)[:32],
             "available": available,
             "history": repo.uses_history(conn, user_id),
+            "records": _records(request, conn, user_id),
             "recent": repo.recent_searches(conn, user_id, repo.RECENT_SHOWN),
             "personal": bool(phrases),
             "phrases": phrases or list(ai.FIXED_PHRASES),
@@ -211,13 +220,18 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
 
 
 @router.post("/api/search/assist/searches")
-def api_record_search(body: _SearchBody, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_record_search(
+    body: _SearchBody, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
     if not _WRITE_LIMITER.check(username):
         return _too_many()
-    return respond_ok({"recorded": repo.record_search(conn, user_id, body.q, now_utc())})
+    recorded = _records(request, conn, user_id) and repo.record_search(
+        conn, user_id, body.q, now_utc()
+    )
+    return respond_ok({"recorded": recorded})
 
 
 @router.delete("/api/search/assist/searches")
