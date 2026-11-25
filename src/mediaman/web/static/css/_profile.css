@@ -40,6 +40,7 @@
 .me-txt { flex: 1 1 8.5em; min-width: 0; }
 .me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
 .me-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
+.me-line--switch { flex-wrap: nowrap; }
 .me-end { flex: none; max-width: 100%; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .me-end .inp { width: 300px; }
 .profile-pg .inp[aria-invalid="true"] { border-color: var(--danger-text); }

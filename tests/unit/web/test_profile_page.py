@@ -194,3 +194,20 @@ def test_other_peoples_plex_links_are_not_on_an_admins_profile(app_factory, auth
     app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
 
     assert "Linked Plex accounts" not in authed_client(app, conn).get("/account").text
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_be(
+    app_factory, authed_client, conn, role
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    client = authed_client(app, conn)
+    conn.execute("UPDATE admin_users SET role = ?", (role,))
+    conn.commit()
+
+    html = client.get("/account").text
+
+    assert re.search(r'<section[^>]*id="account-ai"[^>]*\bhidden>', html)
+    switch = re.search(r'<button[^>]*id="account-history"[^>]*>', html).group(0)
+    assert 'role="switch"' in switch and 'aria-labelledby="account-history-lbl"' in switch
+    assert {"account-history-lbl", "account-clear-searches"} <= _parse(html).ids

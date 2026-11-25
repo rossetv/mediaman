@@ -1,5 +1,6 @@
 /**
- * Profile page — change-password and email forms, and the list of sign-ins.
+ * Profile page — change-password and email forms, the list of sign-ins, and the use of the
+ * person's history by the AI.
  *
  * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth),
  * settings/rows.js (MM.settings.rows), ui-feedback.js (UIFeedback).
@@ -445,9 +446,76 @@
     return load;
   }
 
+  function initAi() {
+    var section = document.getElementById('account-ai');
+    var toggle = document.getElementById('account-history');
+    var clear = document.getElementById('account-clear-searches');
+    if (!section || !toggle || !clear) return;
+    var HISTORY = '/api/search/assist/history';
+    var on = false;
+
+    function draw(enabled) {
+      toggle.classList.toggle('on', enabled);
+      toggle.setAttribute('aria-checked', String(enabled));
+    }
+
+    function take(enabled) {
+      on = enabled;
+      draw(on);
+    }
+
+    function saved() {
+      done(on ? 'The AI uses your history.' : 'The AI no longer uses your history.');
+    }
+
+    MM.api.get(HISTORY).then(function (data) {
+      take(Boolean(data.enabled));
+      section.hidden = !data.available;
+    }, function () { /* Stays hidden. */ });
+
+    toggle.addEventListener('click', function () {
+      if (isBusy(toggle)) return;
+      var wanted = !on;
+      toggle.setAttribute('aria-disabled', 'true');
+      draw(wanted);
+      MM.api.put(HISTORY, { enabled: wanted }).then(function () {
+        take(wanted);
+        saved();
+      }, function (err) {
+        draw(on);
+        // Where the answer was lost it may have been saved all the same.
+        return MM.api.get(HISTORY).then(function (data) {
+          take(Boolean(data.enabled));
+        }, function () {}).then(function () {
+          if (on === wanted) saved();
+          else UIFeedback.error(MM.api.messageOf(err, 'Could not save. Try again.'));
+        });
+      }).then(function () { toggle.removeAttribute('aria-disabled'); });
+    });
+
+    clear.addEventListener('click', function () {
+      if (isBusy(clear)) return;
+      UIFeedback.confirm({
+        title: 'Clear your recent searches?',
+        body: 'The phrases and answers the AI made for you go too.',
+        confirmLabel: 'Clear',
+        confirmVariant: 'danger',
+      }).then(function (ok) {
+        if (!ok) return;
+        setBusy(clear, 'Clearing…', true);
+        MM.api.delete('/api/search/assist/searches').then(function () {
+          done('Recent searches cleared.');
+        }, function (err) {
+          UIFeedback.error(MM.api.messageOf(err, 'Could not clear them. Try again.'));
+        }).then(function () { setBusy(clear, ''); });
+      });
+    });
+  }
+
   function start() {
     initPassword(initSessions());
     initEmail();
+    initAi();
   }
 
   if (document.readyState === 'loading') {

@@ -289,3 +289,43 @@ def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> 
 
 def test_the_plex_card_is_told_after_a_password_may_have_been_given() -> None:
     assert _run("toldOfPassword") == [[0, ["mm:reauth"]]] * 2
+
+
+def test_the_history_switch_saves_at_once_and_one_press_at_a_time() -> None:
+    out = _run("history")
+    assert out["first"] == {"hiddenAtFirst": True, "hidden": False, "state": ["true", True]}
+    assert out["off"]["during"] == out["off"]["after"] == ["false", False]
+    assert out["sent"][0] == ["/api/search/assist/history", False]
+    # two presses each time
+    assert [wanted for _url, wanted in out["sent"]] == [False, True, True, True]
+    assert len(out["off"]["toasts"]) == 1 and not out["off"]["toasts"][0].startswith("error")
+    assert (out["off"]["focused"], out["off"]["busy"]) == ("account-history", None)
+
+
+def test_a_history_switch_that_could_not_be_saved_goes_back_and_says_so() -> None:
+    out = _run("history")
+    for failed in (out["refused"], out["offline"]):
+        assert failed["during"] == ["true", True]
+        assert failed["after"] == ["false", False]
+        assert failed["toasts"] == ["error: No luck"]
+        assert failed["busy"] is None
+
+
+def test_a_history_switch_saved_with_its_answer_lost_stands_as_saved() -> None:
+    lost = _run("history")["lost"]
+    assert lost["after"] == ["true", True]
+    assert len(lost["toasts"]) == 1 and not lost["toasts"][0].startswith("error")
+
+
+def test_nothing_about_the_ai_is_shown_without_a_key() -> None:
+    assert _run("historyHidden") == [True, True]
+
+
+def test_recent_searches_are_cleared_only_once_confirmed() -> None:
+    out = _run("clearSearches")
+    assert (out["no"]["asked"], out["no"]["sent"], out["no"]["toasts"]) == (1, [], [])
+    assert out["yes"]["sent"] == ["/api/search/assist/searches"]
+    assert len(out["yes"]["toasts"]) == 1 and not out["yes"]["toasts"][0].startswith("error")
+    assert out["failed"]["toasts"] == ["error: No luck"]
+    assert [out[k]["says"] for k in ("yes", "failed")] == ["Clear", "Clear"]
+    assert out["yes"]["busy"] is None

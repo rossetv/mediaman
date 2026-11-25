@@ -117,6 +117,34 @@
         </div>
       </div>
     </section>
+
+    <section class="me-sec fade-in" id="account-ai" aria-labelledby="me-ai" hidden>
+      <h2 id="me-ai">AI suggestions</h2>
+      <div class="me-card">
+        <div class="me-row">
+          <div class="me-line me-line--switch">
+            <div class="me-txt">
+              <div class="me-lbl" id="account-history-lbl">Use my history</div>
+              <div class="me-sub" id="account-history-sub">On, your searches, ratings, requests and plays go to OpenAI, without your name, for your recommendations and the AI in search. Off, your recommendations still go by the titles you played, and a question you ask is still sent.</div>
+            </div>
+            <div class="me-end">
+              <button type="button" class="tog" id="account-history" role="switch" aria-checked="false" aria-labelledby="account-history-lbl" aria-describedby="account-history-sub"></button>
+            </div>
+          </div>
+        </div>
+        <div class="me-row">
+          <div class="me-line">
+            <div class="me-txt">
+              <div class="me-lbl">Recent searches</div>
+              <div class="me-sub" id="account-clear-sub">Shown in search, to you alone. Clearing them also clears the phrases and answers the AI made for you.</div>
+            </div>
+            <div class="me-end">
+              <button class="btn btn--ghost btn--sm" type="button" id="account-clear-searches" aria-label="Clear recent searches" aria-describedby="account-clear-sub">Clear</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 {% endblock %}

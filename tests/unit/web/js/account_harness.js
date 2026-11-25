@@ -28,7 +28,8 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 // On screen, between the page's bars, unless a scenario says otherwise.
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
-function page(api) {
+// `ai` adds the AI section, and `yes` answers its question.
+function page(api, { ai = false, yes = true } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
@@ -43,6 +44,10 @@ function page(api) {
     ['ul', { id: 'account-sessions' }, ['li', {}, 'Loading']],
     ['div', {},
       ['button', { id: 'account-revoke-others' }], ['span', { id: 'account-revoke-why', hidden: '' }], ['span', { id: 'account-revoke-result' }]]]));
+  if (ai) {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
+    doc.getElementById('account-ai').hidden = true;
+  }
   const $ = (id) => doc.getElementById(id);
   let resets = 0;
   $('account-password-form').reset = () => { resets += 1; ['old', 'new', 'confirm'].forEach((f) => { $('account-' + f + '-password').value = ''; }); };
@@ -52,7 +57,7 @@ function page(api) {
   const MM = { api: { messageOf: (e, d) => (e instanceof Error && e.message) || d, ...api }, reauth: { run: (f, words) => { asked.push(words); return f(); } } };
   const asked = [];
   const toasts = [];
-  const UIFeedback = { toast: (text) => toasts.push(text), error: (text) => toasts.push('error: ' + text) };
+  const UIFeedback = { toast: (text) => toasts.push(text), error: (text) => toasts.push('error: ' + text), confirm: (words) => { asked.push(words); return Promise.resolve(yes); } };
   const timers = [];
   const setTimeout = (fn) => timers.push(fn);
   class FixedDate extends Date { static now() { return NOW; } }
@@ -406,6 +411,64 @@ const scenarios = {
     answer = () => Promise.reject({ error: 'reauth_cancelled' });
     const cancelled = await save('vic@example.com');
     return { sent, focus, saved, typed, removed, refused, cancelled };
+  },
+  // the switch as first drawn, pressed twice at once, refused, and with its answer lost
+  async history() {
+    const stored = { enabled: true, available: true };
+    const sent = [];
+    let put = (body) => { stored.enabled = body.enabled; return Promise.resolve({}); };
+    let get = () => Promise.resolve({ ...stored });
+    const p = page({
+      get: (url) => (url === '/api/search/assist/history' ? get() : Promise.resolve({ sessions: [] })),
+      put: (url, body) => { sent.push([url, body.enabled]); return put(body); },
+    }, { ai: true });
+    const hiddenAtFirst = p.$('account-ai').hidden;
+    await settle();
+    const state = () => [p.$('account-history').getAttribute('aria-checked'), p.$('account-history').classList.contains('on')];
+    const push = async () => {
+      p.press('account-history');
+      p.press('account-history');
+      const during = state();
+      await settle();
+      return { during, after: state(), toasts: p.toasts.splice(0), focused: p.focused(), busy: p.$('account-history').getAttribute('aria-disabled') };
+    };
+    const first = { hiddenAtFirst, hidden: p.$('account-ai').hidden, state: state() };
+    const off = await push();
+    const good = put;
+    put = () => Promise.reject(new Error('No luck'));
+    const refused = await push();
+    get = () => Promise.reject(new Error('gone'));
+    const offline = await push();
+    get = () => Promise.resolve({ ...stored });
+    put = (body) => { good(body); return Promise.reject(new Error('lost')); };
+    const lost = await push();
+    return { first, off, refused, offline, lost, sent };
+  },
+  async historyHidden() {
+    const hidden = async (get) => {
+      const p = page({ get: (url) => (url === '/api/search/assist/history' ? get() : Promise.resolve({ sessions: [] })) }, { ai: true });
+      await settle();
+      return p.$('account-ai').hidden;
+    };
+    return [await hidden(() => Promise.resolve({ enabled: true, available: false })), await hidden(() => Promise.reject(new Error('x')))];
+  },
+  async clearSearches() {
+    const run = async (yes, answer) => {
+      const sent = [];
+      const p = page({
+        get: (url) => Promise.resolve(url === '/api/search/assist/history' ? { enabled: true, available: true } : { sessions: [] }),
+        delete: (url) => { sent.push(url); return answer(); },
+      }, { ai: true, yes });
+      await settle();
+      p.press('account-clear-searches');
+      await settle();
+      return { asked: p.asked.length, sent, toasts: p.toasts, says: p.$('account-clear-searches').textContent, busy: p.$('account-clear-searches').getAttribute('aria-disabled') };
+    };
+    return {
+      no: await run(false, () => Promise.resolve({})),
+      yes: await run(true, () => Promise.resolve({})),
+      failed: await run(true, () => Promise.reject(new Error('No luck'))),
+    };
   },
 };
 
