@@ -64,6 +64,13 @@ def _watch(**over: object) -> str:
     return _render("watch.html", **ctx)
 
 
+def test_the_play_on_sheet_and_its_symbols_are_there_before_what_opens_it() -> None:
+    html = _watch()
+    assert 'id="play-on-tv"' in html
+    assert html.index("/watch/play-on.js") < html.index("/watch/detail.js")
+    assert html.index("/watch/play-on.js") < html.index("/watch/preview.js")
+
+
 def _show_ctx(**over: object) -> dict:
     ctx: dict = {
         "show": {

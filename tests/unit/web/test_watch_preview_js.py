@@ -569,5 +569,15 @@ def test_a_title_known_not_to_be_rateable_has_no_rate_button() -> None:
     assert _run("cannotRate") == {"pick": 0, "again": 0}
 
 
+def test_play_on_a_tv_is_there_for_what_can_be_played_and_its_sheet_keeps_the_preview() -> None:
+    assert _run("playOn") == {
+        "film": ["/watch/play/1", "-1"],
+        "next": ["/watch/play/22?resume=1", "-1"],
+        "outside": None,
+        "without": None,
+        "underSheet": [False, "Fieldwork"],
+    }
+
+
 def test_a_strip_folds_as_the_server_says_the_title_cannot_be_rated() -> None:
     assert _run("stripNotRateable") == [False, True]

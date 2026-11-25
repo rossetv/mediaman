@@ -72,7 +72,7 @@
   /* Something is open over the cards (the detail, a dialog or a menu), or a grid carries them. */
   function covered() {
     return detailOpen() || document.documentElement.classList.contains('is-grid-moving') ||
-      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open');
+      !!document.querySelector('.modal-backdrop:not([hidden]), .ui-confirm-overlay, .watch-keep-menu.is-open, .play-on[open]');
   }
 
   /* ── What a card says ── */
@@ -669,6 +669,12 @@
       p.actions.appendChild(first);
     }
     p.actions.appendChild(el('span', 'pv__gap'));
+    var plays = p.card.plays ? p.card.href : d && d.in_library && d.play && safePath(d.play.href);
+    if (plays && window.MM.playOn) {
+      p.playOn = p.playOn || window.MM.playOn.button(plays, 'btn watch-btn--grey pv__round');
+      p.playOn.setAttribute('tabindex', '-1');
+      p.actions.appendChild(p.playOn);
+    }
     p.trailerButton = null;
     if (d && trailerKey(d)) {
       p.trailerButton = p.actions.appendChild(round('', 'i-film'));

@@ -119,6 +119,7 @@
 .pv__actions > .watch-btn--play { font-weight: 600; }
 .pv__actions > .pv__round { width: 40px; padding: 0; font-size: 16px; }
 .pv__actions > .pv__round > .ico { font-size: 15px; }
+.pv__actions > .pv__round > .ico--tv { font-size: 19px; }
 .pv__gap { flex: 1; }
 .pv__actions > .pv__waiting { height: 40px; color: transparent; opacity: 1; cursor: inherit; }
 .pv__actions > .pv__state { padding-inline: 12px; opacity: .8; cursor: default; }
