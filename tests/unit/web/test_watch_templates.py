@@ -1160,6 +1160,13 @@ def test_a_card_has_its_eye_only_when_it_can_be_marked() -> None:
     assert [c.get("data-mark") for c in tree.having("data-keep-id")] == ["movie/1", None]
 
 
+def test_an_admin_s_card_has_one_button_named_for_its_title_that_opens_a_menu() -> None:
+    tree = _Tree(_watch(rows=[{"title": "All", "items": [_marked(admin={"key": 1})]}]))
+    [more] = tree.having("data-watch-more")
+    said = (more["aria-label"], more["aria-haspopup"], more["aria-expanded"])
+    assert said == ("More for Brightwater", "menu", "false")
+
+
 def test_a_card_is_drawn_with_the_person_s_rating_and_mark_and_one_tab_stop() -> None:
     items = [
         _marked(tmdb_ref="tmdb-movie-6", level=-2, watched=True),

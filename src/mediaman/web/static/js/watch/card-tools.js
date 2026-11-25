@@ -69,8 +69,16 @@
     else card.removeAttribute('data-level');
     if (!thumb) return;
     faceOf(thumb, refOf(card));
-    thumb.hidden = ratings.canRate(refOf(card)) === false;
+    var gone = ratings.canRate(refOf(card)) === false;
+    var active = document.activeElement;
+    var had = gone && !thumb.hidden && (active === thumb || (open && open.card === card && open.over.contains(active)));
+    thumb.hidden = gone;
     moveStop(card);
+    if (had) {
+      if (open && open.card === card) shut();
+      var next = toArray(card.querySelectorAll('.card-tool')).filter(function (b) { return !b.hidden && b.getClientRects().length > 0; })[0];
+      (next || card.querySelector('.watch-card__link')).focus({ preventScroll: true });
+    }
     thumb.setAttribute('aria-label', 'Rate ' + titleOf(card) + (level ? ': ' + nameOf(level) : ''));
   }
 
@@ -95,20 +103,54 @@
       paint(card);
       if (nearing) nearing.observe(card);
     }
-    if (inSight && !card.closest('.watch-row__scroll')) inSight.observe(card);
+    if (inSight && !card.closest('.watch-row__scroll')) watchFar(card);
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
   }
 
-  /* A card a screen or more out of sight hides its buttons. Even faded to nothing, those of
+  /* A grid's card a screen or more out of sight hides its buttons. Even faded to nothing, those of
      thousands of cards are drawn, and make every frame under the mouse slow in WebKit. A row, whose
      cards out of sight are beside it, has too few to matter. */
+  var MANY = 500; // below this, hiding them gains a few ms and takes them from a screen reader's list
+  var gridCards = new Set();
+  var outOfSight = new Set();
+
+  // One that holds the focus keeps them, as a hidden button would lose it.
+  function drawFar(card) {
+    card.classList.toggle('is-far', gridCards.size > MANY && outOfSight.has(card) && !card.contains(document.activeElement));
+  }
+
+  /* The grid has grown past MANY, or shrunk back under it. */
+  function counted(was) {
+    if ((was > MANY) !== (gridCards.size > MANY)) outOfSight.forEach(drawFar);
+  }
+
   var inSight = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
-    entries.forEach(function (n) { n.target.classList.toggle('is-far', !n.isIntersecting); });
+    entries.forEach(function (n) {
+      if (n.isIntersecting) outOfSight.delete(n.target);
+      else outOfSight.add(n.target);
+      drawFar(n.target);
+    });
   }, { rootMargin: '100% 0px' }) : null;
 
+  function watchFar(card) {
+    var was = gridCards.size;
+    inSight.observe(card);
+    gridCards.add(card);
+    counted(was);
+  }
+
+  function letGo(card) {
+    var was = gridCards.size;
+    inSight.unobserve(card);
+    gridCards.delete(card);
+    outOfSight.delete(card);
+    card.classList.remove('is-far');
+    counted(was);
+  }
+
   function forget(root) {
-    if (root.matches && root.matches('.watch-card')) inSight.unobserve(root);
-    toArray(root.querySelectorAll('.watch-card')).forEach(function (card) { inSight.unobserve(card); });
+    if (root.matches && root.matches('.watch-card')) letGo(root);
+    toArray(root.querySelectorAll('.watch-card')).forEach(letGo);
   }
 
   /* Of a poster's badges Leaving is the first and Watched the last, which is how CSS tells what
@@ -195,6 +237,10 @@
   }
 
   document.addEventListener('focusin', sayFocus);
+  document.addEventListener('focusout', function (e) {
+    var card = cardAround(e.target);
+    if (card && outOfSight.has(card) && !(e.relatedTarget && card.contains(e.relatedTarget))) drawFar(card);
+  });
   document.addEventListener('focusout', function (e) { if (cardAround(e.relatedTarget) !== says['has-focus']) say('has-focus', null); });
   // A key pressed makes the keyboard's a focus the mouse gave.
   document.addEventListener('keyup', sayFocus);
@@ -205,16 +251,29 @@
 
   /* With a mouse as well, a finger's or a pen's press on a button not in sight is nobody's: it shows
      that card's buttons, which a touch may leave no hover to show, for the next press. A press
-     elsewhere, or a scroll, hides them again. */
+     elsewhere, or a scroll, hides them again. The browser leaves the card a finger pressed under
+     :hover, so until the mouse moves again the page is by touch, and :hover shows no buttons. */
   var unseen = null;
+  var byTouch = false;
 
   document.addEventListener('pointerdown', function (e) {
     var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
     var card = tool && tool.closest('.watch-card');
     unseen = tool && card !== says['is-touched'] && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
-    if (unseen) say('is-touched', card);
+    if (tool) say('is-touched', card);
     else if (says['is-touched'] && !says['is-touched'].contains(e.target)) say('is-touched', null);
+    if (!byTouch && e.pointerType === 'touch' && mouse()) {
+      byTouch = true;
+      document.documentElement.classList.add('is-by-touch');
+    }
   }, true);
+
+  document.addEventListener('pointermove', function (e) {
+    if ((!byTouch && !says['is-touched']) || e.pointerType !== 'mouse') return;
+    byTouch = false;
+    document.documentElement.classList.remove('is-by-touch');
+    say('is-touched', null);
+  }, { passive: true });
 
   document.addEventListener('click', function (e) {
     if (unseen && unseen.contains(e.target)) {
@@ -223,6 +282,12 @@
     }
     unseen = null;
   }, true);
+
+  // A drag the browser took for a scroll ends with no click, and a key then presses for itself.
+  ['pointercancel', 'keydown'].forEach(function (name) {
+    document.addEventListener(name, function () { unseen = null; }, true);
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Tab') say('is-touched', null); }, true);
 
   document.addEventListener('scroll', function () { say('is-touched', null); }, true);
 

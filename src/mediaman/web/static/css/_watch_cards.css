@@ -105,12 +105,18 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-tool--thumb { touch-action: manipulation; }
   /* At rest, a rating that was given. */
   .card-tool--thumb:is(.is-up, .is-down) { opacity: 1; transform: none; }
-  .watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool { opacity: 1; transform: none; }
+  /* A finger leaves its card under :hover (watch/card-tools.js). */
+  .watch-card:is(.has-focus, .is-lifted, .is-touched) > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool,
+  :where(html:not(.is-by-touch)) .watch-card:hover > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool { opacity: 1; transform: none; }
   html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
-  /* A screen or more out of sight (watch/card-tools.js). */
+  /* A screen or more out of sight (watch/card-tools.js). Hidden as a whole row, which WebKit skips
+     at once; a rating given, drawn at rest, stays. */
   .watch-card.is-far > .card-tools { visibility: hidden; }
-  .watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) .card-tool::before { opacity: 1; transform: none; }
-  .watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) .card-tool > .rate-th { --th-bg: var(--s3); }
+  .watch-card.is-far > .card-tools > .card-tool:is(.is-up, .is-down) { visibility: visible; }
+  .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before,
+  :where(html:not(.is-by-touch)) .watch-card:hover .card-tool::before { opacity: 1; transform: none; }
+  .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool > .rate-th,
+  :where(html:not(.is-by-touch)) .watch-card:hover .card-tool > .rate-th { --th-bg: var(--s3); }
   .watch-card:hover .card-tool--eye { transition-delay: 30ms; }
   .watch-card:hover .card-tool:is(.card-tool--more, .card-tool--x) { transition-delay: 60ms; }
   .watch-card .card-tool:hover { color: var(--t1); transition-delay: 0s; }
@@ -123,7 +129,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-tool[aria-busy="true"]:hover > .ico { transform: scaleY(.06); }
   .card-tool:active > :is(.ico, .rate-th) { transform: scale(.8); }
   /* The caption goes under them, and does not move. */
-  .watch-card.has-tools:is(:hover, .has-focus, .is-lifted, .is-touched) > .watch-card__link:not(.is-previewed) .watch-card__sub {
+  .watch-card.has-tools:is(.has-focus, .is-lifted, .is-touched) > .watch-card__link:not(.is-previewed) .watch-card__sub,
+  :where(html:not(.is-by-touch)) .watch-card.has-tools:hover > .watch-card__link:not(.is-previewed) .watch-card__sub {
     --tools-w: 56px;
     -webkit-mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));
     mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));

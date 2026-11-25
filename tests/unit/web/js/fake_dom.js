@@ -37,6 +37,13 @@ function matchesSelector(el, sel) {
   });
 }
 
+function hiddenFar(n) {
+  const tools = n.parentNode;
+  const card = tools && tools.parentNode;
+  const has = (node, name) => !!node && !!node.classList && node.classList.contains(name);
+  return has(n, 'card-tool') && !has(n, 'is-up') && !has(n, 'is-down') && has(tools, 'card-tools') && has(card, 'watch-card') && has(card, 'is-far');
+}
+
 class Node {
   constructor(doc, tag) {
     this.ownerDocument = doc;
@@ -130,7 +137,8 @@ class Node {
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
   removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); }
-  focus() { this.ownerDocument.activeElement = this; }
+  // With doc.mouse, as the mouse's CSS hides a far card's buttons that show only under the mouse or the focus.
+  focus() { if (!(this.ownerDocument.mouse && hiddenFar(this))) this.ownerDocument.activeElement = this; }
   blur() { this.ownerDocument.activeElement = this.ownerDocument.body; }
   getBoundingClientRect() { return { top: 0, bottom: 20, left: 0, right: 20, width: 20, height: 20 }; }
   getClientRects() { return this.ownerDocument.body.contains(this) ? [this.getBoundingClientRect()] : []; }

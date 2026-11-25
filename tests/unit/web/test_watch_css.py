@@ -263,24 +263,50 @@ def test_on_a_touch_screen_the_open_levels_stand_over_every_other_card_s_buttons
     assert "pointer-events: none" in _of(heading, FINGER, CARDS)
 
 
+def test_every_card_button_draws_its_keyboard_ring_on_its_round_backing() -> None:
+    assert "outline: none" in _of(".card-tool:focus-visible", sheet=CARDS)
+    assert "outline: 2px solid" in _of(".card-tool:focus-visible::before", sheet=CARDS)
+    shown = '.card-tool:is(:focus-visible, [aria-expanded="true"])::before'
+    assert "opacity: 1" in _of(shown, sheet=CARDS)
+
+
 MOUSE = "(hover: hover) and (pointer: fine)"
 
 
 def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
+    # The whole row, which WebKit then skips at once; a rating given stays drawn, as a card nears
+    # faster than it is told.
     far = ".watch-card.is-far > .card-tools"
+    rated = far + " > .card-tool:is(.is-up, .is-down)"
     assert "visibility: hidden" in _of(far, MOUSE, CARDS)
+    assert "visibility: visible" in _of(rated, MOUSE, CARDS)
+    assert "opacity: 1" in _of(".card-tool--thumb:is(.is-up, .is-down)", MOUSE, CARDS)
+    assert not _of(far + " > .card-tool:not(.is-up, .is-down)", MOUSE, CARDS)
     # A touch screen's thumbs, drawn at rest, are as they were.
-    assert not _of(far, sheet=CARDS) and not _of(far, FINGER, CARDS)
+    for rule in (far, rated):
+        assert not _of(rule, sheet=CARDS) and not _of(rule, FINGER, CARDS)
+
+
+_TOOLS = " > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
 
 
 def test_with_a_mouse_a_card_a_finger_pressed_shows_its_buttons_as_under_the_mouse() -> None:
-    shown = (
-        ".watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) > "
-        ":where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
-    )
+    shown = ".watch-card:is(.has-focus, .is-lifted, .is-touched)" + _TOOLS
     assert "opacity: 1; transform: none" in _of(shown, MOUSE, CARDS)
-    ring = ".watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) .card-tool::before"
+    ring = ".watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before"
     assert "opacity: 1" in _of(ring, MOUSE, CARDS)
+
+
+def test_with_a_mouse_a_card_under_it_shows_its_buttons_unless_a_finger_was_last() -> None:
+    # A finger leaves its card under :hover until it presses elsewhere.
+    hover = ":where(html:not(.is-by-touch)) .watch-card"
+    assert "opacity: 1; transform: none" in _of(hover + ":hover" + _TOOLS, MOUSE, CARDS)
+    assert "opacity: 1" in _of(hover + ":hover .card-tool::before", MOUSE, CARDS)
+    assert "--th-bg: var(--s3)" in _of(hover + ":hover .card-tool > .rate-th", MOUSE, CARDS)
+    sub = hover + ".has-tools:hover > .watch-card__link:not(.is-previewed) .watch-card__sub"
+    assert "mask-image" in _of(sub, MOUSE, CARDS)
+    css = CARDS.read_text(encoding="utf-8")
+    assert not re.search(r"\.watch-card(\.has-tools)?:is\(:hover", css)
 
 
 def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:

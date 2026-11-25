@@ -755,7 +755,7 @@ const scenarios = {
     const menu = () => { h.pv().querySelector('[data-preview-more]').click(); return h.doc.querySelectorAll('.pv-menu .watch-keep-menu__item').map((n) => n.textContent)[0]; };
     const out = { without: menu() };
     h.pv().querySelector('[data-preview-more]').click();
-    h.ctx.MMWatch.search = { canLike: () => true, like: (...args) => asked.push(args.slice(0, 2)) };
+    h.ctx.MMWatch.search = { canLike: () => true, like: (...args) => asked.push(args) };
     out.first = menu();
     h.doc.querySelector('.pv-menu [data-act="like"]').click();
     return Object.assign(out, { asked, open: h.title() });

@@ -85,8 +85,7 @@ const ROWS = [
 function cardOf(doc, it) {
   return build(doc, ['article', { class: 'watch-card', 'data-keep-id': '' },
     ['a', { class: 'watch-card__link', href: it.href || '/watch', ...(it.ref ? { 'data-title-ref': it.ref } : {}) },
-      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title], ...(it.watched ? [['span', { class: 'watch-badge watch-badge--watched' }]] : [])], ['span', { class: 'watch-card__sub' }, it.subtitle]],
-    ...(it.href ? [['button', { class: 'watch-more', 'data-watch-more': '' }]] : [])]);
+      ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, it.title], ...(it.watched ? [['span', { class: 'watch-badge watch-badge--watched' }]] : [])], ['span', { class: 'watch-card__sub' }, it.subtitle]]]);
 }
 
 /* The page with All titles open on *rows*, the scripts loaded. opts.closed: it is not open. */
@@ -280,6 +279,13 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
 }
 
 const scenarios = {
+  // What an admin's card in All titles has to open its menu by.
+  async moreButton() {
+    const p = load();
+    return p.rowKeys().map((key) => p.row(key).querySelectorAll('[data-watch-more]')
+      .map((b) => [b.tagName, b.getAttribute('aria-label'), b.getAttribute('aria-haspopup'), b.getAttribute('aria-expanded')]));
+  },
+
   // A title read again says whether it is watched, on its eye too.
   async eyeReadAgain() {
     const p = load();
@@ -1566,6 +1572,8 @@ const scenarios = {
       typing: await go((p) => p.doc.getElementById('watch-search').focus()),
       details: await go((p) => p.doc.documentElement.classList.add('has-ttl')),
       dialog: await go((p) => p.doc.body.appendChild(build(p.doc, ['div', { class: 'wl-dialog active' }]))),
+      // Its card a screen or more out of sight in a big grid, with a mouse, which hides its buttons.
+      far: await go((p) => { p.doc.mouse = true; p.row('id:m2').classList.add('is-far'); }),
     };
   },
 
