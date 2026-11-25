@@ -413,6 +413,11 @@ const scenarios = {
     first.signedIn = [p.note(), p.card('A').classList.contains('is-held')];
     return first;
   },
+  async refused() {
+    const p = load([answer([item('A')]), 403]);
+    await p.step(600000);
+    return { asks: p.asks, note: p.note() };
+  },
   // On the Downloads page the page's own asking brings it, and nothing is asked here.
   async fed() {
     const p = load([answer([item('A')])], { fed: answer([item('A')]) });

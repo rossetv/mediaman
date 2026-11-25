@@ -188,6 +188,11 @@ def test_signed_out_it_stops_says_so_and_leaves_the_page_where_it_is(out) -> Non
     }
 
 
+def test_a_refusal_is_not_called_signed_out(out) -> None:
+    note = "Can’t reach mediaman right now. This is how it last was."
+    assert out["refused"] == {"asks": 2, "note": note}
+
+
 def test_on_the_downloads_page_the_ring_is_told_and_asks_nothing(out) -> None:
     assert out["fed"] == {
         "asks": 0,
