@@ -24,6 +24,7 @@ from mediaman.web.repository.library_query import (
     days_ago,
     display_key,
     fetch_display_rows,
+    row_items,
     shape_display_rows,
     title_ref,
 )
@@ -130,7 +131,9 @@ def load(
     if not admin:
         return Library(list(held.values()), seen, None)
     rows = {display_key(r): r for r in fetch_display_rows(conn)}
-    stale = {display_key(r) for r in fetch_display_rows(conn, "stale")}
+    # By its items: the lowest of a row's ids need not be among the stale ones.
+    key_of = {item: key for key, row in rows.items() for item in row_items(row)}
+    stale = {key_of[r["id"]]: r["file_size_bytes"] or 0 for r in fetch_display_rows(conn, "stale")}
     titles = []
     for key, row in rows.items():
         kind = cast(Any, "movies" if row["display_type"] == "movie" else row["display_type"])
@@ -148,7 +151,7 @@ def load(
                 watched_at=row["last_watched_at"],
                 leaving_at=row["deletion_at"],
                 kept=bool(row["is_kept"]),
-                stale=key in stale,
+                stale_bytes=stale.get(key),
             )
         )
     return Library(titles, seen, rows)
@@ -158,8 +161,21 @@ def _is_of(title: lib.LibraryTitle, type_: str, seen: set[str]) -> bool:
     if type_ == "unseen":
         return title.ref not in seen
     if type_ in ADMIN_TYPES:
-        return title.kept if type_ == "kept" else title.stale
+        return title.kept if type_ == "kept" else title.stale_bytes is not None
     return not type_ or title.kind == type_
+
+
+def _as_shown(library: Library, type_: str) -> list[lib.LibraryTitle]:
+    """Every title as the filter *type_* shows it: Stale, at the size of what of it is stale."""
+    if type_ != "stale":
+        return library.titles
+    return [
+        t if t.stale_bytes is None else replace(t, size_bytes=t.stale_bytes) for t in library.titles
+    ]
+
+
+def _filtered(library: Library, type_: str) -> list[lib.LibraryTitle]:
+    return [t for t in _as_shown(library, type_) if _is_of(t, type_, library.seen)]
 
 
 def _fact(
@@ -178,7 +194,7 @@ def _fact(
 
 def bar(conn: sqlite3.Connection, library: Library, type_: str, now: datetime) -> dict[str, Any]:
     """What stands over the grid: how many titles each filter has and, for an admin, the disk."""
-    shown = [t for t in library.titles if _is_of(t, type_, library.seen)]
+    shown = _filtered(library, type_)
     return {
         "type": type_,
         "counts": {
@@ -243,7 +259,7 @@ def _caption(
     """The line under the poster where it says what the grid goes by, and how it stands out."""
     kept = bool(item["protected"])
     if sort in ("size", "small"):
-        return item["file_size"] + (" · Kept" if kept else ""), None
+        return format_bytes(title.size_bytes) + (" · Kept" if kept else ""), None
     if sort in ("seen", "stalest"):
         said = _watched(title)
         return said, "bad" if said == "Never watched" else None
@@ -275,7 +291,7 @@ def _admin_fields(
     if item["protected"]:
         # A show's keeps can sit on several seasons and on the show itself.
         unkeep = "dialog" if several or item["show_kept"] else "item"
-    facts: list[str] = [item["file_size"], f"{_watched(title)} by anyone"]
+    facts: list[str] = [format_bytes(title.size_bytes), f"{_watched(title)} by anyone"]
     if item["protection_label"]:
         facts.append(item["protection_label"])
     if title.leaving_at and not item["protected"]:
@@ -357,7 +373,7 @@ def page_of(
     after: str = "",
 ) -> dict[str, Any]:
     """A page of the titles of *type_* in the order *sort*, past *after*, and the bar over them."""
-    titles = [t for t in library.titles if _is_of(t, type_, library.seen)]
+    titles = _filtered(library, type_)
     page, end = library_page(conn, username, libraries, titles, sort, limit, after)
     items = _cards(conn, library, page, cards_of, sort, type_, now)
     return {"items": items, "next": end, **bar(conn, library, type_, now)}
@@ -374,7 +390,7 @@ def one_of(
     now: datetime,
 ) -> dict[str, Any]:
     """The card of the title *key* as it is now, none when it is gone, and the bar."""
-    titles = [t for t in library.titles if t.key == key]
+    titles = [t for t in _as_shown(library, type_) if t.key == key]
     items = _cards(conn, library, titles, cards_of, sort, type_, now)
     return {"items": items, "next": None, **bar(conn, library, type_, now)}
 

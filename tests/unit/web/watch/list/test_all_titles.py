@@ -156,6 +156,75 @@ def test_the_bar_says_the_disk_and_what_leaves_of_the_filter(titled, read):
     assert read("type=stale")["fact"].endswith(" · 30+ days, unwatched")
 
 
+@pytest.fixture
+def part_stale(conn):
+    """A show of three seasons, one of them stale, between two stale films in size."""
+    for number, (days, size) in enumerate(((200, 3), (2, 9), (2, 9)), 1):
+        insert_media_item(
+            conn,
+            id=f"70{number}",
+            plex_rating_key=f"70{number}",
+            title="Harrow",
+            show_title="Harrow",
+            media_type="tv_season",
+            season_number=number,
+            show_rating_key="700",
+            plex_library_id=1,
+            added_at=NOW - timedelta(days=days),
+            file_size_bytes=size * 1024**3,
+        )
+    _movie(conn, "801", "Large", days=90, size=5 * 1024**3)
+    _movie(conn, "802", "Small", days=90, size=2 * 1024**3)
+    conn.commit()
+
+
+def test_stale_goes_by_what_of_a_show_is_stale_and_every_other_filter_by_all_of_it(
+    part_stale, read
+):
+    def sizes(query):
+        return [(c["title"], c["subtitle"]) for c in read(query)["items"]]
+
+    stale = read("type=stale")
+    assert stale["fact"].startswith("10.0 GB on disk")
+    largest = [("Large", "5.0 GB"), ("Harrow", "3.0 GB"), ("Small", "2.0 GB")]
+    assert sizes("type=stale&sort=size") == largest
+    assert sizes("type=stale&sort=small") == largest[::-1]
+    (harrow,) = [c for c in stale["items"] if c["title"] == "Harrow"]
+    assert harrow["admin"]["facts"].startswith("3.0 GB · ")
+    # What can be done of it is still of the whole show.
+    assert (harrow["admin"]["seasons"], harrow["admin"]["delete"]) == (3, {"show_rk": "700"})
+    assert sizes("type=stale&sort=size&only=show:700") == [("Harrow", "3.0 GB")]
+    assert read()["fact"].startswith("28.0 GB on disk")
+    assert sizes("type=tv&sort=size") == [("Harrow", "21.0 GB")]
+
+
+def test_shows_with_no_key_are_each_a_title_of_their_own(conn, read):
+    _season(conn, "41", "", "Larkrise")
+    # Its stale season is not the one with the lowest id.
+    insert_media_item(
+        conn,
+        id="40",
+        plex_rating_key="40",
+        title="Larkrise",
+        show_title="Larkrise",
+        media_type="tv_season",
+        season_number=2,
+        show_rating_key="",
+        plex_library_id=1,
+        added_at=NOW,
+    )
+    _season(conn, "51", "", "Marrow")
+    conn.execute("UPDATE media_items SET show_rating_key = NULL, show_title = NULL WHERE id = '51'")
+    conn.commit()
+
+    cards = read("sort=az")["items"]
+
+    assert [(c["key"], c["admin"]["seasons"]) for c in cards] == [("id:40", 2), ("id:51", 1)]
+    stale = read("type=stale&sort=az")
+    assert ([c["key"] for c in stale["items"]], stale["total"]) == (["id:40", "id:51"], 2)
+    assert [c["key"] for c in read("only=id:51")["items"]] == ["id:51"]
+
+
 def test_a_title_only_a_scan_knows_is_an_admin_s_with_what_can_be_done_of_it(titled, cards):
     (reel,) = [c for c in cards() if c["title"] == "Forgotten Reel"]
 
