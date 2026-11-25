@@ -74,6 +74,9 @@ class Downloads:
         body = self.page()
         return {i["arr_id"]: i["id"] for i in [body["hero"], *body["queue"]] if i}
 
+    def arrive(self, number: int) -> None:
+        self.film(number).update(hasFile=True, movieFile={"dateAdded": _NOW.isoformat()})
+
     def recent(self) -> list[str]:
         return [i["id"] for i in self.page()["recent"]]
 
@@ -141,7 +144,7 @@ def test_abandoning_one_film_leaves_the_other_monitored(downloads, number, over)
 
 
 def test_a_page_opened_before_the_films_were_told_apart_abandons_neither(downloads):
-    assert downloads.abandon("radarr:Twin").status_code == 404
+    assert downloads.abandon("radarr:Twin").status_code == 409
     assert downloads.unmonitored() == []
 
 
@@ -259,3 +262,88 @@ def test_a_film_abandoned_and_monitored_again_starts_its_searches_over(downloads
     downloads.page()
     downloads.film(_OLD)["monitored"] = True
     assert get_search_info(downloads.ids()[_OLD])[0] == 0
+
+
+@pytest.mark.parametrize("change", ["another added", "the other removed", "renamed"])
+def test_an_abandon_reaches_its_film_whatever_its_title_does_meanwhile(downloads, change):
+    shown = downloads.ids()[_OLD]
+    if change == "another added":
+        downloads.films.append(_film(23))
+    elif change == "the other removed":
+        downloads.films = [downloads.film(_OLD)]
+    else:
+        downloads.film(_OLD)["title"] = "Twins"
+    assert downloads.abandon(shown, arr_id=_OLD).status_code == 200
+    assert downloads.unmonitored() == [_OLD]
+
+
+def test_a_film_keeps_its_id_and_searches_when_the_other_of_its_title_goes(downloads, conn):
+    for number in (_OLD, _NEW):
+        _since(conn, number, _NOW - timedelta(days=9))
+    shown = downloads.ids()[_OLD]
+    _searched(conn, shown, 14, _NOW - timedelta(minutes=30))
+    reset_search_triggers()
+    searches = downloads.radarr.search_movie.call_count
+    downloads.films = [downloads.film(_OLD)]
+    assert downloads.ids() == {_OLD: shown}
+    assert get_search_info(shown)[0] == 14
+    assert downloads.radarr.search_movie.call_count == searches
+
+
+def test_a_film_that_arrived_stays_listed_when_another_of_its_title_is_added(downloads):
+    downloads.films = [_film(_OLD)]
+    downloads.queue(_OLD)
+    downloads.page()
+    downloads.arrive(_OLD)
+    downloads.queue()
+    recorded = downloads.recent()
+    downloads.films.append(_film(_NEW))
+    assert downloads.recent() == recorded != []
+
+
+def test_a_film_grabbed_again_once_the_other_went_is_listed_once(downloads):
+    downloads.queue(_OLD)
+    downloads.page()
+    downloads.arrive(_OLD)
+    downloads.queue()
+    assert len(downloads.recent()) == 1
+    downloads.films = [downloads.film(_OLD)]
+    downloads.queue(_OLD)
+    assert downloads.recent() == []
+    downloads.queue()
+    assert len(downloads.recent()) == 1
+
+
+def test_a_film_downloading_while_radarr_lists_no_films_is_recorded_once(downloads):
+    downloads.film(_NEW).update(hasFile=True, movieFile={"dateAdded": "2020-01-01T00:00:00Z"})
+    downloads.queue(_OLD)
+    shown = downloads.page()["hero"]["id"]
+    downloads.radarr.get_movies.side_effect = requests.ConnectionError
+    body = downloads.page()
+    assert (body["hero"]["id"], body["queue"]) == (shown, [])
+    downloads.radarr.get_movies.side_effect = lambda: downloads.films
+    downloads.arrive(_OLD)
+    downloads.queue()
+    assert downloads.recent() == [shown]
+
+
+@pytest.mark.parametrize("queued", [False, True])
+def test_a_film_removed_from_radarr_is_not_taken_for_the_other_that_arrived(
+    downloads, freezer, queued
+):
+    downloads.queue(_OLD, _NEW) if queued else downloads.queue(_OLD)
+    downloads.page()
+    downloads.arrive(_OLD)
+    downloads.queue(_NEW) if queued else downloads.queue()
+    arrived = downloads.recent()
+    freezer.tick(timedelta(minutes=10))
+    downloads.films = [downloads.film(_OLD)]
+    downloads.queue()
+    assert downloads.recent() == arrived != []
+
+
+def test_films_of_one_title_are_named_by_their_years_and_a_film_alone_is_not(downloads):
+    downloads.films.append(_film(30, title="Alone"))
+    body = downloads.page()
+    titles = sorted(i["title"] for i in [body["hero"], *body["queue"]])
+    assert titles == ["Alone", "Twin (2021)", "Twin (2022)"]

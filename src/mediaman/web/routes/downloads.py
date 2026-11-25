@@ -16,6 +16,7 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.services.arr.fetcher._base import is_film_id
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
@@ -49,13 +50,14 @@ def _page_payload(
     conn: sqlite3.Connection, secret_key: str
 ) -> tuple[DownloadsResponse, dict[str, object] | None]:
     """The downloads with TMDB posters at mediaman's own address, so a browser here never
-    calls TMDB; and what the header's ring is told of them. Copies: completion detection keeps
-    the items, with the addresses they came with.
+    calls TMDB, and films of one title by their labels; and what the header's ring is told of
+    them. Copies: completion detection keeps the items as they came.
     """
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         poster = item.get("poster_url") or ""
-        return {**item, "poster_url": tmdb_image_url(poster, "w342") or poster}
+        title = item.get("label") or item["title"]
+        return {**item, "title": title, "poster_url": tmdb_image_url(poster, "w342") or poster}
 
     asked_at = strip.on_page.now()
     data = build_downloads_response(conn, secret_key)
@@ -69,19 +71,28 @@ def _page_payload(
     return page, _ring(data, asked_at)
 
 
+def _former_id(item: dict[str, object]) -> str | None:
+    dl_id, title = str(item["id"]), str(item["title"])
+    return f"radarr:{title}" if is_film_id(dl_id, title) else None
+
+
 def _lookup_dl_item(
     conn: sqlite3.Connection, secret_key: str, dl_id: str, arr_id: int | None = None
 ) -> dict[str, object] | None:
-    """Find the queue item with the given dl_id in a freshly built response, never trusting
-    stale client-side state: with *arr_id*, only that very title, for another of the same name
-    may have the id by now. Raises 409 when titles share the id and none was named, and 503
-    when it is missing while a service is unreachable.
+    """Find the queue item named by the service of *dl_id* and *arr_id* in a freshly built
+    response, never trusting stale client-side state. Without an arr_id it is the one with the
+    dl_id, which of a film may be the one it had when films had none of their own. Raises 409
+    when that is more than one title, and 503 when none is while a service is unreachable.
     """
     payload = build_downloads_response(conn, secret_key)
     items = [*payload.get("queue", []), *payload.get("upcoming", [])]
     if hero := payload.get("hero"):
         items.append(hero)
-    found = [i for i in items if i.get("id") == dl_id and arr_id in (None, i.get("arr_id"))]
+    if arr_id:
+        service = dl_id.partition(":")[0] + ":"
+        found = [i for i in items if i.get("arr_id") == arr_id and str(i["id"]).startswith(service)]
+    else:
+        found = [i for i in items if dl_id in (i["id"], _former_id(i))]
     if len({item.get("arr_id") for item in found}) > 1:
         raise HTTPException(
             status_code=409,
@@ -160,7 +171,7 @@ def downloads_abandon(
     the item it showed; one opened before it did sends none.
 
     Movies ignore seasons; a series needs at least one season number. Returns 404 if the
-    dl_id is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
+    item is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
     release), 409 if it names more than one title and 400 for a malformed request (empty
     seasons on a series).
     """
@@ -171,6 +182,8 @@ def downloads_abandon(
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found in queue")
 
+    # What it is known by now, which a page that sent its arr_id may not have had.
+    dl_id = str(item.get("id") or dl_id)
     arr_id_raw = item.get("arr_id")
     arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:

@@ -136,6 +136,7 @@ def build_matched_item(
         size_total=format_bytes(int(nzb_file_mb * 1024 * 1024)),
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
+        label=arr.get("label", ""),
     )
 
 
@@ -237,6 +238,7 @@ def _build_unmatched_movie_item(
         stuck_seasons=[],
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
+        label=arr.get("label", ""),
     )
 
 

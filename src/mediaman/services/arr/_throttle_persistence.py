@@ -143,15 +143,15 @@ def _warn_persist_failure(dl_id: str) -> None:
 
 
 def adopt_throttle(conn: sqlite3.Connection, cards: Sequence[ArrCard]) -> None:
-    """Start each film that has an id of its own from what was counted under its title, unless
-    its search began after that. The title's row is left for an earlier version to go on from.
+    """Start each film from what was once counted under its title alone, unless its search
+    began after that. The title's row is left for an earlier version to go on from.
     """
     # Late import: the fetcher package imports this module.
-    from mediaman.services.arr.fetcher._base import is_own_id
+    from mediaman.services.arr.fetcher._base import is_film_id
 
     for card in cards:
         since = card.get("searching_since", 0.0)
-        if not since or not is_own_id(card["dl_id"], card["title"]):
+        if not since or not is_film_id(card["dl_id"], card["title"]):
             continue
         searching_since = datetime.fromtimestamp(since, tz=UTC).isoformat()
         try:

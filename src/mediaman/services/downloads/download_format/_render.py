@@ -30,11 +30,13 @@ def build_item(
     stuck_seasons: list[dict[str, int]] | None = None,
     arr_id: int = 0,
     kind: str = "",
+    label: str = "",
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
     search_count and last_search_ts are set only for the searching state; added_at is
     the fallback before the first search (first 5 minutes, or after a restart).
+    label is what to call it where its title does not tell it from another.
     abandon_visible is a server-side threshold check so the frontend needs no logic.
     """
     if stuck_seasons is None:
@@ -64,6 +66,7 @@ def build_item(
         "stuck_seasons": stuck_seasons,
         "arr_id": arr_id,
         "kind": kind,
+        "label": label,
     }
 
 

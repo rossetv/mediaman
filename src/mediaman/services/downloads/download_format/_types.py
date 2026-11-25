@@ -53,3 +53,4 @@ class DownloadItem(TypedDict):
     stuck_seasons: list[dict[str, int]]
     arr_id: int
     kind: str
+    label: str

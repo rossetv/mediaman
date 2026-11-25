@@ -150,11 +150,10 @@ class ArrCard(BaseArrCard, total=False):
     is_upcoming: bool
     release_label: str
     arr_id: int
-    # Set on a queue card, which has no arr_id to look it up by.
+    # On a film's card always, and on a show's in the queue: that has no arr_id to look it up by.
     tmdb_id: int
-    # Radarr's number of the film, on a queue card too: that has no arr_id, so that it is
-    # neither searched for nor abandoned.
-    movie_id: int
+    # What to call a film whose title another in Radarr has too.
+    label: str
     title_slug: str
     added_at: float
     # Epoch since which the title has been searching without a break. Absent while
@@ -176,14 +175,16 @@ class ArrCard(BaseArrCard, total=False):
     stuck_seasons: list[dict[str, int]]
 
 
-def own_id(title_id: str, number: int) -> str:
-    """The id of one of the films that share the title *title_id* is made of."""
-    return f"{title_id}#{number}"
+def film_id(title: str, tmdb_id: int) -> str:
+    """The dl_id of a film, which another of the same title does not share, and which stays
+    with it when it is removed from Radarr and added again."""
+    return f"radarr:{title}#{tmdb_id}"
 
 
-def is_own_id(dl_id: str, title: str) -> bool:
-    """Whether *dl_id* is of one film of *title* alone; see ``own_id``."""
-    return dl_id.startswith(f"radarr:{title}#")
+def is_film_id(dl_id: str, title: str) -> bool:
+    """Whether *dl_id* is a ``film_id`` of *title*."""
+    number = dl_id.removeprefix(f"radarr:{title}#")
+    return number != dl_id and number.isdecimal()
 
 
 def make_arr_card(

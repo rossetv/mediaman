@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -7,8 +8,8 @@ from mediaman.services.arr.fetcher._base import (
     ArrCard,
     _iter_still_searching,
     clamp_progress,
+    film_id,
     make_arr_card,
-    own_id,
 )
 
 if TYPE_CHECKING:
@@ -20,6 +21,13 @@ from mediaman.services.downloads.download_format import (
     compute_movie_released_at,
     extract_poster_url,
 )
+
+
+def _identify(card: ArrCard, tmdb_id: int | None) -> None:
+    """Give a card the id of its film, where Radarr told which that is."""
+    if tmdb_id:
+        card["tmdb_id"] = tmdb_id
+        card["dl_id"] = film_id(card["title"], tmdb_id)
 
 
 def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
@@ -49,10 +57,7 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
             status=status,
             release_names=[release_name] if release_name else [],
         )
-        if tmdb_id := movie.get("tmdbId"):
-            card["tmdb_id"] = tmdb_id
-        if movie_id := movie.get("id"):
-            card["movie_id"] = movie_id
+        _identify(card, movie.get("tmdbId"))
         items.append(card)
     return items
 
@@ -62,11 +67,11 @@ def _build_still_searching_cards(
     queue_cards: Sequence[ArrCard],
 ) -> list[ArrCard]:
     """Phase 2: build cards for monitored movies still searching, those of *queue_cards* left
-    out: by their number, or by title and year where the queue did not give one.
+    out: by TMDB id, or by title and year where the queue did not give one.
     """
-    queued = {card["movie_id"] for card in queue_cards if "movie_id" in card}
+    queued = {card["tmdb_id"] for card in queue_cards if "tmdb_id" in card}
     queued_title_years = {
-        (card["title"], card.get("year")) for card in queue_cards if "movie_id" not in card
+        (card["title"], card.get("year")) for card in queue_cards if "tmdb_id" not in card
     }
     items: list[ArrCard] = []
     for movie in movies:
@@ -76,7 +81,7 @@ def _build_still_searching_cards(
             continue
         if movie.get("hasFile"):
             continue
-        if movie.get("id") in queued or (m_title, m_year) in queued_title_years:
+        if movie.get("tmdbId") in queued or (m_title, m_year) in queued_title_years:
             continue
 
         is_upcoming, release_label = classify_movie_upcoming(movie)
@@ -93,6 +98,7 @@ def _build_still_searching_cards(
             "movie",
             m_title,
             source="Radarr",
+            year=m_year,
             poster_url=poster_url,
             arr_id=movie.get("id", 0),
             title_slug=movie.get("titleSlug", ""),
@@ -101,26 +107,19 @@ def _build_still_searching_cards(
             is_upcoming=is_upcoming,
             release_label=release_label,
         )
-        if movie_id := movie.get("id"):
-            card["movie_id"] = movie_id
+        _identify(card, movie.get("tmdbId"))
         items.append(card)
     return items
 
 
-def _tell_apart(cards: Sequence[ArrCard], movies: Sequence[RadarrMovie]) -> None:
-    """Give each film of a title that Radarr holds more than once an id of its own. Any other
-    keeps the plain one, which what is stored of it is kept under.
-    """
-    numbers: dict[str, set[int]] = {}
-    for movie in movies:
-        if movie_id := movie.get("id"):
-            numbers.setdefault(movie.get("title", ""), set()).add(movie_id)
+def _label_shared_titles(cards: Sequence[ArrCard], movies: Sequence[RadarrMovie]) -> None:
+    """Name each film whose title Radarr has more than once by its year too."""
+    films = {(m.get("title", ""), m.get("tmdbId")) for m in movies}
+    films |= {(card["title"], card.get("tmdb_id")) for card in cards}
+    held = Counter(title for title, _ in films)
     for card in cards:
-        if "movie_id" in card:
-            numbers.setdefault(card["title"], set()).add(card["movie_id"])
-    for card in cards:
-        if "movie_id" in card and len(numbers[card["title"]]) > 1:
-            card["dl_id"] = own_id(card["dl_id"], card["movie_id"])
+        if held[card["title"]] > 1 and card.get("year"):
+            card["label"] = f"{card['title']} ({card['year']})"
 
 
 def fetch_radarr_queue(
@@ -138,5 +137,5 @@ def fetch_radarr_queue(
         _iter_still_searching(client.get_movies, service_label="Radarr", on_failure=on_failure)
     )
     items.extend(_build_still_searching_cards(movies, items))
-    _tell_apart(items, movies)
+    _label_shared_titles(items, movies)
     return items
