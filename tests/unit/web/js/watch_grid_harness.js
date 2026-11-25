@@ -633,14 +633,17 @@ const scenarios = {
     };
   },
 
-  // A copy is of the card at rest, and opening closes a preview over it.
+  // A copy is of the card at rest, without levels that are folding away, and opening closes a preview over it.
   async previewGoes() {
     const p = load();
     let closed = 0;
     p.ctx.MMWatch.preview = { close() { closed++; } };
     p.rows[0].querySelectorAll('.watch-card__link')[0].classList.add('is-previewed');
+    const card = p.rows[0].querySelectorAll('.watch-card')[0];
+    card.classList.add('is-lifted');
+    card.appendChild(build(p.doc, ['div', { class: 'card-over' }]));
     p.grid.open(p.opts());
-    return { closed, copies: p.doc.querySelectorAll('.watch-all .is-previewed').length };
+    return { closed, copies: p.doc.querySelectorAll('.watch-all .is-previewed, .watch-all .is-lifted, .watch-all .card-over').length };
   },
 
   // A card taken out: the rest close up from where they were, and it comes back to its place.

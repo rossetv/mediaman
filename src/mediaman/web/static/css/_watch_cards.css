@@ -10,6 +10,9 @@
 .watch-card { position: relative; }
 .watch-card:has(> .card-tools) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
 
+/* What an outlined thumb is filled with: the surface it stands on. */
+.ttl { --card-rest: var(--s1); }
+
 /* Level with the caption's first line, at its end. The percentage is of the card's width, so it
    finds the poster's foot at every size. */
 .card-tools {
@@ -88,13 +91,13 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 .watch-card:has(.is-previewed) .card-tool { opacity: 0; pointer-events: none; transition-duration: calc(var(--dur-fast) * .5); }
 
 @media (hover: hover) and (pointer: fine) {
-  .card-tool { display: grid; color: var(--t2); opacity: 0; transform: translateY(5px); pointer-events: none; }
+  .card-tool { display: grid; color: var(--t2); opacity: 0; transform: translateY(5px); }
   .card-tool::after,
   .card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset: -8px 0; }
   .card-tool--thumb { touch-action: manipulation; }
   /* At rest, a rating that was given. */
   .card-tool--thumb:is(.is-up, .is-down) { opacity: 1; transform: none; }
-  .watch-card:is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .card-tool { opacity: 1; transform: none; pointer-events: auto; }
+  .watch-card:is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .card-tool { opacity: 1; transform: none; }
   html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
   .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool::before { opacity: 1; transform: none; }
   .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool > .rate-th { --th-bg: var(--s3); }
@@ -302,10 +305,14 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over__b::before { border-color: ButtonBorder; background: ButtonFace; }
   .card-over__b[aria-pressed="true"] { forced-color-adjust: none; color: HighlightText; }
   .card-over__b[aria-pressed="true"]::before { background: Highlight; }
+  .rate--lift { --rate-bg: ButtonFace; }
   .rate--lift .rate__set { background: ButtonFace; }
-  .rate--lift .rate__b.is-at:not(.is-on) { color: Highlight; }
+  .rate--lift .rate__b.is-at:not(.is-on) { --b-bg: ButtonFace; color: Highlight; }
   .rate__puck { forced-color-adjust: none; background: Highlight; }
   .rate__puck:not(.is-up, .is-down) { visibility: hidden; }
   .rate__name > span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
   .watch-badge--unwatched { display: none; }
+}
+@media (forced-colors: active) and (hover: hover) and (pointer: fine) {
+  .card-over__scrim { background: none; }
 }

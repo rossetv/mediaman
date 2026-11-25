@@ -235,8 +235,13 @@ const scenarios = {
     await p.pick(wanted, 'mark');
     const marked = [p.calls.slice(), p.look(), found.getAttribute('data-level'), p.fetched.length, p.events.slice()];
     await p.undo();
+    const undone = p.look('found');
+    const calls = p.calls.slice(2);
+    await p.pick(wanted, 'mark');
+    await p.pick(wanted, 'mark');
+    const pages = p.fetched.length;
     await p.pick(held, 'mark');
-    return { marked, undone: p.look('found'), calls: p.calls.slice(2) };
+    return { marked, undone, calls: calls.concat(p.calls.slice(5)), pages };
   },
 
   // A mark of a title the library has come to hold, one TMDB has not, and one whose seasons are not known.

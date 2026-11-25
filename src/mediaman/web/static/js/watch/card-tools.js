@@ -186,7 +186,6 @@
     quiet(o.card);
     clearTimeout(o.timer);
     o.timer = setTimeout(function () {
-      if (open !== o) return;
       if (level !== null) comeDown(o);
       shut(o.over.contains(document.activeElement));
     }, core.reduceMotion() ? SHOW_STILL_MS : SHOW_MS);

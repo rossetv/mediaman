@@ -527,6 +527,7 @@ def test_a_title_not_in_the_library_is_rated_and_marked_by_its_tmdb_ref_on_all_i
         "DELETE /api/watch/seen/tmdb-movie-50?undo=1",
         "POST /api/watch/watched/movie/8",
     ]
+    assert out["pages"] == 0
 
 
 def test_a_mark_the_server_refuses_goes_where_the_title_is_now_or_says_why() -> None:
