@@ -39,25 +39,17 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
 def test_what_is_scrolled_into_view_stops_above_the_save_bar() -> None:
     css = (CSS / "_settings_pg.css").read_text()
 
-    def kept(state: str, start: str) -> int:
-        head = f"html:has(.setg-pg .savebar.on{state}) {{"
-        body = css[css.index(head, css.index(start)) + len(head) :].split("}")[0]
-        found = re.search(r"--savebar-room: (?:calc\()?(\d+)px", body)
-        assert found
-        return int(found.group(1))
-
     bar = re.search(r"html:has\(\.setg-pg \.savebar\.on\) \{([^{}]*)\}", css)
-    assert bar and "scroll-padding-bottom: var(--savebar-room)" in bar.group(1)
+    assert bar and "--savebar-below: 0px" in bar.group(1)
+    assert "scroll-padding-bottom: calc(var(--savebar-h, 73px) + var(--savebar-below)" in bar.group(
+        1
+    )
     # no other rule sets it to a size of its own
     assert css.count("scroll-padding-bottom") == 1
-
-    # the bar's height with its tab bar, and with the longest message it shows, 44px buttons included
-    narrow, either = "@media (max-width: 380px)", ":is(.is-error, .is-partial)"
-    assert kept("", ".setg-pg .savebar {") >= 73
-    assert kept(".is-error", ".setg-pg .savebar {") >= 86
-    phone = ".setg-pg .savebar { bottom:"
-    assert (kept("", phone) >= 129, kept(either, phone) >= 196) == (True, True)
-    assert (kept("", narrow) >= 158, kept(either, narrow) >= 230) == (True, True)
+    # on a phone the bar stands on the tab bar
+    below = "calc(64px + env(safe-area-inset-bottom, 0px))"
+    phone = css[css.index(f".setg-pg .savebar {{ bottom: {below};") :]
+    assert f"html:has(.setg-pg .savebar.on) {{ --savebar-below: {below}; }}" in phone
 
 
 def test_a_long_user_name_or_email_wraps_inside_its_row() -> None:

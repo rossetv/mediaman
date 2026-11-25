@@ -436,6 +436,12 @@
     var refreshOverviewHero = (opts && opts.refreshOverviewHero) || function () {};
 
     savebar = document.getElementById('setg-savebar');
+    // The page's room for the bar follows its height, whatever it says.
+    if (savebar && window.ResizeObserver) {
+      new ResizeObserver(function () {
+        document.documentElement.style.setProperty('--savebar-h', savebar.offsetHeight + 'px');
+      }).observe(savebar, { box: 'border-box' });
+    }
     // An expired session must not redirect away from edits that are not saved.
     MM.api.hasUnsavedChanges = function () {
       return !!savebar && savebar.classList.contains('on');

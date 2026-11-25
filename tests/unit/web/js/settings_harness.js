@@ -259,6 +259,20 @@ const scenarios = {
   },
 
   // Discard puts back what was on the page at load, and what was last saved after a save.
+  // The room the page is told to keep for the bar, as the bar changes height.
+  async savebarRoom() {
+    const h = build();
+    const bar = h.add('div', { id: 'setg-savebar' });
+    h.ctx.MM.api = {};
+    const room = {};
+    h.doc.documentElement.style = { setProperty: (k, v) => { room[k] = v; } };
+    let changed;
+    h.ctx.ResizeObserver = function (fn) { this.observe = (el) => { if (el === bar) changed = fn; }; };
+    h.load('settings/savebar.js');
+    h.ctx.MM.settings.savebar.init({});
+    return [61, 258].map((height) => { bar.offsetHeight = height; changed(); return { ...room }; });
+  },
+
   async savebar() {
     const h = build();
     const page = h.add('div', { className: 'setg-pg' });

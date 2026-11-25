@@ -17,5 +17,9 @@ CSS = re.sub(
 
 
 def test_the_page_keeps_room_under_its_last_section_for_the_bar() -> None:
-    assert re.findall(r"\.setg-shell \{[^}]*padding-bottom: (\d+)px", CSS) == ["140"]
-    assert re.findall(r"scroll-padding-bottom: ([^;]+);", CSS) == ["var(--savebar-room)"]
+    # Never less than the bar's own height, which savebar.js measures, whatever it says.
+    (room,) = re.findall(r"\.setg-shell \{[^}]*padding-bottom: ([^;]+);", CSS)
+    measured = re.fullmatch(r"max\(140px, calc\(var\(--savebar-h, 0px\) \+ (\d+)px\)\)", room)
+    assert measured and int(measured[1]) >= 16
+    (above,) = re.findall(r"scroll-padding-bottom: ([^;]+);", CSS)
+    assert "var(--savebar-h" in above and "var(--savebar-below)" in above
