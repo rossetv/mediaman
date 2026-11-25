@@ -273,7 +273,7 @@ def test_it_opens_from_the_picture_alone_and_not_over_the_levels_or_once_one_was
 def test_a_previews_menu_finds_more_like_its_title_first_of_all() -> None:
     out = _run("like")
     assert out["first"] == "Find more like this" != out["without"]
-    assert out["asked"] == [["show-2", "The Long Coast"]]
+    assert out["asked"] == [["show-2", "The Long Coast", "/api/poster/1"]]
     assert not out["open"]
 
 
