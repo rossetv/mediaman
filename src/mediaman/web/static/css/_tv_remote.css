@@ -113,6 +113,9 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem .opt.player-pill { flex: 1 1 auto; max-width: 50%; padding: 0 12px; }
   .tv-rem .opt .ico { display: none; }
 }
+@media (max-width: 350px) {
+  .tv-rem .player-controls .player-btn:not([data-fullscreen]) { min-width: 44px; }
+}
 /* A short phone: the picture gives way so that every control is on the screen. */
 @media (max-width: 600px) and (max-height: 680px) {
   .tv-rem__art { width: min(100%, 32vh); }
@@ -120,7 +123,8 @@ html.has-tv-remote { overflow: hidden; }
 /* A phone on its side: the words alone, beside no picture, so every control is on the screen. */
 @media (max-height: 520px) {
   .tv-rem__art { display: none; }
-  .tv-rem.is-upnext .tv-rem__say { opacity: 0; }
+  .tv-rem .player-subtitle { transition: opacity var(--dur) var(--ease-out); }
+  .tv-rem.is-upnext :is(.tv-rem__say, .player-subtitle) { opacity: 0; }
   /* One line, in the empty middle. */
   .tv-rem .player-upnext { --card-y: 10px; left: 0; right: 0; width: min(640px, calc(100% - 40px)); margin-inline: auto; padding-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 0 16px; align-items: center; }
   .tv-rem .player-upnext .player-card-line { -webkit-line-clamp: 1; }
