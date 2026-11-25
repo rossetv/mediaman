@@ -22,7 +22,7 @@ Node.prototype.select = function () {};
 const PAIRED = { id: 1, kind: 'page', name: 'Living room', owner: 'maren', on: true };
 const OLDER = { id: 2, kind: 'older', name: 'Kitchen TV', owner: null, on: false };
 
-async function page(answers, all = [PAIRED, OLDER]) {
+async function page(answers, all = [PAIRED, OLDER], reduced = true) {
   const doc = makeDocument();
   doc.body.appendChild(build(doc, ['div', { class: 'setg-pg' },
     ['button', { id: 'btn-add-tv' }], ['div', { id: 'tv-list-wrap' }], ['div', { id: 'tv-add', hidden: '' }],
@@ -40,7 +40,8 @@ async function page(answers, all = [PAIRED, OLDER]) {
   answers['GET /api/settings/older-tvs'] = { tvs: [{ id: 2, name: 'Kitchen TV', address: '192.168.1.44' }] };
   const said = [];
   const ctx = {
-    document: doc, console, Promise, Date, setTimeout: (f) => f(),
+    document: doc, console, Promise, Date, setTimeout: (f, ms) => { if (!ms) f(); },
+    matchMedia: () => ({ matches: reduced }),
     MM: {
       api: { get: call('GET'), post: call('POST'), patch: call('PATCH'), delete: call('DELETE'),
         messageOf: (e, words) => e.message || words },
@@ -167,6 +168,46 @@ const scenarios = {
     answers['POST /api/settings/older-tvs/2/check'] = { tv: { last_seen_at: new Date().toISOString(), address: '192.168.1.77' } };
     await p.press(p.row(1), 'Check');
     return { off, on: p.states(p.row(1)), says: p.row(1).querySelector('.tv-sub').textContent };
+  },
+  // Which lines of the steps before are still the same elements, by their words.
+  async stands() {
+    const pending = [];
+    const later = () => new Promise((resolve, reject) => { pending.push({ resolve, reject }); });
+    const p = await page({ [CHECK]: later, 'POST /api/settings/older-tvs/picture': { from: 'x' }, 'POST /api/settings/older-tvs/2/check': later });
+    const out = {};
+    for (const [name, root, start, answer] of [
+      ['add', p.panel, () => p.add('192.168.1.44'), FOUND],
+      ['row', p.row(1), () => p.press(p.row(1), 'Check'), { tv: { last_seen_at: null, address: '192.168.1.44' } }]]) {
+      await start();
+      const before = root.querySelectorAll('.tv-chk li');
+      pending.pop().resolve(answer);
+      await settle();
+      out[name] = root.querySelectorAll('.tv-chk li').filter((li) => before.includes(li)).map((li) => [li.className, li.textContent]);
+    }
+    return out;
+  },
+  async leaving() {
+    const p = await page({}, [PAIRED, OLDER], false);
+    const done = (n) => p.fire(n, 'animationend');
+    await p.press(p.row(1), 'Forget');
+    const first = p.row(1).querySelector('.tv-sure');
+    await p.press(p.row(1), 'Cancel');
+    const out = { question: [first.isConnected, first.className, first.inert] };
+    done(first);
+    out.gone = first.isConnected;
+    await p.add('x');
+    await p.press(p.panel, 'Cancel');
+    out.panel = [p.panel.hidden, p.panel.className, p.doc.getElementById('btn-add-tv').hidden];
+    await p.add('x');
+    done(p.panel);
+    out.again = [p.panel.hidden, p.panel.className, p.panel.inert];
+    await p.press(p.panel, 'Cancel');
+    done(p.panel);
+    out.shut = [p.panel.hidden, p.panel.childNodes.length];
+    const still = await page({});
+    await still.add('x');
+    await still.press(still.panel, 'Cancel');
+    return Object.assign(out, { reduced: still.panel.hidden });
   },
   async forget() {
     const p = await page({});

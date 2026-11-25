@@ -588,15 +588,18 @@
 .setg-pg .tv-add { padding: 18px 0; border-top: 1px solid var(--hair); animation: tv-come var(--dur) var(--ease-out); }
 .setg-pg .tv-add label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
 .setg-pg .tv-add-line { display: flex; flex-wrap: wrap; gap: 8px; }
-.setg-pg .tv-add-line .inp { flex: 1 1 200px; width: auto; }
-.setg-pg .tv-add-line .btn { min-width: 8em; }
+.setg-pg .tv-add-line .inp { flex: 1 1 140px; width: auto; }
+/* Wide enough for "Checking…", so the label changing moves nothing. */
+.setg-pg .tv-add-line .btn { flex: none; min-width: 7em; padding-inline: 12px; }
 .setg-pg .tv-add-hint { font-size: 13px; color: var(--t2); line-height: 1.5; margin-top: 8px; max-width: 62ch; }
 .setg-pg .tv-add label[for="tv-add-name"] { margin-top: 14px; }
 .setg-pg #tv-add-name { width: 100%; max-width: 320px; }
 .setg-pg .tv-add-end { display: flex; gap: 8px; margin-top: 14px; }
 .setg-pg .tv-pair-at { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .setg-pg #tv-address-hint.is-bad { color: var(--danger-text); }
+.setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { pointer-events: none; animation: tv-go var(--dur) var(--ease-out) forwards; }
 @keyframes tv-come { from { opacity: 0; transform: translateY(6px); } }
+@keyframes tv-go { to { opacity: 0; transform: translateY(6px); } }
 @media (max-width: 699.98px) {
   .setg-pg .tv-in { flex-wrap: wrap; }
   .setg-pg .tv-in > .tv-txt { flex-basis: calc(100% - 60px); }
@@ -607,6 +610,7 @@
   .setg-pg .tv-add .btn { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .setg-pg .tv-sure, .setg-pg .tv-chk li, .setg-pg .tv-add { animation: none; }
+  .setg-pg .tv-sure, .setg-pg .tv-chk li, .setg-pg .tv-add,
+  .setg-pg .tv-sure.is-leaving, .setg-pg .tv-add.is-leaving { animation: none; }
   .setg-pg .tv-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
 }

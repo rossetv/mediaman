@@ -89,7 +89,7 @@ def test_a_tv_that_cannot_fetch_the_test_picture_is_not_added_and_says_why() -> 
 def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
     got = _run("checked")
     assert got["off"] == ["ok", "no"]
-    assert got["on"] == ["ok"]
+    assert got["on"] == ["ok", "ok"]
     assert "Last seen today" in got["says"]
     assert "Older TV at 192.168.1.77" in got["says"]
 
@@ -124,3 +124,25 @@ def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -
             "tv_address": "http://192.168.1.10:8282",
         }
     ]
+
+
+def test_a_line_of_a_check_that_stands_does_not_come_in_again() -> None:
+    got = _run("stands")
+    home = "192.168.1.44 is on your home network"
+    assert got["add"][0] == ["ok", home]
+    assert got["add"][1][1] == "Can play films from mediaman"
+    assert got["row"] == [["ok", home]]
+
+
+def test_cancel_fades_the_question_and_the_add_panel_out_before_they_go() -> None:
+    got = _run("leaving")
+    assert got["question"] == [True, "tv-sure is-leaving", True]
+    assert got["gone"] is False
+    assert got["panel"][0] is False
+    assert "is-leaving" in got["panel"][1]
+    assert got["panel"][2] is False
+    assert got["again"][0] is False
+    assert "is-leaving" not in got["again"][1]
+    assert got["again"][2] is False
+    assert got["shut"] == [True, 0]
+    assert got["reduced"] is True

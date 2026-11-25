@@ -73,21 +73,59 @@
 
   function urlOf(tv) { return (tv.kind === 'older' ? OLDER : '/api/tvs') + '/' + tv.id; }
 
-  // A check's outcome as lines: [state, words, more].
-  function lines(list) {
-    var ul = el('ul', 'tv-chk');
-    ul.setAttribute('role', 'status');
-    list.forEach(function (line) {
-      var li = el('li', line[0]);
+  // Shows a check's outcome as lines: [state, words, more]. A line that stands keeps its
+  // element, which would come in again if it were made or put there anew.
+  function lines(list, ul) {
+    if (!ul) {
+      ul = el('ul', 'tv-chk');
+      ul.setAttribute('role', 'status');
+    }
+    var old = Array.prototype.slice.call(ul.children);
+    var next = list.map(function (line) {
+      var li = old.find(function (o) { return o.dataset.words === line[1]; });
+      if (li) old.splice(old.indexOf(li), 1);
+      else { li = el('li'); li.dataset.words = line[1]; }
+      var was = li.className;
+      if (was === line[0] && (li.dataset.more || '') === (line[2] || '')) return li;
+      li.className = line[0];
+      li.dataset.more = line[2] || '';
       var mark = el('span');
       mark.appendChild(ICONS[line[0]]());
       var words = el('span', '', line[1]);
       if (line[2]) words.appendChild(el('small', '', line[2]));
-      li.appendChild(mark);
-      li.appendChild(words);
-      ul.appendChild(li);
+      li.replaceChildren(mark, words);
+      return li;
+    });
+    old.forEach(function (li) { li.remove(); });
+    next.forEach(function (li, i) {
+      if (ul.children[i] !== li) ul.insertBefore(li, ul.children[i] || null);
     });
     return ul;
+  }
+
+  // Fades a part out, then calls `gone`, unless `come` had it back first.
+  function go(node, gone) {
+    if (node.classList.contains('is-leaving')) return;
+    node.inert = true;
+    node.classList.add('is-leaving');
+    function ended(e) { if (e.target === node) finish(); }
+    function finish() {
+      node.removeEventListener('animationend', ended);
+      if (!node.classList.contains('is-leaving') || node._going !== finish) return;
+      come(node);
+      gone();
+    }
+    node._going = finish;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
+    node.addEventListener('animationend', ended);
+    // animationend never fires for what is not drawn.
+    setTimeout(finish, 400);
+  }
+
+  function come(node) {
+    node.inert = false;
+    node.classList.remove('is-leaving');
+    node._going = null;
   }
 
   function atHome(address) { return ['ok', address + ' is on your home network']; }
@@ -242,20 +280,19 @@
     function runCheck() {
       if (isBusy(check)) return;
       setBusy(check, 'Checking…');
-      var out = lines(asking(tv.address));
-      clear('.tv-chk');
-      li.appendChild(out);
+      var out = li.querySelector('.tv-chk');
+      if (out) lines(asking(tv.address), out);
+      else { out = lines(asking(tv.address)); line.after(out); }
       function say(list) {
         setBusy(check, '');
         if (!out.parentNode) return;
-        var next = lines(list);
-        out.replaceChildren.apply(out, Array.prototype.slice.call(next.children));
+        lines(list, out);
       }
       MM.api.post(OLDER + '/' + tv.id + '/check', {}).then(function (got) {
         tv.last_seen_at = got.tv.last_seen_at;
         tv.address = got.tv.address;
         sub.textContent = says(tv);
-        say([['ok', 'The TV answered', 'mediaman can reach it at ' + tv.address + '.']]);
+        say([atHome(tv.address), ['ok', 'The TV answered', 'mediaman can reach it at ' + tv.address + '.']]);
       }, function (err) { say(failed(err, tv.address)); });
     }
 
@@ -301,7 +338,9 @@
     }
 
     function ask() {
-      if (li.querySelector('.tv-sure')) return;
+      var shown = li.querySelector('.tv-sure');
+      if (shown && !shown.classList.contains('is-leaving')) return;
+      clear('.tv-sure');
       var sure = el('div', 'tv-sure');
       sure.setAttribute('role', 'alertdialog');
       sure.setAttribute('aria-label', 'Forget ' + tv.name + '?');
@@ -318,7 +357,10 @@
       sure.appendChild(two);
       sure.appendChild(status);
 
-      function cancel() { sure.remove(); forget.focus(); }
+      function cancel() {
+        go(sure, function () { sure.remove(); });
+        forget.focus();
+      }
       function remove() {
         if (isBusy(yes)) return;
         setBusy(yes, 'Forgetting…');
@@ -382,6 +424,8 @@
     status.setAttribute('role', 'alert');
 
     function say(list) {
+      var shown = out.querySelector('.tv-chk');
+      if (shown) { lines(list, shown); return; }
       var ul = lines(list);
       ul.removeAttribute('role');
       out.replaceChildren(ul);
@@ -466,8 +510,10 @@
     }
     function close() {
       asked += 1;
-      panel.hidden = true;
-      panel.replaceChildren();
+      go(panel, function () {
+        panel.hidden = true;
+        panel.replaceChildren();
+      });
       addBtn.hidden = false;
       addBtn.setAttribute('aria-expanded', 'false');
       addBtn.focus();
@@ -485,6 +531,7 @@
 
     out.appendChild(hint);
     panel.replaceChildren(label, l, out, named, end, status);
+    come(panel);
     addBtn.hidden = true;
     addBtn.setAttribute('aria-expanded', 'true');
     panel.hidden = false;
