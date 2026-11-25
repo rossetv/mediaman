@@ -820,6 +820,19 @@ class TestWhoReadsWhat:
         assert "192.0.2.9" not in html
         assert " open>" not in html
 
+    def test_a_viewer_reads_no_stored_record_media_id_or_name_of_another(self, clients, conn):
+        security_event(
+            conn, event="user.created", actor="ana", detail={"new_username": "target-name"}
+        )
+
+        page, api = clients[1].get("/history").text, clients[1].get("/api/history").text
+
+        for text in (page, api):
+            assert "User created" in text
+            assert "Ana Film" in text
+            for hidden in ("Stored record", "Media ID", "target-name"):
+                assert hidden not in text
+
     def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
         own, every = (
             re.findall(r'href="/history\?action=(\w+)"', c.get("/history").text)
