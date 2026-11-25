@@ -8,15 +8,14 @@ import math
 import secrets
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from mediaman.services.rate_limit.limiters import _bucket_key
+
 CODE_SECONDS = 300.0
 MAX_OPEN = 100
-
-
-class TooManyCodes(Exception):
-    """As many codes are open as are allowed at once."""
 
 
 @dataclass(frozen=True)
@@ -27,6 +26,8 @@ class Asked:
     token_hash: str
     #: The TV's row, where it was paired when it asked.
     tv_id: int | None
+    #: The block of addresses it asked from.
+    block: str
     expires: float
 
 
@@ -45,20 +46,28 @@ class PairingCodes:
         now = self._clock()
         self._open = {key: a for key, a in self._open.items() if a.expires > now}
 
-    def issue(self, token_hash: str, tv_id: int | None) -> str:
-        """Return a new code for the TV; a paired TV's last one ends."""
+    def issue(self, token_hash: str, tv_id: int | None, address: str) -> str:
+        """Return a new code for the TV; a paired TV's last one ends.
+
+        Past the limit the oldest code of the addresses that have the most open gives way, so that
+        whoever asks for many ends their own first and keeps nobody from pairing.
+        """
         with self._lock:
             self._prune()
             if tv_id is not None:
                 self._open = {key: a for key, a in self._open.items() if a.tv_id != tv_id}
+            block = _bucket_key(address)
             if len(self._open) >= MAX_OPEN:
-                raise TooManyCodes("too many codes are open")
+                held = Counter(a.block for a in self._open.values()) + Counter([block])
+                most = max(held.values())
+                # Kept in the order they were asked for in.
+                del self._open[next(k for k, a in self._open.items() if held[a.block] == most)]
             while True:
                 code = f"{secrets.randbelow(1_000_000):06d}"
                 key = self._hash(code)
                 if key not in self._open:
                     break
-            self._open[key] = Asked(token_hash, tv_id, self._clock() + CODE_SECONDS)
+            self._open[key] = Asked(token_hash, tv_id, block, self._clock() + CODE_SECONDS)
         return code
 
     def look(self, code: str) -> Asked | None:

@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from mediaman.services.tv import codes
-from mediaman.services.tv.codes import CODE_SECONDS, PairingCodes, TooManyCodes
+from mediaman.services.tv.codes import CODE_SECONDS, PairingCodes
+
+HOME = "192.0.2.7"
 
 
 class Clock:
@@ -26,7 +28,7 @@ def store(clock) -> PairingCodes:
 
 
 def test_a_code_is_used_up_by_the_first_who_takes_it(store):
-    code = store.issue("hash", None)
+    code = store.issue("hash", None, HOME)
     assert store.look(code) is not None
     assert store.take(code) is not None
     assert store.take(code) is None
@@ -34,7 +36,7 @@ def test_a_code_is_used_up_by_the_first_who_takes_it(store):
 
 
 def test_a_code_runs_out(store, clock):
-    code = store.issue("hash", None)
+    code = store.issue("hash", None, HOME)
     clock.now += CODE_SECONDS - 1
     assert store.seconds_left("hash") == 1
     clock.now += 1
@@ -44,23 +46,34 @@ def test_a_code_runs_out(store, clock):
 
 
 def test_a_new_code_for_a_paired_tv_ends_its_last_one(store):
-    first, other = store.issue("a", 7), store.issue("b", None)
-    second = store.issue("c", 7)
+    first, other = store.issue("a", 7, HOME), store.issue("b", None, HOME)
+    second = store.issue("c", 7, HOME)
     assert store.look(first) is None
     assert store.look(other) is not None
     assert store.look(second) is not None
 
 
-def test_only_so_many_codes_are_open_at_once(store, clock, monkeypatch):
-    monkeypatch.setattr(codes, "MAX_OPEN", 2)
-    store.issue("a", None)
-    store.issue("b", None)
-    with pytest.raises(TooManyCodes):
-        store.issue("c", None)
-    clock.now += CODE_SECONDS
-    store.issue("c", None)
+def test_whoever_asks_for_many_codes_ends_their_own_and_nobody_elses(store, monkeypatch):
+    monkeypatch.setattr(codes, "MAX_OPEN", 5)
+    mine = store.issue("mine", None, HOME)
+    first = store.issue("a", None, "198.51.100.1")
+    others = [store.issue(f"b{n}", None, f"203.0.{n}.1") for n in range(3)]
+    theirs = [store.issue(f"c{n}", None, f"198.51.100.{n}") for n in range(2)]
+    assert store.look(first) is None
+    assert store.look(theirs[0]) is None, "its second, of a block that has the most"
+    for code in (mine, *others, theirs[1]):
+        assert store.look(code) is not None
+
+
+def test_with_every_place_taken_by_as_many_addresses_a_new_code_is_still_given(store, monkeypatch):
+    monkeypatch.setattr(codes, "MAX_OPEN", 3)
+    first, *rest = [store.issue(f"a{n}", None, f"203.0.{n}.1") for n in range(3)]
+    new = store.issue("new", None, HOME)
+    assert store.look(first) is None
+    for code in (*rest, new):
+        assert store.look(code) is not None
 
 
 def test_the_code_itself_is_not_kept(store):
-    code = store.issue("hash", None)
+    code = store.issue("hash", None, HOME)
     assert code not in repr(vars(store))

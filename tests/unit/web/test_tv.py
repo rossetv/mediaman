@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait
 
 import defusedxml.ElementTree as ET
 import pytest
@@ -88,13 +90,29 @@ def plex(monkeypatch, clock) -> FakePlex:
     return fake
 
 
+class Inline(ThreadPoolExecutor):
+    """Looks up at once, so that a test sees what follows."""
+
+    def submit(self, fn, /, *args, **kwargs):
+        done = super().submit(fn, *args, **kwargs)
+        wait([done])
+        return done
+
+
+@pytest.fixture
+def lookups(monkeypatch):
+    with Inline(max_workers=1) as executor:
+        monkeypatch.setattr(tv_routes, "_LOOKUPS", executor)
+        yield
+
+
 @pytest.fixture
 def manager(plex) -> StreamManager:
     return plex_stream.get_stream_manager()
 
 
 @pytest.fixture
-def app(app_factory, conn, plex):
+def app(app_factory, conn, plex, lookups):
     for key, value in (
         ("plex_url", PLEX_URL),
         ("plex_token", TOKEN),
@@ -863,6 +881,27 @@ def test_what_follows_is_asked_for_again_where_plex_could_not_say(
     monkeypatch.setattr(PlexWatch, "next_episode", answers)
     assert tv.ask("auto").status_code == 200
     assert _tv_of(amy, home)["play"]["rating_key"] == "502"
+
+
+def test_a_plex_slow_to_say_what_follows_holds_neither_the_start_nor_for_long_the_next(
+    tv, home, amy, monkeypatch, clock
+):
+    answers, told = PlexWatch.next_episode, threading.Event()
+
+    def slow(self, key):
+        told.wait(10)
+        return answers(self, key)
+
+    monkeypatch.setattr(PlexWatch, "next_episode", slow)
+    monkeypatch.setattr(tv_routes, "_LOOKUP_WAIT_S", 0.01)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        monkeypatch.setattr(tv_routes, "_LOOKUPS", executor)
+        assert _play(amy, home, "501").status_code == 200
+        play = tv.poll()["play"]
+        assert (play["state"], play["next"]["season"]) == ("loading", None)
+        assert _command(amy, home, "next").status_code == 502
+        told.set()
+    assert tv.poll()["play"]["next"]["rating_key"] == "502"
 
 
 def test_either_screen_answers_still_watching(tv, home, amy, clock):

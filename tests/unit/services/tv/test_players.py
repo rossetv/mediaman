@@ -223,6 +223,14 @@ def test_the_last_episode_just_ends(players):
     assert (shown["state"], shown["next"]) == ("ended", None)
 
 
+def test_learning_late_that_nothing_follows_ends_the_countdown(players, clock):
+    play = _start(players, _play(next_state="unknown"))
+    assert _poll(players, _report(play, "ended"))[0]["state"] == "upnext"
+    players.set_next(TV, play.id, "end", None)
+    shown, _ = _poll(players)
+    assert (shown["state"], shown["upnext_in_s"], shown["next"]) == ("ended", None, None)
+
+
 def _to_the_end(players, by_itself):
     play = _start(players, by_itself=by_itself)
     return _poll(players, _report(play, "ended"))[0]["state"]

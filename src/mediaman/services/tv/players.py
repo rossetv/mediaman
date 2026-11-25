@@ -374,6 +374,8 @@ class Players:
             play = self._tv(token_hash).play
             if play is not None and play.id == play_id:
                 play.next_state, play.next_item = state, item
+                if state == "end" and play.state in ("upnext", "still"):
+                    play.state, play.upnext_at, play.still_at = "ended", None, None
 
     def due_next(self, token_hash: str, play_id: str) -> Play:
         """What plays, where its countdown has run out; raises ``Stale`` where it has not."""

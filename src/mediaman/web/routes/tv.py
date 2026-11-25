@@ -15,6 +15,7 @@ import re
 import secrets
 import sqlite3
 from collections.abc import Callable, Coroutine
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
 from functools import partial
 from typing import Annotated, Any, Literal
@@ -35,7 +36,7 @@ from mediaman.services.media_meta.plex_stream import (
 )
 from mediaman.services.media_meta.plex_watch import PlexError, PlexItem, PlexWatch, is_in_libraries
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
-from mediaman.services.tv.codes import CODE_SECONDS, TooManyCodes, get_codes
+from mediaman.services.tv.codes import CODE_SECONDS, get_codes
 from mediaman.services.tv.players import (
     Choice,
     Left,
@@ -76,9 +77,13 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 _CODE_RE = re.compile(r"[0-9]{6}")
 _POLL_MS = {"pairing": 2000, "idle": 3000, "playing": 1000}
 
+# What follows may take Plex long to say: apart from the server's worker threads, and from a
+# start's answer.
+_LOOKUPS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tv-next")
+_LOOKUP_WAIT_S = 4.0
+
 # The TVs of a home share an address.
 _CODE_LIMITER = RateLimiter(max_attempts=30, window_seconds=600)
-_ALL_CODES_LIMITER = ActionRateLimiter(max_in_window=300, window_seconds=600)
 _POLL_LIMITER = RateLimiter(max_attempts=150, window_seconds=60)
 _ASK_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 _FAILURE_LIMITER = RateLimiter(max_attempts=60, window_seconds=60)
@@ -265,14 +270,9 @@ def device_code(request: Request, x_tv_token: _Token = "") -> Response:
     address = get_client_ip(request)
     if not _CODE_LIMITER.check(address):
         return _too_many(_CODE_LIMITER.retry_after(address))
-    if not _ALL_CODES_LIMITER.check("all"):
-        return _too_many(_ALL_CODES_LIMITER.retry_after("all"))
     held = _paired(x_tv_token)
     token = secrets.token_urlsafe(32)
-    try:
-        code = get_codes().issue(hash_token(token), held.id if held is not None else None)
-    except TooManyCodes:
-        return _too_many(60)
+    code = get_codes().issue(hash_token(token), held.id if held is not None else None, address)
     return respond_ok({"code": code, "token": token, "expires_in_s": int(CODE_SECONDS)})
 
 
@@ -399,6 +399,15 @@ def _following(plex: PlexWatch, rating_key: str) -> tuple[Any, dict[str, Any] | 
     }
 
 
+def _look_up_next(plex: PlexWatch, key: str, play: Play) -> Future[None]:
+    """Find what follows, for the play to learn."""
+
+    def look() -> None:
+        get_players().set_next(key, play.id, *_following(plex, play.rating_key))
+
+    return _LOOKUPS.submit(look)
+
+
 def _start_on(
     request: Request,
     held: repo.Tv,
@@ -478,7 +487,7 @@ def _start_on(
     if answer.status_code != 200:
         return answer
     if begun[0].next_state == "unknown":
-        players.set_next(key, begun[0].id, *_following(plex[0], rating_key))
+        _look_up_next(plex[0], key, begun[0])
     return command[0]
 
 
@@ -557,15 +566,16 @@ def _carry_on(
 
 
 def _start_next(request: Request, held: repo.Tv, play: Play, *, by_itself: bool) -> int | Response:
-    state, item = play.next_state, play.next_item
-    if state == "unknown":
+    if play.next_state == "unknown":
         try:
-            state, item = _following(_open_plex(request, get_db()), play.rating_key)
+            plex = _open_plex(request, get_db())
         except PlexError as exc:
             return plex_failure(exc)
-        get_players().set_next(held.token_hash or "", play.id, state, item)
+        with contextlib.suppress(TimeoutError):
+            _look_up_next(plex, held.token_hash or "", play).result(_LOOKUP_WAIT_S)
+    item = play.next_item
     if item is None:
-        if state == "unknown":
+        if play.next_state == "unknown":
             return respond_err("unreachable", status=502)
         with contextlib.suppress(NotPlaying, Stale):
             get_players().cancel(held.token_hash or "", play.id)
