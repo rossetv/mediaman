@@ -967,6 +967,29 @@ const scenarios = {
     return { text: status.textContent };
   },
 
+  // What the save bar says for each answer about the address TVs use.
+  async tvAddressError() {
+    const out = [];
+    for (const said of ['must be a home address', 'must be a home address with nothing after it', 'must be a home address with a port in use']) {
+      const h = build();
+      h.add('div', { className: 'setg-pg' });
+      const bar = h.add('div', { id: 'setg-savebar' });
+      const save = h.add('button', { id: 'btn-save' }, bar);
+      const status = h.add('span', { id: 'save-status' }, bar);
+      h.ctx.MM.api = {
+        put: () => Promise.reject({ status: 422, data: { detail: [{ loc: ['body', 'tv_address'], msg: 'Value error, ' + said }] } }),
+        messageOf: () => 'x',
+      };
+      h.ctx.MM.reauth = { run: (f) => f() };
+      h.load('settings/savebar.js');
+      h.ctx.MM.settings.savebar.init({});
+      save.fire('click');
+      await h.flush();
+      out.push(status.textContent);
+    }
+    return out;
+  },
+
   // A role change updates its row where it stands.
   async roleInPlace() {
     const h = build();

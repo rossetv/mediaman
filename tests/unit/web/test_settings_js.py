@@ -209,6 +209,16 @@ def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none
     assert _run("newsletterWithoutFocus") == dict.fromkeys(("open", "close", "add", "next"), True)
 
 
+def test_a_refused_tv_address_says_what_is_accepted_and_what_was_wrong() -> None:
+    kind, after, port = _run("tvAddressError")
+    assert "http://192.168.1.10:8282" in kind
+    assert "https://mediaman.example.com" in kind
+    assert "name" in kind
+    assert "nothing after" in after
+    assert "port" in port
+    assert "home address" not in after + port
+
+
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:
     text = _run("fieldError")["text"]
     assert "Base URL must start with http:// or https://." in text

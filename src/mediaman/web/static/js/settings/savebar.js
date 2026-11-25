@@ -381,7 +381,10 @@
   var FIELD_ERROR_WORDS = [
     [/scheme must be http or https/i, 'must start with http:// or https://.'],
     [/must include a host/i, 'needs a server name after http:// or https://.'],
-    [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282.'],
+    [/home address with nothing after it/i, 'must have nothing after the server name, such as https://mediaman.example.com.'],
+    [/home address with a port in use/i, 'needs a port other than 0.'],
+    [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
+      'with https, such as https://mediaman.example.com. Before a name, use https:// and not http://.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
     [/start or end with \*{4}/, 'cannot start or end with ****.'],

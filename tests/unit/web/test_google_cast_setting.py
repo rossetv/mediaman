@@ -66,6 +66,15 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     assert 'aria-describedby="cast-lets"' in html
 
 
+def test_an_admin_is_told_which_addresses_older_tvs_take(app, authed_client, conn) -> None:
+    html = authed_client(app, conn).get("/settings").text
+    hint = html.split('id="tv-address-hint"', 1)[1].split("</span>", 1)[0]
+    needs = html.split("<b>An older TV:</b>", 1)[1].split("</li>", 1)[0]
+    for said in (hint, needs):
+        assert "a home address with http" in said
+        assert "a name with https" in said
+
+
 def _scripts(path: str, conn, stored: str) -> str:
     set_connection(conn)
     insert_settings(conn, google_cast_enabled=stored)
