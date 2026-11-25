@@ -597,6 +597,46 @@
   bottom: calc(var(--player-foot) + 118px);
   width: 340px;
 }
+/* Asks what the person thought at the end. With the next episode to come it keeps clear of
+   that one's card, also once it has gone: beside it, or above it where there is no room. */
+.player-rate {
+  --card-x: 18px;
+  --card-y: 18px;
+  --pop-y: 12px;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--player-foot) + 118px);
+  width: 480px;
+  margin-inline: auto;
+  gap: 12px;
+  border: 1px solid var(--hair);
+  border-radius: 18px;
+  animation-duration: var(--dur-slow);
+}
+.player-rate.is-leaving { animation-duration: var(--dur); }
+.player-rate .player-card-title {
+  padding-right: 48px;
+  font-family: inherit;
+  font-size: 19px;
+  letter-spacing: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.player-rate-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-pill);
+  color: var(--t2);
+  font-size: 15px;
+  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.player-rate-close:hover { color: var(--t1); background: var(--hair); }
+.player-rate--beside { right: auto; left: max(32px, env(safe-area-inset-left)); }
 .player-message {
   top: 50%;
   left: 50%;
@@ -670,7 +710,7 @@
   .player-chapters { position: absolute; left: 12px; bottom: calc(var(--player-foot) + 88px); }
   .player-chapters { transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast) var(--ease-out); }
   /* Where the frame preview and the next-episode card come. */
-  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
+  .player:has(.player-bubble:not([hidden], .is-leaving), .player-upnext:not([hidden], .is-leaving), .player-rate:not([hidden], .is-leaving)) .player-chapters { opacity: 0; visibility: hidden; }
   .player-chapter-name { display: inline; max-width: min(200px, calc(100vw - 250px)); }
   .player-skip { right: 12px; bottom: calc(var(--player-foot) + 88px); padding: 0 14px; font-size: 14px; }
   .player-chapters .player-menu {
@@ -705,6 +745,28 @@
     border-radius: var(--r-lg) 0 0 var(--r-lg);
   }
   .player-ask .player-still { display: none; }
+}
+
+@media (max-width: 899.98px), (max-width: 1040px) and (max-height: 520px) {
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext .player-still { display: none; }
+}
+@media (max-width: 899.98px) and (min-height: 600px) {
+  /* Above the other card at its tallest. */
+  .player-rate--beside { left: 0; right: 0; bottom: calc(var(--player-foot) + 300px); }
+}
+@media (max-width: 899.98px) and (max-height: 599.98px), (max-width: 1040px) and (max-height: 520px) {
+  .player:has(.player-rate--beside:not([hidden], .is-leaving)) .player-upnext { left: auto; width: 300px; padding-left: var(--card-x); }
+  .player-rate--beside { left: 16px; max-width: calc(100% - 360px); }
+}
+/* No room for both: it waits for the other card to go. */
+@media (max-width: 659.98px) and (max-height: 599.98px) {
+  .player-rate--beside { max-width: calc(100% - 32px); }
+  .player:has(.player-upnext:not([hidden], .is-leaving)) .player-rate--beside { visibility: hidden; }
+}
+@media (max-height: 520px) {
+  .player-rate { --card-x: 14px; --card-y: 12px; gap: 8px; padding-bottom: 8px; bottom: calc(var(--player-foot) + 100px); }
+  .player-rate-close { top: 0; right: 4px; }
+  .player .player-rate .rate__b { height: 56px; }
 }
 
 /* "Kept until" with its whole date and Undo, on one line of the narrow toast. */

@@ -1820,3 +1820,108 @@ def test_sound_dragged_to_nothing_comes_back_as_loud_as_it_was(markup):
     assert out["saved"]["mediaman.watch.volume"] == "0.7"
     assert out["back"] == {"volume": 0.7, "muted": False, "slider": 0.7, "name": "Mute"}
     assert out["up"] == {"volume": 0.4, "muted": False, "slider": 0.4, "name": "Mute"}
+
+
+MOVIE = {**EPISODE, "next": None, "show_href": None, "back_href": "/watch/movie/501"}
+
+
+@pytest.fixture(scope="module")
+def film(tmp_path_factory) -> Path:
+    return _markup(tmp_path_factory, MOVIE)
+
+
+def rating(markup: Path, what: str) -> Any:
+    return run(markup, "rating", saved={}, plays=what)
+
+
+def test_the_end_of_a_film_asks_once_it_is_saved_and_stays(film):
+    out = rating(film, "asked")
+    assert out["before"]["asks"] == 0
+    ended = out["ended"]
+    assert (ended["card"], ended["asks"], ended["at"]) == (True, 1, "/watch/play/1")
+    assert (ended["title"], ended["said"]) == ("How was Low Water?", "How was Low Water?")
+    assert (ended["thumbs"], ended["focusTaken"]) == (4, False)
+
+
+def test_the_end_of_a_season_names_the_season(last_episode):
+    assert rating(last_episode, "season")["ended"]["title"] == "How was season 2 of The Long Coast?"
+
+
+def test_the_question_waits_for_every_save_in_flight(film):
+    out = rating(film, "saving")
+    assert out["saves"] == 2
+    assert (out["waiting"]["asks"], out["oneLeft"]["asks"], out["ended"]["asks"]) == (0, 0, 1)
+
+
+@pytest.mark.parametrize("what", ["refused", "fails", "unsaved"])
+def test_with_nothing_to_ask_the_end_leads_on_at_once(film, what):
+    out = rating(film, what)["ended"]
+    assert (out["card"], out["at"]) == (False, "/watch/movie/501")
+    assert out["asks"] == (0 if what == "unsaved" else 1)
+
+
+def test_a_server_that_does_not_answer_holds_the_end_up_only_a_moment(film):
+    out = rating(film, "silent")
+    assert out["ended"]["at"] == "/watch/play/1"
+    assert (out["after"]["card"], out["after"]["at"]) == (False, "/watch/movie/501")
+
+
+@pytest.mark.parametrize("what", ["replay", "back"])
+def test_going_back_or_playing_again_takes_the_question_along(film, what):
+    out = rating(film, what)
+    assert (out["after"]["card"], out["status"], out["late"]) == (False, "", "/watch/play/1")
+
+
+def test_a_seek_back_before_the_save_is_taken_asks_nothing(film):
+    out = rating(film, "backWhileAsked")
+    assert (out["ended"]["card"], out["ended"]["asks"], out["late"]) == (False, 0, "/watch/play/1")
+
+
+@pytest.mark.parametrize("what", ["close", "escape", "rated", "ignored"])
+def test_done_with_the_question_the_film_leads_back(film, what):
+    out = rating(film, what)
+    assert out.get("early", out["ended"])["at"] == "/watch/play/1"
+    assert (out["after"]["card"], out["after"]["at"]) == (False, "/watch/movie/501")
+    assert out.get("focus", True)
+
+
+def test_a_rating_still_on_its_way_is_sent_again_to_outlive_the_page(film):
+    kept = rating(film, "leave")["kept"]
+    assert kept == {
+        "url": "/api/watch/ratings/movie-501",
+        "method": "PUT",
+        "body": '{"level":2}',
+        "keepalive": True,
+    }
+
+
+def test_the_question_leaves_the_system_s_own_player(film):
+    assert rating(film, "native")["mode"] == "inline"
+
+
+def test_the_next_episode_comes_as_soon_with_the_question_beside_its_card(markup):
+    out = rating(markup, "countdown")
+    for seen in (out["ended"], out["early"]):
+        assert (seen["card"], seen["upnext"]) == (True, True)
+    assert out["went"] is True
+    assert out["after"]["card"] is False
+
+
+@pytest.mark.parametrize("what", ["next", "native"])
+def test_the_next_episode_is_never_met_by_the_question(markup, what):
+    out = rating(markup, what)
+    assert out.get("pressed", out["after"])["card"] is False
+    if what == "native":
+        assert (out["ended"]["asks"], out["mode"]) == (0, "fullscreen")
+
+
+def test_escape_is_the_next_episode_s_card_s_unless_the_question_has_the_focus(markup):
+    out = rating(markup, "escape")["after"]
+    assert (out["card"], out["upnext"]) == (True, False)
+    out = rating(markup, "escapeInCard")["after"]
+    assert (out["card"], out["upnext"]) == (False, True)
+
+
+def test_the_question_gives_way_to_are_you_still_watching(markup):
+    out = rating(markup, "stillWatching")
+    assert (out["ended"]["card"], out["after"]["card"], out["dialog"]) == (True, False, True)

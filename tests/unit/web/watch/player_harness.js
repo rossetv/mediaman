@@ -323,6 +323,11 @@ function boot(html, reduced, saved, serverPlays, came) {
       calls.push(call);
       if (held.stopFails && /\/stop$/.test(url)) return Promise.reject({ status: 0 });
       if (held.stop && /\/stop$/.test(url)) return new Promise((r) => held.stop.push(r));
+      if (held.save && /\/progress$/.test(url)) return new Promise((r) => held.save.push(r));
+      if (/\/ratings\/ask\//.test(url)) {
+        if (held.rate === 'silent') return new Promise(() => {});
+        return held.rate === 'fails' ? Promise.reject({ status: 500 }) : Promise.resolve(held.rate || { ask: false });
+      }
       if (held.progressFails && /\/progress$/.test(url)) return Promise.reject(held.progressFails);
       if (held.keep && /\/keep$/.test(url)) return Promise.resolve(held.keep);
       if (!/\/api\/watch\/stream$/.test(url)) return Promise.resolve({});
@@ -342,6 +347,11 @@ function boot(html, reduced, saved, serverPlays, came) {
         }).then(settled(resolve), settled(reject));
       });
     },
+    get: () => Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: true }, 'show-77': { level: null, rateable: true } } }),
+    put(url, body) {
+      calls.push({ url: url, body: body });
+      return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
+    },
     messageOf(err, fallback) { return fallback; },
   };
 
@@ -354,6 +364,10 @@ function boot(html, reduced, saved, serverPlays, came) {
   }
   function fetchPage(url, opts) {
     if (url === '/healthz') return fetchLight(opts);
+    if (/\/api\/watch\/ratings\//.test(url)) {
+      held.kept = { url: url, method: opts.method, body: opts.body, keepalive: opts.keepalive };
+      return Promise.resolve({});
+    }
     calls.push({ url: url, page: true });
     const answer = pages[url] || { status: 404, html: '' };
     if (answer === 'offline') return Promise.reject(new TypeError('Failed to fetch'));
@@ -439,6 +453,7 @@ function boot(html, reduced, saved, serverPlays, came) {
     serverPlays: serverPlays,
     Hls: Hls,
     MM: { api: api },
+    CustomEvent: function CustomEvent(type, init) { Object.assign(this, { type: type }, init); },
     UIFeedback: {
       error(text) { toasts.push({ kind: 'error', text: text }); },
       toast(text, opts) { toasts.push({ kind: (opts && opts.variant) || 'toast', text: text, action: opts && opts.action }); },
@@ -478,7 +493,7 @@ function boot(html, reduced, saved, serverPlays, came) {
   win.window = win;
   win.navigator = win.navigator;
   const ctx = vm.createContext(win);
-  ['core/dom.js', 'player.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f }));
+  ['core/dom.js', 'ratings.js', 'player.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx, { filename: f }));
 
   const root = doc.getElementById('player');
   return {
@@ -4292,7 +4307,69 @@ const scenarios = {
     const p = boot(fs.readFileSync(process.argv[2], 'utf8'), false, null, undefined, { length: 3 });
     await settle();
     fire(p.video, 'ended');
+    await settle();
     return { through: p.win.history.backs, at: p.win.location.href };
+  },
+
+  /* The title ends, and the server says whether to ask for a rating: what then comes, by *what*. */
+  async rating() {
+    const what = process.argv[5];
+    const p = boot(fs.readFileSync(process.argv[2], 'utf8'));
+    const card = p.q('[data-rate]');
+    const asks = () => p.calls.filter((c) => /ratings\/ask/.test(c.url)).length;
+    const look = () => ({ card: !gone(card), upnext: !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]')), at: p.win.location.href, asks: asks() });
+    const thumb = () => card.querySelectorAll('.rate__b')[3];
+    p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    if (what === 'season') p.held.rate = { ask: true, ref: 'show-77', title: 'The Long Coast', season: 2 };
+    if (what === 'refused') p.held.rate = { ask: false };
+    if (what === 'fails' || what === 'silent') p.held.rate = what;
+    if (what === 'unsaved') p.held.progressFails = { status: 500 };
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    if (what === 'saving' || what === 'backWhileAsked') p.held.save = [];
+    if (what === 'saving') { p.video.paused = true; fire(p.video, 'pause'); p.video.paused = false; }
+    if (what === 'native') { p.video.webkitPresentationMode = 'fullscreen'; p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; }; }
+    const out = { before: look() };
+    endsNow(p);
+    if (p.held.save) {
+      await settle();
+      out.waiting = look();
+      out.saves = p.held.save.length;
+      if (what === 'backWhileAsked') { fire(p.video, 'seeking'); }
+      p.held.save.pop()({});
+      await settle();
+      out.oneLeft = look();
+      p.held.save.forEach((r) => r({}));
+    }
+    await settle();
+    p.tick(1);
+    await settle();
+    out.ended = Object.assign(look(), {
+      title: p.q('[data-rate-title]').textContent, said: p.q('[data-rate-status]').textContent,
+      thumbs: card.querySelectorAll('.rate__b').length, focusTaken: card.contains(doc.activeElement),
+    });
+    if (what === 'native') out.mode = p.video.webkitPresentationMode;
+    if (what === 'silent') { p.tick(4000); await settle(); }
+    if (what === 'replay') { p.video.ended = false; fire(p.video, 'play'); }
+    if (what === 'back') click(p.root.querySelector('.player-back'));
+    if (what === 'close') { p.q('[data-rate-close]').focus(); click(p.q('[data-rate-close]')); out.focus = doc.activeElement.getAttribute('data-play') !== null; }
+    if (what === 'escape') key('Escape');
+    if (what === 'escapeInCard') { thumb().focus(); key('Escape'); }
+    if (what === 'leave') { p.held.put = 'silent'; click(thumb()); p.leave(); out.kept = p.held.kept; }
+    if (what === 'rated') { click(thumb()); await settle(); p.tick(1000); await settle(); out.early = look(); p.tick(1000); }
+    if (what === 'ignored') { p.tick(29000); await settle(); fire(p.root, 'pointermove', { bubbles: true, pointerType: 'mouse' }); p.tick(29000); await settle(); out.early = look(); p.tick(2000); }
+    if (what === 'next') { click(p.q('[data-upnext-play]')); out.pressed = look(); }
+    if (what === 'countdown') { p.tick(9000); await settle(); out.early = look(); p.tick(2000); }
+    /* Nobody has been there for the two hours that end while it counts down. */
+    if (what === 'stillWatching') { p.sleep(2 * 60 * 60 * 1000); p.tick(1000); out.dialog = p.q('[data-ask]').open; }
+    if (what === 'countdown' || what === 'next') { await settle(); out.went = p.calls.some((c) => c.page); }
+    await settle();
+    out.after = look();
+    out.status = p.q('[data-rate-status]').textContent;
+    p.tick(40000);
+    await settle();
+    out.late = p.win.location.href;
+    return out;
   },
 
   /* A next episode played in place: the one at /watch/play/502, whose Back leads where the page says. */
