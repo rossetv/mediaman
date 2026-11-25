@@ -306,3 +306,21 @@ def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
     narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
     assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow
+
+
+ASK = SHEET.with_name("_watch_ask.css")
+
+
+def test_tonight_s_controls_are_44px_to_press_inside_what_clips_them() -> None:
+    assert "min-height: 38px" in _of(".tn__seg > button", sheet=ASK)
+    assert "inset: -3.5px 0" in _of(".tn__seg > button::after", sheet=ASK)
+    assert "min-height: 44px" in _of(".tn__foot", sheet=ASK)
+    assert "align-self: stretch" in _of(".tn__foot > .txt", sheet=ASK)
+
+
+def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_text() -> None:
+    assert "flex: none" in _of(".watch-sheet__head > .watch-sheet__title", sheet=ASK)
+    assert "white-space: nowrap" in _of(".tn__art > span", sheet=ASK)
+    # The picture is as wide as it needs.
+    assert "position: relative" in _of(".tn__art > span", sheet=ASK)
+    assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)

@@ -63,13 +63,15 @@ Watch plays the Plex libraries mediaman scans. Plex sends the video, converted w
 
 Rest the pointer on a card and it grows into a preview that plays its trailer from youtube-nocookie.com. Play trailers on hover, in the preview's More menu, turns trailers off in that browser.
 
-An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices and link their Plex account, so what they play in Plex apps shapes their recommendations. History shows a viewer only what they did and played; an admin sees everyone's. A viewer has no settings, library tools or way to cancel downloads.
+An admin can do everything, and has the storage meter: what fills the disks, what is scheduled for deletion and what was deleted. A viewer can watch, search and request films and series, see recommendations and Downloads, and keep a "leaving soon" item for 7, 30 or 90 days. On their Profile they can set their own email, change their own password, sign out their other devices, choose whether the AI may use their history, and link their Plex account, so what they play in Plex apps shapes their recommendations. History shows a viewer only what they did and played; an admin sees everyone's. A viewer has no settings, library tools or way to cancel downloads.
 
 With an OpenAI key, these go to OpenAI, never with a name:
 
 - For recommendations: the titles each person played, the picks they had before and the Plex stars of the server's owner. AI recommendations in Settings turns this off.
-- Unless the person turns off the use of their history: their searches, ratings, requests and how their plays went, for their recommendations, the suggestions in search and the answers there.
+- Unless the person turns off Use my history on their Profile: their searches, ratings, requests and how their plays went, for their recommendations, the suggestions in search and the answers there.
 - When someone asks the AI in search: the question, whatever their switch says.
+
+The AI in search answers 20 questions a day for each person and makes 100 calls a day for everyone; set either under OpenAI in Settings, or 0 to turn it off.
 
 Add a viewer in Settings under Team: Add user, pick Viewer, Create user; they choose their own password at first sign-in. Or from the command line:
 
@@ -80,7 +82,7 @@ docker exec -it mediaman mediaman-create-user --role viewer   # --role viewer|ad
 A reverse proxy or CDN in front of mediaman must not buffer or cache the video. mediaman sends `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` on stream responses; with nginx, also turn buffering off and allow long timeouts:
 
 ```nginx
-location /api/watch/stream/ {
+location ~ ^/api/(watch/stream|cast)/ {
     proxy_pass http://mediaman:8282;
     proxy_buffering off;
     proxy_read_timeout 1h;
@@ -88,7 +90,11 @@ location /api/watch/stream/ {
 }
 ```
 
-Limits: iPhone and iPad need iOS 17.1 or later. There is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
+The proxy's own access log keeps the addresses TVs read streams at, which play without signing in for up to 6 hours. To leave them out, add `access_log off;` to the block, or turn off the log for `/api/cast/` in another proxy.
+
+Older TVs added by address need mediaman on a container network of its own, as `docker run` gives it. With `--network host`, macvlan on the home network or no container, mediaman refuses every TV on that network.
+
+Limits: iPhone and iPad need iOS 17.1 or later. In the browser there is no audio or subtitle choice: Plex's saved choice per item is used, and a selected subtitle is burned in. Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
 
 ## Environment
 

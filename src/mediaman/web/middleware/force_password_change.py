@@ -17,6 +17,8 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from mediaman.web.middleware.viewer_guard import is_ticket_route
+
 
 class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
     """Funnel flagged admins to /force-password-change.
@@ -65,6 +67,9 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         if path in self._ALLOWED_PATHS or any(
             path == p or path.startswith(p) for p in self._ALLOWED_PREFIXES
         ):
+            return await call_next(request)
+
+        if is_ticket_route(request):
             return await call_next(request)
 
         # Cheap check — avoid importing the DB layer at module load

@@ -653,3 +653,15 @@ def test_dismissing_again_takes_the_toasts_of_the_last_dismiss_and_its_undo_away
         "Dismissed Fieldwork from Continue watching.",
         "Fieldwork is back in Continue watching.",
     ]
+
+
+def test_a_menu_finds_more_like_its_title_only_where_there_is_an_ai() -> None:
+    out = _run("like")
+    assert out["asked"] == [
+        ["movie-1", "Fieldwork", "/api/poster/1"],
+        ["show-2", "Brightwater", None],
+        ["tmdb-movie-77", "Salt", None],
+    ]
+    assert out["unknown"] == ["Details"]
+    assert out["menu"] == ["Find more like this", "Mark as watched"]
+    assert "Find more like this" not in out["without"] and out["without"]

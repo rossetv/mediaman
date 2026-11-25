@@ -40,6 +40,7 @@
 .me-txt { flex: 1 1 8.5em; min-width: 0; }
 .me-lbl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; overflow-wrap: anywhere; }
 .me-sub { font-size: 13px; line-height: 1.45; color: var(--t3); margin-top: 2px; overflow-wrap: anywhere; }
+.me-line--switch { flex-wrap: nowrap; }
 .me-end { flex: none; max-width: 100%; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .me-end .inp { width: 300px; }
 .profile-pg .inp[aria-invalid="true"] { border-color: var(--danger-text); }
@@ -91,6 +92,11 @@
 .dev-date { white-space: nowrap; }
 .dev .btn { flex: none; min-width: 84px; margin-left: auto; }
 .dev .btn-spinner { margin-right: 0; }
+.dev-acts { flex: none; display: flex; gap: 8px; margin-left: auto; }
+.dev-acts .btn { margin-left: 0; }
+.dev-edit { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.dev-edit .inp { flex: 1 1 180px; min-width: 0; max-width: 320px; }
+.dev-edit .btn { margin-left: 0; }
 .dev-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 0; }
 .dev-skel { width: 150px; height: 12px; border-radius: var(--r-xxs); background: var(--s3); animation: loading-pulse 1.6s ease-in-out infinite; }
 .dev-skel--long { width: 220px; max-width: 90%; margin-top: 9px; }
@@ -109,6 +115,10 @@
   .me-acts--end .me-msg { padding-left: 0; }
   .dev { gap: 12px; }
   .dev .btn { min-width: 0; padding: 0 12px; }
+  .dev--tv .me-txt { flex-basis: calc(100% - 50px); }
+  .dev-acts { width: 100%; padding-left: 50px; }
+  .dev-acts .btn, .dev-edit .btn { flex: 1; }
+  .dev-edit .inp { flex-basis: 100%; max-width: none; }
 }
 @media (max-width: 359px) {
   .me-head { flex-direction: column; align-items: flex-start; }

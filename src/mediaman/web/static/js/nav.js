@@ -10,6 +10,19 @@
   // document or body; this empty one switches the pressed states on.
   document.addEventListener('touchstart', function () {}, { passive: true });
 
+  // Pressed again on the address it already led to, the skip link moves the focus
+  // but leaves the page where it was: scroll it here. Any other press is the browser's own.
+  document.addEventListener('click', function (e) {
+    var link = e.target && e.target.closest ? e.target.closest('a.skip-link') : null;
+    if (!link || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var href = link.getAttribute('href');
+    var target = href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+    if (!target || window.location.hash !== href) return;
+    e.preventDefault();
+    target.focus({ preventScroll: true });
+    target.scrollIntoView();
+  });
+
   var menu = document.getElementById('profile-menu');
   if (!menu) return;
 

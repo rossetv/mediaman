@@ -790,6 +790,14 @@
       !(/^(rec|pick)-/.test(ref) && !link.hasAttribute('data-tmdb-id'));
   }
 
+  /* What to find more like the title *ref* of the card's *link* by, or '': a pick goes by its TMDB id. */
+  function likeRef(ref, link) {
+    var search = window.MMWatch.search || {};
+    var id = /^(rec|pick)-/.test(ref) && link.getAttribute('data-tmdb-id');
+    if (id) ref = (link.getAttribute('data-kind') === 'movie' ? 'tmdb-movie-' : 'tmdb-tv-') + id;
+    return search.canLike && search.canLike(ref) ? ref : '';
+  }
+
   /* ── The rating in a More menu ──
      At its top: *node* is the menu, close() shuts it. Returns fill(ref, link). */
 
@@ -885,6 +893,7 @@
     menuNode.textContent = '';
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
     fillRating(refOf(card), card.querySelector('.watch-card__link'));
+    if (likeRef(refOf(card), card.querySelector('.watch-card__link'))) menuNode.appendChild(menuItem('like', 'i-sparkles', 'Find more like this'));
     if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
     if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
@@ -893,7 +902,10 @@
   function choose(trigger, item) {
     var card = trigger.closest('.watch-card');
     var act = item.getAttribute('data-act');
-    if (act === 'dismiss') {
+    if (act === 'like') {
+      var poster = card.querySelector('.watch-card__poster img');
+      window.MMWatch.search.like(likeRef(refOf(card), card.querySelector('.watch-card__link')), titleOf(card), poster && poster.getAttribute('src'));
+    } else if (act === 'dismiss') {
       dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
     } else if (act === 'details') {
       card.querySelector('.watch-card__link').click();
@@ -930,5 +942,5 @@
     if (button) dismiss(button.getAttribute('data-watch-dismiss'), button.getAttribute('data-mark-name'), !!button.closest('.watch-banner'));
   });
 
-  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating, canRate: canRate };
+  window.MMWatch.marks = { paint: paint, showInRow: showInRow, menuRating: menuRating, canRate: canRate, likeRef: likeRef };
 })();

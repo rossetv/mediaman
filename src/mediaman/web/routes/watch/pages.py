@@ -102,6 +102,7 @@ _ORIGIN_PARAMS = {
     "view": r"list",
     "genre": r"[a-z0-9-]{1,40}",
     "person": r"[0-9]{1,18}",
+    "like": r"(movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}",
     "type": r"[a-z_]{1,20}",
     "sort": r"[a-z_]{1,20}",
     "where": r"[a-z]{1,20}",

@@ -12,16 +12,16 @@ function page(isPhone) {
   const doc = makeDocument();
   const button = (layout) => ['button', { class: 'profile-btn', id: layout, 'aria-expanded': 'false' }, ['span', { class: 'avatar' }, 'R']];
   const item = (id, tag) => [tag, { id, role: 'menuitem', href: '/' + id, tabindex: '-1' }, id];
-  doc.body.appendChild(build(doc, ['header', { id: 'top' }, button('desktop')]));
+  doc.body.appendChild(build(doc, ['header', { id: 'top' }, ['a', { class: 'skip-link', id: 'skip', href: '#main-content' }, 'Skip'], button('desktop')]));
   doc.body.appendChild(build(doc, ['div', { id: 'phone-top' }, button('phone')]));
   doc.body.appendChild(build(doc, ['div', { id: 'profile-menu' },
     ['div', { id: 'panel' }, ['div', { class: 'profile-who' }, ['span', { class: 'avatar' }, 'R']], ['button', { class: 'profile-close', id: 'close' }, ['svg', { id: 'close-icon' }]], item('account', 'a'), item('settings', 'a'), item('logout', 'button')]]));
-  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['button', { id: 'elsewhere' }, 'x']]));
+  doc.body.appendChild(build(doc, ['main', { id: 'main' }, ['div', { id: 'main-content', tabindex: '-1' }], ['button', { id: 'elsewhere' }, 'x']]));
   doc.body.appendChild(build(doc, ['div', { id: 'already-inert' }]));
   const $ = (id) => doc.getElementById(id);
   $('already-inert').inert = true;
   const media = { matches: isPhone, on: [], addEventListener(t, fn) { this.on.push(fn); } };
-  const win = { listeners: {}, matchMedia: () => media, addEventListener(t, fn) { win.listeners[t] = fn; } };
+  const win = { listeners: {}, location: { hash: '' }, matchMedia: () => media, addEventListener(t, fn) { win.listeners[t] = fn; } };
   // Only the button of the layout in use has a box.
   $('desktop').getClientRects = () => (media.matches ? [] : [1]);
   $('phone').getClientRects = () => (media.matches ? [1] : []);
@@ -40,7 +40,7 @@ function page(isPhone) {
   };
   return {
     $, win, media, fire, images, doc,
-    click: (id) => click(doc, $(id)),
+    click: (id, extra) => click(doc, $(id), extra),
     key: (key) => fire('keydown', doc.activeElement, { key }),
     focused: () => doc.activeElement.id,
     inert: () => doc.body.children.filter((n) => n.inert).map((n) => n.id),
@@ -52,6 +52,29 @@ function page(isPhone) {
 }
 
 const scenarios = {
+  // The skip link pressed again on the address it already led to: the browser moves the
+  // focus but leaves the page where it was.
+  skip() {
+    const p = page(false);
+    const scrolled = [];
+    p.$('main-content').scrollIntoView = () => scrolled.push(1);
+    let prevented = false;
+    p.doc.addEventListener('click', (e) => { prevented = e.defaultPrevented; });
+    const press = (extra) => {
+      scrolled.length = 0;
+      p.$('elsewhere').focus();
+      p.click('skip', extra);
+      return { prevented, scrolled: scrolled.length, focused: p.focused() };
+    };
+    const out = { first: press({}) };
+    p.win.location.hash = '#main-content';
+    out.again = press({});
+    out.ctrl = press({ ctrlKey: true });
+    out.middle = press({ button: 1 });
+    p.win.location.hash = '#elsewhere';
+    out.otherAddress = press({});
+    return out;
+  },
   avatar() {
     const p = page(false);
     const avatars = p.doc.querySelectorAll('.avatar');

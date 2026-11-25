@@ -263,6 +263,13 @@ def test_escape_closes_the_preview_alone_before_the_grid_or_the_search_under_it(
     assert out["search"] == ["Fieldwork", [None, True, 0, 0], [None, True, 0, 1]]
 
 
+def test_a_previews_menu_finds_more_like_its_title_first_of_all() -> None:
+    out = _run("like")
+    assert out["first"] == "Find more like this" != out["without"]
+    assert out["asked"] == [["show-2", "The Long Coast"]]
+    assert not out["open"]
+
+
 def test_escape_closes_the_previews_menu_then_the_preview_then_goes_back() -> None:
     assert _run("escapeInGrid")["menu"] == [
         "Fieldwork",

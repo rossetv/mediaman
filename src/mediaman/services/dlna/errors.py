@@ -11,6 +11,10 @@ class TvRefused(TvError):
     """The address, or where the TV's answer pointed, is not allowed."""
 
 
+class AnotherTv(TvRefused):
+    """Something other than the TV answers where it was."""
+
+
 class TvUnreachable(TvError):
     """The TV did not answer, or went away."""
 
