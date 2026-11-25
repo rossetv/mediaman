@@ -1,6 +1,6 @@
 /* The picture dialog of the Profile page. */
 .modal-backdrop.pic-back { align-items: center; padding: 20px; }
-.pic { max-width: 480px; max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; border: 1px solid var(--hair-strong); color-scheme: dark; }
+.pic { max-width: 480px; max-height: calc(100dvh - 40px); margin: auto; overflow-y: auto; scroll-padding-top: 70px; border: 1px solid var(--hair-strong); color-scheme: dark; }
 /* Stays, with Close, where the rest of a tall dialog scrolls. */
 .pic-hd { position: sticky; top: 0; z-index: 1; background: var(--s2); display: flex; align-items: center; gap: 12px; padding: 18px 16px 0 24px; }
 .pic-hd h2 { flex: 1; font-size: 18px; }
@@ -94,7 +94,7 @@
   .pic { max-width: 640px; }
   .pic-grid { max-width: 432px; margin-inline: auto; }
   #pic-place:not([hidden]) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 0 24px; }
-  .pic-crop { grid-row: 1 / 4; width: clamp(150px, 100dvh - 148px, 320px); margin: 4px; }
+  .pic-crop { grid-row: 1 / 4; width: clamp(150px, 100dvh - 150px, 320px); margin: 4px; }
   .pic-zoom { width: 100%; margin-top: 4px; }
   #pic-place .pic-hint { text-align: left; }
   #pic-place .pic-ft { align-self: end; }
@@ -112,6 +112,7 @@
 }
 @media (forced-colors: active) {
   .pic-zoom input { -webkit-appearance: auto; appearance: auto; }
+  .pic-zoom input::-webkit-slider-thumb { margin-top: 0; }
   .pic-grid label:has(:checked) { outline-color: Highlight; }
   .pic-tick { border-color: Highlight; }
   .pic-crop { border: 1px solid CanvasText; }

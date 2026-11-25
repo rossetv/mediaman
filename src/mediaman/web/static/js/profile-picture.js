@@ -82,6 +82,10 @@
     function addressOf(pick) { return pick.url || drawn[(pick.choice || own) - 1]; }
 
     function showError(text) {
+      if (text || errorBox.firstChild) eased(function () { putError(text); });
+    }
+
+    function putError(text) {
       errorBox.textContent = '';
       if (!text) return;
       var p = document.createElement('p');

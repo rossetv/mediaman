@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -189,3 +190,17 @@ def test_the_height_follows_from_picking_to_placing_and_back() -> None:
 
 def test_the_line_of_the_zoom_is_filled_as_far_as_it_is_zoomed() -> None:
     assert _run("fill") == [0, 0.5]
+
+
+def test_a_reason_comes_and_goes_by_the_height_and_is_brought_into_view() -> None:
+    assert _run("errorHeight") == {
+        "runs": [["417px", "491px"], ["491px", "417px"]],
+        "shown": [["pic-err", "nearest"]],
+    }
+
+
+def test_what_is_brought_into_view_stops_under_the_header_that_stays() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile_picture.css").read_text()
+    room = re.search(r"\.pic \{[^}]*scroll-padding-top: (\d+)px", css)
+    # the header: its padding of 18px at most and a close button of 44px
+    assert room and int(room[1]) >= 18 + 44

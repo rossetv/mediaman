@@ -31,7 +31,7 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   $('pic-zoom').style.setProperty = (k, v) => { vars[k] = v; };
   const runs = [];
   $('pic-body').animate = (frames) => { const run = { cancelled: false, cancel() { run.cancelled = true; } }; runs.push({ run, from: frames[0].height, to: frames[1].height }); return run; };
-  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : $('pic-place').hidden ? 417 : 562) });
+  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : ($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)) });
   $('pic-dialog').hidden = true;
   $('pic-dialog').querySelectorAll('input').forEach((r) => { r.value = r.getAttribute('value'); });
   const drawn = [];
@@ -281,6 +281,17 @@ const scenarios = {
       return p.runs.map((r) => [r.from, r.to, r.run.cancelled]);
     };
     return { full: run(false), calm: run(true) };
+  },
+  // a refused file and its reason gone again, and what is brought into view
+  async errorHeight() {
+    const p = page({ calm: false });
+    const shown = [];
+    Node.prototype.scrollIntoView = function (how) { shown.push([this.className, how.block]); };
+    p.click('pic-open');
+    p.file({ type: 'image/gif', size: 5, name: 'a.gif' });
+    p.pick(3);
+    p.pick(4);
+    return { runs: p.runs.map((r) => [r.from, r.to]), shown };
   },
   async fill() {
     const p = page();
