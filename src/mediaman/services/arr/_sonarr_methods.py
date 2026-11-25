@@ -9,6 +9,7 @@ shape.
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Sequence
 from typing import cast
 
@@ -25,6 +26,9 @@ from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupRe
 from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
+
+# A write sends the whole series back as it was read, so two at once would undo each other.
+_series_writes = threading.Lock()
 
 
 class _SonarrMixin:
@@ -169,15 +173,16 @@ class _SonarrMixin:
             if target is not None:
                 target["monitored"] = False
 
-        self._unmonitor_with_retry(  # type: ignore[attr-defined]
-            fetch_entity=fetch_entity,
-            put_url=f"/api/v3/series/{series_id}",
-            is_already_unmonitored=is_already_unmonitored,
-            apply_unmonitor=apply_unmonitor,
-            log_prefix="sonarr.unmonitor_season",
-            log_id=f"series_id={series_id} season={season_number}",
-            max_retries=max_retries,
-        )
+        with _series_writes:
+            self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                fetch_entity=fetch_entity,
+                put_url=f"/api/v3/series/{series_id}",
+                is_already_unmonitored=is_already_unmonitored,
+                apply_unmonitor=apply_unmonitor,
+                log_prefix="sonarr.unmonitor_season",
+                log_id=f"series_id={series_id} season={season_number}",
+                max_retries=max_retries,
+            )
         if was_monitored or not lone_episodes:
             return
         ids = [
@@ -236,15 +241,16 @@ class _SonarrMixin:
                 target["monitored"] = True
 
         try:
-            self._unmonitor_with_retry(  # type: ignore[attr-defined]
-                fetch_entity=fetch_entity,
-                put_url=f"/api/v3/series/{series_id}",
-                is_already_unmonitored=is_already_remonitored,
-                apply_unmonitor=apply_remonitor,
-                log_prefix="sonarr.remonitor_season",
-                log_id=f"series_id={series_id} season={season_number}",
-                max_retries=max_retries,
-            )
+            with _series_writes:
+                self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                    fetch_entity=fetch_entity,
+                    put_url=f"/api/v3/series/{series_id}",
+                    is_already_unmonitored=is_already_remonitored,
+                    apply_unmonitor=apply_remonitor,
+                    log_prefix="sonarr.remonitor_season",
+                    log_id=f"series_id={series_id} season={season_number}",
+                    max_retries=max_retries,
+                )
             self._start_search(  # type: ignore[attr-defined]
                 {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number}
             )
@@ -262,15 +268,16 @@ class _SonarrMixin:
             entity["monitored"] = False
 
         try:
-            self._unmonitor_with_retry(  # type: ignore[attr-defined]
-                fetch_entity=lambda: self.get_series_by_id(series_id),
-                put_url=f"/api/v3/series/{series_id}",
-                is_already_unmonitored=lambda series: not series.get("monitored"),
-                apply_unmonitor=apply_unmonitor,
-                log_prefix="sonarr.remonitor_season",
-                log_id=f"series_id={series_id}",
-                max_retries=1,
-            )
+            with _series_writes:
+                self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                    fetch_entity=lambda: self.get_series_by_id(series_id),
+                    put_url=f"/api/v3/series/{series_id}",
+                    is_already_unmonitored=lambda series: not series.get("monitored"),
+                    apply_unmonitor=apply_unmonitor,
+                    log_prefix="sonarr.remonitor_season",
+                    log_id=f"series_id={series_id}",
+                    max_retries=1,
+                )
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             logger.exception("Could not put sonarr series_id=%s back to unmonitored", series_id)
 
