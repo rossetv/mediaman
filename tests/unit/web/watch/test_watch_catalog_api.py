@@ -780,7 +780,7 @@ class TestSeasonDescriptions:
         assert [e["summary"] for e in season["episodes"]] == ["", ""]
         assert held.seasons_asked == []
 
-        words = viewer.get("/api/watch/title/show-500/season/1/words").json()
+        words = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
         title = viewer.get("/api/watch/title/show-500").json()
         season = viewer.get("/api/watch/title/show-500/season/1").json()
 
@@ -827,7 +827,7 @@ class TestSeasonDescriptions:
             }
         ]
 
-        season = viewer.get("/api/watch/title/show-500/season/1/words").json()
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
 
         [episode] = season["episodes"]
         assert episode["summary"] == ("TMDB on one." if same else "")
@@ -837,7 +837,7 @@ class TestSeasonDescriptions:
     def test_tmdb_fills_in_what_plex_has_none_of_by_one_ask_of_the_season(
         self, viewer, held, arr, plex
     ):
-        season = viewer.get("/api/watch/title/show-500/season/1/words").json()
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
 
         assert (season["summary"], season["year"]) == ("TMDB on season 1.", 2021)
         assert [(e["summary"], e["aired"]) for e in season["episodes"]] == [
@@ -848,7 +848,7 @@ class TestSeasonDescriptions:
 
     def test_a_show_says_the_words_of_the_season_it_opens_on(self, viewer, held, arr, plex):
         for number in (1, 2):
-            viewer.get(f"/api/watch/title/show-500/season/{number}/words")
+            viewer.get(f"/api/watch/title/show-500/season/{number}?words=1")
         body = viewer.get("/api/watch/title/show-500").json()
 
         assert [s["summary"] for s in body["seasons"]] == ["TMDB on season 1.", ""]
@@ -857,7 +857,7 @@ class TestSeasonDescriptions:
     def test_plex_keeps_its_own_word_beside_what_tmdb_fills_in(self, viewer, held, arr, plex):
         plex.episodes["501"][0] = replace(plex.episodes["501"][0], summary="Plex on one.")
 
-        first = viewer.get("/api/watch/title/show-500/season/1/words").json()["episodes"][0]
+        first = viewer.get("/api/watch/title/show-500/season/1?words=1").json()["episodes"][0]
 
         assert (first["summary"], first["aired"]) == ("Plex on one.", "2021-02-03")
 
@@ -875,7 +875,7 @@ class TestSeasonDescriptions:
     ):
         held.seasons[77, 1] = answer
 
-        resp = viewer.get("/api/watch/title/show-500/season/1/words")
+        resp = viewer.get("/api/watch/title/show-500/season/1?words=1")
 
         assert resp.status_code == 200
         assert resp.json()["summary"] == ""
@@ -889,7 +889,7 @@ class TestSeasonDescriptions:
             held.seasons.clear()
 
         title = viewer.get("/api/watch/title/show-500")
-        season = viewer.get("/api/watch/title/show-500/season/1/words")
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1")
 
         assert (title.status_code, season.status_code) == (200, 200)
         assert len(title.json()["episodes"]) == len(season.json()["episodes"]) == 2
@@ -907,7 +907,7 @@ class TestSeasonDescriptions:
         asked = []
         for later in (0, 86_000, 1_000):
             now[0] += later
-            season = viewer.get("/api/watch/title/show-500/season/1/words").json()
+            season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
             asked.append(len(held.seasons_asked))
             held.seasons[77, 1] = told
 

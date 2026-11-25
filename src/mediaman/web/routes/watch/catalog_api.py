@@ -1119,25 +1119,14 @@ def _why_not_to_request(
 
 @router.get("/api/watch/title/{ref}/season/{number}")
 def api_watch_title_season(
-    ref: str, number: int, request: Request, username: str = Depends(get_current_user)
+    ref: str,
+    number: int,
+    request: Request,
+    words: bool = False,
+    username: str = Depends(get_current_user),
 ) -> JSONResponse:
-    """The episodes of one season of a library show, with this person's progress. TMDB is not
-    waited for here: ``words_pending`` says that it may have more to say, which the season's
-    words wait for."""
-    return _season_reply(ref, number, request, username, wait=False)
-
-
-@router.get("/api/watch/title/{ref}/season/{number}/words")
-def api_watch_title_season_words(
-    ref: str, number: int, request: Request, username: str = Depends(get_current_user)
-) -> JSONResponse:
-    """The season, once TMDB has said what it has to say of it."""
-    return _season_reply(ref, number, request, username, wait=True)
-
-
-def _season_reply(
-    ref: str, number: int, request: Request, username: str, *, wait: bool
-) -> JSONResponse:
+    """The episodes of one season of a library show, with this person's progress. TMDB is waited
+    for only when asked for its *words* too; else ``words_pending`` says that it may have some."""
     if not REF_RE.fullmatch(ref) or not ref.startswith("show-") or not 0 <= number <= 9999:
         return _not_found()
     key = ref.removeprefix("show-")
@@ -1166,16 +1155,16 @@ def _season_reply(
     if client is not None and not _is_described(season, episodes):
         tmdb_id = (
             _show_tmdb_id(request, conn, client, listed)
-            if wait
+            if words
             else _held_show_tmdb_id(conn, listed)
         )
         # Who knows a show by its TVDB id alone is yet to be asked.
-        pending = tmdb_id is None and not wait and bool(listed.tvdb_id)
+        pending = tmdb_id is None and not words and bool(listed.tvdb_id)
         if tmdb_id is not None:
             try:
-                found = _tmdb_season(client, tmdb_id, number, episodes, wait=wait)
+                found = _tmdb_season(client, tmdb_id, number, episodes, wait=words)
             except disk_cache.Refused:
-                pending = not wait
+                pending = not words
     return respond_ok(
         {
             "key": season.rating_key,
