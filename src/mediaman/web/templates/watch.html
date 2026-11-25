@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="/static/css/_watch_search.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_ask.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_grid.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_asked.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
@@ -126,7 +127,13 @@
     {% for row in shelf if row['items'] and row['library'] %}{% set library.rows = true %}{% endfor %}
     <div class="watch-rows">
       {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured) }}{% endif %}
-      {% for row in shelf if row['items'] and not row['library'] %}{{ row_section(row) }}{% endfor %}
+      {% for row in shelf if row['items'] and row.id == 'continue' %}{{ row_section(row) }}{% endfor %}
+      {# What the person asked for loads after the page: watch/asked.js. #}
+      {% if not watch_error %}
+      <div id="watch-asked" hidden></div>
+      {% if asked_waiting %}<div class="asked-skel" aria-hidden="true">{{ skel_row() }}</div>{% endif %}
+      {% endif %}
+      {% for row in shelf if row['items'] and not row['library'] and row.id != 'continue' %}{{ row_section(row) }}{% endfor %}
 
       {# Discover rows load after the page; until then a skeleton holds the place of each row that
          will arrive: Recommended while picks are on (an admin's switched-off note when they are
@@ -178,6 +185,7 @@
 <script src="/static/js/watch/grid.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/expand.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/asked.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/cast.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/collection.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/play-on.js?v={{ static_v }}" defer></script>

@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 import mediaman
+from mediaman.services import watch_catalog as catalog
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -38,6 +39,7 @@ from mediaman.web.repository.watch_progress import (
 from mediaman.web.routes.watch import list_page, pages
 from tests.helpers.factories import (
     insert_admin_user,
+    insert_download_notification,
     insert_media_item,
     insert_scheduled_action,
     insert_settings,
@@ -1430,6 +1432,54 @@ def test_discover_sits_between_recently_added_and_the_library_rows(
     movies = html.index('aria-label="Movies"')
     assert recent < slot < divider < movies
     assert "watch-row--skel" in html[slot:divider]
+
+
+def _asked(conn, username: str) -> None:
+    insert_download_notification(
+        conn, title="Glasshouse", tmdb_id=None, username=username, email="a@example.com"
+    )
+    conn.execute("UPDATE download_notifications SET tmdb_id = 11")
+    conn.execute("UPDATE media_items SET tmdb_id = 11 WHERE id = '101'")
+    conn.commit()
+    catalog.clear_library_index()
+
+
+def test_what_a_person_asked_for_comes_after_continue_watching_and_before_the_rest(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    _play(conn, "aoife", "100", position=900, duration=3600, item="100")
+    _schedule(conn, "101", 4)
+    html = _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+    places = [
+        html.index(part)
+        for part in (
+            'aria-label="Continue watching"',
+            'id="watch-asked"',
+            'class="asked-skel"',
+            'aria-label="Leaving soon"',
+        )
+    ]
+    assert places == sorted(places)
+    assert html.index("watch/browse.js") < html.index("watch/asked.js") < html.index("watch.js?")
+
+
+def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(
+    app_factory, conn, library, plex, monkeypatch
+):
+    _asked(conn, "aoife")
+    html = _page(app_factory, conn, monkeypatch, "/watch", "cian").text
+
+    assert 'id="watch-asked"' in html
+    assert "asked-skel" not in html
+
+
+def test_the_row_of_what_was_asked_for_opens_as_a_grid(get):
+    ctx = get("/watch?all=asked").json()
+
+    assert (ctx["grid"]["title"], ctx["grid"]["loads_later"]) == ("You asked for these", True)
+    assert ctx["page_data"]["grid"]["id"] == "asked"
 
 
 @pytest.mark.parametrize(

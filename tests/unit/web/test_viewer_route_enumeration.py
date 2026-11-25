@@ -69,6 +69,7 @@ _VIEWER_MAY_REACH = {
     ("POST", "/api/watch/watched/{kind}/{key}"),
     ("DELETE", "/api/watch/watched/{kind}/{key}"),
     ("GET", "/api/watch/library/{kind}/row"),
+    ("GET", "/api/watch/asked"),
     ("POST", "/api/watch/picks/refresh"),
     ("GET", "/api/watch/picks/refresh"),
     ("POST", "/api/watch/picks/{pick_id}/download"),
