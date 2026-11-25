@@ -11,7 +11,6 @@
 .coll__name { font-size: 13px; color: var(--t2); overflow-wrap: anywhere; }
 .coll__get { flex: none; min-height: 44px; padding-inline: 18px; font-size: 14px; }
 .coll__get[hidden] { display: none; }
-.coll .watch-card[data-mark] .watch-card__sub { padding-right: 0; }
 .watch-row__scroll > .watch-card.is-here { scroll-snap-align: center; }
 .coll .is-here .watch-card__poster { outline: 2px solid var(--t1); outline-offset: 2px; }
 .coll__here { font-size: 12px; font-weight: 600; color: var(--t1); margin-top: -4px; }
