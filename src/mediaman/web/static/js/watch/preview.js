@@ -1353,6 +1353,8 @@
         s.owner = 'over';
         remember(SCROLLED, 'yes');
         openDetail(live);
+        page().addEventListener('wheel', wheeled, { passive: false });
+        untilStill();
         return;
       }
       if (!pickUp(live)) return;

@@ -1510,6 +1510,20 @@ const scenarios = {
     }
     return out;
   },
+  /* Opened plainly, the rest of the scroll that opened it is kept from the page; the next one is not. */
+  async plainRest() {
+    const out = [];
+    for (const opts of [{ reduced: true }, { forced: true }]) {
+      const h = load(opts);
+      await h.rest('film', 1100);
+      await h.scroll([50, 50, 50]);
+      const rest = await h.scroll([40, 30, 20, 10], { target: h.ttl });
+      await h.pass(600);
+      const next = await h.scroll([30], { target: h.ttl });
+      out.push([h.details.length, rest.every(Boolean), next.some(Boolean)]);
+    }
+    return out;
+  },
   /* The trailer plays on over the page it became, with its sound, until the person goes on. */
   async trailerGoesOn() {
     const run = async (how) => {

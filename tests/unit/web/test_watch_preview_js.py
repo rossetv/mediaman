@@ -665,7 +665,13 @@ def test_with_less_motion_or_forced_colours_a_scroll_opens_the_page_as_a_press_d
     assert _run("scrolledPlainly") == [[True, 0, ["movie-1"], False]] * 2
 
 
-def test_a_trailer_plays_on_over_the_page_until_the_person_scrolls_presses_or_leaves() -> None:
+def test_opened_plainly_the_rest_of_its_scroll_does_not_scroll_the_page_and_the_next_one_does() -> (
+    None
+):
+    assert _run("plainRest") == [[1, True, False]] * 2
+
+
+def test_a_trailer_plays_on_over_the_page_until_the_person_scrolls_presses_keys_or_leaves() -> None:
     assert _run("trailerGoesOn") == {
         "on": {"same": True, "film": True, "muted": False},
         "scrolled": [True, False, False],
