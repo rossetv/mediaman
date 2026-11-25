@@ -865,6 +865,7 @@ def test_tab_stays_inside_the_overlay() -> None:
     assert (out["wrappedToFirst"], out["wrappedToLast"]) == (True, True)
     assert out["prevented"] == [True, True]
     assert out["pulledBack"] is True
+    assert (out["held"], out["freed"]) == (True, True)
 
 
 def test_safe_path_keeps_only_same_site_paths_and_refuses_ones_with_tabs_or_newlines() -> None:

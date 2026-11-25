@@ -269,7 +269,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+    ['core/dom.js', 'modal-a11y.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -281,7 +281,7 @@ function load(opts = {}) {
   const tick = () => { const due = timers.splice(0); due.forEach((t) => t.fn && t.fn()); };
   const key = (k, extra) => {
     const e = Object.assign({ key: k, target: doc.activeElement, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }, extra);
-    (doc.listeners.keydown || []).forEach((fn) => fn(e));
+    (doc.listeners.keydown || []).concat(winListeners.keydown || []).forEach((fn) => fn(e));
     return e;
   };
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
@@ -2170,9 +2170,13 @@ const scenarios = {
     const back = p.key('Tab', { shiftKey: true });
     const wrappedToLast = p.doc.activeElement === last;
     const outside = p.doc.getElementById('watch-search');
+    const behind = () => { for (let n = outside; n; n = n.parentNode) if (n.inert) return true; return false; };
+    const held = behind();
     (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: outside }));
-    return { wrappedToFirst, prevented: [fwd.defaultPrevented, back.defaultPrevented], wrappedToLast,
-      pulledBack: p.doc.activeElement === p.q('#ttl-title') };
+    const pulledBack = p.doc.activeElement === p.q('#ttl-title');
+    p.key('Escape');
+    await settle();
+    return { held, freed: !behind(), wrappedToFirst, prevented: [fwd.defaultPrevented, back.defaultPrevented], wrappedToLast, pulledBack };
   },
 
   // Titles opened from cards of pages that are gone by the time the next one is opened.

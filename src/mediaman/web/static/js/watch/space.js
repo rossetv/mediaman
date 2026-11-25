@@ -385,17 +385,12 @@
 
   function closePanel() { watch.address.close('storage'); }
 
-  var held = [];
   var hideTimer = null;
 
   /* The page is out of reach under the panel; its menus and toasts are not, so the
      panel is no aria-modal, which would hide them from a screen reader. */
   function holdPage() {
-    toArray(document.body.children).forEach(function (node) {
-      if (node === root || node.inert || node.id === 'watch-keep-menu' || node.id === 'ui-toast-host') return;
-      node.inert = true;
-      held.push(node);
-    });
+    MM.inertPage.hold(root);
     var html = document.documentElement;
     // The scrollbar goes with the page's scroll; its width is held so nothing shifts.
     var bar = window.innerWidth - html.clientWidth || parseFloat(html.style.paddingRight) || 0;
@@ -404,8 +399,7 @@
   }
 
   function releasePage() {
-    held.forEach(function (node) { node.inert = false; });
-    held = [];
+    MM.inertPage.release(root);
     document.documentElement.classList.remove('has-space');
     document.body.style.paddingRight = '';
   }
@@ -459,11 +453,11 @@
     clearTimeout(enterTimer);
     clearTimeout(leaveTimer);
     watch.keep.closeMenu(false);
-    root.inert = true;
     root.classList.remove('is-open');
     root.classList.toggle('is-under', !!under);
     panel.style.transform = '';
     releasePage();
+    root.inert = true;
     expanded(false);
     hideTimer = setTimeout(function () { root.hidden = true; }, core.reduceMotion() ? 0 : slow());
     if (under) return;

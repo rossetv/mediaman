@@ -210,6 +210,7 @@
     root.hidden = false;
     root.classList.remove('is-leaving', 'is-aside', 'is-trailer');
     lockPage(true);
+    MM.inertPage.hold(root);
     isOpen = true;
     growFrom(origin);
     root.classList.add('is-entering');
@@ -316,6 +317,7 @@
     root.classList.remove('is-entering', 'is-leaving', 'is-trailer', 'ttl--admin');
     if (!wasOpen) root.classList.add('is-aside');
     lockPage(true);
+    MM.inertPage.hold(root);
     statusEl.textContent = '';
     body.style.marginBottom = '';
     showPictures(c.data);
@@ -379,6 +381,7 @@
     stopPolling();
     closeTrailer(false);
     closeAdminMenu(false);
+    MM.inertPage.release(root);
     cast.drop();
     if (cur && cur.ctrl) cur.ctrl.abort();
     dropRatings();
@@ -2396,16 +2399,6 @@
 
   /* ── Keys and focus ── */
 
-  var FOCUSABLE = 'a[href], button, input, select, textarea, iframe, [tabindex]';
-
-  function focusables() {
-    return toArray(root.querySelectorAll(FOCUSABLE)).filter(function (n) {
-      if (n.getAttribute('tabindex') === '-1' || n.disabled) return false;
-      if (n.closest('[hidden]')) return false;
-      return n.getClientRects().length > 0;
-    });
-  }
-
   /* Elsewhere focus may go while the overlay is open: menus, dialogs and
      toasts opened over it. */
   function allowedOutside(node) {
@@ -2437,19 +2430,6 @@
       else return;
       e.preventDefault();
       return;
-    }
-    if (e.key !== 'Tab' || !inside) return;
-    var list = focusables();
-    if (!list.length) { e.preventDefault(); titleEl.focus(); return; }
-    var first = list[0];
-    var last = list[list.length - 1];
-    var active = document.activeElement;
-    if (e.shiftKey && (active === first || !root.contains(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (active === last || !root.contains(active))) {
-      e.preventDefault();
-      first.focus();
     }
   });
 

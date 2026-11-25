@@ -205,10 +205,9 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   doc.readyState = 'interactive';
   vm.createContext(ctx);
   if (opts.realApi) run('core/api.js');
-  if (opts.realConfirm) {
-    ctx.navigator = { platform: 'Linux' };
-    ['modal-a11y.js', 'ui-feedback.js'].forEach(run);
-  }
+  ctx.navigator = { platform: 'Linux' };
+  run('modal-a11y.js');
+  if (opts.realConfirm) run('ui-feedback.js');
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
   const started = [];
@@ -873,6 +872,17 @@ const scenarios = {
     await p.run(3000);
     await p.click(p.$('space-scan'));
     return { posts: p.posts().length, look: p.$('space-scan').classList.contains('is-busy'), aria: p.$('space-scan').getAttribute('aria-disabled') };
+  },
+  // Back, with a dialog over the panel that stays.
+  async backUnderDialog() {
+    const p = await page();
+    await p.open();
+    const dialog = p.doc.body.appendChild(build(p.doc, ['div', { id: 'password' }, ['button', {}, 'Confirm']]));
+    p.ctx.MM.inertPage.hold(dialog);
+    p.layer().close('pop');
+    const under = p.held();
+    p.ctx.MM.inertPage.release(dialog);
+    return { under, after: p.held().filter((id) => id !== 'space') };
   },
   // What has the keyboard before the panel does.
   async escapeElsewhere() {

@@ -23,7 +23,6 @@ async function asked() {
       '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS },
   });
   p.run();
-  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../../../src/mediaman/web/static/js/modal-a11y.js'), 'utf8'), p.ctx);
   const dialog = p.doc.createElement('div');
   dialog.id = 'asked';
   p.doc.body.appendChild(dialog);

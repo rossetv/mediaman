@@ -76,6 +76,9 @@ class TestPanel:
         assert out["closed"]["inert"] is True
         assert out["closed"]["focused"].startswith("Storage: ")
 
+    def test_back_with_a_dialog_over_it_keeps_the_page_out_of_reach_until_that_closes(self):
+        assert _run("backUnderDialog") == {"under": ["nav", "main", "space"], "after": []}
+
     def test_goes_under_what_opens_over_it_and_leaves_the_focus_to_that(self):
         out = _run("otherOpensOver")
         assert out["under"] is True

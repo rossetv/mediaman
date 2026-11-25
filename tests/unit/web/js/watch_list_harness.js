@@ -159,6 +159,10 @@ function load(opts = {}) {
   const inputs = []; // what the search field held each time its input event was sent
   search.dispatchEvent = (ev) => { if (ev.type === 'input') inputs.push(search.value); };
   const winListeners = {};
+  const winCaptures = new Set();
+  const docCaptures = new Set();
+  const listen = doc.addEventListener;
+  doc.addEventListener = (t, fn, o) => { listen(t, fn); if (o === true || (o && o.capture)) docCaptures.add(fn); };
   const replies = {}; // url -> function returning a promise
   const pages = {}; // fetch url -> { state, rows } or a deferred
   let confirmAnswer = true;
@@ -220,7 +224,7 @@ function load(opts = {}) {
         }),
       },
     },
-    addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
+    addEventListener: (t, fn, o) => { (winListeners[t] = winListeners[t] || []).push(fn); if (o === true || (o && o.capture)) winCaptures.add(fn); },
     removeEventListener() {},
   };
   ctx.window = ctx;
@@ -241,6 +245,19 @@ function load(opts = {}) {
     /* The browser drops focus to the page when the focused button is disabled. */
     dropFocusIfDisabled() { const a = doc.activeElement; if (a && a.disabled) a.blur(); },
     answerConfirm(v) { confirmAnswer = v; },
+    /* A key pressed where the focus is: down from the window, then up to it. */
+    press(key, extra) {
+      const target = doc.activeElement;
+      let stopped = false;
+      const e = { key, target, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { stopped = true; }, ...extra };
+      const on = (fns, want) => { if (!stopped) (fns || []).filter(want).forEach((fn) => fn(e)); };
+      on(winListeners.keydown, (fn) => winCaptures.has(fn));
+      on(doc.listeners.keydown, (fn) => docCaptures.has(fn));
+      for (let n = target; n; n = n.parentNode) on(n.listeners.keydown, () => true);
+      on(doc.listeners.keydown, (fn) => !docCaptures.has(fn));
+      on(winListeners.keydown, (fn) => !winCaptures.has(fn));
+      return e;
+    },
     popstate(search) { ctx.location.search = search; ctx.history.state = null; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
     row(key) { return doc.querySelectorAll('#watch-list tr[data-row-key]').find((r) => r.getAttribute('data-row-key') === key) || null; },
@@ -527,7 +544,7 @@ const scenarios = {
     p.replies[url] = () => reply.promise;
     vm.runInContext(fs.readFileSync(path.join(JS, 'modal-a11y.js'), 'utf8'), p.ctx);
     const at = () => { const a = p.doc.activeElement; return a.id || a.textContent; };
-    const tab = (shiftKey) => (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Tab', shiftKey, preventDefault() {} }));
+    const tab = (shiftKey) => p.press('Tab', { shiftKey });
     const heading = () => p.doc.getElementById('season-delete-title').focus();
     click(p.doc, p.row('show:77').querySelector('[data-action="pick-season-delete"]'));
     p.ctx.ModalA11y.onOpened('season-delete-overlay');
