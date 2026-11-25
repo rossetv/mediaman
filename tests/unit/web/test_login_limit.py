@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import mediaman.web
 from mediaman.services.rate_limit import limiters
 from mediaman.web.auth.password_hash import create_user
+from mediaman.web.routes import auth
 from mediaman.web.routes.auth import _limiter
 from mediaman.web.routes.auth import router as auth_router
 
@@ -110,3 +111,82 @@ def test_a_sign_in_under_way_holds_its_place_in_the_limit():
     limiter.release("192.0.2.1", first)
     assert limiter.reserve("192.0.2.3") is not None
     assert limiter.reserve("192.0.2.3") is None
+
+
+def test_sign_ins_whose_check_is_under_way_hold_their_places_in_the_limit(client, monkeypatch):
+    statuses = []
+
+    def held(*_args, **_kwargs):
+        # The next sign-in comes while this one's password is still being checked.
+        if len(statuses) < 6:
+            statuses.append(None)
+            at = len(statuses) - 1
+            statuses[at] = _sign_in(client, f"user{at}", "wrong").status_code
+        return False
+
+    monkeypatch.setattr(auth, "authenticate", held)
+    _sign_in(client, "first", "wrong")
+
+    assert statuses == [200, 200, 200, 200, 429]
+
+
+def _good_sign_ins(client, count):
+    return [_sign_in(client).status_code for _ in range(count)]
+
+
+def test_good_sign_ins_from_one_network_are_bounded_and_say_how_long_to_wait(
+    client, clock, monkeypatch
+):
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: True)
+    assert _good_sign_ins(client, 60) == [302] * 60
+    clock.now += 239.5
+
+    resp = _sign_in(client)
+
+    assert (resp.status_code, resp.headers["retry-after"]) == (429, "61")
+    assert "Too many sign-ins" in resp.text and "in 2 minutes" in resp.text
+    clock.now += 60.5
+    assert _sign_in(client).status_code == 302
+
+
+def test_past_the_bound_on_good_sign_ins_no_password_is_checked(client, monkeypatch):
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: True)
+    _good_sign_ins(client, 60)
+    checked = []
+    monkeypatch.setattr(auth, "authenticate", lambda *a, **_k: checked.append(a))
+
+    assert [_sign_in(client, "a", "wrong").status_code for _ in range(7)] == [429] * 7
+    assert checked == []
+
+
+def test_a_sign_in_refused_by_that_bound_is_no_failure(client, clock, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(auth, "authenticate", lambda *_a, **_k: True)
+        _good_sign_ins(client, 60)
+    clock.now += 100
+    for _ in range(7):
+        _sign_in(client)
+    clock.now += 200
+
+    assert _sign_in(client).status_code == 302
+
+
+def test_failures_take_nothing_from_the_bound_on_good_sign_ins(client, clock, monkeypatch):
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: False)
+    for _ in range(5):
+        _sign_in(client)
+        clock.now += 59
+    clock.now += 6
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: True)
+
+    assert _good_sign_ins(client, 60) == [302] * 60
+
+
+def test_failures_are_limited_as_before_however_many_good_sign_ins_came_between(
+    client, monkeypatch
+):
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: True)
+    _good_sign_ins(client, 50)
+    monkeypatch.setattr(auth, "authenticate", lambda *_a, **_k: False)
+
+    assert [_sign_in(client).status_code for _ in range(6)] == [200] * 5 + [429]

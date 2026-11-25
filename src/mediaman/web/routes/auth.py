@@ -52,6 +52,8 @@ router = APIRouter()
 # a legitimate user is never locked out for the full window.
 _LOGIN_RATE_WINDOW_SECONDS = 300
 _limiter = RateLimiter(max_attempts=5, window_seconds=_LOGIN_RATE_WINDOW_SECONDS)
+# Good sign-ins, which the bucket above does not keep: each costs a password hash and a session.
+_success_limiter = RateLimiter(max_attempts=60, window_seconds=_LOGIN_RATE_WINDOW_SECONDS)
 
 # Audit-log usernames are stored verbatim in the ``actor`` column for
 # operator-friendly grep, but the ``detail`` blob is rendered into the
@@ -74,18 +76,18 @@ def login_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
-def _render_rate_limited(request: Request, username: str) -> Response:
+def _render_rate_limited(
+    request: Request, username: str, limiter: RateLimiter, reason: str
+) -> Response:
     """Re-render the login form with how long to wait, said in a Retry-After header too."""
-    wait = _limiter.retry_after(get_client_ip(request))
+    wait = limiter.retry_after(get_client_ip(request))
     minutes = math.ceil(wait / 60)
     templates = cast(Jinja2Templates, request.app.state.templates)
     response: Response = templates.TemplateResponse(
         request,
         "login.html",
         {
-            "error": (
-                f"Too many attempts. Try again in {minutes} minute{'' if minutes == 1 else 's'}."
-            ),
+            "error": f"{reason} Try again in {minutes} minute{'' if minutes == 1 else 's'}.",
             # Only the posted username comes back (the template escapes it); never the password.
             "username": username,
         },
@@ -166,10 +168,18 @@ def login_submit(
     # a success takes back its own count only.
     attempt = _limiter.reserve(client_ip)
     if attempt is None:
-        return _render_rate_limited(request, username)
+        return _render_rate_limited(request, username, _limiter, "Too many attempts.")
+    # Before the check too, so that a refusal here says nothing about the password.
+    success = _success_limiter.reserve(client_ip)
+    if success is None:
+        _limiter.release(client_ip, attempt)
+        return _render_rate_limited(
+            request, username, _success_limiter, "Too many sign-ins from this network."
+        )
 
     conn = get_db()
     if not authenticate(conn, username, password, client_ip=client_ip):
+        _success_limiter.release(client_ip, success)
         return _handle_failed_login(conn, username, client_ip, request)
     _limiter.release(client_ip, attempt)
 
