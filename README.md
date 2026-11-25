@@ -56,12 +56,12 @@ Open one film of a series to see the others, and fetch the missing ones together
 
 ## On the TV
 
-Open `/tv` in the TV's browser and type the code it shows into your phone. That TV is then yours: press Play on, on a film's page or in the player, and choose it. While it plays, the phone is the remote, and you can lock it or put it away.
+Open `/tv` in the TV's browser and type the code it shows into your phone. That TV is then yours: press Play on, on a film's page or in the player, and choose it. While that TV plays, the phone is its remote, and you can lock it or put it away.
 
 Play on also lists AirPlay and Chromecast, which need no pairing:
 
-- AirPlay: Safari on an iPhone, iPad or Mac, and a TV with AirPlay, such as an Apple TV.
-- Chromecast: Chrome on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast. It is off until an admin turns on Allow Chromecast in Settings, under TVs & Casting, since it loads one script from Google into mediaman's pages. The [install guide](docs/install.md#chromecast) says what that lets in.
+- AirPlay: Safari on an iPhone, iPad or Mac, and a TV with AirPlay, such as an Apple TV. The player must stay open: leaving it stops the film.
+- Chromecast: Chrome, or a browser built on it, on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast. It is off until an admin turns on Allow Chromecast in Settings, under TVs & Casting, since it loads Google's Cast script into mediaman's pages. The [install guide](docs/install.md#chromecast) says what that lets in.
 
 Either way the TV must be able to open mediaman's address. TVs too old for a browser are added by an admin, see [TVs](docs/install.md#tvs).
 
@@ -88,18 +88,41 @@ Who watched, asked for and kept what, and what mediaman did by itself. Admins se
 
 ## Profile
 
-Choose a picture, change your own email and password, link your Plex account, see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may learn from what you watch.
+Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may learn from what you watch.
 
 <img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
 
 ## Run it
 
-```bash
-[ -f mediaman.env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > mediaman.env
-docker run -d --name mediaman --env-file mediaman.env -p 8282:8282 -v mediaman-data:/data -v /path/to/your/media:/media rossetv/mediaman
-docker exec -it mediaman mediaman-create-user
+In a new folder, make a `docker-compose.yml`, with your own folder in place of `/path/to/your/media`, mounted at the path Plex uses for it:
+
+```yaml
+services:
+  mediaman:
+    image: rossetv/mediaman
+    container_name: mediaman
+    restart: unless-stopped
+    ports:
+      - "8282:8282"
+    environment:
+      MEDIAMAN_SECRET_KEY: ${MEDIAMAN_SECRET_KEY:?run the line that makes .env}
+    volumes:
+      - mediaman-data:/data
+      - /path/to/your/media:/media
+
+volumes:
+  mediaman-data:
+    name: mediaman-data
 ```
 
-Then open `http://localhost:8282`. The [install guide](docs/install.md) goes from there: another machine, https, Plex and the other services, deletion, TVs, backups and updates.
+Then, in that folder, make the key, start [`rossetv/mediaman`](https://hub.docker.com/r/rossetv/mediaman) and create the first admin:
+
+```bash
+[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env
+docker compose up -d
+docker compose exec mediaman mediaman-create-user
+```
+
+Keep `.env`: your settings cannot be read without its key. Open `http://localhost:8282` in Chrome or Firefox; for Safari or another machine, see [Sign in](docs/install.md#sign-in). Then [connect Plex and the rest](docs/install.md#connect-your-services). The guide also covers https, deletion, TVs, backups and updates, and [moving from `docker run`](docs/install.md#moving-from-docker-run).
 
 mediaman is under the [MIT licence](LICENSE). To change it, see [CONTRIBUTING.md](CONTRIBUTING.md); to report a security problem, [SECURITY.md](SECURITY.md).

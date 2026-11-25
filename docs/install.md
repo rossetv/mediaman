@@ -33,7 +33,7 @@ services:
       - "8282:8282"
     environment:
       MEDIAMAN_SECRET_KEY: ${MEDIAMAN_SECRET_KEY:?run the line that makes .env}
-      # Only to sign in over plain http at home; see Https below.
+      # Only to sign in over plain http at home; see Sign in below.
       # MEDIAMAN_FORCE_SECURE_COOKIES: "false"
     volumes:
       - mediaman-data:/data
@@ -44,7 +44,7 @@ volumes:
     name: mediaman-data
 ```
 
-Put your own folder in place of `/path/to/your/media`, and mount it at the path Plex uses for it: where Plex's libraries are under `/mnt/films`, write `/mnt/films:/mnt/films`.
+Put your own folder in place of `/path/to/your/media`, and mount it at the path Plex uses for it: where Plex's libraries are under `/mnt/films`, write `/mnt/films:/mnt/films`, and under `environment:` add `MEDIAMAN_MEDIA_PATH: /mnt/films`, where the weekly email then reads its disk figures.
 
 Then make the key, start mediaman and create the first admin:
 
@@ -56,7 +56,24 @@ docker compose exec mediaman mediaman-create-user
 
 Keep `.env` safe. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more.
 
-Open `http://localhost:8282` and sign in. From another machine use https, or uncomment `MEDIAMAN_FORCE_SECURE_COOKIES` and run `docker compose up -d` again: the session cookie is `Secure`, so over plain http you can sign in on `localhost` alone.
+### Sign in
+
+Open `http://localhost:8282` in Chrome or Firefox. The session cookie is `Secure`, so from Safari or another machine use https, or set `MEDIAMAN_FORCE_SECURE_COOKIES: "false"` under `environment:` and run `docker compose up -d` again.
+
+### Moving from `docker run`
+
+If you started mediaman with `docker run` and a `mediaman.key`, do not make a new key: the database opens only with yours. In the folder that holds `mediaman.key`, make the `docker-compose.yml` above, with your own mounts, port and `-e` settings, and add `external: true` under `name: mediaman-data`. Then back up, move the key and start:
+
+```bash
+docker stop mediaman
+docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data .
+[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(cat mediaman.key)" > .env
+docker compose pull
+docker rm mediaman
+docker compose up -d
+```
+
+If that folder already has a `.env`, put the key in it yourself. Your settings and people are as they were, and you [update](#backup-update-roll-back) like everyone else from then on.
 
 ## Connect your services
 
@@ -150,20 +167,20 @@ Delete, pressed by an admin, asks Radarr or Sonarr to delete the files, and does
 
 Open `/tv` at mediaman's address in the TV's browser, for example `https://mediaman.example.com/tv`, and enter the code it shows at `/pair`, on a phone or computer where you are signed in. The TV is then yours, and needs no password. Your TVs are on your Profile, where you can rename and unpair them.
 
-In the TV's browser or not, a film is sent to a TV with Play on, on its page or in the player. A paired TV and an older one are steered from a phone's remote. AirPlay and Chromecast are listed there too; neither needs pairing.
+To play on any TV, press Play on, on a film's page or in the player. A paired TV and an older one are steered from a phone's remote. AirPlay and Chromecast are listed there too; neither needs pairing.
 
 ### AirPlay
 
-Safari on an iPhone, iPad or Mac, and a TV with AirPlay. The TV reads the stream itself, by an address that needs no sign-in, so it must be able to open the address mediaman is open at. Nothing to turn on.
+Safari on an iPhone, iPad or Mac, and a TV with AirPlay. The TV reads the stream itself, by an address that needs no sign-in, so it must be able to open the address mediaman is open at. Nothing to turn on. It is steered from the player it was started in, which must stay open: leaving that page stops it. Volume is on the TV's own remote.
 
 ### Chromecast
 
-Chrome on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast that can open that address. Other browsers show nothing of it.
+Chrome, or a browser built on it such as Edge, on a computer or an Android device, mediaman opened over https, and a TV with Chromecast or Google Cast that can open that address. Other browsers show nothing of it. It carries on when you leave the page, and is steered from that browser.
 
-It is off until an admin turns on Allow Chromecast, in Settings under TVs & Casting. Casting needs a script from Google, so turning it on lets in:
+It is off until an admin turns on Allow Chromecast, in Settings under TVs & Casting. Casting needs Google's Cast script, so turning it on lets in:
 
-- One script from Google (gstatic.com) runs inside mediaman, and can do all that the person signed in there can.
-- It loads only when someone opens Play on in Chrome or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
+- That script, from gstatic.com, runs inside mediaman, and can do all that the person signed in there can.
+- It loads only when someone opens Play on in such a browser or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
 - Google sees that person's internet address and the address they open mediaman at.
 - Google's player on the TV gets the film's title and a ticket for that one film, never anyone's sign-in.
 
@@ -175,7 +192,7 @@ Older TVs, without a browser that can do this, are added by an admin with their 
 
 1. Turn on Allow older TVs.
 2. Set Address TVs use to one that works on your home network, such as `http://192.168.1.20:8282`. Most of these TVs cannot use https: for them turn on Plain http for older TVs as well. Others on your network can then see what those TVs fetch.
-3. Press Add an older TV. It is shown a test picture first.
+3. Save, then press Add an older TV. It is shown a test picture first.
 
 For these, mediaman must be in a container network of its own, as it is above. With `network_mode: host`, macvlan on the home network or no container, it refuses every TV on that network. Where `MEDIAMAN_ALLOWED_HOSTS` is set, it must hold the host of that address too.
 
@@ -243,7 +260,7 @@ mediaman does not start on a database last opened by a build from before 13 May 
 
 | What you see | What to do |
 |---|---|
-| Signing in brings the sign-in page back | The cookie needs https: see [Start it](#start-it) |
+| Signing in brings the sign-in page back | The cookie needs https: see [Sign in](#sign-in) |
 | Every request is refused | `MEDIAMAN_ALLOWED_HOSTS` does not hold the name you use |
 | `/readyz` answers 503 | The key is not the one of this database, or the scheduler has not started |
 | Nothing is deleted | `MEDIAMAN_DELETE_ROOTS` is not set, or one of its folders is refused; the log says which |
