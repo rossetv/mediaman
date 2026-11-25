@@ -434,7 +434,9 @@ const scenarios = {
     return {
       wheel: await after((p) => p.press('wheel')),
       key: await after((p) => p.press('keydown', { key: 'PageDown' })),
+      end: await after((p) => p.press('keydown', { key: 'ArrowDown', metaKey: true })),
       back: await after((p) => p.press('keydown', { key: 'Alt', altKey: true })),
+      stepBack: await after((p) => p.press('keydown', { key: 'ArrowLeft', metaKey: true })),
       opened: await after((p) => p.click(p.$('meter'))),
       closed: await after(async (p) => { back(p); p.layer().close('pop'); }),
     };
@@ -1265,6 +1267,27 @@ const scenarios = {
     p.$('space-tab-scheduled').focus(); // as address.js puts it back
     await p.run(0);
     return { lost, kept: p.focused() };
+  },
+  // See all was pressed, and what it lists changed while the list stood over the panel: drawn again, it has the focus on Back.
+  async backFocusSeeAll() {
+    const p = await onMovies();
+    const all = () => p.one('.space-layer:not([inert]) .space-all');
+    const old = all();
+    old.focus();
+    seeAll(p);
+    p.layer().close('push');
+    p.doc.activeElement = p.doc.body;
+    p.server.storage = storage({ free: '1.3 TB' });
+    await p.refresh();
+    p.layer().open('storage', 'pop');
+    await p.run(0);
+    const again = { drawn: all() !== old, focus: p.doc.activeElement === all() };
+    // Still the same, it is address.js that puts the focus back where it was.
+    p.seg('movies').focus();
+    p.layer().close('push');
+    p.doc.activeElement = p.doc.body;
+    p.layer().open('storage', 'pop');
+    return { ...again, left: p.doc.activeElement === p.doc.body };
   },
   async segmentFocus() {
     const p = await page();
