@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import MagicMock
 
 import pytest
 import requests
 
+from mediaman.core.time import now_utc
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import _reset_previous_queue
 from mediaman.services.watch_catalog import clear_library_index, invalidate
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.middleware.viewer_guard import ViewerGuardMiddleware
+from mediaman.web.routes.downloads import router as downloads_router
 from mediaman.web.routes.downloads_strip import router
 from tests.helpers.factories import insert_media_item
 
@@ -81,7 +84,7 @@ def viewer(app_factory, conn):
         "INSERT INTO admin_users (username, password_hash, role, created_at)"
         " VALUES ('guest', 'x', 'viewer', '2026-01-01')"
     )
-    app = app_factory(router, conn=conn)
+    app = app_factory(router, downloads_router, conn=conn)
     app.add_middleware(ViewerGuardMiddleware)
     client = TestClient(app)
     client.cookies.set("session_token", create_session(conn, "guest"))
@@ -152,4 +155,28 @@ def test_two_people_asking_cost_the_services_one_ask(services, viewer):
 
 def test_nobody_is_told_without_a_session(services, viewer):
     viewer.cookies.clear()
+    assert _get(viewer).status_code == 401
+
+
+def test_asking_is_no_sign_of_anyone_there(services, viewer, conn):
+    """The header asks from every open page, which must not keep it signed in for good."""
+    long_ago = (now_utc() - timedelta(hours=2)).isoformat()
+    conn.execute("UPDATE admin_sessions SET last_used_at = ?", (long_ago,))
+    conn.commit()
+
+    def used() -> str:
+        return conn.execute("SELECT last_used_at FROM admin_sessions").fetchone()[0]
+
+    assert _get(viewer).status_code == 200
+    assert used() == long_ago
+    viewer.get("/api/downloads")
+    assert used() != long_ago
+
+
+def test_a_session_left_alone_too_long_ends_for_this_too(services, viewer, conn):
+    conn.execute(
+        "UPDATE admin_sessions SET last_used_at = ?",
+        ((now_utc() - timedelta(hours=25)).isoformat(),),
+    )
+    conn.commit()
     assert _get(viewer).status_code == 401

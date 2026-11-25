@@ -158,8 +158,11 @@ def validate_session(
     user_agent: str | None = None,
     client_ip: str | None = None,
     request_supplied: bool | None = None,
+    extend: bool = True,
 ) -> str | None:
     """Return the username for a valid, non-expired session token.
+
+    *extend* False leaves ``last_used_at`` as it is: nobody did anything.
 
     Ordinary requests must not take a SQLite writer lock.
     Validation is a read-only SELECT by default; write transactions are
@@ -225,7 +228,8 @@ def validate_session(
     ):
         return None
 
-    _maybe_refresh_last_used(conn, row, last_dt, token_hash, now_dt, now_iso)
+    if extend:
+        _maybe_refresh_last_used(conn, row, last_dt, token_hash, now_dt, now_iso)
     _maybe_sweep_expired(conn, now_iso)
 
     return cast(str, row["username"])
