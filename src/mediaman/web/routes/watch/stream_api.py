@@ -189,13 +189,24 @@ def start_stream(
     A start the player made by itself is answered 410 ``replaced`` where the person has asked
     another page to play the title since.
     """
+    return _guarded_start(
+        body,
+        username,
+        lambda manager, began: _start(request, body, username, manager, began),
+    )
+
+
+def _guarded_start(
+    body: _StartRequest, username: str, go: Callable[[StreamManager, float], Response]
+) -> Response:
+    """Answer with what *go* starts, within the limits on starts."""
     manager = get_stream_manager()
     began = manager.now()
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
     try:
         with manager.starting(username, body.rating_key, body.page, body.asked_s) as start:
-            answer = _start(request, body, username, manager, began)
+            answer = go(manager, began)
             if answer.status_code != 200:
                 # The answer is the one of a start given up, not of what it ran into: the player
                 # tries again by itself after a failure of Plex's.
@@ -209,35 +220,35 @@ def start_stream(
         return refused
 
 
+def _open_plex(request: Request, conn: sqlite3.Connection) -> PlexWatch:
+    creds = read_plex_credentials(conn, request.app.state.config.secret_key)
+    if creds is None:
+        raise PlexNotConfigured("Plex is not set up")
+    http = SafeHTTPClient(default_timeout=_ITEM_TIMEOUT, allowed_hosts=allowed_outbound_hosts(conn))
+    return PlexWatch(*creds, http=http)
+
+
+def _progress_info(item: PlexItem) -> dict[str, Any]:
+    """What a stream of *item* keeps so that its progress can be saved."""
+    movie = item.type == "movie"
+    return {
+        "duration_s": item.duration_s,
+        "media_item_id": item.rating_key if movie else item.parent_rating_key,
+        "show_rating_key": None if movie else item.grandparent_rating_key,
+    }
+
+
 def _start(
     request: Request, body: _StartRequest, username: str, manager: StreamManager, began: float
 ) -> Response:
     conn = get_db()
     try:
-        creds = read_plex_credentials(conn, request.app.state.config.secret_key)
-        if creds is None:
-            raise PlexNotConfigured("Plex is not set up")
-        http = SafeHTTPClient(
-            default_timeout=_ITEM_TIMEOUT, allowed_hosts=allowed_outbound_hosts(conn)
-        )
-        plex = PlexWatch(*creds, http=http)
-        item = plex.get_item(body.rating_key, marks=True)
+        item = _open_plex(request, conn).get_item(body.rating_key, marks=True)
         if item.type not in ("movie", "episode") or not is_in_libraries(
             item, _scanned_library_ids(conn)
         ):
             return respond_err("not_found", status=404)
-        if item.type == "movie":
-            info: dict[str, Any] = {
-                "duration_s": item.duration_s,
-                "media_item_id": item.rating_key,
-                "show_rating_key": None,
-            }
-        else:
-            info = {
-                "duration_s": item.duration_s,
-                "media_item_id": item.parent_rating_key,
-                "show_rating_key": item.grandparent_rating_key,
-            }
+        info = _progress_info(item)
         if item.media is not None and item.preview_count:
             # Kept on the server for the preview route; none of it is in the answer.
             info["preview"] = {
@@ -327,12 +338,10 @@ async def _claim_read(manager: StreamManager, read: SegmentRead) -> None:
             del _waiting[stream_id]
 
 
-@router.get("/api/watch/stream/{stream_id}/seg/{name}")
-async def stream_segment(
-    request: Request, stream_id: str, name: str, username: str = Depends(get_current_user)
-) -> Response:
+async def _read_segment(request: Request, stream_id: str, user: str, name: str) -> Response:
+    """Read a segment for as long as the client waits for it; its stream's end raises."""
     manager = get_stream_manager()
-    read = SegmentRead(stream_id, username)
+    read = SegmentRead(stream_id, user)
     watch = asyncio.create_task(_cancel_on_disconnect(request, read))
     try:
         await _claim_read(manager, read)
@@ -340,19 +349,27 @@ async def stream_segment(
             body, content_type = await run_in_threadpool(manager.segment, read, name)
         finally:
             manager.release_read(read)
-    except ValueError:
-        return respond_err("not_found", status=404)
     except TooManyReads:
         refused = respond_err("rate_limited", status=429)
         refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
         return refused
-    except StreamGone as exc:
-        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     finally:
         watch.cancel()
     return Response(body, media_type=content_type)
+
+
+@router.get("/api/watch/stream/{stream_id}/seg/{name}")
+async def stream_segment(
+    request: Request, stream_id: str, name: str, username: str = Depends(get_current_user)
+) -> Response:
+    try:
+        return await _read_segment(request, stream_id, username, name)
+    except ValueError:
+        return respond_err("not_found", status=404)
+    except StreamGone as exc:
+        return _gone_answer(exc)
 
 
 async def _stop_body(request: Request) -> _StopRequest | None:
