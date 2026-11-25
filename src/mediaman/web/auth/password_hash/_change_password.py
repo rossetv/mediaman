@@ -95,12 +95,12 @@ def _authorise_password_change(
     namespace: str,
     *,
     enforce_policy: bool,
-) -> bool:
+) -> str | None:
     """Run the pre-transaction guard sequence for `change_password`.
 
-    Returns True when the rotation may proceed, False when it is
-    rejected (the reauth namespace is locked, or the old password is
-    wrong). Nothing is written to ``admin_users`` on either outcome —
+    Returns the stored hash *old_password* was checked against when the
+    rotation may proceed, None when it is rejected (the reauth namespace
+    is locked, or the old password is wrong). Nothing is written to ``admin_users`` on either outcome —
     only *username*'s re-auth failure counter is bumped on a rejection,
     mirroring the escalation behaviour of plain login. A login lockout
     never blocks the check and a failure never adds to it; a right old
@@ -127,16 +127,20 @@ def _authorise_password_change(
             "password.change_locked user=%s reason=lockout_active",
             _sanitise_log_field(username),
         )
-        return False
+        return None
 
-    if not verify_password(conn, username, old_password):
+    # Read before the check: a hash changed in between makes the write refuse, never succeed.
+    row = conn.execute(
+        "SELECT password_hash FROM admin_users WHERE username = ?", (username,)
+    ).fetchone()
+    if not verify_password(conn, username, old_password) or row is None:
         if namespace:
             record_failure(conn, namespace)
         logger.warning(
             "password.change_failed user=%s reason=wrong_old_password",
             _sanitise_log_field(username),
         )
-        return False
+        return None
     clear_unlocked_login_failures(conn, username)
 
     if enforce_policy:
@@ -148,7 +152,7 @@ def _authorise_password_change(
                 _clear_reauth_failure_counter(conn, namespace, username)
             raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
 
-    return True
+    return str(row["password_hash"])
 
 
 def _clear_reauth_failure_counter(conn: sqlite3.Connection, namespace: str, username: str) -> None:
@@ -193,7 +197,8 @@ def change_password(
     """Change a user's password.
 
     Returns True on success, False if the old password is wrong, the
-    user no longer exists (TOCTOU), or the reauth namespace is locked.
+    user no longer exists or their password changed since the check
+    (TOCTOU), or the reauth namespace is locked.
 
     Wrong-old-password attempts are recorded under *username*'s re-auth
     key in `mediaman.web.auth.login_lockout` so a stolen session cannot
@@ -214,9 +219,12 @@ def change_password(
     changed but no audit trail exists" outcome.
 
     TOCTOU: between `verify_password` returning True and the UPDATE
-    landing, the user could be deleted by another worker. We detect
-    that via ``cursor.rowcount`` and roll back with ``return False``
-    rather than silently claim success.
+    landing, another worker or process could delete the user or change
+    their password (a second change at once, or a reset). The UPDATE
+    only lands on the hash that was checked; ``cursor.rowcount`` of zero
+    rolls back with ``return False`` rather than silently claim success.
+    Such a refusal counts no failure: the old password was right when
+    checked, and is no longer the password.
 
     Reauth ticket cleanup is performed inside the same transaction as
     the session DELETE so a thief who held a reauth ticket cannot
@@ -236,7 +244,7 @@ def change_password(
     namespace = reauth_key(username) if username else ""
 
     with one_attempt_at_a_time(namespace):
-        allowed = _authorise_password_change(
+        verified_hash = _authorise_password_change(
             conn,
             username,
             old_password,
@@ -244,7 +252,7 @@ def change_password(
             namespace,
             enforce_policy=enforce_policy,
         )
-    if not allowed:
+    if verified_hash is None:
         return False
 
     new_hash = bcrypt.hashpw(
@@ -259,14 +267,15 @@ def change_password(
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.execute(
-                "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
-                (new_hash, username),
+                "UPDATE admin_users SET password_hash=?, must_change_password=0"
+                " WHERE username=? AND password_hash=?",
+                (new_hash, username, verified_hash),
             )
-            # TOCTOU guard: if the user vanished between verify_password() and
-            # this UPDATE, rowcount will be zero. Roll back instead of
-            # claiming success — we just wrote a no-op and would otherwise
-            # also DELETE sessions / mint an audit row for a user who is no
-            # longer there.
+            # TOCTOU guard: if the user vanished or their hash changed between
+            # verify_password() and this UPDATE, rowcount will be zero. Roll
+            # back instead of claiming success — we just wrote a no-op and
+            # would otherwise also DELETE sessions / mint an audit row for a
+            # password that is not the one set.
             if cursor.rowcount == 0:
                 raise _UserVanished(username)  # triggers with-block rollback
             conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
@@ -294,7 +303,7 @@ def change_password(
                 )
     except _UserVanished:
         logger.warning(
-            "password.change_failed user=%s reason=user_vanished",
+            "password.change_failed user=%s reason=user_vanished_or_password_changed",
             _sanitise_log_field(username),
         )
         return False
