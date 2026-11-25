@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from mediaman.app_factory import _TEMPLATE_DIR
 from mediaman.db import set_connection
 from mediaman.web import SecurityHeadersMiddleware
+from mediaman.web.middleware.security_headers import _CAST_SCRIPTS
 from mediaman.web.routes.settings import router
 from tests.helpers.factories import insert_settings
 
@@ -59,6 +60,7 @@ def test_an_admin_is_told_what_the_switch_lets_in_and_what_each_way_needs(
     needs = html.split('id="tv-needs"', 1)[1].split("</ul>", 1)[0]
     assert all(word in needs for word in ("Safari", "https", "Chrome", "MEDIAMAN_ALLOWED_HOSTS"))
     told = html.split('id="cast-lets"', 1)[1].split("</ul>", 1)[0]
+    assert len(_CAST_SCRIPTS.split()) > 1, "one script only: the words must say so"
     assert "One script" not in told
     assert "Scripts from Google (gstatic.com) run" in told
     assert "Chromium" in told and "Chromium" in needs
