@@ -30,7 +30,7 @@ from mediaman.services.plex_link.plex_tv import PlexTv, PlexTvUnavailable
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
-from mediaman.web.auth.reauth import has_recent_reauth
+from mediaman.web.auth.reauth import has_recent_reauth, reauth_seconds_left
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -158,6 +158,15 @@ def _attempt_view(
     return view
 
 
+def _start_in(username: str) -> int:
+    """Seconds until this person may start again, 0 when they may now."""
+    seconds = max(
+        limiter.retry_after(username) for limiter in (_START_LIMITER, _FAILED_START_LIMITER)
+    )
+    # A limiter that is free says 1.
+    return seconds if seconds > 1 else 0
+
+
 @router.get("/api/account/plex")
 def api_plex_link(
     username: str = Depends(get_current_user), session_token: str | None = Cookie(default=None)
@@ -170,6 +179,8 @@ def api_plex_link(
     return respond_ok(
         {
             "configured": plex_is_configured(conn),
+            "password_good_for": reauth_seconds_left(conn, session_token, username),
+            "start_in": _start_in(username),
             "link": None
             if link is None
             else {

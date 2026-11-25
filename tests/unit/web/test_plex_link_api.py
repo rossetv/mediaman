@@ -898,3 +898,18 @@ def test_the_record_of_a_link_says_what_happened_and_no_account(client_for, plex
         "sec:plex.unlinked",
     ]
     assert not any("4242" in line or "amyplex" in line for line in lines)
+
+
+def test_the_card_learns_how_long_the_password_is_good_for(client_for):
+    assert client_for("amy", reauth=False).get("/api/account/plex").json()["password_good_for"] == 0
+    assert 290 <= client_for("bob").get("/api/account/plex").json()["password_good_for"] <= 300
+
+
+def test_the_card_learns_when_it_may_start_again(client_for):
+    amy = client_for("amy")
+    assert amy.get("/api/account/plex").json()["start_in"] == 0
+    for _ in range(5):
+        start(amy)
+    assert amy.post("/api/account/plex").status_code == 429
+    assert amy.get("/api/account/plex").json()["start_in"] > 3000
+    assert client_for("bob").get("/api/account/plex").json()["start_in"] == 0
