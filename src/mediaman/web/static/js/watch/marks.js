@@ -42,6 +42,8 @@
     return card.getAttribute('data-dismiss-ref') || (link && link.getAttribute('data-title-ref')) || '';
   }
 
+  function isPick(card) { return !!card.querySelector('[data-pick-ref]'); }
+
   function titleOf(card) { return card.querySelector('.watch-card__title').textContent.trim(); }
 
   /* "Brightwater", "Brightwater, S2 · E4" or "Brightwater, Season 2", for the toasts. */
@@ -634,7 +636,7 @@
   /* The cards of *title* among the picks, the open grid's last, so that an Undo has it back first. */
   function pickCards(title) {
     return toArray(document.querySelectorAll('.watch-card')).filter(function (card) {
-      return card.querySelector('[data-pick-ref]') && !card.classList.contains('is-kept') &&
+      return isPick(card) && !card.classList.contains('is-kept') &&
         !card.classList.contains('is-gone') && sameTitle(pickOf(card), title);
     }).sort(function (a, b) { return (a.closest('.watch-row') ? 0 : 1) - (b.closest('.watch-row') ? 0 : 1); });
   }
@@ -671,9 +673,11 @@
       if (lost) focus = taken.focus;
       next = taken.focus;
       left.undos.push(function () {
-        if (row) showInRow(row, card, taken.undo);
-        else taken.undo();
-        return card;
+        var control = null;
+        function putBack() { control = taken.undo(); }
+        if (row) showInRow(row, card, putBack);
+        else putBack();
+        return (control && control.closest('.watch-card')) || card; // the row's grid may have one of its own
       });
     });
     if (detailsShown()) focusAfter(detailsShown(), next);
@@ -696,7 +700,7 @@
       var cards = left.undos.reverse().map(function (fn) { return fn(); });
       if (!focusLost(null)) return;
       var shown = cards.filter(function (card) { return canFocus(card); })[0];
-      if (shown) refocus(controlIn(shown));
+      if (shown) core.focusSoftly(controlIn(shown));
     });
     return mine.length > 0;
   }
@@ -824,18 +828,22 @@
 
   function fillMenu(trigger) {
     var card = trigger.closest('.watch-card');
-    var kind = card.getAttribute('data-mark').split('/')[0];
+    var mark = card.getAttribute('data-mark');
     menuNode.textContent = '';
     menuNode.setAttribute('aria-label', 'More for ' + titleOf(card));
     fillRating(refOf(card));
-    menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[kind] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
+    if (mark) menuNode.appendChild(menuItem('mark', 'i-eye', 'Mark ' + WHAT[mark.split('/')[0]] + 'as ' + (hasBadge(card) ? 'not watched' : 'watched')));
     if (isContinue(card)) menuNode.appendChild(menuItem('dismiss', 'i-xmark', 'Dismiss'));
+    if (isPick(card)) menuNode.appendChild(menuItem('details', 'i-circle-info', 'Details'));
   }
 
   function choose(trigger, item) {
     var card = trigger.closest('.watch-card');
-    if (item.getAttribute('data-act') === 'dismiss') {
+    var act = item.getAttribute('data-act');
+    if (act === 'dismiss') {
       dismiss(card.getAttribute('data-dismiss-ref'), titleOf(card));
+    } else if (act === 'details') {
+      card.querySelector('.watch-card__link').click();
     } else {
       change(card.getAttribute('data-mark'), !hasBadge(card), nameOf(card), refOf(card), card);
     }

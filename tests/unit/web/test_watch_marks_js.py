@@ -496,6 +496,25 @@ def test_a_rating_in_the_menu_is_saved_and_shuts_it_and_one_taken_back_does_not(
     assert out["back"] == [True, ["DELETE /api/watch/ratings/movie-1"]]
 
 
+def test_a_pick_that_is_not_in_the_library_is_rated_and_opened_from_its_menu_and_not_marked() -> (
+    None
+):
+    assert _run("pickMenu") == {
+        "menu": ["Details"],
+        "label": "More for Wanted",
+        "focus": "Details",
+        "keys": ["Strong no", "Details"],
+        "calls": ["PUT /api/watch/ratings/rec-5 1"],
+        "pressed": ["link"],
+        "marked": [],
+        "held": ["Mark as watched", "Details"],
+    }
+
+
+def test_a_strong_no_undone_in_see_all_gives_the_focus_to_the_card_there() -> None:
+    assert _run("strongNoUndoneInGrid") is True
+
+
 def test_the_menus_keys_reach_the_four_thumbs_and_the_items() -> None:
     assert _run("menuKeys") == [
         "Strong no",

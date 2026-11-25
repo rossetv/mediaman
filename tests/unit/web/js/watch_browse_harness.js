@@ -1147,6 +1147,31 @@ const scenarios = {
       c.querySelectorAll('[data-watch-more]').length, !!c.querySelector('.watch-card__link [data-watch-more]')]);
   },
 
+  // A pick has its More button whether the library holds it or not, a Discover card of the same title does not.
+  async pickMore() {
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11' })] })),
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [card('tmdb-movie-2')] }] }) } });
+    await settle();
+    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('[data-watch-more]').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
+    return [...rec(p.doc).querySelectorAll('.watch-card'), scrollerOf(p, 'trending').querySelector('.watch-card')].map(look);
+  },
+
+  // See all of the picks, opened while one is gone from them: back in the row, it is under its date there too.
+  async pickBackInGrid() {
+    const p = load({ grids: { recommended: 'Recommended for you' }, routes: { 'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('rec-2')] })) } });
+    await settle();
+    let made = null;
+    p.ctx.MMWatch.grid.open = (o) => { made = o; };
+    p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-all__body' }])).toggleAttribute = () => {};
+    const open = p.doc.body.appendChild(build(p.doc, ['a', { href: '/watch?all=recommended', 'data-row-open': 'recommended' }]));
+    const first = rec(p.doc).querySelector('.watch-card');
+    click(p.doc, open);
+    const heading = made.cards[0];
+    return [heading.getAttribute('data-group'), made.line(first).getAttribute('data-group'), made.line(first).textContent === heading.textContent];
+  },
+
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.
   async keepFromRow() {
     const p = load({ routes: { 'POST /api/watch/keep': () => Promise.resolve({ ok: true }) } });

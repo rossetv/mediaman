@@ -26,7 +26,7 @@ Object.defineProperty(Node.prototype, 'hidden', {
 function card(mark, title, sub, over = {}) {
   const at = /^(movie|show)\/(\d+)$/.exec(mark);
   const ref = over.ref || (at && at[1] + '-' + at[2]);
-  return ['article', { class: 'watch-card', 'data-mark': mark, ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
+  return ['article', { class: 'watch-card', ...(mark ? { 'data-mark': mark } : {}), ...(over.dismiss ? { 'data-dismiss-ref': over.dismiss } : {}) },
     ['a', { class: 'watch-card__link', ...(ref && !over.dismiss ? { 'data-title-ref': ref } : {}),
       ...(over.pick ? { 'data-pick-ref': over.pick, 'data-kind': 'movie', 'data-tmdb-id': over.tmdb || '' } : {}) },
       ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, title],
@@ -208,6 +208,42 @@ const scenarios = {
     const first = [shut(), p.calls.slice(), p.focus()];
     await thumb(p, p.cards('lib')[0], 2);
     return { first, back: [shut(), p.calls.slice(1)] };
+  },
+
+  // A pick that is not in the library: what its menu holds, a rating from it, and its Details; and one that is.
+  async pickMenu() {
+    const p = load(watchPage([row('picks', [card('', 'Wanted', 'Movie · 2024', { ref: 'rec-5', pick: 'rec-5', tmdb: '50' }), ...PICKS().slice(0, 1)])]), {
+      api: { 'PUT /api/watch/ratings/rec-5 1': { ok: true, media_type: 'movie', tmdb_id: 50 } } });
+    const [wanted, held] = p.cards();
+    const pressed = [];
+    const link = wanted.querySelector('.watch-card__link');
+    link.click = () => pressed.push('link');
+    p.open(wanted);
+    const menu = p.doc.querySelector('#watch-more-menu');
+    const out = { menu: p.menu(), label: menu.getAttribute('aria-label'), focus: p.doc.activeElement.textContent };
+    out.keys = ['ArrowUp', 'ArrowUp'].map((key) => {
+      menu.listeners.keydown.forEach((fn) => fn({ key, preventDefault() {}, stopPropagation() {} }));
+      return p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.textContent;
+    });
+    p.open(wanted);
+    await thumb(p, wanted, 2);
+    out.calls = p.calls.filter((c) => /^PUT/.test(c));
+    await p.pick(wanted, 'details');
+    p.open(held);
+    return { ...out, pressed, marked: p.calls.filter((c) => /watched/.test(c)), held: p.menu() };
+  },
+
+  // See all opened without the pick, then its Undo: the grid's own card has the focus, the row stands hidden behind it.
+  async strongNoUndoneInGrid() {
+    const p = rated();
+    const twin = build(p.doc, card('movie/1', 'Fieldwork', 'Movie', { pick: 'rec-1', tmdb: '10' }));
+    p.ctx.MMWatch.grid = { isOpen: () => true, take: () => null, bring: () => p.doc.body.appendChild(twin) };
+    await thumb(p, p.cards('picks')[1], 0);
+    p.doc.activeElement.blur();
+    const rects = Node.prototype.getClientRects;
+    Node.prototype.getClientRects = function () { return this.closest('#picks') ? [] : rects.call(this); };
+    await p.undo(0);
+    return p.doc.activeElement === twin.querySelector('[data-watch-more]');
   },
 
   // Up and down take the four as one stop; left and right go between them.
