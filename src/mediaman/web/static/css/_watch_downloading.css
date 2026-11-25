@@ -82,7 +82,7 @@
   mask-image: linear-gradient(90deg, #000 calc(var(--p) * 1% - 10px), transparent calc(var(--p) * 1% + 6px));
 }
 .dw.is-ready .dw__fill { -webkit-mask-image: none; mask-image: none; }
-:is(.dw__art, .dw__fill):is([data-broken], :not([src])) { visibility: hidden; }
+.dw__link img:is([data-broken], :not([src])) { visibility: hidden; }
 .dw__link::before {
   content: "";
   position: absolute;
@@ -94,7 +94,8 @@
     color-mix(in srgb, var(--scrim) 40%, transparent) 85%,
     color-mix(in srgb, var(--scrim) 16%, transparent));
 }
-.dw__poster { flex: none; width: 52px; height: 78px; border-radius: var(--r-xs); object-fit: cover; background: linear-gradient(160deg, var(--s4), var(--s1)); }
+.dw__poster { flex: none; width: 52px; height: 78px; overflow: hidden; border-radius: var(--r-xs); background: linear-gradient(160deg, var(--s4), var(--s1)); }
+.dw__pic { display: block; width: 100%; height: 100%; object-fit: cover; }
 .dw__text { flex: 1; min-width: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--scrim) 70%, transparent); }
 .dw__title,
 .dw__line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

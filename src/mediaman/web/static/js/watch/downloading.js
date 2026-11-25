@@ -68,7 +68,7 @@
   /* The poster stands in where there is no wide picture. */
   function setPicture(img, item) {
     var poster = picture(item.poster_url);
-    var art = img.classList.contains('dw__poster') ? '' : picture(item.art_url);
+    var art = img.classList.contains('dw__pic') ? '' : picture(item.art_url);
     var want = art || poster;
     if (want === img.getAttribute('data-of')) return;
     img.setAttribute('data-of', want);
@@ -84,7 +84,8 @@
   function build(item) {
     var card = el('article', 'watch-card dw');
     var link = el('a', 'dw__link');
-    ['dw__art', 'dw__fill', 'dw__poster'].forEach(function (name) { link.appendChild(image(name)); });
+    ['dw__art', 'dw__fill'].forEach(function (name) { link.appendChild(image(name)); });
+    link.appendChild(el('span', 'dw__poster')).appendChild(image('dw__pic'));
     var text = el('span', 'dw__text');
     text.appendChild(el('span', 'dw__title', item.title));
     var line = text.appendChild(el('span', 'dw__line'));
@@ -362,7 +363,7 @@
     landed[key] = true;
     var item = card.item;
     var node = card.node;
-    var poster = node.querySelector('.dw__poster');
+    var poster = node.querySelector('.dw__pic');
     var from = onScreen(node) && poster.getAttribute('src') ? poster.getBoundingClientRect() : null;
     var had = node.contains(document.activeElement);
     var there = intoRecent(item);
