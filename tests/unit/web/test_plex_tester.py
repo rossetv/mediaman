@@ -158,3 +158,24 @@ def test_a_bug_in_the_library_call_is_not_called_a_foreign_server():
         client.return_value.get_libraries.side_effect = AttributeError("a real bug")
         with pytest.raises(AttributeError):
             _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+
+
+def test_an_empty_reply_met_while_listing_the_libraries_is_not_plex(caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient") as client,
+    ):
+        client.return_value.get_libraries.side_effect = TypeError(
+            "'NoneType' object is not iterable"
+        )
+        resp = _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
+    body = json.loads(resp.body)
+    assert (body["error"], body["message"]) == (
+        "not_plex",
+        "No Plex server answered at this address.",
+    )
+    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert caplog.records[0].exc_info is None

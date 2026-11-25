@@ -86,8 +86,15 @@ def test_the_longest_subscriber_state_leaves_remove_on_its_line_on_a_narrow_phon
     assert "margin-left: 0" in _narrow_phone_rule(".setg-pg .sub-row .sub-stat")
 
 
-def test_a_service_header_has_room_for_its_chevron_on_a_narrow_phone() -> None:
-    assert "padding-left: 0" in _narrow_phone_rule(".setg-pg .intg-card-hd .hd-actions")
+def test_a_service_header_starts_its_answer_row_in_the_same_place_at_every_phone_width() -> None:
+    narrow = re.search(r"@media \(max-width: 359\.98px\) \{(.*?)\n\}\n", PANELS, re.S)
+    assert narrow and ".hd-actions" not in narrow.group(1)
+
+
+def test_a_service_header_wraps_its_answer_under_a_description_that_keeps_a_width() -> None:
+    assert "flex-wrap: wrap" in _declarations(".setg-pg .intg-card-hd")
+    assert re.search(r"flex:\s*\d+ 1 \d+px", _declarations(".setg-pg .intg-card-hd .h-info"))
+    assert "margin-left: auto" in _declarations(".setg-pg .intg-card-hd .hd-btns")
 
 
 def test_a_long_user_name_wraps_in_the_password_dialog() -> None:

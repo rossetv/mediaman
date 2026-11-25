@@ -529,8 +529,13 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         # a wrong or expired token surfaces as plexapi's Unauthorized
         PlexApiException,
         ValueError,
-    ):
-        logger.exception("Failed to fetch Plex libraries")
+    ) as exc:
+        if isinstance(exc, (SafeHTTPError, _requests.RequestException, PlexApiException)):
+            # A wrong address, a refused token or a server that is down is an expected
+            # state, not a fault: one line, no traceback.
+            logger.warning("Failed to fetch Plex libraries: %s", type(exc).__name__)
+        else:
+            logger.exception("Failed to fetch Plex libraries")
         return respond_err(
             "fetch_failed", status=200, message="Failed to fetch Plex libraries.", libraries=[]
         )

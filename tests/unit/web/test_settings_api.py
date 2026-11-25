@@ -146,6 +146,22 @@ class TestPlexLibrariesEndpoint:
         assert resp.json()["error"] == "fetch_failed"
         assert resp.json()["libraries"] == []
 
+    def test_a_plex_that_refuses_logs_one_line_without_a_traceback(
+        self, app_factory, authed_client, conn, caplog
+    ):
+        from plexapi.exceptions import NotFound
+
+        client = _client(app_factory, authed_client, conn)
+        with patch(
+            "mediaman.web.routes.settings.api.build_plex_from_db",
+            side_effect=NotFound("404 not plex"),
+        ):
+            client.get("/api/plex/libraries")
+
+        records = [r for r in caplog.records if "Plex libraries" in r.getMessage()]
+        assert [r.levelname for r in records] == ["WARNING"]
+        assert records[0].exc_info is None
+
     def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""
         app = _app(app_factory, conn)
