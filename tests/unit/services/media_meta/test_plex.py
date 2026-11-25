@@ -179,9 +179,11 @@ class TestPlexClient:
         mock_cls.return_value._token = "test-token"
         client = PlexClient("http://plex:32400", "test-token")
         error = SafeHTTPError(0, "too large\n\x1b[2Jforged" + "x" * 500, "http://plex")
-        with patch.object(client._http, "get", side_effect=error):
-            with pytest.raises(PlexResponseTooLarge) as raised:
-                client.get_watch_history("123")
+        with (
+            patch.object(client._http, "get", side_effect=error),
+            pytest.raises(PlexResponseTooLarge) as raised,
+        ):
+            client.get_watch_history("123")
         assert str(raised.value).isprintable()
         assert len(str(raised.value)) <= 200
 
@@ -193,9 +195,11 @@ class TestPlexClient:
         ]
         caplog.set_level("DEBUG", logger="mediaman.services.media_meta.plex")
         failed = PlexResponseTooLarge("a\nforged")
-        with patch.object(client, "get_watch_history", side_effect=failed):
-            with pytest.raises(PlexResponseTooLarge):
-                client.get_season_watch_history("5")
+        with (
+            patch.object(client, "get_watch_history", side_effect=failed),
+            pytest.raises(PlexResponseTooLarge),
+        ):
+            client.get_season_watch_history("5")
         (record,) = [r for r in caplog.records if "episode_fetch_failed" in r.getMessage()]
         assert record.exc_info is None
         assert record.getMessage().isprintable()
