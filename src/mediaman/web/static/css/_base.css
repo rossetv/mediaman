@@ -44,7 +44,8 @@ html, body {
 [hidden] { display: none !important; }
 
 img { display: block; max-width: 100%; }
-img[data-broken] { display: none; }
+/* One marked "coming" is drawn over its stand-in, which every other rule keeps (broken-poster.js). */
+img[data-broken=""] { display: none; }
 
 /* An icon from the sprite. Symbols are drawn on a 640 x 512 grid, so 1em of height
    keeps 1.25em of width, and their baseline sits 64 units above the bottom. Some
