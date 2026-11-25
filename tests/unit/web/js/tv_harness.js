@@ -129,6 +129,7 @@ function tv({ kept = null, plays = true } = {}) {
     leaving: () => nodes.o.held.map((n) => [n.id, n.style]),
     entering: () => nodes.s.className,
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
+    look: () => body.className,
     html: () => nodes.s.innerHTML,
     says: () => nodes.s.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     text: (id) => document.getElementById(id).innerHTML,
@@ -157,7 +158,92 @@ async function playing(more) {
   return t;
 }
 
+const MINUTE = 60000;
+
+// a page nothing is done at, up to `short` of when it dims
+async function left(name, short) {
+  const t = name === 'pause' || name === 'ended' || name === 'err' ? await playing() : tv({ kept: name === 'code' ? null : 'old' });
+  if (name === 'code') {
+    t.answers.code = () => ({ ok: true, code: '482916', token: 'fresh', expires_in_s: 300 });
+    t.answers.poll = { ok: true, state: 'pairing', expires_in_s: 290, poll_ms: 2000 };
+    t.run();
+  } else if (name === 'idle') { t.answers.poll = ready({ poll_ms: 2000 }); t.run(); }
+  else if (name === 'out') { t.answers.poll = GONE; t.run(); }
+  else if (name === 'pause') { t.key(OK); t.video.fire('pause'); }
+  else { t.now = film({ state: name === 'err' ? 'failed' : 'ended', error: 'tv', url: null }); await t.step(1000); }
+  await t.step((name === 'pause' ? 5 : 10) * MINUTE - short);
+  return t;
+}
+
 const scenarios = {
+  async rests(name) {
+    const t = await left(name, 2000);
+    const before = t.look();
+    await t.step(4000);
+    const looks = [];
+    for (let i = 0; i < 5; i += 1) { looks.push(t.look()); await t.step(MINUTE); }
+    return { before, looks };
+  },
+  async neverRests(name) {
+    const t = await playing({ duration_s: 9000 });
+    t.video.duration = 9000;
+    if (name !== 'play') t.now = film({ state: name, url: null });
+    const looks = [];
+    for (let i = 0; i < 50; i += 1) {
+      await t.step(MINUTE / 2);
+      if (t.look()) looks.push(t.says());
+    }
+    return { looks, says: t.says() };
+  },
+  async wakes(by) {
+    const t = await left(by === 'command' || by === 'plays' ? 'pause' : by === 'closed' ? 'ended' : 'idle', -2000);
+    const dimmed = t.look();
+    if (by === 'key') t.key(RIGHT);
+    else if (by === 'pointer') t.point('b1', 5);
+    else if (by === 'click') t.click('none');
+    else if (by === 'command') t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'volume', level: 0.5 }] });
+    else if (by === 'plays') t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'play' }] });
+    else if (by === 'closed') t.now = null;
+    else t.answers.poll = () => ready({ play: film({ state: 'starting', url: null }) });
+    if (!['key', 'pointer', 'click'].includes(by)) await t.step(2500);
+    const woken = t.look();
+    if (by === 'film') return { dimmed, woken };
+    await t.step(4 * MINUTE);
+    return { dimmed, woken, later: t.look() };
+  },
+  // the words that move bring a pointer that lies still to another place on them
+  async pointerLiesStill() {
+    const t = await left('idle', 1000);
+    t.point('b1', 5);
+    await t.step(10 * MINUTE + 1000);
+    const dimmed = t.look();
+    t.point('b1', 5);
+    return [dimmed, t.look()];
+  },
+  async failsAgain() {
+    const t = await left('err', -2000);
+    const dimmed = t.look();
+    t.now = film({ play_id: 'p2', state: 'failed', error: 'tv', url: null });
+    await t.step(1200);
+    return [dimmed, t.look()];
+  },
+  async wakesWith(what) {
+    const name = what === 'code' ? 'code' : what === 'pausedClick' ? 'pause' : what;
+    const t = await left(name, -2000);
+    t.answers.ask = { ok: true };
+    t.answers.code = { ok: true, code: '111111', token: 'newer', expires_in_s: 300 };
+    const asked = () => [t.paths('code').length, t.paths('ask').length];
+    const before = asked();
+    t.video.calls.length = 0;
+    if (what === 'idle') t.click('b0');
+    else if (what === 'pausedClick') t.click('b1');
+    else t.key(OK);
+    await t.step(100);
+    const first = [asked().join() !== before.join(), t.video.calls.slice()];
+    t.key(OK);
+    await t.step(100);
+    return { first, then: asked().join() !== before.join(), awake: t.look() };
+  },
   async pairs() {
     const t = tv();
     t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
