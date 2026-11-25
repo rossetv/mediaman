@@ -65,6 +65,8 @@ class ArrView:
     #: The services ("radarr", "sonarr") set up and answering, so a title missing from
     #: one is truly not tracked there.
     answering: frozenset[str] = frozenset()
+    #: The services not set up, unlike one that is and gave no answer.
+    not_set_up: frozenset[str] = frozenset()
     #: The generation of the build that made this view; None for one not built here.
     generation: int | None = None
     season_queue: SeasonQueue = field(default_factory=dict)
@@ -256,8 +258,14 @@ def _build(
     answering = frozenset(
         name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr.answered)) if ok
     )
+    clients = (("radarr", radarr_client), ("sonarr", sonarr_client))
     view = ArrView(
-        {**radarr, **sonarr.caches}, answering, generation, sonarr.queue, sonarr.odd_shows
+        {**radarr, **sonarr.caches},
+        answering,
+        frozenset(name for name, client in clients if client is None),
+        generation,
+        sonarr.queue,
+        sonarr.odd_shows,
     )
     with _lock:
         if _building.get(generation) is future:

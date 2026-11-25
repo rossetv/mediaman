@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sqlite3
 from itertools import count
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.routes.history import _build_item
 from mediaman.web.routes.recommended.api import reset_download_action_limiter
+from mediaman.web.routes.search import _seasons
 from mediaman.web.routes.search._seasons import REQUEST_SECONDS, add_to_tracked_show
 from tests.helpers.factories import (
     insert_audit_log,
@@ -498,6 +500,69 @@ def test_a_deletion_that_comes_while_a_season_is_asked_for_is_not_undone_by_it(
     assert _results(resp) == {2: result}
     assert bool(_audit(db)) is (result == "asked")
     assert sonarr.take_back_season.called is (status == "deleting")
+
+
+@pytest.mark.parametrize("route", ["search", "pick"])
+def test_a_season_whose_record_fails_is_told_apart_and_the_others_carry_on(
+    viewer, db, ask, route, monkeypatch
+):
+    real = _seasons.record_season
+
+    def record(*args, number, **kwargs):
+        if number == 4:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*args, number=number, **kwargs)
+
+    monkeypatch.setattr(_seasons, "record_season", record)
+    sonarr = Sonarr().track(_season(3), _season(4), _season(5))
+
+    resp = ask(viewer, sonarr, [3, 4, 5])
+
+    assert resp.status_code == 200
+    assert _results(resp) == {3: "asked", 4: "unrecorded", 5: "asked"}
+    assert "Season 4 is asked for, but mediaman couldn't note it" in resp.json()["message"]
+    assert sonarr.searched == [(9, 3), (9, 4), (9, 5)]
+
+    # Alone it is a failure, so that the same may be sent again at once.
+    assert ask(viewer, Sonarr().track(_season(4)), [4]).status_code == 502
+    monkeypatch.setattr(_seasons, "record_season", real)
+    again = ask(viewer, Sonarr().track(_season(4, monitored=True)), [4])
+    assert _results(again) == {4: "already_asked"}
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_seasons_started_that_cannot_be_recorded_are_told_all_the_same(
+    authed_client, db, ask, route, monkeypatch
+):
+    def fails(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(_seasons, "record_started", fails)
+    sonarr = _off(_season(1, monitored=True), _season(2))
+
+    def monitor(series_id, number, **how):
+        sonarr._monitor(series_id, number, **how)
+        _delete_season(get_db(), number)
+
+    def take_back(_series_id, _number, change):
+        change.left_on = True
+
+    sonarr.remonitor_season.side_effect = monitor
+    sonarr.take_back_season.side_effect = take_back
+
+    resp = ask(authed_client, sonarr, [2])
+
+    assert (_results(resp), resp.json()["also_started"]) == ({2: "removed"}, [1])
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_the_same_request_again_at_once_is_told_to_be_a_duplicate(viewer, db, ask, route):
+    sonarr = Sonarr().track(_season(3))
+    ask(viewer, sonarr, [3])
+
+    again = ask(viewer, sonarr, [3])
+
+    assert (again.status_code, again.json()["duplicate"]) == (429, True)
 
 
 @pytest.mark.parametrize("route", ["search"])

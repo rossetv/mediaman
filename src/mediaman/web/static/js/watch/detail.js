@@ -797,8 +797,10 @@
   function refresh(quiet) {
     var c = cur;
     if (!c || !isOpen || !c.data) return;
+    var asks = c.asks;
     get(apiUrl(c.ref)).then(function (data) {
       if (c !== cur || !isOpen) return;
+      if (asks !== c.asks) { refresh(quiet); return; } // seasons were asked for meanwhile
       if (data.library_ref && data.library_ref !== c.ref && REF_RE.test(data.library_ref)) {
         c.justAdded = true;
         if (hashRef() === c.ref) readdress(data.library_ref);
@@ -1746,9 +1748,12 @@
     return { name: 'none', icon: 'i-check', text: count || (s.status || canPick(d, s) ? '' : 'Not here') };
   }
 
-  /* The seasons the section names: of a show in the library, those not wholly here. */
+  /* The seasons the section names: of a show in the library, those not wholly here, where they
+     can be asked for or something is known of them. */
   function listed(d) {
-    return d.kind === 'movie' ? [] : allSeasons(d).filter(function (s) { return !d.in_library || !held(s); });
+    return d.kind === 'movie' ? [] : allSeasons(d).filter(function (s) {
+      return !d.in_library || (!held(s) && (d.seasons_request || s.status));
+    });
   }
 
   function placeSeasons() {
@@ -1955,7 +1960,7 @@
 
   /* A season that is not here, and nobody could say whether it is wanted. */
   function unknown(d) {
-    return !offersDownload(d) && allSeasons(d).some(function (s) { return s.status === null && !s.in_library; }) &&
+    return !!d.seasons_request && !offersDownload(d) && allSeasons(d).some(function (s) { return s.status === null && !s.in_library; }) &&
       (!d.seasons_pending || cur.pendingAsks >= PENDING_ASKS);
   }
 
@@ -2062,8 +2067,18 @@
       var ok = r || {};
       tookSeasons(c, numbers, ok.seasons, ok.message || plural(numbers.length, 'season', 'seasons') + ' asked for.', true);
     }, function (err) {
+      if (err && err.data && err.data.duplicate) {
+        // The same request is on its way, or was taken a moment ago: the title says what of it.
+        c.asks++;
+        c.ask = { busy: false, text: 'Already being asked for.' };
+        if (c !== cur || !isOpen) return;
+        drawSeasons();
+        c.pendingAsks = 0;
+        readSeasons(c);
+        return;
+      }
       var said = err && err.data && err.data.seasons;
-      tookSeasons(c, numbers, said, MM.api.messageOf(err, "Couldn't add " + (numbers.length === 1 ? 'the season' : 'the seasons') + '. Try again.'), false);
+      tookSeasons(c, numbers, said, MM.api.messageOf(err, 'No answer came. Try again.'), false);
     });
   }
 
@@ -2075,7 +2090,7 @@
     c.asks++;
     got.forEach(function (one) {
       var s = allSeasons(c.data).filter(function (x) { return x.number === one.number; })[0];
-      if (one.result === 'failed') failed.push(one.number);
+      if (one.result === 'failed' || one.result === 'unrecorded') failed.push(one.number);
       else if (REFUSED[one.result]) refused = true;
       if (!s || one.result === 'failed') return;
       s.askable = false;
@@ -2084,9 +2099,10 @@
       else if (REFUSED[one.result]) s.refusal = one.result;
       else takenSeason(s);
     });
-    c.ask = { busy: false, text: text, bad: !ok || failed.length > 0 || refused, failed: failed };
+    var unnoted = got.some(function (one) { return one.result === 'unrecorded'; });
+    c.ask = { busy: false, text: text, bad: !ok || failed.length > 0 || refused, failed: failed, unnoted: unnoted };
     if (c !== cur || !isOpen) {
-      core.toast(text, ok ? { variant: 'success' } : undefined);
+      core.toast(text, c.ask.bad ? undefined : { variant: 'success' });
       return;
     }
     statusEl.textContent = text;
@@ -2162,16 +2178,16 @@
   /* What failed may have reached Sonarr all the same: then that is what is said. */
   function noteTaken(c) {
     var ask = c.ask;
-    if (!ask || !ask.failed || !ask.failed.length) return;
+    if (!ask || ask.unnoted || !ask.failed || !ask.failed.length) return;
     function names(list) { return list.map(seasonName).join(', '); }
     var failed = allSeasons(c.data).filter(function (s) { return ask.failed.indexOf(s.number) >= 0; });
     var taken = failed.filter(function (s) { return comes(s) || held(s); });
     if (!taken.length) return;
     var not = failed.filter(function (s) { return taken.indexOf(s) < 0; });
-    var text = names(taken) + (taken.length === 1 ? ' is' : ' are') + ' asked for, but mediaman couldn’t note it.' +
+    var text = names(taken) + (taken.length === 1 ? ' is' : ' are') + ' asked for.' +
       (not.length ? ' Couldn’t add ' + names(not) + '.' : '');
     if (text === ask.text) return;
-    c.ask = { busy: false, text: text, bad: true, failed: ask.failed };
+    c.ask = { busy: false, text: text, bad: not.length > 0, failed: ask.failed };
     statusEl.textContent = text;
   }
 
@@ -2259,6 +2275,12 @@
         return;
       }
       k.busy = false;
+      if (err && err.data && err.data.duplicate) {
+        core.toast(title + ' is already being added.');
+        redrawActions(ref);
+        askAgain(c).then(function () { redrawActions(ref); }).catch(function () {});
+        return;
+      }
       k.error = "Couldn't add " + title + ': ' + MM.api.messageOf(err, 'Something went wrong. Try again.');
       redrawActions(ref);
     });
@@ -2268,9 +2290,10 @@
      the title's own reply to say; until it does, nothing is promised. */
   function askNotify(c) {
     var ref = c.ref;
+    var asks = c.asks;
     get(apiUrl(ref)).then(function (data) {
       if (c !== cur || !isOpen || c.ref !== ref) return;
-      if (data.kind !== 'movie') takeSeasons(c, data);
+      if (data.kind !== 'movie' && asks === c.asks) takeSeasons(c, data);
       if (!data.download || data.download.notify !== true) return;
       c.data.download.notify = true;
       redrawActions(ref);
@@ -2280,9 +2303,12 @@
   /* A title the Arr already has: what its reply says is the title's state, on
      the panel and on every card of it. */
   function settleExisting(ref, k) {
+    var c = cur;
+    var asks = c && c.asks;
     get(apiUrl(ref)).then(function (data) {
       k.busy = false;
-      takeReply(ref, data);
+      if (c && c === cur && asks !== c.asks) takeDownload(ref, data.download);
+      else takeReply(ref, data);
       // The Arr has it yet lists nothing: pressing Download again can only 409 again.
       k.tracked = !k.state;
       redrawActions(ref);
@@ -2360,8 +2386,9 @@
   /* Ask the open title again and show what its reply says. */
   function askAgain(c) {
     var ref = c.ref;
+    var asks = c.asks;
     return get(apiUrl(ref)).then(function (data) {
-      if (c !== cur || !isOpen || c.ref !== ref) return;
+      if (c !== cur || !isOpen || c.ref !== ref || asks !== c.asks) return;
       if (!takeReply(ref, data)) return;
       c.movedAt = Date.now();
       redrawActions(ref);

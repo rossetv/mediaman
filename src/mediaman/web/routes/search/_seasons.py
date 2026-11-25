@@ -51,6 +51,8 @@ Result = Literal[
     "removed",
     "show_unmonitored",
     "failed",
+    # Asked for in Sonarr, with no history line and no mail.
+    "unrecorded",
 ]
 
 
@@ -196,24 +198,33 @@ def _add_all(
                 result, answering = _add(sonarr, series_id, request, number, change, also)
             result = result or "failed"
             if result in ("asked", "already_asked"):
-                refusal = record_season(
-                    conn,
-                    show,
-                    title=title,
-                    number=number,
-                    actor=actor,
-                    email=email,
-                    added=result == "asked",
-                    was_removed=was_removed,
-                    started=also if change.series else (),
-                )
+                try:
+                    refusal = record_season(
+                        conn,
+                        show,
+                        title=title,
+                        number=number,
+                        actor=actor,
+                        email=email,
+                        added=result == "asked",
+                        was_removed=was_removed,
+                        started=also if change.series else (),
+                    )
+                except sqlite3.Error:
+                    logger.exception("Season %s of %s could not be recorded", number, show)
+                    result, refusal = "unrecorded", None
                 if refusal is not None:
                     if result == "asked":
                         sonarr.take_back_season(series_id, number, change)
                     result = refusal
-            if also and result != "asked" and change.left_on:
-                record_started(conn, show, title=title, number=number, actor=actor, started=also)
-            if change.left_on or (result == "asked" and change.series):
+            if also and result not in ("asked", "unrecorded") and change.left_on:
+                try:
+                    record_started(
+                        conn, show, title=title, number=number, actor=actor, started=also
+                    )
+                except sqlite3.Error:
+                    logger.exception("Started seasons %s could not be recorded", sorted(also))
+            if change.left_on or (result in ("asked", "unrecorded") and change.series):
                 started |= also
             results[number] = result
     finally:
@@ -277,10 +288,16 @@ _SAID: tuple[tuple[Result, str, str], ...] = (
         "can't be added: the show is off in Sonarr, and turning it on would start other seasons",
     ),
     ("failed", "couldn't be added: try again", "couldn't be added: try again"),
+    (
+        "unrecorded",
+        "is asked for, but mediaman couldn't note it: try again",
+        "are asked for, but mediaman couldn't note it: try again",
+    ),
 )
 # The answer when no season is here or on its way, by the first result there is.
 _REFUSED: tuple[tuple[Result, int], ...] = (
     ("failed", 502),
+    ("unrecorded", 502),
     ("leaving", 409),
     ("show_unmonitored", 409),
     ("removed", 403),

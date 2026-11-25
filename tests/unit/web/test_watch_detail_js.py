@@ -658,10 +658,39 @@ def test_a_refused_season_offers_no_retry_and_one_that_failed_does() -> None:
     assert out["refused"] == {"said": "Season 4 is leaving.", "retry": False}
     taken = out["taken"]
     assert (taken["chip"][1], taken["retry"]) == ("Asked for", True)
-    assert "Season 4 is asked for" in taken["said"] and "Couldn" not in taken["said"]
+    assert "Season 4 is asked for." in taken["said"] and "ouldn" not in taken["said"]
     assert out["unread"] == ["4", "Leaving soon", False]
     assert out["failed"]["retry"] is True
     assert "Sonarr did not answer." in out["failed"]["said"]
+
+
+def test_what_is_said_of_seasons_asked_for_is_what_is_known() -> None:
+    out = _run("seasonsUnsure")
+    said = "Season 4 is asked for.Try again"
+    assert out["lost"] == {"said": said, "bad": False, "retry": True, "chip": "Asked for"}
+    assert (out["unread"]["bad"], out["unread"]["retry"]) == (True, True)
+    assert (out["dup"]["bad"], out["dup"]["retry"]) == (False, False)
+    noted = out["unrecorded"]
+    assert "could not be noted" in noted["said"]
+    assert (noted["bad"], noted["retry"], noted["chip"]) == (True, True, "Asked for")
+    assert out["first"] == {"primary": "Already in Sonarr", "error": False}
+
+
+def test_a_toast_of_seasons_that_partly_failed_is_no_success() -> None:
+    out = _run("seasonsUnsure")
+    assert (out["half"], out["whole"]) == (None, "success")
+
+
+def test_without_sonarr_nothing_is_offered_and_nothing_read_again() -> None:
+    out = _run("seasonsNoSonarr")
+    assert out == {"chips": [["4", "Not out yet", False]], "go": True, "why": "", "timers": 0}
+
+
+def test_a_reading_older_than_an_asking_changes_nothing() -> None:
+    out = _run("seasonsOlderReading")
+    assert out["library"] == [["3", "Asked for", False]]
+    assert out["notified"] == ["Asked for", "Asked for"]
+    assert out["polled"] == out["refused"] == ["Asked for", "Asked for"]
 
 
 def test_seasons_whose_states_are_to_come_are_read_again_so_often_and_the_page_stays() -> None:

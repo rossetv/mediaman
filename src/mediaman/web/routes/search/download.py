@@ -161,7 +161,9 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
             body.media_type,
             seasons_token,
         )
-        return respond_failure("Duplicate request — wait a moment before retrying", status=429)
+        return respond_failure(
+            "Duplicate request — wait a moment before retrying", status=429, duplicate=True
+        )
     return None
 
 
