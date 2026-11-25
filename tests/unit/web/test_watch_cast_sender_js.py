@@ -99,16 +99,23 @@ def test_a_page_that_does_not_know_whose_it_is_plays_and_stores_nothing() -> Non
 
 
 @pytest.mark.parametrize(("page", "gone"), [("player", ["stopped"]), ("keeper", [])])
-def test_the_sign_in_page_forgets_it_and_the_tv_is_left_to_itself(
+def test_signing_out_forgets_it_and_the_tv_and_its_stream_are_left_to_themselves(
     page: str, gone: list[str]
 ) -> None:
-    assert _run("signIn")[page] == {
-        "stored": [],
+    assert _run("signIn")[f"{page} out"] == {
+        "stored": 0,
         "gone": gone,
         "ended": [],
-        "after": [],
-        "now": None,
+        "posts": [],
+        "now": False,
     }
+
+
+@pytest.mark.parametrize("page", ["player", "keeper"])
+def test_the_sign_in_page_opened_by_somebody_signed_in_changes_nothing(page: str) -> None:
+    out = _run("signIn")[f"{page} in"]
+    assert (out["stored"], out["gone"], out["ended"], out["posts"]) == (2, [], [], [])
+    assert out["now"] is (page == "keeper")
 
 
 def test_a_session_that_plays_nothing_of_this_pages_is_not_used_unasked() -> None:
@@ -620,6 +627,7 @@ def test_another_stream_is_put_on_the_tv_with_no_player(
     assert [body["rating_key"], body["quality"], body["subtitle"]] == asked
     assert (out["now"][0], out["now"][2:5]) == ("st2", asked)
     assert (out["now"][5], out["now"][7], out["kept"]) == ([2], 1, "st2")
+    assert out["busy"] is False
 
 
 def test_the_next_episode_ends_the_one_before_at_its_place_and_knows_what_follows() -> None:
@@ -726,3 +734,140 @@ def test_a_press_meanwhile_is_a_sign_of_somebody_and_two_hours_without_one_are_n
 
 def test_a_next_episode_that_cannot_begin_waits_for_a_press() -> None:
     assert _run("upnext")["failed"] == {"now": ["upnext", None, None, "101"], "ended": []}
+
+
+def test_a_stop_while_the_old_stream_is_opened_again_stops_that_too_and_ends_it_once() -> None:
+    out = _run("reopening")["stop"]
+    assert out["opening"] is True
+    assert out["stopped"] == ["/api/watch/stream/st1/stop", "/api/watch/stream/re2/stop"]
+    assert (out["ended"], out["heard"], out["now"]) == ([True], [], None)
+
+
+def test_a_stop_before_the_old_stream_is_opened_again_opens_none() -> None:
+    out = _run("reopening")["stopEarly"]
+    assert (out["asked"], out["ended"], out["now"]) == (0, [True], None)
+
+
+@pytest.mark.parametrize("when", ["change", "changeEarly"])
+def test_another_choice_while_the_old_stream_is_opened_again_plays(when: str) -> None:
+    out = _run("reopening")[when]
+    assert (out["opening"], out["first"], out["second"]) == (True, "unreachable", "taken")
+    assert out["stopped"] == ["/api/watch/stream/re2/stop"]
+    assert (out["ended"], out["heard"], out["now"]) == ([], [], ["medium", "playing"])
+
+
+def test_the_count_goes_on_where_the_person_goes_and_the_next_episode_begins_there() -> None:
+    out = _run("waits")["load"]
+    assert out["taken"] == ["upnext", 6, None, "101", "Glass Orchard"]
+    assert out["then"] == ["playing", None, None, "102", "Glass Orchard"]
+    # The end was saved by the page before.
+    assert (out["ended"], out["posts"], out["auto"]) == ([], ["/api/cast/stream"], 1)
+
+
+def test_the_count_goes_on_where_the_receiver_has_forgotten_what_it_played() -> None:
+    assert _run("waits")["cleared"] == ["upnext", 10, None, "101", "Glass Orchard"]
+
+
+def test_a_slow_start_of_the_next_episode_is_one_start() -> None:
+    assert _run("waits")["slow"] == {"asked": 1, "auto": 1}
+
+
+def test_a_count_cancelled_while_another_page_looks_is_taken_up_cancelled() -> None:
+    out = _run("waits")["heard"]
+    assert out["stored"] == {"kind": "upnext", "until": None}
+    assert out["now"] == ["upnext", None]
+
+
+def test_a_title_that_waits_at_its_end_is_not_held() -> None:
+    assert _run("waits")["holds"] is False
+
+
+def test_a_second_tab_takes_the_count_and_gives_it_back_and_one_episode_begins() -> None:
+    out = _run("waits")
+    assert out["tab"]["first"] is None
+    assert (out["tab"]["second"][0], out["tab"]["ended"]) == ("upnext", [])
+    assert (out["back"]["first"][0], out["back"]["second"]) == ("upnext", None)
+    assert (out["back"]["ended"], out["back"]["loads"]) == ([], 2)
+
+
+@pytest.mark.parametrize(
+    ("kind", "now"),
+    [
+        ("cancelled", ["upnext", None, None]),
+        ("still", ["still", None, 599]),
+        # One that ran out with no page open begins nothing by itself.
+        ("old", ["upnext", None, None]),
+    ],
+)
+def test_what_waits_for_a_press_is_taken_up_as_it_was(kind: str, now: list[Any]) -> None:
+    out = _run("waits")[kind]
+    assert (out["now"][:3], out["ended"], out["loads"]) == (now, [], 1)
+
+
+def test_a_question_nobody_answered_is_over_on_the_next_page_too() -> None:
+    out = _run("waits")["asked"]
+    assert (out["now"], out["ended"]) == (None, [True])
+
+
+def test_the_sitting_is_counted_on_across_pages() -> None:
+    assert _run("waits")["sitting"] == "still"
+
+
+def test_what_ended_while_no_page_was_open_offers_the_next_episode_uncounted() -> None:
+    out = _run("waits")["away"]
+    assert out["now"][:3] == ["upnext", None, None]
+    assert (out["posts"], out["ended"]) == ([["stream/st1/stop", 3000, 1]], [])
+
+
+def test_a_count_on_a_tv_that_plays_something_else_is_over_and_the_tv_left_alone() -> None:
+    assert _run("waits")["taken"] == {"now": None, "ended": [], "record": False}
+
+
+@pytest.mark.parametrize(
+    ("key", "state"),
+    [("101", ["upnext", None]), ("102", ["upnext", None]), ("999", ["upnext", 10])],
+)
+def test_a_player_of_the_ended_or_the_next_title_ends_the_count_everywhere(
+    key: str, state: list[Any]
+) -> None:
+    out = _run("waits")[f"player {key}"]
+    assert (out["answer"], out["ended"]) == (None, [])
+    assert out["first"] == out["here"] == state
+
+
+@pytest.mark.parametrize("kind", ["changing", "idle"])
+def test_a_page_that_only_looks_ends_nothing_of_a_page_that_is_open(kind: str) -> None:
+    assert _run("looksOnly")[kind] == {"now": False, "ended": [], "posts": [], "record": True}
+
+
+def test_what_is_over_on_the_tv_of_a_page_that_is_gone_is_ended() -> None:
+    out = _run("looksOnly")["dead"]
+    assert (out["ended"], out["posts"], out["record"]) == ([True], ["stream/st1/stop"], False)
+
+
+def test_a_play_left_as_it_changed_its_stream_is_opened_again_once() -> None:
+    out = _run("leftChanging")
+    assert out["asked"] == [["101", "best"]]
+    assert out["now"] == ["st9", "playing", "best", "102"]
+    assert (out["going"], out["loads"]) == (True, 2)
+    assert (out["after"], out["ended"]) == (None, [True])
+
+
+def test_a_script_that_throws_leaves_stop_and_pause_working() -> None:
+    out = _run("sdkFails")
+    assert (out["now"], out["calls"]) == ([103, True], ["pause"])
+    assert out["said"] == {"position_s": 103, "saved": True}
+    assert (out["ended"], out["after"], out["record"]) == ([True], None, False)
+
+
+def test_a_title_is_held_only_while_this_page_or_a_live_one_plays_it() -> None:
+    assert _run("holds") == {
+        "follows": [True, False],
+        "elsewhere": [True, False],
+        "left": False,
+        "notFound": False,
+        "early": False,
+        "keeps": True,
+        "seen": True,
+        "crashed": False,
+    }

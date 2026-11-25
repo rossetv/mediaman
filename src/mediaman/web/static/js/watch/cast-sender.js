@@ -47,6 +47,7 @@
   /* How long Chrome may search before there is no TV. */
   var SEARCH_MS = 4000;
   var COUNTDOWN_MS = 10000;
+  var COUNT_OLD_MS = 60000;
   /* "Are you still watching?": after this many episodes that began by themselves, or this long
      without a sign of anybody. */
   var ASK_AFTER_EPISODES = 3;
@@ -192,8 +193,12 @@
     return mine && now() - rec.at < RECORD_MS ? rec : null;
   }
 
-  /* A player on another page that is open follows it; one that only keeps the place makes way. */
-  function ownedElsewhere(rec) { return rec.owner !== me && !rec.soft && now() - rec.beat < ALIVE_MS; }
+  /* Another page that is open has it. */
+  function livesElsewhere(rec) { return !!rec.owner && rec.owner !== me && now() - rec.beat < ALIVE_MS; }
+
+  /* One whose player follows it, or that is just putting another stream on the TV, keeps it; one
+     that only keeps the place makes way. */
+  function ownedElsewhere(rec) { return livesElsewhere(rec) && (!rec.soft || rec.busy); }
 
   function note(p, left) {
     p.noted = now();
@@ -207,6 +212,9 @@
       played: p.played,
       owner: left ? '' : me,
       soft: !p.followed,
+      busy: p.changing,
+      wait: p.wait,
+      auto: p.auto,
       beat: left ? 0 : now(),
       at: now(),
     });
@@ -214,12 +222,12 @@
 
   /* What the player keeps is large beside the place, and changes seldom. */
   function noteKept(p) {
-    if (account) store(KEPT, p.keep && { account: account, stream: p.stream.stream_id, keep: p.keep });
+    if (account) store(KEPT, { account: account, stream: p.stream.stream_id, title: p.title, keep: p.keep });
   }
 
   function readKept(id) {
     var kept = readStored(KEPT);
-    return kept && kept.account === account && kept.stream === id ? kept.keep : null;
+    return kept && kept.account === account && kept.stream === id ? kept : {};
   }
 
   function forgetStored() {
@@ -265,6 +273,7 @@
       saved: null,       // when a save was last made here, and whether it was paused
       loads: 0,
       changes: 0,
+      cut: false,        // the page before was left as it changed its stream
       changing: false,   // another stream is on its way
       wait: null,        // at its end: 'upnext' or 'still', and when that is over
       auto: 0,           // episodes that began by themselves
@@ -315,7 +324,8 @@
     function place() {
       if (p.aim !== null) return p.aim;
       if (p.ms && p.begun && p.lost === null && !p.ended) {
-        p.place = Math.max(0, Math.min(p.ms.getEstimatedTime(), p.duration || Infinity));
+        var at = safely(function () { return p.ms.getEstimatedTime(); }, p.place);
+        p.place = Math.max(0, Math.min(at, p.duration || Infinity));
       }
       return p.place;
     }
@@ -606,7 +616,7 @@
       if (rec && rec.stream === p.stream.stream_id && !ownedElsewhere(rec)) note(p);
     }
     if (p.followed) return;
-    if (p.wait && p.wait.until !== null && now() >= p.wait.until) waitOver(p);
+    if (p.wait && !p.changing && p.wait.until !== null && now() >= p.wait.until) waitOver(p);
     else keepPlace(p);
   }
 
@@ -614,8 +624,8 @@
   function drop(p, kept) {
     p.at();
     p.done = true;
-    p.detach();
-    p.leaveSession();
+    safely(p.detach);
+    safely(p.leaveSession);
     Object.keys(p.timers).forEach(function (name) {
       clearTimeout(p.timers[name]);
       clearInterval(p.timers[name]);
@@ -641,12 +651,11 @@
   /* Nothing of `ms` plays on the TV any more. The session is left to a start that waits on it. */
   function endOn(session, ms, lost) {
     if (lost !== null) return;
-    if (!pending) {
-      session.endSession(true);
-      return;
-    }
-    opened = session;
-    if (ms) ms.stop(null, function () {}, function () {});
+    if (pending) opened = session;
+    safely(function () {
+      if (!pending) session.endSession(true);
+      else if (ms) ms.stop(null, function () {}, function () {});
+    });
   }
 
   /* End it on the TV. */
@@ -725,7 +734,7 @@
       function look() {
         var session = context.getCurrentSession();
         if (!session || session.getSessionId() !== rec.session) return;
-        if ((session.getSessionObj().media || []).length) {
+        if ((session.getSessionObj().media || []).length || rec.wait) {
           over({ session: session, ms: mediaOf(session, { stream_id: rec.stream }) });
         } else if (heard !== session) {
           heard = session;
@@ -753,12 +762,15 @@
     }).then(function (found) {
       if (!found) throw refusal('lost');
       if (current) return current;
-      if (!readRecord()) {
+      var last = readRecord();
+      if (!last) {
         /* The person plays it here meanwhile, or nobody is signed in who may know of it. */
         if (released === rec.stream && found.ms && !found.ms.idleReason) endOn(found.session, found.ms, null);
         return null;
       }
-      return takeUp(rec, found.session, found.ms, followed);
+      /* Another page has gone on with it meanwhile. */
+      if (last.stream !== rec.stream || ownedElsewhere(last)) return null;
+      return takeUp(last, found.session, found.ms, followed);
     }).catch(function () {
       miss(rec.stream);
       throw refusal('lost');
@@ -774,29 +786,47 @@
   }
 
   function takeUp(rec, session, ms, followed) {
-    if (!ms || ms.idleReason) {
-      var end = ms && ms.idleReason === global.chrome.cast.media.IdleReason.FINISHED && ms.media.duration;
+    var kept = readKept(rec.stream);
+    var plays = !!ms && !ms.idleReason;
+    var other = !plays && session.getMediaSession();
+    var end = !!ms && ms.idleReason === global.chrome.cast.media.IdleReason.FINISHED && ms.media.duration;
+    /* At the end of an episode it waits, or it ended while no page was open and something follows. */
+    var waits = !plays && !other && kept.keep && kept.keep.next && (rec.wait || end && { kind: 'upnext', until: null });
+    if (!plays && !waits) {
+      /* The page that has it knows better. */
+      if (livesElsewhere(rec)) return null;
       forget(rec.stream);
       /* A session that plays nothing is no TV to play on unasked. */
-      if (!session.getMediaSession()) endOn(session, null, null);
+      if (!other) endOn(session, null, null);
       /* It ended while no page was open: where it was last, unless the TV says it played to the end. */
       stopOnServer(rec.stream, { position_s: end || tenths(rec.place), played_s: Math.round(rec.played || 0) });
       return null;
     }
-    var said = ms.media.metadata || {};
-    var p = makePlay(session, { rating_key: rec.key, title: said.title || '', subtitle: said.subtitle || '' }, followed);
+    var said = plays && ms.media.metadata || {};
+    var p = makePlay(session, kept.title || { rating_key: rec.key, title: said.title || '', subtitle: said.subtitle || '' }, followed);
     p.stream = { stream_id: rec.stream };
-    p.keep = readKept(rec.stream);
-    p.duration = ms.media.duration || 0;
-    p.place = ms.getEstimatedTime();
-    p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
+    p.keep = kept.keep || null;
     p.played = Number(rec.played) || 0;
-    p.begun = true;
+    p.auto = Number(rec.auto) || 0;
+    p.cut = !!rec.busy;
     ended = null;
     current = p;
-    p.attach(ms);
-    p.update();
-    if (p.done) return null;
+    if (waits) {
+      p.place = p.duration = rec.wait ? rec.place : end;
+      p.paused = p.ended = p.mine = true;
+      /* A count that ran out with no page open begins nothing. */
+      var stale = waits.kind === 'upnext' && now() - waits.until > COUNT_OLD_MS;
+      p.wait = stale ? { kind: 'upnext', until: null } : waits;
+      if (!rec.wait) p.endSaved = stopOnServer(rec.stream, body(p));
+    } else {
+      p.duration = ms.media.duration || 0;
+      p.place = safely(function () { return ms.getEstimatedTime(); }, Number(rec.place) || 0);
+      p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
+      p.begun = true;
+      p.attach(ms);
+      p.update();
+      if (p.done) return null;
+    }
     note(p);
     changed();
     return p;
@@ -848,10 +878,11 @@
       changed();
     }, function (err) {
       p.saving = false;
-      /* The stream is over, or it is not this person's: the TV cannot go on with it. */
-      if (err && err.status === 410 && !p.followed && !p.done && !p.changing && id === p.stream.stream_id) {
-        goneBy(p, 'stopped', true);
-      }
+      if (!err || err.status !== 410 || p.followed || p.done || p.changing || id !== p.stream.stream_id) return;
+      /* A page that was left as it put another stream on the TV: it is opened again. Else the stream
+         is over, or it is not this person's, and the TV cannot go on with it. */
+      if (p.cut) reopen(p);
+      else goneBy(p, 'stopped', true);
     });
   }
 
@@ -913,6 +944,7 @@
     var ask = p.auto >= ASK_AFTER_EPISODES || now() - p.sign >= ASK_AFTER_MS;
     if (autoplay && ask) p.wait = { kind: 'still', until: now() + STILL_MS };
     else p.wait = { kind: 'upnext', until: autoplay ? now() + COUNTDOWN_MS : null };
+    note(p);
     changed();
   }
 
@@ -921,9 +953,14 @@
       goneBy(p, 'stopped', true);
       return;
     }
-    p.wait.until = null;
     p.auto++;
-    goOn(p, { next: true }).catch(function () { /* It waits for a press. */ });
+    goOn(p, { next: true }).catch(function () {
+      /* It waits for a press. */
+      if (p.done || !p.wait) return;
+      p.wait = { kind: 'upnext', until: null };
+      note(p);
+      tell();
+    });
   }
 
   /* What the player's page of `key` says: its words, where it starts and what follows. */
@@ -957,89 +994,104 @@
 
   /* Put another stream on the TV: another quality or subtitle where it stands, or the next episode. */
   function goOn(p, change) {
-    var mine = ++p.changes;
     var keep = p.keep || {};
-    var stale = function () { return p.done || mine !== p.changes; };
-    var gaveUp = function (err) {
-      if (!stale()) p.changing = false;
-      throw err;
-    };
     if (p.lost !== null || (change.next ? !keep.next : !!p.wait)) return Promise.reject(refusal('failed', NOT_TAKEN));
-    var quality = change.quality || keep.quality || 'auto';
-    var subtitle = change.subtitle || keep.subtitle;
+    var asked = { quality: change.quality || keep.quality || 'auto', subtitle: change.subtitle || keep.subtitle || null };
     /* A track is one film's own. */
-    if (change.next && subtitle !== 'off') subtitle = null;
-    p.changing = true;
-    tell();
-    var page = change.next ? readPage(keep.next.rating_key) : Promise.resolve(null);
-    return page.then(function (about) {
-      if (stale()) throw refusal('superseded');
-      return openStream(about ? about.title.rating_key : p.title.rating_key, quality, subtitle).then(function (data) {
-        if (stale()) {
-          stopOnServer(data.stream_id);
-          throw refusal('superseded');
-        }
-        return put(about, data);
+    if (change.next && asked.subtitle !== 'off') asked.subtitle = null;
+    return swap(p, function (stale) {
+      var page = change.next ? readPage(keep.next.rating_key) : Promise.resolve(null);
+      return page.then(function (about) {
+        if (stale()) throw refusal('superseded');
+        return openStream(about ? about.title.rating_key : p.title.rating_key, asked.quality, asked.subtitle).then(function (data) {
+          return put(p, stale, data, about, asked);
+        });
+      }).catch(function (err) {
+        /* What was refused may have ended the stream that plays. */
+        var old = !stale() && !change.next && bringBack(p, stale);
+        return Promise.resolve(old).then(function () { throw err; });
       });
-    }).then(function () {
-      if (stale()) return;
-      p.changing = false;
-      changed();
-    }, function (err) {
-      if (stale()) throw err;
-      if (change.next || p.loaded === mine) return gaveUp(err);
-      return restore(p).then(function () { return gaveUp(err); }, function () { return gaveUp(err); });
-    }).catch(function (err) {
-      if (!p.done) tell();
-      throw err;
     });
-
-    function put(about, data) {
-      p.loaded = mine;
-      if (about && !p.wait) stopOnServer(p.stream.stream_id, body(p));
-      p.wait = null;
-      return load(p, {
-        stream_id: data.stream_id,
-        url: data.url,
-        position_s: about ? about.start_s : p.at(),
-        duration_s: data.duration_s,
-        paused: about ? false : p.paused,
-        title: about ? about.title : p.title,
-      }).then(function () {
-        p.keep = {
-          quality: quality,
-          subtitle: subtitle || null,
-          played_s: Math.round(p.played),
-          given: { subtitle: data.subtitle || null, subtitle_tracks: data.subtitle_tracks || [] },
-          markers: data.markers || [],
-          chapters: data.chapters || [],
-          next: about ? about.next : keep.next || null,
-        };
-        noteKept(p);
-      }, function (err) {
-        /* The TV has let go of the one before. */
-        if (stale()) stopOnServer(data.stream_id);
-        else goneBy(p, 'stopped', true);
-        throw err;
-      });
-    }
   }
 
-  /* A start that was refused may have ended the stream that plays: then it is opened again. */
-  function restore(p) {
-    var keep = p.keep || {};
+  /* `go` with the play marked as changing its stream; a later change or the end makes it stale. */
+  function swap(p, go) {
+    var mine = ++p.changes;
+    var stale = function () { return p.done || mine !== p.changes; };
+    function over() {
+      if (stale()) return;
+      p.changing = false;
+      note(p);
+      changed();
+    }
+    p.changing = true;
+    note(p);
+    tell();
+    var gone = go(stale);
+    gone.then(over, over);
+    return gone;
+  }
+
+  /* Load what the server opened; where nothing waits for it any more it is stopped there. */
+  function put(p, stale, data, about, asked) {
+    if (stale()) {
+      stopOnServer(data.stream_id);
+      return Promise.reject(refusal('superseded'));
+    }
+    if (about && !p.wait) stopOnServer(p.stream.stream_id, body(p));
+    var next = about ? about.next : p.keep && p.keep.next || null;
+    p.wait = null;
+    return load(p, {
+      stream_id: data.stream_id,
+      url: data.url,
+      position_s: about ? about.start_s : p.at(),
+      duration_s: data.duration_s,
+      paused: about ? false : p.paused,
+      title: about ? about.title : p.title,
+    }).then(function () {
+      p.cut = false;
+      p.mine = true;
+      p.keep = {
+        quality: asked.quality,
+        subtitle: asked.subtitle,
+        played_s: Math.round(p.played),
+        given: { subtitle: data.subtitle || null, subtitle_tracks: data.subtitle_tracks || [] },
+        markers: data.markers || [],
+        chapters: data.chapters || [],
+        next: next,
+      };
+      noteKept(p);
+    }, function (err) {
+      /* The TV has let go of the one before. */
+      if (stale()) stopOnServer(data.stream_id);
+      else goneBy(p, 'stopped', true);
+      throw err;
+    });
+  }
+
+  /* The stream that played is opened again where it is gone. */
+  function bringBack(p, stale) {
     return MM.api.post('/api/watch/progress', Object.assign({ stream_id: p.stream.stream_id }, body(p))).then(function () {
       return !p.ms;
     }, function (err) {
       return !p.ms || !!err && err.status === 410;
     }).then(function (over) {
-      if (!over) return undefined;
-      return openStream(p.title.rating_key, keep.quality || 'auto', keep.subtitle).then(function (data) {
-        return load(p, {
-          stream_id: data.stream_id, url: data.url, position_s: p.at(), duration_s: data.duration_s, paused: p.paused, title: p.title,
-        }).then(function () { noteKept(p); });
-      }).catch(function () { goneBy(p, 'stopped', true); });
+      return over && !stale() ? openAgain(p, stale) : undefined;
     });
+  }
+
+  function openAgain(p, stale) {
+    var keep = p.keep || {};
+    var asked = { quality: keep.quality || 'auto', subtitle: keep.subtitle || null };
+    return openStream(p.title.rating_key, asked.quality, asked.subtitle).then(function (data) {
+      return put(p, stale, data, null, asked);
+    }).catch(function () {
+      if (!stale()) goneBy(p, 'stopped', true);
+    });
+  }
+
+  function reopen(p) {
+    swap(p, function (stale) { return openAgain(p, stale); });
   }
 
   /* No player of this page follows what plays. */
@@ -1075,6 +1127,8 @@
     var told = safely(function () { return JSON.parse(e.newValue); }, null);
     var rec = readRecord();
     var p = current;
+    /* Another page's player ends the count. */
+    if (p && p.wait && rec && rec.wait && rec.stream === p.stream.stream_id) p.wait = rec.wait;
     if (told && told.released) {
       /* Another page plays it there after all. */
       released = told.released;
@@ -1083,12 +1137,18 @@
       drop(p, true);
       changed();
     } else if (p && !rec) {
-      /* Somebody signs in or out: what the TV plays is left to it. */
-      goneBy(p, 'stopped');
+      /* Somebody signs out: what the TV plays is left to it. */
+      letGo(p);
     } else if (!p && rec && !rec.owner && !document.hidden) {
       keepHere();
     }
   });
+
+  function letGo(p) {
+    drop(p, true);
+    if (p.followed) p.gone.forEach(function (fn) { fn('stopped'); });
+    changed();
+  }
 
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) keepHere();
@@ -1178,6 +1238,14 @@
   function again(key) {
     var rec = readRecord();
     if (!rec) return null;
+    if (rec.wait) {
+      /* The player goes on here with what would begin there. */
+      var next = (readKept(rec.stream).keep || {}).next || {};
+      if (String(key) === String(rec.key) || String(key) === String(next.rating_key)) hold(rec);
+      keeps = true;
+      keepHere(true);
+      return null;
+    }
     if (key !== undefined && String(key) !== String(rec.key)) {
       keeps = true;
       keepHere(true);
@@ -1200,6 +1268,11 @@
         },
       };
     });
+  }
+
+  /* What waits at an end begins by itself no more. */
+  function hold(rec) {
+    store(RECORD, Object.assign(rec, { wait: { kind: 'upnext', until: null }, owner: '', beat: 0 }));
   }
 
   var released = null;
@@ -1275,6 +1348,7 @@
       pressed(function (p) {
         if (!p.wait) return;
         p.wait = { kind: 'upnext', until: null };
+        note(p);
         tell();
       });
     },
@@ -1287,8 +1361,10 @@
       return saved.then(function (ok) { return { position_s: at.position_s, saved: ok }; });
     },
     holds: function (key) {
+      var p = current;
+      if (p) return (p.followed || p.mine) && !p.wait && String(p.title.rating_key) === String(key);
       var rec = readRecord();
-      return !!rec && String(rec.key) === String(key);
+      return !!rec && livesElsewhere(rec) && String(rec.key) === String(key);
     },
   };
 

@@ -5,6 +5,8 @@
 
   try { window.sessionStorage.removeItem('mm.watch.ask'); } catch (e) { /* storage blocked */ }
   try {
+    /* Opened by somebody who is signed in, it is the way to nobody else yet. */
+    if (window.document.getElementById('tv-remote')) return;
     window.localStorage.removeItem('mediaman.watch.cast');
     window.localStorage.removeItem('mediaman.watch.cast.kept');
   } catch (e) { /* storage blocked */ }
