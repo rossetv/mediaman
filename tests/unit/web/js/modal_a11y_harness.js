@@ -178,6 +178,18 @@ const scenarios = {
     for (let i = 0; i < 4; i++) { p.key('Tab'); out.push(p.focused()); }
     return out;
   },
+  // A confirm closed once it has left the page, over a dialog and alone.
+  goneFromThePage() {
+    const p = page();
+    const look = () => ({ inert: p.inert().filter((id) => id !== 'closed-panel'), focused: p.focused() });
+    const gone = () => { p.confirm().remove(); p.ctx.UIFeedback.dismissConfirm(); return look(); };
+    const alone = gone();
+    const m = p.setup('low');
+    m.open();
+    const over = gone();
+    m.close();
+    return { alone, over, after: look() };
+  },
   // Escape with a dialog that answers it itself over one that does not.
   escape() {
     const p = page();

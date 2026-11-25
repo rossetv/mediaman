@@ -35,7 +35,7 @@
     'summary', 'iframe', '[tabindex]', '[contenteditable="true"]'
   ].join(',');
 
-  var registry = {};           // id -> { closeFn, lastTrigger }
+  var registry = {};           // id -> { closeFn, and while open: node, lastTrigger }
   var open = [];               // the open modals, in open order
   var held = [];               // what the last of them has made inert
 
@@ -162,6 +162,7 @@
     var modal = getModal(id);
     if (!modal) return;
     var entry = registry[id] = registry[id] || {};
+    entry.node = modal;
     entry.lastTrigger = document.activeElement;
     hold(modal);
     // ARIA defaults
@@ -174,16 +175,18 @@
 
   function onClosed(id) {
     var entry = registry[id];
-    if (!entry) return;
-    var modal = getModal(id);
+    if (!entry || !entry.node) return;
+    var modal = entry.node; // it may have left the page, or been replaced on it
+    var trigger = entry.lastTrigger;
+    entry.node = entry.lastTrigger = null;
     release(modal);
     // What was opened from here, and is still open, hands the focus on to where this one would.
     open.forEach(function (other) {
       var over = registry[other.id];
-      if (over && modal.contains(over.lastTrigger)) over.lastTrigger = entry.lastTrigger;
+      if (over && modal.contains(over.lastTrigger)) over.lastTrigger = trigger;
     });
-    if (entry.lastTrigger && typeof entry.lastTrigger.focus === 'function') {
-      try { entry.lastTrigger.focus(); } catch (e) { /* ignore */ }
+    if (trigger && typeof trigger.focus === 'function') {
+      try { trigger.focus(); } catch (e) { /* ignore */ }
     }
   }
 

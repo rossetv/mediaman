@@ -83,6 +83,13 @@ def test_tab_stops_where_the_browser_would_and_nowhere_else() -> None:
     assert _run("stops") == ["first", "more", "frame", "own", "first"]
 
 
+def test_a_dialog_that_left_the_page_before_it_closed_gives_the_page_and_the_focus_back() -> None:
+    out = _run("goneFromThePage")
+    assert out["alone"] == {"inert": [], "focused": "opener"}
+    assert out["over"] == {"inert": ["top", "main", "plain"], "focused": "low-no"}
+    assert out["after"] == {"inert": [], "focused": "opener"}
+
+
 def test_tab_stays_in_a_dialog_with_its_own_focus() -> None:
     assert _run("tabInPlain") == ["plain-yes", "password"]
 
