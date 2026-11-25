@@ -61,6 +61,8 @@
     d.setText(d.q('.dl-compact-title', row), item.title);
     var pill = d.q('[data-v="release-label"]', row);
     if (pill) d.setText(pill, item.release_label || '');
+    var btn = d.q('[data-abandon-trigger]', row);
+    if (btn) d.fillAbandonButton(btn, item);
   }
 
   MM.downloads.renderRow = {

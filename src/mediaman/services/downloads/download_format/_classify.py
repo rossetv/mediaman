@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from mediaman.core.format import format_day_month
 from mediaman.core.time import now_utc, parse_iso_utc
@@ -23,6 +23,9 @@ _ArrLike = Mapping[str, object]
 # legitimate announced-but-undated entries while still rejecting the 9999
 # sentinel.
 _MAX_FUTURE_YEARS = 100
+
+# Radarr takes a film that has no date but the cinemas' for released this long after it.
+_OUT_AFTER_CINEMAS = timedelta(days=90)
 
 logger = logging.getLogger(__name__)
 
@@ -43,25 +46,34 @@ def _format_release_date(dt: datetime) -> str:
     return format_day_month(dt)
 
 
+def _release_dates(movie: _ArrLike, *keys: str) -> list[datetime]:
+    """The dates of *keys* that parse, without the year-9999 sentinel and other absurd ones."""
+    max_year = now_utc().year + _MAX_FUTURE_YEARS
+    parsed = [parse_iso_utc(raw if isinstance(raw := movie.get(key), str) else "") for key in keys]
+    return [dt for dt in parsed if dt and dt.year <= max_year]
+
+
+def _awaited_releases(movie: _ArrLike) -> list[datetime]:
+    """The dates of the releases Radarr waits for, by the film's minimumAvailability: none for
+    "announced", or for "tba", which it takes one it was not told for."""
+    home = _release_dates(movie, "digitalRelease", "physicalRelease")
+    cinemas = _release_dates(movie, "inCinemas")
+    waits_for = movie.get("minimumAvailability")
+    if waits_for in ("released", "preDB") or (waits_for == "inCinemas" and not cinemas):
+        return home
+    return cinemas if waits_for == "inCinemas" else home + cinemas
+
+
 def compute_movie_released_at(movie: _ArrLike) -> float:
-    """Return the earliest parseable release epoch (digital, physical, in cinemas) for a
-    Radarr movie, or 0.0.
+    """Return the epoch of the earliest release Radarr waits for, or 0.0.
 
     Auto-abandon treats 0.0 as release date unknown and skips the item. Future dates are
-    accepted; the year-9999 sentinel and other absurd values (beyond _MAX_FUTURE_YEARS)
-    are filtered out.
+    accepted.
     """
-    now = now_utc()
-    max_year = now.year + _MAX_FUTURE_YEARS
-    candidates: list[datetime] = []
-    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        raw = movie.get(key, "")
-        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
-        if dt and dt.year <= max_year:
-            candidates.append(dt)
-    if not candidates:
-        return 0.0
-    return min(candidates).timestamp()
+    awaited = _awaited_releases(movie) or [
+        dt + _OUT_AFTER_CINEMAS for dt in _release_dates(movie, "inCinemas")
+    ]
+    return min(awaited).timestamp() if awaited else 0.0
 
 
 def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
@@ -86,15 +98,9 @@ def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
 
 
 def next_movie_release(movie: _ArrLike) -> datetime | None:
-    """The earliest release (digital, physical, in cinemas) still to come, or None when unknown."""
+    """The earliest release still to come of those Radarr waits for, or None when unknown."""
     now = now_utc()
-    candidates = []
-    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        raw = movie.get(key, "")
-        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
-        if dt and now < dt and dt.year <= now.year + _MAX_FUTURE_YEARS:
-            candidates.append(dt)
-    return min(candidates, default=None)
+    return min((dt for dt in _awaited_releases(movie) if now < dt), default=None)
 
 
 def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:

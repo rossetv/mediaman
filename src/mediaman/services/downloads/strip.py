@@ -52,6 +52,8 @@ _RANK: dict[State, int] = {
 }
 _KEY_SALT = secrets.token_bytes(16)
 _ETA = re.compile(r"~(?:(\d+) hr )?(\d+) (min|sec) remaining")
+# What is left of "[GROUP] Title - 01 [1080p]" once its quality is cut off.
+_FANSUB = re.compile(r"\[[^\]]*\] (.+) \[")
 
 
 class Unavailable(Exception):
@@ -144,8 +146,19 @@ def _title_of(item: Mapping[str, object]) -> str:
     dl_id, title = _text(item.get("id")), _text(item.get("title"))
     if _is_arr(dl_id):
         return title
+    if fansub := _FANSUB.fullmatch(title):
+        title = fansub[1]
     whole = dl_id.replace(".", " ").replace("_", " ").strip().rstrip("- ")
-    return UNNAMED if title in ("", whole) else title
+    return UNNAMED if title in ("", whole) or title.startswith("-") else title
+
+
+def for_viewer(item: Mapping[str, object]) -> dict[str, object]:
+    """The id and title a viewer is told of *item*: for what only NZBGet holds they are made of
+    the release's name, which is told to nobody but an admin."""
+    dl_id = _text(item.get("id"))
+    if _is_arr(dl_id):
+        return {}
+    return {"id": _key_of(dl_id, None), "title": _title_of(item)}
 
 
 def _current(item: Mapping[str, object]) -> StripItem:

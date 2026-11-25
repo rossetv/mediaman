@@ -16,7 +16,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from datetime import UTC, timedelta
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from mediaman.core.time import now_utc
 from mediaman.services.arr._throttle_state import (
@@ -27,6 +29,9 @@ from mediaman.services.arr._throttle_state import (
     _search_count,
     _state_lock,
 )
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.fetcher._base import ArrCard
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +99,6 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
     the write fails (e.g. DB locked briefly).
     """
     try:
-        from datetime import datetime
-
         ts = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
         with conn:
             conn.execute(
@@ -137,6 +140,40 @@ def _warn_persist_failure(dl_id: str) -> None:
         suppressed,
         exc_info=True,
     )
+
+
+def adopt_throttle(conn: sqlite3.Connection, cards: Sequence[ArrCard]) -> None:
+    """Start each film from what was once counted under its title alone, unless its search
+    began after that. The title's row is left for an earlier version to go on from.
+    """
+    # Late import: the fetcher package imports this module.
+    from mediaman.services.arr.fetcher._base import is_film_id
+
+    for card in cards:
+        since = card.get("searching_since", 0.0)
+        if not since or not is_film_id(card["dl_id"], card["title"]):
+            continue
+        searching_since = datetime.fromtimestamp(since, tz=UTC).isoformat()
+        try:
+            row = conn.execute(
+                "SELECT last_triggered_at, search_count FROM arr_search_throttle"
+                " WHERE key=? AND last_triggered_at >= ?"
+                " AND NOT EXISTS (SELECT 1 FROM arr_search_throttle WHERE key=?)",
+                (f"radarr:{card['title']}", searching_since, card["dl_id"]),
+            ).fetchone()
+            if row is not None:
+                with conn:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO arr_search_throttle"
+                        " (key, last_triggered_at, search_count) VALUES (?, ?, ?)",
+                        (card["dl_id"], row[0], row[1]),
+                    )
+        except sqlite3.DatabaseError:
+            logger.warning(
+                "arr_search_trigger: failed to carry the searches of %s over",
+                card["dl_id"],
+                exc_info=True,
+            )
 
 
 def get_search_info(dl_id: str) -> tuple[int, float]:

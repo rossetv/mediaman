@@ -155,17 +155,18 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
     title = c["title"]
     if dl_id.startswith("radarr:"):
         tmdb_id = c.get("tmdb_id")
-        movie = idx.radarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None
-        if movie is None:
-            if not tmdb_id:
-                logger.warning(
-                    "record_verified_completions: no tmdb_id for %s "
-                    "(title=%r) — falling back to title-only match; "
-                    "two releases with the same title would be "
-                    "indistinguishable",
-                    dl_id,
-                    title,
-                )
+        if tmdb_id:
+            # Never by title: a film that was removed is not the other one of its name.
+            movie = idx.radarr_index_by_id().get(int(tmdb_id))
+        else:
+            logger.warning(
+                "record_verified_completions: no tmdb_id for %s "
+                "(title=%r) — falling back to title-only match; "
+                "two releases with the same title would be "
+                "indistinguishable",
+                dl_id,
+                title,
+            )
             movie = idx.radarr_index_by_title().get(title)
         if movie is None or not movie.get("hasFile"):
             return False

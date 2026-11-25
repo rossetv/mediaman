@@ -223,8 +223,8 @@ function abandonRig() {
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
-  rig.openItem = (dlId, kind, stuck, title) => {
-    const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, stuckSeasons: JSON.stringify(stuck || []) };
+  rig.openItem = (dlId, kind, stuck, title, arrId) => {
+    const t = mk(); t.dataset = { dlId, kind, title: title || 'T' + dlId, arrId, stuckSeasons: JSON.stringify(stuck || []) };
     t.closest = () => t;
     h.fire('click', { target: t });
   };
@@ -268,6 +268,29 @@ scenarios.abandonSuccess = async function () {
   r.posts[0].resolve({});
   await r.settle();
   return { url: r.posts[0].url, closes: r.closes, refreshes: r.refreshes, errors: r.errors };
+};
+
+// what is sent names the very title the button was of, as the last poll left it
+scenarios.abandonNamesTheTitle = async function () {
+  const h = build(() => Promise.resolve({}));
+  ['core/dom.js', 'downloads/build_dom.js', 'downloads/render_hero.js', 'downloads/render_row.js', 'downloads/render_recent.js'].forEach(h.load);
+  h.ctx.MM.downloads.poll = { start: (cb) => { h.ctx.update = cb; } };
+  h.add('dl-empty-container'); h.add('dl-recent-container');
+  h.root.setAttribute('data-can-abandon', 'true');
+  h.load('downloads.js');
+  const stuck = (id, arr_id) => item(id, { state: 'searching', abandon_visible: true, arr_id });
+  const buttons = () => h.root.querySelectorAll('[data-abandon-trigger]')
+    .map((b) => b.getAttribute('data-dl-id') + ' ' + b.getAttribute('data-arr-id')).sort();
+  const poll = (n) => h.ctx.update({
+    subtitle: '', recent: [], hero: stuck('h', n), queue: [stuck('q', n + 1)], upcoming: [item('u', { arr_id: n + 2 })],
+  });
+  poll(10);
+  const built = buttons();
+  poll(20);
+  const r = abandonRig();
+  r.openItem('m1', 'movie', [], 'Twin', '21');
+  r.confirmClick();
+  return { built, updated: buttons(), sent: r.posts[0].body };
 };
 
 // another tab abandoned it first

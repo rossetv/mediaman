@@ -33,6 +33,7 @@
  *   MM.downloads.buildDom.easeHeight(card)          a function that eases the card from this height to its next
  *   MM.downloads.buildDom.fadeOver(card)            the hero as it is fades out over what it becomes
  *   MM.downloads.buildDom.syncAbandon(card, item, kind)  show, hide or refresh the abandon button
+ *   MM.downloads.buildDom.fillAbandonButton(btn, item)   what an abandon button says it is of
  *   MM.downloads.buildDom.focusHeading()            the top of the page, when what had the focus is gone
  *   MM.downloads.buildDom.passFocus(el)             move focus on from an element that is about to go
  *   MM.downloads.buildDom.reveal(el)               grow an element in from nothing
@@ -443,6 +444,7 @@
   /* Mirrors the abandon_btn macro in _components.html. */
   function fillAbandonButton(btn, item) {
     btn.setAttribute('data-dl-id', item.id);
+    btn.setAttribute('data-arr-id', String(item.arr_id || 0));
     btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
     btn.setAttribute('data-title', item.title || '');
     btn.setAttribute('data-stuck-seasons', JSON.stringify(item.stuck_seasons || []));
@@ -821,10 +823,7 @@
     btn.className = 'btn btn--icon btn--ghost';
     btn.setAttribute('data-abandon-trigger', '');
     btn.setAttribute('data-abandon-upcoming', '1');
-    btn.setAttribute('data-dl-id', item.id);
-    btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
-    btn.setAttribute('data-title', item.title || '');
-    btn.setAttribute('data-stuck-seasons', '[]');
+    fillAbandonButton(btn, item);
     btn.setAttribute('aria-label', 'Stop tracking');
     btn.setAttribute('title', 'Stop tracking');
     btn.appendChild(MM.dom.icon('i-xmark'));
@@ -867,6 +866,7 @@
     fadeOver:             fadeOver,
     easeHeight:           easeHeight,
     syncAbandon:          syncAbandon,
+    fillAbandonButton:    fillAbandonButton,
     focusHeading:         focusHeading,
     passFocus:            passFocus,
     reveal:               function (el)              { fold(el, true); },

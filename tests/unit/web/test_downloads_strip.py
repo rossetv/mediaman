@@ -142,6 +142,45 @@ def test_a_viewer_is_told_nothing_the_downloads_page_keeps_from_one(services, vi
     assert "image.tmdb.org" not in body.text
 
 
+def test_the_downloads_page_gives_a_viewer_no_release_name(services, viewer, conn):
+    _queue(services, [])
+    named, obfuscated = "Some.Film.2024.1080p.WEB-GRP.nzb", "aB3xK9qLm2Zt"
+    services[2].get_queue.return_value = [
+        {"NZBName": name, "Status": "DOWNLOADING", "FileSizeMB": 100, "RemainingSizeMB": 40}
+        for name in (named, obfuscated)
+    ]
+    conn.execute(
+        "INSERT INTO recent_downloads (dl_id, title) VALUES ('Old.Film.2020.x264-GRP', 'Old Film'),"
+        " ('zZ9yX8wV', 'zZ9yX8wV'), ('radarr:Ember Coast', 'Ember Coast')"
+    )
+    conn.commit()
+    answer = viewer.get("/api/downloads")
+    for name in (named, obfuscated, "Old.Film", "zZ9yX8wV"):
+        assert name not in answer.text
+    body = answer.json()
+    active = [body["hero"], *body["queue"]]
+    assert {item["title"] for item in active} == {"Some Film", strip.UNNAMED}
+    ids = [item["id"] for item in active]
+    assert len(set(ids)) == 2
+    again = viewer.get("/api/downloads").json()
+    assert [again["hero"]["id"], *(item["id"] for item in again["queue"])] == ids
+    assert {item["title"] for item in body["recent"]} == {
+        "Old Film",
+        strip.UNNAMED,
+        "Ember Coast",
+    }
+    assert "radarr:Ember Coast" in {item["id"] for item in body["recent"]}
+
+
+def test_the_downloads_page_gives_an_admin_the_release_names(services, viewer, conn):
+    _queue(services, [])
+    services[2].get_queue.return_value = [{"NZBName": "aB3xK9qLm2Zt", "Status": "DOWNLOADING"}]
+    conn.execute("UPDATE admin_users SET role = 'admin'")
+    conn.commit()
+    hero = viewer.get("/api/downloads").json()["hero"]
+    assert (hero["id"], hero["title"]) == ("aB3xK9qLm2Zt", "aB3xK9qLm2Zt")
+
+
 def test_a_service_that_stops_answering_leaves_the_row_as_it_was(services, viewer, monkeypatch):
     monkeypatch.setattr(strip, "HOLD_S", 0.0)
     _get(viewer)
