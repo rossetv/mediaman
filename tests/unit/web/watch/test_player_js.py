@@ -1897,6 +1897,13 @@ def test_a_rating_still_on_its_way_is_sent_again_to_outlive_the_page(film):
     }
 
 
+def test_a_title_that_turns_out_not_to_be_rateable_is_not_asked_about(film):
+    out = rating(film, "unrateable")["ended"]
+    assert (out["card"], out["said"], out["at"]) == (False, "", "/watch/movie/501")
+    out = in_credits(film, "unrateable")["after"]
+    assert (out["card"], out["paused"], out["at"]) == (False, False, "/watch/play/1")
+
+
 def test_the_question_leaves_the_system_s_own_player(film):
     assert rating(film, "native")["mode"] == "inline"
 

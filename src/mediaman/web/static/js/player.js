@@ -2893,6 +2893,7 @@
   var ratingAsked = 0;       // bumps with every question and whenever one no longer matters
   var ratingWait = null;     // runs until it is known whether to ask
   var rating = null;         // the set of thumbs of the card
+  var ratingRef;             // the title it rates
   var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
   var rateAfterUpnext = false;
   var overCredits = false;   // the card came while the video played
@@ -3015,6 +3016,7 @@
     overCredits = !video.ended;
     els.rateTitle.textContent = text;
     els.rateSet.textContent = '';
+    ratingRef = held.ref;
     rating = MM.ratings.mount(held.ref, { variant: 'grid' });
     els.rateSet.appendChild(rating.node);
     els.rate.classList.toggle('player-rate--beside', !goOn);
@@ -3077,6 +3079,7 @@
     var said = e.detail;
     if (said.phase === 'pending') unsavedRating = { ref: said.ref, level: said.level };
     else if (said.phase !== 'read') unsavedRating = null;
+    if (rating && MM.ratings.canRate(ratingRef) === false) endRating();
     if (!rating || said.from !== rating.node) return;
     clearTimeout(ratedTimer);
     if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);

@@ -348,7 +348,7 @@ function boot(html, reduced, saved, serverPlays, came) {
         }).then(settled(resolve), settled(reject));
       });
     },
-    get: () => Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: true }, 'show-77': { level: null, rateable: true } } }),
+    get: () => Promise.resolve({ ratings: { 'movie-501': { level: null, rateable: !held.unrateable }, 'show-77': { level: null, rateable: true } } }),
     put(url, body) {
       calls.push({ url: url, body: body });
       return held.put === 'silent' ? new Promise(() => {}) : Promise.resolve({ media_type: 'movie', tmdb_id: 5 });
@@ -4325,6 +4325,7 @@ const scenarios = {
     const look = () => ({ card: !gone(card), upnext: !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]')), at: p.win.location.href, asks: asks() });
     const thumb = () => card.querySelectorAll('.rate__b')[3];
     p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    if (what === 'unrateable') p.held.unrateable = true;
     if (what === 'season') p.held.rate = { ask: true, ref: 'show-77', title: 'The Long Coast', season: 2 };
     if (what === 'refused') p.held.rate = { ask: false };
     if (what === 'fails' || what === 'silent') p.held.rate = what;
@@ -4415,6 +4416,7 @@ const scenarios = {
     if (what === 'notFinal') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700, end_s: 3000, final: false }];
     if (what === 'fraction') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700.92, end_s: 3000, final: true }];
     p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    if (what === 'unrateable') p.held.unrateable = true;
     if (what === 'askFails') p.held.rate = 'fails';
     if (what === 'refused') p.held.rate = { ask: false };
     if (what === 'saveFails') p.held.progressFails = { status: 500 };
@@ -4444,6 +4446,7 @@ const scenarios = {
       beside: card.classList.contains('player-rate--beside'), plays: p.video.plays,
     });
     if (what === 'arrowOnThumb') { tabTo(thumb()); const from = p.video.currentTime; key('ArrowLeft'); out.left = doc.activeElement === card.querySelectorAll('.rate__b')[2]; key('ArrowRight'); key('ArrowRight'); out.right = doc.activeElement === card.querySelectorAll('.rate__b')[0]; p.tick(300); await settle(); out.moved = p.video.currentTime - from; }
+    if (what === 'unrateable') { p.tick(1); await settle(); }
     if (what === 'rebuffer') { fire(p.video, 'waiting'); fire(p.video, 'play'); fire(p.video, 'playing'); await on(1); }
     if (what === 'seekOn') { seek(2900); await on(1); }
     if (what === 'seekBack') { seek(2000); await settle(); out.back = look(); await on(1); seek(2698); await on(15); }
