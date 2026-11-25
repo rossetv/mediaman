@@ -242,7 +242,7 @@ def test_the_button_that_asks_eases_in_to_its_own_opacity() -> None:
 
 
 def test_keep_has_the_room_beside_a_shows_wider_words_and_a_films_row_stays_as_it_is() -> None:
-    row = ".ttl__actions:has(> .ttl__play-on)"
+    row = ".ttl__actions.has-play-on"
     wide = "(min-width: 700px)"
     films = [s for selectors, body in _rules(wide) if "max-width: 500px" in body for s in selectors]
     shows = [s for selectors, body in _rules(wide) if "max-width: 530px" in body for s in selectors]
