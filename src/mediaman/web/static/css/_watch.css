@@ -487,9 +487,34 @@
   text-overflow: ellipsis;
 }
 .watch-badge__long { display: none; }
-/* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red. */
-.watch-badge--leaving { left: 8px; background: color-mix(in srgb, var(--scrim) 72%, transparent); font-weight: 600; }
-.watch-badge--leaving-now { background: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
+/* Dark enough that white text holds 4.5:1 over any poster; leaving today or tomorrow, an opaque red.
+   The badge is a window one line high over its words, each a pill: where the short words do not fit
+   beside the tiny ones, which take no width, they wrap below the window. Where they do, they make
+   that line two high, and the tiny ones stand at its foot. */
+.watch-badge--leaving {
+  --badge-pad: 3px 8px;
+  --badge-h: calc(1lh + 6px);
+  --badge-bg: color-mix(in srgb, var(--scrim) 72%, transparent);
+  left: 8px;
+  right: 8px;
+  max-width: none;
+  padding: 0;
+  font-weight: 600;
+}
+.watch-badge--leaving-now { --badge-bg: color-mix(in srgb, var(--danger) 78%, var(--scrim)); }
+.watch-badge--leaving,
+.watch-badge__tiny { display: flex; flex-wrap: wrap; align-content: flex-start; height: var(--badge-h); overflow: hidden; }
+.watch-badge__tiny { flex: 0 0 100%; margin-right: -100%; align-self: flex-end; }
+.watch-badge__least { width: 0; align-self: flex-end; }
+.watch-badge__short,
+.watch-badge__tiny::after,
+.watch-badge__least::after { flex: none; padding: var(--badge-pad); border-radius: var(--badge-r, var(--r-pill)); background: var(--badge-bg); }
+.watch-badge__short,
+.watch-badge__tiny::after { margin-bottom: var(--badge-h); }
+.watch-badge__tiny::after,
+.watch-badge__least::after { content: attr(data-words); }
+.watch-badge__least::after { display: inline-block; }
+.watch-badge__long + .watch-badge__short { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* Already watched: an eye and the word, never the tick that says In library. Under another badge, which can be as wide as the poster. */
 .watch-badge--watched {
   right: 8px;
@@ -538,15 +563,11 @@
   .watch-card__title { font-size: 12px; }
   .watch-card__poster { --card-pad: 8px; }
   .watch-badge { font-size: 10px; line-height: 1.2; padding: 3px 7px; border-radius: var(--r-md); max-width: calc(100% - 12px); }
-  .watch-badge--leaving { left: 6px; }
+  .watch-badge--leaving { --badge-pad: 3px 7px; --badge-r: var(--r-md); left: 6px; right: 6px; max-width: none; padding: 0; }
   .watch-badge--watched { right: 6px; gap: 4px; }
   .watch-badge--watched > .ico { font-size: 12px; }
 }
-/* Three columns here have no room for "Leaving today": it shrinks to "Today", the whole of it still read out. */
 @media (max-width: 359.98px) {
-  .watch-badge:has(> .watch-badge__tiny) > .watch-badge__short { display: none; }
-  .watch-badge:has(> .watch-badge__tiny) > .watch-badge__long { display: block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .watch-badge__tiny::after { content: attr(data-words); }
   .watch-badge--watched { gap: 0; }
   .watch-badge__word { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
 }

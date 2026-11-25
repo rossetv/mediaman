@@ -17,12 +17,12 @@
   Season {{ other.season }} {% if other.days < 0 %}leaves any day{% elif other.days == 0 %}leaves today{% elif other.days == 1 %}leaves in 1 day{% else %}leaves in {{ other.days }} days{% endif %}
 {%- endmacro %}
 
-{# "N days left"; on the narrowest phones today and any day shrink further. The preview reads the words that are not drawn. Today and tomorrow stand out. #}
+{# "N days left"; where that does not fit, fewer words. The preview reads the words that are not drawn. Today and tomorrow stand out. #}
 {% macro leaving_badge(days, season=none) -%}
 {% if season is number -%}
-<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ other_leaving_text({"season": season, "days": days}) }}</span><span class="watch-badge__short">S{{ season }} {% if days < 0 %}leaves any day{% elif days == 0 %}leaves today{% else %}· {{ days }} day{{ "s" if days != 1 }} left{% endif %}</span><span class="watch-badge__tiny" data-words="S{{ season }} · {% if days < 0 %}Any day{% elif days == 0 %}Today{% else %}{{ days }} day{{ "s" if days != 1 }}{% endif %}" aria-hidden="true"></span></span>
+<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ other_leaving_text({"season": season, "days": days}) }}</span><span class="watch-badge__tiny" data-words="S{{ season }} · {% if days < 0 %}Any day{% elif days == 0 %}Today{% else %}{{ days }} day{{ "s" if days != 1 }}{% endif %}" aria-hidden="true"><span class="watch-badge__least" data-words="S{{ season }} {% if days < 0 %}· Due{% elif days == 0 %}Today{% else %}· {{ days }}d{% endif %}"></span></span><span class="watch-badge__short">S{{ season }} {% if days < 0 %}leaves any day{% elif days == 0 %}leaves today{% else %}· {{ days }} day{{ "s" if days != 1 }} left{% endif %}</span></span>
 {%- else -%}
-<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}{{ leaving_text(days) }}{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span>{% if days <= 0 %}<span class="watch-badge__tiny" data-words="{% if days < 0 %}Any day{% else %}Today{% endif %}" aria-hidden="true"></span>{% endif %}</span>
+<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span>{% if days <= 0 %}<span class="watch-badge__tiny" data-words="{% if days < 0 %}Any day{% else %}Today{% endif %}" aria-hidden="true"></span>{% endif %}<span class="watch-badge__short">{% if days <= 0 %}{{ leaving_text(days) }}{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
 {%- endif %}
 {%- endmacro %}
 
