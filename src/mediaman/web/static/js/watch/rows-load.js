@@ -113,9 +113,9 @@
     var view = opts.view || null;
     var scroller = view ? view.scroller : viewport.querySelector('.watch-row__scroll');
     var isNew = onlyNew();
-    var cards = [];
+    var cards = new Set();
     core.toArray(scroller.querySelectorAll('.watch-card')).forEach(function (card) {
-      if (isNew(card)) cards.push(card);
+      if (isNew(card)) cards.add(card);
       else card.remove();
     });
     var next = opts.next === undefined ? null : opts.next;
@@ -129,7 +129,7 @@
     var stopped = false;
     var awake = new Set(cards);
 
-    function present() { return cards.filter(function (card) { return card.parentNode === scroller; }); }
+    function present() { return core.toArray(scroller.children).filter(function (node) { return cards.has(node); }); }
 
     function step() {
       var here = present();
@@ -252,7 +252,7 @@
         var held = tail.shift();
         if (held) held.replaceWith(card);
         else scroller.appendChild(card);
-        cards.push(card);
+        cards.add(card);
         awake.add(card);
       });
       sweep();
@@ -295,7 +295,10 @@
       var range = view ? view.range(here) : inStrip(here);
       if (!range) return;
       var keep = new Set(here.slice(range[0], range[1]));
-      awake.forEach(function (card) { if (!keep.has(card)) unload(card); });
+      awake.forEach(function (card) {
+        if (card.parentNode !== scroller) keep.add(card); // an Undo may put it back, where nothing would wake it
+        else if (!keep.has(card)) unload(card);
+      });
       keep.forEach(function (card) { if (!awake.has(card)) reload(card); });
       awake = keep;
     }
