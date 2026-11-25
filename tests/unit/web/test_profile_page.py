@@ -211,3 +211,21 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
     switch = re.search(r'<button[^>]*id="account-history"[^>]*>', html).group(0)
     assert 'role="switch"' in switch and 'aria-labelledby="account-history-lbl"' in switch
     assert {"account-history-lbl", "account-clear-searches"} <= _parse(html).ids
+
+
+@pytest.mark.parametrize(("role", "lists"), [("admin", 2), ("viewer", 1)])
+def test_only_an_admins_profile_has_a_list_of_other_peoples_tvs(
+    app_factory, authed_client, conn, role, lists
+):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+
+    @app.middleware("http")
+    async def as_role(request, call_next):
+        request.state.user_role = role
+        return await call_next(request)
+
+    html = authed_client(app, conn).get("/account").text
+
+    # hidden until there are TVs
+    assert len(re.findall(r'<section[^>]*id="account-tvs[^>]*\bhidden>', html)) == lists
+    assert ('id="account-tvs-all"' in html) == (role == "admin")

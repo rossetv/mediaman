@@ -1,5 +1,5 @@
 /**
- * Profile page — change-password and email forms, the list of sign-ins, and the use of the
+ * Profile page — change-password and email forms, the lists of sign-ins and TVs, and the use of the
  * person's history by the AI.
  *
  * Requires: core/api.js (MM.api), core/dom.js (MM.dom), core/reauth.js (MM.reauth),
@@ -292,6 +292,13 @@
     return 'i-globe';
   }
 
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+
   /* Returns the function that loads the list afresh. */
   function initSessions() {
     var list = document.getElementById('account-sessions');
@@ -305,13 +312,6 @@
     /* Only the list asked for last is shown, without what was signed out since it was asked. */
     var asked = 0;
     var gone = {};
-
-    function el(tag, cls, text) {
-      var node = document.createElement(tag);
-      node.className = cls;
-      if (text) node.textContent = text;
-      return node;
-    }
 
     function keyOf(s) { return s.current ? 'here' : s.public_id || s.created_at; }
 
@@ -446,6 +446,188 @@
     return load;
   }
 
+  function seenWhen(iso) {
+    var at = new Date(iso);
+    var today = new Date(Date.now());
+    today.setHours(0, 0, 0, 0);
+    var days = Math.ceil((today - at) / 864e5);
+    var time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    if (days <= 0) return 'today, ' + time;
+    if (days < 7) return at.toLocaleDateString('en-GB', { weekday: 'long' }) + ', ' + time;
+    return dayOf(iso);
+  }
+
+  function dayOf(iso) {
+    var at = new Date(iso);
+    var day = { day: 'numeric', month: 'long' };
+    if (at.getFullYear() !== new Date(Date.now()).getFullYear()) day.year = 'numeric';
+    return at.toLocaleDateString('en-GB', day);
+  }
+
+  /* The person's TVs and, for an admin, everyone else's. Returns the function that loads them
+     afresh. A list with no TV is not shown. */
+  function initTvs() {
+    var mine = document.getElementById('account-tvs');
+    var others = document.getElementById('account-tvs-all');
+    if (!mine) return function () {};
+    var asked = 0;
+    var gone = {};
+
+    function stateOf(tv) {
+      var seen = tv.on ? 'On now' : tv.last_seen_at ? 'Last seen ' + seenWhen(tv.last_seen_at) : 'Not seen yet';
+      var by = others && others.contains(tv.row) ? ' by ' + tv.owner : '';
+      return seen + '. Paired' + by + ' ' + dayOf(tv.paired_at) + '.';
+    }
+
+    function action(words, tv, run) {
+      var button = el('button', 'btn btn--ghost btn--sm', words);
+      button.type = 'button';
+      button.setAttribute('aria-label', words + ': ' + tv.name);
+      button.addEventListener('click', function () { if (!isBusy(button)) run(button); });
+      return button;
+    }
+
+    function fill(tv) {
+      var row = tv.row;
+      row.textContent = '';
+      var icon = el('span', 'dev-ico');
+      icon.appendChild(MM.dom.icon('i-tv'));
+      row.appendChild(icon);
+      var text = el('div', 'me-txt');
+      text.appendChild(el('div', 'me-lbl', tv.name));
+      text.appendChild(el('div', 'me-sub', stateOf(tv)));
+      row.appendChild(text);
+      var acts = el('div', 'dev-acts');
+      var rename = action('Rename', tv, function () { edit(tv); });
+      acts.appendChild(rename);
+      acts.appendChild(action('Unpair', tv, function (button) { unpair(tv, button); }));
+      row.appendChild(acts);
+      return rename;
+    }
+
+    function edit(tv) {
+      var row = tv.row;
+      row.textContent = '';
+      var form = el('form', 'dev-edit');
+      form.noValidate = true;
+      var input = el('input', 'inp');
+      input.value = tv.name;
+      input.maxLength = 40;
+      input.setAttribute('aria-label', 'TV name');
+      input.autocomplete = 'off';
+      var save = el('button', 'btn btn--primary btn--sm', 'Save');
+      save.type = 'submit';
+      var cancel = el('button', 'btn btn--ghost btn--sm', 'Cancel');
+      cancel.type = 'button';
+      [input, save, cancel].forEach(function (node) { form.appendChild(node); });
+      row.appendChild(form);
+      function shut() {
+        if (isBusy(save)) return;
+        var held = MM.dom.focusStillIn(row);
+        var opener = fill(tv);
+        if (held) opener.focus({ preventScroll: true });
+      }
+      cancel.addEventListener('click', shut);
+      form.addEventListener('keydown', function (e) { if (e.key === 'Escape') shut(); });
+      input.addEventListener('input', function () { input.removeAttribute('aria-invalid'); });
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (isBusy(save)) return;
+        var name = input.value.trim();
+        if (!name) { input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
+        if (name === tv.name) { shut(); return; }
+        setBusy(save, 'Saving…', true);
+        MM.api.patch('/api/tvs/' + tv.id, { name: name }).then(function (data) {
+          setBusy(save, '');
+          tv.name = data.tv.name;
+          shut();
+          done('Renamed to ' + tv.name + '.');
+        }, function (err) {
+          setBusy(save, '');
+          if (err && err.status === 404) { drop(tv); UIFeedback.error(tv.name + ' is no longer paired.'); return; }
+          UIFeedback.error(MM.api.messageOf(err, 'Could not rename it. Try again.'));
+        });
+      });
+      input.focus({ preventScroll: true });
+      input.select();
+    }
+
+    function drop(tv) {
+      gone[tv.id] = true;
+      if (!tv.row.parentNode) return;
+      var list = tv.row.parentNode;
+      var section = list === mine.querySelector('.dev-list') ? mine : others;
+      tv.row.inert = true;
+      MM.settings.rows.leave(tv.row, {
+        focusSelector: '.btn', fallback: list,
+        done: function () {
+          if (list.children.length) return;
+          var held = MM.dom.focusStillIn(section);
+          section.hidden = true;
+          if (held) document.getElementById('account-sessions').focus({ preventScroll: true });
+        },
+      });
+    }
+
+    function unpair(tv, button) {
+      var theirs = others && others.contains(tv.row);
+      var sure = theirs ? UIFeedback.confirm({
+        title: 'Unpair ' + tv.name + '?',
+        body: tv.owner + ' won’t be able to play on it until they pair it again.',
+        confirmLabel: 'Unpair',
+        confirmVariant: 'danger',
+      }) : Promise.resolve(true);
+      sure.then(function (yes) {
+        if (!yes || isBusy(button)) return;
+        setBusy(button, 'Unpairing…', true);
+        MM.api.delete('/api/tvs/' + tv.id).then(function () { return true; }, function (err) {
+          if (err && err.status === 404) return true;
+          setBusy(button, '');
+          UIFeedback.error(MM.api.messageOf(err, 'Could not unpair it. Try again.'));
+          return false;
+        }).then(function (ok) {
+          if (!ok) return;
+          drop(tv);
+          done('Unpaired. That TV now says it was signed out.');
+        });
+      });
+    }
+
+    function draw(section, tvs) {
+      var list = section.querySelector('.dev-list');
+      // A name being typed, or a press on its way, is left alone.
+      if (list.querySelector('form') || list.querySelector('[aria-disabled="true"]')) return;
+      var held = document.activeElement && list.contains(document.activeElement);
+      list.textContent = '';
+      tvs.forEach(function (tv) {
+        tv.row = list.appendChild(el('li', 'dev dev--tv'));
+        fill(tv);
+      });
+      section.hidden = !tvs.length;
+      if (held) (tvs.length ? list : document.getElementById('account-sessions')).focus({ preventScroll: true });
+    }
+
+    function ask(path, section, take) {
+      var turn = asked;
+      return MM.api.get(path).then(function (data) {
+        if (turn !== asked) return;
+        draw(section, data.tvs.filter(function (tv) {
+          return !gone[tv.id] && take(tv);
+        }));
+      }, function () { /* A list that was not shown stays so. */ });
+    }
+
+    function load() {
+      asked += 1;
+      ask('/api/tvs', mine, function () { return true; });
+      if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && tv.owner !== me; });
+    }
+
+    var me = mine.getAttribute('data-me');
+    load();
+    return load;
+  }
+
   function initAi() {
     var section = document.getElementById('account-ai');
     var toggle = document.getElementById('account-history');
@@ -513,7 +695,12 @@
   }
 
   function start() {
-    initPassword(initSessions());
+    var reloadSessions = initSessions();
+    var reloadTvs = initTvs();
+    initPassword(function () {
+      reloadSessions();
+      reloadTvs();
+    });
     initEmail();
     initAi();
   }

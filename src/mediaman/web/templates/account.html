@@ -56,7 +56,7 @@
           <div class="me-line">
             <div class="me-txt">
               <div class="me-lbl">Password</div>
-              <div class="me-sub">A new one signs out your other devices.</div>
+              <div class="me-sub">A new one signs out your other devices and your TVs.</div>
             </div>
             <div class="me-end">
               <button class="btn btn--ghost btn--sm" type="button" id="account-open-password" aria-expanded="false" aria-controls="account-password-form">Change password</button>
@@ -101,6 +101,17 @@
         <div class="me-row">{% include "_profile_plex.html" %}</div>
       </div>
     </section>
+
+    <section class="me-sec fade-in" id="account-tvs" data-me="{{ username }}" aria-labelledby="me-tvs" hidden>
+      <h2 id="me-tvs">Your TVs</h2>
+      <div class="me-card"><ul class="dev-list" role="list" aria-labelledby="me-tvs" tabindex="-1"></ul></div>
+    </section>
+{% if role == "admin" %}
+    <section class="me-sec fade-in" id="account-tvs-all" aria-labelledby="me-tvs-all" hidden>
+      <h2 id="me-tvs-all">Other people’s TVs</h2>
+      <div class="me-card"><ul class="dev-list" role="list" aria-labelledby="me-tvs-all" tabindex="-1"></ul></div>
+    </section>
+{% endif %}
 
     <section class="me-sec" aria-labelledby="me-devices">
       <h2 id="me-devices">Where you’re signed in</h2>

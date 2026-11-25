@@ -329,3 +329,38 @@ def test_recent_searches_are_cleared_only_once_confirmed() -> None:
     assert out["failed"]["toasts"] == ["error: No luck"]
     assert [out[k]["says"] for k in ("yes", "failed")] == ["Clear", "Clear"]
     assert out["yes"]["busy"] is None
+
+
+def test_a_persons_tvs_are_listed_as_text_and_with_none_there_is_no_section() -> None:
+    out = _run("tvs")
+    assert (out["hidden"], out["none"]) == (False, True)
+    living, den, long_ago = out["rows"]
+    assert living == ["Living room", "On now. Paired 12 March."]
+    assert den[0] == "<b>Den" and den[1].startswith("Last seen Sunday, ")
+    assert "Last seen 15 May. " in long_ago[1] or "Last seen 16 May. " in long_ago[1]
+
+
+def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> None:
+    out = _run("tvsOfAll")
+    # neither their own again nor an older TV, which is nobody's
+    assert len(out["rows"]) == 1
+    assert "Theirs" in out["rows"][0] and "Paired by bob 12 March." in out["rows"][0]
+    assert out["asked"][0]["title"] == "Unpair Theirs?"
+    assert out["left"] == 1
+
+
+def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None:
+    out = _run("tvRename")
+    assert out["empty"] == [0, "true"]
+    assert out["failed"] == [1, ["error: Could not rename it. Try again."], True]
+    assert out["sent"] == ["/api/tvs/1", {"name": "Den"}]
+    assert (out["name"], out["label"]) == ("Den", "Rename: Den")
+    assert out["toasts"] == ["Renamed to Den."]
+
+
+def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
+    out = _run("tvUnpair")
+    assert out["failed"] == [2, ["error: Could not unpair it. Try again."]]
+    assert out["one"] == [1, False, ["Unpaired. That TV now says it was signed out."]]
+    assert out["sent"] == ["/api/tvs/1", "/api/tvs/1", "/api/tvs/2"]
+    assert out["last"] == [0, True] and out["asked"] == 0

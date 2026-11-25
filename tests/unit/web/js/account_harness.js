@@ -28,8 +28,8 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 // On screen, between the page's bars, unless a scenario says otherwise.
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
-// `ai` adds the AI section, and `yes` answers its question.
-function page(api, { ai = false, yes = true } = {}) {
+// `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
+function page(api, { ai = false, yes = true, tvs = '' } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
@@ -47,6 +47,14 @@ function page(api, { ai = false, yes = true } = {}) {
   if (ai) {
     doc.body.appendChild(build(doc, ['section', { id: 'account-ai' }, ['button', { id: 'account-history', class: 'tog' }], ['button', { id: 'account-clear-searches' }, 'Clear']]));
     doc.getElementById('account-ai').hidden = true;
+  }
+  if (tvs) {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-tvs', 'data-me': 'amy' }, ['ul', { class: 'dev-list' }]]));
+    doc.getElementById('account-tvs').hidden = true;
+  }
+  if (tvs === 'admin') {
+    doc.body.appendChild(build(doc, ['section', { id: 'account-tvs-all' }, ['ul', { class: 'dev-list' }]]));
+    doc.getElementById('account-tvs-all').hidden = true;
   }
   const $ = (id) => doc.getElementById(id);
   let resets = 0;
@@ -86,7 +94,76 @@ function page(api, { ai = false, yes = true } = {}) {
   };
 }
 
+const tvOf = (id, name, more) => ({ id, name, on: false, paired_at: '2026-03-12T09:00:00Z', last_seen_at: at(-30), ...more });
+// The TV lists' answers by address; the rest of the page gets none.
+const tvApi = (mine, all, more) => ({
+  get: (url) => (url === '/api/tvs' ? Promise.resolve({ tvs: mine }) : url === '/api/tvs/all' ? Promise.resolve({ tvs: all }) : Promise.resolve({ sessions: [] })),
+  ...more,
+});
+const tvRows = (p, id = 'account-tvs') => p.$(id).querySelector('.dev-list').children;
+const buttonOf = (row, words) => row.querySelectorAll('button').find((b) => b.textContent === words);
+const push = (button) => button.listeners.click.forEach((fn) => fn({}));
+
 const scenarios = {
+  async tvs() {
+    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) })], []), { tvs: 'viewer' });
+    await settle();
+    const none = page(tvApi([], []), { tvs: 'viewer' });
+    await settle();
+    return { hidden: p.$('account-tvs').hidden, rows: tvRows(p).map((r) => r.querySelector('.me-txt').children.map((c) => c.textContent)), none: none.$('account-tvs').hidden };
+  },
+  async tvsOfAll() {
+    const all = [tvOf(1, 'Mine', { owner: 'amy', kind: 'page' }), tvOf(2, 'Theirs', { owner: 'bob', kind: 'page' }), tvOf(3, 'Older', { owner: null, kind: 'older' })];
+    const p = page(tvApi([tvOf(1, 'Mine')], all), { tvs: 'admin', yes: false });
+    await settle();
+    push(buttonOf(tvRows(p, 'account-tvs-all')[0], 'Unpair'));
+    await settle();
+    return { rows: tvRows(p, 'account-tvs-all').map((r) => r.textContent), asked: p.asked, left: tvRows(p, 'account-tvs-all').length };
+  },
+  async tvRename() {
+    const sent = [];
+    let answer = () => Promise.reject({ error: 'x' });
+    const p = page(tvApi([tvOf(1, 'TV')], [], { patch: (url, body) => { sent.push([url, body]); return answer(body); } }), { tvs: 'viewer' });
+    await settle();
+    Node.prototype.select = () => {};
+    const row = tvRows(p)[0];
+    push(buttonOf(row, 'Rename'));
+    const form = row.querySelector('form');
+    const input = row.querySelector('input');
+    const submit = () => form.listeners.submit.forEach((fn) => fn({ preventDefault() {} }));
+    input.value = '  ';
+    submit();
+    const empty = [sent.length, input.getAttribute('aria-invalid')];
+    input.value = ' Den ';
+    submit();
+    submit();
+    await settle();
+    const failed = [sent.length, p.toasts.splice(0), Boolean(row.querySelector('form'))];
+    answer = (body) => Promise.resolve({ tv: { id: 1, name: body.name } });
+    submit();
+    await settle();
+    return { empty, failed, sent: sent[1], name: row.querySelector('.me-lbl').textContent, label: buttonOf(row, 'Rename').getAttribute('aria-label'), toasts: p.toasts };
+  },
+  async tvUnpair() {
+    const sent = [];
+    let answer = () => Promise.reject({ status: 500 });
+    const p = page(tvApi([tvOf(1, 'A'), tvOf(2, 'B')], [], { delete: (url) => { sent.push(url); return answer(); } }), { tvs: 'viewer' });
+    await settle();
+    const press = async () => {
+      push(buttonOf(tvRows(p)[0], 'Unpair'));
+      await settle();
+      p.wait();
+    };
+    await press();
+    const failed = [tvRows(p).length, p.toasts.splice(0)];
+    answer = () => Promise.resolve({ ok: true });
+    await press();
+    const one = [tvRows(p).length, p.$('account-tvs').hidden, p.toasts.splice(0)];
+    // already unpaired by someone else
+    answer = () => Promise.reject({ status: 404 });
+    await press();
+    return { failed, one, sent, last: [tvRows(p).length, p.$('account-tvs').hidden], asked: p.asked.length };
+  },
   async sessions() {
     const here = session(9, { current: true });
     let list = [session(5), here, session(-1)];
