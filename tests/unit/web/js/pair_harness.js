@@ -119,6 +119,49 @@ const scenarios = {
     p.$('pair-name').listeners.input.forEach((fn) => fn({}));
     return { first, same, folded, fresh: p.$('pair-name-why').textContent, shown: p.shown() };
   },
+  async lateList() {
+    let land;
+    const late = new Promise((resolve) => { land = resolve; });
+    const mine = { tvs: [{ id: 3, name: 'Living room' }, { id: 7, name: 'TV' }] };
+    const untouched = page('#482916', [TV], true, late);
+    untouched.fire('pair-form', 'submit');
+    await settle();
+    const before = [untouched.shown(), untouched.$('pair-name').value];
+    land(mine);
+    await settle();
+    const after = untouched.$('pair-name').value;
+    let land2;
+    const late2 = new Promise((resolve) => { land2 = resolve; });
+    const typed = page('#482916', [TV], true, late2);
+    typed.fire('pair-form', 'submit');
+    await settle();
+    typed.$('pair-name').value = 'Living room';
+    typed.$('pair-name').listeners.input.forEach((fn) => fn({}));
+    land2(mine);
+    await settle();
+    return { before, after, typed: [typed.$('pair-name').value, typed.$('pair-name-why').textContent] };
+  },
+  async badList() {
+    const out = [];
+    for (const answer of [{}, { tvs: null }, { tvs: [null, { id: 1 }] }, undefined]) {
+      const p = page('#482916', [TV], true, Promise.resolve(answer));
+      p.fire('pair-form', 'submit');
+      await settle();
+      out.push([p.shown(), p.$('pair-name').value]);
+    }
+    return out;
+  },
+  async rescan() {
+    let land;
+    const late = new Promise((resolve) => { land = resolve; });
+    const p = page('#482916', [TV], true, late);
+    p.fire('pair-form', 'submit');
+    await settle();
+    p.scan('#111222');
+    land({ tvs: [{ id: 3, name: 'Living room' }] });
+    await settle();
+    return { shown: p.shown(), name: p.$('pair-name').value };
+  },
   async noList() {
     const p = page('#482916', [TV], true, Promise.reject({ error: 'http_500' }));
     p.fire('pair-form', 'submit');

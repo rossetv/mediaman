@@ -88,6 +88,23 @@ def test_the_name_is_still_offered_when_the_tvs_cannot_be_listed() -> None:
     assert (out["name"], out["shown"]) == ("Living room", ["pair-name-form"])
 
 
+def test_the_name_form_shows_at_once_and_a_late_list_never_overrides_typing() -> None:
+    out = _run("lateList")
+    assert out["before"] == [["pair-name-form"], "Living room"]
+    assert out["after"] == "Living room 2"
+    assert out["typed"][0] == "Living room" and "already have" in out["typed"][1]
+
+
+def test_a_malformed_list_leaves_the_name_form_as_it_was() -> None:
+    out = _run("badList")
+    assert out == [[["pair-name-form"], "Living room"]] * 4
+
+
+def test_a_list_arriving_after_a_rescan_changes_nothing() -> None:
+    out = _run("rescan")
+    assert out == {"shown": ["pair-form"], "name": "Living room"}
+
+
 def test_each_step_of_pairing_comes_in_and_at_once_under_reduced_motion() -> None:
     css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_pair.css").read_text()
     step = r"\.pair form, #pair-done \{ animation: ([^;]+);"

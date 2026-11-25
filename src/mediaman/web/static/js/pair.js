@@ -31,6 +31,7 @@
   var busy = false;
   var tv = null;
   var others = [];
+  var touched = false;
 
   function paint() {
     [].forEach.call(boxes.querySelectorAll('i'), function (box, n) {
@@ -130,21 +131,26 @@
 
   function paired(got) {
     tv = got;
+    others = [];
+    touched = false;
     form.hidden = true;
-    // The list is only a help: without it the name is as it always was.
+    naming.hidden = false;
+    // A TV paired again has its name.
+    name.value = got.name === 'TV' ? 'Living room' : got.name;
+    say(nameWhy, '');
+    mark();
+    document.getElementById('pair-ok').focus({ preventScroll: true });
+    // The list only helps: whatever it does, the form stays as shown.
     MM.api.get('/api/tvs').then(function (data) {
-      return data.tvs.filter(function (t) { return t.id !== got.id; }).map(function (t) { return t.name; });
-    }, function () {
-      return [];
-    }).then(function (names) {
-      others = names;
-      naming.hidden = false;
-      // A TV paired again has its name.
-      name.value = got.name === 'TV' ? firstFree() : got.name;
-      say(nameWhy, '');
-      mark();
-      document.getElementById('pair-ok').focus({ preventScroll: true });
-    });
+      if (tv !== got || naming.hidden || !data || !Array.isArray(data.tvs)) return;
+      others = data.tvs.filter(function (t) { return t && t.id !== got.id && typeof t.name === 'string'; })
+        .map(function (t) { return t.name; });
+      if (got.name === 'TV' && !touched) {
+        name.value = firstFree();
+        mark();
+      }
+      if (touched) repeats();
+    }).catch(function () {});
   }
 
   form.addEventListener('submit', function (e) {
@@ -163,10 +169,13 @@
   pills.forEach(function (pill) {
     pill.addEventListener('click', function () {
       name.value = pill.textContent.trim();
+      touched = true;
+      repeats();
       mark();
     });
   });
   name.addEventListener('input', function () {
+    touched = true;
     repeats();
     mark();
   });
