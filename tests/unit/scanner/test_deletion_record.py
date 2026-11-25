@@ -17,6 +17,7 @@ from mediaman.scanner.engine import ScanEngine
 from mediaman.scanner.repository import clear_pending_deletions, delete_show_scheduled_deletions
 from mediaman.services.infra import DeletionRefused
 from mediaman.services.infra.storage import deletion as storage
+from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 from mediaman.web.repository.kept import delete_protections, set_protected_state
 from mediaman.web.repository.library_api import (
     MediaDeleteSnapshot,
@@ -634,6 +635,51 @@ class TestRemovalWithNoRecordedOutcome:
         assert _lost(conn) == 1
         if lost == "deleted by a person":
             assert _cut_off(conn) == ["Removal cut off"]
+
+    def test_one_dropped_with_an_older_row_a_new_keep_replaces_is_told(
+        self, conn, film, monkeypatch
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="snoozed",
+            token="newer",
+            execute_at="2099-01-01",
+            token_used=True,
+        )
+
+        _keep_item(conn)
+
+        left = conn.execute("SELECT action FROM scheduled_actions WHERE media_item_id = 'm1'")
+        assert [row[0] for row in left] == ["protected_forever"]
+        assert _lost(conn) == 1
+
+    @pytest.mark.parametrize("new_copy", [False, True])
+    def test_one_dropped_as_radarr_is_found_to_have_deleted_the_title_is_told(
+        self, conn, film, monkeypatch, new_copy
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        film.unlink()
+        film.parent.rmdir()
+        recover_stuck_deletions(conn)
+        if new_copy:
+            film.parent.mkdir()
+            film.write_bytes(b"new")
+        conn.execute(
+            "INSERT INTO delete_intents "
+            "(media_item_id, target_kind, target_id, started_at, confirmed_at) "
+            "VALUES ('m1', 'radarr', '1', '2026', '2026')"
+        )
+        conn.commit()
+
+        assert reconcile_pending_delete_intents(conn) == 1
+
+        assert _action(conn) is None
+        assert _cut_off(conn) == ["Removal cut off"]
 
     @pytest.mark.parametrize("copy_back", [False, True])
     def test_one_booked_with_what_went_before_is_told(self, conn, two_parts, copy_back):
