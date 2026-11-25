@@ -330,7 +330,7 @@ def test_a_scheduled_movie_shows_its_deletion_date_and_days_left(client, conn):
     assert (wrapper["data-kept"], wrapper["data-deletion"]) == ("false", "true")
 
 
-def test_a_movie_past_its_deletion_date_reads_any_day(client, conn):
+def test_a_movie_past_its_deletion_date_reads_any_day_and_is_counted_as_due(client, conn):
     _insert_movie(conn, "42", "Dune")
     insert_scheduled_action(
         conn,
@@ -340,9 +340,11 @@ def test_a_movie_past_its_deletion_date_reads_any_day(client, conn):
         token="tok-42",
     )
 
-    row = _row_text(client.get("/watch/list").text, "Dune")
+    html = client.get("/watch/list").text
+    row = _row_text(html, "Dune")
 
     assert '<span class="wl-del__sub">Leaving any day</span>' in row
+    assert "1 due or scheduled in the next 14 days" in html
 
 
 def test_a_kept_movie_reads_kept_where_the_date_would_be(client, conn):

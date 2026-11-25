@@ -27,7 +27,7 @@
     </a>
   </div>
 
-  <p class="wl-summary" data-list-part="summary">{{ stats.total }} title{{ 's' if stats.total != 1 else '' }} · {{ stats.total_size }} on disk · {{ stats.due_soon }} scheduled for deletion in the next {{ stats.due_soon_days }} days</p>
+  <p class="wl-summary" data-list-part="summary">{{ stats.total }} title{{ 's' if stats.total != 1 else '' }} · {{ stats.total_size }} on disk · {{ stats.due_soon }} due or scheduled in the next {{ stats.due_soon_days }} days</p>
 
   <form class="wl-toolbar" data-list-part="toolbar" method="get" action="/watch">
     <input type="hidden" name="view" value="list">
