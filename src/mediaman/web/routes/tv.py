@@ -139,6 +139,8 @@ class _Poll(_Body):
 class _Ask(_Body):
     play_id: _PlayId
     what: Literal["next", "auto", "again", "cancel", "stop"]
+    #: Of an ``again`` nobody pressed, whether the TV is paused.
+    paused: bool = False
 
 
 class _Pair(_Body):
@@ -341,7 +343,9 @@ def device_ask(request: Request, body: _AskBody, x_tv_token: _Token = "") -> Res
     key = hash_token(x_tv_token)
     if not _ASK_LIMITER.check(key):
         return _too_many(_ASK_LIMITER.retry_after(key))
-    done = _carry_on(request, held, body.what, body.play_id, pressed=body.what != "again")
+    done = _carry_on(
+        request, held, body.what, body.play_id, pressed=body.what != "again", paused=body.paused
+    )
     return done if isinstance(done, Response) else respond_ok()
 
 
@@ -428,6 +432,8 @@ def _start_on(
     over: str | None = None,
     by_itself: bool = False,
     paused: bool = False,
+    renewed: bool = False,
+    pressed: bool = True,
 ) -> int | Response:
     """Play a title on the TV, as its owner's stream; the command's id, or the refusal.
 
@@ -474,10 +480,11 @@ def _start_on(
             start_s=place,
             played_s=0,
             paused=paused,
+            renewed=renewed,
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
         )
-        command.append(players.begin(key, play, over=over, by_itself=by_itself))
+        command.append(players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed))
         begun.append(play)
         # What played counts among the owner's streams until it has ended.
         _carry_out(players)
@@ -542,6 +549,7 @@ def _carry_on(
     play_id: str | None,
     *,
     pressed: bool,
+    paused: bool = False,
     change: Callable[[Choice], Choice] = lambda choice: choice,
 ) -> int | Response:
     """Go on from what plays on the TV; the command's id, or the refusal."""
@@ -565,6 +573,7 @@ def _carry_on(
     over = play.state in ("ended", "upnext", "still")
     if over and what == "restart":
         return _refusal(NotPlaying())
+    renewed = what == "again" and paused
     was_paused = play.state == "paused" or (play.paused and play.state in ("starting", "loading"))
     return _start_on(
         request,
@@ -575,7 +584,9 @@ def _carry_on(
         # What nobody pressed must not take the title from where it was asked for since.
         asked_s=0 if pressed else players.now() - play.asked,
         over=play.id,
-        paused=what == "restart" and was_paused,
+        paused=was_paused if what == "restart" else renewed,
+        renewed=renewed,
+        pressed=pressed,
     )
 
 

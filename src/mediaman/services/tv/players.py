@@ -108,6 +108,9 @@ class Play:
     id: str = field(default_factory=lambda: secrets.token_urlsafe(16))
     #: Whether the TV is to load it paused.
     paused: bool = False
+    #: Whether a paused TV took this stream by itself, the last having ended, and has not played
+    #: since.
+    renewed: bool = False
     state: str = "starting"
     position_s: float = 0.0
     reported_at: float = 0.0
@@ -267,7 +270,7 @@ class Players:
             return
         play.state = report.state
         if play.state == "playing":
-            play.paused = False
+            play.paused = play.renewed = False
         paused = report.state == "paused" and was != "paused"
         if paused or (report.state == "playing" and now - play.saved_at >= SAVE_SECONDS):
             self._put_aside(play, end=False)
@@ -292,6 +295,9 @@ class Players:
                 return
             if moved:
                 self._close(tv, "moved")
+            elif play.renewed:
+                # Paused and alone for as long as two streams last.
+                self._close(tv, "still")
             else:
                 self._put_aside(play, end=True)
                 play.state, play.error = "failed", "gone"
@@ -334,7 +340,13 @@ class Players:
             return self._current(self._tv(token_hash), play_id)
 
     def begin(
-        self, token_hash: str, play: Play, *, over: str | None, by_itself: bool = False
+        self,
+        token_hash: str,
+        play: Play,
+        *,
+        over: str | None,
+        by_itself: bool = False,
+        pressed: bool = True,
     ) -> int:
         """Have *play* take the place of what plays, and return the command's id.
 
@@ -353,7 +365,7 @@ class Players:
                 self._put_aside(tv.play, end=True)
             if by_itself:
                 tv.sitting += 1
-            else:
+            elif pressed:
                 tv.sitting, tv.active_at = 0, self._clock()
             play.position_s = play.start_s
             play.saved_at = self._clock()

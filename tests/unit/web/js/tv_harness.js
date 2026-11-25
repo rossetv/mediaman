@@ -364,6 +364,25 @@ const scenarios = {
     await t.step(100);
     return { byItself, said, ask: t.last('ask').body };
   },
+  async goneWhilePaused() {
+    const t = await playing();
+    t.answers.ask = { ok: true };
+    t.key(OK);
+    t.video.fire('pause');
+    t.now = film({ state: 'failed', error: 'gone', url: null });
+    await t.step(2500);
+    const byItself = t.last('ask').body;
+    t.now = film({ play_id: 'p2', url: '/api/cast/u/index.m3u8', state: 'loading', paused: true });
+    t.video.calls.length = 0;
+    await t.step(2500);
+    t.video.fire('loadedmetadata');
+    t.video.fire('canplay');
+    await t.step(1500);
+    const held = t.video.calls.slice();
+    t.key(OK);
+    await t.step(100);
+    return { byItself, held, pressed: t.video.calls };
+  },
   async tries() {
     const t = await playing();
     t.video.fire('error');

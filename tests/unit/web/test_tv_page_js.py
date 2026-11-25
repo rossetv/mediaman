@@ -161,7 +161,14 @@ def test_still_watching_is_answered_on_the_tv() -> None:
 def test_a_stream_that_ended_is_asked_for_again_twice_and_then_by_a_key() -> None:
     out = _run("goneTwice")
     assert out["byItself"] == 2 and "Try again" in out["said"]
-    assert out["ask"] == {"play_id": "p5", "what": "again"}
+    assert out["ask"] == {"play_id": "p5", "what": "again", "paused": False}
+
+
+def test_a_paused_film_whose_stream_ended_stays_paused_until_a_key() -> None:
+    out = _run("goneWhilePaused")
+    assert out["byItself"] == {"play_id": "p1", "what": "again", "paused": True}
+    assert "play" not in out["held"]
+    assert out["pressed"][-1] == "play"
 
 
 def test_a_picture_that_fails_is_tried_again_before_it_is_called_an_error() -> None:

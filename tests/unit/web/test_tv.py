@@ -196,8 +196,9 @@ class Tv:
         self.kinds = [c["kind"] for c in answer["commands"]]
         return answer
 
-    def ask(self, what):
-        return self.post("ask", {"play_id": self.poll()["play"]["play_id"], "what": what})
+    def ask(self, what, **body):
+        playing = self.poll()["play"]["play_id"]
+        return self.post("ask", {"play_id": playing, "what": what, **body})
 
 
 @pytest.fixture
@@ -846,6 +847,45 @@ def test_a_stream_that_ended_under_the_tv_is_asked_for_again_from_its_place(tv, 
     assert tv.ask("again").status_code == 200
     play = tv.poll()["play"]
     assert (play["state"], play["start_s"]) == ("loading", 70)
+
+
+def test_a_paused_tv_takes_one_stream_more_by_itself_and_then_ends(tv, home, amy, manager, conn):
+    _play(amy, home)
+    tv.poll("paused", 70)
+    manager.end(*_stream_of(tv.token))
+    tv.poll()
+    assert tv.ask("again", paused=True).status_code == 200
+    play = tv.poll()["play"]
+    assert (play["paused"], play["start_s"]) == (True, 70)
+    tv.poll("paused", 70)
+    manager.end(*_stream_of(tv.token))
+    tv.poll()
+    assert tv.poll()["play"] is None
+    last = _tv_of(amy, home)["last"]
+    assert (last["reason"], last["position_s"]) == ("still", 70)
+    assert get_progress(conn, "amy", ["101"])["101"].position_s == 70
+
+
+def test_a_paused_tv_played_on_since_takes_a_stream_again(tv, home, amy, manager):
+    _play(amy, home)
+    for place in (70, 90):
+        tv.poll("paused", place)
+        manager.end(*_stream_of(tv.token))
+        tv.poll()
+        assert tv.ask("again", paused=True).status_code == 200
+        assert tv.poll("playing", place + 1)["play"]["paused"] is False
+
+
+def test_a_stream_taken_again_by_itself_is_no_sign_of_anybody(tv, home, amy, clock, manager):
+    _play(amy, home, "501")
+    for _ in range(73):
+        clock.now += 100
+        tv_routes._POLL_LIMITER.reset()
+        tv.poll("playing", 70)
+    manager.end(*_stream_of(tv.token))
+    tv.poll()
+    assert tv.ask("again").status_code == 200
+    assert tv.poll("ended", 2880)["play"]["state"] == "still"
 
 
 def test_the_title_played_elsewhere_leaves_the_tv_and_is_not_taken_back(tv, home, amy, clock):

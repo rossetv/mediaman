@@ -479,7 +479,7 @@
     if (next.state === 'failed' && next.error === 'gone' && triedPlay !== next.play_id && tries < 2) {
       triedPlay = next.play_id;
       tries += 1;
-      ask('again');
+      ask('again', true);
     }
   }
 
@@ -489,12 +489,14 @@
     return kept[0] === of.play_id && Number(kept[1]) || of.start_s;
   }
 
-  function ask(what) {
+  function ask(what, byItself) {
     if (!play) return;
     var id = play.play_id;
     asked = what === 'cancel' ? null : id;
     askNote = '';
-    send('ask', token, { play_id: id, what: what }, 110000, function (status, got) {
+    var wish = { play_id: id, what: what };
+    if (what === 'again') wish.paused = Boolean(byItself) && !wanted;
+    send('ask', token, wish, 110000, function (status, got) {
       var same = play && play.play_id === id;
       if (asked === id) {
         asked = null;
