@@ -142,6 +142,23 @@ const scenarios = {
     return { off: await go(-128), inView: await go(20), grid: await go(-128, true) };
   },
 
+  // The badge of a show's card goes with the Keep of its season, and is back with an Undo.
+  async seasonKept() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.doc.body.appendChild(build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100' },
+      ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-badge--leaving' }, 'S2']]]));
+    page.run();
+    const badges = () => page.doc.querySelectorAll('[data-leaving-id] .watch-badge--leaving').length;
+    click(page.doc, page.doc.querySelector('.watch-row [data-watch-keep]'));
+    click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+    await settle();
+    const kept = badges();
+    page.toasts[0].opts.action.onClick();
+    await settle();
+    return [kept, badges()];
+  },
+
   // The dialog a Keep's toast says it came from, so that Ctrl+Z reaches its Undo.
   async toastDialog() {
     const keepOnce = async (where) => {

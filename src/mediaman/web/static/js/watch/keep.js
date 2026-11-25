@@ -308,8 +308,8 @@
   }
 
   function cardsFor(id) {
-    return toArray(document.querySelectorAll('.watch-card[data-keep-id]')).filter(function (c) {
-      return c.getAttribute('data-keep-id') === id && !c.classList.contains('is-kept');
+    return toArray(document.querySelectorAll('.watch-card[data-keep-id], .watch-card[data-leaving-id]')).filter(function (c) {
+      return (c.getAttribute('data-keep-id') || c.getAttribute('data-leaving-id')) === id && !c.classList.contains('is-kept');
     });
   }
 

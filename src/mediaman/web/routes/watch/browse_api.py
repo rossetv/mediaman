@@ -129,7 +129,9 @@ def library_items(
     shows = [t for t in titles if isinstance(t, lib.LibraryShow)]
     by_ref |= {
         f"show-{s.key}": c
-        for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
+        for s, c in zip(
+            shows, show_cards(conn, username, libraries, shows, pending, now), strict=True
+        )
     }
     refs = (
         f"movie-{t.key}" if isinstance(t, lib.LibraryMovie) else f"show-{t.key}" for t in titles

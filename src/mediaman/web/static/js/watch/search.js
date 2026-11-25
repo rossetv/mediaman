@@ -68,11 +68,22 @@
   function leavingBadge(item) {
     if (typeof item.leaving_days !== 'number') return null;
     var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
-    badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
-    badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
-    if (item.leaving_days <= 0) {
+    var days = item.leaving_days;
+    var words = leavingText(days);
+    var short = leavingShortText(days);
+    var least = days > 0 ? '' : days < 0 ? 'Any day' : 'Today';
+    // Of a show, the season that is leaving.
+    if (typeof item.leaving_season === 'number') {
+      var s = 'S' + item.leaving_season;
+      words = words.replace('Leaving', 'Season ' + item.leaving_season + ' leaves');
+      short = days > 0 ? s + ' · ' + short : short.replace('Leaving', s + ' leaves');
+      least = s + ' · ' + (least || days + (days === 1 ? ' day' : ' days'));
+    }
+    badge.appendChild(el('span', 'watch-badge__long', words));
+    badge.appendChild(el('span', 'watch-badge__short', short));
+    if (least) {
       var tiny = el('span', 'watch-badge__tiny');
-      tiny.setAttribute('data-words', item.leaving_days < 0 ? 'Any day' : 'Today');
+      tiny.setAttribute('data-words', least);
       tiny.setAttribute('aria-hidden', 'true');
       badge.appendChild(tiny);
     }
@@ -83,7 +94,8 @@
      back when the detail closes. */
   function libraryCard(item) {
     var card = el('article', 'watch-card');
-    card.setAttribute('data-keep-id', item.keep_id || '');
+    if (item.leaving_id) card.setAttribute('data-leaving-id', item.leaving_id);
+    else card.setAttribute('data-keep-id', item.keep_id || '');
 
     var link = el('a', 'watch-card__link');
     var at = /^\/watch\/(movie|show)\/([0-9]+)(\?|$)/.exec(item.href || '');
@@ -154,6 +166,7 @@
   function buildTmdbCard(item, plain) {
     var card = el('article', 'watch-card');
     if (item.keep_id) card.setAttribute('data-keep-id', item.keep_id);
+    if (item.leaving_id) card.setAttribute('data-leaving-id', item.leaving_id);
 
     var link = el('a', 'watch-card__link');
     link.setAttribute('data-title-ref', item.ref || '');

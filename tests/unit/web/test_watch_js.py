@@ -112,6 +112,10 @@ def test_a_finished_keep_and_a_finished_undo_are_announced() -> None:
     assert _run("keepsTold") == {"early": 0, "kept": [kept], "undone": [kept, kept], "refused": 2}
 
 
+def test_a_kept_season_takes_its_badge_off_its_shows_cards_until_an_undo() -> None:
+    assert _run("seasonKept") == [0, 1]
+
+
 def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
     out = _run("undoneCardShown")
     # The row does not snap back to the card it stood on, and the focus does not scroll it too.

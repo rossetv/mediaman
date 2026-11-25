@@ -238,6 +238,24 @@ def test_leaving_badge_wording(days: int, text: str) -> None:
     assert f">{text}<" in html
 
 
+@pytest.mark.parametrize(
+    ("days", "words"),
+    [
+        (-1, ["Season 2 leaves any day", "S2 leaves any day", "S2 · Any day"]),
+        (0, ["Season 2 leaves today", "S2 leaves today", "S2 · Today"]),
+        (1, ["Season 2 leaves in 1 day", "S2 · 1 day left", "S2 · 1 day"]),
+        (5, ["Season 2 leaves in 5 days", "S2 · 5 days left", "S2 · 5 days"]),
+    ],
+)
+def test_a_shows_leaving_badge_is_worded_for_its_season(days: int, words: list[str]) -> None:
+    card = _card(leaving_days=days, leaving_season=2, leaving_id="s2")
+    html = _watch(rows=[{"title": "TV", "items": [card]}])
+    long, short, tiny = words
+    assert f">{long}<" in html and f">{short}<" in html and f'data-words="{tiny}"' in html
+    # Kept, its badge goes, but its own card offers no Keep.
+    assert 'data-leaving-id="s2"' in html and 'data-keep-id="s2"' not in html
+
+
 @pytest.mark.parametrize(("days", "words"), [(-3, "Any day"), (0, "Today")])
 def test_a_badge_for_today_or_any_day_has_words_for_the_narrowest_phones(
     days: int, words: str

@@ -72,6 +72,8 @@ from mediaman.web.routes.watch.pages import (
     poster_url,
     progress_fields,
     resumable,
+    season_fields,
+    seasons_leaving,
 )
 
 logger = logging.getLogger(__name__)
@@ -213,20 +215,24 @@ def held_fields(
     conn: sqlite3.Connection, username: str, libraries: list[str]
 ) -> Callable[[str | None], dict[str, object]]:
     """What a TMDB title's card says of the library title it is, by that title's ref:
-    *username*'s mark, and of a film that is leaving, when and what a Keep of it keeps."""
+    *username*'s mark, of a film that is leaving, when and what a Keep of it keeps, and of a
+    show, when its first leaving season does."""
     seen = lib.seen_refs(conn, username, libraries)
     now = now_utc()
+    pending = lib.pending_deletions(conn, libraries)
     leaving = {
-        f"movie-{p.media_item_id}": leaving_info(p, now)
-        for p in lib.pending_deletions(conn, libraries)
+        f"movie-{p.media_item_id}": leaving_info(p, now) for p in pending if p.season_number is None
     }
+    seasons = {f"show-{key}": found for key, found in seasons_leaving(pending, now).items()}
 
     def fields(ref: str | None) -> dict[str, object]:
         found = leaving.get(ref or "") or {"days": None, "keep_id": None}
+        season = seasons.get(ref or "")
         return {
             **lib.mark_fields(ref, seen),
-            "leaving_days": found["days"],
+            "leaving_days": season["days"] if season else found["days"],
             "keep_id": found["keep_id"],
+            **season_fields(season),
         }
 
     return fields

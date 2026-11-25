@@ -135,6 +135,16 @@ def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
     ]
 
 
+def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_keep() -> None:
+    rest = ["9", None, 0]
+    assert _run("leavingSeason") == [
+        ["Season 2 leaves any day", "S2 leaves any day", "S2 · Any day", *rest],
+        ["Season 2 leaves today", "S2 leaves today", "S2 · Today", *rest],
+        ["Season 2 leaves in 1 day", "S2 · 1 day left", "S2 · 1 day", *rest],
+        ["Season 2 leaves in 5 days", "S2 · 5 days left", "S2 · 5 days", *rest],
+    ]
+
+
 def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
     out = _run("listView")
     assert out["delay"] == 350

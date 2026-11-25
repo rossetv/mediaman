@@ -223,6 +223,25 @@ def leaving_info(pending: lib.PendingDeletion | None, now: datetime) -> dict[str
     return {"days": days_left(execute_at, now), "keep_id": pending.media_item_id}
 
 
+def seasons_leaving(
+    pending: Sequence[lib.PendingDeletion], now: datetime
+) -> dict[str, dict[str, Any]]:
+    """By show key, the first season of the show to leave; *pending* is soonest first."""
+    found: dict[str, dict[str, Any]] = {}
+    for p in pending:
+        info = leaving_info(p, now)
+        if info is not None and p.show_key is not None and p.season_number is not None:
+            found.setdefault(p.show_key, {**info, "season": p.season_number})
+    return found
+
+
+def season_fields(found: Mapping[str, Any] | None) -> dict[str, Any]:
+    """What a show's card says of its leaving season: which, and the item whose Keep ends it."""
+    if found is None:
+        return {}
+    return {"leaving_season": found["season"], "leaving_id": found["keep_id"]}
+
+
 def card(
     kind: str,
     title: str,
@@ -234,10 +253,14 @@ def card(
     minutes_left: int | None = None,
     watched: bool = False,
     leaving: dict[str, Any] | None = None,
+    season_leaving: dict[str, Any] | None = None,
     mark: tuple[str, str] | None = None,
     dismiss_ref: str | None = None,
 ) -> dict[str, Any]:
-    """One card; *mark* is the (kind, key) its Watched toggle marks."""
+    """One card; *mark* is the (kind, key) its Watched toggle marks, *season_leaving* the
+    season of a show that is leaving, which the card says and offers no Keep of."""
+    if season_leaving is not None:
+        leaving = {"days": season_leaving["days"], "keep_id": None}
     mark_kind, mark_key = mark or (None, None)
     return {
         "kind": kind,
@@ -253,6 +276,7 @@ def card(
         "dismiss_ref": dismiss_ref,
         "leaving_days": leaving["days"] if leaving else None,
         "keep_id": leaving["keep_id"] if leaving else None,
+        **season_fields(season_leaving),
     }
 
 
@@ -289,7 +313,11 @@ def show_subtitle(show: lib.LibraryShow, seen: lib.ShowSeen | None = None) -> st
     return " · ".join(parts)
 
 
-def show_card(show: lib.LibraryShow, seen: lib.ShowSeen | None = None) -> dict[str, Any]:
+def show_card(
+    show: lib.LibraryShow,
+    seen: lib.ShowSeen | None = None,
+    season_leaving: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """A show's card; *seen* is how much of it this person has seen."""
     return card(
         "show",
@@ -298,16 +326,23 @@ def show_card(show: lib.LibraryShow, seen: lib.ShowSeen | None = None) -> dict[s
         poster_url(show.key),
         f"/watch/show/{show.key}",
         watched=seen is not None and seen.watched,
+        season_leaving=season_leaving,
         mark=("show", show.key),
     )
 
 
 def show_cards(
-    conn: sqlite3.Connection, username: str, libraries: list[str], shows: list[lib.LibraryShow]
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    shows: list[lib.LibraryShow],
+    pending: list[lib.PendingDeletion],
+    now: datetime,
 ) -> list[dict[str, Any]]:
-    """Show cards marked with what this person has seen of each."""
+    """Show cards marked with what this person has seen of each and any season leaving."""
     seen = lib.show_seen(conn, username, libraries)
-    return [show_card(s, seen.get(s.key)) for s in shows]
+    leaving = seasons_leaving(pending, now)
+    return [show_card(s, seen.get(s.key), leaving.get(s.key)) for s in shows]
 
 
 def movie_cards(
@@ -774,7 +809,8 @@ def watch_page(
     pending = lib.pending_deletions(conn, libraries)
     movie_row = movie_cards(conn, username, movies, pending, now)
     seen_shows = lib.show_seen(conn, username, libraries)
-    show_row = [show_card(s, seen_shows.get(s.key)) for s in shows]
+    going = seasons_leaving(pending, now)
+    show_row = [show_card(s, seen_shows.get(s.key), going.get(s.key)) for s in shows]
 
     films = {m.key: m for m in movies}
     continue_row, banner = _continue_watching(
