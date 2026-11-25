@@ -1,0 +1,184 @@
+/* Watch page: the row of what is downloading. A card is the title's picture in
+   grey that takes its colour from the left as the title comes in. */
+@property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+
+/* Closed, the row and the space a row has above it are not there. */
+.dlx {
+  --rows-gap: 30px;
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: calc(-1 * var(--rows-gap));
+  opacity: 0;
+  transition: grid-template-rows var(--dur-slow) var(--ease-out), margin-top var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
+}
+.dlx[hidden] { display: none; }
+.dlx.is-open { grid-template-rows: 1fr; margin-top: 0; opacity: 1; }
+.dlx__in { min-height: 0; min-width: 0; overflow: hidden; }
+.dlx.is-resting > .dlx__in { overflow: visible; }
+@media (max-width: 599.98px) { .dlx { --rows-gap: 22px; } }
+
+.dlx__count {
+  align-self: center;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: -3px;
+  padding: 0 6px;
+  border-radius: var(--r-md);
+  background: var(--rgba-accent-chip);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.dlx__note { display: flex; align-items: baseline; gap: 8px; margin: 0 var(--pad) 10px; font-size: 13px; color: var(--warning); }
+.dlx__note[hidden] { display: none; }
+.dlx__note > .ico { flex: none; align-self: center; }
+
+.dlx .watch-row__scroll > .dw { flex: 0 0 auto; width: 340px; }
+.dlx .watch-row__scroll > .dw.is-sole { width: min(520px, calc(100cqi - 2 * var(--pad))); }
+@media (max-width: 599.98px) {
+  .dlx .watch-row__scroll > .dw { width: calc(100cqi - 2 * var(--pad) - 36px); }
+  .dlx .watch-row__scroll > .dw.is-sole { width: calc(100cqi - 2 * var(--pad)); }
+}
+.dlx .watch-row__arrow { top: 36px; }
+
+.dw { transition: --p 1s var(--ease-out), width var(--dur-slow) var(--ease-out); }
+.dw.is-leaving { pointer-events: none; }
+.dw__link {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 104px;
+  padding: 12px 16px 14px 12px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--s2);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), opacity var(--dur) var(--ease-out);
+}
+.dw__link::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--hair);
+  pointer-events: none;
+}
+.dw__link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dw__link:active { transform: scale(.985); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .dw__link:hover:not(:active) { transform: scale(1.015); box-shadow: var(--shadow-card); }
+}
+.dw__art,
+.dw__fill { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 75% 30%; }
+.dw__art { filter: grayscale(1) brightness(.42); }
+.dw__fill {
+  filter: saturate(1.15) brightness(1.06);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(var(--p) * 1% - 10px), transparent calc(var(--p) * 1% + 6px));
+  mask-image: linear-gradient(90deg, #000 calc(var(--p) * 1% - 10px), transparent calc(var(--p) * 1% + 6px));
+}
+.dw.is-ready .dw__fill { -webkit-mask-image: none; mask-image: none; }
+:is(.dw__art, .dw__fill):is([data-broken], :not([src])) { visibility: hidden; }
+.dw__link::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--scrim) 72%, transparent),
+    color-mix(in srgb, var(--scrim) 66%, transparent) 55%,
+    color-mix(in srgb, var(--scrim) 40%, transparent) 85%,
+    color-mix(in srgb, var(--scrim) 16%, transparent));
+}
+.dw__poster { flex: none; width: 52px; height: 78px; border-radius: var(--r-xs); object-fit: cover; background: linear-gradient(160deg, var(--s4), var(--s1)); }
+.dw__text { flex: 1; min-width: 0; text-shadow: 0 1px 8px color-mix(in srgb, var(--scrim) 70%, transparent); }
+.dw__title,
+.dw__line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw__title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+.dw__line { margin-top: 3px; font-size: 13px; line-height: 1.35; color: var(--t2); font-variant-numeric: tabular-nums; }
+.dw__line strong { font-weight: 600; color: var(--t1); }
+/* Two lines of it on the narrowest phones, or it would lose when it is tried again. */
+.dw.is-stuck .dw__line { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.dw.is-looking .dw__line { color: var(--warning); }
+.dw.is-ready .dw__line { color: var(--success); }
+
+.dw__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--rgba-overlay-lg); }
+.dw__bar i {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform-origin: 0 50%;
+  transform: scaleX(calc(var(--p) / 100));
+  transition: background-color var(--dur-slow) var(--ease-out);
+}
+.dw.is-held .dw__bar i { background: var(--t4); }
+.dw.is-ready .dw__bar i { background: var(--success); }
+.dw.is-looking .dw__bar i {
+  transform: none;
+  background: linear-gradient(90deg, transparent, var(--warning), transparent) no-repeat -60% 0 / 40% 100%;
+  animation: dw-look 2.4s ease-in-out infinite;
+  opacity: .8;
+}
+.dw:is(.is-stuck, .is-looking.is-held) .dw__bar i { animation: none; background: color-mix(in srgb, var(--warning) 55%, transparent); }
+@keyframes dw-look { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+.dw.is-held .dw__link { opacity: .72; }
+
+.dw__go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -54px;
+  border-radius: 50%;
+  background: var(--t1);
+  color: var(--bg);
+  font-size: 14px;
+  opacity: 0;
+  transform: scale(.4);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out), margin var(--dur-slow) var(--ease-out);
+}
+.dw.is-ready .dw__go { opacity: 1; transform: none; margin-right: 0; }
+.dw__sweep { position: absolute; z-index: 1; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; }
+.dw__sweep::before {
+  content: "";
+  position: absolute;
+  inset: -20% auto -20% -60%;
+  width: 50%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.5), transparent);
+  transform: skewX(-14deg);
+  opacity: 0;
+}
+.dw.is-ready .dw__sweep::before { animation: dw-sweep .7s var(--ease-out) .1s; }
+@keyframes dw-sweep { 0% { opacity: 1; left: -60%; } 100% { opacity: .2; left: 130%; } }
+
+/* The poster on its way to Recently added, and the card it becomes there. */
+.dw-fly {
+  position: fixed;
+  z-index: var(--z-nav);
+  border-radius: var(--r-md);
+  object-fit: cover;
+  transform-origin: 0 0;
+  box-shadow: var(--shadow-card);
+  pointer-events: none;
+}
+.watch-badge--new { right: 8px; font-weight: 600; background: color-mix(in srgb, var(--success) 45%, var(--scrim)); }
+.watch-card.is-new .watch-card__poster { animation: dw-new 1.6s var(--ease-out); }
+@keyframes dw-new {
+  0%, 40% { outline: 2px solid var(--success); }
+  100% { outline: 2px solid transparent; }
+}
+@media (max-width: 599.98px) { .watch-badge--new { right: 6px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dw.is-looking .dw__bar i { animation: none; background: color-mix(in srgb, var(--warning) 55%, transparent); }
+}
+/* Windows' high contrast draws no backgrounds: the bar is all there is. */
+@media (forced-colors: active) {
+  .dw__link { border: 1px solid CanvasText; }
+  .dw__bar i { forced-color-adjust: none; }
+}

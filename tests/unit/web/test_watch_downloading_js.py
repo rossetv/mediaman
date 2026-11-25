@@ -1,0 +1,176 @@
+"""The Watch page's Downloading row and the asking behind it, run under node against a fake DOM
+with a clock that is stepped."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+HARNESS = Path(__file__).parent / "js" / "watch_downloading_harness.js"
+
+
+@pytest.fixture(scope="module")
+def out() -> dict:
+    result = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_with_nothing_downloading_there_is_no_row(out) -> None:
+    assert out["nothing"] == {"hidden": True, "inside": 0}
+
+
+def test_each_state_is_told_in_words(out) -> None:
+    assert out["states"]["lines"] == {
+        "Down": "71% · 6 min left",
+        "Hours": "40% · about 2 h left",
+        "Unknown": "40%",
+        "Almost": "Almost ready",
+        "Queued": "Queued",
+        "Looking": "Looking for the best version",
+        "Stuck": "Nothing found yet · next attempt in ~4h",
+        "Ready": "Ready to watch",
+        "Part": "Some episodes ready",
+    }
+    assert out["states"]["fill"] == "71"
+    assert out["states"]["heading"] == "Downloading, 9, see all in Downloads"
+
+
+def test_each_state_is_drawn_apart(out) -> None:
+    classes = {
+        k: set(v.split()) - {"watch-card", "dw"} for k, v in out["states"]["classes"].items()
+    }
+    assert classes["Down"] == set()
+    assert classes["Queued"] == {"is-queued"}
+    assert classes["Looking"] == {"is-looking"}
+    assert classes["Stuck"] == {"is-looking", "is-stuck"}
+    assert classes["Ready"] == {"is-ready"}
+
+
+def test_a_card_opens_its_title_or_the_downloads_page_when_none_is_known(out) -> None:
+    assert out["links"]["known"] == ["/watch#title=tmdb-movie-5", "tmdb-movie-5"]
+    assert out["links"]["nzb"] == ["/downloads", None]
+
+
+def test_addresses_that_are_not_mediamans_own_lead_nowhere(out) -> None:
+    assert out["links"]["bad"] == ["/downloads", None]
+    assert out["links"]["pictures"] == [None, None, None]
+
+
+def test_a_card_stays_in_place_while_its_progress_moves(out) -> None:
+    assert out["live"] == {"same": True, "line": "55% · 9 min left", "fill": "55"}
+
+
+def test_the_only_card_left_takes_the_room(out) -> None:
+    assert out["sole"] == {"before": False, "after": True, "cards": ["A"]}
+
+
+def test_what_is_done_is_said_once_and_stays_a_minute(out) -> None:
+    assert out["readyLands"]["at"] == {
+        "said": "B is ready to watch",
+        "cards": ["A", "B"],
+        "recent": ["Salt", "Fieldwork"],
+    }
+    assert out["readyLands"]["still"] == ["A", "B"]
+
+
+def test_then_it_goes_to_the_front_of_recently_added(out) -> None:
+    landed = out["readyLands"]
+    assert landed["cards"] == ["A"]
+    assert landed["recent"] == ["B", "Salt", "Fieldwork"]
+    assert landed["ref"] == "tmdb-movie-1"
+    assert landed["heading"] == "Downloading, 1, see all in Downloads"
+
+
+def test_it_goes_there_once_while_the_server_still_calls_it_ready(out) -> None:
+    assert out["readyOnceOnly"] == {"cards": ["A"], "recent": ["B", "Salt", "Fieldwork"]}
+
+
+def test_a_title_that_downloads_again_is_back_in_the_row(out) -> None:
+    assert out["readyAgain"] == ["A", "B"]
+
+
+def test_a_title_already_in_recently_added_is_not_put_there_twice(out) -> None:
+    assert out["alreadyThere"] == ["Fieldwork", "Salt"]
+
+
+def test_what_has_no_title_to_open_is_not_put_in_recently_added(out) -> None:
+    assert out["readyWithoutTitle"] == {"hidden": True, "recent": ["Salt", "Fieldwork"]}
+
+
+def test_the_row_goes_with_its_last_card_and_comes_back(out) -> None:
+    assert out["lastOneCloses"] == {"open": True, "hidden": True, "inside": 0}
+    assert out["closesAndComesBack"] == {"gone": True, "cards": ["C"], "hidden": False}
+
+
+def test_a_row_on_its_way_out_comes_back_without_what_it_left_with(out) -> None:
+    assert out["backWhileClosing"] == {"shut": True, "cards": ["C"], "open": True, "hidden": False}
+
+
+def test_what_was_given_up_leaves_without_being_called_ready(out) -> None:
+    assert out["abandoned"] == {"cards": ["B"], "recent": ["Salt", "Fieldwork"], "said": ""}
+
+
+def test_the_focus_goes_on_to_the_next_card_or_to_where_the_title_went(out) -> None:
+    assert out["focusMovesOn"] is True
+    assert out["focusFollowsTheLast"] is True
+
+
+def test_a_new_card_takes_its_place_and_leaves_the_focus(out) -> None:
+    assert out["reorder"] == {"cards": ["New", "A", "Q"], "focused": True}
+
+
+def test_a_service_that_does_not_answer_is_named_and_only_its_cards_dimmed(out) -> None:
+    assert out["outage"]["first"] == {
+        "note": "Can’t reach Radarr right now. This is how it last was.",
+        "held": True,
+        "other": False,
+    }
+    assert out["outage"]["second"] == "Can’t reach Radarr right now."
+    assert out["outage"]["after"] is None
+
+
+def test_one_failed_ask_is_no_news_and_two_keep_the_row_as_it_was(out) -> None:
+    assert out["failed"]["once"] == {"cards": ["A"], "note": None}
+    assert out["failed"]["twice"] == {
+        "cards": ["A"],
+        "note": "Can’t reach mediaman right now. This is how it last was.",
+        "held": True,
+    }
+    assert out["failed"]["after"] == {"note": None, "held": False}
+    assert out["failedFirst"] == {"first": True, "cards": ["A"]}
+
+
+def test_it_asks_often_only_while_something_moves(out) -> None:
+    pace = out["pace"]
+    assert (pace["busy"], pace["idle"], pace["stuck"]) == (6, 2, 2)
+
+
+def test_it_backs_off_when_it_fails_and_ends_when_refused(out) -> None:
+    assert out["pace"]["refused"] == 0
+    assert out["pace"]["failing"] <= 12
+
+
+def test_a_hidden_tab_asks_nothing_and_asks_at_once_when_shown(out) -> None:
+    assert out["hidden"] == {"during": 0, "back": 1}
+    assert out["hiddenWhileAsking"] == {"aborted": 1, "cards": ["A"]}
+
+
+def test_an_answer_that_never_comes_is_given_up(out) -> None:
+    assert out["hung"] == {"given": 1, "cards": ["A"]}
+
+
+def test_after_something_was_asked_for_it_looks_soon_and_for_a_while(out) -> None:
+    assert out["justAsked"]["soon"] == 1
+    assert out["justAsked"]["then"] >= 4
+
+
+def test_the_page_is_drawn_with_the_answer_it_came_with(out) -> None:
+    assert out["drawn"] == {"now": {"cards": ["A"], "open": True, "asks": 0}, "cards": ["Later"]}
+
+
+def test_all_readers_share_one_asking_and_one_that_breaks_stops_no_other(out) -> None:
+    assert out["readers"] == {"got": [1, 2], "after": [1, 2, 2], "asks": 3, "last": 2}
