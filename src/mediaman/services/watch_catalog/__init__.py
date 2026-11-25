@@ -14,6 +14,7 @@ from ._discover import (
     details,
     discover_page,
     discover_shelves,
+    held_details,
     search,
     tmdb_card,
 )
@@ -77,6 +78,7 @@ __all__ = [
     "folder_year",
     "gate",
     "genre_posters",
+    "held_details",
     "invalidate",
     "library_href",
     "library_ids",

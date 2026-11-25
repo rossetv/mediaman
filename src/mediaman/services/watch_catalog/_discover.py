@@ -255,6 +255,27 @@ def search(
     return [r for r in result if not r.get("adult")]
 
 
+def _details_key(media_type: str, tmdb_id: int) -> str:
+    # "v5": entries before it lack the director's id, the date and the popularity.
+    return f"tmdb:details:v5:{media_type}:{tmdb_id}"
+
+
+def held_details(kind: str, tmdb_id: int) -> dict[str, Any] | None:
+    """What ``details`` answered for a title in the last 90 days, or None. TMDB is not asked."""
+
+    def fetch() -> dict[str, Any]:
+        raise TmdbUnavailable("not held")
+
+    key = _details_key("movie" if kind == "movie" else "tv", tmdb_id)
+    try:
+        found: dict[str, Any] = _cache().get_or_fetch(
+            key, 90 * _DAY, 90 * _DAY, fetch, allow_fetch=lambda: False
+        )
+    except (TmdbUnavailable, disk_cache.Refused):
+        return None
+    return None if found.get("adult") or found.get("gone") else found
+
+
 def details(
     client: TmdbClient,
     kind: str,
@@ -286,8 +307,7 @@ def details(
             return {"adult": True}
         return tmdb_fields(found, media_type)
 
-    # "v5": entries before it lack the director's id, the date and the popularity.
-    key = f"tmdb:details:v5:{media_type}:{tmdb_id}"
+    key = _details_key(media_type, tmdb_id)
     result: dict[str, Any] = _cached(
         client,
         key,
