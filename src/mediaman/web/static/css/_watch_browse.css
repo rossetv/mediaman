@@ -93,6 +93,11 @@
   .watch-row__head:has(> .watch-row__tools) > .row-offer { display: none; }
   .watch-row__head:has(> .watch-row__tools) > .row-offer ~ .watch-row__tools { margin-left: auto; }
 }
+/* Here its words would cover the heading: the icon alone is drawn. */
+@media (max-width: 399.98px) {
+  .row-offer { padding: 0 11px; }
+  .row-offer__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
 @media (prefers-reduced-motion: reduce) {
   .row-offer { transform: none; }
   .row-open:hover .row-open__cue > .ico { transform: none; }

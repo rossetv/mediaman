@@ -339,7 +339,7 @@
   .watch-row__title > .row-open[href],
   .watch-row__head > .space-row-link { z-index: 1; }
   .watch-row__title > .row-open[href]::after,
-  .watch-row__head > .space-row-link::after { inset: -12px -10px -14px; }
+  .watch-row__head > .space-row-link::after { inset: -9px -10px -17px; }
 }
 /* Here Leaving soon's link is a line of its own under the heading. */
 @media (max-width: 359.98px) {

@@ -214,6 +214,17 @@ def test_a_heading_and_the_link_under_it_take_44px_each_on_the_narrowest_phones(
     assert link[1] - room <= 8
 
 
+def test_a_rows_heading_leaves_the_more_of_the_row_above_its_44px() -> None:
+    # As low as a card's More comes over the gap to the next heading.
+    assert _reach(".watch-row__title > .row-open[href]::after", TOUCH)[0] <= 9
+
+
+def test_a_rows_offer_covers_no_heading_on_a_narrow_phone() -> None:
+    browse = SHEET.with_name("_watch_browse.css")
+    text = _of(".row-offer__text", "(max-width: 399.98px)", browse)
+    assert "position: absolute" in text and "clip-path: inset(50%)" in text
+
+
 def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
     browse = SHEET.with_name("_watch_browse.css")
     under = (
