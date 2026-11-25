@@ -124,8 +124,12 @@
     }
 
     function choose(pick) {
+      eased(function () { putPick(pick); });
+    }
+
+    function putPick(pick) {
       draft = pick;
-      showError('');
+      putError('');
       paint();
     }
 
@@ -380,15 +384,20 @@
       out.toBlob(function (blob) {
         if (mine !== turn) return;
         place = null;
-        pane(false);
         if (!blob) {
-          showError(WORDS.place);
+          eased(function () {
+            showPane(false);
+            putError(WORDS.place);
+          });
           byId('pic-upload').focus({ preventScroll: true });
           return;
         }
         var url = URL.createObjectURL(blob);
         made.push(url);
-        choose({ choice: null, url: url, blob: blob });
+        eased(function () {
+          showPane(false);
+          putPick({ choice: null, url: url, blob: blob });
+        });
         save.focus({ preventScroll: true });
       }, place.type, 0.9);
     });

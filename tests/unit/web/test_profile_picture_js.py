@@ -204,3 +204,11 @@ def test_what_is_brought_into_view_stops_under_the_header_that_stays() -> None:
     room = re.search(r"\.pic \{[^}]*scroll-padding-top: (\d+)px", css)
     # the header: its padding of 18px at most and a close button of 44px
     assert room and int(room[1]) >= 18 + 44
+
+
+def test_the_height_goes_to_where_a_wrapped_remove_button_takes_it() -> None:
+    assert _run("wraps") == {
+        "picked": [["417px", "468px"]],
+        "removed": [["468px", "417px"]],
+        "placed": [["417px", "562px"], ["562px", "468px"]],
+    }

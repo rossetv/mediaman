@@ -21,7 +21,7 @@ const DIALOG = (attrs) => ['div', { id: 'pic-dialog', class: 'modal-backdrop', r
   ['input', { id: 'pic-file' }]];
 
 // `decode` is the size a chosen file opens at, or null where the browser cannot open it.
-function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], calm = true, blob = { type: 'image/jpeg' } } = {}) {
+function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fetch, decode = [800, 600], calm = true, wraps = false, blob = { type: 'image/jpeg' } } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.body.appendChild(build(doc, ['main', {}, ['button', { id: 'pic-open' }, ['img', { src: '/d2' }]]]));
@@ -31,7 +31,8 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   $('pic-zoom').style.setProperty = (k, v) => { vars[k] = v; };
   const runs = [];
   $('pic-body').animate = (frames) => { const run = { cancelled: false, cancel() { run.cancelled = true; } }; runs.push({ run, from: frames[0].height, to: frames[1].height }); return run; };
-  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : ($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)) });
+  Object.defineProperty($('pic-body'), 'offsetHeight', { get: () => ($('pic-dialog').hidden ? 0 : ($('pic-place').hidden ? 417 : 562) + ($('pic-error').textContent ? 74 : 0)
+    + (wraps && $('pic-place').hidden && !$('pic-remove').hidden ? 51 : 0)) });
   $('pic-dialog').hidden = true;
   $('pic-dialog').querySelectorAll('input').forEach((r) => { r.value = r.getAttribute('value'); });
   const drawn = [];
@@ -292,6 +293,16 @@ const scenarios = {
     p.pick(3);
     p.pick(4);
     return { runs: p.runs.map((r) => [r.from, r.to]), shown };
+  },
+  // on a narrow phone, where Remove goes under Upload: a drawing picked, removed, and a photo placed
+  async wraps() {
+    const p = page({ calm: false, wraps: true });
+    const step = (go) => { go(); return p.runs.splice(0).map((r) => [r.from, r.to]); };
+    p.click('pic-open');
+    return {
+      picked: step(() => p.pick(3)), removed: step(() => p.click('pic-remove')),
+      placed: step(() => { p.file(JPEG); p.click('pic-use'); }),
+    };
   },
   async fill() {
     const p = page();
