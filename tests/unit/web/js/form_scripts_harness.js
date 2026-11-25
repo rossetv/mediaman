@@ -124,21 +124,27 @@ const scenarios = {
     const eye = a.parentNode.children[1];
     let prevented = false;
     eye.fire('mousedown', { preventDefault() { prevented = true; } });
-    // As Chromium does: after a press that changes its type, the cursor is put at the start; then a frame.
-    const press = (before) => {
-      eye.fire('click');
-      a.setSelectionRange(0, 0);
-      if (before) before();
-      frames.splice(0).forEach((fn) => fn());
-      return [a.selectionStart, a.selectionEnd, a.selectionDirection];
-    };
-    const kept = press();
+    // As Chromium does: after each press that changes its type, the cursor is put at the start.
+    const press = () => { eye.fire('click'); a.setSelectionRange(0, 0); };
+    const frame = () => frames.splice(0).forEach((fn) => fn());
+    const at = () => [a.selectionStart, a.selectionEnd, a.selectionDirection];
+    const from = () => { a.value = 'abcdefghij'; a.focus(); a.setSelectionRange(2, 5, 'backward'); };
+    press(); frame();
+    const kept = at();
     const active = doc.activeElement === a;
-    a.setSelectionRange(2, 5, 'backward');
-    const typedMeanwhile = press(() => { a.value = 'abcdefghijX'; });
-    a.setSelectionRange(2, 5, 'backward');
-    const leftMeanwhile = press(() => { doc.activeElement = doc.body; });
-    return { prevented, active, kept, typedMeanwhile, leftMeanwhile, drawn: doc.documentElement.className };
+    from(); const type = a.type; press(); press(); frame();
+    const twice = [...at(), a.type === type];
+    // a key typed before the frame: where it goes, then what typing it leaves
+    from(); press();
+    a.fire('keydown', { key: 'X' });
+    const keyGoes = at();
+    a.value = 'abXfghij'; a.setSelectionRange(3, 3); frame();
+    const afterKey = at();
+    from(); press(); a.value = 'filled in'; frame();
+    const filledMeanwhile = at();
+    from(); press(); doc.activeElement = doc.body; frame();
+    const leftMeanwhile = at();
+    return { prevented, active, kept, twice, keyGoes, afterKey, filledMeanwhile, leftMeanwhile, drawn: doc.documentElement.className };
   },
   autofocus() {
     const { doc, ctx } = build();

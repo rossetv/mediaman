@@ -162,16 +162,23 @@
       if (!f.eye) return f;
       // The cursor stays in the field while its eye is pressed.
       f.eye.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      // Chromium puts the cursor at the start just after the type changes, so it goes back a frame
+      // later, or sooner where a key comes first. A second press before then keeps the first place.
+      var back = null;
+      function putBack() {
+        var at = back;
+        back = null;
+        if (!at || document.activeElement !== f.input || f.input.value !== at.value) return;
+        try { f.input.setSelectionRange(at.from, at.to, at.way); } catch (err) { /* A field that has none. */ }
+      }
       f.eye.addEventListener('click', function () {
-        var from = f.input.selectionStart, to = f.input.selectionEnd, way = f.input.selectionDirection, value = f.input.value;
+        if (!back) back = { from: f.input.selectionStart, to: f.input.selectionEnd, way: f.input.selectionDirection, value: f.input.value };
         f.shown(f.eye.getAttribute('aria-pressed') !== 'true');
-        if (document.activeElement !== f.input) return;
-        // Chromium puts the cursor at the start just after the type changes, so it goes back a frame later.
-        requestAnimationFrame(function () {
-          if (document.activeElement !== f.input || f.input.value !== value) return;
-          try { f.input.setSelectionRange(from, to, way); } catch (err) { /* A field that has none. */ }
-        });
+        if (document.activeElement !== f.input) { back = null; return; }
+        requestAnimationFrame(putBack);
       });
+      f.input.addEventListener('keydown', putBack);
+      f.input.addEventListener('beforeinput', putBack);
       return f;
     }
     var user = field(node.querySelector('.pwd-fld--user'));

@@ -48,13 +48,14 @@ function page({ refused, forced, options } = {}) {
     type(id, value) { $(id).value = value; form.listeners.input.forEach((fn) => fn({ target: $(id) })); },
     key: (caps) => form.listeners.keydown.forEach((fn) => fn({ getModifierState: () => caps })),
     // As Chromium does: a field whose type changed has its cursor put at the start after the press, then a frame.
-    press(n) {
+    press(n, { wait = false } = {}) {
       const fields = doc.querySelectorAll('input');
       const was = fields.map((f) => f.type);
       doc.querySelectorAll('.pwd-eye')[n].listeners.click.forEach((fn) => fn({}));
       fields.forEach((f, i) => { if (f.type !== was[i]) f.setSelectionRange(0, 0); });
-      frames.splice(0).forEach((fn) => fn());
+      if (!wait) this.frame();
     },
+    frame: () => frames.splice(0).forEach((fn) => fn()),
     // As the browser raises it: on the form, then on up to the document.
     submit() {
       const e = { target: form, sent: true, stopped: false, preventDefault() { this.sent = false; }, stopPropagation() { this.stopped = true; } };
@@ -105,6 +106,20 @@ const scenarios = {
     const said = (text) => { p.type('new_password', text); const now = p.said(); p.run(900); p.timers.length = 0; return [now, p.said()]; };
     p.type('old_password', 'the old one');
     return { short: said('Copper'), huge: said('Aa1!' + 'é'.repeat(600)), good: said(GOOD), mix: said('copper lanternab'), rare: said('copper lantern٣᠐'), newer: said('AAAAAAAAAAA1\u{1ccd6}\u{1ccd7}\u{1ccd8}\u{1ccd9}\u{1ccda}\u{1ccdb}'), emptied: said('') };
+  },
+  // pressed twice, or typed in, before the frame
+  eyeQuick() {
+    const p = page();
+    const f = p.$('new_password');
+    const at = () => [f.selectionStart, f.selectionEnd, f.selectionDirection];
+    const from = () => { f.value = 'abcdefghij'; f.focus(); f.setSelectionRange(2, 5, 'backward'); };
+    from(); p.press(1, { wait: true }); p.press(1, { wait: true }); p.frame();
+    const twice = at();
+    from(); p.press(1, { wait: true });
+    (f.listeners.keydown || []).forEach((fn) => fn({ target: f, key: 'X' }));
+    const keyGoes = at();
+    f.value = 'abXfghij'; f.setSelectionRange(3, 3); p.frame();
+    return { twice, keyGoes, afterKey: at(), focused: p.focused() };
   },
   eye() {
     const p = page();

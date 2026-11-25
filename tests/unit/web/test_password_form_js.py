@@ -160,6 +160,14 @@ def test_an_eye_shows_its_own_field_and_keeps_the_cursor_where_it_was() -> None:
     assert out["kept"] == ["new_password", 2, 4, "backward"]
 
 
+def test_pressed_twice_or_typed_in_before_a_frame_the_eye_keeps_the_cursor() -> None:
+    out = _run("eyeQuick")
+    assert out["twice"] == out["keyGoes"] == [2, 5, "backward"]
+    # the typing then stands
+    assert out["afterKey"] == [3, 3, "none"]
+    assert out["focused"] == "new_password"
+
+
 def test_a_shown_password_is_hidden_while_it_is_sent_and_shown_again_if_refused() -> None:
     out = _run("eye")
     assert out["sending"][:2] == ["password", "password"]
