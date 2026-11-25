@@ -1520,7 +1520,7 @@ const scenarios = {
     const look = () => [held.classList.contains('is-open'), more.textContent, more.getAttribute('aria-expanded'), more.getAttribute('aria-label')];
     const press = [look()];
     for (let i = 0; i < 2; i++) { click(p.doc, more); press.push(look()); }
-    const waits = () => [p.q('.ttl__season').classList.contains('is-waiting'), p.ttl().querySelectorAll('.ttl__season .ttl-epskel').length > 0, p.q('.watch-episodes').getAttribute('aria-busy')];
+    const waits = () => [p.q('.ttl__season').classList.contains('is-waiting'), p.ttl().querySelectorAll('.ttl__season .ttl-epskel').length > 0, p.q('.watch-episodes').getAttribute('aria-busy'), !!p.q('.watch-episodes').inert, !!p.q('.ttl__season-about').inert];
     click(p.doc, p.q('[data-season="1"]'));
     const wait = waits();
     answer.reject(new Error('down'));
@@ -1539,6 +1539,114 @@ const scenarios = {
     p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
     await settle();
     return { rows, opened, press, wait, failed, picked, marked, older: season(), bare: p.ttl().querySelectorAll('.watch-ep__about').length };
+  },
+
+  // Texts opened by More, and the title drawn again by a mark, then another season and back.
+  async openedTexts() {
+    const eps = [1, 2].map((n) => ({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, state: 'none', href: '/watch/play/2' + n, summary: 'About ' + n }));
+    const show = Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', episodes: eps,
+      seasons: [LIB_SHOW.seasons[0], Object.assign({}, LIB_SHOW.seasons[1], { summary: 'Its second year.' })] });
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))),
+      '/api/watch/title/show-300/season/1': { ok: true, key: '301', episodes: [eps[0], eps[1]], summary: 'Its first.' },
+      '/api/watch/title/show-300/season/2': { ok: true, key: '302', episodes: eps, summary: 'Its second year.' } } });
+    p.run();
+    await openCard(p, 'show-300');
+    const opened = () => [p.q('.ttl__season-about')].concat(p.ttl().querySelectorAll('.watch-eprow')).map((n) => n.classList.contains('is-open'));
+    const more = p.ttl().querySelectorAll('.ttl-more');
+    click(p.doc, more[0]);
+    click(p.doc, more[2]);
+    more[2].focus();
+    const out = { pressed: opened() };
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    const fresh = p.ttl().querySelectorAll('.ttl-more')[2];
+    out.marked = [opened(), fresh !== more[2], p.doc.activeElement === fresh, fresh.textContent, fresh.getAttribute('aria-expanded')];
+    click(p.doc, fresh);
+    out.closed = opened();
+    click(p.doc, p.q('[data-season="1"]'));
+    await settle();
+    out.other = opened();
+    return out;
+  },
+
+  // What TMDB says of a season once it is on show: of the show's own, of one picked, while something
+  // is pressed, and of one left meanwhile.
+  async lateWords() {
+    const ep = (n, over) => Object.assign({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, state: 'none', href: '/watch/play/2' + n, summary: '' }, over);
+    const told = (n) => ({ ok: true, key: '30' + n, summary: 'Words on ' + n, year: 2015 + n, words_pending: false,
+      episodes: [ep(1, { summary: 'About one.', aired: '2019-05-04' }), ep(2)] });
+    const bare = (n) => ({ ok: true, key: '30' + n, summary: '', year: null, words_pending: true, episodes: [ep(1), ep(2)] });
+    const show = Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', words_pending: true, episodes: [ep(1), ep(2)] });
+    const start = async (first) => {
+      const asks = [];
+      const words = (n) => () => new Promise((resolve, reject) => asks.push({ n, resolve: () => resolve(told(n)), reject }));
+      const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))),
+        '/api/watch/title/show-300/season/1': () => Promise.resolve(Object.assign(bare(1), first)), '/api/watch/title/show-300/season/2': () => Promise.resolve(bare(2)),
+        '/api/watch/title/show-300/season/1?words=1': words(1), '/api/watch/title/show-300/season/2?words=1': words(2) } });
+      p.run();
+      await openCard(p, 'show-300');
+      return { p, asks };
+    };
+    const look = (p) => ({ facts: p.text('.ttl__season-facts'), text: p.text('.ttl__season-text'),
+      rows: p.ttl().querySelectorAll('.watch-eprow').map((li) => [li.querySelector('.watch-ep__meta').textContent, li.querySelector('.watch-ep__about') && li.querySelector('.watch-ep__about').textContent, li.querySelectorAll('.ttl-more').length]) });
+    const out = {};
+    {
+      const { p, asks } = await start();
+      const rows = p.ttl().querySelectorAll('.watch-eprow');
+      const link = rows[1].querySelector('.watch-ep');
+      link.focus();
+      out.before = look(p);
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:search-assist', {}));
+      asks[0].resolve();
+      await settle();
+      out.came = look(p);
+      out.same = [p.ttl().querySelectorAll('.watch-eprow').every((li, i) => li === rows[i]), p.doc.activeElement === link, asks.length];
+      click(p.doc, p.q('[data-season="1"]'));
+      await settle();
+      out.picked = [look(p).text, asks.map((a) => a.n)];
+      asks[1].resolve();
+      await settle();
+      out.pickedCame = look(p);
+    }
+    {
+      const { p, asks } = await start();
+      p.doc.dispatchEvent({ type: 'pointerdown' });
+      asks[0].resolve();
+      await settle();
+      out.held = look(p).text;
+      p.doc.dispatchEvent({ type: 'pointerup' });
+      p.tick();
+      out.letGo = look(p).text;
+    }
+    {
+      const { p, asks } = await start({ words_pending: false });
+      click(p.doc, p.q('[data-season="1"]'));
+      await settle();
+      asks[0].resolve();
+      await settle();
+      out.left = look(p).text;
+    }
+    {
+      const { p, asks } = await start();
+      asks[0].reject(new APIError(503, 'x'));
+      await settle();
+      out.failed = look(p);
+    }
+    return out;
+  },
+
+  // What stands for a title while it loads: for an admin the facts card, and how far it was watched as its card says.
+  async loadingPlaces() {
+    const pending = () => new Promise(() => {});
+    const run = (ref, admin, begun) => {
+      const p = load({ admin, adminApi: {}, routes: { ['/api/watch/title/' + ref]: pending } });
+      const card = p.doc.querySelector('.watch-card');
+      if (begun) card.appendChild(build(p.doc, ['progress', { class: 'watch-bar' }]));
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, { title: 'X', origin: card });
+      return [p.ttl().querySelectorAll('.ttl-facts .ttl-facts__skel').length, p.q('.ttl__lead').querySelectorAll('.ttl__progress').length];
+    };
+    return { admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true) };
   },
 
   // The title is loaded again after a Keep while another season than the server's own is on
@@ -2254,7 +2362,7 @@ const scenarios = {
     const admin = { admin: true, adminApi: { keep: (w) => kept.push(w.season_id), removeKeep: () => {} } };
     return { quiet: await open(none), appears: await open({}), otherKeep: await open(both),
       pressed: await open(none, (p) => click(p.doc, p.q('.ttl__overview') || p.q('.ttl__body'))),
-      reading: await open(none, (p) => p.q('.watch-ep').focus()),
+      reading: await open(none, (p) => p.q('.watch-ep').focus()), facts: await open(none, (p) => p.q('.ttl__season-about').focus()),
       failed: await open(both, null, 'failed'), admin: await open({}, null, null, admin),
       adminMenu: await open({}, (p) => click(p.doc, p.q('[data-ttl-act="admin-keep"]')), null, admin),
       keepMenu: await open(own, (p) => click(p.doc, p.q('.watch-btn--keep'))) };

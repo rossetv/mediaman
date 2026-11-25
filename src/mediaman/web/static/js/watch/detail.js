@@ -268,7 +268,9 @@
       chosen: false,        // the person picked the season, or their link named it
       pressed: false,       // something has been pressed since it came
       picked: null,         // the episodes of the season on show, when not the title's own
-      pickedAbout: null,    // what is said of that season: { summary, year }
+      pickedAbout: null,    // what is said of that season: { summary, year, words_pending }
+      words: null,          // the season whose words are asked for: { number }
+      opened: {},           // the texts opened by More, by what they are of
       seasonLoading: null,  // the season being loaded: { number }
       room: 0,              // what is left above the seasons, for them to stay where they were
       shareUrl: null,
@@ -589,7 +591,7 @@
   function comeLate(c, s, got) {
     if (c !== cur || !isOpen || c.pressed || !body.querySelector('.ttl__seasonsec')) return;
     var active = document.activeElement;
-    if (active && active.closest && active.closest('.watch-episodes, .ttl__season-mark')) return;
+    if (active && active.closest && active.closest('.ttl__season, .ttl__season-mark')) return;
     var now = numbered(c.data, s.number);
     if (!now) return;
     var left = leavingNow();
@@ -861,9 +863,20 @@
     var main = el('div', 'ttl__main');
     var actions = el('div', 'ttl__actions');
     actions.appendChild(skel('skel--pill', '150px'));
-    actions.appendChild(skel('skel--pill', '120px'));
-    if (/^(movie|show)-/.test(cur.ref)) actions.appendChild(skel('skel--pill', '200px')); // Watched
+    var held = /^(movie|show)-/.test(cur.ref);
+    if (held && window.MM.playOn) actions.appendChild(skel('skel--pill ttl__play-on'));
+    var search = window.MMWatch.search;
+    if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px'));
+    actions.appendChild(skel('skel--pill', '158px')); // Trailer
+    if (held) actions.appendChild(skel('skel--pill', '200px')); // Watched
     main.appendChild(actions);
+    // Its card says how far it was watched, as the page is about to.
+    var card = cur.origin && cur.origin.closest && cur.origin.closest('.watch-card');
+    if (held && card && card.querySelector('.watch-bar')) {
+      var progress = el('div', 'ttl__progress');
+      progress.appendChild(skel('skel--line', '240px'));
+      main.appendChild(progress);
+    }
     if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
       var thumbsSkel = el('div', 'ttl__rate-skel');
       thumbsSkel.appendChild(skel('skel--pill'));
@@ -877,7 +890,13 @@
     lines.appendChild(skel('skel--line'));
     lines.appendChild(skel('skel--line', '72%'));
     main.appendChild(lines);
+    if (held && cur.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
     lead.appendChild(main);
+    if (hasFacts(cur)) {
+      var facts = factsCard();
+      factsToCome(facts, false);
+      lead.appendChild(facts.aside);
+    }
     body.appendChild(lead);
     if (/^show-/.test(cur.ref)) {
       var eps = el('section', 'ttl__seasonsec');
@@ -1147,6 +1166,7 @@
         n.classList.add('is-swapping-in');
       });
     }
+    if (season) askWords(cur);
     restoreFocus(keepComes && byAct('keep') ? 'keep' : key);
   }
 
@@ -2208,49 +2228,62 @@
     text.appendChild(title);
     text.appendChild(el('span', 'watch-ep__meta', episodeFacts(e)));
     a.appendChild(text);
-    var more = null;
-    if (e.summary) {
-      // The link's description, not a part of its name.
-      var about = el('span', 'watch-ep__about ttl-clamp', e.summary);
-      about.id = 'ttl-ep-' + (++seq);
-      about.setAttribute('aria-hidden', 'true');
-      a.setAttribute('aria-describedby', about.id);
-      a.appendChild(about);
-      more = moreButton('watch-ep__more', about, li, name);
-    }
     li.appendChild(a);
-    if (more) li.appendChild(more);
+    describe(li, e);
     var mark = episodeMark(e);
     if (mark) li.appendChild(mark);
     return li;
   }
 
-  /* Opens the rest of *text* by a press: *holder* is open meanwhile. */
-  function moreButton(cls, text, holder, name) {
+  /* Put what episode *e* is about into its row. */
+  function describe(li, e) {
+    var a = li.querySelector('.watch-ep');
+    if (!e.summary || a.querySelector('.watch-ep__about')) return null;
+    // The link's description, not a part of its name.
+    var about = el('span', 'watch-ep__about ttl-clamp', e.summary);
+    about.id = 'ttl-ep-' + (++seq);
+    about.setAttribute('aria-hidden', 'true');
+    a.setAttribute('aria-describedby', about.id);
+    a.appendChild(about);
+    a.after(moreButton('watch-ep__more', about, li, e.title || 'Episode ' + e.number, 'ep-' + e.number));
+    return about;
+  }
+
+  /* Opens the rest of *text* by a press: *holder* is open meanwhile, and again when it is drawn
+     anew as *key*. */
+  function moreButton(cls, text, holder, name, key) {
+    var c = cur;
     var b = button('ttl-more ' + cls, 'More');
-    b.setAttribute('aria-expanded', 'false');
     b.setAttribute('aria-controls', text.id);
-    b.setAttribute('aria-label', 'More about ' + name);
-    b.addEventListener('click', function () {
-      var open = holder.classList.toggle('is-open');
+    b.setAttribute('data-ttl-act', 'more-' + key);
+    function show() {
+      var open = !!c.opened[key];
+      holder.classList.toggle('is-open', open);
       b.textContent = open ? 'Less' : 'More';
       b.setAttribute('aria-label', (open ? 'Less' : 'More') + ' about ' + name);
       b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    b.addEventListener('click', function () {
+      c.opened[key] = !c.opened[key];
+      show();
     });
+    show();
     return b;
   }
 
   /* Which texts are cut off, and how high each is in full, for it to ease open. */
+  function fitNow(panel) {
+    toArray(panel.querySelectorAll('.ttl-clamp')).map(function (text) {
+      return [text, text.scrollHeight, parseFloat(getComputedStyle(text).lineHeight)];
+    }).forEach(function (one) {
+      one[0].style.setProperty('--full', one[1] + 'px');
+      one[0].parentNode.classList.toggle('is-long', one[1] > 2 * one[2] + 2);
+    });
+  }
+
   function fitTexts(panel) {
     if (typeof ResizeObserver !== 'function') return;
-    function fit() {
-      toArray(panel.querySelectorAll('.ttl-clamp')).map(function (text) {
-        return [text, text.scrollHeight, parseFloat(getComputedStyle(text).lineHeight)];
-      }).forEach(function (one) {
-        one[0].style.setProperty('--full', one[1] + 'px');
-        one[0].parentNode.classList.toggle('is-long', one[1] > 2 * one[2] + 2);
-      });
-    }
+    function fit() { fitNow(panel); }
     var width = panel.offsetWidth;
     fit();
     // A text open from the start, as under the mark just pressed, is drawn open.
@@ -2275,19 +2308,106 @@
     var about = (cur.picked && cur.pickedAbout) || s || {};
     var name = s ? seasonName(s) : 'Season';
     var panel = el('div', 'ttl__season');
-    var facts = [plural(episodes.length, 'episode', 'episodes')];
-    if (about.year) facts.unshift(String(about.year));
     var box = el('div', 'ttl__season-about');
-    box.appendChild(el('p', 'ttl__season-facts', facts.join(' · ')));
-    if (about.summary && about.summary !== cur.data.overview) {
-      var text = el('p', 'ttl__season-text ttl-clamp', about.summary);
-      text.id = 'ttl-season-' + (++seq);
-      box.appendChild(text);
-      box.appendChild(moreButton('', text, box, name));
-    }
+    box.appendChild(el('p', 'ttl__season-facts', seasonFacts(about, episodes)));
+    sayOfSeason(box, about, name);
     panel.appendChild(box);
     panel.appendChild(episodeList(episodes, name + ' episodes'));
     return panel;
+  }
+
+  function seasonFacts(about, episodes) {
+    var facts = [plural(episodes.length, 'episode', 'episodes')];
+    if (about.year) facts.unshift(String(about.year));
+    return facts.join(' · ');
+  }
+
+  function sayOfSeason(box, about, name) {
+    if (!about.summary || about.summary === cur.data.overview || box.querySelector('.ttl__season-text')) return null;
+    var text = el('p', 'ttl__season-text ttl-clamp', about.summary);
+    text.id = 'ttl-season-' + (++seq);
+    box.appendChild(text);
+    box.appendChild(moreButton('', text, box, name, 'season'));
+    return text;
+  }
+
+  /* ── Words that come after their season ── */
+
+  function askWords(c) {
+    var n = c.season;
+    if (!(c.picked ? c.pickedAbout : c.data).words_pending || (c.words && c.words.number === n)) return;
+    var w = c.words = { number: n };
+    get(apiUrl(c.ref) + '/season/' + encodeURIComponent(n) + '?words=1', c.ctrl).then(function (data) {
+      betweenPresses(function () {
+        if (c.words !== w) return;
+        c.words = null;
+        if (c === cur && isOpen && c.data && c.season === n) takeWords(c, data);
+      });
+    }, function () { if (c.words === w) c.words = null; });
+  }
+
+  /* Run *fn* now, or once what is being pressed has been let go of and has answered. */
+  function betweenPresses(fn) {
+    if (!pressing) { fn(); return; }
+    setTimeout(function () { betweenPresses(fn); }, 100);
+  }
+
+  var pressing = false;
+  document.addEventListener('pointerdown', function () { pressing = true; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (type) {
+    document.addEventListener(type, function () { pressing = false; }, true);
+  });
+
+  /* The words into the rows on show, which make room for them: what is pointed at or has the
+     focus stays where it is, and the rest slides. */
+  function takeWords(c, data) {
+    var s = numbered(c.data, c.season);
+    if (!s) return;
+    var episodes = data.episodes || [];
+    if (c.picked) {
+      takeEpisodes(c, data);
+    } else {
+      c.data.episodes = episodes;
+      s.summary = data.summary;
+      s.year = data.year;
+      delete c.data.words_pending;
+    }
+    var sec = body.querySelector('.ttl__seasonsec');
+    var panel = sec && sec.querySelector('.ttl__season');
+    if (!panel) return;
+    var rows = toArray(panel.querySelectorAll('.watch-eprow'));
+    if (rows.length !== episodes.length) {
+      renderContent(false);
+      return;
+    }
+    var still = keptStill(sec, rows);
+    var others = toArray(body.children).concat(toArray(sec.children), toArray(panel.children));
+    var slide = core.flip(rows.concat(others.filter(function (n) { return n !== sec && n !== panel && !n.contains(rows[0]); })));
+    function say() {
+      var about = panel.querySelector('.ttl__season-about');
+      about.querySelector('.ttl__season-facts').textContent = seasonFacts(data, episodes);
+      var fresh = [sayOfSeason(about, data, seasonName(s))];
+      rows.forEach(function (li, i) {
+        li.querySelector('.watch-ep__meta').textContent = episodeFacts(episodes[i]);
+        fresh.push(describe(li, episodes[i]));
+      });
+      if (typeof ResizeObserver === 'function') fitNow(panel);
+      fresh.filter(Boolean).forEach(core.fadeIn);
+    }
+    if (still) holdStill(function () { return still; }, say);
+    else say();
+    slide();
+  }
+
+  /* What of the seasons must not move: what the pointer is on, what has the focus, or, with their
+     top out of sight, the first row to be seen. */
+  function keptStill(sec, rows) {
+    function stays(node) { return node && sec.contains(node) && (node.closest('.watch-eprow') || node.closest('button')); }
+    var at = stays(toArray(sec.querySelectorAll(':hover')).pop()) || stays(document.activeElement);
+    if (at) return at;
+    var top = root.getBoundingClientRect().top;
+    if (!rows.length || rows[0].getBoundingClientRect().top >= top) return null;
+    return rows.filter(function (li) { return li.getBoundingClientRect().bottom > top; })[0] || sec.nextElementSibling;
   }
 
   function episodeSkels(n) {
@@ -2304,14 +2424,25 @@
     return box;
   }
 
-  /* While another season loads, rows still to come stand over those of the one on show. */
+  /* While another season loads, rows still to come stand over those of the one on show, which
+     takes no press unseen. */
   function seasonWaits(panel, on) {
     var list = panel.querySelector('.watch-episodes');
-    var skels = panel.querySelector('.ttl-epskels');
+    var about = panel.querySelector('.ttl__season-about');
     list.setAttribute('aria-busy', on ? 'true' : 'false');
+    list.inert = about.inert = on;
     panel.classList.toggle('is-waiting', on);
-    if (on && !skels) panel.appendChild(episodeSkels(6));
-    if (!on && skels) skels.remove();
+    toArray(panel.querySelectorAll('.ttl__season-wait')).forEach(function (n) { n.remove(); });
+    if (!on) return;
+    var head = el('div', 'ttl__season-wait ttl-aboutskel ttl-skel-lines');
+    head.setAttribute('aria-hidden', 'true');
+    ['130px'].concat(about.querySelector('.ttl__season-text') ? ['100%', '84%'] : []).forEach(function (w) {
+      head.appendChild(skel('skel--line', w));
+    });
+    panel.appendChild(head);
+    var rows = episodeSkels(6);
+    rows.classList.add('ttl__season-wait');
+    panel.appendChild(rows);
   }
 
   /* The season that leaves fades over the one that comes. It is never taken off the page
@@ -2440,7 +2571,7 @@
 
   function takeEpisodes(c, data) {
     c.picked = data.episodes || [];
-    c.pickedAbout = { summary: data.summary, year: data.year };
+    c.pickedAbout = { summary: data.summary, year: data.year, words_pending: data.words_pending };
   }
 
   function takeSeason(c, s, data) {
@@ -2456,6 +2587,7 @@
   function showSeason(c, s, data, still) {
     var leftOn = leavingNow();
     takeSeason(c, s, data);
+    c.opened = {};
     var leaves = leavingNow();
     var fresh = seasonPanel(s, c.picked);
     var sec = body.querySelector('.ttl__seasonsec');
@@ -2470,6 +2602,7 @@
       var mark = seasonMark(s);
       if (oldMark && mark) oldMark.replaceWith(mark);
     });
+    askWords(c);
   }
 
   /* A season pill swaps the list in place; focus stays on the pill. When the
@@ -2515,6 +2648,43 @@
 
   var adminMenu = null;
 
+  function factsCard() {
+    var aside = el('aside', 'ttl-facts');
+    aside.setAttribute('aria-label', 'Library facts, admins only');
+    var eyebrow = el('p', 'ttl-facts__eyebrow');
+    eyebrow.appendChild(icon('i-lock'));
+    eyebrow.appendChild(document.createTextNode('Admin only'));
+    aside.appendChild(eyebrow);
+    var dl = el('dl', 'ttl-facts__list');
+    return {
+      aside: aside,
+      dl: dl,
+      row: function (label, value, cls, sub) {
+        dl.appendChild(el('dt', '', label));
+        var dd = el('dd', cls || '', value);
+        if (sub) dd.appendChild(el('span', 'ttl-facts__sub', sub));
+        dl.appendChild(dd);
+        return dd;
+      }
+    };
+  }
+
+  /* The same rows as the facts have, so that nothing below moves when they come. */
+  function factsToCome(card, leaves) {
+    card.aside.setAttribute('aria-busy', 'true');
+    ['Size on disk', 'Added', 'Last watched by anyone', 'Deletion', 'Keep'].forEach(function (label) {
+      var dd = card.row(label, '', 'is-pending');
+      dd.appendChild(skel('skel--line ttl-facts__skel'));
+      if (label === 'Deletion' && leaves) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
+    });
+    card.aside.appendChild(card.dl);
+    if (!window.MMWatch.admin) return;
+    var foot = el('div', 'ttl-facts__foot');
+    foot.appendChild(skel('skel--pill'));
+    foot.appendChild(skel('skel--pill'));
+    card.aside.appendChild(foot);
+  }
+
   function renderFacts(fresh) {
     var f = cur.facts;
     var pending = !f && !cur.factsError;
@@ -2523,36 +2693,11 @@
     if (adminMenu) closeAdminMenu(adminMenu.menu.contains(document.activeElement));
     var key = focusKey();
     var old = lead.querySelector('.ttl-facts');
-    var aside = el('aside', 'ttl-facts');
-    aside.setAttribute('aria-label', 'Library facts, admins only');
-    var eyebrow = el('p', 'ttl-facts__eyebrow');
-    eyebrow.appendChild(icon('i-lock'));
-    eyebrow.appendChild(document.createTextNode('Admin only'));
-    aside.appendChild(eyebrow);
-    var dl = el('dl', 'ttl-facts__list');
-    function row(label, value, cls, sub) {
-      dl.appendChild(el('dt', '', label));
-      var dd = el('dd', cls || '', value);
-      if (sub) dd.appendChild(el('span', 'ttl-facts__sub', sub));
-      dl.appendChild(dd);
-      return dd;
-    }
-    if (pending) {
-      aside.setAttribute('aria-busy', 'true');
-      // The same rows as the facts have, so that nothing below moves when they come.
-      ['Size on disk', 'Added', 'Last watched by anyone', 'Deletion', 'Keep'].forEach(function (label) {
-        var dd = row(label, '', 'is-pending');
-        dd.appendChild(skel('skel--line ttl-facts__skel'));
-        if (label === 'Deletion' && cur.data.leaving) dd.appendChild(el('span', 'ttl-facts__sub', '\u00a0'));
-      });
-      aside.appendChild(dl);
-      if (window.MMWatch.admin) {
-        var wait = el('div', 'ttl-facts__foot');
-        wait.appendChild(skel('skel--pill'));
-        wait.appendChild(skel('skel--pill'));
-        aside.appendChild(wait);
-      }
-    }
+    var card = factsCard();
+    var aside = card.aside;
+    var dl = card.dl;
+    var row = card.row;
+    if (pending) factsToCome(card, !!cur.data.leaving);
     if (f) {
       row('Size on disk', f.size || '—');
       row('Added', f.added ? day(f.added) : '—');

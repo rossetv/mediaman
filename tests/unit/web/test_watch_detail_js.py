@@ -405,8 +405,9 @@ def test_the_loading_view_names_the_kind_of_title() -> None:
 def test_a_films_collection_stands_above_its_cast_and_its_place_is_held() -> None:
     out = _run("collectionPlace")
     held = ["ttl__lead", "ttl__collsec", "ttl__castsec"]
-    assert out["film"] == {"loading": held, "drawn": held}
-    assert out["lone"]["drawn"] == ["ttl__lead", "ttl__castsec"]
+    bare = ["ttl__lead", "ttl__castsec"]
+    assert out["film"] == {"loading": bare, "drawn": held}
+    assert out["lone"] == {"loading": bare, "drawn": bare}
     show = ["ttl__lead", "ttl__seasonsec", "ttl__castsec"]
     assert out["show"] == {"loading": show, "drawn": show}
 
@@ -660,11 +661,50 @@ def test_the_rest_of_a_seasons_words_opens_and_closes_by_a_press() -> None:
     assert _run("seasonTexts")["press"] == [closed, opened, closed]
 
 
+def test_a_text_opened_stays_open_as_its_season_is_drawn_again_and_no_longer() -> None:
+    out = _run("openedTexts")
+    assert out["pressed"] == [True, False, True]
+    assert out["marked"] == [[True, False, True], True, True, "Less", "true"]
+    assert out["closed"] == [True, False, False]
+    assert out["other"] == [False, False, False]
+
+
+def test_a_seasons_words_come_into_the_rows_on_show_and_leave_the_focus() -> None:
+    out = _run("lateWords")
+    said = [["50 min · 4 May 2019", "About one.", 1], ["50 min", None, 0]]
+    assert (out["before"]["text"], out["before"]["rows"][0]) == (None, ["50 min", None, 0])
+    assert out["came"] == {"facts": "2017 · 2 episodes", "text": "Words on 2", "rows": said}
+    assert out["same"] == [True, True, 1]
+    assert out["picked"] == [None, [2, 1]]
+    assert out["pickedCame"] == {"facts": "2016 · 2 episodes", "text": "Words on 1", "rows": said}
+
+
+def test_a_seasons_words_wait_for_a_press_to_end() -> None:
+    out = _run("lateWords")
+    assert (out["held"], out["letGo"]) == (None, "Words on 2")
+
+
+def test_words_of_a_season_left_or_that_never_come_change_nothing() -> None:
+    out = _run("lateWords")
+    assert out["left"] is None
+    assert out["failed"] == {
+        "facts": "2 episodes",
+        "text": None,
+        "rows": [["50 min", None, 0], ["50 min", None, 0]],
+    }
+
+
+def test_the_places_of_an_admin_s_facts_and_of_the_progress_are_held_while_a_title_loads() -> None:
+    out = _run("loadingPlaces")
+    assert out == {"admin": [5, 1], "viewer": [0, 0], "elsewhere": [0, 0]}
+
+
 def test_rows_to_come_stand_in_until_a_season_loads_or_fails() -> None:
     out = _run("seasonTexts")
-    assert out["wait"] == [True, True, "true"]
+    # Nor is what they stand over pressed or reached by Tab.
+    assert out["wait"] == [True, True, "true", True, True]
     assert out["failed"] == {
-        "waits": [False, False, "false"],
+        "waits": [False, False, "false", False, False],
         "season": {"facts": "2019 · 4 episodes", "text": "Its <b>second</b> year."},
     }
 
@@ -903,7 +943,7 @@ def test_the_named_season_takes_over_when_it_comes_late_and_focus_stays() -> Non
 
 def test_a_late_season_does_not_take_over_from_what_the_person_began() -> None:
     out = _run("openOnSlowSeason")
-    for case in ("pressed", "reading"):
+    for case in ("pressed", "reading", "facts"):
         assert out[case]["came"] == out[case]["arrived"]
         assert out[case]["focusKept"] is True
 
