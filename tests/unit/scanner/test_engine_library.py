@@ -719,6 +719,9 @@ class TestScanWithAnUnreadableLibrary:
 
 
 _HOUR = timedelta(hours=1)
+_WAITS_FOR_LIBRARY = (
+    "; the deletion waits while mediaman still has that one and Plex does not list its library"
+)
 
 
 @pytest.mark.usefixtures("prune_gone_libraries")
@@ -1041,7 +1044,9 @@ class TestTwinInAGoneLibrary:
             "AND action = 'delete_awaiting_scan'"
         ).fetchall()
         assert len(said) == 1
-        assert "it may be a title of a library Plex does not list now" in said[0][0]
+        assert "it may be a title of a library" in said[0][0]
+        assert "watched lately" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
 
     def test_one_that_shares_a_file_spelled_another_way_waits(self, conn, mock_plex):
         conn.execute(
@@ -1262,7 +1267,8 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         ).fetchall()
         assert len(said) == 1
         assert "is kept" in said[0][0]
-        assert "certain" not in said[0][0]
+        assert "it may be a title of a library" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
 
     def test_a_deletion_that_waits_for_a_title_watched_lately_in_a_gone_library_says_so(
         self, conn, mock_plex, freezer
@@ -1282,7 +1288,8 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         ).fetchall()
         assert len(said) == 1
         assert "it has a file of a title watched lately" in said[0][0]
-        assert "certain" not in said[0][0]
+        assert "it may be a title of a library" not in said[0][0]
+        assert said[0][0].endswith(_WAITS_FOR_LIBRARY)
 
     @pytest.mark.parametrize("kept", [True, False])
     def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
