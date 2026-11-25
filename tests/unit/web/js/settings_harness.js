@@ -135,6 +135,7 @@ function build() {
     capturing: new Set(),
     revealed: [],
     documentElement: { clientHeight: 844 },
+    dispatchEvent: (e) => { (docListeners[e.type] || []).forEach((fn) => fn(e)); },
     addEventListener: (t, fn, capture) => {
       (docListeners[t] = docListeners[t] || []).push(fn);
       if (capture) doc.capturing.add(fn);
