@@ -376,7 +376,9 @@ def test_a_film_that_plays_waits_or_asks_is_never_dimmed(page: str) -> None:
     assert said[page] in out["says"]
 
 
-@pytest.mark.parametrize("by", ["key", "pointer", "click", "command", "plays", "film", "closed"])
+@pytest.mark.parametrize(
+    "by", ["key", "pointer", "click", "wheel", "command", "plays", "film", "closed"]
+)
 def test_a_dimmed_page_wakes_at_once_and_waits_its_whole_time_anew(by: str) -> None:
     out = _run("wakes", by)
     assert out["dimmed"] and out["woken"] == ""
@@ -403,6 +405,44 @@ def test_a_press_that_wakes_a_page_starts_nothing(page: str) -> None:
 @pytest.mark.parametrize("how", ["pause", "pausedClick"])
 def test_a_press_that_wakes_a_paused_film_plays_it(how: str) -> None:
     assert _run("wakesWith", how)["first"] == [False, ["play"]]
+
+
+PRESSES = ["space", "heldSpace", "tap", "heldTap"]
+
+
+@pytest.mark.parametrize(
+    ("page", "how"),
+    [(p, h) for p in ("idle", "unpair", "ended") for h in PRESSES]
+    + [(p, "key") for p in ("out", "press", "old", "conn")],
+)
+def test_a_press_of_any_kind_that_wakes_a_page_does_only_that(page: str, how: str) -> None:
+    out = _run("pressesTwice", page, how)
+    assert out["dimmed"] and out["woken"] == ""
+    assert out["first"] is False and out["then"] is True
+
+
+@pytest.mark.parametrize("how", ["key", "space", "tap"])
+def test_a_paused_film_plays_by_the_press_that_wakes_it(how: str) -> None:
+    out = _run("pressesTwice", "pause", how)
+    assert out["dimmed"] and out["woken"] == ""
+    assert out["calls"] == ["play"]
+
+
+def test_a_click_a_while_after_a_pointer_woke_the_page_counts() -> None:
+    assert _run("pointsThenClicks") == 1
+
+
+def test_words_that_move_stay_in_the_safe_area_and_a_dimmed_code_can_be_read() -> None:
+    css = (STATIC / "css/tv.css").read_text()
+    # The 1920 px stage keeps 96 px clear at each side.
+    for place, rest in ((".mid", 160), (".code", 120), (".top > div", 110), (".bot > div", 110)):
+        for d in ("d1", "d2", "d3"):
+            rule = re.escape(f".{d} {place}") + r"[^{]*\{[^}]* transform: translate\((-?\d+)px"
+            assert abs(int(re.findall(rule, css)[-1])) <= rest - 96, (d, place)
+    veil = re.search(r"\.dim:after \{[^}]*opacity: (\.\d+)", css)
+    assert veil
+    light = ((1 - float(veil[1]) + 0.055) / 1.055) ** 2.4
+    assert (light + 0.05) / 0.05 >= 3.5
 
 
 def test_a_dimmed_page_is_darkened_whole_and_each_of_its_places_is_another() -> None:

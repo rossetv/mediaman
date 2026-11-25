@@ -70,12 +70,15 @@ video::-webkit-media-controls { display: none !important; }
 
 /* Over all, and not there at all while a film plays. Light comes back at once. */
 body:after { content: ''; position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; background: #000; forced-color-adjust: none; visibility: hidden; opacity: 0; transition: opacity .2s, visibility .2s; }
-.dim:after { visibility: visible; opacity: .65; transition: opacity 12s ease-in-out; }
+.dim:after { visibility: visible; opacity: .6; transition: opacity 12s ease-in-out; }
 .mid, .code, .top > div, .bot > div { transition: transform .2s; }
 .dim .mid, .dim .code, .dim .top > div, .dim .bot > div { transition: transform 4s ease-in-out; }
-.d1 .mid, .d1 .code, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(28px, -14px); transform: translate(28px, -14px); }
+.d1 .mid, .d1 .code, .d1 .top > div, .d1 .bot > div { -webkit-transform: translate(24px, -14px); transform: translate(24px, -14px); }
 .d2 .mid, .d2 .code, .d2 .top > div, .d2 .bot > div { -webkit-transform: translate(10px, 16px); transform: translate(10px, 16px); }
-.d3 .mid, .d3 .code, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-26px, -4px); transform: translate(-26px, -4px); }
+.d3 .mid, .d3 .code, .d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-24px, -4px); transform: translate(-24px, -4px); }
+/* These lie nearer the edge, and stay 5% clear of it. */
+.d1 .top > div, .d1 .bot > div { -webkit-transform: translate(14px, -14px); transform: translate(14px, -14px); }
+.d3 .top > div, .d3 .bot > div { -webkit-transform: translate(-14px, -4px); transform: translate(-14px, -4px); }
 @media (prefers-reduced-motion: reduce) {
   .b, .ov { transition: none; }
   .in > div, #o > div { animation: none; }
