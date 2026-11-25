@@ -19,10 +19,7 @@
   grid-template-columns: var(--rail-w) 1fr;
   gap: 56px;
   align-items: start;
-}
-/* Below 700px the bottom bar's own room does this. */
-@media (min-width: 700px) {
-  .setg-pg .setg-shell { padding-bottom: 64px; }
+  padding-bottom: 140px;
 }
 @media (max-width: 960px) {
   .setg-pg .setg-shell { grid-template-columns: 1fr; gap: 20px; }
@@ -360,9 +357,6 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 /* What is scrolled into view stops above the bar while it is up, which a message makes taller. */
 html:has(.setg-pg .savebar.on) { --savebar-room: 84px; scroll-padding-bottom: var(--savebar-room); }
 html:has(.setg-pg .savebar.on.is-error) { --savebar-room: 112px; }
-/* The page's end scrolls clear of it too. It comes back down with the bar, so that nothing jumps at the end of the page. */
-html:has(.setg-pg .savebar) .foot { transition: padding-bottom var(--dur-slow) var(--ease-out); }
-html:has(.setg-pg .savebar.on) .foot { padding-bottom: var(--savebar-room); }
 @media (max-width: 699.98px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */

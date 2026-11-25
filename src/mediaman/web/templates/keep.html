@@ -239,5 +239,3 @@
 {% if state in ("active", "already_kept") %}<script src="/static/js/keep-days.js?v={{ static_v }}" defer></script>{% endif %}
 {% if state == "active" %}<script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>{% endif %}
 {% endblock %}
-
-{% block foot %}{% if item %}{% include "_foot.html" %}{% endif %}{% endblock %}

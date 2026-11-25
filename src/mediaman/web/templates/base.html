@@ -25,7 +25,6 @@
   <link rel="stylesheet" href="/static/css/_modal.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_login.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_nav.css?v={{ static_v }}">
-  <link rel="stylesheet" href="/static/css/_foot.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_buttons.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_tiles.css?v={{ static_v }}">
   <link rel="stylesheet" href="/static/css/_hero.css?v={{ static_v }}">
@@ -55,13 +54,10 @@
 <body data-page="{{ nav_active or '' }}">
   {% include "_icons.html" %}
   <a class="skip-link" href="#main-content">Skip to content</a>
-  {% set nav %}{% block nav %}{% endblock %}{% endset %}
-  {{ nav }}
+  {% block nav %}{% endblock %}
   <main id="main-content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
-  {# Not on the player, nor on the pages of nobody signed in: those have no nav and fill the screen. #}
-  {% block foot %}{% if nav %}{% include "_foot.html" %}{% endif %}{% endblock %}
   {% block overlays %}{% endblock %}
 </body>
 </html>
