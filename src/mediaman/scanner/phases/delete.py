@@ -26,7 +26,6 @@ from mediaman.scanner.repository.rekeyed import (
     note_listing,
     title_files,
 )
-from mediaman.services.infra.storage import path_within_delete_roots
 from mediaman.services.infra.storage.disk_reads import DiskReads
 
 logger = logging.getLogger(__name__)
@@ -146,9 +145,8 @@ def _resolve_prune_libs(
     return confirmed
 
 
-def _is_there(path: str, roots: list[str]) -> bool:
-    """Return True if the file is on the disk, or where mediaman deletes nothing and so sees nothing."""
-    return not path_within_delete_roots(path, roots) or os.path.lexists(path)
+def _is_there(path: str) -> bool:
+    return os.path.lexists(path)
 
 
 def _listed_without_files(
@@ -157,10 +155,9 @@ def _listed_without_files(
     """Return the listed titles of the libraries, each with a copy in another, with no file there.
 
     A title moved to another library may stay listed where it was. A disk that
-    does not answer in time counts as holding none of its files: then the copy
-    is kept, not deleted as one of two.
+    does not answer in time, or that mediaman cannot see, counts as holding none
+    of its files: then the copy is kept, not deleted as one of two.
     """
-    roots = repository.read_delete_allowed_roots_setting(conn, quiet=True)
     without: set[str] = set()
     unanswered = 0
     for row in fetch_titles_in_two_libraries(conn, library_ids):
@@ -169,7 +166,7 @@ def _listed_without_files(
             continue
         found: dict[str, bool | None] = dict.fromkeys(files)
         if unanswered < _UNANSWERED_LIMIT:
-            found = _file_reads.read_all(files, lambda path: _is_there(path, roots))
+            found = _file_reads.read_all(files, _is_there)
             unanswered += None in found.values()
         if not any(found.values()):
             without.add(row["id"])
