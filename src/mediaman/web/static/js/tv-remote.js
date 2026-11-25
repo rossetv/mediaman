@@ -268,7 +268,7 @@
     timer = null;
     if (asking || ended || !(isOpen || hasBar)) return;
     asking = true;
-    (isOpen && tv && !gone ? askOne() : askAll()).then(function () {
+    (isOpen && tv && !gone ? askOne().then(function () { return gone && askAll(); }) : askAll()).then(function () {
       fails = 0;
       offline = false;
       return 0;
@@ -289,7 +289,7 @@
     clearTimeout(timer);
     timer = null;
     if (asking || ended) return;
-    if (!play() && !gone || !(isOpen || hasBar)) return;
+    if (!play() && !(gone && elsewhere().length) || !(isOpen || hasBar)) return;
     var every = isOpen && !gone ? OPEN_MS : BAR_MS;
     timer = setTimeout(tick, isHidden() ? HIDDEN_MS : Math.max(every, wait || 0));
   }
@@ -720,7 +720,7 @@
         taken: ['Someone else is using ' + n, 'They paired it, and yours stopped' + after + '.'],
         unpaired: [n + ' was unpaired', 'It was forgotten in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
         moved: ['You’re watching on another device', 'It goes on there, so ' + n + ' stopped' + after + '.'],
-        still: [n + ' stopped by itself', 'Nobody answered for 10 minutes. Yours stopped' + after + '.'],
+        still: [n + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
         signed_out: [n + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],
       }[gone.reason] || [n + ' stopped', 'Yours stopped' + after + '.'];
       var mine = ['lost', 'still'].indexOf(gone.reason) !== -1;

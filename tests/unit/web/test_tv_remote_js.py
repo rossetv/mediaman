@@ -111,11 +111,11 @@ def test_a_dismissed_tv_that_comes_back_is_shown_again() -> None:
     assert _run("dismissed") == {"shown": False, "back": True}
 
 
-def test_a_tv_someone_else_took_is_said() -> None:
+def test_a_tv_someone_else_took_is_said_and_asked_for_no_more() -> None:
     out = _run("taken")
     assert out["card"] == "Someone else is using Living room"
     assert "21:08" in out["hint"]
-    assert out["asksOn"] == 12  # whether something else plays, as slowly as the bar
+    assert out["asksOn"] == 0
     assert out["href"] == "/watch/play/9001?resume=1"
 
 
@@ -268,8 +268,12 @@ def test_a_dismissed_tv_gives_the_bar_to_another_that_plays() -> None:
     assert out["ended"] == {"shown": True, "says": "Playing on Bedroom TV"}
 
 
-def test_a_tv_that_starts_after_another_was_lost_is_found() -> None:
+def test_a_tv_that_starts_after_another_was_lost_is_found_when_the_page_is_looked_at_again() -> None:
     assert _run("anotherStarts") == {"before": False, "after": True}
+
+
+def test_a_tv_lost_under_the_open_remote_still_finds_another_that_began_meanwhile() -> None:
+    assert _run("beganMeanwhile") == "1/2"
 
 
 def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:

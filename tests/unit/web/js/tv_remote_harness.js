@@ -577,13 +577,23 @@ const scenarios = {
     out.ended = q.bar();
     return out;
   },
+  async beganMeanwhile() {
+    const p = await page();
+    await p.open();
+    p.api.tvs.push(aTv({ id: 8, name: 'Bedroom TV' }));
+    Object.assign(p.api.tvs[0], { play: null, last: { ...aPlay(), reason: 'lost' } });
+    await p.pass(1100);
+    await p.press('[data-close]');
+    return !p.$('[data-other]').hidden && p.$('[data-other]').textContent;
+  },
   async anotherStarts() {
     const p = await page();
     Object.assign(p.api.tvs[0], { on: false, play: null, last: { ...aPlay(), reason: 'lost' } });
     await p.pass(5100);
     const out = { before: !p.$('[data-other]').hidden };
     p.api.tvs.push(aTv({ id: 8, name: 'Bedroom TV' }));
-    await p.pass(5100);
+    p.doc.listeners.visibilitychange.forEach((fn) => fn());
+    await settle();
     out.after = !p.$('[data-other]').hidden;
     return out;
   },
