@@ -48,7 +48,8 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
   let revoked = 0;
   class Img {
     set src(_v) {
-      if (decode) { [this.naturalWidth, this.naturalHeight] = decode; this.onload(); } else this.onerror();
+      if (decode && decode.later) decode.later.push(() => { this.naturalWidth = this.naturalHeight = 500; this.onload(); });
+      else if (decode) { [this.naturalWidth, this.naturalHeight] = decode; this.onload(); } else this.onerror();
     }
   }
   class APIError extends Error {
@@ -77,6 +78,7 @@ function page({ attrs = { 'data-choice': '', 'data-default': '2' }, api = {}, fe
     pick: (n) => radios[n - 1].listeners.change.forEach((fn) => fn({})),
     file: (f) => { $('pic-file').files = [f]; fire('pic-file', 'change'); },
     error: () => $('pic-error').textContent,
+    radiosFree: () => radios.every((r) => !r.disabled),
     checked: () => radios.filter((r) => r.checked).map((r) => r.value).join(),
     open: () => $('pic-dialog').getAttribute('aria-hidden') === 'false',
     placing: () => !$('pic-place').hidden,
@@ -207,6 +209,29 @@ const scenarios = {
       left: await run(answer(400, { message: 'Too small.' }), { leave: true }),
       unmade: await run(answer(200, {}), { blob: null }),
     };
+  },
+  // closed while a photo is saved over another, opened again before the answer
+  async reopened() {
+    let give;
+    const sent = [];
+    const p = page({
+      attrs: { 'data-choice': '', 'data-default': '2', 'data-photo': '/old' },
+      api: { delete: (url) => { sent.push('DELETE ' + url); return new Promise(() => {}); } },
+      fetch: (url, o) => { sent.push(o.method + ' ' + url); return new Promise((r) => { give = r; }); },
+    });
+    p.click('pic-open');
+    p.file(JPEG);
+    p.click('pic-use');
+    p.click('pic-save');
+    p.click('pic-close');
+    p.click('pic-open');
+    give(await answer(200, { kind: 'photo', choice: null, url: '/new' })());
+    await settle();
+    const after = { open: p.open(), state: p.state(), now: p.$('pic-now').src };
+    p.$('pic-save').disabled = false;
+    p.click('pic-save');
+    await settle();
+    return { after, sent };
   },
   async backdrop() {
     const p = page();

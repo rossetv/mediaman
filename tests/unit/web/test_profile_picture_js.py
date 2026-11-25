@@ -144,3 +144,9 @@ def test_a_photo_the_browser_could_not_cut_is_said() -> None:
 
 def test_a_drag_that_ends_on_the_backdrop_does_not_close_the_dialog() -> None:
     assert _run("backdrop") == [True, False]
+
+
+def test_a_dialog_opened_again_while_a_photo_is_saved_shows_that_one_and_removes_nothing() -> None:
+    out = _run("reopened")
+    assert out["after"] == {"open": True, "state": ["Your photo", False, True], "now": "/new"}
+    assert out["sent"] == ["PUT /api/account/avatar/photo"]

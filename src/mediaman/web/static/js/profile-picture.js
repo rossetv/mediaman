@@ -75,6 +75,8 @@
     var turn = 0;
     var place = null;
 
+    function isOpen() { return dialog.getAttribute('aria-hidden') === 'false'; }
+
     function addressOf(pick) { return pick.url || drawn[(pick.choice || own) - 1]; }
 
     function showError(text) {
@@ -351,7 +353,7 @@
     });
 
     save.addEventListener('click', function () {
-      if (isBusy(save)) return;
+      if (isBusy(save) || (draft.url && !draft.blob)) return;
       var sent = draft;
       showError('');
       setSaving(true);
@@ -364,12 +366,15 @@
         MM.dom.qa('img', opener).forEach(function (img) { swapIn(img, data.url); });
         document.dispatchEvent(new CustomEvent('mm:avatar', { detail: { url: data.url } }));
         UIFeedback.toast(data.kind === 'default' ? 'Picture removed.' : 'Picture saved.', { variant: 'success' });
-        if (draft === sent) modal.close();
-        else paint(true);
+        if (!isOpen()) return;
+        if (draft === sent) { modal.close(); return; }
+        /* Opened again meanwhile, at the picture there was before this one. */
+        draft = { choice: kept.choice, url: kept.url };
+        paint(true);
       }, function (err) {
         setSaving(false);
         var words = MM.api.messageOf(err, WORDS.save);
-        if (dialog.getAttribute('aria-hidden') === 'true') UIFeedback.error(words);
+        if (!isOpen()) UIFeedback.error(words);
         else showError(words);
       });
     });
