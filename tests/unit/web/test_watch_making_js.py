@@ -102,6 +102,20 @@ def test_no_changing_line_reaches_a_screen_reader(out: dict[str, Any]) -> None:
     assert out["hiddenFromReaders"] == ["true", False, "true"]
 
 
+def test_new_words_come_once_the_old_ones_have_gone() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    gone = float(re.findall(r"making-out ([\d.]+)s", css)[0])
+    comes = re.findall(r"making-(?:in|end) [\d.]+s ([\d.]+)s", css)
+    assert len(comes) == 2
+    assert all(float(delay) >= gone for delay in comes)
+
+
+def test_the_words_that_go_at_the_end_go_as_they_were() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    ends = re.findall(r"^([^{}\n]*is-end[^{}]*)\{[^}]*font-weight", css, re.M)
+    assert [head.strip() for head in ends] == [".making.is-end .making__words:not(.is-out)"]
+
+
 def test_the_words_move_only_where_motion_is_wanted() -> None:
     css = CSS.read_text(encoding="utf-8")
     moving = re.search(r"@media \(prefers-reduced-motion: no-preference\) \{\n(.*?)\n\}", css, re.S)

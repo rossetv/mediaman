@@ -12,7 +12,7 @@
   color: var(--t2);
 }
 .making__words { grid-area: 1 / 1; align-self: center; text-wrap: balance; }
-.making.is-end { color: var(--t1); font-weight: 500; }
+.making.is-end .making__words:not(.is-out) { color: var(--t1); font-weight: 500; }
 
 .making-reel { flex: none; width: 15px; height: 15px; color: color-mix(in srgb, var(--purple) 55%, var(--t1)); }
 .making-reel__turn { transform-origin: 12px 12px; }
@@ -31,9 +31,9 @@
 @media (forced-colors: active) { .making-reel { color: CanvasText; } }
 
 @media (prefers-reduced-motion: no-preference) {
-  .making__words { animation: making-in .4s .16s var(--ease-out) backwards; }
+  .making__words { animation: making-in .4s .2s var(--ease-out) backwards; }
   .making__words.is-out { animation: making-out .2s ease-in forwards; }
-  .making.is-end .making__words:not(.is-out) { animation: making-end .5s .16s var(--ease-out) backwards; }
+  .making.is-end .making__words:not(.is-out) { animation: making-end .5s .2s var(--ease-out) backwards; }
   .making-reel__turn { animation: spin 3.6s linear infinite; }
   .making-reel__hole { animation: making-hole 1.5s ease-in-out infinite; }
   .making-reel__hole:nth-child(3) { animation-delay: -1.2s; }
@@ -41,7 +41,7 @@
   .making-reel__hole:nth-child(5) { animation-delay: -.6s; }
   .making-reel__hole:nth-child(6) { animation-delay: -.3s; }
   .rec-line.is-making > .ai-label > .ico { animation: making-twinkle 2.6s ease-in-out infinite; }
-  .rec-line:has(> .making.is-end) > .ai-label > .ico { animation: making-sparkle .9s .16s var(--ease-out); }
+  .rec-line:has(> .making.is-end) > .ai-label > .ico { animation: making-sparkle .9s .2s var(--ease-out); }
 }
 /* A still reel says nothing: it fades instead, as the other spinners do. */
 @media (prefers-reduced-motion: reduce) {
