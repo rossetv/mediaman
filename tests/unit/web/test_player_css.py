@@ -206,3 +206,18 @@ def test_the_question_over_the_credits_stands_clear_of_the_skip_button_on_a_phon
     )
     assert skip and card
     assert int(card.group(1)) >= int(skip.group(1)) + 44
+
+
+def test_the_one_row_question_has_room_for_its_words_beside_the_next_episode_on_a_phone() -> None:
+    css = _text("_player.css")
+    block = css[
+        css.index(
+            "@media (min-width: 600.02px) and (max-width: 760px) and (max-height: 520px) and (orientation: landscape)"
+        ) :
+    ]
+    taken = re.search(
+        r"\.player-upnext[^{]*\.player-rate--beside \{[^}]*calc\(100% - (\d+)px\)", block
+    )
+    assert taken
+    # The four thumbs in their frame, the close button, two gaps and the card's edges.
+    assert 660 - int(taken.group(1)) - 188 - 44 - 2 * 8 - 18 >= 100

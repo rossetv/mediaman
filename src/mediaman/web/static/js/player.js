@@ -233,6 +233,7 @@
     upnextStatus: q('[data-upnext-status]'),
     rate: q('[data-rate]'),
     rateTitle: q('[data-rate-title]'),
+    rateLevel: q('[data-rate-level]'),
     rateSet: q('[data-rate-set]'),
     rateStatus: q('[data-rate-status]'),
     ask: q('[data-ask]'),
@@ -1921,6 +1922,7 @@
     var label = endsEpisode(m) ? 'Next episode' : 'Skip ' + MARKER_NAMES[m.kind].toLowerCase();
     els.skipText.textContent = label;
     els.skip.setAttribute('title', label + ' (S)');
+    keepOffSkip();
     skipTimer = setTimeout(function () { els.skip.classList.add('is-quiet'); }, SKIP_SHOWN_MS);
   }
 
@@ -2511,8 +2513,8 @@
     else {
       if (autoplay) goOrAsk(showUpnext);
       else showUpnext();
-      /* What the system's own player hides is not asked. */
-      if (upnextOpen() && !nativelyShown()) {
+      /* What cannot be seen is not asked. */
+      if (upnextOpen() && !cannotBeSeen()) {
         if (roomForRating()) askRating(null);
         else rateAfterUpnext = true;
       }
@@ -2900,6 +2902,7 @@
   var ratingRef;             // the title it rates
   var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
   var rateAfterUpnext = false;
+  var onReturn = null;       // what the end leads to, once the hidden page is seen again
   var rateHovered = false;   // the mouse is on the card
   var overCredits = false;   // the card came while the video played
   var goOnAfter = null;      // what the end leads to once the card is done with
@@ -2945,7 +2948,9 @@
     return !!m && duration() - m.end_s > SCENE_S && t >= m.end_s;
   }
 
-  function cannotBeSeen() { return nativelyShown() || document.visibilityState === 'hidden'; }
+  function pageHidden() { return document.visibilityState === 'hidden'; }
+
+  function cannotBeSeen() { return nativelyShown() || pageHidden(); }
 
   /* The video has played from one place to another. */
   function playedOn(from, to) {
@@ -2981,11 +2986,19 @@
       return;
     }
     dropRating();
+    if (goOn && pageHidden()) {
+      onReturn = goOn;
+      return;
+    }
     var mine = ratingAsked;
     var since = Date.now();
     function heard(held) {
       if (mine !== ratingAsked) return;
       clearTimeout(ratingWait);
+      if (held && pageHidden()) {
+        onReturn = goOn;
+        return;
+      }
       if (held && !roomForRating()) {
         rateAfterUpnext = true;
         return;
@@ -3025,6 +3038,23 @@
     waitForRating();
   }
 
+  /* Where the card has no names by its thumbs it says the one given. */
+  function showLevel(level) {
+    var given = MM.ratings.LEVELS.filter(function (l) { return l.level === level; })[0];
+    els.rateLevel.textContent = given ? given.name : '';
+    els.rate.classList.toggle('is-rated', !!given);
+  }
+
+  /* Over the skip button where large text makes the two meet. */
+  function keepOffSkip() {
+    els.rate.classList.remove('player-rate--above');
+    if (!shown(els.rate) || !shown(els.skip)) return;
+    var card = els.rate.getBoundingClientRect();
+    var skip = els.skip.getBoundingClientRect();
+    els.rate.classList.toggle('player-rate--above', card.right > skip.left && card.bottom > skip.top);
+  }
+  window.addEventListener('resize', keepOffSkip);
+
   /* Whether the card can be seen: a small window has no room for it and the next episode's. */
   function roomForRating() { return !tight.matches || !upnextOpen(); }
 
@@ -3044,7 +3074,9 @@
     /* A small window shows no names. */
     els.rateSet.querySelectorAll('button').forEach(function (b) { b.setAttribute('title', b.getAttribute('aria-label')); });
     els.rate.classList.toggle('player-rate--beside', !goOn);
+    showLevel(null);
     show(els.rate);
+    keepOffSkip();
     els.rateStatus.textContent = text;
     if (!overCredits) showControls();
     waitForRating();
@@ -3054,6 +3086,7 @@
   function dropRating() {
     ratingAsked++;
     rateAfterUpnext = false;
+    onReturn = null;
     [ratingWait, ratedTimer, ignoredTimer].forEach(clearTimeout);
     ignoredTimer = null;
     goOnAfter = null;
@@ -3088,7 +3121,7 @@
 
   /* The credits have played on for this long: one that nobody is at goes, for the end to put it. */
   function leaveAlone(playedFor) {
-    if (document.visibilityState === 'hidden') return;
+    if (pageHidden()) return;
     question.aloneS += playedFor;
     if (rateHovered || (!focusByPointer && els.rate.contains(document.activeElement))) question.aloneS = 0;
     if (question.aloneS < RATE_IGNORED_MS / 1000) return;
@@ -3130,6 +3163,7 @@
     if (rating && MM.ratings.canRate(ratingRef) === false) endRating();
     if (!rating || said.from !== rating.node) return;
     clearTimeout(ratedTimer);
+    showLevel(said.level);
     question.answered = said.level !== null;
     if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);
     else waitForRating();
@@ -3204,6 +3238,7 @@
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') beaconProgress();
+    else if (onReturn) askRating(onReturn);
   });
 
   // A phone may not say so.

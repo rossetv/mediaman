@@ -4336,6 +4336,8 @@ const scenarios = {
     if (what === 'late') p.held.save = [];
     if (what === 'saving' || what === 'backWhileAsked') p.held.save = [];
     if (what === 'saving') { p.video.paused = true; fire(p.video, 'pause'); p.video.paused = false; }
+    if (/^hidden/.test(what)) doc.visibilityState = 'hidden';
+    if (what === 'hiddenAnswer') { doc.visibilityState = 'visible'; p.held.rate = []; }
     if (what === 'native') { p.video.webkitPresentationMode = 'fullscreen'; p.video.webkitSetPresentationMode = (m) => { p.video.webkitPresentationMode = m; }; }
     if (what === 'picture') doc.pictureInPictureElement = p.video;
     const out = { before: look() };
@@ -4359,6 +4361,15 @@ const scenarios = {
       thumbs: card.querySelectorAll('.rate__b').length, focusTaken: card.contains(doc.activeElement),
     });
     if (what === 'native') out.mode = p.video.webkitPresentationMode;
+    if (/^hidden/.test(what)) {
+      const returns = async () => { doc.visibilityState = 'visible'; fire(doc, 'visibilitychange'); await settle(); };
+      if (what === 'hiddenAnswer') { doc.visibilityState = 'hidden'; p.held.rate[0]({ ask: true, ref: 'movie-501', title: 'Low Water', season: null }); await settle(); }
+      p.tick(60000); await settle();
+      out.hidden = look();
+      if (what === 'hiddenReplay') { p.video.ended = false; p.video.currentTime = 100; fire(p.video, 'seeking'); fire(p.video, 'play'); }
+      await returns();
+      out.back = look();
+    }
     if (what === 'silent') { p.tick(4000); await settle(); }
     if (what === 'replay') { p.video.ended = false; fire(p.video, 'play'); }
     if (what === 'back') click(p.root.querySelector('.player-back'));
@@ -4473,6 +4484,8 @@ const scenarios = {
     if (what === 'seekWhileAsked') { seek(2000); p.held.rate[0](QUESTION); await settle(); out.back = look(); seek(2690); fire(p.video, 'timeupdate'); await on(12); }
     if (what === 'seekWhileSaved') { seek(2000); p.held.save.splice(0).forEach((r) => r({})); p.held.save = null; await settle(); out.back = look(); seek(2690); fire(p.video, 'timeupdate'); await on(12); }
     if (what === 'rated') { click(thumb()); await settle(); p.tick(2000); await settle(); out.rated = look(); }
+    if (what === 'levels') { const name = () => p.q('[data-rate-level]').textContent; click(thumb()); out.name = name(); await settle(); click(thumb()); await settle(); out.none = name(); out.rated = card.classList.contains('is-rated'); }
+    if (/^meets/.test(what)) { const skip = p.q('[data-skip]'); const rect = (l) => () => ({ left: l, right: l + 100, top: 10, bottom: 60 }); card.getBoundingClientRect = rect(0); skip.getBoundingClientRect = rect(90); p.win.listeners.resize.forEach((fn) => fn()); out.above = card.classList.contains('player-rate--above'); skip.getBoundingClientRect = rect(130); p.win.listeners.resize.forEach((fn) => fn()); out.beside = card.classList.contains('player-rate--above'); }
     if (what === 'spaceAfterClick') { press(thumb()); await settle(); key(' '); await settle(); out.level = p.calls.filter((c) => c.gone).length; }
     if (what === 'close') { click(p.q('[data-rate-close]')); await settle(); }
     if (what === 'escape') key('Escape');

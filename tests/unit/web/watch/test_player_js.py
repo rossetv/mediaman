@@ -1965,6 +1965,25 @@ def test_a_save_that_took_most_of_the_wait_leaves_no_time_to_spend_the_question(
     assert (out["asks"], out["at"]) == (0, "/watch/movie/501")
 
 
+@pytest.mark.parametrize(("what", "asks"), [("hidden", 0), ("hiddenAnswer", 1)])
+def test_a_film_that_ends_in_a_hidden_page_waits_for_it_to_be_seen(film, what, asks):
+    out = rating(film, what)
+    assert (out["hidden"]["card"], out["hidden"]["asks"]) == (False, asks)
+    assert out["hidden"]["at"] == "/watch/play/1"
+    assert (out["back"]["card"], out["back"]["asks"]) == (True, 1)
+    assert out["late"] == "/watch/movie/501"
+
+
+def test_a_film_played_again_before_the_page_is_seen_is_not_asked_about(film):
+    out = rating(film, "hiddenReplay")["back"]
+    assert (out["card"], out["asks"], out["at"]) == (False, 0, "/watch/play/1")
+
+
+def test_a_season_that_ends_in_a_hidden_page_asks_nothing(markup):
+    out = rating(markup, "hidden")
+    assert (out["hidden"]["asks"], out["back"]["asks"]) == (0, 0)
+
+
 def test_escape_is_the_next_episode_s_card_s_unless_the_question_has_the_focus(markup):
     out = rating(markup, "escape")["after"]
     assert (out["card"], out["upnext"]) == (True, False)
@@ -2070,6 +2089,16 @@ def test_closing_the_question_in_the_credits_neither_stops_nor_leaves(film, what
     assert (out["after"]["card"], out["after"]["paused"]) == (False, False)
     assert out["after"]["at"] == "/watch/play/1"
     assert (out["end"]["card"], out["end"]["asks"]) == (False, 1)
+
+
+def test_the_level_given_is_there_to_be_named_until_it_is_taken_back(film):
+    out = in_credits(film, "levels")
+    assert (out["name"], out["none"], out["rated"]) == ("I love it", "", False)
+
+
+def test_the_question_steps_over_a_skip_button_that_it_meets(film):
+    out = in_credits(film, "meets")
+    assert (out["above"], out["beside"]) == (True, False)
 
 
 def test_space_after_a_click_on_a_thumb_is_the_film_s(film):
