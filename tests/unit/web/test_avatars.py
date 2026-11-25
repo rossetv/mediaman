@@ -168,8 +168,9 @@ def test_reading_a_photo_stops_once_it_is_over_the_limit():
 
 
 @pytest.fixture
-def capped(app, viewer):
+def capped(app, viewer, monkeypatch):
     """The viewer's client, behind the cap on every request's body."""
+    monkeypatch.delenv("MEDIAMAN_MAX_REQUEST_BYTES", raising=False)
     app.add_middleware(BodySizeLimitMiddleware)
     return viewer
 
@@ -190,7 +191,32 @@ def test_a_photo_too_big_is_refused_in_the_same_words_behind_the_body_cap(capped
     refused = capped.put(_PHOTO, content=iter([data[:-1], data[-1:]]) if chunked else data)
 
     assert (refused.status_code, refused.json()["error"]) == (413, "too_big")
-    assert refused.json()["message"] == photo.TOO_BIG_MESSAGE
+    assert refused.json()["message"] == photo.too_big_message()
+
+
+@pytest.mark.parametrize(
+    ("limit", "named"),
+    [(3 * 1024 * 1024, "3 MB"), (1572864, "1.5 MB"), (512 * 1024, "512 KB")],
+)
+def test_a_lower_cap_the_operator_set_holds_for_photos_and_is_named(
+    capped, monkeypatch, limit, named
+):
+    monkeypatch.setenv("MEDIAMAN_MAX_REQUEST_BYTES", str(limit))
+
+    assert capped.put(_PHOTO, content=b"x" * limit).json()["error"] == "not_a_photo"
+    refused = capped.put(_PHOTO, content=b"x" * (limit + 1))
+
+    assert (refused.status_code, refused.json()["error"]) == (413, "too_big")
+    assert named in refused.json()["message"]
+
+
+def test_a_higher_cap_the_operator_set_does_not_raise_the_photo_limit(capped, monkeypatch):
+    monkeypatch.setenv("MEDIAMAN_MAX_REQUEST_BYTES", str(20 * 1024 * 1024))
+
+    refused = capped.put(_PHOTO, content=b"x" * (photo.MAX_BYTES + 1))
+
+    assert (refused.status_code, refused.json()["error"]) == (413, "too_big")
+    assert refused.json()["message"] == photo.too_big_message()
 
 
 @pytest.mark.parametrize(

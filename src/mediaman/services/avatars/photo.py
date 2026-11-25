@@ -13,7 +13,6 @@ import zlib
 from typing import Literal
 
 MAX_BYTES = 10 * 1024 * 1024
-TOO_BIG_MESSAGE = f"That photo is too big. The most is {MAX_BYTES // (1024 * 1024)} MB."
 MIN_SIDE = 128
 #: A small file can unpack to a huge picture in everyone's browser, so its size is bounded.
 MAX_SIDE = 4096
@@ -41,6 +40,12 @@ class PhotoError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+def too_big_message(limit: int = MAX_BYTES) -> str:
+    """What a person is told of a photo over *limit* bytes."""
+    unit, size = ("MB", 1024 * 1024) if limit >= 1024 * 1024 else ("KB", 1024)
+    return f"That photo is too big. The most is {round(limit / size, 1):g} {unit}."
 
 
 def content_type(data: bytes) -> str | None:
