@@ -697,3 +697,7 @@ def test_a_films_page_is_asked_for_once_its_preview_stands_open_and_a_shows_is_n
         "show": [],
         "saving": [],
     }
+
+
+def test_a_page_picture_there_before_it_opens_comes_over_the_previews_a_frame_later() -> None:
+    assert _run("loadedPictureFades") == [True, True, False, True]

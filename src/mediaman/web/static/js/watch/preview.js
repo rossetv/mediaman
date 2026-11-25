@@ -1534,7 +1534,8 @@
     page().classList.add('is-film');
     p.heldTimer = setTimeout(function () { if (!playing(p)) melt(); }, HOLD_MS);
     p.whenShown = function () { if (held === p && !playing(p)) melt(); };
-    if (page().querySelector('.ttl__art.is-loaded, .ttl__fill.is-loaded')) p.whenShown();
+    // One already there comes over it as it does once it loads, from where it is not yet drawn.
+    if (page().querySelector('.ttl__art.is-loaded, .ttl__fill.is-loaded')) window.requestAnimationFrame(function () { window.requestAnimationFrame(p.whenShown); });
     else page().querySelector('.ttl__hero').addEventListener('load', p.whenShown, true);
   }
 

@@ -1563,6 +1563,17 @@ const scenarios = {
       left: (await run((h) => h.ctx.MMWatch.preview.letGo())).after.slice(1),
     };
   },
+  /* The page's picture, there before the page opened, comes over the preview's from nothing, a frame on. */
+  async loadedPictureFades() {
+    const h = load();
+    h.ttl.querySelector('.ttl__art').classList.add('is-loaded');
+    await h.rest('film', 1100);
+    for (const dy of [40, 40, 40, 40]) { h.wheel(dy); await h.pass(12); }
+    for (let i = 0; i < 400 && !h.steps.includes('open'); i++) await h.pass(4);
+    const out = [h.steps.includes('open'), h.ttl.classList.contains('is-film'), h.ttl.classList.contains('is-melting')];
+    await h.pass(60);
+    return out.concat(h.ttl.classList.contains('is-melting'));
+  },
   /* No trailer begins on the way, and one does after it is back. */
   async noTrailerOnTheWay() {
     const h = load();
