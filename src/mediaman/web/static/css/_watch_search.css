@@ -28,7 +28,6 @@
   background: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  border: 0;
   container-type: inline-size;
 }
 /* The glass, which can tuck away the second line. */
@@ -42,8 +41,7 @@
   border-bottom: 1px solid var(--hair);
 }
 .wbar > :not(.watch-search, .watch-sheet, .sr-only) { position: relative; }
-.wbar .brand { margin-right: 16px; }
-.wbar .nav-links { flex: none; margin: 0 auto 0 0; }
+.wbar .nav-links { flex: none; margin-right: auto; }
 .wbar .profile-btn { gap: 8px; }
 .wbar .profile-btn-name { display: none; }
 .wbar .watch-viewtoggle__btn { min-height: 40px; padding: 0 14px; }
