@@ -128,6 +128,12 @@ def test_the_name_draws_itself_on_the_sign_in_page_alone_and_not_under_reduced_m
     assert "login-brand--drawn" not in client.get("/no/such/page").text
 
 
+def test_a_failed_sign_in_shows_its_error_beside_a_name_that_stands_still():
+    html = _TEMPLATES.get_template("login.html").render(error="Wrong")
+    assert "Wrong" in html and "login-brand" in html
+    assert "login-brand--drawn" not in html
+
+
 def test_the_second_half_keeps_the_page_s_blue_and_takes_the_text_colour_where_colours_are_forced():
     tokens = (_WEB / "static" / "css" / "_tokens.css").read_text()
     blue = re.search(r"--accent:\s*(#\w+);", tokens)[1]
