@@ -320,6 +320,14 @@ class TmdbClient:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             raise
 
+    def season(self, tmdb_id: int, number: int) -> dict[str, Any]:
+        """Return the raw payload of a show's season with its episodes. Raises as
+        find_by_tvdb does, and ValueError for a payload that is no season's."""
+        payload = self._get(f"/tv/{tmdb_id}/season/{number}")
+        if not isinstance(payload, dict) or not isinstance(payload.get("episodes"), list):
+            raise ValueError("season answered without its episodes")
+        return payload
+
     def find_by_tvdb(self, tvdb_id: int) -> int | None:
         """Return the TMDB TV id for a TVDB id via /find, or None when TMDB has no match.
 

@@ -32,6 +32,7 @@ from ._explore import (
 from ._gate import TmdbBusy, TmdbDown, TmdbUnavailable, gate
 from ._genres import GENRES, Genre
 from ._library import clear_library_index, library_index, tmdb_id_for_tvdb
+from ._season import season
 from ._shape import discover_card, library_href, tmdb_image_url
 from ._title import tmdb_fields
 from ._title_meta import (
@@ -86,6 +87,7 @@ __all__ = [
     "people",
     "person",
     "search",
+    "season",
     "tmdb_card",
     "tmdb_fields",
     "tmdb_id_for_tvdb",

@@ -38,6 +38,7 @@ from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
     PlexItemNotFound,
+    PlexSeason,
     is_in_libraries,
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
@@ -55,7 +56,7 @@ from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
 from mediaman.web.repository.library_query import TitleSearch, protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
-from mediaman.web.repository.watch_progress import get_progress, show_progress
+from mediaman.web.repository.watch_progress import WatchProgress, get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
@@ -547,6 +548,55 @@ def _show_tmdb_id(
     )
 
 
+def _tmdb_season(
+    client: TmdbClient | None,
+    tmdb_id_of: Callable[[TmdbClient], int | None],
+    season: PlexSeason,
+    episodes: Sequence[PlexEpisode],
+) -> dict[str, Any] | None:
+    """What TMDB says of the season, asked only when Plex does not describe all of it."""
+    if client is None or (season.summary and all(e.summary and e.aired for e in episodes)):
+        return None
+    try:
+        tmdb_id = tmdb_id_of(client)
+        return catalog.season(client, tmdb_id, season.index) if tmdb_id is not None else None
+    except (catalog.TmdbUnavailable, disk_cache.Refused):
+        return None
+
+
+def _season_about(
+    season: PlexSeason, episodes: Sequence[PlexEpisode], found: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The season's own words and first year, from Plex, else from TMDB (*found*)."""
+    dates = [e.aired for e in episodes if e.aired]
+    aired = min(dates) if dates else found["aired"] if found else None
+    return {
+        "summary": season.summary or (found["overview"] if found else ""),
+        "year": int(aired[:4]) if aired else None,
+    }
+
+
+def _described_rows(
+    episodes: Sequence[PlexEpisode],
+    progress: Mapping[str, WatchProgress],
+    origin: str,
+    found: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """The rows of a season, each with its description and air date, as ``_season_about``."""
+    told = found["episodes"] if found else {}
+    rows = []
+    for e in episodes:
+        theirs = told.get(str(e.index), {})
+        rows.append(
+            {
+                **_episode_row(e, progress.get(e.rating_key), origin),
+                "summary": e.summary or theirs.get("overview", ""),
+                "aired": e.aired or theirs.get("aired"),
+            }
+        )
+    return rows
+
+
 def _show_title(
     request: Request,
     conn: sqlite3.Connection,
@@ -612,15 +662,16 @@ def _show_title(
                     "name": s.title or f"Season {s.index}",
                     "episode_count": len(episodes_cache[s.rating_key])
                     if s.rating_key in episodes_cache
-                    else None,
+                    else s.episode_count,
                     "in_library": True,
                     "selected": s is selected,
                     "key": s.rating_key,
                     "watched": season_watched[s.rating_key],
+                    **_season_about(s, episodes_cache.get(s.rating_key, ()), None),
                 }
                 for s in show.seasons
             ],
-            episodes=[_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+            episodes=_described_rows(episodes, progress, origin, None),
         )
     fill_show_leaving(out, conn, libraries, listed.key, is_admin)
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
@@ -634,6 +685,12 @@ def _show_title(
             for season in out["seasons"]:
                 if season["episode_count"] is None:
                     season["episode_count"] = counts.get(season["number"])
+            if show is not None and selected is not None:
+                found = _tmdb_season(client, lambda _client: tmdb_id, selected, episodes)
+                for season in out["seasons"]:
+                    if season["selected"]:
+                        season.update(_season_about(selected, episodes, found))
+                out["episodes"] = _described_rows(episodes, progress, origin, found)
     return out
 
 
@@ -963,7 +1020,8 @@ def api_watch_title_season(
     key = ref.removeprefix("show-")
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
-    if lib.find_show(conn, libraries, key) is None:
+    listed = lib.find_show(conn, libraries, key)
+    if listed is None:
         return _not_found()
     try:
         plex = open_plex(request, conn)
@@ -980,11 +1038,19 @@ def api_watch_title_season(
         return respond_err(plex_error_code(exc), status=503)
     progress = show_progress(conn, username, key)
     origin = f"/watch#title={ref}"
+    found = _tmdb_season(
+        _tmdb_client(request, conn),
+        lambda client: _show_tmdb_id(request, conn, client, listed),
+        season,
+        episodes,
+    )
     return respond_ok(
         {
             "key": season.rating_key,
             "watched": _season_watched(episodes, progress, None, number),
-            "episodes": [_episode_row(e, progress.get(e.rating_key), origin) for e in episodes],
+            **_season_about(season, episodes, found),
+            "episode_count": len(episodes),
+            "episodes": _described_rows(episodes, progress, origin, found),
         }
     )
 

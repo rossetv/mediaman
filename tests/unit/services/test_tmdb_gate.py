@@ -15,6 +15,7 @@ from mediaman.services.watch_catalog import _gate, _library
 ASKS = {
     "explore": lambda c: catalog.explore_page(c, catalog.GENRES["horror"]),
     "person": lambda c: catalog.person(c, 7),
+    "season": lambda c: catalog.season(c, 7, 1),
     "search": lambda c: catalog.search(c, "glass"),
     "rows": catalog.discover_shelves,
     "page": lambda c: catalog.discover_page(c, "trending", 2),
@@ -32,7 +33,12 @@ class Tmdb(TmdbClient):
         self.asked += 1
         if self.status:
             raise SafeHTTPError(status_code=self.status, body_snippet="", url="https://t.invalid")
-        return {"name": "Mara", "title": "Glass", "results": [{"id": 1, "media_type": "movie"}]}
+        return {
+            "name": "Mara",
+            "title": "Glass",
+            "results": [{"id": 1, "media_type": "movie"}],
+            "episodes": [],
+        }
 
 
 @pytest.fixture

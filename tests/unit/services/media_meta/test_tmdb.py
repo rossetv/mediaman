@@ -267,6 +267,20 @@ class TestDetails:
         assert client.details("movie", 1) is None
 
 
+class TestSeason:
+    def test_a_season_is_asked_for_by_its_number(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"overview": "A start.", "episodes": []}))
+
+        assert TmdbClient("token").season(77, 2)["overview"] == "A start."
+        assert fake_http.calls[0][1].endswith("/tv/77/season/2")
+
+    def test_an_answer_without_episodes_is_no_season(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"success": False}))
+
+        with pytest.raises(ValueError):
+            TmdbClient("token").season(77, 2)
+
+
 class TestFindByTvdb:
     def test_returns_first_tv_result_id(self, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"tv_results": [{"id": 77}, {"id": 8}]}))
