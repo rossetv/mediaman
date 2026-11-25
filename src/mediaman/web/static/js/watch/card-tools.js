@@ -203,6 +203,29 @@
   document.addEventListener('pointerover', function (e) { say('is-on-tools', cardAround(e.target, '.card-tools')); });
   document.addEventListener('pointerout', function (e) { if (!e.relatedTarget) say('is-on-tools', null); });
 
+  /* With a mouse as well, a finger's or a pen's press on a button not in sight is nobody's: it shows
+     that card's buttons, which a touch may leave no hover to show, for the next press. A press
+     elsewhere, or a scroll, hides them again. */
+  var unseen = null;
+
+  document.addEventListener('pointerdown', function (e) {
+    var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
+    var card = tool && tool.closest('.watch-card');
+    unseen = tool && card !== says['is-touched'] && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
+    if (unseen) say('is-touched', card);
+    else if (says['is-touched'] && !says['is-touched'].contains(e.target)) say('is-touched', null);
+  }, true);
+
+  document.addEventListener('click', function (e) {
+    if (unseen && unseen.contains(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    unseen = null;
+  }, true);
+
+  document.addEventListener('scroll', function () { say('is-touched', null); }, true);
+
   /* ── The levels, over the poster ── */
 
   function copyTool(button) {
@@ -386,7 +409,7 @@
   /* ── A finger ── */
 
   document.addEventListener('pointerdown', function (e) {
-    var thumb = e.pointerType !== 'mouse' && e.isPrimary !== false && thumbAt(e.target);
+    var thumb = e.pointerType !== 'mouse' && e.isPrimary !== false && !unseen && thumbAt(e.target);
     var card = thumb && thumb.closest('.watch-card');
     if (!card || (open && open.card === card)) return;
     var y = e.clientY;
@@ -427,22 +450,6 @@
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
   });
-
-  /* With a mouse as well, a finger's press on a button not in sight is nobody's. */
-  var unseen = null;
-
-  document.addEventListener('pointerdown', function (e) {
-    var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
-    unseen = tool && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
-  }, true);
-
-  document.addEventListener('click', function (e) {
-    if (unseen && unseen.contains(e.target)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
-    unseen = null;
-  }, true);
 
   document.addEventListener('contextmenu', function (e) { if (!mouse() && thumbAt(e.target)) e.preventDefault(); });
 

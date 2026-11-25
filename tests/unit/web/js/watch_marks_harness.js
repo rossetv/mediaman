@@ -402,6 +402,47 @@ const scenarios = {
     return { hidden: await press(0), shown: await press(1) };
   },
 
+  // A finger on a screen that has a mouse too, where a touch leaves no hover: its first press on a
+  // card's hidden buttons shows them, its next acts, and a press elsewhere or a scroll hides them.
+  async touchShows() {
+    const go = (opts) => {
+      const c = clock();
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/9', 'Other', 'Movie')])]), { clock: c, ...opts });
+      p.ctx.getComputedStyle = () => ({ opacity: '0', getPropertyValue: () => '', transform: 'none' });
+      const press = async (target, pointerType = 'touch') => {
+        send(p.doc.listeners.pointerdown, { target, pointerType, pointerId: 1, isPrimary: true, clientY: 0 });
+        const e = { target, detail: 1, stopped: false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+        p.doc.listeners.click.forEach((fn) => { if (!e.stopped) fn(e); });
+        await c.pass(0);
+      };
+      return { p, c, press, cards: p.cards(), shown: () => p.cards().map((n) => n.classList.contains('is-touched')) };
+    };
+    const { p, c, press, cards: [film, other], shown } = go();
+    const eye = film.querySelector('.card-tool--eye');
+    const out = [];
+    await press(eye);
+    out.push([p.calls.slice(), shown()]);
+    await press(eye);
+    out.push([p.calls.slice(), shown()]);
+    await press(p.doc.body, 'mouse');
+    out.push(shown());
+    // A finger held on a thumb not in sight does not open its levels.
+    const thumb = film.querySelector('[data-card-rate]');
+    send(p.doc.listeners.pointerdown, { target: thumb, pointerType: 'touch', pointerId: 2, isPrimary: true, clientY: 0 });
+    await c.pass(400);
+    out.push([film.classList.contains('is-lifted'), shown()]);
+    send(p.win.pointerup, { type: 'pointerup', target: thumb, pointerId: 2 });
+    await press(other.querySelector('.card-tool--eye'));
+    out.push(shown());
+    send(p.doc.listeners.scroll, { target: p.doc });
+    out.push(shown());
+    // A touch screen alone keeps its own way.
+    const phone = go({ touch: true });
+    await phone.press(phone.cards[1].querySelector('.card-tool--eye'));
+    out.push([phone.p.calls.slice(), phone.shown()]);
+    return out;
+  },
+
   // What a screen reader is told of the levels.
   async levelsSaid() {
     const p = load(watchPage([row('lib', [FILM({ tmdb: '10', level: 1 })])]));

@@ -273,6 +273,16 @@ def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> 
     assert not _of(far, sheet=CARDS) and not _of(far, FINGER, CARDS)
 
 
+def test_with_a_mouse_a_card_a_finger_pressed_shows_its_buttons_as_under_the_mouse() -> None:
+    shown = (
+        ".watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) > "
+        ":where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool"
+    )
+    assert "opacity: 1; transform: none" in _of(shown, MOUSE, CARDS)
+    ring = ".watch-card:is(:hover, .has-focus, .is-lifted, .is-touched) .card-tool::before"
+    assert "opacity: 1" in _of(ring, MOUSE, CARDS)
+
+
 def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
     assert "transition: none !important" in _of(".rate--lift .rate__set", STILL, CARDS)
 

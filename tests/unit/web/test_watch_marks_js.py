@@ -407,6 +407,19 @@ def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
     assert out == {"hidden": [], "shown": ["POST /api/watch/watched/movie/1"]}
 
 
+def test_with_a_mouse_too_a_finger_s_first_press_on_hidden_buttons_shows_them() -> None:
+    mark = "POST /api/watch/watched/movie/1"
+    assert _run("touchShows") == [
+        [[], [True, False]],
+        [[mark], [True, False]],
+        [False, False],  # a press elsewhere
+        [False, [True, False]],  # held on a hidden thumb: no levels
+        [False, True],  # another card
+        [False, False],  # a scroll
+        [["POST /api/watch/watched/movie/9"], [False, False]],  # a phone, as it was
+    ]
+
+
 def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
     # Its buttons are then hidden, which spares WebKit drawing thousands of them under the mouse.
     assert _run("farCards") == [
