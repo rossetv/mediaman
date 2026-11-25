@@ -163,6 +163,13 @@ def test_saves_without_a_password_check_have_a_limit_of_their_own(client, conn) 
     assert client.put("/api/settings", json={"scan_time": "10:00"}).status_code == 200
 
 
+def test_saves_with_a_refused_address_count(client, conn) -> None:
+    revoke_reauth(conn, client.cookies["session_token"])
+    body = {"json": {"sonarr_url": "http://169.254.169.254/"}}
+    answers = [client.put("/api/settings", **body).status_code for _ in range(21)]
+    assert answers == [400] * 20 + [429]
+
+
 def test_a_folder_the_page_may_not_read_is_not_called_missing(
     client, tmp_path, monkeypatch
 ) -> None:

@@ -149,18 +149,18 @@ def _needs_reauth(
     return _touches_sensitive_keys(body_dict) and not has_recent_reauth(conn, session_token, admin)
 
 
-def _settings_write_throttled(
+def _reserve_settings_write(
     request: Request,
     conn: sqlite3.Connection,
     admin: str,
     body_dict: dict[str, object],
     *,
     needs_reauth: bool,
-) -> JSONResponse | None:
-    """Return a 429 response if the admin has exhausted the write budget, else None. A
-    settings.write.throttled audit event is recorded first so a hit cap is visible in the
-    log. A save that *needs_reauth* only looks at that budget, since the page asks for the
-    password and sends it again; such saves have a budget of their own.
+) -> float | JSONResponse:
+    """Count one save against the admin's write budget and return the time it is counted at,
+    or a 429 response once that is exhausted. A settings.write.throttled audit event is
+    recorded first so a hit cap is visible in the log. A save that *needs_reauth* has a
+    budget of its own as well.
     """
     limiter = _SETTINGS_WRITE_LIMITER
     if needs_reauth and not _SETTINGS_UNTICKETED_LIMITER.check(admin):
@@ -168,9 +168,7 @@ def _settings_write_throttled(
     else:
         reserved = limiter.reserve(admin)
         if reserved is not None:
-            if needs_reauth:
-                limiter.release(admin, reserved)
-            return None
+            return reserved
     logger.warning("settings.write_throttled user=%s", _sanitise_log_field(admin))
     security_event(
         conn,
@@ -331,17 +329,17 @@ def api_update_settings(
     )
     conn = get_db()
     needs_reauth = _needs_reauth(conn, body_dict, session_token, admin)
-    throttled = _settings_write_throttled(
-        request, conn, admin, body_dict, needs_reauth=needs_reauth
-    )
-    if throttled is not None:
-        return throttled
+    reserved = _reserve_settings_write(request, conn, admin, body_dict, needs_reauth=needs_reauth)
+    if isinstance(reserved, JSONResponse):
+        return reserved
 
     url_err = _validate_url_fields(body_dict)
     if url_err is not None:
         return url_err
 
     if needs_reauth:
+        # The page asks for the password and sends the save again, which is the one that counts.
+        _SETTINGS_WRITE_LIMITER.release(admin, reserved)
         return _settings_reauth_required(admin)
 
     config = request.app.state.config
