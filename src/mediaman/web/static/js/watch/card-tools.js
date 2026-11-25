@@ -95,7 +95,20 @@
       paint(card);
       if (nearing) nearing.observe(card);
     }
+    if (inSight && !card.closest('.watch-row__scroll')) inSight.observe(card);
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
+  }
+
+  /* A card a screen or more out of sight hides its buttons. Even faded to nothing, those of
+     thousands of cards are drawn, and make every frame under the mouse slow in WebKit. A row, whose
+     cards out of sight are beside it, has too few to matter. */
+  var inSight = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (n) { n.target.classList.toggle('is-far', !n.isIntersecting); });
+  }, { rootMargin: '100% 0px' }) : null;
+
+  function forget(root) {
+    if (root.matches && root.matches('.watch-card')) inSight.unobserve(root);
+    toArray(root.querySelectorAll('.watch-card')).forEach(function (card) { inSight.unobserve(card); });
   }
 
   /* Of a poster's badges Leaving is the first and Watched the last, which is how CSS tells what
@@ -152,6 +165,7 @@
 
   new MutationObserver(function (changes) {
     changes.forEach(function (c) {
+      if (inSight) toArray(c.removedNodes).forEach(function (n) { if (n.nodeType === 1 && !n.isConnected) forget(n); });
       toArray(c.addedNodes).forEach(function (n) { if (n.nodeType === 1 && n.isConnected) { order(n); adoptAll(n); } });
     });
     if (open && !open.card.isConnected) drop(open);
@@ -188,6 +202,29 @@
   /* Its buttons are under the mouse. */
   document.addEventListener('pointerover', function (e) { say('is-on-tools', cardAround(e.target, '.card-tools')); });
   document.addEventListener('pointerout', function (e) { if (!e.relatedTarget) say('is-on-tools', null); });
+
+  /* With a mouse as well, a finger's or a pen's press on a button not in sight is nobody's: it shows
+     that card's buttons, which a touch may leave no hover to show, for the next press. A press
+     elsewhere, or a scroll, hides them again. */
+  var unseen = null;
+
+  document.addEventListener('pointerdown', function (e) {
+    var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
+    var card = tool && tool.closest('.watch-card');
+    unseen = tool && card !== says['is-touched'] && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
+    if (unseen) say('is-touched', card);
+    else if (says['is-touched'] && !says['is-touched'].contains(e.target)) say('is-touched', null);
+  }, true);
+
+  document.addEventListener('click', function (e) {
+    if (unseen && unseen.contains(e.target)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    unseen = null;
+  }, true);
+
+  document.addEventListener('scroll', function () { say('is-touched', null); }, true);
 
   /* ── The levels, over the poster ── */
 
@@ -372,7 +409,7 @@
   /* ── A finger ── */
 
   document.addEventListener('pointerdown', function (e) {
-    var thumb = e.pointerType !== 'mouse' && e.isPrimary !== false && thumbAt(e.target);
+    var thumb = e.pointerType !== 'mouse' && e.isPrimary !== false && !unseen && thumbAt(e.target);
     var card = thumb && thumb.closest('.watch-card');
     if (!card || (open && open.card === card)) return;
     var y = e.clientY;
@@ -413,22 +450,6 @@
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);
   });
-
-  /* With a mouse as well, a finger's press on a button not in sight is nobody's. */
-  var unseen = null;
-
-  document.addEventListener('pointerdown', function (e) {
-    var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
-    unseen = tool && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
-  }, true);
-
-  document.addEventListener('click', function (e) {
-    if (unseen && unseen.contains(e.target)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
-    unseen = null;
-  }, true);
 
   document.addEventListener('contextmenu', function (e) { if (!mouse() && thumbAt(e.target)) e.preventDefault(); });
 
