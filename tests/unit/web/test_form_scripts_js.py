@@ -71,3 +71,23 @@ def test_only_the_pressed_button_is_busy_and_it_gets_its_own_words_back() -> Non
     idle = [["7 days", "", "", ""], ["30 days", "", "", ""], ["90 days", "", "", ""]]
     assert out["busy"] == [idle[0], ["Keeping…", "is-pressed", "btn-spinner", "120px"], idle[2]]
     assert out["after"] == idle
+
+
+def test_a_busy_button_is_drawn_before_its_post_which_goes_once_and_names_it() -> None:
+    out = _run("held")
+    assert out["before"] == []
+    assert out["drawn"] == out["after"] == ["b"]
+    assert out["lapsed"] == 2
+
+
+def test_a_held_post_is_never_lost() -> None:
+    out = _run("held")
+    assert out["undrawn"] == ["b"], "a tab that draws nothing"
+    assert out["noSubmitter"] == [None]
+    assert out["invalid"] == {"posts": [], "busy": False}
+    assert out["thenValid"] == ["b"]
+    assert out["old"] == ["b"], "a browser without requestSubmit"
+
+
+def test_a_form_whose_button_shows_no_progress_posts_at_once() -> None:
+    assert _run("held")["unlabelled"] == ["b"]

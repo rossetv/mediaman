@@ -55,6 +55,7 @@ class El {
 
 function build() {
   const timers = [];
+  const frames = [];
   const doc = {
     listeners: {},
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); },
@@ -76,9 +77,10 @@ function build() {
   const win = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }, fire(t, ev) { (this.listeners[t] || []).forEach((fn) => fn(ev)); } };
   const ctx = {
     document: doc, window: win,
-    WeakMap, Array, setTimeout: (fn, ms) => { timers.push({ fn, ms, done: false }); return timers.length; },
+    WeakMap, Array, requestAnimationFrame: (fn) => { frames.push(fn); },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, done: false }); return timers.length; },
   };
-  return { doc, win, ctx, timers };
+  return { doc, win, ctx, timers, frames };
 }
 
 function load(ctx, file) {
@@ -169,6 +171,71 @@ const scenarios = {
     const stillBusy = btn.textContent;
     timers.forEach((t) => t.fn());
     return { whileBusy, second, stillBusy, afterLapse: btn.textContent, busyAfter: form.hasAttribute('data-busy') };
+  },
+  // a labelled button is drawn busy before its post goes, once, with the button that was pressed
+  held() {
+    const out = {};
+    const start = () => {
+      const { doc, ctx, timers, frames } = build();
+      const form = doc.createElement('form');
+      form.setAttribute('data-submit-guard', '');
+      doc.body.appendChild(form);
+      const b = form.appendChild(doc.createElement('button'));
+      b.setAttribute('data-busy-label', 'Keeping…');
+      const p = { form, b, timers, posts: [], valid: true,
+        press(submitter) { let kept = true; doc.fire('submit', { target: form, submitter, preventDefault() { kept = false; } }); if (kept) p.posts.push(submitter === b ? 'b' : submitter); return kept; },
+        frame() { frames.splice(0).forEach((fn) => fn()); p.run(0); },
+        run(ms) { timers.filter((t) => t.ms === ms && !t.done).forEach((t) => { t.done = true; t.fn(); }); } };
+      form.requestSubmit = (submitter) => { if (p.valid) p.press(submitter); };
+      load(ctx, 'submit-guard.js');
+      return p;
+    };
+    let p = start();
+    p.press(p.b);
+    out.before = p.posts.slice();
+    p.press(p.b);
+    p.frame();
+    out.drawn = p.posts.slice();
+    p.press(p.b);
+    p.run(150);
+    out.after = p.posts.slice();
+    p.run(10000);
+    p.press(p.b);
+    p.frame();
+    out.lapsed = p.posts.length;
+
+    p = start();
+    p.press(p.b);
+    p.run(150);
+    out.undrawn = p.posts.slice();
+    p.frame();
+    out.undrawn.push(...p.posts.slice(1));
+
+    p = start();
+    p.press(null);
+    p.frame();
+    out.noSubmitter = p.posts;
+
+    p = start();
+    p.valid = false;
+    p.press(p.b);
+    p.frame();
+    out.invalid = { posts: p.posts.slice(), busy: p.form.hasAttribute('data-busy') };
+    p.valid = true;
+    p.press(p.b);
+    p.frame();
+    out.thenValid = p.posts;
+
+    p = start();
+    p.form.requestSubmit = undefined;
+    p.press(p.b);
+    out.old = p.posts;
+
+    p = start();
+    p.b.removeAttribute('data-busy-label');
+    p.press(p.b);
+    out.unlabelled = p.posts;
+    return out;
   },
   // of three buttons the one pressed is the one that is busy
   pressed() {
