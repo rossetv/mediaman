@@ -720,6 +720,7 @@ const scenarios = {
     return {
       ended: await run(data({ event: 'onStateChange', info: 0 })),
       endedInfo: await run(data({ event: 'infoDelivery', info: { playerState: 0 } }), '[data-ttl-act="primary"]'),
+      endedOnTitle: await run(data({ event: 'onStateChange', info: 0 }), '.ttl__title'),
       paused: await run(data({ event: 'onStateChange', info: 2 })),
       otherOrigin: await run(Object.assign(data({ event: 'onStateChange', info: 0 }), { origin: 'https://evil.example' })),
       otherFrame: await run(Object.assign(data({ event: 'onStateChange', info: 0 }), { source: {} })),
