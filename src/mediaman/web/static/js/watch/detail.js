@@ -868,9 +868,10 @@
     var search = window.MMWatch.search;
     if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px')).style.minWidth = '181px'; // as its words are on a phone
     actions.appendChild(skel('skel--pill', '158px')); // Trailer
-    if (held) actions.appendChild(skel('skel--pill', '200px')).style.minWidth = '175px'; // Watched
+    var isShow = cur.kind === 'show';
+    if (held) actions.appendChild(skel('skel--pill', isShow ? '234px' : '200px')).style.minWidth = isShow ? '217px' : '175px'; // Watched
     var leaves = held && card && card.querySelector('.watch-badge--leaving');
-    if (leaves && !isAdmin) actions.appendChild(skel('skel--pill ttl__keep-skel', '94px'));
+    if (leaves && !isAdmin) actions.appendChild(skel('skel--pill ttl__keep-skel' + (isShow ? ' ttl__keep-skel--show' : ''), '94px'));
     main.appendChild(actions);
     var under = el('div', 'ttl__under');
     // Its card says how far it was watched and that it leaves, as the page is about to.
@@ -881,7 +882,7 @@
     }
     if (leaves) {
       var leaving = skel('ttl__leaving-skel');
-      leaving.textContent = 'Leaving in 10 days. Keep it to stop the deletion.';
+      leaving.textContent = (isShow ? 'Season 1 leaves' : 'Leaving') + ' in 10 days. Keep it to stop the deletion.';
       var line = el('p', 'ttl__leaving');
       line.setAttribute('aria-hidden', 'true');
       line.appendChild(icon('i-clock'));

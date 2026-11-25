@@ -49,12 +49,12 @@ Put your own folder in place of `/path/to/your/media`, and mount it at the path 
 Then make the key, start mediaman and create the first admin:
 
 ```bash
-[ -f .env ] || echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env
+[ -f .env ] || (umask 077 && echo "MEDIAMAN_SECRET_KEY=$(openssl rand -hex 32)" > .env)
 docker compose up -d
 docker compose exec mediaman mediaman-create-user
 ```
 
-Keep `.env` safe. The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more.
+Keep `.env` safe; only you can read it (an older `.env` needs `chmod 600 .env`). The key encrypts the tokens and passwords you enter in Settings, and without it they cannot be read. The password needs 12 characters or more, with three of lowercase, uppercase, digits and symbols, or 20 or more as a phrase of several words. One that is common, holds the username, repeats a few characters or is mostly a run such as 12345 is refused.
 
 ### Sign in
 
@@ -76,11 +76,12 @@ docker pull rossetv/mediaman &&
 docker stop mediaman &&
 docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data . &&
 docker rename mediaman mediaman-old &&
-printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env &&
-docker compose up -d
+(umask 077 && printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env) &&
+docker compose up -d &&
+docker update --restart=no mediaman-old
 ```
 
-It stops at the first step that fails. If that was only `docker compose up -d`, put the file right and run that line again alone. If it was earlier and mediaman is stopped, `docker start mediaman` (after `docker rename mediaman-old mediaman`, if it was renamed already) and begin again. A `MEDIAMAN_SECRET_KEY` exported in your shell wins over `.env`: `unset` it first.
+The last line keeps the old container from starting again by itself and taking the port. It stops at the first step that fails. If that was `docker compose up -d`, put the file right and run the last two lines again. If it was earlier and mediaman is stopped, `docker start mediaman` (after `docker rename mediaman-old mediaman`, if it was renamed already) and begin again. A `MEDIAMAN_SECRET_KEY` exported in your shell wins over `.env`: `unset` it first.
 
 To go back:
 
@@ -93,8 +94,11 @@ If the new one had started, put the backup back now, with the `docker run` line 
 
 ```bash
 docker start mediaman
+docker update --restart=unless-stopped mediaman
 rm .env
 ```
+
+If you gave `--restart` with another value, use that one in the `docker update` line.
 
 Once you have signed in and Settings shows your services, `docker rm mediaman-old`. From then on you [update](#backup-update-roll-back) like everyone else.
 
@@ -112,7 +116,7 @@ In Settings, under Integrations, fill in a service, save, and press Test.
 | OMDb | API key | Ratings |
 | Mailgun | domain, API key, from address | The weekly email and download alerts |
 
-URLs are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. The browser never talks to Plex: mediaman passes the video on, and the token never leaves mediaman. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+URLs, all but Public URL, are as the container sees them: `http://plex:32400` for a container on the same Docker network, or the machine's own address. Public URL is optional: for Radarr and Sonarr it is the address your browser opens them at, for their links on Downloads. The browser never talks to Plex: mediaman passes the video on, and the token never leaves mediaman. Plex's help explains [how to find a token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
 
 Under Libraries & Paths choose the Plex libraries mediaman reads, and give each the path Plex has for it. Then press Sync now under General & Schedule, and they appear on Watch.
 
@@ -127,11 +131,11 @@ A viewer can watch, search, ask for films and shows, see downloads and picks, an
 From the command line:
 
 ```bash
-docker compose exec mediaman mediaman-create-user --role viewer   # or admin, the default
-docker compose exec mediaman mediaman-unlock-user maren           # after too many wrong passwords
+docker compose exec mediaman mediaman-create-user --role viewer
+docker compose exec mediaman mediaman-unlock-user maren
 ```
 
-Fifteen wrong passwords in a row from one address lock that name there for 24 hours; the second line lifts that.
+The first line makes a viewer; leave out `--role viewer` for an admin. Five wrong passwords in a row from one address lock that name there for 15 minutes, ten for an hour and fifteen for 24 hours; the second line lifts that.
 
 ## Https and a reverse proxy
 
@@ -172,7 +176,7 @@ Scheduled deletion is off until you name the folders it may delete from.
 
 ![The weekly scan queues a film nobody has watched, with a grace period. If Mailgun, a Base URL and a subscriber are set, the email offers Keep. Not kept, it is deleted only inside MEDIAMAN_DELETE_ROOTS. Delete on Watch goes through Radarr or Sonarr and does not check the roots.](images/how-it-works.svg)
 
-What counts as unwatched, and how long a title then has, is under Cleanup Rules. To see what would go before anything does, press the storage meter on Watch, then Scan now, and look at its Scheduled tab.
+What counts as unwatched, and how long a title then has, is under Cleanup Rules. To see what would go before anything does, do this before you name any folder, since with folders named Scan now deletes what is due: press the storage meter on Watch, then Scan now, and look at its Scheduled tab.
 
 To turn it on, add your library folders as the container sees them, separated by `:`, and start mediaman again with `docker compose up -d`. The media mount must be writable by uid 1000.
 
@@ -203,7 +207,7 @@ Chrome, or a browser built on it such as Edge, on a computer or an Android devic
 It is off until an admin turns on Allow Chromecast, in Settings under TVs & Casting. Casting needs Google's Cast script, so turning it on lets in:
 
 - That script, from gstatic.com, runs inside mediaman, and can do all that the person signed in there can.
-- It loads only when someone opens Play on in such a browser or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
+- It loads only on Watch's pages and Downloads, when someone opens Play on in such a browser or while a Chromecast plays, and never on Settings, Profile, History or sign-in.
 - Google sees that person's internet address and the address they open mediaman at.
 - Google's player on the TV gets the film's title and a ticket for that one film, never anyone's sign-in.
 
@@ -221,11 +225,16 @@ For these, mediaman must be in a container network of its own, as it is above. W
 
 ## The AI, and what it is sent
 
-With an OpenAI key, these go to OpenAI, never with a name:
+With an OpenAI key, these go to OpenAI, never with the name of an account:
 
-- for picks: the titles each person played, the picks they had before, and the Plex stars of the server's owner. AI recommendations, under General & Schedule, turns this off;
-- unless a person turns off Use my history on their Profile: their searches, ratings, requests and how their plays went, for their picks and for the suggestions and answers in search;
-- when somebody asks the AI in search: the question, whatever their switch says.
+- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, and draft reason, to choose from. To mix them, the same data about the person goes again, with each candidate's type (film or show);
+- for the new and popular picks everyone sees: those of the last 30 days, and the titles it proposed in the same way. Nothing of what anyone watched;
+- when somebody asks the AI in search: their question, or the name and year of the title they want more like. When they narrow the answer, also its titles and the narrowing they chose;
+- unless they turn off Use my history on their Profile:
+  - for their picks: their searches, ratings, requests and how their plays went, such as finished, watched again or left part way;
+  - with each question, and once a day as they open search, for the phrases to try: their searches and the titles they played, liked and disliked.
+
+AI recommendations, under General & Schedule, turns both kinds of picks off. A mark as watched is not sent on its own. Once a title is marked, one already played is sent as finished, and one only started is sent as played.
 
 Each person may ask 20 questions a day, and everyone together makes 100 calls. Both are under OpenAI in Settings, and 0 turns asking off.
 
@@ -257,7 +266,7 @@ docker compose pull && docker compose up -d
 
 There are no version numbers: `latest` is the newest build, and each one is also tagged `sha-` and its full commit. To go back, set `image: rossetv/mediaman:sha-<commit>`, put back the backup from before the update, and run `docker compose up -d`.
 
-mediaman does not start on a database last opened by a build from before 13 May 2026. The error names the image to start once, or the two to start in order, to bring it up to date; they are for amd64 only.
+mediaman does not start on a database too old for it. The error names the image to start once, or the two to start in order, to bring it up to date; they are for amd64 only.
 
 ## Environment
 
@@ -274,7 +283,7 @@ mediaman does not start on a database last opened by a build from before 13 May 
 
 - iPhone and iPad need iOS 17.1 or later.
 - In the browser there is no choice of audio or subtitles: what Plex has saved for the title is used, and a chosen subtitle is drawn into the picture.
-- Quality is Automatic, Original for plain H.264 up to 1080p, or a step from 1080p down to 480p.
+- Quality is Automatic, Original for plain H.264 up to 1080p and 20 Mbps with no subtitle chosen, or a step from 1080p down to 480p.
 - mediaman runs as one process; a worker count above 1 stops the start.
 
 ## When something is wrong

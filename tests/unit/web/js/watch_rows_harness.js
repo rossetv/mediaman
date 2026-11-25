@@ -135,7 +135,7 @@ function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
     if (!wasAtEnd || !held || scroller.style.scrollSnapType === 'none') return;
     scroller.scrollLeft = Math.min(held.offsetLeft - PAD, scroller.scrollWidth - scroller.clientWidth);
   };
-  const changed = () => { wire(); place(); observers.forEach((fn) => fn([])); };
+  const changed = (gone) => { wire(); place(); observers.forEach((fn) => fn([{ removedNodes: gone ? [gone] : [] }])); };
   const name = (n) => (n === scroller ? 'row' : n.id || (n.closest('.watch-card') ?
     n.className.replace('watch-card__', '').replace('watch-', '') + ' ' + n.closest('.watch-card').textContent.slice(5) : n.tagName));
   return {
@@ -166,6 +166,7 @@ function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
     },
     blur: () => fire(doc.activeElement, 'focusout', { relatedTarget: null }),
     scrolled: () => fire(scroller, 'scroll'),
+    next: () => scroller.parentNode.classList.contains('has-next'),
     prev: () => scroller.parentNode.classList.contains('has-prev'),
     snaps: () => scroller.style.scrollSnapType !== 'none',
     click: (n) => {
@@ -174,7 +175,7 @@ function row(count, { keep = false, skeleton = false, reduced = true } = {}) {
       pressed = false;
     },
     // A browser gives what is taken out no focusout.
-    take: (card) => { const held = card.contains(doc.activeElement); card.remove(); if (held) doc.activeElement = doc.body; changed(); },
+    take: (card) => { const held = card.contains(doc.activeElement); card.remove(); if (held) doc.activeElement = doc.body; changed(card); },
   };
 }
 
@@ -196,16 +197,24 @@ const scenarios = {
     return { before, inside, moved, after, back, scrolled: r.at(), skeleton: row(0, { skeleton: true }).stops() };
   },
 
-  // The first card folds away, and the row, which snaps, follows the next one a few pixels.
+  // The first card folds away from a row at its start, one card along and at its end, which is
+  // scrolled about meanwhile; then it is gone, and the row stands at *end*.
   firstGoes() {
-    const r = row(6);
-    const step = (left) => { r.scroller.scrollLeft = left; r.scrolled(); return r.prev(); };
-    const before = [step(0), step(6)];
-    r.scroller.children[0].classList.add('is-kept');
-    Object.defineProperty(r.scroller.children[1], 'offsetLeft', { configurable: true, value: PAD + 6 });
-    const going = [step(6), step(6 + 100 + GAP)];
-    r.take(r.scroller.children[0]);
-    return { before, going, gone: [step(0), step(6)] };
+    const along = (left, end) => {
+      const r = row(6);
+      const arrows = () => [r.prev(), r.next()];
+      const step = (to) => { r.scroller.scrollLeft = to; r.scrolled(); return arrows(); };
+      const before = step(left);
+      r.scroller.children[0].classList.add('is-kept');
+      const going = [0, 6, 100 + GAP, 3 * (100 + GAP)].map(step);
+      r.take(r.scroller.children[0]);
+      going.push(step(1)); // not yet snapped to where it stays
+      r.scroller.scrollLeft = end;
+      r.run();
+      return { before, going, gone: arrows(), after: [step(0), step(6)] };
+    };
+    const last = 3 * (100 + GAP);
+    return { start: along(0, 0), one: along(100 + GAP, 100 + GAP), back: along(100 + GAP, 0), end: along(last, last) };
   },
 
   keys() {

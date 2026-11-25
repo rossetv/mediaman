@@ -213,3 +213,15 @@ def test_the_ratings_still_to_come_hold_one_line() -> None:
     line = _of(".ttl__ratings-wait")
     assert "height: calc(1lh + 8px)" in line
     assert "overflow: hidden" in line
+
+
+def test_keep_has_the_room_beside_a_shows_wider_words_and_a_films_row_stays_as_it_is() -> None:
+    row = ".ttl__actions:has(> .ttl__play-on)"
+    wide = "(min-width: 700px)"
+    films = [s for selectors, body in _rules(wide) if "max-width: 500px" in body for s in selectors]
+    shows = [s for selectors, body in _rules(wide) if "max-width: 530px" in body for s in selectors]
+    assert films and not any("show" in s for s in films)
+    assert shows == [
+        f'{row}:has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"])',
+        f"{row}:has(> .ttl__keep-skel--show)",
+    ]

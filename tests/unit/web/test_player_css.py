@@ -306,6 +306,43 @@ def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
 
 
+def test_the_words_of_a_tvs_page_step_aside_for_a_card() -> None:
+    css = _text("_player.css")
+    words = _rule(css, ".player.is-away.is-wordless .player-away-say")
+    assert "visibility: hidden" in words
+    under = _rule(css, ".player.is-away .player-upnext.is-under")
+    assert "top: var(--away-under)" in under and "bottom: auto" in under
+
+
+def test_nothing_turns_behind_a_card_on_a_tvs_page() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    still = next(
+        s for s in rules if "player-message:not([hidden]" in s and s.endswith(".player-away-ring")
+    )
+    assert ".player.is-away:has(" in still and "display: none" in rules[still]
+
+
+def test_the_skip_button_of_a_tvs_remote_stands_on_the_bar_of_a_wide_screen() -> None:
+    css = _text("_player.css")
+    wide = css[css.index("@media (min-width: 900px) {") :]
+    skip = _rule(wide, ".player.is-away .player-skip")
+    assert "position: fixed" in skip and "var(--away-row" in skip
+
+
+def test_the_question_of_a_rating_is_never_shrunk_away() -> None:
+    css = _text("_player.css")
+    # Beside the thumbs, on a phone on its side, it is what wraps.
+    column = css[css.index("@media (min-height: 520.02px), (orientation: portrait) {") :]
+    assert "flex: none" in _rule(column, ".player.is-away .player-rate .player-card-title")
+    assert len(re.findall(r"-rate \.player-card-title \{[^}]*flex: none", css)) == 1
+
+
+def test_chapters_go_with_the_other_controls_at_the_end_on_a_tv() -> None:
+    body = _rule(_text("_player.css"), ".player.is-ended .player-chapters")
+    assert "transition: none" in body
+
+
 def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
     css = _text("_player.css")
     assert not re.search(r"\.is-away \.player-chapters \{[^}]*opacity: 1", css)
@@ -316,8 +353,18 @@ def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
 
 def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
     css = _text("_play_on.css")
-    assert "opacity: 0" in _rule(css, ".play-on:not([open])::backdrop")
-    assert re.search(r"\.play-on::backdrop \{ transition: opacity[^}]*allow-discrete", css)
+    out = {}
+    for part in ("", "::backdrop"):
+        body = _rule(css, f".play-on:popover-open{part}")
+        name, rest = re.search(r"animation: ([\w-]+) ([^;]*);", body).groups()
+        assert re.search(rf"@keyframes {name} \{{ to \{{ opacity: 0;", css)
+        assert rest.endswith("forwards")
+        out[part] = rest
+    assert out[""] == out["::backdrop"]
+    # It takes no press meant for the page under it, and where less is to move it goes at once.
+    assert "pointer-events: none" in _rule(css, ".play-on:popover-open")
+    still = css[css.index("prefers-reduced-motion") :]
+    assert "display: none" in _rule(still, ".play-on:popover-open")
 
 
 def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:

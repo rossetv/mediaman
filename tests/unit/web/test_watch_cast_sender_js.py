@@ -987,3 +987,25 @@ def test_a_title_is_held_only_while_this_page_or_a_live_one_plays_it() -> None:
         "seen": True,
         "crashed": False,
     }
+
+
+def test_a_play_from_the_start_again_keeps_the_place_before_it_until_it_plays() -> None:
+    out = _run("leftAnew")
+    # The TV has it and does not play yet, or plays nothing at all.
+    assert out["waits"]["posts"] == [["progress", 3000, 2500]]
+    assert out["refused"]["posts"] == [["stream/st2/stop", 3000, 2500]]
+    assert out["player"]["saved"] == 3000
+    # Nor does another quality end that.
+    assert out["changed"][1] == 3000
+    # Once it plays, its own place is what counts.
+    assert 0 < out["played"][1] < 20
+    assert out["plays"]["posts"][0][1] < 10
+
+
+def test_what_played_again_with_no_page_open_is_saved_where_it_was_paused() -> None:
+    out = _run("leftAnew")
+    assert out["moved"]["last"][1] == 1200
+    assert "saved" not in out["movedPlayer"]
+    # Paused where it starts, it has not played.
+    assert out["still"]["last"][1] == 3000
+    assert out["stillPlayer"]["saved"] == 3000

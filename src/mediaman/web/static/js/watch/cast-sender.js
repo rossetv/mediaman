@@ -28,6 +28,8 @@
   var SDK_WAIT_MS = 15000;
   var LOAD_WAIT_MS = 45000;
   var REJOIN_WAIT_MS = 10000;
+  /* A place this far past the one a stream started at has been played to. */
+  var MOVED_S = 3;
   /* A TV that was lost may come back for this long. */
   var LOST_MS = 120000;
   /* One that is back and says nothing for this long is not followed any more, and left to play. */
@@ -215,6 +217,7 @@
       busy: p.changing,
       wait: left && p.followed ? endLeft(p) : p.wait,
       ended: p.ended,
+      saved: p.savedAt,
       auto: p.auto,
       beat: left ? 0 : now(),
       at: now(),
@@ -282,6 +285,7 @@
       played: 0,
       seen: null,        // the place and time the played seconds were last counted at
       mine: false,       // this page began it, or the server has taken a save of it here
+      savedAt: null,     // the place to save until the stream plays, where that is not its start
       saving: false,
       saved: null,       // when a save was last made here, and whether it was paused
       loads: 0,
@@ -416,6 +420,7 @@
       }
       var paused = ms.playerState === states.PAUSED;
       p.begun = true;
+      if (!paused) p.savedAt = null;
       if (p.asked === null) setPaused(paused);
       if (p.ready !== 4) {
         p.ready = 4;
@@ -565,6 +570,7 @@
     if (stream.title) p.title = stream.title;
     if (stream.keep !== undefined) takeKept(p, stream.keep);
     p.place = stream.position_s || 0;
+    p.savedAt = typeof stream.saved_s === 'number' ? stream.saved_s : null;
     p.duration = stream.duration_s || 0;
     p.paused = !!stream.paused;
     p.begun = p.ended = false;
@@ -831,7 +837,7 @@
       /* A session that plays nothing is no TV to play on unasked. */
       if (!other && mediaOn(session).length) endOn(session, null, null);
       /* It ended while no page was open: where it was last, unless the TV says it played to the end. */
-      stopOnServer(rec.stream, { position_s: end || tenths(rec.place), played_s: Math.round(rec.played || 0) });
+      stopOnServer(rec.stream, { position_s: end || tenths(typeof rec.saved === 'number' ? rec.saved : rec.place), played_s: Math.round(rec.played || 0) });
       return null;
     }
     var said = plays && ms.media.metadata || {};
@@ -840,6 +846,7 @@
     p.keep = kept.keep || null;
     p.played = Number(rec.played) || 0;
     p.auto = Number(rec.auto) || 0;
+    if (typeof rec.saved === 'number') p.savedAt = rec.saved;
     p.cut = !!rec.busy;
     ended = null;
     current = p;
@@ -854,6 +861,8 @@
     } else {
       p.duration = ms.media.duration || 0;
       p.place = safely(function () { return ms.getEstimatedTime(); }, Number(rec.place) || 0);
+      /* It has played there while no page was open. */
+      if (p.place > (Number(rec.place) || 0) + MOVED_S) p.savedAt = null;
       p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
       p.begun = true;
       p.attach(ms);
@@ -871,7 +880,7 @@
 
   function body(p) {
     return {
-      position_s: tenths(p.at()),
+      position_s: tenths(p.savedAt === null ? p.at() : p.savedAt),
       played_s: Math.round(p.played),
     };
   }
@@ -1079,6 +1088,7 @@
       stream_id: data.stream_id,
       url: data.url,
       position_s: about ? about.start_s : p.at(),
+      saved_s: about ? null : p.savedAt,
       duration_s: data.duration_s,
       paused: about ? false : p.paused,
       title: about ? about.title : p.title,
@@ -1294,6 +1304,7 @@
         stream: {
           stream_id: p.stream.stream_id,
           position_s: p.at(),
+          saved_s: p.savedAt === null ? undefined : p.savedAt,
           duration_s: p.duration,
           paused: p.paused,
           rating_key: p.title.rating_key,
