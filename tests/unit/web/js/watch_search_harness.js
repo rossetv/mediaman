@@ -611,7 +611,7 @@ const scenarios = {
     const of = (d) => ({ ...LIB, ref: 'show-1' + d, kind: 'show', leaving_days: d, leaving_season: 2, leaving_id: '9', keep_id: null });
     await p.answer('/api/watch/search?', { items: [-1, 0, 1, 5].map(of) });
     return p.doc.querySelectorAll('[data-leaving-id]').map((c) => [
-      ...c.querySelector('.watch-badge--leaving').children.map((n) => n.textContent || n.getAttribute('data-words')),
+      ...c.querySelectorAll('.watch-badge--leaving span').map((n) => n.textContent || n.getAttribute('data-words')),
       c.getAttribute('data-leaving-id'), c.getAttribute('data-keep-id'), c.querySelectorAll('[data-watch-keep]').length]);
   },
 

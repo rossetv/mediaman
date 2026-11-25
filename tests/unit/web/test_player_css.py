@@ -152,17 +152,29 @@ def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
     assert level(".player-gap") <= level(".player-seek-thumb")
 
 
-def test_the_intro_and_credits_bands_are_a_grey_between_the_track_and_the_buffered_part() -> None:
+def test_an_intro_or_credits_band_is_a_lighter_stretch_of_the_bar_cut_off_at_its_ends() -> None:
     css = _text("_player.css")
+    band = _rule(css, ".player-band")
 
-    def share(selector: str) -> int:
-        m = re.search(r"var\(--t1\) (\d+)%", _rule(css, selector))
+    def share(selector: str) -> float:
+        m = re.search(r"var\(--t1\) (\d+)%, transparent\)", _rule(css, selector))
         assert m, selector
-        return int(m.group(1))
+        return int(m.group(1)) / 100
 
-    track = int(re.search(r"var\(--t1\) (\d+)%", _rule(css, ".player-seek-track::before")).group(1))
-    assert track < share(".player-band") < share(".player-seek-buffered")
-    assert "--purple" not in _rule(css, ".player-band")
+    def over(level: float, part: float) -> float:
+        return level + (255 - level) * part
+
+    fill = share(".player-band")
+    for frame in (0, 45, 90):  # the bar's shade leaves no brighter frame under it
+        track = over(frame, share(".player-seek-track::before"))
+        buffered = over(track, share(".player-seek-buffered"))
+        assert _contrast(over(track, fill), track) >= 1.5, frame
+        assert _contrast(over(buffered, fill), buffered) >= 1.2, frame
+    assert _contrast(over(255 * 0.2, fill), over(255 * 0.2, share(".player-seek-buffered"))) >= 1.3
+    # The cuts are dark all through, not a tint over the fill.
+    assert "border: solid var(--bg)" in band and "border-width: 0 2px" in band
+    assert "padding-box" in band
+    assert not re.search(r"\b(top|bottom|height|outline|box-shadow|z-index):", band)
 
 
 def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_pressed_by() -> None:

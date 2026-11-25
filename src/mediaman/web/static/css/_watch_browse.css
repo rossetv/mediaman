@@ -61,6 +61,7 @@
 }
 .row-offer {
   position: absolute;
+  z-index: 2; /* over what the heading's links reach for */
   right: var(--pad);
   top: 50%;
   margin-top: -17px;
@@ -94,8 +95,8 @@
   .watch-row__head:has(> .watch-row__tools) > .row-offer ~ .watch-row__tools { margin-left: auto; }
 }
 /* Here its words would cover the heading: the icon alone is drawn. */
-@media (max-width: 399.98px) {
-  .row-offer { padding: 0 11px; }
+@media (max-width: 499.98px) {
+  .row-offer { width: 34px; padding: 0; justify-content: center; }
   .row-offer__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 @media (prefers-reduced-motion: reduce) {

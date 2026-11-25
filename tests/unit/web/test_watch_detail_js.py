@@ -241,6 +241,8 @@ def test_a_trailer_that_ends_gives_way_to_the_artwork() -> None:
     # Asked to report, then paused, so that it is silent while it fades.
     assert out["ended"]["sent"] == [["listening", None, to], ["command", "pauseVideo", to]]
     assert out["ended"]["focus"] == "trailer"
+    # A press beside a button can leave the focus on the title, which the trailer hides.
+    assert out["endedOnTitle"]["focus"] == "trailer"
     assert (out["endedInfo"]["playing"], out["endedInfo"]["focus"]) == (False, "primary")
     for other in ("paused", "otherOrigin", "otherFrame", "junk"):
         assert out[other]["playing"] is True, other

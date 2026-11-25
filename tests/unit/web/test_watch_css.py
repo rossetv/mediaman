@@ -34,7 +34,7 @@ def test_forced_colours_paint_a_watched_toggle_s_ring_and_not_all_it_takes_to_pr
 
 
 def _background(selector: str) -> str:
-    return _of(selector).split("background:")[1].split(";")[0].strip()
+    return re.split(r"--badge-bg:|background:", _of(selector), maxsplit=1)[1].split(";")[0].strip()
 
 
 def test_a_leaving_badge_is_dark_and_turns_red_only_when_it_leaves_now() -> None:
@@ -50,21 +50,28 @@ def test_a_leaving_badge_is_dark_and_turns_red_only_when_it_leaves_now() -> None
     assert css.index(".watch-badge--leaving-now {") > css.index(".watch-badge--leaving {")
 
 
-def test_a_leaving_badge_says_the_days_left_but_on_the_narrowest_phones() -> None:
+def test_a_leaving_badge_says_the_days_left() -> None:
     assert "display: none" in _of(".watch-badge__long")
     assert "display: none" not in _of(".watch-badge__short")
     wider = "max-width: 599.98px"
     assert not any(_of(s, wider) for s in (".watch-badge__long", ".watch-badge__short"))
 
 
-def test_a_leaving_badge_is_shorter_on_the_narrowest_phones_and_still_read_in_full() -> None:
-    narrow = "max-width: 359.98px"
-    has_tiny = ".watch-badge:has(> .watch-badge__tiny)"
-    assert "display: none" in _of(f"{has_tiny} > .watch-badge__short", narrow)
-    assert "attr(data-words)" in _of(".watch-badge__tiny::after", narrow)
-    long = _of(f"{has_tiny} > .watch-badge__long", narrow)
-    assert "display: block" in long and "clip-path: inset(50%)" in long
-    assert "content" not in _of(".watch-badge__tiny::after")
+def test_a_leaving_badge_shows_fewer_words_wherever_the_short_ones_do_not_fit() -> None:
+    window = _of(".watch-badge--leaving")
+    assert "flex-wrap: wrap" in window and "overflow: hidden" in window
+    # The fewer words take no width of the line, so the short ones alone say whether it wraps;
+    # where it does not, they stand at the foot of a line two high, out of the window.
+    for words in (".watch-badge__tiny", ".watch-badge__least"):
+        assert "align-self: flex-end" in _of(words)
+        assert "attr(data-words)" in _of(f"{words}::after")
+    tiny = _of(".watch-badge__tiny")
+    assert "flex: 0 0 100%" in tiny and "margin-right: -100%" in tiny
+    assert "width: 0" in _of(".watch-badge__least")
+    for words in (".watch-badge__short", ".watch-badge__tiny::after"):
+        assert "flex: none" in _of(words) and "margin-bottom: var(--badge-h)" in _of(words)
+    # Read out in full whatever is drawn.
+    assert "display: none" not in _of(".watch-badge__short", "max-width: 359.98px")
 
 
 @pytest.mark.parametrize(
@@ -129,7 +136,12 @@ def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None
 
 
 def test_a_leaving_badge_has_an_edge_in_forced_colours() -> None:
-    assert "outline: 1px solid CanvasText" in _of(".watch-badge--leaving", FORCED)
+    # Round its words, inside the window that would cut it off, and not over the poster's width.
+    for pill in (".watch-badge__short", ".watch-badge__tiny::after", ".watch-badge__least::after"):
+        drawn = _of(pill, FORCED)
+        assert "outline: 1px solid CanvasText" in drawn and "outline-offset: -1px" in drawn
+        assert "background: Canvas" in drawn
+    assert not _of(".watch-badge--leaving", FORCED)
 
 
 def test_a_caption_is_shortened_on_a_phone_alone() -> None:
@@ -219,9 +231,9 @@ def test_a_rows_heading_leaves_the_more_of_the_row_above_its_44px() -> None:
     assert _reach(".watch-row__title > .row-open[href]::after", TOUCH)[0] <= 9
 
 
-def test_a_rows_offer_covers_no_heading_on_a_narrow_phone() -> None:
+def test_a_rows_offer_covers_no_heading_or_its_link_on_a_phone() -> None:
     browse = SHEET.with_name("_watch_browse.css")
-    text = _of(".row-offer__text", "(max-width: 399.98px)", browse)
+    text = _of(".row-offer__text", "(max-width: 499.98px)", browse)
     assert "position: absolute" in text and "clip-path: inset(50%)" in text
 
 

@@ -626,6 +626,8 @@ def test_the_bar_marks_chapters_intro_and_credits(markup):
     # Chapters 4 px after another, or at either end of the bar, get no gap.
     assert out["gaps"] == ["10%", "50%"]
     assert out["bands"] == [["2%", "3%"], ["80%", "1.6666666666666667%"], ["90%", "10%"]]
+    # The last reaches the end of the bar, which needs no cut there.
+    assert out["uncut"] == [[], ["90%"]]
     assert out["bubble"] == ["Cold open", "1:30 · Intro"]
 
 

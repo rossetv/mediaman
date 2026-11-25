@@ -336,20 +336,44 @@
     return state;
   }
 
+  var fades = new WeakMap(); // of a badge on its way out
+
+  function stopFade(badge) {
+    var out = fades.get(badge);
+    fades.delete(badge);
+    badge.removeAttribute('data-going');
+    if (out) out.cancel();
+  }
+
+  /* Take a badge off in a fade, over the one that takes its place. */
+  function fadeAway(badge) {
+    if (reduceMotion() || !badge.animate) { badge.remove(); return; }
+    badge.setAttribute('data-going', '');
+    var out = badge.animate([{ opacity: 1 }, { opacity: 0 }], { duration: tokenMs('--dur', 200), easing: token('--ease-out', 'ease-out'), fill: 'forwards' });
+    fades.set(badge, out);
+    out.onfinish = function () {
+      if (fades.get(badge) !== out) return;
+      stopFade(badge);
+      badge.remove();
+    };
+  }
+
   /* Have the badge of a show's card be of the first season that still leaves. Says whether it changed. */
   function saySeason(card, state) {
     var next = leavingSeasons(card).filter(function (s) { return !state.gone[s.id]; })[0];
-    var badge = card.querySelector('.watch-badge--leaving');
+    var badge = card.querySelector('.watch-badge--leaving:not([data-going])');
     var search = window.MMWatch.search;
     var node = next && (state.badges[next.id] ||
       (search && search.leavingBadge({ leaving_days: next.days, leaving_season: next.season })));
     if (node && node === badge && card.getAttribute('data-leaving-id') === next.id) return false;
     card.setAttribute('data-leaving-id', next ? next.id : '');
-    if (badge && badge !== node) badge.remove();
+    if (badge && badge !== node) fadeAway(badge);
     if (!node) return !!badge;
     state.badges[next.id] = node;
     var host = state.host || card.querySelector('.watch-card__poster');
     if (host) host.insertBefore(node, state.before && state.before.parentNode === host ? state.before : null);
+    stopFade(node);
+    if (!reduceMotion()) core.fadeIn(node);
     return true;
   }
 

@@ -158,6 +158,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   inset: 0;
   pointer-events: none;
   background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%);
+  transition: opacity var(--dur) var(--ease-out);
 }
 .ttl__head {
   position: relative;
@@ -205,7 +206,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__meta > .ttl__meta-skel { margin-left: var(--dot); padding-left: 0; }
 /* The certificate sits closer than a dot's width, and still clears the margin when it starts a line. */
 .ttl__meta > span:has(+ .ttl__cert) { margin-right: calc(8px - var(--dot)); }
-:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out); }
+:is(.ttl__genre, .ttl__director) { position: relative; border-radius: var(--r-xxs); text-decoration: underline 1px var(--hair-hover); text-underline-offset: 3px; transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out), visibility var(--dur); }
 :is(.ttl__genre, .ttl__director)::after { content: ""; position: absolute; inset: -12px -3px; }
 :is(.ttl__genre, .ttl__director):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 :is(.ttl__genre, .ttl__director):active { opacity: .6; }
@@ -225,13 +226,19 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   container-type: size;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--s1) 90%, transparent);
+  /* Beside the video, the artwork out of focus, which melts into what is above and below. */
+  --above: 0px;
+  --below: 0px;
+  background: linear-gradient(180deg, var(--s1) var(--above), color-mix(in srgb, var(--s1) 78%, transparent) calc(var(--above) + 12%), color-mix(in srgb, var(--s1) 62%, transparent) calc(var(--above) + 30%) calc(70% - var(--below)), color-mix(in srgb, var(--s1) 78%, transparent) calc(88% - var(--below)), var(--s1) calc(100% - var(--below)));
+  -webkit-backdrop-filter: blur(32px) saturate(1.3);
+  backdrop-filter: blur(32px) saturate(1.3);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--dur) var(--ease-out), visibility 0s linear var(--dur);
 }
 .ttl.is-trailer .ttl__player { opacity: 1; visibility: visible; transition-delay: 0s; }
 .ttl.is-trailer .ttl__head { opacity: 0; transform: translateY(8px); }
+.ttl.is-trailer .ttl__hero::after { opacity: 0; }
 .ttl__frame {
   display: block;
   width: min(100cqw, 100cqh * 16 / 9);
@@ -243,18 +250,40 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 }
 .ttl.is-trailer .ttl__frame { transform: none; animation: ttl-frame-in var(--dur-slow) var(--ease-out); }
 @keyframes ttl-frame-in { from { opacity: 0; transform: scale(.97); } }
-.ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out); }
+.ttl__trailer > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease-out), visibility var(--dur-fast); }
 .ttl__trailer { display: inline-grid; }
 .ttl:not(.is-trailer) .ttl__trailer-on,
 .ttl.is-trailer .ttl__trailer-off { opacity: 0; visibility: hidden; }
 
-/* The sheet reaches up for a strip that holds Close, clear of the player's own buttons, and
-   everything from the hero down stays where it was. */
+/* A strip that holds Close, clear of the player's own buttons, rises from behind the hero;
+   everything from the hero down stays where it was. The hero rounds its own corners, as the
+   sheet cannot clip what rises out of it. */
 @media (min-width: 700px) and (min-height: 500.02px) {
-  .ttl.is-trailer .ttl__sheet { margin-top: -40px; }
-  .ttl.is-trailer .ttl__bar { height: 40px; margin-bottom: 0; padding: 0 2px; }
-  .ttl.is-trailer .ttl__close { width: 36px; height: 36px; translate: none; }
-  .ttl.is-trailer .ttl__close::after { content: ""; position: absolute; inset: -4px; }
+  .ttl__sheet { --strip: 40px; isolation: isolate; overflow: visible; }
+  .ttl__sheet::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset: calc(-1 * var(--strip) - 1px) -1px auto;
+    height: calc(var(--strip) + 2 * var(--r-lg));
+    border: solid var(--hair);
+    border-width: 1px 1px 0;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    background: var(--s1);
+    opacity: 0;
+    transform: translateY(var(--strip));
+    transition: transform var(--dur) var(--ease-out), opacity 0s var(--dur);
+  }
+  .ttl.is-trailer .ttl__sheet::before { opacity: 1; transform: none; transition-delay: 0s; }
+  .ttl__hero { clip-path: inset(0 round calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0); transition: clip-path var(--dur) var(--ease-out); }
+  .ttl.is-trailer .ttl__hero { clip-path: inset(0 round 0); }
+  .ttl.is-trailer .ttl__bar::before { opacity: 0; }
+  .ttl__close { transition-property: background-color, transform, translate, scale; transition-duration: var(--dur-fast), var(--dur-fast), var(--dur), var(--dur); }
+  .ttl__close > .ico { transition: scale var(--dur) var(--ease-out); }
+  .ttl.is-trailer .ttl__close { translate: 10px -48px; scale: .8182; }
+  .ttl.is-trailer .ttl__close > .ico { scale: 1.2222; }
+  .ttl.is-trailer .ttl__close::after { content: ""; position: absolute; inset: -5px; }
+  .ttl.is-trailer .ttl__close:focus-visible { outline-width: 2.5px; outline-offset: -4px; }
 }
 
 /* ── Body ── */
@@ -508,7 +537,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (max-width: 699.98px), (max-height: 500px) {
   .ttl { scroll-padding-top: var(--ttl-bar); }
   .ttl__bar { position: sticky; top: 0; }
-  .ttl__player { padding: var(--ttl-bar) 0 var(--ttl-gap); }
+  .ttl__player { --above: var(--ttl-bar); --below: var(--ttl-gap); padding: var(--ttl-bar) 0 var(--ttl-gap); }
   .ttl.is-past .ttl__bar { pointer-events: auto; }
   .ttl.is-past .ttl__bar::before { opacity: 1; border-bottom: 1px solid var(--hair); }
   .ttl.is-trailer .ttl__hero { min-height: min(calc(56.25vw + var(--ttl-bar) + var(--ttl-gap)), calc(100vh - 48px)); }
@@ -528,6 +557,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__hero::after,
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
+  .ttl__player { background: Canvas; }
   .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }

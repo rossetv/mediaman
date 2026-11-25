@@ -1919,7 +1919,7 @@
   function closeTrailer(refocus) {
     if (!trailerOn()) return;
     var active = document.activeElement;
-    var lost = !root.contains(active) || player.contains(active) || active === closeBtn;
+    var lost = !root.contains(active) || player.contains(active) || active === closeBtn || active === titleEl; // out of sight under a trailer
     easeHero(function () { root.classList.remove('is-trailer'); });
     player.setAttribute('aria-hidden', 'true');
     nameClose();

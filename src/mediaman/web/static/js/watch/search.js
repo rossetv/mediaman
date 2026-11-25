@@ -71,22 +71,28 @@
     var days = item.leaving_days;
     var words = leavingText(days);
     var short = leavingShortText(days);
-    var least = days > 0 ? '' : days < 0 ? 'Any day' : 'Today';
+    var tinyWords = days > 0 ? '' : days < 0 ? 'Any day' : 'Today';
+    var least = '';
     // Of a show, the season that is leaving.
     if (typeof item.leaving_season === 'number') {
       var s = 'S' + item.leaving_season;
       words = words.replace('Leaving', 'Season ' + item.leaving_season + ' leaves');
       short = days > 0 ? s + ' · ' + short : short.replace('Leaving', s + ' leaves');
-      least = s + ' · ' + (least || days + (days === 1 ? ' day' : ' days'));
+      least = s + (days > 0 ? ' · ' + days + 'd' : days ? ' · Due' : ' Today');
+      tinyWords = s + ' · ' + (tinyWords || days + (days === 1 ? ' day' : ' days'));
     }
     badge.appendChild(el('span', 'watch-badge__long', words));
-    badge.appendChild(el('span', 'watch-badge__short', short));
-    if (least) {
+    if (tinyWords) {
       var tiny = el('span', 'watch-badge__tiny');
-      tiny.setAttribute('data-words', least);
+      tiny.setAttribute('data-words', tinyWords);
       tiny.setAttribute('aria-hidden', 'true');
+      if (least) {
+        tiny.appendChild(el('span', 'watch-badge__least'));
+        tiny.firstChild.setAttribute('data-words', least);
+      }
       badge.appendChild(tiny);
     }
+    badge.appendChild(el('span', 'watch-badge__short', short));
     return badge;
   }
 

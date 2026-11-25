@@ -158,14 +158,15 @@
 /* A season to delete: its button, 32px or by touch 44px, and the room around it. */
 #season-delete-list > .keep-season-item { min-height: 52px; }
 #season-delete-list > .keep-season-item--skel { height: 52px; }
-/* A season to keep: its name over its details, and room beside them for its keep and the button
-   that changes it, whether or not it has one. The label's target is the whole row. */
+/* A season to keep: its name over its details, the label's target the whole row. Where a season is
+   kept, every row has the room beside them for a keep over the button that changes it. */
 #keep-season-list > .keep-season-item {
   position: relative;
   flex: none;
-  min-height: 64px;
+  min-height: 52px;
   padding-block: 6px;
 }
+#keep-season-list.has-keeps > .keep-season-item { min-height: 70px; }
 #keep-season-list > .keep-season-item:not(.keep-season-item--skel) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -173,12 +174,15 @@
   align-content: center;
   align-items: center;
 }
+#keep-season-list.has-keeps > .keep-season-item:not(.keep-season-item--skel) { grid-template-rows: 1fr 1fr; align-content: stretch; }
+#keep-season-list.has-keeps label { align-self: end; }
+#keep-season-list.has-keeps :is(.keep-season-details, .keep-all-note) { align-self: start; }
 #keep-season-list input { grid-area: 1 / 1 / 3; }
 #keep-season-list label { grid-area: 1 / 2; min-height: 0; line-height: 18px; white-space: normal; }
 #keep-season-list label::after { content: ""; position: absolute; inset: 0; }
 .keep-all-note { font-size: 12px; font-weight: 400; color: var(--t3); }
 #keep-season-list :is(.keep-season-details, .keep-all-note) { grid-area: 2 / 2; margin-left: 0; padding-block: 0; line-height: 16px; white-space: normal; }
-.keep-season-keep { grid-area: 1 / 3 / 3; display: inline-flex; align-items: center; gap: 10px; }
+.keep-season-keep { grid-area: 1 / 3 / 3; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .keep-season-keep .btn { position: relative; }
 .keep-season-item--skel .skel { width: 45%; }
 .keep-season-item .btn,
@@ -224,21 +228,21 @@
   #season-delete-list .keep-season-details { grid-area: 2 / 1; margin-left: 0; padding-block: 0; }
   #season-delete-list > .keep-season-item > :last-child { grid-area: 1 / 2 / 3; }
 }
-/* The keep is beside the season's name, and its button below that. */
-@media (max-width: 639.98px) {
-  #keep-season-list > .keep-season-item { min-height: 82px; }
-  #keep-season-list > .keep-season-item--kept:not(.keep-season-item--skel) { grid-template-rows: 22px 44px; row-gap: 4px; }
-  .keep-season-keep { display: contents; }
-  .keep-season-keep .pill { grid-area: 1 / 3; justify-self: end; }
-  .keep-season-keep .btn { grid-area: 2 / 3; justify-self: end; }
+@media (pointer: coarse), (max-width: 699.98px) {
+  #keep-season-list.has-keeps > .keep-season-item { min-height: 82px; }
 }
-/* Too narrow for that: its button is beside the name, and the keep between that and the details. */
+/* Room for two lines of details. */
+@media (max-width: 639.98px) {
+  #keep-season-list:not(.has-keeps) > .keep-season-item { min-height: 64px; }
+}
+/* Too narrow for a keep beside the details: its button is beside the name, and the keep below both. */
 @media (max-width: 389.98px) {
-  #keep-season-list > .keep-season-item { min-height: 94px; padding-block: 4px; }
-  #keep-season-list > .keep-season-item--kept:not(.keep-season-item--skel) { grid-template-rows: 44px 22px auto; row-gap: 2px; }
+  #keep-season-list.has-keeps > .keep-season-item { min-height: 94px; padding-block: 4px; }
+  #keep-season-list.has-keeps > .keep-season-item--kept:not(.keep-season-item--skel) { grid-template-rows: 44px auto 24px; align-content: center; }
+  .keep-season-keep { display: contents; }
   #keep-season-list .keep-season-item--kept input { grid-area: 1 / 1 / 4; }
-  #keep-season-list .keep-season-item--kept :is(.keep-season-details, .keep-all-note) { grid-area: 3 / 2 / auto / 4; }
-  .keep-season-keep .pill { grid-area: 2 / 2 / auto / 4; justify-self: start; }
+  #keep-season-list .keep-season-item--kept :is(.keep-season-details, .keep-all-note) { grid-area: 2 / 2 / auto / 4; }
+  .keep-season-keep .pill { grid-area: 3 / 2 / auto / 4; justify-self: start; align-self: end; }
   .keep-season-keep .btn { grid-area: 1 / 3; }
 }
 @media (max-width: 359.98px) {

@@ -2858,6 +2858,7 @@ const scenarios = {
     const out = { hidden: p.q('[data-chapters]').hidden, rows: items().map((b) => b.textContent.trim()) };
     out.gaps = pick(p, 'player-gap', 'left');
     out.bands = pick(p, 'player-band', 'left').map((l, i) => [l, pick(p, 'player-band', 'width')[i]]);
+    out.uncut = ['is-first', 'is-last'].map((c) => pick(p, 'player-band', 'left').filter((l, i) => p.q('[data-marks]').querySelectorAll('.player-band')[i].classList.contains(c)));
     fire(p.video, 'timeupdate');
     out.start = look();
     press(p.q('[data-chapter-btn]'));

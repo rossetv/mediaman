@@ -145,9 +145,18 @@ def test_the_page_knows_how_long_this_sessions_password_is_good_for(
 
     grant_recent_reauth(conn, "another-session", username)
     assert good_for() == 0
+    grant_recent_reauth(conn, token, "someone-else")
+    assert good_for() == 0
     grant_recent_reauth(conn, token, username, window_seconds=100)
     assert 90 <= good_for() <= 100
     grant_recent_reauth(conn, token, username, window_seconds=9000)
     assert 290 <= good_for() <= 300
     grant_recent_reauth(conn, token, username, window_seconds=-1)
     assert good_for() == 0
+
+
+def test_what_the_plex_card_waits_for_is_announced(app_factory, authed_client, conn):
+    app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
+    html = authed_client(app, conn).get("/account").text
+
+    assert re.search(r'<p [^>]*id="plex-wait"[^>]*aria-live="polite"', html)

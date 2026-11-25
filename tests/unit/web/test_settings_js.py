@@ -48,6 +48,10 @@ def test_discard_puts_back_the_last_saved_values() -> None:
     assert out["afterSaveDiscard"] == {"value": "http://c", "flag": True}
 
 
+def test_the_pages_room_for_the_bar_follows_the_bars_height() -> None:
+    assert _run("savebarRoom") == [{"--savebar-h": "61px"}, {"--savebar-h": "258px"}]
+
+
 def test_an_edit_made_during_a_save_stays_unsaved() -> None:
     out = _run("editDuringSave")
     unsaved = {"on": True, "button": "Save Settings", "disabled": False}
