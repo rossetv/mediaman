@@ -229,14 +229,15 @@ def parse_filters(
         q=_text(q),
         user=_text(user, _NAME_MAX),
         action=_text(action),
-        title=_text(title, _TITLE_MAX),
+        # Only spaces, which are what SQLite's TRIM takes off the stored titles.
+        title=_text(title, _TITLE_MAX, " "),
         since=_moment(since),
         until=_moment(until, end=True),
     )
 
 
-def _text(value: str, limit: int = TEXT_MAX) -> str:
-    return value.replace("\0", "").encode(errors="ignore").decode().strip()[:limit]
+def _text(value: str, limit: int = TEXT_MAX, outer: str | None = None) -> str:
+    return value.replace("\0", "").encode(errors="ignore").decode().strip(outer)[:limit]
 
 
 def _moment(value: str, *, end: bool = False) -> datetime | None:
@@ -355,7 +356,7 @@ LEFT JOIN kept_shows ks
 
 # The title an event is listed under; empty when it has none.
 _TITLE = (
-    "COALESCE(NULLIF(mi.title, ''), NULLIF(ks.show_title, ''),"
+    "COALESCE(NULLIF(TRIM(mi.title), ''), NULLIF(TRIM(ks.show_title), ''),"
     " history_title(al.action, al.media_item_id, al.detail))"
 )
 
@@ -445,7 +446,7 @@ def _event_filters(where: _Where, viewer: Viewer, filters: Filters) -> None:
         # closer look.
         within = "%" if HIDDEN in filters.title else _like(filters.title)
         where.add(
-            "COALESCE(NULLIF(mi.title, ''), NULLIF(ks.show_title, ''),"
+            "COALESCE(NULLIF(TRIM(mi.title), ''), NULLIF(TRIM(ks.show_title), ''),"
             " CASE WHEN al.detail LIKE ? ESCAPE '\\'"
             " THEN history_title(al.action, al.media_item_id, al.detail) END) = ? COLLATE NOCASE",
             within,

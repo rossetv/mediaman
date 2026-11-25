@@ -637,6 +637,20 @@ def test_a_menu_tells_a_person_who_is_no_admin_only_of_their_own(db):
     assert {t.count for t in title_counts(db, ana, Filters())} == {1}
 
 
+def test_a_title_stored_with_spaces_around_it_is_counted_and_listed_alike(db):
+    insert_media_item(db, id="d", title=" Dune  ")
+    insert_media_item(db, id="t", title="\tHeat")
+    _event(db, "deleted", item="d")
+    _event(db, "deleted", item="e", detail="Deleted 'Dune'")
+    _event(db, "deleted", item="t")
+    _plex(db, "ana", "1", 0, title="Dune ")
+    root = viewer_for(db, "root")
+    counts = [(t.title, t.count) for t in title_counts(db, root, Filters())]
+    assert dict(counts)["Dune"] == 3
+    for title, count in counts:
+        assert len(_ids(_read(db, "root", parse_filters(title=title)))) == count
+
+
 def test_a_title_filter_is_the_whole_title(db):
     dune = _event(db, "deleted", detail="Deleted 'Dune'", item="a")
     _event(db, "deleted", detail="Deleted 'Dune: Part Two'", item="b")
