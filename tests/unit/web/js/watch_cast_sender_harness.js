@@ -1696,6 +1696,36 @@ const scenarios = {
     await settle();
     return { pickers: page.asked, stop: page.posts.pop(), ended: w.tv.ended, title: w.tv.loads.pop().title, name: play.name, key: JSON.parse(w.storage[RECORD]).key };
   },
+  // Played again from its start, and left before it plays there.
+  async leftAnew() {
+    const out = {};
+    const leave = async (name, change, player) => {
+      const w = world();
+      const first = await casting(w, { position_s: 2990 });
+      first.play.keep({ quality: 'auto', played_s: 2500 });
+      await first.play.load(stream(2, { position_s: 0, saved_s: 3000 }));
+      change(w.tv.media[0], w);
+      await settle();
+      first.close();
+      const page = await open(w, { player });
+      const found = player ? page.way.again() : null;
+      await w.clock.advance(5000);
+      out[name] = { posts: places(page), saved: found ? (await found).stream.saved_s : undefined };
+      return { w, page };
+    };
+    const { w, page } = await leave('waits', () => {});
+    w.tv.media[0].say('PLAYING');
+    await w.clock.advance(12000);
+    out.played = places(page).pop();
+    await leave('refused', (m, at) => { at.tv.media = []; });
+    await leave('plays', (m) => m.say('PLAYING'));
+    await leave('player', () => {}, true);
+    const other = await leave('changed', () => {});
+    await other.page.sender.start({ quality: 'low' });
+    other.page.sender.stop();
+    out.changed = places(other.page).pop();
+    return out;
+  },
   async finishedAway() {
     const w = world();
     (await casting(w)).close();

@@ -5568,6 +5568,80 @@ const scenarios = {
     return out;
   },
 
+  /* Played again from its start on a Chromecast, which never shows it. */
+  async away_anew(p) {
+    const how = p.win.serverPlays;
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const media = way.media;
+    const load = way.play.load;
+    const loaded = (stream) => { media.ended = false; media.paused = stream.paused; return load(stream); };
+    way.play.load = loaded;
+    media.currentTime = 2990;
+    for (let i = 0; i < 2; i++) { media.currentTime += 1; fire(media, 'timeupdate'); }
+    media.paused = true; media.ended = true; media.currentTime = 2997;
+    fire(media, 'ended');
+    await settle();
+    click(p.q('[data-upnext-cancel]'));
+    const out = {};
+    if (how === 'goneAtEnd') {
+      way.gone('lost');
+      await settle();
+      click(act(p, 'Bring it here'));
+    } else if (how === 'deviceAtEnd') {
+      click(p.q('.player-top').querySelector('[data-play-on]'));
+      await settle();
+      await pickRow(p, 'here');
+    } else if (how === 'tvAtEnd') {
+      const other = castWay(true);
+      other.id = 'other';
+      p.win.MM.playOn.register(other);
+      click(p.q('.player-top').querySelector('[data-play-on]'));
+      await settle();
+      await pickRow(p, 'other');
+      out.other = awayState(p).says;
+    } else {
+      if (how === 'refused') way.play.load = (stream) => { loaded(stream); return Promise.reject(new Error('failed')); };
+      if (how === 'unanswered') for (let i = 0; i < 2; i++) p.elsewhere.castFails.push(() => p.elsewhere.refuse(404, 'not_found'));
+      click(p.q('[data-bring]'));
+    }
+    await settle();
+    media.currentTime = 0;
+    out.saved_s = way.loads.map((s) => s.saved_s);
+    if (how === 'stop') click(p.q('[data-stop-away]'));
+    if (how === 'here') click(p.q('[data-bring]'));
+    if (how === 'paused') { media.paused = true; fire(media, 'pause'); p.tick(30 * 60 * 1000); }
+    if (how === 'gone') way.gone('lost');
+    await settle();
+    out.says = awayState(p).says;
+    out.hint = awayState(p).hint;
+    out.message = !gone(p.q('[data-message]'));
+    if (how === 'plays') {
+      mediaPlays(media, 12);
+      media.paused = false;
+      media.pause();
+      await settle();
+    }
+    p.leave();
+    await settle();
+    out.saved = p.calls.concat(p.beacons).filter((c) => /\/(progress|stop)$/.test(c.url) && c.body && 'position_s' in c.body && c.body.stream_id !== 's1' && !/s1/.test(c.url)).map((c) => c.body.position_s);
+    out.toasts = p.toasts.map((t) => t.text);
+    return out;
+  },
+
+  /* A page opened as a Chromecast has yet to play it from its start again, and left again. */
+  async away_anew_opened(p) {
+    const way = castWay(true);
+    way.again = () => Promise.resolve({ play: way.play, stream: { stream_id: 'k1', position_s: 0, saved_s: 2997, paused: false, rating_key: '501', keep: null } });
+    p.win.MM.playOn.register(way);
+    p.leave();
+    p.comeBack();
+    await settle();
+    const says = awayState(p).says;
+    p.leave();
+    return { says: says, saved: p.beacons.filter((b) => b.body).map((b) => b.body.position_s) };
+  },
+
   /* What becomes of the next-episode countdown where the title comes back meanwhile. */
   async away_countdown(p) {
     await streamPlays(p, 30);

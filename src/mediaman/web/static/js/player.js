@@ -390,6 +390,7 @@
   var playedS;
   var savedAs;               // the last save the server took, to make none twice
   var sent;                  // the places this tab has sent to be saved
+  var anew;                  // where it ended, while it has yet to play from its start again, or null
   var lastTime;
   var override;              // the quality to ask for in place of the choice, or null
   var good;                  // the choice and override that last played, or the video started with
@@ -429,6 +430,7 @@
     playedS = 0;
     savedAs = null;
     sent = {};
+    anew = null;
     lastTime = null;
     override = null;
     good = choice();
@@ -1580,7 +1582,7 @@
   /* The place to save, or null where the server has it already: saved again
      later, it could undo what the person has marked since. */
   function unsaved(at) {
-    if (!streamId || !hasPlayed) return null;
+    if (!streamId || !hasPlayed || anew !== null) return null;
     var body = { position_s: Math.round((at === undefined ? position() : at) * 10) / 10, played_s: Math.round(playedS) };
     if (JSON.stringify(body) === savedAs) return null;
     sent[body.position_s] = true;
@@ -1716,10 +1718,15 @@
   }
 
   function playAgain() {
+    var end = position();
     leftEnd(0);
     wantPlaying = true;
     restartStream(false, 0);
+    startAnew(end);
   }
+
+  /* What ended at `end` is watched, and stays so until it plays again. */
+  function startAnew(end) { if (anew === null) anew = end; }
 
   function within(t) {
     var d = duration();
@@ -1824,6 +1831,7 @@
 
   function onPlaying() {
     hasPlayed = true;
+    anew = null;
     startedAt = null;
     stopWatching();
     stalled = false;
@@ -3465,7 +3473,8 @@
   /* What plays the title now is ended and its place saved, before something else is asked to play
      it. Settles with the place. */
   function stopHere() {
-    var at = video.ended ? 0 : position();
+    var ended = video.ended;
+    var at = ended ? 0 : position();
     var was = away;
     dropHold();
     dropGone();
@@ -3476,6 +3485,7 @@
     hideUpnext();
     swapping = true;
     var stopped = release();
+    if (ended) startAnew(position());
     if (onTv()) {
       /* Where it is not reached it is replaced all the same. */
       stopped = inTime(stopTv(was.tv), STOP_WAIT_MS).then(function (last) {
@@ -3589,6 +3599,7 @@
       stream_id: data.stream_id,
       url: window.location.origin + data.url,
       position_s: at,
+      saved_s: anew,
       duration_s: data.duration_s || item.duration_s,
       paused: paused,
       title: titleNow(),
@@ -3696,6 +3707,7 @@
     var goesOn = wantPlaying || Date.now() - pausedThereAt < LET_GO_MS;
     swapping = true;
     release();
+    if (ended) startAnew(position());
     if (why !== 'back') goneFrom = { name: name };
     endAway(false);
     pendingStart = at;
@@ -3731,10 +3743,12 @@
         toast('Playing here again from ' + fmt(at) + '.');
       });
     } else if (away) {
-      var at = video.ended ? 0 : position();
+      var ended = video.ended;
+      var at = ended ? 0 : position();
       var note = away.way.hereNote;
       swapping = true;
       release();
+      if (ended) startAnew(position());
       endAway(true);
       wantPlaying = true;
       startStream(at);
@@ -3768,14 +3782,14 @@
     pendingStart = at;
     restHere();
     els.play.focus();
-    toast('Stopped. Your place is saved at ' + fmt(at) + '.');
+    toast(at || anew === null ? 'Stopped. Your place is saved at ' + fmt(at) + '.' : 'Stopped.');
   }
 
   /* A paused TV asks for nothing, and what nothing asks for is ended: the place once more, and
      nothing played since, counts as use and as no save. */
   setInterval(function () {
     if (!away || !away.play || !streamId || !hasPlayed || !video.paused || video.ended || swapping) return;
-    var place = { position_s: Math.round(position() * 10) / 10, played_s: 0 };
+    var place = { position_s: Math.round((anew === null ? position() : anew) * 10) / 10, played_s: 0 };
     MM.api.post('/api/watch/progress', withStream(place)).catch(function () { /* found out as it plays on */ });
   }, KEEP_EVERY_MS);
 
@@ -4009,9 +4023,11 @@
     root.classList.toggle('is-away', on);
     var tv = onTv() ? away.tv : null;
     var over = !!goneFrom && !opening();
-    var begins = !over && (opening() || (tv ? !tv.play || /^(starting|loading)$/.test(tv.play.state) : on && (starting || swapping || !streamPlayed)));
+    /* A start that failed: nothing is on its way. */
+    var stuck = !!away && !!away.play && !streamId && !starting && !streamPlayed && shown(els.message) && tryAgain !== tryLost;
+    var begins = !over && !stuck && (opening() || (tv ? !tv.play || /^(starting|loading)$/.test(tv.play.state) : on && (starting || swapping || !streamPlayed)));
     var ended = on && !begins && !over && (tv ? tv.play.state === 'ended' : video.ended);
-    var failed = !!tv && !!tv.play && tv.play.state === 'failed';
+    var failed = stuck && !ended || !!tv && !!tv.play && tv.play.state === 'failed';
     var lost = !opening() && (tv ? !tv.on && tv.lost_s !== null && tv.lost_s !== undefined : !!away && !!away.play && !!away.play.lost);
     var paused = on && !begins && !over && !ended && (tv ? tv.play.state === 'paused' : video.paused);
     root.classList.toggle('is-begun', on && !begins);
@@ -4027,8 +4043,8 @@
     if (lost || over) says = 'Was playing on ';
     setText(els.awayOn, says + awayName());
     var hint = 'You can lock or close this device. The TV carries on.';
-    if (lost || over) hint = 'Your place is saved at ' + fmt(position()) + '.';
-    else if (failed) hint = tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
+    if (lost || over) hint = position() || anew === null ? 'Your place is saved at ' + fmt(position()) + '.' : 'Your place is kept.';
+    else if (failed) hint = tv && tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
     else if (begins) hint = 'Starting. This can take a few seconds.';
     else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? 'Keep this page open for the next episode.' : awayName() + ' waits for you to choose.';
     else if (ended) hint = awayName() + ' is ready for something else.';
@@ -4306,6 +4322,7 @@
   function followAgain(way, found, wants) {
     var kept = found.stream.keep || {};
     hasPlayed = true;
+    if (typeof found.stream.saved_s === 'number') anew = found.stream.saved_s;
     playedS = kept.played_s || 0;
     subtitle = kept.subtitle || null;
     takeMarks({ markers: kept.markers, chapters: kept.chapters });
