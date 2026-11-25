@@ -21,6 +21,7 @@ from mediaman.core.time import now_iso
 from mediaman.scanner import repository
 from mediaman.scanner.repository.rekeyed import (
     fetch_titles_in_two_libraries,
+    kept_beside_another_title,
     note_listing,
     title_files,
 )
@@ -216,7 +217,9 @@ def remove_orphans(
     disk: the caller's transaction is committed first.
 
     An item another run saw, or anyone scheduled or kept, after the run began
-    stays too: the run's list may be from before the item came to Plex.
+    stays too: the run's list may be from before the item came to Plex. So does
+    a kept item with a file that another title has too and takes no keep for:
+    while it is there, the file is not removed.
 
     Args:
         conn: Open SQLite connection.
@@ -282,6 +285,8 @@ def remove_orphans(
         unbooked = repository.fetch_unbooked_media_ids(conn)
         repository.forget_unremoved_files(conn, unbooked.intersection(unlisted))
         orphan_ids = [i for i in unlisted if i not in unbooked]
+        staying = kept_beside_another_title(conn, set(orphan_ids))
+        orphan_ids = [i for i in orphan_ids if i not in staying]
         repository.save_pruned_keeps(conn, orphan_ids)
         repository.carry_pruned_keeps(conn, set(orphan_ids))
         repository.save_pruned_show_seasons(conn, set(orphan_ids))

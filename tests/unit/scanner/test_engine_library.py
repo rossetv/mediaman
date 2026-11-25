@@ -1053,3 +1053,145 @@ class TestTwinInAGoneLibrary:
         assert (self.due.exists(), outer.exists()) == (True, True)
         told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = '21'").fetchall()
         assert [row[0] for row in told] == ["delete_awaiting_scan"]
+
+
+class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
+    """Plex lists library 1 no more; a due title of 2 or 4 has a file of a kept one of 1."""
+
+    @pytest.fixture(autouse=True)
+    def _library(self, conn, tmp_path, monkeypatch, freezer):
+        freezer.move_to(datetime(2026, 11, 24, 12, tzinfo=UTC))
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["2", "4"]', '2026')"""
+        )
+        conn.commit()
+        self.folder = tmp_path / "Title"
+        self.folder.mkdir()
+        self.listed = {"2": [], "4": []}
+
+    def _file(self, name):
+        file = self.folder / name
+        file.write_bytes(b"data")
+        return file
+
+    def _store(self, conn, key, library, path, files, **fields):
+        """Store what Plex listed as *key*; in library 1 it is kept, elsewhere due and still listed."""
+        tracked = [{"path": str(file), "size": 4} for file in files]
+        insert_media_item(
+            conn,
+            id=key,
+            plex_rating_key=key,
+            plex_library_id=library,
+            file_path=str(path),
+            **fields,
+        )
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ? WHERE id = ?", (json.dumps(tracked), key)
+        )
+        if library == 1:
+            return
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="scheduled_deletion",
+            token=f"tok-{key}",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
+        )
+        item = TestScanWithOneBadLibrary._item(key, path) | {"tracked_files": tracked}
+        if "season_number" in fields:
+            item |= {"show_title": key, **fields}
+            del item["media_type"]
+        self.listed[str(library)].append(item)
+
+    @staticmethod
+    def _keep(conn, key):
+        insert_scheduled_action(
+            conn,
+            media_item_id=key,
+            action="protected_forever",
+            token=f"keep-{key}",
+            execute_at=None,
+            token_used=True,
+        )
+
+    def _scan_four_times(self, conn, mock_plex, freezer):
+        mock_plex.get_movie_items.side_effect = self.listed.__getitem__
+        mock_plex.get_show_seasons.side_effect = self.listed.__getitem__
+        for _ in range(4):
+            ScanEngine(
+                conn=conn,
+                plex_client=mock_plex,
+                library_ids=["2", "4"],
+                library_types={"2": "movie", "4": "show"},
+                secret_key="test-key",
+            ).run_scan()
+            freezer.tick(timedelta(hours=2))
+
+    @pytest.mark.parametrize("kept", [True, False])
+    def test_a_file_of_a_kept_film_stays_though_a_film_with_other_files_has_it_too(
+        self, conn, mock_plex, freezer, kept
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(conn, "10", 1, own, [own, shared])
+        self._store(conn, "20", 2, other, [other, shared])
+        if kept:
+            self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert shared.exists() is kept
+
+    @pytest.mark.parametrize("kept", ["season", "show"])
+    def test_the_files_of_a_kept_season_stay_though_listed_as_another_season(
+        self, conn, mock_plex, freezer, kept
+    ):
+        episode = self._file("E1.mkv")
+        season = {"media_type": "tv_season", "show_title": "Title"}
+        self._store(
+            conn, "10", 1, self.folder, [episode], season_number=1, show_rating_key="s1", **season
+        )
+        self._store(
+            conn, "20", 4, self.folder, [episode], season_number=2, show_rating_key="s2", **season
+        )
+        if kept == "show":
+            insert_kept_show(
+                conn, show_rating_key="s1", show_title="Title", action="protected_forever"
+            )
+        else:
+            self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert episode.exists()
+
+    def test_the_file_of_a_kept_film_stays_though_listed_as_a_season(
+        self, conn, mock_plex, freezer
+    ):
+        film = self._file("film.mkv")
+        self._store(conn, "10", 1, film, [film])
+        self._store(
+            conn,
+            "20",
+            4,
+            self.folder,
+            [film],
+            media_type="tv_season",
+            season_number=1,
+            show_rating_key="s2",
+        )
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert film.exists()

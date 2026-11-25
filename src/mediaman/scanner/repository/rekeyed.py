@@ -39,6 +39,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     delete_scheduled_action,
     delete_show_scheduled_deletions,
     fetch_deletion,
+    fetch_ids_tracking,
 )
 from mediaman.scanner.repository.settings import read_setting
 
@@ -443,6 +444,27 @@ def other_keys(
         for other in titles_with_files(conn, title_files(title), title["season_number"])
         if other["id"] not in found
     ]
+
+
+def kept_beside_another_title(conn: sqlite3.Connection, media_ids: Collection[str]) -> set[str]:
+    """Return those of *media_ids*, about to be removed, that are kept and must stay.
+
+    Such a one has a file that a title not in *media_ids* tracks too and that is
+    not it: of another season, or a season where it is a film. That title takes
+    no keep, so the file would go with it once the kept one is forgotten.
+    """
+    now, staying = now_iso(), set()
+    for media_id in media_ids:
+        title = fetch_title(conn, media_id)
+        if title is None or not (
+            is_protected(conn, media_id)
+            or is_show_kept_pure(conn, title["show_rating_key"], now_iso_str=now)
+        ):
+            continue
+        same = {other["id"] for other in other_keys(conn, media_id, media_ids)}
+        if fetch_ids_tracking(conn, title_files(title)) - same - set(media_ids):
+            staying.add(media_id)
+    return staying
 
 
 # --- Keeps of one film or season ----------------------------------------------
