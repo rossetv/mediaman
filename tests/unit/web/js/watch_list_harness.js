@@ -336,7 +336,8 @@ function going(opts) {
     slow: () => timers.splice(0).forEach((fn) => fn()),
     now: () => ({
       told: told.slice(), list: !p.doc.getElementById('watch-list').hidden, browse: !p.doc.getElementById('watch-browse').hidden,
-      history: p.history.slice(), rows: p.rowKeys(), focus: p.doc.activeElement.textContent,
+      history: p.history.slice(), rows: p.rowKeys(), focus: p.doc.activeElement.textContent, on: p.doc.activeElement.id,
+      busy: p.doc.querySelectorAll('#watch-list[aria-busy="true"], [data-list-root][aria-busy="true"]').length,
       skeleton: p.doc.querySelectorAll('.wl-skel').length, parts: p.doc.querySelectorAll('[data-list-part="results"]').length,
       said: p.doc.querySelectorAll('p.sr-only').map((n) => n.textContent).join(''),
     }),
@@ -387,7 +388,76 @@ const scenarios = {
     g.p.fail('/watch/list?type=movie&sort=size_desc');
     g.go();
     await settle();
+    const over = going({ list: true });
+    over.p.fail('/watch/list?type=movie&sort=size_desc');
+    over.go();
+    await settle();
+    return { ...g.now(), errors: g.p.errors, over: { ...over.now(), errors: over.p.errors } };
+  },
+  async goSlowFails() {
+    const g = going();
+    g.p.fail('/watch/list?type=movie&sort=size_desc');
+    const late = deferred();
+    const get = g.p.ctx.fetch;
+    g.p.ctx.fetch = (url) => late.promise.then(() => get(url));
+    g.go();
+    g.slow();
+    late.resolve();
+    await settle();
+    g.p.ctx.fetch = get;
+    g.p.serve('/watch/list?type=movie&sort=size_desc', { said: '35 movies' }, [{ id: 'm9', title: 'Big', ref: 'movie-9' }]);
+    const failed = g.now();
+    const retry = g.p.doc.querySelector('.watch-notice__retry');
+    retry.focus();
+    click(g.p.doc, retry);
+    const trying = g.now();
+    await settle();
+    return { failed, trying, after: g.now() };
+  },
+  /* Called off when what it asked for has already been replaced by another list. */
+  async goReplaced() {
+    const g = going({ list: true });
+    const tv = deferred();
+    g.p.serve('/watch/list?type=tv', { type: 'tv' }, [{ id: 's9', title: 'Tide' }], tv);
+    const off = g.go();
+    await settle();
+    g.p.popstate('?view=list&type=tv');
+    off();
+    tv.resolve();
+    await settle();
     return g.now();
+  },
+  async goAtOnce() {
+    const g = going();
+    g.p.ctx.MMWatch.list.show(BY_SIZE);
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    return { before, after: g.now() };
+  },
+  /* A title is deleted from the list; gone back to, the list says what it holds now. */
+  async goAfterDelete() {
+    const g = going({ list: true, state: { type: 'movie', sort: 'size_desc', said: '35 movies' } });
+    g.p.serve('/watch/list?type=movie&sort=size_desc', { type: 'movie', sort: 'size_desc', said: '34 movies' }, [{ id: 'm9', title: 'Big', ref: 'movie-9' }]);
+    g.p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase: 'done', action: 'delete', id: 'm1' } });
+    await settle();
+    g.go();
+    return g.now();
+  },
+  /* Each view turned back while it fades goes on from how far it was. */
+  async turnedBack() {
+    const g = going({ list: true, motion: true });
+    const fades = [];
+    Node.prototype.animate = function (frames) { fades.push([this.id, frames[0].opacity, frames[1].opacity]); return { cancel() {} }; };
+    const to = async (i, opacity) => {
+      g.p.ctx.getComputedStyle = (n) => ({ getPropertyValue: () => '', display: 'block', opacity: n && opacity[n.id] });
+      fades.length = 0;
+      click(g.p.doc, g.p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+      await settle();
+      return fades.slice();
+    };
+    await to(0, { 'watch-list': '1' });
+    return to(1, { 'watch-list': '0.6', 'watch-browse': '0.3' });
   },
   async goCalledOff() {
     const of = async (opts) => {

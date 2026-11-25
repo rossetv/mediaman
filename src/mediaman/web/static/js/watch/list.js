@@ -144,7 +144,7 @@
      toolbar change where they are, and the rows cross-fade. */
   function apply(fresh, find) {
     // Found before the parts move, so never in the rows fading out.
-    var target = find && find(fresh);
+    var target = document.activeElement === list ? firstTitle(fresh) : find && find(fresh);
     var r = root();
     if (!r) {
       var skeleton = list.firstElementChild;
@@ -154,7 +154,7 @@
       if (target) target.focus({ preventScroll: true });
       return;
     }
-    ['q', 'type', 'sort', 'page', 'perPage'].forEach(function (k) { r.dataset[k] = fresh.dataset[k] || ''; });
+    ['q', 'type', 'sort', 'page', 'perPage', 'said'].forEach(function (k) { r.dataset[k] = fresh.dataset[k] || ''; });
     ['stats', 'summary', 'toolbar'].forEach(function (name) {
       var old = part(r, name);
       var next = part(fresh, name);
@@ -193,6 +193,7 @@
 
   function showFailure(state) {
     var r = root();
+    status.textContent = '';
     if (r) {
       r.removeAttribute('aria-busy');
       /* The list, the pills and the address still show the old state; so must the select. */
@@ -230,8 +231,10 @@
     if (r) {
       r.setAttribute('aria-busy', 'true');
     } else {
+      var had = list.contains(document.activeElement);
       list.replaceChildren(skeleton());
       list.setAttribute('aria-busy', 'true');
+      if (had) holdFocus();
     }
     return fetchList(state).then(function (fresh) {
       if (request !== _request) return;
@@ -247,8 +250,8 @@
     }, function () {
       if (request !== _request) return;
       _asked = null;
-      if (opts.failed && opts.failed()) return;
-      if (!opts.told) showFailure(state);
+      var answered = opts.failed && opts.failed();
+      if (!answered && !opts.told) showFailure(state);
       else if (root()) root().removeAttribute('aria-busy');
       if (!_again) return;
       if (_view === 'list' && root()) { reload({ told: true }); return; }
@@ -271,6 +274,7 @@
   /* ── Browse / List ── */
 
   var _leaving = []; // what ends the fade of each view on its way out
+  var _leftAt = new WeakMap(); // how far out a view was, its fade ended by its coming back
 
   function endLeaving() {
     _leaving.splice(0).forEach(function (end) { end(); });
@@ -289,22 +293,24 @@
   /* Give way to what *then* shows: *nodes* fade out over it while it fades in, so the page is
      never empty between them. Out of the flow first, they neither move nor push what comes. */
   function giveWay(nodes, then) {
+    var from = nodes.map(opacityOf);
     // Out of the flow they leave the page without what stands below them, which can be too
     // short for where it is scrolled.
     var y = window.scrollY;
     var tall = document.documentElement.scrollHeight;
     endLeaving();
     var lifted = [];
-    nodes.forEach(function (n) {
+    nodes.forEach(function (n, i) {
       if (!n || n.hidden) return;
       if (core.reduceMotion() || !n.animate) { n.hidden = true; return; }
       lift(n);
       lifted.push(n);
       n.setAttribute('inert', '');
-      var fade = n.animate([{ opacity: 1 }, { opacity: 0 }],
+      var fade = n.animate([{ opacity: from[i] }, { opacity: 0 }],
         { duration: core.tokenMs('--dur-fast', 150), easing: core.token('--ease-out', 'ease-out'), fill: 'forwards' });
       function end() {
         fade.onfinish = null;
+        _leftAt.set(n, opacityOf(n));
         n.hidden = true;
         n.removeAttribute('inert');
         Object.assign(n.style, { position: '', top: '', left: '', right: '', paddingBottom: '' });
@@ -326,9 +332,19 @@
     if (window.scrollY !== y) lifted.forEach(function (n) { n.style.top = parseFloat(n.style.top) + window.scrollY - y + 'px'; });
   }
 
+  function opacityOf(node) {
+    var now = node ? parseFloat(getComputedStyle(node).opacity) : 1;
+    return isNaN(now) ? 1 : now;
+  }
+
   function reveal(node) {
+    var from = _leftAt.get(node) || 0;
+    _leftAt.delete(node);
     node.hidden = false;
-    if (!core.reduceMotion()) core.fadeIn(node);
+    if (core.reduceMotion()) return;
+    if (!from) { core.fadeIn(node); return; }
+    node.classList.remove('fade-in');
+    node.animate([{ opacity: from }, { opacity: 1 }], { duration: core.tokenMs('--dur', 200), easing: core.token('--ease-out', 'ease-out') });
   }
 
   function markToggle(view) {
@@ -392,9 +408,29 @@
 
   function firstTitle(within) { return within.querySelector('a.wl-title') || within.querySelector('.fpill.on'); }
 
+  /* The focus waits on the list while it loads, and goes on to its first title. */
+  function holdFocus() {
+    list.tabIndex = -1;
+    list.style.outline = 'none';
+    list.focus({ preventScroll: true });
+    status.textContent = 'Loading the list.';
+  }
+
+  list.addEventListener('blur', function () {
+    // The window's own blur leaves the focus where it is.
+    if (document.activeElement !== list) list.removeAttribute('tabindex');
+  });
+
+  /* The list at *href*, at once. */
+  function show(href) {
+    setView('list', { history: 'push', state: stateFromSearch(href.slice(href.indexOf('?') + 1)), top: true });
+    if (_asked || !root()) holdFocus();
+  }
+
   /* Go to the list at *href* from what stands over the page, once the list is in or is slow to
      come. hooks.leave(): as the page is about to change; hooks.arrive(): its rows are on view;
-     hooks.fail(): it could not be had, and nothing has changed. Returns what calls it off. */
+     hooks.fail(): it could not be had, and nothing has changed. Returns what calls it off, or null
+     when it has gone. */
   function open(href, hooks) {
     var state = stateFromSearch(href.slice(href.indexOf('?') + 1));
     var settled = false;
@@ -411,7 +447,7 @@
         sayText(state.q)();
         window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
       }
-      if (_asked || !root()) return;
+      if (_asked || !root()) { holdFocus(); return; }
       status.textContent = root().dataset.said || '';
       var first = firstTitle(part(root(), 'results')) || firstTitle(root());
       if (first) first.focus({ preventScroll: true });
@@ -420,7 +456,7 @@
 
     if (root() && !_stale && same(state, wanted())) {
       go();
-      return function () {};
+      return null;
     }
     timer = setTimeout(go, SLOW_MS);
     load(state, {
@@ -635,6 +671,7 @@
         if (old && next) old.replaceWith(next);
       });
       replacePager(now, fresh);
+      now.dataset.said = fresh.dataset.said || '';
       keys.forEach(function (key) {
         var row = rowByKey(key);
         if (!row) return;
@@ -936,7 +973,7 @@
     load(norm(state), { history: 'replace' });
   });
 
-  window.MMWatch.list = { open: open, plainClick: plainClick };
+  window.MMWatch.list = { open: open, show: show, plainClick: plainClick };
 
   address.layer({
     name: 'list',

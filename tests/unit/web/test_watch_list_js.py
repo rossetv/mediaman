@@ -850,19 +850,58 @@ def test_going_to_the_list_changes_nothing_until_it_is_in_then_shows_it_at_its_t
 def test_going_to_the_list_brings_none_of_the_rows_it_had_before() -> None:
     out = _run("goOverOld")
     assert (out["rows"], out["parts"]) == (["id:m9", "id:m1"], 1)
+    assert out["said"] == "35 movies"
 
 
 def test_a_list_slow_to_come_is_gone_to_with_its_skeleton_and_told_once_in() -> None:
     out = _run("goSlow")
     slow, after = out["slow"], out["after"]
     assert (slow["list"], slow["skeleton"], slow["history"]) == (True, 1, [BY_SIZE])
+    assert (slow["on"], slow["busy"], slow["said"]) == ("watch-list", 1, "Loading the list.")
     assert (after["rows"], after["focus"]) == (["id:m9", "id:m1"], "Big")
     assert (after["said"], after["told"], after["history"]) == ("35 movies", ["leave"], [BY_SIZE])
 
 
-def test_a_list_that_cannot_be_had_is_left_to_the_link() -> None:
+def test_a_list_that_cannot_be_had_is_left_to_what_led_to_it() -> None:
     out = _run("goFails")
     assert (out["told"], out["list"], out["history"]) == (["fail"], False, [])
+    assert out["errors"] == []
+
+
+def test_a_list_that_cannot_be_had_leaves_the_one_on_view_usable() -> None:
+    out = _run("goFails")["over"]
+    assert (out["told"], out["busy"], out["errors"]) == (["fail"], 0, [])
+    assert out["rows"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_a_slow_list_that_fails_and_is_tried_again_keeps_the_focus_and_says_where_it_is() -> None:
+    out = _run("goSlowFails")
+    assert (out["failed"]["said"], out["failed"]["on"]) == ("", "watch-list")
+    assert (out["trying"]["said"], out["trying"]["on"]) == ("Loading the list.", "watch-list")
+    assert out["after"]["focus"] == "Big"
+
+
+def test_calling_off_a_list_leaves_the_one_asked_for_since_to_come() -> None:
+    assert _run("goReplaced")["rows"] == ["id:s9"]
+
+
+def test_a_list_gone_to_at_once_waits_with_the_focus_and_says_so() -> None:
+    out = _run("goAtOnce")
+    before, after = out["before"], out["after"]
+    assert (before["history"], before["on"], before["said"]) == (
+        [BY_SIZE],
+        "watch-list",
+        "Loading the list.",
+    )
+    assert after["focus"] == "Big"
+
+
+def test_a_list_gone_to_after_a_delete_says_what_is_left() -> None:
+    assert _run("goAfterDelete")["said"] == "34 movies"
+
+
+def test_a_view_turned_back_while_it_fades_goes_on_from_how_far_it_was() -> None:
+    assert _run("turnedBack") == [["watch-browse", 0.3, 0], ["watch-list", 0.6, 1]]
 
 
 def test_going_to_the_list_can_be_called_off_until_it_is_in() -> None:
