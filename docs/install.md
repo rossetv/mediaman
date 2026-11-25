@@ -77,10 +77,11 @@ docker stop mediaman &&
 docker run --rm -u 0 -v mediaman-data:/data -v "$PWD":/backup rossetv/mediaman tar czf /backup/mediaman-data.tgz -C /data . &&
 docker rename mediaman mediaman-old &&
 (umask 077 && printf "MEDIAMAN_SECRET_KEY='%s'\n" "$key" > .env) &&
-docker compose up -d
+docker compose up -d &&
+docker update --restart=no mediaman-old
 ```
 
-It stops at the first step that fails. If that was only `docker compose up -d`, put the file right and run that line again alone. If it was earlier and mediaman is stopped, `docker start mediaman` (after `docker rename mediaman-old mediaman`, if it was renamed already) and begin again. A `MEDIAMAN_SECRET_KEY` exported in your shell wins over `.env`: `unset` it first.
+The last line keeps the old container from starting again by itself and taking the port. It stops at the first step that fails. If that was `docker compose up -d`, put the file right and run the last two lines again. If it was earlier and mediaman is stopped, `docker start mediaman` (after `docker rename mediaman-old mediaman`, if it was renamed already) and begin again. A `MEDIAMAN_SECRET_KEY` exported in your shell wins over `.env`: `unset` it first.
 
 To go back:
 
@@ -93,6 +94,7 @@ If the new one had started, put the backup back now, with the `docker run` line 
 
 ```bash
 docker start mediaman
+docker update --restart=unless-stopped mediaman   # if you gave --restart: as you gave it
 rm .env
 ```
 
