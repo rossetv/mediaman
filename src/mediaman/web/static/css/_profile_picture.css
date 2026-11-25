@@ -36,6 +36,7 @@
 }
 .pic-grid label:hover { transform: scale(1.04); }
 .pic-grid label:active { transform: scale(.97); }
+.pic-grid label:has(:disabled) { pointer-events: none; }
 .pic-grid label:has(:checked) { outline-color: var(--accent); }
 .pic-grid label:has(:focus-visible) { outline-color: var(--t1); }
 .pic-grid img { width: 100%; height: 100%; border-radius: 50%; }

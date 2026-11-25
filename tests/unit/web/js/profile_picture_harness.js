@@ -233,6 +233,25 @@ const scenarios = {
     await settle();
     return { after, sent };
   },
+  // what can be pressed while a picture is saved, and a photo still being read as Save is pressed
+  async locked() {
+    let give;
+    const decode = { later: [] };
+    const p = page({ decode, api: { put: () => new Promise((r, no) => { give = no; }) } });
+    const free = () => ['pic-upload', 'pic-remove'].map((id) => !p.$(id).disabled).concat(p.radiosFree(), !p.$('pic-close').disabled);
+    p.click('pic-open');
+    p.pick(3);
+    const before = free();
+    p.click('pic-save');
+    const during = free();
+    give(new Error('x'));
+    await settle();
+    const after = free();
+    p.file(JPEG);
+    const reading = p.$('pic-save').disabled;
+    decode.later.forEach((open) => open());
+    return { before, during, after, reading, placing: p.placing(), thenSave: (p.click('pic-back'), p.$('pic-save').disabled) };
+  },
   async backdrop() {
     const p = page();
     p.click('pic-open');

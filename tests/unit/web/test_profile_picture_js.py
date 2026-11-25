@@ -150,3 +150,15 @@ def test_a_dialog_opened_again_while_a_photo_is_saved_shows_that_one_and_removes
     out = _run("reopened")
     assert out["after"] == {"open": True, "state": ["Your photo", False, True], "now": "/new"}
     assert out["sent"] == ["PUT /api/account/avatar/photo"]
+
+
+def test_nothing_else_is_chosen_while_a_picture_is_saved() -> None:
+    out = _run("locked")
+    assert out["before"] == out["after"] == [True, True, True, True]
+    # it can still be closed
+    assert out["during"] == [False, False, False, True]
+
+
+def test_a_photo_being_read_is_waited_for_before_anything_is_saved() -> None:
+    out = _run("locked")
+    assert (out["reading"], out["placing"], out["thenSave"]) == (True, True, False)

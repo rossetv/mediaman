@@ -74,6 +74,8 @@
     /* A photo read or drawn after the person has moved on is dropped. */
     var turn = 0;
     var place = null;
+    /* A chosen photo is being read; it is not saved past. */
+    var reading = false;
 
     function isOpen() { return dialog.getAttribute('aria-hidden') === 'false'; }
 
@@ -109,7 +111,12 @@
       removeBtn.hidden = !(draft.url || draft.choice);
       removeBtn.textContent = draft.url ? 'Remove photo' : 'Remove';
       radios.forEach(function (r) { r.checked = !draft.url && Number(r.value) === (draft.choice || own); });
-      save.disabled = draft.url === kept.url && draft.choice === kept.choice;
+      save.disabled = reading || draft.url === kept.url && draft.choice === kept.choice;
+    }
+
+    function setReading(on) {
+      reading = on;
+      paint(true);
     }
 
     function choose(pick) {
@@ -124,7 +131,9 @@
       byId('pic-title').textContent = placing ? 'Place your photo' : 'Your picture';
     }
 
+    /* Nothing else can be chosen while a picture is sent, as the answer closes the dialog. */
     function setSaving(on) {
+      radios.concat(byId('pic-upload'), removeBtn).forEach(function (control) { control.disabled = on; });
       save.textContent = '';
       if (on) {
         save.setAttribute('aria-disabled', 'true');
@@ -152,6 +161,7 @@
         letGo = null;
         turn += 1;
         place = null;
+        reading = false;
         fileInput.value = '';
         made.forEach(function (url) { URL.revokeObjectURL(url); });
         made = [];
@@ -187,6 +197,7 @@
 
     function take(file) {
       var mine = turn += 1;
+      if (reading) setReading(false);
       showError('');
       if (!/^image\/(jpeg|png|webp)$/.test(file.type) && !isHeic(file)) { showError(WORDS.type); return; }
       if (file.size > MAX_BYTES) {
@@ -194,10 +205,12 @@
         return;
       }
       var url = URL.createObjectURL(file);
+      setReading(true);
       var img = new Image();
       img.onload = function () {
         URL.revokeObjectURL(url);
         if (mine !== turn) return;
+        setReading(false);
         var w = img.naturalWidth, h = img.naturalHeight;
         if (Math.min(w, h) < MIN_SIDE) {
           showError('That photo is ' + w + ' × ' + h + ' pixels. It needs at least ' + MIN_SIDE + ' each way.');
@@ -207,7 +220,9 @@
       };
       img.onerror = function () {
         URL.revokeObjectURL(url);
-        if (mine === turn) showError(isHeic(file) ? WORDS.heic : WORDS.type);
+        if (mine !== turn) return;
+        setReading(false);
+        showError(isHeic(file) ? WORDS.heic : WORDS.type);
       };
       img.src = url;
     }
