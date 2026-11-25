@@ -84,7 +84,16 @@ def test_back_between_filters_keeps_the_focus_in_the_list() -> None:
 
 def test_back_gives_the_focus_that_waits_on_a_title_back_to_the_control_it_came_from() -> None:
     waited = ["show:77 wl-title", True]
-    assert _run("backWhileTheFocusWaits") == {"keep": waited, "delete": waited}
+    assert _run("backWhileTheFocusWaits") == {"keep": waited, "delete": waited, "marked": waited}
+
+
+def test_back_keeps_the_focus_on_its_control_while_a_mark_of_the_row_is_saved() -> None:
+    assert _run("backWhileAMarkIsSaved") == {
+        "title": "id:m2 wl-title",
+        "mark": "id:m2 watch-mark",
+        "keep": "id:m2 keep-trigger",
+        "delete": "id:m2 btn",
+    }
 
 
 def test_a_dialog_opened_from_a_row_gives_the_focus_back_to_the_row_as_it_is_then() -> None:

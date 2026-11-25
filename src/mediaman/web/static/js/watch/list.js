@@ -852,10 +852,11 @@
     var find = focusKey(active);
     var row = active.closest('tr[data-row-key]');
     var same = row && rowByKey(row.getAttribute('data-row-key'), fresh);
-    var from = (same && row.querySelector('[aria-busy="true"]')) || active;
+    var mark = same && active.matches('.watch-mark') && same.querySelector('.watch-mark');
+    var from = (same && row.querySelector('.keep-trigger[aria-busy="true"], [data-action][aria-busy="true"]')) || active;
     var next = same || (row && fresh.querySelector('tr[data-row-key]'));
     var title = next && (!same || from.matches('a.wl-title')) && next.querySelector('a.wl-title');
-    return (find ? find(fresh) : title || (next && focusTarget(next, same && from === deleteButton(row) ? 'delete' : null))) ||
+    return (find ? find(fresh) : mark || title || (next && focusTarget(next, same && from === deleteButton(row) ? 'delete' : null))) ||
       fresh.querySelector('.fpill.on');
   }
 
