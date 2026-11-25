@@ -446,12 +446,14 @@ def other_keys(
     ]
 
 
-def kept_beside_another_title(conn: sqlite3.Connection, media_ids: Collection[str]) -> set[str]:
-    """Return those of *media_ids*, about to be removed, that are kept and must stay.
+def held_beside_another_title(
+    conn: sqlite3.Connection, media_ids: Collection[str], inactivity_days: int
+) -> set[str]:
+    """Return those of *media_ids*, about to be removed, that must stay: kept, or watched lately.
 
     Such a one has a file that a title not in *media_ids* tracks too and that is
     not it: of another season, or a season where it is a film. That title takes
-    no keep, so the file would go with it once the kept one is forgotten.
+    no keep and no watch, so the file would go with it once this one is forgotten.
     """
     now, staying = now_iso(), set()
     for media_id in media_ids:
@@ -459,12 +461,23 @@ def kept_beside_another_title(conn: sqlite3.Connection, media_ids: Collection[st
         if title is None or not (
             is_protected(conn, media_id)
             or is_show_kept_pure(conn, title["show_rating_key"], now_iso_str=now)
+            or _is_watched_lately(conn, media_id, inactivity_days)
         ):
             continue
         same = {other["id"] for other in other_keys(conn, media_id, media_ids)}
         if fetch_ids_tracking(conn, title_files(title)) - same - set(media_ids):
             staying.add(media_id)
     return staying
+
+
+def _is_watched_lately(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> bool:
+    """Return True if the last watch of the title would keep it from being scheduled today."""
+    # rationale: the interpolated expression is a fixed string; every value is bound
+    watched = conn.execute(  # nosec B608
+        f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (media_id,)
+    ).fetchone()
+    watched_at = parse_iso_utc(watched["at"]) if watched else None
+    return watched_at is not None and not is_inactive([{"viewed_at": watched_at}], inactivity_days)
 
 
 # --- Keeps of one film or season ----------------------------------------------

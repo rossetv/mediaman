@@ -1171,6 +1171,23 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
 
         assert shared.exists() is kept
 
+    def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+        assert shared.exists()
+
+        freezer.tick(timedelta(days=40))
+        self._scan_four_times(conn, mock_plex, freezer)
+        assert not shared.exists()
+
     @pytest.mark.parametrize("kept", ["season", "show"])
     def test_the_files_of_a_kept_season_stay_though_listed_as_another_season(
         self, conn, mock_plex, freezer, kept
