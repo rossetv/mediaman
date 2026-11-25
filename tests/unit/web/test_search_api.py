@@ -924,7 +924,7 @@ class TestSearchPage:
         client = TestClient(app)
         resp = client.get("/search", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/login"
+        assert resp.headers["location"] == "/login?next=%2Fsearch"
 
 
 class TestDownloadEndpoint:

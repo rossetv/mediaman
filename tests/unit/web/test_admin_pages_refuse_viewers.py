@@ -27,12 +27,20 @@ def test_an_admin_is_sent_on_to_watch_from_the_root(app_factory, authed_client, 
     assert (resp.status_code, resp.headers["location"]) == (302, "/watch")
 
 
-@pytest.mark.parametrize("path", ["/", "/library", "/history", "/settings"])
-def test_no_session_still_goes_to_login(app_factory, conn, path):
+@pytest.mark.parametrize(
+    ("path", "login"),
+    [
+        ("/", "/login"),
+        ("/library", "/login?next=%2Flibrary"),
+        ("/history", "/login?next=%2Fhistory"),
+        ("/settings", "/login?next=%2Fsettings"),
+    ],
+)
+def test_no_session_still_goes_to_login(app_factory, conn, path, login):
     from fastapi.testclient import TestClient
 
     app = app_factory(dashboard_router, library_router, history_router, settings_router, conn=conn)
 
     resp = TestClient(app).get(path, follow_redirects=False)
 
-    assert (resp.status_code, resp.headers["location"]) == (302, "/login")
+    assert (resp.status_code, resp.headers["location"]) == (302, login)

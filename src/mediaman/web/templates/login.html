@@ -13,7 +13,8 @@
     <div class="error-msg" role="alert">{{ error }}</div>
     {% endif %}
 
-    <form method="post" action="/login" novalidate data-submit-guard>
+    {# No action: it posts to the page's own address, which holds the page to go back to and its hash. #}
+    <form method="post" novalidate data-submit-guard>
       <div class="login-field">
         <label for="username">Username</label>
         <input id="username" type="text" name="username"

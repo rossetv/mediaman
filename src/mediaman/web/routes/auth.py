@@ -6,7 +6,7 @@ import math
 import sqlite3
 from typing import cast
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
@@ -25,6 +25,7 @@ from mediaman.web.auth.password_hash import (
     user_must_change_password,
 )
 from mediaman.web.auth.password_policy import is_strong
+from mediaman.web.auth.return_path import safe_return_path
 from mediaman.web.auth.session_store import (
     create_session,
     destroy_session,
@@ -158,6 +159,7 @@ def login_submit(
     request: Request,
     username: str = Form(default=""),
     password: str = Form(default=""),
+    next_page: str = Query(default="", alias="next"),
 ) -> Response:
     client_ip = get_client_ip(request)
     # Counted before the check, so that guesses sent at once cannot all slip under the limit;
@@ -190,7 +192,8 @@ def login_submit(
         # UA cannot pollute the audit row.
         detail={"ua_hash": _ua_hash(user_agent), "force_rotation": weak_password},
     )
-    response = RedirectResponse(LANDING_PATH, status_code=302)
+    target = safe_return_path(next_page) or LANDING_PATH
+    response = RedirectResponse(target, status_code=302)
     set_session_cookie(response, token, secure=is_request_secure(request))
     return response
 

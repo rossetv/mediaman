@@ -25,7 +25,8 @@ binding (User-Agent + client IP) is consistently applied:
 
 `resolve_page_session`
     Page-route helper that returns ``(username, conn)`` on success or a
-    ``RedirectResponse("/login", 302)`` for unauthenticated callers.
+    redirect to sign-in (302) for unauthenticated callers, which leads
+    back to the page they asked for.
     Centralises the cookie → ``validate_session`` → redirect dance every
     page handler needs.
 
@@ -46,6 +47,7 @@ binding (User-Agent + client IP) is consistently applied:
 from __future__ import annotations
 
 import sqlite3
+from urllib.parse import quote, urlencode
 
 from fastapi import Cookie, HTTPException, Request
 from starlette.responses import RedirectResponse
@@ -53,12 +55,13 @@ from starlette.responses import RedirectResponse
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.password_hash import get_user_role
+from mediaman.web.auth.return_path import safe_return_path
 from mediaman.web.auth.session_store import validate_session
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
 PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
 
-#: Where a user lands after signing in.
+#: Where a user lands after signing in with no page to go back to.
 LANDING_PATH = "/watch"
 
 #: Attribute name under which the resolved-session cache is stashed on
@@ -182,22 +185,38 @@ def get_optional_admin_from_token(
     return resolve_cached_session(request, conn, session_token)
 
 
+def _login_path(request: Request) -> str:
+    """The sign-in address that leads back to the page *request* asked for.
+
+    The address's hash never reaches the server: the browser carries it over each redirect.
+    """
+    if request.method != "GET":
+        return "/login"
+    target = quote(request.scope["path"], safe="/:@!$&'()*+,;=~")
+    query = request.scope.get("query_string", b"").decode("latin-1")
+    if query:
+        target += "?" + query
+    if target in ("/", LANDING_PATH) or safe_return_path(target) is None:
+        return "/login"
+    return "/login?" + urlencode({"next": target})
+
+
 def resolve_page_session(
     request: Request,
 ) -> PageSession:
     """Resolve a session cookie for page routes with fingerprint binding.
 
-    Returns ``(username, conn)`` on a valid session, or a
-    ``RedirectResponse("/login", 302)`` otherwise. Every page route uses
-    this helper so the UA/IP fingerprint check is always applied.
+    Returns ``(username, conn)`` on a valid session, or a redirect (302) to
+    sign-in and back otherwise. Every page route uses this helper so the
+    UA/IP fingerprint check is always applied.
     """
     token = request.cookies.get("session_token")
     if not token:
-        return RedirectResponse("/login", status_code=302)
+        return RedirectResponse(_login_path(request), status_code=302)
     conn = get_db()
     username = resolve_cached_session(request, conn, token)
     if username is None:
-        return RedirectResponse("/login", status_code=302)
+        return RedirectResponse(_login_path(request), status_code=302)
     return username, conn
 
 

@@ -254,7 +254,7 @@ class TestAccountPage:
         resp = TestClient(app).get("/account", follow_redirects=False)
 
         assert resp.status_code == 302
-        assert resp.headers["location"] == "/login"
+        assert resp.headers["location"] == "/login?next=%2Faccount"
 
     def test_shows_who_you_are_and_the_change_password_form(self, client):
         resp = client.get("/account")
