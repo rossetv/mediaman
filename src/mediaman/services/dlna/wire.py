@@ -17,6 +17,7 @@ from mediaman.services.dlna.errors import TvBadAnswer, TvRefused, TvUnreachable
 MAX_BODY = 64 * 1024
 _MAX_HEADERS = 16 * 1024
 _MAX_SECONDS = 3.0
+_SEARCHES = 3
 _MAX_DATAGRAMS = 16
 _SSDP_PORT = 1900
 
@@ -58,6 +59,7 @@ class _Bounded:
         self._sock = sock
         self._remaining = remaining
         self._budget = MAX_BODY + _MAX_HEADERS
+        self.reset_is_end = False
 
     def sendall(self, data: bytes) -> None:
         self._sock.settimeout(self._remaining())
@@ -71,7 +73,12 @@ class _Bounded:
 
     def recv_into(self, buffer: Any) -> int:
         self._sock.settimeout(self._remaining())
-        count = self._sock.recv_into(buffer)
+        try:
+            count = self._sock.recv_into(buffer)
+        except ConnectionResetError:
+            if self.reset_is_end:
+                return 0
+            raise
         self._budget -= count
         if self._budget < 0:
             raise TvBadAnswer(_TOO_BIG)
@@ -109,8 +116,9 @@ class Wire:
         """Return *address* if a TV may be reached there."""
         return check_address(address, self._networks())
 
-    def _deadline(self) -> Callable[[], float]:
-        end = self._clock() + _MAX_SECONDS
+    def deadline(self, seconds: float) -> Callable[[], float]:
+        """Return how long is left of *seconds*; asking raises ``TimeoutError`` at the end."""
+        end = self._clock() + seconds
 
         def remaining() -> float:
             left = end - self._clock()
@@ -127,17 +135,19 @@ class Wire:
         path: str,
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
+        seconds: float = _MAX_SECONDS,
     ) -> tuple[int, bytes]:
         """GET, or POST when there is a *body*. Never follows a redirect."""
         address = self.check(address)
         if port not in ALLOWED_PORTS:
             raise TvRefused(f"mediaman does not allow port {port} on a TV.")
-        remaining = self._deadline()
+        remaining = self.deadline(seconds)
         sock: Socket | None = None
         try:
-            sock = self._open_tcp(address, port, remaining())
+            sock = self._open_tcp(address, port, min(_MAX_SECONDS, remaining()))
+            bounded = _Bounded(sock, remaining)
             connection = http.client.HTTPConnection(address, port)
-            connection.sock = cast(socket.socket, _Bounded(sock, remaining))
+            connection.sock = cast(socket.socket, bounded)
             connection.request(
                 "GET" if body is None else "POST",
                 path,
@@ -147,8 +157,10 @@ class Wire:
             response = connection.getresponse()
             if 300 <= response.status < 400:
                 raise TvRefused("The TV tried to send mediaman to another address.")
-            if response.getheader("Content-Encoding", "identity").lower() != "identity":
+            encoding = response.getheader("Content-Encoding", "").strip().lower()
+            if encoding not in ("", "identity"):
                 raise TvBadAnswer("The TV gave an answer that cannot be read.")
+            bounded.reset_is_end = not response.chunked
             data = response.read(MAX_BODY + 1)
         except OSError as exc:
             raise TvUnreachable(_GONE) from exc
@@ -170,7 +182,6 @@ class Wire:
         *usable* raises for a URL that is not allowed.
         """
         address = self.check(address)
-        remaining = self._deadline()
         message = (
             "M-SEARCH * HTTP/1.1\r\n"
             f"HOST: {address}:{_SSDP_PORT}\r\n"
@@ -179,25 +190,28 @@ class Wire:
             "ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n\r\n"
         ).encode("ascii")
         refusal: TvRefused | TvBadAnswer | None = None
+        datagrams = 0
         sock: Socket | None = None
         try:
             sock = self._open_udp()
-            sock.settimeout(remaining())
-            sock.sendto(message, (address, _SSDP_PORT))
-            for _ in range(_MAX_DATAGRAMS):
+            for _ in range(_SEARCHES):
+                remaining = self.deadline(_MAX_SECONDS / _SEARCHES)
                 sock.settimeout(remaining())
-                data, sender = sock.recvfrom(2048)
-                if sender[0] != address:
-                    continue
-                location = _location(data)
-                if location is None:
-                    continue
-                try:
-                    usable(location)
-                except (TvRefused, TvBadAnswer) as exc:
-                    refusal = exc
-                    continue
-                return location
+                sock.sendto(message, (address, _SSDP_PORT))
+                with contextlib.suppress(TimeoutError):
+                    while datagrams < _MAX_DATAGRAMS:
+                        sock.settimeout(remaining())
+                        data, sender = sock.recvfrom(2048)
+                        datagrams += 1
+                        location = _location(data) if sender[0] == address else None
+                        if location is None:
+                            continue
+                        try:
+                            usable(location)
+                        except (TvRefused, TvBadAnswer) as exc:
+                            refusal = exc
+                            continue
+                        return location
         except OSError as exc:
             if refusal is None:
                 raise TvUnreachable(_GONE) from exc

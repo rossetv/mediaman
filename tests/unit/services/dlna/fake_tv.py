@@ -15,6 +15,7 @@ LOCATION = f"http://{TV}:7676/smp_14_"
 DESCRIPTION = f"""<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0"><device>
 <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+<UDN>uuid:1234-abcd</UDN>
 <friendlyName>[TV] Living
  room</friendlyName><serviceList>
 <service><serviceType>{RC}</serviceType><controlURL>/smp_17_</controlURL></service>
@@ -59,7 +60,10 @@ class FakeTv:
         self.actions: dict[str, bytes] = {}
         self.seconds_per_read = 0.0
         self.seconds_to_connect = 0.0
+        self.slow: dict[str, float] = {}
+        self.reset_after_answer = False
         self.read_size = 65536
+        self.connect_timeouts: list[float] = []
         self.connects: list[tuple[str, int]] = []
         self.sent_udp: list[tuple[bytes, tuple[str, int]]] = []
         self.requests: list[bytes] = []
@@ -77,8 +81,10 @@ class FakeTv:
 
     def _tcp(self, address: str, port: int, timeout: float) -> _Tcp:
         self.connects.append((address, port))
+        self.connect_timeouts.append(timeout)
         self.now += self.seconds_to_connect
         if self.off:
+            self.now += timeout
             raise TimeoutError
         return _Tcp(self)
 
@@ -122,8 +128,13 @@ class _Tcp(_Base):
         if self.answer is None:
             self.tv.requests.append(self.request)
             self.answer = self.tv.reply(self.request)
+            for action, seconds in self.tv.slow.items():
+                if f'#{action}"'.encode() in self.request:
+                    self.pass_time(seconds)
         if self.tv.seconds_per_read:
             self.pass_time(self.tv.seconds_per_read)
+        if self.tv.reset_after_answer and not self.answer:
+            raise ConnectionResetError
         chunk = self.answer[: min(len(buffer), self.tv.read_size)]
         buffer[: len(chunk)] = chunk
         self.answer = self.answer[len(chunk) :]
@@ -138,6 +149,7 @@ class _Udp(_Base):
 
     def recvfrom(self, size: int) -> tuple[bytes, tuple[str, int]]:
         if not self.tv.datagrams:
+            self.tv.now += self.timeout
             raise TimeoutError
         if self.tv.seconds_per_read:
             self.pass_time(self.tv.seconds_per_read)

@@ -13,12 +13,12 @@ _PRIVATE = tuple(
     ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 
-# 7676, 9197 and 52235 are Samsung's; the rest are where libupnp starts counting.
-ALLOWED_PORTS = frozenset({7676, 9197, 52235, *range(49152, 49160)})
+# 7676, 9197 and 52235 are Samsung's, 52323 Sony's, 55000 Panasonic's; libupnp counts from 49152.
+ALLOWED_PORTS = frozenset({7676, 9197, 52235, 52323, 55000, *range(49152, 49216)})
 
 _MAX_URL = 1024
 _URL_PART = re.compile(r"[!$-;=?-\[\]_a-z~]+")
-_DEVICE_URL = re.compile(r"http://([0-9.]+):([0-9]{1,5})(/.*)?")
+_DEVICE_URL = re.compile(r"([a-z]+)://(\[[^\]]*\]|[^/:@?#\[\]]+)(?::([0-9]{1,5}))?(/[^#]*)?")
 
 
 _OWN_NETWORK = "To reach TVs, mediaman must run on a container network of its own"
@@ -77,9 +77,13 @@ def check_device_url(url: str, address: str, base: str = "") -> tuple[int, str]:
         match = _DEVICE_URL.fullmatch(urljoin(base, url))
     except ValueError as exc:
         raise TvBadAnswer("The TV gave an address that cannot be used.") from exc
-    if match is None or match[1] != address:
+    if match is None:
+        raise TvBadAnswer("The TV gave an address that cannot be used.")
+    if match[2] != address:
         raise TvRefused("The TV pointed to an address other than its own.")
-    port = int(match[2])
+    if match[1] != "http":
+        raise TvRefused("The TV gave an address that is not plain http.")
+    port = int(match[3] or 80)
     if port not in ALLOWED_PORTS:
         raise TvRefused(f"The TV uses port {port}, which mediaman does not allow.")
-    return port, match[3] or "/"
+    return port, match[4] or "/"

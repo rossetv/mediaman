@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ def xml_text(value: str) -> str:
 
 def clock_time(seconds: int) -> str:
     """Return *seconds* as UPnP's ``H:MM:SS``."""
+    seconds = int(seconds)
     return f"{seconds // 3600}:{seconds // 60 % 60:02}:{seconds % 60:02}"
 
 
@@ -42,6 +44,8 @@ class Media:
         for url in (self.url, self.subtitle_url):
             if url is not None and not _URL.fullmatch(url):
                 raise ValueError("a TV needs a plain http or https address")
+        if self.seconds is not None and not (math.isfinite(self.seconds) and self.seconds >= 0):
+            raise ValueError("a film needs a real length")
         if not _MIME.fullmatch(self.mime):
             raise ValueError("a TV needs a video type")
 
