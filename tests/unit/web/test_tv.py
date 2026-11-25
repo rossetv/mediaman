@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait
 
@@ -378,6 +379,65 @@ def test_someone_who_must_change_their_password_pairs_nothing(tv, amy, conn):
     assert tv.post("poll", token=token).status_code == 404
 
 
+def test_a_tv_that_polls_while_its_pairing_is_stored_still_waits(tv, amy, bob, monkeypatch):
+    code, token = tv.code()
+    store, seen = repo.pair, []
+
+    def polled_first(conn, **kwargs):
+        seen.append(tv.post("poll", token=token).json()["state"])
+        seen.append(bob.post("/api/tvs/pair", json={"code": code}).status_code)
+        return store(conn, **kwargs)
+
+    monkeypatch.setattr(repo, "pair", polled_first)
+    assert amy.post("/api/tvs/pair", json={"code": code}).status_code == 200
+    assert seen == ["pairing", 404]
+    assert tv.post("poll", token=token).json()["owner"] == "amy"
+
+
+def test_a_tv_paired_between_a_polls_two_looks_is_ready(tv, amy, monkeypatch):
+    code, token = tv.code()
+    find = repo.find_by_token
+
+    def paired_after(conn, token_hash):
+        found = find(conn, token_hash)
+        monkeypatch.setattr(repo, "find_by_token", find)
+        assert amy.post("/api/tvs/pair", json={"code": code}).status_code == 200
+        return found
+
+    monkeypatch.setattr(repo, "find_by_token", paired_after)
+    ready = tv.post("poll", token=token)
+    assert (ready.status_code, ready.json().get("owner")) == (200, "amy")
+
+
+def test_a_code_whose_pairing_could_not_be_stored_can_be_entered_again(tv, amy, monkeypatch):
+    code, token = tv.code()
+    store = repo.pair
+
+    def locked(conn, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(repo, "pair", locked)
+    with pytest.raises(sqlite3.OperationalError):
+        amy.post("/api/tvs/pair", json={"code": code})
+    assert tv.post("poll", token=token).json()["state"] == "pairing"
+    monkeypatch.setattr(repo, "pair", store)
+    assert amy.post("/api/tvs/pair", json={"code": code}).status_code == 200
+    assert tv.post("poll", token=token).json()["state"] == "ready"
+
+
+def test_a_code_stays_good_where_the_person_has_too_many_tvs_by_then(tv, amy, bob, monkeypatch):
+    code, _ = tv.code()
+    store = repo.pair
+
+    def too_many(conn, **kwargs):
+        raise repo.TooManyTvs
+
+    monkeypatch.setattr(repo, "pair", too_many)
+    assert amy.post("/api/tvs/pair", json={"code": code}).json()["error"] == "too_many_tvs"
+    monkeypatch.setattr(repo, "pair", store)
+    assert bob.post("/api/tvs/pair", json={"code": code}).status_code == 200
+
+
 def test_a_tv_paired_anew_meanwhile_is_neither_paired_over_nor_removed(tv, home, amy, bob, conn):
     was = repo.find(conn, home)
     tv.pair(amy)
@@ -516,7 +576,75 @@ def test_a_body_larger_than_any_there_is_is_refused(tv, home):
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("failing", ["save", "end"])
+def test_one_play_that_cannot_be_ended_well_keeps_no_other_from_it(
+    app, tv, home, amy, bob, manager, conn, monkeypatch, caplog, failing
+):
+    other = Tv(app)
+    other_id = other.pair(bob)
+    for who, page, tv_id in ((amy, tv, home), (bob, other, other_id)):
+        _play(who, tv_id)
+        page.poll("playing", 70)
+    (mine, _), (others, _) = _stream_of(tv.token), _stream_of(other.token)
+    save, end = tv_routes._save, manager.end
+
+    def broken_save(stream, user, *place):
+        if user == "amy":
+            raise KeyError("broken")
+        return save(stream, user, *place)
+
+    def broken_end(stream_id, user):
+        if user == "amy":
+            raise RuntimeError("broken")
+        end(stream_id, user)
+
+    if failing == "save":
+        monkeypatch.setattr(tv_routes, "_save", broken_save)
+    else:
+        monkeypatch.setattr(manager, "end", broken_end)
+    players.get_players().end_plays_of("amy")
+    players.get_players().end_plays_of("bob")
+    tv_routes._carry_out(players.get_players())
+    assert not _lives(manager, others, "bob")
+    assert get_progress(conn, "bob", ["101"])["101"].position_s == 70
+    if failing == "save":
+        assert not _lives(manager, mine)
+    assert "tv: could not" in caplog.text
+
+
 # ── whose a TV is ──
+
+
+def _made_again(conn, name):
+    conn.execute("DELETE FROM admin_users WHERE username = ?", (name,))
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at, role)"
+        " VALUES (?, 'x', '2026-01-01', 'viewer')",
+        (name,),
+    )
+    conn.commit()
+
+
+def test_a_person_made_again_under_a_name_is_told_nothing_of_the_earlier_one(
+    tv, home, amy, person, conn
+):
+    _play(amy, home)
+    tv.poll("playing", 70)
+    amy.delete(f"/api/tvs/{home}")
+    assert amy.get(f"/api/tvs/{home}").status_code == 410
+    _made_again(conn, "amy")
+    answer = person("amy").get(f"/api/tvs/{home}")
+    assert (answer.status_code, answer.json()) == (404, {"ok": False, "error": "not_found"})
+
+
+def test_a_place_left_by_an_earlier_person_of_the_name_is_not_the_later_ones(
+    tv, home, amy, manager, conn
+):
+    _play(amy, home)
+    tv.poll("playing", 70)
+    _made_again(conn, "amy")
+    manager.reap()
+    assert get_progress(conn, "amy", ["101"]) == {}
 
 
 def test_another_persons_tv_is_as_one_that_never_was(home, bob):

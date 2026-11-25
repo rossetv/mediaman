@@ -30,9 +30,34 @@ def store(clock) -> PairingCodes:
 def test_a_code_is_used_up_by_the_first_who_takes_it(store):
     code = store.issue("hash", None, HOME)
     assert store.look(code) is not None
-    assert store.take(code) is not None
-    assert store.take(code) is None
+    assert store.claim(code) is not None
+    assert store.claim(code) is None
+    store.end(code)
+    assert store.claim(code) is None
     assert store.seconds_left("hash") is None
+
+
+def test_a_code_being_paired_is_nobody_elses_and_neither_runs_out_nor_gives_way(
+    store, clock, monkeypatch
+):
+    monkeypatch.setattr(codes, "MAX_OPEN", 2)
+    code = store.issue("hash", 7, HOME)
+    store.claim(code)
+    assert store.look(code) is None
+    store.issue("again", 7, HOME)
+    for n in range(3):
+        store.issue(f"a{n}", None, HOME)
+    clock.now += CODE_SECONDS + 1
+    assert store.seconds_left("hash") == 1
+    store.release(code)
+    assert store.seconds_left("hash") is None
+
+
+def test_a_code_given_back_can_be_taken_again(store):
+    code = store.issue("hash", None, HOME)
+    store.claim(code)
+    store.release(code)
+    assert store.claim(code) is not None
 
 
 def test_a_code_runs_out(store, clock):
@@ -41,7 +66,7 @@ def test_a_code_runs_out(store, clock):
     assert store.seconds_left("hash") == 1
     clock.now += 1
     assert store.look(code) is None
-    assert store.take(code) is None
+    assert store.claim(code) is None
     assert store.seconds_left("hash") is None
 
 

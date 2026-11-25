@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import secrets
-import sqlite3
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -53,6 +52,7 @@ from mediaman.web.auth._token_hashing import hash_token
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import tv as repo
+from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.cast import _CastRequest
@@ -225,18 +225,23 @@ def _carry_out(players: Players) -> None:
     """Save the places and end the streams that what plays on the TVs has left."""
     for left in players.drain():
         manager = get_stream_manager()
+        # rationale: whatever goes wrong with one, its stream must not go on running, nor the other
+        # people's places be lost.
         try:
             _save_place(manager, left)
-        except sqlite3.Error:
-            # A place that cannot be saved must not leave a stream running.
+        except Exception:
             logger.exception("tv: could not save a place")
         if left.end:
-            with contextlib.suppress(StreamGone):
+            try:
                 manager.end(left.stream_id, left.user)
+            except StreamGone:
+                pass
+            except Exception:
+                logger.exception("tv: could not end a stream")
 
 
 def _save_place(manager: StreamManager, left: Left) -> None:
-    if left.position_s is None:
+    if left.position_s is None or find_user_id(get_db(), left.user) != left.user_id:
         return
     with contextlib.suppress(StreamGone):
         try:
@@ -283,7 +288,11 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
     if held is None:
         left = get_codes().seconds_left(key)
         if left is None:
-            return _refused(request)
+            # It may have been paired since the first look.
+            held = _paired(x_tv_token)
+            if held is None:
+                return _refused(request)
+    if held is None:
         if not _POLL_LIMITER.check(key):
             return _too_many(_POLL_LIMITER.retry_after(key))
         return respond_ok(
@@ -423,8 +432,8 @@ def _start_on(
 
     *start_s* None goes on from the saved place. With *over* it starts only while that plays.
     """
-    user, key = held.owner, held.token_hash
-    if user is None or key is None:
+    user, user_id, key = held.owner, held.owner_id, held.token_hash
+    if user is None or user_id is None or key is None:
         return respond_err("not_found", status=404)
     players = get_players()
     body = _CastRequest(
@@ -457,6 +466,7 @@ def _start_on(
             place = min(place, item.duration_s)
         play = Play(
             user=user,
+            user_id=user_id,
             rating_key=rating_key,
             about=_title(item),
             choice=choice,
@@ -599,7 +609,8 @@ def _own(username: str, tv_id: _TvId) -> repo.Tv | Response:
     held = repo.find(get_db(), tv_id)
     if held is not None and held.owner == username and held.token_hash is not None:
         return held
-    was = get_players().gone(username, tv_id)
+    user_id = find_user_id(get_db(), username)
+    was = get_players().gone(user_id, tv_id) if user_id is not None else None
     if was is None:
         return _not_found()
     reason, last = was
@@ -656,7 +667,10 @@ def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
     too_many = respond_err("too_many_tvs", status=409)
     if (again is None or others) and len(repo.owned(conn, username)) >= repo.MAX_TVS_PER_PERSON:
         return too_many
-    if get_codes().take(code) != asked:
+    claimed = get_codes().claim(code)
+    if claimed != asked:
+        if claimed is not None:
+            get_codes().release(code)
         return wrong
     try:
         paired = repo.pair(
@@ -668,8 +682,13 @@ def pair_tv(request: Request, body: _PairBody, username: _Username) -> Response:
             ip=address,
             now=now_utc(),
         )
-    except repo.TooManyTvs:
-        return too_many
+    except BaseException as exc:
+        get_codes().release(code)
+        if isinstance(exc, repo.TooManyTvs):
+            return too_many
+        raise
+    # Only now: until it is stored, the TV is to go on waiting.
+    get_codes().end(code)
     if paired is None:
         return wrong
     if again is not None:

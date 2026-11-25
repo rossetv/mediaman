@@ -21,7 +21,7 @@ from mediaman.services.tv.players import (
     TvOff,
 )
 
-TV = "token-hash"
+TV, AMY, BOB = "token-hash", 1, 2
 
 
 class Clock:
@@ -45,6 +45,7 @@ def _play(next_state="next", autoplay=True, key="101") -> Play:
     following = {"rating_key": "102", "season": 1, "episode": 5, "title": "Next"}
     return Play(
         user="amy",
+        user_id=AMY,
         rating_key=key,
         about={"title": "Film", "duration_s": 3000},
         choice=Choice(autoplay=autoplay),
@@ -161,10 +162,10 @@ def test_the_place_is_kept_every_ten_seconds_and_at_a_pause(players, clock):
     assert players.drain() == []
     clock.now += 10
     _poll(players, _report(play, position=15))
-    assert players.drain() == [Left("amy", "stream", 15, 50, False)]
+    assert players.drain() == [Left("amy", "stream", 15, 50, False, AMY)]
     clock.now += 1
     _poll(players, _report(play, "paused", position=16))
-    assert players.drain() == [Left("amy", "stream", 16, 50, False)]
+    assert players.drain() == [Left("amy", "stream", 16, 50, False, AMY)]
     clock.now += 60
     _poll(players, _report(play, "paused", position=16))
     assert players.drain() == []
@@ -174,7 +175,7 @@ def test_a_tv_still_loading_moves_no_place(players):
     play = _start(players)
     _poll(players, _report(play, "loading", position=0))
     players.stop(TV)
-    assert players.drain() == [Left("amy", "stream", None, 0, True)]
+    assert players.drain() == [Left("amy", "stream", None, 0, True, AMY)]
 
 
 def test_a_tv_away_for_a_while_goes_on_and_one_away_too_long_is_lost(players, clock):
@@ -187,7 +188,7 @@ def test_a_tv_away_for_a_while_goes_on_and_one_away_too_long_is_lost(players, cl
     clock.now += HOLD_SECONDS + 1
     players.drain()
     assert players.holds(TV, play.id) is False
-    assert players.drain() == [Left("amy", "stream", 70, 50, True)]
+    assert players.drain() == [Left("amy", "stream", 70, 50, True, AMY)]
     last = players.view(TV)["last"]
     assert (last["reason"], last["position_s"], last["title"]) == ("lost", 70, "Film")
 
@@ -196,7 +197,7 @@ def test_the_end_counts_down_to_the_next_episode(players, clock):
     play = _start(players)
     shown, _ = _poll(players, _report(play, "ended", position=3000))
     assert (shown["state"], shown["upnext_in_s"]) == ("upnext", COUNTDOWN_SECONDS)
-    assert players.drain() == [Left("amy", "stream", 3000, 50, True)]
+    assert players.drain() == [Left("amy", "stream", 3000, 50, True, AMY)]
     clock.now += 5
     with pytest.raises(Stale):
         players.due_next(TV, play.id)
@@ -290,7 +291,7 @@ def test_starting_over_what_plays_leaves_its_place_and_ends_its_stream(players):
     play = _start(players)
     _poll(players, _report(play, position=70))
     players.begin(TV, _play(key="202"), over=None)
-    assert players.drain() == [Left("amy", "stream", 70, 50, True)]
+    assert players.drain() == [Left("amy", "stream", 70, 50, True, AMY)]
 
 
 def test_a_stream_that_ended_under_the_tv_is_told_apart_from_one_moved_elsewhere(players):
@@ -308,12 +309,12 @@ def test_someone_whose_tv_was_taken_while_it_played_is_told_for_a_while(players,
     play = _start(players)
     _poll(players, _report(play, position=70))
     players.forget(TV, "taken", 7)
-    assert players.drain() == [Left("amy", "stream", 70, 50, True)]
-    reason, last = players.gone("amy", 7)
+    assert players.drain() == [Left("amy", "stream", 70, 50, True, AMY)]
+    reason, last = players.gone(AMY, 7)
     assert (reason, last["position_s"]) == ("taken", 70)
-    assert players.gone("bob", 7) is None
+    assert players.gone(BOB, 7) is None
     clock.now += GONE_KEEP_SECONDS + 1
-    assert players.gone("amy", 7) is None
+    assert players.gone(AMY, 7) is None
 
 
 def test_the_ticket_is_in_neither_the_remotes_view_nor_a_log_of_the_play(players):
@@ -327,4 +328,4 @@ def test_signing_out_everywhere_ends_the_persons_plays_alone(players):
     players.end_plays_of("bob")
     assert players.drain() == []
     players.end_plays_of("amy")
-    assert players.drain() == [Left("amy", "stream", None, 0, True)]
+    assert players.drain() == [Left("amy", "stream", None, 0, True, AMY)]

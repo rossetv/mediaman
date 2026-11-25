@@ -58,7 +58,10 @@ class TvOff(Exception):
 
 @dataclass(frozen=True)
 class Left:
-    """A place to save and, with *end*, a stream to end."""
+    """A place to save and, with *end*, a stream to end.
+
+    Someone made since may have the name of a person who was removed: the id tells them apart.
+    """
 
     user: str
     stream_id: str
@@ -66,6 +69,7 @@ class Left:
     position_s: float | None
     played_s: float
     end: bool
+    user_id: int
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,7 @@ class Choice:
 @dataclass
 class Play:
     user: str
+    user_id: int
     rating_key: str
     #: The title's own fields, as both screens show them.
     about: Mapping[str, Any]
@@ -142,8 +147,8 @@ class Players:
         # begun for one owner reaches the next.
         self._tvs: dict[str, _Tv] = {}
         self._left: list[Left] = []
-        # (person, TV) that was theirs -> (since when not, why, what had played).
-        self._gone: dict[tuple[str, int], tuple[float, str, dict[str, Any]]] = {}
+        # (person's id, TV) that was theirs -> (since when not, why, what had played).
+        self._gone: dict[tuple[int, int], tuple[float, str, dict[str, Any]]] = {}
         # A TV skips ids it has had, and it outlives this process.
         self._ids = itertools.count(int(time.time() * 1000))
 
@@ -182,7 +187,7 @@ class Players:
         if play.stream_id is None:
             return
         place = play.position_s if play.placed else None
-        self._left.append(Left(play.user, play.stream_id, place, play.played_s, end))
+        self._left.append(Left(play.user, play.stream_id, place, play.played_s, end, play.user_id))
         play.saved_at = self._clock()
         if end:
             play.stream_id = play.url = None
@@ -426,18 +431,18 @@ class Players:
             tv = self._tvs.pop(token_hash, None)
             if tv is None or tv.play is None:
                 return
-            now, user = self._clock(), tv.play.user
+            now, user_id = self._clock(), tv.play.user_id
             self._close(tv, reason)
             self._gone = {k: g for k, g in self._gone.items() if now - g[0] <= GONE_KEEP_SECONDS}
             if tv.last is not None and tv_id is not None:
-                self._gone[(user, tv_id)] = (now, reason, tv.last)
+                self._gone[(user_id, tv_id)] = (now, reason, tv.last)
 
     # ── the person ──
 
-    def gone(self, user: str, tv_id: int) -> tuple[str, dict[str, Any]] | None:
-        """Why *user* no longer has the TV that played for them, and what it played."""
+    def gone(self, user_id: int, tv_id: int) -> tuple[str, dict[str, Any]] | None:
+        """Why the person no longer has the TV that played for them, and what it played."""
         with self._lock:
-            at, reason, last = self._gone.get((user, tv_id), (0.0, "", {}))
+            at, reason, last = self._gone.get((user_id, tv_id), (0.0, "", {}))
             if not reason or self._clock() - at > GONE_KEEP_SECONDS:
                 return None
             return reason, last

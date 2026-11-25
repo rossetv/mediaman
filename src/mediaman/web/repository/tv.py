@@ -23,13 +23,14 @@ class Tv:
     name: str
     #: None for an older TV, which is everyone's.
     owner: str | None
+    owner_id: int | None
     token_hash: str | None
     paired_at: str
     last_seen_at: str | None
 
 
 _SELECT = (
-    "SELECT tvs.id, tvs.kind, tvs.name, u.username AS owner, tvs.token_hash,"
+    "SELECT tvs.id, tvs.kind, tvs.name, u.username AS owner, tvs.owner_id, tvs.token_hash,"
     " tvs.created_at AS paired_at, tvs.last_seen_at"
     " FROM tvs LEFT JOIN admin_users u ON u.id = tvs.owner_id"
 )
