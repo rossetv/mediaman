@@ -1087,7 +1087,19 @@ const scenarios = {
       return h.text('.pv__first');
     };
     const at = (data, state) => ({ ...data, download: { ...data.download, state } });
-    return [await of(at(OUTSIDE, 'in_library')), await of(OUTSIDE, true), await of(at(showOf([season(1, true), season(2, false)]), 'partial')), await of(OUTSIDE)];
+    return [await of(at(OUTSIDE, 'in_library')), await of(OUTSIDE, true), await of(OUTSIDE)];
+  },
+  /* Sonarr has some seasons of it, and the card's own badge says In library: it offers what its title page does. */
+  async partlyHeld() {
+    const of = async (seasons, tracked) => {
+      const data = showOf(seasons);
+      const h = load({ api: { [data.ref]: { ...data, sonarr_tracked: tracked, download: { ...data.download, state: 'partial' } } } });
+      h.doc.querySelector('#show .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      await h.rest('show', 1000);
+      return h.text('.pv__first');
+    };
+    const left = [season(1, true), season(2, false), season(3, false)];
+    return [await of(left, false), await of(left, true), await of([season(1, true)], false)];
   },
   /* Many titles rested on: the first is asked about again, the latest is still held. */
   async many() {

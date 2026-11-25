@@ -745,7 +745,8 @@
   function stateOf(p) {
     var dl = p.data.download;
     if (dl.state === 'downloading') return 'Downloading' + (typeof dl.pct === 'number' ? ' ' + dl.pct + '%' : '');
-    if (/^(in_library|partial)$/.test(dl.state || '') || posterOf(p.link).querySelector('.watch-badge--in')) return 'In library';
+    // Of a show partly there, whose card says In library too, the rest may be there to download.
+    if (dl.state === 'in_library' || (dl.state !== 'partial' && posterOf(p.link).querySelector('.watch-badge--in'))) return 'In library';
     if (dl.state === 'queued' || posterOf(p.link).querySelector('.watch-badge--queued')) return 'Queued';
     return '';
   }
