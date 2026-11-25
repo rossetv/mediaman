@@ -853,7 +853,7 @@ const scenarios = {
     p.q('[data-mark-toggle="episode/11"]').focus();
     seen = true;
     const gets = p.gets.length;
-    const say = (ref) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref } });
+    const say = (ref) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'tmdb-tv-9', refs: ['tmdb-tv-9', ref] } });
     say('show-9');
     const otherTitle = p.gets.length - gets;
     say('show-300');
@@ -897,7 +897,7 @@ const scenarios = {
     const was = { look: look(), top: top() };
     click(p.doc, mark());
     seen = true;
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
     await settle();
     return { faces, before: was.look, after: look(), moved: top() - was.top, focus: p.doc.activeElement === mark() };
   },
@@ -1706,11 +1706,11 @@ const scenarios = {
     await settle();
     const picked = season();
     first = () => Promise.resolve(one);
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
     await settle();
     const marked = { season: season(), about: p.text('.watch-ep__about') };
     first = () => Promise.resolve({ ok: true, key: '301', watched: false, episodes: [ep(9, {})] });
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
     await settle();
     return { rows, opened, press, wait, failed, picked, marked, older: season(), bare: p.ttl().querySelectorAll('.watch-ep__about').length };
   },
@@ -1731,7 +1731,7 @@ const scenarios = {
     click(p.doc, more[2]);
     more[2].focus();
     const out = { pressed: opened() };
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
     await settle();
     const fresh = p.ttl().querySelectorAll('.ttl-more')[2];
     out.marked = [opened(), fresh !== more[2], p.doc.activeElement === fresh, fresh.textContent, fresh.getAttribute('aria-expanded')];
@@ -1843,7 +1843,7 @@ const scenarios = {
       await openCard(p, 'show-300');
       if (picked) { click(p.doc, p.q('.watch-pill[data-season="1"]')); await settle(); }
       seen = true;
-      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
       await settle();
       answer();
       await settle();
@@ -2049,7 +2049,7 @@ const scenarios = {
       out[at] = { gone: await pick(1) };
       keepable = false;
       const was = top();
-      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300', refs: ['show-300'] } });
       await settle();
       out[at].loaded = top() - was;
       out[at].back = await pick(2);
@@ -2898,7 +2898,7 @@ scenarios.thumbs = async () => {
   click(p.doc, b);
   out.pressed = [on(), p.posts.slice()];
   // Drawn again, as when an episode is marked: the same thumb keeps the focus.
-  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120' } });
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120', refs: ['movie-120'] } });
   await settle();
   out.redrawn = [set().querySelectorAll('button')[3] !== b, p.doc.activeElement === set().querySelectorAll('button')[3], on()];
   const left = set().querySelectorAll('button');

@@ -379,14 +379,15 @@
   document.addEventListener('mm:watch-marked', function (e) {
     var now = grid.shows('library');
     if (!now) return;
-    var link = toArray(document.querySelectorAll('.watch-all .watch-card__link')).filter(function (a) {
-      return a.getAttribute('data-title-ref') === e.detail.ref && !a.closest('.is-gone');
-    })[0];
-    var key = link && link.closest('.watch-card').getAttribute('data-key');
-    if (key) {
+    var keys = toArray(document.querySelectorAll('.watch-all .watch-card__link')).filter(function (a) {
+      return e.detail.refs.indexOf(a.getAttribute('data-title-ref')) >= 0 && !a.closest('.is-gone');
+    }).map(function (a) { return a.closest('.watch-card').getAttribute('data-key'); }).filter(Boolean);
+    if (keys.length) {
       version++;
-      changed[key] = version;
-      readAgain(key, { marked: true });
+      keys.forEach(function (key) {
+        changed[key] = version;
+        readAgain(key, { marked: true });
+      });
       return;
     }
     ask(now.sort, now.filter, '&only=none').then(function (got) {

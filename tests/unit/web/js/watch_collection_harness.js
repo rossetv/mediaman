@@ -68,7 +68,7 @@ function load(reply) {
   ['core/dom.js', 'modal-a11y.js', 'core/modal.js', 'watch/core.js', 'watch/keep.js'].forEach(run);
   ctx.MMWatch.browse = { card: (f) => build(doc, ['article', { class: 'watch-card' },
     ['a', { class: 'watch-card__link', href: f.href || '#' }, ['span', { class: 'watch-card__poster' }, ['span', { class: 'watch-card__title' }, f.title], ...(f.download_state ? [['span', { class: 'watch-badge--state' }, f.download_state]] : [])]],
-    ['button', { class: 'watch-more' }]]) };
+    ['div', { class: 'card-tools' }, ['button', { class: 'card-tool card-tool--thumb' }], ['button', { class: 'card-tool', tabindex: '-1' }]]]) };
   ctx.MMWatch.detail = { open: (ref, o) => opened.push([ref, o && o.title]) };
   run('watch/collection.js');
   const body = doc.getElementById('body');
@@ -183,6 +183,18 @@ const scenarios = {
     return ['ArrowRight', 'End', 'ArrowRight', 'Home', 'ArrowLeft'].map((k) => { key(k); return at(); });
   },
 
+  // A card's buttons are no Tab stops: ArrowDown goes to them.
+  async tools() {
+    const p = load(SAGA());
+    await p.into('tmdb-movie-2');
+    const stops = p.cards().flatMap((c) => c.querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex'))).filter((n) => n !== '-1').length;
+    const link = p.cards()[1].querySelector('a');
+    link.focus();
+    let own = true;
+    p.q('.coll__row').listeners.keydown.forEach((fn) => fn({ key: 'ArrowDown', target: link, preventDefault() { own = false; } }));
+    return { stops, at: p.doc.activeElement === p.cards()[1].querySelector('.card-tool'), own };
+  },
+
   // Drawn again for a change of its own: nothing of the row is new.
   async drawnAgain() {
     const p = load(SAGA());
@@ -191,7 +203,7 @@ const scenarios = {
     await p.redraw('tmdb-movie-2');
     const after = p.cards();
     const gets = p.gets.length;
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-41' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-41', refs: ['movie-41'] } });
     await p.redraw('tmdb-movie-2');
     return { same: before.every((c, i) => c === after[i]), gets, then: p.gets.length };
   },

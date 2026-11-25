@@ -2,8 +2,9 @@
  * title. It works from what every poster card carries
  * (.watch-card__link, data-title-ref or a Continue watching card's
  * data-dismiss-ref), so a row or grid that draws cards needs nothing more.
- * It is for the mouse alone: nothing is in it that the card and the title detail
- * do not offer a keyboard, a touch screen or a screen reader.
+ * It is for the mouse alone: a keyboard, a touch screen or a screen reader has what is in it
+ * from the card and the title detail. Find more like this is in the detail alone, which a
+ * Continue watching card, as it plays, does not open.
  * Needs watch/core.js, watch/keep.js, watch/card-tools.js, watch/marks.js, watch/detail.js and ratings.js.
  */
 (function () {
@@ -172,14 +173,14 @@
     });
   }
 
-  /* The title *ref* has changed, or any has: what was said of it, or is on its way, is from before.
+  /* The title of *refs* has changed, or any has: what was said of it, or is on its way, is from before.
      Returns the preview open of it that is to say it again. */
-  function outOfDate(ref) {
-    if (ref) unkeep(ref);
+  function outOfDate(refs) {
+    if (refs) refs.forEach(unkeep);
     else kept.clear();
     if (flight) flight.stale = true;
     var p = live;
-    if (!p || !p.data || !p.data.library_ref || (ref && ref !== p.data.library_ref)) return null;
+    if (!p || !p.data || !p.data.library_ref || (refs && refs.indexOf(p.data.library_ref) < 0)) return null;
     if (!armed) return p;
     close(p); // the one request is the next card's
     return null;
@@ -187,7 +188,8 @@
 
   /* A Keep or an Undo has finished: it offers none until it is known again what leaves. */
   function keptOrUndone(id) {
-    var p = outOfDate(keptBy.get(String(id)));
+    var ref = keptBy.get(String(id));
+    var p = outOfDate(ref && [ref]);
     if (!p) return;
     sayAgain(p, Object.assign({}, p.data, { leaving: null, leaving_seasons: [] }));
     ask(askedOf(p.link)).then(function (data) {
@@ -198,8 +200,8 @@
   }
 
   /* Marked as watched or not, or that undone. */
-  function marked(ref) {
-    var p = outOfDate(ref);
+  function marked(refs) {
+    var p = outOfDate(refs);
     if (!p) return;
     ask(askedOf(p.link)).then(function (data) {
       if (live === p) sayAgain(p, data);
@@ -1368,7 +1370,7 @@
   /* A scan, or deletions cleared: no title is named. */
   document.addEventListener('mm:watch-scheduled', function () { keptOrUndone(''); });
 
-  document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.ref); });
+  document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.refs); });
 
   watch.preview = { close: viewChanged };
 })();

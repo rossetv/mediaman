@@ -1492,7 +1492,7 @@
   }
 
   document.addEventListener('mm:watch-marked', function (e) {
-    if (isOpen && cur && cur.data && e.detail.ref === markRef()) reloadMarks(cur);
+    if (isOpen && cur && cur.data && e.detail.refs.indexOf(markRef()) >= 0) reloadMarks(cur);
   });
 
   function note(text, iconName, iconClass) {

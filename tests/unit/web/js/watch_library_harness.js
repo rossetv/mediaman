@@ -280,6 +280,19 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
 }
 
 const scenarios = {
+  // A title read again says whether it is watched, on its eye too.
+  async eyeReadAgain() {
+    const p = load();
+    const eye = (watched) => build(p.doc, ['button', { class: 'card-tool', 'data-mark-toggle': 'movie/1', 'aria-pressed': String(watched), title: watched ? 'Mark as not watched' : 'Mark as watched' }]);
+    const own = p.row('id:m1').appendChild(eye(false));
+    const plain = p.ctx.MMWatch.search.card;
+    p.ctx.MMWatch.search.card = (it) => { const c = plain(it); c.appendChild(eye(true)); return c; };
+    p.serve(ROWS);
+    p.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    return [own.getAttribute('aria-pressed'), own.getAttribute('title')];
+  },
+
   async keepScheduled() {
     const p = load();
     const kept = ROWS.map((r) => (r.id === 'm1' ? Object.assign({}, r, { kept: true }) : r));
@@ -1537,7 +1550,7 @@ const scenarios = {
   async marked() {
     const p = load();
     p.serve(ROWS.map((r) => ({ ...r, sub: 'other' })), { fact: 'counted' });
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1', refs: ['movie-1'] } });
     await settle();
     return { fact: p.bar.fact, sub: p.row('id:m1').querySelector('.watch-card__sub').textContent };
   },
@@ -1545,7 +1558,7 @@ const scenarios = {
   // A title marked while a read of it from before is on its way, then one whose read after the mark fails.
   async markedMeanwhile() {
     const rows = (over) => ROWS.map((r) => (r.id === 'm2' ? { ...r, ref: 'movie-2', ...over } : r));
-    const mark = (p) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2' } });
+    const mark = (p) => p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2', refs: ['movie-2'] } });
     const badge = (p) => p.row('id:m2').querySelector('.watch-badge--watched');
     const p = load({ rows: rows({}) });
     const wait = deferred();
@@ -1565,6 +1578,15 @@ const scenarios = {
     mark(q);
     await settle();
     return { same: badge(p) === drawn, kept: keptNow(p, 'id:m2'), look: look(p, 'id:m2'), focus, errors: q.errors };
+  },
+
+  // A mark of a title the library holds two copies of.
+  async markedCopies() {
+    const p = load({ rows: ROWS.map((r) => (/^m[12]$/.test(r.id) ? { ...r, ref: 'movie-' + r.id[1] } : r)) });
+    p.serve(ROWS);
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-1', refs: ['movie-1', 'tmdb-movie-7', 'movie-2'] } });
+    await settle();
+    return p.reads.map((url) => new URLSearchParams(url.slice(url.indexOf('?'))).get('only'));
   },
 
   // While a change is made, the panel over the card offers its menu no more than the card.

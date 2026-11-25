@@ -30,6 +30,14 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
+def test_a_mark_reads_each_copy_of_its_title_again_once() -> None:
+    assert _run("markedCopies") == ["id:m1", "id:m2"]
+
+
+def test_a_title_read_again_says_on_its_eye_whether_it_is_watched() -> None:
+    assert _run("eyeReadAgain") == ["true", "Mark as not watched"]
+
+
 def test_keeping_a_scheduled_movie_shows_it_in_place_and_undo_brings_the_date_back() -> None:
     out = _run("keepScheduled")
     assert out["call"] == ["post", "/api/watch/keep", {"media_item_id": "m1", "days": 30}]

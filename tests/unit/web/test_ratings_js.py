@@ -310,6 +310,26 @@ def test_what_a_page_was_drawn_with_is_known_under_every_ref_and_never_over_a_pr
     assert out["refs"] == ["movie-1", "rec-2", "tmdb-movie-7"]
 
 
+def test_what_a_page_was_drawn_with_leaves_a_press_and_another_title_alone() -> None:
+    out = _run("knownBusy")
+    assert (out["own"], out["other"], out["joined"], out["asked"]) == (-2, [2, 1], [2, -1], 0)
+
+
+def test_of_two_answers_that_differ_the_server_says_which_is_the_newer() -> None:
+    out = _run("newer")
+    assert out["out"] == [[1, [2]], [-1, [1]], [-1, [1]], [-1, [1]]]
+    assert out["asked"] == [0, 1, 1, 0, 1]
+    assert (out["pressed"], out["own"]) == (0, [2, [3]])
+
+
+def test_two_refs_of_one_title_are_joined_once() -> None:
+    assert sorted(_run("joinedOnce")) == ["movie-1", "tmdb-movie-7"]
+
+
+def test_a_page_of_titles_is_known_without_going_through_those_known_before() -> None:
+    assert _run("manyKnown") == {"told": 0, "same": [2, 2]}
+
+
 def test_the_name_by_the_levels_goes_along_and_says_what_a_press_does() -> None:
     love = ["I love it", "0", 0]
     assert _run("pointed") == [

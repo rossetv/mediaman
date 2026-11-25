@@ -1217,6 +1217,10 @@ const scenarios = {
       c.querySelectorAll('.card-tool').map((b) => b.getAttribute('aria-label')), c.getAttribute('data-level'), !!c.querySelector('.watch-card__link .card-tool')]);
   },
 
+  // A card that stands in no row: its buttons are one Tab stop.
+  cardStop: async () => load().ctx.MMWatch.browse.card(card('movie-11', { in_library: true, mark_kind: 'movie', mark_key: '11', tmdb_ref: 'tmdb-movie-11' }))
+    .querySelectorAll('.card-tool').map((b) => b.getAttribute('tabindex')),
+
   // A pick has its thumb and eye whether the library holds it or not.
   async pickMore() {
     const p = load({ routes: {

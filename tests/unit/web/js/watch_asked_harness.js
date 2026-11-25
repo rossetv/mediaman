@@ -80,7 +80,7 @@ function load(answer, opts = {}) {
   const cards = () => doc.querySelectorAll('.asked-row .watch-card').filter((c) => !c.closest('[data-going]'));
   return {
     doc, api, left, standing, win, source: () => source(),
-    fire: (type, ref) => doc.dispatchEvent({ type, detail: { ref } }),
+    fire: (type, ref, refs) => doc.dispatchEvent({ type, detail: { ref, refs: refs || [ref] } }),
     async pass(ms) {
       clock.now += ms;
       clock.timers.filter((t) => t.at <= clock.now).forEach((t) => { const fn = t.fn; t.fn = () => {}; t.at = Infinity; fn(); });
@@ -209,7 +209,15 @@ const scenarios = {
     await t.pass(300);
     const early = t.api.gets;
     await t.pass(700);
-    return { gets: [early, t.api.gets] };
+    const once = t.api.gets;
+    await t.answer({ items: [ready(1, 3)] });
+    await t.pass(60000);
+    const before = t.api.gets;
+    t.fire('mm:watch-marked', 'tmdb-movie-1', ['tmdb-movie-1', 'movie-1']);
+    await t.pass(300);
+    const named = t.api.gets - before;
+    await t.pass(700);
+    return { gets: [early, once], by: [named, t.api.gets - before] };
   },
   async many() {
     const t = load({ items: Array.from({ length: 27 }, (_x, n) => ready(n + 1, n)) });

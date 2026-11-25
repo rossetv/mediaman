@@ -67,6 +67,10 @@ def test_a_title_is_asked_once_until_it_changes_or_goes_stale() -> None:
     assert _run("cached") == {"first": 1, "second": 1, "marked": 2, "changed": 3, "stale": 4}
 
 
+def test_a_mark_told_by_several_refs_asks_about_the_open_preview_once() -> None:
+    assert _run("markedByRefs") == 2
+
+
 def test_a_second_card_drops_the_request_of_the_first_and_only_it_is_open() -> None:
     assert _run("oneAtATime") == {
         "gets": ["movie-1", "movie-2"],

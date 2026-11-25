@@ -235,7 +235,7 @@ const scenarios = {
     const on = () => h.pv().querySelectorAll('[data-play-on]').map((b) => b.getAttribute('data-play-on'));
     const mark = async (href) => {
       h.answers['movie-1'] = { ...FILM, play: { ...FILM.play, href } };
-      h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1' } }));
+      h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1', refs: ['movie-1'] } }));
       await h.pass(50);
       return on();
     };
@@ -474,12 +474,20 @@ const scenarios = {
     await h.rest('other', 900);
     return { soon, later: h.gets.slice() };
   },
+  // A mark told by several refs, the library's not the first, while the preview is open.
+  async markedByRefs() {
+    const h = load();
+    await h.rest('film');
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'tmdb-movie-1', refs: ['tmdb-movie-1', 'movie-1'] } }));
+    await h.pass(1000);
+    return h.gets.length;
+  },
   async cached() {
     const h = load();
     const again = async () => { h.away(); await h.pass(1000); await h.rest('film'); return h.gets.length; };
     await h.rest('film');
     const out = { first: h.gets.length, second: await again() };
-    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1' } }));
+    h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref: 'movie-1', refs: ['movie-1'] } }));
     out.marked = await again();
     h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:title-changed', { detail: { ref: 'movie-1' } }));
     out.changed = await again();
@@ -1248,7 +1256,7 @@ const scenarios = {
   async marked() {
     const going = { ...FILM, play: { label: 'Resume', href: '/watch/play/1?resume=1', progress_pct: 28, minutes_left: 83 } };
     const says = (h) => [h.text('.pv__first'), h.pv().querySelector('.pv__first').getAttribute('href'), h.pv().querySelectorAll('.pv__meta')[1].textContent, h.pv().querySelectorAll('.pv__progress').length];
-    const mark = (h, ref) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref } }));
+    const mark = (h, ref) => h.doc.dispatchEvent(new h.ctx.CustomEvent('mm:watch-marked', { detail: { ref, refs: [ref] } }));
     const out = {};
     let h = load({ api: { 'movie-1': going } });
     const poster = h.link('film').querySelector('.watch-card__poster');

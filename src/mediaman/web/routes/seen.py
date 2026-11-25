@@ -74,14 +74,15 @@ def _keep(change: SeenChange, title: RatedTitle, *, watched: bool) -> None:
     )
 
 
-def _answer(title: RatedTitle, watched: bool, through_season: int | None) -> JSONResponse:
+def _answer(title: RatedTitle, change: SeenChange, *, watched: bool) -> JSONResponse:
     return respond_ok(
         {
             "watched": watched,
+            "changed": int(change.before != change.after),
             "media_type": title.media_type,
             "tmdb_id": title.tmdb_id,
             "tmdb_ref": f"tmdb-{title.media_type}-{title.tmdb_id}",
-            "through_season": through_season,
+            "through_season": change.after.through_season if change.after else None,
         }
     )
 
@@ -122,7 +123,7 @@ def api_mark_seen(
         title = RatedTitle(title.media_type, title.tmdb_id, fields["title"] or None, fields["year"])
     change = seen_titles.mark(conn, user_id, title, through, now, in_library=False)
     _keep(change, title, watched=True)
-    return _answer(title, True, change.after.through_season if change.after else None)
+    return _answer(title, change, watched=True)
 
 
 @router.delete("/api/watch/seen/{ref}")
@@ -138,8 +139,9 @@ def api_unmark_seen(ref: str, user_id: UserId, username: Username, undo: str = "
     held = _held(title)
     if held is not None:
         return held
-    _keep(seen_titles.unmark(get_db(), user_id, title), title, watched=False)
-    return _answer(title, False, None)
+    change = seen_titles.unmark(get_db(), user_id, title)
+    _keep(change, title, watched=False)
+    return _answer(title, change, watched=False)
 
 
 __all__ = ["router"]

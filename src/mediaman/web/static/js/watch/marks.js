@@ -567,7 +567,7 @@
     else followTitle();
   }
 
-  /* Details, when it shows the title, loads it again, by whichever of its refs it was opened. */
+  /* Told as `mm:watch-marked`, with detail { ref, refs }: the title's refs, and of them the library's, if it has one. */
   function announce(mark, ref) {
     var refs = [ref];
     tmdbRefsOf(mark).forEach(function (tmdb) {
@@ -576,9 +576,10 @@
         if (!isContinue(card)) refs.push(refOf(card));
       });
     });
-    refs.filter(function (one, i) { return one && refs.indexOf(one) === i; }).forEach(function (one) {
-      document.dispatchEvent(new CustomEvent('mm:watch-marked', { detail: { ref: one } }));
-    });
+    refs = refs.filter(function (one, i) { return one && refs.indexOf(one) === i; });
+    if (!refs.length) return;
+    var held = refs.filter(function (one) { return /^(movie|show)-/.test(one); })[0];
+    document.dispatchEvent(new CustomEvent('mm:watch-marked', { detail: { ref: held || refs[0], refs: refs } }));
   }
 
   /* ── Mark as watched, or not ── */
@@ -600,6 +601,7 @@
     toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
       if (markOf(card) !== mark) return;
       toArray(card.querySelectorAll('[data-mark-toggle]')).forEach(function (b) { b.hidden = true; });
+      window.MMWatch.cardTools.moveStop(card);
     });
   }
 
@@ -661,7 +663,7 @@
       if (/^show\//.test(mark)) done.undos = done.undos.concat(paintSeasons(ref, watched));
       if (watched && !done.part) leaveContinue(ref, done);
       var opts = { variant: 'success', dialog: detailsShown() };
-      if (data.changed || tmdb) {
+      if (data.changed) {
         offered[mark] = { ref: ref, whole: !done.part };
         opts.action = { label: 'Undo', onClick: function () { undoChange(mark, watched, name, ref, done); } };
       }

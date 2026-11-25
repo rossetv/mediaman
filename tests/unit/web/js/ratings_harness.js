@@ -460,6 +460,73 @@ const scenarios = {
     return { drawn, pending: [p.R.get('movie-1'), p.look(library).on], refs: p.events.filter((e) => e.ref === 'tmdb-movie-7').pop().refs.sort() };
   },
 
+  // Not over a press on its way, of the title or of another ref of it, and not joined to another title.
+  async knownBusy() {
+    const p = load();
+    p.press(p.R.mount('tmdb-movie-8'), 0);
+    p.R.know('tmdb-movie-8', 2, []);
+    const own = p.R.get('tmdb-movie-8');
+    p.press(p.R.mount('movie-9'), 3);
+    p.R.know('tmdb-movie-9', 1, ['movie-9']);
+    const other = [p.R.get('movie-9'), p.R.get('tmdb-movie-9')];
+    const q = load();
+    q.press(q.R.mount('movie-5'), 3);
+    await q.title(5, null);
+    q.R.know('tmdb-movie-7', -1, ['movie-5']);
+    return { own, other, joined: [q.R.get('movie-5'), q.R.get('tmdb-movie-7')], asked: p.log.filter((l) => /^GET.*tmdb-movie-8/.test(l)).length };
+  },
+
+  // Cards that say another level than is known: newer, from another tab, then older ones again, and the same.
+  async newer() {
+    const p = load();
+    p.R.know('tmdb-movie-7', 1, []);
+    const set = p.R.mount('tmdb-movie-7');
+    await p.go();
+    const asked = [];
+    const draw = async (level, server) => {
+      p.log.length = 0;
+      p.R.know('tmdb-movie-7', level, []);
+      await p.go();
+      asked.push(p.log.length);
+      if (p.log.length) await p.ratings({ 'tmdb-movie-7': lv(server) });
+      return [p.R.get('tmdb-movie-7'), p.look(set).on];
+    };
+    const out = [await draw(1), await draw(-1, -1), await draw(1, -1), await draw(-1)];
+    p.press(set, 3);
+    p.R.know('tmdb-movie-7', 1, []);
+    await p.go();
+    const pressed = p.log.filter((l) => /^GET/.test(l)).length;
+    await p.title(7, -1);
+    await p.go();
+    return { out, asked, pressed, own: await draw(-1, 2) };
+  },
+
+  // Two refs the first save shows to be of one title, which a second save finds joined.
+  async joinedOnce() {
+    const p = load();
+    p.R.know('tmdb-movie-7', 1, []);
+    const set = p.R.mount('movie-1');
+    for (const i of [3, 0]) {
+      p.press(set, i);
+      p.swap();
+      await p.title(7, 1);
+    }
+    return p.events.filter((e) => e.phase === 'saved').pop().refs;
+  },
+
+  // How many states are gone through for each title of a page, and whether its refs still name one state.
+  async manyKnown() {
+    const p = load();
+    let gone = 0;
+    const keys = (o) => { const all = Object.keys(o); gone += all.length; return all; };
+    p.ctx.Object = new Proxy(Object, { get: (o, k) => (k === 'keys' ? keys : o[k]) });
+    for (let i = 1; i <= 200; i++) p.R.know('tmdb-movie-' + i, 1, ['movie-' + i]);
+    const told = gone;
+    p.R.know('tmdb-movie-0200', 1, []);
+    p.R.set('tmdb-movie-200', 2);
+    return { told, same: [p.R.get('tmdb-movie-0200'), p.R.get('movie-200')] };
+  },
+
   // What the name by the levels says as the person goes over them, presses and goes back.
   async pointed() {
     const p = load();
