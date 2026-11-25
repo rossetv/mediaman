@@ -731,9 +731,9 @@ class TestHistoryPageMarkup:
     ):
         for i in range(_PER_PAGE_DEFAULT * 2 + 1):
             insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
-        html = self._page(app_factory, authed_client, conn, "?action=deleted&page=2")
-        assert 'rel="next" href="/history?action=deleted&amp;page=3"' in html
-        assert 'class="hx-newest" href="/history?action=deleted&amp;page=1"' in html
+        html = self._page(app_factory, authed_client, conn, "?action=deleted&page=2&date=week")
+        assert 'rel="next" href="/history?action=deleted&amp;date=week&amp;page=3"' in html
+        assert 'class="hx-newest" href="/history?action=deleted&amp;date=week&amp;page=1"' in html
 
     def test_a_title_cannot_end_the_data_the_script_reads(self, app_factory, authed_client, conn):
         title = "</script><b>&'"

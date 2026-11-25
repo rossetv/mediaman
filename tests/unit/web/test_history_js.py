@@ -203,3 +203,16 @@ def test_days_the_wrong_way_round_are_told_and_not_asked_for() -> None:
 
 def test_the_titles_to_choose_are_those_listed_and_those_the_server_has() -> None:
     assert _run("titles") == ["Film 5", "Film 6", "Film 70"]
+
+
+def test_the_newest_are_a_link_away_whenever_the_list_begins_further_down() -> None:
+    assert _run("newest") == {
+        "deep": "/history",
+        "filtered": None,
+        "answered": None,
+        "back": "/history",
+    }
+
+
+def test_the_newest_under_a_date_are_a_link_away_only_when_the_list_begins_further_down() -> None:
+    assert _run("newestOfDates") == {"hidden": None, "deep": "/history?date=week"}

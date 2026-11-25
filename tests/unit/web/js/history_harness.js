@@ -27,7 +27,7 @@ const item = (id, more) => ({
   is_security: false, created_at: '2026-11-24T20:15:03Z', actor: 'ana', avatar: '/a/1', ip: null,
   fields: [at('2026-11-24T20:15:03Z'), { label: 'Who', value: 'ana', empty: false }, { label: 'IP address', value: '1.2.3.4', empty: false }], ...more,
 });
-const page = (ids, next, total) => ({ items: ids.map((i) => item(i)), next_cursor: next, total: total === undefined ? ids.length : total });
+const page = (ids, next, total, n) => ({ page: n || 1, items: ids.map((i) => item(i)), next_cursor: next, total: total === undefined ? ids.length : total });
 
 function open(opts) {
   opts = { search: '', items: [item(5), item(6)], cursor: null, total: 2, admin: true, filters: {}, ...opts };
@@ -71,7 +71,7 @@ function open(opts) {
   doc.body.appendChild(build(doc, ['script', { id: 'history-data' }, JSON.stringify({
     admin: opts.admin, me: 'ana', people: [{ username: 'ana', avatar: '/a/1' }, { username: 'bob', avatar: '/a/2' }],
     actions: [['kept', 'Kept'], ['plays', 'Plays']], filters: opts.filters, filterLabel: '',
-    items: opts.items, cursor: opts.cursor, total: opts.total, page: 1, openId: null,
+    items: opts.items, cursor: opts.cursor, total: opts.total, page: opts.page || 1, openId: null,
   })]));
   /* The end of the list is far down, so nothing more is asked for until a test scrolls. */
   const more = root.querySelector('.hx-more');
@@ -239,6 +239,31 @@ const scenarios = {
       play({ episodes: [{ label: 'S1E2', finished: true }, { label: 'S1E3', finished: true }] }),
       item(1, { action: 'never_heard_of', action_label: 'never heard of' }),
     ].map((i) => open({ items: [i] }).line(0));
+  },
+  newest: async () => {
+    const h = open({ search: '?event=5', page: 4 });
+    const link = () => { const a = h.q('.hx-newest'); return a && a.getAttribute('href'); };
+    const out = { deep: link() };
+    h.pick('user', 'bob');
+    out.filtered = link();
+    h.asked[0].resolve(page([8], null));
+    await settle();
+    out.answered = link();
+    h.back('?event=5');
+    h.asked[h.asked.length - 1].resolve(page([5, 6], null, 100, 4));
+    await settle();
+    return { ...out, back: link() };
+  },
+  newestOfDates: async () => {
+    const h = open({ search: '?date=week&event=5', page: 4 });
+    const link = () => { const a = h.q('.hx-newest'); return a && a.getAttribute('href'); };
+    h.asked[0].resolve(page([8], null));
+    await settle();
+    const hidden = link();
+    const d = open({ search: '?date=week&event=5' });
+    d.asked[0].resolve(page([5], null, 60, 2));
+    await settle();
+    return { hidden, deep: d.q('.hx-newest').getAttribute('href') };
   },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });

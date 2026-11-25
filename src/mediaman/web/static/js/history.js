@@ -204,10 +204,10 @@
       return p;
     }
 
-    function address() {
+    function address(withoutEvent) {
       var p = new URLSearchParams();
       KEYS.forEach(function (k) { if (F[k]) p.set(k, F[k]); });
-      if (opened) p.set('event', opened);
+      if (opened && !withoutEvent) p.set('event', opened);
       var text = p.toString();
       return '/history' + (text ? '?' + text : '');
     }
@@ -506,6 +506,16 @@
       lastRow = null;
     }
 
+    /* The way to the newest events, when the list begins at a later page than the first. */
+    function linkNewest(page) {
+      var link = q('.hx-newest', root);
+      if (link) link.remove();
+      if (!(page > 1)) return;
+      link = el('a', 'hx-newest', 'Show the newest');
+      link.setAttribute('href', address(true));
+      sum.appendChild(link);
+    }
+
     function show(page) {
       emptyList();
       cursor = page.cursor;
@@ -538,6 +548,7 @@
         opened = null;
         window.history.replaceState(null, '', address());
       }
+      linkNewest(page.page);
       near();
     }
 
@@ -574,9 +585,8 @@
     function load(now) {
       var me = ask();
       var slow = null;
-      var newest = q('.hx-newest', root);
       cursor = null;
-      if (newest && !opened) newest.remove();
+      linkNewest(1);
       if (now) skeleton();
       else {
         list.classList.add('is-old');
@@ -586,7 +596,7 @@
       return MM.api.get(query(extra), { signal: me.signal }).then(function (res) {
         window.clearTimeout(slow);
         if (me.n !== asked) return;
-        show({ items: res.items, cursor: res.next_cursor, total: res.total });
+        show({ items: res.items, cursor: res.next_cursor, total: res.total, page: res.page });
         tellEverything();
       }, function () {
         window.clearTimeout(slow);
@@ -1061,7 +1071,7 @@
     chips();
     if (F.date || p.get('since') || p.get('until')) load(true);
     else {
-      show({ items: data.items, cursor: data.cursor, total: data.total });
+      show({ items: data.items, cursor: data.cursor, total: data.total, page: data.page });
       tellEverything();
     }
   }

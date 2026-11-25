@@ -7,6 +7,7 @@
 
 {% set chosen = {} %}
 {% for key in ("q", "user", "action", "title", "since", "until") if filters[key] %}{% set _ = chosen.update({key: filters[key]}) %}{% endfor %}
+{% if request.query_params.date %}{% set _ = chosen.update({"date": request.query_params.date}) %}{% endif %}
 {% macro page_href(n) %}/history?{{ (dict(chosen, page=n) | urlencode) }}{% endmacro %}
 
 {% block content %}
