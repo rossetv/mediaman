@@ -592,8 +592,34 @@ def test_only_the_line_of_a_library_left_out_may_wrap(app_factory, authed_client
     html = authed_client(app, conn).get("/history").text
 
     assert html.count('class="hist-msg"') == 1
-    [wrapped] = re.findall(r'class="hist-msg hist-msg--wrap"><b>([^<]*)', html)
+    [wrapped] = re.findall(r'class="hist-msg hist-msg--wrap">.*?<b>([^<]*)', html)
     assert wrapped == "Films"
+
+
+def test_a_long_library_name_is_cut_by_itself_and_is_whole_in_the_details(
+    app_factory, authed_client, conn
+):
+    from mediaman.scanner.runner import _audit_left_out
+
+    name = "Very long name " * 40
+    _audit_left_out(conn, "k", {"1": "Plex failed to answer for it"}, {"1": name})
+    app = app_factory(
+        history_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+    )
+
+    html = authed_client(app, conn).get("/history").text
+
+    cut, hint = re.search(
+        r'<span class="hist-name">(.*?)</span></span>\s*<span class="hist-type">(.*?)</span>', html
+    ).groups()
+    assert name in cut and "Plex failed" not in cut
+    assert hint == "Plex failed to answer for it"
+    assert re.search(rf"<dt>Title</dt><dd>{name}</dd>", html)
+    css = (_TEMPLATE_DIR.parent / "static/css/_history.css").read_text(encoding="utf-8")
+    assert "text-overflow: ellipsis" in re.search(r"\.hist-name b \{([^}]*)\}", css)[1]
+    assert "line-clamp" not in css
 
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():

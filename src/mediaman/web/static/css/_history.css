@@ -23,6 +23,10 @@
 /* One line: a long title ends in an ellipsis, the full text is in the details. */
 .hist-msg { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-msg b { font-weight: 500; }
+/* What a library left out needs is said whole: its name alone is cut. */
+.hist-msg--wrap { white-space: normal; overflow-wrap: anywhere; }
+.hist-name { display: inline-flex; max-width: 100%; white-space: nowrap; vertical-align: bottom; }
+.hist-name b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .hist-type { color: var(--t3); font-size: 13px; }
 /* The badge column never takes more than this, whatever the action name. */
 .hist-pill { min-width: 0; max-width: min(240px, 100%); }
@@ -50,7 +54,6 @@
   .hist-pill .pill { white-space: normal; text-align: center; }
   .hist-chev { grid-area: 1 / 4; }
   .hist-msg { grid-area: 2 / 1 / 3 / -1; }
-  .hist-msg--wrap { white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
   .hist-field { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
