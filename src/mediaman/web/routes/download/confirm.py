@@ -407,10 +407,11 @@ def _resolve_download_state(
     secret_key: str,
     mt: str,
     tvdb_id: int | None,
-) -> None:
+) -> bool:
+    """Set what the page shows for the title; False where the Arr could not be read."""
     item["download_state"] = None
     if not tmdb_id:
-        return
+        return True
     try:
         item["download_state"], _held = read_download_state(
             conn,
@@ -422,6 +423,8 @@ def _resolve_download_state(
         )
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
+        return False
+    return True
 
 
 def _poll_token(item: dict[str, object], tmdb_id: int | None, secret_key: str) -> str | None:
@@ -484,9 +487,10 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     tvdb_id = season.tvdb_id if season else None
     if tvdb_id is None and mt == "tv" and tmdb_id:
         tvdb_id = requested_tvdb_id(conn, tmdb_id)
-    _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt, tvdb_id)
+    read = _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt, tvdb_id)
     if item["download_state"] is None and is_token_used(conn, token):
         item["download_state"] = "used"
+        item["arr_unread"] = not read
 
     item["notify_by_email"] = bool(item["email"])
     if item["download_state"] == ACTION_QUEUED and item["email"] and tmdb_id:

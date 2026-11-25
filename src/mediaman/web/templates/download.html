@@ -83,13 +83,13 @@
 </div>
 {% endmacro %}
 
-{% macro used() %}
+{% macro used(unread) %}
 <div class="share-stack">
-  <div class="watch-actions">
-    <a class="btn btn--lg watch-btn--grey" href="" aria-describedby="dl-used">{{ icon("i-rotate-right") }}Reload this page</a>
+  {% if unread or item.trailer_key %}<div class="watch-actions">
+    {% if unread %}<a class="btn btn--lg watch-btn--grey" href="" aria-describedby="dl-used">{{ icon("i-rotate-right") }}Reload this page</a>{% endif %}
     {% if item.trailer_key %}{{ trailer_button() }}{% endif %}
-  </div>
-  <p class="share-say" id="dl-used">This link has been used already. Reload the page to see where the download is.</p>
+  </div>{% endif %}
+  <p class="share-say" id="dl-used">This link has been used already. {% if unread %}Reload the page to see where the download is.{% else %}Nothing is downloading for it now.{% endif %}</p>
 </div>
 {% endmacro %}
 
@@ -128,7 +128,7 @@
         {% if item.download_state == "in_library" %}{{ in_library(trailer=item.trailer_key) }}
         {% elif item.download_state == "tracked" %}{{ tracked(trailer=item.trailer_key) }}
         {% elif item.download_state == "queued" %}{{ on_its_way(item.notify_by_email) }}
-        {% elif item.download_state == "used" %}{{ used() }}
+        {% elif item.download_state == "used" %}{{ used(item.arr_unread) }}
         {% else %}
         <div class="watch-actions">
           <button type="button" class="btn btn--lg btn--primary" id="btn-download" data-dl>{{ icon("i-download") }}Download{% if season %} {{ season | lower }}{% endif %}</button>

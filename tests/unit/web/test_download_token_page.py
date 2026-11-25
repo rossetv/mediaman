@@ -1159,6 +1159,22 @@ class TestUsedLink:
         assert "data-dl" not in page.split("<template")[0]
         assert "used already" in page
 
+    def test_a_used_link_whose_title_nothing_holds_offers_no_reload(
+        self, app_factory, conn, secret_key
+    ):
+        token = self._used(app_factory, conn, secret_key)
+        page = self._page(app_factory, conn, token, return_value={}).split("<template")[0]
+
+        assert "used already" in page and "Reload" not in page
+
+    def test_a_used_link_whose_arr_cannot_be_read_offers_a_reload(
+        self, app_factory, conn, secret_key
+    ):
+        token = self._used(app_factory, conn, secret_key)
+        page = self._page(app_factory, conn, token, side_effect=ArrError("down"))
+
+        assert "Reload" in page.split("<template")[0]
+
     def test_a_used_link_still_shows_what_the_title_is_doing(self, app_factory, conn, secret_key):
         token = self._used(app_factory, conn, secret_key)
         held = {"radarr_movies": {42: {"hasFile": False, "monitored": True}}}
