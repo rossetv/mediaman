@@ -240,6 +240,14 @@ const scenarios = {
       item(1, { action: 'never_heard_of', action_label: 'never heard of' }),
     ].map((i) => open({ items: [i] }).line(0));
   },
+  plays: () => {
+    const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
+    const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });
+    const part = { finished: false, summary: 'stopped at 1 h of 2 h', progress: { fraction: 0.5 }, fields: [{ label: 'Stopped at', value: '1 h of 2 h' }] };
+    const h = open({ items: [{ ...film(part), id: 'w:1' }, { ...film({ finished: true, runtime_text: '2 h' }), id: 'w:2' }, { ...tv({ finished: true, runtime_text: '46 min' }), id: 'w:3' },
+      { ...tv({ finished: true, runtime_text: '46 min', episodes: [{}, {}], summary: 'S1E2 to E3' }), id: 'w:4' }] });
+    return { subs: h.root.querySelectorAll('.hx-l2').map((l) => l.textContent), bars: h.root.querySelectorAll('.hx-bar i').map((b) => b.style.width) };
+  },
   ownLine: () => open({ admin: false, items: [item(1), item(2, { action: 'sec:login.success', is_security: true, summary: '' })] }).root.querySelectorAll('.hx-l1').map((l) => l.textContent),
   marks: () => {
     const h = open({ search: '?q=FILM', filters: { q: 'FILM' }, items: [item(1, { line_title: '<b>a Film</b> & film' })] });

@@ -69,9 +69,8 @@
   var NAMED = ['user.created', 'user.deleted', 'user.role_changed', 'user.email_updated'];
   /* Filters, by the server's names for them. */
   var FILTER_ICONS = {
-    scheduled: 'i-clock', kept: 'i-lock', kept_show: 'i-lock', unkept: 'i-xmark',
-    deleted: 'i-trash-can', delete_failed: 'i-triangle-exclamation', downloaded: 'i-download',
-    re_downloaded: 'i-rotate-right', security: 'i-user', plays: 'i-play'
+    plays: 'i-play', downloads: 'i-download', keeps: 'i-lock', deletions: 'i-trash-can', sign_ins: 'i-user',
+    people: 'i-users', settings: 'i-gear', scans: 'i-rotate-right', newsletter: 'i-envelope'
   };
 
   function reduceMotion() {
@@ -281,11 +280,11 @@
         var eps = item.episodes || [];
         var several = eps.length > 1;
         out.verb = item.finished || several ? 'finished' : 'started';
-        out.sub = item.media_type === 'movie' ? 'Movie' : item.summary;
-        if (several) {
-          out.verb = (item.finished ? 'watched ' : 'started ') + eps.length + ' episodes of';
-          out.sub = eps[0].label.split(' · ')[0] + ' to ' + eps[eps.length - 1].label.split(' · ')[0];
-        }
+        if (several) out.verb = (item.finished ? 'watched ' : 'started ') + eps.length + ' episodes of';
+        var facts = item.media_type === 'movie' ? ['Movie', item.year] : [];
+        if (item.summary) facts.push(item.summary);
+        if (item.finished && !several) facts.push(item.runtime_text);
+        out.sub = facts.filter(Boolean).join(' · ');
         out.kind = 'play';
         out.icon = item.finished ? 'i-check' : 'i-play';
       } else if (item.is_security) {
@@ -386,6 +385,11 @@
       var fields = el('dl', 'hist-fields');
       item.fields.forEach(function (f) {
         var dd = el('dd', f.empty ? 'is-empty' : '', f.at ? fullTime(f.at, f.value) : f.value);
+        if (item.progress && f.label === 'Stopped at') {
+          var done = el('i');
+          done.style.width = Math.round(item.progress.fraction * 100) + '%';
+          dd.appendChild(el('span', 'hx-bar', done));
+        }
         fields.appendChild(el('div', 'hist-field', [el('dt', '', f.label), dd]));
       });
       var acts = el('div', 'hx-acts', button('btn btn--ghost btn--sm', 'Copy details', { 'data-hist-copy': '' }));

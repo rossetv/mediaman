@@ -147,6 +147,17 @@ def test_a_line_says_who_did_what_and_names_no_typed_name_or_address() -> None:
     ]
 
 
+def test_a_play_says_how_far_it_went_or_how_long_it_is() -> None:
+    out = _run("plays")
+    assert out["subs"] == [
+        "Movie · 2023 · stopped at 1 h of 2 h",
+        "Movie · 2023 · 2 h",
+        "S1E2 · 46 min",
+        "S1E2 to E3",
+    ]
+    assert out["bars"] == ["50%"]
+
+
 def test_a_persons_own_lines_do_not_name_them() -> None:
     assert _run("ownLine") == ["Downloaded Film 1", "Signed in"]
 
