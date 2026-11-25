@@ -80,6 +80,19 @@ def test_it_is_off_without_a_stored_key_or_with_recommendations_off_and_says_why
     assert out["saved"] is False
 
 
+def test_a_session_that_ends_goes_to_sign_in_at_once_but_not_over_unsaved_edits() -> None:
+    out = _run("loggedOut")
+    login = "/login?next=%2Fsettings"
+    for clean in (out["clean"], out["demoted"], out["pressClean"]):
+        assert (clean["href"], clean["said"]) == (login, [])
+    assert (out["clean"]["polls"], out["demoted"]["polls"]) == (1, 1)
+    for kept in (out["edits"], out["demotedEdits"], out["press"]):
+        assert (kept["href"], len(kept["said"]), kept["text"]) == ("/settings", 1, NAME)
+        assert kept["polls"] <= 1
+    assert out["edits"]["said"] == out["press"]["said"]
+    assert "session has expired" in out["edits"]["said"][0]
+
+
 def test_one_already_running_is_followed_and_one_long_over_is_not_told() -> None:
     out = _run("running")
     assert out["busy"]["off"] is True
