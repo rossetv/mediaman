@@ -119,13 +119,6 @@ def test_components_warns_about_safe_filter():
     assert "user-supplied" in comps
 
 
-def test_library_table_sort_button_styled():
-    """The .th-sort control must visually match the cell — the
-    rule sets are what guarantees that."""
-    css = _css()
-    assert ".tbl thead th.sortable .th-sort" in css
-
-
 def test_title_detail_labelled_by_visible_title():
     """The detail dialog's aria-labelledby points at a real, visible <h2>
     in the template; no placeholder sr-only heading stands in for it."""

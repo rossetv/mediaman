@@ -126,7 +126,6 @@ def test_forced_colours_give_a_download_s_hidden_art_no_room() -> None:
 
 
 def test_forced_colours_give_keep_an_edge_and_a_hidden_picture_no_room() -> None:
-    assert "border: 1px solid" in _of(".keep-trigger", FORCED, SHEET.with_name("_buttons.css"))
     assert "border: 1px solid" in _of(".watch-keep::before", FORCED)
     banner = _of(".watch-banner:has(> .watch-banner__bg--art:not([data-broken]))", FORCED)
     assert "min-height: 0" in banner

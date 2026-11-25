@@ -34,8 +34,9 @@ function load(first, pages) {
   vm.createContext(ctx);
   ['watch/core.js', 'watch/rows-load.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // A number is a film; 'show mark' a card of that show with that mark.
-  // '# text' is a heading among the cards.
-  const card = (n) => /^#/.test(n) ? build(doc, ['h3', {}, n.slice(2)]) : build(doc, ['article', { class: 'watch-card', ...(/ /.test(n) ? { 'data-mark': n.split(' ')[1] } : {}) },
+  // '# text' is a heading among the cards; '@key' a card of a title that has no page, '@' one with no key either.
+  const card = (n) => /^#/.test(n) ? build(doc, ['h3', {}, n.slice(2)]) : /^@/.test(n) ? build(doc, ['article', { class: 'watch-card', ...(n.length > 1 ? { 'data-key': n.slice(1) } : {}) },
+    ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__title' }, 'Film']]]) : build(doc, ['article', { class: 'watch-card', ...(/ /.test(n) ? { 'data-mark': n.split(' ')[1] } : {}) },
     ['a', { class: 'watch-card__link', 'data-title-ref': / /.test(n) ? n.split(' ')[0] : 'movie-' + n },
       ['span', { class: 'watch-card__poster' }, ['img', { src: '/p/' + n }], ['span', { class: 'watch-card__title' }, 'Film ' + n]]]]);
   const host = doc.body.appendChild(build(doc, ['div', {}, ['div', { class: 'watch-grid', tabindex: '-1' }]]));
@@ -80,6 +81,12 @@ const scenarios = {
       [{ cards: ['show-7 season/72', 'show-7 season/73', 'show-8 show/8', 'show-8 episode/81', 'show-8 '], next: null }]);
     await settle();
     return p.grid.querySelectorAll('.watch-card').map((c) => c.getAttribute('data-mark'));
+  },
+
+  async noPage() {
+    const p = load(['@id:5', '@id:4', '@'], [{ cards: ['@id:3', '@id:5', '@', '@id:4'], next: null }]);
+    await settle();
+    return p.grid.querySelectorAll('.watch-card').map((c) => c.getAttribute('data-key'));
   },
 
   async waitsAfterTooMany() {

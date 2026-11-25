@@ -41,6 +41,7 @@ from mediaman.web.repository.library_query._query import (
     display_key,
     fetch_display_rows,
     fetch_library,
+    row_items,
     shape_display_rows,
 )
 from mediaman.web.repository.library_query._stats import (
@@ -74,6 +75,7 @@ __all__ = [
     "fetch_library",
     "fetch_stats",
     "protection_label",
+    "row_items",
     "shape_display_rows",
     "sum_total_size_bytes",
     "title_ref",
