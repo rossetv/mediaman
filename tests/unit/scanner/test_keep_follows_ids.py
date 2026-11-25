@@ -484,29 +484,52 @@ class TestRemovedKeep:
         assert _actions(conn, "new") == ["scheduled_deletion"]
         assert _actions(conn, "newer") == ["scheduled_deletion"]
 
-    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("beside", [True, False])
     @pytest.mark.parametrize("still_listed", [True, False])
     @_season("film new", "season new")
-    def test_one_removed_from_the_key_it_was_given_to_is_given_to_none_in_another_library(
-        self, conn, freezer, library, monkeypatch, run, still_listed
+    def test_one_removed_from_a_copy_in_another_library_is_still_given_in_its_own(
+        self, conn, freezer, library, monkeypatch, beside, still_listed
+    ):
+        library.sync("old", *(["new"] if beside else []))
+        _keep(conn, "old")
+        for _ in range(2):
+            freezer.tick(60)
+            library.sync("new")
+        assert _actions(conn, "new") == ["protected_forever"]
+        _remove_keep(conn, "new", monkeypatch)
+
+        for days in (0, 1, 40, 1, 1):
+            freezer.tick(timedelta(days=days, seconds=60))
+            library.scan(*(["new"] if still_listed else []), "newer")
+
+        assert _actions(conn, "newer") == ["protected_forever"]
+        assert library.file("newer").exists()
+
+    @pytest.mark.parametrize("removed", [True, False])
+    @_season("film new", "season new")
+    def test_one_removed_from_the_key_it_was_given_to_is_given_to_none_in_a_third_library(
+        self, conn, freezer, library, monkeypatch, removed
     ):
         library.sync("old")
         _keep(conn, "old")
         freezer.tick(60)
         library.scan("new")
-        assert _actions(conn, "new") == ["protected_forever"]
-        _remove_keep(conn, "new", monkeypatch)
+        with conn:
+            # As if the kept title had been in a library that is neither of the two.
+            conn.execute("UPDATE pruned_keeps SET plex_library_id = 5")
+        if removed:
+            _remove_keep(conn, "new", monkeypatch)
 
         for _ in range(2):
             freezer.tick(60)
-            getattr(library, run)(*(["new"] if still_listed else []), "newer")
+            library.scan("newer")
 
-        assert "protected_forever" not in _actions(conn, "newer")
+        assert ("protected_forever" not in _actions(conn, "newer")) is removed
 
-    @pytest.mark.parametrize("run", ["sync", "scan"])
+    @pytest.mark.parametrize("still_listed", [True, False])
     @_season("season new")
-    def test_a_whole_show_keep_removed_from_the_key_it_was_given_to_is_given_to_none_in_another_library(
-        self, conn, freezer, library, run
+    def test_a_whole_show_keep_removed_from_a_copy_in_another_library_is_still_given_in_its_own(
+        self, conn, freezer, library, still_listed
     ):
         library.sync("old")
         _keep_show(conn)
@@ -517,11 +540,34 @@ class TestRemovedKeep:
             conn.execute("DELETE FROM kept_shows WHERE show_rating_key = 'show-new'")
             log_audit(conn, "show-new", "removed_show_keep", "removed", actor="admin")
 
+        for days in (0, 1, 40, 1, 1):
+            freezer.tick(timedelta(days=days, seconds=60))
+            library.scan(*(["new"] if still_listed else []), "newer")
+
+        assert _is_kept(conn, "show", "newer")
+        assert library.file("newer").exists()
+
+    @pytest.mark.parametrize("removed", [True, False])
+    @_season("season new")
+    def test_a_whole_show_keep_removed_from_the_key_it_was_given_to_is_given_to_none_in_a_third_library(
+        self, conn, freezer, library, removed
+    ):
+        library.sync("old")
+        _keep_show(conn)
+        freezer.tick(60)
+        library.scan("new")
+        with conn:
+            # As if the kept show had been in a library that is neither of the two.
+            conn.execute("UPDATE pruned_show_seasons SET plex_library_id = 5")
+            if removed:
+                conn.execute("DELETE FROM kept_shows WHERE show_rating_key = 'show-new'")
+                log_audit(conn, "show-new", "removed_show_keep", "removed", actor="admin")
+
         for _ in range(2):
             freezer.tick(60)
-            getattr(library, run)("newer")
+            library.scan("newer")
 
-        assert not _is_kept(conn, "show", "newer")
+        assert _is_kept(conn, "show", "newer") is not removed
 
     @_season("season")
     def test_nobody_can_remove_it_while_it_is_given(

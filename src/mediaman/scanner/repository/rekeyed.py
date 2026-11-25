@@ -661,8 +661,10 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
     with a file of the removed title is it, and takes the keep for good. Else
     those with its ids take it: its own key and one at its path still do after
     them; no other does once one of its own library has it, nor one of another
-    library once one there has it. Run it once the items set aside are removed,
-    and once a run has stored all Plex lists.
+    library once one there has it, or once a person removed it from one there:
+    that one was a copy, and the title may still come back to its own library.
+    Run it once the items set aside are removed, and once a run has stored all
+    Plex lists.
     """
     # rationale: the interpolated condition is a fixed string; every value is bound
     keeps = conn.execute(  # nosec B608
@@ -676,10 +678,7 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
             return _give_keep(conn, keep, title["id"])
 
         claim = None
-        given_to = [str(key) for key in _entries(keep["given_to"])]
-        if any(_keep_removed_since(conn, keep, key) for key in given_to):
-            pass
-        elif [
+        if [
             title
             for title in titles_with_files(conn, pruned_files(keep), keep["season_number"])
             if give(title)
@@ -687,6 +686,8 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
             conn.execute("UPDATE pruned_keeps SET file_path = '' WHERE id = ?", (keep["id"],))
         else:
             titles = _films_or_seasons_with_ids(conn, _pruned_ids(keep), keep["season_number"])
+            if any(_keep_removed_since(conn, keep, str(key)) for key in _entries(keep["given_to"])):
+                titles = _of_own_library(keep, titles)
             claim = _give_nearest(keep, titles, give, "id")
         _store_claim(conn, "pruned_keeps", keep["id"], claim)
     _carry_pruned_show_keeps(conn)
@@ -723,13 +724,15 @@ def _give_nearest(
     )
 
 
+def _of_own_library(pruned: sqlite3.Row, titles: Iterable[sqlite3.Row]) -> list[sqlite3.Row]:
+    """Return those of *titles* in the library the title of *pruned* was in."""
+    return [title for title in titles if title["plex_library_id"] == pruned["plex_library_id"]]
+
+
 def _store_claim(
     conn: sqlite3.Connection, table: str, pruned_id: int, claim: _Claim | None
 ) -> None:
-    """Store what became of the keep of the row of the fixed *table*: None uses its ids and files up.
-
-    So does a person who removes it from a key it was given to: no other key takes it then.
-    """
+    """Store what became of the keep of the row of the fixed *table*: None uses its ids and files up."""
     params: list[object] = []
     if claim is None:
         change = "tvdb_id = NULL, tmdb_id = NULL, tracked_files = NULL"
@@ -814,7 +817,9 @@ def _season_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sq
     """Return the live keeps of the other shows that have *season* too, or had it last.
 
     One has it with its files, or as a copy. A show had it last while none with
-    the season's ids and number is in the library the show's own was in.
+    the season's ids and number is in the library the show's own was in; for a
+    season of another library, until a person removed the keep from a show
+    there that was given it.
     """
     same = titles_with_files(conn, title_files(season), season["season_number"])
     show_keys = {other["show_rating_key"] for other in [*same, *copies(conn, season)]}
@@ -827,9 +832,11 @@ def _season_show_keeps(conn: sqlite3.Connection, season: sqlite3.Row) -> list[sq
         ).fetchall():
             if ids_match(_pruned_ids(gone), ids) and (
                 gone["plex_library_id"] == season["plex_library_id"]
-                or not any(
-                    title["plex_library_id"] == gone["plex_library_id"]
-                    for title in _films_or_seasons_with_ids(conn, ids, season["season_number"])
+                or not (
+                    _of_own_library(
+                        gone, _films_or_seasons_with_ids(conn, ids, season["season_number"])
+                    )
+                    or _show_keep_removed_where_given(conn, gone)
                 )
             ):
                 show_keys.add(gone["show_rating_key"])
@@ -877,7 +884,10 @@ def _other_show_keeps_by_ids(conn: sqlite3.Connection, season: sqlite3.Row) -> l
 
 
 def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
-    """Give the keep of each show none of whose seasons is left to the shows with its ids."""
+    """Give the keep of each show none of whose seasons is left to the shows with its ids.
+
+    Once a person removed it from one of another library, only to those of its own.
+    """
     # rationale: the interpolated condition is a fixed string; every value is bound
     seasons = conn.execute(  # nosec B608
         "SELECT ps.*, ks.show_title, ks.action, ks.execute_at, ks.snooze_duration, ks.created_at "
@@ -901,15 +911,22 @@ def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
         def give(show: sqlite3.Row, keep: sqlite3.Row = gone[0]) -> bool:
             return _give_show_keep(conn, keep, show["show_rating_key"])
 
-        claim = None
-        if not any(
-            _show_keep_removed_since(conn, season, str(key))
-            for season in gone
-            for key in _entries(season["given_to"])
-        ):
-            claim = _give_nearest(gone[0], shows.values(), give, "show_rating_key")
+        titles = list(shows.values())
+        if any(_show_keep_removed_where_given(conn, season) for season in gone):
+            titles = _of_own_library(gone[0], titles)
+        claim = _give_nearest(gone[0], titles, give, "show_rating_key")
         for season in gone:
             _store_claim(conn, "pruned_show_seasons", season["id"], claim)
+
+
+def _show_keep_removed_where_given(conn: sqlite3.Connection, gone: sqlite3.Row) -> bool:
+    """Return True if someone removed the keep of the show of *gone* from a show it was given to."""
+    keep = conn.execute(
+        "SELECT * FROM kept_shows WHERE show_rating_key = ?", (gone["show_rating_key"],)
+    ).fetchone()
+    return keep is not None and any(
+        _show_keep_removed_since(conn, keep, str(key)) for key in _entries(gone["given_to"])
+    )
 
 
 def _show_keep_removed_since(
