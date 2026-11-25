@@ -532,7 +532,8 @@ def carry_film_keeps(conn: sqlite3.Connection) -> None:
             return _give_keep(conn, keep, title["id"])
 
         claim = None
-        if not any(_keep_removed_since(conn, keep, key) for key in _entries(keep["given_to"])):
+        given_to = [str(key) for key in _entries(keep["given_to"])]
+        if not any(_keep_removed_since(conn, keep, key) for key in given_to):
             titles = _films_or_seasons_with_ids(conn, _pruned_ids(keep), keep["season_number"])
             claim = _give_nearest(keep, titles, give, "id")
         _store_claim(conn, "pruned_keeps", keep["id"], claim)
@@ -714,7 +715,7 @@ def _carry_pruned_show_keeps(conn: sqlite3.Connection) -> None:
 
         claim = None
         if not any(
-            _show_keep_removed_since(conn, season, key)
+            _show_keep_removed_since(conn, season, str(key))
             for season in gone
             for key in _entries(season["given_to"])
         ):
