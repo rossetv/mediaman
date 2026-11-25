@@ -1317,10 +1317,11 @@
       glideTo = null;
       stream = {
         owner: ownerOf(e, dx, dy), p: live, at: t, sum: 0, way: 0, side: 0, row: null,
-        notches: e.deltaMode === 1 || Math.abs(dy) >= 60, opened: 0, reading: false, hist: []
+        notches: e.deltaMode === 1 || Math.abs(dy) >= 60, opened: 0, reading: false, hist: [], last: 0
       };
-    } else if (t - stream.at > 70 && Math.abs(dy) >= 50) stream.notches = true;
+    } else if (t - stream.at > 70 && Math.abs(dy) >= 50 && stream.last >= 50) stream.notches = true; // not a flick heard late as one
     stream.at = t;
+    stream.last = Math.abs(dy);
     stream.sum += dy;
     stream.way += Math.abs(dy);
     stream.side += Math.abs(dx);

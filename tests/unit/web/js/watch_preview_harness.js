@@ -1464,6 +1464,24 @@ const scenarios = {
       fresh: await run(async (h) => { await fall(h); await h.pass(500); return h.scroll([30], { target: h.ttl }); }),
     };
   },
+  /* A hard flick whose events a busy page hears as one after a pause: what is left of it after the
+     page opens does not scroll it, as notches would. Notches of 53 px do read on. */
+  async flickNotNotches() {
+    const run = async (first, rest, gap) => {
+      const h = load();
+      await h.rest('film', 1100);
+      h.wheel(first);
+      await h.pass(100);
+      for (const dy of rest) {
+        h.wheel(dy, h.steps.includes('open') ? { target: h.ttl } : {});
+        await h.pass(gap);
+      }
+      await h.pass(800);
+      return Math.round(h.ttl.scrollTop);
+    };
+    const tail = []; for (let d = 80; d > 1; d *= 0.93) tail.push(Math.round(d));
+    return { flick: await run(20, tail, 12), notches: (await run(53, [53, 53, 53, 53, 53, 53, 53, 53], 120)) > 0 };
+  },
   /* Turned back on its way: by the hand, by Escape, and by what ends it at once. */
   async scrolledBack() {
     const out = {};

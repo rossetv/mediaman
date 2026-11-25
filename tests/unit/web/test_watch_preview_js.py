@@ -699,5 +699,9 @@ def test_a_films_page_is_asked_for_once_its_preview_stands_open_and_a_shows_is_n
     }
 
 
+def test_a_hard_flick_heard_late_is_not_taken_for_notches_and_reads_nothing_on() -> None:
+    assert _run("flickNotNotches") == {"flick": 0, "notches": True}
+
+
 def test_a_page_picture_there_before_it_opens_comes_over_the_previews_a_frame_later() -> None:
     assert _run("loadedPictureFades") == [True, True, False, True]
