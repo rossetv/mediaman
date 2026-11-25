@@ -60,7 +60,10 @@
     loading = new Promise(function (resolve, reject) {
       if (!supported) { reject(refusal('failed')); return; }
       var timer = setTimeout(function () { settle(false); }, SDK_WAIT_MS);
+      var settled = false;
       function settle(ok) {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         global.__onGCastApiAvailable = function () {};
         if (!ok) { reject(refusal('failed')); return; }
@@ -78,8 +81,10 @@
       script.onerror = function () { settle(false); };
       document.head.appendChild(script);
     });
-    loading.then(changed, function () { /* Play on goes without it. */ });
-    return loading;
+    var mine = loading;
+    /* Play on goes without it, and asks again the next time it is opened. */
+    mine.then(changed, function () { loading = null; });
+    return mine;
   }
 
   function setUp() {
@@ -140,9 +145,9 @@
     p.noted = now();
   }
 
-  function forget(p) {
+  function forget(id) {
     var rec = readRecord();
-    if (rec && rec.stream === p.stream.stream_id) writeRecord(null);
+    if (rec && rec.stream === id) writeRecord(null);
   }
 
   /* ---- a play ------------------------------------------------------------- */
@@ -377,8 +382,7 @@
       },
       onGone: function (fn) { p.gone.push(fn); },
       keep: function (kept) {
-        p.keep = kept;
-        p.played = Math.max(p.played, kept && Number(kept.played_s) || 0);
+        takeKept(p, kept);
         if (!p.done && current === p) note(p);
       },
     };
@@ -420,10 +424,20 @@
     return all.filter(function (ms) { return isOurs(ms, stream); })[0] || null;
   }
 
+  /* The player's count of the played time takes the place of the one made here. */
+  function takeKept(p, kept) {
+    p.keep = kept;
+    if (kept && typeof kept.played_s === 'number') p.played = kept.played_s;
+  }
+
   function takeStream(p, stream) {
+    if (stream.title && String(stream.title.rating_key) !== String(p.title.rating_key)) {
+      p.played = 0;
+      p.keep = null;
+    }
     p.stream = { stream_id: stream.stream_id, url: new URL(stream.url, global.location.href).href };
     if (stream.title) p.title = stream.title;
-    if (stream.keep !== undefined) p.keep = stream.keep;
+    if (stream.keep !== undefined) takeKept(p, stream.keep);
     p.place = stream.position_s || 0;
     p.duration = stream.duration_s || 0;
     p.paused = !!stream.paused;
@@ -508,7 +522,7 @@
       clearTimeout(p.timers[name]);
       clearInterval(p.timers[name]);
     });
-    if (!kept) forget(p);
+    if (!kept) forget(p.stream.stream_id);
     if (current === p) current = null;
   }
 
@@ -536,6 +550,7 @@
     var states = global.cast.framework.SessionState;
     var p = current;
     changed();
+    if (!p && e.sessionState === states.SESSION_RESUMED) keepHere();
     if (!p || !e.session || e.session.getSessionId() !== p.session.getSessionId()) return;
     if (e.sessionState === states.SESSION_ENDED) {
       if (e.session.getSessionObj().status === global.chrome.cast.SessionStatus.DISCONNECTED) lose(p);
@@ -576,24 +591,29 @@
     if (current && current.lost !== null) global.chrome.cast.requestSessionById(current.session.getSessionId());
   });
 
-  /* The session a record names, where this page has joined it. */
-  function joined(rec) {
-    var session = context.getCurrentSession();
-    return session && session.getSessionId() === rec.session ? session : null;
-  }
-
-  function waitForSession(rec) {
+  /* The session a record names and the media there, once this page has joined it and the TV has
+     said what it plays; null where that takes too long. */
+  function waitForTv(rec) {
     return new Promise(function (resolve) {
-      var type = global.cast.framework.CastContextEventType.SESSION_STATE_CHANGED;
+      var framework = global.cast.framework;
+      var type = framework.CastContextEventType.SESSION_STATE_CHANGED;
+      var heard = null;
       var timer = setTimeout(function () { over(null); }, REJOIN_WAIT_MS);
-      function over(session) {
+      function over(found) {
         clearTimeout(timer);
         context.removeEventListener(type, look);
-        resolve(session);
+        if (heard) heard.removeEventListener(framework.SessionEventType.MEDIA_SESSION, look);
+        resolve(found);
       }
       function look() {
-        var session = joined(rec);
-        if (session) over(session);
+        var session = context.getCurrentSession();
+        if (!session || session.getSessionId() !== rec.session) return;
+        if ((session.getSessionObj().media || []).length) {
+          over({ session: session, ms: mediaOf(session, { stream_id: rec.stream }) });
+        } else if (heard !== session) {
+          heard = session;
+          session.addEventListener(framework.SessionEventType.MEDIA_SESSION, look);
+        }
       }
       context.addEventListener(type, look);
       look();
@@ -602,46 +622,52 @@
 
   var rejoining = null;
 
-  /* The play a record names, as the TV has it now; null where it is over. */
+  /* The play a record names, as the TV has it now; null where it is over. Rejects where the TV
+     could not be found, which may be playing it still. */
   function rejoin(followed) {
     if (current) return Promise.resolve(current);
     if (rejoining) return rejoining;
     var rec = readRecord();
     if (!rec || ownedElsewhere(rec)) return Promise.resolve(null);
-    rejoining = loadSdk().then(function () {
-      return waitForSession(rec);
-    }).then(function (session) {
-      var ms = session && mediaOf(session, { stream_id: rec.stream });
-      if (!ms || ms.idleReason) {
-        writeRecord(null);
-        if (ms && ms.idleReason === global.chrome.cast.media.IdleReason.FINISHED && ms.media.duration) {
-          /* It ended while no page was open. */
-          stopOnServer(rec.stream, { position_s: ms.media.duration, played_s: Math.round(rec.played || 0) });
-        }
-        return null;
+    var mine = rejoining = loadSdk().then(function () {
+      return waitForTv(rec);
+    }).then(function (found) {
+      if (!found) throw refusal('lost');
+      if (current) return current;
+      return takeUp(rec, found.session, found.ms, followed);
+    }).catch(function () {
+      throw refusal('lost');
+    });
+    var done = function () { rejoining = null; };
+    mine.then(done, done);
+    return mine;
+  }
+
+  function takeUp(rec, session, ms, followed) {
+    if (!ms || ms.idleReason) {
+      forget(rec.stream);
+      if (ms && ms.idleReason === global.chrome.cast.media.IdleReason.FINISHED && ms.media.duration) {
+        /* It ended while no page was open. */
+        stopOnServer(rec.stream, { position_s: ms.media.duration, played_s: Math.round(rec.played || 0) });
       }
-      var p = makePlay(session, {
-        rating_key: rec.key,
-        title: ms.media.metadata && ms.media.metadata.title || '',
-        subtitle: ms.media.metadata && ms.media.metadata.subtitle || '',
-      }, followed);
-      p.stream = { stream_id: rec.stream };
-      p.keep = rec.keep;
-      p.duration = ms.media.duration || 0;
-      p.place = ms.getEstimatedTime();
-      p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
-      p.played = Number(rec.played) || 0;
-      p.begun = true;
-      current = p;
-      p.attach(ms);
-      p.update();
-      if (p.done) return null;
-      note(p);
-      changed();
-      return p;
-    }).catch(function () { return null; });
-    rejoining.then(function () { rejoining = null; });
-    return rejoining;
+      return null;
+    }
+    var said = ms.media.metadata || {};
+    var p = makePlay(session, { rating_key: rec.key, title: said.title || '', subtitle: said.subtitle || '' }, followed);
+    p.stream = { stream_id: rec.stream };
+    p.keep = rec.keep;
+    p.duration = ms.media.duration || 0;
+    p.place = ms.getEstimatedTime();
+    p.paused = ms.playerState === global.chrome.cast.media.PlayerState.PAUSED;
+    p.played = Number(rec.played) || 0;
+    p.begun = true;
+    current = p;
+    p.attach(ms);
+    p.update();
+    if (p.done) return null;
+    note(p);
+    changed();
+    return p;
   }
 
   /* ---- keeping the place where no player does -------------------------------- */
@@ -684,7 +710,7 @@
   var keeps = supported && !document.getElementById('player');
 
   function keepHere() {
-    if (keeps && !current) rejoin(false);
+    if (keeps && !current) rejoin(false).catch(function () { /* It is looked for again later. */ });
   }
 
   /* ---- coming and going -------------------------------------------------------- */
@@ -767,10 +793,16 @@
     });
   }
 
-  /* What an earlier page put on the TV; null at once where there is none. */
-  function again() {
+  /* What an earlier page put on the TV, where it is the title `key`; null at once where nothing
+     can be. Rejects where the TV was not found in time. */
+  function again(key) {
     var rec = readRecord();
     if (!rec || ownedElsewhere(rec)) return null;
+    if (key !== undefined && String(key) !== String(rec.key)) {
+      keeps = true;
+      keepHere();
+      return null;
+    }
     return rejoin(true).then(function (p) {
       if (!p) return null;
       p.followed = true;
@@ -778,7 +810,6 @@
         play: p.face,
         stream: {
           stream_id: p.stream.stream_id,
-          url: p.ms ? p.ms.media.contentId : '',
           position_s: p.at(),
           duration_s: p.duration,
           paused: p.paused,

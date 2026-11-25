@@ -44,6 +44,11 @@ def test_a_script_that_does_not_come_leaves_play_on_without_cast_and_says_nothin
     assert (out["there"], out["trouble"], out["open"]) == (False, False, 0)
 
 
+@pytest.mark.parametrize("how", ["blocked", "refuses", "silent", "late"])
+def test_a_script_that_failed_is_asked_for_again_the_next_time_play_on_is_opened(how: str) -> None:
+    assert _run("retries")[how] == {"there": True, "asked": 2}
+
+
 def test_cast_is_offered_once_the_browser_has_found_a_tv() -> None:
     out = _run("fails")
     assert (out["noTv"]["there"], out["found"]["there"]) == (False, True)
@@ -222,7 +227,6 @@ def test_a_reloaded_page_finds_what_plays_and_follows_it() -> None:
     assert (out["before"], out["scripts"]) == (0, 1)
     assert out["stream"] == {
         "stream_id": "st1",
-        "url": "https://media.example/api/cast/ticket1/index.m3u8",
         "position_s": 110,
         "duration_s": 3000,
         "paused": False,
@@ -240,9 +244,46 @@ def test_where_nothing_can_be_on_the_player_is_told_at_once_and_nothing_is_loade
     assert out["old"] == {"found": None, "scripts": [], "holds": False}
 
 
-@pytest.mark.parametrize("since", ["endedSince", "another"])
-def test_what_ended_since_is_forgotten_and_the_tv_left_alone(since: str) -> None:
+@pytest.mark.parametrize("since", ["emptied", "another"])
+def test_what_the_tv_says_is_over_is_forgotten_and_the_tv_left_alone(since: str) -> None:
     assert _run("nothing")[since] == {"found": None, "kept": False, "ended": []}
+
+
+def test_a_tv_not_found_in_time_is_told_apart_from_one_that_is_over_and_not_forgotten() -> None:
+    out = _run("slow")
+    assert out["first"] == {"answer": {"code": "lost", "says": False}, "kept": True, "ended": []}
+    assert out["second"] == {"answer": {"code": "lost", "says": False}, "kept": True}
+    assert out["found"] is True
+
+
+def test_a_tv_found_late_has_its_place_kept_from_then_on() -> None:
+    assert _run("slow")["late"] == {"before": 0, "saves": 1}
+
+
+def test_a_tv_that_says_what_it_plays_a_moment_later_is_waited_for() -> None:
+    assert _run("mediaLater") is True
+
+
+def test_what_another_page_has_put_on_a_tv_meanwhile_is_not_forgotten() -> None:
+    assert _run("newer") == {"found": None, "stream": "st7"}
+
+
+def test_the_player_of_another_title_is_told_at_once_and_the_place_is_kept_for_it() -> None:
+    out = _run("otherTitle")
+    assert out["found"] is None
+    assert [save[1] for save in out["saves"]] == [100.5]
+
+
+def test_played_time_is_each_titles_own() -> None:
+    out = _run("played")
+    assert out["first"][:2] == ["101", 910]
+    # A quality change plays the same title on.
+    assert out["quality"][:2] == ["101", 919]
+    assert out["started"] == ["102", 0, None]
+    assert out["next"][:2] == ["102", 10]
+    assert out["set"][1] == 4
+    assert out["unsaid"][1:] == [4, {"quality": "best"}]
+    assert out["saved"] == ["progress", 15.5, 9]
 
 
 def test_a_tv_another_tab_follows_is_left_to_it() -> None:
