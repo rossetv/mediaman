@@ -260,7 +260,8 @@ class _Viewing:
     saved_position_s: float | None = None
     #: The latest start of the item that succeeded.
     started: int = -1
-    #: The page that start came from, "" where it gave no name, and when its person asked for it.
+    #: The page that start came from, "" where it gave no name, and when its person asked for it;
+    #: never, once the page has stopped the stream.
     page: str = ""
     asked: float = float("-inf")
 
@@ -774,6 +775,9 @@ class StreamManager:
         ]
         for thread in threads:
             thread.start()
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None:
+                viewing.asked = float("-inf")
         end = time.monotonic() + budget
         for thread in threads:
             thread.join(max(0.0, end - time.monotonic()))
