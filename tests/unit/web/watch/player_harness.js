@@ -4412,8 +4412,10 @@ const scenarios = {
     const on = async (s) => { for (let i = 0; i < s; i++) { playOn(p, 1); await settle(); } };
     const seek = (t) => { p.video.seeking = true; p.video.currentTime = t; fire(p.video, 'seeking'); p.video.seeking = false; fire(p.video, 'timeupdate'); };
     p.replies[0].ok.markers = MARKERS;
-    if (what === 'early') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 1400, end_s: 3000, final: true }];
+    if (what === 'early') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2090, end_s: 3000, final: true }];
     if (what === 'notFinal') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700, end_s: 3000, final: false }];
+    if (/^scene/.test(what)) p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700, end_s: 2720, final: true }];
+    if (/^hidden/.test(what)) doc.visibilityState = 'hidden';
     if (what === 'fraction') p.replies[0].ok.markers = [{ kind: 'credits', start_s: 2700.92, end_s: 3000, final: true }];
     p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
     if (what === 'unrateable') p.held.unrateable = true;
@@ -4422,7 +4424,7 @@ const scenarios = {
     if (what === 'saveFails') p.held.progressFails = { status: 500 };
     if (what === 'native') p.video.webkitPresentationMode = 'fullscreen';
     if (what === 'picture') { doc.pictureInPictureElement = p.video; doc.exitPictureInPicture = () => Promise.resolve(); }
-    const start = { early: 1390, resumed: 2750, endCard: 2985, scrubbed: 100 }[what] || 2690;
+    const start = { early: 2080, resumed: 2750, endCard: 2985, scrubbed: 100 }[what] || 2690;
     await streamPlays(p, start);
     p.video.paused = false;
     p.video.currentTime = start;
@@ -4445,6 +4447,10 @@ const scenarios = {
       saves: saves(), focus: doc.activeElement === focus, idle: p.root.classList.contains('is-idle'),
       beside: card.classList.contains('player-rate--beside'), plays: p.video.plays,
     });
+    if (what === 'hidden') { await on(12); out.hidden = look(); doc.visibilityState = 'visible'; await on(1); }
+    if (what === 'scene' || what === 'sceneRated') { if (what === 'sceneRated') click(thumb()); await on(22); out.scene = look(); }
+    if (what === 'sceneSkip') { click(p.q('[data-skip]')); p.video.currentTime = 2720; fire(p.video, 'timeupdate'); await on(8); out.scene = look(); }
+    if (what === 'hiddenBack') { seek(2000); await on(1); doc.visibilityState = 'visible'; seek(2800); await on(3); }
     if (what === 'arrowOnThumb') { tabTo(thumb()); const from = p.video.currentTime; key('ArrowLeft'); out.left = doc.activeElement === card.querySelectorAll('.rate__b')[2]; key('ArrowRight'); key('ArrowRight'); out.right = doc.activeElement === card.querySelectorAll('.rate__b')[0]; p.tick(300); await settle(); out.moved = p.video.currentTime - from; }
     if (what === 'unrateable') { p.tick(1); await settle(); }
     if (what === 'rebuffer') { fire(p.video, 'waiting'); fire(p.video, 'play'); fire(p.video, 'playing'); await on(1); }

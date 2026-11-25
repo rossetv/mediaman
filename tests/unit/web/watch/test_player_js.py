@@ -2090,6 +2090,28 @@ def test_a_question_put_at_the_end_is_not_taken_back_into_the_credits(film):
     assert out["late"]["at"] == "/watch/play/1"
 
 
+@pytest.mark.parametrize("what", ["scene", "sceneSkip"])
+def test_a_scene_after_the_credits_is_left_alone_and_the_question_waits_for_the_end(film, what):
+    out = in_credits(film, what)
+    assert out["in"]["card"] is True
+    assert (out["scene"]["card"], out["scene"]["paused"]) == (False, False)
+    assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
+
+
+def test_a_rating_given_before_the_scene_is_not_asked_for_again(film):
+    out = in_credits(film, "sceneRated")
+    assert out["scene"]["card"] is False
+    assert (out["end"]["card"], out["end"]["at"]) == (False, "/watch/movie/501")
+
+
+def test_the_credits_ask_nothing_in_a_hidden_page_and_at_once_on_return(film):
+    out = in_credits(film, "hidden")
+    assert (out["hidden"]["card"], out["hidden"]["asks"]) == (False, 0)
+    assert (out["after"]["card"], out["after"]["asks"]) == (True, 1)
+    # Gone back before the credits, the way into them is to be played again.
+    assert in_credits(film, "hiddenBack")["after"]["asks"] == 0
+
+
 def test_a_seek_from_the_end_back_into_the_credits_calls_the_way_out_off(film):
     out = in_credits(film, "endSeek")
     assert (out["sought"]["card"], out["soughtLate"]["at"]) == (True, "/watch/play/1")

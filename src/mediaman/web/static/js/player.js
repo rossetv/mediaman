@@ -73,6 +73,10 @@
   var STOP_WAIT_MS = 5000;
   /* Reached other than by playing into them, the last credits have played this long first. */
   var CREDITS_PLAYED_S = 10;
+  /* Ones that begin earlier in the runtime than this are not believed, as on the server. */
+  var CREDITS_FROM = 0.7;
+  /* What comes after them is a scene where it is longer than this. */
+  var SCENE_S = 10;
   /* The longest a title's end waits to hear whether to ask for a rating. */
   var RATE_WAIT_MS = 4000;
   /* A rating just given stays in sight this long. */
@@ -367,7 +371,7 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
-    question = { asking: null, held: null, put: false, tried: false, creditsS: 0 };
+    question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false };
     troubleAtPlayed = 0;
     clearTrouble();
     clearTimeout(seekSaveTimer);
@@ -2922,24 +2926,38 @@
     return mine.asking;
   }
 
-  /* Where the last credits begin, as the server has it, or null. */
-  function creditsAt() {
+  /* The last credits, where they are to be believed as the server sees it, or null. */
+  function lastCredits() {
     var m = markers.filter(function (x) { return x.kind === 'credits' && x.final; }).pop();
-    return m && m.start_s > duration() / 2 ? m.start_s : null;
+    return m && m.start_s > duration() * CREDITS_FROM ? m : null;
   }
 
   /* Places are saved in tenths: one that rounds to before the credits is not in them yet. */
   function inCredits(t) {
-    var at = creditsAt();
-    return at !== null && Math.round(t * 10) / 10 >= at;
+    var m = lastCredits();
+    return !!m && Math.round(t * 10) / 10 >= m.start_s && !afterCredits(t);
   }
+
+  /* Whether a scene that comes after the credits is on at `t`. */
+  function afterCredits(t) {
+    var m = lastCredits();
+    return !!m && duration() - m.end_s > SCENE_S && t >= m.end_s;
+  }
+
+  function cannotBeSeen() { return nativelyShown() || document.visibilityState === 'hidden'; }
 
   /* The video has played from one place to another. */
   function playedOn(from, to) {
-    if (question.put || !inCredits(to)) return;
+    if (!inCredits(to)) {
+      question.creditsS = 0;
+      question.due = false;
+      if (rating && overCredits && afterCredits(to)) putOffRating();
+      return;
+    }
+    if (question.put) return;
     question.creditsS += to - from;
-    var into = !inCredits(from);
-    if (!into && question.creditsS < CREDITS_PLAYED_S || nativelyShown()) return;
+    if (!inCredits(from) || question.creditsS >= CREDITS_PLAYED_S) question.due = true;
+    if (!question.due || cannotBeSeen()) return;
     if (question.held) showRating(question.held, null);
     else if (!question.tried) askInCredits();
   }
@@ -2949,7 +2967,7 @@
     var asked = ratingAsked;
     askOnce(saveProgress(), function () { return !switching && inCredits(position()); }).then(function (held) {
       if (!held || mine !== question || mine.put || asked !== ratingAsked) return;
-      if (inCredits(position()) && !switching && !video.ended && !nativelyShown()) showRating(held, null);
+      if (inCredits(position()) && !switching && !video.ended && !cannotBeSeen()) showRating(held, null);
     });
   }
 
@@ -3043,6 +3061,10 @@
 
   /* The video is, or is to be, at `t` and not at its end: one put in the credits stays in them. */
   function leftEnd(t) {
+    if (rating && overCredits && afterCredits(t)) {
+      putOffRating();
+      return;
+    }
     if (!rating || !overCredits || !inCredits(t)) {
       dropRating();
       return;
@@ -3050,6 +3072,12 @@
     goOnAfter = null;
     clearTimeout(ignoredTimer);
     ignoredTimer = null;
+  }
+
+  /* Out of the way of a scene: without an answer the question is put again at the end. */
+  function putOffRating() {
+    question.put = question.answered;
+    dropRating();
   }
 
   function moveInRating(by) {
@@ -3082,6 +3110,7 @@
     if (rating && MM.ratings.canRate(ratingRef) === false) endRating();
     if (!rating || said.from !== rating.node) return;
     clearTimeout(ratedTimer);
+    question.answered = said.level !== null;
     if (said.phase === 'saved' && said.level !== null) ratedTimer = setTimeout(endRating, RATED_MS);
     else waitForRating();
   });
