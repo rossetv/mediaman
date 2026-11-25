@@ -84,6 +84,11 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
     return token
 
 
+def _shown(html: str) -> str:
+    """The page with its spaces run together, and no tag around its days and their count."""
+    return " ".join(re.sub(r"</?time\b[^>]*>|<span data-keep-in>", "", html).split())
+
+
 class TestLookupVerifiedAction:
     def test_valid_token_returns_row(self, conn):
         _insert_media_item(conn)
@@ -321,9 +326,13 @@ class TestKeepPageRoute:
         app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
         client = TestClient(app, raise_server_exceptions=True)
 
-        text = " ".join(client.get(f"/keep/{token}").text.split())
+        page = client.get(f"/keep/{token}").text
+        text = _shown(page)
 
         assert f"{date_text} — {word}" in text
+        # What the page's script needs to say the day as it falls where the reader is.
+        assert re.search(r'<time data-keep-day datetime="2026-05-0\dT[^"]+\+00:00">', page)
+        assert "/static/js/keep-days.js" in page
 
     @pytest.mark.parametrize(
         ("execute_at", "date"),
@@ -342,7 +351,7 @@ class TestKeepPageRoute:
         app = self._make_app(conn)
         app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
-        text = " ".join(TestClient(app).get(f"/keep/{token}").text.split())
+        text = _shown(TestClient(app).get(f"/keep/{token}").text)
 
         assert f"{date} 2026 — leaving any day </div>" in text
         assert "The date has passed, but you can keep this item until it is deleted" in text
@@ -376,7 +385,7 @@ class TestKeepPageRoute:
         app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
         client = TestClient(app, raise_server_exceptions=True)
 
-        html = " ".join(client.get(f"/keep/{token}").text.split())
+        html = _shown(client.get(f"/keep/{token}").text)
 
         assert text in html
         assert "Scheduled for deletion" not in html
@@ -393,7 +402,7 @@ class TestKeepPageRoute:
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False)
         assert resp.status_code == 302
         url = resp.headers["location"] if follow_up == "redirect" else f"/keep/{token}"
-        return " ".join(client.get(url).text.split())
+        return _shown(client.get(url).text)
 
     def test_page_right_after_a_keep_says_kept_not_already_kept(self, conn, freezer):
         text = self._kept_page(conn, freezer, "redirect")
@@ -433,7 +442,7 @@ class TestKeepPageRoute:
         app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
         client = TestClient(app, raise_server_exceptions=True)
 
-        html = " ".join(client.get(f"/keep/{token}").text.split())
+        html = _shown(client.get(f"/keep/{token}").text)
 
         assert "This is being deleted now." in html
         assert "Already kept" not in html

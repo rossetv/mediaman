@@ -12,6 +12,7 @@
 {% endblock %}
 
 {% block content %}
+{% macro day(at, text) %}<time data-keep-day datetime="{{ at }}">{{ text }}</time>{% endmacro %}
 <div class="keep-page">
 
   <nav class="keep-nav">
@@ -59,11 +60,9 @@
       <div class="info-box">
         <div class="label">Scheduled for deletion</div>
         <div class="value danger">
-          {{ execute_at.strftime("%-d %B %Y") }}
+          {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}
           {% if days_left < 0 %} — leaving any day
-          {% elif days_left == 0 %} — today
-          {% elif days_left == 1 %} — tomorrow
-          {% else %} — in {{ days_left }} days
+          {% else %} — <span data-keep-in>{% if days_left == 0 %}today{% elif days_left == 1 %}tomorrow{% else %}in {{ days_left }} days{% endif %}</span>
           {% endif %}
         </div>
       </div>
@@ -122,7 +121,7 @@
         <div class="label">Status</div>
         <div class="value success">
           {% if item.snooze_duration == "forever" %}Protected forever
-          {% elif execute_at %}Protected until {{ execute_at.strftime("%-d %B %Y") }}
+          {% elif execute_at %}Protected until {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}
           {% else %}Protected{% endif %}
         </div>
       </div>
@@ -140,11 +139,11 @@
         <div class="msg-detail">
           {% if just_kept %}
           {% if item.snooze_duration == "forever" %}It will be kept indefinitely.
-          {% elif execute_at %}It will be re-evaluated for deletion on {{ execute_at.strftime("%-d %B %Y") }}.
+          {% elif execute_at %}It will be re-evaluated for deletion on {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}.
           {% endif %}
-          {% elif item.snoozed_at %}This item was kept on {{ item.snoozed_display }}.
+          {% elif item.snoozed_at %}This item was kept on {{ day(item.snoozed_at, item.snoozed_display) }}.
           {% if item.snooze_duration == "forever" %}It will be kept indefinitely.
-          {% elif execute_at %}It will be re-evaluated for deletion on {{ execute_at.strftime("%-d %B %Y") }}.
+          {% elif execute_at %}It will be re-evaluated for deletion on {{ day(execute_at.isoformat(), execute_at.strftime("%-d %B %Y")) }}.
           {% endif %}
           {% endif %}
         </div>
@@ -237,6 +236,7 @@
 
   </div>
 </div>
+{% if state in ("active", "already_kept") %}<script src="/static/js/keep-days.js?v={{ static_v }}" defer></script>{% endif %}
 {% if state == "active" %}<script src="/static/js/submit-guard.js?v={{ static_v }}" defer></script>{% endif %}
 {% endblock %}
 
