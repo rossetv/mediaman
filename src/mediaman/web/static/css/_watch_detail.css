@@ -462,7 +462,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .dl-progress .watch-bar--banner { width: 100%; }
 .dl-progress .watch-bar--banner::-webkit-progress-value { background: var(--accent); }
 .dl-progress .watch-bar--banner::-moz-progress-bar { background: var(--accent); }
-.dl-progress__line { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
+.dl-progress__line { display: flex; justify-content: space-between; gap: 12px; min-height: 1lh; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
 
 /* ── A show's seasons ── */
 
