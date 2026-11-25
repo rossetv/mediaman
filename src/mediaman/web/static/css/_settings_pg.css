@@ -296,7 +296,7 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 /* On a phone a long answer takes the line to itself (Test and the chevron drop under it)
    instead of being squeezed into what Test leaves beside it. */
 @media (max-width: 520px) {
-  .setg-pg .intg-card-hd .hd-actions { flex-wrap: wrap; row-gap: 8px; }
+  .setg-pg .intg-card-hd .hd-actions { flex-wrap: wrap; }
   .setg-pg .intg-card-hd .hd-actions .conn { min-width: 0; }
 }
 
