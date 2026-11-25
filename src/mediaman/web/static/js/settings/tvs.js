@@ -27,6 +27,8 @@
   };
 
   var wrap, panel, addBtn;
+  var paintAddress = function () {};
+  var refusedHttps = null; // the https address a TV could not fetch from, and the TV's name
 
   function el(tag, cls, text) {
     var node = document.createElement(tag);
@@ -97,6 +99,23 @@
   function answered(address, name) {
     return [atHome(address), ['ok', 'The TV answered', 'It calls itself “' + name + '”.'],
       ['ok', 'Can play films from mediaman']];
+  }
+
+  function pictured(err) {
+    switch (err.error) {
+      case 'no_fetch':
+        return ['no', 'It couldn’t reach mediaman',
+          'Check the address TVs use, below. It must start with http:// and work from your home network.'];
+      case 'no_picture':
+        return ['no', 'It didn’t show a test picture', err.message + ' You can still add it and try a film.'];
+      case 'no_tv_address':
+        return ['no', 'It couldn’t reach mediaman', 'Set the address TVs use, below, and save. Then check again.'];
+      case 'http_off':
+        return ['no', 'It couldn’t reach mediaman',
+          'The address TVs use starts with http. Turn on Plain http for older TVs, below, and save. Then check again.'];
+      default:
+        return ['no', MM.api.messageOf(err, 'Couldn’t show a test picture. Try again.')];
+    }
   }
 
   function wrongAddress() {
@@ -381,28 +400,46 @@
       if (!HOME.test(typed)) { say(wrongAddress()); address.focus(); return; }
       var mine = asked;
       setBusy(check, 'Checking…');
-      say(asking(typed));
+      say(asking(typed).concat([['todo', 'Can reach the address TVs use']]));
       MM.api.post(OLDER + '/check', { address: typed }).then(function (got) {
         if (mine !== asked) return;
-        setBusy(check, '');
-        say(answered(typed, got.name));
-        var input = nameField(got.name.slice(0, 40).trim(), 'Name');
-        input.removeAttribute('aria-label');
-        input.id = 'tv-add-name';
-        var nameLabel = el('label', '', 'Name');
-        nameLabel.htmlFor = input.id;
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        var told = answered(typed, got.name);
+        say(told.concat([['run', 'Asking it to fetch a test picture…']]));
+        return MM.api.post(OLDER + '/picture', { address: got.address }).then(function (shown) {
+          if (mine !== asked) return;
+          say(told.concat([['ok', 'Fetched a test picture from ' + shown.from]]));
+          offer(got);
+        }, function (err) {
+          if (mine !== asked) return;
+          setBusy(check, '');
+          say(told.concat([pictured(err)]));
+          var used = document.getElementById('tv_address').defaultValue;
+          if (err.error === 'no_fetch' && /^https:/i.test(used)) {
+            refusedHttps = { address: used, name: got.name };
+            paintAddress();
+          }
+          if (err.error === 'no_picture') offer(got);
         });
-        named.replaceChildren(nameLabel, input);
-        found = { address: got.address, input: input };
-        add.disabled = false;
-        if (MM.dom.focusStillIn(panel)) MM.settings.rows.bringIntoView(end);
       }, function (err) {
         if (mine !== asked) return;
         setBusy(check, '');
         say(failed(err, typed));
       });
+    }
+    function offer(got) {
+      setBusy(check, '');
+      var input = nameField(got.name.slice(0, 40).trim(), 'Name');
+      input.removeAttribute('aria-label');
+      input.id = 'tv-add-name';
+      var nameLabel = el('label', '', 'Name');
+      nameLabel.htmlFor = input.id;
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      });
+      named.replaceChildren(nameLabel, input);
+      found = { address: got.address, input: input };
+      add.disabled = false;
+      if (MM.dom.focusStillIn(panel)) MM.settings.rows.bringIntoView(end);
     }
     function commit() {
       if (!found || isBusy(add)) return;
@@ -469,7 +506,9 @@
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address.';
       } else if (/^https:/i.test(value)) {
-        warn = 'This starts with https. Older TVs often refuse it.';
+        warn = refusedHttps && refusedHttps.address === value
+          ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'
+          : 'This starts with https. Older TVs often refuse it.';
       } else if (/^http:/i.test(value) && document.getElementById('older_tvs_http').value !== 'true') {
         warn = 'This starts with http, which older TVs may use only with Plain http for older TVs on.';
       }
@@ -478,6 +517,7 @@
       if (bad) input.setAttribute('aria-invalid', 'true');
       else input.removeAttribute('aria-invalid');
     }
+    paintAddress = paint;
     input.addEventListener('input', paint);
     // The switches and Discard set values without an event of their own.
     document.addEventListener('click', function () { setTimeout(paint, 0); });

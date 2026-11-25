@@ -74,6 +74,8 @@ async function page(answers, all = [PAIRED, OLDER]) {
 
 const refused = (error, message) => () => Promise.reject({ error, message, data: {} });
 const CHECK = 'POST /api/settings/older-tvs/check';
+const PICTURE = 'POST /api/settings/older-tvs/picture';
+const FROM = { from: 'http://192.168.1.10:8282' };
 const FOUND = { name: '<b>TV</b>', address: '192.168.1.44' };
 
 const scenarios = {
@@ -91,23 +93,29 @@ const scenarios = {
     return { before, after: p.doc.querySelectorAll('.tv-li').length };
   },
   async found() {
-    let answer;
+    let answer, shown;
     const p = await page({
       [CHECK]: () => new Promise((resolve) => { answer = resolve; }),
+      [PICTURE]: () => new Promise((resolve) => { shown = resolve; }),
       'POST /api/settings/older-tvs': { tv: { id: 3, name: 'Attic', address: '192.168.1.44' } },
     });
     await p.add('192.168.1.44');
     const out = { checking: p.states(p.panel), early: p.button(p.panel, 'Add this TV').disabled };
     answer(FOUND);
     await settle();
+    out.showing = [p.states(p.panel), p.button(p.panel, 'Add this TV').disabled];
+    out.picture = p.calls[p.calls.length - 1];
+    shown(FROM);
+    await settle();
     out.found = p.states(p.panel);
+    out.from = p.panel.textContent.includes('Fetched a test picture from http://192.168.1.10:8282');
     out.text = p.panel.textContent.includes('<b>TV</b>') && !p.panel.querySelector('li b');
     p.doc.getElementById('tv-add-name').value = ' Attic ';
     await p.press(p.panel, 'Add this TV');
     return Object.assign(out, { sent: p.calls.pop(), rows: p.doc.querySelectorAll('.tv-li').length, shut: p.panel.hidden });
   },
   async edited() {
-    const p = await page({ [CHECK]: FOUND });
+    const p = await page({ [CHECK]: FOUND, [PICTURE]: FROM });
     await p.add('192.168.1.44');
     await settle();
     const ready = !p.button(p.panel, 'Add this TV').disabled;
@@ -135,6 +143,19 @@ const scenarios = {
       await p.add('192.168.1.44');
       await settle();
       out[code] = [p.states(p.panel).pop(), p.panel.querySelector('.tv-chk').textContent];
+    }
+    return out;
+  },
+  async pictures() {
+    const out = {};
+    for (const code of ['no_fetch', 'no_picture', 'no_tv_address', 'http_off', 'busy']) {
+      const p = await page({ [CHECK]: FOUND, [PICTURE]: refused(code, 'said ' + code) });
+      const input = p.doc.getElementById('tv_address');
+      input.value = input.defaultValue = 'https://mediaman.example';
+      await p.add('192.168.1.44');
+      await settle();
+      out[code] = [p.states(p.panel), p.panel.querySelector('.tv-chk').textContent,
+        p.button(p.panel, 'Add this TV').disabled, p.doc.getElementById('tv-address-hint').textContent];
     }
     return out;
   },

@@ -39,9 +39,12 @@ def test_a_list_that_did_not_load_can_be_tried_again() -> None:
 
 def test_a_tv_is_added_only_once_found_and_its_name_is_only_text() -> None:
     got = _run("found")
-    assert got["checking"] == ["ok", "run", "todo"]
+    assert got["checking"] == ["ok", "run", "todo", "todo"]
     assert got["early"] is True
-    assert got["found"] == ["ok", "ok", "ok"]
+    assert got["showing"] == [["ok", "ok", "ok", "run"], True]
+    where = "/api/settings/older-tvs/picture"
+    assert got["picture"] == ["POST", where, {"address": "192.168.1.44"}]
+    assert (got["found"], got["from"]) == (["ok", "ok", "ok", "ok"], True)
     assert got["text"] is True
     body = {"address": "192.168.1.44", "name": "Attic"}
     assert got["sent"] == ["POST", "/api/settings/older-tvs", body]
@@ -67,6 +70,19 @@ def test_each_failure_says_in_plain_words_what_to_try() -> None:
     assert "pairing with a code" in got["not_a_tv"][1]
     assert "Host networking, macvlan" in got["own_network"][1]
     assert "said off" in got["off"][1]
+
+
+def test_a_tv_that_cannot_fetch_the_test_picture_is_not_added_and_says_why() -> None:
+    got = _run("pictures")
+    assert all(states == ["ok", "ok", "ok", "no"] for states, *_ in got.values())
+    assert "must start with http://" in got["no_fetch"][1]
+    assert "Set the address TVs use" in got["no_tv_address"][1]
+    assert "Turn on Plain http" in got["http_off"][1]
+    assert "said busy" in got["busy"][1]
+    # A TV that shows no pictures may still play films.
+    assert [code for code, (_, _, shut, _) in got.items() if not shut] == ["no_picture"]
+    assert "<b>TV</b> did" in got["no_fetch"][3]
+    assert " did" not in got["busy"][3]
 
 
 def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
