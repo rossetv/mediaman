@@ -1380,9 +1380,36 @@ def test_a_title_started_somewhere_else_stops_here_for_good(markup, way):
 
 
 def test_play_here_goes_on_from_where_the_other_one_got_to(markup, tmp_path_factory):
-    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 900.5})
+    # Played there for less than is resumed, or past the watched mark, it has no start of its own.
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 0, "place_s": 900.5})
     out = run(markup, "replaced", plays="fragLoadError", pages={"/elsewhere": elsewhere})
     assert out["here"] == {"starts": 1, "at": 900.5, "message": None}
+
+
+def test_play_here_goes_on_from_this_tab_s_place_where_none_is_saved(markup, tmp_path_factory):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "start_s": 0, "place_s": None})
+    out = run(markup, "replaced", plays="fragLoadError", pages={"/elsewhere": elsewhere})
+    assert out["here"] == {"starts": 1, "at": 105, "message": None}
+
+
+def test_a_press_as_play_here_asks_for_the_place_starts_nothing_from_this_one(
+    markup, tmp_path_factory
+):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": 900.5})
+    out = run(markup, "replaced_pick", plays="pressed", pages={"/elsewhere": elsewhere})
+    assert (len(out["starts"]), out["at"]) == (1, 900.5)
+
+
+@pytest.mark.parametrize(
+    ("picked", "started"), [("same", ["best"]), ("once", ["medium"]), ("twice", ["low"])]
+)
+def test_a_quality_picked_under_playing_somewhere_else_is_play_here_with_it(
+    markup, tmp_path_factory, picked, started
+):
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": 900.5})
+    saved = {"mediaman.watch.quality": "best"}
+    out = run(markup, "replaced_pick", plays=picked, saved=saved, pages={"/elsewhere": elsewhere})
+    assert out == {"starts": started, "at": 900.5, "message": None}
 
 
 def test_a_stream_this_page_replaced_is_never_taken_for_another_page_s(markup):

@@ -111,6 +111,12 @@ def test_data_attributes_carry_the_context(name):
     assert json.loads(root["data-leaving"]) == ctx["leaving"]
 
 
+@pytest.mark.parametrize(("place_s", "attribute"), [(0.0, "0.0"), (12.5, "12.5"), (None, "")])
+def test_the_place_saved_is_told_apart_from_none(place_s, attribute):
+    _, page = _render({**EPISODE, "start_s": 0, "place_s": place_s})
+    assert page.player()["data-place-s"] == attribute
+
+
 @pytest.mark.parametrize(("days", "says"), [(-1, "Leaving any day"), (0, "Leaving today")])
 def test_a_date_that_has_passed_is_not_called_today(days, says):
     _, page = _render({**EPISODE, "leaving": {"days": days, "keep_id": "88"}})

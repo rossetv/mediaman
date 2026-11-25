@@ -16,6 +16,7 @@
      data-item='{{ item|tojson }}'
      data-qualities='{{ (qualities or [])|tojson }}'
      data-start-s="{{ start_s or 0 }}"
+     data-place-s="{{ place_s if place_s is number else '' }}"
      data-back-href="{{ back_href }}"
      data-next='{{ next|tojson }}'
      data-next-state="{{ next_state or '' }}"

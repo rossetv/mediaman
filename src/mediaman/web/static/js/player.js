@@ -498,8 +498,9 @@
     var same = value === quality && !override;
     /* Even the same one: a saved choice the server does not know may stand in its place. */
     setQuality(value);
+    var stopped = shown(els.message) && tryAgain;
     if (same) {
-      if (shown(els.message) && (tryAgain === retry || tryAgain === tryLost)) tryAgain();
+      if (stopped === retry || stopped === tryLost || stopped === playHere) tryAgain();
       return;
     }
     reverts = 0;
@@ -514,7 +515,8 @@
       showQuality();
       return;
     }
-    restartStream(true);
+    if (stopped === playHere || hereGeneration === generation) playHere();
+    else restartStream(true);
   }
 
   /* A new quality cannot play: go back to the one that did. */
@@ -1047,14 +1049,17 @@
   }
 
   /* Go on from where the other one got to, where the server can say. */
+  var hereGeneration = null; // the generation that is asking it
   function playHere() {
-    var gen = ++generation;
+    var gen = hereGeneration = ++generation;
+    swapping = true;         // a press starts nothing from this place meanwhile
     hideMessage();
     setLoading(true);
     fetchPage(window.location.href)
       .then(function (page) {
         var el = page.getElementById('player');
-        if (gen === generation && el) pendingStart = parseFloat(el.getAttribute('data-start-s')) || 0;
+        var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
+        if (gen === generation && place >= 0) pendingStart = place;
       })
       .catch(function () { /* from where this one stands */ })
       .then(function () { if (gen === generation) retry(); });

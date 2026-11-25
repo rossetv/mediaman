@@ -1497,6 +1497,24 @@ const scenarios = {
     return { message: messageState(p), notice: !gone(p.q('[data-lost]')), asked: p.calls.filter((c) => c.page).length };
   },
 
+  /* A quality picked under "Playing somewhere else", and another as its place is asked for; or
+     Play here, and a key then. */
+  async replaced_pick(p) {
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { ok: false, error: 'replaced' }));
+    await settle();
+    p.pages['/watch/play/1'] = p.pages['/elsewhere'];
+    p.held.answer = (body) => answer(body.quality);
+    const pick = (id) => click(p.q('[data-quality="' + id + '"]'));
+    const way = p.win.serverPlays;
+    if (way === 'pressed') { press(p.q('[data-retry]')); doc.activeElement = doc.body; key(' '); }
+    else pick(way === 'same' ? 'best' : 'medium');
+    if (way === 'twice') pick('low');
+    await settle();
+    return { starts: p.starts().slice(1), at: p.hlsList[p.hlsList.length - 1].config.startPosition, message: messageState(p) };
+  },
+
   /* The same title was started somewhere else: this one learns of it by a segment, the playlist or a save. */
   async replaced(p) {
     const way = p.win.serverPlays;
