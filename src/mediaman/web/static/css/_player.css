@@ -183,12 +183,13 @@
 }
 .player-band {
   min-width: 6px;
-  /* One grey between the track's and the buffered part's, whatever is under it. Cut off at
-     its ends, as chapters are: no one grey stands out from both on every frame. */
+  /* A step lighter than whatever of the bar is under it, and cut off as chapters are. */
   border: solid var(--bg);
   border-width: 0 2px;
-  background: color-mix(in srgb, var(--t1) 39%, var(--bg));
+  background: color-mix(in srgb, var(--t1) 25%, transparent) padding-box;
 }
+.player-band.is-first { border-left-width: 0; border-radius: var(--r-xxs) 0 0 var(--r-xxs); }
+.player-band.is-last { border-right-width: 0; border-radius: 0 var(--r-xxs) var(--r-xxs) 0; }
 .player-gap {
   z-index: 2;
   width: 2px;

@@ -124,6 +124,8 @@
   var PEEK_MS = 1000;
   /* Chapter gaps on the bar stay at least this many pixels apart. */
   var GAP_APART_PX = 8;
+  /* The cut at a band's end is this wide, as in the CSS. */
+  var BAND_CUT_PX = 2;
   /* The skip button stays this long; after that it comes and goes with the controls. */
   var SKIP_SHOWN_MS = 10000;
   var MARKER_NAMES = { intro: 'Intro', credits: 'Credits' };
@@ -1801,11 +1803,16 @@
     els.marks.textContent = '';
     var d = duration();
     if (!(d > 0)) return;
-    markers.forEach(function (m) { addMark('player-band', m.start_s, m.end_s); });
     var width = els.seek.getBoundingClientRect().width;
+    var px = function (s) { return (s / d) * width; };
+    markers.forEach(function (m) {
+      // Where the bar itself ends, a band is not cut off.
+      addMark('player-band' + (px(m.start_s) < BAND_CUT_PX ? ' is-first' : '') + (px(d - m.end_s) < BAND_CUT_PX ? ' is-last' : ''),
+        m.start_s, m.end_s);
+    });
     var last = 0;
     chapters.forEach(function (c) {
-      var x = (c.start_s / d) * width;
+      var x = px(c.start_s);
       if (x - last < GAP_APART_PX || width - x < GAP_APART_PX) return;
       last = x;
       addMark('player-gap', c.start_s);
