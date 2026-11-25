@@ -1059,7 +1059,7 @@ const scenarios = {
     await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: { ...MARA, photo_url: '/api/watch/img/tmdb/w342/p.jpg' }, items: [item(1, true), item(2, true)], total: 5, in_library: 3, next_page: 2 });
     const out = {
       title: p.doc.querySelector('.explore-title').textContent, facts: p.doc.querySelector('.explore-facts').textContent,
-      token: p.doc.querySelector('.watch-search__name').textContent, letters: p.doc.querySelector('.explore-photo').children[0].textContent, first: p.grids[0].titles, status: p.status.textContent,
+      token: p.doc.querySelector('.watch-search__name').textContent, letters: p.doc.querySelector('.explore-photo').children.map((n) => n.textContent || n.tagName), first: p.grids[0].titles, status: p.status.textContent,
       photo: p.doc.querySelector('.explore-photo img').src,
     };
     const more = p.grids[0].opts.fetchPage(2);

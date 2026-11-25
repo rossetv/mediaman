@@ -1949,7 +1949,7 @@ const scenarios = {
       p.ctx.MMWatch.detail.open(ref, {});
       await settle();
       const b = p.q('[data-ttl-act="play-on"]');
-      return { p, says: b && { label: b.getAttribute('aria-label'), hidden: b.hidden, afterPlay: p.q('[data-ttl-act="primary"]').nextElementSibling === b } };
+      return { p, says: b && { label: b.getAttribute('aria-label'), hidden: b.hidden, afterPlay: p.q('[data-ttl-act="primary"]').nextElementSibling === b }, wide: p.q('.ttl__actions').classList.contains('has-play-on') };
     };
     const film = { ...LIB_MOVIE, play: { label: 'Play', href: '/watch/play/120', progress_pct: null, minutes_left: null } };
     const shown = await open(film, { playOn: true });
@@ -1961,6 +1961,7 @@ const scenarios = {
     return {
       shown: shown.says,
       redrawn: shown.p.doc.activeElement === now,
+      wide: [shown.wide, shown.p.q('.ttl__actions').classList.contains('has-play-on'), (await open(film, {})).wide],
       noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
       notHeld: (await open(MOVIE_DL, { playOn: true })).says,
       without: (await open(film, {})).says,

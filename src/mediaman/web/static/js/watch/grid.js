@@ -62,7 +62,7 @@
     // A row has its own keys (watch-rows.js), the grid the Tab order.
     toArray(twin.querySelectorAll('[tabindex]')).forEach(function (n) { n.removeAttribute('tabindex'); });
     toArray(twin.querySelectorAll('.card-over, .card-flier, .card-lights, .card-barend, .watch-badge--unwatched')).forEach(function (n) { n.remove(); });
-    twin.classList.remove('is-lifted', 'is-quiet');
+    twin.classList.remove('is-lifted', 'is-quiet', 'has-focus', 'is-on-tools');
     toArray(twin.querySelectorAll('.card-tool')).slice(1).forEach(function (n) { n.tabIndex = -1; });
     toArray(twin.querySelectorAll('[aria-expanded]')).forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
     return twin;

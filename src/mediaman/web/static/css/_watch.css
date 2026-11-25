@@ -478,7 +478,8 @@
 }
 :is(.watch-badge--watched, .watch-badge--unwatched) > .ico { flex: none; font-size: 13px; }
 .watch-badge__word { overflow: hidden; text-overflow: ellipsis; }
-.watch-card__poster:has(> .watch-badge--leaving, > .watch-badge--state, > .watch-badge--new) > .watch-badge--watched { top: 36px; }
+/* Leaving is the first of them and Watched the last: watch/card-tools.js puts one that comes later in its place. */
+.watch-card__poster > :is(.watch-badge--leaving, .watch-badge--state, .watch-badge--new) ~ .watch-badge--watched { top: 36px; }
 /* A caption of two parts is one line. Where both do not fit, the lines are laid out from the foot up
    and the one that shows is the tail; the lead is clipped and still read out. So it is inside a tail of two. */
 .watch-card__sub:has(> .watch-card__lead),

@@ -864,7 +864,10 @@
     var main = el('div', 'ttl__main');
     var actions = el('div', 'ttl__actions');
     actions.appendChild(skel('skel--pill', '150px'));
-    if (held && window.MM.playOn) actions.appendChild(skel('skel--pill ttl__play-on'));
+    if (held && window.MM.playOn) {
+      actions.classList.add('has-play-on');
+      actions.appendChild(skel('skel--pill ttl__play-on'));
+    }
     var search = window.MMWatch.search;
     if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px')).style.minWidth = '181px'; // as its words are on a phone
     actions.appendChild(skel('skel--pill', '158px')); // Trailer
@@ -1378,11 +1381,13 @@
 
   function fillActions(actions, under) {
     var d = cur.data;
+    actions.classList.remove('has-play-on');
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
       if (window.MM.playOn) {
         var tv = actions.appendChild(window.MM.playOn.button(d.play.href, 'btn btn--lg watch-btn--grey ttl__play-on'));
         tv.setAttribute('data-ttl-act', 'play-on');
+        actions.classList.add('has-play-on');
       }
       if (d.play.progress_pct) {
         var progress = el('div', 'ttl__progress');

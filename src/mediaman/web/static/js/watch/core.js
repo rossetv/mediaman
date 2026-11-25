@@ -321,6 +321,8 @@
     b.setAttribute('aria-label', label);
     if (tools.children.length) b.setAttribute('tabindex', '-1');
     if (iconName) b.appendChild(window.MM.dom.icon(iconName));
+    card.classList.add('has-tools');
+    card.classList.toggle('has-three-tools', tools.children.length > 2);
     tools.appendChild(b);
     return b;
   }

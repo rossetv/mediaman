@@ -451,7 +451,8 @@ def test_a_category_of_films_alone_offers_no_kind_to_choose() -> None:
 def test_a_persons_page_lists_what_the_library_holds_first_under_its_own_heading() -> None:
     out = _run("person")
     assert (out["title"], out["token"]) == ("Mara Ellison", "Mara Ellison")
-    assert out["letters"] == "ME"  # under the photo, for when it does not load
+    # Under the photo, for when it does not load: after it, which is how its style hides them.
+    assert out["letters"] == ["IMG", "ME"]
     assert out["facts"] == "Actor · 3 in your library, 2 more"
     assert out["status"] == "Mara Ellison, 5 titles"
     assert out["photo"] == "/api/watch/img/tmdb/w342/p.jpg"

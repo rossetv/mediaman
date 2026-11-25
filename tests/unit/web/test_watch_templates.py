@@ -290,6 +290,31 @@ def test_only_what_leaves_by_tomorrow_stands_out(days: int, now: bool) -> None:
     assert ("watch-badge--leaving-now" in html) is now
 
 
+@pytest.mark.parametrize(
+    ("over", "classes"),
+    [
+        ({}, "watch-card"),
+        ({"tmdb_ref": "tmdb-movie-7"}, "watch-card has-tools"),
+        ({"admin": {"key": 1}}, "watch-card has-tools"),
+        (
+            {
+                "tmdb_ref": "tmdb-movie-7",
+                "mark_kind": "episode",
+                "mark_key": 9,
+                "dismiss_ref": "show-2",
+            },
+            "watch-card has-tools has-three-tools",
+        ),
+    ],
+)
+def test_a_card_says_by_its_class_how_many_buttons_stand_under_it(over: dict, classes: str) -> None:
+    html = _watch(rows=[{"title": "Rows", "items": [_card(**over)]}])
+    card = re.search(r'<article class="([^"]*)"', html)
+    assert card and card[1] == classes
+    shown = html.count('class="card-tool card-tool--')
+    assert ("has-tools" in classes) == (shown > 0) and ("has-three-tools" in classes) == (shown > 2)
+
+
 def test_keep_button_only_for_cards_with_a_keep_id() -> None:
     plain = _watch(rows=[{"title": "Movies", "items": [_card()]}])
     scheduled = _watch(

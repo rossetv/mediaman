@@ -168,10 +168,58 @@ CARDS = SHEET.with_name("_watch_cards.css")
 
 
 def test_a_caption_ends_before_the_thumb_of_any_card_that_has_one() -> None:
-    css = CARDS.read_text(encoding="utf-8")
-    pad = re.search(r":has\(> \.card-tools\) \.watch-card__sub \{ padding-right: (\d+)px", css)
+    rules = _of(".watch-card.has-tools .watch-card__sub", sheet=CARDS)
+    pad = re.search(r"padding-right: (\d+)px", rules)
     # The widest thumb is 21px, in the middle of 30 that end 5px past the card.
     assert pad and int(pad.group(1)) >= (30 + 21) / 2 - 5
+
+
+def _compounds(css: str) -> list[str]:
+    """The compound selectors of *css*, each with what is in its own parentheses."""
+    heads = re.findall(r"([^{};]+)\{", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
+    found, depth, one = [], 0, ""
+    for char in ",".join(h for h in heads if not h.strip().startswith("@")):
+        depth += (char == "(") - (char == ")")
+        if depth or char not in " \n>~+,":
+            one += char
+        elif one:
+            found.append(one)
+            one = ""
+    return [*found, one]
+
+
+CARD = r"\.(?:watch-card|card-tools?|watch-card__(?:poster|link))(?![\w-])"
+
+
+def _asks_a_card(compound: str) -> bool:
+    outside = compound
+    while "(" in outside:
+        outside = re.sub(r"\([^()]*\)", "", outside)
+    return ":has(" in compound and bool(re.search(CARD, outside))
+
+
+def test_no_rule_asks_by_has_what_a_card_holds() -> None:
+    # A browser asks it of every card of the page for each one added, marked or pointed at.
+    css = "".join(sheet.read_text(encoding="utf-8") for sheet in SHEET.parent.glob("*.css"))
+    found = {one.removesuffix("::after") for one in _compounds(css) if _asks_a_card(one)}
+    # These two cost next to nothing: a poster's own child, of which there is one at most.
+    assert found <= {
+        ".watch-card__poster:has(> .watch-bar)",
+        ".watch-card__poster:has(> .card-barend)",
+    }
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ".watch-card:has(> .card-tools) .watch-card__sub",
+        ".watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool",
+        ".card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool",
+        ".watch-card.has-tools:not(:has(.is-previewed)) .watch-card__sub",
+    ],
+)
+def test_a_rule_that_does_would_be_found(selector: str) -> None:
+    assert any(_asks_a_card(one) for one in _compounds(selector + " {}"))
 
 
 def test_what_is_being_done_of_a_title_stays_on_one_line_beside_its_thumb() -> None:
@@ -377,9 +425,7 @@ def test_a_person_s_photo_stays_in_the_strip_while_their_card_is_open() -> None:
 
 def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
     browse = SHEET.with_name("_watch_browse.css")
-    under = (
-        ".watch-card__poster:has(> .watch-badge--leaving) > .watch-badge:not(.watch-badge--leaving)"
-    )
+    under = ".watch-card__poster > .watch-badge--leaving ~ .watch-badge:not(.watch-badge--leaving)"
     for media in (None, "(max-width: 599.98px)"):
         left = re.findall(r"left: \d+px", _of(".watch-badge--leaving", media))
         assert left and re.findall(r"left: \d+px", _of(under, media, browse)) == left
@@ -388,11 +434,11 @@ def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
 
 def test_a_watched_badge_stands_under_any_other_in_its_corner() -> None:
     under = re.search(
-        r"\.watch-card__poster:has\(([^)]*)\) > \.watch-badge--watched \{ top: 36px; \}",
+        r"\.watch-card__poster > :is\(([^)]*)\) ~ \.watch-badge--watched \{ top: 36px; \}",
         SHEET.read_text(encoding="utf-8"),
     )
     assert under
-    assert {"> .watch-badge--leaving", "> .watch-badge--state", "> .watch-badge--new"} == set(
+    assert {".watch-badge--leaving", ".watch-badge--state", ".watch-badge--new"} == set(
         under[1].split(", ")
     )
 

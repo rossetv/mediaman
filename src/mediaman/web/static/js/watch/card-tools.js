@@ -98,6 +98,17 @@
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
   }
 
+  /* Of a poster's badges Leaving is the first and Watched the last, which is how CSS tells what
+     stands under what: one that has come out of its place is put there. */
+  function order(badge) {
+    var poster = badge.closest('.watch-card__poster');
+    var first = badge.matches('.watch-badge--leaving');
+    if (!poster || !(first || badge.matches('.watch-badge--state, .watch-badge--new'))) return;
+    var after = toArray(poster.querySelectorAll(first ? '.watch-badge' : '.watch-badge--watched')).filter(function (b) { return b !== badge; })[0];
+    var all = toArray(poster.children);
+    if (after && all.indexOf(after) < all.indexOf(badge)) poster.insertBefore(badge, after);
+  }
+
   function adoptAll(root) {
     if (root.matches && root.matches('.watch-card')) adopt(root);
     toArray(root.querySelectorAll('.watch-card')).forEach(adopt);
@@ -141,10 +152,42 @@
 
   new MutationObserver(function (changes) {
     changes.forEach(function (c) {
-      toArray(c.addedNodes).forEach(function (n) { if (n.nodeType === 1 && n.isConnected) adoptAll(n); });
+      toArray(c.addedNodes).forEach(function (n) { if (n.nodeType === 1 && n.isConnected) { order(n); adoptAll(n); } });
     });
     if (open && !open.card.isConnected) drop(open);
   }).observe(document.body, { childList: true, subtree: true });
+
+  /* ── What a card's CSS asks of it ──
+     :has() could say it, and would be asked of every card at every change of the page. */
+
+  var says = {}; // by its class: the card that has it
+
+  function say(name, card) {
+    if (says[name] === card) return;
+    if (says[name]) says[name].classList.remove(name);
+    if (card) card.classList.add(name);
+    says[name] = card;
+  }
+
+  function cardAround(node, selector) {
+    var at = node && node.closest && node.closest(selector || '.watch-card');
+    return at ? at.closest('.watch-card') : null;
+  }
+
+  /* The keyboard's focus is in it. */
+  function sayFocus() {
+    var active = document.activeElement;
+    say('has-focus', active && active.matches(':focus-visible') ? cardAround(active) : null);
+  }
+
+  document.addEventListener('focusin', sayFocus);
+  document.addEventListener('focusout', function (e) { if (cardAround(e.relatedTarget) !== says['has-focus']) say('has-focus', null); });
+  // A key pressed makes the keyboard's a focus the mouse gave.
+  document.addEventListener('keyup', sayFocus);
+
+  /* Its buttons are under the mouse. */
+  document.addEventListener('pointerover', function (e) { say('is-on-tools', cardAround(e.target, '.card-tools')); });
+  document.addEventListener('pointerout', function (e) { if (!e.relatedTarget) say('is-on-tools', null); });
 
   /* ── The levels, over the poster ── */
 

@@ -8,7 +8,9 @@
 }
 
 .watch-card { position: relative; }
-.watch-card:has(> .card-tools) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
+/* What a card is, or is doing, it says by a class, never by a :has() of its own: one costs every
+   card of the page each time one is added, marked or pointed at. */
+.watch-card.has-tools .watch-card__sub { padding-right: 26px; min-height: 1lh; }
 
 /* What an outlined thumb is filled with: the surface it stands on. */
 .ttl { --card-rest: var(--s1); }
@@ -48,9 +50,10 @@
   -webkit-tap-highlight-color: transparent;
   transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
 }
-/* On a touch screen the thumb alone; the rest are in the panel it opens, if there is a thumb. */
+/* On a touch screen the thumb alone, which comes first; the rest are in the panel it opens, if there is a thumb. */
 .card-tool--thumb,
-.card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool { display: grid; }
+.card-tools > .card-tool:first-child:not(.card-tool--thumb),
+.card-tools > .card-tool:first-child:is([hidden], :not(.card-tool--thumb)) ~ .card-tool { display: grid; }
 .card-tool[hidden] { display: none; }
 .card-tool--thumb { touch-action: pan-x; }
 .card-tool::before {
@@ -69,7 +72,8 @@
 }
 /* 44px to press. */
 .card-tool::after { content: ""; position: absolute; inset: -8px -6px -8px -10px; }
-.card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset-inline: -7px; }
+.card-tools > .card-tool:first-child:not(.card-tool--thumb)::after,
+.card-tools > .card-tool:first-child:is([hidden], :not(.card-tool--thumb)) ~ .card-tool::after { inset-inline: -7px; }
 .card-tool > .rate-th { --th-bg: var(--card-rest, var(--bg)); width: 18px; height: 17px; }
 .card-tool > .rate-th--2 { width: 21px; height: 16px; }
 .card-tool > .ico { width: 16.25px; height: 13px; }
@@ -91,19 +95,20 @@
 html.is-grid-moving .card-tool { pointer-events: none; }
 
 /* Its preview grows out of it, or it is a copy on the move. */
-.watch-card:has(.is-previewed) .card-tool { opacity: 0; pointer-events: none; transition-duration: calc(var(--dur-fast) * .5); }
+.is-previewed ~ .card-tools > .card-tool { opacity: 0; pointer-events: none; transition-duration: calc(var(--dur-fast) * .5); }
 
 @media (hover: hover) and (pointer: fine) {
   .card-tool { display: grid; color: var(--t2); opacity: 0; transform: translateY(5px); }
   .card-tool::after,
-  .card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset: -8px 0; }
+  .card-tools > .card-tool:first-child:not(.card-tool--thumb)::after,
+  .card-tools > .card-tool:first-child:is([hidden], :not(.card-tool--thumb)) ~ .card-tool::after { inset: -8px 0; }
   .card-tool--thumb { touch-action: manipulation; }
   /* At rest, a rating that was given. */
   .card-tool--thumb:is(.is-up, .is-down) { opacity: 1; transform: none; }
-  .watch-card:is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .card-tool { opacity: 1; transform: none; }
+  .watch-card:is(:hover, .has-focus, .is-lifted) > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool { opacity: 1; transform: none; }
   html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
-  .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool::before { opacity: 1; transform: none; }
-  .watch-card:is(:hover, :has(:focus-visible), .is-lifted) .card-tool > .rate-th { --th-bg: var(--s3); }
+  .watch-card:is(:hover, .has-focus, .is-lifted) .card-tool::before { opacity: 1; transform: none; }
+  .watch-card:is(:hover, .has-focus, .is-lifted) .card-tool > .rate-th { --th-bg: var(--s3); }
   .watch-card:hover .card-tool--eye { transition-delay: 30ms; }
   .watch-card:hover .card-tool:is(.card-tool--more, .card-tool--x) { transition-delay: 60ms; }
   .watch-card .card-tool:hover { color: var(--t1); transition-delay: 0s; }
@@ -116,16 +121,16 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-tool[aria-busy="true"]:hover > .ico { transform: scaleY(.06); }
   .card-tool:active > :is(.ico, .rate-th) { transform: scale(.8); }
   /* The caption goes under them, and does not move. */
-  .watch-card:has(> .card-tools):is(:hover, :has(:focus-visible), .is-lifted):not(:has(.is-previewed)) .watch-card__sub {
+  .watch-card.has-tools:is(:hover, .has-focus, .is-lifted) > .watch-card__link:not(.is-previewed) .watch-card__sub {
     --tools-w: 56px;
     -webkit-mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));
     mask-image: linear-gradient(to left, transparent var(--tools-w), #000 calc(var(--tools-w) + 18px));
   }
-  .watch-card:has(> .card-tools > :nth-child(3)) .watch-card__sub { --tools-w: 86px !important; }
+  .watch-card.has-three-tools .watch-card__sub { --tools-w: 86px !important; }
   /* Off the picture and on its buttons, the card is still the one under the mouse. */
-  .watch-card:is(.is-lifted, :has(> .card-tools:hover)) .watch-card__link[href] > .watch-card__poster,
+  .watch-card:is(.is-lifted, .is-on-tools) .watch-card__link[href] > .watch-card__poster,
   .watch-card.is-lifted > .card-over { transform: scale(1.03); }
-  .watch-card:is(.is-lifted, :has(> .card-tools:hover)) .watch-card__link[href] > .watch-card__poster { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); }
+  .watch-card:is(.is-lifted, .is-on-tools) .watch-card__link[href] > .watch-card__poster { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); }
 }
 
 /* ── Over the poster ── */
@@ -305,7 +310,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-barend { display: none; }
   .watch-card.is-lifted > .card-over,
   .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
-  .watch-card:has(> .card-tools:hover) .watch-card__link[href] > .watch-card__poster,
+  .watch-card.is-on-tools .watch-card__link[href] > .watch-card__poster,
   .card-tool > :is(.ico, .rate-th) { transform: none !important; }
 }
 @keyframes lift-grow { from { opacity: 0; transform: translateY(16px) scale(.5); } }
