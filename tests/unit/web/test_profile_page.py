@@ -213,30 +213,64 @@ def test_the_ai_part_is_there_for_everyone_and_hidden_until_the_ai_is_known_to_b
     assert {"account-history-lbl", "account-clear-searches"} <= _parse(html).ids
 
 
-@pytest.mark.parametrize("page", ["profile", "settings"])
-def test_all_that_openai_is_sent_is_said_beside_its_switch(
+# Each fact: the part of the fold it belongs to, and words that must all be in one line of it.
+_SENT = [
+    ("always", "played"),
+    ("always", "recent picks"),
+    ("always", "suggested before", "year", "description", "reason", "choose from"),
+    ("always", "stars in Plex", "own"),
+    ("always", "in search", "question", "title and year", "more like"),
+    ("always", "narrow", "choice", "titles it already gave"),
+    ("history", "picks", "searches", "ratings", "requests", "plays went"),
+    ("history", "questions", "daily phrases", "searches", "plays", "liked", "disliked"),
+    ("never", "account name"),
+    ("never", "marked as watched", "not"),
+]
+
+
+def _ai_text(
     app_factory, authed_client, conn, settings_html, page
-):
+) -> tuple[str, dict[str, list[str]]]:
+    """The words always in view beside the switch, and the fold's lines by its parts."""
     html = settings_html
     if page == "profile":
         app = app_factory(account_router, conn=conn, state_extras={"templates": _TEMPLATES})
         html = authed_client(app, conn, username="second").get("/account").text
-    start = 'id="account-history-sub">' if page == "profile" else ">AI recommendations</div>"
-    said = html.split(start)[1].split("</div>")[0]
+    fold = "account-history-more" if page == "profile" else "setg-ai-more"
+    short = re.search(r'id="(?:account-history|setg-ai)-sub">(.*?)</p>', html, re.S).group(1)
+    body = html.split(f'id="{fold}"')[1].split("</details>")[0]
+    parts = body.split('class="fold-more-head">')[1:]
+    assert [p.split("</p>")[0].split()[0] for p in parts] == ["Always:", "Only", "Never:"]
+    lines = {
+        name: re.findall(r"<li>(.*?)</li>", part, re.S)
+        for name, part in zip(("always", "history", "never"), parts, strict=True)
+    }
+    return short, lines
 
-    for part in (
-        "account name",
-        "recent picks",
-        "Plex stars",
-        "suggestions to choose from",
-        "question",
-        "more like",
-        "narrow",
-        "searches, ratings, requests",
-        "searches, plays and ratings",
-        "daily phrases to try",
-    ):
-        assert part in said, part
+
+@pytest.mark.parametrize("page", ["profile", "settings"])
+def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
+    app_factory, authed_client, conn, settings_html, page
+):
+    short, lines = _ai_text(app_factory, authed_client, conn, settings_html, page)
+
+    for part, *words in _SENT:
+        assert any(all(w in line for w in words) for line in lines[part]), (part, words)
+    # what only history sends is never said to go always
+    assert not any(w in line for line in lines["always"] for w in ("searches", "ratings", "liked"))
+    said = " ".join([short, *(line for part in lines.values() for line in part)])
+    assert said.count("Plex’s own apps") == 1
+
+
+def test_the_settings_switch_says_what_turning_it_off_stops_and_what_it_does_not(
+    app_factory, authed_client, conn, settings_html
+):
+    short, _ = _ai_text(app_factory, authed_client, conn, settings_html, "settings")
+
+    assert "stops both kinds of picks" in short
+    assert "still ask in search" in short
+    switch = re.search(r'<span[^>]*aria-label="AI recommendations"[^>]*>', settings_html).group(0)
+    assert 'aria-describedby="setg-ai-sub"' in switch
 
 
 @pytest.mark.parametrize(("role", "lists"), [("admin", 2), ("viewer", 1)])
