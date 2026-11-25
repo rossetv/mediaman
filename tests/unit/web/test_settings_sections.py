@@ -309,3 +309,11 @@ def test_a_save_without_the_removed_fields_keeps_what_is_stored(client, conn) ->
     stored = client.get("/api/settings").json()
     assert stored["plex_public_url"] == "http://plex.example.com"
     assert stored["nzbget_public_url"] == "http://n.example.com"
+
+
+def test_plex_url_is_as_wide_as_the_token_under_it_but_nzbget_url_spans_its_card(client) -> None:
+    context = client.get("/settings").json()
+    env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
+    html = env.get_template("settings/_sec_integrations.html").render(**context)
+    assert re.search(r'<input class="inp inp--lg" id="plex_url"', html)
+    assert re.search(r'<input class="inp" id="nzbget_url"', html)

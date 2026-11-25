@@ -273,6 +273,7 @@
      placeholder: input placeholder (text/secret only; optional)
      sub:       helper text under the input — supports inline HTML (optional)
      optional:  True to render the "optional" badge in the label (default False)
+     narrow:    True to cap a text input at the width of a secret field (default False)
      options:   list of {"value", "label"} dicts (select only; required for select)
      default:   fallback value when settings dict has no entry (select only)
    A row with a single field is rendered .fld-row--full; two-field rows lay
@@ -296,7 +297,7 @@
       {% elif f.kind == "select" %}
         {{ inp_select(f.id, f.options, selected=(settings.get(f.id) if settings else "") or f.default|default(""), aria_label=name) }}
       {% else %}
-        <input class="inp" id="{{ f.id }}" type="text"
+        <input class="inp{% if f.narrow %} inp--lg{% endif %}" id="{{ f.id }}" type="text"
                value="{{ settings.get(f.id, '') if settings else '' }}"
                placeholder="{{ f.placeholder|default('') }}" aria-label="{{ name }}">
       {% endif %}
