@@ -96,6 +96,27 @@ def test_reduced_motion_leaves_the_thumbs_only_colour_and_fill() -> None:
     assert len(moving) > len(still)
 
 
+def test_the_highlight_slides_off_in_the_colour_of_the_thumb_it_leaves() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    places = [".is-down.is-double", ".is-down", ".is-up", ".is-up.is-double"]
+    for place, head in enumerate(places):
+        assert re.search(
+            rf"\.rate__b{re.escape(head)} \{{[^}}]*--wash: var\(--wash-{place}\);", css
+        )
+        assert (
+            f'.rate[data-from="{place}"] {{ --from: {place}; --from-wash: var(--wash-{place}); }}'
+            in css
+        )
+    assert re.search(r"@keyframes rate-slide \{ from \{ background-color: var\(--from-wash\);", css)
+
+
+def test_the_thumbs_under_a_title_take_a_phone_s_whole_width() -> None:
+    plain = {h: b for m, h, b in _rules() if "599.98" in m and "--plain" in h}
+    assert "width: 100%" in plain[".rate--plain"]
+    assert "repeat(4, 1fr)" in plain[".rate--plain .rate__set"]
+    assert "width: auto" in plain[".rate--plain .rate__b"]
+
+
 def test_a_rating_that_was_not_saved_goes_back_everywhere_and_says_so() -> None:
     out = _run("fails")
     assert [s["on"] for s in out["pending"]] == [[3], [3]]
