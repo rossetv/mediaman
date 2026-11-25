@@ -314,6 +314,15 @@ def test_the_words_of_a_tvs_page_step_aside_for_a_card() -> None:
     assert "top: var(--away-under)" in under and "bottom: auto" in under
 
 
+def test_nothing_turns_behind_a_card_on_a_tvs_page() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    still = next(
+        s for s in rules if "player-message:not([hidden]" in s and s.endswith(".player-away-ring")
+    )
+    assert ".player.is-away:has(" in still and "display: none" in rules[still]
+
+
 def test_the_skip_button_of_a_tvs_remote_stands_on_the_bar_of_a_wide_screen() -> None:
     css = _text("_player.css")
     wide = css[css.index("@media (min-width: 900px) {") :]

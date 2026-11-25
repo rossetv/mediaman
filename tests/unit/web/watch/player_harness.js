@@ -5518,7 +5518,12 @@ const scenarios = {
     const was = sheet();
     const out = {};
     was.showPopover = () => { out.sinks = { open: !!was.open, inert: was.inert, kind: was.popover }; };
+    was.scrollTop = 120;
+    fire(was, 'scroll');
+    const close = was.close;
+    was.close = () => { close.call(was); was.scrollTop = 0; fire(was, 'scroll'); };
     key('Escape');
+    out.top = was.scrollTop;
     const button = p.q('.player-controls').querySelector('[data-play-on]');
     out.focus = doc.activeElement === button;
     await openSheet(p);
@@ -5549,6 +5554,7 @@ const scenarios = {
     if (how === 'space') { doc.activeElement.blur(); key(' '); } else fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 1 });
     if (how === 'twice') fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 2 });
     out.card = card() || !gone(p.q('[data-rate]'));
+    out.bar = [p.q('[data-elapsed]').textContent, p.q('[data-played]').style.width];
     out.starting = awayState(p).says;
     if (how === 'stop') click(p.q('[data-stop-away]'));
     await settle();
@@ -5615,6 +5621,7 @@ const scenarios = {
     await settle();
     out.says = awayState(p).says;
     out.hint = awayState(p).hint;
+    out.begun = p.root.classList.contains('is-begun');
     out.message = !gone(p.q('[data-message]'));
     if (how === 'plays') {
       mediaPlays(media, 12);

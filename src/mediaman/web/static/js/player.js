@@ -1723,6 +1723,7 @@
     wantPlaying = true;
     restartStream(false, 0);
     startAnew(end);
+    render();
   }
 
   /* What ended at `end` is watched, and stays so until it plays again. */

@@ -936,7 +936,8 @@
 .player.is-away .player-away-end { order: 2; margin-left: auto; }
 .player:not(.is-begun) .player-away-art::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--scrim) 55%, transparent); }
 .player-away-ring { position: absolute; z-index: 1; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px; border-width: 3px; }
-.player.is-begun .player-away-ring { display: none; }
+.player.is-begun .player-away-ring,
+.player.is-away:has(.player-message:not([hidden], .is-leaving)) .player-away-ring { display: none; }
 .player-away-on { font-size: 15px; font-weight: 500; color: var(--accent-hi); text-wrap: balance; overflow-wrap: anywhere; }
 .player-away-on .ico { width: 20px; height: 20px; margin-right: 8px; vertical-align: -.3em; }
 .player-away-hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }

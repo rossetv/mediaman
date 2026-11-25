@@ -2486,6 +2486,8 @@ def test_the_sheet_sinks_away_out_of_reach_and_can_be_opened_meanwhile(markup):
     out = elsewhere(markup, "away_sheet_sinks")
     assert out["sinks"] == {"open": False, "inert": True, "kind": "manual"}
     assert (out["focus"], out["again"], out["left"]) == (True, True, 1)
+    # Where it was scrolled to.
+    assert out["top"] == 120
 
 
 @pytest.mark.parametrize("how", ["counts", "cancelled", "space", "twice", "film"])
@@ -2497,6 +2499,7 @@ def test_play_again_starts_it_anew_on_the_same_chromecast(markup, last_episode, 
         "Play again",
     )
     assert (out["card"], out["starting"]) == (False, "Starting on Den")
+    assert out["bar"] == ["0:00", "0%"]
     assert out["loads"] == [["c2", 0, False]]
     # The stream that ended is let go, and nothing comes here.
     assert out["stopped"] == ["/api/watch/stream/c1/stop"]
@@ -2543,7 +2546,7 @@ def test_what_plays_again_has_its_place_saved_once_it_plays(markup):
 def test_a_start_that_failed_is_not_said_to_be_under_way(markup, how, says):
     out = elsewhere(markup, "away_anew", how)
     assert (out["says"], "Starting" in out["hint"]) == (says, False)
-    assert out["message"]
+    assert (out["message"], out["begun"]) == (True, True)
 
 
 def test_a_page_opened_while_a_tv_plays_its_title_leaves_it_there(markup):

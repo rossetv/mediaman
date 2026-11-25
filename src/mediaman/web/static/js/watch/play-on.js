@@ -923,7 +923,7 @@
     ways.forEach(function (w) {
       try { if (w.look) w.look(); } catch (e) { /* it is not there */ }
     });
-    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [], over: false, waits: false };
+    sheet = { node: node, btn: btn, host: host, pairing: null, rows: {}, order: [], over: false, waits: false, top: 0 };
     say = null;
     limit = false;
     document.body.appendChild(node);
@@ -953,6 +953,8 @@
       }
     });
     node.addEventListener('close', closed);
+    /* Closed, it forgets. */
+    node.addEventListener('scroll', function () { if (sheet && sheet.node === node && node.open) sheet.top = node.scrollTop; });
     global.addEventListener('resize', place);
     look();
     setTimeout(function () {
@@ -993,7 +995,7 @@
     clearInterval(poll);
     global.removeEventListener('resize', place);
     was.btn.setAttribute('aria-expanded', 'false');
-    sink(was.node);
+    sink(was.node, was.top);
     /* Safari focuses no button that is clicked, and playing elsewhere has another one. */
     var back = [was.btn].concat(MM.dom.qa('[data-play-on]')).filter(function (b) { return b.getClientRects().length; })[0];
     if (back) back.focus({ preventScroll: true });
@@ -1001,9 +1003,8 @@
   }
 
   /* A dialog leaves the top of the page at once: what sinks away stays there, out of reach. */
-  function sink(node) {
+  function sink(node, top) {
     if (!node.showPopover) return;
-    var top = node.scrollTop;
     node.inert = true;
     node.popover = 'manual';
     node.showPopover();
