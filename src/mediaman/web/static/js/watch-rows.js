@@ -65,6 +65,7 @@
   var settleTimers = new WeakMap();
   var HAS_SCROLLEND = 'onscrollend' in window;
   var SETTLE_MS = 300; // without scrollend: quiet this long means the scroll ended
+  var LEFT_MS = 100; // a card has gone: Safari snaps the row again a moment later
   var CHECK_MS = 700; // past a smooth scroll of JUMP_PX
   var CLEAR = 8; // px between what has the focus and the bars over the page
   var JUMP_PX = 500; // Chrome's smooth scroll takes about half a second at this distance
@@ -147,12 +148,7 @@
 
   function refresh(viewport, scroller) {
     var max = scroller.scrollWidth - scroller.clientWidth;
-    // A first card on its way out is not one to go back to.
-    var first = scroller.querySelector('.watch-card:not(.is-kept)');
-    var leads = scroller.children[0];
-    var start = first && leads && leads.classList.contains('is-kept')
-      ? first.offsetLeft - parseFloat(getComputedStyle(scroller).paddingLeft) : 0;
-    viewport.classList.toggle('has-prev', scroller.scrollLeft > start + EDGE_SLACK);
+    viewport.classList.toggle('has-prev', scroller.scrollLeft > EDGE_SLACK);
     // data-row-more: more cards will load past the last one.
     viewport.classList.toggle('has-next', scroller.scrollLeft < max - EDGE_SLACK || viewport.hasAttribute('data-row-more'));
   }
@@ -361,12 +357,14 @@
     });
 
     var queued = false;
+    var left = null; // the wait for the row to rest once a card has gone from it
     function schedule() {
       if (queued) return;
       queued = true;
       window.requestAnimationFrame(function () {
         queued = false;
-        refresh(viewport, scroller);
+        // While a card's slot closes the row is scrolled about, and the arrows hold.
+        if (!left && !scroller.querySelector('.is-kept')) refresh(viewport, scroller);
       });
     }
 
@@ -379,7 +377,16 @@
     if ('ResizeObserver' in window) new ResizeObserver(schedule).observe(scroller);
     else window.addEventListener('resize', schedule);
     // Keep takes cards out of a row, the loader adds them.
-    new MutationObserver(schedule).observe(scroller, { childList: true });
+    new MutationObserver(function (changes) {
+      var gone = changes.some(function (change) {
+        return Array.prototype.some.call(change.removedNodes, function (n) { return n.classList && n.classList.contains('is-kept'); });
+      });
+      if (gone) {
+        clearTimeout(left);
+        left = setTimeout(function () { left = null; schedule(); }, LEFT_MS);
+      }
+      schedule();
+    }).observe(scroller, { childList: true });
     new MutationObserver(schedule).observe(viewport, { attributes: true, attributeFilter: ['data-row-more'] });
     refresh(viewport, scroller);
   }
