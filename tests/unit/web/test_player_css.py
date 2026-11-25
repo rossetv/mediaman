@@ -306,6 +306,11 @@ def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
     assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
 
 
+def test_chapters_go_with_the_other_controls_at_the_end_on_a_tv() -> None:
+    body = _rule(_text("_player.css"), ".player.is-ended .player-chapters")
+    assert "transition: none" in body
+
+
 def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
     css = _text("_player.css")
     assert not re.search(r"\.is-away \.player-chapters \{[^}]*opacity: 1", css)

@@ -980,6 +980,7 @@
   .player.is-away:not(.has-no-volume) .player-volume-slider { display: block; flex: 1; max-width: 380px; }
   .player.is-away .player-chapter-name { display: none; }
   .player.is-away .player-chapters .player-pill::after { content: 'Chapters'; }
+  .player.is-ended .player-chapters { transition: none; }
   .player.is-away .player-away-end .player-pill { flex: 1; height: 52px; }
   /* Menus open over the rows above theirs, within the screen. */
   .player.is-away .player-opt,
