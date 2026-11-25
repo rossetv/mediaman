@@ -520,6 +520,65 @@ def test_a_user_cannot_hold_more_than_the_per_user_limit(manager, plex):
     _start(manager, user="bob", rating_key="99")
 
 
+def _session_of(plex, n: int) -> str:
+    return plex.calls_to("start.m3u8")[n]["params"]["session"]
+
+
+def test_at_the_limit_a_new_start_ends_the_person_s_stream_silent_longest(manager, plex, clock):
+    ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS + 1
+    for kept in ids[1:]:
+        manager.get(kept, "alice")
+    clock.now += 5
+
+    new = _start(manager, rating_key="99")
+
+    assert manager.get(new, "alice")
+    with pytest.raises(StreamGone):
+        manager.get(ids[0], "alice")
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [_session_of(plex, 0)]
+    for kept in ids[1:]:
+        assert manager.get(kept, "alice")
+
+
+def test_at_the_limit_streams_still_in_use_are_never_ended(manager, plex, clock):
+    ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
+    clock.now += plex_stream.REPLACEABLE_AFTER_SECONDS - 1
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="99")
+
+    assert plex.calls_to("stop") == []
+    for kept in ids:
+        assert manager.get(kept, "alice")
+
+
+def test_a_person_s_start_never_ends_another_person_s_silent_stream(manager, plex, clock):
+    for n in range(MAX_STREAMS_TOTAL):
+        _start(manager, user=f"user{n}")
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS - 1
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, user="one-more")
+
+    assert plex.calls_to("stop") == []
+
+
+def test_a_tv_s_paused_stream_is_not_ended_for_a_new_start(manager, plex, clock):
+    tv = _start(manager, rating_key="1", tv=plex_stream.TvTracks())
+    manager.playlist(tv, "alice")
+    others = [_start(manager, rating_key=str(k + 2)) for k in range(MAX_STREAMS_PER_USER - 1)]
+    # A paused TV reads nothing, and the phone that is its remote may be asleep.
+    clock.now += 20 * 60
+    for kept in others:
+        manager.get(kept, "alice")
+
+    with pytest.raises(TooManyStreams):
+        _start(manager, rating_key="99")
+
+    assert manager.get(tv, "alice")
+
+
 def test_the_limit_frees_up_when_a_stream_is_stopped(manager):
     ids = [_start(manager, rating_key=str(k + 1)) for k in range(MAX_STREAMS_PER_USER)]
 
