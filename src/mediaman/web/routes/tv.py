@@ -218,8 +218,8 @@ def _refused(request: Request) -> Response:
 
 def _carry_out(players: Players) -> None:
     """Save the places and end the streams that what plays on the TVs has left."""
-    manager = get_stream_manager()
     for left in players.drain():
+        manager = get_stream_manager()
         try:
             _save_place(manager, left)
         except sqlite3.Error:
