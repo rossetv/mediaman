@@ -1087,6 +1087,17 @@ def test_the_count_is_handed_on_to_a_page_opened_by_itself_alone(markup):
     assert (out["byItself"], out["byHand"]) == ([1, True], False)
 
 
+@pytest.mark.parametrize(("goes_on", "asked"), [(True, 30), (False, 0)])
+def test_only_a_page_opened_by_itself_was_asked_when_the_last_one_was(markup, goes_on, asked):
+    held = {"count": 1, "lastActivity": 0, "goes_on": goes_on, "pressed": -30000}
+    saved = {"mediaman.watch.sitting": json.dumps(held)}
+    assert run(markup, "asked_at_first", saved=saved) == asked
+
+
+def test_a_page_opened_by_itself_is_told_when_the_last_one_was_asked(markup):
+    assert run(markup, "ask_handed_on")["pressed"] == 0
+
+
 def test_leaving_full_screen_cancels_the_countdown(markup, season):
     out = run(markup, "countdown_fullscreen", pages=season)
     assert out["entered"] == {"counts": True, "leaving": False}
@@ -1477,6 +1488,49 @@ def test_what_the_page_starts_by_itself_says_when_it_was_asked_and_stops_where_r
     assert (out["pages"], out["asked"]) == ([True] * len(asked), asked)
     # Nothing more by itself; the person's press is asked for now, and plays here.
     assert (out["byItself"], out["here"]) == (0, {"asked": 0, "at": 105, "message": None})
+
+
+@pytest.mark.parametrize(
+    ("act", "ago"),
+    [
+        ("quality", 0),
+        ("try again after a drop", 0),
+        ("play here", 0),
+        # Asked as it was pressed, not once the place was known.
+        ("play here, its place 15 s away", 15),
+        ("try again after a refusal", 0),
+        ("play with no stream", 0),
+        ("next", 0),
+        ("next after it was out of reach", 0),
+    ],
+)
+def test_what_the_person_presses_is_when_the_page_was_last_asked(markup, season, act, ago):
+    assert run(markup, "asked_after", plays=act, pages=season)["asked"] == ago
+
+
+@pytest.mark.parametrize(
+    "act",
+    [
+        "pause",
+        "pause as a start is on its way",
+        "a stream that went",
+        "a start tried again by itself",
+        "online as a start is lost",
+        "next by itself",
+        "next by itself, online after a drop",
+        "next by a press, online after a drop",
+        "back from the page cache",
+    ],
+)
+def test_what_the_page_does_by_itself_is_not_a_press(markup, season, act):
+    out = run(markup, "asked_after", plays=act, pages=season)
+    assert out["since"] >= 20
+    assert out["asked"] == out["since"]
+
+
+def test_a_page_back_from_the_cache_leaves_the_title_to_the_page_asked_since(markup, season):
+    out = run(markup, "asked_after", plays="back from the page cache, refused", pages=season)
+    assert (out["asked"], out["message"]) == (20, REPLACED)
 
 
 def test_a_start_that_is_never_answered_ends_in_a_message_and_its_late_answer_is_stopped(markup):

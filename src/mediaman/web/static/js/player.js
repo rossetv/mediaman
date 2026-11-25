@@ -269,7 +269,7 @@
   var pageId = Array.prototype.map.call(window.crypto.getRandomValues(new Uint8Array(12)), function (b) {
     return (b < 16 ? '0' : '') + b.toString(16);
   }).join('');
-  var pressedAt = Date.now(); // when the person last asked this page to play
+  var pressedAt = Date.now(); // when the person last pressed for the video here
   function pressedPlay() { pressedAt = Date.now(); }
   var noneSince = null;      // the first refusal since a request was taken, with nothing left to play
   var stalled = false;       // the buffer ran dry and playback has not gone on since
@@ -1284,7 +1284,7 @@
         pendingStart = within(place);
       })
       .catch(function () { /* from where this one stands */ })
-      .then(function () { if (gen === generation) retry(); });
+      .then(function () { if (gen === generation) startOver(); });
   }
 
   /* The server's own failed answer; null where it is none of its own. */
@@ -1486,6 +1486,10 @@
   /* Try again after an error. */
   function retry() {
     pressedPlay();
+    startOver();
+  }
+
+  function startOver() {
     unstopped.forEach(sendStop);
     clearTrouble();
     wantPlaying = true;
@@ -2524,9 +2528,13 @@
      `savedAt` is the place to save this one at, where that is not where it stands. */
   function goNext(byItself, savedAt) {
     if (!next || switching) return;
-    var href = next.href;
     if (byItself) sitting.count++;
     else pressedPlay();
+    openNext(byItself, savedAt);
+  }
+
+  function openNext(byItself, savedAt) {
+    var href = next.href;
     switching = true;
     swapping = true;
     wantPlaying = true;
@@ -2578,7 +2586,7 @@
       switching = false;
       showSubtitle(item.subtitle);
       saveSitting(false);
-      if (lost) lost.again = again;
+      if (lost) lost.again = function () { openNext(byItself); };
     }
   }
 
@@ -2726,6 +2734,7 @@
     try { held = JSON.parse(window.sessionStorage.getItem(SITTING_KEY)); } catch (e) { /* storage blocked */ }
     if (held && held.goes_on) {
       sitting = { count: held.count, lastActivity: held.lastActivity };
+      if (held.pressed < pressedAt) pressedAt = held.pressed;
       saveSitting(false);
     } else {
       noteActivity();
@@ -2733,7 +2742,7 @@
   }
 
   function saveSitting(goesOn) {
-    var held = { count: sitting.count, lastActivity: sitting.lastActivity, goes_on: !!goesOn };
+    var held = { count: sitting.count, lastActivity: sitting.lastActivity, goes_on: !!goesOn, pressed: pressedAt };
     try { window.sessionStorage.setItem(SITTING_KEY, JSON.stringify(held)); } catch (e) { /* storage blocked */ }
   }
 
@@ -2874,7 +2883,6 @@
     /* Playing somewhere else it stays so. */
     if (shown(els.message) && tryAgain === playHere) return;
     wantPlaying = false;
-    pressedPlay();
     startStream(pendingStart || 0);
   });
 

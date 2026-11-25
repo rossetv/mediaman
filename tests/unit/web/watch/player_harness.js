@@ -2065,6 +2065,133 @@ const scenarios = {
     return out;
   },
 
+  /* Much later the person, or the page by itself, does something; the next start then says how
+     long ago the page was asked. With it come the seconds since the last press before that. */
+  async asked_after(p) {
+    const gone = () => p.hlsList[p.hlsList.length - 1].emit('hlsError', loadError('fragLoadError', 410, { error: 'gone' }));
+    const segmentLost = () => loadError('fragLoadError', 0);
+    const nextPage = p.pages['/watch/play/502'];
+    const refuse = (by) => ({ err: { status: 410, error: 'replaced', data: { error: 'replaced', by: by } } });
+    let pressedAt = 0;
+    const later = async () => { p.tick(20000); await settle(); };
+    const replaced = async () => {
+      p.hlsList[0].emit('hlsError', loadError('fragLoadError', 410, { error: 'replaced', by: 'another-page' }));
+      await settle();
+    };
+    const unreached = async () => {
+      p.held.light = 'gateway';
+      p.pages['/watch/play/502'] = 'offline';
+      endsNow(p);
+      p.tick(10000);
+      await settle();
+    };
+    /* The start fails, and nothing is heard of it until the browser comes online. */
+    const startLost = async () => { p.replies.push(NET, NET, NET); gone(); await settle(); };
+    const acts = {
+      async quality() { await later(); click(p.q('[data-quality="720p-4000"]')); },
+      async 'try again after a drop'() {
+        const h = p.hlsList[0];
+        p.held.light = 'gateway';
+        fire(p.video, 'waiting');
+        h.emit('hlsError', segmentLost());
+        await failFor(p, 65000, failingLoads(h, segmentLost));
+        press(p.q('[data-retry]'));
+        gone();
+      },
+      async 'play here'() { await replaced(); await later(); press(p.q('[data-retry]')); },
+      async 'play here, its place 15 s away'() {
+        await replaced();
+        await later();
+        p.pages['/watch/play/1'] = 'hangs';
+        press(p.q('[data-retry]'));
+        await settle();
+        p.tick(15000);
+      },
+      async 'try again after a refusal'() {
+        p.replies.push({ err: { status: 429, error: 'rate_limited' } });
+        gone();
+        await later();
+        press(p.q('[data-retry]'));
+      },
+      async 'play with no stream'() {
+        p.sleep(3 * 3600000);
+        endsNow(p);
+        p.q('[data-ask]').close();
+        await later();
+        press(p.q('[data-play]'));
+      },
+      async 'play on a paused video'() { key(' '); await later(); key(' '); gone(); },
+      async 'pause'() { await later(); key(' '); gone(); },
+      async 'play as a start is on its way'() { await startLost(); key(' '); await later(); key(' '); p.online(); },
+      async 'pause as a start is on its way'() { await startLost(); await later(); key(' '); p.online(); },
+      async 'seek by a key'() { await later(); key('ArrowRight'); gone(); },
+      async 'seek by a key, long landed'() { await later(); key('ArrowRight'); pressedAt = p.win.Date.now(); await later(); gone(); },
+      async 'seek on the bar'() { await later(); point(p, 'pointerdown', 500); point(p, 'pointerup', 500); gone(); },
+      async next() { await later(); press(p.q('[data-next-btn]')); },
+      async 'next as it is on its way by itself'() {
+        p.pages['/watch/play/502'] = 'offline';
+        endsNow(p);
+        p.tick(10000);
+        await settle();
+        await later();
+        p.pages['/watch/play/502'] = nextPage;
+        press(p.q('[data-next-btn]'));
+        p.online();
+      },
+      async 'next after it was out of reach'() {
+        p.pages['/watch/play/502'] = { html: '<div id="watch-page" data-plex-unavailable></div>' };
+        press(p.q('[data-next-btn]'));
+        await later();
+        p.pages['/watch/play/502'] = nextPage;
+        press(p.q('[data-retry]'));
+      },
+
+      async 'a stream that went'() { await later(); gone(); },
+      async 'a start tried again by itself'() { await later(); p.replies.push(NET); gone(); await settle(); p.tick(1000); },
+      async 'online as a start is lost'() { await startLost(); await later(); p.online(); },
+      async 'next by itself'() { endsNow(p); await later(); },
+      async 'next by itself, online after a drop'() {
+        await unreached();
+        await failFor(p, 70000, () => {});
+        /* Found out of reach a second time, it is still one episode that began by itself. */
+        p.online();
+        await failFor(p, 70000, () => {});
+        if (p.sitting().count !== 1 || !messageState(p)) throw new Error('counted ' + p.sitting().count);
+        p.pages['/watch/play/502'] = nextPage;
+        p.online();
+      },
+      async 'next by a press, online after a drop'() {
+        await later();
+        p.held.light = 'gateway';
+        p.pages['/watch/play/502'] = 'offline';
+        press(p.q('[data-next-btn]'));
+        pressedAt = p.win.Date.now();
+        await failFor(p, 70000, () => {});
+        p.pages['/watch/play/502'] = nextPage;
+        p.online();
+      },
+      async 'back from the page cache'() { p.leave(); await later(); p.comeBack(); },
+      async 'back from the page cache, refused'() { p.leave(); await later(); p.replies.unshift(refuse('another-page')); p.comeBack(); },
+    };
+    p.replies[0] = answer('1080p-8000');
+    await streamPlays(p, 100);
+    playOn(p, 5);
+    p.held.answer = (body) => answer(body.quality);
+    p.pages['/watch/play/1'] = 'offline';
+    const starts = p.starts().length;
+    await acts[p.win.serverPlays]();
+    await settle();
+    if (p.starts().length === starts) throw new Error('nothing started');
+    const now = p.win.Date.now();
+    return { asked: startCalls(p).pop().body.asked_s, since: (now - pressedAt) / 1000, message: messageState(p) };
+  },
+
+  /* How long ago the first start of the page says it was asked. */
+  async asked_at_first(p) {
+    await settle();
+    return startCalls(p)[0].body.asked_s;
+  },
+
   /* A start is never answered; Try again is, and then the first answer comes after all. */
   async start_unanswered(p) {
     await streamPlays(p, 100);
@@ -3920,7 +4047,7 @@ const scenarios = {
     p.comeBack();
     click(p.q('[data-next-btn]'));
     await settle();
-    return { href: p.win.location.href, byItself: [byItself.count, byItself.goes_on], byHand: p.sitting().goes_on };
+    return { href: p.win.location.href, byItself: [byItself.count, byItself.goes_on], pressed: byItself.pressed, byHand: p.sitting().goes_on };
   },
 
   /* Autoplay is a choice of the quality menu. */
