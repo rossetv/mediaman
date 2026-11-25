@@ -61,6 +61,18 @@ class TestSecurityHeadersMiddleware:
         resp = TestClient(_build_app()).get(path)
         assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
 
+    @pytest.mark.parametrize(
+        ("path", "robots"),
+        [
+            ("/keep/token", "noindex"),
+            ("/download/token", "noindex"),
+            ("/unsubscribe?token=token", "noindex"),
+            ("/downloads", None),
+        ],
+    )
+    def test_only_the_pages_a_mailed_link_opens_stay_out_of_search_engines(self, path, robots):
+        assert TestClient(_build_app()).get(path).headers.get("X-Robots-Tag") == robots
+
     def test_csp_allows_media_from_self_and_blob_only(self):
         csp = TestClient(_build_app()).get("/ping").headers["Content-Security-Policy"]
         directives = {d.split(" ", 1)[0]: d for d in csp.split("; ")}

@@ -258,6 +258,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path.startswith(_LINK_PAGES):
             response.headers.setdefault("Referrer-Policy", "no-referrer")
+            response.headers.setdefault("X-Robots-Tag", "noindex")
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
         response.headers.setdefault(
