@@ -9,6 +9,7 @@ import sys
 
 import pytest
 
+from mediaman.services.infra.http import dns_pinning
 from tests import conftest
 
 
@@ -75,6 +76,44 @@ def test_what_was_tried_fails_whoever_is_checked_next(_no_network):
     with pytest.raises(pytest.fail.Exception):
         conftest._fail_if_tried()
     assert _no_network == []
+
+
+def test_what_a_thread_adds_during_the_check_is_not_lost(_no_network, monkeypatch):
+    class Meanwhile(list):
+        late = ["late"]
+
+        def _thread_adds(self):
+            while self.late:
+                self.append(self.late.pop())
+
+        def copy(self):
+            copied = list(self)
+            self._thread_adds()
+            return copied
+
+        def pop(self, *args):
+            popped = super().pop(*args)
+            self._thread_adds()
+            return popped
+
+    tried = Meanwhile(["early"])
+    monkeypatch.setattr(conftest, "_tried_network", tried)
+    with pytest.raises(pytest.fail.Exception) as failed:
+        conftest._fail_if_tried()
+    assert "early" in str(failed.value)
+    assert "late" in str(failed.value) or tried == ["late"]
+
+
+def test_a_resolver_one_test_left_behind_is_gone_before_the_next(monkeypatch):
+    def rogue(*_args, **_kwargs):
+        return []
+
+    # Set through monkeypatch, so that a failure here leaves nothing behind either.
+    monkeypatch.setattr(dns_pinning, "_ORIG_GETADDRINFO", rogue)
+    monkeypatch.setattr(socket, "getaddrinfo", rogue)
+    conftest.pytest_runtest_setup(None)
+    assert socket.getaddrinfo is dns_pinning._patched_getaddrinfo
+    assert socket.getaddrinfo("api.example.com", 443)[0][4] == ("93.184.216.34", 0)
 
 
 def test_uvloop_which_the_guard_cannot_see_is_not_used():

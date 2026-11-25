@@ -117,9 +117,23 @@ for _name in ("connect", "connect_ex", "sendto", "sendmsg"):
 sys.modules["uvloop"] = None
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Give every test the fake DNS, whatever the one before it left: the app's DNS pin keeps a
+    resolver it finds in place of its own."""
+    pinning = sys.modules.get("mediaman.services.infra.http.dns_pinning")
+    if pinning is None:
+        socket.getaddrinfo = _fake_getaddrinfo
+        return
+    pinning._ORIG_GETADDRINFO = _fake_getaddrinfo
+    socket.getaddrinfo = pinning._patched_getaddrinfo
+
+
 def _fail_if_tried() -> None:
-    tried = _tried_network.copy()
-    _tried_network.clear()
+    tried = []
+    # One at a time, so that what a thread adds meanwhile is not lost.
+    while _tried_network:
+        tried.append(_tried_network.pop(0))
     if tried:
         pytest.fail(f"a test tried the network: {tried}")
 
