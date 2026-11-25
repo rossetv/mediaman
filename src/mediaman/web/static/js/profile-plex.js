@@ -8,6 +8,12 @@
   var READING_MS = 3000;
   var APPROVAL_PAGE = 'https://app.plex.tv/auth#?';
   var MOVES = 'This Plex account is linked to another person here; linking moves it to you.';
+  var APPROVE = 'Approve mediaman in the Plex tab. This page updates by itself.';
+  var BLOCKED = 'Your browser did not open the Plex tab. Open Plex here and approve mediaman. This page updates by itself.';
+  var CLOSED = 'The tab was closed before Plex opened. Open Plex here and approve mediaman. This page updates by itself.';
+  var WAIT = 'Waiting for Plex…';
+  var STILL_WAIT = 'Not approved yet. If you closed the Plex tab, open Plex again.';
+  var CANCELLED = 'Cancelled, not linked.';
   var NOT_ANSWERING = 'Plex is slow to answer. Still waiting…';
   var ASK = {
     title: 'Confirm it’s you',
@@ -20,7 +26,6 @@
     failed: 'plex-retry', linked: 'plex-unlink',
   };
   var SAY = {
-    waiting: 'Open Plex to sign in. Waiting for Plex.',
     confirm: 'Plex signed you in. Confirm it is you.',
     linked: 'Plex account linked.',
     unlinked: 'No Plex account linked.',
@@ -48,6 +53,36 @@
     });
   }
 
+  /* Opened by the press itself, before the server has answered, or a pop-up blocker stops it. */
+  function openTab() {
+    var tab = window.open('', '_blank');
+    if (!tab) return null;
+    tab.opener = null;
+    var doc = tab.document;
+    doc.title = 'Opening Plex…';
+    doc.documentElement.style.colorScheme = 'dark';
+    doc.body.style.font = '16px system-ui, sans-serif';
+    doc.body.style.margin = '24px';
+    doc.body.textContent = 'Opening Plex…';
+    return tab;
+  }
+
+  function sendTab(tab, url) {
+    if (tab.closed) return false;
+    try {
+      /* A link, as setting its location would tell Plex the address of this page. */
+      var link = tab.document.createElement('a');
+      link.rel = 'noreferrer';
+      link.href = url;
+      tab.document.body.appendChild(link);
+      link.click();
+      return true;
+    } catch (e) {
+      /* The person took the tab somewhere else. */
+      return false;
+    }
+  }
+
   function initOwn() {
     var card = byId('plex-link');
     if (!card) return;
@@ -61,6 +96,15 @@
     /* Whether Try again loads the card again rather than starts a sign-in. */
     var reloads = false;
     var timer = null;
+    /* Open and not yet sent to Plex. */
+    var tab = null;
+    /* The one sent there; where the browser keeps the two apart it can no longer be closed from here. */
+    var sentTab = null;
+    /* The start that has not been answered. */
+    var underway = null;
+    var checking = null;
+    var waitWords = WAIT;
+    var justLinked = false;
     /* Answers that arrive after the person has moved on are dropped. */
     var turn = 0;
 
@@ -68,6 +112,45 @@
       turn += 1;
       clearTimeout(timer);
       timer = null;
+      checking = null;
+      closeTab();
+    }
+
+    function closeTab() {
+      if (tab) tab.close();
+      tab = null;
+    }
+
+    function opening(button, on) {
+      var label = button.textContent;
+      busy(button, on);
+      button.textContent = '';
+      if (on) {
+        underway = { button: button, label: label, cancelled: false };
+        var spinner = document.createElement('span');
+        spinner.className = 'btn-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        button.appendChild(spinner);
+        button.appendChild(document.createTextNode('Opening Plex…'));
+      } else {
+        button.textContent = underway.label;
+        underway = null;
+      }
+      byId(button.id + '-stop').hidden = !on;
+    }
+
+    function sayCancelled() {
+      show('unlinked');
+      byId('plex-note').textContent = CANCELLED;
+      announce(byId('plex-status'), CANCELLED);
+    }
+
+    function offer(words, again) {
+      var open = byId('plex-open');
+      byId('plex-lead').textContent = words;
+      open.textContent = again ? 'Open Plex again' : 'Open Plex';
+      open.classList.toggle('btn--primary', !again);
+      open.classList.toggle('btn--secondary', again);
     }
 
     function show(name, quiet) {
@@ -76,10 +159,15 @@
       current = name;
       card.removeAttribute('aria-busy');
       errorLine.textContent = '';
+      byId('plex-note').textContent = '';
       panels.forEach(function (p) { p.hidden = p.getAttribute('data-plex-panel') !== name; });
       if (!changed && name !== 'failed') return;
       if (!quiet) {
-        announce(byId('plex-status'), name === 'failed' ? byId('plex-failed').textContent : SAY[name] || '');
+        announce(byId('plex-status'),
+          name === 'failed' ? byId('plex-failed').textContent
+            : name === 'waiting' ? byId('plex-lead').textContent
+              : name === 'linked' && justLinked ? 'Your Plex account ' + byId('plex-done-name').textContent + ' is linked.'
+                : SAY[name] || '');
       }
       if (held && MAIN[name]) byId(MAIN[name]).focus();
     }
@@ -99,13 +187,17 @@
 
     function check() {
       if (document.hidden) return;
-      var mine = turn;
+      clearTimeout(timer);
+      /* The last one asked is the one heard. */
+      var mine = checking = {};
       MM.api.post('/api/account/plex/check').then(function (data) {
-        if (mine !== turn) return;
-        MM.dom.setText(byId('plex-wait'), 'Waiting for Plex…');
+        if (mine !== checking) return;
+        checking = null;
+        MM.dom.setText(byId('plex-wait'), waitWords);
         if (data.attempt) render(data.attempt); else recover(data.message);
       }, function (err) {
-        if (mine !== turn) return;
+        if (mine !== checking) return;
+        checking = null;
         if (err.status !== 429) MM.dom.setText(byId('plex-wait'), NOT_ANSWERING);
         later(SLOW_POLL_MS);
       });
@@ -148,6 +240,17 @@
           return;
         }
         byId('plex-open').href = attempt.url;
+        if (current !== 'waiting') {
+          waitWords = WAIT;
+          byId('plex-wait').textContent = WAIT;
+          offer(APPROVE, true);
+          if (underway) {
+            sentTab = tab;
+            tab = null;
+            if (!sentTab) offer(BLOCKED, false);
+            else if (!sendTab(sentTab, attempt.url)) offer(CLOSED, false);
+          }
+        }
         MM.dom.setText(byId('plex-app'), attempt.app);
         show('waiting', quiet);
         later(POLL_MS);
@@ -163,6 +266,9 @@
 
     function showLink(link, quiet) {
       byId('plex-name').textContent = link.name;
+      byId('plex-done-name').textContent = link.name;
+      byId('plex-done').hidden = !justLinked;
+      byId('plex-linked').hidden = justLinked;
       byId('plex-since').textContent = when(link.linked_at);
       byId('plex-read').textContent = link.reading
         ? 'Reading your plays…'
@@ -198,31 +304,88 @@
       });
     }
 
+    /* The press that gives the password may open the tab; the answer to it may not. */
+    function withPassword() {
+      return new Promise(function (resolve, reject) {
+        var cancelled = false;
+        MM.reauth.openModal({
+          title: ASK.title,
+          descText: ASK.descText,
+          confirmLabel: ASK.confirmLabel,
+          onSubmit: function (pw) {
+            closeTab();
+            tab = openTab();
+            return MM.api.post('/api/auth/reauth', { password: pw }).then(function () {
+              if (!cancelled) resolve(MM.api.post('/api/account/plex'));
+              return { ok: true };
+            }, function (err) {
+              if (!cancelled) closeTab();
+              return { ok: false, error: MM.api.messageOf(err, 'Could not check the password. Try again.') };
+            });
+          },
+          onCancel: function () {
+            cancelled = true;
+            reject({ error: 'reauth_cancelled' });
+          },
+        });
+      });
+    }
+
     function begin(button) {
+      if (underway) return;
       stop();
       var mine = turn;
       errorLine.textContent = '';
+      byId('plex-note').textContent = '';
       byId('plex-signout-note').hidden = true;
-      busy(button, true);
-      MM.reauth.run(function () { return MM.api.post('/api/account/plex'); }, ASK).then(function (data) {
-        busy(button, false);
+      justLinked = false;
+      tab = openTab();
+      opening(button, true);
+      var start = underway;
+      function settle() { if (underway === start) opening(button, false); }
+      MM.api.post('/api/account/plex').then(null, function (err) {
+        if (mine !== turn || !(err.status === 403 && err.data && err.data.reauth_required)) throw err;
+        closeTab();
+        return withPassword();
+      }).then(function (data) {
         if (mine === turn) render(data.attempt);
+        else if (start.cancelled) giveUp(data.attempt.id);
+        settle();
       }, function (err) {
-        busy(button, false);
-        if (mine !== turn || err.error === 'reauth_cancelled') return;
+        settle();
+        if (mine !== turn) return;
+        stop();
+        if (err.error === 'reauth_cancelled') { sayCancelled(); return; }
         if (err.error === 'already_linked') { recover(err.message); return; }
         if (err.error === 'plex_not_set_up') { show('unset'); return; }
         fail(MM.api.messageOf(err, 'Could not start. Try again.'));
       });
     }
 
-    function cancel() {
-      stop();
-      show('unlinked');
-      /* Named, so that arriving late it cannot end a sign-in started since. The sign-in ends by itself when this does not arrive. */
-      MM.api.post('/api/account/plex/cancel', { attempt: attempt.id }).then(function (data) {
+    /* Named, so that arriving late it cannot end a sign-in started since. The sign-in ends by itself when this does not arrive. */
+    function giveUp(id) {
+      MM.api.post('/api/account/plex/cancel', { attempt: id }).then(function (data) {
         if (!data.signed_out) byId('plex-signout-note').hidden = false;
       }, function () {});
+    }
+
+    function cancel() {
+      stop();
+      if (sentTab) sentTab.close();
+      sentTab = null;
+      sayCancelled();
+      giveUp(attempt.id);
+    }
+
+    function cancelOpening() {
+      if (!underway) return;
+      var button = underway.button;
+      underway.cancelled = true;
+      stop();
+      var held = MM.dom.focusStillIn(holder);
+      opening(button, false);
+      sayCancelled();
+      if (held) byId('plex-start').focus();
     }
 
     /* A key held down presses whatever button the focus has moved to. */
@@ -253,6 +416,9 @@
       if (isBusy(this)) return;
       if (reloads) load(); else begin(this);
     });
+    byId('plex-start-stop').addEventListener('click', cancelOpening);
+    byId('plex-retry-stop').addEventListener('click', cancelOpening);
+    byId('plex-open').addEventListener('click', function () { offer(APPROVE, true); });
     byId('plex-cancel').addEventListener('click', cancel);
     byId('plex-decline').addEventListener('click', cancel);
 
@@ -265,7 +431,9 @@
       MM.api.post('/api/account/plex', { attempt: attempt.id, move: !!attempt.moves }).then(function (data) {
         busy(button, false);
         if (mine !== turn) return;
-        if (data.attempt) render(data.attempt); else load();
+        if (data.attempt) { render(data.attempt); return; }
+        justLinked = true;
+        load();
       }, function (err) {
         busy(button, false);
         if (mine !== turn) return;
@@ -299,11 +467,17 @@
     });
 
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden && current === 'waiting') check();
+      if (document.hidden || current !== 'waiting') return;
+      waitWords = STILL_WAIT;
+      check();
+    });
+    /* A Plex window beside this one hides nothing. */
+    window.addEventListener('focus', function () {
+      if (current === 'waiting' && !checking) check();
     });
     /* Restored from the back/forward cache, the card may be long out of date. */
     window.addEventListener('pageshow', function (e) {
-      if (e.persisted) { stop(); load(true); }
+      if (e.persisted) { stop(); justLinked = false; load(true); }
     });
 
     load(true);

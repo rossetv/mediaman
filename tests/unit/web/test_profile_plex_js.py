@@ -165,3 +165,101 @@ def test_linking_asks_who_it_is_and_never_speaks_of_saving() -> None:
     assert (words["title"], words["confirmLabel"]) == ("Confirm it’s you", "Continue")
     assert "Plex" in words["descText"]
     assert not any("save" in text.lower() for text in words.values())
+
+
+PLEX = "https://app.plex.tv/auth#?code=x"
+OPEN = {"opener": None, "closed": False}
+
+
+def test_the_press_itself_opens_the_tab_and_the_answer_sends_it_to_plex() -> None:
+    out = _run("firstPress")
+    assert out["pressed"]["tabs"] == [{**OPEN, "went": []}]
+    assert "Opening Plex" in out["pressed"]["says"]
+    assert (out["pressed"]["cancel"], out["cancel"]) == (True, False)
+    assert out["pressed"]["label"] != out["label"] == "Link Plex account"
+    assert out["after"] == [{**OPEN, "went": [PLEX]}]
+    assert "noreferrer" in out["rel"]
+    assert out["lead"] == "Approve mediaman in the Plex tab. This page updates by itself."
+    assert (out["shown"], out["open"], out["loud"]) == ("waiting", "Open Plex again", False)
+
+
+def test_a_start_that_fails_closes_its_tab_unsent_and_says_why() -> None:
+    outs = _run("tabOnFailure")
+    assert [(o["closed"], o["went"]) for o in outs] == [(True, [])] * 5
+    assert [o["shown"] for o in outs] == ["failed"] * 4 + ["unset"]
+    assert [o["text"] for o in outs[:2]] == ["Plex is down.", "Unreachable."]
+
+
+def test_a_blocked_tab_leaves_a_main_button_that_opens_plex() -> None:
+    out = _run("blockedTab")
+    assert (out["shown"], out["href"]) == ("waiting", PLEX)
+    assert (out["first"]["open"], out["first"]["loud"]) == ("Open Plex", True)
+    assert "browser" in out["first"]["lead"]
+    assert (out["pressed"]["open"], out["pressed"]["loud"]) == ("Open Plex again", False)
+    assert "in the Plex tab" in out["pressed"]["lead"]
+
+
+def test_a_tab_closed_before_plex_opened_is_told_and_offered_again() -> None:
+    out = _run("closedEarly")
+    assert (out["shown"], out["went"], out["loud"]) == ("waiting", [], True)
+    assert "closed" in out["lead"]
+
+
+def test_cancelling_while_plex_opens_closes_the_tab_and_ends_the_late_sign_in() -> None:
+    out = _run("cancelOpening")
+    assert out["at1"]["closed"] is True
+    assert "Cancelled" in out["at1"]["note"]
+    assert out["at1"]["said"] == out["at1"]["note"]
+    assert out["at1"]["label"] == "Link Plex account"
+    assert (out["shown"], out["went"], out["cancelled"]) == ("unlinked", [], True)
+    assert out["focus"] == "plex-start"
+
+
+def test_cancelling_while_waiting_closes_the_tab_and_says_so_until_the_next_press() -> None:
+    out = _run("cancelWaiting")
+    assert (out["closed"], out["shown"], out["noteAfter"]) == (True, "unlinked", "")
+    assert out["status"] == out["note"] != ""
+
+
+def test_the_password_is_asked_without_a_stray_tab_and_its_press_opens_one() -> None:
+    out = _run("password")
+    closed = {"opener": None, "closed": True, "went": []}
+    assert out["asked"] == [closed]
+    assert out["wrong"] == {"ok": False, "error": "Wrong."}
+    assert out["afterWrong"] == [closed, closed]
+    assert out["right"] == {"ok": True}
+    assert out["after"] == [closed, closed, {**OPEN, "went": [PLEX]}]
+    assert out["shown"] == "waiting"
+
+
+def test_a_password_accepted_after_its_dialog_was_closed_starts_nothing() -> None:
+    out = _run("passwordCancelled")
+    assert all(tab["closed"] for tab in out["tabs"])
+    assert (out["starts"], out["shown"]) == (1, "unlinked")
+    assert "Cancelled" in out["note"]
+
+
+def test_one_press_after_it_ran_out_starts_again_in_a_new_tab() -> None:
+    out = _run("expired")
+    assert out["text"] == "It ran out."
+    assert (out["shown"], out["tabs"][1:]) == ("waiting", [{**OPEN, "went": [PLEX]}])
+
+
+def test_coming_back_asks_at_once_past_a_stuck_check_and_tells_what_to_do() -> None:
+    out = _run("returning")
+    assert out["first"]["checks"] == 2
+    assert out["first"]["waits"] == [2000]
+    assert "closed the Plex tab" in out["first"]["wait"]
+    assert (out["focusAlone"], out["waits"]) == (1, [2000])
+
+
+def test_a_new_link_is_celebrated_by_name_until_the_page_is_shown_again() -> None:
+    out = _run("success")
+    assert (out["done"], out["name"], out["since"], out["kept"]) == (
+        True,
+        "<b>amy</b>",
+        False,
+        True,
+    )
+    assert "<b>amy</b>" in out["said"]
+    assert (out["later"], out["sinceLater"]) == (False, True)
