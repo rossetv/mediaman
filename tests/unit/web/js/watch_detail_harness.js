@@ -496,7 +496,7 @@ const scenarios = {
     p.clock.now += 61000;
     p.detail.ahead('movie-2');
     await settle();
-    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2' } });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-2', refs: ['movie-2'] } });
     p.detail.ahead('movie-2');
     return { oneAtATime, once, most, changed: asked() };
   },
