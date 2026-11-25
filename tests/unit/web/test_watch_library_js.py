@@ -121,6 +121,7 @@ def test_a_season_deleted_from_the_show_dialog_updates_only_that_show_s_card() -
     out = _run("seasonDelete")
     assert (out["opened"], out["deletes"], out["closed"]) == (True, 1, True)
     assert out["confirm"] == "Delete Night Shift — Season 1?"
+    assert (out["deleteWord"], out["deleteName"]) == ("Delete", "Delete Season 1")
     assert out["call"] == ["post", "/api/media/s1/delete", None]
     assert out["title"] == "Night Shift (1 season)"
     assert out["keys"] == ["id:m1", "id:m2", "show:77", "id:m3"]
