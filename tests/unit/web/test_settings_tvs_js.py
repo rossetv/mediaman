@@ -109,7 +109,7 @@ def test_a_rename_that_failed_keeps_what_was_typed() -> None:
 
 
 def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
-    local, https, http, named = _run("address")
+    local, https, http, named, public, public_s, bare, login, home, begun = _run("address")
     assert local[0] == "true"
     assert "localhost" in local[1]
     assert https[0] is None
@@ -118,6 +118,12 @@ def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
     assert "Plain http" in http[1]
     assert named[0] == "true"
     assert "https://" in named[1]
+    for said in (public, public_s):
+        assert said[0] == "true"
+        assert "home network" in said[1]
+    assert bare[0] == "true"
+    assert "https:// before a name" in bare[1]
+    assert login[0] is home[0] is begun[0] is None
 
 
 def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:

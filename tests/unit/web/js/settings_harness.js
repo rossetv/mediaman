@@ -970,14 +970,14 @@ const scenarios = {
   // What the save bar says for each answer about the address TVs use.
   async tvAddressError() {
     const out = [];
-    for (const said of ['must be a home address', 'must be a home address with nothing after it', 'must be a home address with a port in use']) {
+    for (const said of JSON.parse(process.argv[3])) {
       const h = build();
       h.add('div', { className: 'setg-pg' });
       const bar = h.add('div', { id: 'setg-savebar' });
       const save = h.add('button', { id: 'btn-save' }, bar);
       const status = h.add('span', { id: 'save-status' }, bar);
       h.ctx.MM.api = {
-        put: () => Promise.reject({ status: 422, data: { detail: [{ loc: ['body', 'tv_address'], msg: 'Value error, ' + said }] } }),
+        put: () => Promise.reject({ status: 422, data: { detail: [{ loc: ['body', 'tv_address'], msg: said }] } }),
         messageOf: () => 'x',
       };
       h.ctx.MM.reauth = { run: (f) => f() };

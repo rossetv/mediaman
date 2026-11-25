@@ -11,7 +11,11 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.web.models.settings import SettingsUpdate
 
 HARNESS = Path(__file__).parent / "js" / "settings_harness.js"
 
@@ -209,14 +213,37 @@ def test_the_newsletter_buttons_keep_the_focus_after_a_click_that_gave_them_none
     assert _run("newsletterWithoutFocus") == dict.fromkeys(("open", "close", "add", "next"), True)
 
 
-def test_a_refused_tv_address_says_what_is_accepted_and_what_was_wrong() -> None:
-    kind, after, port = _run("tvAddressError")
-    assert "http://192.168.1.10:8282" in kind
-    assert "https://mediaman.example.com" in kind
-    assert "name" in kind
-    assert "nothing after" in after
-    assert "port" in port
-    assert "home address" not in after + port
+_REFUSED_TV_ADDRESSES = {
+    "watch.example.org": "http:// before a home address, or https:// before a name",
+    "https://u:p@watch.example.org": "no sign-in",
+    "http://192.168.1.10:8282/watch": "nothing after the server name or port",
+    "https://a.example?x=1": "nothing after the server name or port",
+    "http://192.168.1.10:0": "port from 1 to 65535",
+    "http://192.168.1.10:99999": "port from 1 to 65535",
+    "http://192.168.1.10:abc": "port from 1 to 65535",
+    "https://a.example:99999": "port from 1 to 65535",
+    "https://my_server.example": "letters a to z, digits, dots and hyphens",
+    "https://bücher.example": "no letters other than a to z",
+    "https://a b.example": "no spaces",
+    "http://203.0.113.5": "home network",
+    "https://203.0.113.5": "home network",
+    "http://watch.example.org": "https:// and not http:// before a name",
+    "https://localhost": "localhost",
+    "https://:8282": "needs a server name",
+    "http://[2001:db8::1]": "such as http://192.168.1.10:8282, or a name with https",
+    "https://1.2.3": "such as http://192.168.1.10:8282, or a name with https",
+}
+
+
+def test_a_refused_tv_address_is_told_what_is_wrong_with_it() -> None:
+    said = []
+    for typed in _REFUSED_TV_ADDRESSES:
+        with pytest.raises(ValidationError) as refused:
+            SettingsUpdate(tv_address=typed)
+        said.append(refused.value.errors()[0]["msg"])
+    told = dict(zip(_REFUSED_TV_ADDRESSES, _run("tvAddressError", json.dumps(said)), strict=True))
+    wrong = {t: w for t, w in told.items() if _REFUSED_TV_ADDRESSES[t] not in w}
+    assert wrong == {}
 
 
 def test_refused_field_is_named_by_its_label_in_a_sentence() -> None:

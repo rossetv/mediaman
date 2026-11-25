@@ -554,9 +554,13 @@
       var value = input.value.trim();
       var bad = '';
       var warn = '';
-      var host = (/^https?:\/\/(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
+      var host = (/^https?:\/\/(?:[^/?#]*@)?(\[[^\]]*\]|[^/:?#]*)/i.exec(value) || [])[1] || '';
       if (/^(localhost|.*\.localhost|127\..*|\[::1\])\.?$/i.test(host)) {
         bad = 'A TV can’t use localhost: to a TV, that means itself. Use this server’s home address.';
+      } else if (/^\d+(\.\d+){3}$/.test(host) && !/^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(host)) {
+        bad = 'This is not an address of your home network. Use one that starts with 10, 172.16 to 172.31, or 192.168.';
+      } else if (!/^https?:/i.test(value) && /\w\.\w/.test(value)) {
+        bad = 'Start with http:// before a home address, or https:// before a name.';
       } else if (/^https:/i.test(value)) {
         warn = refusedHttps && refusedHttps.address === value
           ? 'This starts with https. Older TVs often refuse it, and ' + refusedHttps.name + ' did.'

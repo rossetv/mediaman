@@ -381,10 +381,22 @@
   var FIELD_ERROR_WORDS = [
     [/scheme must be http or https/i, 'must start with http:// or https://.'],
     [/must include a host/i, 'needs a server name after http:// or https://.'],
-    [/home address with nothing after it/i, 'must have nothing after the server name, such as https://mediaman.example.com.'],
-    [/home address with a port in use/i, 'needs a port other than 0.'],
+    [/home address after http/i, 'must start with http:// before a home address, or https:// before a name.'],
+    [/home address with nothing after it/i, 'must have nothing after the server name or port, such as ' +
+      'http://192.168.1.10:8282 or https://mediaman.example.com.'],
+    [/home address with no sign-in/i, 'must have no sign-in: leave out the @ and what stands before it.'],
+    [/home address with a port in use/i, 'needs a port from 1 to 65535, such as 8282 in http://192.168.1.10:8282.'],
+    [/home address in plain characters/i, 'can have no spaces, no accents and no letters other than a to z.'],
+    [/home address or a valid name/i, 'needs a server name of letters a to z, digits, dots and hyphens. Between ' +
+      'the dots are 1 to 63 of them, with no hyphen first or last.'],
+    [/home address and not localhost/i, 'cannot be localhost: to a TV, that means itself. Use this server’s home ' +
+      'address, such as http://192.168.1.10:8282.'],
+    [/home address and not one of another/i, 'must be an address of your home network: one that starts with 10, ' +
+      '172.16 to 172.31, or 192.168. A name with https may be anywhere.'],
+    [/home address, or a name with https/i, 'needs https:// and not http:// before a name. With http, use this ' +
+      'server’s home address, such as http://192.168.1.10:8282.'],
     [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282, or a name ' +
-      'with https, such as https://mediaman.example.com. Before a name, use https:// and not http://.'],
+      'with https, such as https://mediaman.example.com.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
     [/start or end with \*{4}/, 'cannot start or end with ****.'],
