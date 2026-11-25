@@ -35,6 +35,7 @@ from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.responses import respond_err
 from mediaman.web.routes import older_reach as reaching
+from mediaman.web.routes import older_stream
 from mediaman.web.routes.cast import _may_still_watch
 from mediaman.web.routes.older_reach import Refusal
 from mediaman.web.routes.older_stream import film_media, hand_over, place_of, segments, sent
@@ -113,6 +114,8 @@ def ends(conn: sqlite3.Connection, claim: Claim) -> str | None:
     """Why the claim is no longer good, or None."""
     if older.get_claims().of(claim.tv_id) != claim:
         return "taken"
+    if older_stream.ending.is_set():
+        return "stopped"
     tv = repo.find(conn, claim.tv_id)
     if tv is None or tv.kind != "older" or not reaching.are_on(conn):
         return "unpaired"

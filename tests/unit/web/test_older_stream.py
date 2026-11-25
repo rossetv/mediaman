@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 
 import pytest
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from mediaman.db import get_db
 from mediaman.services.dlna.media import Media
 from mediaman.services.media_meta import plex_stream
+from mediaman.services.media_meta.plex_stream import StreamGone, StreamManager
 from mediaman.web.auth.session_store import destroy_session
 from mediaman.web.routes import cast, older_stream
 from mediaman.web.routes.watch import stream_api
@@ -396,6 +398,58 @@ def test_a_place_handed_over_shares_the_copies_there_may_be(app, ticket):
         await Reader(app, _from(ticket, 1)).open().reads()
         await first[0].is_over()
         assert len(older_stream._feed(_stream()).readers) == 3
+
+    asyncio.run(run())
+
+
+@pytest.fixture
+def ending():
+    """What says that mediaman is told to end."""
+    yield older_stream.ending
+    older_stream.ending.clear()
+
+
+def test_a_film_is_let_go_of_once_mediaman_is_told_to_end(app, ticket, ending, monkeypatch):
+    monkeypatch.setattr(older_stream, "_LIVES_SECONDS", 0.02)
+
+    async def run():
+        reader = await Reader(app, _from(ticket)).open().reads()
+        ending.set()
+        await reader.is_over()
+        late = Reader(app, _from(ticket)).open()
+        await late.is_over()
+        assert late.status == 503
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("how", ["told", "hung up"])
+def test_a_film_that_ends_hangs_up_on_the_segment_plex_owes_it(
+    app, ticket, ending, monkeypatch, how
+):
+    monkeypatch.setattr(older_stream, "_LIVES_SECONDS", 0.02)
+    asked, let_go = threading.Event(), threading.Event()
+
+    def segment(self, read, name):
+        asked.set()
+        for _ in range(200):
+            if read.unwanted:
+                let_go.set()
+                break
+            time.sleep(0.01)
+        raise StreamGone("gone")
+
+    monkeypatch.setattr(StreamManager, "segment", segment)
+
+    async def run():
+        reader = Reader(app, _from(ticket)).open()
+        await reader.until(asked.is_set)
+        if how == "told":
+            ending.set()
+        else:
+            reader.hung_up.set()
+        await reader.until(let_go.is_set)
+        await reader.is_over()
 
     asyncio.run(run())
 

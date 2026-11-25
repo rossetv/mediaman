@@ -591,6 +591,21 @@ def test_what_ends_the_play_ends_its_stream_and_ticket_and_stops_the_tv(
     assert home.did("Stop") == stops + 1
 
 
+def test_a_tv_is_stopped_once_mediaman_is_told_to_end(amy, home, kitchen, conn, manager):  # noqa: F811
+    _play(amy, kitchen, position_s=600)
+    home.playing()
+    (stream,) = _streams()
+    stops = home.did("Stop")
+    older_stream.ending.set()
+    try:
+        assert home.step() is False
+    finally:
+        older_stream.ending.clear()
+    assert home.did("Stop") == stops + 1
+    assert not _lives(manager, stream)
+    assert get_progress(conn, "amy", ["101"])["101"].position_s == 600
+
+
 @pytest.mark.parametrize("forget", [_forgotten, _removed_by_the_tvs_own_address])
 def test_an_admin_forgetting_it_ends_the_stream_at_once(
     amy,

@@ -22,7 +22,7 @@ import anyio
 from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import Ticket
@@ -48,7 +48,7 @@ _WAITS = (0.0, 2.0, 5.0)
 _MAX_OPEN = 3
 _KEPT_FEEDS = 64
 # How often it is asked whether the stream of a film still lives.
-_LIVES_SECONDS = 2.0
+_LIVES_SECONDS = 1.0
 
 PICTURE_SECONDS = 120.0
 _PICTURE = Path(__file__).parents[1] / "static" / "icons" / "tv-test.jpg"
@@ -108,6 +108,9 @@ class _Feed:
     readers: list[_FilmResponse] = field(default_factory=list)
     latest: _HandOver | None = None
 
+
+#: mediaman is told to end: the films do too, which its end would wait for.
+ending = threading.Event()
 
 _feeds: dict[str, _Feed] = {}
 # The thread that hands a film over is not the one that sends it.
@@ -175,6 +178,8 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
         # Nobody knows the length.
         del response.headers["content-length"]
         return response
+    if ending.is_set():
+        return respond_err("ending", status=503)
     feed = _feed(held.stream_id)
     if feed.opening >= _MAX_OPEN:
         return respond_err("rate_limited", status=429)
@@ -201,7 +206,15 @@ async def film_from(request: Request, ticket: str, place: str) -> Response:
     handed.failed = False
     while len(feed.readers) >= _MAX_OPEN:
         feed.readers.pop(0).end()
-    reader = _FilmResponse(_film(request, held, names, handed), held, feed, handed, headers)
+    over = asyncio.Event()
+
+    async def until_over() -> Message:
+        await over.wait()
+        return {"type": "http.disconnect"}
+
+    # A segment is waited for as long as the film is sent.
+    wait = Request(request.scope, until_over)
+    reader = _FilmResponse(_film(wait, held, names, handed), over, held, feed, handed, headers)
     feed.readers.append(reader)
     return reader
 
@@ -215,6 +228,7 @@ class _FilmResponse(Response):
     def __init__(
         self,
         film: AsyncGenerator[bytes],
+        over: asyncio.Event,
         held: Ticket,
         feed: _Feed,
         handed: _HandOver,
@@ -223,10 +237,12 @@ class _FilmResponse(Response):
         super().__init__(media_type="video/mpeg", headers=headers)
         # Nobody knows the length.
         del self.headers["content-length"]
-        self._film, self._held, self._feed, self._handed = film, held, feed, handed
+        self._film, self._over = film, over
+        self._held, self._feed, self._handed = held, feed, handed
         self._scope = anyio.CancelScope()
 
     def end(self) -> None:
+        self._over.set()
         self._scope.cancel()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -260,7 +276,7 @@ class _FilmResponse(Response):
         self.end()
 
     async def _until_stream_ends(self) -> None:
-        while _stream_lives(self._held):
+        while _stream_lives(self._held) and not ending.is_set():
             await asyncio.sleep(_LIVES_SECONDS)
         self.end()
 

@@ -12,7 +12,7 @@ import pytest
 from fastapi import FastAPI
 
 from mediaman import app_factory
-from mediaman.web.routes import tv
+from mediaman.web.routes import older_stream, tv
 
 
 def test_the_stream_reaper_is_stopped_before_the_database_is_closed(monkeypatch):
@@ -57,6 +57,34 @@ def test_shutdown_saves_the_places_then_stops_the_reaper_then_every_live_stream(
     app_factory._start_watch_streams("k")()
 
     assert order == ["places", "reaper", "streams stopped"]
+
+
+def test_at_the_signal_the_places_are_saved_and_then_the_films_to_tvs_end(monkeypatch):
+    from mediaman.services.media_meta import plex_stream
+
+    manager = SimpleNamespace(reap=lambda: 0, tidy_orphans=lambda: 0, stop_all=lambda: None)
+    monkeypatch.setattr(plex_stream, "init_stream_manager", lambda *a, **k: manager)
+    monkeypatch.setattr(app_factory, "_tidy_stream_orphans", lambda tidy: None)
+    monkeypatch.setattr(app_factory, "_start_stream_reaper", lambda reap, interval: lambda: None)
+    acts: list = []
+    monkeypatch.setattr(app_factory, "_when_told_to_end", lambda act: acts.append(act))
+    saved: list[bool] = []
+
+    def save() -> None:
+        saved.append(older_stream.ending.is_set())
+        raise RuntimeError("no database")
+
+    monkeypatch.setattr(tv, "save_places", save)
+    older_stream.ending.set()
+    try:
+        app_factory._start_watch_streams("k")
+        assert not older_stream.ending.is_set(), "a start anew sends films again"
+        with pytest.raises(RuntimeError):
+            acts[0]()
+        assert saved == [False]
+        assert older_stream.ending.is_set()
+    finally:
+        older_stream.ending.clear()
 
 
 @pytest.mark.parametrize("number", [signal.SIGTERM, signal.SIGINT])

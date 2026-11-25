@@ -208,7 +208,7 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     from mediaman.db import get_db
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
-    from mediaman.web.routes import tv
+    from mediaman.web.routes import older_stream, tv
     from mediaman.web.routes.watch.stream_api import read_plex_credentials
 
     manager = init_stream_manager(
@@ -223,7 +223,15 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     ).start()
     stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
 
-    stop_listening = _when_told_to_end(tv.save_places)
+    older_stream.ending.clear()
+
+    def told_to_end() -> None:
+        try:
+            tv.save_places()
+        finally:
+            older_stream.ending.set()
+
+    stop_listening = _when_told_to_end(told_to_end)
 
     def shutdown() -> None:
         stop_listening()
