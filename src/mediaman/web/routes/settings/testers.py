@@ -189,7 +189,15 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
     if not url or not token:
         return respond_failure("Plex URL and token are required", status=200)
     try:
-        PlexClient(url, token).get_libraries()
+        try:
+            client = PlexClient(url, token)
+        except (AttributeError, TypeError) as exc:
+            # Connecting reads the server's identity from a 200 body: XML that isn't
+            # Plex's lacks it (AttributeError) and an empty body parses to None
+            # (TypeError). Only the connection is read this way, so a bug in the
+            # library call below is not mistaken for a foreign server.
+            return _not_plex(exc)
+        client.get_libraries()
         return JSONResponse({"ok": True})
     except SafeHTTPError as exc:
         return _safe_http_error_to_response(exc)
@@ -214,9 +222,8 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
             logger.warning("settings.test_plex Plex answered with an error: status %s", status[1])
             return _failure("plex_error", "Plex answered with an error. Try again in a moment.")
         return _not_plex(exc)
-    except (NotFound, ParseError, AttributeError) as exc:
-        # A 200 that isn't Plex's XML (a proxy login page, another app) fails to parse
-        # (ParseError) or lacks the server's identity (AttributeError).
+    except (NotFound, ParseError) as exc:
+        # A 200 that isn't XML at all (a proxy login page) fails to parse.
         return _not_plex(exc)
 
 

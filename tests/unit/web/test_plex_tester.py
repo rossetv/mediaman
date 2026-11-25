@@ -128,6 +128,8 @@ _PLEX_ERROR = ("plex_error", "Plex answered with an error. Try again in a moment
         (ParseError("syntax error: line 1, column 0"), _NOT_PLEX),
         # well-formed XML that is not Plex's has no machine identifier
         (AttributeError("'NoneType' object has no attribute 'attrib'"), _NOT_PLEX),
+        # an empty 200 body parses to None
+        (TypeError("'NoneType' object is not subscriptable"), _NOT_PLEX),
         (BadRequest("(400) bad_request; http://plex:32400/ nope"), _NOT_PLEX),
         (BadRequest("(500) internal_server_error; http://plex:32400/ boom"), _PLEX_ERROR),
         (BadRequest("(503) service_unavailable; http://plex:32400/ later"), _PLEX_ERROR),
@@ -149,3 +151,10 @@ def test_plex_replies_that_are_not_a_plex_answer_are_told_apart(exc, expected, c
     assert caplog.records[0].exc_info is None
     assert "secret-token" not in caplog.text and "u:p@" not in caplog.text
     assert "http://" not in caplog.text
+
+
+def test_a_bug_in_the_library_call_is_not_called_a_foreign_server():
+    with patch("mediaman.services.media_meta.plex.PlexClient") as client:
+        client.return_value.get_libraries.side_effect = AttributeError("a real bug")
+        with pytest.raises(AttributeError):
+            _test_plex({"plex_url": "http://plex:32400", "plex_token": "t"})
