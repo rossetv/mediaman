@@ -180,9 +180,9 @@
 }
 
 /* Where the open field would cover the meter, that makes room. */
-.wbar :is(.watch-viewtoggle, .space-meter) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, visibility 0s .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.wbar :is(.watch-viewtoggle, .space-meter) { transition: opacity var(--dur) var(--ease-out) .12s, transform var(--dur-slow) var(--ease-out) .12s, background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 @media (min-width: 1100px) {
-  .wbar.is-wide-open .space-meter { opacity: 0; visibility: hidden; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+  .wbar.is-wide-open .space-meter { opacity: 0; pointer-events: none; transform: translateX(10px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
 }
 @media (min-width: 1100px) and (max-width: 1319.98px) { .wbar { --wshut: min(380px, var(--w) - 750px); --wopen: min(520px, var(--w) - 644px); } }
 @media (min-width: 1100px) { .watch-search .watch-search__input, .watch-search__ph { font-size: 15px; } }
@@ -224,7 +224,7 @@
   .wbar .watch-search:hover { --sx: 0px; }
   .wbar > .watch-viewtoggle { position: absolute; right: var(--pad); top: calc(var(--nav-h) + 2px); }
   .wbar .watch-viewtoggle__btn { width: 44px; min-height: 44px; }
-  .wbar:has(> .watch-search.is-open) > .watch-viewtoggle { opacity: 0; visibility: hidden; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), visibility 0s var(--dur-fast); }
+  .wbar:has(> .watch-search.is-open) > .watch-viewtoggle { opacity: 0; pointer-events: none; transform: translateX(14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); }
   .wbar.is-tucked > .watch-viewtoggle { opacity: 0; transform: translateY(-14px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out); pointer-events: none; }
 }
 /* Little height: the bar goes with the page. */

@@ -620,7 +620,7 @@
       box.classList.toggle('is-focus', on);
       box.classList.toggle('has-value', !!input.value);
       box.classList.toggle('has-token', tokened);
-      box.classList.toggle('is-open', on || !!input.value || tokened);
+      box.classList.toggle('is-open', on || ((!!input.value || tokened) && !asked()));
       // Another script may have hidden it; whether it shows is the bar's to say.
       clear.hidden = false;
       makeRoom();
@@ -636,9 +636,18 @@
     var framed = false;
 
     /* The open field would cover the meter. */
+    function covers() {
+      return !!meter && wide.matches && box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft;
+    }
+
     function makeRoom() {
-      bar.classList.toggle('is-wide-open', !!meter && wide.matches && box.classList.contains('is-open') &&
-        box.offsetLeft + box.offsetWidth + 8 > meter.offsetLeft);
+      bar.classList.toggle('is-wide-open', box.classList.contains('is-open') && covers());
+    }
+
+    /* The focus is on what the open field covers. */
+    function asked() {
+      var active = document.activeElement;
+      return active === meter ? covers() : phone.matches && !!toggle && toggle.contains(active);
     }
 
     /* The elements stand in the order they are read: below 1100px the field's line,
@@ -1791,8 +1800,9 @@
     new MutationObserver(function () { settleLine(0); }).observe(page, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
     bar.addEventListener('focusin', function (e) {
       if (onLine(e.target)) tuck(false);
+      sync();
     });
-    bar.addEventListener('focusout', function () { setTimeout(function () { settleLine(0); }); });
+    bar.addEventListener('focusout', function () { setTimeout(function () { sync(); settleLine(0); }); });
     [wide, phone].forEach(function (m) { m.addEventListener('change', place); });
     place();
 

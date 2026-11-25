@@ -2109,6 +2109,32 @@ scenarios.barCovers = async () => {
   p.ctx.getComputedStyle = () => ({ display: 'flex', paddingBottom: '54px', getPropertyValue: () => '' });
   return [0, 400].map((y) => { scrollTo(p, y); return p.ctx.MMWatch.core.clearArea().top; });
 };
+// What the open field covers comes back with the focus, which it can have.
+scenarios.barGivesBack = async () => {
+  const at = async (width, of) => {
+    const p = await ready(ADMIN, '', null, undefined, { width });
+    const bar = p.doc.querySelector('.wbar');
+    const box = p.doc.querySelector('.watch-search');
+    Object.defineProperty(box, 'offsetLeft', { value: 300 });
+    Object.defineProperty(box, 'offsetWidth', { value: 500 });
+    Object.defineProperty(p.$('meter'), 'offsetLeft', { value: 780 });
+    p.type('har');
+    p.input.focus();
+    const open = () => [box.classList.contains('is-open'), bar.classList.contains('is-wide-open')];
+    const out = [open()];
+    const node = of(p);
+    node.focus();
+    bar.listeners.focusin.forEach((fn) => fn({ target: node }));
+    out.push(open());
+    node.blur();
+    bar.listeners.focusout.forEach((fn) => fn({ target: node }));
+    await settle();
+    return out.concat([open()]);
+  };
+  const meter = (p) => p.$('meter');
+  const list = (p) => p.doc.querySelector('#watch-viewtoggle a');
+  return { wide: await at(1280, meter), phone: await at(390, list), clear: await at(1280, list) };
+};
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {
   const at = async (top) => {

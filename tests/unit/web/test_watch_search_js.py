@@ -4,6 +4,7 @@ node against a fake DOM."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -957,6 +958,23 @@ def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None
         assert out[free] == [False, False, False]
     # Its words came while the field was open.
     assert out["grows"] == [False, False, True, False]
+
+
+def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
+    out = _run("barGivesBack")
+    assert out["wide"] == [[True, True], [False, False], [True, True]]
+    assert out["phone"] == [[True, False], [False, False], [True, False]]
+    # Nothing covers the switch there.
+    assert out["clear"] == [[True, True], [True, True], [True, True]]
+
+
+def test_what_the_open_field_covers_can_have_the_focus() -> None:
+    sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
+    rules = re.findall(r"([^{}]*(?:space-meter|viewtoggle)) \{([^}]*)\}", sheet.read_text())
+    hidden = [body for _, body in rules if "opacity: 0" in body]
+    assert hidden
+    for body in hidden:
+        assert "pointer-events: none" in body and "visibility" not in body
 
 
 def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
