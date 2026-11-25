@@ -357,6 +357,18 @@ class TmdbClient:
             raise ValueError("person answered without a name")
         return payload
 
+    def collection(self, collection_id: int) -> dict[str, Any]:
+        """Return a film collection's raw payload. Raises as find_by_tvdb does, and ValueError
+        for a payload that is no collection's."""
+        payload = self._get(f"/collection/{collection_id}")
+        if (
+            not isinstance(payload, dict)
+            or not payload.get("name")
+            or not isinstance(payload.get("parts"), list)
+        ):
+            raise ValueError("collection answered without its films")
+        return payload
+
     # The implementations live in _tmdb_shapes; they are re-bound
     # here as static methods so ``TmdbClient.shape_card`` /
     # ``TmdbClient.shape_detail`` call sites (and test monkeypatches
