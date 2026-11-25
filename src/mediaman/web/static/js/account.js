@@ -42,8 +42,10 @@
   }
 
   // Not `disabled`: that would drop the focus, which the password dialog returns to its button.
-  function setBusy(button, words) {
+  // With `keepWidth` the words are for a screen reader, so what is beside the button does not move.
+  function setBusy(button, words, keepWidth) {
     if (words) {
+      var width = button.offsetWidth;
       button.setAttribute('aria-disabled', 'true');
       if (button._label === undefined) button._label = button.textContent;
       button.textContent = '';
@@ -51,9 +53,17 @@
       spinner.className = 'btn-spinner';
       spinner.setAttribute('aria-hidden', 'true');
       button.appendChild(spinner);
-      button.appendChild(document.createTextNode(words));
+      if (keepWidth) {
+        button.style.width = width + 'px';
+        button._name = button.getAttribute('aria-label');
+        button.setAttribute('aria-label', words);
+      } else {
+        button.appendChild(document.createTextNode(words));
+      }
     } else {
       button.removeAttribute('aria-disabled');
+      button.style.width = '';
+      if (button._name) button.setAttribute('aria-label', button._name);
       if (button._label !== undefined) button.textContent = button._label;
     }
   }
@@ -291,6 +301,9 @@
     /* The rows on show by the session each is of. */
     var rows = {};
     var loaded = false;
+    /* Only the list asked for last is shown, without what was signed out since it was asked. */
+    var asked = 0;
+    var gone = {};
 
     function el(tag, cls, text) {
       var node = document.createElement(tag);
@@ -317,10 +330,14 @@
       }
       text.appendChild(name);
       var dates = el('div', 'me-sub dev-sub');
-      dates.appendChild(el('span', '', 'Last active ' + when(s.last_used_at || s.created_at)));
+      function date(words, iso) {
+        var line = dates.appendChild(el('span', '', words + ' '));
+        line.appendChild(el('span', 'dev-date', when(iso)));
+      }
+      date('Last active', s.last_used_at || s.created_at);
       if (s.device_label) {
         dates.appendChild(document.createTextNode(' '));
-        dates.appendChild(el('span', '', 'Signed in ' + when(s.created_at)));
+        date('Signed in', s.created_at);
       }
       text.appendChild(dates);
       row.appendChild(text);
@@ -348,9 +365,11 @@
     }
 
     function load() {
+      var mine = asked += 1;
       return MM.api.get('/api/users/sessions').then(function (data) {
+        if (mine !== asked) return;
         // A sign-in that ran out stays listed until it is next used.
-        var live = data.sessions.filter(function (s) { return new Date(s.expires_at) > Date.now(); });
+        var live = data.sessions.filter(function (s) { return new Date(s.expires_at) > Date.now() && !gone[keyOf(s)]; });
         live.sort(function (a, b) { return Number(b.current || false) - Number(a.current || false); });
         if (!loaded) list.textContent = '';
         loaded = true;
@@ -366,6 +385,7 @@
         Object.keys(rows).forEach(function (key) { if (!still[key]) drop(key); });
         tellAlone();
       }).catch(function () {
+        if (mine !== asked) return;
         rows = {};
         loaded = false;
         list.textContent = '';
@@ -373,15 +393,18 @@
         // They can still be ended without being listed.
         revoke.disabled = false;
         why.hidden = true;
-      }).then(function () { list.removeAttribute('aria-busy'); });
+      }).then(function () {
+        if (mine === asked) list.removeAttribute('aria-busy');
+      });
     }
 
     function signOut(s, row, button) {
       if (isBusy(button)) return;
-      setBusy(button, 'Signing out…');
+      setBusy(button, 'Signing out…', true);
       confirmed('sign out a device', function () {
         return MM.api.delete('/api/users/sessions/' + encodeURIComponent(s.public_id));
       }).then(function () {
+        gone[keyOf(s)] = true;
         done('Signed out ' + nameOf(s) + '.');
         // The list may have been loaded afresh meanwhile, without it.
         if (rows[keyOf(s)] !== row) return;

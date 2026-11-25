@@ -519,6 +519,31 @@
       if (held) byId('plex-start').focus({ preventScroll: true });
     }
 
+    /* Opened and shut by steps of its height, as what is below it moves with it. */
+    var more = byId('plex-more');
+    var moreSizing = null;
+    byId('plex-more-toggle').addEventListener('click', function (e) {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      e.preventDefault();
+      var opens = !more.open || more.classList.contains('is-shutting');
+      var from = more.offsetHeight;
+      if (moreSizing) moreSizing.cancel();
+      more.open = true;
+      more.classList.toggle('is-shutting', !opens);
+      var to = opens ? more.offsetHeight : this.offsetHeight;
+      var tokens = getComputedStyle(document.documentElement);
+      var mine = moreSizing = more.animate(
+        [{ height: from + 'px', overflowY: 'clip' }, { height: to + 'px', overflowY: 'clip' }],
+        { duration: parseFloat(tokens.getPropertyValue('--dur-slow')) * 1000, easing: tokens.getPropertyValue('--ease-out').trim() }
+      );
+      mine.onfinish = function () {
+        if (moreSizing !== mine) return;
+        moreSizing = null;
+        more.open = opens;
+        more.classList.remove('is-shutting');
+      };
+    });
+
     /* A key held down presses whatever button the focus has moved to. */
     card.addEventListener('keydown', function (e) {
       if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault();

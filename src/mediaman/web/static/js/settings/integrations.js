@@ -149,6 +149,20 @@
     window.UIFeedback.error(message);
   }
 
+  /* The session ended, or is no admin's any more: to sign-in, unless that would lose
+     edits. A 401 gets here only then, and MM.api has told the person. */
+  function picksLoggedOut(err) {
+    if (!err || (err.status !== 401 && err.status !== 403)) return false;
+    if (MM.api.hasUnsavedChanges()) {
+      picks.running = false;
+      drawPicks();
+      if (err.status === 403) window.UIFeedback.error('You are no longer signed in as an admin.');
+    } else {
+      window.location.href = '/login?next=%2Fsettings' + (window.location.hash || '');
+    }
+    return true;
+  }
+
   /* Follow a running refresh to its end. */
   function followPicks() {
     var failures = 0;
@@ -170,7 +184,8 @@
           return;
         }
         picksFailed((st.result && st.result.error) || 'The refresh stopped before it finished. Try again.');
-      }).catch(function () {
+      }).catch(function (err) {
+        if (picksLoggedOut(err)) return;
         failures += 1;
         if (failures < MAX_FAILURES) { later(Math.min(POLL_MS * Math.pow(2, failures), POLL_MAX_MS)); return; }
         picksFailed('Couldn’t reach the server. Check your connection and try again.');
@@ -186,6 +201,7 @@
     picks.running = true;
     drawPicks();
     MM.api.post(PICKS_URL).then(followPicks, function (err) {
+      if (picksLoggedOut(err)) return;
       var next = err && err.status === 429 && err.data && err.data.next_available_at;
       if (next) {
         picks.running = false;

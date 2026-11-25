@@ -74,7 +74,7 @@ function load(opts = {}) {
   const server = opts.server ? [['section', { class: 'watch-all', id: 'watch-all' },
     ['div', { class: 'watch-all__head' }, ['a', { class: 'watch-all__back', href: '/watch' }], ['h1', { class: 'watch-all__title' }], ['span', { class: 'watch-all__count' }], ['div', { class: 'watch-all__tools' }]],
     ['div', { class: 'watch-all__body' }, ['div', { class: 'watch-grid' }]]]] : [];
-  doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' }, ['div', { class: 'watch-top' }],
+  doc.body.appendChild(build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['div', { id: 'watch-browse' }, row('Movies'), row('TV')], ...server]));
   const rows = doc.querySelectorAll('.watch-row');
   (opts.cards || range(1, 13)).forEach((n) => rows[0].querySelector('.watch-row__scroll').appendChild(posterCard(doc, n, { far: opts.far === n })));
@@ -127,7 +127,7 @@ function load(opts = {}) {
     for (let a = e.target; a; a = a.parentNode) (a.listeners.keydown || []).forEach((fn) => fn(e));
     (doc.listeners.keydown || []).forEach((fn) => fn(e)); fire('keydown', e); return e; };
   p.finish = () => anims.slice().forEach((a) => { if (!a.cancelled && !a.done) { a.done = true; if (a.onfinish) a.onfinish(); } });
-  p.leftovers = () => doc.querySelectorAll('.is-track, .is-flyer, .is-flown, .is-under, .is-pinned, .watch-ride, .is-ghost, [inert]').length;
+  p.leftovers = () => doc.querySelectorAll('.is-track, .is-flyer, .is-flown, .is-under, .is-pinned, .watch-ride, [inert]').length;
   p.state = () => ({ browse: shown(p.browse), all: !!p.all() && shown(p.all()), moving: grid.moving(), open: grid.isOpen() });
   return p;
 }
@@ -765,7 +765,7 @@ const scenarios = {
   // The only card dismissed takes its row along: with no row to go back to, the search has the focus.
   async closesWithNoRow() {
     const p = load();
-    p.doc.querySelector('.watch-top').appendChild(build(p.doc, ['input', { id: 'watch-search' }]));
+    p.doc.body.appendChild(build(p.doc, ['input', { id: 'watch-search' }]));
     p.rows[0].querySelector('.watch-card__link').focus();
     p.grid.open(p.opts());
     p.rows[0].remove();

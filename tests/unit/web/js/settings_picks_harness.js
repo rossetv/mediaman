@@ -32,6 +32,11 @@ async function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
+  if (opts.fetch) {
+    Object.assign(ctx, { location: { pathname: '/settings', search: '', hash: '', href: '/settings' }, fetch: opts.fetch });
+    vm.runInContext(fs.readFileSync(path.resolve(path.dirname(FILE), '../core/api.js'), 'utf8'), ctx);
+    ctx.MM.api.hasUnsavedChanges = () => !!opts.edits;
+  }
   vm.runInContext(fs.readFileSync(FILE, 'utf8'), ctx);
   p.ctx = ctx;
   ctx.MM.settings.integrations.init();
@@ -105,6 +110,26 @@ const scenarios = {
     p.ctx.MM.settings.integrations.recheck(['openai_api_key'], { openai_api_key: 'sk', suggestions_enabled: true });
     out.saved = p.look().off;
     return out;
+  },
+  // The session ends, or is no admin's any more, while a refresh is followed or as it is asked for.
+  async loggedOut() {
+    const at = async (status, edits, when) => {
+      let ended = false;
+      let polls = 0;
+      const answer = (code, data) => Promise.resolve({ ok: code < 400, status: code, statusText: '', json: () => Promise.resolve(data) });
+      const p = await load({ edits, fetch: (url, req) => {
+        if (!/recommended/.test(url)) return answer(200, {});
+        if (ended && !req.method.includes('POST')) polls += 1;
+        return ended ? answer(status, { detail: 'x' }) : answer(200, { status: req.method === 'POST' ? 'started' : 'idle' });
+      } });
+      ended = when === 'press';
+      await p.press();
+      ended = true;
+      if (when === 'poll') for (let i = 0; i < 12; i += 1) await p.tick();
+      return { href: p.ctx.location.href, polls, said: p.said.map((s) => s[1]), text: edits ? p.look().text : null };
+    };
+    return { clean: await at(401, false, 'poll'), demoted: await at(403, false, 'poll'), edits: await at(401, true, 'poll'),
+      demotedEdits: await at(403, true, 'poll'), press: await at(401, true, 'press'), pressClean: await at(401, false, 'press') };
   },
   async running() {
     const p = await load({ status: { status: 'running' } });

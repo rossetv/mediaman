@@ -70,6 +70,10 @@
   .space-meter--off:has(> :is(.space-meter__warn, .space-meter__info)) > .ico:first-child,
   .space-meter--off:has(> :is(.space-meter__warn, .space-meter__info)) .space-meter__word { display: none; }
 }
+.wbar.is-tight .space-meter > :is(.space-meter__free, .space-meter__leaving) { display: none; }
+.wbar.is-tight .space-meter { min-width: 0; }
+@media (min-width: 1100px) { .wbar.is-tight .space-meter > .space-meter__bar { display: block; } }
+@media (max-width: 699.98px) { .wbar.is-tight .space-meter__warn ~ .space-meter__info { display: none; } }
 /* The profile button beside it must keep its place: the marks stand before the bar and the words. */
 @media (max-width: 409.98px) {
   .space-meter:has(> .space-meter__warn):has(> .space-meter__info) > .ico:first-child { display: none; }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,15 +13,22 @@ from mediaman.core.audit import log_audit, security_event
 from mediaman.scanner.repository.audit import AuditRow
 from mediaman.web.repository.history import (
     GROUPS,
+    SYSTEM,
     BadCursor,
     Filters,
     Play,
+    Who,
+    action_counts,
     cursor_of,
     event_for,
     history_page,
     parse_filters,
     people,
+    title_counts,
+    user_counts,
     viewer_for,
+    who_of,
+    whose,
 )
 from mediaman.web.routes._history_view import own_item, play_item
 from mediaman.web.routes.history import ACTION_BADGE_CLASS, SECURITY_EVENT_LABELS, _build_item
@@ -143,7 +151,7 @@ def test_another_persons_event_cannot_be_opened_or_filtered_to(db):
     assert event_for(db, viewer_for(db, "root"), bob).id == bob
     for filters in (Filters(user="bob"), Filters(q="Dune"), Filters(q="bob")):
         assert _ids(_read(db, "ana", filters)) == []
-    assert people(db, viewer) == ["ana"]
+    assert people(db, viewer) == [Who("account", "ana")]
 
 
 def test_an_old_row_is_a_persons_by_name_only_from_when_their_account_was_made(db):
@@ -220,7 +228,7 @@ def test_a_wildcard_in_a_search_is_only_itself(db):
     hundred = _event(db, owner="ana", item="100% Wolf")
     _event(db, owner="ana", item="1000 Wolf")
     for text in ("100%", "0% w"):
-        assert _ids(_read(db, "root", Filters(title=text))) == [hundred]
+        assert _ids(_read(db, "root", Filters(q=text))) == [hundred]
     assert _ids(_read(db, "root", Filters(q="_"))) == []
     assert _ids(_read(db, "root", Filters(q="\\"))) == []
 
@@ -493,6 +501,160 @@ def test_plays_of_a_person_whose_link_is_gone_are_not_shown(db):
     db.execute("PRAGMA foreign_keys=OFF")
     db.execute("DELETE FROM plex_links")
     assert _read(db, "root").entries == []
+
+
+# --- whose ---
+
+
+def _recreate(db, name):
+    db.execute("DELETE FROM admin_users WHERE username = ?", (name,))
+    db.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at, role)"
+        " VALUES (?, 'x', ?, 'viewer')",
+        (name, _at(100)),
+    )
+
+
+def test_former_users_and_mediaman_can_be_filtered_by(db):
+    _event(db, owner="bob", minutes=1)
+    petra = _event(db, actor="petra", minutes=2)
+    system = _event(db, "deleted", minutes=3)
+    failed = _event(db, "sec:login.failed", "_security", actor="ghost", minutes=4)
+    found = people(db, viewer_for(db, "root"))
+    assert found == [
+        *(Who("account", n) for n in ("ana", "bob", "root")),
+        Who("former", "petra"),
+        SYSTEM,
+    ]
+    assert _ids(_read(db, "root", Filters(user=Who("former", "petra").value))) == [petra]
+    assert _ids(_read(db, "root", Filters(user=SYSTEM.value))) == [failed, system]
+
+
+def test_a_new_account_of_a_former_users_name_is_another_choice(db):
+    old = _event(db, owner="bob", minutes=1)
+    old_by_name = insert_audit_log(db, action="snoozed", actor="bob", created_at=_at(2))
+    _recreate(db, "bob")
+    new = _event(db, owner="bob", minutes=200)
+    former, account = Who("former", "bob"), Who("account", "bob")
+    assert {former, account} <= set(people(db, viewer_for(db, "root")))
+    for who, ids in ((former, [old_by_name, old]), (account, [new])):
+        page = _read(db, "root", Filters(user=who.value))
+        assert (_ids(page), page.total) == (ids, len(ids))
+        assert set(whose(db, page.entries).values()) == {who}
+
+
+@pytest.mark.parametrize("name", ["~mediaman", "mediaman", "~former:bob", "~", "~~x", "former:bob"])
+def test_no_accounts_name_is_taken_for_a_former_user_or_mediaman(db, name):
+    db.execute(
+        "INSERT INTO admin_users (username, password_hash, created_at) VALUES (?, 'x', ?)",
+        (name, CREATED),
+    )
+    _event(db, owner="bob")
+    _event(db, "deleted")
+    own = _event(db, owner=name, minutes=1)
+    who = Who("account", name)
+    assert who_of(db, who.value) == who
+    assert who.value not in {SYSTEM.value, Who("former", "bob").value}
+    assert _ids(_read(db, "root", Filters(user=who.value))) == [own]
+
+
+def test_a_person_who_is_no_admin_cannot_filter_to_anyone_else(db):
+    _event(db, owner="bob")
+    _event(db, "deleted")
+    _event(db, owner="ana")
+    for value in ("bob", SYSTEM.value, Who("former", "bob").value, "~nothing"):
+        assert _ids(_read(db, "ana", Filters(user=value))) == []
+    assert len(_ids(_read(db, "ana", Filters(user="ana")))) == 1
+
+
+# --- counts ---
+
+
+def _many(db):
+    insert_media_item(db, id="d", title="Dune")
+    _event(db, owner="ana", item="d", minutes=1)
+    _event(db, "deleted", item="d", minutes=2)
+    _event(db, "deleted", item="z", minutes=3, detail="Deleted 'Heat'")
+    _event(db, "sec:login.success", "_security", owner="bob", minutes=4)
+    _event(db, actor="petra", item="d", minutes=5)
+    _plex(db, "bob", "1", 600, title="dune")
+    _plex(db, "ana", "2", 600, title="Alien")
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        Filters(),
+        Filters(q="d"),
+        Filters(action="keeps"),
+        Filters(title="Dune"),
+        Filters(user="ana"),
+        Filters(user=SYSTEM.value, action="deletions"),
+        Filters(since=NOON + timedelta(minutes=2)),
+        Filters(title="Heat", user=SYSTEM.value),
+    ],
+)
+@pytest.mark.parametrize("name", ["root", "ana"])
+def test_each_count_is_how_many_rows_that_choice_lists(db, name, filters):
+    _many(db)
+    viewer = viewer_for(db, name)
+    users = user_counts(db, viewer, filters)
+    actions = action_counts(db, viewer, filters)
+    titles = title_counts(db, viewer, filters)
+    for who, count in users:
+        assert count == len(_ids(_read(db, name, replace(filters, user=who.value)))), who
+    for action, count in actions.items():
+        assert count == len(_ids(_read(db, name, replace(filters, action=action)))), action
+    for title in titles:
+        page = _read(db, name, replace(filters, title=title.title))
+        assert title.count == page.total == len(_ids(page)) > 0, title
+
+
+def test_titles_are_listed_by_count_and_found_by_part_of_their_name(db):
+    _many(db)
+    root = viewer_for(db, "root")
+    assert [(t.title, t.count) for t in title_counts(db, root, Filters())] == [
+        ("Dune", 4),
+        ("Alien", 1),
+        ("Heat", 1),
+    ]
+    assert [t.title for t in title_counts(db, root, Filters(), "EA")] == ["Heat"]
+    assert title_counts(db, root, Filters(), "%") == []
+    assert len(title_counts(db, root, Filters(title="Heat"))) == 3
+
+
+def test_a_menu_tells_a_person_who_is_no_admin_only_of_their_own(db):
+    _many(db)
+    ana = viewer_for(db, "ana")
+    assert user_counts(db, ana, Filters()) == [(Who("account", "ana"), 2)]
+    assert action_counts(db, ana, Filters()) == {
+        "plays": 1,
+        "downloads": 0,
+        "keeps": 1,
+        "sign_ins": 0,
+    }
+    assert {t.title for t in title_counts(db, ana, Filters())} == {"Dune", "Alien"}
+    assert {t.count for t in title_counts(db, ana, Filters())} == {1}
+
+
+def test_a_title_stored_with_spaces_around_it_is_counted_and_listed_alike(db):
+    insert_media_item(db, id="d", title=" Dune  ")
+    insert_media_item(db, id="t", title="\tHeat")
+    _event(db, "deleted", item="d")
+    _event(db, "deleted", item="e", detail="Deleted 'Dune'")
+    _event(db, "deleted", item="t")
+    _plex(db, "ana", "1", 0, title="Dune ")
+    root = viewer_for(db, "root")
+    counts = [(t.title, t.count) for t in title_counts(db, root, Filters())]
+    assert dict(counts)["Dune"] == 3
+    for title, count in counts:
+        assert len(_ids(_read(db, "root", parse_filters(title=title)))) == count
+
+
+def test_a_title_filter_is_the_whole_title(db):
+    dune = _event(db, "deleted", detail="Deleted 'Dune'", item="a")
+    _event(db, "deleted", detail="Deleted 'Dune: Part Two'", item="b")
+    assert _ids(_read(db, "root", Filters(title="dune"))) == [dune]
 
 
 # --- speed ---
