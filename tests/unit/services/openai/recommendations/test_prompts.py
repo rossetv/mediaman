@@ -98,6 +98,10 @@ class TestParseRecommendations:
         assert len(result) == 1
         assert result[0]["title"] == "Dune"
 
+    def test_an_item_without_title_is_logged(self, caplog):
+        parse_recommendations([{"media_type": "movie", "reason": "x"}], "personal")
+        assert "no_usable_title" in caplog.text
+
     def test_a_title_holding_a_domain_skips_that_item_only(self):
         items = [
             {"title": "Mr.Robot", "media_type": "tv", "reason": "x"},
