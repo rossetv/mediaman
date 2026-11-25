@@ -2,8 +2,8 @@
  * Opens from any [data-title-ref] and from the address; Back closes it, and
  * finds a title left for another page as it was left.
  * Needs watch/core.js, watch/address.js and watch/cast.js; uses watch/explore.js
- * for the genres, watch/keep.js for a viewer's Keep and MMWatch.admin, when
- * loaded, for the admin facts' Keep and Delete.
+ * for the genres, ratings.js for the person's own rating, watch/keep.js for a
+ * viewer's Keep and MMWatch.admin, when loaded, for the admin facts' Keep and Delete.
  */
 (function () {
   'use strict';
@@ -34,7 +34,7 @@
      is the Arr catching up rather than the download being gone. */
   var DOWNLOAD_GRACE_MS = 30000;
   var COPIED_MS = 2000;
-  /* How long a title waits for its picture, which settles the hero's height, and for why it is a pick. */
+  /* How long a title waits for its picture, which settles the hero's height, for why it is a pick and for whether it can be rated. */
   var PICTURE_WAIT_MS = 400;
   var SEASON_WAIT_MS = 1500;
   /* How long after a close the next press of a double click can still come. */
@@ -65,6 +65,7 @@
     isAdmin = !!(dataNode && JSON.parse(dataNode.textContent).is_admin);
   } catch (e) { isAdmin = false; }
 
+  var thumbs = null;   // the set of thumbs on show
   var cur = null;      // the title on show: { ref, data, facts, ... }
   var isOpen = false;
   var kept = {};       // the titles left, by ref, as they were left
@@ -248,6 +249,7 @@
       pickRef: PICK_RE.test(ref) ? ref : PICK_RE.test(opts.pick || '') ? opts.pick : null,
       pick: null,          // why it is a pick, once known: { reason, because }
       onPick: null,
+      onThumbs: null,
       atEpisodes: !!opts.atEpisodes,
       opensOn: opts.season,
       recId: /^rec-/.test(ref) ? ref.slice(4) : null,
@@ -525,6 +527,7 @@
     var first = ownPicture(c.ref);
     if (first) el('img').setAttribute('src', first);
     if (c.pickRef && c.pickRef !== c.ref) askPick(c, ctrl);
+    if (window.MM.ratings) window.MM.ratings.read([c.ref]);
     get(apiUrl(c.ref), ctrl).then(function (data) {
       if (c !== cur || !isOpen) return;
       if (c.ref === c.pickRef) takePick(c, data);
@@ -535,7 +538,9 @@
       showPictures(data);
       afterPictures(function () {
         afterPick(c, function () {
-          afterSeason(c, data, function () { if (c === cur && isOpen) arrive(c, data); });
+          afterThumbs(c, function () {
+            afterSeason(c, data, function () { if (c === cur && isOpen) arrive(c, data); });
+          });
         });
       });
     }).catch(function (err) {
@@ -659,6 +664,43 @@
     return box;
   }
 
+
+  /* ── The person's own rating ── */
+
+  /* Run *fn* once it is known whether the title can be rated, or that takes too long. One
+     named by TMDB always can. */
+  function afterThumbs(c, fn) {
+    var ratings = window.MM.ratings;
+    function known() { return ratings.canRate(c.ref) !== undefined; }
+    if (!ratings || /^tmdb-/.test(c.ref) || known()) { fn(); return; }
+    function go() {
+      if (c.onThumbs !== told) return;
+      c.onThumbs = null;
+      clearTimeout(timer);
+      fn();
+    }
+    function told() { if (known()) go(); }
+    var timer = setTimeout(go, PICTURE_WAIT_MS);
+    c.onThumbs = told;
+  }
+
+  document.addEventListener('mm:rating', function () { if (cur && cur.onThumbs) cur.onThumbs(); });
+
+  function mountThumbs(main) {
+    var ratings = window.MM.ratings;
+    if (!ratings || ratings.canRate(cur.ref) === false) return;
+    thumbs = ratings.mount(cur.ref);
+    toArray(thumbs.node.querySelectorAll('button')).forEach(function (b, i) {
+      b.setAttribute('data-ttl-act', 'rate-' + ratings.LEVELS[i].level);
+    });
+    main.appendChild(thumbs.node);
+  }
+
+  function dropThumbs() {
+    if (thumbs) thumbs.destroy();
+    thumbs = null;
+  }
+
   function arrive(c, data) {
     c.data = data;
     c.title = data.title || c.title;
@@ -780,6 +822,7 @@
 
   function emptyBody() {
     cast.drop(); // it stands on the people in there
+    dropThumbs();
     body.textContent = '';
   }
 
@@ -808,6 +851,11 @@
     actions.appendChild(skel('skel--pill', '150px'));
     actions.appendChild(skel('skel--pill', '120px'));
     main.appendChild(actions);
+    if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
+      var thumbsSkel = el('div', 'ttl__rate-skel');
+      thumbsSkel.appendChild(skel('skel--pill'));
+      main.appendChild(thumbsSkel);
+    }
     var lines = el('div', 'ttl-skel-lines');
     lines.appendChild(skel('skel--line', '220px'));
     lines.appendChild(skel('skel--line'));
@@ -1047,6 +1095,7 @@
     main.appendChild(under);
     fillActions(actions, under);
     hide(under, !under.children.length);
+    mountThumbs(main);
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
     askRatings(cur);

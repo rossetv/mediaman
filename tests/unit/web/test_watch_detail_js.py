@@ -1116,3 +1116,37 @@ def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_w
     out = _run("lateRatings")
     assert out["dropped"] == [True, True]
     assert out["again"] == [2, 3]
+
+
+def test_a_title_s_thumbs_stand_between_its_actions_and_its_overview_from_the_start() -> None:
+    out = _run("thumbs")
+    assert (out["skel"], out["waits"]) == (True, False)
+    order = out["order"]
+    assert order.index("ttl__actions") < order.index("rate") < order.index("ttl__overview")
+    assert out["rated"] == ["false", "false", "true", "false"]
+
+
+def test_a_thumb_pressed_stays_on_and_keeps_the_focus_when_the_title_is_drawn_again() -> None:
+    out = _run("thumbs")
+    loved = ["false", "false", "false", "true"]
+    assert out["pressed"] == [
+        loved,
+        [{"url": "/api/watch/ratings/movie-120", "body": {"level": 2}}],
+    ]
+    assert out["redrawn"] == [True, True, loved]
+
+
+def test_thumbs_go_with_their_title() -> None:
+    out = _run("thumbs")
+    assert out["next"] == ["false"] * 4
+    assert out["old"] == "false"
+    assert out["back"] == ["true", "false", "false", "false"]
+    assert out["closed"] == out["back"]
+
+
+def test_a_title_that_cannot_be_rated_has_no_thumbs_and_waits_for_that_only_so_long() -> None:
+    out = _run("thumbsNone")
+    assert out["before"] is False
+    assert out["late"] == [True, True]
+    assert out["told"] is True
+    assert out["again"] == [True, False]
