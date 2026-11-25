@@ -643,22 +643,28 @@
     var profile = bar.querySelector('.profile-btn');
 
     /* The field stays between what is on either side, however large a person has text;
-       where that leaves too little, or cuts the meter's figure, the meter drops its words
-       till the width changes. */
+       where that leaves too little, or cuts the meter's figure, the meter drops the words
+       beside its figure, and then that too, till the width changes. */
     function fitBetween() {
+      if (short()) bar.classList.add('is-snug');
+      if (short()) bar.classList.add('is-tight');
+      short(); // the room that left
+      makeRoom();
+    }
+
+    function short() {
       var brand = bar.querySelector('.brand');
       var l = brand.offsetLeft + brand.offsetWidth + 2;
       var r = (meter || profile).offsetLeft - 2;
       bar.style.setProperty('--l', l + 'px');
       bar.style.setProperty('--r', r + 'px');
-      var figure = meter && meter.querySelector('.space-meter__free');
-      var short = !phone.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
-      if (meter && short) bar.classList.add('is-tight');
-      makeRoom();
+      if (!meter) return false;
+      var figure = meter.querySelector('.space-meter__free');
+      return !phone.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
     }
 
     function fitAgain() {
-      bar.classList.remove('is-tight');
+      bar.classList.remove('is-snug', 'is-tight');
       fitBetween();
     }
 

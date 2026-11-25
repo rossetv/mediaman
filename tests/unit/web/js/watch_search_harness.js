@@ -2151,16 +2151,17 @@ async function between(width) {
 scenarios.barBetween = async () => ({ wide: await between(1280), tablet: await between(768) });
 // On a phone a figure cut short would say another one.
 scenarios.barCutFigure = async () => {
-  const at = (needs, has) => {
+  const at = (needs, has, alone = needs) => {
     const observed = [];
     const p = load(ADMIN, '', null, undefined, { width: 320, observed });
     const free = p.$('meter').appendChild(build(p.doc, ['span', { class: 'space-meter__free' }, '278 GB']));
-    Object.defineProperty(free, 'scrollWidth', { value: needs });
+    const bar = p.doc.querySelector('.wbar');
+    Object.defineProperty(free, 'scrollWidth', { get: () => (bar.classList.contains('is-snug') ? alone : needs) });
     Object.defineProperty(free, 'clientWidth', { value: has });
     observed.forEach((fn) => fn());
-    return p.doc.querySelector('.wbar').classList.contains('is-tight');
+    return ['is-snug', 'is-tight'].map((name) => bar.classList.contains(name));
   };
-  return [at(90, 90), at(90, 20)];
+  return { fits: at(90, 90), figureFits: at(90, 60, 58), neither: at(90, 20, 58) };
 };
 // "/" finds the field where the page stands, unless the bar has gone with it.
 scenarios.slashKeepsThePlace = async () => {

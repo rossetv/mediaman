@@ -117,16 +117,20 @@ def test_the_phone_s_meter_gives_way_to_the_profile_button_beside_it():
     assert "text-overflow: ellipsis" in words
 
 
-def test_a_narrow_phone_drops_the_bar_and_the_drive_for_the_marks_before_it_cuts_the_words():
-    any_mark = ":has(> :is(.space-meter__warn, .space-meter__info))"
-    both = ":has(> .space-meter__warn):has(> .space-meter__info)"
+def _hidden() -> set[str]:
+    """Every selector of the meter that hides something, at whatever width."""
+    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
+    hiding = re.findall(r"([^{}]+)\{[^{}]*display: none", css)
+    return {" ".join(rule.split()) for rule in hiding if "space-meter" in rule}
 
-    for gone in (
-        f".space-meter{any_mark} > .space-meter__bar",
-        f".space-meter--off{any_mark} > .ico:first-child",
-        f".space-meter{both} > .ico:first-child",
-    ):
-        assert "display: none" in _rules(gone), gone
+
+def test_the_meter_s_bar_drive_and_marks_stay_at_every_width_and_only_whole_words_go():
+    assert _hidden() == {
+        ".space-meter__leaving",
+        # watch/search.js: the word beside the figure, then the figure, as they have no room.
+        ".wbar.is-snug .space-meter__word",
+        ".wbar.is-tight .space-meter > :is(.space-meter__free, .space-meter__leaving)",
+    }
 
 
 def test_a_figure_too_long_for_a_phone_wraps():
@@ -138,10 +142,17 @@ def test_a_scheduled_title_s_tap_area_is_its_whole_text_on_a_phone():
     assert "position: relative" in _rules(".space-item__text:has(> a)")
 
 
-def test_the_narrowest_phone_keeps_the_bar_beside_the_words_of_a_disk_that_was_read():
-    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
-    hiding = re.findall(r"([^{}]*)\{[^{}]*display: none", css)
-    hidden = [sel.strip() for rule in hiding for sel in rule.split(",") if "meter__bar" in sel]
+def test_on_the_narrowest_phone_the_bar_narrows_before_the_words_do_and_never_to_nothing():
+    (rest,) = re.findall(
+        r"@media \(max-width: 339\.98px\) \{((?:[^{}]*\{[^{}]*\})*)\s*\}",
+        re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S),
+    )
+    bar = _rules(".space-meter .space-meter__bar")
+    least = int(re.search(r"min-width: (\d+)px", bar)[1])
 
-    assert hidden
-    assert all("__warn" in sel or "__info" in sel for sel in hidden)
+    assert "flex-shrink: 99" in bar
+    assert least >= 18
+    (narrow,) = re.findall(r"__bar \{ width: (\d+)px", rest)
+    assert int(narrow) >= least
+    # A mark, or the drive, is never squeezed.
+    assert "flex: none" in _rules(".space-meter > .ico")

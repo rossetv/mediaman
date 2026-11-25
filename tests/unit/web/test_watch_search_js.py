@@ -958,8 +958,12 @@ def test_the_field_stays_between_the_brand_and_the_meter_which_drops_its_words_f
     assert out["tablet"] == out["wide"]
 
 
-def test_a_phone_s_meter_drops_a_figure_that_would_be_cut() -> None:
-    assert _run("barCutFigure") == [False, True]
+def test_a_phone_s_meter_drops_the_word_free_and_then_a_figure_that_would_be_cut() -> None:
+    assert _run("barCutFigure") == {
+        "fits": [False, False],
+        "figureFits": [True, False],
+        "neither": [True, True],
+    }
 
 
 def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
