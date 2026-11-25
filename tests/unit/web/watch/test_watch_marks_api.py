@@ -504,6 +504,69 @@ class TestWhatIsLeftOfAMark:
 
         assert bool(seen_titles.person_marks(conn, "aoife").partly) is taken_back
 
+    @pytest.fixture
+    def later_seasons(self, client, conn, matched, plex):
+        """The show marked while the library held its second season alone."""
+        conn.execute("DELETE FROM media_items WHERE id = '501'")
+        conn.commit()
+        plex.add_show("500", "The Long Coast", {2: ("502", ["521", "522"])})
+        client.post("/api/watch/watched/show/500")
+
+    def _first_joins(self, conn, plex):
+        _season(conn, "501", "500", "The Long Coast", 1)
+        conn.execute(
+            "UPDATE media_items SET tmdb_id = 44, episode_count = 2, episode_keys = ?"
+            " WHERE id = '501'",
+            (json.dumps([{"key": f"51{n}", "number": n, "path": "p"} for n in (1, 2)]),),
+        )
+        conn.commit()
+        plex.add_show(
+            "500", "The Long Coast", {1: ("501", ["511", "512"]), 2: ("502", ["521", "522"])}
+        )
+
+    @pytest.mark.parametrize("joins", [False, True])
+    def test_a_season_the_library_never_held_is_not_one_taken_back(
+        self, client, conn, later_seasons, plex, joins
+    ):
+        if joins:
+            self._first_joins(conn, plex)
+        client.delete("/api/watch/watched/episode/521")
+        client.post("/api/watch/watched/episode/521")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == set()
+
+    def test_a_season_that_joined_and_was_taken_back_is_one_taken_back(
+        self, client, conn, later_seasons, plex
+    ):
+        self._first_joins(conn, plex)
+        client.post("/api/watch/watched/season/501")
+        client.delete("/api/watch/watched/season/501")
+        conn.execute("DELETE FROM media_items WHERE id = '501'")
+        conn.commit()
+        client.delete("/api/watch/watched/episode/521")
+        client.post("/api/watch/watched/episode/521")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == {("tv", 44)}
+
+    def test_a_show_marked_whole_again_has_nothing_taken_back(self, client, conn, matched, plex):
+        client.post("/api/watch/watched/show/500")
+        client.delete("/api/watch/watched/season/501")
+        conn.execute("DELETE FROM media_items WHERE id = '501'")
+        conn.commit()
+        plex.add_show("500", "The Long Coast", {2: ("502", ["521", "522"])})
+        client.post("/api/watch/watched/show/500")
+        client.delete("/api/watch/watched/episode/521")
+        client.post("/api/watch/watched/episode/521")
+
+        assert seen_titles.person_marks(conn, "aoife").partly == set()
+
+    def test_what_is_stored_is_numbers_by_number_as_older_versions_read(self, conn, later_seasons):
+        [(stored,)] = conn.execute("SELECT episodes FROM user_seen_titles").fetchall()
+        reach = {int(s): frozenset(numbers) for s, numbers in json.loads(stored).items()}
+
+        assert all(isinstance(n, int) for numbers in reach.values() for n in numbers)
+        assert (reach[1], reach[2]) == (frozenset(), {1, 2})
+
     def test_an_episode_gone_since_it_was_taken_back_leaves_the_show_whole(
         self, client, conn, joined, plex
     ):
