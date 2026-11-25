@@ -84,6 +84,10 @@ class ScanSummary(TypedDict, total=False):
     * ``deleted`` — items deleted from disk this run.
     * ``reclaimed_bytes`` — bytes freed by deletions.
     * ``skipped_reason`` — set alone when the scan did not run at all.
+    * ``left_out`` — why each library Plex was not read for was left out, by its id;
+      absent from what run_scan_from_db returns.
+    * ``left_out_notes`` — the same as a sentence each, set by run_scan_from_db.
+    * ``failed_reason`` — set when the scan read none of its libraries.
 
     Do NOT add new keys here without also updating ScanEngine.run_scan
     and any callers that check specific keys — this is the single source of
@@ -98,6 +102,18 @@ class ScanSummary(TypedDict, total=False):
     deleted: int
     reclaimed_bytes: int
     skipped_reason: str
+    left_out: dict[str, str]
+    left_out_notes: list[str]
+    failed_reason: str
+
+
+def scan_end(summary: ScanSummary) -> tuple[str, str | None]:
+    """Return the status a scan run ends with, and what there is to say of it."""
+    if reason := summary.get("skipped_reason"):
+        return "skipped", reason
+    if reason := summary.get("failed_reason"):
+        return "error", reason
+    return "done", "; ".join(summary.get("left_out_notes", [])) or None
 
 
 class PlexClientBundle(NamedTuple):

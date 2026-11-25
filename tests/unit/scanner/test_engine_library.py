@@ -630,6 +630,73 @@ class TestScanWithOneBadLibrary:
         assert self._scheduled(conn) == {"10", "20"}
 
 
+class TestScanWithAnUnreadableLibrary:
+    """Library 1 is ticked, but Plex does not list it now, or lists it as another type."""
+
+    @pytest.fixture(autouse=True, params=[{}, {"1": "photo"}], ids=["missing", "unsupported"])
+    def _types(self, request, conn, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.scanner.engine._refresh_recommendations", lambda *a, **k: None
+        )
+        monkeypatch.setattr("mediaman.scanner.engine._send_newsletter", lambda **k: None)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) "
+            """VALUES ('plex_libraries', '["1", "2"]', '2026')"""
+        )
+        conn.commit()
+        self.types = {**request.param, "2": "movie"}
+
+    def _engine(self, conn, mock_plex, listed=()):
+        mock_plex.get_movie_items.side_effect = lambda lib: list(listed) if lib == "2" else []
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["1", "2"],
+            library_types=self.types,
+            secret_key="test-key",
+        )
+
+    def test_its_due_deletions_wait_and_the_others_run(self, conn, mock_plex, tmp_path):
+        own, other = tmp_path / "own" / "own.mkv", tmp_path / "other" / "other.mkv"
+        TestScanWithOneBadLibrary._due(conn, "10", own, 1)
+        TestScanWithOneBadLibrary._due(conn, "20", other, 2)
+
+        summary = self._engine(
+            conn, mock_plex, [TestScanWithOneBadLibrary._item("20", other)]
+        ).run_scan()
+
+        assert (own.exists(), other.exists()) == (True, False)
+        assert TestScanWithOneBadLibrary._scheduled(conn) == {"10"}
+        assert (summary["errors"], list(summary["left_out"])) == (1, ["1"])
+
+    def test_an_item_at_the_place_of_one_of_its_own_is_not_scheduled(self, conn, mock_plex):
+        insert_media_item(
+            conn, id="10", plex_rating_key="10", plex_library_id=1, file_path="/media/film.mkv"
+        )
+        conn.commit()
+
+        self._engine(
+            conn,
+            mock_plex,
+            [
+                TestScanWithOneBadLibrary._item("20", "/media/film.mkv"),
+                TestScanWithOneBadLibrary._item("21", "/media/other.mkv"),
+            ],
+        ).run_scan()
+
+        assert TestScanWithOneBadLibrary._scheduled(conn) == {"21"}
+
+    def test_a_sync_does_not_read_it_as_films(self, conn, mock_plex):
+        insert_media_item(conn, id="10", plex_rating_key="10", plex_library_id=1)
+        conn.commit()
+
+        summary = self._engine(conn, mock_plex).sync_library()
+
+        assert [call.args for call in mock_plex.get_movie_items.call_args_list] == [("2",)]
+        assert summary["errors"] == 1
+
+
 _HOUR = timedelta(hours=1)
 
 

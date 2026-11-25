@@ -41,6 +41,7 @@ import requests
 from plexapi.exceptions import PlexApiException
 
 if TYPE_CHECKING:
+    from mediaman.scanner.runner import ScanSummary
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.media_meta.plex import PlexClient
 
@@ -180,8 +181,8 @@ class ScanEngine:
         self._listed_keys: set[str] = set()
         # The path and season of each key whose history the current scan could not fetch.
         self._skipped_places: set[tuple[object, object]] = set()
-        # The libraries the current scan could not read from Plex.
-        self._unread_libraries: set[str] = set()
+        # Why each library the current scan could not read from Plex was left out of it.
+        self._left_out: dict[str, str] = {}
 
         self._fetcher = PlexFetcher(
             plex_client=plex_client,
@@ -259,6 +260,9 @@ class ScanEngine:
     def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, FetchedLibrary]:
         """Pull every library's items + watch history from Plex into memory.
 
+        One of unknown or unsupported type is left out: what it holds would be
+        stored as films, and what it held pruned.
+
         Returns a ``lib_id -> FetchedLibrary`` mapping. No DB writes
         happen here. Fetch failures are logged per-library and
         accumulate into ``summary["errors"]`` so a single bad library
@@ -268,6 +272,9 @@ class ScanEngine:
         """
         per_lib_fetches: dict[str, FetchedLibrary] = {}
         for lib_id in self._library_ids:
+            if self._unreadable(lib_id) is not None:
+                summary["errors"] += 1
+                continue
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
             except (*_FETCH_ERRORS, sqlite3.Error):
@@ -358,7 +365,7 @@ class ScanEngine:
             return False
         return True
 
-    def run_scan(self) -> dict[str, int]:
+    def run_scan(self) -> ScanSummary:
         """Execute a full scan and return a summary dict.
 
         Returns:
@@ -372,11 +379,12 @@ class ScanEngine:
             - ``removed``: orphaned DB rows whose Plex rating key no longer exists.
             - ``deleted``: items whose grace period elapsed and were deleted from disk.
             - ``reclaimed_bytes``: total bytes freed by deletions this run.
+            - ``left_out``: why each library Plex was not read for was left out, by its id.
         """
         self._started_at = now_iso()
         self._listed_keys = set()
         self._skipped_places = set()
-        self._unread_libraries = set()
+        self._left_out = {}
         summary = {
             "scanned": 0,
             "scheduled": 0,
@@ -400,7 +408,16 @@ class ScanEngine:
             # Libraries committed before a failure are already in the DB.
             watch_catalog.clear_library_index()
         self._run_post_scan_followups()
-        return summary
+        return {
+            "scanned": summary["scanned"],
+            "scheduled": summary["scheduled"],
+            "skipped": summary["skipped"],
+            "errors": summary["errors"],
+            "removed": summary["removed"],
+            "deleted": summary["deleted"],
+            "reclaimed_bytes": summary["reclaimed_bytes"],
+            "left_out": self._left_out,
+        }
 
     def _scan_all_libraries(self, summary: dict[str, int]) -> dict[str, set[str]]:
         """Run the per-library scan and return the ``lib_id -> seen-keys`` map.
@@ -409,14 +426,10 @@ class ScanEngine:
         a SIGKILL mid-scan can only roll back the in-flight library, not
         every successful upsert from earlier libraries. All are stored
         before any is evaluated, so an item is judged by the watches of
-        its title in every library. Libraries with
-        unknown or unsupported types are logged and skipped — an
-        unmapped library would silently default to ``"movie"``, so a
-        Plex library that has been re-typed (e.g. moved to ``"music"``
-        or ``"photo"``) would be scanned as if it were a movie
-        collection. One Plex fails to answer for is left out too: nothing
-        of it is pruned, scheduled or deleted in this run, nor anything
-        scheduled that shares a place with it.
+        its title in every library. One Plex does not list, that is of
+        a type the scanner does not support, or that Plex fails to answer
+        for is left out: nothing of it is pruned, scheduled or deleted in
+        this run, nor anything scheduled that shares a place with it.
         """
         begin_write(self._conn)
         repository.carry_stranded_keeps(self._conn)
@@ -424,24 +437,11 @@ class ScanEngine:
         seen_by_lib: dict[str, set[str]] = {}
         evaluations: list[Callable[[], None]] = []
         for lib_id in self._library_ids:
-            lib_type = self._library_types.get(lib_id)
-            if lib_type is None:
-                logger.warning(
-                    "engine.run_scan.unknown_library_type lib_id=%s — skipping; "
-                    "Plex library type is unknown to the scanner. "
-                    "Re-fetch library metadata or remove the library from settings.",
-                    lib_id,
-                )
-                continue
-            if lib_type not in {"movie", "show"}:
-                logger.warning(
-                    "engine.run_scan.unsupported_library_type lib_id=%s type=%s — "
-                    "skipping; the scanner only supports 'movie' and 'show' libraries.",
-                    lib_id,
-                    lib_type,
-                )
+            if (reason := self._unreadable(lib_id)) is not None:
+                self._leave_out(lib_id, reason, summary)
                 continue
 
+            lib_type = self._library_types[lib_id]
             seen: set[str] = set()
             scan_library = scan_tv_library if lib_type == "show" else scan_movie_library
             try:
@@ -449,9 +449,8 @@ class ScanEngine:
             except _FETCH_ERRORS:
                 # skip-one-bad-library — a fetch failure must not abort other libraries
                 logger.exception("Scan left out library %s: Plex failed to answer for it", lib_id)
-                summary["errors"] += 1
                 self._conn.rollback()
-                self._leave_out(lib_id)
+                self._leave_out(lib_id, "Plex failed to answer for it", summary)
                 continue
             seen_by_lib[lib_id] = seen
             evaluations.append(evaluate)
@@ -462,9 +461,30 @@ class ScanEngine:
             self._conn.commit()
         return seen_by_lib
 
-    def _leave_out(self, lib_id: str) -> None:
+    def _unreadable(self, lib_id: str) -> str | None:
+        """Return why library *lib_id* cannot be read whatever Plex answers, or None."""
+        lib_type = self._library_types.get(lib_id)
+        if lib_type is None:
+            logger.warning(
+                "engine.unknown_library_type lib_id=%s — left out; Plex does not list it. "
+                "Untick it in Settings if it is gone.",
+                lib_id,
+            )
+            return "Plex does not list it"
+        if lib_type not in {"movie", "show"}:
+            logger.warning(
+                "engine.unsupported_library_type lib_id=%s type=%s — left out; only 'movie' "
+                "and 'show' libraries are supported.",
+                lib_id,
+                lib_type,
+            )
+            return "Plex lists it as neither films nor shows"
+        return None
+
+    def _leave_out(self, lib_id: str, reason: str, summary: dict[str, int]) -> None:
         """Note that nobody knows what library *lib_id* holds now, nor who watched it."""
-        self._unread_libraries.add(lib_id)
+        summary["errors"] += 1
+        self._left_out[lib_id] = reason
         if lib_id.isdecimal():
             ids = repository.fetch_ids_in_libraries(self._conn, [int(lib_id)])
             self._skipped_places.update(repository.fetch_places(self._conn, ids))
@@ -557,7 +577,7 @@ class ScanEngine:
         Delegates to DeletionExecutor. The items of a library this run could not
         read wait: one of them may no longer be what Plex lists.
         """
-        return self._deletions.execute(unread_libraries=self._unread_libraries)
+        return self._deletions.execute(unread_libraries=self._left_out)
 
     def _resolve_added_at(self, item: dict[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.
