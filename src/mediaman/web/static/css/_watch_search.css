@@ -85,6 +85,8 @@
 .watch-search__pill i::after { border: 2px solid var(--accent); }
 .watch-search.is-focus .watch-search__pill i::before,
 .watch-search.is-focus .watch-search__pill i::after { opacity: 1; }
+/* Once the pill has nearly grown to it. */
+.watch-search.is-focus .watch-search__pill i::after { transition-delay: .08s; }
 .watch-search__halo {
   outline: 5px solid color-mix(in srgb, var(--accent) 13%, transparent);
   opacity: 0;
