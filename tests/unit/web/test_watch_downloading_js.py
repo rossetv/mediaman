@@ -123,6 +123,14 @@ def test_a_new_card_takes_its_place_and_leaves_the_focus(out) -> None:
     assert out["reorder"] == {"cards": ["New", "A", "Q"], "focused": True}
 
 
+def test_a_card_that_moves_keeps_the_focus(out) -> None:
+    assert out["moved"] == {"cards": ["Q", "A"], "focused": True}
+
+
+def test_what_the_server_stops_calling_ready_goes_to_recently_added_too(out) -> None:
+    assert out["goneBeforeItsMinute"] == {"cards": ["A"], "recent": ["B", "Salt", "Fieldwork"]}
+
+
 def test_a_service_that_does_not_answer_is_named_and_only_its_cards_dimmed(out) -> None:
     assert out["outage"]["first"] == {
         "note": "Can’t reach Radarr right now. This is how it last was.",

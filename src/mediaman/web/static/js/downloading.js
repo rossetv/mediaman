@@ -70,7 +70,7 @@
 
   function ask() {
     timer = null;
-    if (inFlight || ended || document.hidden) return;
+    if (inFlight || ended) return;
     var request = inFlight = new AbortController();
     var late = false;
     var hung = setTimeout(function () { late = true; request.abort(); }, HUNG_MS);

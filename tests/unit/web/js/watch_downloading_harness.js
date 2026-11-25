@@ -229,6 +229,18 @@ const scenarios = {
     await p.step(5000);
     return { cards: p.cards(), focused: p.doc.activeElement === p.card('Q').querySelector('a') };
   },
+  async moved() {
+    const p = load([answer([item('A'), item('Q', { state: 'queued' })]), answer([item('Q'), item('A')])]);
+    await p.step(10);
+    p.card('Q').querySelector('a').focus();
+    await p.step(5000);
+    return { cards: p.cards(), focused: p.doc.activeElement === p.card('Q').querySelector('a') };
+  },
+  async goneBeforeItsMinute() {
+    const p = load([answer([ready('B', 60), item('A')]), answer([item('A')])]);
+    await p.step(5010);
+    return { cards: p.cards(), recent: p.recent() };
+  },
   async outage() {
     const p = load([answer([item('A', { held: true }), item('B')], "Can't reach Radarr"), answer([item('B')], "Can't reach Radarr"), answer([item('B')])]);
     await p.step(10);
@@ -277,7 +289,6 @@ const scenarios = {
     const p = load(['never', answer([item('A')])]);
     await p.step(10);
     p.hide(true);
-    await p.step(1000);
     p.hide(false);
     await p.step(10);
     return { aborted: p.aborted, cards: p.cards() };
