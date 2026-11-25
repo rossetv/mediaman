@@ -1,0 +1,65 @@
+/* The line under Recommended while a person's picks are made (watch/making.js). Its room is
+   the same whatever it says, so no words move what is beside or below it. */
+.making {
+  display: grid;
+  align-content: center;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 2.6em;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--t2);
+}
+.making__words { grid-area: 1 / 1; align-self: center; text-wrap: balance; }
+.making.is-end .making__words:not(.is-out) { color: var(--t1); font-weight: 500; }
+
+.making-reel { flex: none; width: 15px; height: 15px; color: color-mix(in srgb, var(--purple) 55%, var(--t1)); }
+.making-reel__turn { transform-origin: 12px 12px; }
+.making-reel__rim { fill: none; stroke: currentColor; stroke-width: 2; }
+.making-reel__hole,
+.making-reel__hub { fill: currentColor; }
+.rec-line.is-making .row-tool.is-busy { color: var(--t2); }
+
+@media (min-width: 700px) {
+  .making { order: 1; flex: 0 1 34ch; }
+}
+/* On the narrowest phones it is three lines of text. */
+@media (max-width: 359.98px) {
+  .making { height: 3.9em; font-size: 12px; }
+}
+@media (forced-colors: active) { .making-reel { color: CanvasText; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .making__words { animation: making-in .4s .2s var(--ease-out) backwards; }
+  .making__words.is-out { animation: making-out .2s ease-in forwards; }
+  .making.is-end .making__words:not(.is-out) { animation: making-end .5s .2s var(--ease-out) backwards; }
+  .making-reel__turn { animation: spin 3.6s linear infinite; }
+  .making-reel__hole { animation: making-hole 1.5s ease-in-out infinite; }
+  .making-reel__hole:nth-child(3) { animation-delay: -1.2s; }
+  .making-reel__hole:nth-child(4) { animation-delay: -.9s; }
+  .making-reel__hole:nth-child(5) { animation-delay: -.6s; }
+  .making-reel__hole:nth-child(6) { animation-delay: -.3s; }
+  .rec-line.is-making > .ai-label > .ico { animation: making-twinkle 2.6s ease-in-out infinite; }
+  .rec-line:has(> .making.is-end) > .ai-label > .ico { animation: making-sparkle .9s .2s var(--ease-out); }
+}
+/* A still reel says nothing: it fades instead, as the other spinners do. */
+@media (prefers-reduced-motion: reduce) {
+  .making-reel { animation: loading-pulse 2.4s ease-in-out infinite !important; }
+}
+@keyframes making-in { from { opacity: 0; transform: translateY(7px); } }
+@keyframes making-out { to { opacity: 0; transform: translateY(-7px); } }
+@keyframes making-end {
+  0% { opacity: 0; transform: translateY(7px) scale(.96); }
+  60% { opacity: 1; transform: translateY(-1px) scale(1.02); }
+}
+@keyframes making-sparkle {
+  35% { transform: scale(1.45) rotate(14deg); }
+  65% { transform: scale(.94) rotate(-4deg); }
+}
+@keyframes making-hole { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes making-twinkle {
+  0%, 100% { opacity: 1; transform: none; }
+  30% { opacity: .5; transform: scale(.86) rotate(-8deg); }
+  62% { opacity: 1; transform: scale(1.14) rotate(5deg); }
+}

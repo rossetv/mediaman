@@ -602,9 +602,9 @@ def test_a_long_library_name_is_whole_in_the_details(app_factory, authed_client,
 
 def test_history_delete_root_prefix_matches_the_scanner_writer():
     from mediaman.scanner.deletions import _FOLDER_AUDIT_ID
-    from mediaman.web.routes.history import _DELETE_ROOT_PREFIX
+    from mediaman.web.history_text import DELETE_ROOT_PREFIX
 
-    assert _DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
+    assert DELETE_ROOT_PREFIX == _FOLDER_AUDIT_ID
 
 
 class TestScannerAuditTitles:
@@ -731,9 +731,9 @@ class TestHistoryPageMarkup:
     ):
         for i in range(_PER_PAGE_DEFAULT * 2 + 1):
             insert_audit_log(conn, media_item_id=f"m{i}", action="deleted")
-        html = self._page(app_factory, authed_client, conn, "?action=deleted&page=2")
-        assert 'rel="next" href="/history?action=deleted&amp;page=3"' in html
-        assert 'class="hx-newest" href="/history?action=deleted&amp;page=1"' in html
+        html = self._page(app_factory, authed_client, conn, "?action=deleted&page=2&date=week")
+        assert 'rel="next" href="/history?action=deleted&amp;date=week&amp;page=3"' in html
+        assert 'class="hx-newest" href="/history?action=deleted&amp;date=week&amp;page=1"' in html
 
     def test_a_title_cannot_end_the_data_the_script_reads(self, app_factory, authed_client, conn):
         title = "</script><b>&'"
@@ -820,6 +820,28 @@ class TestWhoReadsWhat:
         assert "192.0.2.9" not in html
         assert " open>" not in html
 
+    def test_a_viewer_reads_no_stored_record_media_id_or_name_of_another(self, clients, conn):
+        security_event(
+            conn, event="user.created", actor="ana", detail={"new_username": "target-name"}
+        )
+        conn.execute("UPDATE media_items SET plex_rating_key = 'plex-9' WHERE id = 'm1'")
+        conn.commit()
+
+        page, api = clients[1].get("/history").text, clients[1].get("/api/history").text
+
+        island = json.loads(re.search(r'id="history-data">(.*?)</script>', page, re.S)[1])
+        for items in (island["items"], json.loads(api)["items"]):
+            assert [i["title"] for i in items] == ["User created", "Ana Film"]
+            for item in items:
+                shown = {f["key"] for f in item["fields"]}
+                assert shown <= {"who", "when", "event", "address", "title", "space", "id"}
+                values = {f["value"] for f in item["fields"]}
+                assert not {"m1", "plex-9", "snoozed", "sec:user.created"} & values
+        for text in (page, api):
+            assert "target-name" not in text
+            for label in ("Stored record", "Library number", "Plex number", "Recorded as"):
+                assert label not in text
+
     def test_a_viewers_filters_are_those_of_what_they_can_do(self, clients):
         own, every = (
             re.findall(r'href="/history\?action=(\w+)"', c.get("/history").text)
@@ -836,7 +858,7 @@ class TestWhoReadsWhat:
         [
             ({"user": "bob", "action": "kept"}, ["Bob Film"]),
             ({"action": "plays"}, ["Bob Film"]),
-            ({"title": "ana"}, ["Ana Film"]),
+            ({"title": "ana film"}, ["Ana Film"]),
             ({"q": "ana"}, ["Ana Film"]),
             ({"until": "2026-03-01"}, ["Bob Film"]),
             ({"since": "2026-03-02", "action": "plays"}, []),
@@ -844,6 +866,52 @@ class TestWhoReadsWhat:
     )
     def test_an_admin_searches_and_filters(self, clients, params, titles):
         assert self._titles(clients[0], **params) == titles
+
+    def test_the_menus_count_everyones_for_an_admin_and_ones_own_for_others(self, clients):
+        def menu(client, name, **params):
+            body = client.get("/api/history/menu", params={"menu": name, **params}).json()
+            return [(o["value"], o["count"]) for o in body["options"]]
+
+        admin, ana = clients
+        assert menu(admin, "user") == [
+            ("admin", 0),
+            ("ana", 1),
+            ("bob", 3),
+            ("~mediaman", 0),
+        ]
+        assert menu(admin, "title", find="film") == [("Bob Film", 2), ("Ana Film", 1)]
+        assert menu(ana, "user", user="bob") == [("ana", 1)]
+        assert menu(ana, "title") == [("Ana Film", 1)]
+        assert menu(ana, "action") == [
+            ("plays", 0),
+            ("downloads", 0),
+            ("keeps", 1),
+            ("sign_ins", 0),
+        ]
+        assert admin.get("/api/history/menu", params={"menu": "x"}).status_code == 422
+
+    def test_a_former_users_rows_say_so_and_wear_no_later_accounts_picture(self, clients, conn):
+        insert_audit_log(
+            conn, action="snoozed", actor="ana", created_at="2020-01-01T00:00:00+00:00"
+        )
+        page = clients[0].get("/history").text
+        assert '"~former:ana"' in page
+        (item,) = clients[0].get("/api/history", params={"user": "~former:ana"}).json()["items"]
+        assert item["who"] == {"value": "~former:ana", "name": "ana", "kind": "former"}
+        assert item["avatar"] is None
+        assert item["fields"][0]["value"] == "ana (no longer has an account)"
+
+    def test_a_former_users_email_is_hidden_wherever_their_name_is_listed(self, clients, conn):
+        insert_audit_log(conn, action="snoozed", actor="gone@mail.example")
+        admin = clients[0]
+        island = re.search(r'id="history-data">(.*?)</script>', admin.get("/history").text, re.S)[1]
+        menu = admin.get("/api/history/menu", params={"menu": "user"}).json()["options"]
+        for people in (json.loads(island)["people"], menu):
+            (former,) = [p for p in people if p["kind"] == "former"]
+            assert former["username"] == "[hidden]"
+        body = admin.get("/api/history", params={"user": former["value"]}).json()
+        assert (body["total"], former["count"]) == (1, 1)
+        assert body["items"][0]["who"]["name"] == "[hidden]"
 
     def test_the_cursor_leads_on_to_the_end(self, clients):
         first = clients[0].get("/api/history", params={"per_page": 3}).json()

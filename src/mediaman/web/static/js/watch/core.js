@@ -275,14 +275,14 @@
   }
 
   /* Give a card its mark and its More button; a title the library does not
-     hold has neither. */
+     hold has no mark, and a More button only among the picks. */
   function addMarks(card, poster, item) {
     var mark = markOf(item);
-    if (!mark) return;
-    card.setAttribute('data-mark', mark);
+    if (!mark && !card.querySelector('[data-pick-ref]')) return;
+    if (mark) card.setAttribute('data-mark', mark);
     var sub = card.querySelector('.watch-card__sub');
     if (sub) caption(sub, sub.textContent);
-    if (item.watched) poster.appendChild(watchedBadge());
+    if (mark && item.watched) poster.appendChild(watchedBadge());
     var more = el('button', 'watch-more');
     more.type = 'button';
     more.setAttribute('data-watch-more', '');

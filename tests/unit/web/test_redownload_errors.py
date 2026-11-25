@@ -266,6 +266,20 @@ def test_a_search_nobody_can_tell_the_state_of_is_a_failure_that_unmonitors_noth
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
 
 
+def test_a_failed_season_takes_back_nothing_asked_for_since(app_factory, authed_client, conn):
+    sonarr = MagicMock()
+    sonarr.get_series_by_tvdb.return_value = _series(False)
+    sonarr.remonitor_season.side_effect = _err(409)
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json()["ok"] is False
+    # Sonarr's own step put back what it changed; by now the season may be another's.
+    sonarr.unmonitor_season.assert_not_called()
+
+
 def test_a_season_that_was_never_monitored_keeps_its_lone_monitored_episode(
     app_factory, authed_client, conn
 ):

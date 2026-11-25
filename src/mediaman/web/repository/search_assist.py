@@ -13,11 +13,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from mediaman.services.infra import get_int_setting
 from mediaman.services.openai.search_assist import Taste
 
-#: Questions a person may ask in a day, and runs of every kind for everyone together.
+#: Questions a person may ask in a day, and runs of every kind for everyone together, unless
+#: an admin has set other numbers.
 QUESTIONS_PER_DAY = 20
 EVERYONE_PER_DAY = 100
+#: The settings of both, with the default and the highest of each; the lowest is none at all.
+DAILY_LIMITS: dict[str, tuple[int, int]] = {
+    "ai_questions_per_day": (QUESTIONS_PER_DAY, 200),
+    "ai_everyone_per_day": (EVERYONE_PER_DAY, 500),
+}
 #: Runs for everyone at one time.
 AT_ONCE = 4
 RECENT_SHOWN = 6
@@ -165,6 +172,19 @@ def drop_expired(conn: sqlite3.Connection, now: datetime) -> None:
         )
 
 
+# --- Limits --------------------------------------------------------------------
+
+
+def daily_limit(conn: sqlite3.Connection, key: str) -> int:
+    """The limit in force, held to its bounds."""
+    default, highest = DAILY_LIMITS[key]
+    return max(0, min(highest, get_int_setting(conn, key, default=default)))
+
+
+def switched_off(conn: sqlite3.Connection) -> bool:
+    return any(daily_limit(conn, key) == 0 for key in DAILY_LIMITS)
+
+
 # --- Runs ----------------------------------------------------------------------
 
 
@@ -172,11 +192,12 @@ def drop_expired(conn: sqlite3.Connection, now: datetime) -> None:
 class Refused:
     """Why there can be no run now: "running" (*run_id* goes on), "stopping" (the call of one
     that was stopped has yet to end), "busy", "limit" (the
-    person's) or "limit_everyone"."""
+    person's) or "limit_everyone" (the number is *limit*)."""
 
     reason: str
     run_id: int | None = None
     resets_at: str | None = None
+    limit: int | None = None
 
 
 def _midnight(now: datetime) -> datetime:
@@ -223,10 +244,12 @@ def start_run(conn: sqlite3.Connection, user_id: int, kind: str, now: datetime) 
         if mine["open"] is not None:
             return Refused("stopping")
         resets_at = (today + timedelta(days=1)).isoformat()
-        if kind != PHRASES and mine["today"] >= QUESTIONS_PER_DAY:
-            return Refused("limit", resets_at=resets_at)
-        if everyone["today"] >= EVERYONE_PER_DAY:
-            return Refused("limit_everyone", resets_at=resets_at)
+        limit = daily_limit(conn, "ai_questions_per_day")
+        if kind != PHRASES and mine["today"] >= limit:
+            return Refused("limit", resets_at=resets_at, limit=limit)
+        limit = daily_limit(conn, "ai_everyone_per_day")
+        if everyone["today"] >= limit:
+            return Refused("limit_everyone", resets_at=resets_at, limit=limit)
         if everyone["open"] >= AT_ONCE:
             return Refused("busy")
         cursor = conn.execute(

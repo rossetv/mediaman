@@ -47,7 +47,7 @@
 <rect class="card" x="32" y="84" width="766" height="72" rx="10"/>
 <circle class="num" cx="62" cy="120" r="13"/><text class="numt" x="62" y="125" text-anchor="middle">1</text>
 <text class="n" x="90" y="113">The weekly scan finds a stale movie</text>
-<text class="s" x="90" y="136">mediaman reads Plex. Salt and Ember was added over 30 days ago and has not been watched for 30 days.</text>
+<text class="s" x="90" y="136">mediaman reads Plex. Paper Herons was added over 30 days ago and has not been watched for 30 days.</text>
 
 <path class="line" d="M415 156 V178"/><path class="head" d="M410 172 L415 178 L420 172"/>
 

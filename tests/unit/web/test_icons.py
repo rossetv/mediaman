@@ -66,5 +66,6 @@ def test_the_page_carries_the_sprite_once_before_its_first_icon() -> None:
 def test_every_page_gets_the_sprite_from_the_base_page() -> None:
     for p in TEMPLATES.rglob("*.html"):
         text = p.read_text(encoding="utf-8")
-        if "<html" in text:
+        # The TV's page draws its own: the browsers of old TVs cannot use a symbol by its href.
+        if "<html" in text and p.name != "tv.html":
             assert '{% include "_icons.html" %}' in text, p.name

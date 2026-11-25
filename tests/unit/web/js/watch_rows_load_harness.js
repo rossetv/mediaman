@@ -140,6 +140,39 @@ const scenarios = {
     return { first, still, asked, next: p.row.next(), loaded };
   },
 
+  // A card taken out of the row by someone else must not hold a place in the range of posters kept awake.
+  async cardsTakenOut() {
+    const p = load([1, 2, 3], [{ cards: [], next: null }]);
+    p.seen.near = false;
+    p.seen.range = [2, 3];
+    p.row.check();
+    const first = p.grid.children[0];
+    first.remove();
+    p.seen.range = [0, 1];
+    p.row.check();
+    const awake = () => p.grid.querySelectorAll('img').map((i) => i.hasAttribute('src'));
+    const without = awake();
+    // One awake as it is taken out comes back awake; far off then, it goes back to sleep with the next sweep.
+    const near = p.grid.children[0];
+    near.remove();
+    p.row.check();
+    p.grid.insertBefore(near, p.grid.children[0]);
+    const back = awake();
+    p.seen.range = [1, 2];
+    p.row.check();
+    return { without, back, far: awake() };
+  },
+
+  // A row whose cards stand in another order than they came in keeps awake those it shows.
+  async cardsInAnotherOrder() {
+    const p = load([1, 2, 3], [{ cards: [], next: null }]);
+    p.seen.near = false;
+    p.grid.appendChild(p.grid.children[0]);
+    p.seen.range = [0, 1];
+    p.row.check();
+    return p.grid.querySelectorAll('img').map((i) => i.hasAttribute('src'));
+  },
+
   async stopped() {
     const p = load([1], [{ cards: [2], next: null }]);
     const listens = () => [p.grid.listeners.scroll.length, p.resizes.size];

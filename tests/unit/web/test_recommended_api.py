@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import validate_download_token
 from mediaman.db import set_connection
-from mediaman.services.arr.base import SearchUnanswered
+from mediaman.services.arr.base import SearchUnanswered, SeasonsNotListed
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
@@ -484,3 +484,86 @@ class TestDownloadRecommendationAsksTheArrFirst:
         self._post(conn, "movie", 27205, radarr)
 
         assert confirm._RADARR_CACHE == {}
+
+
+class TestDownloadSeasonsOfARecommendation:
+    """The seasons a recommendation is downloaded with, checked as search checks them."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        reset_download_action_limiter()
+
+    @staticmethod
+    def _post(conn, sonarr, kind="tv", builder="build_sonarr_from_db", **request):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        sid = insert_suggestion(conn, title="Severance", tmdb_id=136315, media_type=kind)
+        with patch(f"mediaman.web.routes.recommended.api.{builder}", return_value=sonarr):
+            return _make_rec_app(conn).post(f"/api/recommended/{sid}/download", **request)
+
+    @staticmethod
+    def _sonarr():
+        sonarr = MagicMock()
+        sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
+        sonarr.get_series.return_value = []
+        return sonarr
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"search_seasons": [2], "monitored_seasons": [1, 2]},
+            {"monitored_seasons": [2]},
+        ],
+    )
+    def test_only_the_seasons_named_are_added(self, conn, body):
+        sonarr = self._sonarr()
+
+        resp = self._post(conn, sonarr, json=body)
+
+        assert resp.status_code == 200
+        sonarr.add_series_with_seasons.assert_called_once_with(999, "Severance", [2])
+        sonarr.add_series.assert_not_called()
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is not None
+
+    @pytest.mark.parametrize("request_body", [{}, {"json": {}}, {"json": None}])
+    def test_with_no_seasons_the_whole_show_is_added(self, conn, request_body):
+        sonarr = self._sonarr()
+
+        assert self._post(conn, sonarr, **request_body).status_code == 200
+        sonarr.add_series.assert_called_once_with(999, "Severance")
+
+    def test_a_season_sonarr_does_not_list_is_a_422_and_nothing_is_recorded(self, conn):
+        sonarr = self._sonarr()
+        sonarr.add_series_with_seasons.side_effect = SeasonsNotListed([3])
+
+        resp = self._post(conn, sonarr, json={"search_seasons": [2, 3]})
+
+        assert resp.status_code == 422
+        assert "Season 3" in resp.json()["error"] and "Untick it" in resp.json()["error"]
+        assert conn.execute("SELECT downloaded_at FROM suggestions").fetchone()[0] is None
+
+    @pytest.mark.parametrize(
+        ("body", "status"),
+        [
+            ({"search_seasons": []}, 400),
+            ({"search_seasons": ["x"]}, 422),
+            ({"search_seasons": list(range(101))}, 422),
+            ({"seasons": [1]}, 422),
+        ],
+    )
+    def test_a_bad_list_is_refused_before_anything_is_added(self, conn, body, status):
+        sonarr = self._sonarr()
+
+        assert self._post(conn, sonarr, json=body).status_code == status
+        sonarr.add_series.assert_not_called()
+        sonarr.add_series_with_seasons.assert_not_called()
+
+    def test_a_movie_takes_no_notice_of_seasons(self, conn):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+
+        resp = self._post(
+            conn, radarr, "movie", "build_radarr_from_db", json={"search_seasons": []}
+        )
+
+        assert resp.status_code == 200
+        radarr.add_movie.assert_called_once_with(136315, "Severance")

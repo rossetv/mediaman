@@ -10,9 +10,10 @@ const file = path.resolve(__dirname, '../../js/watch_list_harness.js');
 const shared = new Module(file);
 shared.filename = file;
 const [source] = fs.readFileSync(file, 'utf8').split('const name = process.argv[2];');
-/* Every row's title a link, unless it is plain. */
-const linked = source.replace('r.ref ? [', '!r.plain ? [');
-if (linked === source) throw new Error('watch_list_harness.js no longer draws a title as it did');
+/* Every row's title a link, unless it is plain, and beside it the toggle of a row with a mark. */
+const titled = source.replace('r.ref ? [', '!r.plain ? [');
+const linked = titled.replace('r.title] : r.title]', "r.title] : r.title, ...(r.mark ? [['button', { class: 'watch-mark', 'data-mark-toggle': r.mark }]] : [])]");
+if (titled === source || linked === titled) throw new Error('watch_list_harness.js no longer draws a title as it did');
 shared._compile(linked + '\nmodule.exports = { load, click, keepOption, ROWS, settle, deferred };', file);
 const { load, click, keepOption, ROWS, settle, deferred } = shared.exports;
 
@@ -228,8 +229,54 @@ const scenarios = {
     };
     await run('filter', tv);
     await run('row', (p) => p.row('id:m2').querySelector('a.wl-title'));
+    await run('keep', (p) => trigger(p, 'id:m2'));
+    await run('delete', (p) => p.row('id:m2').querySelector('[data-action="confirm-delete"]'));
+    await run('deleteGone', (p) => p.row('id:m2').querySelector('[data-action="confirm-delete"]'), [{ id: 'm9', title: 'Plain', plain: true }]);
     await run('rowGone', (p) => p.row('id:m2').querySelector('a.wl-title'), []);
     await run('elsewhere', (p) => p.doc.getElementById('watch-search'));
+    return out;
+  },
+
+  // Back to another filter once a change to a row is saved, and its focus waits on the title for the row to be read again.
+  async backWhileTheFocusWaits() {
+    const out = {};
+    const marked = (p) => p.row('show:77').querySelector('.watch-mark').setAttribute('aria-busy', 'true');
+    for (const [action, start, before] of [['keep', (p) => trigger(p, 'show:77')], ['delete', (p) => p.row('show:77').querySelector('[data-action="pick-season-delete"]')],
+      ['marked', (p) => p.row('show:77').querySelector('[data-action="pick-season-delete"]'), marked]]) {
+      const p = load({ list: true });
+      const rows = [{ id: 's1', title: 'Night Shift', showRk: '77', mark: 'show/77' }];
+      p.serve(TV, { type: 'tv' }, rows);
+      p.serve(LIST, {}, rows);
+      click(p.doc, tv(p)); await settle();
+      if (before) before(p);
+      p.serve(TV, { type: 'tv' }, rows, deferred());
+      const emit = (phase) => p.doc.dispatchEvent({ type: 'mm:watch-admin', detail: { phase, action: action === 'keep' ? 'keep' : 'delete', id: 's1', showRk: '77' } });
+      const from = start(p);
+      from.focus();
+      emit('busy'); await settle();
+      emit('done'); await settle();
+      out[action] = [at(p)];
+      p.popstate('?view=list'); await settle();
+      const a = p.doc.activeElement;
+      out[action].push(a.isConnected && at(p) === 'show:77 ' + from.className.split(' ')[0]);
+    }
+    return out;
+  },
+
+  // Back to another filter while the mark of the row with the focus is saved.
+  async backWhileAMarkIsSaved() {
+    const out = {};
+    for (const [name, selector] of [['title', 'a.wl-title'], ['mark', '.watch-mark'], ['keep', '.keep-trigger'], ['delete', '[data-action="confirm-delete"]']]) {
+      const p = load({ list: true });
+      const rows = [{ id: 'm2', title: 'Saltmarsh', mark: 'movie/2' }];
+      p.serve(TV, { type: 'tv' }, rows);
+      p.serve(LIST, {}, rows);
+      click(p.doc, tv(p)); await settle();
+      p.row('id:m2').querySelector('.watch-mark').setAttribute('aria-busy', 'true');
+      p.row('id:m2').querySelector(selector).focus();
+      p.popstate('?view=list'); await settle();
+      out[name] = p.doc.activeElement.isConnected && at(p);
+    }
     return out;
   },
 

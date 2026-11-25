@@ -129,6 +129,19 @@ def _cached(
             raise TmdbUnavailable("still being asked") from exc
 
 
+def _peeked(
+    client: TmdbClient, key: str, fresh_s: float, stale_s: float, fetch: Callable[[], Any]
+) -> Any:
+    """What is cached, as ``_cached``; None at once when nothing is, TMDB then being asked in the
+    background unless ``gate`` pauses it."""
+
+    def refreshed() -> Any:
+        gate.check(client.token)
+        return _noted(client, fetch)
+
+    return _cache().peek(key, fresh_s, stale_s, refreshed)
+
+
 def _noted(client: TmdbClient, fetch: Callable[[], Any]) -> Any:
     try:
         value = _shaped(fetch)()
@@ -255,6 +268,27 @@ def search(
     return [r for r in result if not r.get("adult")]
 
 
+def _details_key(media_type: str, tmdb_id: int) -> str:
+    # "v5": entries before it lack the director's id, the date and the popularity.
+    return f"tmdb:details:v5:{media_type}:{tmdb_id}"
+
+
+def held_details(kind: str, tmdb_id: int) -> dict[str, Any] | None:
+    """What ``details`` answered for a title in the last 90 days, or None. TMDB is not asked."""
+
+    def fetch() -> dict[str, Any]:
+        raise TmdbUnavailable("not held")
+
+    key = _details_key("movie" if kind == "movie" else "tv", tmdb_id)
+    try:
+        found: dict[str, Any] = _cache().get_or_fetch(
+            key, 90 * _DAY, 90 * _DAY, fetch, allow_fetch=lambda: False
+        )
+    except (TmdbUnavailable, disk_cache.Refused):
+        return None
+    return None if found.get("adult") or found.get("gone") else found
+
+
 def details(
     client: TmdbClient,
     kind: str,
@@ -263,6 +297,7 @@ def details(
     allow_fetch: Callable[[], bool] | None = None,
     brief: bool = False,
     fresh: bool = False,
+    anew: bool = False,
     background: bool = False,
 ) -> dict[str, Any]:
     """The ``tmdb_fields`` of a movie or show ("movie" or "tv"). Only these are cached:
@@ -270,7 +305,8 @@ def details(
     times larger. Raises TitleNotFound, TmdbUnavailable and TmdbBusy; *allow_fetch* is
     asked as in ``search``, and *brief* says that *client* gives up early, so that its
     failure is not held against the next caller. *fresh* takes nothing TMDB answered more
-    than a week ago, and *background* is as in ``_cached``."""
+    than a week ago, *anew* nothing it answered before, and *background* is as in
+    ``_cached``."""
     media_type = "movie" if kind == "movie" else "tv"
 
     def fetch() -> dict[str, Any]:
@@ -286,13 +322,12 @@ def details(
             return {"adult": True}
         return tmdb_fields(found, media_type)
 
-    # "v5": entries before it lack the director's id, the date and the popularity.
-    key = f"tmdb:details:v5:{media_type}:{tmdb_id}"
+    key = _details_key(media_type, tmdb_id)
     result: dict[str, Any] = _cached(
         client,
         key,
-        7 * _DAY,
-        7 * _DAY if fresh else 90 * _DAY,
+        0 if anew else 7 * _DAY,
+        0 if anew else 7 * _DAY if fresh else 90 * _DAY,
         fetch,
         allow_fetch,
         brief,

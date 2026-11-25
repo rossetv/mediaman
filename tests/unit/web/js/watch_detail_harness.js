@@ -140,6 +140,7 @@ function load(opts = {}) {
   const timers = [];
   const gets = [];
   const posts = [];
+  const answers = []; // to the ratings sent, not answered yet
   const events = [];
   const history = [];
   const routes = Object.assign({}, opts.routes);
@@ -236,6 +237,10 @@ function load(opts = {}) {
         if (typeof r === 'function') return r(o);
         return r ? Promise.resolve(JSON.parse(JSON.stringify(r))) : Promise.reject(new APIError(404, 'not_found'));
       },
+      put: (url, body) => {
+        posts.push({ url, body });
+        return new Promise((resolve) => { answers.push(resolve); });
+      },
       post: (url, body) => {
         posts.push({ url, body });
         const r = posted[url];
@@ -269,7 +274,7 @@ function load(opts = {}) {
       person: () => new Promise(() => {}) };
   };
   const run = () => {
-    ['core/dom.js', 'modal-a11y.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', 'watch/detail.js']
+    ['core/dom.js', 'modal-a11y.js'].concat(opts.thumbs ? 'ratings.js' : [], 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/cast.js', opts.collection ? 'watch/collection.js' : [], opts.playOn ? 'watch/play-on.js' : [], 'watch/detail.js')
       .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
     explore();
     ctx.MMWatch.address.start();
@@ -287,7 +292,7 @@ function load(opts = {}) {
   const fireWindow = (type) => (winListeners[type] || []).slice().forEach((fn) => fn({}));
   const popstate = () => (winListeners.popstate || []).forEach((fn) => fn({}));
   const message = (e) => (winListeners.message || []).forEach((fn) => fn(e));
-  return { message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
+  return { answers, message, ctx, doc, toasts, timers, gets, posts, events, history, entries, explored, loc, routes, clock, run, ttl, q, text, tick, key, popstate, fireWindow };
 }
 
 function primary(p) {
@@ -300,7 +305,37 @@ async function openCard(p, ref) {
   await settle();
 }
 
+const ASK = { url: '/api/search/download', body: { media_type: 'tv', tmdb_id: 90, title: 'Hollow Pines' } };
+
+/* A season only TMDB knows, in a state. */
+function one(number, status, over) {
+  return Object.assign({ number, name: 'Season ' + number, episode_count: 8, in_library: false, selected: false, key: null, watched: false,
+    status, asked: false, askable: false, refusal: null }, over);
+}
+
+/* A show Sonarr has, with seasons in every state. */
+function asked(ref, download) {
+  return Object.assign({}, TV_DL, { ref, sonarr_tracked: true, seasons_request: ASK, seasons_pending: false, more_seasons: [],
+    download: Object.assign({}, TV_DL.download, download),
+    seasons: [one(1, 'downloading', { asked: true }), one(2, 'queued', { asked: true }), one(3, 'partly_held', { askable: true }), one(4, 'not_asked', { askable: true })] });
+}
+
+/* Each season's number, its state's words, and whether it can be ticked. */
+function chipsOf(p) {
+  return p.ttl().querySelectorAll('.season-chip').map((c) => [c.getAttribute('data-season'), c.querySelector('.season-chip__sub').textContent, c.getAttribute('aria-disabled') !== 'true']);
+}
+
 const scenarios = {
+  // Another part of the page queued the film on show.
+  async queuedElsewhere() {
+    const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+    p.run();
+    await openCard(p, 'tmdb-movie-77');
+    const before = primary(p).text;
+    p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: 'tmdb-movie-77', download_state: 'queued', download_pct: null } });
+    return { before, after: primary(p).text, polls: p.timers.some((t) => t.fn && t.ms === 5000), events: p.events.length };
+  },
+
   async openFromCard() {
     const p = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     p.run();
@@ -815,7 +850,7 @@ const scenarios = {
     const toggles = () => p.ttl().querySelectorAll('[data-mark-toggle]').map((b) => [b.getAttribute('data-mark-toggle'), b.getAttribute('aria-pressed'), b.getAttribute('data-mark-ref')]);
     const opened = toggles();
     const inLink = p.ttl().querySelectorAll('[data-mark-toggle]').filter((b) => b.closest('a')).length;
-    click(p.doc, p.q('[data-season="1"]'));
+    click(p.doc, p.q('.watch-pill[data-season="1"]'));
     await settle();
     const picked = toggles();
     p.q('[data-mark-toggle="episode/11"]').focus();
@@ -826,7 +861,7 @@ const scenarios = {
     const otherTitle = p.gets.length - gets;
     say('show-300');
     await settle();
-    const after = { toggles: toggles(), play: primary(p).text, episode: p.text('.watch-ep__title'), tab: p.q('[data-season="1"]').getAttribute('aria-label'),
+    const after = { toggles: toggles(), play: primary(p).text, episode: p.text('.watch-ep__title'), tab: p.q('.watch-pill[data-season="1"]').getAttribute('aria-label'),
       focus: p.doc.activeElement.getAttribute('data-mark-toggle'), painted };
     const q = load({ routes: { '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
     q.run();
@@ -1080,6 +1115,23 @@ const scenarios = {
     return { movie, show: p.text('[data-ttl-part="kind"]') };
   },
 
+  async collectionPlace() {
+    const out = {};
+    const parts = (p) => p.q('[data-ttl-part="body"]').children.map((n) => n.className.split(' ')[0]);
+    for (const [name, title] of [['film', Object.assign({}, MOVIE_DL, { in_collection: true })], ['lone', Object.assign({}, MOVIE_DL, { in_collection: false })], ['show', LIB_SHOW]]) {
+      const url = '/api/watch/title/' + title.ref;
+      let answer;
+      const p = load({ collection: true, routes: { [url]: () => new Promise((resolve) => { answer = resolve; }), [url + '/collection']: () => new Promise(() => {}) } });
+      p.run();
+      p.ctx.MMWatch.detail.open(title.ref, { title: title.title });
+      const loading = parts(p);
+      answer(title);
+      await settle();
+      out[name] = { loading, drawn: parts(p).filter((c) => c !== 'ttl__collsec' || !p.q('.ttl__collsec').hidden) };
+    }
+    return out;
+  },
+
   async showDirector() {
     const p = load({ routes: { '/api/watch/title/tmdb-tv-90': Object.assign({}, TV_DL, { director: 'Ada Rimmington' }) } });
     p.run();
@@ -1311,7 +1363,8 @@ const scenarios = {
     await settle();
     click(p.doc, p.q('[data-ttl-act="primary"]'));
     await settle();
-    return p.q('[data-ttl-part="under"]').children.map((n) => n.className);
+    const lead = p.q('[data-ttl-part="under"]').children.map((n) => n.className);
+    return lead.concat(p.q('.ttl__lead').parentNode.children.map((n) => n.className).filter((c) => /season-pick/.test(c)).map(() => 'season-pick'));
   },
 
   async downloadErrorThenPicks() {
@@ -1423,6 +1476,162 @@ const scenarios = {
     return { initial, cleared, postsWhenNone, one, posts: p.posts };
   },
 
+  // A show in each of its states lists its seasons: queued, tracked, a pick, in the library.
+  async seasonStates() {
+    const out = {};
+    const run = async (ref, data) => {
+      const p = load({ routes: { ['/api/watch/title/' + ref]: data } });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      return chipsOf(p);
+    };
+    out.tracked = await run('tmdb-tv-90', asked('tmdb-tv-90', {}));
+    out.queued = await run('tmdb-tv-90', asked('tmdb-tv-90', { state: 'queued', answered: true }));
+    out.pick = await run('pick-9', asked('pick-9', { state: 'downloading', pct: 10 }));
+    const all = LIB_SHOW.seasons.map((s) => Object.assign({}, s, { status: 'held', asked: false, askable: false, refusal: null }));
+    const whole = load({ routes: { '/api/watch/title/show-300': Object.assign({}, LIB_SHOW, { seasons: all, more_seasons: [], seasons_pending: false, seasons_request: ASK }) } });
+    whole.run();
+    await openCard(whole, 'show-300');
+    out.whole = { list: !!whole.q('.ttl__askseasons'), link: !!whole.q('.ttl__season-more') };
+    out.held = await run('show-300', Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: false,
+      seasons: LIB_SHOW.seasons.map((s) => Object.assign({}, s, { status: 'held', asked: false, askable: false, refusal: null })),
+      more_seasons: [one(4, 'not_out', { asked: true }), one(3, 'not_asked', { askable: true })] }));
+    const refused = asked('tmdb-tv-90', {});
+    refused.seasons = ['leaving', 'removed', 'not_listed', 'show_unmonitored'].map((r, i) => one(i + 1, 'not_asked', { refusal: r }));
+    const p = load({ routes: { '/api/watch/title/tmdb-tv-90': refused } });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    click(p.doc, p.q('.season-chip[data-season="1"]'));
+    out.refused = { chips: chipsOf(p), why: p.text('.season-pick__why'), go: p.q('.season-pick__go').hidden, posts: p.posts.length };
+    return out;
+  },
+
+  // Three seasons asked for, one of which fails; then that one again.
+  async seasonsAsked() {
+    let reply = Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: false,
+      more_seasons: [3, 4, 5].map((n) => one(n, 'not_asked', { askable: true })) });
+    let answer = { ok: true, message: 'Added season 3. Couldn’t add season 4.', also_started: [],
+      seasons: [{ number: 3, result: 'asked' }, { number: 4, result: 'failed' }, { number: 5, result: 'show_unmonitored' }] };
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(reply))) },
+      posted: { '/api/search/download': () => Promise.resolve(answer) } });
+    p.run();
+    await openCard(p, 'show-300');
+    const go = () => p.q('[data-ttl-act="ask-seasons"]');
+    const none = { label: go().textContent.trim(), off: go().getAttribute('aria-disabled') };
+    click(p.doc, go());
+    click(p.doc, p.q('[data-ttl-act="pick-all"]'));
+    const label = go().textContent.trim();
+    click(p.doc, go());
+    const busy = go().textContent.trim();
+    click(p.doc, go());
+    reply = Object.assign({}, reply, { more_seasons: [one(3, 'asked', { asked: true }), one(4, 'not_asked', { askable: true }), one(5, 'not_asked', { refusal: 'show_unmonitored' })] });
+    await settle();
+    const half = { chips: chipsOf(p), said: p.text('.season-pick__out'), error: !!p.q('.season-pick__out .ttl__error'), gets: p.gets.filter((u) => u === '/api/watch/title/show-300').length };
+    answer = { ok: true, message: 'Added season 4.', seasons: [{ number: 4, result: 'asked' }], also_started: [] };
+    const again = p.q('[data-ttl-act="ask-again"]');
+    again.focus();
+    click(p.doc, again);
+    await settle();
+    return { none, label, busy, half, said: p.text('.season-pick__out'), error: !!p.q('.season-pick__out .ttl__error'),
+      posts: p.posts.map((x) => [x.url, x.body]) };
+  },
+
+  // Asking is refused for all, with each season's result, or fails with none.
+  async seasonsRefused() {
+    const run = async (err) => {
+      const p = load({ routes: { '/api/watch/title/tmdb-tv-90': asked('tmdb-tv-90', {}) }, posted: { '/api/search/download': err } });
+      p.run();
+      p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+      await settle();
+      click(p.doc, p.q('.season-chip[data-season="4"]'));
+      click(p.doc, p.q('[data-ttl-act="ask-seasons"]'));
+      await settle();
+      return { said: p.text('.season-pick__out'), retry: !!p.q('[data-ttl-act="ask-again"]') };
+    };
+    const refused = new APIError(409, 'leaving', 'Season 4 is leaving.');
+    refused.data = { message: 'Season 4 is leaving.', seasons: [{ number: 4, result: 'leaving' }] };
+    // Refused, and the reading of the title after it fails.
+    const p = load({ routes: { '/api/watch/title/tmdb-tv-90': asked('tmdb-tv-90', {}) }, posted: { '/api/search/download': refused } });
+    p.run();
+    p.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    p.routes['/api/watch/title/tmdb-tv-90'] = new APIError(0, 'network_error');
+    click(p.doc, p.q('.season-chip[data-season="4"]'));
+    click(p.doc, p.q('[data-ttl-act="ask-seasons"]'));
+    await settle();
+    const unread = chipsOf(p)[3];
+    // Sonarr took the season, and what mediaman keeps of it could not be written.
+    const l = load({ routes: { '/api/watch/title/tmdb-tv-90': asked('tmdb-tv-90', {}) }, posted: { '/api/search/download': new APIError(500, 'http_500') } });
+    l.run();
+    l.ctx.MMWatch.detail.open('tmdb-tv-90', {});
+    await settle();
+    const took = asked('tmdb-tv-90', {});
+    took.seasons[3] = one(4, 'asked', { asked: true });
+    l.routes['/api/watch/title/tmdb-tv-90'] = took;
+    click(l.doc, l.q('.season-chip[data-season="4"]'));
+    click(l.doc, l.q('[data-ttl-act="ask-seasons"]'));
+    await settle();
+    const taken = { chip: chipsOf(l)[3], said: l.text('.season-pick__out'), retry: !!l.q('[data-ttl-act="ask-again"]') };
+    return { taken, unread, refused: await run(refused), failed: await run(new APIError(502, 'sonarr_failed', 'Sonarr did not answer.')) };
+  },
+
+  // The states are still to come, then there; or they never come.
+  async seasonsPending() {
+    const run = async (comes) => {
+      let n = 0;
+      const p = load({ routes: { '/api/watch/title/show-300': () => {
+        n += 1;
+        const there = comes && n > 2;
+        return Promise.resolve(Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: !there,
+          seasons: LIB_SHOW.seasons.map((s) => Object.assign({}, s, { status: 'held', asked: false, askable: false, refusal: null })),
+          more_seasons: [one(3, there ? 'not_asked' : null, { askable: there })] }));
+      } } });
+      p.run();
+      await openCard(p, 'show-300');
+      const first = chipsOf(p)[0];
+      const list = p.q('.watch-episodes');
+      const waits = [];
+      for (let i = 0; i < 8; i += 1) {
+        const due = p.timers.filter((t) => t.fn && t.ms === 2000);
+        waits.push(due.length);
+        due.forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+        await settle();
+      }
+      const press = {};
+      if (!comes) {
+        press.label = p.q('.season-pick__go').textContent.trim();
+        click(p.doc, p.q('.season-pick__go'));
+        press.busy = p.q('.season-pick__go').textContent.trim();
+        n -= 1;
+        await settle();
+      }
+      return { press, first, last: chipsOf(p)[0], asks: n, go: p.q('.season-pick__go').hidden ? null : p.q('.season-pick__go').textContent.trim(), still: list === p.q('.watch-episodes') };
+    };
+    return { comes: await run(true), never: await run(false) };
+  },
+
+  // A show that is a pick, wanted whole and in part.
+  async pickSeasons() {
+    const run = async (press, last) => {
+      const data = Object.assign({}, TV_DL, { ref: 'pick-9', seasons: [1, 2, 3].map((n) => one(n, n === 3 && last || 'not_asked', { askable: true })),
+        seasons_request: { url: '/api/watch/picks/9/download', body: {} },
+        download: { state: null, service: 'sonarr', tmdb_id: 90, request: { url: '/api/watch/picks/9/download' } } });
+      const p = load({ routes: { '/api/watch/title/pick-9': data } });
+      p.run();
+      p.ctx.MMWatch.detail.open('pick-9', {});
+      await settle();
+      if (press) click(p.doc, p.q(press));
+      click(p.doc, p.q('[data-ttl-act="primary"]'));
+      const go = p.q('.season-pick__go').hidden;
+      await settle();
+      return { body: p.posts[0].body || null, go, primary: primary(p).text };
+    };
+    return { whole: await run(null), part: await run('.season-chip[data-season="2"]'),
+      out: await run(null, 'not_out'), withComing: await run('.season-chip[data-season="3"]', 'not_out') };
+  },
+
   async tvBlocked() {
     const p = load({ routes: {
       '/api/watch/title/tmdb-tv-90': Object.assign({}, TV_DL, { sonarr_tracked: true }),
@@ -1453,6 +1662,231 @@ const scenarios = {
     return { first, eps: p.text('.watch-episodes'), label: p.q('.watch-episodes').getAttribute('aria-label'), replaced: listBefore !== p.q('.watch-episodes'),
       pressed: pill.getAttribute('aria-pressed'), focusOnPill: p.doc.activeElement === pill,
       resume: primary(p), progress: !!p.q('.ttl__progress progress'), keep: p.q('[data-watch-keep]') && p.q('[data-watch-keep]').getAttribute('data-watch-keep') };
+  },
+
+  // What a season and its rows say, and how their texts open; another season, slow, then failing;
+  // and the one on show once a mark loads the title again.
+  async seasonTexts() {
+    process.env.TZ = 'America/New_York';
+    const ep = (n, over) => Object.assign({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, thumb_url: '/api/watch/thumb/2' + n,
+      state: 'none', watched: false, href: '/watch/play/2' + n }, over);
+    const show = () => Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', overview: 'A show.',
+      play: { label: 'Resume S2 · E2', href: '/watch/play/22' },
+      seasons: [Object.assign({}, LIB_SHOW.seasons[0], { summary: 'A show.', year: 2018 }), Object.assign({}, LIB_SHOW.seasons[1], { summary: 'Its <b>second</b> year.', year: 2019 })],
+      episodes: [ep(1, { state: 'watched', watched: true, summary: 'It <i>begins</i>.', aired: '2019-05-04' }),
+        ep(2, { state: 'in_progress', progress_pct: 40, minutes_left: 30, summary: 'It goes on.', aired: 'soon' }),
+        ep(3, { state: 'in_progress', progress_pct: 10, minutes_left: 45 }), ep(4, { aired: '2999-01-02' })] });
+    let answer;
+    const slow = () => new Promise((resolve, reject) => { answer = { resolve, reject }; });
+    let first = slow;
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(show()), '/api/watch/title/show-300/season/1': () => first() } });
+    p.run();
+    await openCard(p, 'show-300');
+    const row = (li) => {
+      const a = li.querySelector('.watch-ep');
+      const about = li.querySelector('.watch-ep__about');
+      return { state: a.querySelector('.watch-ep__state') && a.querySelector('.watch-ep__state').textContent, meta: a.querySelector('.watch-ep__meta').textContent,
+        about: about && about.textContent, describes: !!about && a.getAttribute('aria-describedby') === about.id, inName: !!about && about.getAttribute('aria-hidden') !== 'true',
+        tick: !!a.querySelector('.watch-ep__tick'), controlsInLink: a.querySelectorAll('button').length, more: li.querySelectorAll('.watch-ep__more').length };
+    };
+    const season = () => ({ facts: p.text('.ttl__season-facts'), text: p.q('.ttl__season-text') && p.text('.ttl__season-text') });
+    const rows = p.ttl().querySelectorAll('.watch-eprow').map(row);
+    const opened = season();
+    const held = p.q('.ttl__season-about');
+    const more = p.q('.ttl__season-about .ttl-more');
+    const look = () => [held.classList.contains('is-open'), more.textContent, more.getAttribute('aria-expanded'), more.getAttribute('aria-label')];
+    const press = [look()];
+    for (let i = 0; i < 2; i++) { click(p.doc, more); press.push(look()); }
+    const waits = () => [p.q('.ttl__season').classList.contains('is-waiting'), p.ttl().querySelectorAll('.ttl__season .ttl-epskel').length > 0, p.q('.watch-episodes').getAttribute('aria-busy'), !!p.q('.watch-episodes').inert, !!p.q('.ttl__season-about').inert];
+    click(p.doc, p.q('.watch-pill[data-season="1"]'));
+    const wait = waits();
+    answer.reject(new Error('down'));
+    await settle();
+    const failed = { waits: waits(), season: season() };
+    click(p.doc, p.q('.watch-pill[data-season="1"]'));
+    const one = { ok: true, key: '301', watched: false, summary: 'Told by another.', year: 2017, episodes: [ep(9, { summary: 'Nine.' })] };
+    answer.resolve(one);
+    await settle();
+    const picked = season();
+    first = () => Promise.resolve(one);
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    const marked = { season: season(), about: p.text('.watch-ep__about') };
+    first = () => Promise.resolve({ ok: true, key: '301', watched: false, episodes: [ep(9, {})] });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    return { rows, opened, press, wait, failed, picked, marked, older: season(), bare: p.ttl().querySelectorAll('.watch-ep__about').length };
+  },
+
+  // Texts opened by More, and the title drawn again by a mark, then another season and back.
+  async openedTexts() {
+    const eps = [1, 2].map((n) => ({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, state: 'none', href: '/watch/play/2' + n, summary: 'About ' + n }));
+    const show = Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', episodes: eps,
+      seasons: [LIB_SHOW.seasons[0], Object.assign({}, LIB_SHOW.seasons[1], { summary: 'Its second year.' })] });
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))),
+      '/api/watch/title/show-300/season/1': { ok: true, key: '301', episodes: [eps[0], eps[1]], summary: 'Its first.' },
+      '/api/watch/title/show-300/season/2': { ok: true, key: '302', episodes: eps, summary: 'Its second year.' } } });
+    p.run();
+    await openCard(p, 'show-300');
+    const opened = () => [p.q('.ttl__season-about')].concat(p.ttl().querySelectorAll('.watch-eprow')).map((n) => n.classList.contains('is-open'));
+    const more = p.ttl().querySelectorAll('.ttl-more');
+    click(p.doc, more[0]);
+    click(p.doc, more[2]);
+    more[2].focus();
+    const out = { pressed: opened() };
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    const fresh = p.ttl().querySelectorAll('.ttl-more')[2];
+    out.marked = [opened(), fresh !== more[2], p.doc.activeElement === fresh, fresh.textContent, fresh.getAttribute('aria-expanded')];
+    click(p.doc, fresh);
+    out.closed = opened();
+    click(p.doc, p.q('.watch-pill[data-season="1"]'));
+    await settle();
+    out.other = opened();
+    return out;
+  },
+
+  // What TMDB says of a season once it is on show: of the show's own, of one picked, while something
+  // is pressed, and of one left meanwhile.
+  async lateWords() {
+    const ep = (n, over) => Object.assign({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, state: 'none', href: '/watch/play/2' + n, summary: '' }, over);
+    const told = (n) => ({ ok: true, key: '30' + n, summary: 'Words on ' + n, year: 2015 + n, words_pending: false,
+      episodes: [ep(1, { summary: 'About one.', aired: '2019-05-04' }), ep(2)] });
+    const bare = (n) => ({ ok: true, key: '30' + n, summary: '', year: null, words_pending: true, episodes: [ep(1), ep(2)] });
+    const show = Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', words_pending: true, episodes: [ep(1), ep(2)] });
+    const start = async (first) => {
+      const asks = [];
+      const words = (n) => () => new Promise((resolve, reject) => asks.push({ n, resolve: () => resolve(told(n)), reject }));
+      const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(show))),
+        '/api/watch/title/show-300/season/1': () => Promise.resolve(Object.assign(bare(1), first)), '/api/watch/title/show-300/season/2': () => Promise.resolve(bare(2)),
+        '/api/watch/title/show-300/season/1?words=1': words(1), '/api/watch/title/show-300/season/2?words=1': words(2) } });
+      p.run();
+      await openCard(p, 'show-300');
+      return { p, asks };
+    };
+    const look = (p) => ({ facts: p.text('.ttl__season-facts'), text: p.text('.ttl__season-text'),
+      rows: p.ttl().querySelectorAll('.watch-eprow').map((li) => [li.querySelector('.watch-ep__meta').textContent, li.querySelector('.watch-ep__about') && li.querySelector('.watch-ep__about').textContent, li.querySelectorAll('.ttl-more').length]) });
+    const out = {};
+    {
+      const { p, asks } = await start();
+      const rows = p.ttl().querySelectorAll('.watch-eprow');
+      const link = rows[1].querySelector('.watch-ep');
+      link.focus();
+      out.before = look(p);
+      p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:search-assist', {}));
+      asks[0].resolve();
+      await settle();
+      out.came = look(p);
+      out.same = [p.ttl().querySelectorAll('.watch-eprow').every((li, i) => li === rows[i]), p.doc.activeElement === link, asks.length];
+      click(p.doc, p.q('.watch-pill[data-season="1"]'));
+      await settle();
+      out.picked = [look(p).text, asks.map((a) => a.n)];
+      asks[1].resolve();
+      await settle();
+      out.pickedCame = look(p);
+    }
+    {
+      const { p, asks } = await start();
+      p.doc.dispatchEvent({ type: 'pointerdown' });
+      asks[0].resolve();
+      await settle();
+      out.held = look(p).text;
+      p.doc.dispatchEvent({ type: 'pointerup' });
+      p.tick();
+      out.letGo = look(p).text;
+    }
+    {
+      const { p, asks } = await start();
+      p.doc.dispatchEvent({ type: 'pointerdown' });
+      asks[0].resolve();
+      await settle();
+      for (let i = 0; i < 29; i++) p.tick();
+      out.unended = [look(p).text];
+      p.tick();
+      out.unended.push(look(p).text, p.timers.filter((t) => t.ms === 100).length);
+    }
+    {
+      const { p, asks } = await start({ words_pending: false });
+      click(p.doc, p.q('.watch-pill[data-season="1"]'));
+      await settle();
+      asks[0].resolve();
+      await settle();
+      out.left = look(p).text;
+    }
+    {
+      const { p, asks } = await start();
+      asks[0].reject(new APIError(503, 'x'));
+      await settle();
+      out.failed = look(p);
+    }
+    return out;
+  },
+
+  // A mark made, and more of an episode seen, while the words of their season were on their way,
+  // of the season the title opens on and of one that was *picked*.
+  async markBeforeWords() {
+    async function run(picked) {
+      const n = picked ? 1 : 2;
+      let seen = false;
+      const eps = (seen, summary) => [
+        { number: 1, key: '21', title: 'Ep 1', minutes: 50, state: seen ? 'watched' : 'none', watched: seen, href: '/watch/play/21', summary },
+        { number: 2, key: '22', title: 'Ep 2', minutes: 50, state: 'in_progress', minutes_left: seen ? 10 : 40, href: '/watch/play/22', summary }];
+      const season = () => ({ ok: true, key: '30' + n, watched: false, summary: '', year: null, words_pending: true, episodes: eps(seen, '') });
+      let answer = null;
+      const routes = { '/api/watch/title/show-300': () => Promise.resolve(JSON.parse(JSON.stringify(Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300',
+        cast: [{ name: 'Mara Ellison', character: null, profile_url: null, person_id: 9001 }], words_pending: !picked, episodes: eps(seen, '') })))) };
+      routes['/api/watch/title/show-300/season/' + n] = () => Promise.resolve(season());
+      routes['/api/watch/title/show-300/season/' + n + '?words=1'] = () => new Promise((resolve) => {
+        const old = Object.assign(season(), { summary: 'Told.', year: 2017, words_pending: false, episodes: eps(false, 'About it.') });
+        answer = () => resolve(old);
+      });
+      const p = load({ routes });
+      p.run();
+      p.ctx.MMWatch.marks = { paint: () => {} };
+      await openCard(p, 'show-300');
+      if (picked) { click(p.doc, p.q('.watch-pill[data-season="1"]')); await settle(); }
+      seen = true;
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+      await settle();
+      answer();
+      await settle();
+      const look = () => ({ eye: p.q('[data-mark-toggle="episode/21"]').getAttribute('aria-pressed'), about: p.text('.watch-ep__about'),
+        season: p.text('.ttl__season-text'), facts: p.text('.ttl__season-facts'),
+        left: p.ttl().querySelectorAll('.watch-ep__meta')[1].textContent });
+      const came = look();
+      // Drawn anew from what is held.
+      click(p.doc, p.q('.ttl-cast__item'));
+      p.tick();
+      p.ctx.history.back();
+      return [came, look()];
+    }
+    return { own: await run(false), picked: await run(true) };
+  },
+
+  // What stands for a title while it loads: for an admin the facts card, and how far it was watched as its card says.
+  async loadingPlaces() {
+    const pending = () => new Promise(() => {});
+    const onTrending = (admin, inLibrary, leaving) => {
+      const p = load({ admin, adminApi: {}, routes: { '/api/watch/title/tmdb-movie-77': pending } });
+      const link = p.doc.querySelector('[data-title-ref="tmdb-movie-77"]');
+      const card = link.closest('.watch-card');
+      if (inLibrary) link.setAttribute('data-in-library', '');
+      if (leaving) card.appendChild(build(p.doc, ['span', { class: 'watch-badge--leaving' }]));
+      p.run();
+      click(p.doc, link);
+      return [p.ttl().querySelectorAll('.ttl-facts__skel').length, p.q('.ttl__actions').children.length,
+        p.ttl().querySelectorAll('.ttl__keep-skel').length, p.ttl().querySelectorAll('.ttl__leaving').length];
+    };
+    const run = (ref, admin, begun) => {
+      const p = load({ admin, adminApi: {}, routes: { ['/api/watch/title/' + ref]: pending } });
+      const card = p.doc.querySelector('.watch-card');
+      if (begun) card.appendChild(build(p.doc, ['progress', { class: 'watch-bar' }]));
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, { title: 'X', origin: card });
+      return [p.ttl().querySelectorAll('.ttl-facts .ttl-facts__skel').length, p.q('.ttl__lead').querySelectorAll('.ttl__progress').length];
+    };
+    return { admin: run('movie-120', true, true), viewer: run('movie-120', false, false), elsewhere: run('tmdb-movie-77', true, true),
+      trending: [onTrending(true, true), onTrending(true, false), onTrending(false, true, true), onTrending(true, true, true)] };
   },
 
   // The title is loaded again after a Keep while another season than the server's own is on
@@ -1487,6 +1921,33 @@ const scenarios = {
       return { during, kept, deleted: look(p).eps };
     }
     return { loaded: await run(false), loading: await run(true) };
+  },
+
+  // Play on a TV, beside Play: with TVs to choose, with none of mediaman's to ask, and of no such page.
+  async playOn() {
+    const open = async (title, o) => {
+      const ref = title.ref;
+      const p = load({ routes: { ['/api/watch/title/' + ref]: title, '/api/tvs': { tvs: [] } }, ...o });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      const b = p.q('[data-ttl-act="play-on"]');
+      return { p, says: b && { label: b.getAttribute('aria-label'), hidden: b.hidden, afterPlay: p.q('[data-ttl-act="primary"]').nextElementSibling === b } };
+    };
+    const film = { ...LIB_MOVIE, play: { label: 'Play', href: '/watch/play/120', progress_pct: null, minutes_left: null } };
+    const shown = await open(film, { playOn: true });
+    shown.p.q('[data-ttl-act="play-on"]').focus();
+    shown.p.doc.dispatchEvent(new shown.p.ctx.CustomEvent('mm:watch-marked', { detail: { refs: [film.ref] } }));
+    shown.p.doc.dispatchEvent({ type: 'mm:title-changed', detail: { ref: film.ref, download_state: null, download_pct: null } });
+    await settle();
+    const now = shown.p.q('[data-ttl-act="play-on"]');
+    return {
+      shown: shown.says,
+      redrawn: shown.p.doc.activeElement === now,
+      noTvs: (await open(film, { playOn: true, routes: { ['/api/watch/title/' + film.ref]: film } })).says,
+      notHeld: (await open(MOVIE_DL, { playOn: true })).says,
+      without: (await open(film, {})).says,
+    };
   },
 
   // Undo pressed in a toast, which goes with the focus it had.
@@ -2141,7 +2602,7 @@ const scenarios = {
     const admin = { admin: true, adminApi: { keep: (w) => kept.push(w.season_id), removeKeep: () => {} } };
     return { quiet: await open(none), appears: await open({}), otherKeep: await open(both),
       pressed: await open(none, (p) => click(p.doc, p.q('.ttl__overview') || p.q('.ttl__body'))),
-      reading: await open(none, (p) => p.q('.watch-ep').focus()),
+      reading: await open(none, (p) => p.q('.watch-ep').focus()), facts: await open(none, (p) => p.q('.ttl__season-about').focus()),
       failed: await open(both, null, 'failed'), admin: await open({}, null, null, admin),
       adminMenu: await open({}, (p) => click(p.doc, p.q('[data-ttl-act="admin-keep"]')), null, admin),
       keepMenu: await open(own, (p) => click(p.doc, p.q('.watch-btn--keep'))) };
@@ -2416,6 +2877,137 @@ const scenarios = {
     out.plain = [q.text('.ttl__credit'), !!q.q('.ttl__credit a')];
     return out;
   },
+};
+
+// The set of thumbs: the request held, then its answer; and what the page is when the answer comes.
+scenarios.thumbs = async () => {
+  const URL = '/api/watch/ratings?refs=';
+  const asked = [];
+  const p = load({ thumbs: true, routes: {
+    '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/show-300': LIB_SHOW,
+    [URL + 'movie-120']: () => new Promise((resolve) => asked.push(resolve)),
+    [URL + 'show-300']: { ok: true, ratings: { 'show-300': { level: null, rateable: true } } },
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL,
+  } });
+  p.run();
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const set = () => p.q('.ttl__main .rate');
+  const on = () => set().querySelectorAll('button').map((b) => b.getAttribute('aria-pressed'));
+  await open('movie-120');
+  const out = { skel: !!p.q('.ttl__rate-skel') };
+  await due(0);
+  out.waits = !!p.q('.ttl__overview');
+  asked[0]({ ok: true, ratings: { 'movie-120': { level: 1, rateable: true } } });
+  await settle();
+  out.order = p.q('.ttl__main').children.map((n) => n.className.split(' ')[0]);
+  out.rated = on();
+  const b = set().querySelectorAll('button')[3];
+  b.focus();
+  click(p.doc, b);
+  out.pressed = [on(), p.posts.slice()];
+  // Drawn again, as when an episode is marked: the same thumb keeps the focus.
+  p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'movie-120' } });
+  await settle();
+  out.redrawn = [set().querySelectorAll('button')[3] !== b, p.doc.activeElement === set().querySelectorAll('button')[3], on()];
+  const left = set().querySelectorAll('button');
+  await open('show-300');
+  await due(0);
+  out.next = on();
+  click(p.doc, left[0]); // a set no longer on show is not painted
+  out.old = left[0].getAttribute('aria-pressed');
+  p.ctx.history.back();
+  await settle();
+  out.back = on();
+  const last = set().querySelectorAll('button');
+  p.key('Escape');
+  p.tick();
+  p.ctx.MM.ratings.set('movie-120', 1);
+  out.closed = last.map((n) => n.getAttribute('aria-pressed'));
+  return out;
+};
+
+// The focus goes from a title's page to the bar of what plays on a TV, then behind the page.
+scenarios.tvBar = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE } });
+  p.doc.body.append(build(p.doc, ['section', { id: 'tv-mini' }, ['button', { id: 'tv-pause' }, 'Pause']]));
+  p.run();
+  p.ctx.MMWatch.detail.open('movie-120', { push: true });
+  await settle();
+  const go = (n) => { n.focus(); (p.doc.listeners.focusin || []).forEach((fn) => fn({ target: n })); };
+  go(p.doc.getElementById('tv-pause'));
+  const out = { bar: p.doc.activeElement.id };
+  go(p.doc.querySelector('[data-title-ref]'));
+  out.behind = p.doc.activeElement.id;
+  go(p.doc.getElementById('tv-pause'));
+  p.key('Escape');
+  out.closed = p.ttl().classList.contains('is-leaving');
+  return out;
+};
+
+// What finds more like a title comes to be known after the title opened; then one that is no one's, and one by its TMDB id.
+scenarios.like = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+  p.run();
+  const b = () => p.q('[data-ttl-act="like"]');
+  const acts = () => p.q('[data-ttl-part="actions"]').children.map((n) => n.getAttribute('data-ttl-act')).slice(0, 2);
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  await open('movie-120');
+  const asked = [];
+  const out = { before: !!b() };
+  let on = true;
+  p.ctx.MMWatch.search = { canLike: (ref) => on && /^(movie|show|tmdb-movie|tmdb-tv)-/.test(ref), like: (...args) => asked.push(args) };
+  p.q('[data-ttl-act="primary"]').focus();
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.acts = acts();
+  out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+  click(p.doc, b());
+  await open('rec-3');
+  if (b()) click(p.doc, b());
+  await open('tmdb-movie-77');
+  click(p.doc, b());
+  out.asked = asked.map((a) => a[0]);
+  on = false;
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.off = !!b();
+  return out;
+};
+
+// What holds the thumbs' place while a title loads, of the library and not, for an admin and not.
+scenarios.thumbsWait = async () => {
+  const look = (admin, ref) => {
+    const p = load({ admin, thumbs: true, routes: {} });
+    p.run();
+    p.ctx.MMWatch.detail.open(ref, {});
+    return { columns: p.ttl().classList.contains('ttl--admin'), buttons: p.q('.ttl__actions').children.length };
+  };
+  return { admin: look(true, 'movie-120'), viewer: look(false, 'movie-120'), tmdb: look(true, 'tmdb-movie-77') };
+};
+
+// *rateable* unknown: the answer comes after the wait is over.
+scenarios.thumbsNone = async () => {
+  const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };
+  const asked = [];
+  const p = load({ thumbs: true, routes: { '/api/watch/title/movie-120': LIB_MOVIE,
+    '/api/watch/ratings?refs=movie-120': () => new Promise((resolve) => asked.push(resolve)) } });
+  p.run();
+  const due = async (ms) => { p.timers.filter((t) => t.fn && t.ms === ms).forEach((t) => { const fn = t.fn; t.fn = null; fn(); }); await settle(); };
+  const open = async () => { p.ctx.MMWatch.detail.open('movie-120', { push: true }); await settle(); };
+  await open();
+  await due(0);
+  const out = { before: !!p.q('.ttl__overview') };
+  await due(400);
+  out.late = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  asked[0](none);
+  await settle();
+  out.told = p.q('.ttl__main .rate').hidden;
+  p.key('Escape');
+  p.tick();
+  await open();
+  await due(400);
+  out.again = [!!p.q('.ttl__overview'), !!p.q('.ttl__main .rate')];
+  return out;
 };
 
 scenarios[process.argv[2]]().then((out) => {

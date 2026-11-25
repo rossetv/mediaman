@@ -198,3 +198,20 @@ def test_the_emailed_page_forgets_its_arr_list_when_search_adds_a_title(authed_c
         authed_client.post("/api/search/download", json=_valid_body(tmdb_id=15))
 
     assert confirm._RADARR_CACHE == {}
+
+
+def test_a_tracked_show_sonarr_cannot_be_read_for_is_a_502_that_can_be_retried_at_once(
+    authed_client,
+):
+    sonarr = MagicMock()
+    sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999}
+    sonarr.get_series.return_value = [{"tvdbId": 999}]
+    sonarr.get_series_by_tvdb.side_effect = _NO_ANSWER
+    body = {**_valid_body("tv", 17), "search_seasons": [2]}
+    with patch(f"{_MODULE}.build_sonarr_from_db", return_value=sonarr):
+        statuses = [
+            authed_client.post("/api/search/download", json=body).status_code for _ in range(2)
+        ]
+
+    assert statuses == [502, 502]
+    sonarr.remonitor_season.assert_not_called()

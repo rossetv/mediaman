@@ -42,7 +42,7 @@ def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_fa
         "tmdb_configured": False,
         "view": "rows",
         "q": _QUERY,
-        "grids": {"recommended": "Recommended for you"},
+        "grids": {"asked": "You asked for these", "recommended": "Recommended for you"},
         "grid": None,
         "settings_tmdb_href": None,
     }

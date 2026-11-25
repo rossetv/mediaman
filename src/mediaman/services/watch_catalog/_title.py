@@ -59,7 +59,8 @@ def _number(value: object) -> float:
 def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
     """Title, dates, people, pictures and seasons of a TMDB details payload ("movie" or
     "tv"). ``trailer_key`` is unchecked, ``tmdb_seasons`` is TMDB's season list,
-    specials left out, and ``tvdb_id`` is a show's TVDB id when TMDB knows it."""
+    specials left out, ``tvdb_id`` is a show's TVDB id when TMDB knows it, and
+    ``collection_id`` that of the collection a film is part of."""
     cast = dicts_in(details.get("credits"), "cast")
     director, director_id = _director(details, kind)
     released = details.get("release_date") or details.get("first_air_date")
@@ -72,12 +73,14 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
             "episode_count": s.get("episode_count")
             if isinstance(s.get("episode_count"), int)
             else None,
+            "air_date": s.get("air_date") if isinstance(s.get("air_date"), str) else None,
         }
         for s in dicts(details.get("seasons"))
         if isinstance(s.get("season_number"), int) and s["season_number"] > 0
     ]
     count = details.get("number_of_seasons")
     external = details.get("external_ids")
+    collection = details.get("belongs_to_collection")
     tvdb_id = external.get("tvdb_id") if isinstance(external, Mapping) else None
     return {
         "title": str(details.get("title") or details.get("name") or ""),
@@ -113,6 +116,7 @@ def tmdb_fields(details: Mapping[str, Any], kind: str) -> dict[str, Any]:
         ],
         "trailer_key": pick_trailer(details),
         "tmdb_seasons": seasons,
+        "collection_id": tmdb_id_of(collection) if isinstance(collection, Mapping) else None,
         "tvdb_id": tvdb_id
         if isinstance(tvdb_id, int) and not isinstance(tvdb_id, bool) and tvdb_id > 0
         else None,

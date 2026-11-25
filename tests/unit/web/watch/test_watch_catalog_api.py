@@ -4,6 +4,7 @@ title's detail and a season's episodes, for viewers and admins alike."""
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from dataclasses import replace
 from datetime import timedelta
@@ -13,19 +14,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.core.time import now_utc
+from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.plex_watch import PlexUnavailable
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.watch_catalog import _arr, _discover, _library
+from mediaman.services.watch_catalog import _arr, _discover, _library, _season
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.repository.watch_progress import MarkTarget, mark_watched
 from mediaman.web.routes import search as search_routes
 from mediaman.web.routes.recommended import api as recommended_api
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search import download as search_download
-from mediaman.web.routes.watch import catalog_api, pages
+from mediaman.web.routes.watch import catalog_api, pages, title_seasons
 from tests.helpers.factories import (
     insert_admin_user,
     insert_download_notification,
@@ -52,6 +54,9 @@ class DictCache:
             raise disk_cache.Refused(key)
         self.store[key] = fetch()
         return self.store[key]
+
+    def peek(self, key, fresh_s, stale_s, fetch, *, brief=False):
+        return self.store.get(key)
 
 
 class FakeTmdb:
@@ -95,6 +100,8 @@ class FakeTmdb:
                 ],
             },
         }
+        self.seasons: dict[tuple[int, int], object] = {}
+        self.seasons_asked: list[tuple[int, int]] = []
         self.failing = False
         self.tvdb_to_tmdb: dict[int, int] = {}
 
@@ -126,6 +133,16 @@ class FakeTmdb:
                 url="https://tmdb.invalid",
             )
         return self.detail[tmdb_id]
+
+    def season(self, tmdb_id, number):
+        self.seasons_asked.append((tmdb_id, number))
+        if self.failing or (tmdb_id, number) not in self.seasons:
+            raise SafeHTTPError(
+                status_code=500 if self.failing else 404,
+                body_snippet="",
+                url="https://tmdb.invalid",
+            )
+        return self.seasons[tmdb_id, number]
 
     def find_by_tvdb(self, tvdb_id):
         return self.tvdb_to_tmdb.get(tvdb_id)
@@ -698,6 +715,310 @@ class TestLibraryTitle:
         assert viewer.get(path).status_code == 404
 
 
+class TestSeasonDescriptions:
+    @pytest.fixture
+    def held(self, library, tmdb, plex, monkeypatch):
+        """The show as TMDB's 77, and what TMDB says of its two seasons."""
+        cache = DictCache()
+        monkeypatch.setattr(_discover, "_cache", lambda: cache)
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '502'")
+        library.commit()
+        for number in (1, 2):
+            tmdb.seasons[77, number] = {
+                "overview": f" TMDB on season {number}. ",
+                "air_date": f"202{number}-01-05",
+                "episodes": [
+                    {
+                        "episode_number": 1,
+                        "name": f"Episode 5{number}1",
+                        "overview": "TMDB on one.",
+                        "air_date": "2021-02-03",
+                    },
+                    {"episode_number": 2, "overview": "", "air_date": "soon"},
+                ],
+            }
+        return tmdb
+
+    @staticmethod
+    def _describe(plex, **fields):
+        """Every episode of both seasons, and the seasons themselves, as Plex describes them."""
+        for key, episodes in plex.episodes.items():
+            plex.episodes[key] = [replace(e, **fields) for e in episodes]
+        show = plex.shows["500"]
+        plex.shows["500"] = replace(
+            show, seasons=[replace(s, summary="Plex on it.") for s in show.seasons]
+        )
+
+    def test_what_plex_says_comes_first_and_tmdb_is_not_asked(self, viewer, held, arr, plex):
+        self._describe(plex, summary="Plex on this.", aired="2019-10-04")
+
+        body = viewer.get("/api/watch/title/show-500").json()
+        season = viewer.get("/api/watch/title/show-500/season/2").json()
+
+        assert [(s["summary"], s["year"]) for s in body["seasons"]] == [
+            ("Plex on it.", 2019),
+            ("Plex on it.", None),
+        ]
+        assert [(e["summary"], e["aired"]) for e in body["episodes"]] == [
+            ("Plex on this.", "2019-10-04")
+        ] * 2
+        assert (season["summary"], season["year"], season["episode_count"]) == (
+            "Plex on it.",
+            2019,
+            1,
+        )
+        assert [(e["summary"], e["aired"]) for e in season["episodes"]] == [
+            ("Plex on this.", "2019-10-04")
+        ]
+        assert held.seasons_asked == []
+        assert "words_pending" not in body
+        assert season["words_pending"] is False
+
+    def test_a_season_does_not_wait_for_tmdb_whose_words_come_apart(self, viewer, held, arr, plex):
+        title = viewer.get("/api/watch/title/show-500").json()
+        season = viewer.get("/api/watch/title/show-500/season/1").json()
+
+        assert (title["words_pending"], season["words_pending"]) == (True, True)
+        assert [e["summary"] for e in season["episodes"]] == ["", ""]
+        assert held.seasons_asked == []
+
+        words = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+        title = viewer.get("/api/watch/title/show-500").json()
+        season = viewer.get("/api/watch/title/show-500/season/1").json()
+
+        assert held.seasons_asked == [(77, 1)]
+        assert season == words
+        assert season["words_pending"] is False
+        assert "words_pending" not in title
+        assert [e["summary"] for e in title["episodes"]] == ["TMDB on one.", ""]
+
+    def test_a_season_of_a_show_known_by_its_tvdb_id_alone_waits_for_nobody(
+        self, viewer, library, tmdb, arr, plex, monkeypatch
+    ):
+        monkeypatch.setattr(catalog_api, "_arr", lambda *_a: pytest.fail("Sonarr waited for"))
+        monkeypatch.setattr(tmdb, "find_by_tvdb", lambda *_a: pytest.fail("TMDB waited for"))
+
+        season = viewer.get("/api/watch/title/show-500/season/1").json()
+
+        assert (len(season["episodes"]), season["words_pending"]) == (2, True)
+
+    @pytest.mark.parametrize(
+        ("plex_says", "tmdb_says", "same"),
+        [
+            (("The Quay", None), ("the quay!", "2021-02-03"), True),
+            (("The Quay", "2021-02-03"), ("Le Quai", "2021-02-03"), True),
+            (("The Quay", "2021-02-03"), ("The Quay", "2021-02-04"), True),
+            (("The Quay", "2021-02-03"), ("The Lock", "2021-02-10"), False),
+            (("The Quay", None), ("The Lock", "2021-02-03"), False),
+            (("", None), ("", None), False),
+            (("Episode 1", None), ("Episode 1", "2021-02-03"), True),
+            (("Episode 1", "2021-02-03"), ("Episode 1", "2021-02-10"), False),
+            (("Part 1", "2021-02-03"), ("Part 1", "2022-02-03"), False),
+            (("Chapter Two", "2021-02-03"), ("Chapter Two", "2022-02-03"), False),
+            (("Part Twenty-One", "2021-02-03"), ("Part Twenty-One", "2022-02-03"), False),
+            (("Part III", "2021-02-03"), ("Part III", "2022-02-03"), False),
+            (("Folge 4", "2021-02-03"), ("Folge 4", "2022-02-03"), False),
+            (("Folge 4", None), ("Folge 4", "2022-02-03"), True),
+            (("Apollo Thirteenth", "2021-02-03"), ("Apollo Thirteenth", "2022-02-03"), True),
+        ],
+    )
+    def test_tmdb_is_taken_at_its_word_only_of_the_same_episode(
+        self, viewer, held, arr, plex, plex_says, tmdb_says, same
+    ):
+        title, aired = plex_says
+        plex.episodes["501"] = [replace(plex.episodes["501"][0], title=title, aired=aired)]
+        held.seasons[77, 1]["episodes"] = [
+            {
+                "episode_number": 1,
+                "name": tmdb_says[0],
+                "overview": "TMDB on one.",
+                "air_date": tmdb_says[1],
+            }
+        ]
+
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        [episode] = season["episodes"]
+        assert episode["summary"] == ("TMDB on one." if same else "")
+        assert episode["aired"] == (aired or (tmdb_says[1] if same else None))
+        assert season["summary"] == ("TMDB on season 1." if same else "")
+
+    @pytest.mark.parametrize(
+        ("plex_says", "tmdb_says", "same", "season_told"),
+        [
+            # All out on one day, in two orders.
+            (
+                [("Three Robots", "2019-03-15"), ("Sonnie's Edge", "2019-03-15")],
+                [("Sonnie's Edge", "2019-03-15"), ("Three Robots", "2019-03-15")],
+                [False, False],
+                False,
+            ),
+            # The date is shared in one of the lists alone.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-03")],
+                [("Cc", "2021-02-03"), ("Dd", "2021-02-10")],
+                [False, False],
+                False,
+            ),
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10")],
+                [("Cc", "2021-02-03"), ("Dd", "2021-02-03")],
+                [False, False],
+                False,
+            ),
+            # All out on one day, in one order.
+            (
+                [("Episode 1", "2021-02-03"), ("Episode 2", "2021-02-03")],
+                [("Episode 1", "2021-02-03"), ("Episode 2", "2021-02-03")],
+                [True, True],
+                True,
+            ),
+            # One in its place by chance.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10")],
+                [("Aa", "2021-02-03"), ("Cc", "2021-02-17")],
+                [True, False],
+                False,
+            ),
+            # Most of them in their place.
+            (
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10"), ("Cc", "2021-02-17")],
+                [("Aa", "2021-02-03"), ("Bb", "2021-02-10"), ("Dd", "2021-02-24")],
+                [True, True, False],
+                True,
+            ),
+        ],
+    )
+    def test_a_season_in_another_order_is_not_taken_for_the_same(
+        self, viewer, held, arr, plex, plex_says, tmdb_says, same, season_told
+    ):
+        first = plex.episodes["501"][0]
+        plex.episodes["501"] = [
+            replace(first, rating_key=f"51{n}", index=n, title=title, aired=aired)
+            for n, (title, aired) in enumerate(plex_says, start=1)
+        ]
+        held.seasons[77, 1]["episodes"] = [
+            {"episode_number": n, "name": name, "overview": "Told.", "air_date": aired}
+            for n, (name, aired) in enumerate(tmdb_says, start=1)
+        ]
+
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        assert [bool(e["summary"]) for e in season["episodes"]] == same
+        assert bool(season["summary"]) is season_told
+
+    def test_a_mark_made_while_tmdb_is_waited_for_is_in_the_answer(
+        self, viewer, held, arr, plex, monkeypatch
+    ):
+        ask = held.season
+
+        def season(*asked):
+            _mark(get_db(), "511", item="501")
+            return ask(*asked)
+
+        monkeypatch.setattr(held, "season", season)
+
+        body = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        assert [e["watched"] for e in body["episodes"]] == [True, False]
+
+    def test_tmdb_fills_in_what_plex_has_none_of_by_one_ask_of_the_season(
+        self, viewer, held, arr, plex
+    ):
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+
+        assert (season["summary"], season["year"]) == ("TMDB on season 1.", 2021)
+        assert [(e["summary"], e["aired"]) for e in season["episodes"]] == [
+            ("TMDB on one.", "2021-02-03"),
+            ("", None),
+        ]
+        assert held.seasons_asked == [(77, 1)]
+
+    def test_a_show_says_the_words_of_the_season_it_opens_on(self, viewer, held, arr, plex):
+        for number in (1, 2):
+            viewer.get(f"/api/watch/title/show-500/season/{number}?words=1")
+        body = viewer.get("/api/watch/title/show-500").json()
+
+        assert [s["summary"] for s in body["seasons"]] == ["TMDB on season 1.", ""]
+        assert body["episodes"][0]["summary"] == "TMDB on one."
+
+    def test_plex_keeps_its_own_word_beside_what_tmdb_fills_in(self, viewer, held, arr, plex):
+        plex.episodes["501"][0] = replace(plex.episodes["501"][0], summary="Plex on one.")
+
+        first = viewer.get("/api/watch/title/show-500/season/1?words=1").json()["episodes"][0]
+
+        assert (first["summary"], first["aired"]) == ("Plex on one.", "2021-02-03")
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            [],
+            {"episodes": "none"},
+            {"overview": 5, "air_date": 7, "episodes": [None, {"episode_number": "x"}]},
+            {"overview": None, "episodes": [{"episode_number": 1, "overview": {}, "air_date": 1}]},
+        ],
+    )
+    def test_an_answer_of_tmdb_that_cannot_be_read_leaves_the_episodes_bare(
+        self, viewer, held, arr, plex, answer
+    ):
+        held.seasons[77, 1] = answer
+
+        resp = viewer.get("/api/watch/title/show-500/season/1?words=1")
+
+        assert resp.status_code == 200
+        assert resp.json()["summary"] == ""
+        assert [(e["summary"], e["aired"]) for e in resp.json()["episodes"]] == [("", None)] * 2
+
+    @pytest.mark.parametrize("how", ["down", "gone"])
+    def test_the_season_comes_without_tmdb(self, viewer, held, arr, plex, how):
+        if how == "down":
+            held.failing = True
+        else:
+            held.seasons.clear()
+
+        title = viewer.get("/api/watch/title/show-500")
+        season = viewer.get("/api/watch/title/show-500/season/1?words=1")
+
+        assert (title.status_code, season.status_code) == (200, 200)
+        assert len(title.json()["episodes"]) == len(season.json()["episodes"]) == 2
+        assert season.json()["summary"] == ""
+
+    def test_a_season_tmdb_lacks_is_asked_for_again_the_next_day_and_not_before(
+        self, viewer, held, arr, plex, monkeypatch, tmp_path
+    ):
+        disk_cache.init(tmp_path)
+        monkeypatch.setattr(_discover, "_cache", disk_cache.meta)
+        now = [1_000_000.0]
+        monkeypatch.setattr(_season, "_wall", lambda: now[0])
+        told = held.seasons.pop((77, 1))
+
+        asked = []
+        for later in (0, 86_000, 1_000):
+            now[0] += later
+            season = viewer.get("/api/watch/title/show-500/season/1?words=1").json()
+            asked.append(len(held.seasons_asked))
+            held.seasons[77, 1] = told
+
+        assert asked == [1, 1, 2]
+        assert season["summary"] == "TMDB on season 1."
+
+    def test_without_tmdb_plex_is_all_there_is(self, viewer, no_tmdb, arr, plex):
+        season = viewer.get("/api/watch/title/show-500/season/1").json()
+
+        assert (season["summary"], season["year"]) == ("", None)
+        assert len(season["episodes"]) == 2
+
+    def test_a_season_not_read_is_counted_as_plex_counts_it(self, viewer, held, arr, plex):
+        show = plex.shows["500"]
+        plex.shows["500"] = replace(
+            show, seasons=[replace(s, episode_count=4) for s in show.seasons]
+        )
+
+        seasons = viewer.get("/api/watch/title/show-500").json()["seasons"]
+
+        assert [s["episode_count"] for s in seasons] == [2, 4]
+
+
 class TestTmdbTitle:
     def test_the_genres_and_cast_name_what_they_lead_to(self, viewer, tmdb, arr):
         tmdb.detail[12]["genres"] = [{"id": 27, "name": "Horror"}]
@@ -1214,6 +1535,90 @@ class TestTmdbTitle:
         viewer.get("/api/watch/title/tmdb-movie-12/ratings")
 
         assert conn.execute("SELECT COUNT(*) FROM ratings_cache").fetchone()[0] == 0
+
+
+class TestSeasonStatus:
+    @staticmethod
+    def _series(arr, *seasons, tvdb_id=5500):
+        ids = {"id": 9, "tmdbId": 77, "tvdbId": tvdb_id}
+        arr.series = [{**ids, "monitored": True, "seasons": list(seasons)}]
+
+    @staticmethod
+    def _season(number, monitored=False):
+        return {
+            "seasonNumber": number,
+            "monitored": monitored,
+            "statistics": {
+                "totalEpisodeCount": 8,
+                # Sonarr gives no airing dates of what is not monitored.
+                **({"previousAiring": "2020-01-01T00:00:00Z"} if monitored else {}),
+            },
+        }
+
+    def test_a_library_show_lists_the_seasons_it_lacks_apart_and_what_asks_for_them(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        tmdb.tvdb_to_tmdb = {5500: 77}
+        tmdb.detail[77]["seasons"] += [
+            {"season_number": 3, "episode_count": 8, "air_date": "2020-01-01"},
+            {"season_number": 4, "episode_count": 8, "air_date": "2099-01-01"},
+        ]
+        self._series(arr, *(self._season(n) for n in (1, 2, 3, 4)))
+
+        body = viewer.get("/api/watch/title/show-500").json()
+
+        assert [(s["number"], s["key"], s["status"]) for s in body["seasons"]] == [
+            (1, "501", "held"),
+            (2, "502", "held"),
+        ]
+        assert [(s["number"], s["status"], s["askable"]) for s in body["more_seasons"]] == [
+            (3, "not_asked", True),
+            (4, "not_out", True),
+        ]
+        assert body["seasons_request"]["body"]["tmdb_id"] == 77
+        assert body["download"] is None
+        assert [e["number"] for e in body["episodes"]] == [1, 2]
+
+    def test_a_library_show_does_not_wait_for_a_slow_sonarr(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        page_came, waited_for = threading.Event(), []
+
+        def get_series():
+            if not page_came.wait(3):
+                waited_for.append("sonarr")
+            return []
+
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 0.01)
+        monkeypatch.setattr(arr, "get_series", get_series)
+        body = viewer.get("/api/watch/title/show-500").json()
+        page_came.set()
+        for thread in threading.enumerate():
+            if thread.name == "watch-arr":
+                thread.join(5)
+
+        assert waited_for == []
+        assert [(s["status"], s["askable"]) for s in body["seasons"]] == [("held", False)] * 2
+        assert body["seasons_pending"] is True
+
+    def test_a_queued_show_still_lists_its_seasons(self, viewer, conn, tmdb, arr):
+        rec = insert_suggestion(conn, title="Far Shore", tmdb_id=77, media_type="tv")
+        self._series(arr, self._season(1, monitored=True), self._season(2), tvdb_id=5501)
+
+        body = viewer.get(f"/api/watch/title/rec-{rec}").json()
+
+        assert body["download"]["state"] == "queued"
+        assert [(s["status"], s["asked"], s["askable"]) for s in body["seasons"]] == [
+            ("asked", True, False),
+            ("not_asked", False, True),
+        ]
+        assert body["seasons_request"] == {"url": f"/api/recommended/{rec}/download", "body": {}}
+
+    def test_a_movie_has_nothing_that_asks_for_seasons(self, viewer, tmdb, arr):
+        assert viewer.get("/api/watch/title/tmdb-movie-12").json()["seasons_request"] is None
 
 
 class TestShowsSonarrDoesNotTrack:

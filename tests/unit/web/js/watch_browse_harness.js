@@ -1,4 +1,4 @@
-// Runs the Watch page's browse scripts (core, address, keep, search, rows-load, grid, expand, browse, watch-rows) against the fake DOM and
+// Runs the Watch page's browse scripts (core, address, keep, search, rows-load, grid, expand, making, browse, watch-rows) against the fake DOM and
 // prints the outcome of one scenario as JSON. Usage: node watch_browse_harness.js <scenario>
 'use strict';
 const fs = require('fs');
@@ -87,6 +87,7 @@ function load(opts = {}) {
   page(doc, opts);
   const toasts = [];
   const timers = [];
+  const beats = [];
   const calls = [];
   const replaced = [];
   const pushed = [];
@@ -105,10 +106,12 @@ function load(opts = {}) {
     return fn ? fn() : Promise.reject(apiError(404, {}));
   };
   const ctx = {
-    document: Object.assign(doc, { dispatchEvent: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
+    document: Object.assign(doc, { dispatchEvent: () => {}, removeEventListener: () => {} }), CustomEvent: class {}, console, JSON, Array, Object, String, Math, Promise, WeakMap, WeakSet, Date, Error,
     parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout: () => {},
+    setInterval: (fn) => { beats.push(fn); return beats.length; },
+    clearInterval: (id) => { beats[id - 1] = null; },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingLeft: '0', paddingRight: '0' }),
     // Reduced motion unless a scenario asks for motion: swaps are immediate.
     matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) }),
@@ -132,9 +135,9 @@ function load(opts = {}) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/browse.js', 'watch-rows.js']
+  ['core/dom.js', 'watch/core.js', 'watch/address.js', 'watch/keep.js', 'watch/search.js', 'watch/rows-load.js', 'watch/grid.js', 'watch/expand.js', 'watch/making.js', 'watch/browse.js', 'watch-rows.js']
     .forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
-  return { ctx, doc, toasts, timers, calls, routes, replaced, pushed, scrolls };
+  return { ctx, doc, toasts, timers, beats, calls, routes, replaced, pushed, scrolls };
 }
 
 /* Run the timers due now (the poll), in order, once each. */
@@ -815,6 +818,72 @@ const scenarios = {
       posts: p.calls.filter((c) => /^POST/.test(c)), toasts: p.toasts.map((t) => t.message) };
   },
 
+  // What is shown and what a screen reader is told, from the press to the end: made, not made, or made and going on.
+  async ownMaking() {
+    const at = async (ended, opts = {}) => {
+      let done = false;
+      const p = load({ routes: {
+        'GET /api/watch/recommended': () => Promise.resolve({ ...recommended(done ? ended : { mine: MINE.ready }), few_ratings: opts.few }),
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: done ? opts.status || 'done' : 'running' }),
+      } });
+      await settle();
+      const line = rec(p.doc).querySelector('.rec-line');
+      const said = line.querySelector('.rec-line__text');
+      const told = []; // what a polite region says as its words change
+      const look = () => ({ shown: text(line.querySelectorAll('.making__words').pop()), status: said.textContent, heard: !said.classList.contains('sr-only'),
+        live: said.getAttribute('aria-live'), role: said.getAttribute('role'), reel: !!line.querySelector('.making-reel'),
+        twinkles: line.classList.contains('is-making') });
+      const listen = () => { if (said.getAttribute('aria-live') !== 'off' && told[told.length - 1] !== said.textContent) told.push(said.textContent); };
+      const before = look();
+      click(p.doc, line.querySelector('[data-own-refresh]'));
+      await settle();
+      const busy = look();
+      listen();
+      for (let i = 0; i < 4; i += 1) { p.beats.filter(Boolean).forEach((fn) => fn()); listen(); }
+      const later = look();
+      const starts = p.beats.length;
+      done = true;
+      const ends = p.timers.filter((t) => t.ms >= 3000); // the poll
+      p.timers.length = 0;
+      ends.forEach((t) => t.fn());
+      await settle();
+      const end = look();
+      listen();
+      const beating = p.beats.filter(Boolean).length;
+      await tick(p);
+      listen();
+      return { before, busy, later, starts, end, beating, after: look(), told, toasts: p.toasts.map((t) => t.message) };
+    };
+    return {
+      made: await at({ mine: MINE.wait, items: OWN_ITEMS }),
+      failed: await at({ mine: MINE.ready }, { status: 'failed' }),
+      again: await at({ mine: MINE.running, items: OWN_ITEMS }),
+      few: (await at({ mine: MINE.wait, items: OWN_ITEMS }, { few: true })).busy.shown,
+    };
+  },
+
+  // Made once, then pressed again at a server that fails: the second press has no happy end.
+  async ownMakingThenBroken() {
+    let presses = 0;
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ mine: MINE.ready, items: presses ? OWN_ITEMS : undefined })),
+      'POST /api/watch/picks/refresh': () => (presses++ ? Promise.reject(apiError(500, {})) : Promise.resolve({ ok: true, status: 'started' })),
+      'GET /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'done' }),
+    } });
+    await settle();
+    const line = rec(p.doc).querySelector('.rec-line');
+    const shown = () => text(line.querySelectorAll('.making__words').pop());
+    click(p.doc, line.querySelector('[data-own-refresh]'));
+    await settle();
+    await tick(p);
+    const first = shown();
+    click(p.doc, line.querySelector('[data-own-refresh]'));
+    const busy = { shown: shown(), heard: !line.querySelector('.rec-line__text').classList.contains('sr-only') };
+    await settle();
+    return { first, busy, second: shown(), heard: !line.querySelector('.rec-line__text').classList.contains('sr-only') };
+  },
+
   // It made none: the row stays as it was, says so, and can be tried again.
   async ownRefreshFailed() {
     const p = load({ mine: MINE.ready, routes: {
@@ -853,6 +922,22 @@ const scenarios = {
       broken: await at(apiError(500, {})),
       out: await at(apiError(401, {})),
     };
+  },
+
+  // The session ran out while the picks are made.
+  async ownLoggedOut() {
+    const at = async (status) => {
+      const p = load({ mine: MINE.ready, routes: {
+        'POST /api/watch/picks/refresh': () => Promise.resolve({ ok: true, status: 'started' }),
+        'GET /api/watch/picks/refresh': () => Promise.reject(apiError(status, {})),
+      } });
+      await settle();
+      click(p.doc, rec(p.doc).querySelector('[data-own-refresh]'));
+      await settle();
+      await tick(p);
+      return [p.ctx.location.href, p.toasts.length, p.timers.length];
+    };
+    return [await at(401), await at(403)];
   },
 
   // Found being made when the page loads, by the scan or an earlier press: the end is followed, and
@@ -1129,6 +1214,32 @@ const scenarios = {
     await settle();
     return scrollerOf(p, 'trending').querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelectorAll('[data-watch-more]').length, !!c.querySelector('.watch-card__link [data-watch-more]')]);
+  },
+
+  // A pick has its More button whether the library holds it or not, a Discover card of the same title does not.
+  async pickMore() {
+    const p = load({ routes: {
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('pick-2', { ref: 'movie-11', in_library: true, mark_kind: 'movie', mark_key: '11' })] })),
+      'GET /api/watch/discover': () => Promise.resolve({ rows: [{ id: 'trending', items: [card('tmdb-movie-2')] }] }) } });
+    await settle();
+    const look = (c) => [c.getAttribute('data-mark'), c.querySelectorAll('[data-watch-more]').map((b) => b.getAttribute('aria-label')), c.querySelector('.watch-card__sub').children.map((n) => n.className)];
+    return [...rec(p.doc).querySelectorAll('.watch-card'), scrollerOf(p, 'trending').querySelector('.watch-card')].map(look);
+  },
+
+  // See all of the picks, opened while one is gone from them: back in the row, it is under its date there too.
+  async pickBackInGrid() {
+    const p = load({ grids: { recommended: 'Recommended for you' }, routes: { 'GET /api/watch/discover': () => Promise.resolve({ rows: [] }),
+      'GET /api/watch/recommended': () => Promise.resolve(recommended({ items: [pick('rec-1'), pick('rec-2')] })) } });
+    await settle();
+    let made = null;
+    p.ctx.MMWatch.grid.open = (o) => { made = o; };
+    p.doc.body.appendChild(build(p.doc, ['div', { class: 'watch-all__body' }])).toggleAttribute = () => {};
+    const open = p.doc.body.appendChild(build(p.doc, ['a', { href: '/watch?all=recommended', 'data-row-open': 'recommended' }]));
+    const first = rec(p.doc).querySelector('.watch-card');
+    click(p.doc, open);
+    const heading = made.cards[0];
+    return { group: [heading, made.line(first)].map((n) => n.getAttribute('data-group')), same: made.line(first).textContent === heading.textContent, dates: made.dates(),
+      places: rec(p.doc).querySelectorAll('.watch-card').map((c) => [c.getAttribute('data-batch'), c.getAttribute('data-place')]) };
   },
 
   // Keep from Leaving soon: a toast with Undo, and focus moves to the next card's Keep.
