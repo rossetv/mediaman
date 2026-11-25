@@ -1811,7 +1811,8 @@ const scenarios = {
     w.tv.media[0].say('PLAYING');
     await w.clock.advance(12000);
     out.played = places(page).pop();
-    await leave('refused', (m, at) => { at.tv.media = []; });
+    // A TV that names nothing may play on yet, so a refused start is one it says failed.
+    await leave('refused', (m) => { m.playerState = 'IDLE'; m.idleReason = 'ERROR'; });
     await leave('plays', (m) => m.say('PLAYING'));
     await leave('player', () => {}, true);
     // Played and paused with the TV's own remote while no page is open, or paused where it starts.
