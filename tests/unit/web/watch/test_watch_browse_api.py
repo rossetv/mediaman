@@ -45,7 +45,7 @@ def _movie(conn, key: str, title: str, library: int = 1) -> None:
     insert_media_item(conn, id=key, plex_rating_key=key, title=title, plex_library_id=library)
 
 
-def _season(conn, key: str, show_key: str, title: str, library: int = 1) -> None:
+def _season(conn, key: str, show_key: str | None, title: str, library: int = 1) -> None:
     insert_media_item(
         conn,
         id=key,
@@ -63,6 +63,13 @@ def _search(client, q: str) -> list[dict]:
     resp = client.get("/api/watch/search", params={"q": q})
     assert resp.status_code == 200
     return resp.json()["items"]
+
+
+def _as_admin(client, conn):
+    insert_admin_user(conn, username="boss", role="admin")
+    admin = TestClient(client.app)
+    admin.cookies.set("session_token", create_session(conn, "boss"))
+    return admin
 
 
 class TestSearch:
@@ -83,6 +90,38 @@ class TestSearch:
         _season(conn, "701", "700", "Hidden Glass Show", library=9)
 
         assert _search(client, "glass") == []
+
+    def test_an_admin_finds_what_watch_cannot_open_too_with_what_can_be_done_of_it(
+        self, client, conn
+    ):
+        _movie(conn, "100", "The Amber Glass")
+        _movie(conn, "900", "Glass Elsewhere", library=9)
+        _season(conn, "701", None, "Glass Keyless")
+        _movie(conn, "901", "Other Elsewhere", library=9)
+
+        body = _as_admin(client, conn).get("/api/watch/search", params={"q": "glass"}).json()
+
+        assert [(i["title"], i["href"], i["ref"]) for i in body["items"]] == [
+            ("Glass Elsewhere", None, None),
+            ("Glass Keyless", None, None),
+            ("The Amber Glass", "/watch/movie/100", "movie-100"),
+        ]
+        assert [i["admin"]["delete"]["id"] for i in body["items"][:2]] == ["900", "701"]
+        assert body["items"][0]["key"] == "id:900"
+        assert body["total"] == 3
+
+    def test_what_an_admin_finds_is_cut_at_the_closest_and_counted_in_full(
+        self, client, conn, monkeypatch
+    ):
+        monkeypatch.setattr(browse_api, "SEARCH_LIMIT", 2)
+        _movie(conn, "100", "Glass")
+        _movie(conn, "101", "Amber Glass")
+        _movie(conn, "900", "Glass Elsewhere", library=9)
+
+        body = _as_admin(client, conn).get("/api/watch/search", params={"q": "glass"}).json()
+
+        assert [i["title"] for i in body["items"]] == ["Glass", "Glass Elsewhere"]
+        assert body["total"] == 3
 
     @pytest.mark.parametrize(("q", "expected"), [("%", ["100% Wolf"]), ("_", ["Under_score"])])
     def test_like_wildcards_match_only_themselves(self, client, conn, q, expected):

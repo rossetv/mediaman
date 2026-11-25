@@ -7,6 +7,7 @@ Stale and the orders by size, last watched and deletion are an admin's alone.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, replace
@@ -14,13 +15,14 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, cast, get_args
 
 from mediaman.core.format import format_bytes
-from mediaman.core.time import now_iso, parse_iso_strict_utc
+from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
 from mediaman.scanner.runner import get_day_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keeps
 from mediaman.web.repository.library_query import (
     DUE_SOON_DAYS,
+    TitleSearch,
     days_ago,
     display_key,
     fetch_display_rows,
@@ -395,6 +397,27 @@ def one_of(
     return {"items": items, "next": None, **bar(conn, library, type_, now)}
 
 
+def unheld(
+    conn: sqlite3.Connection, username: str, libraries: list[str], search: TitleSearch
+) -> list[dict[str, Any]]:
+    """An admin's cards of the titles *search* finds that Watch cannot open."""
+    # The whole library is read for them, which a search is too often for with none there.
+    if not conn.execute(
+        "SELECT 1 FROM media_items WHERE CAST(plex_library_id AS TEXT) NOT IN"
+        " (SELECT CAST(value AS TEXT) FROM json_each(?))"
+        " OR (media_type != 'movie' AND show_rating_key IS NULL) LIMIT 1",
+        (json.dumps(libraries),),
+    ).fetchone():
+        return []
+    movies, shows = lib.library_movies(conn, libraries), lib.library_shows(conn, libraries)
+    library = load(conn, username, libraries, movies, shows, admin=True)
+    held = _held(movies, shows)
+    found = [
+        t for t in library.titles if t.key not in held and search.distance(t.title) is not None
+    ]
+    return _cards(conn, library, found, lambda _refs: {}, DEFAULT_SORT, "", now_utc())
+
+
 __all__ = [
     "ADMIN_SORTS",
     "ADMIN_TYPES",
@@ -407,4 +430,5 @@ __all__ = [
     "load",
     "one_of",
     "page_of",
+    "unheld",
 ]

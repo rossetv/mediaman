@@ -274,6 +274,45 @@ const scenarios = {
     return out;
   },
 
+  // A title Watch cannot open: what an admin can do of it, and how it stands after that.
+  async unheld() {
+    const card = (more) => ({
+      ref: null, key: 'id:900', title: 'Orchard Elsewhere', href: null, subtitle: 'Movie', admin: { id: '900', title: 'Orchard Elsewhere', kept: false, ...more },
+    });
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB, card(), { ...card(), key: 'id:901', title: 'Orchard Other' }], total: 3 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    const of = (key) => p.doc.querySelectorAll('.watch-card').filter((c) => c.getAttribute('data-key') === key)[0];
+    const emit = (detail) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { id: '900', showRk: '', ...detail } }));
+    const asked = () => p.calls.filter((c) => c.url.startsWith('/api/watch/search?')).length;
+    const more = () => of('id:900').querySelector('[data-watch-more]');
+    const working = () => [of('id:900').classList.contains('is-working'), more().getAttribute('aria-disabled'), of('id:901').classList.contains('is-working')];
+    const link = of('id:900').querySelector('.watch-card__link');
+    const out = {
+      titles: p.titles('.watch-card'), suggested: p.suggested(),
+      href: link.getAttribute('href'), ref: link.getAttribute('data-title-ref'), tabIndex: link.tabIndex,
+      more: more().getAttribute('aria-label'), id: JSON.parse(of('id:900').getAttribute('data-admin')).id,
+      libraryHasNone: p.doc.querySelector('.watch-card [data-title-ref="movie-1"]').closest('.watch-card').querySelector('[data-watch-more]') === null,
+    };
+    emit({ phase: 'busy', action: 'keep' });
+    out.busy = working();
+    emit({ phase: 'failed', action: 'keep' });
+    out.failed = [...working(), asked()];
+    more().focus();
+    emit({ phase: 'done', action: 'keep' });
+    out.done = [...working(), asked()];
+    await p.answer('/api/watch/search?', { items: [LIB, card({ kept: true }), { ...card(), key: 'id:901', title: 'Orchard Other' }], total: 3 });
+    out.kept = [JSON.parse(of('id:900').getAttribute('data-admin')).kept, p.doc.activeElement === more(), p.heads()];
+    emit({ phase: 'done', action: 'delete' });
+    await p.answer('/api/watch/search?', { items: [LIB, { ...card(), key: 'id:901', title: 'Orchard Other' }], total: 2 });
+    out.gone = [p.titles('.watch-card'), p.doc.activeElement === of('id:901').querySelector('[data-watch-more]')];
+    const before = asked();
+    emit({ id: '1', phase: 'done', action: 'keep' });
+    out.other = asked() - before;
+    return out;
+  },
+
   // A reply for an older query never reaches the page.
   async staleReply() {
     const p = load(ADMIN);

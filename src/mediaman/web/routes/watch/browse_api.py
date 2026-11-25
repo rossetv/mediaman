@@ -43,7 +43,9 @@ from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keeps
+from mediaman.web.repository.library_query import TitleSearch
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.watch import all_titles
 from mediaman.web.routes.watch.pages import (
     is_valid_key,
     open_plex,
@@ -108,7 +110,16 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     found, total = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
-    return JSONResponse({"items": library_items(conn, username, libraries, found), "total": total})
+    items = library_items(conn, username, libraries, found)
+    if get_user_role(conn, username) == "admin":
+        search = TitleSearch(conn, term)
+        unheld = all_titles.in_one_read(
+            conn, lambda: all_titles.unheld(conn, username, libraries, search)
+        )
+        items += [{**card, "ref": None} for card in unheld]
+        items.sort(key=lambda i: (search.distance(i["title"]), lib.sort_title(i["title"])))
+        total += len(unheld)
+    return JSONResponse({"items": items[:SEARCH_LIMIT], "total": total})
 
 
 def library_items(
