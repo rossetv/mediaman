@@ -63,9 +63,11 @@
 #account-email-fold { margin-bottom: -6px; }
 .me-acts--end { padding-bottom: 6px; }
 #account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
-#account-open-password.is-gone { opacity: 0; visibility: hidden; }
-#account-password-fold > .setg-fold-inner { padding-block: 4px 6px; margin-bottom: -6px; }
-.me-pw-pad { padding-top: 16px; }
+#account-open-password.is-gone { opacity: 0; visibility: hidden; transition: opacity var(--dur) var(--ease-out), visibility 0s var(--dur); }
+.me-line:has(#account-open-password) { position: relative; transition: margin-bottom var(--dur) var(--ease-out); }
+#account-password-sub.is-new { animation: fade-in var(--dur) var(--ease-out); }
+#account-password-fold > .setg-fold-inner { padding-block: 4px 6px; margin-block: -4px -6px; }
+.me-pw-pad { padding-top: 20px; }
 .me-sub .is-fresh { color: var(--success); }
 .me-sub .is-fresh .ico { margin-right: 4px; font-size: 11px; }
 

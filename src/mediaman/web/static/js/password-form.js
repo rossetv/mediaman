@@ -3,14 +3,17 @@
  * _password.css): the eye in each field, the live rules, Caps Lock, the reason under the field it
  * is about, the form while it is sent, and the mark drawn at the end.
  *
+ * A form with data-password-form is wired as it stands and posted as it is. What posts a second time
+ * the new password, in a data-again field that only a page without scripts shows, gets it as it is sent.
+ *
  * Exposes:
  *   MM.password.read(password, username)
  *     What the rules of the server's password_policy.py say of a password. A rule is only met here
  *     when it is met there; the list of common passwords is the server's alone.
  *   MM.password.form(form, options)
- *     Wires a form. Options: `same` (the new one may not be the one typed as current), `whose`
- *     ("your" or "their"), `username()` (the form's username field by default), `before()` (false
- *     stops the submit) and `send(values)`; without `send` the form is posted as it is.
+ *     Wires a form. Options: `whose` ("your" or "their"), `username()` (the form's username field by
+ *     default), `before()` (false stops the submit) and `send(values)`; without `send` the form is
+ *     posted as it is.
  *   MM.password.celebrate(stage, form, title, words, beside)
  *     Takes the form's place with a tick; resolves, once drawn, to the function that gives it back.
  *
@@ -23,6 +26,16 @@
 
   // Where this is loaded ahead of the page, what only works with it is there from the first paint.
   document.documentElement.classList.add('pwd-on');
+
+  // The second field is only left out of sight by what fills it, and no password is kept in it.
+  if ('FormDataEvent' in window) {
+    document.documentElement.classList.add('pwd-once');
+    document.addEventListener('formdata', function (e) {
+      var again = e.target.querySelector('[data-again]');
+      if (!again) return;
+      e.formData.set(again.name, e.target.querySelector('#' + again.getAttribute('data-again')).value);
+    });
+  }
 
   var MIN = 12, MIN_DIFFERENT = 6, PHRASE = 20, PHRASE_DIFFERENT = 12, MAX_BYTES = 1024;
   // A plain post whose answer never comes leaves the page here.
@@ -48,8 +61,18 @@
     var lower = /^\p{Lowercase}$/u.test(c), upper = /^\p{Uppercase}$/u.test(c), digit = /^\p{Nd}$/u.test(c);
     var at = c.codePointAt(0);
     var settled = at < 0x800 || (at >= 0x1e00 && at < 0x2000);
-    if (/^[\p{No}\p{Nl}\p{Cn}]$/u.test(c) || (!settled && (lower || upper || digit))) return null;
+    // U+0295 has been a small letter and a letter of no case.
+    if (at === 0x295 || /^[\p{No}\p{Nl}\p{Cn}]$/u.test(c) || (!settled && (lower || upper || digit))) return null;
     return lower ? 'lower' : upper ? 'upper' : digit ? 'digit' : 'symbol';
+  }
+
+  // What only one side may know to stand for another character: nothing is said of what it hides.
+  function isUnknown(c) {
+    if (/^\p{Cn}$/u.test(c)) return true;
+    if (c.normalize('NFKC') === c) return false;
+    var at = c.codePointAt(0);
+    var old = (at >= 0x1d400 && at < 0x1d800) || (at >= 0x1f100 && at < 0x1f300) || (at >= 0x2f800 && at < 0x2fa20);
+    return (at >= 0xa700 && at < 0xa800) || (at >= 0x10000 && !old);
   }
 
   function inOrder(low) {
@@ -67,14 +90,16 @@
     var chars = Array.from(pw), low = pw.toLowerCase();
     var user = strip((username || '').toLowerCase());
     var different = new Set(chars).size, length = chars.length;
-    var kinds = {}, unsure = false;
-    chars.forEach(function (c) {
+    var raw = Array.from(password);
+    var unknown = raw.some(isUnknown);
+    var kinds = {}, unsure = unknown;
+    Array.from(raw.filter(function (c) { return !isUnknown(c); }).join('').normalize('NFKC')).forEach(function (c) {
       var kind = kindOf(c);
       if (!kind) unsure = true;
       else kinds[kind] = true;
     });
     var count = ['lower', 'upper', 'digit', 'symbol'].filter(function (kind) { return kinds[kind]; }).length;
-    var phrase = length >= PHRASE && different >= PHRASE_DIFFERENT && (chars.some(isSpace) || different / length >= 0.6);
+    var phrase = !unknown && length >= PHRASE && different >= PHRASE_DIFFERENT && (chars.some(isSpace) || different / length >= 0.6);
     var holdsUser = Boolean(user) && low.indexOf(user) !== -1;
     var insideUser = Boolean(user) && length > 0 && user.indexOf(low) !== -1;
     var bytes = new TextEncoder().encode(pw).length;
@@ -83,12 +108,12 @@
       empty: !password, length: length, different: different, kinds: kinds, count: count, phrase: phrase,
       holdsUser: holdsUser, insideUser: insideUser, inOrder: ordered, bytes: bytes,
       tooLong: bytes > MAX_BYTES,
-      // The server may count more kinds than are counted here.
-      unsure: unsure,
+      // Where the server may find kept what is not shown as kept here.
+      unsure: { mix: unsure, guess: unknown },
       ok: {
         length: length >= MIN && bytes <= MAX_BYTES,
         mix: phrase || count >= 3,
-        guess: different >= MIN_DIFFERENT && !holdsUser && !insideUser && !ordered,
+        guess: !unknown && different >= MIN_DIFFERENT && !holdsUser && !insideUser && !ordered,
       },
     };
   }
@@ -101,6 +126,9 @@
   }
 
   function many(n, one, more) { return n === 1 ? one : n + ' ' + more; }
+
+  // The server's words are not all whole sentences.
+  function sentence(text) { return /[.!?…]$/.test(text) ? text : text + '.'; }
 
   function still() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
 
@@ -151,10 +179,10 @@
     var lines = {};
     node.querySelectorAll('.pwd-rule').forEach(function (line) { lines[line.getAttribute('data-rule')] = line; });
 
-    // What the server refused, until the password is another one.
-    var refused = { pw: null, lines: {}, guess: '' };
+    // What the server refused, until the password, or whose it is, is another one.
+    var refused = { pw: null, user: '', lines: {}, guess: '' };
     function refuseLines(pw, names) {
-      refused = { pw: pw, lines: {}, guess: '' };
+      refused = { pw: pw, user: username(), lines: {}, guess: '' };
       names.forEach(function (name) {
         var line = LINE_OF[name];
         if (!line || !lines[line]) return;
@@ -179,11 +207,11 @@
     function look() {
       var pw = fresh.input.value;
       var r = read(pw, username());
-      var same = Boolean(options.same && pw && old.input.value.normalize('NFKC') === pw.normalize('NFKC'));
+      var same = Boolean(lines.same && pw && old.input.value.normalize('NFKC') === pw.normalize('NFKC'));
       return {
         pw: pw, r: r, same: same,
-        okSame: !options.same || Boolean(pw && old.input.value && !same),
-        bad: pw === refused.pw ? refused : { lines: {}, guess: '' },
+        okSame: !lines.same || Boolean(pw && old.input.value && !same),
+        bad: pw === refused.pw && username() === refused.user ? refused : { lines: {}, guess: '' },
       };
     }
     function missing(x) {
@@ -291,7 +319,7 @@
     }
     function refuse(f, text, list, onlySay) {
       clear();
-      f.wrong = text;
+      f.wrong = sentence(text);
       f.list = list;
       under(f);
       f.input.setAttribute('aria-invalid', 'true');
@@ -302,7 +330,7 @@
     // What no field can put right takes the place of the line on what saving does.
     function refuseWhole(text, onlySay) {
       clear();
-      msg.textContent = text;
+      msg.textContent = sentence(text);
       aside.classList.add('is-wrong');
       if (!onlySay) msg.scrollIntoView({ block: 'nearest' });
     }
@@ -344,8 +372,8 @@
       else if (r.tooLong) words = 'Too long. ' + MAX_BYTES + ' bytes at most.';
       else if (!r.ok.length) words = 'Too short. Add ' + many(MIN - r.length, 'one more character', 'more characters') + '.';
       // Only the server can say how many kinds it counts.
-      else if (!r.ok.mix && !r.unsure) words = 'Add ' + (r.length >= PHRASE ? 'a third kind of character' : many(3 - r.count, 'one more kind of character', 'more kinds of character')) + '.';
-      else if (!r.ok.guess) words = (guessWords(r) || 'Use at least six different characters') + '.';
+      else if (!r.ok.mix && !r.unsure.mix) words = 'Add ' + (r.length >= PHRASE ? 'a third kind of character' : many(3 - r.count, 'one more kind of character', 'more kinds of character')) + '.';
+      else if (!r.ok.guess && !r.unsure.guess) words = (guessWords(r) || 'Use at least six different characters') + '.';
       else if (x.same) words = 'That is the one you have now.';
       if (words) refuse(fresh, words);
       return Boolean(words);
@@ -377,9 +405,12 @@
     }
     window.addEventListener('pageshow', function (e) { if (e.persisted) free(); });
 
+    // A password that was taken is not left in the page.
+    function forget() { secret.forEach(function (f) { f.input.value = ''; }); }
+
     function reset() {
       node.reset();
-      refused = { pw: null, lines: {}, guess: '' };
+      refused = { pw: null, user: '', lines: {}, guess: '' };
       clear();
       busy(false);
       secret.forEach(function (f) { f.shown(false); });
@@ -391,7 +422,7 @@
     render();
     return {
       old: old && old.input, fresh: fresh.input, submit: submit, cancel: cancel, aside: aside,
-      isBusy: isBusy, free: free, reset: reset, render: render,
+      isBusy: isBusy, free: free, forget: forget, reset: reset, render: render,
       refuse: function (input, text, onlySay) { refuse(fields.filter(function (f) { return f.input === input; })[0], text, null, onlySay); },
       refuseNew: refuseNew, refuseWhole: refuseWhole,
     };
@@ -447,4 +478,13 @@
   }
 
   MM.password = { read: read, form: form, celebrate: celebrate };
+
+  function wire() {
+    document.querySelectorAll('form[data-password-form]').forEach(function (node) {
+      node.querySelectorAll('[data-again]').forEach(function (again) { again.disabled = document.documentElement.classList.contains('pwd-once'); });
+      form(node, {});
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
+  else wire();
 })();

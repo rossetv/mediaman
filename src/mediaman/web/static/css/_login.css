@@ -8,6 +8,7 @@
   padding: 40px 20px;
   position: relative;
   overflow: hidden;
+  color-scheme: dark;
 }
 .login-page::before {
   content: "";
@@ -42,7 +43,7 @@
   letter-spacing: -.03em;
   margin-bottom: 4px;
 }
-.login-brand a { text-decoration: none; color: inherit; }
+.login-brand a { text-decoration: none; color: inherit; overflow-wrap: anywhere; }
 .login-brand b, .login-brand span { color: var(--accent); }
 .login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {
@@ -92,6 +93,7 @@
   margin-top: 8px;
   font-size: 15px;
   font-weight: 500;
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: var(--accent-cta);
   color: var(--t1);

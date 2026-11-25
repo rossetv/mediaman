@@ -90,19 +90,26 @@
     var sub = document.getElementById('account-password-sub');
     var live = document.getElementById('account-password-live');
     if (!form || !opener || !panel || !sub || !live) return function () {};
+    // Its script did not load: the rest of the page works without it.
+    if (!MM.password) {
+      opener.disabled = true;
+      return function () {};
+    }
+    var line = opener.closest('.me-line');
+    var end = opener.parentNode;
     var fold = MM.settings.rows;
     var changed = document.getElementById('account-password-changed');
     var effect = sub.lastElementChild;
     var fresh = false;
     if (changed) changed.textContent = dayOf(changed.getAttribute('datetime'));
 
-    var pw = MM.password.form(form, { same: true, send: send });
-    var line = pw.aside.querySelector('.pwd-line').lastElementChild;
-    var unknown = line.textContent;
+    var pw = MM.password.form(form, { send: send });
+    var says = pw.aside.querySelector('.pwd-line').lastElementChild;
+    var unknown = says.textContent;
 
     function sayDevices() {
       var others = devices.others(), tvs = devices.tvs();
-      line.textContent = others && tvs !== null ? willSignOut(others.length, tvs) : unknown;
+      says.textContent = others && tvs !== null ? willSignOut(others.length, tvs) : unknown;
     }
 
     // This device and those that go out with the change, as many as there is room for.
@@ -123,20 +130,42 @@
       return row;
     }
 
+    // The row takes its new height as the fold takes its own, with its words and button already in place.
+    function ease(change) {
+      var from = line.offsetHeight + (parseFloat(getComputedStyle(line).marginBottom) || 0);
+      change();
+      var gap = from - line.offsetHeight;
+      line.style.transition = 'none';
+      line.style.marginBottom = gap + 'px';
+      sub.classList.remove('is-new');
+      void line.offsetHeight;
+      sub.classList.toggle('is-new', gap !== 0);
+      line.style.transition = '';
+      line.style.marginBottom = '';
+    }
+
     function show() {
+      if (pw.isBusy()) return;
       opener.setAttribute('aria-expanded', 'true');
-      opener.classList.add('is-gone');
-      // The line by the buttons says it, with the numbers.
-      if (changed && !fresh) effect.hidden = true;
+      ease(function () {
+        // Where the button leaves its room to the words, it fades where it was.
+        end.style.top = end.offsetTop + 'px';
+        opener.classList.add('is-gone');
+        // The line by the buttons says it, with the numbers.
+        if (changed && !fresh) effect.hidden = true;
+      });
       sayDevices();
       fold.openInView(panel);
       pw.old.focus({ preventScroll: true });
     }
-    function shut(then) {
+    function shut(then, words) {
       var held = MM.dom.focusStillIn(panel);
       opener.setAttribute('aria-expanded', 'false');
-      opener.classList.remove('is-gone');
-      if (!fresh) effect.hidden = false;
+      ease(function () {
+        opener.classList.remove('is-gone');
+        if (!fresh) effect.hidden = false;
+        if (words) sub.appendChild(document.createTextNode(' ' + words));
+      });
       fold.close(panel, then || pw.reset);
       if (held) opener.focus({ preventScroll: true });
     }
@@ -162,21 +191,23 @@
       var words = known ? signedOut(data.signed_out, data.unpaired.length)
         : others && devices.tvs() !== null ? signedOut(others.length, devices.tvs())
           : 'Your other devices were signed out, and your TVs unpaired.';
+      pw.forget();
       fresh = true;
       live.textContent = 'Password changed. ' + words;
-      sub.textContent = '';
-      var now = sub.appendChild(el('span', 'is-fresh'));
-      now.appendChild(MM.dom.icon('i-check'));
-      now.appendChild(document.createTextNode('Changed just now.'));
+      ease(function () {
+        sub.textContent = '';
+        var now = sub.appendChild(el('span', 'is-fresh'));
+        now.appendChild(MM.dom.icon('i-check'));
+        now.appendChild(document.createTextNode('Changed just now.'));
+      });
       MM.password.celebrate(form.parentNode, form, 'Password changed', words, deviceRow()).then(function (undo) {
         // Long enough to be read before it folds.
         setTimeout(function () {
-          sub.appendChild(document.createTextNode(' ' + words));
           devices.reload();
           shut(function () {
             undo();
             pw.reset();
-          });
+          }, words);
         }, 2000);
       });
     }

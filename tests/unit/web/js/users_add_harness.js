@@ -44,7 +44,7 @@ const GOOD = 'Copper lantern 41';
 const row = { id: 7, username: 'vic', role: 'viewer', email: null };
 
 // `timers` takes what waits for a time, for the test to run.
-function page({ users = [], reauth = (f) => f(), timers } = {}) {
+function page({ users = [], reauth = (f) => f(), timers, scripts = ['password-form.js'] } = {}) {
   const doc = makeDocument();
   doc.documentElement.clientHeight = 600;
   doc.body.appendChild(build(doc, ['main', {},
@@ -60,7 +60,7 @@ function page({ users = [], reauth = (f) => f(), timers } = {}) {
   const MM = { reauth: { run: (f) => reauth(f, doc) } };
   const ctx = vm.createContext({ document: doc, MM, UIFeedback, getComputedStyle: () => ({}), TextEncoder, addEventListener() {}, clearTimeout, setTimeout: (fn) => (timers ? timers.push(fn) : setTimeout(fn, 0)), matchMedia: () => ({ matches: true }) });
   ctx.window = ctx;
-  ['core/api.js', 'core/dom.js', 'settings/rows.js', 'password-form.js', 'settings/users.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  ['core/api.js', 'core/dom.js', 'settings/rows.js', ...scripts, 'settings/users.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   MM.api.get = () => Promise.resolve({ current: 'admin', users });
   const refusal = (error) => new MM.api.APIError('x', 'No', error.status, error.issues, { message: 'No', rules: error.rules });
   MM.settings.users.init();
@@ -129,9 +129,16 @@ async function made() {
   $('add-user-form').reset = () => ['new-username', 'new-user-password'].forEach((id) => { $(id).value = ''; });
   fire($('add-user-form'), 'submit');
   await settle();
-  const during = { drawn: doc.querySelector('.pwd-done-s').textContent, live: $('add-user-live').textContent, open: !$('add-user-fold').hidden };
+  const during = { drawn: doc.querySelector('.pwd-done-s').textContent, live: $('add-user-live').textContent, open: !$('add-user-fold').hidden, left: [$('new-user-password').value] };
   for (let i = 0; i < 6; i += 1) { timers.splice(0).forEach((fn) => fn()); await settle(); }
   return { posts, during, after: { open: !$('add-user-fold').hidden, drawn: Boolean(doc.querySelector('.pwd-done')), left: [$('new-username').value, $('new-user-password').value], rows: doc.querySelectorAll('.usr-row').length, focused: focused(), busy: $('add-user-form').getAttribute('aria-busy') } };
+}
+
+// The form's script did not load: the list of users stands.
+async function without() {
+  const { doc, $ } = page({ users: [row], scripts: [] });
+  await settle();
+  return { rows: doc.querySelectorAll('.usr-row').length, add: $('btn-add-user').disabled };
 }
 
 // Escape folds it away, empty, and a form on its way stays.
@@ -195,6 +202,6 @@ const api = (status, issues, rules) => ({ status, issues, rules });
     limitElsewhere: await refuse({ error: api(429), focus: 'elsewhere' }),
   };
   const rows = { role: await places('role'), delete: await places('delete'), email: await places('email') };
-  process.stdout.write(JSON.stringify({ add: out, cancel: await cancel(), sending: await sending(), made: await made(), escape: await escape(), rows }));
+  process.stdout.write(JSON.stringify({ add: out, cancel: await cancel(), sending: await sending(), made: await made(), escape: await escape(), without: await without(), rows }));
   process.exit(0);
 })();

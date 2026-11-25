@@ -16,10 +16,10 @@ Node.prototype.scrollIntoView = function () { shown.push(this.id); };
 
 function page({ refused, forced, options } = {}) {
   const doc = makeDocument();
-  const form = doc.body.appendChild(build(doc, ['form', { id: 'fpc-form', 'data-submit-guard': '', ...(refused ? { 'data-refused': refused } : {}) },
+  const form = doc.body.appendChild(build(doc, ['form', { id: 'fpc-form', 'data-submit-guard': '', ...(forced ? { 'data-password-form': '' } : {}), ...(refused ? { 'data-refused': refused } : {}) },
     ['input', { autocomplete: 'username' }],
     ...parts({ old: 'old_password', fresh: 'new_password', submit: 'go', result: 'result' }),
-    ['input', { id: 'confirm_password', type: 'password' }]]));
+    ['input', { id: 'confirm_password', type: 'password', 'data-again': 'new_password' }]]));
   const $ = (id) => doc.getElementById(id);
   doc.querySelector('[autocomplete="username"]').value = 'jonas.ek';
   ['old_password', 'new_password', 'confirm_password'].forEach((id) => { $(id).value = ''; $(id).type = 'password'; });
@@ -28,7 +28,7 @@ function page({ refused, forced, options } = {}) {
   const listeners = {};
   const ctx = vm.createContext({
     document: doc, Set, JSON, Math, TextEncoder, setTimeout: (fn, ms) => timers.push({ fn, ms }), clearTimeout: (n) => { if (timers[n - 1]) timers[n - 1].fn = () => {}; },
-    getComputedStyle: () => ({}), matchMedia: () => ({ matches: true }),
+    FormDataEvent: Object, getComputedStyle: () => ({}), matchMedia: () => ({ matches: true }),
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
   });
   ctx.window = ctx;
@@ -36,8 +36,8 @@ function page({ refused, forced, options } = {}) {
   load('core/dom.js');
   load('password-form.js');
   let pw = null;
-  if (forced) ['force-password-change.js', 'submit-guard.js'].forEach(load);
-  else pw = ctx.MM.password.form(form, { same: true, send: (values) => sent.push(values), ...options });
+  if (forced) load('submit-guard.js');
+  else pw = ctx.MM.password.form(form, { send: (values) => sent.push(values), ...options });
   const sent = [];
   return {
     doc, $, pw, sent, timers, MM: ctx.MM,
@@ -52,6 +52,13 @@ function page({ refused, forced, options } = {}) {
       form.listeners.submit.forEach((fn) => fn(e));
       if (!e.stopped) (doc.listeners.submit || []).forEach((fn) => fn(e));
       return e.sent;
+    },
+    // what is posted, as the browser gathers it
+    posted() {
+      const data = new Map($('confirm_password').disabled ? [] : [['confirm_password', $('confirm_password').value]]);
+      $('confirm_password').name = 'confirm_password';
+      doc.listeners.formdata.forEach((fn) => fn({ target: form, formData: data }));
+      return data.get('confirm_password');
     },
     says: () => ['old_password', 'new_password'].map((id) => $(id + '-why').textContent),
     rules: () => Object.fromEntries(doc.querySelectorAll('.pwd-rule').map((r) => [r.getAttribute('data-rule'), r.className.replace('pwd-rule', '').replace('is-', '').trim()])),
@@ -125,7 +132,7 @@ const scenarios = {
   refusals() {
     const tries = {
       empty: ['', GOOD], noNew: ['x', ''], short: ['x', 'Copper lan1'], mix: ['x', 'copper lantern'], username: ['x', 'Jonas.ek was here 1'],
-      same: [GOOD, GOOD], huge: ['x', 'Aa1!' + 'é'.repeat(600)], good: ['x', GOOD], unsure: ['x', 'copper lantern٣᠐'],
+      same: [GOOD, GOOD], newer: ['x', 'AAAAAAAAAAA1\u{1ccd6}\u{1ccd7}\u{1ccd8}\u{1ccd9}\u{1ccda}\u{1ccdb}'], huge: ['x', 'Aa1!' + 'é'.repeat(600)], good: ['x', GOOD], unsure: ['x', 'copper lantern٣᠐'],
     };
     const out = {};
     Object.entries(tries).forEach(([name, [old, fresh]]) => {
@@ -151,7 +158,12 @@ const scenarios = {
       p.pw.refuseNew(GOOD, 'It does not pass', issues, names);
       const out = { says: p.$('new_password-why').textContent, items: p.$('new_password-why').querySelectorAll('li').map((li) => li.textContent), rules: p.rules(), focused: p.focused() };
       p.type('new_password', GOOD + '!');
-      return { ...out, typed: p.rules(), typedSays: p.says()[1] };
+      const typed = { typed: p.rules(), typedSays: p.says()[1] };
+      // the same password for someone else
+      p.type('new_password', GOOD);
+      p.doc.querySelector('[autocomplete="username"]').value = 'mira';
+      p.type('old_password', 'x');
+      return { ...out, ...typed, other: p.rules() };
     };
     return {
       common: answer(['On the common list.'], ['common']),
@@ -160,6 +172,7 @@ const scenarios = {
       bare: answer(['Something new.', 'And more.'], undefined),
       long: answer(['Avoid sequential characters (abc…, 123…, qwerty…).'], ['sequence']),
       same: answer(undefined, ['same']),
+      username: answer(['Must not contain the username.'], ['username']),
     };
   },
   whole() {
@@ -186,7 +199,7 @@ const scenarios = {
       p.type('old_password', old);
       p.type('new_password', fresh);
       const sent = p.submit();
-      return { sent, focused: p.focused(), busy: p.busy(), guarded: p.guarded(), again: p.$('confirm_password').value, hidden: p.$('confirm_password').type, second: p.submit(), p };
+      return { sent, focused: p.focused(), busy: p.busy(), guarded: p.guarded(), again: p.posted(), kept: p.$('confirm_password').value, attributes: JSON.stringify(p.doc.querySelectorAll('input').map((n) => n.attrs)).includes(fresh), type: p.$('confirm_password').type, off: p.$('confirm_password').disabled, hides: p.doc.documentElement.className, second: p.submit(), p };
     };
     const good = go('the old one', GOOD);
     const p = good.p;

@@ -34,13 +34,13 @@ Node.prototype.scrollIntoView = function (how) { revealed.push([this.id, how && 
 Node.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320 });
 
 // `ai` adds the AI section, `tvs` the lists of TVs of a role, and `yes` answers a question.
-function page(api, { ai = false, yes = true, tvs = '', changed = '' } = {}) {
+function page(api, { ai = false, yes = true, tvs = '', changed = '', scripts = ['password-form.js'] } = {}) {
   const doc = makeDocument();
   doc.readyState = 'complete';
   doc.documentElement.clientHeight = 600;
   doc.body.appendChild(build(doc, ['main', { id: 'main-content' },
-    ['div', { id: 'account-password-sub' }, ...(changed ? [['time', { id: 'account-password-changed', datetime: changed }, 'long ago']] : []), ['span', {}, 'It signs out the others.']],
-    ['button', { id: 'account-open-password', 'aria-expanded': 'false' }],
+    ['div', { class: 'me-line', id: 'line' }, ['div', { id: 'account-password-sub' }, ...(changed ? [['time', { id: 'account-password-changed', datetime: changed }, 'long ago']] : []), ['span', {}, 'It signs out the others.']],
+      ['div', { class: 'me-end' }, ['button', { id: 'account-open-password', 'aria-expanded': 'false' }]]],
     ['div', { id: 'account-password-fold', class: 'setg-fold is-shut' }, ['div', { id: 'stage' },
       ['form', { id: 'account-password-form' }, ...parts({ old: 'account-old-password', fresh: 'account-new-password', submit: 'account-submit-password',
         cancel: 'account-cancel-password', result: 'account-password-result', words: 'Save new password' })]]],
@@ -83,9 +83,9 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '' } = {}) {
   const session = { 'mm.watch.ask': 'a question', other: 'x' };
   doc.dispatchEvent = (e) => { told.push(e.type); };
   const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, clearTimeout() {}, TextEncoder, window: { MM, addEventListener() {}, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
-  ['core/dom.js', 'settings/rows.js', 'password-form.js', 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
+  ['core/dom.js', 'settings/rows.js', ...scripts, 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
-    $, dropped, told, asked, toasts, session,
+    $, dropped, told, rows_: () => MM.settings.rows, asked, toasts, session,
     wait: () => timers.splice(0).forEach((fn) => fn()),
     resets: () => resets,
     key: (id, key) => $(id).listeners.keydown.forEach((fn) => fn({ key })),
@@ -397,6 +397,62 @@ const scenarios = {
     out.revealedRefusal = revealed.splice(0);
     p.type('account-new-password', 'shorter');
     return { ...out, revealedSending, revealedEmptied: revealed.splice(0) };
+  },
+  // what is typed is out of the page once it is saved, and a press as it folds does not strand the form
+  async passwordForgotten() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => Promise.resolve({ ok: true }) });
+    await settle();
+    p.press('account-open-password');
+    p.fill(OLD, NEW);
+    p.fire('account-password-form', 'submit');
+    await settle();
+    const left = [p.$('account-old-password').value, p.$('account-new-password').value];
+    p.press('account-open-password');
+    await p.rest();
+    const form = p.$('account-password-form');
+    const state = [p.$('account-password-fold').hidden, form.inert, form.getAttribute('aria-busy')];
+    p.press('account-open-password');
+    return { left, state, again: p.$('account-password-fold').hidden };
+  },
+  // the same press while the fold is closing, which takes a moment
+  async passwordPressedAsItFolds() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }), post: () => Promise.resolve({ ok: true }) });
+    await settle();
+    p.press('account-open-password');
+    p.fill(OLD, NEW);
+    p.fire('account-password-form', 'submit');
+    await settle();
+    const closing = [];
+    p.rows_().close = (_panel, done) => closing.push(done);
+    await p.rest();
+    p.press('account-open-password');
+    closing.forEach((done) => done());
+    const form = p.$('account-password-form');
+    return [closing.length, form.inert, form.getAttribute('aria-busy'), p.$('account-open-password').getAttribute('aria-expanded')];
+  },
+  // the row keeps its height at first, and then takes its own
+  async passwordEased() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { changed: '2026-03-14T09:26:53+00:00' });
+    await settle();
+    const line = p.$('line');
+    const set = [];
+    let shown = '';
+    Object.defineProperty(line, 'offsetHeight', { get: () => (p.$('account-open-password').classList.contains('is-gone') ? 77 : 111) });
+    line.style = { get marginBottom() { return shown; }, set marginBottom(v) { shown = v; set.push(v); } };
+    const sub = p.$('account-password-sub');
+    line.querySelector('.me-end').offsetTop = 33;
+    p.press('account-open-password');
+    const open = [set.splice(0), sub.classList.contains('is-new'), line.querySelector('.me-end').style.top];
+    p.press('account-cancel-password');
+    return { open, shut: [set.splice(0), sub.classList.contains('is-new')] };
+  },
+  // the form's script did not load: the rest of the page stands
+  async passwordWithout() {
+    const p = page({ get: () => Promise.resolve({ sessions: [session(9)] }) }, { scripts: [] });
+    await settle();
+    p.$('account-email').value = 'new@example.com';
+    p.fire('account-email-form', 'input');
+    return { opener: p.$('account-open-password').disabled, rows: p.rows().length, email: !p.$('account-email-fold').hidden };
   },
   // one who went to another field while it was drawn keeps their place
   async passwordLeft() {

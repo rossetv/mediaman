@@ -219,5 +219,6 @@ def test_the_page_works_without_scripts_and_holds_one_form_for_a_password_manage
         "confirm_password": "new-password",
     }
     assert 'method="post" action="/force-password-change"' in form
+    assert 'data-again="new_password"' in inputs[-1]
     # the script alone takes the second field away
     assert not any(re.search(r"\bhidden\b(?!=)", tag) for tag in inputs if "aria-hidden" not in tag)

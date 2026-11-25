@@ -186,6 +186,28 @@ def test_a_new_password_is_sent_once_keeps_the_focus_and_reloads_the_sign_ins() 
     assert out["rows"] == 1
 
 
+def test_a_password_is_out_of_the_page_as_soon_as_it_is_saved() -> None:
+    out = _run("passwordForgotten")
+    assert out["left"] == ["", ""]
+    assert out["state"] == [True, False, "false"]
+    assert out["again"] is False
+
+
+def test_a_press_as_the_saved_form_folds_away_does_not_strand_it() -> None:
+    assert _run("passwordPressedAsItFolds") == [1, False, "false", "false"]
+
+
+def test_the_row_takes_its_new_height_from_the_one_it_had_both_ways() -> None:
+    out = _run("passwordEased")
+    # its words and its button are at once where they end
+    assert out["open"] == [["34px", ""], True, "33px"]
+    assert out["shut"] == [["-34px", ""], True]
+
+
+def test_the_rest_of_the_page_works_where_the_form_s_script_did_not_load() -> None:
+    assert _run("passwordWithout") == {"opener": True, "rows": 1, "email": True}
+
+
 def test_one_who_moved_on_while_the_tick_was_drawn_keeps_their_place() -> None:
     assert _run("passwordLeft") == ["account-email", True]
 
@@ -201,9 +223,10 @@ def test_a_refused_new_password_is_explained_beside_the_field_to_put_right() -> 
         ("old", "old", "Enter your current password"),
         ("new", "new", "7 more characters"),
         ("known", "new", "you have now"),
-        ("wrong", "old", "No"),
-        ("weak", "new", "a digit"),
-        ("same", "new", "No"),
+        # a whole sentence, whatever the server says
+        ("wrong", "old", "No."),
+        ("weak", "new", "a digit."),
+        ("same", "new", "No."),
     ):
         field = f"account-{name}-password"
         assert words in out[refusal]["words"], refusal

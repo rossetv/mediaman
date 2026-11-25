@@ -14,13 +14,13 @@
                          header_actions=team_actions, pad=True) %}
     <div class="setg-fold is-shut" id="add-user-fold" hidden>
       <div class="setg-fold-inner">
-        <div class="pwd-stage" id="add-user-stage">
+        <div class="pwd-pad"><div class="pwd-stage" id="add-user-stage">
           <form class="inline-form pwd pwd--add" id="add-user-form" method="post" novalidate>
             <div class="pwd-in">
               <div class="pwd-fld pwd-fld--user">
                 <label class="pwd-lbl" for="new-username">Username</label>
                 <div class="pwd-box"><input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="new-username-why"></div>
-                {{ pw.why("new-username", "Username must be between 3 and 64 characters") }}
+                {{ pw.why("new-username", "Username must be between 3 and 64 characters.") }}
               </div>
               <div class="pwd-role">
                 <span class="pwd-lbl" id="new-user-role-lbl">Role</span>
@@ -39,7 +39,7 @@
               </div>
             </div>
           </form>
-        </div>
+        </div></div>
       </div>
     </div>
     <span class="sr-only" id="add-user-live" role="status"></span>

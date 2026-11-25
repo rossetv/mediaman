@@ -31,7 +31,7 @@ def refusals(outcomes) -> dict:
         ("shortPassword", "new-user-password", "7 more characters"),
         ("usernameInIt", "new-user-password", "their username"),
         ("weakPassword", "new-user-password", "Add a digit"),
-        ("unnamedRule", "new-user-password", "NoAdd a digitAnd a hat"),
+        ("unnamedRule", "new-user-password", "No.Add a digitAnd a hat"),
     ],
 )
 def test_a_refused_field_has_the_cursor_and_its_reason_beside_it(
@@ -85,6 +85,8 @@ def test_a_user_made_is_drawn_and_said_before_the_form_folds_away_empty(outcomes
     assert body == {"username": "<b>vic", "password": "Copper lantern 41", "role": "viewer"}
     # what was typed is text
     assert during["drawn"].startswith("<b>vic changes this password")
+    # the password is out of the page at once
+    assert during["left"] == [""]
     assert during["live"].endswith(during["drawn"]) and during["open"]
     assert after == {
         "open": False,
@@ -94,6 +96,10 @@ def test_a_user_made_is_drawn_and_said_before_the_form_folds_away_empty(outcomes
         "focused": "btn-add-user",
         "busy": "false",
     }
+
+
+def test_the_list_of_users_stands_where_the_form_s_script_did_not_load(outcomes) -> None:
+    assert outcomes["without"] == {"rows": 1, "add": True}
 
 
 def test_escape_folds_the_form_away_empty(outcomes) -> None:

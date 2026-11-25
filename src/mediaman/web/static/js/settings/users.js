@@ -475,7 +475,9 @@
         btnAddUser.focus();
       }
 
-      if (addUserForm) {
+      // Without its script, the list still works.
+      if (addUserForm && !MM.password) btnAddUser.disabled = true;
+      if (addUserForm && MM.password) {
         pw = MM.password.form(addUserForm, {
           whose: 'their',
           username: function () { return nameInput.value; },
@@ -509,6 +511,7 @@
 
       function created(username) {
         var words = username + ' changes this password at the first sign-in.';
+        pw.forget();
         var listed = loadUsers().catch(function () { return null; });
         addUserLive.textContent = 'User created. ' + words;
         // The form stays busy until it has closed, so a second Enter cannot create twice.
