@@ -786,6 +786,23 @@ const scenarios = {
     return out;
   },
 
+  async keepRoom() {
+    const go = async (has_keeps, seasons) => {
+      const p = load({ list: true });
+      let answer;
+      p.replies['get /api/show/77/seasons'] = () => new Promise((r) => { answer = () => r({ show_title: 'Night Shift', show_kept: null, seasons }); });
+      p.serve('/watch/list', {}, ROWS);
+      p.ctx.MMWatch.admin.keep({ id: 's1', is_tv: true, show_rk: '77', has_rk: true, show_title: 'Night Shift', has_keeps }, '30 days');
+      const tall = () => p.doc.getElementById('keep-season-list').classList.contains('has-keeps');
+      const waiting = tall();
+      answer();
+      await settle();
+      return [waiting, tall()];
+    };
+    const kept = seasonsOf({ kept: true, keep: { action: 'protected_forever', label: 'Kept forever' } });
+    return { kept: await go(true, kept), none: await go(false, seasonsOf(null, null)), since: await go(false, kept) };
+  },
+
   async keepFromList() {
     const p = await keepDialog({ seasons: LEAVING });
     const leavingOnes = p.doc.getElementById('keep-season-list').querySelectorAll('.keep-season-details').map((n) => /leaves in (\d+) days/.exec(n.textContent)).map((m) => m && m[1]);

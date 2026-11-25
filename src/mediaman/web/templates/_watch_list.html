@@ -114,7 +114,7 @@
                   data-id="{{ item.id }}" data-tv='{{ item.is_tv | tojson }}'
                   data-show-rk="{{ item.show_rating_key }}" data-has-rk="{{ item.has_rating_key | tojson }}" data-show-title="{{ item.show_title_raw | e }}"
                   data-title='{{ item.title | tojson }}' data-kept='{{ item.protected | tojson }}' data-deletion='{{ (item.deletion_at is not none) | tojson }}'
-                  data-keep='{{ (item.keep or none) | tojson }}'{% if item.is_tv %} data-seasons="{{ item.season_count }}"{% endif %}>
+                  data-keep='{{ (item.keep or none) | tojson }}'{% if item.is_tv %} data-seasons="{{ item.season_count }}" data-has-keeps="{{ (not not item.protection_label) | tojson }}"{% endif %}>
                 {% if item.protected %}
                   <button type="button" class="keep-trigger keep-trigger--kept"
                     aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep on {{ item.title }}">

@@ -64,6 +64,7 @@
         kept: d.kept === 'true',
         deletion: d.deletion === 'true',
         keep: parseJson(d.keep, null),
+        hasKeeps: d.hasKeeps === 'true',
         seasons: Number(d.seasons) || 2,
         seasonId: null
       };
@@ -80,6 +81,7 @@
       kept: !!w.kept,
       deletion: !!w.deletion,
       keep: w.keep || null,
+      hasKeeps: !!w.has_keeps,
       seasons: typeof w.seasons === 'number' ? w.seasons : 2,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
@@ -520,6 +522,7 @@
     _keepDialogState.picked = w.seasonId === null ? null : w.seasonId ? [w.seasonId] : [];
     _keepDialogState.duration = duration || '30 days';
     _keepDialogState.expected = w.seasons;
+    byId('keep-season-list').classList.toggle('has-keeps', w.hasKeeps);
     _keepDialogState.seasons = [];
     byId('keep-dialog-title').textContent = 'Keep ' + (w.showTitle || 'Show');
     /* Close the menu this came from, and park focus on its trigger so
@@ -562,6 +565,7 @@
         _keepDialogState.showKept = data.show_kept || null;
         _keepDialogState.seasons = data.seasons;
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
+        list.classList.toggle('has-keeps', !!hasKeeps);
         byId('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) confirmBtn.textContent = 'Update';
         renderSeasonPicker(data.seasons, _keepDialogState.showKept);
@@ -711,7 +715,7 @@
     var allSet = showKept ? setButton('all', 'All seasons') : null;
     if (_keepDialogState.hasRk) {
       var allRow = row('keep-season-item keep-all-row', allCb, 'All seasons', allSet);
-      allRow.appendChild(el('span', 'keep-all-note', 'New ones too'));
+      allRow.appendChild(el('span', 'keep-all-note', 'Including new seasons'));
       if (showKept) keptPart(allRow, showKept, allSet);
       allCb.addEventListener('change', function () {
         list.querySelectorAll('input[data-season-id]').forEach(function (cb) {

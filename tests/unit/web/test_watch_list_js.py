@@ -501,6 +501,14 @@ def test_the_keep_dialog_of_a_list_row_picks_the_season_whose_date_the_row_shows
     assert out["past"].endswith("leaves any day")
 
 
+def test_the_keep_dialog_holds_the_room_of_keeps_only_for_a_show_that_has_one() -> None:
+    assert _run("keepRoom") == {
+        "kept": [True, True],
+        "none": [False, False],
+        "since": [False, True],
+    }
+
+
 def test_a_keep_changes_only_by_the_button_of_its_own_season() -> None:
     out = _run("keepChanged")
     assert out["only"] == {"s1": True, "s2": False, "all": False}
