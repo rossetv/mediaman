@@ -258,3 +258,9 @@ def test_a_switch_shows_in_forced_colours_and_no_page_redraws_its_thumb() -> Non
         if sheet.name != "_forms.css":
             css = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
             assert not re.search(r"\.tog(\.on)?::after", css), sheet.name
+
+
+def test_an_open_fold_at_rest_is_laid_out_anew_when_its_content_grows() -> None:
+    at_rest = _declarations(".setg-pg .setg-fold:not(.is-moving):not(.is-shut)")
+    assert "display: flow-root" in at_rest  # Safari keeps a grid row's old height
+    assert "display: grid" in _declarations(".setg-pg .setg-fold")

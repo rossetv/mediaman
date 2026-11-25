@@ -385,6 +385,8 @@
               border-width var(--dur) var(--ease-out);
 }
 .setg-pg .setg-fold-inner { min-height: 0; min-width: 0; }
+/* Safari keeps the row at its old height when what it holds grows by a line. */
+.setg-pg .setg-fold:not(.is-moving):not(.is-shut) { display: flow-root; }
 /* Clipped only while folding, so focus rings show when it is open. */
 .setg-pg .setg-fold.is-moving > .setg-fold-inner { overflow: hidden; }
 .setg-pg .setg-fold.is-shut {
