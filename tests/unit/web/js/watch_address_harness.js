@@ -72,7 +72,7 @@ function open(tab, opts = {}) {
   Object.defineProperty(ctx, 'scrollY', { get: () => (win.scrollY = Math.min(win.scrollY, win.tallest)) });
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(JS, 'watch/address.js'), 'utf8'), ctx);
+  ['core/dom.js', 'watch/core.js', 'watch/address.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   const address = ctx.MMWatch.address;
   const keep = (keys) => (h) => { const q = keys.map((k) => h.params.get(k)).filter(Boolean).join(' '); return q || null; };
   const add = (name, depth, params, hash, read) => address.layer({ name, depth, params, hash, read,
@@ -536,6 +536,19 @@ const scenarios = {
     const back = [p.win.scrollY, p.doc.activeElement.id];
     await p.step(1);
     return { back, forward: p.win.scrollY, restoration: p.ctx.history.scrollRestoration };
+  },
+
+  // What had the focus was a card's button, and the card is now a screen or more out of sight, with a mouse.
+  async focusComesBackToAFarCard() {
+    const p = open(makeTab('/watch'));
+    p.doc.mouse = true;
+    const card = p.doc.body.appendChild(build(p.doc, ['article', { class: 'watch-card' }, ['div', { class: 'card-tools' }, ['button', { class: 'card-tool card-tool--eye', id: 'eye' }]]]));
+    card.querySelector('#eye').focus();
+    p.address.push('explore', p.address.url({ genre: 'action' }));
+    p.doc.body.focus();
+    card.classList.add('is-far');
+    await p.step(-1);
+    return { focus: p.doc.activeElement.id || null };
   },
 
   async focusALayerPutSomewhereStays() {
