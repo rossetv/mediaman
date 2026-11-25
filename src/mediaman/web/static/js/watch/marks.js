@@ -479,11 +479,25 @@
     return MM.api[watched ? 'post' : 'delete'](WATCHED_URL + mark + (query || ''));
   }
 
-  function toastFailed(err, name) {
+  /* The toast of each mark's or Dismiss's last change, taken away as the next one starts:
+     it would say what is no longer so, and its Undo would undo the wrong thing. */
+  var toasts = {};
+
+  function tell(key, message, opts) {
+    toasts[key] = window.UIFeedback.toast(message, opts);
+  }
+
+  function started(key) {
+    if (toasts[key]) window.UIFeedback.dismiss(toasts[key]);
+    delete toasts[key];
+    setBusy(key, true);
+  }
+
+  function toastFailed(mark, err, name) {
     var why = err && err.status === 404 ? name + ' is not in the library any more.'
       : err && err.status === 503 ? 'Couldn’t reach Plex to mark ' + name + '. Try again in a moment.'
       : 'Couldn’t mark ' + name + '. Try again.';
-    core.toast(MM.api.messageOf(err, why), { variant: 'error' });
+    tell(mark, MM.api.messageOf(err, why), { variant: 'error' });
   }
 
   function refOfMark(mark, given) {
@@ -496,7 +510,7 @@
     // undos puts the page back; rows: Continue watching or the banner changed with it; redraw: it may come back there.
     var done = { undos: [], part: /^(season|episode)\//.test(mark), rows: false, redraw: !watched, card: card };
     ref = refOfMark(mark, ref);
-    setBusy(mark, true);
+    started(mark);
     send(mark, watched).then(function (data) {
       changes += 1;
       done.undos = paint(mark, watched);
@@ -504,12 +518,12 @@
       if (watched && !done.part) leaveContinue(ref, done);
       var opts = { variant: 'success', dialog: detailsShown() };
       if (data.changed) opts.action = { label: 'Undo', onClick: function () { undoChange(mark, watched, name, ref, done); } };
-      core.toast('Marked ' + name + ' as ' + (watched ? 'watched.' : 'not watched.'), opts);
+      tell(mark, 'Marked ' + name + ' as ' + (watched ? 'watched.' : 'not watched.'), opts);
       setBusy(mark, false);
       announce(ref);
       follow(ref, done);
     }, function (err) {
-      toastFailed(err, name);
+      toastFailed(mark, err, name);
       setBusy(mark, false);
     });
   }
@@ -531,16 +545,16 @@
   function undoChange(mark, watched, name, ref, done) {
     whenIdle(mark, function () {
       refocus(toggleOf(mark));
-      setBusy(mark, true);
+      started(mark);
       send(mark, !watched, '?undo=1').then(function (data) {
         var after = putBack(ref, done, !/^movie\//.test(mark));
         withAttr(document, 'data-mark-toggle', mark).forEach(function (b) { setToggle(b, data.watched); });
-        core.toast('Undone for ' + name + '.', { variant: 'info' });
+        tell(mark, 'Undone for ' + name + '.', { variant: 'info' });
         setBusy(mark, false);
         announce(ref);
         follow(ref, after);
       }, function (err) {
-        toastFailed(err, name);
+        toastFailed(mark, err, name);
         setBusy(mark, false);
       });
     });
@@ -564,18 +578,18 @@
   function dismiss(ref, name, fromBanner) {
     if (busy[ref]) return;
     var done = { undos: [], part: false, rows: true, fromBanner: fromBanner };
-    setBusy(ref, true);
+    started(ref);
     MM.api.post(DISMISSED_URL + ref).then(function () {
       changes += 1;
       leaveContinue(ref, done);
-      core.toast('Dismissed ' + name + ' from Continue watching.', {
+      tell(ref, 'Dismissed ' + name + ' from Continue watching.', {
         variant: 'success',
         action: { label: 'Undo', onClick: function () { undoDismiss(ref, name, done); } }
       });
       setBusy(ref, false);
       followRows(ref, done);
     }, function (err) {
-      core.toast(MM.api.messageOf(err, err && err.status === 404 ? name + ' is not in the library any more.'
+      tell(ref, MM.api.messageOf(err, err && err.status === 404 ? name + ' is not in the library any more.'
         : 'Couldn’t dismiss ' + name + '. Try again.'), { variant: 'error' });
       setBusy(ref, false);
     });
@@ -583,14 +597,14 @@
 
   function undoDismiss(ref, name, done) {
     whenIdle(ref, function () {
-      setBusy(ref, true);
+      started(ref);
       MM.api.delete(DISMISSED_URL + ref).then(function () {
         var after = putBack(ref, done, false);
-        core.toast(name + ' is back in Continue watching.', { variant: 'info' });
+        tell(ref, name + ' is back in Continue watching.', { variant: 'info' });
         setBusy(ref, false);
         followRows(ref, after);
       }, function (err) {
-        core.toast(MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
+        tell(ref, MM.api.messageOf(err, 'Couldn’t undo for ' + name + '. It stays dismissed.'), { variant: 'error' });
         setBusy(ref, false);
       });
     });

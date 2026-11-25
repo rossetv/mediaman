@@ -256,6 +256,27 @@ const scenarios = {
     return { open, closed: p.focus() };
   },
 
+  // Each toast that was taken away by the time of the next change: marked, marked back, another film, and undone.
+  async markToasts() {
+    const p = load(watchPage([row('lib', [FILM(), card('movie/3', 'Salt', 'Movie')])]));
+    const at = [];
+    const step = async (go) => { await go(); at.push(p.gone.slice()); };
+    await step(() => p.pick(p.cards()[0], 'mark'));
+    await step(() => p.pick(p.cards()[1], 'mark'));
+    await step(() => p.pick(p.cards()[0], 'mark'));
+    await step(() => p.undo(1));
+    return at;
+  },
+
+  async dismissToasts() {
+    const p = load(watchPage([row('cont', CONTINUE)]));
+    await p.pick(p.cards()[0], 'dismiss');
+    await p.undo();
+    p.dismissed('movie-1');
+    await settle();
+    return p.gone;
+  },
+
   async ratingFails() {
     const p = rated({ [RATE + '-2']: 500 });
     await thumb(p, p.cards('picks')[1], 0);

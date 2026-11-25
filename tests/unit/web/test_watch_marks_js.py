@@ -553,3 +553,16 @@ def test_a_title_rated_otherwise_later_is_back_among_the_picks_and_its_toast_goe
 
 def test_an_undo_leaves_a_row_filled_anew_alone_and_brings_an_emptied_one_back() -> None:
     assert _run("undoLater") == {"anew": ["movie/8"], "emptied": False, "back": ["movie/1"]}
+
+
+def test_a_change_takes_the_toast_of_the_same_titles_last_one_away() -> None:
+    marked = "Marked Fieldwork as watched."
+    salt = "Marked Salt as watched."
+    assert _run("markToasts") == [[], [], [marked], [marked, salt]]
+
+
+def test_dismissing_again_takes_the_toasts_of_the_last_dismiss_and_its_undo_away() -> None:
+    assert _run("dismissToasts") == [
+        "Dismissed Fieldwork from Continue watching.",
+        "Fieldwork is back in Continue watching.",
+    ]
