@@ -165,7 +165,7 @@
 
     var GUESS = {
       username: function () { return 'It has ' + whose + ' username in it'; },
-      sequence: function () { return 'Mostly in order, like 12345 or qwerty'; },
+      sequence: function () { return 'Mostly in order, like 12345'; },
       repeats: function () { return 'The same few characters repeat'; },
     };
     function guessWords(r) {
@@ -267,7 +267,7 @@
     var capsOn = false;
     // Under a field: what is wrong with it, or that Caps Lock is on while it is in use.
     function under(f) {
-      var caps = capsOn && f !== user && document.activeElement === f.input && !f.wrong;
+      var caps = capsOn && f !== user && document.activeElement === f.input;
       f.why.className = 'pwd-why' + (f.wrong ? ' is-wrong' : caps ? ' is-caps' : '');
       MM.dom.setText(f.say, f.wrong || (caps ? 'Caps Lock is on' : ''));
       if (!f.wrong || !f.list || !f.list.length) return;
