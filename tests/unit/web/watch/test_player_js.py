@@ -1709,6 +1709,12 @@ def test_a_server_that_answers_and_still_plays_nothing_is_left_to_a_press_after_
     assert (out["pressed"], out["after"]) == ({"tried": 1, "message": None}, 4)
 
 
+def test_a_server_that_played_again_is_tried_three_rounds_after_the_next_drop(markup):
+    out = run(markup, "back_but_failing", plays="plays between")
+    assert (out["before"], out["played"], out["dropped"]) == (1, None, LOST)
+    assert (out["rounds"], out["later"]) == (3, [0, 0, 0])
+
+
 def test_once_tried_again_by_hand_the_server_is_not_asked_for_any_more(markup):
     out = run(markup, "back_unsaid", plays="again")
     assert (out["then"]["tried"], out["askedThen"]) == (1, 0)

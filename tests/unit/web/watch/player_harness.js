@@ -1734,7 +1734,19 @@ const scenarios = {
       }
       return times;
     };
-    const out = { rounds: await comesUp(600000), message: messageState(p) };
+    const out = {};
+    if (p.win.serverPlays === 'plays between') {
+      out.before = await comesUp(100000);
+      p.online();
+      h.emit('hlsFragLoaded');
+      playOn(p, 5);
+      out.played = messageState(p);
+      h.emit('hlsError', error());
+      fire(p.video, 'waiting');
+      await failFor(p, 65000, fail);
+      out.dropped = messageState(p);
+    }
+    Object.assign(out, { rounds: await comesUp(600000), message: messageState(p) });
     const asked = p.held.lights.length;
     const loads = h.loads.length;
     out.later = [await comesUp(300000), p.held.lights.length - asked, h.loads.length - loads];
