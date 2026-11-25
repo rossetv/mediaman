@@ -541,7 +541,8 @@
       out(own('.pv__rate'), 0.22, 0);
       move(set, { y: 20, fade: [0.5, 0.85] });
     }
-    move(page('.ttl__main .rate__line'), { x: rated ? rated.x : 0, y: rated ? rated.y : 20, fade: [0.5, 0.85] });
+    // With the row's other thumbs, once the row has grown: before, it would lie on the buttons beside it.
+    move(page('.ttl__main .rate__line'), { x: rated ? rated.x : 0, y: rated ? rated.y : 20, fade: rated ? [0.75, 0.9] : [0.5, 0.85] });
     out(own('[data-preview-more]'), 0.04, 0); // gone before the rating passes over it
     out(own('.pv__said'), 0.22, 0, { x1: -first.x, y1: -first.y });
     out(own('.pv__progress'), 0.22, 0);
