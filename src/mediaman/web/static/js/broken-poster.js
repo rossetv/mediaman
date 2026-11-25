@@ -41,64 +41,95 @@
   }
 
   // This route fails where it is asked too much at once or its source is slow,
-  // so the same address may well answer a little later.
+  // so the same address may well answer a little later. What it refuses it goes on
+  // refusing for a minute, so the last try comes after that.
   var OWN_ROUTE = '/api/watch/img/';
-  var RETRY_MS = [3000, 6000];
-  // Pictures that failed together are asked for again one after another.
-  var APART_MS = 150;
-  var SPREAD = 20;
-  var turn = 0;
-  var tried = new WeakMap(); // image -> { src, times }
+  var RETRY_MS = [3000, 65000];
+  // Pictures that failed together are asked for again a few at a time.
+  var ABREAST = 4;
+  var APART_MS = 500;
+  var queue = [];
+  var asking = 0;
+  var tried = new WeakMap(); // image -> { src, times, pending }
+  // The mark of a picture that came back, while its stand-in still shows.
+  var COMING = 'coming';
 
   function failedToLoad(img) {
     var src = img.getAttribute('src') || '';
     var again = !img.dataset.nextSrc && src.indexOf(OWN_ROUTE) === 0;
-    var known = 'broken' in img.dataset && tried.has(img);
     fail(img);
     if (!again) { tried.delete(img); return; }
     var state = tried.get(img);
-    if (known && state.src === src) return;
     if (!state || state.src !== src) {
-      state = { src: src, times: 0 };
+      state = { src: src, times: 0, pending: false };
       tried.set(img, state);
     }
-    retry(img, state);
+    if (!state.pending) retry(img, state);
   }
 
   /* Asks for it behind the stand-in, and puts it in where it came and is still wanted. */
   function retry(img, state) {
     if (state.times >= RETRY_MS.length) return;
-    function wanted() {
-      return tried.get(img) === state && 'broken' in img.dataset && img.isConnected && !img.hidden &&
-        img.getAttribute('src') === state.src;
-    }
+    state.pending = true;
     setTimeout(function () {
-      if (!wanted()) { drop(img, state); return; }
-      state.times += 1;
-      var probe = new Image();
-      probe.onload = function () {
-        if (!wanted()) { drop(img, state); return; }
-        state.back = true;
-        delete img.dataset.broken;
-        // Safari keeps the failure for an address set where it already stands.
-        img.removeAttribute('src');
-        img.src = state.src;
-      };
-      probe.onerror = function () { retry(img, state); };
-      probe.src = state.src;
-    }, RETRY_MS[state.times] + (turn++ % SPREAD) * APART_MS);
+      queue.push([img, state]);
+      askNext();
+    }, RETRY_MS[state.times]);
   }
 
-  function drop(img, state) {
-    if (tried.get(img) === state) tried.delete(img);
+  function askNext() {
+    while (asking < ABREAST && queue.length) ask.apply(null, queue.shift());
   }
 
+  function wanted(img, state) {
+    if (tried.get(img) !== state) return false;
+    if (img.dataset.broken === '' && img.isConnected && !img.hidden && img.getAttribute('src') === state.src) return true;
+    tried.delete(img);
+    return false;
+  }
+
+  function ask(img, state) {
+    if (!wanted(img, state)) return;
+    state.times += 1;
+    asking += 1;
+    var probe = new Image();
+    function answered() {
+      state.pending = false;
+      setTimeout(function () { asking -= 1; askNext(); }, APART_MS);
+    }
+    probe.onload = function () {
+      answered();
+      if (!wanted(img, state)) return;
+      img.dataset.broken = COMING;
+      img.decoding = 'sync'; // or it can be drawn empty for a frame
+      // Safari keeps the failure for an address set where it already stands.
+      img.removeAttribute('src');
+      img.src = state.src;
+    };
+    probe.onerror = function () {
+      answered();
+      retry(img, state);
+    };
+    probe.src = state.src;
+  }
+
+  function settle(img) {
+    if (img.dataset.broken === COMING) delete img.dataset.broken;
+  }
+
+  /* Fades the picture in over its stand-in, or a banner's stand-ins, which lie over it, out. */
   function fadeIn(img) {
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { settle(img); return; }
     var style = getComputedStyle(document.documentElement);
-    img.animate([{ opacity: 0 }, {}], {
-      duration: parseFloat(style.getPropertyValue('--dur')) * 1000 || 200,
-      easing: style.getPropertyValue('--ease-out').trim() || 'ease-out',
+    var over = img.hasAttribute('data-wide-art')
+      ? [].slice.call(img.parentNode.querySelectorAll('.watch-banner__bg--fill:not([data-broken]), .watch-banner__poster:not([data-broken])'))
+      : [];
+    var frames = over.length ? [{}, { opacity: 0 }] : [{ opacity: 0 }, {}];
+    (over.length ? over : [img]).forEach(function (part) {
+      part.animate(frames, {
+        duration: parseFloat(style.getPropertyValue('--dur')) * 1000 || 200,
+        easing: style.getPropertyValue('--ease-out').trim() || 'ease-out',
+      }).onfinish = function () { settle(img); };
     });
   }
 
@@ -116,13 +147,12 @@
     function (event) {
       var target = event.target;
       if (!target || target.tagName !== 'IMG') return;
-      var state = tried.get(target);
       tried.delete(target);
-      if (state && state.back && state.src === target.getAttribute('src')) fadeIn(target);
       if (target.hasAttribute('data-wide-art')) {
         // A picture judged below can still have its load event to come.
         judge(target, target.dataset.fit || '');
       }
+      if (target.dataset.broken === COMING) fadeIn(target);
     },
     true,
   );

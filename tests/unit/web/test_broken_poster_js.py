@@ -6,6 +6,9 @@ import json
 import subprocess
 from pathlib import Path
 
+from mediaman.services.infra import disk_cache
+from mediaman.web.routes.watch import image_api
+
 HARNESS = Path(__file__).parent / "js" / "broken_poster_harness.js"
 
 
@@ -58,9 +61,11 @@ def test_a_picture_with_another_to_try_is_marked_only_when_that_one_fails_too() 
 
 def test_a_picture_that_failed_is_marked_at_once_and_tried_twice_behind_its_stand_in() -> None:
     out = _run()["tries"]
-    assert out["comesBack"]["seen"] == [[True, 0, 0], [True, 1, 0], [False, 1, 1], [False, 1, 1]]
-    assert out["second"]["seen"][3:] == [[True, 2, 0], [False, 2, 1], [False, 2, 1]]
-    assert out["early"]["seen"] == [[True, 1, 0], [False, 1, 1]]
+    assert out["comesBack"]["seen"][:2] == [[True, 0, 0], [True, 1, 0]]
+    assert out["comesBack"]["seen"][-1] == [False, 1, 1]
+    assert out["second"]["seen"][3] == [True, 2, 0]
+    assert out["second"]["seen"][-1] == [False, 2, 1]
+    assert out["early"]["seen"] == [[True, 1, 0], ["coming", 1, 1]]
     assert out["never"]["seen"][-1] == [True, 2, 0]
     assert all(marked for marked, *_ in out["never"]["seen"])
     # What the try found may fail on the page all the same; that does not go on for ever.
@@ -76,6 +81,14 @@ def test_a_picture_that_comes_back_fades_in_unless_motion_is_reduced() -> None:
     assert out["plain"]["fades"] == 0
 
 
+def test_a_stand_in_stays_until_the_picture_is_wholly_over_it() -> None:
+    out = {name: [mark for mark, *_ in got["seen"]] for name, got in _run()["tries"].items()}
+    assert out["comesBack"] == [True, True, "coming", "coming", False]
+    # With no fade, it goes in the same frame as the picture comes.
+    assert out["calm"] == [True, True, "coming", False]
+    assert out["failsAgain"][3] is True
+
+
 def test_only_a_picture_still_wanted_at_that_address_is_tried_again() -> None:
     out = {name: got["seen"][-1] for name, got in _run()["tries"].items()}
     assert out["otherWaiting"] == [False, 0, 0]
@@ -86,6 +99,21 @@ def test_only_a_picture_still_wanted_at_that_address_is_tried_again() -> None:
     assert out["next"] == [True, 0, 1]
 
 
-def test_pictures_that_failed_together_are_not_tried_together() -> None:
-    waits = _run()["waits"]
-    assert len(set(waits)) == len(waits)
+def test_the_last_try_comes_after_the_route_stops_refusing_and_the_first_comes_soon() -> None:
+    waits = _run()["tries"]["never"]["waits"]
+    first, last = waits[0], max(waits)
+    assert first <= 5000
+    assert last > 1000 * max(image_api._IMG_LIMITER._window, disk_cache.BACKOFF_S)
+    assert waits.index(last) > 0
+
+
+def test_pictures_that_failed_together_are_asked_for_a_few_at_a_time() -> None:
+    for name, got in _run()["crowds"].items():
+        assert got["total"] == 200, name
+        assert got["most"] <= 4, name
+        assert got["inSecond"] <= 8, name
+
+
+def test_a_picture_that_fails_again_while_it_waits_has_no_second_set_of_tries() -> None:
+    out = _run()["tries"]
+    assert out["sameAgain"]["seen"][-1] == out["sameAgainAsking"]["seen"][-1] == [True, 2, 0]

@@ -409,7 +409,7 @@ a.space-heavy__row:hover { background: var(--s2); }
 
 .space-mini { position: relative; display: block; flex: none; width: 36px; height: 54px; border-radius: 5px; background: var(--s3); outline: 1px solid var(--hair); outline-offset: -1px; overflow: hidden; }
 .space-mini > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.space-mini > img[data-broken] { display: none; }
+.space-mini > img[data-broken=""] { display: none; }
 
 .space-say { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 400px; padding: 20px 0; font-size: 14px; color: var(--t2); }
 .space-say b { font-size: 15px; font-weight: 600; color: var(--t1); }

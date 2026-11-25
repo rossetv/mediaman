@@ -87,36 +87,42 @@ function own(steps, { src = '/api/watch/img/tmdb/w342/a.jpg', next, early, wide,
   Object.defineProperty(img, 'src', { get: () => at, set: (v) => { if (v === at) return; at = v; set += 1; } });
   img.removeAttribute = () => { at = null; };
   img.getAttribute = (a) => (a === 'src' ? at : null);
-  img.animate = () => { fades += 1; };
+  const faded = [];
+  img.animate = () => { fades += 1; const a = {}; faded.push(a); return a; };
   img.isConnected = true;
   img.hidden = false;
   if (next) img.dataset.nextSrc = next;
-  if (early) run([img]);
+  img.parentNode = { querySelectorAll: () => [] };
+  run(early ? [img] : []);
+  const waits = timers.map(([, ms]) => ms);
   const seen = [];
   steps.forEach((step) => {
+    const before = timers.slice();
     if (step === 'tick') { const due = timers; timers = []; due.forEach(([fn]) => fn()); }
     else if (step === 'found') probes.length && probes[probes.length - 1].onload();
     else if (step === 'missing') probes.length && probes[probes.length - 1].onerror();
     else if (step === 'other') { at = '/api/watch/img/tmdb/w342/b.jpg'; delete img.dataset.broken; }
     else if (step === 'afresh') delete img.dataset.broken;
+    else if (step === 'faded') faded[faded.length - 1].onfinish();
     else if (step === 'gone') img.isConnected = false;
     else if (step === 'hide') img.hidden = true;
     else {
       [img.naturalWidth, img.naturalHeight] = step === 'load' ? [400, 600] : [0, 0];
       listeners[step]({ target: img });
     }
-    seen.push([marked(img), probes.length, set]);
+    waits.push(...timers.filter((t) => !before.includes(t)).map(([, ms]) => ms));
+    seen.push([img.dataset.broken === undefined ? false : img.dataset.broken || true, probes.length, set]);
   });
-  return { seen, fades, waits: timers.map(([, ms]) => ms) };
+  return { seen, fades, waits };
 }
 const tries = {
-  comesBack: own(['error', 'tick', 'found', 'load']),
-  second: own(['error', 'tick', 'missing', 'tick', 'found', 'load']),
+  comesBack: own(['error', 'tick', 'found', 'load', 'faded']),
+  second: own(['error', 'tick', 'missing', 'tick', 'found', 'load', 'faded']),
   calm: own(['error', 'tick', 'found', 'load'], { calm: true }),
   early: own(['tick', 'found'], { early: true }),
   never: own(['error', 'tick', 'missing', 'tick', 'missing', 'tick']),
   failsAgain: own(['error', 'tick', 'found', 'error', 'tick', 'found', 'error', 'tick']),
-  laterAgain: own(['error', 'tick', 'found', 'load', 'error', 'tick', 'missing', 'tick']),
+  laterAgain: own(['error', 'tick', 'found', 'load', 'faded', 'error', 'tick', 'missing', 'tick']),
   otherWaiting: own(['error', 'other', 'tick']),
   otherAsking: own(['error', 'tick', 'other', 'found']),
   afreshAsking: own(['error', 'tick', 'afresh', 'found']),
@@ -127,9 +133,46 @@ const tries = {
   elsewhere: own(['error', 'tick'], { src: '/api/poster/7' }),
   next: own(['error', 'tick', 'error'], { next: '/api/poster/7' }),
   unfit: own(['load', 'tick'], { wide: true }),
+  sameAgain: own(['error', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick']),
+  sameAgainAsking: own(['error', 'tick', 'afresh', 'error', 'tick', 'missing', 'tick', 'missing', 'tick']),
   plain: own(['load']),
 };
-const waits = [1, 2, 3, 4].map(() => own(['error']).waits[0]);
-process.stdout.write(JSON.stringify({ tries, waits, fits, retries, marks: Object.fromEntries(
+/* Many that failed together and are all missing: the waits before each is asked again, and how many are
+   asked at once and within a second, on a clock of its own. */
+function crowd(n, answerMs) {
+  let now = 0;
+  let asking = 0;
+  let most = 0;
+  const asked = [];
+  timers = [];
+  const push = (fn, ms) => timers.push([fn, now + ms]);
+  const ctx = {
+    setTimeout: push,
+    Image: function Image() {
+      asked.push(now);
+      asking += 1;
+      most = Math.max(most, asking);
+      push(() => { asking -= 1; this.onerror(); }, answerMs);
+    },
+    document: { addEventListener: (t, fn) => { listeners[t] = fn; }, querySelectorAll: () => [] },
+  };
+  vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), ctx);
+  for (let i = 0; i < n; i += 1) {
+    const img = image(['data-broken-on-error'], 0, 0);
+    img.getAttribute = () => '/api/watch/img/tmdb/w342/' + i + '.jpg';
+    img.isConnected = true;
+    listeners.error({ target: img });
+  }
+  while (timers.length) {
+    timers.sort((a, b) => a[1] - b[1]);
+    const [fn, at] = timers.shift();
+    now = at;
+    fn();
+  }
+  const inSecond = Math.max(...asked.map((t) => asked.filter((u) => u >= t && u < t + 1000).length));
+  return { total: asked.length, most, inSecond };
+}
+const crowds = { quick: crowd(100, 2), slow: crowd(100, 5000) };
+process.stdout.write(JSON.stringify({ tries, crowds, fits, retries, marks: Object.fromEntries(
   Object.entries(events).map(([k, [, img]]) => [k, marked(img)])
     .concat(Object.entries(before).map(([k, img]) => [k, marked(img)]))) }));
