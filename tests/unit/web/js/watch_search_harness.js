@@ -1491,6 +1491,28 @@ const scenarios = {
     return out;
   },
 
+  // The step back from an emptied search takes long, and something is typed before it is made.
+  async emptiedStepLate() {
+    const out = [];
+    for (const asked of [false, true]) {
+      const p = await ready(ADMIN, '', '/watch?all=movies');
+      p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+      await p.search('orchard');
+      const { go } = p.ctx.history;
+      p.ctx.history.go = () => {};
+      p.type('');
+      p.wait();
+      p.type('lantern');
+      if (asked) p.key('Enter');
+      p.ctx.history.go = go;
+      await p.back();
+      p.wait();
+      await settle();
+      out.push([p.input.value, p.url(), p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url]);
+    }
+    return out;
+  },
+
   // The step back from an emptied search is lost, and a category is opened before it is given up.
   async emptiedThenCategory() {
     const p = await ready(ADMIN);

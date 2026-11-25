@@ -21,7 +21,6 @@
   var SEARCH_DELAY_MS = 200;
   var LIST_DELAY_MS = 350;
   var COMPOSING_MS = 400;
-  var STEP_MS = 1000;
   var EXAMPLE_MS = 3200;
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
@@ -571,7 +570,7 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
-    var emptied = null; // the timer of the step back to what an emptied search was typed over, while it is on its way
+    var emptied = false; // the step back to what an emptied search was typed over is on its way; a slow one lands at any time
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -1499,11 +1498,9 @@
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        clearTimeout(emptied);
-        // A step that takes longer is not coming.
-        emptied = setTimeout(function () { emptied = null; }, STEP_MS);
+        emptied = true;
         address.back('search', function () {
-          leftEmpty();
+          emptied = false;
           // What opens there takes the focus.
           input.focus({ preventScroll: true });
           openSheet(address.top() === null);
@@ -1534,11 +1531,6 @@
       input.value = text;
       input.focus({ preventScroll: true });
       typed(true);
-    }
-
-    function leftEmpty() {
-      clearTimeout(emptied);
-      emptied = null;
     }
 
     /* Empty the bar: the text, or the category or person in it. */
@@ -1730,6 +1722,7 @@
         return here.params.get('view') === 'list' ? null : (here.params.get('q') || '').trim() || null;
       },
       open: function (q, how) {
+        if (how === 'pop') emptied = false;
         if (input.value.trim() === q && (how === 'start' || (current && current.q === q))) return;
         input.value = q;
         if (tokened) setToken(null);
@@ -1737,8 +1730,8 @@
         run();
       },
       close: function (how) {
-        var again = emptied !== null && input.value.trim();
-        leftEmpty();
+        var again = emptied && input.value.trim();
+        emptied = false;
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
         // Typed since, it is a search of its own in the entry the step led to.

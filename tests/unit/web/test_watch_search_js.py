@@ -744,6 +744,11 @@ def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_us
     assert out["next"] == [["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
 
 
+def test_what_is_typed_before_a_slow_step_back_is_made_stays_and_is_searched_for() -> None:
+    searched = ["lantern", "/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
+    assert _run("emptiedStepLate") == [searched, searched]
+
+
 def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:
     assert _run("emptiedThenCategory") == [
         "/watch?q=lantern",
