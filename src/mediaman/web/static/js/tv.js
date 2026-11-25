@@ -889,7 +889,8 @@
   };
   function glyph(name) { return '<svg class="i" viewBox="0 0 24 24"><path d="' + ICONS[name] + '"/></svg>'; }
 
-  var BRAND = '<div class="brand">media<b>man</b></div>';
+  // The page holds the name as drawn, until the first of these pages takes its place.
+  var BRAND = document.querySelector('.brand').outerHTML;
   var SPIN = '<div class="spin"></div>';
   var buttons = [];          // what the page offers: [label, action]
 

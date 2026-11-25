@@ -141,4 +141,4 @@ def test_a_crashed_form_is_not_offered_a_retry_that_would_not_send_it(client):
 
 
 def test_an_error_page_carries_the_wordmark(client):
-    assert "media<b>man</b>" in client.get("/no/such/page", headers=_HTML).text
+    assert '<use href="#i-wordmark"/>' in client.get("/no/such/page", headers=_HTML).text

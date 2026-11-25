@@ -13,8 +13,8 @@ video::-webkit-media-controls { display: none !important; }
 @-webkit-keyframes out { to { opacity: 0; } }
 @keyframes out { to { opacity: 0; } }
 .page { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
-.brand { font-size: 40px; color: #fff; letter-spacing: -1px; }
-.brand b { color: #2997ff; }
+.brand { height: 45px; }
+.brand svg { display: block; width: 202px; height: 47px; }
 
 .code { display: -webkit-flex; display: flex; position: absolute; left: 120px; right: 120px; top: 80px; bottom: 70px; -webkit-align-items: center; align-items: center; }
 .lc { width: 1060px; }
@@ -77,4 +77,5 @@ video::-webkit-media-controls { display: none !important; }
   .b.f, .bar .p { forced-color-adjust: none; background: Highlight; }
   .b.f { color: HighlightText; border-color: Highlight; }
   .bar { border: 1px solid CanvasText; }
+  .wm-man { stroke: currentColor; }
 }

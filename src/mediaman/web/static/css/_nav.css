@@ -22,16 +22,8 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
-.brand {
-  font-family: var(--font-text);
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -.02em;
-  color: var(--t1);
-}
-.brand b,
-.brand span { font-weight: 600; color: var(--accent); }
-.nav-glass .brand { line-height: 44px; }
+.brand { display: inline-flex; align-items: center; font-size: 19px; color: var(--t1); }
+.nav-glass .brand { height: 44px; }
 
 .nav-back,
 .nav-noscript {

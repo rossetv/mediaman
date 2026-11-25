@@ -64,6 +64,7 @@ function tv({ kept = null, plays = true } = {}) {
   const document = {
     body, createElement: element, on: {},
     addEventListener(k, fn) { (this.on[k] = this.on[k] || []).push(fn); },
+    querySelector: () => ({ outerHTML: '<div class="brand"><svg><title>mediaman</title></svg></div>' }),
     getElementById(id) {
       if (nodes[id] && (id === 'v' || id === 's' || id === 'o')) return nodes[id];
       if (!nodes.s.innerHTML.includes('id="' + id + '"')) return null;
