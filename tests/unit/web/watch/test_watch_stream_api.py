@@ -581,6 +581,25 @@ def test_a_late_save_from_a_reaped_stream_never_overwrites_a_newer_stream_of_the
 
 
 def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
+@pytest.mark.parametrize("ended", [False, True])
+@pytest.mark.parametrize(("newer_saved", "kept"), [(True, 900), (False, 60)])
+def test_a_late_save_from_a_reaped_stream_gives_way_only_to_a_newer_one_that_saved(
+    alice, conn, clock, newer_saved, kept, ended
+):
+    old_id = _stream(alice)
+    _reap_after_idle(clock)
+    new_id = _stream(alice)
+    place = {"position_s": 900, "played_s": 0}
+    if newer_saved:
+        alice.post("/api/watch/progress", json={"stream_id": new_id, **place})
+    if ended:
+        alice.post(f"/api/watch/stream/{new_id}/stop")
+    alice.post("/api/watch/progress", json={"stream_id": old_id, "position_s": 60, "played_s": 0})
+    alice.post(f"/api/watch/stream/{old_id}/stop", json={"position_s": 60, "played_s": 0})
+    [row] = _progress_rows(conn)
+    assert row["position_s"] == kept
+
+
     stream_id = _stream(alice)
     _reap_after_idle(clock)
     clock.now += plex_stream.REAPED_KEEP_SECONDS + 1

@@ -390,7 +390,7 @@ def _save(stream: StreamInfo, username: str, position_s: float, played_s: float)
         played_s=min(played_s, stream.elapsed_s + _PLAYED_SLACK_SECONDS),
         now=now_utc(),
     )
-    get_stream_manager().note_saved(username, stream.rating_key, position_s, played_s)
+    get_stream_manager().note_saved(username, stream, position_s, played_s)
     return watched
 
 

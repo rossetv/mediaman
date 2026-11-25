@@ -181,6 +181,8 @@ class SegmentRead:
         self.unwanted = False
         self._lock = threading.Lock()
         self._socket: socket.socket | None = None
+    #: Place of its start among all starts.
+    order: int = 0
 
     def cancel(self) -> None:
         """Say that nobody waits for the segment any more; wakes a thread that waits for Plex."""
@@ -275,6 +277,8 @@ class _CopyVerdict:
 @dataclass
 class _Stream:
     user: str
+    #: The latest start whose stream saved a place.
+    saved_order: int = -1
     rating_key: str
     quality: str
     session_id: str
@@ -617,8 +621,8 @@ class StreamManager:
             saved_position_s=viewing.saved_position_s if viewing else None,
         )
 
-    def note_saved(self, user: str, rating_key: str, position_s: float, played_s: float) -> None:
-        """Remember the place and played time just saved for *user*'s viewing of the item."""
+    def note_saved(self, user: str, stream: StreamInfo, position_s: float, played_s: float) -> None:
+        """Remember the place and played time *stream* just saved for *user*'s viewing."""
         with self._lock:
             viewing = self._viewings.get((user, rating_key))
             if viewing is not None:
@@ -662,6 +666,7 @@ class StreamManager:
         if not _RATING_KEY_RE.fullmatch(rating_key):
             return False
         now = self._clock()
+            order=stream.order,
         with self._lock:
             held = self._copies.get((rating_key, file))
             viewing = self._viewings.get((user, rating_key))
@@ -671,6 +676,7 @@ class StreamManager:
                 return held.copied
         session_id = SESSION_PREFIX + secrets.token_urlsafe(16)
         try:
+                viewing.saved_order = max(viewing.saved_order, stream.order)
             base, token = self._creds()
             body = self._get(
                 base,
@@ -758,6 +764,9 @@ class StreamManager:
         """Stop every live stream on Plex, waiting at most *budget* seconds in all."""
         with self._lock:
             sessions = [s.session_id for s in self._streams.values()]
+            viewing = self._viewings.get(stream.item)
+            if viewing is not None and viewing.saved_order > stream.order:
+                raise StreamGone("stream is gone")
             self._streams.clear()
         threads = [
             threading.Thread(target=self._call_quietly, args=("stop", sid), daemon=True)
