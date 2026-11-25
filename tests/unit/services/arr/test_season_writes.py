@@ -403,6 +403,62 @@ def test_a_show_a_change_never_reached_is_not_left_on_for_a_season_asked_for_sin
     assert (held.series["monitored"], change.left_on) == (False, False)
 
 
+def _put_back_lost(held, fake_response):
+    """*held* while the answer to the second change, the put-back, is lost after it is taken."""
+    puts = count(1)
+
+    def arr(method, url, **kwargs):
+        response = held(method, url, **kwargs)
+        if method == "PUT" and next(puts) == 2:
+            raise SafeHTTPError(0, "timeout", url)
+        return response
+
+    return arr
+
+
+def test_a_show_whose_put_back_got_no_answer_may_be_off_after_a_failed_search(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False)
+    held.failing_searches = 1
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert held.series["monitored"] is False
+    assert change.left_on is None
+
+
+def test_a_show_whose_take_back_got_no_answer_may_be_off(client, fake_http, fake_response):
+    held = Held(fake_response, monitored=False, s3=False)
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+    client.remonitor_season(9, 3, change=change)
+
+    client.take_back_season(9, 3, change)
+
+    assert held.series["monitored"] is False
+    assert change.left_on is None
+
+
+def test_a_show_left_on_for_a_season_asked_for_since_stays_known_on_when_the_put_back_got_no_answer(
+    client, fake_http, fake_response
+):
+    held = Held(fake_response, monitored=False, s3=False, s4=False)
+    held.failing_searches = 1
+    held.on["search"] = lambda: held.series["seasons"][1].update(monitored=True)
+    fake_http.handler(_put_back_lost(held, fake_response))
+    change = SeriesChange()
+
+    with pytest.raises(SafeHTTPError):
+        client.remonitor_season(9, 3, max_retries=1, change=change)
+
+    assert held.series["monitored"] is True
+    assert change.left_on is True
+
+
 @pytest.mark.parametrize("lands", [True, False])
 def test_a_season_of_lone_episodes_is_on_its_way_when_only_the_answer_was_lost(
     client, fake_http, fake_response, lands

@@ -133,6 +133,12 @@ class SeriesChange:
     left_on: bool | None = False
 
 
+def _refused(exc: Exception) -> bool:
+    """Whether Sonarr answered a change with no to it, rather than gave no answer: a gateway's
+    502 or 504 says it did not hear back from Sonarr in time."""
+    return isinstance(exc, SafeHTTPError) and exc.status_code not in (0, 502, 504)
+
+
 def _may_hold_lone_episodes(season: Mapping[str, Any]) -> bool:
     """Whether episodes of an unmonitored season may be monitored: Sonarr counts those that are,
     and those with a file, and dates the next of them."""
@@ -461,21 +467,31 @@ class _SonarrMixin:
             put_back(after)
             return after == entity
 
+        sent = False
+
+        def send_back(entity: SonarrSeries) -> None:
+            nonlocal sent
+            put_back(entity)
+            sent = True
+
         try:
             with self._undo_time():
                 self._unmonitor_with_retry(  # type: ignore[attr-defined]
                     fetch_entity=lambda: self.get_series_by_id(series_id),
                     put_url=f"/api/v3/series/{series_id}",
                     is_already_unmonitored=nothing_to_put_back,
-                    apply_unmonitor=put_back,
+                    apply_unmonitor=send_back,
                     log_prefix="sonarr.remonitor_season",
                     log_id=f"series_id={series_id} season={season_number}",
                     max_retries=1,
                 )
-        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as exc:
             logger.exception(
                 "Could not put sonarr series_id=%s season=%s back", series_id, season_number
             )
+            # Sonarr may have taken a put-back it gave no answer to, and turned the series off.
+            if sent and change.series and not _refused(exc):
+                change.left_on = stays_on or None
             return
         change.left_on = stays_on
 
