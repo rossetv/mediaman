@@ -227,6 +227,11 @@ def test_a_tv_that_hangs_up_broke_nothing_off(ticket, app):
     assert older_stream.sent(_stream())[1] is False
 
 
+def test_a_stream_that_is_no_mpeg_ts_is_not_sent_as_one(tv, ticket, film):
+    film.playlist = PLAYLIST.replace(".ts", ".m4s")
+    assert tv.get(_from(ticket)).status_code == 502
+
+
 class Reader:
     """A TV that takes as much of a film as it is let, over ASGI itself."""
 
