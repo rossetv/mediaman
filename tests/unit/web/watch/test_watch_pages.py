@@ -1486,16 +1486,15 @@ def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(
     assert "Your library" not in html
 
 
-def test_an_admin_gets_the_view_switch_and_the_list_in_place_of_the_rows(
+def test_an_admin_who_asks_for_the_list_gets_it_in_place_of_the_rows(
     app_factory, conn, library, plex, monkeypatch, admin
 ):
     rows = _page(app_factory, conn, monkeypatch, "/watch", admin).text
     listed = _page(app_factory, conn, monkeypatch, "/watch?view=list", admin).text
 
-    assert 'href="/watch" data-view="rows" aria-current="page"' in rows
     assert re.search(r'id="watch-list"[^>]*hidden', rows)
     assert not re.search(r'id="watch-browse"[^>]*hidden', rows)
-    assert 'href="/watch?view=list" data-view="list" aria-current="page"' in listed
+    assert "watch-viewtoggle" not in rows + listed
     assert re.search(r'id="watch-browse"[^>]*hidden', listed)
     assert not re.search(r'id="watch-list"[^>]*hidden', listed)
     assert 'placeholder="Search your library"' in listed

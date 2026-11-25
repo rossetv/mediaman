@@ -25,20 +25,15 @@
     }
   }
 
-  /* The room the menu may use: from under the sticky top bar to above the
-     fixed bottom tab bar, whichever of them are showing. */
+  /* The room the menu may use: from under the top bar to above a phone's bar at the foot. */
   function visibleBounds() {
     var top = 0;
     var bottom = window.innerHeight;
-    var bars = document.querySelectorAll('.nav-glass, .nav-topbar');
-    for (var i = 0; i < bars.length; i++) {
-      if (getComputedStyle(bars[i]).display !== 'none') {
-        top = Math.max(top, bars[i].getBoundingClientRect().bottom);
-      }
-    }
-    var tabs = document.querySelector('.nav-tabs');
-    if (tabs && getComputedStyle(tabs).display !== 'none') {
-      bottom = Math.min(bottom, tabs.getBoundingClientRect().top);
+    var bar = document.querySelector('.nav-glass');
+    if (bar) top = Math.max(top, bar.getBoundingClientRect().bottom);
+    var foot = document.querySelector('.nav-foot');
+    if (foot && getComputedStyle(foot).display !== 'none') {
+      bottom = Math.min(bottom, foot.getBoundingClientRect().top);
     }
     return { top: top, bottom: bottom };
   }

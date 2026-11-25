@@ -304,8 +304,10 @@ def test_a_focus_in_what_holds_still_over_the_page_gets_no_room_that_would_scrol
 
 def test_the_skip_link_lands_clear_of_the_bar_at_every_width() -> None:
     assert "scroll-margin-top: var(--nav-h)" in _of("#main-content", sheet=BAR)
-    narrow = _of("#main-content", "(max-width: 1099.98px)", BAR)
-    assert "scroll-margin-top: calc(var(--nav-h) + 54px)" in narrow
+    # One line at every width, and nothing at the top of a phone.
+    assert "scroll-margin-top" not in _of("#main-content", "(max-width: 1099.98px)", BAR)
+    nav = SHEET.with_name("_nav.css")
+    assert "--nav-h: 0px" in _of("html:has(.nav-foot)", "(max-width: 699.98px)", nav)
 
 
 ASK = SHEET.with_name("_watch_ask.css")

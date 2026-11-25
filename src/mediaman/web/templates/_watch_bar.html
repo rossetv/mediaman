@@ -1,13 +1,12 @@
-{# The Watch page's bar: the nav's own, with the search field, the storage meter and the
-   Browse / List switch in it, at every width. Below 1100 px the field has a line of its own;
-   watch/search.js keeps the order of the elements the one they are read in. #}
+{# The Watch page's bar: the nav's own, with the search field and the storage meter in it. On
+   phones the field stands at the foot; watch/search.js keeps the order of the elements the one
+   they are read in. #}
 {% extends "_nav.html" %}
 {% from "_components.html" import icon %}
 {% import "_watch_space.html" as space %}
 {% set list_view = is_admin and view == "list" %}
 
-{% block nav_class %} wbar{% if is_admin %} has-toggle{% endif %}{% endblock %}
-{% block nav_phone %}{% endblock %}
+{% block nav_class %} wbar{% endblock %}
 
 {% block nav_center %}
 {% set search_label = "Search your library" if list_view else "Search films and shows" %}
@@ -39,9 +38,5 @@
 {% block nav_end %}
 {% if is_admin %}
 {{ space.meter() }}
-<nav class="watch-viewtoggle" id="watch-viewtoggle" aria-label="View">
-  <a class="watch-viewtoggle__btn" href="/watch" data-view="rows"{% if not list_view %} aria-current="page"{% endif %}>{{ icon("i-table-cells-large") }}<span class="watch-viewtoggle__label">Browse</span></a>
-  <a class="watch-viewtoggle__btn" href="/watch?view=list" data-view="list"{% if list_view %} aria-current="page"{% endif %}>{{ icon("i-list") }}<span class="watch-viewtoggle__label">List</span></a>
-</nav>
 {% endif %}
 {% endblock %}

@@ -122,19 +122,17 @@ def test_container_system_present():
         assert cls in css, f"missing container modifier: {cls}"
 
 
-def test_three_surface_nav_present():
-    """Nav has three surfaces: desktop .nav-glass, mobile .nav-topbar
-    + .nav-tabs (bottom bar), plus the .profile-menu that the avatar opens.
-    The mobile bottom bar was reinstated after the mockup-only horizontal
-    pill rail proved unworkable on phones."""
+def test_nav_surfaces_present():
+    """The nav is one bar, .nav-glass, the strip at the foot of a phone, .nav-foot, on which
+    the way back (or the search) and the profile button stand, and the .profile-menu."""
     css = _css()
     for sel in (
         ".nav-glass",
-        ".nav-btn",
-        ".nav-topbar",
-        ".nav-tabs",
-        ".nav-tab ",
+        ".nav-back",
+        ".nav-foot",
         ".profile-btn",
+        ".profile-ring",
+        ".profile-count",
         ".profile-menu",
         ".profile-panel",
         ".profile-item",
@@ -142,12 +140,11 @@ def test_three_surface_nav_present():
         assert sel in css, f"missing nav selector: {sel}"
 
 
-def test_bottom_tab_bar_uses_safe_area():
-    css = _css()
-    idx = css.find(".nav-tabs {")
-    assert idx >= 0
-    block = css[idx : idx + 600]
-    assert "env(safe-area-inset-bottom" in block
+def test_bottom_bar_uses_safe_area():
+    heights = re.findall(r"--foot: ([^;]+);", _css())
+    tall = [h for h in heights if h != "0px"]
+    assert len(tall) == 2
+    assert all("env(safe-area-inset-bottom" in h for h in tall)
 
 
 def test_component_primitives_present():
@@ -223,12 +220,11 @@ def test_nav_template_emits_all_surfaces():
     nav = _tpl("_nav.html")
     for cls in (
         "nav-glass",
-        "nav-links",
-        "nav-btn",
-        "nav-topbar",
-        "nav-tabs",
-        "nav-tab",
+        "nav-back",
+        "nav-foot",
         "profile-btn",
+        "profile-ring",
+        "profile-count",
         "profile-menu",
         "profile-item",
     ):
@@ -241,9 +237,8 @@ def test_nav_template_emits_all_surfaces():
         'href="/settings"',
     ):
         assert href in nav, f"missing nav link: {href}"
-    # Bottom tabs must contain the primary tabs.
-    for label in (">Watch<", ">Downloads<"):
-        assert label in nav, f"missing bottom-tab label: {label}"
+    for label in ("}}Watch<", "}}Downloads<"):
+        assert label in nav, f"missing nav label: {label}"
 
 
 def test_base_html_sets_data_page():

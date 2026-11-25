@@ -640,22 +640,20 @@
 
     var wide = window.matchMedia('(min-width: 1100px)');
     var phone = window.matchMedia('(max-width: 699.98px)');
-    var toggle = byId('watch-viewtoggle');
     var meter = bar.querySelector('.space-meter');
-    var scrolled = window.scrollY;
-    var framed = false;
+    var profile = bar.querySelector('.profile-btn');
 
     /* The field stays between what is on either side, however large a person has text;
        where that leaves too little, or cuts the meter's figure, the meter drops its words
        till the width changes. */
     function fitBetween() {
-      var links = bar.querySelector('.nav-links');
-      var l = links.offsetLeft + links.offsetWidth + 2;
-      var r = (meter || bar.querySelector('.profile-btn')).offsetLeft - 2;
+      var brand = bar.querySelector('.brand');
+      var l = brand.offsetLeft + brand.offsetWidth + 2;
+      var r = (meter || profile).offsetLeft - 2;
       bar.style.setProperty('--l', l + 'px');
       bar.style.setProperty('--r', r + 'px');
       var figure = meter && meter.querySelector('.space-meter__free');
-      var short = wide.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
+      var short = !phone.matches ? r - l < 200 : !!figure && figure.scrollWidth > figure.clientWidth + 1;
       if (meter && short) bar.classList.add('is-tight');
       makeRoom();
     }
@@ -675,47 +673,15 @@
     }
 
     /* The focus is on what the open field covers. */
-    function asked() {
-      var active = document.activeElement;
-      return active === meter ? covers() : phone.matches && !!toggle && toggle.contains(active);
-    }
+    function asked() { return document.activeElement === meter && covers(); }
 
-    /* The elements stand in the order they are read: below 1100px the field's line,
-       on a phone with the switch on it, comes after the first. */
+    /* The elements stand in the order they are read: on a phone the field is at the foot. */
     function place() {
       var active = document.activeElement;
-      var profile = bar.querySelector('.profile-btn');
-      if (toggle) bar.insertBefore(toggle, profile);
-      var after = wide.matches ? meter || profile : null;
+      var after = phone.matches ? profile : meter || profile;
       [box, sheet].forEach(function (n) { bar.insertBefore(n, after); });
-      if (phone.matches && toggle) bar.appendChild(toggle);
       // Moving a node takes the focus off it.
       if (active && bar.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
-      tuck(false);
-      settleLine(0);
-    }
-
-    function onLine(node) { return box.contains(node) || (!!toggle && toggle.contains(node)); }
-
-    function tuck(on) { bar.classList.toggle('is-tucked', on); }
-
-    /* Below 1100px the field's line goes while the page is scrolled down, and comes back on
-       the way up; over the See all view, whose own header is there, at the top alone. */
-    function settleLine(by) {
-      var y = window.scrollY;
-      var all = byId('watch-all');
-      var grid = !!all && !all.hidden;
-      if (sheetOn || wide.matches || y < (grid ? 8 : 80) || onLine(document.activeElement)) tuck(false);
-      else if (grid || by > 6) tuck(true);
-      else if (by < -6) tuck(false);
-    }
-
-    function onScroll() {
-      framed = false;
-      var by = window.scrollY - scrolled;
-      // Slow steps add up.
-      if (Math.abs(by) > 6) scrolled = window.scrollY;
-      settleLine(by);
     }
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
@@ -1002,7 +968,6 @@
         if (ai) ai.load();
       }
       sheetOn = on;
-      if (on) tuck(false);
       page.classList.toggle('is-sheet-on', on);
       document.documentElement.classList.toggle('has-sheet', on);
       clear.setAttribute('aria-label', on ? 'Close search' : 'Clear search');
@@ -1018,9 +983,13 @@
       input.blur();
     }
 
-    /* The keyboard of a phone covers the bottom of the window, not of the page. */
+    /* The keyboard of a phone covers the bottom of the window, not of the page, and can push
+       what is seen of it down. */
     function fitSheet() {
-      if (window.visualViewport) sheet.style.setProperty('--seen', Math.round(window.visualViewport.height) + 'px');
+      var seen = window.visualViewport;
+      if (!seen) return;
+      bar.style.setProperty('--seen', Math.round(seen.height) + 'px');
+      bar.style.setProperty('--seen-top', Math.round(seen.offsetTop) + 'px');
     }
 
     /* ── What stands under the bar ── */
@@ -2049,7 +2018,9 @@
     });
     window.addEventListener('pageshow', function (e) { if (e.persisted) openSheet(false); });
 
-    if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
+    if (window.visualViewport) {
+      ['resize', 'scroll'].forEach(function (type) { window.visualViewport.addEventListener(type, fitSheet); });
+    }
     fitSheet();
     window.addEventListener('resize', function () {
       // A narrow window shows no titles among the suggestions.
@@ -2061,22 +2032,11 @@
     if (window.ResizeObserver) {
       // In the next frame: it may change the meter's size itself.
       var sized = new window.ResizeObserver(function () { window.requestAnimationFrame(fitBetween); });
-      sized.observe(meter || bar.querySelector('.profile-btn'));
-      sized.observe(bar.querySelector('.nav-links'));
+      [meter || profile, bar.querySelector('.brand')].forEach(function (n) { sized.observe(n); });
     }
-    window.addEventListener('scroll', function () {
-      if (framed) return;
-      framed = true;
-      window.requestAnimationFrame(onScroll);
-    }, { passive: true });
-    // See all opens.
-    new MutationObserver(function () { settleLine(0); }).observe(page, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
-    bar.addEventListener('focusin', function (e) {
-      if (onLine(e.target)) tuck(false);
-      sync();
-    });
-    bar.addEventListener('focusout', function () { setTimeout(function () { sync(); settleLine(0); }); });
-    [wide, phone].forEach(function (m) { m.addEventListener('change', place); });
+    bar.addEventListener('focusin', sync);
+    bar.addEventListener('focusout', function () { setTimeout(sync); });
+    phone.addEventListener('change', place);
     place();
 
     /* ── A page in the results' place ── */

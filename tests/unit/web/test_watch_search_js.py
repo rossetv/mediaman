@@ -924,29 +924,20 @@ def test_a_filter_whose_titles_could_not_be_had_is_asked_for_once() -> None:
     assert out["broken"] == ["Couldn’t load the titles.", 3, []]
 
 
-def test_the_field_s_line_goes_on_the_way_down_and_comes_back_on_the_way_up() -> None:
-    out = _run("barTucks")
-    # 0, 60, 300, then up by too little to mean it until it adds up, up, and at the top.
-    assert out["out"] == [False, False, True, True, True, False, False, False, True]
-    assert (out["focused"], out["again"]) == (False, ["down", True])
-    assert out["wide"] == [False, False]
-
-
-def test_over_see_all_the_field_s_line_comes_back_at_the_top_alone() -> None:
-    assert _run("barTucksOverSeeAll") == [False, True, True, True, False]
-
-
-def test_the_open_sheet_keeps_the_field_s_line() -> None:
-    assert _run("barSheetHolds") == [True, False, False]
+def test_scrolling_never_takes_the_field_away() -> None:
+    out = _run("barStays")
+    assert len(out) == 36
+    assert all(out)
 
 
 def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() -> None:
     out = _run("barOrder")
-    wide = ["nav-links", "search", "watch-sheet", "meter", "watch-viewtoggle", "profile"]
+    wide = ["brand", "search", "watch-sheet", "meter", "profile"]
     assert out["out"] == [
         wide,
-        ["nav-links", "meter", "watch-viewtoggle", "profile", "search", "watch-sheet"],
-        ["nav-links", "meter", "profile", "search", "watch-sheet", "watch-viewtoggle"],
+        wide,
+        # at the foot of a phone, beside the profile button
+        ["brand", "meter", "search", "watch-sheet", "profile"],
     ]
     assert (out["back"], out["focused"]) == (wide, True)
 
@@ -963,27 +954,29 @@ def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None
 def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
     out = _run("barGivesBack")
     assert out["wide"] == [[True, True], [False, False], [True, True]]
-    assert out["phone"] == [[True, False], [False, False], [True, False]]
-    # Nothing covers the switch there.
+    # Nothing covers the meter of a phone, nor the profile button of a wide bar.
+    assert out["phone"] == [[True, False], [True, False], [True, False]]
     assert out["clear"] == [[True, True], [True, True], [True, True]]
 
 
 def test_what_the_open_field_covers_can_have_the_focus() -> None:
     sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
-    rules = re.findall(r"([^{}]*(?:space-meter|viewtoggle)) \{([^}]*)\}", sheet.read_text())
+    rules = re.findall(r"([^{}]*(?:space-meter\)?|profile-btn)) \{([^}]*)\}", sheet.read_text())
     hidden = [body for _, body in rules if "opacity: 0" in body]
-    assert hidden
+    assert len(hidden) == 3
     for body in hidden:
         assert "pointer-events: none" in body and "visibility" not in body
 
 
-def test_the_field_stays_between_the_links_and_the_meter_which_drops_its_words_for_it() -> None:
-    assert _run("barBetween") == [
+def test_the_field_stays_between_the_brand_and_the_meter_which_drops_its_words_for_it() -> None:
+    out = _run("barBetween")
+    assert out["wide"] == [
         ["312px", "878px", False],
         ["522px", "638px", True],
         ["522px", "798px", True],
         [False],
     ]
+    assert out["tablet"] == out["wide"]
 
 
 def test_a_phone_s_meter_drops_a_figure_that_would_be_cut() -> None:
@@ -995,21 +988,14 @@ def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
     assert out == {"sticky": [400, True], "gone": [0, True]}
 
 
-def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
-    assert _run("barCovers") == [106, 52]
+def test_what_the_bar_covers_is_its_one_line_however_far_the_page_is_scrolled() -> None:
+    assert _run("barCovers") == [52, 52]
 
 
-def test_nothing_leaves_the_field_s_line_over_the_header_of_see_all() -> None:
-    out = _run("barLeavesSeeAllFree")
-    assert (out.pop("focused"), out.pop("rows")) == (False, False)
-    assert out == {"left": True, "turned": True, "forward": True, "opened": True}
-
-
-def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
-    out = _run("barTucksOnPurpose")
-    # Far down, back up, then by 1, 6 and 7 in all.
-    assert out["out"] == [True, False, False, False, True]
-    assert (out["frames"], out["after"]) == (1, True)
+def test_the_field_and_its_sheet_keep_to_what_a_keyboard_leaves_to_be_seen() -> None:
+    out = _run("barSeen")
+    assert (out["first"]["--seen"], out["first"]["--seen-top"]) == ("844px", "0px")
+    assert (out["typing"]["--seen"], out["typing"]["--seen-top"]) == ("500px", "120px")
 
 
 # ── Ask AI ──
