@@ -161,6 +161,7 @@
   var NOTICE_STARTING = 'Still starting…';
   var MSG_REPLACED = 'Playing somewhere else.';
   var MSG_NEXT_UNREACHED = "Can't reach the next episode right now.";
+  var MSG_OTHER_TAB = 'This is playing on a TV from another tab.';
   var MSG_MAYBE_TV = 'This may still be playing on a TV.';
   var MSG_LEFT_TV = { lost: ' stopped answering.', taken: ' is used by someone else now.' };
   var NOTE_QUALITY = 'TVs get up to 1080p, in a form every TV can play. 4K and HDR stay on this device. Changing quality restarts the picture where you are.';
@@ -173,7 +174,7 @@
     { id: 'medium', kind: 'convert', label: '720p', detail: '4 Mbps', height: 720, bitrate_kbps: 4000 },
     { id: 'low', kind: 'convert', label: '480p', detail: '1.5 Mbps', height: 480, bitrate_kbps: 1500 },
   ];
-  var LOOK_WAIT_MS = 10000;
+  var LOOK_WAIT_MS = 1500;
   var AGAIN_WAIT_MS = 4000;
   var KEEP_EVERY_MS = 60000;
   var TV_EVERY_MS = 5000;
@@ -361,6 +362,7 @@
   var playOn = MM.playOn;    // the sheet, where the page has it
   var away = null;           // {way, play} while a way plays the title, {tv} while a TV does
   var attempt = null;        // a start elsewhere by a way: {way, wanted, opened}
+  var holding = null;        // {way, told, heard} while it is not known whether it plays elsewhere
   var here = null;           // what this device goes on with: {rows, quality, override}
   var subtitle = null;       // what the TV is asked for: 'off', a track, or null for Plex's own choice
   var subtitleGood = null;   // what it was last given
@@ -643,6 +645,11 @@
     override = null;
     stalls = 0;
     stopWatching();
+    if (holding) {
+      good = choice();
+      showQuality();
+      return;
+    }
     if (value === playing && streamId) {
       /* It already plays, as what Automatic picked. */
       streamChoice = choice();
@@ -857,7 +864,7 @@
     setLoading(false);
     els.messageText.textContent = text;
     els.retry.hidden = !again;
-    els.retry.textContent = again === playHere || again === resumeHere ? 'Play here' : 'Try again';
+    els.retry.textContent = again === playHere || again === resumeHere || again === playAnyway ? 'Play here' : 'Try again';
     els.play.disabled = !again;
     show(els.message);
     showPlayState();
@@ -2725,6 +2732,7 @@
 
   function openNext(byItself, savedAt) {
     var href = next.href;
+    holding = null;
     switching = true;
     swapping = true;
     wantPlaying = true;
@@ -3401,6 +3409,7 @@
   function stopHere() {
     var at = video.ended ? 0 : position();
     var was = away;
+    holding = null;
     leaveNative();
     dropRating();
     hideMessage();
@@ -3434,11 +3443,20 @@
     playOn.cancel();
   }
 
-  /* Nothing came of it: go on here, at the place. */
-  function goOnHere(playing) {
+  /* Nothing came of it: go on here, at the place, or as it was `held` before. */
+  function goOnHere(playing, held) {
     var at = position();
     swapping = true;
     release();
+    if (held) {
+      /* Still not known to be nowhere else. */
+      held.told = true;
+      holding = held;
+      pendingStart = at;
+      showAway();
+      showMessage(MSG_MAYBE_TV, playAnyway);
+      return;
+    }
     wantPlaying = playing;
     startStream(at);
     showAway();
@@ -3446,7 +3464,7 @@
 
   /* A way of the browser's, in the press for it; `chosen` is told once a TV was picked. */
   function startWay(way, chosen) {
-    var mine = attempt = { way: way, name: way.label, opened: false, played: false, was: '', abort: null, stream: null, data: null };
+    var mine = attempt = { way: way, name: way.label, opened: false, played: false, was: '', held: null, abort: null, stream: null, data: null };
     pressedPlay();
     return way.start({
       title: titleNow(),
@@ -3462,7 +3480,7 @@
     }, function (err) {
       if (attempt === mine) {
         attempt = null;
-        if (mine.opened) goOnHere(mine.played);
+        if (mine.opened) goOnHere(mine.played, mine.held);
       }
       err.left = leftBy(mine);
       throw err;
@@ -3475,6 +3493,7 @@
     var at;
     var late;
     mine.was = away ? awayName() : '';
+    mine.held = holding;
     mine.opened = true;
     mine.played = wantPlaying;
     chosen();
@@ -3901,7 +3920,7 @@
     },
     on: function () { return onTv() ? 'tv-' + away.tv.id : away ? away.way.id : null; },
     before: function (tv) {
-      attempt = { name: tv.name, opened: true, played: wantPlaying, was: away ? awayName() : '' };
+      attempt = { name: tv.name, opened: true, played: wantPlaying, was: away ? awayName() : '', held: holding };
       pressedPlay();
       var stopped = stopHere();
       showAway();
@@ -3911,11 +3930,17 @@
       if (!opening()) return '';
       var was = attempt;
       attempt = null;
-      goOnHere(was.played);
+      goOnHere(was.played, was.held);
       return leftBy(was);
     },
     started: function (tv) {
+      /* Left and come back to meanwhile, the page may have begun something else. */
+      if (!opening() && (streamId || starting)) {
+        swapping = true;
+        release();
+      }
       attempt = null;
+      holding = null;
       followTv(tv);
       if (MM.tvRemote) MM.tvRemote.open(tv);
     },
@@ -3941,58 +3966,95 @@
     return Promise.race([promise, new Promise(function (resolve) { setTimeout(resolve, ms, null); })]);
   }
 
-  /* Plays here, unless it plays elsewhere: a start here would end it there. A `first` start is
-     the page's own, a later one is not. */
-  function begin(first) {
+  /* Plays here, unless it plays elsewhere: a start here would end it there. Until that is known
+     a press only says whether it is to play; where it is not known soon the page says so, and
+     only a press for it plays it here. */
+  function begin() {
     var key = String(item.rating_key);
-    var asked = first && playOn ? playOn.again(key) : null;
-    var gen = generation;
-    var told = false;
-
-    function playsHere() { startStream(position()); }
-
-    function maybeElsewhere() {
-      told = true;
-      showMessage(MSG_MAYBE_TV, resumeHere);
-    }
-
-    if (!playOn) {
-      playsHere();
+    var asked = playOn && playOn.again(key);
+    var look = playOn && playOn.mayBeOnTv();
+    if (!asked && !look) {
+      if (!holding) startStream(position());
       return;
     }
-    setLoading(true);
-    inTime(playOn.onTv(key), LOOK_WAIT_MS).then(function (tv) {
-      if (gen !== generation) return;
-      if (tv) followTv(tv);
-      else if (asked) waitForWay();
-      else playsHere();
-    });
-    if (asked) asked.found.catch(function () { /* said below */ });
-
-    function waitForWay() {
-      var timer = setTimeout(maybeElsewhere, AGAIN_WAIT_MS);
-      asked.found.then(function (found) {
-        clearTimeout(timer);
-        var ours = found && gen === generation && isThis(found.stream);
-        if (found && !ours) found.play.leave();
-        if (gen !== generation) return;
-        if (ours) followAgain(asked.way, found);
-        else if (!told) playsHere();
-      }, function () {
-        clearTimeout(timer);
-        if (gen === generation && !told) maybeElsewhere();
-      });
+    /* Asked again behind the message that says so, it stays until there is something to follow. */
+    var mine = holding = { way: asked ? asked.way : null, told: !!holding, heard: false };
+    var still = mine.told;
+    var timer = null;
+    if (!still) {
+      swapping = true;
+      setLoading(true);
     }
+
+    function tell(text) {
+      clearTimeout(timer);
+      if (mine !== holding || mine.told) return;
+      mine.told = true;
+      showMessage(text || MSG_MAYBE_TV, playAnyway);
+    }
+
+    function tellAfter(ms) {
+      clearTimeout(timer);
+      if (!mine.told) timer = setTimeout(tell, ms);
+    }
+
+    function endHold() {
+      clearTimeout(timer);
+      holding = null;
+      if (mine.told) hideMessage();
+    }
+
+    var found = asked ? asked.found : Promise.resolve(null);
+    found.then(function (f) { if (f && mine !== holding) f.play.leave(); }, function () { /* said below */ });
+    tellAfter(LOOK_WAIT_MS);
+    (look ? playOn.onTv(key) : Promise.resolve(null)).then(function (tv) {
+      if (mine !== holding) return undefined;
+      if (tv) {
+        endHold();
+        followTv(tv);
+        return undefined;
+      }
+      if (!asked) {
+        mine.heard = true;
+        if (still) return undefined;
+        endHold();
+        startStream(position());
+        return undefined;
+      }
+      tellAfter(AGAIN_WAIT_MS);
+      return found.then(function (f) {
+        if (mine !== holding) return;
+        if (f && isThis(f.stream)) {
+          endHold();
+          followAgain(asked.way, f);
+          return;
+        }
+        if (f) f.play.leave();
+        mine.heard = true;
+        if (mine.told) return;
+        endHold();
+        startStream(position());
+      });
+    }).catch(function (err) {
+      mine.heard = true;
+      tell(err && err.code === 'elsewhere' ? MSG_OTHER_TAB : null);
+    });
+  }
+
+  function playAnyway() {
+    var was = holding;
+    holding = null;
+    if (was && was.way && was.way.release) was.way.release(String(item.rating_key));
+    resumeHere();
   }
 
   function followAgain(way, found) {
     var kept = found.stream.keep || {};
-    hideMessage();
     hasPlayed = true;
     playedS = kept.played_s || 0;
     subtitle = kept.subtitle || null;
+    takeMarks({ markers: kept.markers, chapters: kept.chapters });
     follow(way, found.play, found.stream, Object.assign({ quality: kept.quality }, kept.given));
-    takeMarks(kept);
   }
 
   function followTv(tv) {
@@ -4028,7 +4090,12 @@
     beaconStop();
     dropRating();
     keepRating();
-    if (attempt) dropAttempt();
+    /* A TV's own start goes on without the page; a way's needs it. */
+    if (attempt && attempt.way) dropAttempt();
+    if (attempt) {
+      attempt = null;
+      showAway();
+    }
     if (away && away.play) endAway(true);
     pendingStart = resumeAt;
     streamId = null;
@@ -4043,10 +4110,11 @@
   /* Back from the browser's page cache: the old stream was stopped. */
   window.addEventListener('pageshow', function (e) {
     if (!e.persisted || away || (els.ask && els.ask.open)) return;
+    if (holding && !holding.heard) return;
     /* Playing somewhere else it stays so. */
-    if (shown(els.message) && tryAgain === playHere) return;
+    if (shown(els.message) && (tryAgain === playHere || tryAgain === resumeHere)) return;
     wantPlaying = false;
-    begin(false);
+    begin();
   });
 
   /* ---- start ---------------------------------------------------------- */
@@ -4067,5 +4135,5 @@
     return;
   }
   setupPlayOn();
-  begin(true);
+  begin();
 })();

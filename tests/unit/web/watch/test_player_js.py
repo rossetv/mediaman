@@ -2456,7 +2456,8 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
 
 def test_a_page_opened_while_a_tv_plays_its_title_leaves_it_there(markup):
     out = elsewhere(markup, "away_opened_on_tv", "same")
-    assert out == {"starts": 0, "says": "Paused on Living room", "from": 77}
+    assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")
+    assert (out["from"], out["known"]) == (77, "1")
 
 
 def test_a_page_back_from_the_cache_leaves_its_title_on_the_tv(markup):
@@ -2466,15 +2467,74 @@ def test_a_page_back_from_the_cache_leaves_its_title_on_the_tv(markup):
 
 @pytest.mark.parametrize("how", ["other", "ended"])
 def test_a_page_opened_while_a_tv_plays_something_else_plays_here(markup, how):
-    assert elsewhere(markup, "away_opened_on_tv", how) == {"starts": 1, "says": None}
+    out = elsewhere(markup, "away_opened_on_tv", how)
+    assert (out["starts"], out["says"]) == (1, None)
 
 
-def test_a_page_that_hears_nothing_of_the_tvs_plays_here_after_a_while(markup):
-    out = elsewhere(markup, "away_opened_on_tv", "silent")
-    assert out == {"starts": 0, "says": None, "late": 1}
+def test_where_no_tv_was_known_to_play_the_title_starts_at_once(markup):
+    out = elsewhere(markup, "away_opened_on_tv", "unknown")
+    assert (out["atOnce"], out["after"]["starts"], out["message"]) == (1, 1, None)
 
 
-@pytest.mark.parametrize("how", ["found", "pressed", "overLate", "lost"])
+@pytest.mark.parametrize(
+    ("how", "after"),
+    [
+        ("silent", {"starts": 0, "says": None, "button": "Play here"}),
+        ("lateNone", {"starts": 1, "says": None, "button": None}),
+        ("lateTv", {"starts": 0, "says": "Paused on Living room", "button": None}),
+        ("lateFails", {"starts": 0, "says": None, "button": "Play here"}),
+    ],
+)
+def test_where_a_tv_was_known_to_play_the_wait_for_its_word_is_short(markup, how, after):
+    out = elsewhere(markup, "away_opened_on_tv", how)
+    assert (out["atOnce"], out["message"]) == (0, None)
+    assert out["slow"] == {"starts": 0, "button": "Play here"}
+    assert out["after"] == after
+    # What was heard is known to the pages to come.
+    assert out["known"] == (None if how == "lateNone" else "1")
+
+
+def test_paused_while_it_is_not_known_where_it_plays_it_begins_paused(markup):
+    out = elsewhere(markup, "away_opened_on_tv", "pausedLook")
+    assert out == {"starts": 1, "plays": 0}
+
+
+def test_a_press_while_it_is_not_known_where_it_plays_starts_nothing(markup):
+    out = elsewhere(markup, "away_opened_on_tv", "pressed")
+    assert (out["pressed"], out["starts"]) == (0, 0)
+    assert out["says"] == "Paused on Living room"
+
+
+def test_a_tv_that_begins_as_the_page_is_left_is_left_to_begin(markup):
+    out = elsewhere(markup, "away_left_starting", "said")
+    assert (out["aborted"], out["stops"], out["starts"]) == (False, 0, 0)
+    assert out["says"] == "Starting on Living room"
+
+
+def test_what_began_here_before_the_tv_said_that_it_begins_gives_way_to_it(markup):
+    out = elsewhere(markup, "away_left_starting", "unsaid")
+    # The stream the page was left with, and the one it came back with.
+    assert (out["starts"], out["ended"], out["says"]) == (1, 2, "Starting on Living room")
+
+
+def test_back_from_the_cache_a_way_is_asked_again(markup):
+    assert elsewhere(markup, "away_again_cache") == {"starts": 0, "says": "Playing on Den"}
+
+
+def test_a_tv_refused_to_a_title_that_may_be_on_another_starts_nothing_here(markup):
+    out = elsewhere(markup, "away_again_refused")
+    assert (out["asked"], out["starts"], out["pressed"]) == (True, 0, 1)
+    assert out["message"]["button"] == "Play here"
+
+
+def test_a_play_found_after_the_next_episode_was_asked_for_is_left(markup, tmp_path_factory):
+    next_item = {**EPISODE["item"], "rating_key": "502", "subtitle": "S2 · E5"}
+    next_page = _markup(tmp_path_factory, {**EPISODE, "item": next_item})
+    out = elsewhere(markup, "away_again_passed", pages={"/watch/play/502": next_page})
+    assert out == {"left": 1, "starts": ["502"], "says": None}
+
+
+@pytest.mark.parametrize("how", ["found", "pressed", "overLate", "lost", "left"])
 def test_a_title_that_may_be_on_a_tv_is_never_started_here_by_itself(markup, how):
     out = elsewhere(markup, "away_again_slow", how)
     assert (out["asked"], out["early"], out["starts"]) == ("501", 0, 0)
@@ -2484,8 +2544,28 @@ def test_a_title_that_may_be_on_a_tv_is_never_started_here_by_itself(markup, how
         assert (after["starts"], after["says"], after["message"]) == (0, "Playing on Den", None)
     elif how == "pressed":
         assert (after["starts"], after["left"], after["says"]) == (1, 1, None)
+        # The way forgets the title before the start, so that it starts by itself next time.
+        assert after["released"] == ["501", 0]
     else:
         assert (after["starts"], after["message"]["button"]) == (0, "Play here")
+
+
+def test_back_to_a_title_that_may_be_on_a_tv_the_way_is_asked_again_and_nothing_started(markup):
+    out = elsewhere(markup, "away_again_slow", "left")
+    # It had not answered yet.
+    assert out["times"] == 1
+    out = elsewhere(markup, "away_again_slow", "leftLost")
+    assert (out["again"]["times"], out["again"]["starts"]) == (2, 0)
+    assert out["again"]["message"]["button"] == "Play here"
+    assert (out["over"]["starts"], out["over"]["message"]["button"]) == (0, "Play here")
+    assert (out["after"]["starts"], out["after"]["says"]) == (0, "Playing on Den")
+
+
+def test_a_title_that_another_tab_plays_on_a_tv_says_so_at_once(markup):
+    out = elsewhere(markup, "away_again_slow", "elsewhere")
+    assert (out["told"]["button"], out["early"], out["starts"]) == ("Play here", 0, 0)
+    assert "another tab" in out["told"]["text"]
+    assert (out["after"]["starts"], out["after"]["released"]) == (1, ["501", 0])
 
 
 def test_a_title_known_not_to_be_on_a_tv_plays_here_at_once(markup):
@@ -2497,6 +2577,8 @@ def test_a_rejoined_play_has_its_subtitles_chapters_and_marks_and_is_kept_alive(
     out = elsewhere(markup, "away_kept")
     assert out["tracks"] == ["off", "31*", "32"]
     assert (out["chapters"], out["skip"]) == (5, "Next episode")
+    # And a second reload has them too.
+    assert out["keptAgain"] == [3, 5]
     # No time played is told of it, so that it is no save.
     assert out["saves"] == [["k1", 2710, 0]] * 30
 
@@ -2507,8 +2589,10 @@ def test_called_back_while_it_begins_elsewhere_the_sheet_is_free_again(markup, h
     assert out["says"].startswith("Starting on")
     starts = 0 if "Stop" in how else 1
     assert out["here"] == {"starts": starts, "away": False, "row": "true"}
-    assert out["aborted"] is True
-    assert out["stopped"] is how.startswith("tv")
+    # What a TV was asked for cannot be called off: it is stopped once it has begun, and only it.
+    assert out["aborted"] is how.startswith("way")
+    assert out["early"] == []
+    assert out["stopped"] == (["p7"] if how.startswith("tv") else [])
     assert (out["after"], out["busy"], out["again"]) == (False, None, "Starting on Living room")
 
 

@@ -4,7 +4,9 @@
  *   MM.playOn.changed()          what a way says of itself may be different now
  *   MM.playOn.again(key)         null, or {way, found}: a promise of the play of that title which a
  *                                way may find already on
- *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null
+ *   MM.playOn.mayBeOnTv()        whether a TV was playing anything when last heard of
+ *   MM.playOn.onTv(key)          a promise of the TV that title plays on, or null; rejects where
+ *                                that cannot be known
  *   MM.playOn.cancel()           what is starting is not wanted any more
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
  *   MM.playOn.open(button, host) the sheet, by the button
@@ -33,6 +35,7 @@
   var MM = global.MM;
   var TVS = '/api/tvs';
   var TV_ICON = 'play-on-tv'; // of _play_on.html
+  var ON_TV_KEY = 'mediaman.watch.onTv';
   var LOOK_MS = 5000;
   var START_WAIT_MS = 125000;
   var LEAVE_MS = 300;
@@ -70,7 +73,6 @@
   var sheet = null;           // while open: {node, btn, host, pairing}
   var say = null;             // {id, title, line, bad, again, take}
   var wait = null;            // the id of what is starting
-  var callOff = null;         // calls off a start on a TV that was asked for
   var limit = false;          // three streams play already
   var asking = 0;             // bumps with every press that starts something
 
@@ -98,16 +100,33 @@
     looking = MM.api.get(TVS).then(function (data) {
       tvs = data.tvs || [];
       lost = absent = false;
+      remember(tvs.some(isPlaying));
     }, function (err) {
       var status = err && err.status;
       absent = status === 404 || status === 403;
       lost = !absent;
-      if (absent) tvs = null;
+      if (absent) {
+        tvs = null;
+        remember(false);
+      }
     }).then(function () {
       looking = null;
       if (JSON.stringify([tvs, lost, absent]) !== before) changed();
     });
     return looking;
+  }
+
+  function isPlaying(tv) { return !!tv.play && PLAYING.indexOf(tv.play.state) !== -1; }
+
+  /* Kept for the pages to come: where nothing plays on a TV they have nothing to wait for. */
+  function remember(on) {
+    try {
+      if (on) global.localStorage.setItem(ON_TV_KEY, '1');
+      else global.localStorage.removeItem(ON_TV_KEY);
+    } catch (e) { /* storage blocked */ }
+  }
+  function remembered() {
+    try { return global.localStorage.getItem(ON_TV_KEY) !== null; } catch (e) { return true; }
   }
 
   function idOf(tv) { return 'tv-' + tv.id; }
@@ -200,23 +219,23 @@
       if (place !== undefined) what.position_s = place;
       if (confirm) what.confirm = true;
       late = setTimeout(function () { stopper.abort(); }, START_WAIT_MS);
-      /* Asked too late to be called off, it is stopped there: nothing begins there after that. */
-      callOff = function () {
-        stopper.abort();
-        stopTv(tv).catch(function () { /* nothing plays there */ });
-      };
+      remember(true);
       return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/play', what, { signal: stopper.signal });
     }).then(function (data) {
       clearTimeout(late);
-      if (mine !== asking) return;
-      wait = callOff = null;
+      if (mine !== asking) {
+        /* Called off too late not to begin: that play is stopped, and nothing the TV has since. */
+        if (data.tv && data.tv.play) stopTv(data.tv).catch(function () { /* it is over */ });
+        return;
+      }
+      wait = null;
       close();
       if (host.started) host.started(data.tv || tv);
       else if (MM.tvRemote) MM.tvRemote.open(data.tv || tv);
     }, function (err) {
       clearTimeout(late);
       if (mine !== asking) return;
-      wait = callOff = null;
+      wait = null;
       var left = host.failed && host.failed();
       if (err && err.error === 'too_many_streams') overLimit();
       else if (!err || SILENT.indexOf(err.error) === -1) tell(refused(tv, err, left));
@@ -225,21 +244,22 @@
     });
   }
 
+  /* End what `tv` says it plays, and nothing it plays since. */
   function stopTv(tv) {
-    return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/commands', { kind: 'stop' });
+    var body = { kind: 'stop' };
+    if (tv.play.play_id) body.play_id = tv.play.play_id;
+    return MM.api.post(TVS + '/' + encodeURIComponent(tv.id) + '/commands', body);
   }
 
   function cancel() {
     asking++;
-    if (callOff) callOff();
-    callOff = null;
     say = wait = null;
     draw();
   }
 
   function tvWith(key) {
     return (tvs || []).filter(function (tv) {
-      return tv.play && String(tv.play.rating_key) === String(key) && PLAYING.indexOf(tv.play.state) !== -1;
+      return isPlaying(tv) && String(tv.play.rating_key) === String(key);
     })[0] || null;
   }
 
@@ -791,7 +811,13 @@
     register: function (way) { ways.push(way); changed(); },
     changed: changed,
     cancel: cancel,
-    onTv: function (key) { return look().then(function () { return tvWith(key); }); },
+    mayBeOnTv: function () { return !absent && remembered(); },
+    onTv: function (key) {
+      return look().then(function () {
+        if (lost) throw new Error('lost');
+        return tvWith(key);
+      });
+    },
     again: function (key) {
       for (var i = 0; i < ways.length; i++) {
         var found = ways[i].again && ways[i].again(key);
