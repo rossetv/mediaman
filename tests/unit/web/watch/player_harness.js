@@ -4451,6 +4451,19 @@ const scenarios = {
     if (what === 'scene' || what === 'sceneRated') { if (what === 'sceneRated') click(thumb()); await on(22); out.scene = look(); }
     if (what === 'sceneSkip') { click(p.q('[data-skip]')); p.video.currentTime = 2720; fire(p.video, 'timeupdate'); await on(8); out.scene = look(); }
     if (what === 'hiddenBack') { seek(2000); await on(1); doc.visibilityState = 'visible'; seek(2800); await on(3); }
+    if (/^idle/.test(what)) {
+      if (what === 'idleFocus') tabTo(thumb());
+      if (what === 'idleHover') fire(card, 'pointerenter', { pointerType: 'mouse' });
+      if (what === 'idleHidden') doc.visibilityState = 'hidden';
+      if (what === 'idleTouch') { await on(25); fire(card, 'pointerdown', { bubbles: true, pointerType: 'touch' }); }
+      if (what === 'idlePaused') { await on(25); p.video.pause(); p.tick(60000); await settle(); out.paused = look(); p.video.paused = false; }
+      await on(what === 'idle' ? 27 : /Focus|Hover|Hidden/.test(what) ? 40 : 29);
+      out.nearly = look();
+      await on(what === 'idle' ? 4 : 0);
+      if (what === 'idleHover') { fire(card, 'pointerleave', { pointerType: 'mouse' }); await on(31); }
+      if (what === 'idleHidden') { doc.visibilityState = 'visible'; }
+      if (what === 'idle') { out.gone = look(); await on(40); }
+    }
     if (what === 'arrowOnThumb') { tabTo(thumb()); const from = p.video.currentTime; key('ArrowLeft'); out.left = doc.activeElement === card.querySelectorAll('.rate__b')[2]; key('ArrowRight'); key('ArrowRight'); out.right = doc.activeElement === card.querySelectorAll('.rate__b')[0]; p.tick(300); await settle(); out.moved = p.video.currentTime - from; }
     if (what === 'unrateable') { p.tick(1); await settle(); }
     if (what === 'rebuffer') { fire(p.video, 'waiting'); fire(p.video, 'play'); fire(p.video, 'playing'); await on(1); }

@@ -81,7 +81,7 @@
   var RATE_WAIT_MS = 4000;
   /* A rating just given stays in sight this long. */
   var RATED_MS = 1800;
-  /* Left alone this long, the question lets the page go on. */
+  /* Left alone this long, the question lets the page go on, or the credits. */
   var RATE_IGNORED_MS = 30000;
   /* How long a start may go without an answer: on the server, with each of its calls to
      a slow Plex at its limit, one takes up to 110 s. */
@@ -371,7 +371,7 @@
     chapters = [];
     buildChapters();
     offerSkip(null);
-    question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false };
+    question = { asking: null, held: null, put: false, tried: false, creditsS: 0, due: false, answered: false, over: false, aloneS: 0 };
     troubleAtPlayed = 0;
     clearTrouble();
     clearTimeout(seekSaveTimer);
@@ -2900,6 +2900,7 @@
   var ratingRef;             // the title it rates
   var tight = window.matchMedia('(max-width: 659.98px) and (max-height: 599.98px)'); // as in the CSS
   var rateAfterUpnext = false;
+  var rateHovered = false;   // the mouse is on the card
   var overCredits = false;   // the card came while the video played
   var goOnAfter = null;      // what the end leads to once the card is done with
   var ratedTimer = null;
@@ -2954,7 +2955,8 @@
       if (rating && overCredits && afterCredits(to)) putOffRating();
       return;
     }
-    if (question.put) return;
+    if (rating && overCredits) leaveAlone(to - from);
+    if (question.put || question.over) return;
     question.creditsS += to - from;
     if (!inCredits(from) || question.creditsS >= CREDITS_PLAYED_S) question.due = true;
     if (!question.due || cannotBeSeen()) return;
@@ -3031,12 +3033,16 @@
     if (goOn) leaveNative();
     goOnAfter = goOn;
     question.put = true;
+    question.aloneS = 0;
+    rateHovered = false;
     overCredits = !video.ended;
     els.rateTitle.textContent = text;
     els.rateSet.textContent = '';
     ratingRef = held.ref;
     rating = MM.ratings.mount(held.ref, { variant: 'grid' });
     els.rateSet.appendChild(rating.node);
+    /* A small window shows no names. */
+    els.rateSet.querySelectorAll('button').forEach(function (b) { b.setAttribute('title', b.getAttribute('aria-label')); });
     els.rate.classList.toggle('player-rate--beside', !goOn);
     show(els.rate);
     els.rateStatus.textContent = text;
@@ -3079,6 +3085,20 @@
     question.put = question.answered;
     dropRating();
   }
+
+  /* The credits have played on for this long: one that nobody is at goes, for the end to put it. */
+  function leaveAlone(playedFor) {
+    if (document.visibilityState === 'hidden') return;
+    question.aloneS += playedFor;
+    if (rateHovered || (!focusByPointer && els.rate.contains(document.activeElement))) question.aloneS = 0;
+    if (question.aloneS < RATE_IGNORED_MS / 1000) return;
+    question.over = true;
+    putOffRating();
+  }
+
+  els.rate.addEventListener('pointerenter', function (e) { rateHovered = e.pointerType === 'mouse'; });
+  els.rate.addEventListener('pointerleave', function () { rateHovered = false; });
+  els.rate.addEventListener('pointerdown', function () { question.aloneS = 0; });
 
   function moveInRating(by) {
     var thumbs = els.rateSet.querySelectorAll('button');

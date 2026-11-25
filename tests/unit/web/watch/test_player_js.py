@@ -2098,6 +2098,25 @@ def test_a_scene_after_the_credits_is_left_alone_and_the_question_waits_for_the_
     assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
 
 
+def test_left_alone_in_the_credits_the_question_goes_and_comes_at_the_end(film):
+    out = in_credits(film, "idle")
+    assert (out["nearly"]["card"], out["gone"]["card"]) == (True, False)
+    assert (out["after"]["card"], out["after"]["paused"]) == (False, False)
+    assert (out["end"]["card"], out["end"]["asks"], out["end"]["at"]) == (True, 1, "/watch/play/1")
+
+
+@pytest.mark.parametrize("what", ["idleFocus", "idleHover", "idleHidden", "idleTouch"])
+def test_the_question_stays_while_somebody_is_at_it_or_nobody_can_see_it(film, what):
+    out = in_credits(film, what)
+    assert out["nearly"]["card"] is True
+    assert out["after"]["card"] is (what != "idleHover")
+
+
+def test_a_pause_is_no_time_that_the_question_was_left_alone_for(film):
+    out = in_credits(film, "idlePaused")
+    assert (out["paused"]["card"], out["after"]["card"]) == (True, False)
+
+
 def test_a_rating_given_before_the_scene_is_not_asked_for_again(film):
     out = in_credits(film, "sceneRated")
     assert out["scene"]["card"] is False
