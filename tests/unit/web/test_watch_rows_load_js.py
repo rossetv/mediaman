@@ -61,3 +61,7 @@ def test_pages_come_only_near_the_end_or_when_asked_and_far_posters_are_unloaded
 
 def test_a_stopped_loader_takes_no_page_and_listens_to_nothing() -> None:
     assert _run("stopped") == {"before": [1, 1], "after": [0, 0], "refs": [1]}
+
+
+def test_a_card_taken_out_of_the_row_does_not_shift_the_posters_kept_awake() -> None:
+    assert _run("cardsTakenOut") == [True, False]
