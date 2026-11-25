@@ -306,7 +306,10 @@
   function ask() {
     if (asking) return asking;
     askedAt = Date.now();
-    asking = window.MM.api.get(ASKED_URL).then(take).then(settled, function (err) {
+    asking = window.MM.api.get(ASKED_URL).then(function (data) {
+      // Not over a row on show an answer from before the person's own mark or undo, which asks anew.
+      if (!section || !(dueOwn || (again && again.own))) take(data);
+    }).then(settled, function (err) {
       if (!section) noRow();
       settled();
       throw err;
