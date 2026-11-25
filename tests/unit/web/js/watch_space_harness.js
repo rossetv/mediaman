@@ -1268,6 +1268,26 @@ const scenarios = {
     await p.run(0);
     return { lost, kept: p.focused() };
   },
+  // See all has the focus as other titles come, as they go to one that lists them all, and as they cannot be had.
+  async seeAllKeepsFocus() {
+    const p = await onMovies();
+    const all = () => p.one('.space-layer:not([inert]) .space-all');
+    const on = () => (p.doc.activeElement === all() ? 'all' : p.focused());
+    const old = all();
+    old.focus();
+    p.server.library.movie = [title('Small', 40 * GB), title('New', 30 * GB)];
+    await p.refresh();
+    const drawn = [all() !== old, on()];
+    p.one('.space-layer:not([inert]) .space-back').focus();
+    p.server.library.movie = [title('New', 30 * GB), title('Small', 20 * GB)];
+    await p.refresh();
+    const back = on();
+    all().focus();
+    p.server.library.movie = [title('New', 30 * GB)];
+    p.server.total.movie = 1;
+    await p.refresh();
+    return { drawn, back, none: on() };
+  },
   // See all was pressed, and what it lists changed while the list stood over the panel: drawn again, it has the focus on Back.
   async backFocusSeeAll() {
     const p = await onMovies();
