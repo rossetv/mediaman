@@ -53,17 +53,17 @@ def latest_season_out(fields: Mapping[str, Any], today: date) -> int | None:
 
 
 def card_marks(marks: PersonMarks, client: TmdbClient | None) -> CardMarks:
-    """The fields that *marks* give the cards of one reply. A show outside the library, marked
-    up to a season, is watched until TMDB, as last heard, has a newer one out."""
+    """The fields that *marks* give the cards of one reply. The library's own rows say it of a
+    title it holds, the marks included. A show outside it, marked up to a season, is watched
+    until TMDB, as last heard, has a newer one out."""
     today = now_utc().date()
 
     def fields(key: TitleKey | None, library_ref: str | None, watched: bool) -> dict[str, object]:
-        if key is not None and not watched and key in marks.seen:
+        if key is not None and library_ref is None and key in marks.seen:
             through = marks.seen[key]
-            if through is None:
-                watched = True
-            elif library_ref is None:
-                watched = not _has_newer_season(client, key[1], through, today)
+            watched = key not in marks.partly and (
+                through is None or not _has_newer_season(client, key[1], through, today)
+            )
         return {
             "tmdb_ref": tmdb_ref(key),
             "level": marks.levels.get(key) if key is not None else None,

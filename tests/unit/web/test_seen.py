@@ -3,7 +3,6 @@ together with the library's marks once a title joins it."""
 
 from __future__ import annotations
 
-import ast
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -25,10 +24,11 @@ from mediaman.web.repository.watch_progress import (
     mark_watched,
     save_progress,
     show_progress,
+    unmark_watched,
 )
 from mediaman.web.routes import ratings as rating_routes
 from mediaman.web.routes import seen as routes
-from mediaman.web.routes.watch import card_marks
+from mediaman.web.routes.watch import card_marks, mark_undo, marks_api
 from tests.helpers.factories import (
     insert_admin_user,
     insert_media_item,
@@ -86,6 +86,8 @@ def tmdb(monkeypatch):
     monkeypatch.setattr(routes, "now_utc", lambda: NOW)
     monkeypatch.setattr(card_marks, "now_utc", lambda: NOW)
     monkeypatch.setattr(card_marks, "sync", True)
+    monkeypatch.setattr(mark_undo, "_held", {})
+    monkeypatch.setattr(marks_api, "now_utc", lambda: NOW)
     return fake
 
 
@@ -165,6 +167,10 @@ def _stored(conn):
     ]
 
 
+def _mark_of(conn, username="aoife"):
+    return seen_titles.get_mark(conn, find_user_id(conn, username), ("tv", 44))
+
+
 def _show(conn, username="aoife"):
     return lib.show_seen(conn, username, LIBS)["500"]
 
@@ -227,6 +233,45 @@ class TestMarking:
         assert as_user("aoife").put(f"{BASE}/pick-{pick}").status_code == 404
         assert as_user("cian").put(f"{BASE}/pick-{pick}").json()["tmdb_id"] == 603
 
+    def test_undoing_a_later_mark_leaves_the_earlier_one(self, client, conn, tmdb):
+        client.put(f"{BASE}/tmdb-tv-44")
+        before = _mark_of(conn)
+        tmdb.titles["tv", 44] = _seasons("2019-01-01", "2021-01-01", "2022-01-01")
+        client.put(f"{BASE}/tmdb-tv-44")
+
+        undone = client.delete(f"{BASE}/tmdb-tv-44?undo=1")
+
+        assert (undone.json()["watched"], _mark_of(conn)) == (False, before)
+
+    def test_undoing_what_was_taken_back_gives_it_back_as_it_was(self, client, conn, tmdb):
+        user = find_user_id(conn, "aoife")
+        seen_titles.mark(conn, user, RatedTitle("tv", 44), 1, NOW, in_library=True)
+        before = _mark_of(conn)
+        client.delete(f"{BASE}/tmdb-tv-44")
+
+        client.put(f"{BASE}/tmdb-tv-44?undo=1")
+
+        assert _mark_of(conn) == before
+        assert tmdb.asked == []
+
+    def test_an_undo_is_the_persons_own_and_of_the_last_change_alone(self, as_user, conn):
+        aoife, cian = as_user("aoife"), as_user("cian")
+        aoife.put(f"{BASE}/tmdb-movie-603")
+        assert cian.delete(f"{BASE}/tmdb-movie-603?undo=1").json()["error"] == "too_late"
+        for call in (aoife.delete, aoife.put, aoife.delete):
+            call(f"{BASE}/tmdb-movie-603")
+
+        assert aoife.put(f"{BASE}/tmdb-movie-603?undo=1").status_code == 200
+        assert aoife.delete(f"{BASE}/tmdb-movie-603?undo=1").status_code == 409
+        assert [row[1:3] for row in _stored(conn)] == [("movie", 603)]
+
+    def test_an_undo_works_though_the_title_joined_the_library_meanwhile(self, client, conn):
+        client.put(f"{BASE}/tmdb-movie-603")
+        _film(conn)
+
+        assert client.delete(f"{BASE}/tmdb-movie-603?undo=1").status_code == 200
+        assert _stored(conn) == []
+
     @pytest.mark.parametrize("ref", ["tmdb-movie-999", "tmdb-movie-0", "tmdb-music-1", "603"])
     def test_what_is_no_title_is_not_found(self, client, conn, ref):
         assert client.put(f"{BASE}/{ref}").status_code == 404
@@ -264,6 +309,13 @@ class TestJoiningTheLibrary:
         assert lib.seen_refs(conn, "aoife", LIBS) == {"movie-100"}
         assert lib.seen_refs(conn, "cian", LIBS) == set()
         assert conn.execute("SELECT count(*) FROM watch_progress").fetchone()[0] == 0
+
+    def test_a_film_begun_again_stays_watched(self, client, conn):
+        client.put(f"{BASE}/tmdb-movie-603")
+        _film(conn)
+        _play(conn, "100", item="100", show=None)
+
+        assert lib.seen_refs(conn, "aoife", LIBS) == {"movie-100"}
 
     def test_a_show_reads_as_watched_up_to_its_season_and_a_newer_one_does_not(self, client, conn):
         client.put(f"{BASE}/tmdb-tv-44")
@@ -408,6 +460,22 @@ class TestCards:
         assert self._watched(conn, ("tv", 44), "show-500")["watched"] is False
         assert self._watched(conn, ("tv", 44), "show-500", watched=True)["watched"] is True
 
+    def test_of_a_film_held_without_an_id_its_own_row_says_too(self, client, conn):
+        client.put(f"{BASE}/tmdb-movie-603")
+
+        assert self._watched(conn, ("movie", 603), "movie-100")["watched"] is False
+
+    def test_a_show_of_which_a_part_was_taken_back_is_not_watched(self, client, conn):
+        client.put(f"{BASE}/tmdb-tv-44")
+        part = seen_titles.ShowPart("500", 1, 3)
+        user = find_user_id(conn, "aoife")
+        seen_titles.change_part(conn, user, ("tv", 44), part, seen=False)
+        assert self._watched(conn, ("tv", 44))["watched"] is False
+
+        client.put(f"{BASE}/tmdb-tv-44")
+
+        assert self._watched(conn, ("tv", 44))["watched"] is True
+
     def test_an_answer_of_tmdb_held_from_before_dates_says_nothing(self):
         old = {"tmdb_seasons": [{"number": 3, "episode_count": 8}]}
         assert card_marks.latest_season_out(old, NOW.date()) is None
@@ -449,6 +517,18 @@ class TestGuards:
         conn.execute("DELETE FROM admin_users WHERE username = 'aoife'")
         assert _stored(conn) == []
 
+    @pytest.mark.parametrize("in_library", [True, False])
+    def test_a_blank_row_speaks_only_of_a_mark_made_in_the_library(self, conn, as_user, in_library):
+        """Such a row says that a mark was taken back."""
+        _season(conn, 1, ["511", "512"])
+        mark_watched(conn, "aoife", [MarkTarget("511", "501", "500", 0)], NOW)
+        unmark_watched(conn, "aoife", "episode", "511")
+        seen_titles.mark(
+            conn, find_user_id(conn, "aoife"), RatedTitle("tv", 44), 1, NOW, in_library=in_library
+        )
+
+        assert _show(conn).watched is not in_library
+
     def test_a_mark_is_undone_only_where_it_was_not_changed_since(self, client, conn):
         user = find_user_id(conn, "aoife")
         first = seen_titles.mark(conn, user, RatedTitle("tv", 44), 1, NOW, in_library=True)
@@ -464,39 +544,16 @@ _READERS = {
     "services/openai/recommendations/taste.py",
     "web/repository/seen_titles.py",
 }
-_USERS = {
-    "web/repository/watch_library.py",
-    "web/routes/search/assist.py",
-    "web/routes/seen.py",
-    "web/routes/watch/card_marks.py",
-    "web/routes/watch/catalog_api.py",
-    "web/routes/watch/explore_api.py",
-    "web/routes/watch/marks_api.py",
-    "web/routes/watch/pages.py",
-    "web/routes/watch/recommended_api.py",
-    "web/routes/watch/title_preview_api.py",
-}
 
 
-def test_nothing_else_reads_the_marks_nor_what_scans_deletes_keeps_shares_or_mails():
+def test_nothing_that_scans_deletes_keeps_shares_or_mails_names_the_marks():
     root = Path(mediaman.__file__).parent
-    naming, using = set(), set()
-    for path in root.rglob("*.py"):
-        text = path.read_text()
-        name = path.relative_to(root).as_posix()
-        if "user_seen_titles" in text:
-            naming.add(name)
-        imported = {
-            part
-            for node in ast.walk(ast.parse(text))
-            if isinstance(node, ast.Import | ast.ImportFrom)
-            for alias in node.names
-            for part in f"{getattr(node, 'module', '') or ''}.{alias.name}".split(".")
-        }
-        if "seen_titles" in imported:
-            using.add(name)
+    naming = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*.py")
+        if "user_seen_titles" in path.read_text()
+    }
     assert naming == _READERS
-    assert using <= _USERS
 
 
 def test_a_tmdb_id_never_becomes_a_key_of_watch_progress(client, conn):

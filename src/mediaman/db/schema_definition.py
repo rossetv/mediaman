@@ -448,7 +448,8 @@ CREATE TABLE IF NOT EXISTS user_ratings (
     PRIMARY KEY (user_id, media_type, tmdb_id)
 );
 
--- The films and shows a person marked watched, by TMDB id. A show is marked up to a season.
+-- The films and shows a person marked watched, by TMDB id. A show is marked up to a season, less
+-- what of it was taken back since: not_seen is a JSON list of seasons ("2") and episodes ("2.5").
 -- in_library is 1 where the mark was made on the library's title, whose own rows then speak
 -- while it is there.
 CREATE TABLE IF NOT EXISTS user_seen_titles (
@@ -456,6 +457,7 @@ CREATE TABLE IF NOT EXISTS user_seen_titles (
     media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
     tmdb_id INTEGER NOT NULL,
     through_season INTEGER CHECK ((media_type = 'tv') = (through_season IS NOT NULL)),
+    not_seen TEXT,
     in_library INTEGER NOT NULL DEFAULT 0,
     title TEXT,
     year INTEGER,

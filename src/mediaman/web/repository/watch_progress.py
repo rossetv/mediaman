@@ -287,7 +287,8 @@ def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[Mar
     """Put *username*'s rows back as they were before a mark or unmark.
 
     A row marked again since is left alone, and one played since keeps the
-    place and state of that play.
+    place and state of that play. One that only held the mark goes: left empty, it
+    would say that its mark was taken back.
     """
     with conn:
         conn.executemany(
@@ -308,6 +309,11 @@ def restore_marks(conn: sqlite3.Connection, username: str, changes: Sequence[Mar
                 )
                 for c in changes
             ],
+        )
+        conn.executemany(
+            "DELETE FROM watch_progress WHERE username = ? AND rating_key = ? AND watched = 0"
+            " AND seen_at IS NULL AND credited_at IS NULL AND position_s = 0 AND updated_at = ?",
+            [(username, c.rating_key, NEVER_PLAYED) for c in changes],
         )
 
 
