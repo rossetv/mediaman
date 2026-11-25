@@ -228,6 +228,14 @@ class TestSendNewsletter:
         assert body["sent_to"] == 1
         mock_send.assert_called_once()
 
+    def test_a_recipient_with_no_utf8_form_is_refused_as_a_bad_request(self, authed_client):
+        resp = authed_client.post(
+            "/api/newsletter/send",
+            content=b'{"recipients": ["reader\\ud800@example.com"]}',
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 400
+
     def test_rejects_empty_recipients(self, authed_client):
         resp = authed_client.post("/api/newsletter/send", json={"recipients": []})
         assert resp.status_code == 400

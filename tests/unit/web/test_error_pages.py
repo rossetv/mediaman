@@ -31,6 +31,15 @@ def client():
     def api_secret(word: str = Body(embed=True)):
         return {}
 
+    @app.post("/api/stored")
+    def api_stored(word: str = Body(embed=True)):
+        word.encode("utf-8")
+        return {}
+
+    @app.get("/api/latin")
+    def api_latin():
+        "€".encode("latin-1")
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -67,6 +76,20 @@ def test_a_refused_body_names_the_field_and_not_what_was_sent(client):
     assert error["loc"] == ["body", "word"]
     assert error["msg"]
     assert "hunter2" not in resp.text
+
+
+def test_text_sent_with_no_utf8_form_is_a_bad_request(client):
+    resp = client.post(
+        "/api/stored",
+        content=b'{"word": "half \\ud800 a pair"}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_any_other_encoding_fault_is_still_a_crash(client):
+    assert client.get("/api/latin").status_code == 500
 
 
 def test_a_missing_api_route_stays_json_even_for_a_browser(client):

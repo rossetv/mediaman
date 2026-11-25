@@ -7,6 +7,7 @@ crash. The page names no path, exception or setting.
 
 from __future__ import annotations
 
+import codecs
 import json
 from typing import cast
 
@@ -66,6 +67,18 @@ async def _validation_error(request: Request, exc: Exception) -> Response:
     return Response(body, status_code=422, media_type="application/json")
 
 
+async def _text_with_no_utf8_form(request: Request, exc: Exception) -> Response:
+    """A 400 where text that was sent has no UTF-8 form, as half of a surrogate pair has not.
+
+    Every other character has one, so such text can only have come from the caller; any other
+    encoding is the server's own and its fault stays a crash.
+    """
+    assert isinstance(exc, UnicodeEncodeError)
+    if codecs.lookup(exc.encoding).name != "utf-8":
+        raise exc
+    return await _http_exception(request, StarletteHTTPException(status_code=400))
+
+
 async def _with_security_headers(request: Request, response: Response) -> Response:
     """*response* with the headers the security middleware puts on every other response.
 
@@ -101,4 +114,5 @@ def refusal(request: Request, body: bytes) -> Response:
 def register_error_pages(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, _http_exception)
     app.add_exception_handler(RequestValidationError, _validation_error)
+    app.add_exception_handler(UnicodeEncodeError, _text_with_no_utf8_form)
     app.add_exception_handler(Exception, _server_error)
