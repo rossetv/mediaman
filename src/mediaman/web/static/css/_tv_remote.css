@@ -31,6 +31,11 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem .player-titles:not(:has(.player-subtitle:not([hidden]))) { min-height: 44px; justify-content: center; padding-top: 0; }
 .tv-rem__mid { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 32px; }
 .tv-rem__art { position: relative; flex: none; width: min(640px, 100%, 62vh); aspect-ratio: 16/9; border-radius: 18px; overflow: hidden; background: var(--s1); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); transition: opacity var(--dur) var(--ease-out); animation: tv-art var(--dur-slow) var(--ease-out); }
+/* What stands there until there is a picture, or where there is none. */
+.tv-rem__art > .ico, .tv-mini__pic > .ico { position: absolute; left: 50%; top: 50%; translate: -50% -50%; color: var(--t3); }
+.tv-rem__art > .ico { width: 56px; height: 56px; }
+.tv-mini__pic > .ico { width: 20px; height: 20px; }
+.tv-rem__art img, .tv-mini__pic img { position: relative; }
 .tv-rem__say, .tv-rem .player-bottom { animation: tv-rise var(--dur-slow) var(--ease-out); }
 .tv-rem.is-paused .tv-rem__art { opacity: .72; }
 .tv-rem.is-gone .tv-rem__art { opacity: .4; filter: grayscale(.6); }
@@ -43,6 +48,8 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem__hint { margin-top: 6px; font-size: 14px; line-height: 1.45; color: var(--t2); text-wrap: balance; }
 .tv-rem .player-bottom { position: relative; flex: none; padding-top: 20px; background: none; }
 .tv-rem .player-pill { gap: 8px; }
+/* Larger text takes a second line rather than run over its pill. */
+.tv-rem__end .player-pill, .tv-rem .player-card .player-pill { height: auto; min-height: 44px; padding-block: 8px; white-space: normal; text-wrap: balance; line-height: 1.25; }
 .tv-rem .player-pill .ico { font-size: 14px; }
 .tv-rem .player-volume { min-width: 0; }
 .tv-rem .player-volume-slider { display: block; }
@@ -58,7 +65,9 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem .player-card { z-index: 5; }
 .tv-rem .player-card-line { -webkit-line-clamp: 4; }
 .tv-rem .player-message { position: fixed; }
-.tv-rem .player-upnext { background: var(--s2); }
+.tv-rem .player-upnext { bottom: 100%; background: var(--s2); }
+.tv-rem .player-upnext.is-leaving, .tv-rem .player-message.is-leaving, .tv-po.is-leaving { animation: player-drop var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
+.tv-rem__dim.is-leaving, .tv-po-veil.is-leaving { animation: tv-fade-out var(--dur-fast) var(--ease-out) forwards; pointer-events: none; }
 
 @keyframes tv-fade { from { opacity: 0; } }
 @keyframes tv-fade-out { to { opacity: 0; } }
@@ -69,6 +78,8 @@ html.has-tv-remote { overflow: hidden; }
 @media (max-width: 899.98px) {
   .tv-rem__mid { gap: 18px; padding: 0 20px; }
   .tv-rem__art { width: min(100%, 520px); }
+  /* Up next stands over the controls: what is said of the TV moves clear of it. */
+  .tv-rem.is-upnext .tv-rem__mid { padding-bottom: 140px; }
   .tv-rem .player-bottom { width: 100%; padding: 14px max(20px, calc(50% - 280px)) max(18px, env(safe-area-inset-bottom)); }
   .tv-rem .player-controls { flex-wrap: wrap; justify-content: center; gap: 4px 10px; }
   .tv-rem .player-spacer { display: none; }
@@ -90,30 +101,35 @@ html.has-tv-remote { overflow: hidden; }
   .tv-rem .player-volume .player-btn { min-width: 44px; height: 44px; font-size: 18px; }
   .tv-rem .player-volume-slider { flex: 1; max-width: 380px; }
   .tv-rem .opt .player-chapter-name { display: none; }
-  .tv-rem__end .player-pill { flex: 1; height: 52px; }
-  .tv-rem .player-upnext { position: fixed; left: 0; right: 0; bottom: 330px; width: min(360px, calc(100% - 40px)); margin-inline: auto; }
+  .tv-rem__end { flex-wrap: wrap; }
+  .tv-rem__end .player-pill { flex: 1; min-height: 52px; min-width: 120px; }
+  .tv-rem .player-upnext { left: 0; right: 0; width: min(360px, calc(100% - 40px)); margin-inline: auto; }
 }
 @media (max-width: 600px) {
   .tv-rem { --player-top: max(12px, env(safe-area-inset-top)); }
   .tv-rem .player-top { padding-bottom: 0; }
   .tv-rem__art { border-radius: 14px; }
   .tv-rem .player-bottom { padding-inline: 20px; }
-  .tv-rem .opt.player-pill { flex: 1 1 0; padding: 0 12px; }
+  .tv-rem .opt.player-pill { flex: 1 1 auto; max-width: 50%; padding: 0 12px; }
   .tv-rem .opt .ico { display: none; }
-  .tv-rem .player-upnext { left: 12px; right: 12px; bottom: 16px; }
 }
 /* A phone on its side: the words alone, beside no picture, so every control is on the screen. */
 @media (max-height: 520px) {
   .tv-rem__art { display: none; }
-  .tv-rem .player-upnext { bottom: 12px; }
+  /* One line, in the empty middle. */
+  .tv-rem .player-upnext { --card-y: 10px; left: 0; right: 0; width: min(640px, calc(100% - 40px)); margin-inline: auto; padding-bottom: 10px; display: grid; grid-template-columns: 1fr auto; gap: 0 16px; align-items: center; }
+  .tv-rem .player-upnext .player-card-line { -webkit-line-clamp: 1; }
+  .tv-rem .player-upnext .player-card-actions { grid-area: 1 / 2 / 3 / 3; margin: 0; flex-wrap: nowrap; }
 }
 @media (max-width: 899.98px) and (max-height: 520px) {
   .tv-rem .player-bottom { padding: 8px 20px max(10px, env(safe-area-inset-bottom)); }
   .tv-rem .b1, .tv-rem .b3 { display: none; }
   .tv-rem .player-volume { flex: 0 1 300px; }
+  .tv-rem .player-top { padding-bottom: 0; }
+  .tv-rem.is-upnext .tv-rem__mid { padding-bottom: 66px; }
   .tv-rem [data-play] { width: 56px; height: 56px; }
   .tv-rem__end { flex: 0 0 auto; }
-  .tv-rem .opt.player-pill, .tv-rem__end .player-pill { flex: none; height: 44px; }
+  .tv-rem .opt.player-pill, .tv-rem__end .player-pill { flex: none; min-height: 44px; min-width: 0; }
 }
 
 /* ── a menu of the remote; below 700px a sheet ── */
@@ -206,7 +222,7 @@ body:has(> .tv-rem:not([hidden])) .ui-toast-host {
 }
 @media (prefers-reduced-motion: reduce) {
   .tv-rem, .tv-rem.is-leaving, .tv-rem__art, .tv-rem__say, .tv-rem .player-bottom, .tv-rem__dim,
-  .tv-po, .tv-po-veil, .tv-mini, .tv-mini.is-leaving { animation: none; }
+  .tv-po, .tv-po-veil, .tv-po.is-leaving, .tv-po-veil.is-leaving, .tv-rem__dim.is-leaving, .tv-rem .player-message.is-leaving, .tv-rem .player-upnext.is-leaving, .tv-mini, .tv-mini.is-leaving { animation: none; }
   .tv-rem__ring, .tv-mini .player-btn-ring, .tv-rem .player-btn-ring { animation: loading-pulse 1.6s ease-in-out infinite; }
 }
 @media (forced-colors: active) {

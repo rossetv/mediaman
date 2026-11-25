@@ -4,7 +4,7 @@
 
 <section class="tv-mini" id="tv-mini" aria-label="Playing on a TV" hidden>
   <button type="button" class="tv-mini__open" data-open>
-    <span class="tv-mini__pic"><img data-mini-art alt="" hidden></span>
+    <span class="tv-mini__pic">{{ icon("i-tv") }}<img data-mini-art alt="" hidden></span>
     <span class="tv-mini__t">
       <b data-mini-title></b>
       <span>{{ icon("i-tv") }}<em data-mini-say></em></span>
@@ -30,7 +30,7 @@
   </div>
 
   <div class="tv-rem__mid" data-mid>
-    <div class="tv-rem__art" aria-hidden="true"><img data-art alt="" hidden><span class="tv-rem__ring" data-ring hidden></span></div>
+    <div class="tv-rem__art" aria-hidden="true">{{ icon("i-tv") }}<img data-art alt="" hidden><span class="tv-rem__ring" data-ring hidden></span></div>
     <div class="tv-rem__say" role="status">
       <p class="tv-rem__on">{{ icon("i-tv") }}<span data-on></span></p>
       <p class="tv-rem__hint" data-hint></p>

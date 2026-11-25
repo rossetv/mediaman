@@ -282,6 +282,96 @@ def test_a_play_button_draws_its_ring_or_its_icon_and_never_both() -> None:
     assert out["plays"] == [["ico"], ["ico"]]
 
 
+def test_what_closes_leaves_with_motion_out_of_reach_and_at_once_under_reduced_motion() -> None:
+    out = _run("leaves")
+    gone = ["gone"] * 4
+    asks = ["gone", "gone", "there", "there"]
+    assert out["moves"]["menu"] == [["leaving", "leaving", "gone", "gone"], True, gone, "there"]
+    assert out["moves"]["card"] == [
+        asks,
+        ["gone", "gone", "leaving", "leaving"],
+        True,
+        asks,
+        False,
+    ]
+    assert out["still"]["menu"][0] == gone
+    assert out["still"]["card"][1] == gone
+
+
+def test_still_watching_draws_the_play_icon_as_what_is_paused_does() -> None:
+    assert _run("stillIcon") == ["#i-play", "#i-play"]
+
+
+def test_a_tv_that_is_gone_keeps_the_options_it_had() -> None:
+    before, after, hint = _run("takenOptions")
+    assert before == [True, True, True, "480p", "#i-pause"]
+    assert after == [True, True, True, "480p", "#i-play"]
+    assert "21:08" in hint
+
+
+def test_at_the_end_the_focus_goes_to_play_again() -> None:
+    assert set(_run("endFocus").values()) == {"Play again"}
+
+
+def test_up_next_stands_over_the_controls_and_says_whether_the_tv_goes_on_by_itself() -> None:
+    counted, waits = _run("upnextHint")
+    assert "carries on" in counted[0]
+    assert "carries on" not in waits[0]
+    # in the block of the controls, so that it is anchored to its top; a card that asks is not
+    assert counted[1:] == waits[1:] == [True, False]
+
+
+def test_closed_by_a_mouse_that_gives_no_focus_the_bar_has_it() -> None:
+    assert _run("mouseClose") == [True, True]
+
+
+def test_a_tv_the_person_drops_leaves_the_bar_quietly_and_the_others_stay() -> None:
+    out = _run("ownUnpair")
+    assert out[:2] == ["Playing on Bedroom TV"] * 2
+    assert out[2].startswith("Stopped on Bedroom TV")
+    assert out[3:] == [False, 0]
+
+
+def test_a_takeover_of_an_older_tv_which_stays_listed_is_said() -> None:
+    bar, card = _run("olderTaken")
+    assert bar.startswith("Stopped on Living room")
+    assert card == "Someone else is using Living room"
+
+
+def test_an_older_tv_gets_no_word_of_pairing_or_of_a_browser() -> None:
+    out = _run("olderWords")
+    for said in out["older"].values():
+        for word in ("pair", "browser", "everywhere", "shows mediaman", "carries on"):
+            assert word not in said, said
+    assert "paired" in out["page"]["taken"]
+    assert "browser" in out["page"]["live"]
+
+
+def test_the_bar_says_that_mediaman_is_out_of_reach_and_offers_nothing_it_cannot_do() -> None:
+    out = _run("barOffline")
+    assert out["says"] == ["Playing on Living room", "Can’t reach mediaman"]
+    assert out["down"] == []
+    assert out["back"] == "Playing on Living room"
+    assert out["up"] == ["[data-mini-play]", "[data-mini-back]", "[data-mini-stop]"]
+
+
+@pytest.mark.parametrize("kind", ["page", "older"])
+def test_a_restart_of_mediaman_is_said_with_the_place_and_a_way_to_play_again(kind: str) -> None:
+    out = _run("restarted")
+    said = "Your place in Glass Orchard is kept."
+    assert out[kind]["card"] == ["mediaman restarted", said]
+    assert out[kind]["sent"][0]["rating_key"] == "9001"
+    assert 1268 < out[kind]["sent"][0]["position_s"] < 1272
+    assert out[kind]["bar"] is False
+    assert out[kind]["toasts"] == ["mediaman restarted. " + said]
+    assert out["same"] == []
+    assert out["both"].startswith("Lost")
+
+
+def test_what_was_announced_of_a_card_goes_with_it() -> None:
+    assert _run("statusCleared") == {"said": True, "left": ""}
+
+
 def test_with_two_tvs_the_bar_goes_to_the_other_and_steers_that_one() -> None:
     out = _run("two")
     assert out["says"] == ["Playing on Living room", "Playing on Bedroom TV"]

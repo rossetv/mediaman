@@ -2,6 +2,7 @@
  * (_tv_remote.html; the server's side is routes/tv.py).
  *
  *   MM.tvRemote.open(tv)   opens the remote; tv is a TV as the API gives it, or its id.
+ *   MM.tvRemote.drop(id)   lets go, without a word, of a TV the person has just unpaired.
  *
  * Every page asks once what plays. While something does, the bar asks every few seconds and the
  * open remote every second; both far less while the page is hidden, and not at all when nothing
@@ -34,6 +35,7 @@
   var ANSWER_MS = 10000;
   var STEP_MS = 1000;
   var EXIT_MS = 250;
+  var LEAVE_MS = 150; // --dur-fast
   var SKIP_S = 10;
   var FAILS = 2; // polls in a row before it is said
   var GAP_APART_PX = 4;
@@ -57,6 +59,7 @@
   };
   var REFUSED = {
     tv_off: 'The TV isn’t answering. Check it still shows mediaman.',
+    in_use: 'Someone else is watching on that TV.',
     stale: 'Something else plays on the TV now.',
     not_playing: 'Nothing is playing on the TV now.',
     no_next: 'There is no next episode.',
@@ -66,6 +69,11 @@
     track_unavailable: 'Those subtitles can’t be played.',
     not_found: 'It is no longer in the library.',
     not_set_up: 'Plex isn’t set up.',
+  };
+  // Said of an older TV, which shows no page of mediaman.
+  var REFUSED_OLDER = {
+    tv_off: 'The TV isn’t answering. Check it’s on.',
+    unreachable: 'The TV or Plex didn’t answer. Try again in a moment.',
   };
   // A later press won: what the person sees is already that.
   var SILENT = ['superseded', 'replaced'];
@@ -106,6 +114,7 @@
   var keySeek = null;
   var menuOpen = null; // {kind, from}
   var cardKey = null;
+  var asks = false; // whether the card is one to be answered, with all else out of reach
   var timer = null;
   var asking = false; // a poll under way
   var ended = false; // signed out, or not let in: nothing more is asked
@@ -125,10 +134,31 @@
   function code(p, between) { return 'S' + p.season + (between || ' ') + 'E' + p.episode; }
   function play() { return tv && tv.play; }
   function about() { return play() || (gone && gone.last) || seen; }
+  function isOlder() { var t = tv || (gone && gone.tv); return !!t && t.kind === 'older'; }
   function name() { return (tv && tv.name) || (gone && gone.tv.name) || 'the TV'; }
   function duration() { var p = about(); return (p && p.duration_s) || 0; }
   // By the attribute: an SVG icon has no such property.
   function setHidden(el, off) { if (el.hasAttribute('hidden') !== off) el.toggleAttribute('hidden', off); }
+  /* What opens in the remote goes as it came: out of reach at once, then out of sight. */
+  var leaves = new Map(); // what is on its way out, and its timer
+  function enter(el) {
+    clearTimeout(leaves.get(el));
+    leaves.delete(el);
+    el.classList.remove('is-leaving');
+    el.inert = false;
+    el.hidden = false;
+  }
+  function leave(el) {
+    if (el.hidden || leaves.has(el)) return;
+    el.inert = true;
+    if (global.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.hidden = true; return; }
+    el.classList.add('is-leaving');
+    leaves.set(el, setTimeout(function () {
+      leaves.delete(el);
+      el.classList.remove('is-leaving');
+      el.hidden = true;
+    }, LEAVE_MS));
+  }
   function attr(el, key, value) { if (el.getAttribute(key) !== value) el.setAttribute(key, value); }
   function say(text) { global.UIFeedback.toast(text); }
 
@@ -165,6 +195,8 @@
     if (sentAt < heardAt) return; // an answer overtaken by a later one
     heardAt = sentAt;
     var before = play();
+    var boot = tv && tv.boot;
+    var was = position();
     tv = heard;
     var p = tv.play;
     if (!before || !p || before.play_id !== p.play_id) {
@@ -180,6 +212,8 @@
       place = { s: p.position_s || 0, at: now() };
       // What is waited for elsewhere is not counted on from the answer's own clock.
       if (p.upnext_in_s != null) p.upnextAt = now() + p.upnext_in_s * 1000;
+    } else if (before && !tv.last && tv.boot !== boot) {
+      over('restarted', Object.assign({}, seen, { position_s: was }));
     } else if (before) {
       over(tv.last ? tv.last.reason : '', tv.last);
     }
@@ -189,8 +223,14 @@
   function over(reason, last) {
     var mine = leaving;
     leaving = null;
-    var was = { reason: reason, last: last || seen, tv: tv };
+    // The last word of a play has its place and title; its options are as they were last seen.
+    var same = last && seen && seen.rating_key === last.rating_key;
+    var was = { reason: reason, last: same ? Object.assign({}, seen, last) : last || seen, tv: tv };
     if (mine) return;
+    if (reason === 'restarted' && !isOpen) {
+      say('mediaman restarted. ' + keptIn(last));
+      return;
+    }
     if (reason === 'stopped' && isOpen) {
       say(place_kept('Stopped.', last));
       close();
@@ -202,6 +242,7 @@
     }
   }
 
+  function keptIn(what) { return 'Your place in ' + what.title + ' is kept.'; }
   function place_kept(before, last) {
     return last && last.position_s ? before + ' Your place is saved at ' + fmt(last.position_s) + '.' : before;
   }
@@ -255,7 +296,8 @@
     return get('', 'tvs').then(function (all) {
       others = all.filter(function (t) { return t.play; });
       var mine = tv && all.filter(function (t) { return t.id === tv.id; })[0];
-      if (play() && !mine) return askOne();
+      // Of an older TV, which everyone keeps, the list does not say why it ended.
+      if (play() && !(mine && (mine.play || mine.last))) return askOne();
       if (play() || (mine && mine.play)) hear(mine, at);
       if (gone || play() && !(putAway() && others.some(function (t) { return t.on && t.id !== tv.id; }))) return;
       tv = null;
@@ -319,7 +361,7 @@
     if (isGone(err)) { lostTv(err); render(); return; }
     if (SILENT.indexOf(err.error) === -1) {
       var text = err.name === 'AbortError' ? 'mediaman didn’t answer. Try again.'
-        : REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
+        : isOlder() && REFUSED_OLDER[err.error] || REFUSED[err.error] || MM.api.messageOf(err, 'That didn’t work. Try again.');
       global.UIFeedback.error(text);
     }
     tick();
@@ -521,6 +563,7 @@
     if (!hasBar) return;
     var bad = !!gone || isLost();
     var key = gone ? (seen && seen.play_id) || '' : p ? p.play_id : '';
+    var away = offline && !gone;
     var show = !!tv && (!!p || !!gone) && !(bad && key === dismissed);
     if (!show) {
       if (mini.hidden || miniLeaving) return;
@@ -536,23 +579,23 @@
     var what = about();
     var title = what.title + (episode(what) ? ' · ' + code(what) : '');
     var line1 = gone ? (gone.reason === 'lost' ? 'Lost ' : 'Stopped on ') + name() + '. Tap to see why.'
-      : isLost() ? 'Lost ' + name() + '. Tap to see why.'
+      : away ? 'Can’t reach mediaman' : isLost() ? 'Lost ' + name() + '. Tap to see why.'
         : p.state === 'failed' ? 'Can’t play on ' + name()
           : p.state === 'still' ? 'Still watching on ' + name() + '?'
             : p.state === 'ended' || p.state === 'upnext' ? 'Finished on ' + name()
               : isLoading(p) ? 'Starting on ' + name()
                 : (isPaused() ? 'Paused on ' : 'Playing on ') + name();
-    mini.classList.toggle('is-bad', bad || !!p && p.state === 'failed');
+    mini.classList.toggle('is-bad', bad || away || !!p && p.state === 'failed');
     MM.dom.setText(m('[data-mini-title]'), title);
     MM.dom.setText(m('[data-mini-say]'), line1);
     attr(m('[data-open]'), 'aria-label', 'Open the remote: ' + title + '. ' + line1);
-    MM.dom.setText(m('[data-mini-status]'), bad ? line1 : '');
-    var steers = !bad && !!p && (canSteer() || isLoading(p));
+    MM.dom.setText(m('[data-mini-status]'), bad || away ? line1 : '');
+    var steers = !bad && !away && !!p && (canSteer() || isLoading(p));
     setHidden(m('[data-mini-back]'), !steers);
     setHidden(m('[data-mini-play]'), !steers);
     if (steers) setPlayButton(m('[data-mini-play]'), isWaiting(p), isPaused());
-    setHidden(m('[data-mini-stop]'), bad);
-    setHidden(m('[data-dismiss]'), !bad);
+    setHidden(m('[data-mini-stop]'), bad || away);
+    setHidden(m('[data-dismiss]'), !bad || away);
     var more = m('[data-other]');
     var all = [tv].concat(elsewhere());
     var order = others.map(function (t) { return t.id; }).indexOf(tv.id);
@@ -569,6 +612,7 @@
     if (isLost()) return place_kept('', { position_s: position() }).trim() || 'Your place is kept.';
     if (p.state === 'failed') return 'Your place is kept.';
     if (p.state === 'still') return 'Waiting for an answer';
+    if (p.state === 'upnext' && p.upnext_in_s == null) return name() + ' waits for you to choose.';
     if (p.state === 'ended') return name() + ' is ready for something else.';
     if (isLoading(p)) return 'Starting. This can take a few seconds.';
     return 'You can lock or close this device. The TV carries on.';
@@ -585,6 +629,7 @@
     setHidden(els.subtitle, !episode(what));
     root.classList.toggle('is-gone', bad);
     root.classList.toggle('is-load', loading);
+    root.classList.toggle('is-upnext', !bad && !loading && !!p && p.state === 'upnext');
     root.classList.toggle('is-paused', !bad && !!p && (isPaused() || p.state === 'still'));
     setHidden(els.ring, !loading);
     MM.dom.setText(els.on, (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
@@ -604,7 +649,7 @@
     els.seek.inert = !steers;
     live.forEach(function (el) { setHidden(el, isEnd); });
     setHidden(els.seekRow, isEnd || !duration());
-    if (p) setPlayButton(els.play, isWaiting(p), isPaused());
+    setPlayButton(els.play, !!p && isWaiting(p), !p || isPaused() || p.state === 'still' || p.state === 'upnext');
 
     var chapters = (what.chapters || []).length > 1;
     if (!isEnd) {
@@ -640,6 +685,18 @@
     drawMarks(what);
     renderCard(p);
     reach();
+  }
+
+  /* What had the focus went out of reach: the keys would be the page's again. */
+  var wasEnd = false;
+  function keepFocus() {
+    if (!isOpen) return;
+    var a = document.activeElement;
+    var isEnd = !els.again.hidden;
+    var lost = a === document.body || root.contains(a) && a.closest('[inert], [hidden]') || a === root && isEnd && !wasEnd;
+    wasEnd = isEnd;
+    if (!lost || menuOpen) return;
+    (asks ? els.cardActions.firstElementChild : isEnd ? els.again : root).focus({ preventScroll: true });
   }
 
   var marksOf = '';
@@ -723,10 +780,18 @@
         moved: ['You’re watching on another device', 'It goes on there, so ' + n + ' stopped' + after + '.'],
         still: [n + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
         signed_out: [n + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],
+        restarted: ['mediaman restarted', keptIn(last || {})],
       }[gone.reason] || [n + ' stopped', 'Yours stopped' + after + '.'];
-      var mine = ['lost', 'still'].indexOf(gone.reason) !== -1;
+      var older = isOlder() && {
+        lost: 'It didn’t answer for 2 minutes, so it stopped' + after + '.',
+        taken: 'They started something on it, and yours stopped' + after + '.',
+        unpaired: 'An admin removed it or turned older TVs off. Yours stopped' + after + '.',
+        signed_out: 'The sign-in that started it has ended, so it stopped' + after + '.',
+      }[gone.reason];
+      if (older) card = [gone.reason === 'unpaired' ? n + ' can’t be used now' : card[0], older];
+      var mine = ['lost', 'still', 'restarted'].indexOf(gone.reason) !== -1;
       var on = onward(last);
-      var acts = mine ? [[gone.reason === 'still' ? 'Continue watching' : on && on.next ? 'Play next episode' : 'Try again', playAgain], here, ['Close', dismiss]]
+      var acts = mine ? [[gone.reason === 'still' ? 'Continue watching' : on && on.next ? 'Play next episode' : gone.reason === 'restarted' ? 'Play again' : 'Try again', playAgain], here, ['Close', dismiss]]
         : gone.reason === 'moved' ? [['Close', dismiss], here] : [here, ['Close', dismiss]];
       if (!on) acts = [['Close', dismiss]];
       return { key: 'gone' + gone.reason, title: card[0], line: card[1], acts: acts };
@@ -739,7 +804,8 @@
     if (!p || leaving) return null;
     if (isLost()) {
       return { key: 'lost', title: n + ' stopped answering',
-        line: 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
+        line: isOlder() ? 'It may be off or away from the network. If it answers within 2 minutes, you can go on from here.'
+          : 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
         acts: [['Try again', tryTv]].concat(onward(p) ? [here] : [], [['Stop', function () { stop(); }]]) };
     }
     // A press that was just made is being carried out.
@@ -790,10 +856,12 @@
       if (cardKey) {
         var held = els.card.contains(document.activeElement);
         cardKey = null;
-        els.card.hidden = true;
-        els.dim.hidden = true;
+        asks = false;
+        els.status.textContent = '';
+        leave(els.card);
+        leave(els.dim);
         reach();
-        if (held) (els.play.inert || els.play.hidden ? $('[data-close]') : els.play).focus({ preventScroll: true });
+        if (held) (!els.again.hidden ? els.again : els.play.inert || els.play.hidden ? $('[data-close]') : els.play).focus({ preventScroll: true });
       }
       return;
     }
@@ -802,7 +870,11 @@
     if (key === cardKey) return;
     var refocus = els.card.contains(document.activeElement);
     cardKey = key;
+    asks = !card.upnext;
     closeMenu();
+    // Over the controls, whatever their height; what asks is in the middle.
+    if (card.upnext) els.bottom.appendChild(els.card);
+    else root.insertBefore(els.card, els.status);
     els.card.className = 'player-card ' + (card.upnext ? 'player-upnext' : 'player-message');
     els.card.setAttribute('role', card.upnext ? 'group' : 'alertdialog');
     els.card.setAttribute('aria-labelledby', 'tv-card-title');
@@ -817,8 +889,9 @@
       btn.addEventListener('click', a[1]);
       els.cardActions.appendChild(btn);
     });
-    els.card.hidden = false;
-    els.dim.hidden = !!card.upnext;
+    enter(els.card);
+    if (asks) enter(els.dim);
+    else leave(els.dim);
     reach();
     // A card that waits for nobody does not take the focus: a press meant to pause would start it.
     if (!card.upnext || refocus) els.cardActions.firstElementChild.focus({ preventScroll: true });
@@ -827,15 +900,13 @@
 
   /* What is under a card or a menu is out of reach; the way out only under a menu. */
   function reach() {
-    var blocked = !els.card.hidden && !els.dim.hidden;
+    var blocked = asks;
     root.classList.toggle('is-asking', blocked);
     els.mid.inert = els.bottom.inert = blocked || !!menuOpen;
-    els.card.inert = els.top.inert = !!menuOpen;
+    els.card.inert = !cardKey || !!menuOpen;
+    els.top.inert = !!menuOpen;
     els.play.toggleAttribute('data-modal-focus', !blocked && !els.play.hidden && !els.play.inert);
-    // What had the focus went out of reach: the keys would be the page's again.
-    if (isOpen && document.activeElement === document.body) {
-      (blocked ? els.cardActions.firstElementChild : root).focus({ preventScroll: true });
-    }
+    keepFocus();
   }
 
   /* ── menus ── */
@@ -887,7 +958,8 @@
     });
     els.poNote.textContent = menu.note || '';
     els.poNote.hidden = !menu.note;
-    els.po.hidden = els.poVeil.hidden = false;
+    enter(els.po);
+    enter(els.poVeil);
     from.setAttribute('aria-expanded', 'true');
     menuOpen = { kind: kind, from: from };
     follow();
@@ -914,7 +986,8 @@
     var held = els.po.contains(document.activeElement);
     menuOpen = null;
     follow();
-    els.po.hidden = els.poVeil.hidden = true;
+    leave(els.po);
+    leave(els.poVeil);
     from.setAttribute('aria-expanded', 'false');
     reach();
     if (held) from.focus({ preventScroll: true });
@@ -1181,7 +1254,9 @@
     follow();
     endDrag(false);
     cardKey = null;
-    els.card.hidden = els.dim.hidden = true;
+    asks = false;
+    leave(els.card);
+    leave(els.dim);
     reach();
     document.documentElement.classList.remove('has-tv-remote');
     letGo();
@@ -1189,6 +1264,8 @@
     root.classList.add('is-leaving');
     global.ModalA11y.onClosed('tv-remote');
     root.inert = true;
+    // A button clicked in Safari takes no focus, so there was none to give back.
+    if ((document.activeElement === document.body || root.contains(document.activeElement)) && !mini.hidden && !miniLeaving) m('[data-open]').focus({ preventScroll: true });
     exit = setTimeout(function () { exit = null; root.hidden = true; }, EXIT_MS);
     schedule();
   }
@@ -1201,7 +1278,19 @@
   global.addEventListener('pageshow', function (e) { if (e.persisted) tick(); });
   global.addEventListener('online', function () { if (play()) tick(); });
 
-  MM.tvRemote = { open: open };
+  function drop(id) {
+    others = others.filter(function (t) { return String(t.id) !== String(id); });
+    if (!tv || String(tv.id) !== String(id)) return;
+    tv = null;
+    gone = null;
+    wants = {};
+    line = [];
+    close();
+    render();
+    tick();
+  }
+
+  MM.tvRemote = { open: open, drop: drop };
   // What else a page loaded on the remote's entry stands on opens first: it goes back to that.
   follow();
   tick();
