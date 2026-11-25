@@ -372,14 +372,6 @@
   border-radius: var(--r-md);
   border: 1px solid var(--hair);
 }
-.setg-pg .inline-form-grid {
-  display: grid; gap: 12px;
-  grid-template-columns: 1fr;
-}
-@media (min-width: 640px) {
-  .setg-pg .inline-form-grid { grid-template-columns: repeat(3, 1fr); }
-  .setg-pg .inline-form--two .inline-form-grid { grid-template-columns: repeat(2, 1fr); }
-}
 .setg-pg .inline-form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
 .setg-pg .inline-form-msg { margin-top: 10px; font-size: 13px; line-height: 1.4; color: var(--t3); min-height: 1.4em; }
 /* Brought into view, a status brings the rest of the button beside it, and a panel keeps off the edge. */
@@ -394,14 +386,6 @@
 @media (max-width: 639.98px) {
   .setg-pg .inline-form-actions .inline-form-msg { flex-basis: 100%; }
 }
-
-/* The reason a field was refused, right under it; its line is reserved too, or is that of the
-   field's caption, which it takes the place of. */
-.setg-pg .fld-why { min-height: 1.4em; scroll-margin-bottom: 20px; font-size: 13px; line-height: 1.4; color: var(--danger-text); }
-.setg-pg .fld-why--caption:not(:empty) + .fpc-caption { display: none; }
-.setg-pg .fld-why--caption:empty { min-height: 0; margin-top: -7px; }
-.setg-pg .inline-form-grid + .fld { margin-top: 12px; }
-.setg-pg .fld-why ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; }
 
 /* Inline forms and the send panel fold open and shut, so what sits below moves with them. */
 .setg-pg .setg-fold {
@@ -424,25 +408,6 @@
 @media (prefers-reduced-motion: reduce) {
   .setg-pg .setg-fold { transition: none; }
 }
-
-.setg-pg .fpc-meter {
-  height: 4px; background: var(--s3); border-radius: var(--r-pill);
-  overflow: hidden; margin-top: 4px;
-  transition: opacity var(--dur) var(--ease-out);
-}
-/* Nothing typed, nothing to measure. Its place is kept, so typing moves nothing. */
-.setg-pg .fpc-meter:not(:has(> .weak, > .ok, > .strong)) { opacity: 0; }
-.setg-pg .fpc-meter-fill {
-  display: block; height: 100%; width: 0;
-  background: var(--danger);
-  transition: width var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
-}
-.setg-pg .fpc-meter-fill.ok     { background: var(--warning); }
-.setg-pg .fpc-meter-fill.strong { background: var(--success); }
-.setg-pg .fpc-caption { font-size: 13px; line-height: 1.4; color: var(--t3); margin-top: 0; }
-.setg-pg .fpc-caption-weak   { color: var(--danger-text); }
-.setg-pg .fpc-caption-ok     { color: var(--warning); }
-.setg-pg .fpc-caption-strong { color: var(--success); }
 
 /* A text-only danger button, sized as a small .btn. */
 .setg-pg .link-danger {

@@ -89,16 +89,16 @@
       if (settled) return;
       settled = true;
       panel.removeEventListener('transitionend', onEnd);
-      if (panel._foldToken !== token) return;
-      panel.classList.remove('is-moving');
-      then();
+      if (panel._foldToken === token) then();
     }
     if (reducedMotion()) { finish(); return; }
     panel.addEventListener('transitionend', onEnd);
     setTimeout(finish, 400);
   }
 
-  function open(panel, done) {
+  function rest(panel) { panel.classList.remove('is-moving'); }
+
+  function unfold(panel, then) {
     if (panel.hidden) {
       panel.classList.add('is-shut');
       panel.hidden = false;
@@ -106,16 +106,42 @@
     }
     panel.classList.add('is-moving');
     panel.classList.remove('is-shut');
-    settle(panel, done || function () {});
+    settle(panel, then);
+  }
+
+  function open(panel, done) {
+    unfold(panel, function () {
+      rest(panel);
+      if (done) done();
+    });
   }
 
   function bringIntoView(el) {
     el.scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
   }
 
-  // A panel has its height only once it has unfolded.
+  // Three frames without a move, or about a second and a half at most.
+  function whenStill(then) {
+    if (reducedMotion()) { then(); return; }
+    var last = window.scrollY, quiet = 0, frames = 0;
+    (function look() {
+      requestAnimationFrame(function () {
+        quiet = window.scrollY === last ? quiet + 1 : 0;
+        last = window.scrollY;
+        if (quiet >= 3 || ++frames >= 90) then(); else look();
+      });
+    })();
+  }
+
+  // A panel has its height only once it has unfolded. It rests only once the page is still:
+  // Safari lays a resting panel's fields out anew and jumps to a focused one it finds off
+  // screen, which cuts the smooth scroll short.
   function openInView(panel) {
-    open(panel, function () { bringIntoView(panel); });
+    unfold(panel, function () {
+      var token = panel._foldToken;
+      bringIntoView(panel);
+      whenStill(function () { if (panel._foldToken === token) rest(panel); });
+    });
   }
 
   // On a phone a status sits under its buttons, where the bottom bar may cover it.
@@ -129,6 +155,7 @@
     if (panel.hidden) { done(); return; }
     panel.classList.add('is-moving', 'is-shut');
     settle(panel, function () {
+      rest(panel);
       panel.hidden = true;
       panel.classList.remove('is-shut');
       done();

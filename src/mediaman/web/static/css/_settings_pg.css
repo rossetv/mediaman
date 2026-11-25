@@ -243,18 +243,6 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 }
 .setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 .setg-pg .inp-reveal:active { color: var(--t1); background: var(--rgba-overlay-lg); }
-/* Show/hide on account password fields (show-password.js wraps the input). */
-.setg-pg .pw-wrap { position: relative; }
-.setg-pg .pw-wrap .inp { width: 100%; padding-right: 66px; }
-.setg-pg .pw-toggle {
-  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  padding: 5px 10px; font-size: 11px; color: var(--t3);
-  border-radius: var(--r-pill); background: transparent;
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.setg-pg .pw-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
-.setg-pg .pw-toggle:active { color: var(--t1); background: var(--rgba-overlay-lg); }
-
 .setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .setg-pg .fld-lbl {
   font-size: 11px; font-weight: 600; color: var(--t2);
@@ -425,8 +413,7 @@ html:has(.setg-pg .savebar.on) { --savebar-below: 0px; scroll-padding-bottom: ca
   .setg-pg .lib-pill { display: inline-flex; align-items: center; min-height: 44px; }
   .reauth-sheet .reauth-actions .btn { min-height: 44px; }
   .setg-pg .inp { min-height: 44px; }
-  .setg-pg .inp-reveal::before,
-  .setg-pg .pw-toggle::before { content: ""; position: absolute; inset: -9px -4px; }
+  .setg-pg .inp-reveal::before { content: ""; position: absolute; inset: -9px -4px; }
   /* Helper-text links: the extra height goes below the line, not onto the input above. */
   .setg-pg .fld-sub a,
   .setg-pg .setg-row-sub a { position: relative; }
