@@ -38,6 +38,7 @@
   var OFFER_SCREENS = 2.6; // of the same row, less OFFER_LESS px, before its grid is offered
   var OFFER_LESS = 300;
   var EDGE = 2; // px; a row this little too wide is all there
+  var CLEAR = 2; // px between a heading at its largest and what is beside it
 
   var titles = {}; // the rows that can be opened, by id
   var drawn = null; // the grid the server drew: { id, total, next }
@@ -163,6 +164,20 @@
   var lefts = new WeakMap();
   var called = {}; // the rows whose heading has moved, by id
 
+  /* A heading grows to its right: no further than what stands there, or the screen's edge. */
+  function fitSwell(link) {
+    var box = link.getBoundingClientRect();
+    var style = getComputedStyle(link);
+    var swell = parseFloat(style.getPropertyValue('--row-swell'));
+    var chip = parseFloat(style.getPropertyValue('--row-chip')) * link.querySelector('.row-open__cue').getBoundingClientRect().width;
+    var next = link.closest('.watch-row__title').nextElementSibling;
+    var beside = next && next.getBoundingClientRect();
+    var end = beside && beside.width && beside.top < box.bottom ? beside.left : document.documentElement.clientWidth;
+    var full = swell * box.width + (1 + swell) * chip;
+    var room = Math.max(0, end - CLEAR - box.right);
+    if (full > room) link.style.setProperty('--row-room', room / full);
+  }
+
   function offer(section) {
     var link = section.querySelector('.row-open');
     if (!link) return;
@@ -170,6 +185,7 @@
     var id = link.getAttribute('data-row-open');
     if (own(called, id)) return;
     called[id] = true;
+    fitSwell(link);
     link.classList.add('is-calling');
   }
 

@@ -155,6 +155,24 @@ def test_a_row_with_nothing_more_to_see_makes_no_offer() -> None:
     assert _run("offeredWhole") == {"whole": False, "before": True, "after": False}
 
 
+def test_a_heading_swells_no_further_than_the_room_beside_it() -> None:
+    out = _run("room")
+    assert (out["alone"], out["far"], out["under"]) == (1, 1, 1)
+    # All of it: 14% of 200px, and the 18% of See all's chip in it.
+    whole = 0.14 * 200 + 1.14 * 0.18 * 80
+    assert 0.1 < out["near"] <= 12 / whole
+    assert out["touching"] == 0
+    assert 0.3 < out["edge"] <= 20 / whole
+
+
+def test_the_heading_swells_14_percent_and_8_on_a_phone() -> None:
+    assert re.findall(r"--row-swell: ([\d.]+);", BROWSE) == [".14", ".08"]
+    assert "@media (max-width: 599.98px) {\n  .row-open { --row-swell: .08;" in BROWSE
+    assert "row-swell 1.1s" in BROWSE
+    assert "scale(calc(1 + var(--row-swell) * var(--row-room, 1)))" in _keyframes("row-swell")
+    assert "scale(calc(1 + var(--row-chip) * var(--row-room, 1)))" in _keyframes("row-chip")
+
+
 def _keyframes(name: str) -> str:
     return re.findall(rf"@keyframes {name} \{{((?:[^{{}}]*\{{[^{{}}]*\}})*)", BROWSE)[0]
 

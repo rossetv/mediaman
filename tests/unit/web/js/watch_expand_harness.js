@@ -347,6 +347,29 @@ const scenarios = {
     return { back, hidden, pressed, closed: look(r) };
   },
 
+  // How much of its swell a heading 200px wide (80 of them See all's) has: alone, beside something, over it, by the screen's edge.
+  async room() {
+    const swell = async (left, top, from = 40) => {
+      const p = await load();
+      p.ctx.getComputedStyle = () => ({ getPropertyValue: (n) => ({ '--row-swell': '.14', '--row-chip': '.18' })[n] || '' });
+      const at = (node, rect) => { node.getBoundingClientRect = () => ({ height: 20, bottom: rect.top + 20, right: rect.left + rect.width, ...rect }); };
+      const link = p.link('movies');
+      Object.defineProperty(p.doc.documentElement, 'clientWidth', { value: VIEW_PX });
+      let room = null;
+      link.style.setProperty = (n, v) => { if (n === '--row-room') room = v; };
+      at(link, { left: from, top: 100, width: 200 });
+      at(link.querySelector('.row-open__cue'), { left: from + 120, top: 100, width: 80 });
+      if (left) {
+        const other = build(p.doc, ['button', {}, 'x']);
+        at(other, { left, top, width: 50 });
+        p.row('movies').querySelector('.watch-row__head').appendChild(other);
+      }
+      for (const x of [800, 1600, 2400]) await p.scroll('movies', x);
+      return room === null ? 1 : room;
+    };
+    return { alone: await swell(), far: await swell(290, 100), near: await swell(252, 100), touching: await swell(240, 100), under: await swell(40, 124), edge: await swell(0, 0, VIEW_PX - 220) };
+  },
+
   // However far its few cards are scrolled, a row that is all there offers nothing; cards that leave take it back.
   async offeredWhole() {
     const p = await load();

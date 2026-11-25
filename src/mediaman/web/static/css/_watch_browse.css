@@ -47,7 +47,7 @@
 /* The way into a row's grid: its heading. See all keeps room for the chip it takes
    under the pointer, on focus, and once the row was scrolled far; until then its
    words stand where the title ends (on a phone the arrow alone) and its count is not shown. */
-.row-open { --row-swell: 1.07; --row-arrow: 10px; --row-near: 6px; position: relative; display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; border-radius: var(--r-xs); color: inherit; transform-origin: 0 50%; }
+.row-open { --row-swell: .14; --row-chip: .18; --row-nudge: 8px; --row-arrow: 10px; --row-near: 6px; position: relative; display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; border-radius: var(--r-xs); color: inherit; transform-origin: 0 50%; }
 .row-open[href]::after { content: ""; position: absolute; inset: -12px -10px; } /* 44px to tap */
 .row-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
 .row-open__cue { position: relative; isolation: isolate; display: inline-flex; padding: 0 10px; font-size: 13px; font-weight: 500; letter-spacing: -.01em; color: var(--t3); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
@@ -77,16 +77,15 @@
   .row-open.is-offered:hover .row-open__cue::before { background: var(--rgba-accent-bg-hover); }
 }
 .row-open[href]:active .row-open__cue { color: var(--t2); }
-/* Leaving soon's own link beside it counts already, and is near. */
-.watch-row__head:has(> .space-row-link) .row-open { --row-swell: 1.03; }
+/* Leaving soon's own link beside it counts already. */
 .watch-row__head:has(> .space-row-link) .row-open__total { display: none; }
 @media (max-width: 599.98px) {
-  .row-open { --row-swell: 1.04; --row-arrow: 13px; --row-near: 11px; align-items: center; gap: 6px; }
+  .row-open { --row-swell: .08; --row-arrow: 13px; --row-near: 11px; align-items: center; gap: 6px; }
   .row-open__words { transform: translateX(calc(-100% + var(--row-arrow) * 1.25 + 3px - var(--row-near))); }
   .row-open__end { transform: none; }
   .row-open__word { opacity: 0; }
   /* Beside the row's own tools or link there is room for the arrow alone. */
-  .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open { --row-near: 9px; }
+  .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open { --row-near: 9px; --row-nudge: 5px; }
   .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) .row-open__cue { padding: 0 6px 0 3px; }
   .watch-row__head:has(> :is(.watch-row__tools, .space-row-link)) :is(.row-open__word, .row-open__total) { display: none; }
 }
@@ -94,27 +93,28 @@
   .row-open .row-open__cue::before { transform: none; }
   .row-open[href]:hover .row-open__cue .ico { transform: none; }
 }
-/* Scrolled far along its row, the heading swells once and settles; See all follows it. */
+/* Scrolled far along its row, the heading swells once and settles; See all follows it.
+   --row-room: the part of it there is room for. */
 @media (prefers-reduced-motion: no-preference) {
-  .row-open.is-calling { animation: row-swell .9s var(--ease-out); }
-  .row-open.is-calling .row-open__cue::before { animation: row-chip .5s .15s var(--ease-out) backwards; }
-  .row-open.is-calling .row-open__cue .ico { animation: row-nudge .75s .15s ease-in-out; }
+  .row-open.is-calling { animation: row-swell 1.1s var(--ease-out); }
+  .row-open.is-calling .row-open__cue::before { animation: row-chip .65s .15s var(--ease-out) backwards; }
+  .row-open.is-calling .row-open__cue .ico { animation: row-nudge .9s .15s ease-in-out; }
 }
 @keyframes row-swell {
   0%, 100% { transform: none; }
-  30% { transform: scale(var(--row-swell)); }
-  58% { transform: scale(.994); }
-  78% { transform: scale(1.006); }
+  30% { transform: scale(calc(1 + var(--row-swell) * var(--row-room, 1))); }
+  58% { transform: scale(.985); }
+  78% { transform: scale(calc(1 + .015 * var(--row-room, 1))); }
 }
 @keyframes row-chip {
-  0% { opacity: 0; transform: scale(.7); }
-  45% { transform: scale(1.1); }
-  72% { transform: scale(.98); }
+  0% { opacity: 0; transform: scale(.5); }
+  45% { transform: scale(calc(1 + var(--row-chip) * var(--row-room, 1))); }
+  72% { transform: scale(.96); }
 }
 @keyframes row-nudge {
   0%, 40%, 100% { transform: none; }
-  20% { transform: translateX(5px); }
-  65% { transform: translateX(4px); }
+  20% { transform: translateX(var(--row-nudge)); }
+  65% { transform: translateX(calc(var(--row-nudge) * .875)); }
 }
 @media (forced-colors: active) { .row-open:is(:hover, :focus-visible, .is-offered) .row-open__cue::before { border: 1px solid LinkText; } }
 
