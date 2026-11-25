@@ -22,8 +22,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
-.brand,
-.nav-brand {
+.brand {
   font-family: var(--font-text);
   font-size: 19px;
   font-weight: 600;
@@ -31,9 +30,7 @@
   color: var(--t1);
 }
 .brand b,
-.brand span,
-.nav-brand b,
-.nav-brand span { font-weight: 600; color: var(--accent); }
+.brand span { font-weight: 600; color: var(--accent); }
 .nav-glass .brand { line-height: 44px; }
 
 .nav-back,
@@ -361,12 +358,7 @@
   .has-keyboard :is(.nav-foot, .nav-back, .nav-glass .profile-btn) { visibility: hidden; }
   /* Content is not hidden under the foot. */
   .container,
-  .keep-page,
-  .login-page,
-  .dl-content,
-  .dl-result,
-  .dl-hint,
-  .dl-expired { padding-bottom: max(calc(80px + env(safe-area-inset-bottom, 0px)), calc(var(--foot) + 16px)); }
+  .login-page { padding-bottom: max(calc(80px + env(safe-area-inset-bottom, 0px)), calc(var(--foot) + 16px)); }
 }
 @media (max-width: 699.98px) and (max-height: 500px) {
   html:has(.nav-foot) { --foot: calc(60px + env(safe-area-inset-bottom, 0px)); --foot-gap: 6px; }

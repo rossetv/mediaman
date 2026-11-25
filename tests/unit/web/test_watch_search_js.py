@@ -150,16 +150,6 @@ def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_k
     ]
 
 
-def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
-    out = _run("listView")
-    assert out["delay"] == 350
-    assert out["events"] == [{"type": "mm:watch-list-search", "q": "lantern"}]
-    assert (out["calls"], out["resultsHidden"]) == (0, True)
-    assert out["cleared"] == {"type": "mm:watch-list-search", "q": ""}
-    assert out["afterSwitch"]["calls"] == 2
-    assert out["afterSwitch"]["placeholder"] == "Search films and shows"
-
-
 def test_search_cards_put_the_title_ref_on_the_link_so_focus_can_return_to_it() -> None:
     out = _run("cardLink")
     assert out["refs"] == ["movie-1", "tmdb-movie-9"]
@@ -370,8 +360,8 @@ def test_slash_goes_to_the_field_but_not_from_a_field_or_behind_a_dialog() -> No
     assert out["inert"] is False
 
 
-def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:
-    assert _run("noSheet") == {"sheet": False, "suggested": [], "list": False}
+def test_without_tmdb_the_field_opens_no_sheet() -> None:
+    assert _run("noSheet") == {"sheet": False, "suggested": []}
 
 
 def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
@@ -546,10 +536,6 @@ def test_people_who_lead_stay_while_more_is_typed() -> None:
     assert out["half"]["none"] == ["No title matches “mara”"]
 
 
-def test_results_fade_out_over_the_list_that_is_switched_to() -> None:
-    assert _run("listOverResults") == [True, True, 0]
-
-
 def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
     out = _run("person")
     assert out["kept"] == [2, ["known_for", "person"]]
@@ -577,12 +563,6 @@ def test_esc_and_back_leave_a_category() -> None:
     assert out["menus"] == "/watch?genre=action&type=tv"
     assert out["linked"] == ["/watch", 1, "browse", True]
     assert out["opened"] == [["/watch?genre=action", 1], "/watch", 0, "browse"]
-
-
-def test_the_list_opened_over_a_category_shuts_it_and_back_opens_it_again() -> None:
-    out = _run("listOverCategory")
-    assert out["list"] == [True, True, None]
-    assert out["back"] == ["/watch?genre=action", 2, False, "", 0]
 
 
 def test_what_is_typed_is_read_as_a_category_a_kind_an_order_and_a_decade() -> None:
@@ -732,11 +712,16 @@ def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so()
 
 def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
     out = _run("libraryPeople")
-    assert out["heads"] == ["Browse by category", "People in your library", "Or try"]
+    assert out["heads"] == [
+        "Browse by category",
+        "Your library",
+        "People in your library",
+        "Or try",
+    ]
     assert len(out["sheet"]) == 6
     assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
     assert out["opened"] == ["/watch?person=9001", "Person 1"]
-    assert out["bare"] == ["Browse by category", "Or try", "More categories"]
+    assert out["bare"] == ["Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
@@ -800,11 +785,11 @@ def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() 
 
 def test_the_place_of_late_categories_is_held_and_the_highlight_stays_where_it_was() -> None:
     out = _run("redrawnUnderTheHighlight")
-    heads = ["Browse by category", "People in your library", "Or try"]
-    assert out["before"] == ["watch-option-try-0", heads, [12, 6, 1]]
-    assert out["after"] == ["watch-option-try-0", True, [0, 0, 1]]
-    assert out["entered"] == "popular action movies"
-    assert out["failed"] == ["watch-sheet__title", "watch-tries"]
+    heads = ["Browse by category", "Your library", "People in your library", "Or try"]
+    assert out["before"] == ["watch-option-try-2", heads, [12, 6, 2]]
+    assert out["after"] == ["watch-option-try-2", True, [0, 0, 2]]
+    assert out["entered"] == "top rated sci-fi"
+    assert out["failed"] == ["watch-sheet__title", "watch-tries"] * 2
 
 
 def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
@@ -858,13 +843,6 @@ def test_how_many_suggestions_there_are_is_said_at_once_and_with_the_results() -
     assert done == "1 available to download for “popular action movies”. 3 suggestions"
 
 
-def test_the_field_is_a_plain_search_box_in_the_list_view() -> None:
-    assert _run("listView")["role"] == [
-        [None, None, None, None],
-        ["combobox", "list", "false", "watch-sheet"],
-    ]
-
-
 def test_a_word_being_composed_is_searched_for_when_it_is_done_or_rested_on() -> None:
     out = _run("composition")
     assert (out["during"], out["calls"]) == ([400], 0)
@@ -890,7 +868,7 @@ def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
 
 def test_only_words_that_fit_stand_in_the_empty_field() -> None:
     out = _run("hintFits")
-    assert out["list"] == ["Search", "Search your library"]
+    assert out["narrow"] == ["Search", "Search films and shows"]
     label = "Search films and shows"
     # One round of the two examples that are short enough, then it rests.
     assert out["rows"] == [
@@ -1015,7 +993,7 @@ def test_without_a_key_nothing_of_the_ai_shows() -> None:
     # The sheet as ever, with the person's own searches before it.
     tonight, heads = _run("askPanel")["off"]
     assert tonight is None
-    assert heads == ["Recent", "Browse by category", "Or try", "More categories"]
+    assert heads == ["Recent", "Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
@@ -1275,8 +1253,8 @@ def test_a_page_back_brings_is_brought_up_to_date() -> None:
     assert out["first"].endswith("already here")
 
 
-def test_titles_like_one_can_be_found_from_the_list() -> None:
-    out = _run("askListView")
+def test_titles_like_one_can_be_found_from_all_titles() -> None:
+    out = _run("askLibrary")
     assert out["can"] is True
     assert out["page"][0] == "/watch?like=movie-1"
     assert out["page"][1].startswith("More like Nine Locks")
@@ -1316,3 +1294,31 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
     assert out["arrived"] == []
     assert out["typed"] == ["salt"]
     assert out["entered"] == ["orchard"]
+
+
+def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
+    out = _run("downloading")
+    gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/watch#title=tmdb-movie-9"]
+    salt = ["Salt", "Queued", None, "/downloads"]
+    # Shown as it is typed, before anything is asked, and nothing is asked for it.
+    assert out["typed"] == [gate]
+    assert out["calls"] == [0, 4]
+    assert out["asked"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
+    # The title is there once, not again among those to download.
+    assert out["heads"] == ["Downloading", "In your library"]
+    assert out["status"].startswith("1 downloading, 1 in your library")
+    assert out["later"] == "50% · 14 min left"
+    assert out["done"] == [[], ["In your library", "Available to download"]]
+    # Found alone, it is not said that nothing matches.
+    assert out["alone"] == [[salt], ["Downloading"], False]
+    assert out["gone"] == [[], True]
+
+
+def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_number() -> None:
+    out = _run("libraryBlock")
+    assert out["look"] == [["All 36 titles", None], ["Downloads · 5", "/downloads"]]
+    assert out["before"] == "Browse by category"
+    assert out["none"] == "Downloads"
+    # All titles opens in place, with the sheet shut, and nothing is asked for.
+    assert out["opened"] == [[["", "", {}]], False, 0]
+    assert out["bare"] == "Downloads"

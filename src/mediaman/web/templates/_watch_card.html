@@ -71,7 +71,7 @@
 <span class="watch-badge watch-badge--watched">{{ icon("i-eye") }}<span class="watch-badge__word">Watched</span></span>
 {%- endmacro %}
 
-{# An episode's or List row's toggle: the eye, and the word once watched. #}
+{# An episode's toggle: the eye, and the word once watched. #}
 {% macro mark_toggle(kind, key, watched, name) -%}
 <button type="button" class="watch-mark" data-mark-toggle="{{ kind }}/{{ key }}" data-mark-name="{{ name }}" aria-pressed="{{ 'true' if watched else 'false' }}" aria-label="Mark {{ name }} as watched" title="Mark as {{ 'not ' if watched else '' }}watched">{{ icon("i-eye") }}<span class="watch-mark__word">Watched</span></button>
 {%- endmacro %}

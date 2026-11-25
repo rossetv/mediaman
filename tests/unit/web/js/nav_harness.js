@@ -219,25 +219,6 @@ const scenarios = {
     p.click('button');
     return { open: p.open(), name: p.$('button').getAttribute('aria-label') };
   },
-  // A keep menu 60px above a phone's bar at the foot, and one with no such bar.
-  keepMenu() {
-    const at = (footed) => {
-      const doc = makeDocument();
-      const box = (node, top, bottom) => { node.getBoundingClientRect = () => ({ top, bottom }); return node; };
-      box(doc.body.appendChild(build(doc, ['header', { class: 'nav-glass' }])), 0, 48);
-      box(doc.body.appendChild(build(doc, ['div', { class: 'nav-foot' }])), 772, 844);
-      const wrap = box(doc.body.appendChild(build(doc, ['div', { class: 'keep-wrapper' },
-        ['button', { class: 'keep-trigger', id: 'keep' }], ['div', { class: 'snooze-dropdown' }]])), 680, 700);
-      const menu = wrap.querySelector('.snooze-dropdown');
-      Object.defineProperty(menu, 'offsetHeight', { value: 100 });
-      const win = { innerHeight: 844, addEventListener() {} };
-      const getComputedStyle = (n) => ({ display: n.classList.contains('nav-foot') && !footed ? 'none' : 'block' });
-      vm.runInContext(fs.readFileSync(path.join(JS, 'snooze-menu.js'), 'utf8'), vm.createContext({ window: win, document: doc, getComputedStyle }));
-      click(doc, doc.getElementById('keep'));
-      return wrap.classList.contains('opens-up');
-    };
-    return { phone: at(true), wide: at(false) };
-  },
   keyboard() {
     const p = page(true);
     const root = p.doc.documentElement;

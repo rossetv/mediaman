@@ -65,6 +65,9 @@ def test_template_duration_literals_are_valid_keep_durations() -> None:
     assert literals != {}, "expected duration literals in the templates"
     for path, values in literals.items():
         for value in values:
+            # The keep page's come from VALID_KEEP_DURATIONS itself.
+            if value.startswith("{{"):
+                continue
             assert value in VALID_KEEP_DURATIONS, (
                 f"{path}: {value!r} is not a key of VALID_KEEP_DURATIONS "
                 f"({sorted(VALID_KEEP_DURATIONS)}) — POST /keep will 400 invalid_duration"
@@ -86,6 +89,9 @@ def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
     assert "src/mediaman/web/static/js/watch/admin.js" in fallbacks
     for path, values in fallbacks.items():
         for value in values:
+            # The keep page's come from VALID_KEEP_DURATIONS itself.
+            if value.startswith("{{"):
+                continue
             assert value in VALID_KEEP_DURATIONS, (
                 f"{path}: default fallback {value!r} is not a key of VALID_KEEP_DURATIONS "
                 f"({sorted(VALID_KEEP_DURATIONS)}) — POST /keep will 400 invalid_duration"

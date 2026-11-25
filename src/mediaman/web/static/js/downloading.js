@@ -15,6 +15,7 @@
   var URL = '/api/downloads/strip';
   var BUSY_MS = 5000;
   var IDLE_MS = 30000;
+  var HOLD_MS = 4000; // how long the server gives everybody one answer
   var SOON_MS = 1000;
   var EAGER_MS = 60000; // after now(): what was asked for takes a while to be queued
   var FAIL_MS = 10000;
@@ -29,6 +30,7 @@
   var again = false; // asked for while an answer was on its way
   var failures = 0;
   var eagerUntil = 0;
+  var age = 0; // how old the answer was as it came
   var started = false;
   var ended = false;
 
@@ -53,8 +55,15 @@
 
   function take(data) {
     if (!data || !data.summary || !Array.isArray(data.items)) return false;
+    age = data.age_ms || 0;
     state = { summary: data.summary, items: data.items, outage: data.outage || '', lost: false };
     return true;
+  }
+
+  /* An older answer misses what has started since it was made. */
+  function idle() {
+    if (age <= SOON_MS || state.outage) return IDLE_MS;
+    return age < HOLD_MS ? Math.max(SOON_MS, HOLD_MS - age) : BUSY_MS;
   }
 
   function failed(err) {
@@ -93,7 +102,7 @@
       if (!take(data)) { failed(null); return; }
       failures = 0;
       tell();
-      wait(soon ? SOON_MS : busy() ? BUSY_MS : IDLE_MS);
+      wait(soon ? SOON_MS : busy() ? BUSY_MS : idle());
     }, function (err) {
       var soon = over();
       if (!request.signal.aborted || late) failed(err);
@@ -109,8 +118,8 @@
 
   function start() {
     started = true;
-    if (take(drawn())) wait(busy() ? BUSY_MS : IDLE_MS);
-    else wait(0);
+    // It may be half a minute old, so it is only what is shown first.
+    wait(take(drawn()) ? SOON_MS : 0);
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         wait(0);

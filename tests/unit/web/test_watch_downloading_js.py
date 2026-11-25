@@ -239,5 +239,13 @@ def test_the_page_is_drawn_with_the_answer_it_came_with(out) -> None:
     assert out["drawn"] == {"now": {"cards": ["A"], "open": True, "asks": 0}, "cards": ["Later"]}
 
 
+def test_a_download_just_started_shows_soon_on_a_page_drawn_with_none(out) -> None:
+    assert out["drawnIdle"] == {"asks": 0, "cards": ["New"]}
+
+
+def test_an_old_answer_of_nothing_is_soon_asked_for_again_and_a_new_one_is_not(out) -> None:
+    assert out["heldIdle"] == {"cards": ["New"], "asks": 1, "down": 1}
+
+
 def test_all_readers_share_one_asking_and_one_that_breaks_stops_no_other(out) -> None:
     assert out["readers"] == {"got": [1, 2], "after": [1, 2, 2], "asks": 3, "last": 2}

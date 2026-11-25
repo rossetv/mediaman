@@ -25,6 +25,7 @@ from starlette.responses import Response
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.downloads import strip
 from mediaman.services.infra import allowed_outbound_hosts, get_bool_setting, get_string_setting
 from mediaman.services.infra.settings_reader import plex_is_configured
 from mediaman.services.media_meta.plex_quality import quality_rows
@@ -989,6 +990,8 @@ def watch_page(
             grid = _row_grid(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
+    downloading = strip.shared.last()
+    library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     return _render(
         request,
         "watch.html",
@@ -1007,16 +1010,18 @@ def watch_page(
             "asked_waiting": set_up and asked_waiting,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
-            "library_total": sum(count_titles(conn).values()) if is_admin else len(titles),
+            "library_total": library_total,
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
                 "q": q,
                 "grids": grid_titles,
+                "library_total": library_total,
                 "grid": {k: grid.get(k) for k in ("id", "total", "next", "counts", "fact", "empty")}
                 if grid
                 else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
+                "downloading": strip.payload(downloading) if downloading else None,
             },
         },
     )

@@ -42,8 +42,10 @@ def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_fa
         "tmdb_configured": False,
         "q": _QUERY,
         "grids": {"asked": "You asked for these", "recommended": "Recommended for you"},
+        "library_total": 0,
         "grid": None,
         "settings_tmdb_href": None,
+        "downloading": None,
     }
 
 

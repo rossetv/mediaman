@@ -23,7 +23,7 @@ Node.prototype.scrollIntoView = function () {};
 Node.prototype.click = function () { click(this.ownerDocument, this); };
 
 /* A page with the Watch search shell; every request waits until the scenario answers it. The categories are there at once, unless the scenario answers them too (null). */
-function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {} } = {}) {
+function load(data, opened = '', at = null, categories = { tmdb_configured: true, genres: GENRES, decades: DECADES }, { still = true, width = 1280, observed = [], every = () => 0, stored = {}, session = {}, assist = null, visualViewport, set = {}, downloading = null } = {}) {
   const doc = makeDocument();
   const timers = [];
   const calls = [];
@@ -100,6 +100,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       },
     },
   };
+  if (downloading) ctx.MM.downloading = downloading;
   ctx.window = ctx;
   vm.createContext(ctx);
   doc.body.appendChild(build(doc, ['header', { class: 'nav-glass wbar' },
@@ -115,7 +116,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     ['button', { class: 'profile-btn', id: 'profile' }]]));
   doc.body.appendChild(build(doc, ['div', { id: 'watch-page' },
     ['div', { id: 'watch-veil' }],
-    ['div', { id: 'watch-browse' }],
+    ['div', { id: 'watch-browse' }, ['div', { id: 'watch-downloading' }]],
     ['section', { id: 'watch-results' }],
     ['script', { id: 'watch-page-data' }, JSON.stringify(data)]]));
   const $ = (id) => doc.getElementById(id);
@@ -135,7 +136,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
     };
   });
   input.select = () => {};
-  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js']
+  ['../core/dom.js', 'core.js', 'address.js', 'keep.js', 'search.js', ...(assist ? ['ask.js', 'tonight.js'] : []), 'explore.js', ...(downloading ? ['downloading.js'] : [])]
     .forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   // Stands in for the grid: it keeps what it was given, and asks for its first page as the real one does.
   ctx.MMWatch.grid = {
@@ -214,6 +215,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
 }
 
 /* A page whose categories are in. */
+// Not one of the two that lead to the library and to Downloads.
+const isTry = (n) => n.parentNode.getAttribute('aria-label') !== 'Your library';
 async function ready(...args) {
   const p = load(...args);
   await settle();
@@ -938,9 +941,6 @@ const scenarios = {
     const out = { sheet: p.sheet.classList.contains('is-on') };
     p.type('action');
     out.suggested = p.suggested();
-    const l = await ready({ ...ADMIN, view: 'list' });
-    l.press();
-    out.list = l.sheet.classList.contains('is-on');
     return out;
   },
 
@@ -1217,25 +1217,6 @@ const scenarios = {
     return out;
   },
 
-  // Switched to the list, what was found fades out over it.
-  async listOverResults() {
-    const p = await ready(ADMIN);
-    await p.search('orchard');
-    await p.answer('/api/watch/search?', { items: [LIB] });
-    const finish = withMotion(p);
-    try {
-      p.input.value = '';
-      p.fire('mm:watch-view', { detail: { view: 'list' } });
-      const left = p.doc.querySelector('.results-page.is-leaving');
-      const out = [!!left && left.parentNode === p.$('watch-page'), p.results.hidden];
-      finish();
-      await settle();
-      return out.concat(p.doc.querySelectorAll('.results-page').length);
-    } finally {
-      delete Node.prototype.animate;
-    }
-  },
-
   // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
   async personPages() {
     const p = await ready(ADMIN, '', '/watch?person=9001');
@@ -1252,7 +1233,72 @@ const scenarios = {
     return { first: p.grids[0].titles, cards: got.cards.map((c) => c.textContent), next: got.next, calls: p.calls.length, last: [(await last).cards.length, (await last).next] };
   },
 
-  // Esc and the page's Back leave the way Back does; the Browse half of the switch goes to the rows.
+  // The empty search leads to all of the library and to Downloads, whose number follows the page's own.
+  async libraryBlock() {
+    let tell = null;
+    const strip = { items: [], summary: { total: 5 } };
+    const downloading = { last: () => strip, subscribe(fn) { tell = fn; } };
+    const held = { ...ADMIN, grids: { library: 'All titles' }, library_total: 36 };
+    const p = await ready(held, '', undefined, undefined, { downloading });
+    const opened = [];
+    p.ctx.MMWatch.expand = { library: (...a) => opened.push(a) };
+    p.press();
+    await settle();
+    const block = () => p.sheet.querySelectorAll('[role=group]').filter((n) => n.getAttribute('aria-label') === 'Your library')[0];
+    const look = () => block().querySelectorAll('.watch-option').map((n) => [n.textContent, n.getAttribute('href')]);
+    const titles = p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
+    const out = { look: look(), before: titles[titles.indexOf('Your library') - 1] };
+    const calls = p.calls.length;
+    strip.summary = { total: 0 };
+    tell();
+    out.none = look()[1][0];
+    click(p.doc, p.$('watch-option-library'));
+    await settle();
+    out.opened = [opened, p.sheet.classList.contains('is-on'), p.calls.length - calls];
+    // An empty library has nothing to lead to.
+    const bare = await ready({ ...ADMIN, grids: { library: 'All titles' }, library_total: 0 }, '', undefined, undefined, { downloading });
+    bare.press();
+    await settle();
+    out.bare = bare.$('watch-option-library') === null && bare.$('watch-option-downloads').textContent;
+    return out;
+  },
+
+  // What is downloading leads what was found, from what the page knows already.
+  async downloading() {
+    const items = [
+      { key: 'r::1', title: 'The Órchard Gate', kind: 'movie', state: 'downloading', percent: 42, minutes_left: 14, ref: TM.ref, href: '/watch#title=' + TM.ref, poster_url: '' },
+      { key: 's::2', title: 'Salt', kind: 'show', state: 'queued', percent: 0, ref: null, href: '/downloads', poster_url: '' },
+    ];
+    let tell = null;
+    const strip = { items };
+    const p = load(ADMIN, '', null, undefined, { downloading: { last: () => strip, subscribe(fn) { tell = fn; } } });
+    const look = () => p.results.querySelectorAll('.results-dl').map((n) => [n.querySelector('b').textContent, n.querySelector('small').textContent, n.getAttribute('data-title-ref'), n.getAttribute('href')]);
+    p.type('orchard');
+    const out = { typed: look(), calls: p.calls.length };
+    await p.search('orchard');
+    out.asked = p.calls.map((c) => c.url);
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM] });
+    out.heads = p.heads();
+    out.status = p.status.textContent;
+    strip.items = [{ ...items[0], percent: 50 }, items[1]];
+    tell();
+    out.later = look()[0][1];
+    strip.items = [items[1]];
+    tell();
+    out.done = [look(), p.heads()];
+    await p.search('salt');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+    out.alone = [look(), p.heads(), /No (title )?match/.test(p.results.textContent)];
+    strip.items = [];
+    tell();
+    out.gone = [look(), /No match/.test(p.results.textContent)];
+    out.calls = [out.calls, p.calls.length];
+    return out;
+  },
+
+  // Esc and the page's Back leave the way Back does.
   async leaveCategory() {
     const out = {};
     const esc = (p, prevented) => p.fire('keydown', { key: 'Escape', defaultPrevented: !!prevented, preventDefault() {} });
@@ -1274,49 +1320,12 @@ const scenarios = {
     return out;
   },
 
-  // The list view opened over a category, as list.js does: the category is shut, and Back opens it again.
-  async listOverCategory() {
-    const p = await ready(ADMIN, '', '/watch?genre=action');
-    const { address } = p.ctx.MMWatch;
-    const say = (view) => p.fire('mm:watch-view', { detail: { view } });
-    address.layer({ name: 'list', depth: 5, params: ['view'], read: (h) => h.params.get('view'), open: () => say('list'), close: () => say('rows') });
-    address.push('list', '/watch?view=list');
-    say('list');
-    const out = { list: [p.grids[0].stopped, p.results.hidden, address.value('explore')] };
-    // What is typed there stays there when Back leads to what the address opens by itself.
-    p.input.value = 'lantern';
-    await p.back();
-    out.back = [p.url(), p.grids.length, p.results.hidden, p.input.value, p.calls.filter((c) => c.url.includes('search')).length];
-    return out;
-  },
-
   // What was typed, read as a category.
   async phrases() {
     const p = await ready(ADMIN);
     const read = (text) => { const r = p.ctx.MMWatch.explore.parse(text); return [r.genres.map((g) => g.id).join(), r.exact, r.type, r.sort, r.decade]; };
     return ['popular action movies', 'sci-fi', 'sci fi shows', 'newest 90s horror', 'action films from the 2010s', 'tv', 'new', 'horror series', 'zzqx', 'a']
       .map(read);
-  },
-
-  // In the list view the field only announces what was typed; no search runs.
-  async listView() {
-    const roles = (page) => ['role', 'aria-autocomplete', 'aria-expanded', 'aria-controls'].map((a) => page.input.getAttribute(a));
-    const p = load({ ...ADMIN, view: 'list' });
-    const l = { roles: roles(p) };
-    p.type('lantern');
-    const delay = p.timers[p.timers.length - 1].ms;
-    p.timers[p.timers.length - 1].fn();
-    await settle();
-    const out = { delay, events: p.events.slice(), calls: p.calls.length, resultsHidden: p.results.hidden };
-    p.type('');
-    out.cleared = p.events[p.events.length - 1];
-    // Switching to the rows: the same field searches again.
-    const r = load({ ...ADMIN, view: 'list' });
-    r.fire('mm:watch-view', { detail: { view: 'rows' } });
-    await r.search('lantern');
-    out.role = [l.roles, roles(r)];
-    out.afterSwitch = { events: r.events.length, calls: r.calls.length, placeholder: r.input.placeholder };
-    return out;
   },
 
   // A search that runs before the categories are in does not say there is nothing, and lists the category once they are.
@@ -1621,7 +1630,7 @@ const scenarios = {
     const p = load(ADMIN, '', null, null);
     p.press();
     p.input.focus();
-    p.key('ArrowDown');
+    p.key('ArrowUp'); // the last there is
     const held = () => ['.watch-tile--skel', '.watch-person--skel', '.watch-tries'].map((s) => p.sheet.querySelectorAll(s).length);
     const before = [p.input.getAttribute('aria-activedescendant'), p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent), held()];
     await p.answer('/api/watch/explore', { tmdb_configured: true, genres: GENRES, decades: DECADES });
@@ -1941,11 +1950,11 @@ const scenarios = {
       return { p, tick: () => tick && tick(), hint: () => p.$('watch-search-hint').textContent };
     };
     try {
-      const narrow = page({ ...ADMIN, view: 'list' });
-      out.list = [narrow.hint()];
+      const narrow = page(ADMIN);
+      out.narrow = [narrow.hint()];
       width.chars = 40;
       narrow.p.fire('resize');
-      out.list.push(narrow.hint());
+      out.narrow.push(narrow.hint());
       width.chars = 24;
       const rows = page(ADMIN);
       out.rows = [rows.hint()];
@@ -2441,7 +2450,7 @@ scenarios.askRestored = async () => {
   const out = { head: p.head() };
   p.key('Escape'); await settle();
   p.press(); await settle();
-  out.tries = p.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  out.tries = p.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => n.textContent);
   // Another person's now.
   const other = await asking({}, { session: {} });
   await other.ask(Q);
@@ -2524,8 +2533,8 @@ scenarios.askArrived = async () => {
   return out;
 };
 
-scenarios.askListView = async () => {
-  const p = await asking({}, { view: 'list' }, '', '/watch?view=list');
+scenarios.askLibrary = async () => {
+  const p = await asking({}, {}, '', '/watch?all=library');
   const out = { can: p.ctx.MMWatch.search.canLike('movie-1') };
   p.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
   out.page = [p.url(), p.head(), p.shown()];
@@ -2622,7 +2631,7 @@ scenarios.askPanel = async () => {
   const p = await asking();
   p.press(); await settle();
   const titles = () => p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
-  const tries = () => p.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.getAttribute('role'), n.classList.contains('watch-try--ai')]);
+  const tries = () => p.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => [n.textContent, n.getAttribute('role'), n.classList.contains('watch-try--ai')]);
   const out = { first: p.sheet.children[0].className, titles: titles(), tries: tries(), hint: p.$('watch-search-hint').textContent };
   click(p.doc, p.sheet.querySelector('.watch-try--ai')); await settle();
   out.asked = [p.input.value, p.sent('/ask').map((c) => c[2].q)];
@@ -2638,11 +2647,11 @@ scenarios.askPanel = async () => {
   click(c.doc, c.doc.getElementById('watch-option-clear-recent')); await settle();
   await c.reply('DELETE', '/searches', {});
   c.wait(); await settle();
-  out.cleared = c.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  out.cleared = c.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => n.textContent);
   out.clearedTitle = c.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)[0];
   const stranger = await asking({ personal: false, recent: [], phrases: ['popular action movies'] });
   stranger.press(); await settle();
-  out.stranger = stranger.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
+  out.stranger = stranger.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
   const off = await asking({ available: false });
   off.press(); await settle();
   out.off = [off.sheet.querySelector('.tn'), off.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)];

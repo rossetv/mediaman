@@ -86,14 +86,9 @@ def test_every_control_is_44px_on_phones_and_tablets_with_the_bottom_nav() -> No
     controls = {
         ".btn": "min-height",
         ".btn--icon": "min-width",
-        ".keep-trigger": "min-height",
-        ".page-btn": "min-width",
         ".link-danger": "min-height",
         ".btn-test": "min-height",
-        ".snooze-btn": "min-height",
-        ".unsub-btn-danger": "min-height",
         ".keep-dur-btn": "min-height",
-        ".snooze-option": "min-height",
     }
     for control, prop in controls.items():
         hit = [
@@ -103,6 +98,21 @@ def test_every_control_is_44px_on_phones_and_tablets_with_the_bottom_nav() -> No
             and re.search(rf"{prop}:\s*44px", body)
         ]
         assert hit, f"{control} has no {prop}: 44px below 700px"
+
+
+def test_every_control_of_a_shared_link_s_page_is_44px_at_every_width() -> None:
+    for sheet, control in (
+        ("_share.css", ".share-act .btn"),
+        ("_share.css", ".share-note .btn"),
+        ("_share.css", ".share-bar .brand"),
+        ("_share.css", ".share-bar .btn"),
+        ("_keep.css", ".share-keep .btn"),
+        ("_download_page.css", ".share-eps summary"),
+    ):
+        outside = re.sub(r"@media[^{]*\{(?:[^{}]*\{[^{}]*\})*\s*\}", "", _text(CSS_DIR / sheet))
+        (body,) = [b for s, b in _rules(outside) if control in s and "min-height" in b]
+        height = re.search(r"min-height:\s*(\d+)px", body)
+        assert height and int(height[1]) >= 44, control
 
 
 def test_toggles_reach_44px_on_phones_without_growing() -> None:

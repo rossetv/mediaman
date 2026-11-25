@@ -1649,7 +1649,7 @@
       keepGen += 1;
       keepSaved = keepSaved || saved;
       if (keepsInFlight > 0) return;
-      if (keepSaved) tellList();
+      if (keepSaved) tellScheduled();
       if (keepSaved || refreshWaiting) refreshQuietly();
       keepSaved = false;
     }
@@ -1658,7 +1658,7 @@
   /* ── The page behind ── */
 
   /* watch/library.js: what is scheduled has changed. */
-  function tellList() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
+  function tellScheduled() { document.dispatchEvent(new CustomEvent('mm:watch-scheduled', { bubbles: true })); }
 
   /* Not those on their way out, of the row (is-kept) or of an open grid. */
   function liveCards(row) {
@@ -1777,7 +1777,7 @@
         text += '; ' + data.already_deleting + (data.already_deleting === 1 ? ' was' : ' were') + ' already being deleted';
       }
       core.toast(text, { variant: 'success', duration: data.already_deleting ? 8000 : undefined });
-      tellList();
+      tellScheduled();
       return refresh().catch(function () {
         window.UIFeedback.error('Cleared, but the list could not update. Refresh the page to see it.');
       });
@@ -1967,7 +1967,7 @@
     says('');
     var said = 'Scan ' + took.replace('F', 'f');
     live.textContent = said;
-    tellList();
+    tellScheduled();
     refresh().then(function () {
       tellClosed(said, look);
       if (!reason) lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);

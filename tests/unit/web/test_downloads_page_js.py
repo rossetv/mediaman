@@ -316,35 +316,6 @@ def test_season_switches_are_locked_while_abandoning_and_failure_shows_the_curre
     assert out["after"] == {"label": "Abandon 1 season", "disabled": "false"}
 
 
-def test_single_download_page_shows_an_eta_that_arrives_on_a_later_poll() -> None:
-    result = subprocess.run(
-        ["node", str(HARNESS.with_name("download_page_harness.js"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    out = json.loads(result.stdout)
-    assert out["noEtaYet"] == ["30% complete", "1 GB of 3 GB"]
-    assert out["arrives"] == ["30% complete", "1 GB of 3 GB", "ETA 5 min"]
-    assert out["changes"] == ["30% complete", "1 GB of 3 GB", "ETA 4 min"]
-    assert out["clears"] == ["30% complete", "1 GB of 3 GB"]
-
-
-def test_the_card_built_after_pressing_download_has_the_wide_backdrop_behind_the_poster() -> None:
-    result = subprocess.run(
-        ["node", str(HARNESS.with_name("download_page_harness.js"))],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["queuedCard"] == {
-        "background": "https://image.tmdb.org/t/p/w1280/wide.jpg",
-        "poster": "https://image.tmdb.org/t/p/w500/poster.jpg",
-    }
-
-
 def test_the_subtitle_folds_away_and_grows_back_in_place() -> None:
     out = _run("subtitle")
     assert out["shown"] == {"text": "2 downloading", "cls": "", "height": ""}

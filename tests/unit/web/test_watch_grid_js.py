@@ -183,6 +183,17 @@ def test_the_back_link_goes_back_in_place_but_still_opens_a_new_tab() -> None:
     assert _run("backLink") == {"newTab": [0, False], "plain": [1, True]}
 
 
+def test_the_first_page_that_came_during_a_sort_is_put_in_once_the_sort_has_failed() -> None:
+    out = _run("sortWhileTheFirstPageComes")
+    assert out["fails"]["refs"] >= 20
+    assert out["fails"]["stood"] == [20]  # told once its cards stand
+    assert (out["fails"]["before"], out["fails"]["label"]) == (12, "Sort: Recently added")
+    # The order asked for has the last word.
+    assert (out["comes"]["refs"], out["comes"]["label"]) == (2, "Sort: A to Z")
+    # Neither came: what stands stays, and the rest is asked for as a page.
+    assert out["bothFail"]["refs"] == 13
+
+
 def test_sorting_shows_the_last_order_asked_for_and_a_failure_puts_the_name_back() -> None:
     out = _run("sorts")
     assert out["waiting"] == ["Sort: A to Z", "true"]

@@ -108,7 +108,7 @@ class TmdbDetail(TypedDict, total=False):
     description: str
     runtime: int | None
     genres: str | None  # JSON-encoded list of genre name strings, or None
-    cast_json: str | None  # JSON-encoded list of ``{"name": ..., "character": ...}`` dicts
+    cast_json: str | None  # JSON-encoded list of name, character and, with a photo, profile_path
     director: str | None
     trailer_key: str | None
 
@@ -180,7 +180,11 @@ def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
     cast = dicts_in(data.get("credits"), "cast")[:8]
     if cast:
         out["cast_json"] = json.dumps(
-            [{"name": c.get("name"), "character": c.get("character", "")} for c in cast]
+            [
+                {"name": c.get("name"), "character": c.get("character", "")}
+                | ({"profile_path": c["profile_path"]} if c.get("profile_path") else {})
+                for c in cast
+            ]
         )
     else:
         out["cast_json"] = None

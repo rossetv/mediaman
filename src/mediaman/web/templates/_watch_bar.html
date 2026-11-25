@@ -4,12 +4,11 @@
 {% extends "_nav.html" %}
 {% from "_components.html" import icon %}
 {% import "_watch_space.html" as space %}
-{% set list_view = is_admin and view == "list" %}
 
 {% block nav_class %} wbar{% endblock %}
 
 {% block nav_center %}
-{% set search_label = "Search your library" if list_view else "Search films and shows" %}
+{% set search_label = "Search films and shows" %}
 <div class="watch-search{% if q %} has-value is-open{% endif %}" role="search">
   <span class="watch-search__halo"></span>
   <span class="watch-search__pill" aria-hidden="true"><i></i></span>

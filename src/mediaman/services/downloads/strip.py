@@ -287,6 +287,7 @@ def payload(answer: Answer) -> dict[str, object]:
         "summary": summary(items),
         "outage": answer.strip.outage or (STALE_LINE if stale else ""),
         "items": [_shown(item) for item in items[:MAX_ITEMS]],
+        "age_ms": round(answer.age_s * 1000),
     }
 
 

@@ -329,6 +329,8 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert out["downloading"]["bar"] == 42
     assert "3.1 GB of 7.4 GB" in out["downloading"]["line"]
     assert "about 6 min left" in out["downloading"]["line"]
+    assert out["downloading"]["note"] == "Follow it in Downloads."
+    assert out["downloading"]["to"] == "/downloads"
     assert out["done"]["primary"]["text"] == "In library"
     assert "Added just now" in out["done"]["note"]
     named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
@@ -603,6 +605,88 @@ def test_season_chips_count_the_picked_seasons_and_send_them() -> None:
     assert (body["monitored_seasons"], body["search_seasons"]) == ([2, 3], [2])
 
 
+def test_every_show_lists_its_seasons_with_the_state_of_each() -> None:
+    out = _run("seasonStates")
+    rows = [
+        ["1", "Downloading", False],
+        ["2", "Queued", False],
+        ["3", "Partly here · get the rest", True],
+        ["4", "8 episodes", True],
+    ]
+    assert out["tracked"] == out["queued"] == out["pick"] == rows
+    # Of a show in the library, those not wholly here alone.
+    assert out["whole"] == {"list": False, "link": False}
+    assert out["held"] == [
+        ["3", "8 episodes", True],
+        ["4", "Not out yet · asked for", False],
+    ]
+
+
+def test_a_season_that_is_refused_says_why_and_cannot_be_asked_for() -> None:
+    refused = _run("seasonStates")["refused"]
+    assert [c[1:] for c in refused["chips"]] == [
+        ["Leaving soon", False],
+        ["Deleted", False],
+        ["Not in Sonarr yet", False],
+        ["Off in Sonarr", False],
+    ]
+    for word in ("Keep", "bring back", "list", "Ask an admin"):
+        assert word in refused["why"]
+    assert (refused["go"], refused["posts"]) == (True, 0)
+
+
+def test_seasons_are_asked_for_once_and_only_the_one_that_failed_again() -> None:
+    out = _run("seasonsAsked")
+    assert out["none"] == {"label": "Pick seasons", "off": "true"}
+    assert (out["label"], out["busy"]) == ("Download 3 seasons", "Adding…")
+    body = {"media_type": "tv", "tmdb_id": 90, "title": "Hollow Pines"}
+    assert out["posts"] == [
+        ["/api/search/download", {**body, "search_seasons": [3, 4, 5]}],
+        ["/api/search/download", {**body, "search_seasons": [4]}],
+    ]
+    half = out["half"]
+    assert half["chips"] == [
+        ["3", "Asked for", False],
+        ["4", "8 episodes", True],
+        ["5", "Off in Sonarr", False],
+    ]
+    assert half["said"].startswith("Added season 3. Couldn’t add season 4.")
+    assert (half["error"], half["gets"]) == (True, 2)
+    assert (out["said"], out["error"]) == ("Added season 4.", False)
+
+
+def test_a_refused_season_offers_no_retry_and_one_that_failed_does() -> None:
+    out = _run("seasonsRefused")
+    assert out["refused"] == {"said": "Season 4 is leaving.", "retry": False}
+    taken = out["taken"]
+    assert (taken["chip"][1], taken["retry"]) == ("Asked for", True)
+    assert "Season 4 is asked for" in taken["said"] and "Couldn" not in taken["said"]
+    assert out["unread"] == ["4", "Leaving soon", False]
+    assert out["failed"]["retry"] is True
+    assert "Sonarr did not answer." in out["failed"]["said"]
+
+
+def test_seasons_whose_states_are_to_come_are_read_again_so_often_and_the_page_stays() -> None:
+    out = _run("seasonsPending")
+    comes, never = out["comes"], out["never"]
+    assert comes["first"] == ["3", "Checking…", False]
+    assert (comes["last"], comes["asks"]) == (["3", "8 episodes", True], 3)
+    assert (comes["go"], comes["still"]) == ("Pick seasons", True)
+    assert never["asks"] == 6
+    assert never["press"] == {"label": "Check again", "busy": "Checking…"}
+    assert never["go"] != "Checking…"  # the reading came to an end
+
+
+def test_a_pick_is_downloaded_whole_or_by_its_picked_seasons() -> None:
+    out = _run("pickSeasons")
+    assert (out["whole"]["body"], out["whole"]["go"]) == (None, True)
+    assert out["part"]["body"] == {"monitored_seasons": [1, 3], "search_seasons": [1, 3]}
+    assert out["part"]["primary"] == "Queued"
+    # One that is not out is not ticked to begin with; ticked by hand, the show is wanted whole.
+    assert out["out"]["body"]["search_seasons"] == [1, 2]
+    assert out["withComing"]["body"] is None
+
+
 def test_a_show_sonarr_tracks_or_fully_held_offers_no_download() -> None:
     out = _run("tvBlocked")
     assert out["tracked"] == {
@@ -845,17 +929,13 @@ def test_a_title_that_arrives_moves_neither_its_name_nor_its_buttons() -> None:
         assert run["bars"] == [1, 0]
 
 
-def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
-    out = _run("deleteFromListRow")
-    assert out["next"] == {
-        "closed": True,
-        "focus": "del-121",
-        "tabindex": None,
-        "preventScroll": True,
-    }
-    assert out["previous"]["focus"] == "del-119"
-    assert (out["only"]["focus"], out["only"]["tabindex"]) == ("watch-list", "-1")
-    assert out["only"]["preventScroll"] is True
+def test_deleting_a_title_opened_from_its_card_moves_focus_to_a_neighbour_without_scrolling() -> (
+    None
+):
+    out = _run("deleteFromCard")
+    assert out["next"] == {"closed": True, "focus": "movie-121", "preventScroll": True}
+    assert out["previous"]["focus"] == "movie-119"
+    assert (out["only"]["focus"], out["only"]["preventScroll"]) == ("watch-search", True)
 
 
 def test_without_the_admin_actions_an_admin_keeps_through_the_shared_keep() -> None:

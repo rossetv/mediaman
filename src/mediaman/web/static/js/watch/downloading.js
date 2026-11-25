@@ -60,6 +60,10 @@
     return core.safePath(value) || (/^https:\/\//.test(value || '') ? value : '');
   }
 
+  function refOf(item) { return REF_RE.test(item.ref || '') ? item.ref : ''; }
+
+  function hrefOf(item) { return (refOf(item) && core.safePath(item.href)) || HREF; }
+
   function image(className) {
     var img = el('img', className);
     img.setAttribute('alt', '');
@@ -122,8 +126,8 @@
     });
     node.classList.toggle('is-held', !!(item.held || lost));
     node.style.setProperty('--p', String(item.percent));
-    var ref = REF_RE.test(item.ref || '') ? item.ref : '';
-    link.setAttribute('href', (ref && core.safePath(item.href)) || HREF);
+    var ref = refOf(item);
+    link.setAttribute('href', hrefOf(item));
     if (ref) {
       link.setAttribute('data-title-ref', ref);
       link.setAttribute('data-title', item.title);
@@ -150,8 +154,11 @@
     var name = link.appendChild(el('span'));
     var count = link.appendChild(el('span', 'dlx__count'));
     var cue = link.appendChild(el('span', 'row-open__cue'));
-    cue.appendChild(el('span', 'row-open__word', 'See all'));
-    cue.appendChild(icon('i-chevron-right'));
+    var tail = cue.appendChild(el('span', 'row-open__words'));
+    tail.appendChild(el('span', 'row-open__word', 'See all'));
+    var end = tail.appendChild(el('span', 'row-open__end'));
+    end.appendChild(el('span', 'row-open__total'));
+    end.appendChild(icon('i-chevron-right'));
     var note = section.appendChild(el('p', 'dlx__note'));
     note.hidden = true;
     note.appendChild(icon('i-triangle-exclamation'));
@@ -458,6 +465,12 @@
     setTimeout(arrive, FLY_MS);
   }
 
+  window.MMWatch.downloading = {
+    picture: picture,
+    line: function (item) { return says(item).join(''); },
+    ref: refOf,
+    href: hrefOf
+  };
   window.MM.downloading.subscribe(draw);
   starting = false;
 })();

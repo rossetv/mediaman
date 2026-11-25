@@ -445,10 +445,10 @@ const scenarios = {
   /* Only what stands clear of the bars is drawn, and no row the panel cuts off. */
   async flightClipped() {
     const p = await flying((q) => {
-      const tabs = q.doc.createElement('nav');
-      tabs.className = 'nav-tabs';
-      q.doc.body.appendChild(tabs);
-      place(tabs, 0, 800, 390);
+      const foot = q.doc.createElement('div');
+      foot.className = 'nav-foot';
+      q.doc.body.appendChild(foot);
+      place(foot, 0, 800, 390);
       place(q.$('space-storage'), 0, 0, 390, 100);
       const pics = q.all('.space-layer:not([inert]) .space-mini');
       place(pics[0], 0, 60, 30, 40);

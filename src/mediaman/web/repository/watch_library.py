@@ -65,7 +65,7 @@ class LibraryTitle:
     watched_at: str | None = None  # by anyone
     leaving_at: str | None = None
     kept: bool = False
-    stale: bool = False
+    stale_bytes: int | None = None  # what of it is stale; None: nothing is
 
 
 type Orderable = LibraryMovie | LibraryShow | LibraryTitle
