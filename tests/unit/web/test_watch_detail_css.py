@@ -51,11 +51,15 @@ def test_close_stands_above_a_trailer_and_not_on_it() -> None:
     sticky = "(max-width: 699.98px), (max-height: 500px)"
     assert "padding: var(--ttl-bar) 0" in _of(".ttl__player", sticky)
     assert "height: var(--ttl-bar)" in _of(".ttl__bar")
-    # Elsewhere the sheet reaches up by the strip's height, so the hero stays where it was.
+    # Elsewhere a strip slides up out of the sheet, and nothing that takes part in layout changes.
     wide = "(min-width: 700px) and (min-height: 500.02px)"
-    assert "margin-top: -40px" in _of(".ttl.is-trailer .ttl__sheet", wide)
-    strip = _of(".ttl.is-trailer .ttl__bar", wide)
-    assert "height: 40px" in strip and "margin-bottom: 0" in strip
+    assert "transform: translateY(var(--strip))" in _of(".ttl__sheet::before", wide)
+    assert "transform: none" in _of(".ttl.is-trailer .ttl__sheet::before", wide)
+    assert "overflow: visible" in _of(".ttl__sheet", wide)
+    close = _of(".ttl.is-trailer .ttl__close", wide)
+    assert "scale:" in close and "width" not in close
+    # The strip ends at the window's top: a ring outside the button would be cut.
+    assert re.search(r"outline-offset:\s*-", _of(".ttl.is-trailer .ttl__close:focus-visible", wide))
 
 
 def test_a_trailer_s_frame_is_16_to_9_and_never_larger_than_its_box() -> None:
