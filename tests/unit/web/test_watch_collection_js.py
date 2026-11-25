@@ -121,7 +121,8 @@ def test_a_failure_is_told_at_its_film_and_only_that_one_is_tried_again() -> Non
 
 def test_at_the_limit_the_rest_is_not_asked_for_until_tried_again() -> None:
     out = _run("limited")
-    later = "Not asked yet, try again in a minute"
+    # The limit may be the day's, so no time is promised.
+    later = "Not asked yet, the download limit is reached. Try again later"
     assert out["ids"] == [2, 3]
     assert out["rows"][1:] == [f"Film 3: 2003 · {later}", f"Film 4: 2004 · {later}"]
     assert out["again"] == [2, 3, 3]
@@ -157,3 +158,59 @@ def test_a_film_downloaded_elsewhere_is_no_longer_missing() -> None:
 
 def test_the_title_on_show_is_told_by_its_own_ref_too() -> None:
     assert _run("pick") == {"refs": ["tmdb-movie-2", "rec-9"]}
+
+
+def test_a_title_closed_under_the_dialog_does_not_take_the_focus_back() -> None:
+    assert _run("closedByBack") == {"open": False, "kept": True}
+
+
+def test_a_title_opened_again_has_its_row_drawn_as_it_now_is() -> None:
+    out = _run("reopened")
+    assert out["drawn"] is True
+    assert out["badges"] == [False, True, False, False, True, False, False]
+    assert out["count"] == 7
+
+
+def test_leaving_the_page_is_asked_about_while_films_are_left_to_ask_for() -> None:
+    out = _run("unload")
+    assert out["out"] == [False, True, False, False]
+    assert "Keep this page open" in out["said"]
+
+
+def test_a_second_collection_waits_for_the_first() -> None:
+    out = _run("another")
+    assert out["get"] == "Download the missing 2"
+    assert (out["open"], out["toast"], out["ids"]) == (False, 1, [2])
+
+
+def test_a_film_that_failed_is_left_without_a_spinner_and_can_be_ticked_after() -> None:
+    out = _run("spinner")
+    assert out["adding"] == [True, True, True]
+    assert out["failed"] == [False, True, True]
+    assert out["after"] == [False, False, False]
+
+
+def test_an_older_answer_does_not_replace_a_newer_one() -> None:
+    assert _run("older")["name"].startswith("New")
+
+
+def test_the_rest_of_a_double_click_neither_closes_the_dialog_nor_asks_again() -> None:
+    assert _run("doubleClick") == {"open": True, "ids": [2, 3, 4], "stays": True, "closed": True}
+
+
+def test_the_row_is_found_where_it_was_left() -> None:
+    assert _run("place") == {"other": False, "back": 340, "fresh": True}
+
+
+def test_a_film_got_elsewhere_meanwhile_is_done_without_being_asked_for() -> None:
+    out = _run("meanwhile")
+    assert out["ids"] == [2]
+    assert out["rows"][1:] == [
+        "Film 3: 2003 · Already asked for",
+        "Film 4: 2004 · Already in the library",
+    ]
+    assert (out["said"], out["go"]) == ("3 films are queued or in the library.", "Done")
+
+
+def test_a_failed_refresh_keeps_the_row_and_is_tried_again() -> None:
+    assert _run("outage") == {"kept": True, "gets": 3, "name": "Back again"}

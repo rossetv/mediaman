@@ -25,6 +25,9 @@
   var OUT = [['held', 'Already in the library'], ['requested', 'Already asked for'], ['unreleased', 'Not out yet'],
     ['undated', 'No release date yet'], ['unavailable', 'Radarr can’t be asked right now']];
 
+  // Of a minute or of the day: the server does not say which.
+  var LIMIT = 'Not asked yet, the download limit is reached. Try again later';
+
   var known = {};   // by the ref of a title: its collection, { name, films }
   var lefts = {};   // by the ref of a title: where its row was left
   var asked = {};   // by the ref of a film: when it was asked for here
@@ -518,7 +521,11 @@
 
   function waits() { return !!job && job.busy && job.items.some(function (i) { return i.state === 'wait'; }); }
 
-  function askToStay(e) { if (waits()) e.preventDefault(); }
+  function askToStay(e) {
+    if (!waits()) return;
+    e.preventDefault();
+    e.returnValue = 'yes'; // older browsers ask by this
+  }
 
   function update() {
     // Only while it is needed: Firefox does not keep a page that listens for it.
@@ -530,9 +537,16 @@
 
   function askFor(j, item) {
     var f = item.film;
+    if (item.had) {
+      item.state = 'done';
+      item.note = item.had;
+      j.at += 1;
+      update();
+      return null;
+    }
     if (j.limited) {
       item.state = 'failed';
-      item.note = 'Not asked yet, try again in a minute';
+      item.note = LIMIT;
       update();
       return null;
     }
@@ -549,7 +563,7 @@
       }
       item.state = 'failed';
       j.limited = !!err && err.status === 429 && /^too many/i.test(err.message || '');
-      item.note = j.limited ? 'Not asked yet, try again in a minute'
+      item.note = j.limited ? LIMIT
         : window.MM.api.messageOf(err, 'Something went wrong. Try again.');
     }).then(function () {
       j.at += 1;
@@ -572,12 +586,22 @@
     });
   }
 
+  /* *film* came to be queued or held by another way while it was still to be asked for. */
+  function gotElsewhere(film) {
+    if (!job) return;
+    job.items.forEach(function (i) {
+      if (i.film.ref !== film.ref || i.state === 'asking' || i.state === 'done') return;
+      i.had = OUT.filter(function (why) { return why[0] === film.why_not; })[0][1];
+    });
+  }
+
   function finish(j, items) {
     var got = items.filter(function (i) { return i.state === 'done'; }).length;
     var not = items.length - got;
     j.busy = false;
-    var text = !not ? (got === 1 ? items[0].film.title + ' is queued.' : got + ' films are queued.')
-      : got ? got + ' of ' + items.length + ' films are queued. ' + plural(not, 'was', 'were') + ' not.'
+    var queued = items.some(function (i) { return i.had; }) ? 'queued or in the library. ' : 'queued. ';
+    var text = !not ? (got === 1 ? items[0].film.title + ' is ' : got + ' films are ') + queued.trim()
+      : got ? got + ' of ' + items.length + ' films are ' + queued + plural(not, 'was', 'were') + ' not.'
       : items.length === 1 ? items[0].film.title + ' was not queued.' : 'None of the ' + items.length + ' films was queued.';
     if (dialog && dialog.open && job === j) say(text);
     else core.toast(text, { variant: not ? 'error' : 'success' });
@@ -589,10 +613,13 @@
   document.addEventListener('mm:title-changed', function (e) {
     var d = e.detail || {};
     var all = Object.keys(known).map(function (k) { return known[k]; });
-    all.concat(view && view.coll ? view.coll : []).forEach(function (coll) {
+    all.concat((view && view.coll) || [], (job && job.coll) || []).forEach(function (coll) {
       coll.films.forEach(function (f) {
         if (!isOf(f, d.ref) && !(d.kind === 'movie' && f.title === d.title && f.year === d.year)) return;
-        if (d.download_state) changed(f, d.download_state, d.download_pct);
+        if (d.download_state) {
+          changed(f, d.download_state, d.download_pct);
+          gotElsewhere(f);
+        }
         else if (view) view.stale = true;
       });
     });
