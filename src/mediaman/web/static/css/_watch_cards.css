@@ -220,33 +220,39 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 .rate__puck.is-up.is-double { --wash: var(--wash-3); }
 .rate__puck.is-down.is-double { --wash: var(--wash-0); }
 .rate--lift.has-at .rate__puck { opacity: 1; }
-.rate__name { position: absolute; right: calc(100% + 7px); top: 0; height: 100%; width: max-content; pointer-events: none; }
+/* Its content box is the room for the words of the name, which the query below measures in their own size. */
+.rate__name { position: absolute; right: calc(100% + 7px); top: 0; height: 100%; width: calc(100cqi - 62px); padding-inline: 8px; container-type: inline-size; font-size: 12px; pointer-events: none; }
 .rate__name > span {
   position: absolute;
   right: 0;
   top: calc(4px + (100% - 8px) / 4 * (var(--at, 1) + .5));
   translate: 0 -50%;
   width: max-content;
-  max-width: calc(100cqi - 62px);
-  padding: 4px 8px;
+  max-width: 100%;
+  padding-block: 4px;
+  padding-inline: inherit;
   border-radius: var(--r-sm);
   background: var(--s5);
   color: var(--t1);
-  font-size: 12px;
   font-weight: 500;
   line-height: 1.35;
   text-align: center;
   text-wrap: balance;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: manual;
   opacity: 0;
   transform: translateX(6px);
   transition: top var(--dur-slow) var(--ease-spring, var(--ease-out)), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
 }
 .rate--lift.is-open .rate__name.is-on > span { opacity: 1; transform: none; }
+/* A name is broken only between words; one with a word wider than its room, as with large text, is left out, and the level's colour tells it. */
+@container (width < 4.2em) {
+  .rate__name > span { visibility: hidden; }
+}
 /* Beside the levels of a small poster, for the longest word of a name; of the smallest, for none. */
 @container (max-width: 132px) {
-  .card-over .rate__name { right: calc(100% + 3px); }
-  .card-over .rate__name > span { max-width: max(52px, 100cqi - 57px); padding-inline: clamp(2px, (100cqi - 100px) / 4, 8px); font-size: 11px; }
+  .card-over .rate__name { right: calc(100% + 3px); width: max(52px, 100cqi - 57px); padding-inline: clamp(2px, (100cqi - 100px) / 4, 8px); font-size: 11px; }
 }
 @container (max-width: 104px) {
   .card-over .rate__name { display: none; }
@@ -268,8 +274,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-row__scroll > .watch-card > .card-over > .rate--lift { --top: max(-5px, 150cqi - var(--h) - 4px); }
   .card-over .rate__b::after { content: ""; position: absolute; inset: 0 -5px; }
   .card-over .rate__b.pop.is-up.is-double::after { inset: auto; }
-  .card-over .rate__name { right: calc(100% + 4px); top: calc(7px - min(0px, var(--top))); width: max(min(50px, 100cqi - 57px), 100cqi - 62px); }
-  .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding: 0; background: none; text-align: left; font-size: clamp(11px, 10.2cqi, 13px); font-weight: 700; line-height: 1.2; }
+  .card-over .rate__name { right: calc(100% + 4px); top: calc(7px - min(0px, var(--top))); width: max(min(50px, 100cqi - 57px), 100cqi - 62px); padding-inline: 0; font-size: clamp(11px, 10.2cqi, 13px); }
+  .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding-block: 0; background: none; text-align: left; font-weight: 700; line-height: 1.2; }
   .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out); }
   .is-lifted > .watch-card__link .watch-badge { opacity: 0; }
 }
@@ -346,7 +352,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .rate__puck { forced-color-adjust: none; background: Highlight; }
   .rate__puck:not(.is-up, .is-down) { visibility: hidden; }
   .rate__name > span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
-  .card-over .rate__name > span { padding-inline: 5px; }
+  .card-over .rate__name { padding-inline: 5px; }
   .watch-badge--unwatched { display: none; }
 }
 @media (forced-colors: active) and (hover: hover) and (pointer: fine) {
