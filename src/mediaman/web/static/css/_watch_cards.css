@@ -255,6 +255,9 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 /* ── Marked as watched ── */
 .watch-card__poster > .card-lights { position: absolute; z-index: 2; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; }
 .card-barend { position: absolute; z-index: 2; left: var(--card-pad); bottom: 8px; width: calc(100% - 2 * var(--card-pad)); height: 4px; border-radius: var(--r-xxs); overflow: hidden; background: color-mix(in srgb, var(--t1) 30%, transparent); }
+  /* Over the buttons of the cards above it, and the closing levels of another. */
+  .watch-card.is-lifted { z-index: 5; }
+  .watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after { pointer-events: none; }
 .card-barend > i { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; }
 .watch-card__poster:has(> .card-barend) { padding-bottom: 20px; }
 
@@ -295,6 +298,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
 @keyframes bar-end { from { transform: scaleX(var(--from)); } }
 
 @media (forced-colors: active) {
+  /* At once, so that the focus can go to a level. */
+  .rate--lift .rate__set { transition: none !important; }
   .card-tool { color: ButtonText; }
   .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
   .card-tool > .rate-th { --th-bg: ButtonFace !important; forced-color-adjust: none; }

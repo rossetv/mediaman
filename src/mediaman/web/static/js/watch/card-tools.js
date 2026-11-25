@@ -173,7 +173,7 @@
     card.appendChild(over);
     open = { card: card, thumb: thumbOf(card), over: over, set: set, opened: performance.now(), timer: null };
     void over.offsetWidth; // so that it rises
-    card.classList.add('is-lifted');
+    lifted(card, true);
     set.node.classList.add('is-open');
     open.thumb.setAttribute('aria-expanded', 'true');
     if (focus) set.enter();
@@ -184,6 +184,13 @@
   }
 
   function remove(o) {
+  /* Its row's heading takes no press meant for it. */
+  function lifted(card, on) {
+    var row = card.closest('.watch-row');
+    card.classList.toggle('is-lifted', on);
+    if (row) row.classList.toggle('has-lifted', on);
+  }
+
     o.set.destroy();
     o.over.remove();
   }
@@ -192,7 +199,7 @@
   function drop(o) {
     open = null;
     clearTimeout(o.timer);
-    o.card.classList.remove('is-lifted');
+    lifted(o.card, false);
     o.thumb.setAttribute('aria-expanded', 'false');
     remove(o);
   }
@@ -204,7 +211,13 @@
     clearTimeout(o.timer);
     clearTimeout(leaving);
     var had = o.over.contains(document.activeElement);
-    o.card.classList.remove('is-lifted');
+    // It folds from its own edge, not from where the sparks went.
+    var group = o.set.node.querySelector('.rate__set');
+    toArray(group.querySelectorAll('.pop')).forEach(function (b) { b.classList.remove('pop'); });
+    group.style.transition = 'none';
+    void group.offsetWidth;
+    group.style.transition = '';
+    lifted(o.card, false);
     o.set.node.classList.remove('is-open');
     o.set.pointAt(null);
     o.over.setAttribute('inert', '');
