@@ -420,7 +420,7 @@ class TestSchedulerAndMaintenanceActions:
             ("unmonitor_skipped", "unmonitor skipped"),
             ("delete_root_unavailable", "delete root unavailable"),
             ("delete_root_available", "delete root available"),
-            ("delete_awaiting_scan", "waiting for scan"),
+            ("delete_awaiting_scan", "waiting"),
             ("delete_incomplete", "delete incomplete"),
             ("delete_folders_failed", "folder cleanup failed"),
             ("re_downloaded", "re-downloaded"),
@@ -431,6 +431,33 @@ class TestSchedulerAndMaintenanceActions:
         _insert_audit_row(conn, action=action)
         item = client.get("/api/history").json()["items"][0]
         assert item["action_label"] == label
+
+    @pytest.mark.parametrize(
+        ("why", "label"),
+        [
+            ("it may be a title of a library Plex does not list now", "waiting for library"),
+            ("its files are not recorded yet; it waits for a scan to record", "waiting for scan"),
+            ("its library is not selected in Settings", "library not selected"),
+            ("its folder also holds media whose own deletion waits", "waiting for folder"),
+        ],
+    )
+    def test_a_waiting_deletion_says_what_it_waits_for(
+        self, app_factory, authed_client, conn, why, label
+    ):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        conn.execute(
+            "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+            "VALUES ('m1', 'delete_awaiting_scan', ?, '2026-01-01T00:00:00+00:00')",
+            (f"Not deleted yet: Film — {why}",),
+        )
+        conn.commit()
+        item = client.get("/api/history").json()["items"][0]
+        assert item["action_label"] == label
+
+    @pytest.mark.parametrize("path", ["/api/history", "/api/security-events"])
+    def test_a_page_past_any_count_is_refused(self, app_factory, authed_client, conn, path):
+        client = authed_client(app_factory(history_router, conn=conn), conn)
+        assert client.get(path, params={"page": "9" * 20}).status_code == 422
 
     def test_delete_root_recovery_is_not_badged_as_an_alarm(self, app_factory, authed_client, conn):
         client = authed_client(app_factory(history_router, conn=conn), conn)
