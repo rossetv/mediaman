@@ -106,7 +106,10 @@
   var gridCards = new Set();
   var outOfSight = new Set();
 
-  function drawFar(card) { card.classList.toggle('is-far', gridCards.size > MANY && outOfSight.has(card)); }
+  // One that holds the focus keeps them, as a hidden button would lose it.
+  function drawFar(card) {
+    card.classList.toggle('is-far', gridCards.size > MANY && outOfSight.has(card) && !card.contains(document.activeElement));
+  }
 
   /* The grid has grown past MANY, or shrunk back under it. */
   function counted(was) {
@@ -226,6 +229,10 @@
   }
 
   document.addEventListener('focusin', sayFocus);
+  document.addEventListener('focusout', function (e) {
+    var card = cardAround(e.target);
+    if (card && outOfSight.has(card) && !(e.relatedTarget && card.contains(e.relatedTarget))) drawFar(card);
+  });
   document.addEventListener('focusout', function (e) { if (cardAround(e.relatedTarget) !== says['has-focus']) say('has-focus', null); });
   // A key pressed makes the keyboard's a focus the mouse gave.
   document.addEventListener('keyup', sayFocus);

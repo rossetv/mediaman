@@ -441,6 +441,10 @@ def test_a_grid_of_500_cards_or_fewer_hides_no_far_card_s_buttons() -> None:
     assert _run("fewFarCards") == [False, True, False]
 
 
+def test_a_far_card_keeps_its_buttons_while_it_holds_the_focus_and_takes_it_back_on_undo() -> None:
+    assert _run("farCardRefocused") == [False, True, True]
+
+
 def test_a_far_card_taken_off_the_page_no_longer_hides_its_buttons() -> None:
     assert _run("farCardTaken") == [True, False]
 

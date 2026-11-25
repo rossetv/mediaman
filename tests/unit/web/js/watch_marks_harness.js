@@ -18,6 +18,13 @@ const { Node, makeDocument, build, click, settle } = require('./fake_dom');
   };
 });
 
+// As in a browser, a far card's buttons, hidden, take no focus.
+const ownFocus = Node.prototype.focus;
+Node.prototype.focus = function (...args) {
+  const card = this.closest && this.closest('.watch-card');
+  if (!(card && card.classList.contains('is-far') && this.closest('.card-tools'))) ownFocus.apply(this, args);
+};
+
 Object.defineProperty(Node.prototype, 'hidden', {
   get() { return this.hasAttribute('hidden'); },
   set(v) { if (v) this.setAttribute('hidden', ''); else this.removeAttribute('hidden'); },
@@ -767,6 +774,25 @@ const scenarios = {
     late.remove();
     p.removed(late);
     return out.concat([film.classList.contains('is-far')]);
+  },
+
+  // A grid's film marked by the keyboard, scrolled far off, then its toast's Undo pressed.
+  async farCardRefocused() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), ...fillers(500)]]));
+    const film = p.cards()[0];
+    const eye = film.querySelector('.card-tool--eye');
+    const seer = p.seers.filter((s) => s.margin)[0];
+    await p.pick(film, 'mark');
+    send(p.doc.listeners.focusin, { target: eye });
+    seer.fn([{ target: film, isIntersecting: false }], seer);
+    const out = [film.classList.contains('is-far')];
+    const toast = p.doc.body.appendChild(build(p.doc, ['div', { class: 'ui-toast' }, ['button', {}, 'Undo']])).children[0];
+    toast.focus();
+    send(p.doc.listeners.focusout, { target: eye, relatedTarget: toast });
+    send(p.doc.listeners.focusin, { target: toast });
+    out.push(film.classList.contains('is-far'));
+    await p.undo();
+    return out.concat([p.doc.activeElement === film.querySelector('.card-tool--eye')]);
   },
 
   // A far card taken off the page, to be put back elsewhere.
