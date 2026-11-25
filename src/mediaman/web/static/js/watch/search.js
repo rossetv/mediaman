@@ -1,10 +1,8 @@
 /* Watch: the search bar, its sheet of categories, the suggestions and the
  * results, in two groups: titles in the library, then titles from TMDB that are
  * not. Cards built here mirror templates/_watch_card.html. Nothing is built with
- * innerHTML: titles come from Plex and TMDB. In the admin list view the same
- * field only announces what was typed (mm:watch-list-search) and the list
- * searches itself. A category's or person's page (watch/explore.js) stands in
- * the results' place, on MMWatch.search.stage. Where there is an AI, the sheet opens
+ * innerHTML: titles come from Plex and TMDB. A category's or person's page
+ * (watch/explore.js) stands in the results' place, on MMWatch.search.stage. Where there is an AI, the sheet opens
  * on Tonight and the person's own phrases, and a sentence can be asked (watch/ask.js,
  * watch/tonight.js); the search itself never waits for it.
  * Needs watch/core.js, watch/address.js and watch/keep.js; watch/explore.js when
@@ -21,7 +19,6 @@
   var SEARCH_URL = '/api/watch/search?q=';
   var TMDB_URL = '/api/watch/search/tmdb?q=';
   var SEARCH_DELAY_MS = 200;
-  var LIST_DELAY_MS = 350;
   var COMPOSING_MS = 400;
   var EXAMPLE_MS = 3200;
   var STEP_MS = 10000; // a step back this late was never made: a Back after it is the person's
@@ -34,7 +31,6 @@
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
   var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
   var LABEL = 'Search films and shows';
-  var LIST_LABEL = 'Search your library';
   var SHORT_LABEL = 'Search';
   var ASK_HINT = 'Search, or ask for something';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
@@ -597,7 +593,6 @@
     var explore = window.MMWatch.explore;
     var data = readPageData();
 
-    var listView = data.is_admin === true && data.view === 'list';
     var view = results.hidden ? 'browse' : 'results'; // what stands under the bar: browse, results or page
     var timer = null;
     var hiding = null;
@@ -619,7 +614,7 @@
     var recorded = ''; // the search kept last
     var ownWords = ''; // what was typed or pressed last on this page: other words came with the address
 
-    function canExplore() { return data.tmdb_configured === true && !listView; }
+    function canExplore() { return data.tmdb_configured === true; }
 
     /* ── The bar ── */
 
@@ -686,8 +681,6 @@
 
     function setPending(on) { box.classList.toggle('is-pending', on); }
 
-    function label() { return listView ? LIST_LABEL : LABEL; }
-
     function setHint(text) {
       if (hintText.textContent === text) return;
       var old = box.querySelector('.watch-search__ph.is-old');
@@ -718,7 +711,7 @@
 
     function rest() {
       if (tokened) return 'Search again';
-      return fits(label()) ? label() : SHORT_LABEL;
+      return fits(LABEL) ? LABEL : SHORT_LABEL;
     }
 
     function restHint() { setHint(rest()); }
@@ -728,7 +721,7 @@
       if (!canExplore() || core.reduceMotion()) return;
       var n = 0;
       var tick = window.setInterval(function () {
-        if (focused() || input.value || tokened || listView) { window.clearInterval(tick); return; }
+        if (focused() || input.value || tokened) { window.clearInterval(tick); return; }
         if (document.hidden) return;
         while (n < EXAMPLES.length && !fits(example(n))) n++;
         if (n === EXAMPLES.length) {
@@ -1004,7 +997,6 @@
         leave();
         hideAsk();
         results.hidden = true;
-        if (listView) return;
         if (browse.hidden && moves(browse)) browse.classList.add('is-off');
         browse.hidden = false;
         void browse.offsetWidth;
@@ -1086,7 +1078,7 @@
 
     /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
     function offerAsk(q) {
-      if (!ai || listView) return;
+      if (!ai) return;
       if (!ai.fits(q)) { hideAsk(); return; }
       if (!asking) askPlace();
       asking.row(q);
@@ -1115,14 +1107,14 @@
     /* The question that was on the page when it was left. */
     function askAgain() {
       var q = input.value.trim();
-      if (!q || listView || tokened || !ai || view !== 'results') return;
+      if (!q || tokened || !ai || view !== 'results') return;
       offerAsk(q);
       if (ai.fits(q) && ai.kept().q === ai.question('ask', q).value) askNow(q);
     }
 
     /* A search the person meant: one pressed, entered or followed to a title. */
     function record(q) {
-      if (!ai || listView || !q || q === recorded) return;
+      if (!ai || !q || q === recorded) return;
       recorded = q;
       ai.record(q);
     }
@@ -1170,7 +1162,7 @@
     /* Titles like *ref*, a page of their own; *name* and *poster* are the title's. */
     function like(ref, name, poster) {
       if (!canLike(ref)) return;
-      address.push('like', address.url(Object.assign({}, PAGE_PARAMS, { q: null, view: null, like: ref }), ''));
+      address.push('like', address.url(Object.assign({}, PAGE_PARAMS, { q: null, like: ref }), ''));
       showLike(ref, name, poster || '', true);
     }
 
@@ -1353,20 +1345,8 @@
       return root ? core.toArray(root.querySelectorAll('.watch-option')).filter(function (n) { return n.getClientRects().length; }) : [];
     }
 
-    /* In the list view the field has no list of its own. */
-    function sayRole() {
-      if (listView) {
-        ['role', 'aria-autocomplete', 'aria-expanded', 'aria-controls'].forEach(function (name) { input.removeAttribute(name); });
-        return;
-      }
-      input.setAttribute('role', 'combobox');
-      input.setAttribute('aria-autocomplete', 'list');
-      sayList();
-    }
-
     /* Tell the field's readers of the list that shows, if one does. */
     function sayList() {
-      if (listView) return;
       var open = options().length > 0;
       input.setAttribute('aria-expanded', open ? 'true' : 'false');
       input.setAttribute('aria-controls', open && !sheetOn ? 'watch-suggestions' : 'watch-sheet');
@@ -1793,22 +1773,6 @@
       if (live && live.grid && live.drawn && !c.lib.items) live.grid.setAttribute('aria-busy', 'true');
     }
 
-    function addressed() {
-      var params = new URLSearchParams(window.location.search);
-      return ['q', 'genre', 'person', 'all'].some(function (key) { return params.get(key); });
-    }
-
-    function announceList() {
-      document.dispatchEvent(new CustomEvent('mm:watch-list-search', {
-        bubbles: true,
-        detail: { q: input.value.trim() }
-      }));
-    }
-
-    function change(inPlace) {
-      if (listView) announceList(); else run(inPlace);
-    }
-
     /* Every key: the bar and the suggestions answer at once, the server is asked
        when the person pauses, for longer inside a word that an input method is
        still composing. */
@@ -1818,11 +1782,6 @@
       composed = inWord ? input.value : '';
       if (tokened) setToken(null);
       sync();
-      if (listView) {
-        if (!q) change();
-        else timer = setTimeout(announceList, inWord ? COMPOSING_MS : LIST_DELAY_MS);
-        return;
-      }
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
@@ -1838,7 +1797,7 @@
       }
       if (!q || now) {
         openSheet(false);
-        change();
+        run();
         if (!input.value) openSheet(focused());
         return;
       }
@@ -1917,12 +1876,12 @@
         picked.click();
         return;
       }
-      if (tokened || (!input.value && !listView)) return;
+      if (tokened || !input.value) return;
       clearTimeout(timer);
-      change();
+      run();
       var q = input.value.trim();
       record(q);
-      if (ai && !listView && ai.fits(q)) askNow(q);
+      if (ai && ai.fits(q)) askNow(q);
       // The keyboard on a phone covers the results.
       if (core.coarsePointer()) input.blur();
     });
@@ -1936,7 +1895,6 @@
     }, true);
     input.addEventListener('focus', function () {
       sync();
-      if (listView) restHint();
       if (tabbed) openSheet(true);
     });
     input.addEventListener('blur', function () {
@@ -1989,33 +1947,6 @@
       openSheet(true);
     });
 
-    // The list empties the field itself.
-    document.addEventListener('click', function (e) {
-      if (e.target.closest && e.target.closest('[data-list-clear]')) setTimeout(sync);
-    });
-
-    // The admin switch between the rows and the list moves the field with it.
-    window.addEventListener('mm:watch-view', function (e) {
-      var to = e && e.detail && e.detail.view;
-      listView = data.is_admin === true && to === 'list';
-      stop();
-      clearTimeout(hiding);
-      openSheet(false);
-      browse.classList.remove('is-off');
-      leave();
-      hideAsk();
-      sayRole();
-      view = 'browse';
-      results.hidden = true;
-      status.textContent = '';
-      if (tokened) setToken(null);
-      input.placeholder = label();
-      input.setAttribute('aria-label', label());
-      restHint();
-      // Text goes along, unless Back led to something the address opens itself.
-      if (input.value.trim() && (listView || !addressed())) change(true);
-      if (ai && canExplore()) ai.load().then(askAgain);
-    });
     window.addEventListener('pageshow', function (e) { if (e.persisted) openSheet(false); });
 
     if (window.visualViewport) {
@@ -2075,7 +2006,7 @@
       depth: 30,
       params: ['q'],
       read: function (here) {
-        return here.params.get('view') === 'list' ? null : (here.params.get('q') || '').trim() || null;
+        return (here.params.get('q') || '').trim() || null;
       },
       open: function (q, how) {
         if (how === 'pop') setEmptied(false);
@@ -2090,8 +2021,8 @@
         var again = emptied && input.value.trim();
         var text = input.value;
         setEmptied(false);
-        // The list takes the text with it; whatever else was opened says what stands here now.
-        if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
+        // Whatever else was opened says what stands here now.
+        if (how === 'push') return;
         // Typed since, it is a search of its own in the entry the step led to.
         if (again) {
           setTimeout(function () {
@@ -2119,7 +2050,7 @@
       params: ['like'],
       read: function (here) {
         var ref = here.params.get('like');
-        var other = ['q', 'genre', 'person', 'all', 'view'].some(function (key) { return here.params.get(key); });
+        var other = ['q', 'genre', 'person', 'all'].some(function (key) { return here.params.get(key); });
         return ai && !other && LIKE_RE.test(ref || '') ? ref : null;
       },
       open: function (ref) {
@@ -2142,16 +2073,16 @@
 
     sync();
     hintText.textContent = rest();
-    sayRole();
+    sayList();
     showExamples();
     if (canExplore()) explore.categories();
     if (ai && data.tmdb_configured === true) ai.load().then(askAgain);
     window.MMWatch.search.like = like;
     window.MMWatch.search.canLike = canLike;
     // A value the browser put back (going back to the page) gets its results.
-    if (input.value.trim() && !listView) run(true);
+    if (input.value.trim()) run(true);
     // Nothing the address names after all: the rows.
-    setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
+    setTimeout(function () { if (view === 'results' && !live) show('browse'); });
   }
 
   window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };

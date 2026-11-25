@@ -513,19 +513,6 @@
     return null;
   }
 
-  /* Where focus goes when the list row the overlay opened from is deleted:
-     the next row's first action, else the previous row's, else the list. */
-  function rowFallback(origin) {
-    var row = origin && origin.closest && origin.closest('tr[data-row-key]');
-    if (!row) return null;
-    var near = row.nextElementSibling || row.previousElementSibling;
-    var action = near && near.querySelector('.keep-trigger, .wl-actions .btn');
-    if (action) return action;
-    var list = row.closest('#watch-list');
-    if (list && !list.hasAttribute('tabindex')) list.setAttribute('tabindex', '-1');
-    return list;
-  }
-
   /* ── Loading ── */
 
   function get(url, ctrl) {
@@ -2849,7 +2836,6 @@
     if (d.phase !== 'done') return;
     if (d.action === 'delete') {
       if (!d.showRk) {
-        if (isOpen && cur && cur.ref === 'movie-' + d.id) cur.fallback = rowFallback(cur.origin);
         leftLibrary('movie-' + d.id);
         return;
       }

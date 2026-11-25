@@ -6,10 +6,9 @@
  * document as an `mm:watch-admin` event, {phase: 'busy'|'done'|'failed',
  * action: 'keep'|'unkeep'|'show'|'delete'|'changed', id, ids, showRk, keep}
  * (ids: the seasons, where it is of several), and whatever shows
- * the title (a list row, the detail) updates itself in place.
+ * the title (a card, the detail) updates itself in place.
  *
- * A wrapper is either a list row's .keep-wrapper (data-* attributes) or the
- * detail's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
+ * A wrapper is the title's `actions.keep_wrapper` object ({id, is_tv, show_rk, has_rk,
  * show_title, keep, seasons}) with `season_id`, the season the Keep dialog opens for ('' for
  * none; without one it opens for the season that leaves first).
  */
@@ -47,32 +46,9 @@
     document.dispatchEvent(new CustomEvent('mm:watch-admin', { detail: detail, bubbles: true }));
   }
 
-  function parseJson(value, fallback) {
-    try { return JSON.parse(value); } catch (_) { return fallback; }
-  }
-
   function info(wrapper) {
-    if (wrapper && wrapper.dataset) {
-      var d = wrapper.dataset;
-      return {
-        el: wrapper,
-        id: d.id || '',
-        isTv: d.tv === 'true',
-        showRk: d.showRk || '',
-        hasRk: d.hasRk === 'true',
-        showTitle: d.showTitle || '',
-        title: parseJson(d.title, '') || d.showTitle || '',
-        kept: d.kept === 'true',
-        deletion: d.deletion === 'true',
-        keep: parseJson(d.keep, null),
-        hasKeeps: d.hasKeeps === 'true',
-        seasons: Number(d.seasons) || 2,
-        seasonId: null
-      };
-    }
     var w = wrapper || {};
     return {
-      el: null,
       id: w.id == null ? '' : String(w.id),
       isTv: !!w.is_tv,
       showRk: w.show_rk || '',
@@ -86,31 +62,6 @@
       seasons: typeof w.seasons === 'number' ? w.seasons : 2,
       seasonId: w.season_id === undefined ? null : w.season_id
     };
-  }
-
-  function triggerOf(w) {
-    return w.el ? w.el.querySelector('.keep-trigger, .btn-sm-caret') : null;
-  }
-
-  function closeMenus() {
-    if (window.SnoozeMenu) window.SnoozeMenu.closeAll(null);
-  }
-
-  /* After a failure the menu closes and focus goes back to its trigger, but
-     only while the person is still there. */
-  function backToTrigger(w) {
-    closeMenus();
-    var trigger = triggerOf(w);
-    if (trigger && MM.dom.focusStillIn(w.el)) trigger.focus();
-  }
-
-  /* A press refused because another request is in flight: close the menu,
-     say why, and put focus back on the trigger. */
-  function explainBusy(w, text) {
-    closeMenus();
-    window.UIFeedback.toast(text);
-    var trigger = triggerOf(w);
-    if (trigger) trigger.focus();
   }
 
   function chainKeyFor(showRk, showTitle) {
@@ -221,7 +172,7 @@
     var w = info(wrapper);
     if (w.isTv) {
       if (_busy[w.id]) {
-        explainBusy(w, 'Still removing the keep for this show. Try again in a moment.');
+        window.UIFeedback.toast('Still removing the keep for this show. Try again in a moment.');
         return Promise.resolve(false);
       }
       openKeepDialog(w, duration);
@@ -229,11 +180,10 @@
     }
     if (!w.id) return Promise.resolve(false);
     if (_busy[w.id]) {
-      explainBusy(w, STILL_SAVING);
+      window.UIFeedback.toast(STILL_SAVING);
       return Promise.resolve(false);
     }
     _busy[w.id] = 'keep';
-    backToTrigger(w);
     var id = w.id;
     retireToast(id);
     var detail = { action: 'keep', id: id, showRk: '' };
@@ -265,7 +215,6 @@
       var changed = changedMeanwhile(err) || (viaWatch && leavesNoMore(err));
       notSaved(detail, changed);
       window.UIFeedback.error("Couldn't save keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
-      backToTrigger(w);
       return false;
     });
   }
@@ -294,12 +243,11 @@
     if (!id || _busy[id]) return Promise.resolve(false);
     /* Nor while a keep from the dialog is still saving for this show. */
     if (w.isTv && _keepChains[chainKeyFor(w.showRk, w.showTitle)]) {
-      explainBusy(w, 'Still saving the keep for this show. Try again in a moment.');
+      window.UIFeedback.toast('Still saving the keep for this show. Try again in a moment.');
       return Promise.resolve(false);
     }
     _busy[id] = 'unkeep';
     retireToast(id);
-    backToTrigger(w);
     var detail = { action: 'unkeep', id: id, showRk: w.isTv ? w.showRk : '' };
     emit('busy', detail);
     return unprotect(id, w.keep)
@@ -313,7 +261,6 @@
         var changed = changedMeanwhile(err);
         notSaved(detail, changed);
         window.UIFeedback.error("Couldn't remove keep. " + (changed ? KEEP_CHANGED : MM.api.messageOf(err, 'Try again.')));
-        backToTrigger(w);
         return false;
       });
   }
@@ -526,11 +473,6 @@
     byId('keep-season-list').classList.toggle('has-keeps', w.hasKeeps);
     _keepDialogState.seasons = [];
     byId('keep-dialog-title').textContent = 'Keep ' + (w.showTitle || 'Show');
-    /* Close the menu this came from, and park focus on its trigger so
-       closing the dialog returns there rather than to a hidden menu item. */
-    closeMenus();
-    var trigger = triggerOf(w);
-    if (trigger) trigger.focus();
     selectDurationByValue(_keepDialogState.duration);
     openHolding(_keepDialogModal);
     loadKeepSeasons();

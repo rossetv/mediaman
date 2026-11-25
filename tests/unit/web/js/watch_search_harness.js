@@ -938,9 +938,6 @@ const scenarios = {
     const out = { sheet: p.sheet.classList.contains('is-on') };
     p.type('action');
     out.suggested = p.suggested();
-    const l = await ready({ ...ADMIN, view: 'list' });
-    l.press();
-    out.list = l.sheet.classList.contains('is-on');
     return out;
   },
 
@@ -1217,25 +1214,6 @@ const scenarios = {
     return out;
   },
 
-  // Switched to the list, what was found fades out over it.
-  async listOverResults() {
-    const p = await ready(ADMIN);
-    await p.search('orchard');
-    await p.answer('/api/watch/search?', { items: [LIB] });
-    const finish = withMotion(p);
-    try {
-      p.input.value = '';
-      p.fire('mm:watch-view', { detail: { view: 'list' } });
-      const left = p.doc.querySelector('.results-page.is-leaving');
-      const out = [!!left && left.parentNode === p.$('watch-page'), p.results.hidden];
-      finish();
-      await settle();
-      return out.concat(p.doc.querySelectorAll('.results-page').length);
-    } finally {
-      delete Node.prototype.animate;
-    }
-  },
-
   // A title comes once, a page of repeats leads on to the next, and one found in the library late stands without a heading of its own.
   async personPages() {
     const p = await ready(ADMIN, '', '/watch?person=9001');
@@ -1252,7 +1230,7 @@ const scenarios = {
     return { first: p.grids[0].titles, cards: got.cards.map((c) => c.textContent), next: got.next, calls: p.calls.length, last: [(await last).cards.length, (await last).next] };
   },
 
-  // Esc and the page's Back leave the way Back does; the Browse half of the switch goes to the rows.
+  // Esc and the page's Back leave the way Back does.
   async leaveCategory() {
     const out = {};
     const esc = (p, prevented) => p.fire('keydown', { key: 'Escape', defaultPrevented: !!prevented, preventDefault() {} });
@@ -1274,49 +1252,12 @@ const scenarios = {
     return out;
   },
 
-  // The list view opened over a category, as list.js does: the category is shut, and Back opens it again.
-  async listOverCategory() {
-    const p = await ready(ADMIN, '', '/watch?genre=action');
-    const { address } = p.ctx.MMWatch;
-    const say = (view) => p.fire('mm:watch-view', { detail: { view } });
-    address.layer({ name: 'list', depth: 5, params: ['view'], read: (h) => h.params.get('view'), open: () => say('list'), close: () => say('rows') });
-    address.push('list', '/watch?view=list');
-    say('list');
-    const out = { list: [p.grids[0].stopped, p.results.hidden, address.value('explore')] };
-    // What is typed there stays there when Back leads to what the address opens by itself.
-    p.input.value = 'lantern';
-    await p.back();
-    out.back = [p.url(), p.grids.length, p.results.hidden, p.input.value, p.calls.filter((c) => c.url.includes('search')).length];
-    return out;
-  },
-
   // What was typed, read as a category.
   async phrases() {
     const p = await ready(ADMIN);
     const read = (text) => { const r = p.ctx.MMWatch.explore.parse(text); return [r.genres.map((g) => g.id).join(), r.exact, r.type, r.sort, r.decade]; };
     return ['popular action movies', 'sci-fi', 'sci fi shows', 'newest 90s horror', 'action films from the 2010s', 'tv', 'new', 'horror series', 'zzqx', 'a']
       .map(read);
-  },
-
-  // In the list view the field only announces what was typed; no search runs.
-  async listView() {
-    const roles = (page) => ['role', 'aria-autocomplete', 'aria-expanded', 'aria-controls'].map((a) => page.input.getAttribute(a));
-    const p = load({ ...ADMIN, view: 'list' });
-    const l = { roles: roles(p) };
-    p.type('lantern');
-    const delay = p.timers[p.timers.length - 1].ms;
-    p.timers[p.timers.length - 1].fn();
-    await settle();
-    const out = { delay, events: p.events.slice(), calls: p.calls.length, resultsHidden: p.results.hidden };
-    p.type('');
-    out.cleared = p.events[p.events.length - 1];
-    // Switching to the rows: the same field searches again.
-    const r = load({ ...ADMIN, view: 'list' });
-    r.fire('mm:watch-view', { detail: { view: 'rows' } });
-    await r.search('lantern');
-    out.role = [l.roles, roles(r)];
-    out.afterSwitch = { events: r.events.length, calls: r.calls.length, placeholder: r.input.placeholder };
-    return out;
   },
 
   // A search that runs before the categories are in does not say there is nothing, and lists the category once they are.
@@ -1941,11 +1882,11 @@ const scenarios = {
       return { p, tick: () => tick && tick(), hint: () => p.$('watch-search-hint').textContent };
     };
     try {
-      const narrow = page({ ...ADMIN, view: 'list' });
-      out.list = [narrow.hint()];
+      const narrow = page(ADMIN);
+      out.narrow = [narrow.hint()];
       width.chars = 40;
       narrow.p.fire('resize');
-      out.list.push(narrow.hint());
+      out.narrow.push(narrow.hint());
       width.chars = 24;
       const rows = page(ADMIN);
       out.rows = [rows.hint()];
@@ -2524,8 +2465,8 @@ scenarios.askArrived = async () => {
   return out;
 };
 
-scenarios.askListView = async () => {
-  const p = await asking({}, { view: 'list' }, '', '/watch?view=list');
+scenarios.askLibrary = async () => {
+  const p = await asking({}, {}, '', '/watch?all=library');
   const out = { can: p.ctx.MMWatch.search.canLike('movie-1') };
   p.ctx.MMWatch.search.like('movie-1', 'Nine Locks', ''); await settle();
   out.page = [p.url(), p.head(), p.shown()];

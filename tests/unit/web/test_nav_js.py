@@ -210,7 +210,3 @@ def test_a_keyboard_is_told_from_a_toolbar_and_from_a_zoomed_page() -> None:
         "zoomedTyping": True,
         "away": False,
     }
-
-
-def test_a_keep_menu_opens_upward_rather_than_under_the_bar_at_the_foot_of_a_phone() -> None:
-    assert _run("keepMenu") == {"phone": True, "wide": False}

@@ -172,7 +172,7 @@ def test_component_primitives_present():
         ".card--bordered",
         ".tbl",
         ".stat",
-        ".wl-stat",
+        ".watch-all__filters",
         ".inp",
         ".setg-card",
         ".setg-row",

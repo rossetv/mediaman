@@ -71,15 +71,14 @@
     return { fade: fade, closeAt: Math.round(total * 0.6), total: total };
   }
 
-  /* The part of the window no sticky top bar or phone tab bar covers. */
+  /* The part of the window neither the bar nor a phone's bar at the foot covers. */
   function clearArea() {
     var area = { top: 0, bottom: window.innerHeight };
-    toArray(document.querySelectorAll('.nav-glass, .nav-topbar, .nav-tabs')).forEach(function (bar) {
+    toArray(document.querySelectorAll('.nav-glass, .nav-foot')).forEach(function (bar) {
       if (getComputedStyle(bar).display === 'none') return;
       var r = bar.getBoundingClientRect();
-      if (bar.classList.contains('nav-tabs')) area.bottom = Math.min(area.bottom, r.top);
-      // Tucked away, the bar's second line covers nothing.
-      else area.top = Math.max(area.top, r.bottom - (bar.classList.contains('is-tucked') ? parseFloat(getComputedStyle(bar).paddingBottom) : 0));
+      if (bar.classList.contains('nav-foot')) area.bottom = Math.min(area.bottom, r.top);
+      else area.top = Math.max(area.top, r.bottom);
     });
     return area;
   }

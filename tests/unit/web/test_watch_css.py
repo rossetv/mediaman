@@ -346,3 +346,15 @@ def test_the_panel_s_headings_and_a_film_s_length_stay_on_one_line_with_large_te
     # The picture is as wide as it needs.
     assert "position: relative" in _of(".tn__art > span", sheet=ASK)
     assert "min-width: 104px" in _of(".tn__art", "(max-width: 599.98px)", ASK)
+
+
+def test_the_search_sheet_ends_above_the_tv_bar_at_every_width() -> None:
+    remote = SHEET.with_name("_tv_remote.css").read_text()
+    sheets = re.findall(
+        r"tv-mini:not\(\[hidden\]\)\) \.watch-sheet \{ max-height: (.+?); \}", remote
+    )
+    # The bar is 60px on 16px at the foot of a window; a phone's is on the bar at the foot.
+    assert [s.split(", ")[-1] for s in sheets] == [
+        "100dvh - 160px)",
+        "100dvh - 160px - var(--foot))",
+    ]

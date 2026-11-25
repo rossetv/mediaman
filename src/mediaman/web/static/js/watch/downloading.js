@@ -150,8 +150,11 @@
     var name = link.appendChild(el('span'));
     var count = link.appendChild(el('span', 'dlx__count'));
     var cue = link.appendChild(el('span', 'row-open__cue'));
-    cue.appendChild(el('span', 'row-open__word', 'See all'));
-    cue.appendChild(icon('i-chevron-right'));
+    var tail = cue.appendChild(el('span', 'row-open__words'));
+    tail.appendChild(el('span', 'row-open__word', 'See all'));
+    var end = tail.appendChild(el('span', 'row-open__end'));
+    end.appendChild(el('span', 'row-open__total'));
+    end.appendChild(icon('i-chevron-right'));
     var note = section.appendChild(el('p', 'dlx__note'));
     note.hidden = true;
     note.appendChild(icon('i-triangle-exclamation'));

@@ -845,17 +845,13 @@ def test_a_title_that_arrives_moves_neither_its_name_nor_its_buttons() -> None:
         assert run["bars"] == [1, 0]
 
 
-def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
-    out = _run("deleteFromListRow")
-    assert out["next"] == {
-        "closed": True,
-        "focus": "del-121",
-        "tabindex": None,
-        "preventScroll": True,
-    }
-    assert out["previous"]["focus"] == "del-119"
-    assert (out["only"]["focus"], out["only"]["tabindex"]) == ("watch-list", "-1")
-    assert out["only"]["preventScroll"] is True
+def test_deleting_a_title_opened_from_its_card_moves_focus_to_a_neighbour_without_scrolling() -> (
+    None
+):
+    out = _run("deleteFromCard")
+    assert out["next"] == {"closed": True, "focus": "movie-121", "preventScroll": True}
+    assert out["previous"]["focus"] == "movie-119"
+    assert (out["only"]["focus"], out["only"]["preventScroll"]) == ("watch-search", True)
 
 
 def test_without_the_admin_actions_an_admin_keeps_through_the_shared_keep() -> None:

@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="/static/css/_watch_ask.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_grid.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_asked.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/_watch_downloading.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_explore.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_ratings.css?v={{ static_v }}">
 <link rel="stylesheet" href="/static/css/_watch_detail.css?v={{ static_v }}">
@@ -125,6 +126,8 @@
     <div class="watch-rows">
       {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured) }}{% endif %}
       {% for row in shelf if row['items'] and row.id == 'continue' %}{{ row_section(row) }}{% endfor %}
+      {# watch/downloading.js fills it while something downloads. #}
+      <div class="dlx" id="watch-downloading" hidden></div>
       {# What the person asked for loads after the page: watch/asked.js. #}
       {% if not watch_error %}
       <div id="watch-asked" hidden></div>
@@ -179,6 +182,7 @@
 <script src="/static/js/watch/expand.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/browse.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/library.js?v={{ static_v }}" defer></script>
+<script src="/static/js/watch/downloading.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/asked.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/cast.js?v={{ static_v }}" defer></script>
 <script src="/static/js/watch/collection.js?v={{ static_v }}" defer></script>

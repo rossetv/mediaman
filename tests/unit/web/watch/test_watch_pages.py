@@ -4,6 +4,7 @@ refused."""
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import replace
@@ -18,6 +19,7 @@ from fastapi.testclient import TestClient
 
 import mediaman
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.downloads import strip
 from mediaman.services.media_meta.plex_watch import (
     PlexEpisode,
     PlexError,
@@ -1479,6 +1481,29 @@ def test_what_a_person_asked_for_comes_after_continue_watching_and_before_the_re
     ]
     assert places == sorted(places)
     assert html.index("watch/browse.js") < html.index("watch/asked.js") < html.index("watch.js?")
+
+
+@pytest.mark.parametrize("user", ["orla", "aoife"])
+def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_what_was_asked_for(
+    app_factory, conn, library, plex, monkeypatch, admin, user
+):
+    """It is the same for an admin and a viewer."""
+    _play(conn, user, "100", position=900, duration=3600, item="100")
+    item = strip.StripItem(
+        key="radarr::1", title="Dune", kind="movie", state="downloading", percent=42
+    )
+    held = strip.Shared()
+    held.get(lambda _before: strip.Strip((item,)))
+    monkeypatch.setattr(strip, "shared", held)
+
+    html = _page(app_factory, conn, monkeypatch, "/watch", user).text
+
+    places = [html.index(f'id="{name}"') for name in ("watch-downloading", "watch-asked")]
+    assert html.index('data-row-id="continue"') < places[0] < places[1]
+    data = json.loads(re.search(r'id="watch-page-data">(.*?)</script>', html, re.S)[1])
+    assert [i["title"] for i in data["downloading"]["items"]] == ["Dune"]
+    assert data["downloading"]["summary"]["percent"] == 42
+    assert "/static/js/watch/downloading.js" in html
 
 
 def test_the_place_of_what_was_asked_for_is_held_only_for_whoever_asked(

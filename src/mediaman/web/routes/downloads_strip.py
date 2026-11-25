@@ -69,7 +69,10 @@ def _with_title(item: StripItem, index: catalog.LibraryIndex, arr: catalog.ArrVi
     kind = "movie" if item.kind == "movie" else "tv"
     held = index.library_ref(kind, item.tmdb_id, item.title, arr)
     ref = held or f"tmdb-{kind}-{item.tmdb_id}"
-    art = _fanart(item, arr) or item.art_url
+    # What TMDB told before: nobody waits on it here.
+    known = catalog.held_details(kind, item.tmdb_id) or {}
+    poster = poster or known.get("poster_url") or ""
+    art = _fanart(item, arr) or known.get("backdrop_url") or item.art_url
     if held is not None:
         own = title_art(held.partition("-")[2])
         poster = poster or own["poster_url"]

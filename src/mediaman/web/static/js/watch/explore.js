@@ -217,7 +217,7 @@
 
   /* The address' own part: { kind, id, type, sort, decade }, or null. */
   function readAddress(params) {
-    if (params.get('view') === 'list' || (params.get('q') || '').trim()) return null;
+    if ((params.get('q') || '').trim()) return null;
     var id = params.get('genre') || '';
     if (/^[a-z0-9-]{1,40}$/.test(id)) {
       return {

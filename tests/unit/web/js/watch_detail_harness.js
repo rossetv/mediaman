@@ -167,10 +167,7 @@ function load(opts = {}) {
   const page = build(doc, ['div', { class: 'watch-page', id: 'watch-page' },
     ['input', { id: 'watch-search' }],
     ['div', { class: 'watch-rows' }, card('tmdb-movie-77', 'Meridian'), card('show-300', 'Brightwater')],
-    ['section', { class: 'watch-list', id: 'watch-list', 'aria-label': 'Library list' },
-      ['table', {}, ['tbody', {}, ...(opts.listRows || []).map((id) => ['tr', { class: 'wl-row', 'data-row-key': 'id:' + id },
-        ['td', {}, ['a', { class: 'wl-title', href: '/watch#title=movie-' + id, 'data-title-ref': 'movie-' + id }, 'Film ' + id]],
-        ['td', { class: 'wl-actions' }, ['button', { class: 'btn btn--danger btn--sm', id: 'del-' + id }, 'Delete']]])]]],
+    ['section', { class: 'watch-row' }, ['div', { class: 'watch-row__scroll' }, ...(opts.films || []).map((id) => card('movie-' + id, 'Film ' + id))]],
     ['div', { id: 'watch-detail' }],
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', role: 'menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '7' }, '7 days']]]);
@@ -2108,14 +2105,12 @@ const scenarios = {
     return out;
   },
 
-  /* An admin deletes the title from the overlay opened from its list row; the list
-     takes the row away (*how*: 'animate' leaves it fading, 'remove' drops it at once)
-     before the browser's popstate closes the overlay. */
-  async deleteFromListRow() {
-    async function run(rows, how) {
+  /* An admin deletes the title from the overlay opened from its card. */
+  async deleteFromCard() {
+    async function run(films) {
       let announce = null;
       const p = load({
-        admin: true, listRows: rows,
+        admin: true, films,
         routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/admin/title/movie-120': FACTS },
         adminApi: {
           keep: () => Promise.resolve(true),
@@ -2124,23 +2119,19 @@ const scenarios = {
       });
       announce = (detail) => p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail }));
       p.run();
-      p.doc.addEventListener('mm:watch-admin', () => {
-        const row = p.doc.querySelector('tr[data-row-key="id:120"]');
-        if (how === 'animate') row.classList.add('is-leaving'); else row.remove();
-      });
       const go = p.ctx.history.go;
       p.ctx.history.go = function (by) { Promise.resolve().then(() => go.call(this, by)); };
       await openCard(p, 'movie-120');
       click(p.doc, p.q('[data-ttl-act="admin-delete"]'));
       await settle();
       const a = p.doc.activeElement;
-      return { closed: p.ttl().classList.contains('is-leaving'), focus: a.id || a.tagName, tabindex: a.getAttribute('tabindex'),
+      return { closed: p.ttl().classList.contains('is-leaving'), focus: a.getAttribute('data-title-ref') || a.id || a.tagName,
         preventScroll: !!(p.doc.focusOpts && p.doc.focusOpts.preventScroll) };
     }
     return {
-      next: await run(['119', '120', '121'], 'animate'),
-      previous: await run(['119', '120'], 'remove'),
-      only: await run(['120'], 'remove'),
+      next: await run(['119', '120', '121']),
+      previous: await run(['119', '120']),
+      only: await run(['120']),
     };
   },
 
