@@ -56,7 +56,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       const min = /min-width: ([\d.]+)/.exec(q);
       const max = /max-width: ([\d.]+)/.exec(q);
       return {
-        get matches() { return min || max ? (!min || ctx.innerWidth >= +min[1]) && (!max || ctx.innerWidth <= +max[1]) : still; },
+        get matches() { return min || max ? (!min || ctx.innerWidth >= +min[1]) && (!max || ctx.innerWidth <= +max[1]) : !/coarse/.test(q) && still; },
         addEventListener: (_t, fn) => { (on.width = on.width || []).push(fn); },
       };
     },
@@ -1255,6 +1255,17 @@ const scenarios = {
     click(p.doc, p.$('watch-option-library'));
     await settle();
     out.opened = [opened, p.sheet.classList.contains('is-on'), p.calls.length - calls];
+    p.press();
+    await settle();
+    const words = () => { const n = p.$('watch-option-library'); return n && n.textContent; };
+    const total = (n) => { (p.doc.listeners['mm:watch-total'] || []).forEach((fn) => fn({ detail: { total: n } })); return words(); };
+    out.changed = [total(1), total(0)];
+    total(2);
+    click(p.doc, p.$('watch-veil'));
+    await settle();
+    p.press();
+    await settle();
+    out.changed.push(words());
     // An empty library has nothing to lead to.
     const bare = await ready({ ...ADMIN, grids: { library: 'All titles' }, library_total: 0 }, '', undefined, undefined, { downloading });
     bare.press();
@@ -1381,6 +1392,14 @@ const scenarios = {
     click(nope.doc, nope.doc.querySelector('.grid-empty__link'));
     await settle();
     out.away = [nope.url(), nope.shown()];
+    out.focus = [nope.doc.activeElement.id];
+    const touch = await open('/watch?genre=nope', 404);
+    touch.doc.body.appendChild(build(touch.doc, ['main', { id: 'main-content', tabindex: '-1' }]));
+    const media = touch.ctx.matchMedia;
+    touch.ctx.matchMedia = (q) => (/coarse/.test(q) ? { matches: true } : media(q));
+    click(touch.doc, touch.doc.querySelector('.grid-empty__link'));
+    await settle();
+    out.focus.push(touch.doc.activeElement.id);
     out.person = look(await open('/watch?person=999999', 404));
     out.failed = look(await open('/watch?person=9001', 502));
     const broken = await open('/watch?genre=action', 502);

@@ -441,7 +441,6 @@
      of what can be had lead to it there. The focus goes on from what it was on. */
   function drop(ref) {
     var path = '/watch/' + ref.replace('-', '/');
-    var search = document.getElementById('watch-search');
     function was(c) { return c && (c.ref === ref || c.openedAs === ref); }
     Object.keys(kept).forEach(function (key) { if (was(kept[key])) delete kept[key]; });
     var mine = was(cur) ? cur : null;
@@ -450,7 +449,7 @@
     function leave(node, take) {
       var lost = node.contains(document.activeElement);
       var from = cur && cur.origin && node.contains(cur.origin);
-      var to = take() || search;
+      var to = take() || core.spareFocus();
       if (from) {
         cur.origin = null;
         cur.fallback = to;
@@ -500,7 +499,7 @@
     var from = mine.origin && mine.origin.closest('[data-title-ref]');
     if (!from || from.getAttribute('data-title-ref') === ref) {
       mine.origin = null;
-      mine.fallback = search;
+      mine.fallback = core.spareFocus();
     }
   }
 

@@ -118,7 +118,7 @@ async function load(opts = {}) {
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
     setTimeout: (fn) => { setImmediate(fn); return 1; }, clearTimeout: () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', visibility: 'visible', display: 'block', paddingLeft: '0', paddingRight: '0', gridTemplateColumns: '1px 1px 1px' }),
-    matchMedia: () => ({ matches: !opts.motion }),
+    matchMedia: (q) => ({ matches: /coarse/.test(q) ? !!opts.touch : !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: 900, innerWidth: 1280, scrollY: 0, scrollTo() {}, scrollBy() {},
@@ -261,6 +261,36 @@ const scenarios = {
     const back = { at: p.at(), grid: p.grid() };
     await p.step(1);
     return { prevented, unseen, sorted, failed, off, tab, back, forward: { at: p.at(), filters: p.grid().filters } };
+  },
+
+  // An empty filter leads back to All, and its link goes with it.
+  async emptyFilter() {
+    const none = () => ({ ...titles('unseen', [], null, 0), empty: { title: 'None', link: 'Show all titles', href: '/watch?all=library', filter: '' } });
+    const p = await load({ routes: { '/api/watch/library/library/row?limit=60&type=unseen': none } });
+    await p.open('movies');
+    await p.filter('unseen');
+    const link = p.doc.querySelector('.grid-empty__link');
+    const says = link.textContent;
+    link.focus();
+    p.press(link);
+    await p.settle();
+    return { says, at: p.at(), things: p.grid().things, focus: p.doc.activeElement.getAttribute('data-grid-filter'), chip: p.doc.activeElement.classList.contains('fpill') };
+  },
+
+  // A filter or an order chosen while the posters still travel is taken; on the way back it is not.
+  async whileItOpens() {
+    const run = async (act) => {
+      const p = await load({ motion: true });
+      Node.prototype.animate = () => ({ cancel() {}, onfinish: null });
+      try {
+        await p.open('movies');
+        const moving = p.ctx.MMWatch.grid.moving();
+        await act(p);
+        return { moving, at: p.at(), still: p.ctx.MMWatch.grid.moving(), things: p.grid() && p.grid().things.slice(0, 2) };
+      } finally { delete Node.prototype.animate; }
+    };
+    return { filter: await run((p) => p.filter('unseen')), sort: await run((p) => p.choose('az')),
+      leaving: await run(async (p) => { p.ctx.MMWatch.grid.rest(); p.ctx.MMWatch.grid.close(); await p.filter('unseen'); }) };
   },
 
   // An admin's link to an admin's filter and order, and the menu's own heading for those.

@@ -562,7 +562,7 @@
       trigger: '[data-picks-menu]',
       fill: fillPicksMenu,
       choose: function (trigger, item) { chooseBatch(item.getAttribute('data-batch')); },
-      spare: function () { return byId('watch-search'); }
+      spare: core.spareFocus
     });
   }
 

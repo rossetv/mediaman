@@ -104,11 +104,32 @@
   var version = 0; // every change that is saved
   var changed = {}; // at which of them each title was changed last
   var scheduled = 0; // at which of them what is scheduled changed last, of any title
+  var counted = 0; // at which of them the titles were counted last
+
+  /* How many the library has, wherever the page says it. An older answer does not undo a newer. */
+  function sayTotal(got) {
+    if (got.asked < counted || !got.counts) return;
+    counted = got.asked;
+    var n = got.counts[''];
+    toArray(document.querySelectorAll('.watch-all-link')).forEach(function (link) {
+      link.hidden = !n;
+      link.querySelector('span').textContent = 'All ' + (n === 1 ? '1 title' : n + ' titles');
+    });
+    document.dispatchEvent(new CustomEvent('mm:watch-total', { detail: { total: n } }));
+  }
+
+  function count() {
+    if (document.querySelector('.watch-all-link')) ask('added', '', '&only=none').catch(function () {});
+  }
 
   function ask(sort, type, more) {
     var asked = version;
     return window.MM.api.get(URL + '?limit=' + PAGE + (type ? '&type=' + type : '') + (sort === 'added' ? '' : '&sort=' + sort) + (more || ''))
-      .then(function (got) { return Object.assign(got, { asked: asked }); });
+      .then(function (got) {
+        Object.assign(got, { asked: asked });
+        sayTotal(got);
+        return got;
+      });
   }
 
   function isOld(got, key) { return scheduled > got.asked || changed[key] > got.asked; }
@@ -338,6 +359,7 @@
       // Details, where it is open, takes it out itself.
       Promise.resolve().then(function () { cardsOf(key).forEach(leave); });
     }
+    if (d.action === 'delete' && !grid.shows('library')) count();
     readAgain(key, d);
   });
 
@@ -374,6 +396,7 @@
   document.addEventListener('mm:watch-scheduled', function () {
     version++;
     scheduled = version;
+    if (!grid.shows('library')) count();
     readAll([]);
   });
 

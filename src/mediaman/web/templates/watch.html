@@ -60,15 +60,16 @@
 {%- endmacro %}
 
 {# Shown in place of the rows when the library has nothing; Discover rows, when there are any, load under it. #}
-{% macro empty_library(is_admin, tmdb_configured) -%}
+{% macro empty_library(is_admin, tmdb_configured, library_total) -%}
 <section class="watch-empty">
   {{ icon("i-film", "watch-empty__icon") }}
   <h1 class="watch-empty__title">Nothing to watch yet</h1>
   {% if is_admin %}
   <p class="watch-empty__text">
-    Your library is empty.
+    {% if library_total %}Watch can’t open what the scans found. Scan again from Storage, at the top, or see all titles below.
+    {% else %}Your library is empty.
     {% if tmdb_configured %}Scan it from Storage, at the top, or search above for something to download.
-    {% else %}Pick the libraries to scan in Settings, then scan from Storage, at the top. Connect TMDB there too to search for titles to download.{% endif %}
+    {% else %}Pick the libraries to scan in Settings, then scan from Storage, at the top. Connect TMDB there too to search for titles to download.{% endif %}{% endif %}
   </p>
   <div class="watch-actions">
     <a class="btn btn--lg watch-btn--play" href="/watch#storage">Open Storage</a>
@@ -124,7 +125,7 @@
     {% set library = namespace(rows=false) %}
     {% for row in shelf if row['items'] and row['library'] %}{% set library.rows = true %}{% endfor %}
     <div class="watch-rows">
-      {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured) }}{% endif %}
+      {% if not shelf and not watch_error %}{{ empty_library(is_admin, tmdb_configured, library_total) }}{% endif %}
       {% for row in shelf if row['items'] and row.id == 'continue' %}{{ row_section(row) }}{% endfor %}
       {# watch/downloading.js fills it while something downloads. #}
       <div class="dlx" id="watch-downloading" hidden></div>
@@ -149,8 +150,8 @@
         {% endif %}
       </div>
 
-      {% if library.rows %}
-      <p class="watch-group-label"><span>Your library</span><a class="watch-all-link" href="/watch?all=library" data-row-open="library">All {{ library_total }} titles{{ icon("i-chevron-right") }}</a></p>
+      {% if library.rows or (is_admin and library_total) %}
+      <p class="watch-group-label"><span>Your library</span><a class="watch-all-link" href="/watch?all=library" data-row-open="library"><span>All {{ library_total }} {{ "title" if library_total == 1 else "titles" }}</span>{{ icon("i-chevron-right") }}</a></p>
       {% for row in shelf if row['items'] and row['library'] %}{{ row_section(row) }}{% endfor %}
       {% endif %}
     </div>

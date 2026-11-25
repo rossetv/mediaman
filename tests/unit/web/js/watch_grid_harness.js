@@ -99,7 +99,7 @@ function load(opts = {}) {
     clearTimeout: () => {},
     getComputedStyle: (n) => ({ getPropertyValue: () => '', display: 'block', visibility: 'visible', paddingLeft: '0', fontSize: '20px', transform: n.mid || 'none', opacity: '0.4',
       gridTemplateColumns: '200px 200px 200px 200px 200px' }),
-    matchMedia: () => ({ matches: !opts.motion }),
+    matchMedia: (q) => ({ matches: /coarse/.test(q) ? !!opts.touch : !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
@@ -904,6 +904,22 @@ const scenarios = {
     p.doc.activeElement.blur();
     p.grid.close();
     return p.focus();
+  },
+
+  // All titles, opened by its address or from the search, has no row to go back to.
+  async closesToTheLink() {
+    const end = (opts, how) => {
+      const p = load(opts);
+      p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }, ['input', { id: 'watch-search' }]]));
+      if (opts.link) p.browse.appendChild(build(p.doc, ['p', {}, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']]));
+      p.grid.open(p.opts({ id: 'library', row: () => null, ...how }));
+      p.doc.activeElement.blur();
+      p.grid.close();
+      return p.focus();
+    };
+    const from = { fromSearch: true };
+    return { mouse: end({ link: true }, {}), touch: end({ link: true, touch: true }, {}), search: end({ link: true }, from),
+      searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}) };
   },
 
   async rowThatIsGone() {

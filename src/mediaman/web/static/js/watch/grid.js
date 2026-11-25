@@ -684,8 +684,11 @@
       var chip = e.target.closest && e.target.closest('[data-grid-filter]');
       if (chip && plainClick(e) && now && now.opts.filter) {
         e.preventDefault();
-        chip.focus({ preventScroll: true }); // as Safari does not on a click
         var id = chip.getAttribute('data-grid-filter');
+        // The link of an empty filter goes with it.
+        var stays = dom.bar.contains(chip) ? chip : dom.bar.querySelector('[data-grid-filter="' + id + '"]') || chip;
+        stays.focus({ preventScroll: true }); // as Safari does not on a click
+        if (move && move.to === 'grid') settle();
         if (!move) ask(now.value, id === now.filter ? '' : id);
         return;
       }
@@ -875,7 +878,8 @@
 
   function choose(id) {
     var mine = now;
-    if (!mine || move) return;
+    if (!mine || (move && move.to === 'rows')) return;
+    settle();
     var sort = mine.opts.sort;
     if (sort.jump) {
       mine.value = id;
@@ -1505,7 +1509,8 @@
   }
 
   /* The card the person was on, if the row shows it; else what had the focus
-     when the grid opened; else the row's heading, or the search when the row is gone. */
+     when the grid opened; else the row's heading. All titles has no row: the search it was
+     opened from, or the link to it. */
   function focusRows(opts, key) {
     var row = rowOf(opts);
     say('Back to all rows.');
@@ -1522,7 +1527,8 @@
     if (row && watch.expand) watch.expand.row(row);
     if (to && (!shownNow(to) || to.matches('a:not([href])'))) to = null;
     if (!to && row) to = row.querySelector('.watch-row__title a[href]') || row.querySelector('.watch-row__scroll');
-    if (!to) to = core.byId('watch-search');
+    if (!to && opts.fromSearch && !core.coarsePointer()) to = core.spareFocus();
+    if (!to) to = toArray(browse.querySelectorAll('.watch-all-link')).filter(shownNow)[0] || core.spareFocus();
     if (to) to.focus({ preventScroll: true });
   }
 

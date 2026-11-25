@@ -391,3 +391,28 @@ def test_a_first_page_that_cannot_be_had_keeps_the_row_s_cards_and_offers_anothe
     out = _run("firstPageFails")
     assert out["n"] == 30
     assert out["tail"] == "Couldn’t load more titles.Try again"
+
+
+def test_the_way_out_of_an_empty_filter_hands_the_focus_to_the_filter_all() -> None:
+    assert _run("emptyFilter") == {
+        "says": "Show all titles",
+        "at": "/watch?all=library",
+        "things": ["Film 1", "Film 2", "Film 90"],
+        "focus": "",
+        "chip": True,
+    }
+
+
+def test_a_filter_or_order_chosen_while_the_grid_still_opens_is_taken() -> None:
+    out = _run("whileItOpens")
+    assert out["filter"] == {
+        "moving": True,
+        "at": "/watch?all=library&type=unseen",
+        "still": False,
+        "things": ["Film 2", "Film 8"],
+    }
+    assert (out["sort"]["at"], out["sort"]["things"]) == (
+        "/watch?all=library&type=movies&sort=az",
+        ["Film 9", "Film 1"],
+    )
+    assert out["leaving"]["at"] == "/watch?all=library&type=movies"

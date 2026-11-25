@@ -621,6 +621,8 @@ def test_a_category_that_is_not_there_says_so_with_a_way_back_and_nothing_to_try
     assert (genre["stopped"], genre["filters"], genre["back"]) == (True, 0, 1)
     assert "not found" in genre["status"]
     assert out["away"] == ["/watch", "browse"]
+    # A touch screen's keyboard would come up over the rows.
+    assert out["focus"] == ["watch-search", "main-content"]
 
 
 def test_a_person_who_is_not_there_is_said_to_be_so() -> None:
@@ -1320,5 +1322,6 @@ def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_n
     assert out["before"] == "Browse by category"
     assert out["none"] == "Downloads"
     # All titles opens in place, with the sheet shut, and nothing is asked for.
-    assert out["opened"] == [[["", "", {}]], False, 0]
+    assert out["opened"] == [[["", "", {"fromSearch": True}]], False, 0]
+    assert out["changed"] == ["All 1 title", None, "All 2 titles"]
     assert out["bare"] == "Downloads"

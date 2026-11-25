@@ -360,7 +360,7 @@
       if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       address.push(null, address.url(OWN));
-      core.byId('watch-search').focus({ preventScroll: true });
+      core.spareFocus().focus({ preventScroll: true });
     });
     box.appendChild(link);
     f.host.replaceWith(box);

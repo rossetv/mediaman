@@ -114,7 +114,7 @@ function load(opts = {}) {
     clearInterval: (id) => { beats[id - 1] = null; },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingLeft: '0', paddingRight: '0' }),
     // Reduced motion unless a scenario asks for motion: swaps are immediate.
-    matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) }),
+    matchMedia: (q) => ({ matches: !(opts.motion && /reduce/.test(q)) && !/coarse/.test(q) }),
     requestAnimationFrame: (fn) => fn(),
     MutationObserver: class { observe() {} disconnect() {} },
     innerHeight: opts.innerHeight || 900,
