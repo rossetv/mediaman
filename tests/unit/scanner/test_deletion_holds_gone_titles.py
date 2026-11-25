@@ -204,7 +204,9 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
         assert "watched lately" in self._said("20")[0]
 
         self.freezer.tick(timedelta(days=20))
-        self._scan(2)
+        self._scan(1)
+        assert shared.exists()
+        self._scan(1)
         self._scan_past_grace()
         assert not shared.exists()
 
@@ -244,6 +246,58 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
         self._scan_until_due("20", "21")
 
         assert (film.exists(), episode.exists()) == (True, True)
+
+    def test_a_folder_goes_on_waiting_while_the_title_it_holds_is_held(self):
+        film, part, episode = self._file("film.mkv"), self._file("part.mkv"), self._file("E1.mkv")
+        self._gone(film, [film])
+        self._keep()
+        self._scan_until_pruned()
+        self._list(
+            "20", 4, self.folder, [episode], season_number=1, show_rating_key="s2", **_SEASON
+        )
+        self._list("21", 2, part, [part, film])
+        self._scan_until_due("20", "21")
+        rows = "SELECT id, execute_at FROM scheduled_actions WHERE action = 'scheduled_deletion'"
+        scheduled = [tuple(row) for row in self.conn.execute(rows)]
+
+        self._scan(2)
+
+        assert [tuple(row) for row in self.conn.execute(rows)] == scheduled
+        assert len(self._said("20")) == 1
+
+    @pytest.mark.parametrize("watched", [False, True])
+    def test_a_title_whose_hold_ended_does_not_go_with_the_folder_that_holds_it(self, watched):
+        film, part, episode = self._file("film.mkv"), self._file("part.mkv"), self._file("E1.mkv")
+        self._gone(film, [film])
+        runs_out = datetime.now(UTC) + timedelta(days=30)
+        self._keep(action="snoozed", execute_at=runs_out.isoformat())
+        self._scan_until_pruned()
+        self._list(
+            "20", 4, self.folder, [episode], season_number=1, show_rating_key="s2", **_SEASON
+        )
+        self._scan(1)
+        self._list("21", 2, part, [part, film])
+        self._scan(1)
+        # The folder was scheduled first, with a longer notice: it is due once the hold is over.
+        self.conn.execute(
+            "UPDATE scheduled_actions SET execute_at = ? WHERE media_item_id = '20'",
+            ((runs_out + timedelta(days=1)).isoformat(),),
+        )
+        self.conn.commit()
+        self._scan_past_grace()
+        assert len(self._said("21")) == 1
+        if watched:
+            self.plex.get_watch_history.side_effect = lambda key: (
+                [{"viewed_at": datetime.now(UTC)}] if key == "21" else []
+            )
+
+        self.freezer.tick(timedelta(days=20))
+        self._scan(1)
+        assert (film.exists(), part.exists(), episode.exists()) == (True, True, True)
+        assert "21" not in self._scheduled()
+
+        self._scan(1)
+        assert ("21" in self._scheduled()) is not watched
 
     def test_a_folder_that_waited_with_such_a_title_is_scheduled_afresh_with_it(self):
         film, part, episode = self._file("film.mkv"), self._file("part.mkv"), self._file("E1.mkv")

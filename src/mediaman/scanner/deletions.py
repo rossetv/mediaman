@@ -1322,7 +1322,7 @@ class DeletionExecutor:
             row
             for row in rows
             if row.library_selected
-            and not self._must_wait(row)
+            and not self._held_back(row, now.isoformat())
             and not was_held_since_scheduled(self._conn, row.id, _GONE)
             and not is_kept_deletion(self._conn, row.id, now.isoformat())
         ]
@@ -1415,6 +1415,20 @@ class DeletionExecutor:
             or bool(self._gone_twins(row))
             or self._is_file_held(row)
         )
+
+    def _held_back(self, row: DeletionRow, now_iso: str) -> list[DeletionRow]:
+        """Return what holds *row* back now: itself, else the due rows in the folder it would remove.
+
+        Asked once, before anything else is decided: nothing is removed, no row
+        in the folder is claimed and no wait is told as over while it names a row.
+        """
+        if self._must_wait(row):
+            return [row]
+        path = row.file_path or ""
+        if not path.strip():
+            return []
+        under = fetch_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+        return [other for other in under if self._must_wait(other)]
 
     def _is_file_held(self, row: DeletionRow) -> bool:
         return self._held_by(row) is not None
@@ -1602,21 +1616,25 @@ class DeletionExecutor:
         row = claimed_row
         path = row.file_path or ""
 
-        if self._must_wait(row):
-            logger.info(
-                "engine.delete.library_unread id=%s media_id=%s — its library, or one it may "
-                "have moved from, was not read from Plex; leaving the row pending",
-                row.id,
-                row.media_item_id,
-            )
+        waiting = self._held_back(row, now_iso)
+        if waiting:
             repository.mark_delete_status(self._conn, row.id, "pending")
-            if row.library_id not in self._unread_libraries:
-                _audit_once(
-                    self._conn,
-                    row,
-                    "delete_awaiting_scan",
-                    f"Not deleted yet: {row.title} — {self._why_it_waits(row)}",
+            if waiting != [row]:
+                self._hold_with(row, waiting)
+            else:
+                logger.info(
+                    "engine.delete.library_unread id=%s media_id=%s — its library, or one it "
+                    "may have moved from, was not read from Plex; leaving the row pending",
+                    row.id,
+                    row.media_item_id,
                 )
+                if row.library_id not in self._unread_libraries:
+                    _audit_once(
+                        self._conn,
+                        row,
+                        "delete_awaiting_scan",
+                        f"Not deleted yet: {row.title} — {self._why_it_waits(row)}",
+                    )
             self._conn.commit()
             return [], 0
 
@@ -1677,12 +1695,12 @@ class DeletionExecutor:
             repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
             return [], 0
-        # A kept item cancelled here no longer counts as due, so the check
-        # before the removal finds its media held and leaves the path.
+        # An item cancelled here, kept or with a wait that is over, no longer counts
+        # as due, so the check before the removal finds its media held and leaves the path.
         co_located = [
             other
             for other in claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
-            if not self._cancel_if_kept(other, now_iso)
+            if not self._cancel_if_kept(other, now_iso) and not self._cancel_if_released(other)
         ]
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
@@ -1926,6 +1944,7 @@ class DeletionExecutor:
     def _cancel_if_released(self, row: DeletionRow) -> bool:
         """Cancel a claimed row that waited for a keep or a watch of a title that is gone.
 
+        Run it only once _held_back found nothing holding the row or its folder.
         Its notice named a day long past, and it may have been watched since:
         the next scan decides afresh, with a new notice.
         """
