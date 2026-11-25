@@ -83,6 +83,11 @@
   border-color: var(--accent);
   background: var(--s3);
 }
+/* One ring, over the field's own border, as on the password form. */
+.login-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: var(--r-sm); }
+@media (forced-colors: active) {
+  .login-field input:focus-visible { outline-color: Highlight; }
+}
 
 /* Sized and pressed as a large primary .btn. */
 .login-btn {

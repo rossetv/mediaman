@@ -154,6 +154,14 @@ def test_a_long_unbroken_word_in_a_refusal_breaks_inside_the_card() -> None:
     assert "overflow-wrap: anywhere" in _rule(login, ".error-msg")
 
 
+def test_a_sign_in_field_draws_one_ring_over_its_border_as_the_password_form_does() -> None:
+    login = (WEB / "static" / "css" / "_login.css").read_text()
+    ring = _rule(login, ".login-field input:focus-visible")
+    assert "outline: 2px solid var(--accent)" in ring and "outline-offset: -1px" in ring
+    forced = login.split("@media (forced-colors: active)", 1)[1]
+    assert ".login-field input:focus-visible { outline-color: Highlight; }" in forced
+
+
 @pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
 def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     html = (WEB / "templates" / f"{page}.html").read_text()
