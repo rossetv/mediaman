@@ -66,8 +66,8 @@
 {% macro there(title, text, watch=True, trailer=False) %}
 <div class="share-stack">
   <div class="share-done">{{ share.tick() }}<div><strong tabindex="-1">{{ title }}</strong><span>{{ text }}</span></div></div>
-  {% if watch %}<div class="watch-actions">
-    <a class="btn btn--lg watch-btn--play" href="{{ watch_href }}">{{ icon("i-play") }}Watch on mediaman</a>
+  {% if watch or trailer %}<div class="watch-actions">
+    {% if watch %}<a class="btn btn--lg watch-btn--play" href="{{ watch_href }}">{{ icon("i-play") }}Watch on mediaman</a>{% endif %}
     {% if trailer %}{{ trailer_button() }}{% endif %}
   </div>{% endif %}
 </div>
@@ -84,7 +84,7 @@
 {% endmacro %}
 
 {% macro in_library(trailer=False) %}{{ there("Already in the library", "Nothing to download.", trailer=trailer) }}{% endmacro %}
-{% macro tracked() %}{{ there("Already on the list", "There is nothing to download for it right now.", watch=False) }}{% endmacro %}
+{% macro tracked(trailer=False) %}{{ there("Already on the list", "There is nothing to download for it right now.", watch=False, trailer=trailer) }}{% endmacro %}
 
 {% block content %}
 {% if state == "confirm" %}
@@ -116,7 +116,7 @@
       {% endif %}
       <div class="share-act" id="download-action">
         {% if item.download_state == "in_library" %}{{ in_library(trailer=item.trailer_key) }}
-        {% elif item.download_state == "tracked" %}{{ tracked() }}
+        {% elif item.download_state == "tracked" %}{{ tracked(trailer=item.trailer_key) }}
         {% elif item.download_state == "queued" %}{{ on_its_way(item.notify_by_email) }}
         {% else %}
         <div class="watch-actions">
@@ -162,8 +162,8 @@
 <template data-part="ready">{{ there("Ready to watch", "It shows in the library in a few minutes.") }}</template>
 {% if item.download_state != "queued" %}
 <template data-part="on-its-way">{{ on_its_way(item.notify_by_email) }}</template>
-<template data-part="in-library">{{ in_library() }}</template>
-<template data-part="tracked">{{ tracked() }}</template>
+<template data-part="in-library">{{ in_library(trailer=item.trailer_key) }}</template>
+<template data-part="tracked">{{ tracked(trailer=item.trailer_key) }}</template>
 <template data-part="try-again">{{ failed(True) }}</template>
 <template data-part="refused">{{ failed(False) }}</template>
 {% endif %}
@@ -180,7 +180,7 @@
 } | tojson }}</script>
 <script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
 <script src="/static/js/download.js?v={{ static_v }}" defer></script>
-{% if item.trailer_key %}<script src="/static/js/share.js?v={{ static_v }}" defer></script>{% endif %}
+{% if item.trailer_key and item.download_state != "queued" %}<script src="/static/js/share.js?v={{ static_v }}" defer></script>{% endif %}
 
 {% elif state == "limited" %}
 {{ share.limited() }}

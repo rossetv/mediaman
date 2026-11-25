@@ -14,6 +14,7 @@ import pytest
 HARNESS = Path(__file__).parent / "js/download_page_harness.js"
 TEMPLATES = Path(__file__).resolve().parents[3] / "src/mediaman/web/templates"
 _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(TEMPLATES), autoescape=True)
+_TRAILER = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 _VOID = frozenset({"meta", "link", "img", "input", "br"})
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -110,8 +111,8 @@ def test_a_title_already_on_its_way_promises_the_email_the_answer_says_is_to_com
 @pytest.mark.parametrize(
     ("answer", "said", "links"),
     [
-        ("inLibrary", "Already in the library", ["/watch#title=tmdb-movie-7"]),
-        ("tracked", "Already on the list", []),
+        ("inLibrary", "Already in the library", ["/watch#title=tmdb-movie-7", _TRAILER]),
+        ("tracked", "Already on the list", [_TRAILER]),
     ],
 )
 def test_a_title_already_there_is_said_where_the_button_was_and_is_no_failure(
@@ -327,6 +328,19 @@ def test_the_trailer_takes_the_focus_and_gives_it_back(trailer: dict) -> None:
     off = trailer["off"]
     assert off["frames"] == [] and not off["on"] and not off["inert"]
     assert "watch-btn--grey" in off["focus"]
+
+
+def test_buttons_clear_of_the_player_stay_of_use_and_those_under_it_do_not(trailer: dict) -> None:
+    assert trailer["on"]["inert"] and not trailer["upright"]["inert"]
+    assert trailer["sideways"]["inert"]
+
+
+def test_focus_the_player_comes_to_lie_over_goes_to_its_close_button(trailer: dict) -> None:
+    assert trailer["sideways"]["focus"] == "Close trailer"
+
+
+def test_a_resize_with_no_trailer_on_leaves_the_buttons_be(trailer: dict) -> None:
+    assert not trailer["offResized"]["inert"]
 
 
 def test_a_trailer_whose_button_is_gone_gives_the_focus_to_the_title(trailer: dict) -> None:

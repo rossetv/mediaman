@@ -44,6 +44,16 @@ function page() {
     setTimeout: (fn) => { p.timers.push(fn); }, MM: {},
   };
   ctx.window = ctx;
+  ctx.addEventListener = (type, fn) => { if (type === 'resize') p.resized = fn; };
+  // Where the player ends and the buttons start.
+  const rect = Node.prototype.getBoundingClientRect;
+  p.place = (playerEnds, buttonsStart) => {
+    doc.createElement('div').constructor.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('share-player')) return { ...rect.call(this), bottom: playerEnds };
+      if (this.classList.contains('share-act')) return { ...rect.call(this), top: buttonsStart };
+      return rect.call(this);
+    };
+  };
   ctx.MM.api = {
     get: (url) => { p.asked.push(url); return p.get ? p.get() : Promise.resolve(p.payload); },
     post: (url) => { p.posted += 1; p.postedTo = url; return p.answer(); },
@@ -243,12 +253,22 @@ const SCENARIOS = {
     const now = () => ({ frames: frames(), on: p.one('.share-hero').classList.contains('is-trailer'),
       inert: p.one('.watch-banner__body').inert, focus: p.doc.activeElement.getAttribute('aria-label') || p.doc.activeElement.className });
     const out = { before: now() };
+    p.place(700, 400);
     click(p.doc, link, { ctrlKey: true });
     out.newTab = now();
     click(p.doc, link);
     out.on = now();
+    p.place(390, 430);
+    p.resized();
+    out.upright = now();
+    p.one('[data-dl]').focus();
+    p.place(390, 300);
+    p.resized();
+    out.sideways = now();
     (p.doc.listeners.keydown || []).forEach((fn) => fn({ key: 'Escape' }));
     out.off = now();
+    p.resized();
+    out.offResized = now();
     click(p.doc, link);
     p.act().replaceChildren();
     click(p.doc, p.one('.ttl__close'));

@@ -36,9 +36,18 @@
     player.querySelector('.share-player__frame').replaceChildren(video);
     void player.offsetWidth; // so that a player just made fades in too
     hero.classList.add('is-trailer');
-    /* On a phone the buttons are clear of it. */
-    body.inert = player.offsetHeight >= hero.offsetHeight;
+    cover();
     player.querySelector('.ttl__close').focus({ preventScroll: true });
+  }
+
+  /* What the player lies over goes with it; on a phone held upright the buttons can be clear of
+     it, and then they stay of use. */
+  function cover() {
+    var act = hero.querySelector('.share-act');
+    var over = player.getBoundingClientRect().bottom > act.getBoundingClientRect().top;
+    var loses = over && body.contains(document.activeElement);
+    body.inert = over;
+    if (loses) player.querySelector('.ttl__close').focus({ preventScroll: true });
   }
 
   function stop() {
@@ -61,6 +70,9 @@
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') stop();
+    });
+    window.addEventListener('resize', function () {
+      if (hero.classList.contains('is-trailer')) cover();
     });
   }
 

@@ -828,7 +828,18 @@ class TestDownloadPageTrailer:
         link = re.search(r'<a [^>]*data-trailer="dQw4w9WgXcQ"[^>]*>', page)
         assert link and 'href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"' in link[0]
         assert 'rel="noopener noreferrer"' in link[0]
-        assert page.count("youtube") == 1
+        assert set(re.findall(r"[^\"]*youtube[^\"]*", page)) == {
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        }
+
+    @pytest.mark.parametrize("state", [None, "in_library", "tracked", "queued"])
+    def test_every_state_but_on_its_way_has_the_trailer_and_its_script(self, state):
+        page = _template_page(download_state=state, trailer_key="dQw4w9WgXcQ")
+
+        offered = state != "queued"
+        shown = re.sub(r"<template.*?</template>", "", page, flags=re.S)
+        assert ("data-trailer" in shown) is offered
+        assert ("/static/js/share.js" in page) is offered
 
     def test_a_title_with_no_trailer_has_no_button_for_one(self, app_factory, conn, secret_key):
         page = _offer_page(app_factory, conn, secret_key, trailer_key="<script>evil")
