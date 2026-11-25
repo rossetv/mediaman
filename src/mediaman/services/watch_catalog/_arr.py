@@ -12,9 +12,9 @@ import logging
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 import requests
@@ -23,7 +23,14 @@ from mediaman.services.arr import ArrError
 from mediaman.services.arr import build as arr_build
 from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
 from mediaman.services.arr.base import ArrClient
-from mediaman.services.arr.seasons import SeasonQueue, SeasonState, queued_seasons, season_states
+from mediaman.services.arr.seasons import (
+    SeasonQueue,
+    ShowSeasons,
+    queued_seasons,
+    readable_queue,
+    readable_seasons,
+    show_seasons,
+)
 from mediaman.services.arr.state import (
     ACTION_DOWNLOADING,
     ACTION_QUEUED,
@@ -61,6 +68,8 @@ class ArrView:
     #: The generation of the build that made this view; None for one not built here.
     generation: int | None = None
     season_queue: SeasonQueue = field(default_factory=dict)
+    #: The TMDB ids of shows Sonarr gave a season of that cannot be read.
+    odd_shows: frozenset[int] = frozenset()
 
     def is_current(self) -> bool:
         """Whether no invalidate has happened since this view was built."""
@@ -96,15 +105,19 @@ class ArrView:
             None,
         )
 
-    def season_states(
-        self, tmdb_id: int | None, tvdb_id: int | None
-    ) -> dict[int, SeasonState] | None:
-        """The state of each season Sonarr lists of a show; None for one it does not track."""
+    def show_seasons(
+        self, tmdb_id: int | None, tvdb_id: int | None, air_dates: Mapping[int, str | None]
+    ) -> ShowSeasons | None:
+        """What Sonarr has of a show's seasons, as ``seasons.show_seasons``; None for a show it
+        does not track."""
         held = self.caches["sonarr_series"]
-        series = held.get(tmdb_id) if tmdb_id else None
-        if series is None and tvdb_id:
-            series = next((s for s in held.values() if s.get("tvdbId") == tvdb_id), None)
-        return season_states(series, self.season_queue) if series is not None else None
+        key = tmdb_id if tmdb_id in held else None
+        if key is None and tvdb_id:
+            key = self.tmdb_id_for_tvdb(tvdb_id)
+        if key is None:
+            return None
+        found = show_seasons(held[key], self.season_queue, air_dates)
+        return replace(found, whole=found.whole and key not in self.odd_shows)
 
     def seasons_with_files(self, tmdb_id: int) -> set[int]:
         series = self.caches["sonarr_series"].get(tmdb_id, {})
@@ -137,32 +150,53 @@ def _radarr(client: ArrClient | None) -> tuple[RadarrCaches, bool]:
         return build_radarr_cache(None), False
 
 
-class _QueueKept:
-    """A Sonarr client for the cache builder, which keeps no queue by season: keeps the one read."""
+class _SonarrRead:
+    """A Sonarr client for the cache builder: gives it what has the shape it reads, and keeps
+    what the builder has no place for."""
 
     def __init__(self, client: ArrClient) -> None:
         self._client = client
         self.queue: list[ArrQueueItem] = []
+        self.odd_shows: set[int] = set()
 
     def get_series(self) -> list[SonarrSeries]:
-        return self._client.get_series()
+        found = []
+        for series in self._client.get_series():
+            tmdb_id = series.get("tmdbId")
+            seasons, whole = readable_seasons(series)
+            if not whole and isinstance(tmdb_id, int):
+                self.odd_shows.add(tmdb_id)
+            if "seasons" in series and not whole:
+                series = {**series, "seasons": seasons}
+            if tmdb_id is None or isinstance(tmdb_id, int):
+                found.append(series)
+        return found
 
     def get_queue(self) -> list[ArrQueueItem]:
-        self.queue = self._client.get_queue()
+        self.queue = readable_queue(self._client.get_queue())
         return self.queue
 
 
-def _sonarr(client: ArrClient | None) -> tuple[SonarrCaches, SeasonQueue, bool]:
-    """Sonarr's caches, its queue by season, and whether it is set up and answered."""
+@dataclass(frozen=True, slots=True)
+class _Sonarr:
+    caches: SonarrCaches
+    queue: SeasonQueue
+    odd_shows: frozenset[int]
+    answered: bool
+
+
+def _sonarr(client: ArrClient | None) -> _Sonarr:
+    """What Sonarr holds, and whether it is set up and answered."""
+    none = _Sonarr(build_sonarr_cache(None), {}, frozenset(), False)
     if client is None:
-        return build_sonarr_cache(None), {}, False
+        return none
     try:
-        kept = _QueueKept(client)
-        caches = build_sonarr_cache(cast(ArrClient, kept))
-        return caches, queued_seasons(kept.queue), True
+        read = _SonarrRead(client)
+        caches = build_sonarr_cache(cast(ArrClient, read))
+        return _Sonarr(caches, queued_seasons(read.queue), frozenset(read.odd_shows), True)
     except _ARR_ERRORS:
         logger.warning("watch: Sonarr unavailable; titles show no Sonarr state", exc_info=True)
-        return build_sonarr_cache(None), {}, False
+        return none
 
 
 def arr_view(
@@ -229,14 +263,16 @@ def _build(
 ) -> None:
     try:
         radarr, radarr_answered = _radarr(radarr_client)
-        sonarr, season_queue, sonarr_answered = _sonarr(sonarr_client)
+        sonarr = _sonarr(sonarr_client)
     except BaseException as exc:
         _failed(future, generation, exc)
         return
     answering = frozenset(
-        name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr_answered)) if ok
+        name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr.answered)) if ok
     )
-    view = ArrView({**radarr, **sonarr}, answering, generation, season_queue)
+    view = ArrView(
+        {**radarr, **sonarr.caches}, answering, generation, sonarr.queue, sonarr.odd_shows
+    )
     with _lock:
         if _generation[0] == generation:
             _memo["arr"] = (clock() + TTL_S, view)

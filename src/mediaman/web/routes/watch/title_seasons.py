@@ -3,24 +3,33 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from mediaman.services import watch_catalog as catalog
-from mediaman.services.arr.seasons import SeasonState
+from mediaman.services.arr.seasons import ShowSeasons, is_refused_start, is_still_to_air
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository.season_requests import ShowIds, library_seasons, season_refusals
 
-#: A library show's page is quick without Sonarr, so it waits this long for it at most.
-SONARR_WAIT_S = 2.0
+#: A library show's page is quick without Sonarr, so it waits no longer than this for it, from
+#: before it asks Plex.
+SONARR_WAIT_S = 1.0
 
 
-def add_missing_seasons(
-    seasons: Sequence[dict[str, Any]], tmdb_seasons: Sequence[Mapping[str, Any]]
+def begin_arr_view(conn: sqlite3.Connection, secret_key: str) -> Callable[[], catalog.ArrView]:
+    """Begin the Sonarr view, and give what collects it."""
+    due = time.monotonic() + SONARR_WAIT_S
+    catalog.arr_view(conn, secret_key, wait_s=0)
+    return lambda: catalog.arr_view(conn, secret_key, wait_s=max(0.0, due - time.monotonic()))
+
+
+def missing_seasons(
+    seasons: Sequence[Mapping[str, Any]], tmdb_seasons: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
-    """*seasons* of a library show as Plex has them, and those only TMDB knows, by number."""
+    """The seasons of a show only TMDB knows, beside Plex's *seasons* of it."""
     held = {s["number"] for s in seasons}
-    missing = [
+    return [
         {
             **s,
             "in_library": False,
@@ -33,7 +42,6 @@ def add_missing_seasons(
         for s in tmdb_seasons
         if s["number"] not in held
     ]
-    return sorted([*seasons, *missing], key=lambda s: int(s["number"]))
 
 
 def fill_season_status(
@@ -44,35 +52,46 @@ def fill_season_status(
     *,
     tmdb_id: int | None,
     tvdb_id: int | None,
+    tmdb_seasons: Sequence[Mapping[str, Any]] = (),
     download_url: str | None = None,
 ) -> None:
     """Give each season of the show *out* its status, and *out* what asks for more of them."""
-    seasons: list[dict[str, Any]] = out["seasons"]
+    seasons: list[dict[str, Any]] = [*out["seasons"], *out["more_seasons"]]
+    air_dates = {s["number"]: s.get("air_date") for s in tmdb_seasons}
     tmdb_id = tmdb_id or (arr.tmdb_id_for_tvdb(tvdb_id) if tvdb_id else None)
     tvdb_id = tvdb_id or (arr.tvdb_id(tmdb_id) if tmdb_id else None)
-    states = arr.season_states(tmdb_id, tvdb_id)
+    sonarr = arr.show_seasons(tmdb_id, tvdb_id, air_dates)
     show = ShowIds(tmdb_id, tvdb_id, out["title"])
-    refused = season_refusals(conn, show, {s["number"] for s in seasons})
+    numbers = {s["number"] for s in seasons}
+    refused = season_refusals(conn, show, numbers | (sonarr.monitored_seasons if sonarr else set()))
     # A season deleted lately may still be in the last scan.
     removed = {number for number, refusal in refused.items() if refusal == "removed"}
     in_plex = library_seasons(conn, show) - removed | {s["number"] for s in seasons if s["key"]}
-    if states is None:
-        # A show Sonarr does not track is added as any other.
-        refused = {}
     is_admin = get_user_role(conn, username) == "admin"
+    answered = arr.answers_for("tv")
     for season in seasons:
         number = season["number"]
-        state = states.get(number) if states is not None else None
-        season["status"] = _status(season, state, arr.answers_for("tv"), number in in_plex)
-        season["asked"] = state is not None and state.asked
-        refusal: str | None = refused.get(number)
-        if refusal == "removed" and is_admin:
-            refusal = None
-        if states is not None and state is None and season["status"] != "held":
-            refusal = "not_listed"
-        wanted = season["status"] in ("partly_held", "not_asked", "not_out")
-        season["askable"] = wanted and not season["asked"] and refusal is None
-        season["refusal"] = refusal if wanted and not season["asked"] else None
+        state = sonarr.states.get(number) if sonarr else None
+        if number in in_plex and (
+            state is None or state.status in ("asked", "not_asked", "not_out")
+        ):
+            status: str | None = "held"
+        elif state is not None:
+            status = state.status
+        elif not answered or (sonarr is not None and not sonarr.whole):
+            status = None
+        else:
+            status = _tmdb_status(season, air_dates.get(number))
+        asked = state is not None and state.asked
+        refusal = None
+        wanted = status in ("partly_held", "not_asked", "not_out") and not asked
+        if wanted and sonarr is not None:
+            refusal = _refusal(sonarr, refused, number, is_admin=is_admin)
+        season.update(
+            status=status, asked=asked, askable=wanted and refusal is None, refusal=refusal
+        )
+    # A view not built yet, unlike one Sonarr gave no answer for, is there when asked for again.
+    out["seasons_pending"] = arr.generation is None
     if tmdb_id is None:
         return
     body = {"media_type": "tv", "tmdb_id": tmdb_id, "title": out["title"]}
@@ -83,16 +102,26 @@ def fill_season_status(
     )
 
 
-def _status(
-    season: Mapping[str, Any], state: SeasonState | None, answered: bool, in_plex: bool
+def _tmdb_status(season: Mapping[str, Any], air_date: str | None) -> str:
+    still_to_air = is_still_to_air(air_date)
+    # TMDB lists an announced season with no date and no episodes.
+    if still_to_air or (still_to_air is None and season["episode_count"] == 0):
+        return "not_out"
+    return "not_asked"
+
+
+def _refusal(
+    sonarr: ShowSeasons, refused: Mapping[int, str], number: int, *, is_admin: bool
 ) -> str | None:
-    if state is not None and state.status not in ("asked", "not_asked", "not_out"):
-        return state.status
-    if in_plex:
-        return "held"
-    if not answered:
-        return None
-    if state is not None:
-        return state.status
-    # TMDB lists an announced season with no episodes.
-    return "not_out" if season["episode_count"] == 0 else "not_asked"
+    """Why a season of a show Sonarr tracks is not for this person to ask for, if it is not."""
+    if number not in sonarr.states:
+        return "not_listed"
+    refusal = refused.get(number)
+    if refusal == "leaving" or (refusal == "removed" and not is_admin):
+        return refusal
+    started = sonarr.started_with(number)
+    if started and not sonarr.whole:
+        return "show_unmonitored"
+    if is_refused_start(started, refused, (), is_admin=is_admin):
+        return "show_unmonitored"
+    return None

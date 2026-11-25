@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal
+from datetime import date
+from typing import Any, Literal, cast
 
 import requests
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr._transport import ArrError, SearchUnanswered
 from mediaman.services.arr._types import ArrQueueItem, ArrSeason, SonarrSeries
 from mediaman.services.arr.base import ArrClient
@@ -22,12 +24,68 @@ Status = Literal["held", "partly_held", "downloading", "queued", "asked", "not_a
 #: (Sonarr series id, season number) -> what the download queue holds of it.
 SeasonQueue = Mapping[tuple[int, int], QueueState]
 
+_COUNTS = ("episodeFileCount", "episodeCount", "totalEpisodeCount")
+
 
 @dataclass(frozen=True, slots=True)
 class SeasonState:
     status: Status
     #: Sonarr, as set, fetches what is missing of it.
     asked: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ShowSeasons:
+    states: dict[int, SeasonState]
+    #: Whether every season Sonarr gave could be read, so that one not in ``states`` is not listed.
+    whole: bool
+    #: The numbers of the seasons flagged monitored, and whether the show is.
+    monitored_seasons: frozenset[int]
+    monitored: bool
+
+    def started_with(self, number: int) -> set[int]:
+        """The other seasons Sonarr starts fetching when season *number* is added: it fetches
+        nothing of an unmonitored show, and adding one monitors the show."""
+        return set() if self.monitored else set(self.monitored_seasons - {number})
+
+
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_readable(season: object) -> bool:
+    if not isinstance(season, dict) or not _is_count(season.get("seasonNumber")):
+        return False
+    stats = season.get("statistics")
+    return stats is None or (
+        isinstance(stats, dict) and all(_is_count(stats.get(name, 0)) for name in _COUNTS)
+    )
+
+
+def readable_seasons(series: SonarrSeries) -> tuple[list[ArrSeason], bool]:
+    """The seasons of *series* that have the shape they should, and whether all do."""
+    seasons = series.get("seasons")
+    if not isinstance(seasons, list):
+        return [], seasons is None
+    found = [s for s in seasons if _is_readable(s)]
+    return found, len(found) == len(seasons)
+
+
+def readable_queue(queue: Iterable[ArrQueueItem]) -> list[ArrQueueItem]:
+    """The entries of the queue that have the shape they should; of one whose episode alone has
+    not, the rest."""
+    found: list[ArrQueueItem] = []
+    for entry in queue:
+        # Any: foreign JSON, not yet what its type says.
+        raw = cast(dict[str, Any], entry)
+        if not isinstance(raw.get("series") or {}, dict):
+            continue
+        if not all(_is_count(raw.get(name) or 0) for name in ("size", "sizeleft")):
+            continue
+        if not isinstance(raw.get("episode") or {}, dict):
+            raw = {**raw, "episode": {}}
+        found.append(cast(ArrQueueItem, raw))
+    return found
 
 
 def queued_seasons(queue: Iterable[ArrQueueItem]) -> dict[tuple[int, int], QueueState]:
@@ -59,21 +117,25 @@ def queued_seasons(queue: Iterable[ArrQueueItem]) -> dict[tuple[int, int], Queue
     return found
 
 
-def season_states(series: SonarrSeries, queue: SeasonQueue) -> dict[int, SeasonState]:
-    """The state of each season Sonarr lists of *series*."""
-    seasons = series.get("seasons") or []
+def show_seasons(
+    series: SonarrSeries, queue: SeasonQueue, air_dates: Mapping[int, str | None]
+) -> ShowSeasons:
+    """The state of each season Sonarr lists of *series*; *air_dates* is when each first airs
+    as TMDB has it, by number."""
+    seasons, whole = readable_seasons(series)
     # A show just added has no episodes counted yet, which says nothing of what has aired.
     counted = any(_season_stats(s).get("totalEpisodeCount") for s in seasons)
+    series_id = series.get("id")
     states = {}
     for season in seasons:
-        number = season.get("seasonNumber")
-        if number is None:
-            continue
-        in_queue = queue.get((series.get("id") or 0, number))
+        number = season["seasonNumber"]
+        in_queue = queue.get((series_id, number)) if isinstance(series_id, int) else None
+        airs = air_dates.get(number)
         states[number] = SeasonState(
-            _status(series, season, in_queue, counted), is_asked(series, season)
+            _status(series, season, in_queue, counted, airs), is_asked(series, season)
         )
-    return states
+    monitored = frozenset(s["seasonNumber"] for s in seasons if s.get("monitored"))
+    return ShowSeasons(states, whole, monitored, series.get("monitored") is not False)
 
 
 def is_asked(series: SonarrSeries, season: ArrSeason) -> bool:
@@ -81,8 +143,20 @@ def is_asked(series: SonarrSeries, season: ArrSeason) -> bool:
     return series.get("monitored") is not False and bool(season.get("monitored"))
 
 
+def is_still_to_air(air_date: str | None) -> bool | None:
+    """Whether what first airs on *air_date* ("2026-01-31") is still to air; None when unknown."""
+    try:
+        return date.fromisoformat(air_date or "") > now_utc().date()
+    except ValueError:
+        return None
+
+
 def _status(
-    series: SonarrSeries, season: ArrSeason, in_queue: QueueState | None, counted: bool
+    series: SonarrSeries,
+    season: ArrSeason,
+    in_queue: QueueState | None,
+    counted: bool,
+    air_date: str | None,
 ) -> Status:
     if season_on_disk(season):
         return "held"
@@ -90,9 +164,23 @@ def _status(
         return in_queue
     if _season_stats(season).get("episodeFileCount"):
         return "partly_held"
-    if counted and not _season_has_aired(season):
+    if counted and _is_not_out(season, air_date):
         return "not_out"
     return "asked" if is_asked(series, season) else "not_asked"
+
+
+def _is_not_out(season: ArrSeason, air_date: str | None) -> bool:
+    """Whether none of the season has aired. Sonarr's airing dates leave out what is not
+    monitored, so of a season that is not they say nothing; TMDB's date does."""
+    if _season_has_aired(season):
+        return False
+    still_to_air = is_still_to_air(air_date)
+    if still_to_air is not None:
+        return still_to_air
+    stats = _season_stats(season)
+    return not stats.get("totalEpisodeCount") or bool(
+        season.get("monitored") and stats.get("nextAiring")
+    )
 
 
 def add_season(client: ArrClient, series_id: int, number: int) -> bool:
@@ -116,3 +204,11 @@ def add_season(client: ArrClient, series_id: int, number: int) -> bool:
             if s.get("seasonNumber") == number
         )
     return True
+
+
+def is_refused_start(
+    started: Collection[int], refused: Collection[int], named: Collection[int], *, is_admin: bool
+) -> bool:
+    """Whether adding a season to an unmonitored show is refused for the other seasons *started*
+    with it: for any in *refused*, and for any not *named* unless an admin asks."""
+    return any(n in refused or (n not in named and not is_admin) for n in started)

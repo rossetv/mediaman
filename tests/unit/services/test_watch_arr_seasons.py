@@ -53,9 +53,9 @@ def test_the_seasons_come_from_the_one_read_of_the_queue(monkeypatch):
 
     view = catalog.arr_view(None, "k")
 
-    assert view.season_states(77, None)[1].status == "downloading"
-    assert view.season_states(None, 5500)[1].status == "downloading"
-    assert view.season_states(78, None) is None
+    assert view.show_seasons(77, None, {}).states[1].status == "downloading"
+    assert view.show_seasons(None, 5500, {}).states[1].status == "downloading"
+    assert view.show_seasons(78, None, {}) is None
     assert reads == ["queue"]
 
 
@@ -72,9 +72,9 @@ def test_a_page_that_will_not_wait_is_answered_empty_and_the_next_one_has_the_vi
     answered.set()
     later = catalog.arr_view(None, "k", wait_s=5)
 
-    assert (early.answers_for("tv"), early.season_states(77, None)) == (False, None)
+    assert (early.answers_for("tv"), early.show_seasons(77, None, {})) == (False, None)
     assert later.answers_for("tv")
-    assert later.season_states(77, None)[1].status == "downloading"
+    assert later.show_seasons(77, None, {}).states[1].status == "downloading"
 
 
 def test_dropping_the_view_while_sonarr_hangs_piles_up_no_builds(monkeypatch):
@@ -101,3 +101,24 @@ def test_dropping_the_view_while_sonarr_hangs_piles_up_no_builds(monkeypatch):
     # What the hung build read is older than the drop, so it is read anew.
     assert catalog.arr_view(None, "k").answers_for("tv")
     assert len(builds) == 2
+
+
+def test_odd_answers_of_sonarr_are_skipped_and_the_show_is_known_to_have_some(monkeypatch):
+    odd = {**SERIES, "tmdbId": 78, "id": 10, "seasons": [None, *SERIES["seasons"]]}
+    sonarr = SimpleNamespace(
+        get_series=lambda: [SERIES, odd, {"tmdbId": 79, "seasons": "x"}, {"tmdbId": [1]}],
+        get_queue=lambda: [{"series": "x"}, {**QUEUE[0], "episode": 3}, *QUEUE],
+    )
+    monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: sonarr)
+
+    view = catalog.arr_view(None, "k")
+
+    assert view.answers_for("tv")
+    assert view.show_seasons(77, None, {}).states[1].status == "downloading"
+    assert view.state("tv", 78) == ("queued", 0)
+    found = {t: view.show_seasons(t, None, {}) for t in (77, 78, 79)}
+    assert {t: (list(f.states), f.whole) for t, f in found.items()} == {
+        77: ([1], True),
+        78: ([1], False),
+        79: ([], False),
+    }
