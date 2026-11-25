@@ -2398,7 +2398,15 @@
       e.preventDefault();
       return;
     }
-    if (els.ask && els.ask.open) return;
+    if (els.ask && els.ask.open) {
+      /* Safari's own step passes over buttons and links. */
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        var stop = q('[data-ask-continue]');
+        (document.activeElement === stop ? q('[data-ask-back]') : stop).focus();
+      }
+      return;
+    }
     showControls();
     /* Option and Tab is how Safari reaches the buttons. */
     if (e.key === 'Tab') focusByPointer = false;

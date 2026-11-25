@@ -3842,6 +3842,11 @@ const scenarios = {
     key('f');
     out.fullscreens = fullscreens;
     out.focus = doc.activeElement.hasAttribute('data-ask-continue');
+    out.tabs = [1, 2, 3].map(() => {
+      key('Tab');
+      const at = doc.activeElement;
+      return at.hasAttribute('data-ask-back') ? 'back' : at.hasAttribute('data-ask-continue') ? 'continue' : at.tagName;
+    });
     out.heldBehind = holdState(p).shown;
     p.leave();
     out.beacons = p.beacons.length;

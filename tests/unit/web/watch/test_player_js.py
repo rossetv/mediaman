@@ -1008,6 +1008,10 @@ def test_the_question_lets_go_of_the_stream_and_comes_out_of_the_system_s_player
     assert (out["line"], out["fullscreens"], out["skip"]) == ("Next: S2 · E20", 0, True)
 
 
+def test_tab_goes_between_the_two_choices_of_the_question(markup, season):
+    assert run(markup, "ask", pages=season)["tabs"] == ["back", "continue", "back"]
+
+
 def test_a_page_come_back_to_with_the_question_open_starts_nothing(markup, season):
     assert run(markup, "ask", pages=season)["startedByBack"] == 0
 
@@ -1316,14 +1320,14 @@ def test_a_drop_is_no_error_while_there_is_video_left_to_play(markup):
     assert out == {"playing": None, "waiting": None, "late": True, "starts": 1}
 
 
-def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(markup):
-    out = run(markup, "dropped_online")
-    assert (out["atOnce"], out["message"], out["after"]) == (1, True, None)
-    assert (out["plays"], out["paused"]) == (0, True)
 def test_leaving_during_a_drop_saves_the_place_reached(markup):
     assert run(markup, "dropped_left") == [125]
 
 
+def test_coming_online_tries_at_once_and_never_plays_what_the_person_paused(markup):
+    out = run(markup, "dropped_online")
+    assert (out["atOnce"], out["message"], out["after"]) == (1, True, None)
+    assert (out["plays"], out["paused"]) == (0, True)
 
 
 @pytest.mark.parametrize("way", ["message", "asleep", "awake"])
