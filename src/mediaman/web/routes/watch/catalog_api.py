@@ -422,7 +422,6 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "library_ref": None,
         **lib.mark_fields(None, set()),
         "tmdb_ref": None,
-        "level": None,
         "title": "",
         "year": None,
         "year_end": None,
@@ -528,13 +527,11 @@ def _movie_title(
         in_library=True, library_ref=ref, title=movie.title, poster_url=poster_url(movie.key)
     )
     progress = get_progress(conn, username, [movie.key]).get(movie.key)
-    own = seen_titles.person_marks(conn, username)
-    key = title_key("movie", movie.tmdb_id)
     seen = (progress is not None and progress.seen) or (
         movie.key in seen_titles.seen_films(conn, username, libraries)
     )
     out.update(lib.mark_fields(ref, {ref} if seen else set()))
-    out.update(tmdb_ref=tmdb_ref(key), level=own.levels.get(key) if key else None)
+    out["tmdb_ref"] = tmdb_ref(title_key("movie", movie.tmdb_id))
     try:
         item = open_plex(request, conn).get_item(movie.key)
     except PlexError:
@@ -703,10 +700,7 @@ def _show_title(
     )
     counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
     out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
-    title = title_key("tv", listed.tmdb_id)
-    if title is not None:
-        own = seen_titles.person_marks(conn, username)
-        out.update(tmdb_ref=tmdb_ref(title), level=own.levels.get(title))
+    out["tmdb_ref"] = tmdb_ref(title_key("tv", listed.tmdb_id))
     origin = f"/watch#title={ref}"
     try:
         plex = open_plex(request, conn)
@@ -850,7 +844,7 @@ def _title_of_fields(
         out.update(in_library=True, library_ref=library_ref, **lib.mark_fields(library_ref, seen))
     own = seen_titles.person_marks(conn, username)
     title = (kind, tmdb_id)
-    out.update(tmdb_ref=tmdb_ref(title), level=own.levels.get(title))
+    out["tmdb_ref"] = tmdb_ref(title)
     if title in own.seen and library_ref is None:
         latest = latest_season_out(fields, now_utc().date()) if kind == "tv" else None
         out["watched"] = title not in own.partly and (

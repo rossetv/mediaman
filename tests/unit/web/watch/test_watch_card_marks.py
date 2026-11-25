@@ -77,6 +77,10 @@ def _own(card):
     return {name: card[name] for name in NEW}
 
 
+def _marks(title):
+    return title["tmdb_ref"], title["watched"]
+
+
 def _by_title(items):
     return {i["title"]: _own(i) for i in items}
 
@@ -131,7 +135,15 @@ def test_titles_outside_the_library_say_it(marked, tmdb):
     found = marked.get("/api/watch/search/tmdb", params={"q": "glass"}).json()["items"]
     assert _by_title(found) == {"Glass Onion": mine}
     title = marked.get("/api/watch/title/tmdb-movie-12").json()
-    assert (_own(title), title["mark_key"]) == (mine, None)
+    assert (_marks(title), title["mark_key"]) == (("tmdb-movie-12", True), None)
+
+
+def test_a_further_page_of_a_row_says_it(marked, tmdb, monkeypatch):
+    found = {"results": [{"id": 12, "title": "Brand New"}], "total_pages": 9}
+    monkeypatch.setattr(tmdb, "_get", lambda *_a: found)
+    row = {"row": "popular_movies", "page": 2}
+    items = marked.get("/api/watch/discover", params=row).json()["items"]
+    assert _by_title(items)["Brand New"] == {**NEW, "watched": True}
 
 
 def test_a_show_outside_the_library_reads_as_unwatched_once_a_season_is_out(as_user, library, tmdb):
@@ -145,9 +157,9 @@ def test_a_show_outside_the_library_reads_as_unwatched_once_a_season_is_out(as_u
 
 
 def test_a_title_the_library_holds_says_it_and_so_do_its_episodes(marked):
-    assert _own(marked.get("/api/watch/title/movie-100").json()) == FILM
+    assert _marks(marked.get("/api/watch/title/movie-100").json()) == ("tmdb-movie-11", True)
     show = marked.get("/api/watch/title/show-500").json()
-    assert _own(show) == SHOW
+    assert _marks(show) == ("tmdb-tv-44", True)
     assert [s["watched"] for s in show["seasons"]] == [True, True]
     assert all(e["watched"] for e in show["episodes"])
     season = marked.get("/api/watch/title/show-500/season/2").json()
@@ -176,7 +188,7 @@ def test_a_show_half_watched_stays_in_continue_watching_under_its_mark(marked, l
 
     [card] = next(r["items"] for r in page["rows"] if r["id"] == "continue")
     assert (card["mark_key"], card["tmdb_ref"], card["level"]) == ("511", "tmdb-tv-44", 1)
-    assert (page["banner"]["tmdb_ref"], page["banner"]["level"]) == ("tmdb-tv-44", 1)
+    assert page["banner"]["mark_key"] == "511"
 
 
 def test_what_is_leaving_says_it(marked, library):

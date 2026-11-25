@@ -737,7 +737,7 @@ def _banner(
 
 def _mark_banner(banner: dict[str, Any], of: dict[str, Any]) -> None:
     """Give the banner the marks of the card it stands for."""
-    copied = ("watched", "mark_kind", "mark_key", "dismiss_ref", "tmdb_ref", "level")
+    copied = ("watched", "mark_kind", "mark_key", "dismiss_ref")
     banner.update({k: of[k] for k in copied})
 
 
