@@ -193,6 +193,34 @@ def test_open_recipients_follow_the_subscribers_and_keep_what_was_chosen() -> No
     assert out["again"] == [[person(6)], False]
 
 
+def test_recipients_that_cannot_be_read_again_stay_as_they_were_and_say_so() -> None:
+    out = _run("staleRecipients")
+    kept = [["p1@example.com", True], ["p2@example.com", False]]
+    assert out["failed"]["ticks"] == kept
+    assert "out of date" in out["failed"]["note"]
+    assert out["failed"]["subscribers"] == ["p1@example.com", "p2@example.com"]
+    assert len(out["failed"]["errors"]) == 1
+    # the next answer that comes brings the list up to date, and leaves out who was left out
+    assert out["recovered"]["ticks"] == [
+        *kept,
+        ["p3@example.com", False],
+        ["p4@example.com", False],
+    ]
+    assert out["recovered"]["note"] == ""
+    assert len(out["recovered"]["subscribers"]) == 4
+    assert out["failedAgain"]["ticks"] == 4 and out["failedAgain"]["note"]
+    assert out["reopened"] == {"ticks": 3, "note": ""}
+
+
+def test_the_focus_of_a_recipient_taken_off_the_list_goes_to_the_one_beside_it() -> None:
+    assert _run("recipientFocus") == [
+        "recipient-3",
+        "recipient-1",
+        "btn-send-newsletter",
+        "btn-send-newsletter",
+    ]
+
+
 def test_the_page_says_the_libraries_are_loading_until_plex_answers() -> None:
     env = Environment(loader=FileSystemLoader(_TEMPLATE_DIR), autoescape=True)
     html = env.get_template("settings/_sec_libraries.html").render(settings={})

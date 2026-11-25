@@ -8,7 +8,8 @@
  *   - Newsletter send panel (#newsletter-send-panel)
  *     - Open/close toggle (#btn-send-newsletter, #btn-cancel-newsletter)
  *     - Recipient checkbox list with Select all / Select none, kept in step with
- *       the subscribers while the panel is open
+ *       the subscribers while the panel is open; a list that cannot be read again
+ *       stays as it was, and says so (#newsletter-recipient-note)
  *     - Send (#btn-confirm-newsletter, a dialog naming how many people get it,
  *       then POST /api/newsletter/send)
  *
@@ -161,7 +162,9 @@
           .then(function () {
             addSubInp.value = '';
             refreshRecipients();
-            return appendNewSubscribers().catch(loadSubscribers);
+            return appendNewSubscribers().catch(appendNewSubscribers).catch(function () {
+              window.UIFeedback.error('Added ' + email + ', but the list couldn’t be updated. Reload to see them.');
+            });
           })
           .catch(function (err) {
             window.UIFeedback.error(MM.api.messageOf(err, "Couldn't add subscriber."));
@@ -237,6 +240,17 @@
       // Fetch-token guards against a race where the user closes and re-opens
       // the panel before the previous /api/subscribers response arrives.
       var _recipientFetchToken = 0;
+      var recipientNote = document.getElementById('newsletter-recipient-note');
+      var recipientsPainted = false;
+
+      function noteRecipients(text) {
+        if (!recipientNote) return;
+        recipientNote.replaceChildren();
+        if (!text) return;
+        var msg = makeMsg(text, 'err');
+        msg.style.marginTop = '8px';
+        recipientNote.appendChild(msg);
+      }
 
       function loadRecipients(first) {
         var list = document.getElementById('newsletter-recipient-list');
@@ -254,13 +268,16 @@
           })
           .catch(function () {
             if (token !== _recipientFetchToken) return;
-            list.replaceChildren(makeMsg("Couldn't load recipients.", 'err'));
+            if (recipientsPainted) noteRecipients('Couldn’t update this list, so it may be out of date.');
+            else list.replaceChildren(makeMsg("Couldn't load recipients.", 'err'));
           });
       }
 
       function openRecipients() {
         var list = document.getElementById('newsletter-recipient-list');
         if (list) list.replaceChildren();
+        recipientsPainted = false;
+        noteRecipients('');
         loadRecipients(true);
       }
 
@@ -304,8 +321,12 @@
 
       // Those already listed keep their place, their tick and the focus.
       function paintRecipients(list, subs) {
+        recipientsPainted = true;
+        noteRecipients('');
         if (!subs.length) {
+          var hadFocus = list.contains(document.activeElement);
           list.replaceChildren(makeMsg('No active subscribers.'));
+          if (hadFocus) btnSendNL.focus({ preventScroll: true });
           return;
         }
         if (!list.querySelector('.recipient-toggles')) list.replaceChildren(buildToggles(list));
@@ -328,7 +349,13 @@
           }
           before = item;
         });
-        Object.keys(listed).forEach(function (id) { listed[id].remove(); });
+        Object.keys(listed).forEach(function (id) {
+          var item = listed[id];
+          var hadFocus = item.contains(document.activeElement);
+          var beside = item.nextElementSibling || item.previousElementSibling;
+          item.remove();
+          if (hadFocus) beside.querySelector('input, button').focus();
+        });
         clearUnlessSending();
       }
 
