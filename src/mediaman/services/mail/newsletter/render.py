@@ -5,8 +5,12 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from ._types import ScheduledNewsletterItem
+from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem
+
+if TYPE_CHECKING:
+    from jinja2 import Template
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,66 @@ def _get_jinja_env() -> Environment | None:
             logger.exception("Jinja2 environment could not be initialised")
             return None
     return _JINJA_ENV
+
+
+# Gmail cuts a mail at 102 KB, and the unsubscribe link is at its end.
+_MAX_BYTES = 102_000
+# What Mailgun adds to an address when its domain tracks clicks.
+_TRACKING_BYTES = 300
+
+
+def _fits(html: str) -> bool:
+    return len(html.encode()) + html.count("<a ") * _TRACKING_BYTES <= _MAX_BYTES
+
+
+def render_to_fit(
+    template: Template,
+    *,
+    scheduled_items: list[ScheduledNewsletterItem],
+    deleted_items: list[DeletedNewsletterItem],
+    this_week_items: list[NewsletterRecItem],
+    **context: object,
+) -> str:
+    """Render the mail small enough that no client cuts it short.
+
+    A long list of leaving titles shows the soonest as they are and the rest as short rows,
+    then gives up picks and deleted titles, so that each keeps its Keep link. Only when even
+    short rows do not fit are the latest left out, with a link to mediaman.
+    """
+    count = len(scheduled_items)
+    soonest = sorted(scheduled_items, key=lambda item: item["days_left"])
+
+    def render(pictured: int, listed: int, picks: int, gone: int) -> str:
+        items = scheduled_items if pictured >= count else soonest
+        by_category: dict[str, int] = {}
+        shown_picks = []
+        for pick in this_week_items:
+            by_category[pick["category"]] = by_category.get(pick["category"], 0) + 1
+            if by_category[pick["category"]] <= picks:
+                shown_picks.append(pick)
+        return template.render(
+            scheduled_items=items[:pictured],
+            short_items=items[pictured:listed],
+            unlisted_leaving=count - listed,
+            deleted_items=deleted_items[:gone],
+            unlisted_gone=len(deleted_items[gone:]),
+            this_week_items=shown_picks,
+            **context,
+        )
+
+    every = max(len(this_week_items), len(deleted_items))
+    for pictured, others in ((count, every), (12, every), (6, every), (6, 3), (6, 0)):
+        html = render(min(pictured, count), count, others, others)
+        if _fits(html):
+            return html
+    low, high = 0, count
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _fits(render(0, middle, 0, 0)):
+            low = middle
+        else:
+            high = middle - 1
+    return render(0, low, 0, 0)
 
 
 def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool) -> str:

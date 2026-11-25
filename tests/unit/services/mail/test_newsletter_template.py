@@ -14,6 +14,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token, sign_poster_url
 from mediaman.crypto.tokens import generate_keep_token
+from mediaman.services.mail.newsletter.render import render_to_fit
 from mediaman.services.mail.plaintext import html_to_text
 
 
@@ -571,8 +572,8 @@ def test_a_full_disk_still_says_nothing_is_free(env: Environment) -> None:
     assert 'class="track"' in html
 
 
-def test_a_long_mail_is_not_cut_short(env: Environment) -> None:
-    """Gmail cuts a mail at 102 KB, and the unsubscribe link is at its end."""
+def _long_context(leaving: int) -> dict:
+    """A mail of *leaving* titles with links as long as real ones, in no order of deadline."""
     key, site = "k" * 64, "https://mediaman.home.example"
 
     def link(action: str, title: str) -> str:
@@ -587,19 +588,26 @@ def test_a_long_mail_is_not_cut_short(env: Environment) -> None:
         )
         return f"{site}/download/{token}"
 
+    def keep(number: int) -> str:
+        token = generate_keep_token(
+            media_item_id="123456", action_id=number, expires_at=1893456000, secret_key=key
+        )
+        return f"{site}/keep/{token}"
+
     ctx = _full_context()
-    leaving, gone, pick = (
-        ctx[k][0] for k in ("scheduled_items", "deleted_items", "this_week_items")
-    )
+    item, gone, pick = (ctx[k][0] for k in ("scheduled_items", "deleted_items", "this_week_items"))
     poster = site + sign_poster_url("123456", key)
     title = "A Title That Is Forty Characters Long Ok"
-    keep = generate_keep_token(
-        media_item_id="123456", action_id=12345, expires_at=1893456000, secret_key=key
-    )
-    unsubscribe = generate_unsubscribe_token(email="a.long.name@example.com", secret_key=key)
     ctx["scheduled_items"] = [
-        leaving | {"title": title, "poster_url": poster, "keep_url": f"{site}/keep/{keep}"}
-    ] * 24
+        item
+        | {
+            "title": title,
+            "poster_url": poster,
+            "keep_url": keep(10_000 + n),
+            "days_left": n * 7 % leaving,
+        }
+        for n in range(leaving)
+    ]
     ctx["deleted_items"] = [
         gone | {"title": title, "poster_url": poster, "redownload_url": link("redownload", title)}
     ] * 10
@@ -614,10 +622,119 @@ def test_a_long_mail_is_not_cut_short(env: Environment) -> None:
         }
         for category in ("trending", "personal")
     ] * 9
+    unsubscribe = generate_unsubscribe_token(email="a.long.name@example.com", secret_key=key)
     ctx["dashboard_url"] = site
     ctx["unsubscribe_url"] = f"{site}/unsubscribe?token={unsubscribe}"
+    return ctx
+
+
+def _fitted(env: Environment, ctx: dict) -> str:
+    return render_to_fit(env.get_template("newsletter.html"), **ctx)
+
+
+@pytest.mark.parametrize("leaving", [24, 30, 60, 100, 300])
+def test_a_long_mail_ends_before_gmail_cuts_it_even_with_every_link_tracked(
+    env: Environment, leaving: int
+) -> None:
+    ctx = _long_context(leaving)
+
+    html = _fitted(env, ctx)
+
+    tracked = re.sub(r'href="', 'href="' + "t" * 300, html)
+    assert len(tracked.encode()) <= 102_000
+    assert ctx["unsubscribe_url"] in html
+    assert html.endswith("</html>")
+
+
+@pytest.mark.parametrize("leaving", [24, 30, 60, 100])
+def test_every_leaving_title_of_a_long_mail_keeps_its_link(env: Environment, leaving: int) -> None:
+    ctx = _long_context(leaving)
+
+    html = _fitted(env, ctx)
+
+    assert set(re.findall(r'href="([^"]*/keep/[^"]*)"', html)) == {
+        item["keep_url"] for item in ctx["scheduled_items"]
+    }
+    assert "more in mediaman" not in html.split("Gone since")[0]
+    assert html_to_text(html).startswith(f"{leaving} titles are leaving.")
+
+
+def test_a_mail_too_long_for_every_title_lists_the_soonest_and_links_to_the_rest(
+    env: Environment,
+) -> None:
+    ctx = _long_context(300)
+
+    text = html_to_text(_fitted(env, ctx))
+
+    soonest = sorted(ctx["scheduled_items"], key=lambda item: item["days_left"])
+    listed = [item["keep_url"] for item in soonest if item["keep_url"] in text]
+    assert listed == [item["keep_url"] for item in soonest[: len(listed)]]
+    assert len(listed) > 80
+    assert f"and {300 - len(listed)} more in mediaman ({ctx['dashboard_url']})" in text
+    assert f"10 titles, in mediaman ({ctx['dashboard_url']})" in text
+    assert text.startswith("300 titles are leaving.")
+
+
+def test_a_long_mail_shows_the_soonest_with_pictures_and_the_rest_in_short_rows(
+    env: Environment,
+) -> None:
+    ctx = _long_context(24)
+    last = max(ctx["scheduled_items"], key=lambda item: item["days_left"])
+    last |= {"title": "Fargo", "type_label": "TV · Season 2"}
+
+    html = _fitted(env, ctx)
+
+    rows = re.findall(r">(Leaving (?!soon)[^<]*)</(div|span)>", html.split("Picked for you")[0])
+    assert [tag for _, tag in rows] == ["div"] * 12 + ["span"] * 12
+    assert [text for text, _ in rows[:3]] == [
+        "Leaving today",
+        "Leaving tomorrow",
+        "Leaving in 2 days",
+    ]
+    assert "Fargo · Season 2<br>" in html
+    for style in re.findall(r'<a class="link" href="[^"]*/keep/[^"]*" style="([^"]*)"', html):
+        assert "display:inline-block;padding:12px" in style
+    assert html.count("Download again") == 10
+
+
+def test_picks_and_gone_give_way_before_a_leaving_title_does(env: Environment) -> None:
+    html = _fitted(env, _long_context(60))
+
+    assert html.count("/keep/") == 60
+    assert html.count(">Download<") < 18
+    assert html.count(">Download again<") == 3
+    assert "and 7 more in mediaman" in html
+
+
+def test_a_mail_that_fits_is_left_as_it_is(env: Environment) -> None:
+    ctx = _full_context()
+    html = env.get_template("newsletter.html").render(**ctx)
+
+    assert _fitted(env, ctx) == html
+
+
+def test_a_row_without_a_button_keeps_its_gap_on_a_phone(env: Environment) -> None:
+    ctx = _full_context()
+    ctx["scheduled_items"][0]["keep_url"] = ""
+    ctx["deleted_items"][0]["redownload_url"] = ""
 
     html = env.get_template("newsletter.html").render(**ctx)
 
-    assert html.count("<img") == 52
-    assert len(html.encode()) < 100_000
+    assert html.count('class="txt lone"') == 2 and html.count('class="txt"') == 1
+    phone = html.split("@media (max-width:520px){")[1].split("</style>")[0]
+    assert ".item .lead{width:72px !important;padding:0 0 20px !important}" in phone
+    assert phone.index(".item .lone{padding-bottom:20px !important}") > phone.index(".item .txt{")
+
+
+def test_the_leaving_section_says_what_happens_without_keep(env: Environment) -> None:
+    text = html_to_text(env.get_template("newsletter.html").render(**_full_context()))
+
+    assert "or it is deleted when its time is up." in text
+
+
+def test_each_button_names_its_own_font(env: Environment) -> None:
+    html = env.get_template("newsletter.html").render(**_full_context())
+
+    buttons = re.findall(r'<td[^>]*>(?=<a[^>]* style="display:block)', html)
+    assert len(buttons) == 5
+    assert [b for b in buttons if "font-family:" not in b] == []

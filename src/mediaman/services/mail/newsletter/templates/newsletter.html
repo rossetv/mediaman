@@ -31,13 +31,17 @@
 {%- macro rowitem(poster,title,lines,act,pw=72,ph=108) -%}
 <tr><td class="pad" style="padding:0 32px"><table role="presentation" class="item" width="100%" cellpadding="0" cellspacing="0"><tbody class="ib"><tr class="r" valign="top">
 <td class="lead" width="{{ pw }}" style="padding:0 0 20px">{{ m.pic(poster,title,pw,ph) }}</td>
-<td class="txt" style="padding:0 16px 20px;font-size:14px;line-height:20px;{{ m.ff }}"><div class="t1" style="font-size:17px;font-weight:600;line-height:22px;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>{{ lines }}</td>
+<td class="txt{% if not act %} lone{% endif %}" style="padding:0 16px 20px;font-size:14px;line-height:20px;{{ m.ff }}"><div class="t1" style="font-size:17px;font-weight:600;line-height:22px;color:#1d1d1f;{{ m.wrap }}">{{ title }}</div>{{ lines }}</td>
 {%- if act %}<td class="act" align="right" style="padding:0 0 20px">{{ act }}</td>{% endif %}
 </tr></tbody></table></td></tr>
 {%- endmacro -%}
+{%- macro more(line) -%}
+<tr><td class="pad" style="padding:0 32px 20px;font-size:15px;line-height:20px;{{ m.ff }}"><a class="link" href="{{ dashboard_url }}" style="display:inline-block;padding:12px 0;color:#0060c7;font-weight:600">{{ line }}</a></td></tr>
+{%- endmacro -%}
 {{ m.head("Mediaman weekly report") }}
 <body class="bg" style="margin:0;padding:0;background:#f2f2f4">
-{%- set n=scheduled_items|length %}
+{%- set short=short_items|default([]) %}{%- set unlisted=unlisted_leaving|default(0) %}{%- set unlisted_deleted=unlisted_gone|default(0) %}
+{%- set n=scheduled_items|length + short|length + unlisted %}
 {{ m.pre((n ~ (" title is" if n==1 else " titles are") ~ " leaving. Keep what you want to stay." if n else "New picks for the week.")) }}
 <table role="presentation" class="bg" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f2f2f4" style="background:#f2f2f4"><tr><td class="wrap" align="center" style="padding:20px 12px 32px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:separate;{{ m.ff }}">
@@ -45,24 +49,35 @@
 {{ m.brand(report_date) }}
 <tr><td class="card" bgcolor="#ffffff" style="background:#ffffff;border-radius:16px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed">
-{%- if scheduled_items %}
-{{ sec("Leaving soon","Press Keep on anything you want to stay.") }}
+{%- if n %}
+{{ sec("Leaving soon","Press Keep on anything you want to stay, or it is deleted when its time is up.") }}
 {%- for i in scheduled_items %}
 {%- set lines %}<div class="bad" style="margin-top:3px;font-weight:600;color:#b3261e">{{ left(i.days_left) }}</div><div class="t2" style="margin-top:2px;color:#5f5f66">{{ i.type_label }} · {{ by(i.file_size_bytes) }}<br>{% if i.last_watched_info %}{{ i.last_watched_info }}{% else %}Never&nbsp;watched{% endif %}{% if i.added_days_ago is not none %} · {{ added(i.added_days_ago) }}{% endif %}</div>{% if i.is_reentry %}<div class="t2" style="margin-top:4px;font-size:13px;line-height:18px;color:#5f5f66">It was kept before, and that time is up.</div>{% endif %}{% endset %}
 {%- set act %}{% if i.keep_url %}{{ m.btn(i.keep_url,"Keep") }}{% endif %}{% endset %}
 {{ rowitem(i.poster_url,i.title,lines,act) }}
 {%- endfor %}
+{%- if short %}
+<tr><td class="pad t1" style="padding:0 32px 14px;font-size:15px;line-height:20px;color:#1d1d1f;{{ m.wrap }}{{ m.ff }}">
+{%- for i in short %}<div style="margin-top:6px">{{ i.title }}{% if " · " in i.type_label %} · {{ i.type_label.split(" · ")[1] }}{% endif %}<br><span class="bad" style="color:#b3261e">{{ left(i.days_left) }}</span>{% if i.keep_url %} · <a class="link" href="{{ i.keep_url }}" style="display:inline-block;padding:12px 8px;color:#0060c7;font-weight:600">Keep</a>{% endif %}</div>{% endfor -%}
+</td></tr>
+{%- endif %}
+{%- if unlisted %}
+{{ more("and " ~ unlisted ~ " more in mediaman") }}
+{%- endif %}
 {%- endif %}
 {%- set tr=this_week_items|selectattr("category","equalto","trending")|list %}{%- set pe=this_week_items|selectattr("category","equalto","personal")|list %}
 {%- if pe %}{{ picks("Picked for you","AI picks, from what you watched.",pe) }}{% endif %}
 {%- if tr %}{{ picks("Worth a look this week","AI picks, the same for everyone.",tr) }}{% endif %}
-{%- if deleted_items %}
+{%- if deleted_items or unlisted_deleted %}
 {{ sec("Gone since the last mail") }}
 {%- for i in deleted_items %}
 {%- set lines %}<div class="t2" style="margin-top:3px;color:#5f5f66">{% if i.season_number is number %}{{ "Specials" if i.season_number==0 else "Season " ~ i.season_number }} · {% endif %}{% if i.deleted_date %}deleted {{ i.deleted_date }} · {% endif %}{{ by(i.file_size_bytes) }}</div>{% endset %}
 {%- set act %}{% if i.redownload_url %}{{ m.ghost(i.redownload_url,"Download again") }}{% endif %}{% endset %}
 {{ rowitem(i.poster_url,i.title,lines,act,48,72) }}
 {%- endfor %}
+{%- if unlisted_deleted %}
+{{ more("and " ~ unlisted_deleted ~ " more in mediaman" if deleted_items else unlisted_deleted ~ (" title" if unlisted_deleted == 1 else " titles") ~ ", in mediaman") }}
+{%- endif %}
 {%- endif %}
 {%- set t=storage.total_bytes or 1 %}{%- set pct=[(storage.used_bytes/t*100)|round|int,100]|min %}
 <tr><td class="pad hair" style="padding:24px 32px 28px;border-top:1px solid #e3e3e8;{{ m.ff }}">

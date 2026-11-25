@@ -152,3 +152,13 @@ def test_days_left_counts_utc_calendar_days_not_hours(conn, hours_away, expected
 
     assert expected in card
     assert not_expected not in card
+
+
+def test_a_list_too_long_for_one_mail_is_sent_in_short_rows_after_the_soonest(conn):
+    for number in range(100):
+        _queue(conn, f"Title {number:03}", days_into_grace=1, grace_days=10 + number)
+
+    cards = _cards(conn, manual=True)
+
+    assert sorted(cards) == [f"Title {number:03}" for number in range(len(cards))]
+    assert 0 < len(cards) < 100

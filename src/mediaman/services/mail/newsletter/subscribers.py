@@ -16,7 +16,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.watch_catalog import SeenTitles
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
-from .render import _build_subject
+from .render import _build_subject, render_to_fit
 
 if TYPE_CHECKING:
     from jinja2 import Template as _JinjaTemplate
@@ -209,7 +209,8 @@ def _render_for_subscriber(
     _mint_deleted_tokens(subscriber_deleted, email=email, base_url=base_url, secret_key=secret_key)
     _mint_rec_tokens(subscriber_this_week, email=email, base_url=base_url, secret_key=secret_key)
 
-    html = template.render(
+    html = render_to_fit(
+        template,
         report_date=report_date,
         storage=storage,
         reclaimed_week=reclaimed_week,
