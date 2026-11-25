@@ -136,7 +136,7 @@
 
       <div class="player-slot" data-slot="next">
       {% if next %}
-      <a class="player-btn" href="{{ next.href }}" data-next-btn aria-label="Next episode: {{ next.label }}" title="Next episode: {{ next.label }}">
+      <a class="player-btn" href="{{ next.href }}" data-next-btn data-away-idle aria-label="Next episode: {{ next.label }}" title="Next episode: {{ next.label }}">
         {{ icon("i-forward-step") }}
       </a>
       {% endif %}
@@ -226,7 +226,7 @@
     </div>
   </dialog>
 
-  <div class="player-card player-message" data-message role="alert" hidden>
+  <div class="player-card player-message" data-message role="alert" tabindex="-1" hidden>
     <p class="player-card-title" data-message-text></p>
     <p class="player-card-line" data-message-line hidden></p>
     <div class="player-card-actions" data-message-acts hidden></div>

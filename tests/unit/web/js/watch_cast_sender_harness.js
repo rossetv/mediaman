@@ -370,15 +370,17 @@ const scenarios = {
     first.play.keep({ quality: 'low' });
     await w.clock.advance(10000);
     first.close();
-    const stored = JSON.stringify(w.storage);
+    const stored = Object.assign({}, w.storage);
     const other = await open(w, { player: true, account: 'bb22' });
     const otherRoom = await open(w, { account: 'bb22' });
     await w.clock.advance(11000);
+    const left = Object.keys(w.storage);
+    Object.assign(w.storage, stored);
     const unknown = await open(w, { player: true, account: null });
     const seen = [other, unknown].map((p) => [p.way.again('101'), p.way.release('101'), p.sender.holds('101'), p.sender.now()]);
-    const out = { seen, scripts: [other, otherRoom, unknown].map((p) => p.scripts.length), posts: otherRoom.posts, ended: w.tv.ended.slice(), same: JSON.stringify(w.storage) === stored };
+    const out = { seen, scripts: [other, otherRoom, unknown].map((p) => p.scripts.length), posts: otherRoom.posts, ended: w.tv.ended.slice(), left };
     // Nor is what is kept beside it read for another.
-    w.storage[RECORD] = JSON.stringify(Object.assign(JSON.parse(w.storage[RECORD]), { account: 'bb22' }));
+    w.storage[RECORD] = JSON.stringify(Object.assign(JSON.parse(stored[RECORD]), { account: 'bb22' }));
     out.kept = (await other.way.again('101')).stream.keep;
     return out;
   },
@@ -393,21 +395,26 @@ const scenarios = {
     page.listeners.pagehide();
     return { plays: w.tv.loads.length, stored: Object.keys(w.storage) };
   },
-  // The sign-in page is opened in another tab.
+  // The sign-in page is opened in another tab, with and without somebody signed in.
   async signIn() {
     const out = {};
     for (const kind of ['player', 'keeper']) {
-      const w = world();
-      const first = await casting(w);
-      first.play.keep({ quality: 'low' });
-      let page = first;
-      if (kind === 'keeper') { first.close(); page = await open(w); await w.clock.advance(1000); }
-      const local = { removeItem: (k) => { delete w.storage[k]; } };
-      vm.runInNewContext(fs.readFileSync(path.join(JS, 'signed-out.js'), 'utf8'), { window: { sessionStorage: local, localStorage: local } });
-      const stored = Object.keys(w.storage);
-      page.listeners.storage({ key: RECORD, newValue: null });
-      await w.clock.advance(6000);
-      out[kind] = { stored, gone: first.gone, ended: w.tv.ended, after: Object.keys(w.storage), now: page.sender.now() };
+      for (const signedIn of [false, true]) {
+        const w = world();
+        const first = await casting(w);
+        first.play.keep({ quality: 'low' });
+        let page = first;
+        if (kind === 'keeper') { first.close(); page = await open(w); await w.clock.advance(1000); }
+        page.posts.length = 0;
+        const before = Object.keys(w.storage).length;
+        const local = { removeItem: (k) => { delete w.storage[k]; } };
+        const document = { getElementById: (id) => (id === 'tv-remote' && signedIn ? {} : null) };
+        vm.runInNewContext(fs.readFileSync(path.join(JS, 'signed-out.js'), 'utf8'), { window: { document, sessionStorage: local, localStorage: local } });
+        if (Object.keys(w.storage).length !== before) page.listeners.storage({ key: RECORD, newValue: null });
+        const posts = places(page);
+        await w.clock.advance(6000);
+        out[kind + (signedIn ? ' in' : ' out')] = { stored: Object.keys(w.storage).length, gone: first.gone, ended: w.tv.ended, posts, now: !!page.sender.now() };
+      }
     }
     return out;
   },
@@ -1010,6 +1017,27 @@ const scenarios = {
     await w.clock.advance(60000);
     return Object.assign(out, { followed: !!found, saves, after: keeper.posts.length, posts: player.posts, record: !!w.storage[RECORD] });
   },
+  // A page is opened in another tab: somebody else's, the same person's, or nobody's.
+  async signedInOver() {
+    const out = {};
+    for (const kind of ['player', 'keeper']) {
+      for (const [who, account] of [['other', 'bb22'], ['same', 'aa11'], ['empty', ''], ['nobody', null]]) {
+        const w = world();
+        const first = await casting(w);
+        first.play.keep({ quality: 'low' });
+        let page = first;
+        if (kind === 'keeper') { first.close(); page = await open(w); await w.clock.advance(1000); }
+        page.posts.length = 0;
+        const before = JSON.stringify(w.storage);
+        await open(w, { account, joins: false });
+        if (JSON.stringify(w.storage) !== before) page.listeners.storage({ key: RECORD, newValue: w.storage[RECORD] || null });
+        const posts = places(page);
+        await w.clock.advance(6000);
+        out[kind + ' ' + who] = { stored: Object.keys(w.storage).length, gone: first.gone, ended: w.tv.ended, posts, now: !!page.sender.now() };
+      }
+    }
+    return out;
+  },
   // A page with no player, opened while the TV plays.
   async keeper() {
     const w = world();
@@ -1148,7 +1176,7 @@ const scenarios = {
       out[name] = {
         during, answer, loads: w.tv.loads.slice(1).map((l) => [l.url.split('/')[5], l.at, l.autoplay, l.line]), opened: page.opened || [],
         now: now && [now.id, now.state, now.rating_key, now.quality, now.subtitle_id, now.chapters, now.next, now.subtitle_tracks.length], posts: places(page).filter((x) => x[0] !== 'progress'), ended: w.tv.ended,
-        kept: w.storage[RECORD + '.kept'] ? JSON.parse(w.storage[RECORD + '.kept']).stream : null,
+        kept: w.storage[RECORD + '.kept'] ? JSON.parse(w.storage[RECORD + '.kept']).stream : null, busy: RECORD in w.storage && JSON.parse(w.storage[RECORD]).busy,
       };
       return { w, page };
     };
@@ -1184,6 +1212,334 @@ const scenarios = {
     }, { quality: 'low' });
     await run('noTv', (page, w) => { w.tv.answers = false; }, { quality: 'low' });
     await run('lost', (page) => { page.context.over('disconnected'); }, { quality: 'low' });
+    return out;
+  },
+  // A refused change whose old stream is opened again, and what the person does meanwhile.
+  async reopening() {
+    const out = {};
+    for (const then of ['stop', 'stopEarly', 'change', 'changeEarly']) {
+      const w = world();
+      const page = await casting(w);
+      page.play.keep({ quality: 'best' });
+      page.play.leave();
+      await w.clock.advance(1000);
+      const wait = {};
+      let n = 1;
+      page.replies['/api/watch/progress'] = (body) => {
+        if (body.stream_id !== 'st1') return Promise.resolve({});
+        if (then === 'stopEarly') return new Promise((_, reject) => { wait.gone = () => reject({ status: 410 }); });
+        return Promise.reject({ status: 410 });
+      };
+      page.replies['/api/cast/stream'] = (body) => {
+        if (body.quality === 'low') return Promise.reject({ error: 'unreachable', status: 502 });
+        n += 1;
+        const data = { stream_id: 're' + n, url: '/api/cast/re' + n + '/index.m3u8', duration_s: 2000 };
+        if (body.quality === 'best') return new Promise((resolve) => { wait.open = () => resolve(data); });
+        return Promise.resolve(data);
+      };
+      if (then === 'change') w.tv.answers = 'late';
+      const first = refused(page.sender.start({ quality: 'low' }));
+      await settle();
+      const opening = !!wait.open;
+      if (then === 'stopEarly') { page.sender.stop(); wait.gone(); await settle(); }
+      if (then === 'change') { wait.open(); await settle(); }
+      page.posts.length = 0;
+      let second = null;
+      const heard = [];
+      page.sender.on((over) => { if (over) heard.push(over.reason); });
+      if (then === 'stop') page.sender.stop();
+      else if (then !== 'stopEarly') {
+        const answer = w.tv.answer;
+        w.tv.answers = true;
+        second = refused(page.sender.start({ quality: 'medium' }));
+        await settle();
+        w.tv.media[0].say('PLAYING');
+        if (answer) answer();
+      }
+      await settle();
+      if (then !== 'change' && wait.open) { wait.open(); await settle(); }
+      const now = page.sender.now();
+      out[then] = { opening, asked: n - 1, first: (await first).code, second: await second, stopped: page.posts.map((x) => x[0]).filter((u) => /stop$/.test(u)), ended: w.tv.ended, heard, now: now && [now.quality, now.state] };
+    }
+    return out;
+  },
+  // What waits at an episode's end outlives its page.
+  async waits() {
+    const out = {};
+    const pages = (n) => ({ ['/watch/play/' + n]: { 'data-item': JSON.stringify({ rating_key: String(n), title: 'Glass Orchard', subtitle: 'S1 · E' + n }), 'data-next': JSON.stringify({ href: '/watch/play/' + (n + 1), label: 'S1 · E' + (n + 1) }), 'data-start-s': '0' } });
+    let opened = 1;
+    const ready = (page) => {
+      page.pages = Object.assign({}, ...[102, 103, 104, 105, 106].map(pages));
+      page.replies['/api/cast/stream'] = () => { opened += 1; return Promise.resolve({ stream_id: 'st' + opened, url: '/api/cast/t' + opened + '/index.m3u8', duration_s: 2000 }); };
+      return page;
+    };
+    const atEnd = async (w, page) => { w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' }); await settle(); return page; };
+    const make = async () => {
+      const w = world();
+      const page = ready(await casting(w));
+      page.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+      page.play.leave();
+      await w.clock.advance(1000);
+      return { w, page };
+    };
+    const look = (page) => { const n = page.sender.now(); return n && [n.state, n.upnext_in_s, n.still_in_s, n.rating_key, n.title]; };
+
+    // To another page while it counts, and the next one begins there.
+    let t = await make();
+    await atEnd(t.w, t.page);
+    await t.w.clock.advance(4000);
+    t.page.close();
+    let next = ready(await open(t.w));
+    await t.w.clock.advance(500);
+    const taken = look(next);
+    const media = t.w.tv.media;
+    await t.w.clock.advance(7000);
+    t.w.tv.media[0].say('PLAYING');
+    out.load = { taken, then: look(next), ended: t.w.tv.ended, posts: places(next).map((x) => x[0]).filter((x) => x !== 'progress'), auto: JSON.parse(t.w.storage[RECORD]).auto };
+
+    // The receiver has cleared its list.
+    t = await make();
+    await atEnd(t.w, t.page);
+    t.page.close();
+    t.w.tv.media = [];
+    next = ready(await open(t.w));
+    await t.w.clock.advance(500);
+    out.cleared = look(next);
+
+    // A second tab, and back.
+    t = await make();
+    await atEnd(t.w, t.page);
+    const second = ready(await open(t.w));
+    await t.w.clock.advance(500);
+    t.page.listeners.storage({ key: RECORD, newValue: t.w.storage[RECORD] });
+    out.tab = { first: look(t.page), second: look(second), ended: t.w.tv.ended };
+    t.page.listeners.visibilitychange();
+    await t.w.clock.advance(500);
+    second.listeners.storage({ key: RECORD, newValue: t.w.storage[RECORD] });
+    out.back = { first: look(t.page), second: look(second), ended: t.w.tv.ended };
+    await t.w.clock.advance(12000);
+    out.back.loads = t.w.tv.loads.length;
+
+    // Cancelled, still watching, and a count that ran out with no page.
+    for (const kind of ['cancelled', 'still', 'old', 'asked']) {
+      t = await make();
+      if (kind === 'still' || kind === 'asked') await t.w.clock.advance(2 * 3600 * 1000);
+      await atEnd(t.w, t.page);
+      if (kind === 'cancelled') t.page.sender.cancel();
+      t.page.close();
+      if (kind === 'old') await t.w.clock.advance(120000);
+      if (kind === 'asked') await t.w.clock.advance(700000);
+      next = ready(await open(t.w));
+      await t.w.clock.advance(1000);
+      out[kind] = { now: look(next), ended: t.w.tv.ended, loads: t.w.tv.loads.length };
+    }
+
+    // The sitting is counted on across pages.
+    t = await make();
+    let page = t.page;
+    for (let i = 0; i < 4; i++) {
+      await atEnd(t.w, page);
+      if (i === 3) break;
+      await t.w.clock.advance(11000);
+      t.w.tv.media[0].say('PLAYING');
+      await t.w.clock.advance(1000);
+      page.close();
+      page = ready(await open(t.w));
+      await t.w.clock.advance(1000);
+    }
+    out.sitting = look(page)[0];
+
+    // It ended while no page was open.
+    t = await make();
+    t.page.close();
+    t.w.tv.media[0].playerState = 'IDLE';
+    t.w.tv.media[0].idleReason = 'FINISHED';
+    next = ready(await open(t.w));
+    await t.w.clock.advance(30000);
+    out.away = { now: look(next), posts: places(next), ended: t.w.tv.ended };
+
+    // Something else plays on the TV now.
+    t = await make();
+    await atEnd(t.w, t.page);
+    t.page.close();
+    t.w.tv.media = [new Media(t.w.tv, { media: { customData: { stream: 'someone' } }, currentTime: 0 })];
+    next = await open(t.w);
+    await t.w.clock.advance(1000);
+    out.taken = { now: look(next), ended: t.w.tv.ended, record: RECORD in t.w.storage };
+
+    // A start that is slow is one start, and a press on the first tab is heard by one that looks.
+    t = await make();
+    let asked = 0;
+    t.page.replies['/api/cast/stream'] = () => { asked += 1; return new Promise(() => {}); };
+    await atEnd(t.w, t.page);
+    out.holds = t.page.sender.holds('101');
+    await t.w.clock.advance(20000);
+    out.slow = { asked, auto: JSON.parse(t.w.storage[RECORD]).auto };
+    t = await make();
+    await atEnd(t.w, t.page);
+    const looking = await open(t.w, { joins: false });
+    await t.w.clock.advance(1000);
+    t.page.sender.cancel();
+    const stored = JSON.parse(t.w.storage[RECORD]).wait;
+    looking.context.resume();
+    await t.w.clock.advance(1000);
+    out.heard = { stored, now: look(looking).slice(0, 2) };
+
+    // A player's page opens meanwhile.
+    for (const key of ['101', '102', '999']) {
+      t = await make();
+      await atEnd(t.w, t.page);
+      const player = ready(await open(t.w, { player: true }));
+      const answer = player.way.again(key);
+      t.page.listeners.storage({ key: RECORD, newValue: t.w.storage[RECORD] });
+      await t.w.clock.advance(500);
+      out['player ' + key] = { answer, first: t.page.sender.now() && look(t.page).slice(0, 2), here: look(player) && look(player).slice(0, 2), ended: t.w.tv.ended };
+    }
+    return out;
+  },
+  // Stop is pressed on a page that took the wait over; the server saves the end, or refuses.
+  async stopsTakenOver() {
+    const out = {};
+    for (const kind of ['count', 'cancelled', 'still']) {
+      for (const reply of ['saved', 'refused']) {
+        const w = world();
+        const page = await casting(w);
+        page.play.keep({ quality: 'best', next: { rating_key: '102', label: 'S1 · E102' } });
+        page.play.leave();
+        await w.clock.advance(1000);
+        if (kind === 'still') await w.clock.advance(2 * 3600 * 1000);
+        w.tv.media[0].say('IDLE', { idleReason: 'FINISHED' });
+        await settle();
+        if (kind === 'cancelled') page.sender.cancel();
+        page.close();
+        const next = await open(w);
+        if (reply === 'refused') next.replies['/api/watch/stream/st1/stop'] = { status: 502 };
+        await w.clock.advance(500);
+        const before = next.sender.now();
+        const said = await next.sender.stop();
+        out[kind + ' ' + reply] = { state: before && before.state, said: said.saved, at: said.position_s === before.position_s, ended: w.tv.ended, now: next.sender.now(), record: RECORD in w.storage };
+      }
+    }
+    return out;
+  },
+  // A page that only looks, while the page that has it changes its stream or has just seen it end.
+  async looksOnly() {
+    const out = {};
+    for (const kind of ['changing', 'idle', 'dead']) {
+      const w = world();
+      const page = await casting(w);
+      page.play.keep({ quality: 'best' });
+      page.play.leave();
+      await w.clock.advance(1000);
+      if (kind === 'changing') {
+        page.replies['/api/cast/stream'] = () => new Promise(() => {});
+        page.sender.start({ quality: 'low' });
+        await settle();
+      } else {
+        w.tv.media[0].listeners = [];
+        w.tv.media[0].say('IDLE', { idleReason: 'CANCELLED' });
+      }
+      if (kind === 'dead') await w.clock.advance(0);
+      if (kind === 'dead') page.close();
+      const other = await open(w);
+      await w.clock.advance(4000);
+      out[kind] = { now: !!other.sender.now(), ended: w.tv.ended, posts: places(other).map((x) => x[0]), record: RECORD in w.storage };
+    }
+    return out;
+  },
+  // A page was left as it changed its stream; the server takes the old one's saves, then ends it.
+  async leftChangingInTime() {
+    const out = {};
+    for (const [name, first] of [['taken', null], ['outage', { status: 502 }]]) {
+      const w = world();
+      const page = await casting(w);
+      page.play.keep({ quality: 'best' });
+      page.play.leave();
+      await w.clock.advance(1000);
+      page.replies['/api/cast/stream'] = () => new Promise(() => {});
+      page.sender.start({ quality: 'low' });
+      await settle();
+      page.close();
+      const other = await open(w);
+      other.replies['/api/watch/progress'] = first;
+      await w.clock.advance(1000);
+      let asked = 0;
+      other.replies['/api/cast/stream'] = () => { asked += 1; return Promise.resolve({ stream_id: 'st9', url: '/api/cast/t9/index.m3u8', duration_s: 2000 }); };
+      other.replies['/api/watch/progress'] = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410 }) : Promise.resolve({}));
+      await w.clock.advance(11000);
+      out[name] = { asked, loads: w.tv.loads.length, ended: w.tv.ended };
+    }
+    return out;
+  },
+  // A page that is left as it puts another stream on the TV.
+  async leftChanging() {
+    const w = world();
+    const page = await casting(w);
+    page.play.keep({ quality: 'best', next: { rating_key: '102', label: 'x' } });
+    page.play.leave();
+    await w.clock.advance(1000);
+    page.replies['/api/cast/stream'] = () => new Promise(() => {});
+    page.sender.start({ quality: 'low' });
+    await settle();
+    page.close();
+    const other = await open(w);
+    const gone = (body) => (body.stream_id === 'st1' ? Promise.reject({ status: 410 }) : Promise.resolve({}));
+    other.replies['/api/watch/progress'] = gone;
+    const asked = [];
+    other.replies['/api/cast/stream'] = (body) => { asked.push([body.rating_key, body.quality]); return Promise.resolve({ stream_id: 'st9', url: '/api/cast/t9/index.m3u8', duration_s: 2000 }); };
+    await w.clock.advance(1000);
+    w.tv.media[0].say('PLAYING');
+    await w.clock.advance(1000);
+    const now = other.sender.now();
+    await w.clock.advance(11000);
+    const going = !!other.sender.now();
+    // Once: a stream that ends later is over.
+    other.replies['/api/watch/progress'] = { status: 410 };
+    await w.clock.advance(11000);
+    return { asked, now: now && [now.id, now.state, now.quality, now.next && now.next.rating_key], going, loads: w.tv.loads.length, after: other.sender.now(), ended: w.tv.ended };
+  },
+  async sdkFails() {
+    const w = world();
+    const page = await casting(w);
+    page.play.leave();
+    await w.clock.advance(3000);
+    page.posts.length = 0;
+    const boom = () => { throw new Error('boom'); };
+    const ms = w.tv.media[0];
+    ms.getEstimatedTime = boom;
+    w.tv.hangs = true;
+    page.sender.toggle();
+    await settle();
+    const now = page.sender.now();
+    ms.removeUpdateListener = boom;
+    page.context.session.removeEventListener = boom;
+    const end = page.context.session.endSession;
+    page.context.session.endSession = (stop) => { end.call(page.context.session, stop); boom(); };
+    const said = await page.sender.stop();
+    return { now: now && [now.position_s, now.paused], calls: w.tv.calls, said, ended: w.tv.ended, after: page.sender.now(), record: RECORD in w.storage };
+  },
+  async holds() {
+    const w = world();
+    const first = await casting(w);
+    const out = { follows: [first.sender.holds('101'), first.sender.holds('102')] };
+    const other = await open(w, { player: true });
+    out.elsewhere = [other.sender.holds('101'), other.sender.holds(102)];
+    first.close();
+    out.left = other.sender.holds('101');
+    const missed = await open(w, { joins: false });
+    await w.clock.advance(11000);
+    out.notFound = missed.sender.holds('101');
+    missed.close();
+    const keeper = await open(w);
+    out.early = keeper.sender.holds('101');
+    await w.clock.advance(1000);
+    out.keeps = keeper.sender.holds('101');
+    out.seen = other.sender.holds('101');
+    keeper.ctx.document.hidden = true;
+    await w.clock.advance(1000);
+    const crashed = JSON.parse(w.storage[RECORD]);
+    w.storage[RECORD] = JSON.stringify(Object.assign(crashed, { beat: w.clock.now() - 91000 }));
+    out.crashed = other.sender.holds('101');
     return out;
   },
   async otherTwice() {

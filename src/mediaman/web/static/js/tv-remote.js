@@ -37,6 +37,7 @@
   var KEY_SEEK_MS = 300; // after the last press of an arrow
   var HOLD_MS = 15000; // that what the person set is shown without a word of the TV
   var ANSWER_MS = 10000;
+  var CALL_OFF_MS = 10000; // that a TV which was starting is waited for
   var STEP_MS = 1000;
   var EXIT_MS = 250;
   var LEAVE_MS = 150; // --dur-fast
@@ -511,7 +512,7 @@
   /* What starts a stream, and may take long: the steering goes on meanwhile. */
   function start(body) {
     var p = play();
-    if (!p || busy()) return;
+    if (!p || busy() || coming) return;
     var id = tv.id;
     body.play_id = p.play_id;
     starting[id] = true;
@@ -541,7 +542,7 @@
 
   function stop(then) {
     var p = play();
-    if (!p || leaving) return;
+    if (!p || leaving || coming) return;
     var was = { name: name(), ended: p.state === 'ended', play: p };
     leaving = was;
     line = [];
@@ -590,7 +591,9 @@
 
   /* Where it plays, or goes on from where it was: another TV, or here. */
   var handing = false; // a TV is asked for what plays on this one, which ends it here
+  var coming = false; // it comes here once the TV that was starting is stopped
   function choose() {
+    if (coming) return;
     var from = tv;
     var pressed = 0;
     function what() { return onward(about()) || { rating_key: about().rating_key, position_s: 0 }; }
@@ -618,8 +621,16 @@
         if (from && from.id === CAST && t.id !== CAST) sender.stop();
       },
       here: function () {
-        handing = false;
-        bring();
+        coming = true;
+        render();
+        // Away from this page its stop would never be sent.
+        Promise.race([MM.playOn.cancel(), new Promise(function (resolve) { setTimeout(resolve, CALL_OFF_MS); })]).then(function () {
+          var given = handing && !play() && !gone; // the TV has given it up for the one that was starting
+          coming = handing = false;
+          render();
+          if (given) watchHere(onward(about()) || about());
+          else bring();
+        });
       },
     });
   }
@@ -630,7 +641,7 @@
   function busy() { return !!tv && !!starting[tv.id]; }
   function canSteer() {
     var p = play();
-    return !!p && !gone && !isOff() && !leaving && !busy() && tv.on && ['playing', 'paused', 'buffering'].indexOf(p.state) !== -1;
+    return !!p && !gone && !isOff() && !coming && !leaving && !busy() && tv.on && ['playing', 'paused', 'buffering'].indexOf(p.state) !== -1;
   }
   function toggle() {
     if (!canSteer()) return;
@@ -697,7 +708,7 @@
   }
 
   function isLoading(p) { return busy() || p.state === 'starting' || p.state === 'loading'; }
-  function isWaiting(p) { return isLoading(p) || !!leaving || p.state === 'buffering' || (!!wanted('seek') && !keySeek && !drag); }
+  function isWaiting(p) { return coming || isLoading(p) || !!leaving || p.state === 'buffering' || (!!wanted('seek') && !keySeek && !drag); }
   function isLost() { return !!play() && !tv.on && tv.lost_s != null; }
 
   function render() {
@@ -745,7 +756,7 @@
 
     var what = about();
     var title = what.title + (episode(what) ? ' · ' + code(what) : '');
-    var line1 = gone ? (gone.reason === 'lost' ? 'Lost ' : 'Stopped on ') + name() + '. Tap to see why.'
+    var line1 = coming ? 'Bringing it here' : gone ? (gone.reason === 'lost' ? 'Lost ' : 'Stopped on ') + name() + '. Tap to see why.'
       : away ? 'Can’t reach mediaman' : isLost() ? 'Lost ' + name() + '. Tap to see why.'
         : p.state === 'failed' ? 'Can’t play on ' + name()
           : p.state === 'still' ? 'Still watching on ' + name() + '?'
@@ -761,12 +772,12 @@
     setHidden(m('[data-mini-back]'), !steers);
     setHidden(m('[data-mini-play]'), !steers);
     if (steers) setPlayButton(m('[data-mini-play]'), isWaiting(p), isPaused());
-    setHidden(m('[data-mini-stop]'), bad || away);
+    setHidden(m('[data-mini-stop]'), bad || away || coming);
     setHidden(m('[data-dismiss]'), !bad || away);
     var more = m('[data-other]');
     var all = [tv].concat(elsewhere());
     var order = others.map(function (t) { return t.id; }).indexOf(tv.id);
-    setHidden(more, all.length < 2);
+    setHidden(more, all.length < 2 || coming);
     if (!more.hidden) {
       MM.dom.setText(more, (Math.max(0, order) + 1) + '/' + all.length);
       attr(more, 'aria-label', 'Show the next TV, ' + all[1].name);
@@ -774,6 +785,7 @@
   }
 
   function hintFor(p) {
+    if (coming) return 'Stopping the TV that was starting.';
     if (gone) return place_kept('', gone.last).trim() || 'Your place is kept.';
     if (isOff()) return 'The TV may still be playing.';
     if (isLost()) return place_kept('', { position_s: position() }).trim() || 'Your place is kept.';
@@ -788,10 +800,10 @@
 
   function renderRemote(p) {
     var what = about();
-    if (!what || !p && !gone) return;
-    var bad = !!gone || isLost() || isOff();
-    var isEnd = !bad && !!p && p.state === 'ended';
-    var loading = !bad && !!p && isLoading(p);
+    if (!what || !p && !gone && !coming) return;
+    var bad = !coming && (!!gone || isLost() || isOff());
+    var isEnd = !bad && !coming && !!p && p.state === 'ended';
+    var loading = coming || !bad && !!p && isLoading(p);
     MM.dom.setText(els.title, what.title);
     MM.dom.setText(els.subtitle, episode(what) ? code(what, ' · ') + (what.episode_title ? ' · ' + what.episode_title : '') : '');
     setHidden(els.subtitle, !episode(what));
@@ -803,7 +815,7 @@
     root.classList.toggle('is-upnext', upnext);
     root.classList.toggle('is-paused', !bad && !!p && (isPaused() || p.state === 'still'));
     setHidden(els.ring, !loading);
-    MM.dom.setText(els.on, (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
+    MM.dom.setText(els.on, coming ? 'Bringing it here' : (loading ? 'Starting on ' : gone || isLost() ? 'Was playing on '
       : isEnd ? 'Finished on ' : isOff() ? 'Playing on '
         : p.state === 'failed' ? 'Couldn’t play on ' : p.state === 'upnext' ? 'Finished on '
           : isPaused() || p.state === 'still' ? 'Paused on ' : 'Playing on ') + name());
@@ -820,7 +832,7 @@
     els.seek.inert = !steers;
     live.forEach(function (el) { setHidden(el, isEnd); });
     setHidden(els.seekRow, isEnd || !duration());
-    setPlayButton(els.play, !!p && isWaiting(p), !p || isPaused() || p.state === 'still' || p.state === 'upnext');
+    setPlayButton(els.play, coming || !!p && isWaiting(p), !p || isPaused() || p.state === 'still' || p.state === 'upnext');
 
     var chapters = (what.chapters || []).length > 1;
     if (!isEnd) {
@@ -851,10 +863,12 @@
 
     setHidden(els.again, !isEnd);
     setHidden(els.bring, isEnd);
-    els.bring.disabled = !!leaving;
-    els.stop.disabled = !!leaving;
+    els.bring.disabled = els.stop.disabled = !!leaving || coming;
     setHidden(els.playOn, !MM.playOn);
     els.playOn.classList.toggle('is-on', !!p && !bad);
+    // Not disabled, which would lose the focus the sheet gives back to it.
+    [els.playOn, els.bring, els.stop].forEach(function (el) { el.classList.toggle('is-dead', coming); });
+    attr(els.playOn, 'aria-disabled', String(coming));
     MM.dom.setText(els.stop, isEnd ? 'Disconnect' : 'Stop');
     drawMarks(what);
     renderCard(p);
@@ -946,6 +960,7 @@
   }
 
   function cardFor(p) {
+    if (coming) return null;
     var n = name();
     var last = gone && gone.last;
     var here = ['Bring it here', bring];

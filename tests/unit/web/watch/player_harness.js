@@ -5098,7 +5098,21 @@ const scenarios = {
     fire(way.media, 'waiting');
     await settle();
     const out = { lost: awayState(p), inert: p.q('[data-play]').inert, starts: p.starts().length };
-    if (how === 'found') { way.play.lost = false; fire(way.media, 'canplay'); await settle(); }
+    out.endInert = [p.q('[data-away-end]').inert, p.q('[data-next-btn]').inert];
+    out.focus = doc.activeElement === p.q('[data-message]');
+    if (how === 'keys') {
+      const at = way.media.currentTime;
+      key(' '); key('ArrowRight'); p.tick(2000);
+      click(p.q('[data-next-btn]'));
+      await settle();
+      out.keys = { stops: way.stops, moved: way.media.currentTime - at, pages: p.calls.filter((c) => c.page && /502/.test(c.url)).length };
+    }
+    if (how === 'found') {
+      let reached = null;
+      p.q('[data-play]').focus = function () { reached = this.inert; doc.activeElement = this; };
+      way.play.lost = false; fire(way.media, 'canplay'); await settle();
+      out.back = [doc.activeElement === p.q('[data-play]'), reached];
+    }
     if (how === 'here') { click(act(p, 'Bring it here')); await settle(); out.from = p.hlsList[p.hlsList.length - 1].config.startPosition; }
     if (how === 'stop') { click(act(p, 'Stop')); await settle(); }
     out.after = awayState(p);
@@ -5122,7 +5136,7 @@ const scenarios = {
     const out = { lost: awayState(p) };
     const gets = () => p.elsewhere.sent.filter((c) => /tvs\/5$/.test(c.get || '')).length;
     if (how === 'again') { const n = gets(); click(act(p, 'Try again')); await settle(); out.asked = gets() - n; }
-    if (how === 'back') { say = { tv: Object.assign({}, LIVING, { play: play }) }; p.tick(6000); await settle(); }
+    if (how === 'back') { say = { tv: Object.assign({}, LIVING, { play: play }) }; p.tick(6000); await settle(); out.focus = doc.activeElement === p.q('[data-open-remote]'); }
     if (/over/.test(how)) {
       say = { tv: Object.assign({}, LIVING, { play: null, last: { reason: how === 'overTaken' ? 'taken' : 'lost', rating_key: '501', position_s: 88 } }) };
       p.tick(6000); await settle();
@@ -5276,7 +5290,7 @@ const scenarios = {
     state = { available: true, looking: false, trouble: null };
     p.win.MM.playOn.changed(); await settle();
     out.found = rows().filter((r) => r[0] === 'cast');
-    out.held = sheet().style.height;
+    out.held = sheet().style.minHeight;
     p.elsewhere.tvs = [Object.assign({}, BEDROOM, { on: true }), Object.assign({}, LIVING, { id: 11, name: 'New TV' })];
     state = { available: false, looking: false, trouble: null };
     p.tick(5000); await settle();
@@ -5285,8 +5299,49 @@ const scenarios = {
     p.win.MM.playOn.changed(); await settle();
     await pickRow(p, 'cast');
     out.trouble = said();
-    out.freed = sheet().style.height;
+    out.freed = sheet().style.minHeight;
     out.looks = looks;
+    return out;
+  },
+
+  /* The sheet opens before the TVs were ever heard of, and the pointer may be on a row as they come. */
+  async away_first(p) {
+    const how = p.win.serverPlays;
+    let hear;
+    const opened = p.reopen((win) => win.MM.playOn.register(castWay(true)),
+      { gets: [() => new Promise((yes) => { hear = () => yes({ tvs: p.elsewhere.tvs }); })] });
+    await settle();
+    const b = opened.win.MM.playOn.button('/watch/play/501?resume=1', 'btn');
+    doc.body.appendChild(b);
+    click(b);
+    await settle();
+    const rows = () => sheet().querySelectorAll('.play-on__row').map((r) => r.getAttribute('data-key'));
+    const out = { first: rows() };
+    if (how === 'slow') { opened.tick(3100); await settle(); out.slow = rows(); }
+    if (how === 'reopened') {
+      hear();
+      await settle();
+      fire(sheet(), 'pointerleave', { pointerType: 'touch' });
+      opened.win.MM.playOn.close();
+      opened.tick(100);
+      click(b);
+      fire(rowOf('pair'), 'pointerover', { bubbles: true });
+      opened.tick(250);
+      opened.win.MM.playOn.register(Object.assign(castWay(true), { id: 'late' }));
+      await settle();
+      return rows().includes('late');
+    }
+    if (how !== 'plain' && how !== 'slow') fire(rowOf('pair'), 'pointerover', { bubbles: true });
+    hear();
+    await settle();
+    out.heard = rows();
+    out.style = [sheet().style.minHeight, sheet().style.height];
+    fire(sheet(), 'pointerleave', { pointerType: how === 'finger' ? 'touch' : 'mouse' });
+    await settle();
+    out.left = rows();
+    opened.tick(400);
+    await settle();
+    out.later = rows();
     return out;
   },
 
@@ -5326,7 +5381,7 @@ const scenarios = {
     const way = castWay(true);
     const steps = [];
     let now = null;
-    p.win.MM.castSender = { now: () => now, holds: (key) => how === 'otherTab' && key === '501', stop: () => { steps.push('castStop'); return Promise.resolve({}); } };
+    p.win.MM.castSender = { now: () => now, holds: (key) => (how === 'otherTab' || how === 'here') && key === '501', stop: () => { steps.push('castStop'); return Promise.resolve({}); } };
     p.win.MM.tvRemote = { open(id) { steps.push('remote ' + id); }, plays: (key) => how === 'playing' && key === '501' };
     way.start = (what) => { steps.push('start'); way.what = what; return what.open().then((stream) => { way.stream = stream; return way.play; }); };
     way.play.leave = () => { steps.push('leave'); way.left++; };
@@ -5342,6 +5397,10 @@ const scenarios = {
     p.tick(5000);
     await settle();
     if (how === 'here' || how === 'otherTab') now = how === 'here' ? { rating_key: '501' } : null;
+    /* It ended there, or cannot be found: nothing plays it. */
+    if (how === 'waits') now = { rating_key: '501', state: 'upnext' };
+    let take;
+    if (how === 'calledBack') { const open = way.start; way.start = (what) => open(what).then((play) => new Promise((yes) => { take = () => yes(play); })); }
     click(b);
     await settle();
     const rows = () => sheet().querySelectorAll('[data-key]').map((r) => r.getAttribute('data-key') + (r.getAttribute('aria-current') ? '*' : ''));
@@ -5353,6 +5412,8 @@ const scenarios = {
       return out;
     }
     await pickRow(p, how === 'airplay' ? 'airplay' : 'cast');
+    if (take) { await pickRow(p, 'here'); take(); await settle(); }
+    out.stopped = way.stops;
     p.tick(1); await settle();
     out.steps = steps;
     out.went = p.win.location.href;
@@ -5405,6 +5466,7 @@ const scenarios = {
     fire(way.media, 'ended');
     await settle();
     const out = { counts: !gone(p.q('[data-upnext]')) };
+    if (p.win.serverPlays === 'cancel') { out.hint = awayState(p).hint; p.q('[data-upnext-cancel]').focus(); click(p.q('[data-upnext-cancel]')); await settle(); return Object.assign(out, { after: awayState(p).hint, focus: doc.activeElement === p.q('[data-bring]') }); }
     const how = p.win.serverPlays;
     if (how === 'stop') click(p.q('[data-stop-away]'));
     else if (how === 'here') { click(p.q('.player-top').querySelector('[data-play-on]')); await settle(); await pickRow(p, 'here'); }

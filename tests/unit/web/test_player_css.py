@@ -227,7 +227,7 @@ def test_the_end_of_a_title_on_a_tv_leaves_only_what_may_be_done_next() -> None:
     css = _text("_player.css")
     gone = ".player.is-ended .player-seek-row, .player.is-ended .player-controls > :not(.player-away-end)"
     rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
-    assert "display: none" in rules[gone]
+    assert "visibility: hidden" in rules[gone]
 
 
 def test_next_is_named_and_stands_after_the_quality_on_a_tvs_remote() -> None:
@@ -270,6 +270,54 @@ def test_the_page_under_a_tvs_remote_is_laid_out_as_the_remote() -> None:
     stacked = rules[".player.is-on-tv .player-away-end [data-open-remote]:not([hidden])"]
     assert "flex: 1 1 100%" in stacked
     assert "flex-wrap: wrap" in re.search(r"\.player-away-end \{ order: 10;[^}]*", css).group(0)
+
+
+def test_the_page_behind_a_tvs_card_is_dimmed_under_its_bar() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    # No rule takes the dim away while the title plays elsewhere.
+    for selector, body in rules.items():
+        if ".is-away" in selector and ".player-dim" in selector:
+            assert "display: none" not in body
+    assert (
+        float(
+            re.search(
+                r"opacity: ([.\d]+)", rules[".player:is(.is-lost, .is-gone) .player-dim"]
+            ).group(1)
+        )
+        >= 0.5
+    )
+    under = int(re.search(r"z-index: (\d+)", rules[".player.is-away .player-dim"]).group(1))
+    over = rules[".player.is-away :is(.player-top, .player-message)"]
+    assert int(re.search(r"z-index: (\d+)", over).group(1)) > under
+
+
+def test_the_cards_of_a_tvs_remote_stay_between_the_bar_and_the_words() -> None:
+    css = _text("_player.css")
+    rules = {" ".join(s.split()): b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    cards = rules[".player.is-away :is(.player-upnext, .player-rate)"]
+    assert re.search(
+        r"max-height: calc\(100vh - var\(--away-foot, \d+px\) - var\(--away-head", cards
+    )
+    assert "overflow-y: auto" in cards
+    # At no size is one, or the skip button, let down over the controls.
+    for body in re.findall(r"\.player\.is-away [^{}]*player-(?:skip|upnext)\)? \{([^{}]*)\}", css):
+        assert not re.search(r"(?<!-)bottom: \d", body)
+    assert "display: none" in rules[".player.is-away .player-upnext .player-still"]
+
+
+def test_a_control_that_is_off_looks_off_on_a_phone() -> None:
+    css = _text("_player.css")
+    assert not re.search(r"\.is-away \.player-chapters \{[^}]*opacity: 1", css)
+    for selector in re.findall(r"([^{}]+)\{ opacity: 0; visibility: hidden; \}", css):
+        if selector.strip().endswith(".player-chapters"):
+            assert ":not(.is-away)" in selector
+
+
+def test_the_dim_of_the_phones_sheet_leaves_as_the_sheet_does() -> None:
+    css = _text("_play_on.css")
+    assert "opacity: 0" in _rule(css, ".play-on:not([open])::backdrop")
+    assert re.search(r"\.play-on::backdrop \{ transition: opacity[^}]*allow-discrete", css)
 
 
 def test_try_again_in_the_sheet_stands_out_from_its_box() -> None:

@@ -888,7 +888,8 @@
     showSkip();
     swapNotice = null;
     showControls();
-    (card ? els.messageActs.querySelector('button') : again ? els.retry : els.messageBack).focus();
+    /* No button of a card that came by itself: a press meant for the picture is not for it. */
+    (card ? els.message : again ? els.retry : els.messageBack).focus();
   }
 
   /* A choice of a message's, as [what it says, what it does]; the first stands out. */
@@ -901,10 +902,15 @@
     els.messageActs.appendChild(btn);
   }
 
+  /* The first of the controls that are there. */
+  function focusControls() {
+    (!isAway() || swapping ? els.play : onTv() && !els.openRemote.hidden ? els.openRemote : video.ended ? els.bring : els.play).focus();
+  }
+
   function hideMessage() {
     els.play.disabled = false;
     if (!shown(els.message)) return;
-    if (els.message.contains(document.activeElement)) els.play.focus();
+    if (els.message.contains(document.activeElement)) focusControls();
     leave(els.message);
     showPlayState();
   }
@@ -2608,7 +2614,7 @@
     showControls();
     /* Option and Tab is how Safari reaches the buttons. */
     if (e.key === 'Tab') focusByPointer = false;
-    if (e.ctrlKey || e.metaKey || e.altKey || onTv() || opening()) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || onTv() || opening() || lostShown) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
     if (menuOpen()) focusByPointer = false;
@@ -2761,7 +2767,7 @@
      `savedAt` is the place to save this one at, where that is not where it stands. */
   function goNext(byItself, savedAt) {
     if (!byItself) pressedPlay();
-    if (!next || switching || onTv() || opening()) return;
+    if (!next || switching || onTv() || opening() || lostShown) return;
     if (byItself) sitting.count++;
     openNext(byItself, savedAt);
   }
@@ -2883,8 +2889,10 @@
     var card = els.upnext;
     if (!upnextOpen()) return;
     card.classList.remove('is-counting');
-    if (card.contains(document.activeElement)) els.play.focus();
+    var hadFocus = card.contains(document.activeElement);
     leave(card);
+    paintAway();
+    if (hadFocus) focusControls();
     /* What hides it may go on to the next episode at once. */
     if (rateAfterUpnext) setTimeout(function () {
       if (rateAfterUpnext && video.ended && !upnextOpen()) askRating(null);
@@ -2909,6 +2917,7 @@
     els.upnextStatus.textContent = counts
       ? 'Next episode in ' + COUNTDOWN_S + ' seconds. Space or Escape cancels.'
       : 'Next episode: ' + next.label;
+    paintAway();
     showControls();
     if (!counts) return;
     var until = Date.now() + COUNTDOWN_S * 1000;
@@ -3219,7 +3228,7 @@
   window.addEventListener('resize', keepOffSkip);
 
   /* Whether the card can be seen: a small window has no room for it and the next episode's. */
-  function roomForRating() { return !tight.matches || !upnextOpen(); }
+  function roomForRating() { return !upnextOpen() || !tight.matches && !(isAway() && window.innerWidth < 1200); }
 
   function showRating(held, goOn) {
     var text = 'How was ' + (held.season ? 'season ' + held.season + ' of ' : '') + held.title + '?';
@@ -3257,7 +3266,7 @@
     rating.destroy();
     rating = null;
     els.rateStatus.textContent = '';
-    if (els.rate.contains(document.activeElement)) els.play.focus();
+    if (els.rate.contains(document.activeElement)) focusControls();
     leave(els.rate);
   }
 
@@ -3862,7 +3871,7 @@
     var tv = onTv() ? away.tv : null;
     var acts = [['Bring it here', bringHere], ['Stop', stopAway]];
     if (tv) acts.unshift(['Try again', lookAtTv]);
-    showMessage(awayName() + ' stopped answering', bringHere, {
+    showMessage(awayName() + ' stopped answering', null, {
       line: LOST_LINES[!tv ? 'way' : tv.kind === 'older' ? 'older' : 'tv'], acts: acts,
     });
   }
@@ -3945,11 +3954,15 @@
     img.addEventListener('load', function () { img.hidden = false; });
   });
 
-  /* What stands over the picture of where it plays keeps clear of the words under it. */
+  var lowScreen = window.matchMedia('(max-height: 520px)');
+  /* What stands over the picture of where it plays keeps clear of the bar and of the words under it. */
   function placeCards() {
     if (!isAway()) return;
-    var r = q('.player-away-say').getBoundingClientRect();
-    root.style.setProperty('--away-foot', Math.max(12, Math.round(window.innerHeight - r.top + 14)) + 'px');
+    /* On a low screen the words give way to them. */
+    var under = q(lowScreen.matches ? '.player-bottom' : '.player-away-say').getBoundingClientRect();
+    var bar = q('.player-top').getBoundingClientRect();
+    root.style.setProperty('--away-foot', Math.max(12, Math.round(window.innerHeight - under.top + (lowScreen.matches ? 0 : 14))) + 'px');
+    root.style.setProperty('--away-head', Math.max(0, Math.round(bar.bottom)) + 'px');
   }
   els.away.addEventListener('animationend', placeCards);
   window.addEventListener('resize', placeCards);
@@ -3969,8 +3982,9 @@
     root.classList.toggle('is-ended', ended && !tv);
     root.classList.toggle('is-away-paused', paused);
     root.classList.toggle('is-lost', lost);
-    showLost(lost);
     root.querySelectorAll('[data-away-idle]').forEach(function (el) { el.inert = opening() || lost || over; });
+    els.awayEnd.inert = lost;
+    showLost(lost);
     if (!on) return;
     var says = begins ? 'Starting on ' : ended ? 'Finished on ' : paused ? 'Paused on ' : 'Playing on ';
     if (failed) says = 'Couldn’t play on ';
@@ -3980,12 +3994,14 @@
     if (lost || over) hint = 'Your place is saved at ' + fmt(position()) + '.';
     else if (failed) hint = tv.kind === 'older' && tv.play.error === 'tv' ? BAD_FILE : 'Your place is kept.';
     else if (begins) hint = 'Starting. This can take a few seconds.';
+    else if (ended && upnextOpen()) hint = autoplay && countdownTimer !== null ? 'Keep this page open for the next episode.' : awayName() + ' waits for you to choose.';
     else if (ended) hint = awayName() + ' is ready for something else.';
     else if (tv && !isThis(tv.play)) hint = 'It plays ' + [tv.play.title, tv.play.episode_title].filter(Boolean).join(', ') + ' now.';
     else if (away.play && away.play.carriesOn) hint = 'You can leave this page. The TV carries on.';
     else if (away.play) hint = 'Keep this page open. ' + away.way.label + ' stops when you leave it.';
     setText(els.awayHint, hint);
     setText(els.bring, ended && !tv ? 'Play again' : 'Stop and bring it here');
+    if (ended && !tv && !els.bring.firstElementChild) els.bring.insertBefore(MM.dom.icon('i-rotate-right'), els.bring.firstChild);
     setText(els.stopAway, ended && !tv ? 'Disconnect' : 'Stop');
     placeCards();
   }
