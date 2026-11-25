@@ -279,10 +279,12 @@
    out side-by-side. Values are read from the `settings` dict in the caller's
    scope, which is passed in via the `settings` arg.
 
+   `extra` is markup under the fields, from a {% set %} block.
+
    The `sub` slot is treated as trusted HTML (passed through inp_secret /
    fld macros which `|safe`-pipe it); never feed user-supplied strings in.
 #}
-{% macro service_card(service, glyph, glyph_kind, title, sub="", fields=none, settings=none, include_test=true) -%}
+{% macro service_card(service, glyph, glyph_kind, title, sub="", fields=none, settings=none, include_test=true, extra="") -%}
 {% call intg_card(service, glyph, glyph_kind, title, sub, include_test=include_test) %}
   {% for row in (fields or []) %}
   <div class="fld-row{% if row|length == 1 %} fld-row--full{% endif %}">
@@ -302,6 +304,7 @@
     {% endfor %}
   </div>
   {% endfor %}
+  {{ extra }}
 {% endcall %}
 {%- endmacro %}
 
