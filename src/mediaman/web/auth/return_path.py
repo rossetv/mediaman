@@ -10,7 +10,8 @@ _MAX_LENGTH = 2048
 # Printable ASCII but ``#`` and the backslash, which browsers read as a slash.
 _LOCAL_RE = re.compile(r"/[!\"$-\[\]-~]*")
 
-# Not pages: calls, files, sign-in itself, and the list's fragment.
+# Not pages: calls, files, sign-in itself, and the list's fragment. A GET route that acts on a
+# visit must be added: signing in would follow a link to it.
 _NOT_PAGES = re.compile(r"/(?:api|static|login|watch/list|healthz|readyz)(?:/|$)")
 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
