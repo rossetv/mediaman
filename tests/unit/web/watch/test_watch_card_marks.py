@@ -242,28 +242,24 @@ def test_a_show_outside_the_library_with_a_part_taken_back_is_not_watched(as_use
     assert as_user("viewer").get("/api/watch/title/tmdb-tv-77").json()["watched"] is False
 
 
-def test_an_episode_played_in_plex_is_not_counted_twice_under_a_mark(marked, library):
+def test_a_play_in_plex_counts_beside_the_episodes_a_mark_covers_and_not_twice(marked, library):
+    part = seen_titles.ShowPart("500", 1, 2, {1: frozenset({1, 2})})
+    user_id = ratings.find_user_id(library, "viewer")
+    seen_titles.change_part(library, user_id, ("tv", 44), part, seen=False)
     library.execute(
         "INSERT INTO plex_links (username, plex_account_id, server_account_id, plex_name,"
         " server_id, linked_at) VALUES ('viewer', 1, 1, 'v', 's', '2026')"
     )
-    library.execute(
-        "INSERT INTO plex_plays (username, rating_key, show_rating_key, media_type, title,"
-        " viewed_at, history_key) VALUES ('viewer', '511', '500', 'tv', 'E1', '2026', 'h')"
-    )
-    library.commit()
-    save_progress(
-        library,
-        username="viewer",
-        rating_key="512",
-        media_item_id="501",
-        show_rating_key="500",
-        position_s=600,
-        duration_s=3000,
-        played_s=600,
-        now=now_utc(),
-    )
 
-    held = asked.held_library(library, "viewer", ["1"], LibraryIndex())
+    def watched_once_played(episode):
+        library.execute(
+            "INSERT INTO plex_plays (username, rating_key, show_rating_key, media_type, title,"
+            " viewed_at, history_key) VALUES ('viewer', :key, '500', 'tv', 'E', '2026', :key)",
+            {"key": episode},
+        )
+        library.commit()
+        held = asked.held_library(library, "viewer", ["1"], LibraryIndex())
+        return held.is_watched("show-500", 1)
 
-    assert held.is_watched("show-500", 1) is False
+    assert watched_once_played("511") is False  # which the mark covers
+    assert watched_once_played("512") is True

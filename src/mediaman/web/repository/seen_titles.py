@@ -12,6 +12,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
+from mediaman.db import write_transaction
 from mediaman.web.repository.ratings import RatedTitle
 from mediaman.web.repository.watch_progress import NEVER_PLAYED, WatchProgress
 
@@ -139,20 +140,24 @@ def mark(
     episodes: Mapping[int, Collection[int]] | None = None,
 ) -> SeenChange:
     """Mark *title* watched, a show up to *through_season* or the season it is marked up to
-    already if later: whole, or of the seasons in *episodes* those numbers. A name already held
-    is kept when *title* has none. Marked so already, nothing is written."""
+    already if later: whole, or of the seasons in *episodes* those numbers, but for one marked
+    whole before. A name already held is kept when *title* has none. Marked so already, nothing
+    is written."""
     key = (title.media_type, title.tmdb_id)
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         before = get_mark(conn, user_id, key)
         if before is not None and through_season is not None:
             through_season = max(through_season, before.through_season or 0)
+        reached = (before.through_season or 0) if before is not None else 0
         reach = dict(before.episodes) if before is not None and in_library else {}
         if in_library and through_season is not None:
             # What the library did not hold was not meant.
-            first = (before.through_season or 0) + 1 if before is not None else 1
-            reach |= {season: frozenset() for season in range(first, through_season + 1)}
-        reach |= {season: frozenset(numbers) for season, numbers in (episodes or {}).items()}
+            reach |= {season: frozenset() for season in range(reached + 1, through_season + 1)}
+        reach |= {
+            season: frozenset(numbers)
+            for season, numbers in (episodes or {}).items()
+            if season in reach
+        }
         after = SeenMark(
             through_season,
             reach,
@@ -172,8 +177,7 @@ def mark(
 
 def unmark(conn: sqlite3.Connection, user_id: int, title: RatedTitle) -> SeenChange:
     key = (title.media_type, title.tmdb_id)
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         before = get_mark(conn, user_id, key)
         _write(conn, user_id, key, None)
     return SeenChange(user_id, key, before, None)
@@ -184,8 +188,7 @@ def change_part(
 ) -> SeenChange | None:
     """Take a part of a marked show back, or give back with *seen* what was; None when the mark
     does not reach it or it is so already. With nothing left of it the mark goes."""
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         before = get_mark(conn, user_id, key)
         through = (before.through_season or 0) if before else 0
         if before is None or part.season > through:
@@ -201,9 +204,13 @@ def change_part(
             episodes[part.season] = reached | one
             if not listed:
                 del episodes[part.season]
-            partly = before.partly and any(
-                not numbers <= episodes.get(season, numbers)
-                for season, numbers in part.listed.items()
+            partly = before.partly and (
+                any(
+                    not numbers <= episodes.get(season, numbers)
+                    for season, numbers in part.listed.items()
+                )
+                # One the library has dropped since can no longer be given back.
+                or any(not n and season not in part.listed for season, n in episodes.items())
             )
         else:
             if part.episode is not None and part.episode not in held:
@@ -219,12 +226,14 @@ def change_part(
     return SeenChange(user_id, key, before, after)
 
 
-def restore(conn: sqlite3.Connection, change: SeenChange) -> None:
-    """Put the mark back as it was before *change*, unless it was changed again since."""
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
-        if get_mark(conn, change.user_id, change.key) == change.after:
-            _write(conn, change.user_id, change.key, change.before)
+def restore(conn: sqlite3.Connection, change: SeenChange) -> bool:
+    """Put the mark back as it was before *change*, unless it was changed again since; returns
+    whether it was put back."""
+    with write_transaction(conn):
+        if get_mark(conn, change.user_id, change.key) != change.after:
+            return False
+        _write(conn, change.user_id, change.key, change.before)
+    return True
 
 
 def _write(conn: sqlite3.Connection, user_id: int, key: TitleKey, mark: SeenMark | None) -> None:
@@ -299,7 +308,9 @@ def covered_seasons(
     show_key: str | None = None,
 ) -> list[CoveredSeason]:
     """The seasons of the library's shows (or only of *show_key*) that *username*'s marks of
-    the shows cover: what a mark reaches, less the episodes whose own row says otherwise. An episode Plex has no number of is never covered."""
+    the shows cover: what a mark reaches, less the episodes whose own row says for itself: any
+    under a mark made in the library, else one seen. An episode Plex has no number of is never
+    covered."""
     # rationale: _SHOWS is a fixed string; every value is bound
     rows = conn.execute(  # nosec B608
         f"{_SHOWS} SELECT held.id, held.show_rating_key, held.season_number, held.episode_keys,"
@@ -318,7 +329,7 @@ def covered_seasons(
     by_episode: dict[str, sqlite3.Row] = {}
     by_season: dict[str, list[sqlite3.Row]] = {}
     for p in conn.execute(
-        "SELECT rating_key, media_item_id, watched, seen_at, updated_at FROM watch_progress"
+        "SELECT rating_key, media_item_id, watched, seen_at FROM watch_progress"
         " WHERE username = :name AND (rating_key IN (SELECT value FROM json_each(:episodes))"
         " OR media_item_id IN (SELECT value FROM json_each(:seasons)))",
         {
@@ -340,8 +351,7 @@ def covered_seasons(
         own = {
             p["rating_key"]: bool(p["watched"] or p["seen_at"])
             for p in held
-            # A row only left by a mark taken back is older than a mark made outside the library.
-            if r["in_library"] or p["watched"] or p["seen_at"] or p["updated_at"] > NEVER_PLAYED
+            if r["in_library"] or p["watched"] or p["seen_at"]
         }
         episodes = frozenset(
             key
@@ -349,7 +359,8 @@ def covered_seasons(
             if key not in own and number is not None and (reach is None or number in reach)
         )
         if listed is None:
-            whole = reach is None and all(own.values())
+            # A mark made in the library left a row of each episode it reaches.
+            whole = (reach is None or 0 < len(reach) <= len(own)) and all(own.values())
         else:
             whole = all(key in episodes or own.get(key) for key in listed)
         found.append(CoveredSeason(r["id"], r["show_rating_key"], episodes, whole, r["seen_at"]))
@@ -368,9 +379,12 @@ def with_covered(
     show_key: str,
     progress: Mapping[str, WatchProgress],
 ) -> dict[str, WatchProgress]:
-    """*username*'s *progress* on one show's episodes, with those seen by a mark of the show."""
+    """*username*'s *progress* on one show's episodes, with those seen by a mark of the show. One
+    begun keeps its place."""
     return dict(progress) | {
-        key: WatchProgress(
+        key: replace(progress[key], seen_at=season.seen_at)
+        if key in progress and progress[key].played
+        else WatchProgress(
             key, season.season_id, show_key, 0.0, 0.0, True, NEVER_PLAYED, season.seen_at
         )
         for season in covered_seasons(conn, username, libraries, show_key=show_key)

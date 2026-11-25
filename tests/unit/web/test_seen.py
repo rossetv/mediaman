@@ -4,6 +4,7 @@ together with the library's marks once a title joins it."""
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -377,13 +378,11 @@ class TestJoiningTheLibrary:
 
         assert not _show(conn).watched
 
-    def test_an_episode_begun_again_is_not_seen_until_it_ends(self, client, conn):
+    @pytest.mark.parametrize("listed", [True, False])
+    def test_a_show_begun_again_stays_watched(self, client, conn, listed):
         client.put(f"{BASE}/tmdb-tv-44")
-        _season(conn, 1, ["511", "512"])
-        _play(conn, "511")
-        assert (_show(conn).watched, _show(conn).left) == (False, 1)
-
-        _play(conn, "511", position=3000.0)
+        _season(conn, 1, ["511", "512"], listed=listed)
+        _play(conn, "511", position=5.0)
 
         assert _show(conn).watched
 
@@ -396,8 +395,8 @@ class TestJoiningTheLibrary:
 
         read = seen_titles.with_covered(conn, "aoife", LIBS, "500", held)
 
-        assert {key: row.seen for key, row in read.items()} == {"511": False, "512": True}
-        assert read["511"] == held["511"]
+        assert {key: row.seen for key, row in read.items()} == {"511": True, "512": True}
+        assert replace(read["511"], seen_at=None) == held["511"]
         assert not read["512"].played
 
 
@@ -435,6 +434,23 @@ class TestMarkedInTheLibrary:
             _season(conn, number, [f"5{number}1"])
 
         assert [_show(conn).seasons[n].watched for n in (1, 2, 3)] == [True, False, True]
+
+    def test_a_season_marked_whole_before_stays_whole(self, conn, as_user):
+        user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
+        seen_titles.mark(conn, user, title, 2, NOW, in_library=False)
+
+        seen_titles.mark(conn, user, title, 3, NOW, in_library=True, episodes={1: {1}, 3: {1}})
+
+        assert _mark_of(conn).episodes == {3: {1}}
+
+    def test_a_season_not_listed_is_watched_by_as_many_episodes_as_were_marked(self, conn, as_user):
+        _season(conn, 1, [], listed=False)
+        self._mark(conn, 1, 2)
+        assert _show(conn).watched
+
+        unmark_watched(conn, "aoife", "episode", "512")
+
+        assert not _show(conn).watched
 
     def test_taking_back_an_episode_it_never_reached_leaves_it(self, conn, as_user):
         self._mark(conn, 1)
@@ -582,9 +598,9 @@ class TestGuards:
         _season(conn, 1, ["511", "512"])
         mark_watched(conn, "aoife", [MarkTarget("511", "501", "500", 0)], NOW)
         unmark_watched(conn, "aoife", "episode", "511")
-        seen_titles.mark(
-            conn, find_user_id(conn, "aoife"), RatedTitle("tv", 44), 1, NOW, in_library=in_library
-        )
+        user, title = find_user_id(conn, "aoife"), RatedTitle("tv", 44)
+        reach = {1: {1, 2}} if in_library else None
+        seen_titles.mark(conn, user, title, 1, NOW, in_library=in_library, episodes=reach)
 
         assert _show(conn).watched is not in_library
 
