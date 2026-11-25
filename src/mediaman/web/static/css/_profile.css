@@ -61,6 +61,7 @@
 .setg-pg.profile-pg .setg-fold-inner,
 .setg-pg.profile-pg .setg-fold.is-moving > .setg-fold-inner { overflow: clip; padding-inline: 6px; margin-inline: -6px; }
 #account-email-fold { margin-bottom: -6px; }
+#account-email-fold.is-shut { margin-bottom: 0; }
 .me-acts--end { padding-bottom: 6px; }
 #account-open-password { transition: opacity var(--dur) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 #account-open-password.is-gone { opacity: 0; visibility: hidden; }
