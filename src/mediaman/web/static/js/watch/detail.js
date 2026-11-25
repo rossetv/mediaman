@@ -1852,7 +1852,7 @@
     if (!cur.picks || cur.picksFor !== whole) {
       cur.picks = {};
       cur.picksFor = whole;
-      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s) && !ahead(s)) cur.picks[s.number] = true; });
+      if (whole) allSeasons(d).forEach(function (s) { if (canPick(d, s) && !toCome(s)) cur.picks[s.number] = true; });
     }
     return cur.picks;
   }
@@ -2014,7 +2014,7 @@
   function airs(s) { return new Date(/^\d{4}-\d{2}-\d{2}$/.test(s.air_date || '') ? s.air_date + 'T12:00:00Z' : NaN); }
 
   /* Whether a season is still to come out; without its status, as TMDB has it. */
-  function ahead(s) {
+  function toCome(s) {
     if (s.status) return s.status === 'not_out';
     var at = airs(s).getTime();
     return isNaN(at) ? s.episode_count === 0 : at > Date.now();
@@ -2044,7 +2044,7 @@
     }
     if (no) return { name: 'none', icon: 'i-lock', text: no };
     if (d.seasons_pending && !s.status) return { name: 'none', icon: 'i-check', text: 'Checking…' };
-    if (!s.status && ahead(s)) return { name: 'none', icon: 'i-check', text: outOn(s) };
+    if (!s.status && toCome(s)) return { name: 'none', icon: 'i-check', text: outOn(s) };
     return { name: 'none', icon: 'i-check', text: count || (s.status || canPick(d, s) ? '' : 'Not here') };
   }
 
@@ -2239,7 +2239,7 @@
     var parts = [];
     function part(n, after) { if (n) parts.push([plural(n, 'season', 'seasons'), after]); }
     var picked = allSeasons(d).filter(function (s) { return pickedSeasons(d).indexOf(s.number) >= 0; });
-    var later = picked.filter(ahead).length;
+    var later = picked.filter(toCome).length;
     var when = later === 1 ? ' when it is out' : ' when they are out';
     part(picked.length - later, ' will be downloaded');
     if (later && later < picked.length) parts.push([later + ' more', when]);
