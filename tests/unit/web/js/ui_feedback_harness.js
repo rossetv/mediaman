@@ -232,5 +232,18 @@ const onPhone = () => ({
   undoStays: stays(['1 Undo', 'a', 'b'], true),
   errorStays: stays(['1 Undo', 'Error', '2 Undo'], true),
 });
-const scenarios = { pressed, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
+/* Which toasts' buttons are told with the shortcut, and which one Ctrl+Z presses, as each of *labels* has come in turn. */
+function shortcut(labels) {
+  const { doc, ui } = page();
+  const pressed = [];
+  labels.forEach((label) => {
+    const button = ui.toast('t', { action: { label, onClick: () => pressed.push(label) } }).querySelector('.ui-toast__action');
+    button.click = () => button.listeners.click.forEach((fn) => fn({}));
+  });
+  const told = doc.querySelectorAll('.ui-toast__action').map((b) => [b.getAttribute('aria-label') || b.textContent, b.getAttribute('aria-keyshortcuts')]);
+  (doc.listeners.keydown || []).forEach((fn) => fn({ key: 'z', ctrlKey: true, target: doc.body, preventDefault() {} }));
+  return { told, pressed };
+}
+const shortcuts = () => ({ other: shortcut(['Try again']), undoThenOther: shortcut(['Undo', 'Try again']), undos: shortcut(['Undo', 'Undo']) });
+const scenarios = { pressed, shortcuts, named, bar, held, stray, fullscreen, onPhone, stacked: () => Promise.all([stacked(1), stacked(0), stacked(null)]) };
 Promise.resolve(scenarios[process.argv[2]]()).then((out) => console.log(JSON.stringify(out)));

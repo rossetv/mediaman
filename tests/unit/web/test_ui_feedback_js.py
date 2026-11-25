@@ -110,3 +110,14 @@ def test_at_most_two_toasts_on_a_phone_where_a_new_undo_takes_the_place_of_the_o
         "undoStays": ["1 Undo", "b"],
         "errorStays": ["1 Undo", "2 Undo"],
     }
+
+
+def test_the_undo_shortcut_is_told_and_pressed_for_the_newest_undo_and_no_other_action() -> None:
+    out = _run("shortcuts")
+    assert out["other"] == {"told": [["Try again", None]], "pressed": []}
+    assert out["undoThenOther"] == {
+        "told": [["Undo (Ctrl+Z)", "Control+Z Meta+Z"], ["Try again", None]],
+        "pressed": ["Undo"],
+    }
+    assert out["undos"]["told"] == [["Undo", None], ["Undo (Ctrl+Z)", "Control+Z Meta+Z"]]
+    assert out["undos"]["pressed"] == ["Undo"]
