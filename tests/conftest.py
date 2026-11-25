@@ -605,6 +605,7 @@ def _reset_watch_arr_state():
         with _arr._lock:
             _arr._memo.clear()
             _arr._building.clear()
+            _arr._background.clear()
             _arr._generation[0] = 0
 
     reset()

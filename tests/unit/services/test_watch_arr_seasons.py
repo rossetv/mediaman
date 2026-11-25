@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -133,6 +134,8 @@ class _Down:
         self.asked = 0
         self.movies = 0
         self.slow: threading.Event | None = None
+        # Set once a build behind a page has asked.
+        self.asking = threading.Event()
         self.waited_out = False
         self.radarr_hangs: threading.Event | None = None
         monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_: self)
@@ -149,6 +152,7 @@ class _Down:
 
     def get_series(self):
         self.asked += 1
+        self.asking.set()
         if self.slow is not None:
             self.slow.wait(5)
             self.waited_out = True
@@ -228,8 +232,10 @@ def test_a_sonarr_that_hangs_longer_than_the_view_is_held_holds_up_no_page(monke
     view()
     now[0] += 6
     sonarr.slow = threading.Event()
+    sonarr.asking.clear()
     try:
         view()
+        assert sonarr.asking.wait(5)
         # Past the thirty seconds, with Sonarr still being asked.
         now[0] += 60
         for _ in range(3):
@@ -294,3 +300,66 @@ def test_a_sonarr_that_answers_late_is_not_asked_again_at_once(monkeypatch):
 
     assert view().answers_for("tv")
     assert sonarr.asked == 2
+
+
+def test_a_view_read_long_ago_gives_way_to_a_slow_sonarr(monkeypatch):
+    monkeypatch.setattr(_arr, "RETRY_WAIT_S", 0.01)
+    sonarr, now = _Down(monkeypatch), [1000.0]
+
+    def view():
+        return catalog.arr_view(None, "k", clock=lambda: now[0])
+
+    view()
+    sonarr.up, sonarr.slow = True, threading.Event()
+    waiting = sonarr.slow.wait
+    # It answers long after a page waits for a view read lately.
+    sonarr.slow.wait = lambda _s: waiting(0.2)
+    now[0] += 3 * 3600
+
+    assert view().answers_for("tv")
+
+
+def test_a_view_read_long_ago_comes_back_when_sonarr_hangs_for_too_long(monkeypatch):
+    monkeypatch.setattr(_arr, "OLD_WAIT_S", 0.01, raising=False)
+    monkeypatch.setattr(_arr, "RETRY_WAIT_S", 0.01)
+    sonarr, now = _Down(monkeypatch), [1000.0]
+    catalog.arr_view(None, "k", clock=lambda: now[0])
+    sonarr.slow = threading.Event()
+    now[0] += 3 * 3600
+
+    try:
+        held = catalog.arr_view(None, "k", clock=lambda: now[0])
+        assert (held.state("movie", 7), sonarr.waited_out) == (("queued", 0), False)
+    finally:
+        _end_builds(sonarr.slow)
+
+
+def test_a_page_that_comes_while_a_view_read_long_ago_is_built_waits_only_what_is_left(
+    monkeypatch,
+):
+    monkeypatch.setattr(_arr, "OLD_WAIT_S", 5.0)
+    monkeypatch.setattr(_arr, "RETRY_WAIT_S", 0.01)
+    sonarr, now = _Down(monkeypatch), [1000.0]
+
+    def view():
+        return catalog.arr_view(None, "k", clock=lambda: now[0])
+
+    view()
+    sonarr.slow = threading.Event()
+    now[0] += 3 * 3600
+    waited = []
+    try:
+        # A page that waits for nothing begins the build.
+        catalog.arr_view(None, "k", clock=lambda: now[0], wait_s=0)
+        now[0] += 5.0 - 0.2
+        for _ in range(2):
+            began = time.monotonic()
+            assert view().state("movie", 7) == ("queued", 0)
+            waited.append(time.monotonic() - began)
+            now[0] += 0.2
+        assert sonarr.waited_out is False
+    finally:
+        _end_builds(sonarr.slow)
+
+    assert 0.15 < waited[0] < 1.0
+    assert waited[1] < 1.0
