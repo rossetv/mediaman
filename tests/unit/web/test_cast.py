@@ -9,7 +9,10 @@ from urllib.parse import urlsplit
 import defusedxml.ElementTree as ET
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
+from mediaman.config import Config
+from mediaman.main import create_app
 from mediaman.services.cast import tickets
 from mediaman.services.cast.tickets import TICKET_SECONDS, TicketStore
 from mediaman.services.media_meta import plex_stream
@@ -19,8 +22,14 @@ from mediaman.services.media_meta.plex_stream import (
     StreamManager,
 )
 from mediaman.services.media_meta.plex_watch import PlexItemNotFound, PlexWatch
-from mediaman.web.auth.password_hash import change_password, delete_user, set_must_change_password
-from mediaman.web.auth.session_store import destroy_session
+from mediaman.web.auth.password_hash import (
+    change_password,
+    create_user,
+    delete_user,
+    set_must_change_password,
+)
+from mediaman.web.auth.session_store import create_session, destroy_session
+from mediaman.web.middleware import viewer_guard
 from mediaman.web.routes import cast
 from mediaman.web.routes.watch import stream_api
 
@@ -36,7 +45,10 @@ ITEM = """<MediaContainer librarySectionID="{section}"><Video type="movie" ratin
  <Stream id="22" streamType="2" displayTitle="Polski (AAC Stereo)"/>
  <Stream id="31" streamType="3" displayTitle="English"/>
  <Stream id="32" streamType="3" displayTitle="Polski"/>
-</Part></Media></Video></MediaContainer>"""
+</Part></Media><Marker type="credits" final="1" startTimeOffset="5000000" endTimeOffset="6000000"/>
+<Chapter tag="The boat" startTimeOffset="0" endTimeOffset="3000000"/>
+<Chapter tag="The shore" startTimeOffset="3000000" endTimeOffset="6000000"/>
+</Video></MediaContainer>"""
 
 
 class FakeResponse:
@@ -298,8 +310,6 @@ def test_a_ticket_does_not_come_back_when_its_user_may_watch_again(alice, tv, co
 
 
 def test_one_persons_sign_out_leaves_another_session_of_theirs_casting(alice, tv, conn):
-    from mediaman.web.auth.session_store import create_session
-
     url = _cast(alice)["url"]
     destroy_session(conn, create_session(conn, "alice"))
     assert tv.get(url).status_code == 200
@@ -392,6 +402,24 @@ def test_a_place_saved_after_the_tv_was_refused_is_kept(alice, tv, conn, clock):
     assert late.status_code == 410
     rows = conn.execute("SELECT username, position_s FROM watch_progress").fetchall()
     assert [tuple(r) for r in rows] == [("alice", 1234)]
+
+
+@pytest.mark.parametrize("left", ["progress", "stop", "refused"])
+@pytest.mark.parametrize(("position", "watched"), [(4990, 0), (5000, 1)])
+def test_a_cast_left_in_the_final_credits_is_watched(
+    alice, tv, conn, clock, left, position, watched
+):
+    started = _cast(alice)
+    place = {"position_s": position, "played_s": 0}
+    if left == "refused":
+        clock.now += TICKET_SECONDS
+        assert tv.get(started["url"]).status_code == 404
+    if left == "stop":
+        alice.post(f"/api/watch/stream/{started['stream_id']}/stop", json=place)
+    else:
+        alice.post("/api/watch/progress", json={"stream_id": started["stream_id"], **place})
+    row = conn.execute("SELECT position_s, watched FROM watch_progress").fetchone()
+    assert tuple(row) == (position, watched)
 
 
 def test_the_session_ending_stops_the_stream_on_plex_without_a_read(alice, conn, plex):
@@ -489,6 +517,17 @@ def test_the_chosen_tracks_are_played_and_listed(alice, plex):
     assert [t["id"] for t in started["subtitle_tracks"]] == ["31", "32"]
 
 
+def test_a_start_answers_the_marks_the_player_draws_and_skips_by(alice):
+    started = _cast(alice)
+    assert started["markers"] == [
+        {"kind": "credits", "start_s": 5000.0, "end_s": 6000.0, "final": True}
+    ]
+    assert [(c["title"], c["start_s"]) for c in started["chapters"]] == [
+        ("The boat", 0.0),
+        ("The shore", 3000.0),
+    ]
+
+
 def test_without_a_choice_the_tracks_selected_in_plex_play(alice):
     started = _cast(alice)
     assert (started["audio"], started["subtitle"]) == ("21", None)
@@ -578,3 +617,116 @@ def test_a_plex_failure_tells_the_tv_nothing_of_plex_or_the_ticket(
 def test_the_ticket_is_nowhere_in_the_database(alice, conn):
     ticket = _ticket(_cast(alice)["url"])
     assert ticket not in "\n".join(conn.iterdump())
+
+
+ORIGIN = {"Origin": "http://testserver"}
+TV_AGENT = {"User-Agent": "a TV"}
+
+
+@pytest.fixture
+def whole(app, conn, secret_key, monkeypatch):
+    """The whole app, and a phone signed in with a session bound to it."""
+    monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
+    whole_app = create_app()
+    whole_app.state.config = Config(secret_key=secret_key)
+    whole_app.state.db = conn
+    create_user(conn, "alice", "password1234", enforce_policy=False, role="viewer")
+    phone = TestClient(whole_app, headers={"User-Agent": "a phone", **ORIGIN})
+    session = create_session(conn, "alice", user_agent="a phone", client_ip="testclient")
+    phone.cookies.set("session_token", session)
+    return phone
+
+
+def _with_cookie(phone, session: str) -> TestClient:
+    client = TestClient(phone.app, headers=TV_AGENT, follow_redirects=False)
+    client.cookies.set("session_token", session)
+    return client
+
+
+def _sessions(conn, user: str) -> int:
+    sql = "SELECT COUNT(*) FROM admin_sessions WHERE username = ?"
+    return conn.execute(sql, (user,)).fetchone()[0]
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
+@pytest.mark.parametrize("address", [str, _segment_url], ids=["playlist", "segment"])
+def test_a_tv_that_sends_the_phones_cookie_ends_neither_session_nor_ticket(
+    whole, conn, method, address
+):
+    url = _cast(whole)["url"]
+    tv = _with_cookie(whole, whole.cookies["session_token"])
+    resp = tv.request(method, address(url))
+    assert resp.status_code == (204 if method == "OPTIONS" else 200)
+    assert _sessions(conn, "alice") == 1
+    assert TestClient(whole.app).get(url).status_code == 200
+
+
+@pytest.mark.parametrize("address", [str, _segment_url], ids=["playlist", "segment"])
+def test_the_cookie_of_someone_who_must_change_their_password_does_not_hide_a_stream(
+    whole, conn, address
+):
+    create_user(conn, "bob", "password1234", enforce_policy=False)
+    bobs = create_session(conn, "bob")
+    set_must_change_password(conn, "bob", True)
+    url = _cast(whole)["url"]
+    assert _with_cookie(whole, bobs).get(address(url)).status_code == 200
+
+
+def test_a_made_up_ticket_with_the_phones_cookie_leaves_the_session(whole, conn):
+    tv = _with_cookie(whole, whole.cookies["session_token"])
+    made_up = f"/api/cast/{'x' * 43}/index.m3u8"
+    assert tv.get(made_up).status_code == 404
+    assert tv.get(_segment_url(made_up)).status_code == 404
+    assert _sessions(conn, "alice") == 1
+
+
+def test_starting_for_a_tv_still_checks_the_session(whole, conn):
+    flagged = create_session(conn, "alice", user_agent="a phone", client_ip="testclient")
+    set_must_change_password(conn, "alice", True)
+    assert _start(whole).status_code == 403
+    set_must_change_password(conn, "alice", False)
+    assert _start(whole).status_code == 200
+    stranger = _with_cookie(whole, flagged)
+    stranger.headers.update(ORIGIN)
+    assert _start(stranger).status_code == 401
+    assert _sessions(conn, "alice") == 1
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/cast/stream",
+        "/api/cast/x/seg",
+        "/api/cast/x/index.m3u8/",
+        "/api/cast/x/../../watch/progress",
+        "/api/cast/x/seg/../../../account/avatar",
+        "/x/api/cast/x/index.m3u8",
+    ],
+)
+def test_no_other_address_skips_the_check_of_the_cookie(whole, conn, path):
+    _with_cookie(whole, whole.cookies["session_token"]).get(path)
+    assert _sessions(conn, "alice") == 0
+
+
+def test_another_method_on_a_ticket_route_does_not_skip_the_check_of_the_cookie(whole, conn):
+    tv = _with_cookie(whole, whole.cookies["session_token"])
+    tv.post(f"/api/cast/{'x' * 43}/index.m3u8", headers=ORIGIN)
+    assert _sessions(conn, "alice") == 0
+
+
+def test_an_ordinary_path_is_told_from_a_ticket_route_without_walking_the_routes(
+    whole, monkeypatch
+):
+    def walked(routes):
+        raise AssertionError("the routes were walked")
+
+    monkeypatch.setattr(viewer_guard, "iter_route_contexts", walked)
+    scope = {"type": "http", "method": "GET", "path": "/api/watch/search", "app": whole.app}
+    assert not viewer_guard.is_ticket_route(Request(scope))
+
+
+def test_a_ticket_route_is_known_by_its_decoded_path(whole, conn):
+    url = _cast(whole)["url"]
+    tv = _with_cookie(whole, whole.cookies["session_token"])
+    assert tv.get(url.replace("cast", "c%61st")).status_code == 200
+    assert _sessions(conn, "alice") == 1

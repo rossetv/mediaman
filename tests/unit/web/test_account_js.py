@@ -12,7 +12,7 @@ HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 def _run(scenario: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False, timeout=60
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -49,7 +49,9 @@ def test_one_device_is_signed_out_by_its_own_button() -> None:
     assert (out["own"], out["label"]) == (False, "Sign out: Safari on iPhone")
     # one request for each press, however often it is pressed meanwhile
     assert out["sent"] == ["/api/users/sessions/a%2Fb"] * 3 + ["/api/users/sessions/id3"]
-    assert out["busy"] == "Signing out…"
+    # only a spinner at the width the button had, and the words for a screen reader
+    assert out["busy"] == ["", "20px", "Signing out…"]
+    assert out["labelAfter"] == out["label"]
     assert out["words"] == {
         "title": "Confirm it’s you",
         "descText": "Enter your Mediaman password to sign out a device.",
@@ -82,6 +84,14 @@ def test_a_device_signed_out_leaves_the_list_and_hands_the_focus_on() -> None:
         "disabled": True,
         "why": True,
     }
+
+
+def test_only_the_list_of_sign_ins_asked_last_is_shown() -> None:
+    assert _run("lateList") == 1
+
+
+def test_a_list_asked_before_a_device_was_signed_out_does_not_bring_it_back() -> None:
+    assert _run("listBeforeSignOut") == 1
 
 
 def test_the_password_form_opens_at_its_first_field_and_forgets_what_was_typed_when_shut() -> None:
@@ -172,6 +182,7 @@ def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
+    assert out["revealedSending"][-1] == ["account-submit-password", "nearest"]
     field = "account-new-password"
     assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
@@ -182,6 +193,18 @@ def test_a_status_brought_into_view_brings_the_button_beside_it() -> None:
     margin = re.search(r"\.me-msg \{[^}]*scroll-margin-bottom: (\d+)px", css)
     # a 44px button centred on one 18px line reaches 13px below it
     assert margin and int(margin.group(1)) >= 13
+
+
+def test_an_empty_status_takes_no_room_and_can_still_be_announced() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    assert re.search(r"\.me-msg:empty \{ position: absolute; \}", css)
+    assert not re.search(r"\.me-msg:empty[^}]*(display|visibility)", css)
+
+
+def test_a_fold_has_room_at_its_sides_for_the_focus_rings_it_clips() -> None:
+    css = (HARNESS.parents[4] / "src/mediaman/web/static/css/_profile.css").read_text()
+    rule = re.search(r"is-moving > \.setg-fold-inner \{([^}]*)\}", css)
+    assert rule and "padding-inline: 6px; margin-inline: -6px" in rule[1]
 
 
 def test_a_late_answer_is_brought_into_view_only_for_a_reader_still_at_its_status() -> None:
@@ -266,3 +289,83 @@ def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> 
 
 def test_the_plex_card_is_told_after_a_password_may_have_been_given() -> None:
     assert _run("toldOfPassword") == [[0, ["mm:reauth"]]] * 2
+
+
+def test_the_history_switch_saves_at_once_and_one_press_at_a_time() -> None:
+    out = _run("history")
+    assert out["first"] == {"hiddenAtFirst": True, "hidden": False, "state": ["true", True]}
+    assert out["off"]["during"] == out["off"]["after"] == ["false", False]
+    assert out["sent"][0] == ["/api/search/assist/history", False]
+    # two presses each time
+    assert [wanted for _url, wanted in out["sent"]] == [False, True, True, True]
+    assert len(out["off"]["toasts"]) == 1 and not out["off"]["toasts"][0].startswith("error")
+    assert (out["off"]["focused"], out["off"]["busy"]) == ("account-history", None)
+
+
+def test_a_history_switch_that_could_not_be_saved_goes_back_and_says_so() -> None:
+    out = _run("history")
+    for failed in (out["refused"], out["offline"]):
+        assert failed["during"] == ["true", True]
+        assert failed["after"] == ["false", False]
+        assert failed["toasts"] == ["error: No luck"]
+        assert failed["busy"] is None
+
+
+def test_a_history_switch_saved_with_its_answer_lost_stands_as_saved() -> None:
+    lost = _run("history")["lost"]
+    assert lost["after"] == ["true", True]
+    assert len(lost["toasts"]) == 1 and not lost["toasts"][0].startswith("error")
+
+
+def test_nothing_about_the_ai_is_shown_without_a_key() -> None:
+    assert _run("historyHidden") == [True, True]
+
+
+def test_recent_searches_are_cleared_only_once_confirmed() -> None:
+    out = _run("clearSearches")
+    assert (out["no"]["asked"], out["no"]["sent"], out["no"]["toasts"]) == (1, [], [])
+    assert out["yes"]["sent"] == ["/api/search/assist/searches"]
+    assert len(out["yes"]["toasts"]) == 1 and not out["yes"]["toasts"][0].startswith("error")
+    assert out["failed"]["toasts"] == ["error: No luck"]
+    assert [out[k]["says"] for k in ("yes", "failed")] == ["Clear", "Clear"]
+    assert out["yes"]["busy"] is None
+    # The question this tab remembers goes with them.
+    assert out["yes"]["left"] == ["other"]
+    assert len(out["no"]["left"]) == len(out["failed"]["left"]) == 2
+
+
+def test_a_persons_tvs_are_listed_as_text_and_with_none_there_is_no_section() -> None:
+    out = _run("tvs")
+    assert (out["hidden"], out["none"]) == (False, True)
+    living, den, long_ago = out["rows"]
+    assert living == ["Living room", "On now. Paired 12 March."]
+    assert den[0] == "<b>Den" and den[1].startswith("Last seen Sunday, ")
+    assert "Last seen 15 May. " in long_ago[1] or "Last seen 16 May. " in long_ago[1]
+
+
+def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> None:
+    out = _run("tvsOfAll")
+    # neither their own again nor an older TV, which is nobody's
+    assert len(out["rows"]) == 1
+    assert "Theirs" in out["rows"][0] and "Paired by bob 12 March." in out["rows"][0]
+    assert out["asked"][0]["title"] == "Unpair Theirs?"
+    assert out["left"] == 1
+
+
+def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None:
+    out = _run("tvRename")
+    assert out["empty"] == [0, "true"]
+    assert out["failed"] == [1, ["error: Could not rename it. Try again."], True]
+    assert out["sent"] == ["/api/tvs/1", {"name": "Den"}]
+    assert (out["name"], out["label"]) == ("Den", "Rename: Den")
+    assert out["toasts"] == ["Renamed to Den."]
+
+
+def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
+    out = _run("tvUnpair")
+    assert out["failed"] == [2, ["error: Could not unpair it. Try again."]]
+    assert out["one"] == [1, False, ["Unpaired. That TV now says it was signed out."]]
+    assert out["sent"] == ["/api/tvs/1", "/api/tvs/1", "/api/tvs/2"]
+    assert out["last"] == [0, True] and out["asked"] == 0
+    # the bar of what plays on a TV lets it go at once, and only once it is unpaired
+    assert out["kept"] == 0 and out["dropped"] == [1, 2]

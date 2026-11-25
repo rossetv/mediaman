@@ -584,7 +584,7 @@
 /* More: level with the caption's first line, at its end. 44px to press, drawn smaller. The
    percentage is of the card's width, so it finds the poster's foot at every size. */
 .watch-card { position: relative; }
-.watch-card[data-mark] .watch-card__sub { padding-right: 26px; min-height: 1lh; }
+.watch-card:has(> .watch-more) .watch-card__sub { padding-right: 26px; min-height: 1lh; }
 .watch-more {
   position: absolute;
   z-index: 2;
@@ -620,7 +620,7 @@
 .watch-more[aria-busy="true"] { opacity: .55; cursor: progress; }
 /* On a phone the dots stand at the poster's edge, which leaves the caption more of its line. */
 @media (max-width: 599.98px) {
-  .watch-card[data-mark] .watch-card__sub { padding-right: 18px; }
+  .watch-card:has(> .watch-more) .watch-card__sub { padding-right: 18px; }
   .watch-more { place-items: center end; padding-right: 7px; }
   .watch-more::before { inset: 8px 2px 8px 14px; }
   .watch-more:focus-visible { outline: none; }

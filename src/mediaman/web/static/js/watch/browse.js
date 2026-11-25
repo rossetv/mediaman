@@ -3,7 +3,7 @@
  * skeleton, the badges on their posters, the menu of earlier picks, which
  * follows the row, and each person's Refresh of their own picks; the rest of the library rows as they are scrolled;
  * and what each of these rows holds when it is opened as a grid.
- * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/rows-load.js and watch/expand.js.
+ * Needs watch/core.js, watch/address.js, watch/keep.js, watch/search.js, watch/rows-load.js, watch/making.js and watch/expand.js.
  */
 (function () {
   'use strict';
@@ -390,6 +390,8 @@
   var timer = null; // of the Refresh that counts down
   var ownBusy = false;
   var ownFailed = false; // the last refresh of the person's own picks made none
+  var ownFresh = false; // the one just followed made new ones
+  var making = null; // the words shown while they are made
   var ownRefs = ''; // the person's own picks in the latest batch
 
   /* "6 days", "14 h" or "25 min": how long until *iso*. */
@@ -579,7 +581,7 @@
     });
   }
 
-  /* Ready, busy (spinner) or cooling down ("Refresh in 6 days"). It is as wide as
+  /* Ready, busy (a turning reel) or cooling down ("Refresh in 6 days"). It is as wide as
      its widest label in every state, so what is beside it stays put. */
   function refreshButton() {
     var button = el('button', 'row-tool row-tool--refresh');
@@ -600,7 +602,7 @@
     clearTimeout(timer);
     var left = state === 'cooldown' ? waitText(rec.payload.my_refresh.next_available_at) : '';
     var face = { ready: ['i-rotate-right', 'Refresh my picks', 'My picks', 'Refresh my picks'],
-      busy: ['i-rotate-right', 'Refreshing…', 'Making…', 'Making your picks'],
+      busy: [null, 'Refreshing…', 'Making…', 'Making your picks'],
       cooldown: ['i-clock-regular', 'Refresh in ' + left, 'In ' + left, 'Refresh my picks, available in ' + left] }[state];
     button.textContent = '';
     button.classList.toggle('is-busy', state === 'busy');
@@ -608,7 +610,7 @@
     else button.setAttribute('aria-disabled', 'true');
     button.setAttribute('aria-label', face[3]);
     var drawn = el('span', 'row-tool__face');
-    drawn.appendChild(icon(face[0]));
+    drawn.appendChild(state === 'busy' ? watch.making.reel() : icon(face[0]));
     drawn.appendChild(el('span', 'row-tool__long', face[1]));
     drawn.setAttribute('data-narrow', face[2]);
     button.appendChild(drawn);
@@ -616,13 +618,16 @@
     if (state === 'cooldown') timer = setTimeout(drawOwn, 60000);
   }
 
-  /* A batch's cards, each with the batch it is of. */
+  /* A batch's cards, each with the batch it is of and its place in it. */
   function pickCards(payload) {
     return tagged(cardsOf(payload.items), payload.batch);
   }
 
   function tagged(cards, batch) {
-    cards.forEach(function (c) { c.setAttribute('data-batch', batch); });
+    cards.forEach(function (c, i) {
+      c.setAttribute('data-batch', batch);
+      c.setAttribute('data-place', i);
+    });
     return cards;
   }
 
@@ -713,12 +718,14 @@
       return options.length > 1 ? { label: 'Jump to', value: payload.batch, options: options, jump: true } : null;
     }
     var empty = { title: 'No recommendations yet', link: 'Back to all rows', href: '/watch' };
+    function line(card) { return batchLine(card.getAttribute('data-batch'), rec.payload); }
+    function dates() { return rec.payload.batches.map(function (b) { return b.id; }); }
     if (at.row && rec && rec.payload.batch) {
       return { cards: lines(at.cards(), rec.payload), next: recLoader ? recLoader.next() : null,
-        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty };
+        fetchPage: pages(rec.payload), sort: jump(rec.payload), empty: empty, line: line, dates: dates };
     }
     var rest = null;
-    return { cards: [], next: 'first', empty: empty, fetchPage: function (batch) {
+    return { cards: [], next: 'first', empty: empty, line: line, dates: dates, fetchPage: function (batch) {
       if (batch !== 'first') return rest(batch);
       return fetchRec(null).then(function (payload) {
         if (!payload.batch) return { cards: [], next: null };
@@ -767,7 +774,7 @@
 
   function ownText(payload, state) {
     var mine = payload.my_refresh;
-    if (state === 'busy') return 'Making yours. It can take a minute or two.';
+    if (state === 'busy') return 'Making your picks. It can take a minute or two.';
     if (mine.reason === 'daily_limit' && state === 'cooldown') return 'That’s all the refreshes for now.';
     if (mine.reason === 'not_enough_plays') return ((payload.items || []).length && !ownOf(payload) ? 'For everyone. ' : '') + 'Play five titles and these become yours.';
     if (mine.reason === 'not_configured' && isAdmin) return NO_KEY;
@@ -791,6 +798,34 @@
     return line;
   }
 
+  /* While picks are made the line's words are for a screen reader alone, and others change beside
+     them; new picks end these with a word of their own. */
+  function drawMaking(line, said, busy) {
+    function hide() {
+      making.stop();
+      making.node.remove();
+      making = null;
+      said.classList.remove('sr-only');
+    }
+    line.classList.toggle('is-making', busy);
+    if (busy) {
+      ownFresh = false;
+      if (making && !making.ending()) return;
+      if (making) hide();
+      making = watch.making.start({ few: rec.payload.few_ratings === true });
+      said.classList.remove('fade-in');
+      said.classList.add('sr-only');
+      said.after(making.node);
+    } else if (making && !ownFresh) {
+      hide();
+    } else if (making && !making.ending()) {
+      making.end('Here they are.', function () {
+        hide();
+        said.classList.add('fade-in');
+      });
+    }
+  }
+
   function drawOwn() {
     var line = rec && rec.section.querySelector('.rec-line');
     if (!line) return;
@@ -798,7 +833,13 @@
     var button = ownButton();
     var said = line.querySelector('.rec-line__text');
     var says = ownText(rec.payload, state);
-    if (said.textContent !== says) said.textContent = says;
+    if (said.textContent !== says) {
+      // The toast tells of new picks.
+      if (state !== 'busy' && making && ownFresh) said.setAttribute('aria-live', 'off');
+      else said.removeAttribute('aria-live');
+      said.textContent = says;
+    }
+    drawMaking(line, said, state === 'busy');
     if (state === 'none') {
       var focused = button && document.activeElement === button;
       if (button) button.remove();
@@ -853,6 +894,7 @@
         var own = ownOf(payload);
         var changed = own !== ownRefs || latestOf(payload) !== latestOf(rec.payload);
         var fresh = !!own && own !== ownRefs;
+        ownFresh = fresh;
         ownBusy = false;
         ownFailed = !fresh && !payload.my_refresh.running && (st.status === 'failed' || (mine && st.status !== 'done'));
         if (changed) {

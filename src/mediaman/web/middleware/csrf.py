@@ -53,6 +53,11 @@ _CSRF_EXEMPT_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
     # POST /unsubscribe — public unsubscribe confirmation.  Authorised
     # by an HMAC-signed token submitted as a form field.
     ("POST", re.compile(r"^/unsubscribe$")),
+    # POST /api/tv/device/... — a TV's own page.  Authorised by a token in
+    # the X-TV-Token header, which a page of another origin cannot send
+    # without a preflight that nothing answers; no cookie is read.  Old TV
+    # browsers send no Origin, or "null".
+    ("POST", re.compile(r"^/api/tv/device/(?:code|poll|ask|unpair)\Z")),
 )
 
 

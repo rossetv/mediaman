@@ -58,7 +58,7 @@ def test_what_is_below_an_opening_row_slides_down_from_where_it_was() -> None:
 def test_copy_puts_the_labels_and_values_on_the_clipboard_and_keeps_the_row_open() -> None:
     out = _run("copy")
     assert out["copied"] == [
-        "Time: 25 Nov 2026, 01:45:03 (2026-11-24 20:15:03 UTC)\nWho: ana\nIP address: 1.2.3.4"
+        "When: 25 Nov 2026, 01:45:03 (2026-11-24 20:15:03 UTC)\nWho: ana\nStored record: <i>"
     ]
     assert out["toasts"] == ["Details copied"]
     assert out["open"] is True
@@ -201,5 +201,163 @@ def test_days_the_wrong_way_round_are_told_and_not_asked_for() -> None:
     assert _run("wrongDates") == {"asked": 0, "told": True}
 
 
-def test_the_titles_to_choose_are_those_listed_and_those_the_server_has() -> None:
-    assert _run("titles") == ["Film 5", "Film 6", "Film 70"]
+def test_the_newest_are_a_link_away_whenever_the_list_begins_further_down() -> None:
+    assert _run("newest") == {
+        "deep": "/history",
+        "filtered": None,
+        "answered": None,
+        "back": "/history",
+    }
+
+
+def test_the_newest_under_a_date_are_a_link_away_only_when_the_list_begins_further_down() -> None:
+    assert _run("newestOfDates") == {"hidden": None, "deep": "/history?date=week"}
+
+
+def test_the_moments_an_address_names_stay_a_filter_until_cleared() -> None:
+    assert _run("since") == {
+        "asked": ["/api/history?per_page=1"],
+        "ids": ["5", "6"],
+        "chip": "1 Nov – 3 Nov",
+        "next": "/api/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
+        "url": "http://mm.test/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
+        "cleared": "/api/history?q=x&user=bob",
+        "bad": "Date",
+    }
+
+
+def test_focus_stays_in_the_page_when_what_held_it_goes() -> None:
+    assert _run("focus") == {
+        "title": "title",
+        "user": "user",
+        "waiting": True,
+        "again": True,
+        "loaded": "3",
+        "moreWaiting": True,
+        "moreAgain": True,
+        "moreNone": "3",
+    }
+
+
+def test_a_change_of_the_addresss_hash_alone_leaves_the_list_as_it_is() -> None:
+    assert _run("hash") == {"same": 0, "back": 0, "left": 2}
+
+
+def test_a_name_every_object_has_is_no_account_and_has_no_picture() -> None:
+    assert _run("oddName") == {"imgs": 0, "line": "Sign-in failed for an unknown name"}
+
+
+def test_the_details_are_what_was_recorded_in_the_readers_time_with_the_record_last() -> None:
+    assert _run("details") == {
+        "fields": ["When: 25 Nov 2026, 01:45:03", "Who: ana", "Stored record: <i>"],
+        "utc": "2026-11-24 20:15:03 UTC",
+    }
+
+
+def test_a_time_that_cannot_be_read_stays_as_the_page_sent_it() -> None:
+    assert _run("unreadableTime") == {"text": "stored as sent", "title": None}
+
+
+def test_a_former_user_and_mediaman_are_filtered_by_as_themselves() -> None:
+    out = _run("who")
+    assert out["only"] == ["~former:bob", None]
+    assert out["url"] == "http://mm.test/history?user=%7Eformer%3Abob"
+    assert (out["chip"], out["gone"]) == ("bob (former)", True)
+    assert (out["mediaman"], out["gear"]) == ("mediaman", True)
+
+
+def test_counts_fill_the_menu_in_place_and_an_older_answer_is_dropped() -> None:
+    assert _run("counts") == {
+        "asked": "/api/history/menu?q=x&action=kept&menu=user",
+        "names": ["ana (you)", "bob", "bob (former)", "mediaman"],
+        "same": True,
+        "counts": ["1,200", "1,199", "1,198", "1,197"],
+        "focus": True,
+        "late": ["", "7"],
+    }
+
+
+def test_titles_come_in_the_servers_order_and_are_found_by_what_is_typed() -> None:
+    assert _run("titles") == {
+        "waiting": 8,
+        "all": ["Low Tide", "Aces", "Tide Two"],
+        "narrowed": ["Low Tide", "Tide Two"],
+        "early": True,
+        "asked": [
+            "/api/history/menu?user=bob&menu=title",
+            "/api/history/menu?user=bob&menu=title&find=tide",
+            "/api/history/menu?user=bob&menu=title&find=zz",
+        ],
+        "last": [],
+        "none": True,
+    }
+
+
+def test_titles_that_do_not_load_say_so() -> None:
+    assert _run("titlesFail") == "The titles did not load.Try again"
+
+
+def test_a_hand_typed_day_is_a_filter_only_where_the_page_shows_it() -> None:
+    out = _run("handTyped")
+    assert out[:5] == [["Date", ["/api/history"], ""]] * 5
+    assert out[5] == ["From 1 Nov", ["/api/history?per_page=1"], "?since=2026-11-01"]
+
+
+def test_typing_filters_every_title_seen_at_once_and_the_menu_is_used_by_keyboard() -> None:
+    assert _run("titlesMore") == {
+        "other": ["Low Tide", "Tide Two"],
+        "cleared": ["Low Tide", "Aces", "Tide Two"],
+        "again": ["Aces", "Two Aces"],
+        "crossed": "",
+        "kept": True,
+        "inField": True,
+        "end": "Tide Two",
+        "home": "Low Tide",
+    }
+
+
+def test_titles_that_did_not_load_can_be_tried_again_without_losing_the_focus() -> None:
+    assert _run("titlesRetry") == {
+        "waiting": True,
+        "again": True,
+        "asked": 3,
+        "focus": "Aces",
+        "left": False,
+    }
+
+
+def test_on_a_low_screen_a_menu_is_not_held_to_the_room_under_its_filter() -> None:
+    assert _run("lowScreen") == {"low": "", "high": "440px"}
+
+
+def test_tab_stays_in_a_title_menu_that_has_no_titles() -> None:
+    assert _run("tabInEmpty") == {"loading": True, "empty": True, "says": "No titles yet."}
+
+
+def test_a_former_user_whose_name_is_hidden_is_said_to_be_one_and_told_apart_by_count() -> None:
+    assert _run("hiddenName") == {
+        "line": "A former user downloaded Film 1",
+        "acts": ["Copy details", "Only this title"],
+        "rows": ["A former user 3", "A former user 8"],
+        "chip": "A former user",
+        "typed": "A former user",
+    }
+
+
+def test_only_the_spaces_round_a_title_are_left_out() -> None:
+    assert _run("outerSpace") == "/api/history?title=%09Film"
+
+
+def test_a_menu_whose_screen_turns_low_is_let_go_of_its_height_and_stays_open() -> None:
+    assert _run("resized") == {"before": "440px", "low": ["", True], "on": False}
+
+
+def test_a_title_typed_that_none_listed_holds_shows_a_row_to_come_until_the_answer() -> None:
+    assert _run("titlesUnseen") == {"matched": 0, "waiting": 1, "answered": 0, "failed": 0}
+
+
+def test_every_tab_in_a_menu_goes_to_its_next_stop_and_round() -> None:
+    out = _run("tabEach")
+    assert out["from"] == "INPUTFind a title"
+    assert out["on"] == ["Aces", "Low Tide", "BUTTONClose", "INPUTFind a title"]
+    assert out["back"] == ["BUTTONClose", "Low Tide", "Aces", "INPUTFind a title"]

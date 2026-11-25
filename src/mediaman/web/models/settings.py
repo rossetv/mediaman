@@ -11,12 +11,16 @@ to ``_common``.
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from mediaman.bootstrap.validators import validate_scan_day, validate_scan_time
 from mediaman.scanner.runner import DAY_SETTING_RANGES
+from mediaman.web.repository.search_assist import DAILY_LIMITS
 
 from ._common import (
     _ALLOWED_URL_SCHEMES,
@@ -53,6 +57,46 @@ def _validate_url(v: str | None) -> str | None:
     if not parsed.netloc:
         raise ValueError("URL must include a host")
     return v
+
+
+_HOME_NETWORKS = tuple(
+    ipaddress.IPv4Network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+_PLAIN_RE = re.compile("[!-~]+")
+_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_HOST_RE = re.compile(rf"(?=.{{1,253}}\Z){_LABEL}(?:\.{_LABEL})*")
+_NUMBER_RE = re.compile("[0-9]+|0x[0-9a-f]*")
+
+
+def _validate_tv_address(v: str) -> str:
+    """Return the address TVs fetch films from: an origin, and over http a home one."""
+    _validate_url(v)
+    # Reading it would drop a tab, and take a name in other letters for another than browsers do.
+    if not _PLAIN_RE.fullmatch(v):
+        raise ValueError("must be a home address")
+    try:
+        parts = urlsplit(v)
+        host, port = parts.hostname or "", parts.port
+    except ValueError as exc:
+        raise ValueError("must be a home address") from exc
+    if "@" in parts.netloc or parts.path not in ("", "/") or "?" in v or "#" in v:
+        raise ValueError("must be a home address with nothing after it")
+    try:
+        ip = ipaddress.IPv4Address(host)
+    except ValueError:
+        ip = None
+    if ip is None or not any(ip in net for net in _HOME_NETWORKS):
+        host = host.rstrip(".")
+        # A last part like a number makes the whole an address in some other spelling.
+        named = _HOST_RE.fullmatch(host) and not _NUMBER_RE.fullmatch(host.rpartition(".")[2])
+        local = host == "localhost" or host.endswith(".localhost")
+        if not named or local or parts.scheme != "https":
+            raise ValueError("must be a home address")
+    if port == 0:
+        raise ValueError("must be a home address with a port in use")
+    return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
 
 
 # Field -> (label on the Settings page, lowest, highest), matching the min and
@@ -142,6 +186,8 @@ class SettingsUpdate(BaseModel):
     openai_web_search_enabled: bool | None = None
     # Allowlisted model identifier; validated by ``validate_openai_model``.
     openai_model: Annotated[str | None, Field(max_length=32)] = None
+    ai_questions_per_day: int | None = None
+    ai_everyone_per_day: int | None = None
 
     omdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
@@ -174,6 +220,16 @@ class SettingsUpdate(BaseModel):
     disk_thresholds: Annotated[dict[str, Any] | None, Field(max_length=256)] = None
 
     auto_abandon_enabled: bool | None = None
+
+    older_tvs_enabled: bool | None = None
+    older_tvs_http: bool | None = None
+    google_cast_enabled: bool | None = None
+    tv_address: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+
+    @field_validator("tv_address", mode="after")
+    @classmethod
+    def validate_tv_address(cls, v: str | None) -> str | None:
+        return _validate_tv_address(v) if v else v
 
     @field_validator(
         "plex_url",
@@ -327,6 +383,16 @@ class SettingsUpdate(BaseModel):
         label, low, high = _DAY_SETTING_BOUNDS[info.field_name or ""]
         if not (low <= v <= high):
             raise ValueError(f"{label} must be between {low} and {high} days")
+        return v
+
+    @field_validator(*DAILY_LIMITS, mode="after")
+    @classmethod
+    def validate_daily_limits(cls, v: int | None, info: ValidationInfo) -> int | None:
+        if v is None:
+            return v
+        _, highest = DAILY_LIMITS[info.field_name or ""]
+        if not (0 <= v <= highest):
+            raise ValueError(f"{info.field_name} must be between 0 and {highest}")
         return v
 
     @field_validator("disk_thresholds", mode="before")

@@ -85,12 +85,12 @@
   }
 
   // The send-newsletter panel holds ephemeral recipient checkboxes, and the
-  // account forms (add user, password, email) and the add-subscriber row have
-  // their own buttons. None of them are saved settings, so changes inside
+  // account forms (add user, password, email), the add-subscriber row and the
+  // TVs have their own buttons. None of them are saved settings, so changes inside
   // them must not mark dirty.
   function isSettingsInput(el) {
     return el.closest('.setg-pg') &&
-      !el.closest('#newsletter-send-panel, .inline-form, .sub-add');
+      !el.closest('#newsletter-send-panel, .inline-form, .sub-add, .tv-list, .tv-add');
   }
 
   // The values Discard goes back to: those on the page at load, then those of the last save.
@@ -381,6 +381,7 @@
   var FIELD_ERROR_WORDS = [
     [/scheme must be http or https/i, 'must start with http:// or https://.'],
     [/must include a host/i, 'needs a server name after http:// or https://.'],
+    [/must be a home address/i, 'must be this server’s home address, such as http://192.168.1.10:8282.'],
     [/invalid URL/i, 'is not a valid address.'],
     [/must not exceed|at most \d+ characters|too long/i, 'is too long.'],
     [/start or end with \*{4}/, 'cannot start or end with ****.'],

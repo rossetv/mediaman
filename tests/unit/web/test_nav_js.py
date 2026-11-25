@@ -59,6 +59,15 @@ def test_tab_closes_the_menu_and_goes_on_from_the_avatar() -> None:
     assert _run("tab") == {"open": False, "focused": "desktop", "prevented": False}
 
 
+def test_the_skip_link_pressed_again_on_the_same_address_scrolls_to_the_content() -> None:
+    out = _run("skip")
+    # the first press is the browser's own: it sets the address, moves focus and scrolls
+    assert out["first"] == {"prevented": False, "scrolled": 0, "focused": "elsewhere"}
+    assert out["again"] == {"prevented": True, "scrolled": 1, "focused": "main-content"}
+    # a new tab, a middle click and an address that differs are left to the browser
+    assert out["ctrl"] == out["middle"] == out["otherAddress"] == out["first"]
+
+
 def test_a_press_outside_focus_leaving_back_and_a_followed_link_close_the_menu() -> None:
     assert _run("leaving") == {
         "press": False,
@@ -100,6 +109,12 @@ def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
         "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
         "focused": "phone",
+    }
+
+
+def test_giving_the_focus_back_to_a_button_in_the_bar_never_scrolls_the_page() -> None:
+    assert _run("focusBack") == {
+        key: [True] for key in ("escape", "tab", "close", "button", "resize")
     }
 
 

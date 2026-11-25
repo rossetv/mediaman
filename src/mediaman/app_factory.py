@@ -20,12 +20,15 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import queue
+import signal
 import sys
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import FrameType
 from typing import Any, NamedTuple
 
 from fastapi import FastAPI
@@ -199,11 +202,13 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     """Create the Watch stream manager, tidy Plex sessions left by an earlier run, start the reaper.
 
     The tidy runs on its own thread so a Plex that is down never holds up startup. Returns
-    the function that stops the reaper and then every live stream.
+    the function that saves the places of what plays on TVs, stops the reaper and then every
+    live stream.
     """
     from mediaman.db import get_db
     from mediaman.services.infra import allowed_outbound_hosts
     from mediaman.services.media_meta.plex_stream import init_stream_manager
+    from mediaman.web.routes import older_stream, tv
     from mediaman.web.routes.watch.stream_api import read_plex_credentials
 
     manager = init_stream_manager(
@@ -218,11 +223,60 @@ def _start_watch_streams(secret_key: str) -> Callable[[], None]:
     ).start()
     stop_reaper = _start_stream_reaper(manager.reap, _STREAM_REAP_INTERVAL_SECONDS)
 
+    older_stream.ending.clear()
+
+    def told_to_end() -> None:
+        try:
+            tv.save_places()
+        finally:
+            older_stream.ending.set()
+
+    stop_listening = _when_told_to_end(told_to_end)
+
     def shutdown() -> None:
+        stop_listening()
+        tv.save_places()
         stop_reaper()
         manager.stop_all()
 
     return shutdown
+
+
+def _when_told_to_end(act: Callable[[], None]) -> Callable[[], None]:
+    """Call *act* on a thread of its own once the process is told to end; return what undoes this.
+
+    uvicorn runs the lifespan's end only after the last open response, which may be a whole film
+    on its way to a TV, and the process may be killed before.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return lambda: None
+    # True to act. Its put, unlike an event's set, may interrupt itself.
+    told: queue.SimpleQueue[bool] = queue.SimpleQueue()
+    before = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
+
+    def wait() -> None:
+        if told.get():
+            act()
+
+    def hear(number: int, frame: FrameType | None) -> None:
+        # Nothing more: it may have interrupted whatever holds a lock.
+        told.put(True)
+        was = before[signal.Signals(number)]
+        if callable(was):
+            was(number, frame)
+
+    heard = [number for number, was in before.items() if callable(was)]
+    threading.Thread(target=wait, name="told-to-end", daemon=True).start()
+    for number in heard:
+        signal.signal(number, hear)
+
+    def undo() -> None:
+        for number in heard:
+            if signal.getsignal(number) is hear:
+                signal.signal(number, before[number])
+        told.put(False)
+
+    return undo
 
 
 def _tidy_stream_orphans(tidy: Callable[[], int]) -> None:
@@ -295,8 +349,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
        the web UI down.
     4. Startup reconciliation — best-effort sweeps of crash-stranded
        state, after the scheduler is up.
-    5. Watch streams — the stream manager and its reaper; the reaper is
-       stopped first at shutdown.
+    5. Watch streams — the stream manager and its reaper. At shutdown the
+       places of what plays on TVs are saved first, then the reaper is stopped.
 
     Fatal startup errors are converted into a single clean log line
     followed by ``sys.exit(1)`` rather than allowed to surface as an
@@ -357,6 +411,7 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.account import router as account_router
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.avatars import router as avatars_router
+    from mediaman.web.routes.cast import router as cast_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
@@ -366,6 +421,8 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.library_api import router as library_api_router
+    from mediaman.web.routes.older_stream import router as older_stream_router
+    from mediaman.web.routes.older_tvs import router as older_tvs_router
     from mediaman.web.routes.plex_link import router as plex_link_router
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.ratings import router as ratings_router
@@ -375,7 +432,10 @@ def _register_routers(app: FastAPI) -> None:
     from mediaman.web.routes.search.assist import router as search_assist_router
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
+    from mediaman.web.routes.tv import router as tv_router
+    from mediaman.web.routes.tv_page import router as tv_page_router
     from mediaman.web.routes.users import router as users_router
+    from mediaman.web.routes.watch.asked_api import router as watch_asked_api_router
     from mediaman.web.routes.watch.browse_api import router as watch_browse_api_router
     from mediaman.web.routes.watch.catalog_api import router as watch_catalog_api_router
     from mediaman.web.routes.watch.explore_api import router as watch_explore_api_router
@@ -413,6 +473,11 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_pages_router)
     app.include_router(watch_browse_api_router)
     app.include_router(watch_stream_api_router)
+    app.include_router(cast_router)
+    app.include_router(tv_router)
+    app.include_router(tv_page_router)
+    app.include_router(older_tvs_router)
+    app.include_router(older_stream_router)
     app.include_router(watch_preview_api_router)
     app.include_router(watch_marks_api_router)
     app.include_router(ratings_router)
@@ -420,6 +485,7 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(watch_image_api_router)
     app.include_router(watch_catalog_api_router)
     app.include_router(watch_recommended_api_router)
+    app.include_router(watch_asked_api_router)
     app.include_router(watch_list_page_router)
     app.include_router(watch_explore_api_router)
     app.include_router(watch_title_preview_api_router)

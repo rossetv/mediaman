@@ -10,11 +10,12 @@ from mediaman.services.avatars import drawn
 
 
 def test_an_account_keeps_the_default_it_was_given():
-    assert [drawn.default_choice(user_id) for user_id in range(1, 9)] == [6, 1, 4, 8, 7, 6, 6, 8]
+    assert [drawn.default_choice(user_id) for user_id in range(1, 9)] == [8, 5, 2, 9, 6, 3, 10, 7]
 
 
 def test_every_choice_is_someones_default_and_has_a_drawing():
-    choices = {drawn.default_choice(user_id) for user_id in range(1, 200)}
+    # ten accounts in a row have ten different ones
+    choices = {drawn.default_choice(user_id) for user_id in range(1, drawn.COUNT + 1)}
     assert choices == set(range(1, drawn.COUNT + 1))
     for choice in choices:
         assert (_STATIC_DIR.parent / drawn.url(choice).lstrip("/")).is_file()

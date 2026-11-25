@@ -232,6 +232,10 @@ def test_a_dismissed_card_leaves_focus_goes_on_and_undo_brings_it_back_in_its_pl
     assert (out["focus"], out["call"]) == ("episode/22", "DELETE /api/watch/dismissed/show-2")
 
 
+def test_after_the_last_card_of_a_row_the_focus_goes_to_the_next_row_that_has_cards() -> None:
+    assert _run("dismissLast") == {"next": "leaving", "none": "watch-search"}
+
+
 def test_a_dismissal_in_a_row_opened_as_a_grid_leaves_both_and_comes_back_to_both() -> None:
     out = _run("dismissInGrid")
     assert out["gone"] == [["movie/1", "movie/3"]] * 2
@@ -258,6 +262,14 @@ def test_an_undo_gives_the_focus_to_a_control_that_is_shown() -> None:
 
 def test_a_card_fading_out_of_the_grid_is_taken_out_once() -> None:
     assert _run("ghostInGrid") == [["episode/22", "movie/3"], ["movie/1"], False]
+
+
+def test_the_page_is_told_each_time_a_title_leaves_or_joins_continue_watching() -> None:
+    assert _run("continues") == [
+        ["movie-1", "show-2"],
+        ["movie-1", "show-2", "movie-3"],
+        ["show-2", "movie-3"],
+    ]
 
 
 def test_a_dismissal_the_server_refuses_leaves_the_card() -> None:
@@ -487,3 +499,181 @@ def test_dismissing_a_show_meanwhile_loses_nothing_of_its_episode_s_mark() -> No
 
 def test_marking_the_whole_show_meanwhile_still_says_what_is_left_of_it() -> None:
     assert _run("wholeShowMeanwhile") == [False, "TV"]
+
+
+def test_a_rating_in_the_menu_is_saved_and_shuts_it_and_one_taken_back_does_not() -> None:
+    out = _run("menuRating")
+    rated = "PUT /api/watch/ratings/movie-1 1"
+    assert out["first"] == [False, [rated], "movie/1"]
+    assert out["back"] == [True, ["DELETE /api/watch/ratings/movie-1"]]
+
+
+def test_a_pick_that_is_not_in_the_library_is_rated_and_opened_from_its_menu_and_not_marked() -> (
+    None
+):
+    assert _run("pickMenu") == {
+        "menu": ["Details"],
+        "label": "More for Wanted",
+        "focus": "Details",
+        "keys": ["Strong no", "Details"],
+        "calls": ["PUT /api/watch/ratings/rec-5 1"],
+        "pressed": ["link"],
+        "marked": [],
+        "held": ["Mark as watched", "Details"],
+    }
+
+
+def test_strong_noes_undone_in_the_order_they_were_given_stand_as_they_did() -> None:
+    assert _run("strongNoesUndone") == {
+        "gone": ["movie/9"],
+        "back": ["movie/8", "movie/1", "movie/9"],
+    }
+
+
+def test_a_strong_no_undone_in_see_all_gives_the_focus_to_the_card_there() -> None:
+    assert _run("strongNoUndoneInGrid") is True
+
+
+def test_the_menus_keys_reach_the_four_thumbs_and_the_items() -> None:
+    assert _run("menuKeys") == [
+        "Strong no",
+        "Not for me",
+        "I like it",
+        "Mark as watched",
+        "Strong no",
+        "I love it",
+        "Mark as watched",
+    ]
+
+
+def test_a_strong_no_takes_the_title_out_of_the_picks_alone_and_undo_gives_the_old_level_back() -> (
+    None
+):
+    out = _run("strongNo")
+    assert out["gone"] == ["movie/8", "movie/9", "movie/1"]
+    assert out["toast"] == "Fieldwork is gone from your picks. Search still finds it."
+    assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+    assert out["calls"] == [f"PUT /api/watch/ratings/movie-1 {level}" for level in (1, -2, 1)]
+
+
+def test_the_focus_goes_to_the_next_pick_and_back_with_undo() -> None:
+    assert _run("strongNoFocus") == {"next": "movie/9", "back": "movie/1"}
+
+
+def test_a_pick_rated_in_details_goes_behind_it_and_closing_lands_on_the_next() -> None:
+    assert _run("strongNoInDetails") == {
+        "open": [["movie/8"], "inside", "ttl"],
+        "closed": "movie/8",
+    }
+
+
+def test_a_pick_rated_in_details_over_see_all_leaves_the_focus_on_the_next_not_the_heading() -> (
+    None
+):
+    assert _run("strongNoInDetails", "watch-all-title")["closed"] == "movie/8"
+    # What else has the focus keeps it.
+    assert _run("strongNoInDetails", "elsewhere")["closed"] == "title"
+
+
+def test_a_strong_no_that_was_not_saved_takes_nothing_out_and_is_said() -> None:
+    assert _run("ratingFails") == {
+        "picks": ["movie/8", "movie/1", "movie/9"],
+        "toasts": ["Your rating wasn’t saved. Try again."],
+    }
+
+
+def test_a_level_not_saved_over_a_strong_no_leaves_that_to_stand_with_its_own_undo() -> None:
+    for out in _run("otherLevelFails"):
+        assert out["before"] == 3
+        assert sorted(out["told"]) == [
+            "Fieldwork is gone from your picks. Search still finds it.",
+            "Your rating wasn’t saved. Try again.",
+        ]
+        assert out["gone"] == ["movie/8", "movie/9"]
+        assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+        assert out["last"] == "PUT /api/watch/ratings/movie-1 1"
+
+
+def test_a_rating_stored_though_its_answer_was_lost_is_followed_once_the_server_says_so() -> None:
+    gone = "Fieldwork is gone from your picks. Search still finds it."
+    stays = "Couldn’t bring Fieldwork back. It stays out of your picks."
+    strong_no, undo = _run("answerLost")
+    for out in (strong_no, undo):
+        assert out["gone"] == ["movie/8", "movie/9"]
+        assert out["back"] == ["movie/8", "movie/1", "movie/9"]
+    assert strong_no["told"] == [gone]
+    assert undo["told"] == [gone, stays]
+    assert undo["dismissed"] == [gone, stays]
+
+
+def test_a_rating_that_fails_at_once_keeps_the_menu_open_with_why() -> None:
+    assert _run("menuFails") == [True, "Your rating wasn’t saved. Try again.", 0]
+
+
+def test_a_title_that_cannot_be_rated_shows_no_thumbs_or_says_so_in_their_place() -> None:
+    assert _run("cannotRate") == {
+        "pick": 0,
+        "said": "This title can’t be rated.",
+        "focus": "Mark as watched",
+    }
+
+
+def test_undo_over_details_lands_on_the_thumb_of_that_title_alone_and_else_on_the_heading() -> None:
+    same = ["rate-1", "rate--2", "rate-1", "rate-1"]
+    assert _run("undoInDetails") == [*same, "H2", "H2", "H2"]
+
+
+def test_a_strong_no_over_a_level_not_known_offers_no_undo() -> None:
+    assert _run("unknownBefore") == [["movie/8", "movie/9"], False]
+
+
+def test_a_menu_that_has_closed_leaves_no_rating_behind() -> None:
+    assert _run("menuSets") == [1, 0]
+
+
+def test_a_menu_opened_again_is_not_shut_for_the_rating_before() -> None:
+    assert _run("menuAgain") is True
+
+
+def test_an_undo_that_is_refused_takes_the_pick_out_again() -> None:
+    out = _run("undoFails")
+    assert out["now"] == ["movie/8", "movie/1", "movie/9"]
+    assert out["after"] == ["movie/8", "movie/9"]
+    assert out["toast"] == "Couldn’t bring Fieldwork back. It stays out of your picks."
+
+
+def test_a_title_rated_otherwise_later_is_back_among_the_picks_and_its_toast_goes() -> None:
+    assert _run("secondThoughts") == {
+        "gone": ["movie/8", "movie/9"],
+        "back": ["movie/8", "movie/1", "movie/9"],
+        "dismissed": 1,
+    }
+
+
+def test_an_undo_leaves_a_row_filled_anew_alone_and_brings_an_emptied_one_back() -> None:
+    assert _run("undoLater") == {"anew": ["movie/8"], "emptied": False, "back": ["movie/1"]}
+
+
+def test_a_change_takes_the_toast_of_the_same_titles_last_one_away() -> None:
+    marked = "Marked Fieldwork as watched."
+    salt = "Marked Salt as watched."
+    assert _run("markToasts") == [[], [], [marked], [marked, salt]]
+
+
+def test_dismissing_again_takes_the_toasts_of_the_last_dismiss_and_its_undo_away() -> None:
+    assert _run("dismissToasts") == [
+        "Dismissed Fieldwork from Continue watching.",
+        "Fieldwork is back in Continue watching.",
+    ]
+
+
+def test_a_menu_finds_more_like_its_title_only_where_there_is_an_ai() -> None:
+    out = _run("like")
+    assert out["asked"] == [
+        ["movie-1", "Fieldwork", "/api/poster/1"],
+        ["show-2", "Brightwater", None],
+        ["tmdb-movie-77", "Salt", None],
+    ]
+    assert out["unknown"] == ["Details"]
+    assert out["menu"] == ["Find more like this", "Mark as watched"]
+    assert "Find more like this" not in out["without"] and out["without"]

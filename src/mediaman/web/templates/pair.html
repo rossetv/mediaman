@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_components.html" as c %}
+
+{% block title %}Pair a TV · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/_pair.css?v={{ static_v }}">
+<script src="/static/js/pair.js?v={{ static_v }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="pair-pg">
+  <div class="pair" id="pair">
+    <h1 class="pair__title">Pair a TV</h1>
+
+    <form id="pair-form" novalidate>
+      <p id="pair-ask" hidden>Does your TV show this code? Pairing lets it play what you send it. It never gets your sign-in.</p>
+      <ol id="pair-steps" role="list">
+        <li>On the TV, open its web browser.</li>
+        <li>Go to <b>{{ tv_address }}</b></li>
+        <li>Type the code it shows.</li>
+      </ol>
+      <div class="pair__code" id="pair-boxes">
+        {% for _ in range(6) %}<i aria-hidden="true"></i>{% endfor %}
+        <input id="pair-code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" aria-label="The six numbers on the TV" aria-describedby="pair-why">
+      </div>
+      <p class="pair__why" id="pair-why" role="status">Only pair a TV you can see.</p>
+      <button class="btn btn--primary" type="submit" id="pair-agree" hidden>Pair this TV</button>
+    </form>
+
+    <form id="pair-name-form" novalidate hidden>
+      <p class="pair__ok" id="pair-ok" tabindex="-1">{{ c.icon("i-circle-check") }}Paired</p>
+      <p>What do you call this TV?</p>
+      <div class="pill-row">
+        {% for name in ("Living room", "Bedroom TV", "Kitchen TV", "Playroom") %}
+        <button type="button" class="fpill" aria-pressed="false">{{ name }}</button>
+        {% endfor %}
+      </div>
+      <input class="inp" id="pair-name" aria-label="TV name" maxlength="40" autocomplete="off" aria-describedby="pair-name-why">
+      <p class="pair__why" id="pair-name-why" role="status"></p>
+      <button class="btn btn--primary" type="submit" id="pair-save">Save name</button>
+    </form>
+
+    <div id="pair-done" hidden>
+      <p class="pair__ok" id="pair-ready" tabindex="-1">{{ c.icon("i-circle-check") }}<span id="pair-ready-name"></span></p>
+      <p>Open a film, press the TV button and choose it.</p>
+      <a class="btn btn--primary" href="/watch">Find something to watch</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

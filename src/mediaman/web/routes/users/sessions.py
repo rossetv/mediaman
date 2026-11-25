@@ -23,6 +23,7 @@ from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.plex_link import carry_attempt
+from mediaman.web.routes.tv import end_plays_of
 from mediaman.web.routes.users.crud import _reserve
 from mediaman.web.routes.users.rate_limits import (
     _SESSIONS_LIST_LIMITER,
@@ -101,6 +102,7 @@ def api_revoke_other_sessions(
     revoke_all_reauth_for(conn, admin)
     # The caller's own session is destroyed too, but replaced below.
     ended = max(destroy_all_sessions_for(conn, admin) - 1, 0)
+    end_plays_of(admin)
     client_ip = get_client_ip(request)
 
     new_token = create_session(

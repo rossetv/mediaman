@@ -45,6 +45,7 @@ from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import get_user_role
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.asked import has_any
 from mediaman.web.repository.watch_progress import (
     MIN_RESUME_SECONDS,
     WatchProgress,
@@ -72,6 +73,7 @@ GRID_PAGE_SIZE = 60
 
 # The rows that load after the page, so do their grids.
 _RECOMMENDED_ROW = ("recommended", "Recommended for you")
+_ASKED_ROW = ("asked", "You asked for these")
 # The Continue watching row stops filling at this many cards, and a page load spends at most
 # this many Plex HTTP calls on it however long the person's history is.
 _CONTINUE_LIMIT = 20
@@ -102,6 +104,7 @@ _ORIGIN_PARAMS = {
     "view": r"list",
     "genre": r"[a-z0-9-]{1,40}",
     "person": r"[0-9]{1,18}",
+    "like": r"(movie|show)-[0-9]{1,18}|tmdb-(movie|tv)-[0-9]{1,10}",
     "type": r"[a-z_]{1,20}",
     "sort": r"[a-z_]{1,20}",
     "where": r"[a-z]{1,20}",
@@ -805,7 +808,8 @@ def watch_page(
     is_admin = _is_admin(conn, username)
     view = "list" if is_admin and view == "list" else "rows"
     q = q.strip()[:_QUERY_MAX]
-    tmdb_configured = TmdbClient.from_db(conn, request.app.state.config.secret_key) is not None
+    tmdb = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    tmdb_configured = tmdb is not None
     libraries = lib.scanned_library_ids(conn)
     now = now_utc()
     set_up = plex_is_configured(conn)
@@ -873,8 +877,11 @@ def watch_page(
         _paged_row("TV", "tv", entries["tv"], [c for _, c in tv]),
         _paged_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
+    index = catalog.library_index(conn, tmdb, libraries, lib.library_movies, lib.library_shows)
+    continuing = {c["dismiss_ref"] for c in continue_row}
+    asked_waiting = has_any(conn, username, libraries, index, continuing)
     picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
-    later = ([_RECOMMENDED_ROW] if picks_on else []) + (
+    later = [_ASKED_ROW, *([_RECOMMENDED_ROW] if picks_on else [])] + (
         [(shelf[0], shelf[1]) for shelf in catalog.SHELVES] if tmdb_configured else []
     )
     # What ?all= may name. Not set up, the page has no row of its own to open.
@@ -911,6 +918,7 @@ def watch_page(
             "q": q,
             "tmdb_configured": tmdb_configured,
             "picks_on": picks_on,
+            "asked_waiting": set_up and asked_waiting,
             "grid": grid,
             **list_ctx,
             "list_q": list_q,

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
 HARNESS = Path(__file__).parent / "js" / "watch_expand_harness.js"
+BROWSE = (
+    Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_browse.css"
+).read_text(encoding="utf-8")
 
 
 def _run(scenario: str):
@@ -124,9 +128,98 @@ def test_a_row_that_is_all_on_the_screen_offers_no_grid() -> None:
 def test_three_screens_of_one_row_bring_the_offer_and_another_row_takes_it_away() -> None:
     out = _run("offered")
     assert out["seen"] == [False, False, True]
-    assert (out["text"], out["endless"]) == ("See all 32 in a grid", "Keep going in a grid")
+    assert (out["text"], out["endless"]) == ("See all32", "See all")
+    assert (out["label"], out["ways"]) == ("Movies, see all 32", 1)
     assert (out["taken"], out["again"], out["back"]) == (False, False, True)
+    assert out["prevented"] is True
     assert (out["at"], out["title"], out["left"]) == ("/watch?all=movies", "Movies", False)
+
+
+def test_a_row_s_heading_moves_once_and_its_offer_comes_back_still() -> None:
+    out = _run("calledOnce")
+    still = [True, False]
+    assert out["seen"] == [[True, True], [True, True], still, [False, False], still]
+    assert out["other"] == [True, True]
+
+
+def test_going_back_takes_the_offer_and_lets_the_heading_settle_and_a_grid_stops_it() -> None:
+    assert _run("calledOff") == {
+        "back": [False, True],
+        "hidden": [True, False],
+        "pressed": False,
+        "closed": [False, False],
+    }
+
+
+def test_under_reduced_motion_the_offer_comes_with_nothing_left_to_move_later() -> None:
+    assert _run("calledStill") == [True, False]
+
+
+def test_the_room_above_the_cards_takes_none_of_the_heading_s_44px() -> None:
+    head = re.search(r"^\.watch-row__head \{([^}]*)\}", BROWSE, re.M)
+    assert head
+    assert "position: relative" in head[1]
+    assert "z-index: 1" in head[1]
+
+
+def test_in_forced_colours_no_backplate_of_the_count_covers_see_all() -> None:
+    forced = BROWSE[BROWSE.index("@media (forced-colors: active)") :]
+    cue = re.search(r"\.row-open\[href\] \.row-open__cue \{([^}]*)\}", forced)
+    assert cue
+    assert "forced-color-adjust: none" in cue[1]
+    assert "color: LinkText" in cue[1]
+
+
+def test_on_a_phone_see_all_is_seen_only_once_clear_of_the_title_and_goes_at_once() -> None:
+    late = re.findall(r"([^{}]*)\{ transition-delay: \.12s; \}", BROWSE)
+    assert len(late) == 2
+    # Never on the words at rest, which would linger as they go.
+    assert all(re.search(r":focus-visible|:hover", head) for head in late)
+
+
+def test_a_row_with_nothing_more_to_see_makes_no_offer() -> None:
+    assert _run("offeredWhole") == {"whole": False, "before": True, "after": False}
+
+
+def test_a_heading_swells_no_further_than_the_room_beside_it() -> None:
+    out = _run("room")
+    assert (out["alone"], out["far"], out["under"]) == (1, 1, 1)
+    # All of it: 14% of 200px, and the 18% of See all's chip in it.
+    whole = 0.14 * 200 + 1.14 * 0.18 * 80
+    assert 0.1 < out["near"] <= 12 / whole
+    assert out["touching"] == 0
+    assert 0.3 < out["edge"] <= 20 / whole
+
+
+def test_the_heading_swells_14_percent_and_8_on_a_phone() -> None:
+    assert re.findall(r"--row-swell: ([\d.]+);", BROWSE) == [".14", ".08"]
+    assert "@media (max-width: 599.98px) {\n  .row-open { --row-swell: .08;" in BROWSE
+    assert "row-swell 1.1s" in BROWSE
+    assert "scale(calc(1 + var(--row-swell) * var(--row-room, 1)))" in _keyframes("row-swell")
+    assert "scale(calc(1 + var(--row-chip) * var(--row-room, 1)))" in _keyframes("row-chip")
+
+
+def _keyframes(name: str) -> str:
+    return re.findall(rf"@keyframes {name} \{{((?:[^{{}}]*\{{[^{{}}]*\}})*)", BROWSE)[0]
+
+
+def test_the_heading_moves_nothing_else_and_only_where_motion_is_welcome() -> None:
+    start = BROWSE.index("@media (prefers-reduced-motion: no-preference)")
+    moving = re.match(r"[^{]*\{((?:[^{}]*\{[^{}]*\})*)", BROWSE[start:])
+    assert moving
+    assert BROWSE.count(".is-calling") == moving.group(1).count(".is-calling") > 0
+    names = set(re.findall(r"animation: ([\w-]+)", moving.group(1)))
+    assert names
+    for name in names:
+        # Never a size or a place, which would move the row under it.
+        assert set(re.findall(r"([\w-]+):", _keyframes(name))) <= {"transform", "opacity"}
+    assert "infinite" not in moving.group(1)
+    # The class that plays it goes with the heading's own motion, so nothing in it lasts longer.
+    times = {
+        sel.strip(): sum(float(t) for t in re.findall(r"([\d.]+)s\b", body))
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", moving.group(1))
+    }
+    assert times[".row-open.is-calling"] == max(times.values())
 
 
 def test_a_click_for_a_new_tab_or_on_an_unknown_row_is_the_browser_s() -> None:
@@ -231,5 +324,5 @@ def test_a_row_changed_while_a_panel_holds_the_page_keeps_its_way_in_and_its_cou
         "href": "/watch?all=continue",
         "label": "Continue watching, see all 5",
         "cue": True,
-        "offer": "See all 5 in a grid",
+        "offer": "See all5",
     }

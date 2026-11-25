@@ -97,7 +97,17 @@
       ],
       settings=settings) }}
 
-  {% set shared_picks %}
+  {% set openai_extra %}
+  <div class="fld-row">
+    {% call c.fld("Daily AI questions per person", sub="In search. 0 turns the AI in search off for everyone.") %}
+      <input class="inp inp--num" type="number" id="ai_questions_per_day" aria-label="Daily AI questions per person"
+             value="{{ settings.ai_questions_per_day }}" min="0" max="200" step="1" inputmode="numeric">
+    {% endcall %}
+    {% call c.fld("Daily AI calls for everyone", sub="Questions and suggested phrases in search, all people together. 0 turns the AI in search off. Counts start again at midnight UTC.") %}
+      <input class="inp inp--num" type="number" id="ai_everyone_per_day" aria-label="Daily AI calls for everyone"
+             value="{{ settings.ai_everyone_per_day }}" min="0" max="500" step="1" inputmode="numeric">
+    {% endcall %}
+  </div>
   <div class="fld-row fld-row--full">
     {% call c.fld("Shared picks", sub="New and popular titles on Watch, for everyone until their own picks are made. They can be refreshed once in 24 hours.") %}
       <div><button type="button" class="btn-test" id="btn-refresh-picks">Refresh shared picks for everyone</button></div>
@@ -125,7 +135,7 @@
                 else [])},
         ],
       ],
-      settings=settings, extra=shared_picks) }}
+      settings=settings, extra=openai_extra) }}
 
   {{ c.service_card("tmdb", "T", "tmdb", "TMDB",
       "Poster images for media recommendations.",
