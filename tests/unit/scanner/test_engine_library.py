@@ -1038,3 +1038,18 @@ class TestTwinInAGoneLibrary:
         self._scan(conn, mock_plex, listed=both, library_ids=both)
 
         assert not self.due.exists()
+
+    def test_a_folder_that_holds_it_waits_too(self, conn, mock_plex, tmp_path):
+        self._twins(conn, "ids")
+        outer = self.due.parent / "other.mkv"
+        TestScanWithOneBadLibrary._due(conn, "21", outer, 2)
+        conn.execute("UPDATE media_items SET file_path = ? WHERE id = '21'", (str(outer.parent),))
+        conn.commit()
+
+        from mediaman.scanner.deletions import DeletionExecutor
+
+        DeletionExecutor(conn=conn).execute(gone_libraries=[1])
+
+        assert (self.due.exists(), outer.exists()) == (True, True)
+        told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = '21'").fetchall()
+        assert [row[0] for row in told] == ["delete_awaiting_scan"]

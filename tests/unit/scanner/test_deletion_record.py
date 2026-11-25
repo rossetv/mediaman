@@ -606,6 +606,50 @@ class TestRemovalWithNoRecordedOutcome:
 
         assert _lost(conn) == 0
 
+    @pytest.mark.parametrize(
+        ("mount_down", "action"),
+        [(False, "delete_awaiting_scan"), (True, "delete_root_unavailable")],
+    )
+    def test_one_not_settled_is_told_once(
+        self, conn, root, film, monkeypatch, caplog, mount_down, action
+    ):
+        _die_at_the_removal(conn, monkeypatch)
+        if mount_down:
+            root.rename(root.with_name("away"))
+        else:
+            film.unlink()
+            film.parent.rmdir()
+
+        for _ in range(2):
+            caplog.clear()
+            DeletionExecutor(conn=conn).execute()
+
+        about = [r for r in caplog.records if r.getMessage().startswith("engine.delete")]
+        assert len(about) == 1
+        told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = 'm1'").fetchall()
+        assert [row[0] for row in told] == [action]
+
+
+def test_a_file_changed_after_the_claim_is_left_and_told_once(conn, film, monkeypatch, caplog):
+    real = deletions._stamps
+    calls = []
+
+    def stamps(rows):
+        calls.append(rows)
+        found = real(rows)
+        return found if len(calls) % 2 else {path: [0, 0, 0] for path in found}
+
+    monkeypatch.setattr(deletions, "_stamps", stamps)
+    for _ in range(2):
+        caplog.clear()
+        DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    assert _action(conn) == ("scheduled_deletion", "pending")
+    assert sum("files_changed_after_claim" in r.getMessage() for r in caplog.records) == 1
+    told = conn.execute("SELECT action FROM audit_log WHERE media_item_id = 'm1'").fetchall()
+    assert [row[0] for row in told] == ["delete_incomplete"]
+
 
 class TestNothingLeftToRemove:
     def test_a_removed_item_is_booked_though_another_item_holds_its_folder(

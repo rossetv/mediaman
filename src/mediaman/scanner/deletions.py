@@ -319,7 +319,10 @@ def recover_stuck_deletions(conn: sqlite3.Connection, *, book: bool = True) -> l
         # A file this deletion removed is expected to be gone, whatever became of its
         # root since, and the folder walk after it may have emptied the folder above.
         unrecorded = [p for p in paths or () if str(Path(p)) not in row.removed_paths]
-        if paths is None:
+        if row.removal_intent and (paths is None or unrecorded):
+            # Still not settled: the pass says why it waits.
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif paths is None:
             logger.warning(
                 "engine.delete.recover id=%s — no tracked files recorded, reverting "
                 "status to 'pending'",
@@ -1018,6 +1021,16 @@ def _audit_files_unrecorded(conn: sqlite3.Connection, row: DeletionRow) -> None:
     )
 
 
+def _audit_unsettled(conn: sqlite3.Connection, row: DeletionRow) -> None:
+    _audit_once(
+        conn,
+        row,
+        "delete_awaiting_scan",
+        f"Not deleted yet: {row.title} — its removal was cut off and what it took is not known "
+        "yet; the deletion waits for a scan to record where its files are",
+    )
+
+
 def _files(count: int) -> str:
     return f"{count} file" if count == 1 else f"{count} files"
 
@@ -1560,7 +1573,10 @@ class DeletionExecutor:
             )
             repository.mark_delete_status(self._conn, row.id, "pending")
             if unavailable is not None:
+                _audit_root_unavailable(self._conn, row, unavailable)
                 self._waiting[row.id] = unavailable
+            else:
+                _audit_unsettled(self._conn, row)
             self._conn.commit()
             return [], 0
 
@@ -1592,11 +1608,9 @@ class DeletionExecutor:
         # A co-located row whose files are not recorded stays claimed through
         # the removal, so a keep on it is still refused, but it cannot close.
         closing = [row, *(other for other in co_located if tracked_paths(other) is not None)]
-        unsettled = any(
-            other.removal_intent or other.library_id in self._unread_libraries
-            for other in co_located
-        )
-        for done in closing if not unsettled else []:
+        # Their own files must not go now, nor their record be written over.
+        waiting = [other for other in co_located if other.removal_intent or self._must_wait(other)]
+        for done in closing if not waiting else []:
             intent = {
                 str(Path(file)): stamps.get(str(Path(file))) for file in tracked_paths(done) or []
             }
@@ -1622,17 +1636,35 @@ class DeletionExecutor:
                 path,
                 replaced,
             )
+        # A file put there since the claim read the disk is not in its intent.
+        changed = [file for file, stamp in _stamps(closing).items() if stamp != stamps.get(file)]
+        if waiting:
+            self._hold_with(row, waiting)
+        elif changed and not replaced:
+            logger.warning(
+                "engine.delete.files_changed_after_claim id=%s path=%r files=%r — put there or "
+                "changed since the claim; leaving the files",
+                row.id,
+                path,
+                changed,
+            )
+            _audit_once(
+                self._conn,
+                row,
+                "delete_incomplete",
+                f"Not deleted yet: {row.title} — {changed[0]} was put there or changed as it was "
+                "about to be removed; the next pass tries again",
+            )
         # A keep or clear may have landed while the disk was read; read the
         # rows after the disk, so the window left before the removal is small.
         if (
-            unsettled
+            waiting
             or replaced
-            # A file put there since the claim read the disk is not in its intent.
-            or any(stamp != stamps.get(file) for file, stamp in _stamps(closing).items())
+            or changed
             or not self._still_removable(row, co_located, path, now_iso, unavailable=unavailable)
         ):
             for claimed in (row, *co_located):
-                if not unsettled:
+                if not waiting:
                     clear_removal_intent(self._conn, claimed.id)
                 repository.mark_delete_status(self._conn, claimed.id, "pending")
             self._conn.commit()
@@ -1776,6 +1808,24 @@ class DeletionExecutor:
             if other not in closing:
                 repository.mark_delete_status(self._conn, other.id, "pending")
         return closed
+
+    def _hold_with(self, row: DeletionRow, waiting: list[DeletionRow]) -> None:
+        """Log and audit that *row* waits, as the rows *waiting* under its path must."""
+        logger.warning(
+            "engine.delete.held_with id=%s media_id=%s path=%r waiting_rows=%s — leaving the files",
+            row.id,
+            row.media_item_id,
+            row.file_path,
+            [other.id for other in waiting],
+        )
+        names = ", ".join(str(other.title) for other in waiting)
+        _audit_once(
+            self._conn,
+            row,
+            "delete_awaiting_scan",
+            f"Not deleted yet: {row.title} — its folder also holds media whose own deletion "
+            f"waits ({names})",
+        )
 
     def _refuse_unselected(self, row: DeletionRow) -> None:
         """Cancel a claimed row whose library is not ticked, booking what it removed.
