@@ -184,7 +184,8 @@
 .player-band {
   min-width: 2px;
   border-radius: var(--r-xxs);
-  background: color-mix(in srgb, var(--purple) 85%, transparent);
+  /* A grey between the track's and the buffered part's, so it never reads as progress. */
+  background: color-mix(in srgb, var(--t1) 32%, transparent);
 }
 .player-gap {
   z-index: 2;
@@ -714,7 +715,7 @@
   .player-seek-track { forced-color-adjust: none; background: Canvas; outline: 1px solid CanvasText; }
   .player-seek-buffered { background: GrayText; }
   .player-seek-played { background: Highlight; }
-  .player-band { background: LinkText; }
+  .player-band { background: ButtonFace; outline: 1px solid GrayText; }
   .player-gap { top: -4px; height: calc(100% + 8px); }
   .player-volume-slider { forced-color-adjust: none; }
   .player-volume-slider::-webkit-slider-runnable-track { background: linear-gradient(90deg, Highlight var(--fill, 100%), GrayText 0); }

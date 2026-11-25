@@ -152,6 +152,19 @@ def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
     assert level(".player-gap") <= level(".player-seek-thumb")
 
 
+def test_the_intro_and_credits_bands_are_a_grey_between_the_track_and_the_buffered_part() -> None:
+    css = _text("_player.css")
+
+    def share(selector: str) -> int:
+        m = re.search(r"var\(--t1\) (\d+)%", _rule(css, selector))
+        assert m, selector
+        return int(m.group(1))
+
+    track = int(re.search(r"var\(--t1\) (\d+)%", _rule(css, ".player-seek-track::before")).group(1))
+    assert track < share(".player-band") < share(".player-seek-buffered")
+    assert "--purple" not in _rule(css, ".player-band")
+
+
 def test_a_pill_s_focus_ring_follows_the_pill_and_not_the_taller_box_it_is_pressed_by() -> None:
     css = _text("_player.css")
     assert re.search(r"outline:\s*none", _rule(css, ".player-pill:focus-visible"))
