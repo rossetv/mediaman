@@ -27,6 +27,8 @@ from mediaman.services.media_meta.plex_stream import (
     MAX_READS_PER_STREAM,
     MAX_READS_PER_USER,
     MAX_READS_TOTAL,
+    MAX_STARTS_PER_USER,
+    MAX_STARTS_TOTAL,
     MAX_STREAMS_PER_USER,
     MAX_STREAMS_TOTAL,
     SegmentRead,
@@ -34,6 +36,7 @@ from mediaman.services.media_meta.plex_stream import (
     StreamManager,
     StreamReplaced,
     TooManyReads,
+    TooManyStarts,
     TooManyStreams,
     init_stream_manager,
 )
@@ -1533,3 +1536,135 @@ def test_a_late_cancel_leaves_another_readers_connection_alone(slow_plex):
     with contextlib.suppress(OSError):
         server.latest.sendall(b"rest")
     assert later()[0] == b"somerest"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        b"HTTP/1.1 500 No\r\nContent-Length: 9\r\n\r\nsome",
+        _answer(b"some", length=plex_stream._SEGMENT_MAX_BYTES + 1),
+    ],
+    ids=["not 200", "over the cap"],
+)
+def test_an_answer_given_up_on_is_hung_up(slow_plex, monkeypatch, answer):
+    server, manager, stream_id = slow_plex([answer])
+    real = manager._session.request
+    # Held here, or its collection would hang up.
+    responses = []
+
+    def request(*args, **kwargs):
+        responses.append(real(*args, **kwargs))
+        return responses[-1]
+
+    monkeypatch.setattr(manager._session, "request", request)
+    with pytest.raises(PlexUnavailable):
+        manager.segment(SegmentRead(stream_id, "alice"), "00001.ts")
+
+    assert server.hung_up.acquire(timeout=2)
+
+
+def test_a_person_s_starts_at_once_are_bounded_and_one_that_ends_makes_room(manager):
+    with contextlib.ExitStack() as held:
+        for _ in range(MAX_STARTS_PER_USER - 1):
+            held.enter_context(manager.starting("alice"))
+        with manager.starting("alice"), pytest.raises(TooManyStarts), manager.starting("alice"):
+            pass
+        with manager.starting("alice"), manager.starting("bob"):
+            pass
+
+
+def test_starts_at_once_leave_threads_to_the_pages(manager):
+    with contextlib.ExitStack() as held:
+        for n in range(MAX_STARTS_TOTAL):
+            held.enter_context(manager.starting(f"user{n}"))
+        with pytest.raises(TooManyStarts), manager.starting("one-more"):
+            pass
+    assert anyio.run(_default_threads) * 2 / 3 >= MAX_STARTS_TOTAL + MAX_READS_TOTAL
+
+
+@pytest.mark.parametrize("hangs", [False, True])
+def test_a_press_past_the_limit_ends_the_person_s_oldest_start_only_if_it_hangs(
+    slow_plex, clock, hangs
+):
+    server, manager, _ = slow_plex([b"", b"HTTP/1.1 500 No\r\nContent-Length: 0\r\n\r\n"])
+    manager._clock = clock
+
+    def hung():
+        with manager.starting("alice"):
+            return _start(manager, rating_key="7")
+
+    ended = _in_thread(hung)
+    assert server.asked.acquire(timeout=5)
+    manager._call_quietly = lambda *args: None
+    clock.now += plex_stream.HUNG_START_SECONDS if hangs else 1
+    with contextlib.ExitStack() as held:
+        for _ in range(MAX_STARTS_PER_USER - 1):
+            held.enter_context(manager.starting("alice"))
+        with pytest.raises(TooManyStarts), manager.starting("alice"):
+            pass
+        if hangs:
+            assert isinstance(ended(), TooManyStarts)
+            with manager.starting("alice"):
+                pass
+        else:
+            server.latest.shutdown(socket.SHUT_RDWR)
+            assert isinstance(ended(), PlexUnavailable)
+
+
+def test_giving_a_session_back_is_not_hung_up_with_its_start(slow_plex):
+    server, manager, _ = slow_plex([b"", _answer(b"")])
+
+    def hung():
+        with manager.starting("alice"):
+            return _start(manager, rating_key="7")
+
+    ended = _in_thread(hung)
+    assert server.asked.acquire(timeout=5)
+    [start] = manager._starting
+
+    start.cancel()
+
+    assert isinstance(ended(), TooManyStarts)
+    assert server.asked.acquire(timeout=2)
+
+
+def test_a_start_made_by_itself_goes_through_once_the_page_asked_later_stopped_its_stream(
+    manager, clock
+):
+    clock.now += 10
+    phone = _start(manager, page="phone-page")
+    manager.stop(phone, "alice")
+    clock.now += 5
+
+    assert manager.get(_start(manager, page="tv-page", asked_ago=15.0), "alice")
+
+
+def test_stopping_a_stream_leaves_the_title_to_a_later_press_still_opening(manager, clock):
+    real_open = manager._open_session
+    phone = _start(manager, page="phone-page")
+    clock.now += 1
+    refused = []
+
+    def tv_tries_meanwhile(*args):
+        manager._open_session = real_open
+        with contextlib.suppress(StreamGone):
+            manager.stop(phone, "alice")
+        with pytest.raises(StreamReplaced) as caught:
+            _start(manager, page="tv-page", asked_ago=5.0)
+        refused.append(caught.value.by)
+        return real_open(*args)
+
+    manager._open_session = tv_tries_meanwhile
+    _start(manager, page="den-page")
+
+    assert refused == ["den-page"]
+
+
+def test_a_start_made_by_itself_is_refused_where_the_later_page_s_stream_was_reaped(manager, clock):
+    phone = _start(manager, page="phone-page")
+    _reap_one_idle(manager, clock)
+    with pytest.raises(StreamGone):
+        manager.stop(phone, "alice")
+
+    with pytest.raises(StreamReplaced):
+        _start(manager, page="tv-page", asked_ago=500.0)

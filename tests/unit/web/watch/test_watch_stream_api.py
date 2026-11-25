@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
@@ -580,7 +581,6 @@ def test_a_late_save_from_a_reaped_stream_never_overwrites_a_newer_stream_of_the
     assert row["position_s"] == 900
 
 
-def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
 @pytest.mark.parametrize("ended", [False, True])
 @pytest.mark.parametrize(("newer_saved", "kept"), [(True, 900), (False, 60)])
 def test_a_late_save_from_a_reaped_stream_gives_way_only_to_a_newer_one_that_saved(
@@ -600,6 +600,7 @@ def test_a_late_save_from_a_reaped_stream_gives_way_only_to_a_newer_one_that_sav
     assert row["position_s"] == kept
 
 
+def test_a_stream_reaped_long_ago_saves_nothing(alice, conn, clock):
     stream_id = _stream(alice)
     _reap_after_idle(clock)
     clock.now += plex_stream.REAPED_KEEP_SECONDS + 1
@@ -1096,3 +1097,26 @@ def test_a_fetch_under_way_when_its_stream_is_replaced_says_so(alice, held, pool
     held.let_go()
 
     assert inside.result(5).json()["error"] == "replaced"
+
+
+def test_starts_past_the_limit_are_told_to_try_again_without_asking_plex(alice, plex):
+    manager = plex_stream.get_stream_manager()
+    with contextlib.ExitStack() as held:
+        for _ in range(plex_stream.MAX_STARTS_PER_USER):
+            held.enter_context(manager.starting("alice"))
+        refused = _start(alice)
+
+    assert (refused.status_code, refused.json()["error"]) == (429, "rate_limited")
+    assert int(refused.headers["retry-after"]) > 0
+    assert plex.calls == []
+    assert _start(alice).status_code == 200
+
+
+def test_a_start_that_waits_for_plex_s_word_on_the_title_counts(alice, monkeypatch):
+    def slow_item(self, key, marks):
+        assert len(plex_stream.get_stream_manager()._starting) == 1
+        return _item(key)
+
+    monkeypatch.setattr(PlexWatch, "get_item", slow_item)
+    assert _start(alice).status_code == 200
+    assert not plex_stream.get_stream_manager()._starting

@@ -44,6 +44,7 @@ from mediaman.services.media_meta.plex_stream import (
     StreamManager,
     StreamReplaced,
     TooManyReads,
+    TooManyStarts,
     TooManyStreams,
     get_stream_manager,
 )
@@ -189,6 +190,18 @@ def start_stream(
     began = manager.now()
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
+    try:
+        with manager.starting(username):
+            return _start(request, body, username, manager, began)
+    except TooManyStarts:
+        refused = respond_err("rate_limited", status=429)
+        refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
+        return refused
+
+
+def _start(
+    request: Request, body: _StartRequest, username: str, manager: StreamManager, began: float
+) -> Response:
     conn = get_db()
     try:
         creds = read_plex_credentials(conn, request.app.state.config.secret_key)
