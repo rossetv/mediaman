@@ -428,7 +428,7 @@
 }
 .setg-pg .fpc-meter-fill.ok     { background: var(--warning); }
 .setg-pg .fpc-meter-fill.strong { background: var(--success); }
-.setg-pg .fpc-caption { font-size: 11px; color: var(--t3); margin-top: 2px; }
+.setg-pg .fpc-caption { font-size: 13px; line-height: 1.4; color: var(--t3); margin-top: 0; }
 .setg-pg .fpc-caption-weak   { color: var(--danger-text); }
 .setg-pg .fpc-caption-ok     { color: var(--warning); }
 .setg-pg .fpc-caption-strong { color: var(--success); }
