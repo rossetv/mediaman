@@ -246,7 +246,100 @@ def test_where_nothing_can_be_on_the_player_is_told_at_once_and_nothing_is_loade
 
 @pytest.mark.parametrize("since", ["emptied", "another"])
 def test_what_the_tv_says_is_over_is_forgotten_and_the_tv_left_alone(since: str) -> None:
-    assert _run("nothing")[since] == {"found": None, "kept": False, "ended": []}
+    assert _run("nothing")[since] == {
+        "found": None,
+        "kept": False,
+        "ended": [],
+        # The stream is stopped at the last place known.
+        "posts": [["stream/st1/stop", 100, 0]],
+    }
+
+
+def test_a_tv_that_plays_nothing_is_over_and_its_stream_stopped_at_the_last_place() -> None:
+    assert _run("empty") == {
+        "found": None,
+        "kept": False,
+        "posts": [["stream/st1/stop", 112, 62]],
+        "ended": [],
+    }
+
+
+def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:
+    assert _run("released") == {
+        "other": True,
+        "kept": [],
+        "found": None,
+        "holds": False,
+        "ended": [],
+    }
+
+
+def test_a_tv_found_after_the_person_plays_here_is_ended_there() -> None:
+    assert _run("releasedMeanwhile") == {"found": None, "ended": [True], "kept": [], "posts": []}
+
+
+@pytest.mark.parametrize(
+    ("page", "gone", "posts"),
+    [("player", ["stopped"], []), ("keeper", [], [["stream/st1/stop", 101, 1]])],
+)
+def test_playing_here_in_a_second_tab_ends_what_the_first_follows(
+    page: str, gone: list[str], posts: list[Any]
+) -> None:
+    assert _run("releasedElsewhere")[page] == {
+        "ended": [True],
+        "gone": gone,
+        "posts": posts,
+        "kept": [],
+    }
+
+
+def test_a_title_another_tab_plays_on_a_tv_is_told_apart_from_one_that_is_over() -> None:
+    assert _run("elsewhere") == {
+        "same": {"code": "elsewhere", "says": False},
+        "other": None,
+        "scripts": [],
+    }
+
+
+def test_a_start_called_back_does_not_end_the_session_of_the_one_chosen_after_it() -> None:
+    out = _run("chosenAgain")
+    for name in ("secondPlays", "firstFailsEarly"):
+        assert out[name] == {
+            "one": {"code": "superseded", "says": False},
+            "two": "taken",
+            "ended": [],
+            "loads": ["ticket2"],
+        }
+    assert out["bothFail"]["ended"] == [True]
+
+
+def test_a_start_that_comes_after_a_later_one_takes_nothing_from_it() -> None:
+    out = _run("chosenAgain")["firstLate"]
+    assert (out["one"]["code"], out["two"], out["ended"]) == ("superseded", "taken", [])
+    assert out["loads"] == ["ticket2"]
+
+
+def test_a_second_press_called_back_leaves_the_first_start_to_play() -> None:
+    out = _run("chosenAgain")
+    assert (out["back"]["code"], out["kept"]) == ("cancelled", 1)
+
+
+def test_a_tv_someone_else_took_is_not_ended_by_a_start_that_fails() -> None:
+    out = _run("chosenAgain")["taken"]
+    assert (out["late"]["code"], out["ended"]) == ("replaced", [])
+
+
+def test_what_the_player_keeps_is_written_when_it_changes_and_only_the_place_again_and_again() -> (
+    None
+):
+    out = _run("writes")
+    assert out["beats"]["writes"] == 6
+    assert out["beats"]["largest"] < 300
+    assert out["place"] == 130
+    assert "mediaman.watch.cast.kept" in out["changed"]
+    assert out["kept"] == {"quality": "best", "markers": "y", "played_s": 30}
+    assert out["others"] == {"played_s": 30}
+    assert out["after"] == []
 
 
 def test_a_tv_not_found_in_time_is_told_apart_from_one_that_is_over_and_not_forgotten() -> None:

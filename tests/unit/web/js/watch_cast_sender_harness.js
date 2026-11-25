@@ -196,7 +196,7 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
     navigator: { presentation: {}, sendBeacon: (url, blob) => { page.beacons.push([url, blob.text]); return true; } },
     Blob: class { constructor(parts) { this.text = JSON.parse(parts[0]); } },
     location: { href: 'https://media.example/watch', reload: () => { page.reloads += 1; } },
-    localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = v; }, removeItem: (k) => { delete storage[k]; } },
+    localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = v; world.writes.push([k, v.length]); }, removeItem: (k) => { delete storage[k]; } },
     Date: class extends Date { static now() { return clock.now(); } },
     setTimeout: (fn, ms) => own(clock.setTimeout(fn, ms)), setInterval: (fn, ms) => own(clock.setInterval(fn, ms)), clearTimeout: clock.clear, clearInterval: clock.clear,
     addEventListener: (type, fn) => { page.listeners[type] = fn; },
@@ -229,7 +229,7 @@ async function open(world, { player = false, playOn = true, sdk = 'good', chrome
 
 const world = () => {
   const clock = makeClock();
-  return { clock, tv: makeTv(clock), storage: {}, pages: 0, session: null };
+  return { clock, tv: makeTv(clock), storage: {}, writes: [], pages: 0, session: null };
 };
 const TITLE = { rating_key: '101', title: 'Glass Orchard', subtitle: 'S1 · E4' };
 const stream = (n, more) => Object.assign({ stream_id: 'st' + n, url: `/api/cast/ticket${n}/index.m3u8`, position_s: 100, duration_s: 3000, paused: false, title: TITLE }, more);
@@ -573,7 +573,7 @@ const scenarios = {
       const p = await open(w, { player: true });
       const found = p.way.again();
       await w.clock.advance(11000);
-      out[name] = { found: await found, kept: RECORD in w.storage, ended: w.tv.ended };
+      out[name] = { found: await found, kept: RECORD in w.storage, ended: w.tv.ended, posts: places(p) };
     }
     const w = world();
     (await casting(w)).close();
@@ -603,6 +603,143 @@ const scenarios = {
     keeper.close();
     const next = await open(w, { player: true });
     return { first, second, late, found: !!(await next.way.again('101')) };
+  },
+  // The TV is joined and plays nothing.
+  async empty() {
+    const w = world();
+    const first = await casting(w);
+    first.play.keep({ played_s: 50 });
+    await w.clock.advance(12000);
+    first.close();
+    w.tv.media = [];
+    const page = await open(w, { player: true, joins: false });
+    const asked = page.way.again('101');
+    // Joined only just in time.
+    await w.clock.advance(9000);
+    page.context.resume();
+    await w.clock.advance(3500);
+    return { found: await asked, kept: RECORD in w.storage, posts: places(page), ended: w.tv.ended };
+  },
+  // "Play here", whatever became of the TV.
+  async released() {
+    const w = world();
+    (await casting(w)).close();
+    const page = await open(w, { player: true, joins: false });
+    const asked = refused(page.way.again('101'));
+    await w.clock.advance(11000);
+    await asked;
+    page.way.release('999');
+    const other = RECORD in w.storage;
+    page.way.release('101');
+    const again = await open(w, { player: true });
+    return { other, kept: Object.keys(w.storage), found: again.way.again('101'), holds: again.sender.holds('101'), ended: w.tv.ended };
+  },
+  async releasedMeanwhile() {
+    const w = world();
+    (await casting(w)).close();
+    const page = await open(w, { player: true, joins: false });
+    const asked = page.way.again('101');
+    await w.clock.advance(5000);
+    page.way.release('101');
+    page.context.resume();
+    await settle();
+    return { found: await asked, ended: w.tv.ended, kept: Object.keys(w.storage), posts: page.posts };
+  },
+  // "Play here" in a second tab, while the first follows the TV.
+  async releasedElsewhere() {
+    const out = {};
+    for (const kind of ['player', 'keeper']) {
+      const w = world();
+      const first = await casting(w);
+      let page = first;
+      if (kind === 'keeper') {
+        first.close();
+        page = await open(w);
+      }
+      await w.clock.advance(1000);
+      page.posts.length = 0;
+      const second = await open(w, { player: true });
+      second.way.release('101');
+      page.listeners.storage({ key: RECORD });
+      await settle();
+      out[kind] = { ended: w.tv.ended, gone: first.gone, posts: places(page), kept: Object.keys(w.storage) };
+    }
+    return out;
+  },
+  async elsewhere() {
+    const w = world();
+    await casting(w);
+    const second = await open(w, { player: true });
+    const same = await refused(Promise.resolve(second.way.again('101')));
+    return { same, other: second.way.again('102'), scripts: second.scripts };
+  },
+  // A start called back and chosen again; `first` and `second` say how each ends.
+  async chosenAgain() {
+    const out = {};
+    const run = async (name, go) => {
+      const w = world();
+      const page = await open(w, { player: true });
+      page.way.look();
+      await settle();
+      const wait = () => { let d; const promise = new Promise((resolve, reject) => { d = { resolve, reject }; }); return Object.assign(d, { promise }); };
+      const a = wait(); const b = wait();
+      const one = refused(page.way.start({ title: TITLE, open: () => a.promise }));
+      await settle();
+      const two = refused(page.way.start({ title: TITLE, open: () => b.promise }));
+      await settle();
+      const no = Object.assign(new Error('x'), { code: 'superseded' });
+      await go(a, b, no);
+      await settle();
+      out[name] = { one: await one, two: await two, ended: w.tv.ended, loads: w.tv.loads.map((l) => l.url.split('/')[5]) };
+    };
+    await run('secondPlays', async (a, b, no) => { b.resolve(stream(2)); await settle(); a.reject(no); });
+    await run('firstFailsEarly', async (a, b, no) => { a.reject(no); await settle(); b.resolve(stream(2)); });
+    await run('bothFail', async (a, b, no) => { a.reject(no); await settle(); b.reject(no); });
+    await run('firstLate', async (a, b) => { b.resolve(stream(2)); await settle(); a.resolve(stream(1)); });
+    // The second press is called back in the browser's list, and so counts for nothing.
+    const c = world();
+    const p = await open(c, { player: true });
+    p.way.look();
+    await settle();
+    p.way.start(what(1)).then(() => { out.kept = c.tv.loads.length; }, (err) => { out.kept = err.code; });
+    p.pick = 'cancel';
+    p.context.session = null;
+    const back = refused(p.way.start(what(2)));
+    p.context.session = c.session;
+    out.back = await back;
+    await settle();
+    // The TV that is taken from here by someone else is not ended by a start that fails later.
+    const w = world();
+    const page = await casting(w);
+    w.tv.media[0].say('IDLE', { idleReason: 'INTERRUPTED' });
+    const late = await refused(page.way.start({ title: TITLE, open: () => Promise.reject(Object.assign(new Error('x'), { code: 'replaced' })) }));
+    out.taken = { late, ended: w.tv.ended };
+    return out;
+  },
+  // What is kept is large, and is written when it changes; the place on every beat.
+  async writes() {
+    const w = world();
+    const page = await casting(w);
+    const big = { quality: 'low', markers: 'x'.repeat(5000), played_s: 0 };
+    page.play.keep(big);
+    w.writes.length = 0;
+    await w.clock.advance(30000);
+    const beats = { writes: w.writes.length, largest: Math.max(...w.writes.map((x) => x[1])) };
+    const place = JSON.parse(w.storage[RECORD]).place;
+    w.writes.length = 0;
+    page.play.keep({ quality: 'best', markers: 'y' });
+    const changed = w.writes.map((x) => x[0]);
+    page.close();
+    const second = await open(w, { player: true });
+    const kept = (await second.way.again('101')).stream.keep;
+    const held = Object.keys(w.storage).length;
+    second.close();
+    w.storage[RECORD + '.kept'] = JSON.stringify({ stream: 'st9', keep: { quality: 'low' } });
+    const third = await open(w, { player: true });
+    const others = (await third.way.again('101')).stream.keep;
+    w.storage[RECORD + '.kept'] = JSON.stringify({ stream: 'st1', keep: {} });
+    await (await third.way.again('101')).play.stop();
+    return { beats, place, changed, kept, held, others, after: Object.keys(w.storage) };
   },
   // The session is joined a moment before the TV says what it plays.
   async mediaLater() {
@@ -641,7 +778,7 @@ const scenarios = {
   async played() {
     const w = world();
     const page = await casting(w);
-    const stored = () => { const rec = JSON.parse(w.storage[RECORD]); return [rec.key, Math.round(rec.played), rec.keep]; };
+    const stored = () => { const rec = JSON.parse(w.storage[RECORD]); const kept = w.storage[RECORD + '.kept']; return [rec.key, Math.round(rec.played), kept ? JSON.parse(kept).keep : null]; };
     page.play.keep({ quality: 'low', played_s: 900 });
     await w.clock.advance(10000);
     const first = stored();
@@ -669,7 +806,7 @@ const scenarios = {
     const first = await casting(w);
     const second = await open(w, { player: true });
     const third = await open(w);
-    const out = { found: second.way.again(), scripts: [second.scripts, third.scripts], holds: second.sender.holds(101), other: second.sender.holds('102') };
+    const out = { found: second.way.again('102'), scripts: [second.scripts, third.scripts], holds: second.sender.holds(101), other: second.sender.holds('102') };
     // A page that only keeps the place makes way.
     first.close();
     const keeper = await open(w);
