@@ -18,7 +18,6 @@ from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
-from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.db import get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS, Ticket, get_ticket_store
 from mediaman.services.cast.tracks import Track, read_tracks
@@ -50,6 +49,7 @@ from mediaman.web.routes.watch.stream_api import (
     _StartRequest,
     _StreamRoute,
     plex_failure,
+    session_lasts,
 )
 
 router = APIRouter(route_class=_StreamRoute)
@@ -197,13 +197,9 @@ def _may_still_watch(conn: sqlite3.Connection, ticket: Ticket) -> bool:
     Signing out, a new password and removing the user each end the session; unpairing and the
     last two each end the pairing.
     """
-    row = conn.execute(
-        "SELECT expires_at FROM admin_sessions WHERE token_hash = ?", (ticket.session_hash,)
-    ).fetchone()
-    expires = parse_iso_strict_utc(row["expires_at"]) if row is not None else None
-    lasts = expires is not None and expires >= now_utc()
     return (
-        lasts or is_paired(conn, ticket.session_hash, ticket.user)
+        session_lasts(conn, ticket.session_hash)
+        or is_paired(conn, ticket.session_hash, ticket.user)
     ) and not user_must_change_password(conn, ticket.user)
 
 

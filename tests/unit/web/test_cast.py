@@ -477,6 +477,13 @@ def test_a_sign_out_elsewhere_while_a_stream_starts_leaves_the_start(alice, tv, 
     assert tv.get(_cast(alice)["url"]).status_code == 200
 
 
+def test_a_sign_out_elsewhere_while_a_player_stream_starts_leaves_the_start(alice, conn, plex):
+    other = create_session(conn, "alice")
+    plex.on_start = lambda: destroy_session(get_db(), other)
+    started = alice.post("/api/watch/stream", json={"rating_key": "101", "quality": "best"})
+    assert alice.get(started.json()["playlist"]).status_code == 200
+
+
 def test_a_start_beaten_by_a_later_one_is_told_so(alice, plex):
     manager = plex_stream.get_stream_manager()
     later = iter([lambda: manager.start("alice", "101", "best", False, page="later-page")])
