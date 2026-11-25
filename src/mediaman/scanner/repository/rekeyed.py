@@ -537,17 +537,37 @@ def _held_places(pruned: sqlite3.Row) -> set[str]:
     """Return the normalised paths of the files a row set aside for a title holds.
 
     Where they cannot be read, the folder the title was in, ending in a separator:
-    all that is known of where they are.
+    all that is known of where they are. With no folder to tell, the title's path,
+    or its key alone.
     """
     entries = _entries(pruned["tracked_files"])
     if entries and all(isinstance(e, dict) and e.get("path") for e in entries):
         return set(map(os.path.normpath, pruned_files(pruned)))
     place = pruned["file_path"]
-    if place:
-        place = os.path.normpath(place)
-        if pruned["season_number"] is None:
-            place = os.path.dirname(place)
-    return {place.rstrip(os.sep) + os.sep}
+    if not place:
+        given_to = dict(pruned).get("given_to")
+        keys = (pruned["media_item_id"], *_owners(given_to))
+        return {key for key in keys if key}
+    place = os.path.normpath(place)
+    folder = os.path.dirname(place) if pruned["season_number"] is None else place
+    return {folder + os.sep} if folder.strip(os.sep) else {place}
+
+
+def _owners(given_to: str | None) -> list[str]:
+    return [key for key in _entries(given_to) if isinstance(key, str)]
+
+
+def _any_keep_stands(conn: sqlite3.Connection, now: str) -> bool:
+    """Return True if any title or show is kept, or has its keep set aside."""
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    row = conn.execute(  # nosec B608
+        f"SELECT 1 FROM scheduled_actions sa WHERE {_LIVE_ITEM_KEEP} "
+        f"UNION ALL SELECT 1 FROM pruned_keeps sa WHERE {_LIVE_ITEM_KEEP} "
+        "UNION ALL SELECT 1 FROM kept_shows "
+        "  WHERE action = 'protected_forever' OR execute_at >= ? LIMIT 1",
+        (now, now, now),
+    ).fetchone()
+    return row is not None
 
 
 def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -> dict[str, bool]:
@@ -569,8 +589,14 @@ def files_held_for_gone_titles(conn: sqlite3.Connection, inactivity_days: int) -
         if _is_lately(watch["last_watched_at"], inactivity_days):
             held.update(dict.fromkeys(_held_places(watch), False))
     for kept in conn.execute("SELECT * FROM pruned_keeps WHERE action = ?", (HELD,)).fetchall():
-        kept_as = _entries(kept["given_to"])
-        if not kept_as or any(_is_kept_now(conn, key, now) for key in kept_as):
+        kept_as = _owners(kept["given_to"])
+        # Whose keep it was set aside with is unknown: it may be any that stands.
+        stands = (
+            any(_is_kept_now(conn, key, now) for key in kept_as)
+            if kept_as
+            else _any_keep_stands(conn, now)
+        )
+        if stands:
             files = _held_places(kept) - _files_of(conn, kept_as)
             held.update(dict.fromkeys(files, True))
     return held

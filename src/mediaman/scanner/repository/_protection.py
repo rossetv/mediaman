@@ -322,6 +322,24 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
 HELD = "held"
 
 
+# The held rows whose owners were already logged as unreadable.
+_unreadable_owners: set[int] = set()
+
+
+def _read_owners(row: sqlite3.Row) -> set[str]:
+    """Return the keys of *row*'s given_to, none when they cannot be read, logged once."""
+    try:
+        owners = json.loads(row["given_to"] or "")
+    except ValueError:
+        owners = None
+    if isinstance(owners, list) and all(isinstance(key, str) for key in owners):
+        return set(owners)
+    if row["id"] not in _unreadable_owners:
+        _unreadable_owners.add(row["id"])
+        logger.warning("protection.held_owner_unreadable id=%s — still holding", row["id"])
+    return set()
+
+
 def follow_taken_keep(
     conn: sqlite3.Connection,
     kept_as: str,
@@ -342,7 +360,7 @@ def follow_taken_keep(
         "SELECT id, file_path, season_number, given_to FROM pruned_keeps WHERE action = ?", (HELD,)
     ).fetchall()
     for row in held:
-        given = set(json.loads(row["given_to"]))
+        given = _read_owners(row)
         if kept_as in given and place in (None, (row["file_path"], row["season_number"])):
             conn.execute(
                 "UPDATE pruned_keeps SET given_to = ? WHERE id = ?",

@@ -11,6 +11,7 @@ import pytest
 from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
+from mediaman.scanner.repository._protection import follow_taken_keep
 from mediaman.web.repository.kept import delete_protections
 from tests.helpers.factories import (
     insert_admin_user,
@@ -891,3 +892,42 @@ class TestTitlePrunedFromAListedLibraryAsShipped(_GoneLibrary):
         self._scan_past_grace()
 
         assert film.exists()
+
+    @pytest.mark.parametrize("owner", [None, "[]", "{bad", "5"])
+    def test_a_hold_whose_owner_cannot_be_read_ends_with_the_last_keep_and_stops_no_scan(
+        self, owner
+    ):
+        film = self._relisted("keep")
+        self._scan_until_due("20")
+        self._gone(self._file("z.mkv"), [], library=2, key="30")
+        self._list("30", 2, self.folder / "z.mkv", [])
+        self._keep("30")
+        with self.conn:
+            self.conn.execute(
+                "UPDATE pruned_keeps SET given_to = ? WHERE action = 'held'", (owner,)
+            )
+            self.conn.execute("DELETE FROM pruned_keeps WHERE action != 'held'")
+        follow_taken_keep(self.conn, "10", ["30"])
+        self._scan(1)
+        assert film.exists()
+        assert "20" in self._scheduled()
+
+        self._unkeep("30")
+        self._scan(1)
+        assert "20" not in self._scheduled()
+
+    @pytest.mark.parametrize("path", ["", "/film.mkv"])
+    def test_a_keep_with_no_folder_and_unreadable_files_holds_no_other_title(self, path):
+        self._relisted("keep")
+        other = self._file("other.mkv")
+        self._list("40", 2, other, [other])
+        with self.conn:
+            self.conn.execute(
+                "UPDATE pruned_keeps SET tracked_files = NULL, file_path = ? WHERE action = 'held'",
+                (path,),
+            )
+
+        self._scan(2)
+        self._scan_past_grace()
+
+        assert not other.exists()
