@@ -11,7 +11,7 @@ import heapq
 import json
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
@@ -20,6 +20,36 @@ from mediaman.core.time import parse_iso_strict_utc
 from mediaman.scanner.repository.audit import _FILTER_MAP, SHOW_ACTIONS, AuditRow
 
 PLAYS = "plays"
+#: What each filter group holds beside plays, which are no events: actions, and the beginnings
+#: of actions, which end in a separator.
+GROUPS: dict[str, tuple[str, ...]] = {
+    PLAYS: (),
+    "downloads": ("downloaded", "re_downloaded", "sec:auto_abandon."),
+    "keeps": (*_FILTER_MAP["kept"], *_FILTER_MAP["unkept"]),
+    "deletions": (
+        "scheduled",
+        *_FILTER_MAP["scheduled"],
+        "deleted",
+        "delete_",
+        "dry_run_skip",
+        "media_missing",
+        "unmonitor_skipped",
+    ),
+    "sign_ins": (
+        "sec:login.",
+        "sec:logout",
+        "sec:session.",
+        "sec:password.",
+        "sec:reauth.",
+        "sec:plex.",
+    ),
+    "people": ("sec:user.",),
+    "settings": ("sec:settings.", "sec:aes."),
+    "scans": ("sec:scan.", "sec:library.", "library_left_out", "scanned"),
+    "newsletter": ("sec:newsletter.", "sec:subscriber."),
+}
+#: The groups that can hold what a person who is no admin did.
+OWN_GROUPS = (PLAYS, "downloads", "keeps", "sign_ins")
 PER_PAGE_MAX = 100
 #: What a filter or a search is cut to.
 TEXT_MAX = 200
@@ -48,7 +78,7 @@ class Viewer:
 
 @dataclass(frozen=True, slots=True)
 class Filters:
-    """*since* is inclusive and *until* exclusive; *action* is a filter name or "plays"."""
+    """*since* is inclusive and *until* exclusive; *action* is a group or a filter's name."""
 
     q: str = ""
     user: str = ""
@@ -67,6 +97,9 @@ class PlayPart:
     episode_number: int | None
     title: str | None
     finished: bool
+    #: Where the last play in mediaman stopped, and how long the film or episode is.
+    position_s: float | None = None
+    duration_s: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +116,9 @@ class Play:
     created_at: str
     finished: bool
     parts: tuple[PlayPart, ...]
+    #: Of a film the library still holds.
+    year: int | None = None
+    runtime_s: float | None = None
 
 
 Entry = AuditRow | Play
@@ -281,6 +317,8 @@ def _event_filters(where: _Where, viewer: Viewer, filters: Filters) -> None:
         where.add("al.actor = ?", filters.user)
     if filters.action == "security":
         where.add("al.action >= 'sec:' AND al.action < 'sec;'")
+    elif filters.action in GROUPS:
+        _in_group(where, GROUPS[filters.action])
     elif filters.action:
         actions = _FILTER_MAP.get(filters.action, (filters.action,))
         where.add(f"al.action IN ({','.join('?' * len(actions))})", *actions)
@@ -297,6 +335,17 @@ def _event_filters(where: _Where, viewer: Viewer, filters: Filters) -> None:
         only="al.media_item_id != '_security' AND ",
     )
     _dates(where, "al.created_at", filters)
+
+
+def _in_group(where: _Where, actions: Sequence[str]) -> None:
+    starts = [a for a in actions if a[-1] in "._"]
+    whole = [a for a in actions if a not in starts]
+    sql = [
+        f"al.action IN ({','.join('?' * len(whole))})",
+        *["(al.action >= ? AND al.action < ?)"] * len(starts),
+    ]
+    bounds = [b for s in starts for b in (s, s[:-1] + chr(ord(s[-1]) + 1))]
+    where.add(f"({' OR '.join(sql)})", *whole, *bounds)
 
 
 def _event_sources(viewer: Viewer, filters: Filters) -> list[_Where]:
@@ -355,7 +404,8 @@ WITH raw AS (
          COALESCE(wp.show_rating_key, wp.rating_key) AS title_key, wp.updated_at AS at,
          'w:' || wp.rowid AS ref, wp.rating_key, mi.id AS season_id, mi.season_number,
          NULL AS episode_number, NULL AS episode_title,
-         wp.watched = 1 AND (wp.seen_at IS NULL OR wp.seen_at <= wp.updated_at) AS finished
+         wp.watched = 1 AND (wp.seen_at IS NULL OR wp.seen_at <= wp.updated_at) AS finished,
+         NULLIF(wp.position_s, 0) AS position_s, NULLIF(wp.duration_s, 0) AS duration_s
   FROM watch_progress wp
   JOIN admin_users u ON u.username = wp.username
   LEFT JOIN media_items mi ON mi.id = wp.media_item_id
@@ -366,14 +416,15 @@ WITH raw AS (
          CASE p.media_type WHEN 'movie' THEN p.title ELSE p.show_title END,
          CASE p.media_type WHEN 'movie' THEN p.rating_key ELSE p.show_rating_key END,
          p.viewed_at, 'x:' || p.rowid, p.rating_key, NULL, p.season_number, p.episode_number,
-         CASE p.media_type WHEN 'movie' THEN NULL ELSE p.title END, 1
+         CASE p.media_type WHEN 'movie' THEN NULL ELSE p.title END, 1,
+         NULL, NULL
   FROM plex_plays p
   JOIN admin_users u ON u.username = p.username
   JOIN plex_links l ON l.username = p.username
   WHERE p.media_type IN ('movie', 'episode') AND {p_user} AND {p_window}
   UNION ALL
   SELECT t.username, t.media_type, t.title, NULL, t.played_at, 't:' || t.rowid, NULL, NULL, NULL,
-         NULL, NULL, 0
+         NULL, NULL, 0, NULL, NULL
   FROM played_titles t
   JOIN admin_users u ON u.username = t.username
   WHERE {t_user} AND {t_window}
@@ -394,7 +445,8 @@ numbered AS (
 sittings AS (
   SELECT username, media_type, title, at, ref, MAX(at || ' ' || ref),
          json_group_array(json_array(at, ref, title_key, rating_key, season_id, season_number,
-                                     episode_number, episode_title, finished)) AS parts
+                                     episode_number, episode_title, finished, position_s,
+                                     duration_s)) AS parts
   FROM numbered GROUP BY username, media_type, LOWER(title), sitting
 )
 """
@@ -518,7 +570,30 @@ def _read_window(
     ).fetchall()
     parts = [sorted(json.loads(r["parts"]), key=lambda p: (p[0], p[1])) for r in rows]
     numbers = _episode_numbers(conn, {p[4] for ps in parts for p in ps if p[4]})
-    return [_play(r, ps, numbers) for r, ps in zip(rows, parts, strict=True)]
+    plays = [_play(r, ps, numbers) for r, ps in zip(rows, parts, strict=True)]
+    films = _films(conn, {p.title_key for p in plays if p.media_type == "movie" and p.title_key})
+    return [_with_film(p, films) for p in plays]
+
+
+def _films(conn: sqlite3.Connection, keys: set[str]) -> dict[str, tuple[int | None, int | None]]:
+    """The year and the minutes of each of these films the library holds."""
+    rows = conn.execute(
+        "SELECT mi.id, mi.year, (SELECT CASE WHEN json_valid(tm.details)"
+        " THEN json_extract(tm.details, '$.runtime') END FROM title_meta tm"
+        " WHERE tm.id_type = 'movie' AND tm.id = mi.tmdb_id) AS minutes"
+        " FROM media_items mi WHERE mi.id IN (SELECT value FROM json_each(?))",
+        (json.dumps(sorted(keys)),),
+    )
+    return {r["id"]: (_first(r["year"]), _first(r["minutes"])) for r in rows}
+
+
+def _with_film(play: Play, films: dict[str, tuple[int | None, int | None]]) -> Play:
+    if play.media_type != "movie":
+        return play
+    year, minutes = films.get(play.title_key or "", (None, None))
+    stored = next((p.duration_s for p in play.parts if p.duration_s), None)
+    told = minutes * 60.0 if minutes and minutes > 0 else None
+    return replace(play, year=year, runtime_s=stored or told)
 
 
 def _episode_numbers(
@@ -547,7 +622,7 @@ def _play(
 ) -> Play:
     parts: dict[str, PlayPart] = {}
     title_key: str | None = None
-    for _at, ref, key, rating_key, _season_id, season, episode, name, finished in stored:
+    for _at, ref, key, rating_key, _season_id, season, episode, name, finished, pos, dur in stored:
         title_key = str(key) if key else title_key
         if str(ref).startswith("t:"):
             continue
@@ -564,6 +639,8 @@ def _play(
             else None,
             title=str(name) if name else (held.title if held else None),
             finished=bool(finished) or (held is not None and held.finished),
+            position_s=_seconds(pos) or (held.position_s if held else None),
+            duration_s=_seconds(dur) or (held.duration_s if held else None),
         )
     last = list(parts.values())
     return Play(
@@ -581,6 +658,10 @@ def _play(
 
 def _first(*values: object) -> int | None:
     return next((v for v in values if isinstance(v, int)), None)
+
+
+def _seconds(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
 
 
 # --- the list ---

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote
@@ -374,36 +375,79 @@ def own_item(item: dict[str, object], username: str) -> dict[str, object]:
     }
 
 
+def _place(part: PlayPart) -> str:
+    season = f"S{part.season_number}" if part.season_number is not None else ""
+    return season + (f"E{part.episode_number}" if part.episode_number is not None else "")
+
+
 def _part_label(part: PlayPart) -> str:
-    number = ""
-    if part.season_number is not None:
-        number = f"S{part.season_number}"
-    if part.episode_number is not None:
-        number += f"E{part.episode_number}"
-    return " · ".join(p for p in (number, part.title and scrub_control(part.title)) if p)
+    return " · ".join(p for p in (_place(part), part.title and scrub_control(part.title)) if p)
+
+
+def _episode_range(parts: Sequence[PlayPart]) -> str:
+    """The episodes of one season in a row, as "S1E2 to E4"; empty when they are not that."""
+    numbers = sorted({p.episode_number for p in parts if p.episode_number is not None})
+    seasons = {p.season_number for p in parts}
+    in_a_row = numbers and numbers[-1] - numbers[0] == len(numbers) - 1 == len(parts) - 1
+    if len(numbers) < 2 or not in_a_row or len(seasons) > 1 or None in seasons:
+        return ""
+    return f"S{seasons.pop()}E{numbers[0]} to E{numbers[-1]}"
+
+
+def _duration(seconds: float) -> str:
+    minutes = max(1, round(seconds / 60))
+    hours, rest = divmod(minutes, 60)
+    return " ".join(p for p in (f"{hours} h" if hours else "", f"{rest} min" if rest else "") if p)
 
 
 def play_item(play: Play) -> dict[str, object]:
     """A sitting in the shape of an event's item."""
     title = scrub_control(play.title)
     label = "finished" if play.finished else "started"
-    episodes = [
-        {"label": _part_label(p) or "Episode", "finished": p.finished}
-        for p in play.parts
-        if play.media_type == "tv"
+    parts = play.parts if play.media_type == "tv" else ()
+    episodes: list[dict[str, object]] = [
+        {
+            "label": _part_label(p) or "Episode",
+            "season": p.season_number,
+            "episode": p.episode_number,
+            "title": scrub_control(p.title) or None,
+            "finished": p.finished,
+            "position_s": p.position_s,
+            "duration_s": p.duration_s,
+        }
+        for p in parts
     ]
-    if len(episodes) > 1:
-        summary = f"{len(episodes)} episodes"
-    else:
-        summary = "".join(_part_label(p) for p in play.parts) if episodes else ""
+    last = play.parts[-1] if play.parts else None
+    runtime = play.runtime_s or (last.duration_s if last and len(parts) == 1 else None)
+    progress: dict[str, object] | None = None
+    if last and not play.finished and last.position_s and last.duration_s:
+        stopped = f"{_duration(last.position_s)} of {_duration(last.duration_s)}"
+        progress = {
+            "position_s": last.position_s,
+            "duration_s": last.duration_s,
+            "fraction": min(1.0, round(last.position_s / last.duration_s, 4)),
+            "text": stopped,
+        }
+    episode_range = _episode_range(parts)
+    summary = episode_range or (f"{len(parts)} episodes" if len(parts) > 1 else "")
+    if len(parts) == 1:
+        summary = _part_label(parts[0])
     fields = [_field("Event", f"{label} (play)"), _time_field(play.created_at)]
     if play.started_at != play.created_at:
         fields.append(_time_field(play.started_at) | {"label": "First play of the sitting"})
-    fields += [_field("Title", title), _field("Who", play.username)]
+    shown = f"{title} ({play.year})" if play.year else title
+    fields += [_field("Title", shown), _field("Who", play.username)]
+    if episode_range:
+        fields.append(_field("Episodes", episode_range))
     fields += [
         _field("Episode", f"{e['label']} ({'finished' if e['finished'] else 'started'})")
         for e in episodes
     ]
+    if progress:
+        fields.append(_field("Stopped at", progress["text"]))
+    if runtime:
+        fields.append(_field("Runtime", _duration(runtime)))
+    stopped_at = f"stopped at {progress['text']}" if progress else ""
     return {
         "id": play.ref,
         "media_item_id": "",
@@ -417,7 +461,7 @@ def play_item(play: Play) -> dict[str, object]:
         "line_title": title,
         "plex_rating_key": play.title_key,
         "is_security": False,
-        "summary": summary,
+        "summary": " · ".join(p for p in (summary, stopped_at) if p),
         "actor": play.username,
         "ip": None,
         "fields": fields,
@@ -425,4 +469,9 @@ def play_item(play: Play) -> dict[str, object]:
         "finished": play.finished,
         "started_at": play.started_at,
         "episodes": episodes,
+        "episode_range": episode_range or None,
+        "progress": progress,
+        "runtime_s": runtime,
+        "runtime_text": _duration(runtime) if runtime else None,
+        "year": play.year,
     }

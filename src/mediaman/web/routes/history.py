@@ -56,18 +56,37 @@ ACTION_TYPES = [
     "kept_show",
     "removed_show_keep",
     "security",
-    repo.PLAYS,
+    *repo.GROUPS,
 ]
+
+# The groups offered, by name. The other filters above stay for old links.
+_GROUP_LABELS = {
+    repo.PLAYS: "Plays",
+    "downloads": "Downloads",
+    "keeps": "Keeps",
+    "deletions": "Deletions",
+    "sign_ins": "Sign-ins",
+    "people": "People",
+    "settings": "Settings",
+    "scans": "Scans",
+    "newsletter": "Newsletter",
+}
 
 _FILTER_NAMES = ("q", "user", "action", "title", "since", "until")
 
-# Filters kept working for old links but no longer shown as pills: the "kept"
-# and "unkept" pills already cover them.
-_PILL_HIDDEN = {ACTION_SNOOZED, "removed_show_keep"}
-# What a person who is no admin can have done.
-_OWN_PILLS = {"kept", "unkept", "downloaded", "re_downloaded", "security", repo.PLAYS}
-# The pill that lights for such an old link.
-_PILL_COVERING = {ACTION_SNOOZED: "kept", "removed_show_keep": "unkept"}
+# The group that lights for an old link's filter; "security" spans several.
+_GROUP_COVERING = {
+    "scheduled": "deletions",
+    ACTION_SNOOZED: "keeps",
+    "kept": "keeps",
+    "deleted": "deletions",
+    "delete_failed": "deletions",
+    "downloaded": "downloads",
+    "re_downloaded": "downloads",
+    "unkept": "keeps",
+    "kept_show": "keeps",
+    "removed_show_keep": "keeps",
+}
 
 ACTION_BADGE_CLASS = {
     "scanned": "badge-action-scanned",
@@ -421,15 +440,17 @@ def history_page(request: Request) -> Response:
             "people": [{"username": n, "avatar": a} for n, a in avatars.items()],
             "open_id": listing.open_id,
             "action_types": [
-                (at, ACTION_LABELS.get(at, at.replace("_", " ")).capitalize())
-                for at in ACTION_TYPES
-                if at not in _PILL_HIDDEN and (viewer.is_admin or at in _OWN_PILLS)
+                (name, label)
+                for name, label in _GROUP_LABELS.items()
+                if viewer.is_admin or name in repo.OWN_GROUPS
             ],
             "filters": {k: params.get(k, "") for k in ("since", "until")}
             | {"q": filters.q, "user": filters.user, "action": action, "title": filters.title},
             "action_filter": action,
-            "pill_on": _PILL_COVERING.get(action, action),
-            "filter_label": ACTION_LABELS.get(action, action.replace("_", " ")),
+            "pill_on": _GROUP_COVERING.get(action, action),
+            "filter_label": _GROUP_LABELS.get(
+                action, ACTION_LABELS.get(action, action.replace("_", " "))
+            ),
             "page": listing.page,
             "per_page": per_page,
             "total": listing.total,

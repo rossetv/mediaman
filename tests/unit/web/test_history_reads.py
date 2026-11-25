@@ -11,6 +11,7 @@ import pytest
 from mediaman.core.audit import log_audit, security_event
 from mediaman.scanner.repository.audit import AuditRow
 from mediaman.web.repository.history import (
+    GROUPS,
     BadCursor,
     Filters,
     Play,
@@ -22,7 +23,7 @@ from mediaman.web.repository.history import (
     viewer_for,
 )
 from mediaman.web.routes._history_view import own_item, play_item
-from mediaman.web.routes.history import _build_item
+from mediaman.web.routes.history import ACTION_BADGE_CLASS, SECURITY_EVENT_LABELS, _build_item
 from tests.helpers.factories import insert_audit_log, insert_media_item
 
 NOON = datetime(2026, 3, 1, 12, tzinfo=UTC)
@@ -230,6 +231,64 @@ def test_a_search_reads_no_address_in_a_security_row(db):
     assert _ids(_read(db, "root", Filters(q="10.0.0"))) == []
 
 
+_GROUPED = {
+    "downloads": ["downloaded", "re_downloaded", "sec:auto_abandon.fired"],
+    "keeps": [
+        "protected",
+        "protected_forever",
+        "kept",
+        "kept_show",
+        "snoozed",
+        "unprotected",
+        "unkept",
+        "removed_show_keep",
+    ],
+    "deletions": [
+        "scheduled_deletion",
+        "deleted",
+        "delete_failed",
+        "delete_failed_permanent",
+        "delete_refused",
+        "delete_root_unavailable",
+        "delete_root_available",
+        "delete_awaiting_scan",
+        "delete_incomplete",
+        "delete_folders_failed",
+        "dry_run_skip",
+        "media_missing",
+        "unmonitor_skipped",
+    ],
+    "sign_ins": ["sec:session.revoke_one", "sec:password.weak_detected", "sec:plex.link_started"],
+    "people": ["sec:user.created", "sec:user.delete.rate_limited", "sec:user.unlocked"],
+    "settings": ["sec:settings.write.throttled", "sec:aes.canary_failed"],
+    "scans": ["sec:scan.cleared", "sec:library.sync.failed", "library_left_out", "scanned"],
+    "newsletter": ["sec:newsletter.sent", "sec:subscriber.opted_out"],
+}
+
+
+@pytest.mark.parametrize("group", _GROUPED)
+def test_a_group_holds_its_own_actions_and_no_others(db, group):
+    for actions in _GROUPED.values():
+        for action in actions:
+            _event(db, action)
+    _plex(db, "ana", "1", 0)
+    page = _read(db, "root", Filters(action=group), per_page=100)
+    assert sorted(e.action for e in page.entries) == sorted(_GROUPED[group])
+    assert page.total == len(_GROUPED[group])
+
+
+def test_every_known_action_is_in_exactly_one_group(db):
+    known = {f"sec:{e}" for e in SECURITY_EVENT_LABELS} | set(ACTION_BADGE_CLASS)
+    for action in known:
+        _event(db, action)
+    found = [
+        e.action
+        for group in GROUPS
+        for e in _read(db, "root", Filters(action=group), per_page=100).entries
+    ]
+    assert sorted(found) == sorted(known)
+
+
 # --- pages ---
 
 
@@ -360,7 +419,8 @@ def test_one_sitting_with_a_show_is_one_line(db):
     assert late.finished
     assert [(p.season_number, p.episode_number) for p in sitting.parts] == [(1, 1), (1, 2), (1, 3)]
     assert (sitting.started_at, sitting.created_at, sitting.finished) == (_at(0), _at(100), False)
-    assert play_item(sitting)["summary"] == "3 episodes"
+    assert play_item(sitting)["episode_range"] == "S1E1 to E3"
+    assert play_item(sitting)["summary"] == "S1E1 to E3 · stopped at 10 min of 1 h"
 
 
 def test_a_film_played_here_and_told_by_plex_is_one_finished_line(db):
@@ -371,6 +431,42 @@ def test_a_film_played_here_and_told_by_plex_is_one_finished_line(db):
     (play,) = _read(db, "ana", Filters(action="plays")).entries
     assert play.finished
     assert len(play.parts) == 1
+
+
+def test_a_film_left_half_way_says_how_far_and_how_long(db):
+    insert_media_item(db, id="mv", title="Dune")
+    db.execute("UPDATE media_items SET year = 2021 WHERE id = 'mv'")
+    _progress(db, "ana", "mv", 0, pos=1200)
+    (play,) = _read(db, "ana", Filters(action="plays")).entries
+    item = play_item(play)
+    assert item["progress"] == {
+        "position_s": 1200,
+        "duration_s": 3600,
+        "fraction": 0.3333,
+        "text": "20 min of 1 h",
+    }
+    assert (item["year"], item["runtime_text"]) == (2021, "1 h")
+
+
+def test_a_film_played_in_plex_has_its_stored_runtime_and_no_place(db):
+    insert_media_item(db, id="mv", title="Dune")
+    db.execute("UPDATE media_items SET tmdb_id = 7")
+    db.execute(
+        "INSERT INTO title_meta (id_type, id, details, fetched_at)"
+        " VALUES ('movie', 7, '{\"runtime\":155}', 'x')"
+    )
+    _plex(db, "ana", "mv", 0)
+    (play,) = _read(db, "ana", Filters(action="plays")).entries
+    item = play_item(play)
+    assert (item["runtime_text"], item["progress"]) == ("2 h 35 min", None)
+
+
+def test_episodes_not_in_a_row_are_only_counted(db):
+    for minutes, episode in ((0, 1), (50, 4)):
+        _plex(db, "ana", f"e{episode}", minutes, title="E", show="Lost", episode=episode)
+    (play,) = _read(db, "ana", Filters(action="plays")).entries
+    item = play_item(play)
+    assert (item["episode_range"], item["summary"]) == (None, "2 episodes")
 
 
 def test_a_title_gone_from_the_library_is_still_a_play(db):
