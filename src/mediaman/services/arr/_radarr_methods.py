@@ -77,7 +77,7 @@ class _RadarrMixin:
     def remonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=True`` for *movie_id* and trigger a search.
 
-        Uses the same retry helper as ``unmonitor_movie`` so a transient
+        Raises ``SearchUnanswered`` when the search may be running all the same. Uses the same retry helper as ``unmonitor_movie`` so a transient
         PUT failure doesn't silently strand the movie in an unmonitored state.
         """
         self._require_movie("remonitor_movie")  # type: ignore[attr-defined]
@@ -96,7 +96,7 @@ class _RadarrMixin:
             log_id=f"movie_id={movie_id}",
             max_retries=max_retries,
         )
-        self.search_movie(movie_id)
+        self._start_search({"name": "MoviesSearch", "movieIds": [movie_id]})  # type: ignore[attr-defined]
 
     def search_movie(self, movie_id: int) -> None:
         self._require_movie("search_movie")  # type: ignore[attr-defined]

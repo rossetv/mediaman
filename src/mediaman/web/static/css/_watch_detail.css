@@ -311,9 +311,15 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .ttl__sec-skel { width: 80px; height: 18px; margin-bottom: 16px; }
 .ttl-skel-lines { display: flex; flex-direction: column; gap: 10px; max-width: 68ch; }
 
+/* Those still to come take what is left of the line: the ones that do not fit wrap out of sight. */
+.ttl__ratings-wait { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: inherit; height: calc(1lh + 8px); overflow: hidden; font-size: 12px; }
+.ttl__ratings-wait > .ttl-rating { flex: none; border-radius: var(--r-pill); }
+.ttl__ratings-wait > .ttl-rating > * { visibility: hidden; }
+
 /* Rating pills */
 .ttl-rating { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; }
 .ttl-rating__icon { font-size: 12px; }
+.ttl-rating__words { position: relative; white-space: nowrap; }
 .ttl-rating--imdb { background: var(--rgba-warning-bg); color: var(--warning); }
 .ttl-rating--rt   { background: var(--rgba-danger-bg); color: var(--danger-text); }
 .ttl-rating--tmdb { background: var(--rgba-orange-bg); color: var(--orange); }
@@ -467,6 +473,10 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__title--long { font-size: 22px; }
   .ttl__tagline { font-size: 13px; -webkit-line-clamp: 1; }
   .ttl__meta { font-size: 13px; }
+  .ttl__ratings { gap: 4px; }
+  .ttl-rating { padding-inline: 6px; gap: 3px; }
+  .ttl-rating__full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .ttl-rating__brief::after { content: attr(data-brief); }
   .ttl__body { padding: 8px 20px calc(36px + env(safe-area-inset-bottom, 0px)); gap: 28px; }
   /* Two to a row where their labels fit it; each row is filled. */
   .ttl__actions > .btn,
@@ -514,6 +524,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__hero::after,
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
+  .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
 }

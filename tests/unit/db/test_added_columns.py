@@ -7,7 +7,12 @@ import sqlite3
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner.repository import save_pruned_keeps, take_pruned_keeps
+from mediaman.scanner.repository import (
+    carry_film_keeps,
+    carry_last_watched,
+    save_pruned_keeps,
+    take_pruned_keeps,
+)
 from mediaman.services.downloads._notification_claims import _claim_pending_notifications
 from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
@@ -357,4 +362,112 @@ def test_a_film_kept_in_an_old_database_is_set_aside_with_its_match(tmp_path):
 
     rows = conn.execute("SELECT tmdb_id, plex_library_id FROM pruned_keeps").fetchall()
     assert [tuple(row) for row in rows] == [(7, 3)]
+    conn.close()
+
+
+_OLD_PRUNED = """
+CREATE TABLE pruned_show_seasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_rating_key TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    season_number INTEGER
+);
+CREATE TABLE pruned_watches (
+    media_item_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    season_number INTEGER,
+    show_title TEXT,
+    tmdb_id INTEGER,
+    tvdb_id INTEGER,
+    last_watched_at TEXT NOT NULL
+);
+INSERT INTO pruned_watches VALUES ('gone', '/m/a', 1, 'T', 7, 8, '2026');
+"""
+
+
+def test_a_watch_an_older_version_set_aside_is_found_by_its_ids(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS + _OLD_PRUNED_KEEPS + _OLD_PRUNED)
+    old.close()
+    init_db(path).close()
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, season_number, plex_library_id,"
+        " plex_rating_key, added_at, file_path, file_size_bytes, tvdb_id)"
+        " VALUES ('new','T','tv_season',1,3,'new','2020','/m/b',5,8)"
+    )
+
+    carry_last_watched(conn, "new")
+
+    row = conn.execute("SELECT last_watched_at FROM media_items").fetchone()
+    assert row["last_watched_at"] == "2026"
+    conn.close()
+
+
+def test_a_kept_season_an_older_version_set_aside_is_given_back_by_its_match(tmp_path):
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(
+        _OLD_MEDIA_ITEMS
+        + _OLD_PRUNED
+        + _OLD_PRUNED_KEEPS.replace(
+            "snooze_duration TEXT", "snooze_duration TEXT, tmdb_id INTEGER, plex_library_id INTEGER"
+        )
+    )
+    old.execute(
+        "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, action, scheduled_at,"
+        " token_used, tmdb_id, plex_library_id)"
+        " VALUES ('gone', '/m/a', 1, 'protected_forever', '2026', 0, 7, 3)"
+    )
+    old.commit()
+    old.close()
+    conn = init_db(path)
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, season_number, plex_library_id,"
+        " plex_rating_key, added_at, file_path, file_size_bytes, tmdb_id, tvdb_id)"
+        " VALUES ('new','T','tv_season',1,3,'new','2020','/m/b',5,7,8)"
+    )
+
+    carry_film_keeps(conn)
+
+    kept = conn.execute("SELECT media_item_id FROM scheduled_actions").fetchall()
+    assert [row["media_item_id"] for row in kept] == ["new"]
+    conn.close()
+
+
+_FILM = (
+    "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+    " added_at, file_path, file_size_bytes, last_scanned_at)"
+    " VALUES (?, 'T', 'movie', 1, ?, '2020', ?, 5, ?)"
+)
+
+
+def test_an_item_an_older_version_stored_is_first_listed_when_it_was_last_seen(tmp_path):
+    """Before or after the column came: an older version may run again and store more."""
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript(_OLD_MEDIA_ITEMS)
+    old.execute(_FILM, ("before", "before", "/m/a.mkv", "2026-01-01"))
+    old.commit()
+    old.close()
+    conn = init_db(path)
+    conn.execute(_FILM, ("after", "after", "/m/b.mkv", "2026-02-02"))
+    conn.execute(
+        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+        " added_at, file_path, file_size_bytes, last_scanned_at, first_listed_at)"
+        " VALUES ('own', 'T', 'movie', 1, 'own', '2020', '/m/c.mkv', 5, '2026-03-03', '2025')"
+    )
+    conn.commit()
+    conn.close()
+
+    conn = init_db(path)
+
+    rows = conn.execute("SELECT id, first_listed_at FROM media_items ORDER BY id").fetchall()
+    assert [tuple(row) for row in rows] == [
+        ("after", "2026-02-02"),
+        ("before", "2026-01-01"),
+        ("own", "2025"),
+    ]
     conn.close()

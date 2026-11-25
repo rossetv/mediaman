@@ -27,6 +27,8 @@ from mediaman.core.format import (
     title_from_audit_detail,
 )
 from mediaman.core.time import now_utc, parse_iso_utc
+from mediaman.scanner.repository import read_delete_allowed_roots_setting, read_setting
+from mediaman.scanner.runner import read_disk_threshold
 from mediaman.services.infra import (
     get_aggregate_disk_usage,
     get_disk_usage_for_paths,
@@ -75,6 +77,19 @@ def _days_until(execute_at: datetime | None, now: datetime) -> str:
     )
 
 
+def _due_label(
+    deletions_off: bool, dry_run: bool, waiting_folder: str | None, leaving: bool
+) -> str:
+    """Say why a deletion whose date has passed is still to come."""
+    if deletions_off:
+        return "Due, but deletions are off"
+    if dry_run:
+        return "Due, but dry run is on"
+    if waiting_folder:
+        return "Due, but a folder was missing"
+    return ("Leaving any day" if leaving else "Due") + ", the next scan will try"
+
+
 def _waiting_folders(conn: sqlite3.Connection) -> dict[int, str]:
     """Return the folder the last deletion pass found missing or empty, by the row it holds back."""
     state = get_setting(conn, STATE_KEY)
@@ -94,9 +109,11 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
     now = now_utc()
     # Watch's own rule, so the count of these is always the length of its Leaving soon row.
-    leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn), now)}
+    leaving = {p.action_id for p in pending_deletions(conn, scanned_library_ids(conn))}
 
     waiting = _waiting_folders(conn)
+    deletions_off = not read_delete_allowed_roots_setting(conn, quiet=True)
+    dry_run = read_setting(conn, "dry_run") == "true"
 
     items = []
     for row in rows:
@@ -123,7 +140,11 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
                     else title_ref("show", row.show_rating_key)
                 ),
                 "season_number": None if is_movie else row.season_number,
-                "countdown": _days_until(execute_at, now),
+                "countdown": (
+                    _due_label(deletions_off, dry_run, waiting.get(row.sa_id), state == "leaving")
+                    if state == "overdue" or (execute_at is not None and execute_at < now)
+                    else _days_until(execute_at, now)
+                ),
                 "days_left": days_left(execute_at, now) if execute_at else None,
                 "state": state,
                 "waiting_folder": waiting.get(row.sa_id),
@@ -267,33 +288,37 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
     return items
 
 
-def _library_folders(conn: sqlite3.Connection) -> list[tuple[str, str, int | None]]:
+def _library_folders(
+    conn: sqlite3.Connection,
+) -> tuple[list[tuple[str, str, int | None]], set[str]]:
     """Return ``(library id, folder, threshold)`` of each library with a folder in Settings.
+
+    With them, the ids of the libraries the scanner leaves out, as it cannot
+    read their threshold.
 
     ``disk_thresholds`` is a JSON dict keyed by Plex library id, each value
     an object with a ``path`` (e.g. ``{"1": {"path": "/media/movies", ...}}``).
     These paths are the authoritative set of mount points the libraries live
     on — a movies drive and a TV drive may be entirely separate disks not
     reachable from a single base directory.  The threshold is ``None`` where the
-    scanner would read none.  Returns ``[]`` when the setting
+    scanner would read none.  Returns no folder when the setting
     is missing or malformed so the caller can fall back to the media root.
     """
     thresholds = get_setting(conn, "disk_thresholds")
     if not isinstance(thresholds, dict):
-        return []
+        return [], set()
     folders: list[tuple[str, str, int | None]] = []
+    left_out: set[str] = set()
     for library, cfg in thresholds.items():
-        if not isinstance(cfg, dict):
-            continue
-        path = cfg.get("path")
-        if not isinstance(path, str) or not path:
-            continue
+        limit = None
         try:
-            threshold = int(cfg.get("threshold") or 0)
-        except (ValueError, TypeError, OverflowError):
-            threshold = 0
-        folders.append((str(library), path, threshold if threshold > 0 else None))
-    return folders
+            limit = read_disk_threshold(cfg)
+        except ValueError:
+            left_out.add(library)
+        path = cfg.get("path") if isinstance(cfg, dict) else None
+        if isinstance(path, str) and path:
+            folders.append((library, path, limit.percent if limit else None))
+    return folders, left_out
 
 
 def _some_disk(usage: dict[str, int]) -> dict[str, int]:
@@ -380,10 +405,11 @@ def _cached_disks(paths: list[str]) -> list[_Disk]:
 def _fetch_disks(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return the devices the library folders set in Settings are on, with their thresholds.
 
-    Only a library ticked in Settings is scanned, so only its threshold counts.
+    Only a library ticked in Settings whose threshold can be read is scanned, so only its
+    threshold counts.
     """
-    folders = _library_folders(conn)
-    ticked = set(scanned_library_ids(conn))
+    folders, left_out = _library_folders(conn)
+    ticked = set(scanned_library_ids(conn)) - left_out
     # A ticked library with no folder is scanned whatever its disk, which nothing here knows.
     all_placed = ticked <= {library for library, _, _ in folders}
     result: list[dict[str, object]] = []

@@ -28,6 +28,7 @@ from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import DeletedMedia, record_deleted_media, redownload_tokens
 from mediaman.core.library_selected import LIBRARY_SELECTED
 from mediaman.core.time import now_iso
+from mediaman.db import is_scan_running
 from mediaman.scanner.repository._protection import (
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
@@ -56,6 +57,8 @@ __all__ = [
     "ClearedDeletions",
     "DeletionRow",
     "OldMark",
+    "audit_lost_removal",
+    "audit_lost_removals",
     "await_rescan",
     "book_deletion",
     "book_removed_files",
@@ -65,12 +68,15 @@ __all__ = [
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
+    "clear_removal_intent",
     "count_pending_deletions",
     "delete_actions_for_media_items",
     "delete_scheduled_action",
     "delete_show_scheduled_deletions",
     "fetch_already_scheduled_media_ids",
     "fetch_deletion",
+    "fetch_due_deletions_under",
+    "fetch_gone_library_ids",
     "fetch_kept_show_keys",
     "fetch_media_held_outside_pass",
     "fetch_old_marks",
@@ -94,6 +100,7 @@ __all__ = [
     "is_show_kept_pure",
     "mark_delete_status",
     "mark_unanswered",
+    "record_removal_intent",
     "record_removed_files",
     "restore_keeps",
     "save_pruned_keeps",
@@ -139,8 +146,12 @@ class DeletionRow:
     removed_sizes: dict[str, int] = field(default_factory=dict)
     # Tracked paths the last pass left to remove; None when its record does not say.
     left_paths: frozenset[str] | None = None
+    # Each tracked path of a removal whose outcome is not recorded, with what told its file
+    # apart when the removal began; None for a file that was not there.
+    removal_intent: dict[str, list[int] | None] = field(default_factory=dict)
     # Whether the item's Plex library is ticked in Settings.
     library_selected: bool = True
+    library_id: str | None = None
 
 
 def tracked_paths(row: DeletionRow) -> list[str] | None:
@@ -170,7 +181,15 @@ _DELETION_COLUMNS = (
     "sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
     "mi.title, mi.plex_rating_key, mi.radarr_id, mi.sonarr_id, mi.season_number, "
     "mi.media_type, mi.tmdb_id, mi.tvdb_id, mi.tracked_files, sa.removed_files, "
-    f"{LIBRARY_SELECTED} AS library_selected"
+    f"{LIBRARY_SELECTED} AS library_selected, CAST(mi.plex_library_id AS TEXT) AS library_id"
+)
+
+
+# A removal that began, with no outcome recorded.
+_HAS_INTENT = (
+    "(sa.removed_files LIKE '%\"intent\"%' "
+    "AND CASE WHEN json_valid(sa.removed_files) "
+    "THEN json_type(sa.removed_files, '$.intent') IS NOT NULL ELSE 0 END)"
 )
 
 
@@ -192,6 +211,7 @@ class _RemovedFiles:
     removed_bytes: int = 0
     sizes: dict[str, int] = field(default_factory=dict)
     left: frozenset[str] | None = None
+    intent: dict[str, list[int] | None] = field(default_factory=dict)
 
 
 def _parse_removed_files(raw: str | None) -> _RemovedFiles:
@@ -212,6 +232,7 @@ def _parse_removed_files(raw: str | None) -> _RemovedFiles:
     if not isinstance(sizes, dict):
         sizes = {}
     left = value.get("left")
+    intent = value.get("intent")
     return _RemovedFiles(
         removed,
         removed_bytes,
@@ -221,19 +242,61 @@ def _parse_removed_files(raw: str | None) -> _RemovedFiles:
             if path in removed and isinstance(size, int) and not isinstance(size, bool)
         },
         frozenset(p for p in left if isinstance(p, str)) if isinstance(left, list) else None,
+        intent if isinstance(intent, dict) else {},
     )
 
 
 def _removed_json(
-    paths: Collection[str], removed_bytes: int, sizes: Mapping[str, int], left: Collection[str]
+    paths: Collection[str],
+    removed_bytes: int,
+    sizes: Mapping[str, int],
+    left: Collection[str] | None,
+    intent: Mapping[str, list[int] | None] | None = None,
 ) -> str:
-    return json.dumps(
-        {
-            "paths": sorted(paths),
-            "bytes": removed_bytes,
-            "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
-            "left": sorted(left),
-        }
+    record: dict[str, object] = {
+        "paths": sorted(paths),
+        "bytes": removed_bytes,
+        "sizes": {path: size for path, size in sorted(sizes.items()) if path in paths},
+        "left": None if left is None else sorted(left),
+    }
+    if intent:
+        record["intent"] = intent
+    return json.dumps(record)
+
+
+def record_removal_intent(
+    conn: sqlite3.Connection, row: DeletionRow, intent: Mapping[str, list[int] | None]
+) -> None:
+    """Store the files the claimed *row* is about to remove, beside what it removed before.
+
+    Write it in the claim's own transaction: should the outcome never be
+    recorded, this is all that tells the files it removed from a new copy.
+    record_removed_files replaces it with the outcome.
+    """
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = ? WHERE id = ?",
+        (
+            _removed_json(
+                row.removed_paths, row.removed_bytes, row.removed_sizes, row.left_paths, intent
+            ),
+            row.id,
+        ),
+    )
+
+
+def clear_removal_intent(conn: sqlite3.Connection, action_id: int) -> None:
+    """Drop the row's removal intent, for a removal that took no file.
+
+    What earlier passes removed and freed stays.
+    """
+    conn.execute(
+        "UPDATE scheduled_actions SET removed_files = CASE "
+        "  WHEN json_array_length(removed_files, '$.paths') > 0 "
+        "    OR json_extract(removed_files, '$.bytes') > 0 "
+        "  THEN json_remove(removed_files, '$.intent') END "
+        "WHERE id = ? AND json_valid(removed_files) "
+        "  AND json_type(removed_files, '$.intent') IS NOT NULL",
+        (action_id,),
     )
 
 
@@ -278,12 +341,14 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         removed_bytes=removed.removed_bytes,
         removed_sizes=removed.sizes,
         left_paths=removed.left,
+        removal_intent=removed.intent,
         library_selected=bool(row["library_selected"]),
+        library_id=row["library_id"],
     )
 
 
 def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
-    """Return rows in ``scheduled_actions`` still marked ``deleting``.
+    """Return rows still marked ``deleting``, or whose removal has no recorded outcome.
 
     Returns an empty list if the ``delete_status`` column has not been
     migrated yet (older DB schemas).
@@ -294,7 +359,7 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
             f"SELECT {_DELETION_COLUMNS} "
             "FROM scheduled_actions sa "
             "LEFT JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.delete_status = 'deleting'"
+            f"WHERE sa.delete_status = 'deleting' OR {_HAS_INTENT}"
         ).fetchall()
     except sqlite3.OperationalError:
         # delete_status column not yet migrated — nothing to do.
@@ -489,6 +554,35 @@ def fetch_media_held_outside_pass(
     )
 
 
+def fetch_due_deletions_under(
+    conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
+) -> list[DeletionRow]:
+    """Return the rows claim_due_deletions_under may claim."""
+    where, params = _at_or_under_candidates(path)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
+        f"AND sa.execute_at <= ? AND {LIBRARY_SELECTED} ORDER BY sa.id",
+        (media_item_id, *params, now_iso),
+    ).fetchall()
+    candidates = [_row_to_deletion_row(row) for row in rows]
+    return [row for row in candidates if _at_or_under(row.file_path, path)]
+
+
+def fetch_gone_library_ids(conn: sqlite3.Connection, listed: Collection[str]) -> list[int]:
+    """Return the id of each Plex library with items stored that is not in *listed*.
+
+    Those items are what fetch_media_held_outside_pass would hold a path back for.
+    """
+    rows = conn.execute("SELECT DISTINCT plex_library_id AS id FROM media_items").fetchall()
+    return sorted(
+        row["id"] for row in rows if isinstance(row["id"], int) and str(row["id"]) not in listed
+    )
+
+
 def claim_due_deletions_under(
     conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
 ) -> list[DeletionRow]:
@@ -498,21 +592,10 @@ def claim_due_deletions_under(
     same pass: a keep guarded on the delete state then fails on them.
     Returns the rows claimed.
     """
-    where, params = _at_or_under_candidates(path)
-    # rationale: the interpolated condition is a fixed string; every value is bound
-    rows = conn.execute(  # nosec B608
-        f"SELECT {_DELETION_COLUMNS} "
-        "FROM scheduled_actions sa "
-        "JOIN media_items mi ON sa.media_item_id = mi.id "
-        f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
-        f"AND {LIBRARY_SELECTED} ORDER BY sa.id",
-        (media_item_id, *params),
-    ).fetchall()
-    candidates = [_row_to_deletion_row(row) for row in rows]
     return [
         row
-        for row in candidates
-        if _at_or_under(row.file_path, path) and claim_due_deletion(conn, row.id, now_iso)
+        for row in fetch_due_deletions_under(conn, media_item_id, path, now_iso)
+        if claim_due_deletion(conn, row.id, now_iso)
     ]
 
 
@@ -565,6 +648,56 @@ def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) ->
         "UPDATE scheduled_actions SET delete_status = ? WHERE id = ?",
         (status, action_id),
     )
+
+
+def audit_lost_removal(
+    conn: sqlite3.Connection, row: DeletionRow, *, booked: bool | None = None
+) -> None:
+    """Audit that *row*, about to be dropped, is all that tells of a removal it may have made.
+
+    *booked* says whether the title is told as deleted beside it: if not given,
+    as it is when the row records a file as removed.
+    """
+    if not row.removal_intent:
+        return
+    logger.warning(
+        "engine.delete.removal_lost id=%s media_id=%s path=%r — what its removal took is not known",
+        row.id,
+        row.media_item_id,
+        row.file_path,
+    )
+    if bool(row.removed_paths) if booked is None else booked:
+        detail = f"Removal cut off: {row.title} — nothing records what else a removal of it took"
+    else:
+        detail = (
+            f"Not deleted: {row.title} — its removal was cut off, and nothing records what it took"
+        )
+    log_audit(conn, row.media_item_id, "delete_incomplete", detail)
+
+
+def audit_lost_removals(
+    conn: sqlite3.Connection,
+    where: str,
+    params: Sequence[object] = (),
+    *,
+    booked: bool | None = None,
+) -> None:
+    """Run audit_lost_removal for each row the fixed condition *where* drops.
+
+    One being removed is left out while a scan runs: its pass tells what it
+    took. With none running, the pass that began the removal died.
+    """
+    claimed = "0" if is_scan_running(conn) else "1"
+    # rationale: the interpolated fragments are fixed strings; every value is bound
+    rows = conn.execute(  # nosec B608
+        f"SELECT {_DELETION_COLUMNS} FROM scheduled_actions sa "
+        "LEFT JOIN media_items mi ON mi.id = sa.media_item_id "
+        f"WHERE sa.id IN (SELECT id FROM scheduled_actions WHERE {where}) "
+        f"  AND {_HAS_INTENT} AND (sa.delete_status IS NOT 'deleting' OR {claimed})",
+        params,
+    ).fetchall()
+    for row in rows:
+        audit_lost_removal(conn, _row_to_deletion_row(row), booked=booked)
 
 
 def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
@@ -634,7 +767,7 @@ _MARK_COLUMNS = (
     "p.audit_id AS id, a.media_item_id, a.action, NULL AS file_path, "
     "NULL AS file_size_bytes, d.title, NULL AS plex_rating_key, p.radarr_id, p.sonarr_id, "
     "d.season_number, d.media_type, d.tmdb_id, d.tvdb_id, p.tracked_files, p.removed_files, "
-    "1 AS library_selected"
+    "1 AS library_selected, NULL AS library_id"
 )
 _MARKS = (
     "FROM pending_unmonitors p JOIN audit_log a ON a.id = p.audit_id "
@@ -845,6 +978,7 @@ def book_removed_files(
         )
         if taken.rowcount:
             _audit_removal(conn, row, "Deleted", row.removed_bytes or None)
+            audit_lost_removal(conn, row, booked=True)
 
 
 def book_removed_files_where(
@@ -877,6 +1011,7 @@ def delete_show_scheduled_deletions(conn: sqlite3.Connection, show_rating_key: s
         (show_rating_key,),
     ).fetchone()
     book_removed_files_where(conn, where, (show_rating_key,))
+    audit_lost_removals(conn, f"{where} AND delete_status IS NOT 'deleting'", (show_rating_key,))
     conn.execute(  # nosec B608
         f"DELETE FROM scheduled_actions WHERE {where} "
         "AND (delete_status IS NULL OR delete_status != 'deleting')",
@@ -901,6 +1036,7 @@ def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> 
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
+        audit_lost_removals(conn, f"media_item_id IN ({placeholders})", chunk)
         # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         conn.execute(  # nosec B608
             f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
@@ -941,7 +1077,8 @@ def clear_pending_deletions(
     Snoozes and protect-forever rows are untouched — this only sweeps
     deletions whose token has not yet been used. A row the deletion pass is
     removing right now goes too, so a removal that fails is not retried; it
-    is counted apart, since its files may already be gone.
+    is counted apart, since its files may already be gone. One whose pass
+    died as it began is told in the history: nothing records what it took.
 
     A row whose files are all removed has nothing left to cancel: it stays
     for the next pass to book and unmonitor, counted with those being
@@ -971,15 +1108,17 @@ def clear_pending_deletions(
                 "  AND delete_status = 'deleting'"
             ).fetchone()[0]
         )
+        dropped = (
+            "action='scheduled_deletion' AND token_used=0 "
+            f"AND id NOT IN ({','.join('?' * len(finished))})"
+        )
+        waiting_ids = [row.id for row, _ in finished]
+        audit_lost_removals(conn, dropped, waiting_ids)
         for row, _ in unbooked:
             if not is_fully_removed(row):
                 book_deletion(conn, row, "Deleted", row.removed_bytes or None)
         # rationale: only "?" placeholders are interpolated; every value is bound
-        conn.execute(  # nosec B608
-            "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0 "
-            f"AND id NOT IN ({','.join('?' * len(finished))})",
-            [row.id for row, _ in finished],
-        )
+        conn.execute(f"DELETE FROM scheduled_actions WHERE {dropped}", waiting_ids)  # nosec B608
         if audit_actor is not None:
             from mediaman.core.audit import security_event_or_raise
 

@@ -15,11 +15,15 @@ from mediaman.core.deleted_media import record_deleted_media
 from mediaman.crypto import generate_download_token
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.scanner.repository.scheduled_actions import DeletionRow, was_requested_since
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.base import SearchUnanswered
+from mediaman.services.arr.state import compute_download_state
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download import confirm as confirm_module
 from mediaman.web.routes.download import reset_used_tokens
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
+from mediaman.web.routes.download.status import _sonarr_series_fallback
 from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
 from tests.helpers.factories import insert_audit_log
 
@@ -42,9 +46,9 @@ def client(db_path, secret_key):
     conn.close()
 
 
-def _token(secret_key, media_type, tmdb_id=500):
+def _token(secret_key, media_type, tmdb_id=500, email="viewer@example.com"):
     return generate_download_token(
-        email="viewer@example.com",
+        email=email,
         action="download",
         title="Far Shore" if media_type == "tv" else "Dune",
         media_type=media_type,
@@ -189,6 +193,120 @@ class TestConfirmPage:
         assert f'"download_state": "{state}"' in resp.text
 
 
+def _season_of(number, files, wanted, *, monitored=False, aired=True):
+    stats = {"episodeFileCount": files, "episodeCount": wanted, "totalEpisodeCount": 10}
+    if aired:
+        stats["previousAiring"] = "2020-01-01T00:00:00Z"
+    return {"seasonNumber": number, "monitored": monitored, "statistics": stats}
+
+
+@pytest.mark.parametrize(
+    ("seasons", "state"),
+    [
+        ([_season_of(1, 10, 10), _season_of(2, 10, 10)], "in_library"),
+        ([_season_of(1, 10, 10), _season_of(0, 0, 1)], "in_library"),
+        ([_season_of(1, 10, 10, monitored=True), _season_of(2, 3, 3)], "in_library"),
+        ([_season_of(1, 10, 10, monitored=True), _season_of(2, 1, 2)], "queued"),
+        ([_season_of(1, 0, 1)], "queued"),
+        ([_season_of(1, 1, 1)], "tracked"),
+        ([_season_of(1, 3, 3)], "tracked"),
+        ([_season_of(1, 1, 1, monitored=True, aired=False)], "tracked"),
+        ([_season_of(1, 10, 10, monitored=True, aired=False)], "in_library"),
+    ],
+    ids=[
+        "whole but not monitored",
+        "whole but for a wanted special",
+        "whole beside one abandoned in part",
+        "whole beside one lacking a wanted episode",
+        "one episode wanted",
+        "that one episode there",
+        "abandoned in part",
+        "one file before it airs",
+        "whole and undated",
+    ],
+)
+def test_the_emailed_page_the_status_and_the_state_say_the_same_of_a_show(
+    client, secret_key, seasons, state
+):
+    files = sum(s["statistics"]["episodeFileCount"] for s in seasons)
+    series = {
+        "tmdbId": 500,
+        "title": "Far Shore",
+        "monitored": True,
+        "statistics": {"episodeFileCount": files},
+        "seasons": seasons,
+    }
+    cache = {"sonarr_series": {500: series}, "sonarr_queue_tmdb_ids": set()}
+    with patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache):
+        page = client.get(f"/download/{_token(secret_key, 'tv')}").text
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [series]
+
+    assert f'"download_state": "{state}"' in page
+    ready = state == "in_library"
+    assert (_sonarr_series_fallback(sonarr, 500)["state"] == "ready") is ready
+    caches = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set(), **cache}
+    assert (compute_download_state("tv", 500, caches) == "in_library") is ready
+
+
+@pytest.mark.parametrize(
+    ("seasons", "in_queue", "card", "page"),
+    [
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 10, monitored=True)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        ([_season_of(1, 3, 3), _season_of(2, 0, 10, monitored=True)], False, "queued", "queued"),
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 0, monitored=True, aired=False)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        (
+            [_season_of(1, 3, 3), _season_of(2, 0, 0, monitored=True, aired=False)],
+            False,
+            "queued",
+            "tracked",
+        ),
+        (
+            [_season_of(1, 10, 10), _season_of(2, 0, 10, monitored=True)],
+            True,
+            "downloading",
+            "queued",
+        ),
+        ([_season_of(1, 3, 3)], False, None, "tracked"),
+    ],
+    ids=[
+        "another season downloading",
+        "another season searched",
+        "an early episode downloading",
+        "another season still to air",
+        "one whole and another downloading",
+        "nothing else",
+    ],
+)
+def test_what_is_left_of_a_season_nobody_wants_hides_no_season_on_its_way(
+    client, secret_key, seasons, in_queue, card, page
+):
+    files = sum(s["statistics"]["episodeFileCount"] for s in seasons)
+    series = {
+        "tmdbId": 500,
+        "monitored": True,
+        "statistics": {"episodeFileCount": files},
+        "seasons": seasons,
+    }
+    cache = {"sonarr_series": {500: series}, "sonarr_queue_tmdb_ids": {500} if in_queue else set()}
+    with patch(f"{_CONFIRM}._get_sonarr_cache_cached", return_value=cache):
+        shown = client.get(f"/download/{_token(secret_key, 'tv')}").text
+
+    caches = {"radarr_movies": {}, "radarr_queue_tmdb_ids": set(), **cache}
+    assert compute_download_state("tv", 500, caches) == card
+    assert f'"download_state": "{page}"' in shown
+
+
 class TestReopeningAUsedLink:
     """The page keeps the Arr list for half a minute; a request must not be hidden by it."""
 
@@ -243,6 +361,21 @@ class TestSubmitRefusedForAHeldTitle:
         radarr.remonitor_movie.assert_called_once_with(7)
         radarr.add_movie.assert_not_called()
         assert _consumed(token)
+
+    def test_a_re_monitored_movie_whose_search_got_no_answer_is_on_its_way(
+        self, client, secret_key
+    ):
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 7, "monitored": False}
+        radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+        token, resp = self._post(client, secret_key, "movie", radarr, "build_radarr_from_db")
+
+        assert resp.status_code == 200
+        assert _consumed(token)
+        mails = client.app.state.db.execute("SELECT email FROM download_notifications").fetchall()
+        assert [row["email"] for row in mails] == ["viewer@example.com"]
+        radarr.unmonitor_movie.assert_not_called()
 
     def test_an_unmonitored_movie_that_has_its_file_is_left_alone_and_the_link_is_used(
         self, client, secret_key
@@ -668,7 +801,7 @@ class TestAlreadyThereAnswer:
             conn.execute("UPDATE download_notifications SET notified = 1, created_at = ?", (asked,))
 
     @pytest.mark.parametrize("action", ["download", "redownload"])
-    def test_a_show_that_is_part_there_promises_and_sends_nothing(self, client, secret_key, action):
+    def test_a_show_that_is_part_there_mails_the_person_once(self, client, secret_key, action):
         part = {"seasonNumber": 1, "monitored": True}
         part["statistics"] = {
             "episodeCount": 2,
@@ -681,9 +814,9 @@ class TestAlreadyThereAnswer:
             answer = self._answer(
                 client, self._link(secret_key, number, action, "tv"), held, "tv"
             ).json()
-            assert (answer["download_state"], answer["notify_by_email"]) == ("queued", False)
+            assert (answer["download_state"], answer["notify_by_email"]) == ("queued", True)
 
-        assert self._mails(client) == []
+        assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
 
     @pytest.mark.parametrize("action", ["download", "redownload"])
     def test_a_wait_that_was_mailed_about_is_not_mailed_about_again(
@@ -745,25 +878,81 @@ class TestAlreadyThereAnswer:
 
         assert self._post(client, token, held, "tv") == "queued"
         assert self._mails(client) == [("viewer@example.com", "sonarr", 500, 999)]
+        reopened, polled = self._reopened_and_polled(client, token, held)
+        assert '"download_state": "queued"' in reopened
+        assert "be notified by email" in reopened
+        assert polled == "ready"
 
+    @pytest.mark.parametrize("was_held", [True, False], ids=["held", "added"])
+    def test_a_show_known_by_its_tvdb_id_alone_shows_its_state_to_a_link_with_no_address(
+        self, client, secret_key, was_held
+    ):
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+        del held["tmdbId"]
+        token = _token(secret_key, "tv", email=None)
+        if was_held:
+            assert self._post(client, token, held, "tv") == "queued"
+        else:
+            added = self._answer(client, token, {**held, "tvdbId": 1}, "tv")
+            assert added.status_code == 200
+
+        reopened, polled = self._reopened_and_polled(client, token, held)
+
+        assert '"download_state": "queued"' in reopened
+        assert "be notified by email" not in reopened
+        assert polled == "ready"
+
+    def test_a_refused_link_with_no_address_is_no_request_that_keeps_a_deleted_season_monitored(
+        self, client, secret_key
+    ):
+        conn = client.app.state.db
+        audit_id = insert_audit_log(
+            conn,
+            media_item_id="gone",
+            action="deleted",
+            created_at=datetime.now(UTC) - timedelta(days=1),
+        )
+        held = {**self.SHOW, "seasons": [self.MISSING]}
+        del held["tmdbId"]
+
+        self._post(client, _token(secret_key, "tv", email=None), held, "tv")
+
+        gone = DeletionRow(
+            id=audit_id,
+            media_item_id="gone",
+            action="deleted",
+            file_path=None,
+            file_size_bytes=None,
+            title="Far Shore",
+            plex_rating_key=None,
+            radarr_id=None,
+            sonarr_id=None,
+            season_number=1,
+            media_type="tv_season",
+            tmdb_id=500,
+            tvdb_id=999,
+        )
+        assert not was_requested_since(conn, gone)
+
+    def _reopened_and_polled(self, client, token, held):
         sonarr = MagicMock()
         sonarr.get_series.return_value = [held]
-        sonarr.get_series_by_tvdb.return_value = held
+        sonarr.get_series_by_tvdb.side_effect = lambda tvdb: held if tvdb == 999 else None
         sonarr.get_queue.return_value = []
         with patch(f"{_CONFIRM}.build_sonarr_from_db", return_value=sonarr):
             reopened = client.get(f"/download/{token}").text
-        assert '"download_state": "queued"' in reopened
-        assert "be notified by email" in reopened
-
-        poll = json.loads(re.search(r'"poll_token": ("[^"]+")', reopened)[1])
-        sonarr.get_series.return_value = [{**held, "statistics": {"episodeFileCount": 2}}]
+        found = re.search(r'"poll_token": ("[^"]+")', reopened)
+        if found is None:
+            return reopened, None
+        poll = json.loads(found[1])
+        sonarr.get_series.return_value = [{**held, "seasons": [self.WHOLE]}]
         status = "mediaman.web.routes.download.status.build_sonarr_from_db"
         with patch(status, return_value=sonarr):
             polled = client.get(
                 "/api/download/status",
                 params={"service": "sonarr", "tmdb_id": 500, "poll_token": poll},
             )
-        assert polled.json()["state"] == "ready"
+        return reopened, polled.json()["state"]
 
     @pytest.mark.parametrize(
         ("media_type", "held", "state"),

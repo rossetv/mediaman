@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 #: items) on a slow NAS.
 _ARR_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
+#: For a read that only helps: one try, and not for long.
+_QUICK_TIMEOUT_SECONDS: tuple[float, float] = (2.0, 5.0)
+
 #: Maximum response body size for arr GET requests (e.g. ``get_movies()`` /
 #: ``get_series()``). The default 8 MiB cap is too small for a large library —
 #: a Radarr library of ~30 000 entries at ~300 bytes/item alone exceeds 8 MiB.
@@ -60,6 +63,10 @@ class ArrUpstreamError(ArrError):
     """
 
 
+class SearchUnanswered(ArrError):
+    """A search command got no answer, and whether it runs could not be read back."""
+
+
 class SeasonsNotListed(ArrError):
     """Seasons asked for that Sonarr's lookup does not list (yet), so none can be added."""
 
@@ -71,6 +78,17 @@ class SeasonsNotListed(ArrError):
         else:
             text = f"Seasons {', '.join(names[:-1])} and {names[-1]} aren't in Sonarr's listing."
         super().__init__(text)
+
+
+def _is_command(entry: Mapping[str, Any], command: Mapping[str, Any]) -> bool:
+    body = entry.get("body") or {}
+    return entry.get("name") == command["name"] and all(
+        body.get(key) == value for key, value in command.items() if key != "name"
+    )
+
+
+def _is_under_way(entry: Mapping[str, Any]) -> bool:
+    return entry.get("status") in ("queued", "started")
 
 
 class _TransportMixin:
@@ -98,14 +116,19 @@ class _TransportMixin:
         self.last_error: str | None = None
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
-    def _get(self, path: str) -> dict[Any, Any] | list[Any]:
-        """Perform an authenticated GET.  Sets ``last_error`` on failure.
+    def _get(self, path: str, *, quick: bool = False) -> dict[Any, Any] | list[Any]:
+        """Perform an authenticated GET, *quick* with one short try.  Sets ``last_error`` on failure.
 
         Raises ``ArrUpstreamError`` if the response body is null (empty
         or explicitly null JSON).
         """
         try:
-            resp = self._http.get(path, headers=self._headers)
+            resp = self._http.get(
+                path,
+                headers=self._headers,
+                retry=not quick,
+                timeout=_QUICK_TIMEOUT_SECONDS if quick else None,
+            )
             self.last_error = None
             result: dict[Any, Any] | list[Any] = resp.json()
             if result is None:
@@ -118,12 +141,12 @@ class _TransportMixin:
             raise
 
     # Any: entries of an arbitrary *arr list endpoint; callers cast() to the right _types TypedDict.
-    def _get_list(self, path: str) -> list[dict[str, Any]]:
+    def _get_list(self, path: str, *, quick: bool = False) -> list[dict[str, Any]]:
         """GET a list of objects, raising ``ArrUpstreamError`` for anything else.
 
         Read as "holds nothing", a wrong answer would add, delete or close what is there.
         """
-        return self._object_list(self._get(path), path)
+        return self._object_list(self._get(path, quick=quick), path)
 
     def _get_page(self, path: str) -> tuple[list[dict[str, Any]], int]:
         """GET one page of a paged endpoint as ``(records, totalRecords)``; raises like ``_get_list``."""
@@ -169,6 +192,46 @@ class _TransportMixin:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
+
+    def _start_search(self, command: Mapping[str, Any]) -> None:
+        """Post a search command; one that got no answer has started if the *arr lists it.
+
+        Raises ``SearchUnanswered`` when the list does not tell either.
+        """
+        # The list keeps what was done before, so the ids tell which came of this post.
+        before: list[dict[str, Any]] | None
+        try:
+            before = self._get_list("/api/v3/command", quick=True)
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
+            before = None
+        try:
+            self._post("/api/v3/command", command)
+        except (SafeHTTPError, requests.RequestException, ValueError, ArrUpstreamError) as exc:
+            if isinstance(exc, SafeHTTPError) and 0 < exc.status_code < 500:
+                raise
+            unanswered = SearchUnanswered(f"{command['name']} got no answer")
+            try:
+                listed = self._get_list("/api/v3/command")
+            except (SafeHTTPError, requests.RequestException, ValueError, ArrError) as unread:
+                raise unanswered from unread
+            same = [e for e in listed if _is_command(e, command)]
+            if any(_is_under_way(e) for e in same):
+                started = True
+            else:
+                done = {e.get("id") or 0 for e in same if e.get("status") == "completed"}
+                if done and before is None:
+                    raise unanswered from exc
+                # A post equal to a command under way is answered with that one, its id unchanged.
+                joined = {
+                    e.get("id")
+                    for e in before or ()
+                    if _is_command(e, command) and _is_under_way(e)
+                }
+                last = max((e.get("id") or 0 for e in before or ()), default=0)
+                started = any(done_id > last or done_id in joined for done_id in done)
+            if not started:
+                raise
+            logger.info("%s got no answer but was started", command["name"])
 
     def _delete(self, path: str) -> None:
         """Perform an authenticated DELETE.  Sets ``last_error`` on failure."""

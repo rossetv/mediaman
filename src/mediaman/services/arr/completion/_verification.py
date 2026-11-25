@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import requests
 
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.completion._types import CompletedItem
@@ -111,14 +115,35 @@ class _ArrLibraryIndex:
             raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_title
 
-    def has_episode_file(self, series: SonarrSeries, labels: set[str]) -> bool:
-        if self._sonarr_client is None:
+    def has_episode_file(
+        self, series: SonarrSeries, labels: set[str], queued_since: str | None
+    ) -> bool:
+        """Whether one of the episodes named arrived; see ``_added_since``."""
+        client = self._sonarr_client
+        if client is None:
             return False
-        return any(
-            ep.get("hasFile")
+        filed = {
+            ep.get("episodeFileId")
+            for ep in client.get_episodes(series["id"])
+            if ep.get("hasFile")
             and format_episode_label(ep.get("seasonNumber"), ep.get("episodeNumber")) in labels
-            for ep in self._sonarr_client.get_episodes(series["id"])
+        }
+        if not filed or queued_since is None:
+            return bool(filed)
+        return any(
+            _added_since(f.get("dateAdded"), queued_since)
+            for f in client.get_episode_files(series["id"])
+            if f.get("id") in filed
         )
+
+
+def _added_since(added: str | None, queued_since: str | None) -> bool:
+    """Whether a file was added since its title was first seen in the queue: an older one says
+    nothing about an upgrade that failed. Since it was last seen would be too late, for an
+    *arr dates a file before it moves it, with the download still in the queue.
+    """
+    since, at = parse_iso_utc(queued_since), parse_iso_utc(added)
+    return since is None or (at is not None and at >= since)
 
 
 def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
@@ -142,7 +167,9 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     title,
                 )
             movie = idx.radarr_index_by_title().get(title)
-        return movie is not None and bool(movie.get("hasFile"))
+        if movie is None or not movie.get("hasFile"):
+            return False
+        return _added_since((movie.get("movieFile") or {}).get("dateAdded"), c.get("queued_since"))
     if dl_id.startswith("sonarr:"):
         tmdb_id = c.get("tmdb_id")
         series = idx.sonarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None
@@ -161,7 +188,7 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
             return False
         # Other episodes' files say nothing about a grab that failed.
         labels = c.get("episodes")
-        return not labels or idx.has_episode_file(series, set(labels))
+        return not labels or idx.has_episode_file(series, set(labels), c.get("queued_since"))
     # NZBGet-only items — no Arr verification possible
     return True
 
@@ -186,6 +213,47 @@ def _batch_insert_completions(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _Unchecked:
+    """A completion whose check got no answer, to be checked again."""
+
+    item: CompletedItem
+    first_tried: datetime
+    last_tried: datetime
+
+
+# The page asks every two seconds, and a service that does not answer is slow to say so.
+_CHECK_AGAIN_AFTER = timedelta(minutes=1)
+_GIVE_UP_AFTER = timedelta(hours=1)
+_MAX_UNCHECKED = 50
+# By dl_id.
+_unchecked: dict[str, _Unchecked] = {}
+_unchecked_lock = threading.Lock()
+
+
+def _reset_unchecked() -> None:
+    with _unchecked_lock:
+        _unchecked.clear()
+
+
+def _take_due(now: datetime) -> list[_Unchecked]:
+    """Take out the completions to check again now."""
+    with _unchecked_lock:
+        due = [
+            dl_id
+            for dl_id, kept in _unchecked.items()
+            if now - kept.last_tried >= _CHECK_AGAIN_AFTER
+        ]
+        return [_unchecked.pop(dl_id) for dl_id in due]
+
+
+def _keep_unchecked(kept: list[_Unchecked], now: datetime) -> None:
+    with _unchecked_lock:
+        for entry in kept:
+            if now - entry.first_tried < _GIVE_UP_AFTER and len(_unchecked) < _MAX_UNCHECKED:
+                _unchecked[entry.item["dl_id"]] = entry
+
+
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[CompletedItem],
@@ -196,7 +264,8 @@ def record_verified_completions(
     An item is considered verified when Radarr/Sonarr confirms the title
     has a file / episode file. NZBGet-only items (those without the
     ``radarr:`` / ``sonarr:`` prefix) are treated as verified by default
-    because there's no Arr source to cross-check against.
+    because there's no Arr source to cross-check against. One whose check got no answer is
+    checked again by later calls, for an hour.
 
     Performance: the Radarr/Sonarr library is fetched once per call and
     indexed by ``{tmdbId: movie}`` / ``{tmdbId: series}`` so lookups are
@@ -209,14 +278,28 @@ def record_verified_completions(
     """
     idx = _ArrLibraryIndex(conn, secret_key)
     to_insert: list[tuple[str, str, str, str]] = []
+    now = now_utc()
+    again = _take_due(now)
+    kept: list[_Unchecked] = []
+    silent: set[str] = set()
 
-    for c in completed:
+    for entry in [*(_Unchecked(c, now, now) for c in completed), *again]:
+        c = entry.item
+        service = c["dl_id"].partition(":")[0]
+        entry = replace(entry, last_tried=now)
+        if entry.first_tried < now and service in silent:
+            kept.append(entry)
+            continue
         try:
             verified = _check_item_verified(c, idx)
         except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
-                "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
+                "Failed to verify completion for %s — checking again later",
+                c["dl_id"],
+                exc_info=True,
             )
+            silent.add(service)
+            kept.append(entry)
             continue
 
         if not verified:
@@ -225,6 +308,7 @@ def record_verified_completions(
 
         to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
 
+    _keep_unchecked(kept, now)
     # Single batch insert + single commit — per-row commits fsync once each,
     # which dominates the loop cost on a large completion set.
     _batch_insert_completions(conn, to_insert)

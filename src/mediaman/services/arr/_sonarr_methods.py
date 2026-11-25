@@ -18,6 +18,7 @@ from mediaman.services.arr._transport import (
     ArrConfigError,
     ArrError,
     ArrUpstreamError,
+    SearchUnanswered,
     SeasonsNotListed,
 )
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
@@ -123,14 +124,26 @@ class _SonarrMixin:
         data = self._get_list(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
         return cast(list[ArrEpisodeFile], data)
 
-    def unmonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
+    def unmonitor_season(
+        self,
+        series_id: int,
+        season_number: int,
+        *,
+        max_retries: int = 3,
+        lone_episodes: bool = True,
+    ) -> None:
         """Set ``monitored=False`` for *season_number* of *series_id*.
+
+        Sonarr unmonitors a season's episodes with it, so in a season found unmonitored
+        already, episodes monitored one by one are unmonitored here unless *lone_episodes*
+        is False.
 
         Sonarr v3 has no PATCH endpoint, so this is a read-modify-write
         on the full series payload.  The retry loop tolerates concurrent
         writers — see ``_unmonitor_with_retry`` for the details.
         """
         self._require_series("unmonitor_season")  # type: ignore[attr-defined]
+        was_monitored = False
 
         def fetch_entity() -> SonarrSeries:
             series = self.get_series_by_id(series_id)
@@ -149,6 +162,8 @@ class _SonarrMixin:
             return not bool(target.get("monitored", False))
 
         def apply_unmonitor(entity: SonarrSeries) -> None:
+            nonlocal was_monitored
+            was_monitored = True
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is not None:
@@ -163,12 +178,24 @@ class _SonarrMixin:
             log_id=f"series_id={series_id} season={season_number}",
             max_retries=max_retries,
         )
+        if was_monitored or not lone_episodes:
+            return
+        ids = [
+            episode["id"]
+            for episode in self.get_episodes(series_id)
+            if episode.get("seasonNumber") == season_number and episode.get("monitored")
+        ]
+        if ids:
+            self._put(  # type: ignore[attr-defined]
+                "/api/v3/episode/monitor", {"episodeIds": ids, "monitored": False}
+            )
 
     def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=True`` for *season_number* and its series, and trigger a search.
 
         Sonarr fetches nothing for an unmonitored series, whatever its seasons say. A series
-        monitored here is put back when the search cannot be started.
+        monitored here is put back when the search cannot be started, and left as it is when
+        the search may be running all the same (``SearchUnanswered``).
 
         Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
@@ -208,20 +235,21 @@ class _SonarrMixin:
             if target is not None:
                 target["monitored"] = True
 
-        self._unmonitor_with_retry(  # type: ignore[attr-defined]
-            fetch_entity=fetch_entity,
-            put_url=f"/api/v3/series/{series_id}",
-            is_already_unmonitored=is_already_remonitored,
-            apply_unmonitor=apply_remonitor,
-            log_prefix="sonarr.remonitor_season",
-            log_id=f"series_id={series_id} season={season_number}",
-            max_retries=max_retries,
-        )
         try:
-            self._post(  # type: ignore[attr-defined]
-                "/api/v3/command",
-                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
+            self._unmonitor_with_retry(  # type: ignore[attr-defined]
+                fetch_entity=fetch_entity,
+                put_url=f"/api/v3/series/{series_id}",
+                is_already_unmonitored=is_already_remonitored,
+                apply_unmonitor=apply_remonitor,
+                log_prefix="sonarr.remonitor_season",
+                log_id=f"series_id={series_id} season={season_number}",
+                max_retries=max_retries,
             )
+            self._start_search(  # type: ignore[attr-defined]
+                {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number}
+            )
+        except SearchUnanswered:
+            raise
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             if series_was_unmonitored:
                 self._put_series_back_unmonitored(series_id)

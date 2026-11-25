@@ -327,6 +327,20 @@ const scenarios = {
     return out;
   },
 
+  // Keeps the server says cannot be undone: a film's, and a season's from its dialog.
+  async keepNotToUndo() {
+    const late = () => Promise.resolve({ ok: true, undo: false });
+    const film = load({ list: true });
+    film.serve('/watch/list', {}, ROWS);
+    film.replies['post /api/watch/keep'] = late;
+    click(film.doc, keepOption(film, 'id:m1', '30 days'));
+    await settle();
+    const season = await keepDialog({ seasons: LEAVING, seasonId: 's3' });
+    season.replies['post /api/watch/keep'] = late;
+    await season.confirm();
+    return [film, season].map((p) => ({ told: p.toasts[0].message, undo: !!p.toasts[0].action }));
+  },
+
   // Keep a movie with no deletion and no keep: Undo removes the keep again.
   async keepUnscheduled() {
     const p = load({ list: true });
@@ -653,7 +667,8 @@ const scenarios = {
     const ticked = p.ticked();
     const several = await keepDialog({ seasons: seasonsOf(null, null) });
     const movedOn = await keepDialog({ seasons: seasonsOf(null, { leaving: leaves(9) }, { leaving: leaves(4) }) });
-    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked() };
+    const past = await keepDialog({ seasons: seasonsOf({ leaving: leaves(-3) }) });
+    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked(), past: past.doc.querySelector('.keep-season-details').textContent };
   },
 
   // A keep is changed only by its own button, which says to what.

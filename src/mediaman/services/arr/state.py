@@ -7,14 +7,14 @@
 """Compute Radarr/Sonarr download state for a media item.
 
 States:
-- ``in_library`` — movie has a file, OR every aired season of the TV
-  show has every episode downloaded.
-- ``partial`` — TV only; at least one aired season has files but not
-  all aired episodes are present.
-- ``downloading`` — item is in the Arr download queue.
-- ``queued`` — item is added to Radarr/Sonarr but has no files yet, is
-  not in the queue and is set to be fetched (an unmonitored one is not).
-- ``None`` — item is not tracked at all.
+- ``in_library`` — movie has a file, OR the TV show is ready: see
+  ``series_ready``.
+- ``partial`` — TV only; the show is not ready, but a monitored season
+  that has aired has files.
+- ``downloading`` — none of these, and item is in the Arr download queue.
+- ``queued`` — none of these, and item is set to be fetched (an
+  unmonitored one is not).
+- ``None`` — item is not tracked at all, or will not be fetched.
 
 ``ACTION_*`` constants are the canonical strings used as the ``action``
 column value in ``compute_download_state``.  Import these instead of
@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict
 
 import requests
 
-from mediaman.services.arr._transport import ArrError
+from mediaman.services.arr._transport import ArrError, SearchUnanswered
 from mediaman.services.arr._types import (
     ArrSeason,
     ArrSeasonStatistics,
@@ -118,41 +118,88 @@ def _season_has_aired(season: ArrSeason) -> bool:
     return bool(season.get("previousAiringDate") or stats.get("previousAiringDate"))
 
 
+def season_on_disk(season: ArrSeason) -> bool:
+    """Whether Sonarr has every episode of *season* it should have by now.
+
+    ``episodeCount`` leaves out an unmonitored episode with no file, so it says nothing of
+    a season that is not monitored: there only the total does. A season just aired shortly
+    counts no episode at all, and is not on disk.
+    """
+    stats = _season_stats(season)
+    wanted = stats.get("episodeCount") or 0
+    if not season.get("monitored"):
+        wanted = max(wanted, stats.get("totalEpisodeCount") or 0)
+    return (stats.get("episodeFileCount") or 0) >= wanted > 0
+
+
+def _wanted_by_now(season: ArrSeason) -> bool:
+    """Whether a season is monitored and has aired, so that all its aired episodes are wanted."""
+    return bool(season.get("monitored", True)) and _season_has_aired(season)
+
+
+def _is_whole(season: ArrSeason) -> bool:
+    """Whether every episode of a season is there, aired, monitored or not."""
+    if not season.get("monitored", True):
+        return season_on_disk(season)
+    stats = _season_stats(season)
+    return (stats.get("episodeFileCount") or 0) >= (stats.get("totalEpisodeCount") or 0) > 0
+
+
+def _judged_seasons(series: SonarrSeries) -> list[ArrSeason]:
+    """The seasons a show is judged by: not Specials, none skipped with nothing there, and none
+    still to air of which a file came early.
+    """
+    return [
+        s
+        for s in series.get("seasons") or []
+        if s.get("seasonNumber", 0) > 0
+        and (
+            _wanted_by_now(s)
+            or _is_whole(s)
+            or (not s.get("monitored", True) and _season_stats(s).get("episodeCount"))
+        )
+    ]
+
+
+def series_ready(series: SonarrSeries, season_number: int | None = None) -> bool:
+    """Whether all there should be of a show by now is there, or of its one season.
+
+    ``episodeCount`` counts the aired episodes that are monitored, one by one or with their
+    season, and those with a file, so in any season it is above ``episodeFileCount`` while
+    something is wanted. Right after a season airs it is 0 for a moment, which is not ready
+    either. What is left of a season not wanted does not make a show ready: a season wanted
+    does, or one that is there whole.
+    """
+    if season_number is not None:
+        return any(
+            season_on_disk(s)
+            for s in series.get("seasons") or []
+            if s.get("seasonNumber") == season_number
+        )
+    judged = _judged_seasons(series)
+    return all(_wanted_is_there(s) for s in judged) and any(
+        _wanted_by_now(s) or _is_whole(s) for s in judged
+    )
+
+
+def _wanted_is_there(season: ArrSeason) -> bool:
+    stats = _season_stats(season)
+    return (stats.get("episodeFileCount") or 0) >= (stats.get("episodeCount") or 0) > 0
+
+
 def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches) -> str | None:
     """Return the download state for a tracked Sonarr *series*.
 
     *series* is the already-resolved cache entry (never ``None``).
     """
-    # Only consider seasons that have aired and are not season 0 (specials).
-    # We additionally require ``monitored=True`` so an unmonitored season
-    # the user explicitly skipped doesn't drag the show into ``partial``.
-    aired_seasons = [
-        s
-        for s in series.get("seasons", [])
-        if s.get("seasonNumber", 0) > 0 and s.get("monitored", True) and _season_has_aired(s)
-    ]
-
-    if aired_seasons:
-        # ``have_all`` requires ``episodeCount > 0`` per season on purpose:
-        # right after Sonarr flips a brand-new season to ``aired``, it
-        # briefly reports ``episodeCount == 0`` and ``episodeFileCount ==
-        # 0``.  Without the ``> 0`` guard the boolean ``0 >= 0`` would
-        # silently satisfy ``have_all`` and a fully-downloaded show with
-        # one not-yet-populated season would flip to ``in_library`` for
-        # one polling cycle.  Treating the season as ``partial`` for a
-        # cycle is the lesser evil — see ``test_arr_state.py:
-        # test_tv_aired_season_with_zero_episode_count_does_not_mask_partial``
-        # for the regression that pinned this behaviour.
-        have_any = any(_season_stats(s).get("episodeFileCount", 0) > 0 for s in aired_seasons)
-        have_all = all(
-            _season_stats(s).get("episodeFileCount", 0) >= _season_stats(s).get("episodeCount", 0)
-            and _season_stats(s).get("episodeCount", 0) > 0
-            for s in aired_seasons
-        )
-        if have_all:
-            return ACTION_IN_LIBRARY
-        if have_any:
-            return ACTION_PARTIAL
+    if series_ready(series):
+        return ACTION_IN_LIBRARY
+    # What is left of a season nobody wants must not hide that another is on its way.
+    if any(
+        _wanted_by_now(s) and (_season_stats(s).get("episodeFileCount") or 0) > 0
+        for s in _judged_seasons(series)
+    ):
+        return ACTION_PARTIAL
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
         return ACTION_DOWNLOADING
@@ -492,7 +539,8 @@ def add_or_remonitor_movie(
     double-click does not churn it. An unmonitored one is the residue of an
     abandon: re-monitoring it (which also searches) is what pressing Download
     again means. An entry with no usable id is ``"bad_entry"``. With
-    *keep_filed* an entry that already has its file is left alone too.
+    *keep_filed* an entry that already has its file is left alone too. A search that got
+    no answer, and may be running, still counts as ``"remonitored"``.
 
     Raises:
         SafeHTTPError: On a non-2xx response to the add only.
@@ -519,6 +567,9 @@ def add_or_remonitor_movie(
         return "bad_entry"
     try:
         radarr_client.remonitor_movie(movie_id)
+    except SearchUnanswered:
+        # Monitored, and the search may be running: as good as asked, so left monitored.
+        logger.warning("radarr search for tmdb=%s got no answer", tmdb_id)
     except (SafeHTTPError, requests.RequestException, ArrError) as exc:
         # The monitor may have landed before the search failed. Left monitored the
         # movie would read as already tracked, and the same press could never search it.

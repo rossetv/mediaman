@@ -1,7 +1,7 @@
 /**
  * downloads/render_recent.js — recently-added grid and upcoming list.
  *
- * The recent-grid is rebuilt only when its titles or posters change, so
+ * The recent-grid is rebuilt only when its titles, posters or words change, so
  * images do not reload and focus survives each poll. The upcoming list diffs by
  * `data-dl-id` so rows survive across polls and abandon-clicks animate
  * out cleanly.
@@ -23,8 +23,8 @@
   function dom() { return MM.downloads.buildDom; }
   function row() { return MM.downloads.renderRow; }
 
-  function recentSignature(titles, posters) {
-    return JSON.stringify([titles, posters]);
+  function recentSignature(titles, posters, words) {
+    return JSON.stringify([titles, posters, words]);
   }
 
   /* The signature of what is on screen, read back from the DOM so the
@@ -32,14 +32,17 @@
   function renderedSignature(container) {
     var titles = [];
     var posters = [];
+    var words = [];
     var items = container.querySelectorAll('.dl-recent-item');
     for (var i = 0; i < items.length; i++) {
       var t = items[i].querySelector('.dl-recent-title');
       var img = items[i].querySelector('img');
       titles.push(t ? t.textContent : '');
       posters.push(img ? img.getAttribute('src') : '');
+      var sub = items[i].querySelector('.dl-recent-sub');
+      words.push(sub ? sub.textContent : '');
     }
-    return recentSignature(titles, posters);
+    return recentSignature(titles, posters, words);
   }
 
   function updateRecent(container, recent) {
@@ -57,7 +60,8 @@
     if (shown && d.isCollapsing(shown)) d.reveal(shown);
     var incoming = recentSignature(
       recent.map(function (r) { return r.title; }),
-      recent.map(function (r) { return r.poster_url || ''; })
+      recent.map(function (r) { return r.poster_url || ''; }),
+      recent.map(d.recentWords)
     );
     if (renderedSignature(container) === incoming) return;
     /* Rebuild the recent grid using safe DOM methods */

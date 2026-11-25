@@ -18,9 +18,7 @@ def release():
     event = threading.Event()
     yield event
     event.set()
-    for thread in threading.enumerate():
-        if thread.name == "disk-read":
-            thread.join(5)
+    _ended()
 
 
 @pytest.fixture
@@ -33,6 +31,14 @@ def clock(monkeypatch):
 @pytest.fixture
 def short(monkeypatch):
     monkeypatch.setattr(disk_reads, "_DEADLINE_SECONDS", 0.1)
+
+
+def _ended():
+    """Wait until every read has written down what it found: its caller may give up before."""
+    for thread in threading.enumerate():
+        if thread.name == "disk-read":
+            thread.join(5)
+            assert not thread.is_alive()
 
 
 def _hang(release, calls):
@@ -145,6 +151,7 @@ def test_what_a_read_that_ends_too_late_found_is_given_to_the_next_and_kept_a_wh
         started.wait(5)
         release.set()
         assert result.result(5) is None
+    _ended()
 
     for seconds in (0, 2.9):
         clock[0] += seconds
@@ -163,19 +170,12 @@ def test_what_a_read_that_ends_too_late_found_is_given_to_the_next_and_kept_a_wh
     assert reads.read("a", again) == 1
     assert reads.read("a", again) == 1
     newer.set()
-    _wait_for(lambda: reads.read("a", again) == 2)
+    _ended()
+    assert reads.read("a", again) == 2
     assert calls == ["a", "a"]
 
     clock[0] += 31
     assert reads.read("a", lambda _: 5) == 5
-
-
-def _wait_for(check):
-    for _ in range(100):
-        if check():
-            return
-        time.sleep(0.02)
-    pytest.fail("never became true")
 
 
 def test_a_read_that_fails_too_late_is_not_taken_for_an_answer(release, clock):
@@ -193,6 +193,7 @@ def test_a_read_that_fails_too_late_is_not_taken_for_an_answer(release, clock):
         started.wait(5)
         release.set()
         assert result.result(5) is None
+    _ended()
 
     assert reads.read("a", lambda _: pytest.fail("read again at once")) is None
 
@@ -221,6 +222,7 @@ def test_a_new_read_that_fails_ends_the_answer_the_late_one_gave(release, clock)
         started.wait(5)
         release.set()
         assert result.result(5) is None
+    _ended()
 
     clock[0] += 3.1
 
@@ -228,7 +230,8 @@ def test_a_new_read_that_fails_ends_the_answer_the_late_one_gave(release, clock)
         raise OSError("gone")
 
     assert reads.read("a", fail) == 1
-    _wait_for(lambda: reads.read("a", lambda _: pytest.fail("read again")) is None)
+    _ended()
+    assert reads.read("a", lambda _: pytest.fail("read again")) is None
 
     clock[0] += 3.1
     assert reads.read("a", lambda _: 5) == 5

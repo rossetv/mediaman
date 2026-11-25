@@ -28,6 +28,10 @@ _SEARCHING = {
     "abandon_visible": True,
     "stuck_seasons": [],
     "arr_id": 1,
+    "arr_link": "http://radarr.internal:7878/movie/stuck-movie",
+    "arr_source": "Radarr",
+    "tmdb_id": 603,
+    "queued_since": "2020-02-02T10:00:00+00:00",
 }
 _UPCOMING = {
     "id": "upcoming:9",
@@ -37,6 +41,8 @@ _UPCOMING = {
     "state": "upcoming",
     "abandon_visible": False,
     "arr_id": 9,
+    "arr_link": "http://sonarr.internal:8989/series/soon-show",
+    "arr_source": "Sonarr",
 }
 
 
@@ -87,6 +93,36 @@ def test_downloads_abandon_controls_follow_the_role(make_client, role):
     body = api.json()
     assert body["hero"]["abandon_visible"] is shown
     assert body["queue"][0]["abandon_visible"] is shown
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_where_radarr_and_sonarr_are_is_told_to_admins_alone(make_client, role):
+    page, api = _get_downloads(make_client(downloads_router, role))
+    body = api.json()
+    items = [body["hero"], *body["queue"], *body["upcoming"]]
+    told = [(i["arr_link"], i["arr_source"], i["arr_id"]) for i in items]
+
+    if role == "admin":
+        assert [t[2] for t in told] == [1, 1, 9]
+        assert "radarr.internal" in page.text
+    else:
+        assert told == [("", "", 0)] * 3
+        assert ".internal" not in page.text
+        assert 'data-v="arr-link" hidden' in page.text
+
+
+@pytest.mark.parametrize("role", ["admin", "viewer"])
+def test_the_ids_and_dates_kept_for_completion_are_told_to_admins_alone(make_client, role):
+    page, api = _get_downloads(make_client(downloads_router, role))
+    body = api.json()
+    items = [body["hero"], *body["queue"]]
+    told = [(i.get("tmdb_id"), i.get("queued_since")) for i in items]
+
+    if role == "admin":
+        assert told == [(603, "2020-02-02T10:00:00+00:00")] * 2
+    else:
+        assert told == [(None, None)] * 2
+        assert "2020-02-02" not in page.text
 
 
 def test_downloads_page_still_lists_the_items_for_a_viewer(make_client):

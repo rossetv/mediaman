@@ -6,14 +6,17 @@ protection maps, and assembles the final result via `._display`.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import timedelta
 
 from mediaman.core.library_selected import LIBRARY_SELECTED
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.core.time import now_iso, now_utc
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
 from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import Keep, _shape_rows, lapse_key
+from mediaman.web.repository.library_query._match import TitleSearch
 
 VALID_SORTS = {
     "added_desc",
@@ -29,12 +32,6 @@ VALID_SORTS = {
 }
 VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
-# Hard cap on the user-supplied search term applied to the LIKE filter.
-# Without this an attacker could submit a multi-megabyte string and force
-# SQLite to do a slow scan against every title and show_title row.
-# 200 chars is well above any realistic title length.
-MAX_SEARCH_TERM_LEN = 200
-
 # Joins the ids of a show row's seasons; a unit separator never occurs in an id.
 _ITEM_ID_SEP = "\x1f"
 
@@ -42,6 +39,18 @@ _ITEM_ID_SEP = "\x1f"
 TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
+
+
+def _matching_ids(conn: sqlite3.Connection, q: str) -> list[str]:
+    """The ids of the items whose own title, or whose show's, holds *q*."""
+    search = TitleSearch(conn, q)
+    return [
+        r["id"]
+        for r in conn.execute("SELECT id, title, show_title FROM media_items")
+        if any(
+            title and search.distance(title) is not None for title in (r["title"], r["show_title"])
+        )
+    ]
 
 
 def _build_where_clause(
@@ -59,15 +68,8 @@ def _build_where_clause(
     params: list[object] = []
 
     if q:
-        # Cap the LIKE term before escaping — escaping before truncation
-        # would let metacharacters at position MAX_SEARCH_TERM_LEN-1
-        # split mid-escape and produce a malformed pattern.  Truncate raw,
-        # then escape.
-        q = q[:MAX_SEARCH_TERM_LEN]
-        where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
-        q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        like = f"%{q_escaped}%"
-        params.extend([like, like])
+        where_clauses.append("id IN (SELECT value FROM json_each(?))")
+        params.append(json.dumps(_matching_ids(conn, q)))
 
     kept_filter = False
     if media_type == "kept":
@@ -117,13 +119,13 @@ _SHOW_KEPT_SQL = """EXISTS(
 # The soonest pending deletion of a media item, by the rule of
 # watch_library.pending_deletions; NULL when none is scheduled.
 _ITEM_DELETION_SQL = f"""(
-                SELECT MIN(da.execute_at) FROM scheduled_actions da
-                JOIN media_items mi ON mi.id = da.media_item_id
-                WHERE da.media_item_id = filtered.id
-                AND da.action = 'scheduled_deletion'
-                AND da.token_used = 0
-                AND (da.delete_status IS NULL OR da.delete_status = 'pending')
-                AND da.execute_at >= (SELECT now FROM clock)
+                SELECT MIN(sa.execute_at) FROM scheduled_actions sa
+                JOIN media_items mi ON mi.id = sa.media_item_id
+                WHERE sa.media_item_id = filtered.id
+                AND sa.action = 'scheduled_deletion'
+                AND sa.token_used = 0
+                AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')
+                AND NOT {FILES_GONE}
                 AND {LIBRARY_SELECTED}
             )"""
 

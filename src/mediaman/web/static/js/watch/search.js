@@ -22,13 +22,12 @@
   var LIST_DELAY_MS = 350;
   var COMPOSING_MS = 400;
   var EXAMPLE_MS = 3200;
+  var STEP_MS = 10000; // a step back this late was never made: a Back after it is the person's
   var SKELETONS = 6;
   // The categories the sheet opens on; the rest stand below what else it offers.
   var FIRST = ['action', 'comedy', 'thriller', 'science-fiction', 'drama', 'horror', 'family', 'crime', 'romance', 'fantasy', 'animation', 'documentary'];
   var PEOPLE = 6;
   var NO_PEOPLE = 'mm.watch.no-people'; // stored while none of the library are known, so no place is held for them
-  // TMDB answers nothing for less; do not ask.
-  var TMDB_MIN_CHARS = 2;
   var SEARCH_FAILED = 'Couldn’t search just now.';
   var TMDB_FAILED = 'Couldn’t search for titles outside the library just now.';
   var CATEGORIES_FAILED = 'Couldn’t load the categories just now.';
@@ -56,12 +55,13 @@
   }
 
   function leavingText(days) {
-    if (days <= 0) return 'Leaving today';
+    if (days < 0) return 'Leaving any day';
+    if (!days) return 'Leaving today';
     return days === 1 ? 'Leaving in 1 day' : 'Leaving in ' + days + ' days';
   }
 
   function leavingShortText(days) {
-    if (days <= 0) return 'Leaving today';
+    if (days <= 0) return leavingText(days);
     return days === 1 ? '1 day left' : days + ' days left';
   }
 
@@ -70,6 +70,12 @@
     var badge = el('span', 'watch-badge watch-badge--leaving' + (item.leaving_days <= 1 ? ' watch-badge--leaving-now' : ''));
     badge.appendChild(el('span', 'watch-badge__long', leavingText(item.leaving_days)));
     badge.appendChild(el('span', 'watch-badge__short', leavingShortText(item.leaving_days)));
+    if (item.leaving_days <= 0) {
+      var tiny = el('span', 'watch-badge__tiny');
+      tiny.setAttribute('data-words', item.leaving_days < 0 ? 'Any day' : 'Today');
+      tiny.setAttribute('aria-hidden', 'true');
+      badge.appendChild(tiny);
+    }
     return badge;
   }
 
@@ -141,16 +147,13 @@
 
   /* One found by its category, in the library. */
   function buildHeldCard(item) {
-    var card = buildTmdbCard(item, true);
-    card.setAttribute('data-keep-id', item.keep_id || '');
-    var badge = leavingBadge(item);
-    if (badge) card.querySelector('.watch-card__title').after(badge);
-    return addKeep(card, item);
+    return addKeep(buildTmdbCard(item, true), item);
   }
 
   /* A title TMDB knows, in the library or not; *plain*: its heading says which. */
   function buildTmdbCard(item, plain) {
     var card = el('article', 'watch-card');
+    if (item.keep_id) card.setAttribute('data-keep-id', item.keep_id);
 
     var link = el('a', 'watch-card__link');
     link.setAttribute('data-title-ref', item.ref || '');
@@ -168,14 +171,18 @@
       poster.appendChild(img);
     }
     poster.appendChild(el('span', 'watch-card__title', item.title));
-    var badge = plain ? null : stateBadge(item);
-    if (badge) poster.appendChild(badge);
+    [leavingBadge(item), plain ? null : stateBadge(item)].forEach(function (badge) {
+      if (badge) poster.appendChild(badge);
+    });
     link.appendChild(poster);
     link.appendChild(el('span', 'watch-card__sub', kindLine(item)));
     card.appendChild(link);
     core.addMarks(card, poster, item);
     return card;
   }
+
+  /* Whether there is nothing to download of it, though Plex may not have it yet. */
+  function isHeld(item) { return !!item.in_library || /^(in_library|partial)$/.test(item.download_state || ''); }
 
   function kindLine(item) {
     return (item.kind === 'show' ? 'TV' : 'Movie') + (item.year ? ' · ' + item.year : '');
@@ -480,23 +487,60 @@
     return node;
   }
 
+  // As the server's own search reads them.
+  var LETTERS = { 'æ': 'ae', 'œ': 'oe', 'ø': 'o', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'ł': 'l', 'ħ': 'h', 'ı': 'i', 'ß': 'ss', '&': 'and' };
+  var APOSTROPHE = /[\p{M}'’‘ʼ′`´]/u;
+
+  /* The letters and digits of *text*, without case or accents; "&" is "and". */
+  function folded(text) {
+    return String(text || '').toLowerCase().replace(/[ʼ™℠]/g, '').normalize('NFKD')
+      .replace(/[æœøđðþłħıß&]/g, function (char) { return LETTERS[char]; }).replace(/[^\p{L}\p{N}]/gu, '');
+  }
+
+  /* Where *typed* begins a word of *text*, as [from, to], or null; spaces, accents and
+     punctuation are the same with or without. */
+  function place(text, typed) {
+    var want = folded(typed);
+    // Nothing but punctuation is taken as it is.
+    if (!want) return typed && text.indexOf(typed) === 0 ? [0, typed.length] : null;
+    var plain = '';
+    var from = []; // of each letter of plain, its place in text
+    var to = [];
+    var first = []; // whether it begins a word
+    var inWord = false;
+    text.replace(/[\s\S]/gu, function (char, at) {
+      var letters = folded(char);
+      for (var i = 0; i < letters.length; i++) {
+        first.push(!i && (!inWord || char === '&'));
+        from.push(at);
+        to.push(at + char.length);
+      }
+      plain += letters;
+      // An accent of its own and an apostrophe are inside their word.
+      inWord = char !== '&' && (letters !== '' || (inWord && APOSTROPHE.test(char)));
+      return char;
+    });
+    for (var at = plain.indexOf(want); at > -1; at = plain.indexOf(want, at + 1)) {
+      if (first[at]) return [from[at], to[at + want.length - 1]];
+    }
+    return null;
+  }
+
   /* *text*, what was typed standing out in it where it begins a word. */
   function marked(text, typed) {
     var b = el('b');
-    var at = typed ? text.toLowerCase().indexOf(typed) : -1;
-    if (at === -1 || (at > 0 && !/[\s-]/.test(text.charAt(at - 1)))) {
+    var at = typed ? place(text, typed) : null;
+    if (!at) {
       b.textContent = text;
       return b;
     }
-    b.appendChild(document.createTextNode(text.slice(0, at)));
-    b.appendChild(el('em', '', text.slice(at, at + typed.length)));
-    b.appendChild(document.createTextNode(text.slice(at + typed.length)));
+    b.appendChild(document.createTextNode(text.slice(0, at[0])));
+    b.appendChild(el('em', '', text.slice(at[0], at[1])));
+    b.appendChild(document.createTextNode(text.slice(at[1])));
     return b;
   }
 
-  function begins(text, typed) {
-    return (' ' + String(text || '').toLowerCase().replace(/-/g, ' ')).indexOf(' ' + typed.replace(/-/g, ' ')) > -1;
-  }
+  function begins(text, typed) { return place(String(text || ''), typed) !== null; }
 
   /* A key of an input method. Safari sends the one that ends it after the end. */
   function composing(e) { return e.isComposing || e.keyCode === 229; }
@@ -533,6 +577,8 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
+    var emptied = false; // the step back to what an emptied search was typed over is on its way; a slow one lands at any time
+    var emptiedTimer = null;
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
@@ -957,7 +1003,7 @@
       var all = [];
       [c, last].forEach(function (s) {
         if (!s) return;
-        [s.lib, s.tmdb].forEach(function (part) { all = all.concat((part && part.items) || []); });
+        [s.lib, s.tmdb].forEach(function (part) { if (part) all = all.concat(part.held || [], part.items || []); });
       });
       return all;
     }
@@ -1156,22 +1202,25 @@
       status.textContent = text;
     }
 
-    /* The two lists as they are shown. Titles of a category that was named in
-       full join the one they belong to, after the matches. */
+    /* The two lists as they are shown. What TMDB knows joins the one it belongs
+       to; titles of a category that was named in full come after the matches. */
     function gather(c) {
-      var lib = (c.lib.items || []).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
-      var out = (c.tmdb.items || []).map(function (item) { return { item: item, key: item.ref, build: buildTmdbCard }; });
-      var total = c.lib.total || 0;
-      var seen = new Set(lib.concat(out).map(function (x) { return x.key; }));
-      ((c.cat && c.cat.items) || []).forEach(function (item) {
-        var key = item.library_ref || item.ref;
-        if (seen.has(key) || seen.has(item.ref)) return;
-        seen.add(key);
-        if (item.in_library) {
-          lib.push({ item: item, key: key, build: buildHeldCard });
-          // One that matches by name too is among those found and not shown.
-          if (String(item.title || '').toLowerCase().indexOf(c.q.toLowerCase()) === -1) total++;
-        } else out.push({ item: item, key: key, build: buildTmdbCard });
+      var held = c.tmdb.held || []; // what the library's own search did not find
+      var lib = (c.lib.items || []).concat(held).map(function (item) { return { item: item, key: item.ref || item.href, build: buildCard }; });
+      var out = [];
+      var total = (c.lib.total || 0) + held.length;
+      var seen = new Set(lib.map(function (x) { return x.key; }));
+      [c.tmdb.items, c.cat && c.cat.items].forEach(function (items) {
+        (items || []).forEach(function (item) {
+          var key = item.library_ref || item.ref;
+          if (seen.has(key) || seen.has(item.ref)) return;
+          seen.add(key).add(item.ref);
+          if (isHeld(item)) {
+            lib.push({ item: item, key: key, build: buildHeldCard });
+            // One of the library's that matches by name too is among those found and not shown.
+            if (!item.in_library || folded(item.title).indexOf(folded(c.q)) === -1) total++;
+          } else out.push({ item: item, key: key, build: buildTmdbCard });
+        });
       });
       return { lib: lib, out: out, total: Math.max(total, lib.length) };
     }
@@ -1234,7 +1283,7 @@
       var tmdb = c.tmdb;
       var cat = c.cat ? c.cat.state : 'ok';
       var all = gather(c);
-      var tmdbQuiet = tmdb.state === 'short' || tmdb.state === 'unconfigured' || (tmdb.state === 'ok' && !tmdb.items.length);
+      var tmdbQuiet = tmdb.state === 'unconfigured' || (tmdb.state === 'ok' && !tmdb.items.length);
       var settled = lib.state !== 'loading' && tmdb.state !== 'loading' && cat !== 'loading';
       setPending(!settled);
 
@@ -1317,7 +1366,7 @@
 
     /* Ask for one part of search *c*; what an earlier answer gave stays until this one is in. */
     function ask(c, part, url, read, failed) {
-      c[part] = { state: 'loading', items: c[part] && c[part].items, total: c[part] && c[part].total };
+      c[part] = Object.assign({}, c[part], { state: 'loading' });
       MM.api.get(url, { signal: c.ctrl.signal }).then(function (reply) {
         if (current !== c) return;
         c[part] = read(reply || {});
@@ -1342,7 +1391,7 @@
         if (reply.tmdb_configured === false) return { state: 'unconfigured' };
         var found = reply.people || [];
         found.forEach(function (p) { people.set(p.person_id, p); });
-        return { state: 'ok', items: reply.items || [], people: found };
+        return { state: 'ok', items: reply.items || [], held: reply.held || [], people: found };
       }, function () { return { state: 'failed' }; });
     }
 
@@ -1355,7 +1404,7 @@
           if (current !== c) return;
           c.cat = null;
           if (explore.known()) askCategory(c, before);
-          else if (c.q.length >= TMDB_MIN_CHARS) c.cat = { state: 'unknown' };
+          else if (c.q.length > 1) c.cat = { state: 'unknown' };
           paint(c);
         });
         return;
@@ -1374,13 +1423,18 @@
 
     /* ── Searching ── */
 
-    /* Keep ?q= in the address, in the same entry so Back is not spammed; leaving
-       a category, a person or a grid is a new one, so Back returns to it. */
-    function syncUrl(q) {
-      var away = q && (address.value('explore') !== null || address.value('grid') !== null);
-      if (away) {
+    function setEmptied(on) {
+      clearTimeout(emptiedTimer);
+      emptied = on;
+      if (on) emptiedTimer = setTimeout(function () { emptied = false; }, STEP_MS);
+    }
+
+    /* Keep ?q= in the address: a search is an entry, so Back returns to what it was
+       typed over, and what is typed next stays in it. *inPlace*: nobody typed it. */
+    function syncUrl(q, inPlace) {
+      if (q && !inPlace && address.value('search') === null) {
         address.push('search', address.url(Object.assign({}, PAGE_PARAMS, { q: q })));
-        // Outlives a reload: emptied, the search gives way to what it was typed over.
+        // Outlives a reload: emptied, the search gives way to that.
         window.history.replaceState(Object.assign({}, window.history.state, { mmOver: true }), '');
         return;
       }
@@ -1388,20 +1442,28 @@
       if (to !== window.location.pathname + window.location.search + window.location.hash) address.replace('search', to);
     }
 
-    function run() {
+    function showResults(q, inPlace) {
+      // Where the rows stood is kept with the entry they are left in.
+      var rows = view === 'browse' && !browse.hidden;
+      if (rows) syncUrl(q, inPlace);
+      show('results');
+      if (!rows) syncUrl(q, inPlace);
+    }
+
+    function run(inPlace) {
       var q = input.value.trim();
       stop();
-      if (q) show('results');
-      syncUrl(q);
       if (!q) {
+        syncUrl(q);
         status.textContent = '';
         show('browse');
         return;
       }
+      showResults(q, inPlace);
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
-        lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items }, cat: null,
+        lib: known && { items: known.lib.items, total: known.lib.total }, tmdb: known && { items: known.tmdb.items, held: known.tmdb.held }, cat: null,
         // What is on the page already and fits may stay while TMDB is asked.
         before: last && !known ? gather(last).out.filter(function (x) { return begins(x.item.title, q.toLowerCase()); }) : []
       };
@@ -1411,7 +1473,6 @@
       status.textContent = '';
       fetchLibrary(c);
       if (data.tmdb_configured !== true) c.tmdb = { state: 'unconfigured' };
-      else if (q.length < TMDB_MIN_CHARS) c.tmdb = { state: 'short' };
       else fetchTmdb(c);
       if (canExplore()) askCategory(c, known && known.cat);
       paint(c);
@@ -1430,8 +1491,8 @@
       }));
     }
 
-    function change() {
-      if (listView) announceList(); else run();
+    function change(inPlace) {
+      if (listView) announceList(); else run(inPlace);
     }
 
     /* Every key: the bar and the suggestions answer at once, the server is asked
@@ -1445,14 +1506,20 @@
       sync();
       if (listView) {
         if (!q) change();
-        else timer = setTimeout(change, inWord ? COMPOSING_MS : LIST_DELAY_MS);
+        else timer = setTimeout(announceList, inWord ? COMPOSING_MS : LIST_DELAY_MS);
         return;
       }
       stop();
       if (!q && address.value('search') !== null && (window.history.state || {}).mmOver) {
         openSheet(false);
-        // What opens there takes the focus.
-        address.back('search', function () { input.focus({ preventScroll: true }); });
+        if (emptied) return;
+        setEmptied(true);
+        address.back('search', function () {
+          setEmptied(false);
+          // What opens there takes the focus.
+          input.focus({ preventScroll: true });
+          openSheet(address.top() === null);
+        });
         return;
       }
       if (!q || now) {
@@ -1462,8 +1529,8 @@
         return;
       }
       openSheet(false);
-      show('results');
-      if (address.value('explore') !== null || address.value('grid') !== null) syncUrl(q);
+      if (address.value('search') === null) showResults(q);
+      else show('results');
       holdResults();
       draw(q, null, live.rows, false);
       if (canExplore() && !explore.known()) {
@@ -1472,7 +1539,7 @@
         });
       }
       setPending(true);
-      timer = setTimeout(change, inWord ? COMPOSING_MS : SEARCH_DELAY_MS);
+      timer = setTimeout(run, inWord ? COMPOSING_MS : SEARCH_DELAY_MS);
     }
 
     function fill(text) {
@@ -1621,7 +1688,7 @@
       input.setAttribute('aria-label', label());
       restHint();
       // Text goes along, unless Back led to something the address opens itself.
-      if (input.value.trim() && (listView || !addressed())) change();
+      if (input.value.trim() && (listView || !addressed())) change(true);
     });
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
@@ -1670,6 +1737,7 @@
         return here.params.get('view') === 'list' ? null : (here.params.get('q') || '').trim() || null;
       },
       open: function (q, how) {
+        if (how === 'pop') setEmptied(false);
         if (input.value.trim() === q && (how === 'start' || (current && current.q === q))) return;
         input.value = q;
         if (tokened) setToken(null);
@@ -1677,8 +1745,15 @@
         run();
       },
       close: function (how) {
+        var again = emptied && input.value.trim();
+        setEmptied(false);
         // The list takes the text with it; whatever else was opened says what stands here now.
         if (how === 'push' || new URLSearchParams(window.location.search).get('view') === 'list') return;
+        // Typed since, it is a search of its own in the entry the step led to.
+        if (again) {
+          setTimeout(function () { if (current && current.q === input.value.trim()) syncUrl(current.q); });
+          return;
+        }
         stop();
         input.value = '';
         sync();
@@ -1693,10 +1768,10 @@
     showExamples();
     if (canExplore()) explore.categories();
     // A value the browser put back (going back to the page) gets its results.
-    if (input.value.trim() && !listView) run();
+    if (input.value.trim() && !listView) run(true);
     // Nothing the address names after all: the rows.
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, isHeld: isHeld, composing: composing };
 })();

@@ -64,7 +64,7 @@
 
     listEl.replaceChildren();
 
-    if (upcoming || kind === 'movie' || stuck.length <= 1) {
+    if (!isPicker()) {
       copyEl.textContent = upcoming
         ? 'It hasn’t been released yet. Mediaman will unmonitor it in ' +
           'Radarr/Sonarr so it won’t be picked up when it lands. It stays ' +
@@ -147,8 +147,15 @@
 
   function isBusy() { return !!(current && inflight[current.dlId]); }
 
+  /* One season still to air is not what is being searched for in vain: it is asked about,
+     never sent as if it had been picked. */
+  function needsPicker(stuck) {
+    return stuck.length > 1 ||
+      (stuck.length === 1 && !stuck[0].missing_episodes && stuck[0].aired === false);
+  }
+
   function isPicker() {
-    return !current.upcoming && current.kind === 'series' && current.stuckSeasons.length > 1;
+    return !current.upcoming && current.kind === 'series' && needsPicker(current.stuckSeasons);
   }
 
   /* The button and the season switches follow the current selection and
@@ -183,16 +190,14 @@
 
     var seasons = [];
     if (current.kind === 'series' && !current.upcoming) {
-      if (current.stuckSeasons.length === 1) {
-        seasons = [current.stuckSeasons[0].number];
-      } else {
-        seasons = selectedSeasons();
-      }
+      seasons = isPicker() ? selectedSeasons()
+        : current.stuckSeasons.map(function (s) { return s.number; });
     }
 
     var dlId = current.dlId;
-    var message = current.upcoming ? 'Stopped tracking ' + current.title
-      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + current.title;
+    var title = current.title;
+    var message = current.upcoming ? 'Stopped tracking ' + title
+      : 'Stopped searching for ' + (isPicker() ? seasons.length + ' season' + (seasons.length === 1 ? '' : 's') + ' of ' : '') + title;
     inflight[dlId] = true;
     showConfirmState();
 
@@ -200,15 +205,19 @@
        runs, so only touch it when it still shows this item. */
     var showsThis = function () { return current && current.dlId === dlId; };
     var endpoint = '/api/downloads/' + encodeURIComponent(dlId) + '/abandon';
+    function finish(text, variant) {
+      if (showsThis()) close();
+      document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+      window.UIFeedback.toast(text, { variant: variant });
+    }
     MM.api.post(endpoint, { seasons: seasons })
       .then(function () {
         delete inflight[dlId];
-        if (showsThis()) close();
-        document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
-        window.UIFeedback.toast(message, { variant: 'success' });
+        finish(message, 'success');
       })
       .catch(function (err) {
         delete inflight[dlId];
+        if (err.status === 404) { finish('Already gone: ' + title, 'info'); return; }
         if (showsThis()) showConfirmState();
         window.UIFeedback.error(MM.api.messageOf(err, 'Couldn’t abandon. Try again.'));
       });

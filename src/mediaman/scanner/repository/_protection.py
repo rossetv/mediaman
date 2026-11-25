@@ -8,6 +8,7 @@ module is read-heavy (or small targeted DELETEs) and never touches
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from collections.abc import Collection
@@ -276,13 +277,16 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
     expired more than one deletion-pass ago would be re-scheduled with
     ``is_reentry = False`` and a normal grace period instead of being
     flagged as a re-entry. Unconsumed expired snoozes carry no re-entry
-    meaning and are still swept so they cannot mask a fresh evaluation.
+    meaning and are still swept so they cannot mask a fresh evaluation. One
+    written over a deletion whose removal was cut off is told in the history.
     """
-    conn.execute(
-        "DELETE FROM scheduled_actions "
-        "WHERE action = 'snoozed' AND token_used = 0 AND execute_at < ?",
-        (now_iso,),
-    )
+    # Not at the top: that module imports this one.
+    from mediaman.scanner.repository.scheduled_actions import audit_lost_removals
+
+    where = "action = 'snoozed' AND token_used = 0 AND execute_at < ?"
+    audit_lost_removals(conn, where, (now_iso,))
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    conn.execute(f"DELETE FROM scheduled_actions WHERE {where}", (now_iso,))  # nosec B608
 
 
 _KEEP_COLUMNS = "action, scheduled_at, execute_at, token_used, snoozed_at, snooze_duration"
@@ -297,15 +301,53 @@ def save_pruned_keeps(conn: sqlite3.Connection, media_ids: Collection[str]) -> N
     conn.execute("DELETE FROM pruned_keeps WHERE action = 'snoozed' AND execute_at < ?", (now,))
     # rationale: the interpolated column list is a fixed string; every value is bound
     conn.executemany(  # nosec B608
-        "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, tmdb_id, "
+        "INSERT INTO pruned_keeps (media_item_id, file_path, season_number, tvdb_id, tmdb_id, "
         f"plex_library_id, {_KEEP_COLUMNS}) "
         "SELECT mi.id, mi.file_path, mi.season_number, "
-        f"COALESCE(mi.tmdb_id, mi.last_tmdb_id), mi.plex_library_id, {_KEEP_COLUMNS} "
+        # The show's ids do not tell a season that has no number.
+        "CASE WHEN (mi.media_type = 'movie') = (mi.season_number IS NULL) "
+        "  THEN CASE WHEN COALESCE(mi.tmdb_id, mi.last_tmdb_id) IS NULL "
+        "    THEN COALESCE(mi.tvdb_id, mi.last_tvdb_id) ELSE mi.tvdb_id END END, "
+        "CASE WHEN (mi.media_type = 'movie') = (mi.season_number IS NULL) "
+        "  THEN COALESCE(mi.tmdb_id, mi.last_tmdb_id) END, "
+        f"mi.plex_library_id, {_KEEP_COLUMNS} "
         "FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
         "WHERE mi.id = ? AND (sa.action = 'protected_forever' "
         "  OR (sa.action = 'snoozed' AND sa.execute_at >= ?))",
         [(media_id, now) for media_id in media_ids],
     )
+
+
+# pruned_keeps.action of a row that gives no keep: it holds the files of a kept title that is gone.
+HELD = "held"
+
+
+def follow_taken_keep(
+    conn: sqlite3.Connection,
+    kept_as: str,
+    takers: Collection[object],
+    place: tuple[object, object] | None = None,
+) -> None:
+    """Let the files held while the keep of *kept_as* stands be held while that of *takers* does.
+
+    They took that keep for good, so it ends with theirs: a person removes it
+    from them, or it runs out. One who refused it is no taker, and with none
+    nothing changes. *place* is the path and season of the one season meant,
+    where *kept_as* is a show.
+    """
+    keys = {str(taker) for taker in takers if taker}
+    if not keys:
+        return
+    held = conn.execute(
+        "SELECT id, file_path, season_number, given_to FROM pruned_keeps WHERE action = ?", (HELD,)
+    ).fetchall()
+    for row in held:
+        given = set(json.loads(row["given_to"]))
+        if kept_as in given and place in (None, (row["file_path"], row["season_number"])):
+            conn.execute(
+                "UPDATE pruned_keeps SET given_to = ? WHERE id = ?",
+                (json.dumps(sorted((given - {kept_as}) | keys)), row["id"]),
+            )
 
 
 def take_pruned_keeps(
@@ -323,6 +365,8 @@ def take_pruned_keeps(
         "    AND NOT EXISTS (SELECT 1 FROM media_items WHERE id = ?)))",
         (now_iso(), media_id, file_path, season_number, media_id),
     ).fetchall()
+    for keep in keeps:
+        follow_taken_keep(conn, keep["media_item_id"], [media_id])
     conn.executemany("DELETE FROM pruned_keeps WHERE id = ?", [(keep["id"],) for keep in keeps])
     return keeps
 

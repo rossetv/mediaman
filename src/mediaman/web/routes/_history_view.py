@@ -221,7 +221,12 @@ def _security_summary(event: str, body: dict[str, object] | None, actor: str | N
     return ""
 
 
-def _media_summary(detail: str, space_impact: str) -> str:
+def _media_summary(action: str, detail: str, space_impact: str) -> str:
+    if action == "library_left_out":
+        reason = detail.rpartition("was not scanned: ")[2]
+        if reason.startswith("its disk limit"):
+            return "Check its disk limit in Settings"
+        return reason[:1].upper() + reason[1:]
     if space_impact:
         return space_impact
     if kept := _KEPT_RE.match(detail):
@@ -312,5 +317,5 @@ def describe(
     if is_security:
         summary = hide_emails(_security_summary(event, body, who))
     else:
-        summary = _media_summary(stored, space_impact)
+        summary = _media_summary(action, stored, space_impact)
     return EventView(summary=summary, actor=who, ip=ip, fields=fields)

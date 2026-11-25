@@ -34,21 +34,22 @@ def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
         poster_url = extract_poster_url(movie.get("images"))
         m_title = movie.get("title") or q.get("title") or "Unknown"
         release_name = q.get("title") or ""
-        items.append(
-            make_arr_card(
-                "movie",
-                m_title,
-                source="Radarr",
-                year=movie.get("year"),
-                poster_url=poster_url,
-                progress=progress,
-                size=size,
-                sizeleft=sizeleft,
-                timeleft=q.get("timeleft") or "",
-                status=status,
-                release_names=[release_name] if release_name else [],
-            )
+        card = make_arr_card(
+            "movie",
+            m_title,
+            source="Radarr",
+            year=movie.get("year"),
+            poster_url=poster_url,
+            progress=progress,
+            size=size,
+            sizeleft=sizeleft,
+            timeleft=q.get("timeleft") or "",
+            status=status,
+            release_names=[release_name] if release_name else [],
         )
+        if tmdb_id := movie.get("tmdbId"):
+            card["tmdb_id"] = tmdb_id
+        items.append(card)
     return items
 
 

@@ -9,7 +9,9 @@ response.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -30,7 +32,11 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import apply_keep_snooze, revert_keep_snooze
+from mediaman.services.scheduled_actions import (
+    apply_keep_snooze,
+    parse_execute_at,
+    revert_keep_snooze,
+)
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.auth.password_hash import get_user_role
@@ -102,25 +108,33 @@ def api_watch_search(q: str = "", username: str = Depends(get_current_user)) -> 
         return JSONResponse({"items": [], "total": 0})
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
-    now = now_utc()
     found, total = lib.search_library(conn, libraries, term, SEARCH_LIMIT)
-    movies = [f for f in found if isinstance(f, lib.LibraryMovie)]
-    pending = lib.pending_deletions(conn, libraries, now)
-    by_key = {
-        m.key: c
+    return JSONResponse({"items": library_items(conn, username, libraries, found), "total": total})
+
+
+def library_items(
+    conn: sqlite3.Connection,
+    username: str,
+    libraries: list[str],
+    titles: Sequence[lib.LibraryMovie | lib.LibraryShow],
+) -> list[dict[str, Any]]:
+    """The cards of library *titles*, in their order, each with its title ref."""
+    now = now_utc()
+    movies = [t for t in titles if isinstance(t, lib.LibraryMovie)]
+    pending = lib.pending_deletions(conn, libraries)
+    by_ref = {
+        f"movie-{m.key}": c
         for m, c in zip(movies, movie_cards(conn, username, movies, pending, now), strict=True)
     }
-    shows = [f for f in found if isinstance(f, lib.LibraryShow)]
-    show_by_key = {
-        s.key: c for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
+    shows = [t for t in titles if isinstance(t, lib.LibraryShow)]
+    by_ref |= {
+        f"show-{s.key}": c
+        for s, c in zip(shows, show_cards(conn, username, libraries, shows), strict=True)
     }
-    items: list[dict[str, Any]] = [
-        {**by_key[f.key], "ref": f"movie-{f.key}"}
-        if isinstance(f, lib.LibraryMovie)
-        else {**show_by_key[f.key], "ref": f"show-{f.key}"}
-        for f in found
-    ]
-    return JSONResponse({"items": items, "total": total})
+    refs = (
+        f"movie-{t.key}" if isinstance(t, lib.LibraryMovie) else f"show-{t.key}" for t in titles
+    )
+    return [{**by_ref[ref], "ref": ref} for ref in refs]
 
 
 @router.post("/api/watch/keep")
@@ -130,7 +144,8 @@ def api_watch_keep(
 ) -> JSONResponse:
     """Keep a scheduled movie or season for 7, 30 or 90 days, as the newsletter keep does.
 
-    An admin, who may change it, is told the keep; a viewer only that it was made.
+    An admin, who may change it, is told the keep; a viewer only that it was made. ``undo``
+    is whether the keep can be undone: not past the old date, which would then be due.
     """
     if not _KEEP_LIMITER.check(username):
         return respond_err(
@@ -149,7 +164,7 @@ def api_watch_keep(
 
     conn = get_db()
     now = now_utc()
-    pending = lib.pending_deletion(conn, lib.scanned_library_ids(conn), media_item_id, now)
+    pending = lib.pending_deletion(conn, lib.scanned_library_ids(conn), media_item_id)
     if pending is None:
         return respond_err("not_found", status=404)
 
@@ -169,19 +184,22 @@ def api_watch_keep(
             expected_execute_at=before["execute_at"],
         )
         if applied:
-            _remember_undo(
-                username,
-                media_item_id,
-                _Undo(
-                    action_id=pending.action_id,
-                    kept_until=(now + timedelta(days=days)).isoformat(),
-                    execute_at=before["execute_at"],
-                    snoozed_at=before["snoozed_at"],
-                    snooze_duration=before["snooze_duration"],
-                    expires=now + UNDO_WINDOW,
-                ),
-                now,
-            )
+            undo = parse_execute_at(before["execute_at"], default=now) > now
+            reply["undo"] = undo
+            if undo:
+                _remember_undo(
+                    username,
+                    media_item_id,
+                    _Undo(
+                        action_id=pending.action_id,
+                        kept_until=(now + timedelta(days=days)).isoformat(),
+                        execute_at=before["execute_at"],
+                        snoozed_at=before["snoozed_at"],
+                        snooze_duration=before["snooze_duration"],
+                        expires=now + UNDO_WINDOW,
+                    ),
+                    now,
+                )
             log_audit(
                 conn,
                 media_item_id,
@@ -300,4 +318,4 @@ def api_watch_thumb(
     )
 
 
-__all__ = ["router"]
+__all__ = ["library_items", "router"]

@@ -230,6 +230,7 @@
     var wasOpen = isOpen;
     if (wasOpen) keepPlace();
     stopPolling();
+    dropRatings();
     cur = {
       ref: ref,
       origin: opts.origin || (wasOpen && cur ? cur.origin : null),
@@ -262,6 +263,7 @@
       checkedAt: 0,
       openedAs: ref,     // a title scanned meanwhile goes on under its library ref
       marksAsked: 0,
+      ratings: null,     // those that come after the title: { early, came, asked }; early came with it, asked is the request
       keepComes: null,   // where the focus waits for a Keep button
       ctrl: null,
       seq: ++seq
@@ -303,6 +305,7 @@
     if (wasOpen) keepPlace();
     if (cur && cur.ctrl) cur.ctrl.abort();
     stopPolling();
+    dropRatings();
     cur = c;
     c.ctrl = null;
     c.seasonLoading = null;
@@ -369,6 +372,7 @@
     closeAdminMenu(false);
     cast.drop();
     if (cur && cur.ctrl) cur.ctrl.abort();
+    dropRatings();
     if (window.MMWatch.keep) window.MMWatch.keep.closeMenu(false);
     var origin = cur && cur.origin;
     seq++;
@@ -937,6 +941,7 @@
     hide(under, !under.children.length);
     var ratings = ratingsRow(d);
     if (ratings) main.appendChild(ratings);
+    askRatings(cur);
     if (cur.pickRef) main.appendChild(pickBox(cur.pick));
     if (d.overview) main.appendChild(el('p', 'ttl__overview', d.overview));
     if (d.director && d.kind === 'movie') {
@@ -983,32 +988,131 @@
     return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
   }
 
+  function leavesWhen(days) {
+    return days < 0 ? 'any day' : days === 0 ? 'today' : 'in ' + plural(days, 'day', 'days');
+  }
+
   function leavingText(leaves) {
-    return (leaves.season === null ? 'Leaving ' : 'Season ' + leaves.season + ' leaves ') +
-      (leaves.days <= 0 ? 'today' : 'in ' + plural(leaves.days, 'day', 'days')) + '.';
+    return (leaves.season === null ? 'Leaving ' : 'Season ' + leaves.season + ' leaves ') + leavesWhen(leaves.days) + '.';
+  }
+
+  var RATINGS = ['imdb', 'rt', 'tmdb', 'metascore'];
+  var WIDEST = { imdb: '10.0', rt: '100%', metascore: '100' };
+
+  function ratingPill(key, value) {
+    var glyph = { imdb: '★', rt: '🍅', tmdb: '★' }[key];
+    var text = key === 'imdb' ? 'IMDb ' + value : key === 'rt' ? 'RT ' + value
+      : key === 'tmdb' ? 'TMDB ' + value.toFixed(1) : ' ' + String(value).replace(/\/100$/, '');
+    var p = el('span', 'ttl-rating ttl-rating--' + (key === 'metascore' ? 'meta' : key));
+    p.setAttribute('data-rating', key);
+    if (glyph) {
+      var g = el('span', 'ttl-rating__icon', glyph);
+      g.setAttribute('aria-hidden', 'true');
+      p.appendChild(g);
+    }
+    var words = p.appendChild(el('span', 'ttl-rating__words'));
+    if (key === 'metascore') {
+      words.appendChild(el('span', 'ttl-rating__full', 'Metascore'));
+      var brief = words.appendChild(el('span', 'ttl-rating__brief'));
+      brief.setAttribute('data-brief', 'Meta');
+      brief.setAttribute('aria-hidden', 'true');
+    }
+    words.appendChild(document.createTextNode(text));
+    return p;
+  }
+
+  /* Those *r* has. */
+  function ratingKeys(r) {
+    return RATINGS.filter(function (key) { return key === 'tmdb' ? typeof r.tmdb === 'number' && r.tmdb > 0 : !!r[key]; });
+  }
+
+  function pillsRow(keys, r) {
+    var row = el('div', 'ttl__ratings');
+    keys.forEach(function (key) { row.appendChild(ratingPill(key, r[key])); });
+    return row;
+  }
+
+  /* What is not here yet, as far as there is room on the line. */
+  function pillsToCome(keys) {
+    var wait = el('div', 'ttl__ratings-wait');
+    wait.setAttribute('aria-hidden', 'true');
+    Object.keys(WIDEST).forEach(function (key) {
+      if (keys.indexOf(key) > -1) return;
+      var p = wait.appendChild(ratingPill(key, WIDEST[key]));
+      p.className = 'ttl-rating skel';
+      p.removeAttribute('data-rating');
+    });
+    return wait;
   }
 
   function ratingsRow(d) {
     var r = d.ratings || {};
-    var pills = [];
-    function pill(cls, glyph, text) {
-      var p = el('span', 'ttl-rating ' + cls);
-      if (glyph) {
-        var g = el('span', 'ttl-rating__icon', glyph);
-        g.setAttribute('aria-hidden', 'true');
-        p.appendChild(g);
-      }
-      p.appendChild(document.createTextNode(text));
-      pills.push(p);
-    }
-    if (r.imdb) pill('ttl-rating--imdb', '★', 'IMDb ' + r.imdb);
-    if (r.rt) pill('ttl-rating--rt', '🍅', 'RT ' + r.rt);
-    if (typeof r.tmdb === 'number' && r.tmdb > 0) pill('ttl-rating--tmdb', '★', 'TMDB ' + r.tmdb.toFixed(1));
-    if (r.metascore) pill('ttl-rating--meta', '', 'Metascore ' + String(r.metascore).replace(/\/100$/, ''));
-    if (!pills.length) return null;
-    var row = el('div', 'ttl__ratings');
-    pills.forEach(function (p) { row.appendChild(p); });
+    if (d.ratings_pending && !cur.ratings) cur.ratings = { early: r, came: null, asked: null };
+    var w = cur.ratings;
+    if (!w) return ratingKeys(r).length ? pillsRow(ratingKeys(r), r) : null;
+    // What was here first keeps its place.
+    var early = ratingKeys(w.early);
+    var all = Object.assign({}, w.early);
+    [r, w.came || {}].forEach(function (more) {
+      ratingKeys(more).forEach(function (key) { all[key] = more[key]; });
+    });
+    var keys = early.concat(ratingKeys(all).filter(function (key) { return early.indexOf(key) === -1; }));
+    if (w.came && !keys.length) return null;
+    var row = pillsRow(keys, all);
+    row.setAttribute('data-ttl-part', 'ratings');
+    if (!w.came) row.appendChild(pillsToCome(keys));
     return row;
+  }
+
+  /* Ratings that take their time are asked for once the title is on show. */
+  function askRatings(c) {
+    var w = c.ratings;
+    if (!w || w.asked) return;
+    var asked = w.asked = new AbortController();
+    function take(ratings) {
+      if (w.asked !== asked || c !== cur || !isOpen) return;
+      w.came = ratings;
+      var was = part('ratings');
+      if (was) drawRatings(was, ratingsRow(c.data));
+    }
+    get(apiUrl(c.ref) + '/ratings', asked).then(function (reply) { take((reply && reply.ratings) || {}); }, function () { take({}); });
+  }
+
+  /* Those that came in the place held for them. What follows is slid to where more lines, or none,
+     put it, or stays where it is when they are out of sight above. */
+  function drawRatings(was, row) {
+    var below = followers(was);
+    function swap() {
+      if (!row) { was.remove(); return; }
+      was.replaceWith(row);
+      toArray(row.children).forEach(function (p) {
+        if (!was.querySelector('[data-rating="' + p.getAttribute('data-rating') + '"]')) core.fadeIn(p);
+      });
+    }
+    if (below.length && was.getBoundingClientRect().bottom < root.getBoundingClientRect().top) {
+      holdStill(function () { return below[0]; }, swap);
+      return;
+    }
+    var slide = core.flip(below);
+    swap();
+    slide();
+  }
+
+  /* What stands after *node* in the body, by its largest parts. */
+  function followers(node) {
+    var out = [];
+    for (; node && node !== body; node = node.parentNode) {
+      for (var n = node.nextElementSibling; n; n = n.nextElementSibling) out.push(n);
+    }
+    return out;
+  }
+
+  /* For when the title is come back to, they are asked for again. */
+  function dropRatings() {
+    var w = cur && cur.ratings;
+    if (!w || !w.asked || w.came) return;
+    w.asked.abort();
+    w.asked = null;
   }
 
   /* ── Focus ── */
@@ -2086,7 +2190,7 @@
       if (gone) {
         row('Deletion', day(gone.execute_at), gone.days <= 7 ? 'is-danger' : '',
           (gone.season == null ? '' : 'Season ' + gone.season + ', ') +
-          (gone.days <= 0 ? 'today' : 'in ' + plural(gone.days, 'day', 'days')));
+          (gone.days < 0 ? (gone.season == null ? 'Leaving' : 'leaving') + ' any day' : leavesWhen(gone.days)));
       } else {
         row('Deletion', 'Not scheduled');
       }

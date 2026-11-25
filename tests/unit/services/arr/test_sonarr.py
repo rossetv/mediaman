@@ -70,7 +70,7 @@ class TestArrClientSonarr:
         assert season_2["monitored"] is False
 
     def test_unmonitor_season_noop_when_already_unmonitored(self, client, fake_http, fake_response):
-        """Already-unmonitored seasons short-circuit before issuing a PUT."""
+        """Already-unmonitored seasons with no monitored episode issue no PUT."""
         fake_http.queue(
             "GET",
             fake_response(
@@ -81,8 +81,36 @@ class TestArrClientSonarr:
                 }
             ),
         )
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data=[
+                    {"id": 20, "seasonNumber": 2, "monitored": False},
+                    {"id": 10, "seasonNumber": 1, "monitored": True},
+                ]
+            ),
+        )
         client.unmonitor_season(series_id=1, season_number=2)
         assert _calls(fake_http, "PUT") == []
+
+    def test_a_lone_monitored_episode_is_unmonitored_with_its_season(
+        self, client, fake_http, fake_response
+    ):
+        series = {"id": 1, "seasons": [{"seasonNumber": 2, "monitored": False}]}
+        episodes = [
+            {"id": 10, "seasonNumber": 1, "monitored": True},
+            {"id": 20, "seasonNumber": 2, "monitored": False},
+            {"id": 21, "seasonNumber": 2, "monitored": True},
+        ]
+        fake_http.queue("GET", fake_response(json_data=series))
+        fake_http.queue("GET", fake_response(json_data=episodes))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+
+        client.unmonitor_season(series_id=1, season_number=2)
+
+        (put,) = _calls(fake_http, "PUT")
+        assert put[1].endswith("/api/v3/episode/monitor")
+        assert put[2]["json"] == {"episodeIds": [21], "monitored": False}
 
     def test_unmonitor_season_raises_when_season_missing(self, client, fake_http, fake_response):
         """Missing season number fails loudly rather than silently no-oping."""
@@ -184,6 +212,7 @@ class TestArrClientSonarr:
             ),
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_season(series_id=1, season_number=1)
         put_call = _calls(fake_http, "PUT")[0]
@@ -202,6 +231,7 @@ class TestArrClientSonarr:
             "GET", fake_response(json_data={"id": 1, "monitored": False, "seasons": seasons})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_season(series_id=1, season_number=2)
@@ -219,7 +249,9 @@ class TestArrClientSonarr:
         first = {"id": 1, "monitored": was_monitored, "seasons": seasons}
         fake_http.queue("GET", fake_response(json_data=first))
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=500, text="no"))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("GET", fake_response(json_data={"id": 1, "monitored": True}))
         fake_http.queue("PUT", fake_response(status=202, content=b""))
 
@@ -227,6 +259,36 @@ class TestArrClientSonarr:
             client.remonitor_season(series_id=1, season_number=2)
 
         assert [p[2]["json"]["monitored"] for p in _calls(fake_http, "PUT")] == puts
+
+    @pytest.mark.parametrize("retries", [1, 2], ids=["gave up", "re-read failed"])
+    def test_a_series_is_put_back_when_monitoring_it_landed_but_was_reported_failed(
+        self, client, fake_http, fake_response, retries
+    ):
+        entry = {
+            "id": 1,
+            "monitored": False,
+            "seasons": [{"seasonNumber": 2, "monitored": False}],
+        }
+        reads_before_put_back = retries
+
+        def arr(method, url, **kwargs):
+            nonlocal reads_before_put_back
+            if method == "GET":
+                reads_before_put_back -= 1
+                if retries == 2 and reads_before_put_back == 0:
+                    return fake_response(status=404, text="no")
+                return fake_response(json_data=entry)
+            assert method == "PUT"
+            landed_unreported = kwargs["json"]["monitored"]
+            entry.update(kwargs["json"])
+            return fake_response(status=500 if landed_unreported else 202, text="no")
+
+        fake_http.handler(arr)
+
+        with pytest.raises(SafeHTTPError):
+            client.remonitor_season(series_id=1, season_number=2, max_retries=retries)
+
+        assert entry["monitored"] is False
 
     def test_remonitor_season_retries_on_failed_put(self, client, fake_http, fake_response):
 
@@ -239,6 +301,7 @@ class TestArrClientSonarr:
         # Round 2: fresh GET (new dict to avoid mutation from round 1) + successful PUT.
         fake_http.queue("GET", fake_response(json_data=_series()))
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_season(series_id=1, season_number=1, max_retries=3)
@@ -292,6 +355,7 @@ class TestArrClientSonarr:
             ),
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         # Must not raise KeyError on the malformed season.
         client.remonitor_season(series_id=1, season_number=2)

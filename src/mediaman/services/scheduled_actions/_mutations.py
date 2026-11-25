@@ -1,9 +1,9 @@
 """Date-parsing predicates and guarded UPDATE helpers for ``scheduled_actions``.
 
-``parse_execute_at`` and ``is_pending_unexpired`` are pure-logic helpers
+``parse_execute_at`` and ``is_pending`` are pure-logic helpers
 used by both the display layer and the mutation layer.  The two ``apply_*``
 functions issue guarded UPDATEs that atomically check action / delete_status /
-token_used / execute_at to prevent double-application of a keep decision;
+token_used to prevent double-application of a keep decision;
 ``revert_keep_snooze`` undoes a snooze under the same kind of guard.
 
 All DB helpers take ``conn: sqlite3.Connection`` and never call
@@ -15,6 +15,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.core.scheduled_action_kinds import (
     ACTION_PROTECTED_FOREVER,
     ACTION_SCHEDULED_DELETION,
@@ -22,6 +23,11 @@ from mediaman.core.scheduled_action_kinds import (
 )
 from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.scheduled_actions._types import VerifiedKeepAction
+
+_HAS_FILES_LEFT = (
+    "NOT EXISTS (SELECT 1 FROM scheduled_actions sa JOIN media_items mi "
+    f"ON mi.id = sa.media_item_id WHERE sa.id = scheduled_actions.id AND {FILES_GONE})"
+)
 
 
 def parse_execute_at(raw: object, *, default: datetime) -> datetime:
@@ -39,22 +45,17 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     return parsed if parsed is not None else default
 
 
-def is_pending_unexpired(verified: VerifiedKeepAction, now: datetime) -> bool:
+def is_pending(verified: VerifiedKeepAction) -> bool:
     """Confirm a ``VerifiedKeepAction`` is still actionable.
 
-    Returns ``True`` only when the row is a pending
-    ``scheduled_deletion`` (delete_status null or "pending") whose
-    deadline lies at or after *now*.  Encapsulates the action-state and
-    deadline check that was duplicated across the snooze and forever
-    POST handlers.
+    Returns ``True`` only when the row is a ``scheduled_deletion`` the
+    deletion pass has not claimed (delete_status null or "pending") and
+    that has files left to remove.  A date that has passed does not
+    matter: until that claim the item is still there to keep.
     """
-    execute_at = parse_execute_at(verified.execute_at, default=now)
-    if execute_at < now:
+    if verified.action != ACTION_SCHEDULED_DELETION or verified.files_gone:
         return False
-    if verified.action != ACTION_SCHEDULED_DELETION:
-        return False
-    delete_status_val = verified.delete_status
-    return delete_status_val in (None, "pending")
+    return verified.delete_status in (None, "pending")
 
 
 def apply_keep_snooze(
@@ -69,9 +70,9 @@ def apply_keep_snooze(
     """Apply a finite snooze to a ``scheduled_deletion`` row.
 
     The UPDATE is guarded by ``action='scheduled_deletion'``,
-    ``delete_status='pending'``, ``token_used=0`` and
-    ``execute_at >= now`` so a concurrent mutation or an already-expired row
-    cannot be accidentally applied.  With *expected_execute_at* the row must
+    ``delete_status='pending'``, ``token_used=0`` and files left to remove, so a
+    concurrent mutation or a deletion the pass has claimed or finished cannot be
+    accidentally overwritten; one whose date has passed unclaimed can.  With *expected_execute_at* the row must
     also still hold that deletion date, so a caller that read the date to
     restore it later knows it is the one the snooze replaced.  Returns the
     rowcount (0 means nothing happened — caller should respond 409).
@@ -82,7 +83,7 @@ def apply_keep_snooze(
         "execute_at=?, snoozed_at=?, snooze_duration=? "
         "WHERE id=? AND action='scheduled_deletion' "
         "AND (delete_status IS NULL OR delete_status='pending') "
-        "AND token_used=0 AND execute_at >= ?"
+        f"AND token_used=0 AND {_HAS_FILES_LEFT}"
     )
     params: list[object] = [
         ACTION_SNOOZED,
@@ -90,7 +91,6 @@ def apply_keep_snooze(
         now.isoformat(),
         duration,
         action_id,
-        now.isoformat(),
     ]
     if expected_execute_at is not None:
         sql += " AND execute_at = ?"
@@ -147,21 +147,19 @@ def apply_keep_forever(
     """Apply a forever-keep to a ``scheduled_deletion`` row.
 
     Same guards as ``apply_keep_snooze``: action, delete_status,
-    token_used and execute_at all checked atomically.  Returns the
-    rowcount (0 means nothing happened — caller should respond 409).
+    token_used and files left all checked atomically.  Returns the rowcount (0 means nothing happened — caller should respond 409).
     """
     cursor = conn.execute(
         "UPDATE scheduled_actions SET action=?, token_used=1, "
         "snoozed_at=?, snooze_duration=? "
         "WHERE id=? AND action='scheduled_deletion' "
         "AND (delete_status IS NULL OR delete_status='pending') "
-        "AND token_used=0 AND execute_at >= ?",
+        f"AND token_used=0 AND {_HAS_FILES_LEFT}",
         (
             ACTION_PROTECTED_FOREVER,
             now.isoformat(),
             "forever",
             action_id,
-            now.isoformat(),
         ),
     )
     return cursor.rowcount

@@ -1,5 +1,6 @@
 /* Watch poster rows: arrow buttons and keys that page by whole cards, edge
- * fades while there is more to see, and posters that fade in as they load.
+ * fades while there is more to see, and posters that fade in as they load. A
+ * row of cards is one Tab stop.
  *
  * Without this script the rows still scroll (touch, trackpad, keyboard) and
  * the posters simply appear. MMWatch.rows.init(viewport) starts a row added
@@ -64,6 +65,8 @@
   var settleTimers = new WeakMap();
   var HAS_SCROLLEND = 'onscrollend' in window;
   var SETTLE_MS = 300; // without scrollend: quiet this long means the scroll ended
+  var CHECK_MS = 700; // past a smooth scroll of JUMP_PX
+  var CLEAR = 8; // px between what has the focus and the bars over the page
   var JUMP_PX = 500; // Chrome's smooth scroll takes about half a second at this distance
 
   function settle(scroller) {
@@ -164,6 +167,167 @@
     return btn;
   }
 
+  /* ── Keys ── */
+
+  /* How far the row has to be scrolled for *card* to be whole, at a card's start, where it snaps. */
+  function leftFor(scroller, card, from) {
+    var style = getComputedStyle(scroller);
+    var start = card.offsetLeft - parseFloat(style.paddingLeft);
+    var end = card.offsetLeft + card.offsetWidth + parseFloat(style.paddingRight) - scroller.clientWidth;
+    if (start < from - EDGE_SLACK) return start;
+    if (end <= from + EDGE_SLACK) return from;
+    var step = cardStep(scroller);
+    return Math.min(start, step ? Math.ceil((end - EDGE_SLACK) / step) * step : end);
+  }
+
+  function inSight(scroller, card) {
+    return leftFor(scroller, card, scroller.scrollLeft) === scroller.scrollLeft;
+  }
+
+  /* The Tab stop of a row of cards is the row, which hands the focus to a card: Tab goes by a
+     link in Safari. What is in the cards is out of the Tab order and has the arrow keys; while
+     it has the focus, so is the row, or Shift+Tab could not leave it. */
+  function rove(scroller) {
+    var last = null; // the card that had the focus
+    var checking = null;
+    var settling = null; // the wait for the row to rest before it snaps again
+    var touched = false;
+
+    function cards() {
+      return Array.prototype.filter.call(scroller.children, function (node) {
+        return node.matches('.watch-card, .watch-row__more') && !node.classList.contains('is-kept');
+      });
+    }
+
+    function controls(root) { return Array.prototype.slice.call(root.querySelectorAll('a[href], button')); }
+
+    /* While the keys have the focus here the row does not snap: browsers snap again as
+       cards come after the focused one, and move it. */
+    function snap(on) { scroller.style.scrollSnapType = on ? '' : 'none'; }
+
+    /* Snapping comes back with the row at a card's start, or browsers would jump to one. *again*:
+       a second try, so a row that cannot get there snaps as it is. */
+    function release(again) {
+      wait(null);
+      if (scroller.style.scrollSnapType !== 'none') return;
+      var max = scroller.scrollWidth - scroller.clientWidth;
+      var pad = parseFloat(getComputedStyle(scroller).paddingLeft);
+      var at = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
+      var to = cards().map(function (c) { return Math.max(0, Math.min(max, c.offsetLeft - pad)); })
+        .reduce(function (best, left) { return Math.abs(left - at) < Math.abs(best - at) ? left : best; }, max);
+      if (!again && Math.abs(to - at) > EDGE_SLACK) goTo(scroller, to);
+      if (again || !heading.has(scroller)) snap(true);
+      else wait(function () { release(true); }, CHECK_MS);
+    }
+
+    function wait(fn, ms) {
+      clearTimeout(settling);
+      settling = fn && setTimeout(fn, ms);
+    }
+
+    /* The focus is here again: the row stays where it is. */
+    function stay() {
+      if (!settling) return;
+      wait(null);
+      goTo(scroller, scroller.scrollLeft, true);
+    }
+
+    function sync() {
+      controls(scroller).forEach(function (node) { if (node.getAttribute('tabindex') !== '-1') node.tabIndex = -1; });
+      var active = document.activeElement;
+      var inside = active !== scroller && scroller.contains(active);
+      scroller.tabIndex = inside ? -1 : 0;
+      if (!inside && !settling) release();
+    }
+
+    /* Safari can drop a smooth scroll that others ran into: look again once they are over. */
+    function show(card, again) {
+      var from = heading.has(scroller) ? heading.get(scroller) : scroller.scrollLeft;
+      var left = leftFor(scroller, card, from);
+      clearTimeout(checking);
+      if (left !== from) moveTo(scroller, left);
+      if (again || !heading.has(scroller)) return;
+      checking = setTimeout(function () {
+        settle(scroller);
+        if (card.contains(document.activeElement)) show(card, true);
+      }, CHECK_MS);
+    }
+
+    function focusOn(card, control) {
+      control.focus({ preventScroll: true });
+      snap(false);
+      show(card);
+      var area = window.MMWatch.core.clearArea();
+      var box = control.getBoundingClientRect();
+      var by = box.top < area.top ? box.top - area.top - CLEAR
+        : box.bottom > area.bottom ? Math.min(box.bottom - area.bottom + CLEAR, box.top - area.top - CLEAR) : 0;
+      if (by) window.scrollBy(0, by);
+    }
+
+    function enter() {
+      var all = cards();
+      var card = all.indexOf(last) >= 0 && inSight(scroller, last) ? last
+        : all.filter(function (c) { return inSight(scroller, c); })[0] || all[0];
+      var control = card && controls(card)[0];
+      if (!control) return;
+      // Said once, on the way in.
+      control.setAttribute('aria-describedby', 'watch-row-keys');
+      focusOn(card, control);
+    }
+
+    scroller.addEventListener('focusin', function (e) {
+      if (e.target === scroller) {
+        // Not when it was pressed: a card would take the focus, and scroll.
+        if (scroller.matches(':focus-visible')) enter();
+        return;
+      }
+      last = e.target.closest('.watch-card, .watch-row__more');
+      scroller.tabIndex = -1;
+      stay();
+      if (e.target.matches(':focus-visible')) snap(false);
+    });
+    scroller.addEventListener('focusout', function (e) {
+      if (e.target !== scroller) e.target.removeAttribute('aria-describedby');
+      if (scroller.contains(e.relatedTarget)) return;
+      scroller.tabIndex = 0;
+      // Still there when the whole window lost it, and it comes back to the same card.
+      if (document.activeElement !== e.target) release();
+    });
+
+    scroller.addEventListener('keydown', function (e) {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      var all = cards();
+      var i = all.findIndex(function (card) { return card.contains(e.target); });
+      if (i < 0) return;
+      var own = controls(all[i]);
+      var at = own.indexOf(e.target);
+      var to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1
+        : e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : null;
+      if (to === null) {
+        // With nothing further that way, the page scrolls.
+        var next = e.key === 'ArrowDown' ? own[at + 1] : e.key === 'ArrowUp' ? own[at - 1] : null;
+        if (!next) return;
+        focusOn(all[i], next);
+      } else if (all[to]) {
+        var there = controls(all[to]);
+        if (there.length) focusOn(all[to], there[Math.max(0, Math.min(at, there.length - 1))]);
+      }
+      e.preventDefault();
+    });
+
+    ['touchstart', 'wheel'].forEach(function (name) {
+      scroller.addEventListener(name, function () { clearTimeout(checking); }, { passive: true });
+    });
+    function rest() { if (settling && !touched) wait(function () { settle(scroller); release(); }, SETTLE_MS); }
+    scroller.addEventListener('scroll', rest, { passive: true });
+    scroller.addEventListener('touchstart', function () { touched = true; if (settling) wait(function () {}, SETTLE_MS); }, { passive: true });
+    ['touchend', 'touchcancel'].forEach(function (name) {
+      scroller.addEventListener(name, function () { touched = false; rest(); }, { passive: true });
+    });
+    new MutationObserver(sync).observe(scroller, { childList: true });
+    sync();
+  }
+
   var started = new WeakSet();
 
   /* Give one row its arrows, keys and fades; a row already given them is left alone. */
@@ -178,6 +342,8 @@
     viewport.appendChild(next);
     prev.addEventListener('click', function () { pageBy(scroller, -1); });
     next.addEventListener('click', function () { pageBy(scroller, 1); });
+
+    if (scroller.hasAttribute('tabindex')) rove(scroller);
 
     scroller.addEventListener('keydown', function (e) {
       if (e.target !== scroller || e.altKey || e.ctrlKey || e.metaKey) return;

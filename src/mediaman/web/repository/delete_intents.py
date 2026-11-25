@@ -19,7 +19,7 @@ from datetime import timedelta
 
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
-from mediaman.scanner.repository import read_delete_allowed_roots_setting
+from mediaman.scanner.repository import audit_lost_removals, read_delete_allowed_roots_setting
 from mediaman.services import watch_catalog
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.infra.storage.deletion import unavailable_folder
@@ -282,12 +282,20 @@ def _reconcile_one_intent(
                 if on_disk:
                     # A new copy came since, or may have, so the item and its keeps stay;
                     # only the old copy's schedule is over.
+                    audit_lost_removals(
+                        conn,
+                        "media_item_id = ? AND action = 'scheduled_deletion' "
+                        "AND delete_status IS NOT 'deleting'",
+                        (media_item_id,),
+                        booked=True,
+                    )
                     conn.execute(
                         "DELETE FROM scheduled_actions WHERE media_item_id = ? "
                         "AND action = 'scheduled_deletion' AND delete_status IS NOT 'deleting'",
                         (media_item_id,),
                     )
                 else:
+                    audit_lost_removals(conn, "media_item_id = ?", (media_item_id,), booked=True)
                     conn.execute(
                         "DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,)
                     )

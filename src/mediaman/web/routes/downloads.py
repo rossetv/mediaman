@@ -68,14 +68,17 @@ def _lookup_dl_item(
     return None
 
 
-def _hide_abandon(payload: DownloadsResponse) -> None:
-    """Clear abandon_visible on every item so a viewer's page never offers Abandon."""
+def _for_viewer(payload: DownloadsResponse) -> None:
+    """Clear what only an admin uses on every item: Abandon, where Radarr and Sonarr are, and
+    the ids and dates kept for the server's own bookkeeping."""
     hero = payload["hero"]
     items = [*payload["queue"], *payload["upcoming"]]
     if hero is not None:
         items.append(hero)
     for item in items:
-        item["abandon_visible"] = False
+        item.update(abandon_visible=False, arr_link="", arr_source="", arr_id=0)
+        item.pop("tmdb_id", None)
+        item.pop("queued_since", None)
 
 
 @router.get("/downloads", response_class=HTMLResponse)
@@ -89,7 +92,7 @@ def downloads_page(request: Request) -> Response:
     data = _page_payload(conn, config.secret_key)
     can_abandon = get_user_role(conn, username) == "admin"
     if not can_abandon:
-        _hide_abandon(data)
+        _for_viewer(data)
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -113,7 +116,7 @@ def downloads_api(request: Request, admin: str = Depends(get_current_user)) -> J
     config = request.app.state.config
     data = _page_payload(conn, config.secret_key)
     if get_user_role(conn, admin) != "admin":
-        _hide_abandon(data)
+        _for_viewer(data)
     return JSONResponse(data)
 
 

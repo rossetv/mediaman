@@ -164,6 +164,34 @@ class TestExplore:
             2,
         ]
 
+    def test_films_and_tv_in_an_order_go_on_from_where_a_page_ended(self, viewer, tmdb):
+        tmdb["/discover/movie"] = _movies(*range(1, 46))
+        tmdb["/discover/tv"] = _movies(90)
+
+        def page(sort, **at):
+            params = {"genre": "action", "sort": sort, **at}
+            body = viewer.get(EXPLORE, params=params).json()
+            return body["items"], body["next_page"], body["next_after"]
+
+        first, next_page, after = page("newest", after="")
+        rest, *end = page("newest", after=after)
+
+        assert (len(first), next_page) == (40, None)
+        assert len({c["ref"] for c in first + rest}) == 46
+        assert end == [None, None]
+        # As long a place as there is.
+        assert viewer.get(
+            EXPLORE,
+            params={
+                "genre": "action",
+                "sort": "newest",
+                "after": "500" + "-9999999999" * 40 + ",500" + "-9999999999" * 40,
+            },
+        ).is_success
+        # By page, and where there is no order to keep, as ever.
+        assert len(page("newest")[0]) == len(page("popular", after="")[0]) == 46
+        assert page("popular", after="")[2] is None
+
     @pytest.mark.parametrize(
         ("params", "status"),
         [
@@ -171,6 +199,12 @@ class TestExplore:
             ({"genre": "27"}, 404),
             ({"genre": "horror", "type": "person"}, 400),
             ({"genre": "horror", "sort": "revenue.desc"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1-2"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "501-2,1"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "0-2,1"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1-2,1,1"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "１-2,1"}, 400),
+            ({"genre": "action", "sort": "newest", "after": "1" + "-7" * 41 + ",1"}, 400),
             ({"genre": "horror", "decade": "1990"}, 400),
             ({"genre": "horror", "decade": "1920s"}, 400),
             ({"genre": "horror", "page": 0}, 422),
@@ -272,6 +306,18 @@ class TestPerson:
         assert queued["download_state"] == "queued"
         person = body["person"]
         assert (person["person_id"], person["job"], person["age"]) == (7, "Actor", 70)
+
+    def test_what_only_radarr_has_counts_as_held(self, viewer, tmdb, monkeypatch):
+        radarr = SimpleNamespace(
+            get_movies=lambda: [{"tmdbId": 14, "hasFile": True, "monitored": True}], get_queue=list
+        )
+        monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_: radarr)
+        tmdb["/person/7"] = _person(_credit(21, 900), _credit(14, 5), _credit(11, 4))
+
+        body = viewer.get(PERSON).json()
+
+        assert [c["ref"] for c in body["items"]] == [f"tmdb-movie-{n}" for n in (14, 11, 21)]
+        assert (body["total"], body["in_library"]) == (3, 2)
 
     def test_a_long_career_comes_in_pages_without_a_gap_or_repeat(self, viewer, tmdb):
         tmdb["/person/7"] = _person(*(_credit(n, n) for n in range(100, 230)))

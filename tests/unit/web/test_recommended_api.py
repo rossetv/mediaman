@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import validate_download_token
 from mediaman.db import set_connection
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import create_user, set_user_email
@@ -154,6 +155,23 @@ class TestDownloadRecommendationAdminEmail:
         assert row is not None
         assert row["email"] == "admin@example.com"
         assert row["username"] == "admin"
+
+    def test_a_re_monitored_movie_whose_search_got_no_answer_is_recorded_as_added(self, conn):
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        set_user_email(conn, "admin", "admin@example.com")
+        sid = insert_suggestion(conn, title="Inception", tmdb_id=27205, media_type="movie")
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"id": 4, "monitored": False}
+        radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+        with patch("mediaman.web.routes.recommended.api.build_radarr_from_db", return_value=radarr):
+            resp = _make_rec_app(conn).post(f"/api/recommended/{sid}/download")
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0] == 1
+        actions = [r["action"] for r in conn.execute("SELECT action FROM audit_log")]
+        assert actions == ["downloaded"]
 
     def test_movie_skips_notification_when_admin_has_no_email(self, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)

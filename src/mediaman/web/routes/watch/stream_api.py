@@ -2,15 +2,18 @@
 
 The browser only ever sees ``/api/watch/stream/<stream_id>/...`` paths. Every stream route
 answers for the person who started the stream; any other id, someone else's included, is
-410 Gone with the same body. Plex errors are mapped to short codes so no Plex address,
+410 Gone with the same body, but for a stream of their own that a newer start of the same title
+replaced, which says so. Plex errors are mapped to short codes so no Plex address,
 session or token reaches a response or a log line.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import sqlite3
+from collections import Counter
 from collections.abc import Callable, Coroutine
 from dataclasses import asdict
 from typing import Annotated, Any
@@ -18,6 +21,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from mediaman.core.scrub_filter import register_secret
@@ -34,9 +38,12 @@ from mediaman.services.media_meta.plex_quality import (
     without_original,
 )
 from mediaman.services.media_meta.plex_stream import (
+    SegmentRead,
     StreamGone,
     StreamInfo,
     StreamManager,
+    StreamReplaced,
+    TooManyReads,
     TooManyStreams,
     get_stream_manager,
 )
@@ -66,6 +73,17 @@ _PLAYED_SLACK_SECONDS = 30.0
 # A place this close to the saved one is the same place; a save is rounded and the video may snap.
 _SAME_PLACE_SECONDS = 0.5
 
+# A segment request past the limits waits this long for a slot, so a player that fetches a little
+# ahead, or a seek whose old requests Plex still holds, is not refused. Well under the 10 s the
+# player allows before the first byte.
+_SLOT_WAIT_SECONDS = 4.0
+_SLOT_POLL_SECONDS = 0.1
+_MAX_WAITING_PER_STREAM = 4
+_RETRY_AFTER_SECONDS = 2
+
+#: stream id -> segment requests waiting for a slot; only touched on the event loop.
+_waiting: Counter[str] = Counter()
+
 _START_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60)
 
 
@@ -91,6 +109,10 @@ class _StartRequest(BaseModel):
 
     rating_key: str = Field(pattern=r"^[0-9]{1,18}$")
     quality: QualityId
+    #: The player that asks, by a name it made up, and how long ago its person asked it to play.
+    #: Neither is needed: a start without a page always starts.
+    page: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,64}$")
+    asked_s: float = Field(default=0, ge=0)
 
 
 class _ProgressRequest(BaseModel):
@@ -129,6 +151,13 @@ def stream_gone() -> Response:
     return respond_err("gone", status=410)
 
 
+def _gone_answer(exc: StreamGone) -> Response:
+    if not isinstance(exc, StreamReplaced):
+        return stream_gone()
+    # The page's own name for itself, no secret: a player told of its own start goes on.
+    return respond_err("replaced", status=410, **({"by": exc.by} if exc.by else {}))
+
+
 def plex_failure(exc: PlexError) -> Response:
     if isinstance(exc, PlexItemNotFound):
         return respond_err("not_found", status=404)
@@ -151,7 +180,13 @@ def start_stream(
     body: _StartRequest,
     username: str = Depends(get_current_user),
 ) -> Response:
-    """Start a stream of a movie or episode from offset 0 for the signed-in person."""
+    """Start a stream of a movie or episode from offset 0 for the signed-in person.
+
+    A start the player made by itself is answered 410 ``replaced`` where the person has asked
+    another page to play the title since.
+    """
+    manager = get_stream_manager()
+    began = manager.now()
     if not _START_LIMITER.check(username):
         return respond_err("rate_limited", status=429)
     conn = get_db()
@@ -184,7 +219,6 @@ def start_stream(
                 "part_size": item.media.part_size,
                 "count": item.preview_count,
             }
-        manager = get_stream_manager()
         rows = quality_rows(item, original=_may_play_original(manager, item, username))
         quality = resolve_quality(rows, body.quality)
         stream_id = manager.start(
@@ -194,9 +228,14 @@ def start_stream(
             item.subtitle_selected,
             info,
             fallback=resolve_quality(without_original(rows), ORIGINAL),
+            page=body.page,
+            # Plex was asked about the title first, and that may have taken long.
+            asked_ago=body.asked_s + manager.now() - began,
         )
     except TooManyStreams:
         return respond_err("too_many_streams", status=429)
+    except StreamReplaced as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     with contextlib.suppress(StreamGone):
@@ -222,25 +261,71 @@ def start_stream(
 def stream_playlist(stream_id: str, username: str = Depends(get_current_user)) -> Response:
     try:
         text = get_stream_manager().playlist(stream_id, username)
-    except StreamGone:
-        return stream_gone()
+    except StreamGone as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
     return Response(text, media_type="application/vnd.apple.mpegurl")
 
 
-@router.get("/api/watch/stream/{stream_id}/seg/{name}")
-def stream_segment(
-    stream_id: str, name: str, username: str = Depends(get_current_user)
-) -> Response:
+async def _cancel_on_disconnect(request: Request, read: SegmentRead) -> None:
+    while (await request.receive())["type"] != "http.disconnect":
+        pass
+    read.cancel()
+
+
+async def _claim_read(manager: StreamManager, read: SegmentRead) -> None:
+    """Take a slot for *read*, waiting a little for one to come free.
+
+    Waits on the event loop, so a request that waits holds none of the threads the pages use.
+    """
+    stream_id = read.stream_id
     try:
-        body, content_type = get_stream_manager().segment(stream_id, username, name)
+        return manager.claim_read(read)
+    except TooManyReads:
+        if _waiting[stream_id] >= _MAX_WAITING_PER_STREAM:
+            raise
+    _waiting[stream_id] += 1
+    try:
+        end = asyncio.get_running_loop().time() + _SLOT_WAIT_SECONDS
+        while True:
+            await asyncio.sleep(_SLOT_POLL_SECONDS)
+            try:
+                return manager.claim_read(read)
+            except TooManyReads:
+                if read.unwanted or asyncio.get_running_loop().time() >= end:
+                    raise
+    finally:
+        _waiting[stream_id] -= 1
+        if not _waiting[stream_id]:
+            del _waiting[stream_id]
+
+
+@router.get("/api/watch/stream/{stream_id}/seg/{name}")
+async def stream_segment(
+    request: Request, stream_id: str, name: str, username: str = Depends(get_current_user)
+) -> Response:
+    manager = get_stream_manager()
+    read = SegmentRead(stream_id, username)
+    watch = asyncio.create_task(_cancel_on_disconnect(request, read))
+    try:
+        await _claim_read(manager, read)
+        try:
+            body, content_type = await run_in_threadpool(manager.segment, read, name)
+        finally:
+            manager.release_read(read)
     except ValueError:
         return respond_err("not_found", status=404)
-    except StreamGone:
-        return stream_gone()
+    except TooManyReads:
+        refused = respond_err("rate_limited", status=429)
+        refused.headers["Retry-After"] = str(_RETRY_AFTER_SECONDS)
+        return refused
+    except StreamGone as exc:
+        return _gone_answer(exc)
     except PlexError as exc:
         return plex_failure(exc)
+    finally:
+        watch.cancel()
     return Response(body, media_type=content_type)
 
 
@@ -329,9 +414,9 @@ def save_watch_progress(
     """
     try:
         stream = get_stream_manager().get(body.stream_id, username)
-    except StreamGone:
+    except StreamGone as exc:
         with contextlib.suppress(StreamGone):
             stream = get_stream_manager().reaped(body.stream_id, username)
             _save(stream, username, body.position_s, body.played_s)
-        return stream_gone()
+        return _gone_answer(exc)
     return respond_ok({"watched": _save(stream, username, body.position_s, body.played_s)})

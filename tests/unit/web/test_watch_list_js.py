@@ -41,6 +41,13 @@ def test_keeping_a_scheduled_movie_turns_its_pill_in_place_and_undo_brings_the_d
     assert out["afterUndo"] == "Keep undone."
 
 
+def test_a_keep_the_server_says_cannot_be_undone_offers_no_undo() -> None:
+    assert _run("keepNotToUndo") == [
+        {"told": "Kept Copperline for 30 days.", "undo": False},
+        {"told": "Kept Night Shift, Season 3 for 30 days.", "undo": False},
+    ]
+
+
 def test_keeping_an_unscheduled_movie_is_undone_by_removing_the_keep() -> None:
     out = _run("keepUnscheduled")
     assert out["calls"] == [
@@ -491,6 +498,7 @@ def test_the_keep_dialog_of_a_list_row_picks_the_season_whose_date_the_row_shows
     assert out["leavingOnes"] == [None, "3", "5"]
     assert out["nothingLeaves"] == []
     assert out["soonest"] == ["s3"]
+    assert out["past"].endswith("leaves any day")
 
 
 def test_a_keep_changes_only_by_the_button_of_its_own_season() -> None:

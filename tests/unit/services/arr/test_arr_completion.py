@@ -20,6 +20,8 @@ from mediaman.db import init_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.completion import (
     _batch_insert_completions,
+    _reset_unchecked,
+    carry_queued_since,
     cleanup_recent_downloads,
     detect_completed,
     fetch_and_sync_recent_downloads,
@@ -27,6 +29,13 @@ from mediaman.services.arr.completion import (
 )
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_recent_download
+
+
+@pytest.fixture(autouse=True)
+def _nothing_unchecked():
+    _reset_unchecked()
+    yield
+    _reset_unchecked()
 
 
 @pytest.fixture
@@ -475,6 +484,120 @@ class TestSeriesWithOtherEpisodesAlreadyOnDisk:
 
     def test_an_imported_episode_is_recorded(self, conn, monkeypatch):
         assert self._vanish(conn, monkeypatch, second_episode_has_file=True) == ["sonarr:Show"]
+
+
+@pytest.mark.parametrize(("days", "recorded"), [(-90, []), (1, ["sonarr:Show"])])
+def test_an_episode_counts_only_by_a_file_added_since_it_was_queued(
+    conn, monkeypatch, days, recorded
+):
+    queued = datetime(2026, 5, 1, 12, tzinfo=UTC)
+    before = {"sonarr:Show": {"title": "Show", "kind": "series", "episodes": [{"label": "S01E02"}]}}
+    carry_queued_since({}, before, queued)
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [
+        {"id": 3, "title": "Show", "statistics": {"episodeFileCount": 2}}
+    ]
+    sonarr.get_episodes.return_value = [
+        {"seasonNumber": 1, "episodeNumber": n, "hasFile": True, "episodeFileId": 100 + n}
+        for n in (1, 2)
+    ]
+    sonarr.get_episode_files.return_value = [
+        {"id": 101, "dateAdded": (queued + timedelta(days=1)).isoformat()},
+        {"id": 102, "dateAdded": (queued + timedelta(days=days)).isoformat()},
+    ]
+    monkeypatch.setattr("mediaman.services.arr.build.build_sonarr_from_db", lambda *a: sonarr)
+
+    record_verified_completions(conn, detect_completed(before, {}), "secret")
+
+    rows = conn.execute("SELECT dl_id FROM recent_downloads")
+    assert [r["dl_id"] for r in rows] == recorded
+
+
+class TestACompletionWhoseCheckGotNoAnswer:
+    START = datetime(2026, 5, 1, 12, tzinfo=UTC)
+    ITEM = {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}
+
+    @pytest.fixture
+    def radarr(self, monkeypatch):
+        radarr = MagicMock()
+        monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: radarr)
+        return radarr
+
+    def _call(self, conn, monkeypatch, after, completed=()):
+        monkeypatch.setattr(
+            "mediaman.services.arr.completion._verification.now_utc", lambda: self.START + after
+        )
+        record_verified_completions(conn, list(completed), SECRET_KEY)
+        return [r["dl_id"] for r in conn.execute("SELECT dl_id FROM recent_downloads")]
+
+    @pytest.mark.parametrize(("has_file", "recorded"), [(True, ["radarr:Dune"]), (False, [])])
+    def test_it_is_checked_again_and_recorded_only_if_the_file_is_there(
+        self, conn, monkeypatch, radarr, has_file, recorded
+    ):
+        radarr.get_movies.side_effect = requests.ConnectionError("down")
+        assert self._call(conn, monkeypatch, timedelta(), [self.ITEM]) == []
+        radarr.get_movies.side_effect = None
+        radarr.get_movies.return_value = [{"title": "Dune", "hasFile": has_file}]
+
+        assert self._call(conn, monkeypatch, timedelta(minutes=2)) == recorded
+
+        radarr.get_movies.reset_mock()
+        self._call(conn, monkeypatch, timedelta(minutes=4))
+        radarr.get_movies.assert_not_called()
+
+    def test_it_is_not_asked_about_at_every_poll_and_is_given_up_after_an_hour(
+        self, conn, monkeypatch, radarr
+    ):
+        radarr.get_movies.side_effect = requests.ConnectionError("down")
+        self._call(conn, monkeypatch, timedelta(), [self.ITEM])
+        self._call(conn, monkeypatch, timedelta(seconds=2))
+        assert radarr.get_movies.call_count == 1
+
+        self._call(conn, monkeypatch, timedelta(minutes=61))
+        radarr.get_movies.side_effect = None
+        radarr.get_movies.return_value = [{"title": "Dune", "hasFile": True}]
+        assert self._call(conn, monkeypatch, timedelta(minutes=63)) == []
+
+    def test_a_silent_service_is_asked_once_for_all_that_wait(self, conn, monkeypatch, radarr):
+        radarr.get_movies.side_effect = requests.ConnectionError("down")
+        waiting = [{**self.ITEM, "dl_id": f"radarr:{n}"} for n in range(3)]
+        self._call(conn, monkeypatch, timedelta(), waiting)
+        radarr.get_movies.reset_mock()
+
+        self._call(conn, monkeypatch, timedelta(minutes=2))
+
+        assert radarr.get_movies.call_count == 1
+
+
+class TestAFilmThatAlreadyHadAFile:
+    QUEUED = datetime(2026, 5, 1, 12, tzinfo=UTC)
+
+    def _vanish(self, conn, monkeypatch, *, file_added):
+        """A film seen queued on two polls a minute apart is gone at the third."""
+        first = {"radarr:Dune": {"title": "Dune", "kind": "movie", "tmdb_id": 42}}
+        carry_queued_since({}, first, self.QUEUED)
+        second = {"radarr:Dune": {"title": "Dune", "kind": "movie", "tmdb_id": 42}}
+        carry_queued_since(first, second, self.QUEUED + timedelta(minutes=1))
+        radarr = MagicMock()
+        radarr.get_movies.return_value = [
+            {
+                "tmdbId": 42,
+                "title": "Dune",
+                "hasFile": True,
+                "movieFile": {"dateAdded": file_added.isoformat()},
+            }
+        ]
+        monkeypatch.setattr("mediaman.services.arr.build.build_radarr_from_db", lambda *a: radarr)
+        record_verified_completions(conn, detect_completed(second, {}), "secret")
+        return [r["dl_id"] for r in conn.execute("SELECT dl_id FROM recent_downloads")]
+
+    def test_a_failed_upgrade_is_not_recorded(self, conn, monkeypatch):
+        added = self.QUEUED - timedelta(days=90)
+        assert self._vanish(conn, monkeypatch, file_added=added) == []
+
+    def test_a_file_dated_while_its_download_was_still_queued_is_recorded(self, conn, monkeypatch):
+        added = self.QUEUED + timedelta(seconds=30)
+        assert self._vanish(conn, monkeypatch, file_added=added) == ["radarr:Dune"]
 
 
 class TestBatchInsertCompletionsExceptNarrowing:

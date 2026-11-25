@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -724,3 +727,353 @@ def test_the_stream_remembers_where_its_preview_frames_are(alice, plex):
 )
 def test_start_accepts_every_known_quality(alice, quality):
     assert _start(alice, "400", quality).status_code == 200
+
+
+class HeldPlex:
+    """Holds every segment at Plex until told to let go, and counts those it holds."""
+
+    def __init__(self, plex, monkeypatch) -> None:
+        self.held = 0
+        self.most = 0
+        self.arrived = threading.Semaphore(0)
+        self.fail = False
+        self._lock = threading.Lock()
+        self._go = threading.Semaphore(0)
+        self._request = plex.request
+        monkeypatch.setattr(plex, "request", self.request)
+
+    def request(self, method, url, **kwargs):
+        if not urlsplit(url).path.endswith(".ts"):
+            return self._request(method, url, **kwargs)
+        with self._lock:
+            self.held += 1
+            self.most = max(self.most, self.held)
+        self.arrived.release()
+        assert self._go.acquire(timeout=5)
+        with self._lock:
+            self.held -= 1
+        if self.fail:
+            raise requests.ConnectionError("gone")
+        return self._request(method, url, **kwargs)
+
+    def let_go(self, n: int = 1) -> None:
+        for _ in range(n):
+            self._go.release()
+
+    def wait_for(self, n: int) -> None:
+        for _ in range(n):
+            assert self.arrived.acquire(timeout=5)
+
+
+@pytest.fixture
+def held(plex, monkeypatch) -> HeldPlex:
+    monkeypatch.setattr(stream_api, "_SLOT_POLL_SECONDS", 0.005)
+    return HeldPlex(plex, monkeypatch)
+
+
+@pytest.fixture
+def pool():
+    with ThreadPoolExecutor(8) as executor:
+        yield executor
+
+
+def _segment(client, stream_id: str):
+    return client.get(f"/api/watch/stream/{stream_id}/seg/00000.ts")
+
+
+def _until(condition) -> None:
+    for _ in range(1000):
+        if condition():
+            return
+        time.sleep(0.005)
+    pytest.fail("never came true")
+
+
+@pytest.mark.parametrize("at_once", [1, 2, 3], ids=["hls.js", "safari", "safari filling up"])
+def test_a_player_fetching_ahead_is_never_refused_and_plex_sees_two_at_most(
+    alice, held, pool, at_once
+):
+    stream_id = _stream(alice)
+    answers = []
+    for _ in range(3):
+        batch = [pool.submit(_segment, alice, stream_id) for _ in range(at_once)]
+        held.wait_for(min(at_once, 2))
+        if at_once > 2:
+            _until(lambda: stream_api._waiting[stream_id])
+            # Many polls long: one that waits is not refused at the next.
+            time.sleep(0.05)
+        held.let_go(at_once)
+        answers += [f.result(5) for f in batch]
+        for _ in range(max(0, at_once - 2)):
+            held.wait_for(1)
+
+    assert {r.status_code for r in answers} == {200}
+    assert held.most == min(at_once, 2)
+
+
+def test_fetches_past_the_limit_are_refused_with_retry_after_and_others_play_on(
+    alice, bob, held, pool, monkeypatch
+):
+    monkeypatch.setattr(stream_api, "_SLOT_WAIT_SECONDS", 0.02)
+    mine, other, bobs = _stream(alice), _stream(alice, "102"), _stream(bob)
+    inside = [pool.submit(_segment, alice, mine) for _ in range(2)]
+    held.wait_for(2)
+
+    refused = _segment(alice, mine)
+
+    assert refused.status_code == 429
+    assert int(refused.headers["retry-after"]) > 0
+    assert refused.headers["cache-control"] == NO_STORE
+    assert held.most == 2
+    playing = [pool.submit(_segment, alice, other), pool.submit(_segment, bob, bobs)]
+    held.wait_for(2)
+    held.let_go(4)
+    assert [f.result(5).status_code for f in inside + playing] == [200] * 4
+
+
+def test_only_a_few_fetches_wait_and_the_rest_are_refused_at_once(alice, held, pool, monkeypatch):
+    monkeypatch.setattr(stream_api, "_SLOT_WAIT_SECONDS", 60)
+    monkeypatch.setattr(stream_api, "_MAX_WAITING_PER_STREAM", 1)
+    stream_id = _stream(alice)
+    inside = [pool.submit(_segment, alice, stream_id) for _ in range(2)]
+    held.wait_for(2)
+    waiting = pool.submit(_segment, alice, stream_id)
+    _until(lambda: stream_api._waiting[stream_id])
+
+    assert _segment(alice, stream_id).status_code == 429
+
+    held.let_go(3)
+    assert [f.result(5).status_code for f in [*inside, waiting]] == [200] * 3
+    assert not stream_api._waiting
+
+
+def test_a_failure_at_plex_gives_the_slot_back(alice, held, pool):
+    stream_id = _stream(alice)
+    held.fail = True
+    held.let_go(3)
+    assert [_segment(alice, stream_id).status_code for _ in range(3)] == [502] * 3
+    held.fail = False
+    held.let_go()
+    assert _segment(alice, stream_id).status_code == 200
+
+
+def test_a_bad_segment_name_gives_the_slot_back(alice):
+    stream_id = _stream(alice)
+    for _ in range(3):
+        assert alice.get(f"/api/watch/stream/{stream_id}/seg/x.m3u8").status_code == 404
+    assert _segment(alice, stream_id).status_code == 200
+
+
+def test_a_waiting_fetch_ends_with_its_stream(alice, held, pool, monkeypatch):
+    monkeypatch.setattr(stream_api, "_SLOT_WAIT_SECONDS", 60)
+    stream_id = _stream(alice)
+    inside = [pool.submit(_segment, alice, stream_id) for _ in range(2)]
+    held.wait_for(2)
+    waiting = pool.submit(_segment, alice, stream_id)
+    _until(lambda: stream_api._waiting[stream_id])
+
+    alice.post(f"/api/watch/stream/{stream_id}/stop")
+
+    assert waiting.result(5).status_code == 410
+    held.let_go(2)
+    assert [f.result(5).status_code for f in inside] == [410, 410]
+
+
+def _leaving_client(app, client, stream_id: str, leave: threading.Event) -> int:
+    """GET a segment as a client that goes away once *leave* is set; the status it would get."""
+    status = []
+
+    async def receive():
+        if not receive.asked:
+            receive.asked = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        while not leave.is_set():
+            await asyncio.sleep(0.005)
+        return {"type": "http.disconnect"}
+
+    receive.asked = False
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            status.append(message["status"])
+
+    request = client.build_request("GET", f"/api/watch/stream/{stream_id}/seg/00000.ts")
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": request.url.path,
+        "raw_path": request.url.raw_path,
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(k.lower(), v) for k, v in request.headers.raw],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+    asyncio.run(app(scope, receive, send))
+    return status[0]
+
+
+def test_a_fetch_whose_client_left_while_it_waited_never_reaches_plex(
+    app, alice, held, pool, monkeypatch
+):
+    monkeypatch.setattr(stream_api, "_SLOT_WAIT_SECONDS", 60)
+    stream_id = _stream(alice)
+    inside = [pool.submit(_segment, alice, stream_id) for _ in range(2)]
+    held.wait_for(2)
+    leave = threading.Event()
+    leaving = pool.submit(_leaving_client, app, alice, stream_id, leave)
+    _until(lambda: stream_api._waiting[stream_id])
+
+    leave.set()
+
+    assert leaving.result(5) == 429
+    held.let_go(2)
+    assert [f.result(5).status_code for f in inside] == [200, 200]
+    assert not held.arrived.acquire(blocking=False)
+
+
+def test_a_fetch_whose_client_left_drops_what_plex_sends_and_gives_its_slot_back(
+    app, alice, plex, pool
+):
+    stream_id = _stream(alice)
+    leave = threading.Event()
+    read_on = []
+
+    def chunks(chunk_size):
+        yield b"one"
+        leave.set()
+        for _ in range(1000):
+            time.sleep(0.005)
+            yield b"more"
+        read_on.append(True)
+
+    real = plex.request
+    answer = FakeResponse(200)
+    answer.iter_content = chunks
+    plex.request = lambda method, url, **kw: (
+        answer if url.endswith(".ts") else real(method, url, **kw)
+    )
+    _leaving_client(app, alice, stream_id, leave)
+    plex.request = real
+
+    assert not read_on
+    for _ in range(3):
+        assert _segment(alice, stream_id).status_code == 200
+
+
+def _three_calls(client, stream_id: str) -> list:
+    place = {"stream_id": stream_id, "position_s": 10, "played_s": 10}
+    return [
+        client.get(f"/api/watch/stream/{stream_id}/index.m3u8"),
+        _segment(client, stream_id),
+        client.post("/api/watch/progress", json=place),
+    ]
+
+
+def test_every_call_of_a_stream_a_newer_start_replaced_says_so(alice):
+    old = _stream(alice)
+    new = _stream(alice)
+
+    for resp in _three_calls(alice, old):
+        assert resp.status_code == 410
+        assert resp.json()["error"] == "replaced"
+        assert resp.headers["cache-control"] == NO_STORE
+    assert [r.status_code for r in _three_calls(alice, new)] == [200] * 3
+
+
+def _start_from(client, page: str, asked_s: float | None = None):
+    body = {"rating_key": "101", "quality": "best", "page": page}
+    if asked_s is not None:
+        body["asked_s"] = asked_s
+    return client.post("/api/watch/stream", json=body)
+
+
+def test_a_replaced_stream_says_which_page_plays_the_title_now(alice):
+    old = _start_from(alice, "phone-page-1").json()["stream_id"]
+    _start_from(alice, "tv-page-0001")
+
+    assert {r.json().get("by") for r in _three_calls(alice, old)} == {"tv-page-0001"}
+
+
+def test_a_start_made_by_itself_is_answered_replaced_where_another_page_was_asked_since(
+    alice, clock
+):
+    _start_from(alice, "phone-page-1")
+    clock.now += 10
+    tv = _start_from(alice, "tv-page-0001").json()["stream_id"]
+    clock.now += 5
+
+    refused = _start_from(alice, "phone-page-1", asked_s=15)
+
+    assert (refused.status_code, refused.headers["cache-control"]) == (410, NO_STORE)
+    assert refused.json() == {"ok": False, "error": "replaced", "by": "tv-page-0001"}
+    assert [r.status_code for r in _three_calls(alice, tv)] == [200] * 3
+    # A press there plays there.
+    assert _start_from(alice, "phone-page-1", asked_s=0).status_code == 200
+    assert {r.json().get("by") for r in _three_calls(alice, tv)} == {"phone-page-1"}
+
+
+def test_a_start_asked_before_another_page_s_is_refused_however_long_plex_took_over_the_title(
+    alice, clock, monkeypatch
+):
+    _start_from(alice, "tv-page-0001")
+    clock.now += 1
+
+    def slow_item(self, key, marks):
+        clock.now += 10
+        return _item(key)
+
+    monkeypatch.setattr(PlexWatch, "get_item", slow_item)
+    refused = _start_from(alice, "phone-page-1", asked_s=2)
+
+    assert (refused.status_code, refused.json().get("by")) == (410, "tv-page-0001")
+
+
+@pytest.mark.parametrize(
+    "extra", [{"page": "a b"}, {"page": "x" * 65}, {"page": "phone-page-1", "asked_s": -1}]
+)
+def test_start_refuses_a_malformed_page_or_time(alice, plex, extra):
+    body = {"rating_key": "101", "quality": "best"} | extra
+    assert alice.post("/api/watch/stream", json=body).status_code == 422
+    assert plex.calls == []
+
+
+def test_a_start_replaces_nothing_of_another_title_or_another_person(alice, bob):
+    film, bobs = _stream(alice), _stream(bob)
+    _stream(alice, "102")
+
+    for client, stream_id in ((alice, film), (bob, bobs)):
+        assert [r.status_code for r in _three_calls(client, stream_id)] == [200] * 3
+
+
+def test_a_replaced_stream_is_to_anyone_else_like_an_unknown_one(alice, bob):
+    old = _stream(alice)
+    _stream(alice)
+
+    unknown = _three_calls(bob, "no-such-stream")
+    assert [r.content for r in _three_calls(bob, old)] == [r.content for r in unknown]
+    assert {r.json()["error"] for r in unknown} == {"gone"}
+
+
+def test_changing_the_quality_or_reloading_plays_on_whichever_of_stop_and_start_comes_first(alice):
+    first = _stream(alice)
+    assert alice.post(f"/api/watch/stream/{first}/stop").status_code == 204
+    second = _start(alice, quality="low").json()["stream_id"]
+    third = _start(alice, quality="best").json()["stream_id"]
+    assert alice.post(f"/api/watch/stream/{second}/stop").status_code == 204
+
+    assert [r.status_code for r in _three_calls(alice, third)] == [200] * 3
+    assert {r.json()["error"] for r in _three_calls(alice, first)} == {"gone"}
+
+
+def test_a_fetch_under_way_when_its_stream_is_replaced_says_so(alice, held, pool):
+    old = _stream(alice)
+    inside = pool.submit(_segment, alice, old)
+    held.wait_for(1)
+    _stream(alice)
+    held.let_go()
+
+    assert inside.result(5).json()["error"] == "replaced"

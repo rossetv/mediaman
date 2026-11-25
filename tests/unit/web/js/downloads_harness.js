@@ -183,7 +183,14 @@ const scenarios = {
     r.updateRecent(box, recent.map((x) => ({ ...x })));
     const kept = box.querySelector('.dl-recent-item') === first;
     r.updateRecent(box, [{ title: 'C', poster_url: '/c.jpg' }].concat(recent));
-    return { kept, count: box.querySelectorAll('.dl-recent-item').length };
+    const count = box.querySelectorAll('.dl-recent-item').length;
+    const look = () => box.querySelectorAll('.dl-recent-item').map((i) => [i.querySelector('.dl-recent-sub').textContent, !!i.querySelector('.dl-recent-badge')]);
+    r.updateRecent(box, [{ title: 'A', poster_url: '/a.jpg', readiness: 'part' }, recent[1]]);
+    const part = look();
+    r.updateRecent(box, [{ title: 'A', poster_url: '/a.jpg', readiness: 'unknown' }, recent[1]]);
+    const unknown = look();
+    r.updateRecent(box, recent);
+    return { kept, count, part, unknown, whole: look() };
   },
 };
 
@@ -201,7 +208,7 @@ function abandonRig() {
   h.doc.getElementById = (id) => byId[id] || null;
   h.ctx.MM.dom = { q: (sel, c) => c.querySelector(sel), holdPage: () => () => {} };
   let dismissFn;
-  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0 };
+  const rig = { h, label, confirm, list, posts: [], closes: 0, refreshes: 0, errors: 0, toasts: [] };
   h.ctx.MM.modal = {
     setupDetail: (_m, opts) => (dismissFn = () => opts.onClose(), {
       open() {},
@@ -210,9 +217,9 @@ function abandonRig() {
       dismiss() { opts.onClose(); },
     }),
   };
-  h.ctx.MM.api.post = (url) => new Promise((resolve, reject) => { rig.posts.push({ url, resolve, reject }); });
+  h.ctx.MM.api.post = (url, body) => new Promise((resolve, reject) => { rig.posts.push({ url, body, resolve, reject }); });
   h.ctx.MM.api.messageOf = () => 'nope';
-  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast() {} };
+  h.ctx.UIFeedback = { error() { rig.errors += 1; }, toast(text, o) { rig.toasts.push([text, o.variant]); } };
   h.ctx.CustomEvent = class { constructor(t) { this.type = t; } };
   h.doc.dispatchEvent = (e) => { if (e.type === 'mediaman:downloads:refresh') rig.refreshes += 1; };
   h.load('dl-abandon.js');
@@ -261,6 +268,16 @@ scenarios.abandonSuccess = async function () {
   r.posts[0].resolve({});
   await r.settle();
   return { url: r.posts[0].url, closes: r.closes, refreshes: r.refreshes, errors: r.errors };
+};
+
+// another tab abandoned it first
+scenarios.abandonGone = async function () {
+  const r = abandonRig();
+  r.openItem('m1', 'movie');
+  r.confirmClick();
+  r.posts[0].reject(Object.assign(new Error('gone'), { status: 404 }));
+  await r.settle();
+  return { closes: r.closes, refreshes: r.refreshes, errors: r.errors, toasts: r.toasts };
 };
 
 // A fails after the dialog moved on to B: B's button is left alone
@@ -319,6 +336,22 @@ scenarios.abandonSwitchesLocked = async function () {
 };
 
 // what the season picker starts with, and which seasons a confirm sends
+// the only season of a show is still to air: it is offered unticked; one with gaps is sent at once
+scenarios.abandonOneSeason = async function () {
+  const r = abandonRig();
+  r.openItem('s1', 'series', [{ number: 2, missing_episodes: 0, aired: false }]);
+  const unaired = { listed: !r.list.hidden, on: r.togs().map((t) => t.classList.contains('on')), ...status(r) };
+  r.confirmClick();
+  const sentUnticked = r.posts.length;
+  r.flip(0);
+  r.confirmClick();
+  r.dismiss();
+  r.openItem('s2', 'series', [{ number: 3, missing_episodes: 4, aired: true }]);
+  const aired = { listed: !r.list.hidden, ...status(r) };
+  r.confirmClick();
+  return { unaired, sentUnticked, aired, seasons: r.posts.map((p) => p.body.seasons) };
+};
+
 scenarios.abandonSeasons = async function () {
   const r = abandonRig();
   r.openItem('s1', 'series', [

@@ -504,7 +504,7 @@ def _continue_watching(
     movies: dict[str, lib.LibraryMovie],
     shows: dict[str, lib.LibraryShow],
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-    """This person's Continue watching cards, and the banner for the most recent item in progress."""
+    """This person's Continue watching cards, and the banner, which stands for the first."""
     cards: list[dict[str, Any]] = []
     banner: dict[str, Any] | None = None
     for entry in continue_watching(conn, username):
@@ -543,18 +543,28 @@ def _continue_watching(
         if entry.find_next or (progress.seen and not resumable(progress)):
             watched = show_progress(conn, username, show.key)
             episode = _next_unwatched(plex, show.key, key, watched)
-            if episode is not None:
-                cards.append(
-                    card(
-                        "show",
-                        show.title,
-                        episode_label(episode.season_index, episode.index),
-                        poster_url(show.key),
-                        play_href(episode.rating_key, origin="/watch"),
-                        mark=("episode", episode.rating_key),
-                        dismiss_ref=f"show-{show.key}",
-                    )
+            if episode is None:
+                continue
+            label = episode_label(episode.season_index, episode.index)
+            href = play_href(episode.rating_key, origin="/watch")
+            cards.append(
+                card(
+                    "show",
+                    show.title,
+                    label,
+                    poster_url(show.key),
+                    href,
+                    mark=("episode", episode.rating_key),
+                    dismiss_ref=f"show-{show.key}",
                 )
+            )
+            if banner is None:
+                line = _episode_line(episode.season_index, episode.index, episode.title)
+                banner = _banner(show.title, line, None, href, show.key, "show")
+                _mark_banner(banner, cards[-1])
+                banner["primary"]["label"] = "Play"
+                banner["line_short"] = label
+                banner["episodes_href"] = _episodes_href(show.key, episode.season_index)
             continue
 
         item = plex.call(_get_item, key)
@@ -578,15 +588,13 @@ def _continue_watching(
         )
         if banner is None:
             if item is not None:
-                line = f"Season {item.parent_index} · Episode {item.index}"
-                if item.title:
-                    line += f' — "{item.title}"'
+                line = _episode_line(item.parent_index, item.index, item.title)
                 line = " · ".join(p for p in (line, left_text) if p)
                 line_short = " · ".join(p for p in (label, left_text) if p)
-                episodes_href = f"/watch/show/{show.key}?season={item.parent_index}"
+                episodes_href = _episodes_href(show.key, item.parent_index)
             else:
                 line = line_short = left_text
-                episodes_href = f"/watch/show/{show.key}"
+                episodes_href = _episodes_href(show.key, None)
             banner = _banner(
                 show.title,
                 line,
@@ -599,6 +607,15 @@ def _continue_watching(
             banner["line_short"] = line_short
             banner["episodes_href"] = episodes_href
     return cards, banner
+
+
+def _episode_line(season: int | None, episode: int | None, title: str) -> str:
+    line = f"Episode {episode or 0}" if season is None else f"Season {season} · Episode {episode}"
+    return f'{line} — "{title}"' if title else line
+
+
+def _episodes_href(show_key: str, season: int | None) -> str:
+    return f"/watch/show/{show_key}" + ("" if season is None else f"?season={season}")
 
 
 def _banner(
@@ -670,17 +687,31 @@ def _row(row_id: str, title: str, items: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-def _library_row(
+def _kind_of(title: lib.LibraryMovie | lib.LibraryShow) -> str:
+    return "movie" if isinstance(title, lib.LibraryMovie) else "show"
+
+
+def recently_added(
+    titles: Sequence[lib.LibraryMovie | lib.LibraryShow], now: datetime
+) -> list[lib.LibraryMovie | lib.LibraryShow]:
+    """The Recently added row: those of *titles* added of late, newest first."""
+    cutoff = now - timedelta(days=RECENT_DAYS)
+    return lib.newest_first([t for t in titles if _added(t.added_at) >= cutoff])
+
+
+def _paged_row(
     title: str,
     kind: str,
     entries: Sequence[lib.LibraryMovie | lib.LibraryShow],
     items: list[dict[str, Any]],
+    *,
+    library: bool = True,
 ) -> dict[str, Any]:
-    """A row of the library, newest first, and where its first page ends."""
+    """A row of titles of the library, newest first, and where its first page ends."""
     more = len(entries) > ROW_PAGE_SIZE
     return {
         **_row(kind, title, items),
-        "library": True,
+        "library": library,
         "kind": kind,
         "page_size": ROW_PAGE_SIZE,
         "next": lib.cursor_text(lib.row_cursor(entries[ROW_PAGE_SIZE - 1])) if more else None,
@@ -696,9 +727,9 @@ def _row_grid(
     sort: str | None,
 ) -> dict[str, Any]:
     """The row *row* opened as a grid, in the order *sort* asks for if it has that one: its first
-    cards, and for a library row (with *entries*) where they end."""
+    cards, and for a row that pages (with *entries*) where they end."""
     items: list[dict[str, Any]] = row["items"]
-    own = get_args(lib.RowOrder) if entries is not None else ("az",)
+    own = get_args(lib.RowOrder) if row["library"] else ("az",)
     order = cast(lib.RowOrder, sort if sort in own and row["id"] != "leaving" else "added")
     end = None
     if entries is not None:
@@ -740,7 +771,7 @@ def watch_page(
 
     movies = lib.newest_first(lib.library_movies(conn, libraries))
     shows = lib.newest_first(lib.library_shows(conn, libraries))
-    pending = lib.pending_deletions(conn, libraries, now)
+    pending = lib.pending_deletions(conn, libraries)
     movie_row = movie_cards(conn, username, movies, pending, now)
     seen_shows = lib.show_seen(conn, username, libraries)
     show_row = [show_card(s, seen_shows.get(s.key)) for s in shows]
@@ -753,32 +784,30 @@ def watch_page(
     seen_films = seen_movies(conn, username)
     leaving_row = [_leaving_card(p, now, films, seen_films, seen_shows) for p in pending]
 
-    # (added, card, where the banner's Play goes, kind, key): a movie plays, a show opens its
-    # page.
-    newest = sorted(
-        [
-            (_added(m.added_at), c, play_href(m.key, origin="/watch"), "movie", m.key)
-            for m, c in zip(movies, movie_row, strict=True)
-        ]
-        + [
-            (_added(s.added_at), c, c["href"], "show", s.key)
-            for s, c in zip(shows, show_row, strict=True)
-        ],
-        key=lambda entry: entry[0],
-        reverse=True,
-    )
-    cutoff = now - timedelta(days=RECENT_DAYS)
-    recent_row = [c for added, c, *_ in newest if added >= cutoff]
+    card_of = {
+        **{("movie", m.key): c for m, c in zip(movies, movie_row, strict=True)},
+        **{("show", s.key): c for s, c in zip(shows, show_row, strict=True)},
+    }
+    titles: list[lib.LibraryMovie | lib.LibraryShow] = [*movies, *shows]
+    newest = lib.newest_first(titles)
+    recent = recently_added(newest, now)
+    recent_row = [card_of[_kind_of(t), t.key] for t in recent]
     if banner is None and newest:
-        added, latest, play, kind, key = newest[0]
+        first = newest[0]
+        kind, key = _kind_of(first), first.key
+        latest = card_of[kind, key]
         banner = {
             # Only as true as the Recently added row: an older newest title gets a neutral label.
-            "kicker": "Recently added" if added >= cutoff else "From your library",
+            "kicker": "Recently added" if recent else "From your library",
             "title": latest["title"],
             "ref": f"{kind}-{key}",
             "line": latest["subtitle"],
             "progress_pct": None,
-            "primary": {"label": "Play", "href": play},
+            # A movie plays, a show opens its page.
+            "primary": {
+                "label": "Play",
+                "href": play_href(key, origin="/watch") if kind == "movie" else latest["href"],
+            },
             "episodes_href": None,
             **_banner_art(key),
         }
@@ -788,6 +817,7 @@ def watch_page(
     anime = [(s, c) for s, c in zip(shows, show_row, strict=True) if s.anime]
     # Discover goes between the rows above the "Your library" divider and those under it.
     entries: dict[str, Sequence[lib.LibraryMovie | lib.LibraryShow]] = {
+        "recent": recent,
         "movies": movies,
         "tv": [s for s, _ in tv],
         "anime": [s for s, _ in anime],
@@ -795,10 +825,10 @@ def watch_page(
     rows = [
         _row("continue", "Continue watching", continue_row),
         _row("leaving", "Leaving soon", leaving_row),
-        _row("recent", "Recently added", recent_row),
-        _library_row("Movies", "movies", movies, movie_row),
-        _library_row("TV", "tv", entries["tv"], [c for _, c in tv]),
-        _library_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
+        _paged_row("Recently added", "recent", recent, recent_row, library=False),
+        _paged_row("Movies", "movies", movies, movie_row),
+        _paged_row("TV", "tv", entries["tv"], [c for _, c in tv]),
+        _paged_row("Anime", "anime", entries["anime"], [c for _, c in anime]),
     ]
     picks_on = get_bool_setting(conn, "suggestions_enabled", default=True)
     later = ([_RECOMMENDED_ROW] if picks_on else []) + (
@@ -1011,13 +1041,13 @@ def show_page(request: Request, show_key: str, season: int | None = None) -> Res
     # Any leaving season reserves the line's slot, so a switch to one never moves the controls.
     seasons_leaving = [
         p
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
         if p.show_key == show_key and p.season_number is not None
     ]
     if selected is not None:
         season_id = lib.season_item_id(conn, libraries, show_key, selected.index)
         if season_id is not None:
-            leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id, now), now)
+            leaving = leaving_info(lib.pending_deletion(conn, libraries, season_id), now)
     # On a season that is not leaving, the slot names the soonest one that is.
     other_leaving = None
     if leaving is None:
@@ -1120,7 +1150,7 @@ def movie_page(request: Request, key: str) -> Response:
                 "mark_key": key,
             },
             "primary": primary,
-            "leaving": leaving_info(lib.pending_deletion(conn, libraries, key, now), now),
+            "leaving": leaving_info(lib.pending_deletion(conn, libraries, key), now),
         }
     )
     return _render(request, "watch_movie.html", ctx)
@@ -1163,7 +1193,7 @@ def play_page(
     if item.type == "movie":
         if lib.find_movie(conn, libraries, rating_key) is None:
             raise HTTPException(status_code=404)
-        pending = lib.pending_deletion(conn, libraries, rating_key, now)
+        pending = lib.pending_deletion(conn, libraries, rating_key)
         title, subtitle = item.title, (str(item.year) if item.year else None)
         back_href = f"/watch/movie/{rating_key}"
     else:
@@ -1176,7 +1206,7 @@ def play_page(
             if item.parent_index is not None
             else None
         )
-        pending = lib.pending_deletion(conn, libraries, season_id, now) if season_id else None
+        pending = lib.pending_deletion(conn, libraries, season_id) if season_id else None
         title = item.grandparent_title or listed.title
         subtitle = f"{episode_label(item.parent_index, item.index)} — {item.title}"
         show_href = f"/watch/show/{show_key}"
@@ -1205,6 +1235,8 @@ def play_page(
         if progress is not None and not progress.watched and (resume == "1" or resumable(progress))
         else 0
     )
+    # Where the title plays somewhere else it is gone on with from there, however far that is.
+    place_s = progress.position_s if progress is not None and progress.played else None
     return _render(
         request,
         "watch_player.html",
@@ -1218,6 +1250,7 @@ def play_page(
             },
             "qualities": quality_rows(item),
             "start_s": start_s,
+            "place_s": place_s,
             "back_href": back_href,
             "next": next_episode,
             "next_state": next_state,

@@ -105,14 +105,23 @@ def test_throttled_redownload_carries_its_reason_under_message(app_factory, auth
 
 
 class _OneTitleArr(ArrClient):
-    """The real client over one in-memory Arr entry; every search command fails."""
+    """The real client over one in-memory Arr entry; every search command fails.
 
-    def __init__(self, spec, entry, error):
+    *commands* is the Arr's own list of them after one, *before* the list until then; either
+    may be the error reading it raises.
+    """
+
+    def __init__(self, spec, entry, error, commands=(), before=()):
         super().__init__(spec, "http://arr.local", "k")
         self.entry = entry
         self._error = error
+        self._after, self._commands = commands, before
 
-    def _get(self, path):
+    def _get(self, path, *, quick=False):
+        if path == "/api/v3/command":
+            if isinstance(self._commands, Exception):
+                raise self._commands
+            return list(self._commands)
         entry = copy.deepcopy(self.entry)
         return [entry] if "?" in path else entry
 
@@ -120,6 +129,7 @@ class _OneTitleArr(ArrClient):
         self.entry = copy.deepcopy(data)
 
     def _post(self, path, data):
+        self._commands = self._after
         raise self._error
 
 
@@ -163,6 +173,124 @@ def test_a_season_whose_search_fails_is_left_unmonitored_as_it_was(
         )
     assert resp.json()["ok"] is False
     assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, False]
+
+
+_MOVIE_SEARCH = {"name": "MoviesSearch", "status": "started", "body": {"movieIds": [7]}}
+_SEASON_SEARCH = {
+    "name": "SeasonSearch",
+    "status": "queued",
+    "body": {"seriesId": 3, "seasonNumber": 2},
+}
+
+
+@_SEARCH_ERRORS
+def test_a_search_that_got_no_answer_but_was_started_is_a_success(
+    app_factory, authed_client, conn, error
+):
+    client = _client(app_factory, authed_client, conn)
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [_MOVIE_SEARCH])
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [_SEASON_SEARCH])
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (True, True)
+    assert radarr.entry["monitored"] is True
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
+
+
+@pytest.mark.parametrize(
+    ("ids_before", "started"),
+    [([7, 9], False), ([7], True), ([], True), (None, False)],
+    ids=["an earlier one", "this one", "nothing listed before", "list unread before"],
+)
+def test_a_search_done_counts_as_this_one_only_if_it_was_not_listed_before(
+    app_factory, authed_client, conn, ids_before, started
+):
+    client = _client(app_factory, authed_client, conn)
+    error = requests.ReadTimeout("slow")
+    before = error if ids_before is None else [{"id": n, "name": "Any"} for n in ids_before]
+    done = {"id": 9, "status": "completed", "queued": "2001-01-01T00:00:00Z"}
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, [{**_MOVIE_SEARCH, **done}], before)
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, [{**_SEASON_SEARCH, **done}], before)
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (started, started)
+    # One that nobody can tell from an earlier one may be running: nothing is unmonitored.
+    stays = started or ids_before is None
+    assert radarr.entry["monitored"] is stays
+    assert sonarr.entry["seasons"][1]["monitored"] is stays
+
+
+@pytest.mark.parametrize(
+    ("body_before", "started"), [("same", True), ("another", False)], ids=["joined", "another"]
+)
+def test_a_search_that_joined_one_under_way_and_is_done_is_a_success(
+    app_factory, authed_client, conn, body_before, started
+):
+    """The Arr answers a search equal to one under way with that one, under its old id."""
+    client = _client(app_factory, authed_client, conn)
+    error = requests.ReadTimeout("slow")
+
+    def arr(spec, entry, search, other):
+        done = {**search, "id": 9, "status": "completed"}
+        before = {**(search if body_before == "same" else other), "id": 9, "status": "started"}
+        return _OneTitleArr(spec, entry, error, [done], [before])
+
+    other_movie = {**_MOVIE_SEARCH, "body": {"movieIds": [8]}}
+    other_season = {**_SEASON_SEARCH, "body": {"seriesId": 3, "seasonNumber": 1}}
+    radarr = arr(RADARR_SPEC, _movie(False), _MOVIE_SEARCH, other_movie)
+    sonarr = arr(SONARR_SPEC, _series(False), _SEASON_SEARCH, other_season)
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    assert (movie.json()["ok"], season.json()["ok"]) == (started, started)
+    assert radarr.entry["monitored"] is started
+    assert sonarr.entry["seasons"][1]["monitored"] is started
+
+
+@_SEARCH_ERRORS
+def test_a_search_nobody_can_tell_the_state_of_is_a_failure_that_unmonitors_nothing(
+    app_factory, authed_client, conn, error
+):
+    client = _client(app_factory, authed_client, conn)
+    radarr = _OneTitleArr(RADARR_SPEC, _movie(False), error, error)
+    sonarr = _OneTitleArr(SONARR_SPEC, _series(False), error, error)
+    with patch(RADARR, return_value=radarr), patch(SONARR, return_value=sonarr):
+        movie = _post(client, {"title": "Dune", "tmdb_id": 42})
+        season = _post(client, {"title": "Severance", "tvdb_id": 999, "season_number": 2})
+    for resp in (movie, season):
+        assert (resp.status_code, resp.json()["ok"]) == (200, False)
+        assert resp.json()["message"]
+    assert radarr.entry["monitored"] is True
+    assert [s["monitored"] for s in sonarr.entry["seasons"]] == [True, True]
+
+
+def test_a_season_that_was_never_monitored_keeps_its_lone_monitored_episode(
+    app_factory, authed_client, conn
+):
+    class _RefusesWrites(_OneTitleArr):
+        writes: list[str] = []
+
+        def _get(self, path, **kwargs):
+            if path.startswith("/api/v3/episode?"):
+                return [{"id": 21, "seasonNumber": 2, "monitored": True}]
+            return super()._get(path, **kwargs)
+
+        def _put(self, path, data):
+            if path == "/api/v3/episode/monitor":
+                self.writes.append(path)
+                return
+            raise _err(400)
+
+    sonarr = _RefusesWrites(SONARR_SPEC, _series(False), _err(400))
+    with patch(SONARR, return_value=sonarr):
+        resp = _post(
+            _client(app_factory, authed_client, conn),
+            {"title": "Severance", "tvdb_id": 999, "season_number": 2},
+        )
+    assert resp.json()["ok"] is False
+    assert sonarr.writes == []
 
 
 def test_a_title_monitored_before_a_failed_search_stays_monitored(app_factory, authed_client, conn):
@@ -293,7 +421,10 @@ def test_season_0_is_answered_and_audited_as_specials(app_factory, authed_client
     sonarr.get_series_by_tvdb.side_effect = [
         None,
         {"id": 3, "seasons": [specials]},
-        {"id": 3, "seasons": [{**specials, "statistics": {"episodeFileCount": 1}}]},
+        {
+            "id": 3,
+            "seasons": [{**specials, "statistics": {"episodeCount": 1, "episodeFileCount": 1}}],
+        },
     ]
     client = _client(app_factory, authed_client, conn)
     asked = {"title": "Severance", "tvdb_id": 999, "season_number": 0}

@@ -460,6 +460,41 @@ class TestWatchRows:
         assert banner["progress_pct"] == 40
         assert banner["ref"] == "show-500"
 
+    def test_with_nothing_half_watched_the_banner_offers_the_next_episode(self, get, conn):
+        _play(conn, "aoife", "512", position=3000, duration=3000, item="501", show="500")
+
+        ctx = get("/watch").json()
+
+        banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert (banner["title"], banner["ref"]) == ("The Long Coast", "show-500")
+        assert (banner["kicker"], banner["progress_pct"]) == ("Continue watching", None)
+        assert banner["line"] == 'Season 2 · Episode 1 — "Episode 521"'
+        assert banner["line_short"] == "S2 · E1"
+        assert banner["primary"] == {"label": "Play", "href": "/watch/play/521?from=%2Fwatch"}
+        assert banner["episodes_href"] == "/watch/show/500?season=2"
+        assert (banner["dismiss_ref"], banner["mark_key"]) == ("show-500", "521")
+        assert banner["primary"]["href"] == card["href"]
+        assert get("/watch", user="cian").json()["banner"]["title"] == "Glasshouse"
+
+    def test_the_banner_stands_for_the_first_card_whichever_kind_it_is(self, get, conn):
+        _play(conn, "aoife", "100", position=1200, duration=6000, item="100", minutes_ago=60)
+        _play(conn, "aoife", "511", position=3000, duration=3000, item="501", show="500")
+
+        ctx = get("/watch").json()
+        banner, cards = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert [c["dismiss_ref"] for c in cards] == ["show-500", "movie-100"]
+        assert banner["dismiss_ref"] == "show-500"
+        assert banner["primary"] == {"label": "Play", "href": cards[0]["href"]}
+
+        dismiss(conn, "aoife", "500", NOW)
+        ctx = get("/watch").json()
+        banner, [card] = ctx["banner"], _rows(ctx)["Continue watching"]
+        assert banner["ref"] == "movie-100"
+        assert banner["primary"] == {"label": "Resume", "href": card["href"]}
+
+        dismiss(conn, "aoife", "100", NOW)
+        assert get("/watch").json()["banner"]["kicker"] == "Recently added"
+
     def test_the_banner_uses_the_wide_backdrop_of_its_title(self, get, conn):
         assert get("/watch").json()["banner"]["backdrop_url"] == "/api/poster/101?kind=art"
 
@@ -736,7 +771,24 @@ class TestLibraryRowOrder:
         assert (rows["Movies"]["kind"], rows["Movies"]["page_size"]) == ("movies", 1)
         assert rows["Movies"]["next"] is not None
         assert (rows["TV"]["kind"], rows["TV"]["next"]) == ("tv", None)
-        assert rows["Recently added"]["kind"] is None
+        assert (rows["Recently added"]["kind"], rows["Recently added"]["next"]) == ("recent", None)
+
+    def test_recently_added_mixes_films_and_shows_newest_first_and_pages(
+        self, get, conn, monkeypatch
+    ):
+        monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 2)
+        _add_movie(conn, "103", "Zephyr", NOW - timedelta(days=3))
+        added = (NOW - timedelta(days=1)).isoformat()
+        conn.execute("UPDATE media_items SET added_at = ? WHERE id = '502'", (added,))
+        conn.commit()
+
+        ctx = get("/watch").json()
+
+        row = next(r for r in ctx["rows"] if r["title"] == "Recently added")
+        assert _titles(row["items"]) == ["The Long Coast", "Glasshouse", "Zephyr"]
+        assert row["next"] is not None
+        assert row["library"] is False
+        assert ctx["banner"]["ref"] == "show-500"
 
     def test_a_film_of_a_known_year_says_it(self, get, conn):
         _add_movie(conn, "103", "Zephyr", NOW, file_path="/films/Zephyr (2026)/Zephyr.mkv")
@@ -1130,6 +1182,18 @@ class TestPlayerPage:
         _play(conn, "aoife", "100", position=5900, duration=6000, item="100")
 
         assert get("/watch/play/100?resume=1").json()["start_s"] == 0
+
+    @pytest.mark.parametrize("position", [5, 1200, 5900])
+    def test_the_saved_place_is_told_where_nothing_is_resumed_too(self, get, conn, position):
+        _play(conn, "aoife", "100", position=position, duration=6000, item="100")
+
+        assert get("/watch/play/100").json()["place_s"] == position
+
+    def test_a_title_never_played_or_only_marked_has_no_saved_place(self, get, conn):
+        mark_watched(conn, "aoife", [MarkTarget("100", "100", None, 6000)], NOW)
+
+        assert get("/watch/play/100").json()["place_s"] is None
+        assert get("/watch/play/100", user="cian").json()["place_s"] is None
 
     def test_resume_uses_only_the_persons_own_position(self, get, conn):
         _play(conn, "aoife", "100", position=1200, duration=6000, item="100")

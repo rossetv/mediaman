@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from mediaman.services.arr.fetcher._base import ArrCard
 from mediaman.services.downloads.download_format._types import DownloadItem
@@ -149,6 +149,7 @@ def build_arr_items(
     download_rate: int,
     secret_key: str,
     trigger_search: Callable[..., None],
+    remembered: Sequence[ArrCard] = (),
 ) -> tuple[list[DownloadItem], list[DownloadItem]]:
     """Match arr cards to NZBGet entries and build queue items, returning (items,
     upcoming_items). Matched NZB entries are marked _matched=True in place.
@@ -156,6 +157,9 @@ def build_arr_items(
     *trigger_search* is passed in from __init__.py so it resolves to the module-level
     name there, letting a monkeypatch of download_queue.maybe_trigger_search intercept
     calls.
+
+    *remembered* are cards a service that did not answer gave before: one is listed only
+    while NZBGet still holds its download, which it gives its name and art.
     """
     from mediaman.services.downloads.download_format import (
         build_item,
@@ -167,7 +171,8 @@ def build_arr_items(
     items: list[DownloadItem] = []
     upcoming_items: list[DownloadItem] = []
 
-    for arr in arr_items:
+    waiting = [arr for arr in remembered if not arr.get("is_upcoming")]
+    for arr, answered in [*((a, True) for a in arr_items), *((a, False) for a in waiting)]:
         if arr.get("is_upcoming"):
             upcoming_items.append(
                 build_item(
@@ -216,7 +221,7 @@ def build_arr_items(
 
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
-        else:
+        elif answered:
             items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
             trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
 

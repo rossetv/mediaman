@@ -30,7 +30,7 @@ from mediaman.services.arr.state import (
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
-    series_has_files,
+    season_on_disk,
 )
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.downloads.notifications import has_unsent_notification, requested_tvdb_id
@@ -46,7 +46,7 @@ from mediaman.web.repository.download import (
     fetch_suggestion_enrichment,
 )
 from mediaman.web.routes.download._cache_keys import _key_fingerprint
-from mediaman.web.routes.download._season import deleted_season, season_on_disk, sonarr_media_id
+from mediaman.web.routes.download._season import deleted_season, sonarr_media_id
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -377,12 +377,8 @@ def _shown_state(mt: str, tmdb_id: int, caches: ArrCaches) -> str | None:
         and tmdb_id not in caches["sonarr_queue_tmdb_ids"]
     ):
         # What is not downloading is on its way only if Sonarr has something to look for.
-        if not series.get("monitored", True):
-            state = None
-        elif _aired_missing(series):
-            state = ACTION_QUEUED
-        else:
-            state = ACTION_IN_LIBRARY if series_has_files(series) else None
+        on_its_way = series.get("monitored", True) and _aired_missing(series)
+        state = ACTION_QUEUED if on_its_way else None
     # The page shows one "on its way" view, whose progress polling fills in.
     if state in (ACTION_DOWNLOADING, ACTION_PARTIAL):
         state = ACTION_QUEUED

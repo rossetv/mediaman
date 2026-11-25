@@ -380,6 +380,10 @@ def test_a_card_a_view_puts_under_a_mouse_at_rest_opens_nothing_until_it_moves()
     }
 
 
+def test_a_title_past_its_date_leaves_any_day() -> None:
+    assert _run("pastDate") == ["Leaving any day", "Season 3 leaves any day"]
+
+
 def test_keep_acts_on_the_season_its_card_shows_and_names_it() -> None:
     out = _run("seasonsLeaving")
     season_2 = [
@@ -493,6 +497,14 @@ def test_a_mark_is_in_the_open_preview_and_in_a_reply_on_its_way() -> None:
 
 def test_a_title_queued_while_its_reply_is_on_the_way_is_shown_queued() -> None:
     assert _run("queuedOnItsWay") == "Queued"
+
+
+def test_a_title_radarr_or_sonarr_has_files_of_is_not_offered_for_download() -> None:
+    assert _run("heldByArr") == ["In library", "In library", "Download"]
+
+
+def test_a_show_partly_there_offers_what_its_title_page_does() -> None:
+    assert _run("partlyHeld") == ["Pick seasons", "In Sonarr", "In library"]
 
 
 def test_what_is_held_of_the_titles_rested_on_is_bounded() -> None:

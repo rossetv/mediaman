@@ -31,7 +31,7 @@ from mediaman.services.scheduled_actions._lookup import (
 from mediaman.services.scheduled_actions._mutations import (
     apply_keep_forever,
     apply_keep_snooze,
-    is_pending_unexpired,
+    is_pending,
     parse_execute_at,
     revert_keep_snooze,
 )
@@ -49,7 +49,7 @@ __all__ = [
     "format_added_display",
     "format_expiry",
     "is_keep_token_consumed",
-    "is_pending_unexpired",
+    "is_pending",
     "lookup_verified_action",
     "mark_token_consumed",
     "parse_execute_at",

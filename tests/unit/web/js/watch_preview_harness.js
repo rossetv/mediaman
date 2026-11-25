@@ -843,6 +843,18 @@ const scenarios = {
     }
     return { ...out, gets: h.gets };
   },
+  /* A film, and a season of a show, past the date they were to leave on. */
+  async pastDate() {
+    const gone = { days: -3, keep_id: '203', season: 3 };
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { days: -3, keep_id: '5' } },
+      'show-2': { ...FILM, ref: 'show-2', kind: 'show', library_ref: 'show-2', keep_allowed: true, leaving: gone, leaving_seasons: [gone] } } });
+    await h.rest('film', 900);
+    const film = h.text('.pv__leaving');
+    h.away();
+    await h.pass(1000);
+    await h.rest('wholeShow', 900);
+    return [film, h.text('.pv__leaving')];
+  },
   /* A reply from when nothing was leaving: the card is newer. */
   async leavingSince() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', keep_allowed: false, leaving_seasons: [] } } });
@@ -1064,6 +1076,30 @@ const scenarios = {
     first(OUTSIDE);
     await h.pass(1000);
     return h.text('.pv__first');
+  },
+  /* Radarr or Sonarr has files of it, by the reply or by the card's own badge: there is no Download. */
+  async heldByArr() {
+    const of = async (data, badged) => {
+      const h = load({ api: { [data.ref]: data } });
+      const id = data.kind === 'movie' ? 'outside' : 'show';
+      if (badged) h.doc.querySelector('#' + id + ' .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      await h.rest(id, 1000);
+      return h.text('.pv__first');
+    };
+    const at = (data, state) => ({ ...data, download: { ...data.download, state } });
+    return [await of(at(OUTSIDE, 'in_library')), await of(OUTSIDE, true), await of(OUTSIDE)];
+  },
+  /* Sonarr has some seasons of it, and the card's own badge says In library: it offers what its title page does. */
+  async partlyHeld() {
+    const of = async (seasons, tracked) => {
+      const data = showOf(seasons);
+      const h = load({ api: { [data.ref]: { ...data, sonarr_tracked: tracked, download: { ...data.download, state: 'partial' } } } });
+      h.doc.querySelector('#show .watch-card__poster').appendChild(build(h.doc, ['span', { class: 'watch-badge watch-badge--in' }, 'In library']));
+      await h.rest('show', 1000);
+      return h.text('.pv__first');
+    };
+    const left = [season(1, true), season(2, false), season(3, false)];
+    return [await of(left, false), await of(left, true), await of([season(1, true)], false)];
   },
   /* Many titles rested on: the first is asked about again, the latest is still held. */
   async many() {

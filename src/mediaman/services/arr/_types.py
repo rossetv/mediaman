@@ -47,6 +47,7 @@ class ArrSeasonStatistics(TypedDict, total=False):
 
     episodeFileCount: int
     episodeCount: int
+    totalEpisodeCount: int
     previousAiring: str
     previousAiringDate: str
     nextAiring: str
@@ -196,6 +197,7 @@ class ArrEpisode(TypedDict, total=False):
     airDateUtc: str
     monitored: bool
     hasFile: bool
+    episodeFileId: int
 
 
 class ArrRootFolder(TypedDict, total=False):

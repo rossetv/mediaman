@@ -16,19 +16,26 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from typing import cast
+import time
+from collections.abc import Collection
+from datetime import timedelta
+from typing import TYPE_CHECKING, cast
 
 import requests
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
+    _reset_unchecked,
+    carry_queued_since,
     detect_completed,
     fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
 from mediaman.services.arr.fetcher import fetch_arr_queue_result
 from mediaman.services.arr.search_trigger import maybe_trigger_search
+from mediaman.services.arr.state import series_has_files, series_ready
 from mediaman.services.downloads.download_queue.classify import (
     arr_base_urls as _arr_base_urls,
 )
@@ -49,6 +56,10 @@ from mediaman.services.downloads.download_queue.queue import (
 from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPError
 
+if TYPE_CHECKING:
+    from mediaman.services.arr._types import SonarrSeries
+    from mediaman.services.arr.fetcher import ArrCard, FetchResult
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -68,20 +79,56 @@ __all__ = [
 # single-worker invariant.  _previous_initialised distinguishes "never polled"
 # (startup — skip diff so a restart doesn't re-report every visible item as
 # completed) from "polled at least once" (normal operation — diff is valid).
-# Both fields are guarded by _state_lock below.
+# All fields here are guarded by _state_lock below.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
 
+# How long before it is first seen a download's file may be dated: an *arr dates a file before a
+# slow import ends, and its clock may be behind. A file this new has only just arrived anyway.
+_DATED_BEFORE_SEEN = timedelta(minutes=15)
 
-# Lock guarding _previous_queue/_previous_initialised.
+# The cards each of Radarr and Sonarr last answered with, to know a download by while it is down.
+_last_cards: list[ArrCard] = []
+
+# What there is of each show by its title, as Sonarr last told, and until when that stands: an
+# open page polls every two seconds, and need not read them each time. A read that fails is
+# asked again sooner.
+_READINESS_KEPT_SECONDS = 30.0
+_READINESS_RETRY_SECONDS = 5.0
+_show_readiness: dict[str, str] = {}
+_readiness_kept_until: float | None = None
+
 _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    global _previous_queue, _previous_initialised
+    global \
+        _previous_queue, \
+        _previous_initialised, \
+        _last_cards, \
+        _show_readiness, \
+        _readiness_kept_until
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
+        _last_cards = []
+        _show_readiness = {}
+        _readiness_kept_until = None
+    _reset_unchecked()
+
+
+def _remembered_cards(arr_result: FetchResult) -> list[ArrCard]:
+    """Keep this poll's cards, and return those of the services that did not answer it."""
+    global _last_cards
+    listed = {card["dl_id"] for card in arr_result.cards}
+    with _state_lock:
+        remembered = [
+            card
+            for card in _last_cards
+            if _service_of(card["dl_id"]) in arr_result.unreachable and card["dl_id"] not in listed
+        ]
+        _last_cards = [*arr_result.cards, *remembered]
+    return remembered
 
 
 def _enrich_with_tmdb_ids(
@@ -155,8 +202,8 @@ def _enrich_with_tmdb_ids(
                 v["tmdb_id"] = tid
 
 
-def _is_arr_entry(dl_id: str) -> bool:
-    return dl_id.startswith(("radarr:", "sonarr:"))
+def _service_of(dl_id: str) -> str:
+    return {"radarr": "Radarr", "sonarr": "Sonarr"}.get(dl_id.partition(":")[0], "NZBGet")
 
 
 def _maybe_record_completions(
@@ -164,7 +211,7 @@ def _maybe_record_completions(
     current_map: dict[str, dict[str, object]],
     secret_key: str,
     *,
-    nzb_fetch_failed: bool = False,
+    unreachable: Collection[str] = (),
     matched_nzb_names: frozenset[str] = frozenset(),
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
@@ -178,37 +225,99 @@ def _maybe_record_completions(
     detect_completed carries it through to verification instead of matching on the
     title.
 
-    When *nzb_fetch_failed*, the NZBGet side of *current_map* is unknown rather than
-    empty: only the Radarr/Sonarr entries are diffed, and the previous snapshot's
-    NZB-only entries are carried into the stored one unchanged, to be diffed on the
-    next poll that reaches NZBGet.
+    What a service in *unreachable* holds is unknown rather than empty: the previous
+    snapshot's entries of it that *current_map* lacks are carried into the stored one
+    unchanged, to be diffed on the next poll that reaches the service.
 
     An NZB-only id that vanished only because this poll matched its NZB to an Arr card
     (*matched_nzb_names*) is still downloading, so it is not reported as completed.
     """
     global _previous_queue, _previous_initialised
 
-    _enrich_with_tmdb_ids(conn, current_map, secret_key)
+    answered = {k: v for k, v in current_map.items() if _service_of(k) not in unreachable}
+    _enrich_with_tmdb_ids(conn, answered, secret_key)
 
     with _state_lock:
         previous_snapshot = _previous_queue
         previously_initialised = _previous_initialised
-        if nzb_fetch_failed:
-            carried = {k: v for k, v in previous_snapshot.items() if not _is_arr_entry(k)}
-            _previous_queue = {**carried, **current_map}
-        else:
-            _previous_queue = current_map
+        carried = {k: v for k, v in previous_snapshot.items() if _service_of(k) in unreachable}
+        stored = {**carried, **current_map}
+        carry_queued_since(previous_snapshot, stored, now_utc() - _DATED_BEFORE_SEEN)
+        for dl_id, item in stored.items():
+            before = previous_snapshot.get(dl_id, {})
+            # The dl_id is made of the title, which another film may have taken over.
+            same = item.get("arr_id") and item.get("arr_id") == before.get("arr_id")
+            if same and before.get("tmdb_id") and "tmdb_id" not in item:
+                item["tmdb_id"] = before["tmdb_id"]
+        _previous_queue = stored
         _previous_initialised = True
 
     if previously_initialised:
-        if nzb_fetch_failed:
-            previous_snapshot = {k: v for k, v in previous_snapshot.items() if _is_arr_entry(k)}
         completed = [
             c
-            for c in detect_completed(previous_snapshot, current_map)
+            for c in detect_completed(previous_snapshot, stored)
             if c["dl_id"] not in matched_nzb_names
         ]
         record_verified_completions(conn, completed, secret_key)
+
+
+def _readiness_of(series: SonarrSeries) -> str:
+    if series_ready(series):
+        return "ready"
+    return "part" if series_has_files(series) else "unknown"
+
+
+def _read_show_readiness(
+    conn: sqlite3.Connection, secret_key: str, unreachable: Collection[str]
+) -> dict[str, str]:
+    """Return what there is of each show, by its title; as last told while Sonarr does not
+    answer. Two shows of one title that differ are unknown.
+    """
+    from mediaman.services.arr.build import build_sonarr_from_db
+
+    global _show_readiness, _readiness_kept_until
+    now = time.monotonic()
+    with _state_lock:
+        known, kept_until = _show_readiness, _readiness_kept_until
+        if "Sonarr" in unreachable or (kept_until is not None and now < kept_until):
+            return known
+        # Held for the short wait while it is read, so a read that fails is soon asked again.
+        _readiness_kept_until = now + _READINESS_RETRY_SECONDS
+    try:
+        client = build_sonarr_from_db(conn, secret_key)
+        series = client.get_series() if client else []
+    except (SafeHTTPError, requests.RequestException, ArrError):
+        logger.warning("Failed to read which shows are complete", exc_info=True)
+        return known
+    read: dict[str, str] = {}
+    for show in series:
+        title, readiness = show.get("title") or "", _readiness_of(show)
+        read[title] = readiness if read.get(title, readiness) == readiness else "unknown"
+    with _state_lock:
+        _show_readiness = read
+        _readiness_kept_until = now + _READINESS_KEPT_SECONDS
+    return read
+
+
+def _mark_readiness(
+    conn: sqlite3.Connection,
+    recent: list[dict[str, object]],
+    secret_key: str,
+    unreachable: Collection[str],
+) -> None:
+    """Say of each recent item whether it is "ready", there in "part" (a show lacking episodes)
+    or "unknown" (a show Sonarr has not told of, or has no file of).
+    """
+    shows = [
+        item
+        for item in recent
+        if item["media_type"] == "series" and str(item["id"]).startswith("sonarr:")
+    ]
+    readiness = _read_show_readiness(conn, secret_key, unreachable) if shows else {}
+    for item in recent:
+        item["readiness"] = "ready"
+    for item in shows:
+        item["readiness"] = readiness.get(cast(str, item["title"]), "unknown")
 
 
 def _downloads_subtitle(
@@ -265,7 +374,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     nzb_client = build_nzbget_from_db(conn, secret_key)
     nzb_queue: list[dict[str, object]] = []
     nzb_status: dict[str, object] = {}
-    nzb_fetch_failed = False
 
     if nzb_client:
         try:
@@ -273,7 +381,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
             nzb_queue = nzb_client.get_queue()
         except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
-            nzb_fetch_failed = True
             unreachable.append("NZBGet")
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)
@@ -285,6 +392,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 4. Match arr cards to NZBGet entries; collect upcoming separately.
     # Pass maybe_trigger_search explicitly so monkeypatching it at the
     # download_queue module level is correctly intercepted by tests.
+    remembered = _remembered_cards(arr_result)
     items, upcoming_items = _build_arr_items(
         conn,
         arr_result.cards,
@@ -293,6 +401,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         download_rate,
         secret_key,
         trigger_search=maybe_trigger_search,
+        remembered=remembered,
     )
 
     matched_nzb_names = frozenset(cast(str, nzb["dl_id"]) for nzb in nzb_parsed if nzb["_matched"])
@@ -308,11 +417,14 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     current_map: dict[str, dict[str, object]] = {
         cast(str, item["id"]): item for item in items_as_dicts
     }
+    for card in [*arr_result.cards, *remembered]:
+        if card["dl_id"] in current_map and "tmdb_id" in card:
+            current_map[card["dl_id"]]["tmdb_id"] = card["tmdb_id"]
     _maybe_record_completions(
         conn,
         current_map,
         secret_key,
-        nzb_fetch_failed=nzb_fetch_failed,
+        unreachable=unreachable,
         matched_nzb_names=matched_nzb_names,
     )
 
@@ -322,7 +434,11 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     active_ids = {cast(str, item["id"]) for item in items_as_dicts}
     active_titles = {cast(str, item["title"]) for item in items_as_dicts}
-    recent = fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key)
+    recent = cast(
+        list[dict[str, object]],
+        fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key),
+    )
+    _mark_readiness(conn, recent, secret_key, unreachable)
 
     upcoming = cast(list[dict[str, object]], upcoming_items)
     outage = _outage_line(unreachable)
@@ -330,7 +446,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         "hero": hero,
         "queue": queue,
         "upcoming": upcoming,
-        "recent": cast(list[dict[str, object]], recent),
+        "recent": recent,
         "subtitle": _downloads_subtitle(hero, queue, upcoming, outage),
         "unreachable": unreachable,
         "outage": outage,

@@ -19,11 +19,16 @@ import mediaman.web
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token, validate_poster_token
 from mediaman.db import set_connection
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    record_removed_files,
+)
 from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
     lookup_verified_action,
     token_hash,
 )
+from mediaman.web.routes import keep as keep_module
 from mediaman.web.routes.keep import (
     _KEEP_GET_LIMITER,
     _KEEP_POST_LIMITER,
@@ -275,7 +280,11 @@ class TestKeepPageRoute:
         freezer.move_to("2026-05-10T12:00:00+00:00")
         _insert_media_item(conn)
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at="2026-05-01T12:00:00+00:00"
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action="snoozed",
+            execute_at="2026-05-01T12:00:00+00:00",
         )
         token = _make_keep_token(conn, "mi1", action_id)
         app = self._make_app(conn)
@@ -315,6 +324,29 @@ class TestKeepPageRoute:
         text = " ".join(client.get(f"/keep/{token}").text.split())
 
         assert f"{date_text} — {word}" in text
+
+    @pytest.mark.parametrize(
+        ("execute_at", "date"),
+        [("2026-05-01T12:00:00+00:00", "1 May"), ("2026-05-03T11:00:00+00:00", "3 May")],
+        ids=["days ago", "earlier the same day"],
+    )
+    def test_a_date_that_has_passed_says_so_and_that_it_can_still_be_kept(
+        self, conn, freezer, execute_at, date
+    ):
+        freezer.move_to("2026-05-03T12:00:00+00:00")
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+        text = " ".join(TestClient(app).get(f"/keep/{token}").text.split())
+
+        assert f"{date} 2026 — leaving any day </div>" in text
+        assert "The date has passed, but you can keep this item until it is deleted" in text
+        assert "Keep for" in text
 
     @pytest.mark.parametrize(
         ("action", "execute_at", "duration", "text"),
@@ -578,20 +610,20 @@ class TestAdminForeverAudit:
 
 
 class TestKeepDeadlineCheck:
-    """Keep_submit must reject rows that have expired or are not pending."""
+    """Keep_submit must reject rows that are not pending."""
 
-    def test_expired_action_returns_400(self, app_factory, conn):
-        """A keep POST where execute_at is in the past must return 400."""
+    def test_a_deletion_past_its_date_can_be_kept_until_the_pass_claims_it(self, app_factory, conn):
         _insert_media_item(conn)
         action_id = _insert_scheduled_action_at_offset(conn, execute_at_offset_days=-1)
         token = _make_keep_token(conn, "mi1", action_id)
 
         _, client = _make_keep_app_with_test_secret(app_factory, conn)
-        resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
+        resp = client.post(f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False)
 
-        assert resp.status_code == 400
-        body = json.loads(resp.text)
-        assert body["error"] == "invalid_or_expired"
+        assert resp.status_code == 302
+        row = conn.execute("SELECT action, execute_at FROM scheduled_actions").fetchone()
+        assert row["action"] == "snoozed"
+        assert row["execute_at"] > datetime.now(UTC).isoformat()
 
     def test_non_pending_delete_status_returns_400(self, app_factory, conn):
         """A row with delete_status='deleting' must be refused."""
@@ -899,11 +931,15 @@ class TestItemKeptMeanwhile:
         assert resp.json()["error"] == "already_processed"
         assert self._action_row(conn) == before
 
-    def test_expired_token_on_an_item_not_kept_is_still_refused(self, conn):
+    def test_a_lapsed_keep_is_still_refused(self, conn):
         _insert_media_item(conn)
         execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         action_id = insert_scheduled_action(
-            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action="snoozed",
+            execute_at=execute_at,
         )
         token = _make_keep_token(conn, "mi1", action_id)
 
@@ -916,6 +952,103 @@ class TestItemKeptMeanwhile:
         assert "no longer valid" in form.text
         assert api.status_code == 400
         assert api.json()["error"] == "invalid_or_expired"
+
+    def test_a_keep_after_the_deletion_began_says_it_is_being_deleted(self, conn):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        assert claim_due_deletion(conn, action_id, datetime.now(UTC).isoformat())
+        conn.commit()
+        before = self._action_row(conn)
+
+        resp = self._client(conn).post(
+            f"/keep/{token}", data={"duration": "30 days"}, headers=self._HTML
+        )
+
+        assert resp.status_code == 400
+        assert "This is being deleted now." in resp.text
+        assert self._action_row(conn) == before
+
+    @pytest.mark.parametrize("forever", [False, True])
+    def test_a_keep_that_loses_to_the_deletion_leaves_its_link_for_when_that_fails(
+        self, app_factory, authed_client, conn, monkeypatch, forever
+    ):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        client = authed_client(self._client(conn).app, conn)
+
+        def claimed_meanwhile(route_conn, token_hash):
+            assert claim_due_deletion(route_conn, action_id, datetime.now(UTC).isoformat())
+            route_conn.commit()
+            return False
+
+        def keep():
+            if forever:
+                return client.post(f"/api/keep/{token}/forever").status_code
+            return client.post(
+                f"/keep/{token}", data={"duration": "30 days"}, follow_redirects=False
+            ).status_code
+
+        with monkeypatch.context() as patched:
+            patched.setattr(keep_module, "is_keep_token_consumed", claimed_meanwhile)
+            assert keep() == 409
+        conn.execute("UPDATE scheduled_actions SET delete_status = 'pending'")
+        conn.commit()
+
+        assert keep() == (200 if forever else 302)
+
+    @pytest.mark.parametrize(("left", "status"), [([], 400), (["/m/b.mkv"], 302)])
+    def test_only_a_deletion_that_left_files_can_be_kept(self, conn, left, status):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": f, "size": 1} for f in ["/m/a.mkv", *left]]),),
+        )
+        record_removed_files(conn, action_id, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+        conn.commit()
+        client = self._client(conn)
+
+        page = client.get(f"/keep/{token}").text
+        resp = client.post(
+            f"/keep/{token}",
+            data={"duration": "30 days"},
+            headers=self._HTML,
+            follow_redirects=False,
+        )
+
+        assert ("Keep for" in page, resp.status_code) == (bool(left), status)
+        action = conn.execute("SELECT action FROM scheduled_actions").fetchone()["action"]
+        assert action == ("snoozed" if left else "scheduled_deletion")
+        assert ("This is being deleted now." in page) is (not left)
+
+    def test_a_forever_keep_made_past_the_date_reads_protected(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_media_item(conn)
+        execute_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=execute_at
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        client = authed_client(self._client(conn).app, conn)
+
+        assert client.post(f"/api/keep/{token}/forever").status_code == 200
+
+        html = client.get(f"/keep/{token}").text
+        assert "This link has expired" not in html
+        assert "Protected" in html
 
     def test_a_token_that_fails_verification_never_shows_the_protected_page(self, conn):
         token = self._kept_by_admin(conn)

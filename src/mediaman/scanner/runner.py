@@ -13,10 +13,13 @@ import logging
 import shutil
 import sqlite3
 import threading
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
 
+from mediaman.core.audit import log_audit
+from mediaman.core.time import now_iso
 from mediaman.scanner import repository
 from mediaman.scanner.repository.scheduled_actions import has_pending_unmonitors
 from mediaman.services.arr.base import ArrError
@@ -64,6 +67,8 @@ def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
 
 SCAN_SKIPPED_NO_PLEX = "Plex not configured"
 SCAN_SKIPPED_PLEX_UNREACHABLE = "Plex could not be reached"
+SCAN_FAILED_NO_LIBRARY = "no library could be read from Plex"
+SCAN_FAILED_DISK_LIMITS = "no library was scanned: check the disk limits in Settings"
 
 
 class ScanSummary(TypedDict, total=False):
@@ -82,6 +87,10 @@ class ScanSummary(TypedDict, total=False):
     * ``deleted`` — items deleted from disk this run.
     * ``reclaimed_bytes`` — bytes freed by deletions.
     * ``skipped_reason`` — set alone when the scan did not run at all.
+    * ``left_out`` — why each library Plex was not read for was left out, by its id;
+      absent from what run_scan_from_db returns.
+    * ``left_out_notes`` — the same as a sentence each, set by run_scan_from_db.
+    * ``failed_reason`` — set when the scan read none of its libraries.
 
     Do NOT add new keys here without also updating ScanEngine.run_scan
     and any callers that check specific keys — this is the single source of
@@ -96,6 +105,18 @@ class ScanSummary(TypedDict, total=False):
     deleted: int
     reclaimed_bytes: int
     skipped_reason: str
+    left_out: dict[str, str]
+    left_out_notes: list[str]
+    failed_reason: str
+
+
+def scan_end(summary: ScanSummary) -> tuple[str, str | None]:
+    """Return the status a scan run ends with, and what there is to say of it."""
+    if reason := summary.get("skipped_reason"):
+        return "skipped", reason
+    if reason := summary.get("failed_reason"):
+        return "error", reason
+    return "done", "; ".join(summary.get("left_out_notes", [])) or None
 
 
 class PlexClientBundle(NamedTuple):
@@ -113,6 +134,14 @@ class PlexClientBundle(NamedTuple):
 
 
 logger = logging.getLogger(__name__)
+
+# Audit rows about a Plex library rather than an item carry this prefix and its id.
+_LIBRARY_AUDIT_ID = "_library:"
+# Settings keys holding which libraries the last scan to check the disks left out, and which
+# the last scan could not read from Plex: the reason of each by its id.
+_LEFT_OUT_KEY = "libraries_left_out"
+_UNREAD_KEY = "libraries_unread"
+_DISK_LIMIT_UNREADABLE = "its disk limit in Settings cannot be read"
 
 
 # Module-level Plex client cache. Rebuilding PlexClient on every
@@ -165,93 +194,171 @@ def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
         return []
 
 
-def _warn_bad_threshold(cfg: object, lib_id: str, lib_titles: dict[str, str]) -> None:
-    logger.warning(
-        "Invalid disk threshold %r for library '%s' — not scanning it",
-        cfg,
-        lib_titles.get(lib_id, lib_id),
-    )
+class DiskThreshold(NamedTuple):
+    path: str
+    percent: int
+
+
+def read_disk_threshold(cfg: object) -> DiskThreshold | None:
+    """Return a library's entry of ``disk_thresholds``, or None when it is always scanned.
+
+    Raises ValueError when the entry cannot be read: such a library is not scanned.
+    """
+    if not cfg:
+        return None
+    if not isinstance(cfg, dict):
+        raise ValueError("not an object")
+    path, threshold = cfg.get("path"), cfg.get("threshold")
+    if not path or not threshold:
+        return None
+    try:
+        percent = int(threshold)
+    except (TypeError, OverflowError) as exc:
+        raise ValueError("not a percentage") from exc
+    if percent <= 0:
+        return None
+    # No disk has a path with a null byte.
+    if not isinstance(path, str) or "\0" in path:
+        raise ValueError("not a path")
+    return DiskThreshold(path, percent)
 
 
 def _filter_libraries_by_disk(
     conn: sqlite3.Connection,
     lib_ids: list[str],
     lib_titles: dict[str, str],
-) -> list[str]:
-    """Remove libraries whose disk usage is below their configured threshold.
+) -> tuple[list[str], list[str]]:
+    """Return the libraries to scan, and those left out because their threshold cannot be read.
 
-    Libraries with no threshold, threshold of 0, or any OSError from
-    ``get_disk_usage`` are always included (fail open). One whose threshold
-    cannot be read is left out: scanning it may schedule what the threshold
-    was set to keep.
+    Neither holds one whose disk usage is below its threshold. A library with
+    no threshold, a threshold of 0, or any OSError from ``get_disk_usage`` is
+    scanned (fail open). One whose threshold cannot be read is left out:
+    scanning it may schedule what the threshold was set to keep.
     """
     raw = repository.read_setting(conn, "disk_thresholds")
     if not raw:
-        return lib_ids
+        return lib_ids, []
 
     try:
         thresholds = json.loads(raw)
     except json.JSONDecodeError:
         thresholds = raw
     if not thresholds:
-        return lib_ids
+        return lib_ids, []
     if not isinstance(thresholds, dict):
         logger.warning("disk_thresholds setting is not a JSON object — scanning no libraries")
-        return []
+        return [], list(lib_ids)
 
-    filtered = []
+    filtered: list[str] = []
+    left_out: list[str] = []
     for lib_id in lib_ids:
-        cfg = thresholds.get(lib_id)
-        if not cfg:
-            filtered.append(lib_id)
-            continue
-        if not isinstance(cfg, dict):
-            _warn_bad_threshold(cfg, lib_id, lib_titles)
-            continue
-        if not cfg.get("path") or not cfg.get("threshold"):
-            filtered.append(lib_id)
-            continue
-
+        title = lib_titles.get(lib_id, lib_id)
         try:
-            threshold_pct = int(cfg["threshold"])
-        except (ValueError, TypeError, OverflowError):
-            _warn_bad_threshold(cfg, lib_id, lib_titles)
-            continue
-        if threshold_pct <= 0:
-            filtered.append(lib_id)
-            continue
-        if not isinstance(cfg["path"], str):
-            _warn_bad_threshold(cfg, lib_id, lib_titles)
-            continue
-
-        try:
-            usage = shutil.disk_usage(cfg["path"])
-            total = usage.total
-            used = usage.used
-            current_pct = (used / total * 100) if total > 0 else 0
+            limit = read_disk_threshold(thresholds.get(lib_id))
+            if limit is None:
+                filtered.append(lib_id)
+                continue
+            usage = shutil.disk_usage(limit.path)
         except OSError:
-            logger.warning(
-                "Disk check failed for library '%s' (path: %s) — scanning anyway",
-                lib_titles.get(lib_id, lib_id),
-                cfg["path"],
-            )
+            logger.warning("Disk check failed for library '%s' — scanning anyway", title)
             filtered.append(lib_id)
             continue
-        except ValueError:  # a path no disk can have, such as one with a null byte
-            _warn_bad_threshold(cfg, lib_id, lib_titles)
+        except ValueError:
+            logger.warning(
+                "Invalid disk threshold %r for library '%s' — not scanning it",
+                thresholds.get(lib_id),
+                title,
+            )
+            left_out.append(lib_id)
             continue
 
-        if current_pct >= threshold_pct:
+        current_pct = (usage.used / usage.total * 100) if usage.total > 0 else 0
+        if current_pct >= limit.percent:
             filtered.append(lib_id)
         else:
             logger.info(
                 "Skipped library '%s' — disk at %.1f%%, threshold %d%%",
-                lib_titles.get(lib_id, lib_id),
+                title,
                 current_pct,
-                threshold_pct,
+                limit.percent,
             )
 
-    return filtered
+    return filtered, left_out
+
+
+def _left_out_note(lib_id: str, reason: str, lib_titles: Mapping[str, str]) -> str:
+    return f"Plex library '{lib_titles.get(lib_id, lib_id)}' was not scanned: {reason}"
+
+
+def _audit_left_out(
+    conn: sqlite3.Connection,
+    key: str,
+    left_out: Mapping[str, str],
+    lib_titles: Mapping[str, str],
+) -> None:
+    """Record in the history each library left out that was not, for the same reason, the last time.
+
+    *left_out* gives the reason of each; the settings row *key* holds those of the last time.
+    """
+    before = _read_left_out(conn, key)
+    for lib_id, reason in left_out.items():
+        if before.get(lib_id) != reason:
+            log_audit(
+                conn,
+                _LIBRARY_AUDIT_ID + lib_id,
+                "library_left_out",
+                _left_out_note(lib_id, reason, lib_titles),
+            )
+    if left_out != before:
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+            "updated_at = excluded.updated_at",
+            (key, json.dumps(left_out), now_iso()),
+        )
+    conn.commit()
+
+
+def _read_left_out(conn: sqlite3.Connection, key: str) -> dict[str, object]:
+    """Return what _audit_left_out stored, nothing when it cannot be read."""
+    try:
+        stored = json.loads(repository.read_setting(conn, key) or "{}")
+    except ValueError:
+        return {}
+    return stored if isinstance(stored, dict) else {}
+
+
+def _say_what_was_left_out(
+    conn: sqlite3.Connection,
+    summary: ScanSummary,
+    lib_ids: Collection[str],
+    lib_titles: Mapping[str, str],
+    unreadable_limits: Mapping[str, str],
+    ticked: Collection[str],
+) -> ScanSummary:
+    """Audit the libraries a scan of *lib_ids* could not read from Plex, and name them in its summary.
+
+    *unreadable_limits*, whose disk limit could not be read, are named too. The
+    scan failed if it read none: of those it was to scan that Plex lists, or of
+    any, where Plex lists none of the *ticked* ones. With none to scan that Plex
+    lists it failed only for a disk limit that cannot be read: the others are
+    below theirs.
+    """
+    left_out = summary.pop("left_out", {})
+    _audit_left_out(conn, _UNREAD_KEY, left_out, lib_titles)
+    noted = {**unreadable_limits, **left_out}
+    if not noted:
+        return summary
+    summary["left_out_notes"] = [
+        _left_out_note(lib_id, reason, lib_titles) for lib_id, reason in noted.items()
+    ]
+    listed = [lib_id for lib_id in ticked if lib_id in lib_titles]
+    if listed and not any(lib_id in lib_titles for lib_id in lib_ids):
+        if unreadable_limits:
+            summary["failed_reason"] = SCAN_FAILED_DISK_LIMITS
+    elif left_out.keys() >= set(lib_ids):
+        summary["failed_reason"] = SCAN_FAILED_NO_LIBRARY
+    return summary
 
 
 def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:
@@ -326,7 +433,7 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientB
     lib_ids = _load_library_ids(conn)
     plex_libs = plex.get_libraries()
     lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
-    lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
+    lib_titles: dict[str, str] = {lib["id"]: lib["title"] for lib in plex_libs}
 
     return PlexClientBundle(plex, lib_ids, lib_types, lib_titles)
 
@@ -364,9 +471,17 @@ def run_scan_from_db(
         logger.warning("Scan skipped — Plex client could not be built")
         return {"skipped_reason": SCAN_SKIPPED_PLEX_UNREACHABLE}
     plex, lib_ids, lib_types, lib_titles = result
+    ticked = lib_ids
 
+    unreadable_limits: dict[str, str] = {}
     if not skip_disk_check:
-        lib_ids = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
+        # One Plex does not list is left out by the scan, however full its disk is.
+        listed = [lib_id for lib_id in lib_ids if lib_id in lib_types]
+        unlisted = [lib_id for lib_id in lib_ids if lib_id not in lib_types]
+        to_scan, left_out = _filter_libraries_by_disk(conn, listed, lib_titles)
+        unreadable_limits = dict.fromkeys(left_out, _DISK_LIMIT_UNREADABLE)
+        _audit_left_out(conn, _LEFT_OUT_KEY, unreadable_limits, lib_titles)
+        lib_ids = to_scan + unlisted
 
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
@@ -392,7 +507,9 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    return cast(ScanSummary, engine.run_scan())
+    return _say_what_was_left_out(
+        conn, engine.run_scan(), lib_ids, lib_titles, unreadable_limits, ticked
+    )
 
 
 def _unmonitor_deleted(conn: sqlite3.Connection, secret_key: str) -> None:

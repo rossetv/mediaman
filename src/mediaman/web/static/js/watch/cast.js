@@ -155,17 +155,7 @@
     });
   }
 
-  function born(p) {
-    var f = known[p.id].person;
-    var year = String(f.birthday || '').slice(0, 4);
-    var end = String(f.deathday || '').slice(0, 4);
-    var age = typeof f.age === 'number' ? f.age : null;
-    return [
-      year && 'Born ' + year,
-      end && (year ? 'died ' : 'Died ') + end,
-      age !== null && (end ? 'aged ' : 'age ') + age
-    ].filter(Boolean).join(', ');
-  }
+  function born(p) { return watch.explore.born(known[p.id].person); }
 
   /* ── The card: one for the whole strip, in the overlay's scroller so that it
      scrolls with it. Laid out at its full size; closed, it is moved, shrunk and

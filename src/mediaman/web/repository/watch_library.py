@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import sqlite3
 import unicodedata
 from collections.abc import Sequence, Set
@@ -18,12 +17,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
+from mediaman.core.removed_files import FILES_GONE
 from mediaman.services.infra import get_setting
 from mediaman.services.watch_catalog import folder_year
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES,
     ANIME_SEASON_TYPES,
-    MAX_SEARCH_TERM_LEN,
+    TitleSearch,
+    without_article,
 )
 from mediaman.web.repository.watch_progress import seen_movies
 
@@ -57,8 +58,6 @@ RowOrder = Literal["az", "added", "year", "unwatched"]
 RowCursor = tuple[str, str, str]
 
 _NEWEST_FIRST = ("added", "year")
-
-_ARTICLE = re.compile(r"^(?:the|an?)\s+(?=\S)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,26 +142,18 @@ def _in_libraries(
     return f"CAST({column} AS TEXT) IN ({marks})", list(libraries)
 
 
-def _like(term: str) -> str:
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
 def _movies(
     conn: sqlite3.Connection,
     libraries: list[str],
     *,
     key: str | None = None,
-    term: str | None = None,
+    search: TitleSearch | None = None,
 ) -> list[LibraryMovie]:
     lib_sql, params = _in_libraries(libraries)
     where = [lib_sql, "media_type = 'movie'"]
     if key is not None:
         where.append("id = ?")
         params.append(key)
-    if term is not None:
-        where.append("title LIKE ? ESCAPE '\\'")
-        params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         f"SELECT id, title, added_at, tmdb_id, year, file_path FROM media_items WHERE {' AND '.join(where)}"
@@ -178,6 +169,7 @@ def _movies(
             r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
+        if search is None or search.distance(r["title"]) is not None
     ]
 
 
@@ -186,7 +178,7 @@ def _shows(
     libraries: list[str],
     *,
     key: str | None = None,
-    term: str | None = None,
+    search: TitleSearch | None = None,
 ) -> list[LibraryShow]:
     lib_sql, params = _in_libraries(libraries)
     season_marks = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -196,9 +188,6 @@ def _shows(
     if key is not None:
         where.append("show_rating_key = ?")
         params.append(key)
-    if term is not None:
-        where.append("COALESCE(show_title, title) LIKE ? ESCAPE '\\'")
-        params.append(_like(term))
     # rationale: only fixed fragments and "?" placeholders are joined; every value is bound
     rows = conn.execute(  # nosec B608
         "SELECT show_rating_key, MAX(COALESCE(show_title, title)) AS show_title,"
@@ -222,6 +211,7 @@ def _shows(
             year=r["year"] or folder_year(r["file_path"]),
         )
         for r in rows
+        if search is None or search.distance(r["show_title"]) is not None
     ]
 
 
@@ -242,7 +232,7 @@ def _plain(text: str) -> str:
 
 def sort_title(title: str) -> str:
     """*title* as A to Z reads it: without a leading article, accents or case."""
-    return _ARTICLE.sub("", _plain(title))
+    return without_article(_plain(title))
 
 
 def row_cursor(
@@ -393,29 +383,14 @@ def search_library(
     conn: sqlite3.Connection, libraries: list[str], query: str, limit: int
 ) -> tuple[list[LibraryMovie | LibraryShow], int]:
     """The *limit* movies and shows whose titles come closest to *query* of those that contain
-    it (case-insensitive), then by title, and how many contain it."""
-    term = query[:MAX_SEARCH_TERM_LEN]
+    it (as TitleSearch reads both), then by title, and how many contain it."""
+    search = TitleSearch(conn, query)
     found: list[LibraryMovie | LibraryShow] = [
-        *_movies(conn, libraries, term=term),
-        *_shows(conn, libraries, term=term),
+        *_movies(conn, libraries, search=search),
+        *_shows(conn, libraries, search=search),
     ]
-    wanted = _plain(term)
-    found.sort(key=lambda item: (_distance(item.title, wanted), sort_title(item.title), item.key))
+    found.sort(key=lambda item: (search.distance(item.title), sort_title(item.title), item.key))
     return found[:limit], len(found)
-
-
-def _distance(title: str, wanted: str) -> int:
-    """How far *title* is from *wanted*, which is plain: the same, the same but for a leading
-    article, starting with it, with a word that does, or only containing it."""
-    whole = _plain(title)
-    name = _ARTICLE.sub("", whole)
-    if wanted == whole:
-        return 0
-    if wanted == name:
-        return 1
-    if whole.startswith(wanted) or name.startswith(wanted):
-        return 2
-    return 3 if re.search(rf"(?<!\w){re.escape(wanted)}", whole) else 4
 
 
 def season_item_id(
@@ -435,20 +410,20 @@ def season_item_id(
 def pending_deletions(
     conn: sqlite3.Connection,
     libraries: list[str],
-    now: datetime,
     *,
     media_item_id: str | None = None,
 ) -> list[PendingDeletion]:
-    """Movies and seasons scheduled for deletion and not yet kept or due, soonest first."""
+    """Movies and seasons scheduled for deletion that are neither kept, begun by the deletion
+    pass nor already removed, soonest first. One whose date has passed is leaving until the pass claims it."""
     lib_sql, params = _in_libraries(libraries, "mi.plex_library_id")
     where = [
         lib_sql,
         "sa.action = 'scheduled_deletion'",
         "sa.token_used = 0",
         "(sa.delete_status IS NULL OR sa.delete_status = 'pending')",
-        "sa.execute_at >= ?",
+        "sa.execute_at IS NOT NULL",
+        f"NOT {FILES_GONE}",
     ]
-    params.append(now.isoformat())
     if media_item_id is not None:
         where.append("sa.media_item_id = ?")
         params.append(media_item_id)
@@ -477,9 +452,9 @@ def pending_deletions(
 
 
 def pending_deletion(
-    conn: sqlite3.Connection, libraries: list[str], media_item_id: str, now: datetime
+    conn: sqlite3.Connection, libraries: list[str], media_item_id: str
 ) -> PendingDeletion | None:
-    found = pending_deletions(conn, libraries, now, media_item_id=media_item_id)
+    found = pending_deletions(conn, libraries, media_item_id=media_item_id)
     return found[0] if found else None
 
 

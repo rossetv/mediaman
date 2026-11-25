@@ -121,12 +121,28 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_movie(movie_id=1)
         put_call = _find_call(fake_http, "PUT")
         post_call = _find_call(fake_http, "POST")
         assert put_call[2]["json"]["monitored"] is True
         assert post_call is not None
+
+    def test_reading_the_commands_before_a_search_is_one_short_try(
+        self, client, fake_http, fake_response
+    ):
+        fake_http.queue("GET", fake_response(json_data={"id": 1, "monitored": True}))
+        for _ in range(3):
+            fake_http.queue("GET", fake_response(status=503, text="busy"))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+
+        client.remonitor_movie(movie_id=1)
+
+        reads = [c for c in fake_http.calls if c[0] == "GET" and c[1].endswith("/command")]
+        assert len(reads) == 1
+        assert sum(reads[0][2]["timeout"]) <= 10
+        assert _find_call(fake_http, "POST") is not None
 
     def test_remonitor_movie_retries_on_failed_put(self, client, fake_http, fake_response):
         # Round 1: GET returns unmonitored, PUT fails.
@@ -139,6 +155,7 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
         )
         fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
 
         client.remonitor_movie(movie_id=1, max_retries=3)
@@ -153,6 +170,7 @@ class TestArrClientRadarr:
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
         )
         # Still triggers a search even when no PUT is needed.
+        fake_http.queue("GET", fake_response(json_data=[]))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_movie(movie_id=1)
         puts = [c for c in fake_http.calls if c[0] == "PUT"]

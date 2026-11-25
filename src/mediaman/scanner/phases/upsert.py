@@ -31,6 +31,7 @@ from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.repository._protection import fetch_replaced_keep
+from mediaman.scanner.repository.rekeyed import mark_listed_copies
 from mediaman.services.arr.match import index_match_movie, index_match_season
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,8 @@ def upsert_item(
     repository.restore_keeps(conn, media_id, keeps)
     repository.forget_pruned_show_season(conn, media_id, file_path, season)
     repository.update_last_watched(conn, media_id, fetch.watch_history)
-    repository.carry_last_watched(conn, media_id)
+    mark_listed_copies(conn, media_id, listed)
+    repository.carry_last_watched(conn, media_id, every_library_read=False)
 
 
 def schedule_deletion(

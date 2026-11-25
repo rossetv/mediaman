@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
@@ -155,6 +156,42 @@ def restamp_claim(
             (claimed_at, row.id, row.claimed_at),
         )
     return replace(row, claimed_at=claimed_at) if cur.rowcount else None
+
+
+# Rows whose email went out, by id with their claim, until that is written.
+_sent_unrecorded: dict[int, str] = {}
+_sent_lock = threading.Lock()
+
+
+def note_sent(row: ClaimedNotificationRow) -> None:
+    """Remember that the email of *row* went out; record_sent writes it down."""
+    with _sent_lock:
+        _sent_unrecorded[row.id] = row.claimed_at
+
+
+def record_sent(conn: sqlite3.Connection) -> bool:
+    """Mark every row whose email went out as notified; False when that could not be written,
+    and the rows are kept for the next try, so none is sent a second time.
+    """
+    with _sent_lock:
+        sent = list(_sent_unrecorded.items())
+    if not sent:
+        return True
+    try:
+        with conn:
+            conn.executemany(
+                "UPDATE download_notifications SET notified=1 "
+                "WHERE id=? AND notified=2 AND claimed_at=?",
+                sent,
+            )
+    except sqlite3.Error:
+        logger.exception("failed to record %d sent notification(s)", len(sent))
+        return False
+    with _sent_lock:
+        for row_id, claimed_at in sent:
+            if _sent_unrecorded.get(row_id) == claimed_at:
+                del _sent_unrecorded[row_id]
+    return True
 
 
 def reconcile_stranded_notifications(

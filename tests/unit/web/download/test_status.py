@@ -444,6 +444,37 @@ class TestStatusTellsWhatTheArrHolds:
 
         assert data["state"] == "searching"
 
+    @pytest.mark.parametrize(("files", "state"), [(9, "searching"), (10, "ready")])
+    def test_a_show_is_ready_only_once_every_aired_season_is_all_there(
+        self, app_factory, authed_client, conn, files, state
+    ):
+        seasons = [
+            {
+                "seasonNumber": number,
+                "monitored": True,
+                "statistics": {
+                    "episodeCount": 10,
+                    "episodeFileCount": count,
+                    "previousAiring": "2020-01-01T00:00:00Z",
+                },
+            }
+            for number, count in [(1, 10), (2, files)]
+        ]
+        sonarr = MagicMock()
+        sonarr.get_queue.return_value = []
+        sonarr.get_series.return_value = [
+            {
+                "tmdbId": 42,
+                "title": "Show",
+                "statistics": {"episodeFileCount": 10 + files},
+                "seasons": seasons,
+            }
+        ]
+
+        data = self._status(app_factory, authed_client, conn, "sonarr", sonarr)
+
+        assert data["state"] == state
+
     def test_a_season_pack_is_counted_once_and_single_episodes_each(
         self, app_factory, authed_client, conn
     ):

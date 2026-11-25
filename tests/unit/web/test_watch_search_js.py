@@ -53,7 +53,7 @@ def test_a_library_group_that_shows_only_some_of_what_was_found_says_of_how_many
 def test_a_reply_to_an_older_or_shorter_query_is_dropped() -> None:
     out = _run("staleReply")
     assert out["afterOlder"] == ["New"]
-    assert out["shortCalls"] == ["/api/watch/search?q=a"]
+    assert out["shortCalls"] == ["/api/watch/search?q=a", "/api/watch/search/tmdb?q=a"]
     assert out["afterShort"] == {"titles": ["Short"], "heads": ["In your library"]}
 
 
@@ -95,10 +95,10 @@ def test_without_tmdb_the_hint_links_for_admins_and_never_says_tmdb_to_viewers()
     assert out["fromReply"] is True
 
 
-def test_a_one_letter_query_does_not_ask_tmdb_but_two_letters_do() -> None:
+def test_a_title_of_one_letter_is_searched_for_outside_the_library_too() -> None:
     out = _run("short")
-    assert out["one"] == ["/api/watch/search?q=a"]
-    assert out["two"] == ["/api/watch/search?q=ab", "/api/watch/search/tmdb?q=ab"]
+    assert out["urls"] == ["/api/watch/search?q=M", "/api/watch/search/tmdb?q=M"]
+    assert out["titles"] == ["M"]
 
 
 def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -> None:
@@ -107,7 +107,32 @@ def test_clearing_returns_to_browse_keeps_focus_and_drops_q_from_the_address() -
     assert out["url"] == "/watch?foo=1#title=movie-2"
     assert (out["value"], out["focus"], out["browse"], out["results"]) == ("", True, True, True)
     assert (out["status"], out["groups"]) == ("", 0)
-    assert out["length"] == 1  # typing and clearing add nothing for Back to undo
+    assert out["index"] == 0  # typing and clearing leave nothing for Back to undo
+
+
+def test_a_search_is_one_entry_back_is_the_rows_and_forward_the_search() -> None:
+    out = _run("searchEntry")
+    assert out["typed"] == ["/watch?q=o", 2, 0]
+    assert out["more"] == ["/watch?q=orchard+road", 2]
+    assert out["back"] == ["/watch", "", "browse", 700]
+    assert out["forward"] == [
+        "/watch?q=orchard+road",
+        "orchard road",
+        "results",
+        "/api/watch/search?q=orchard%20road",
+    ]
+    assert out["linked"] == ["/watch", 1]
+    assert out["restored"] == ["/watch?q=orchard", 1]
+
+
+def test_a_search_typed_while_the_last_is_still_leaving_is_not_lost() -> None:
+    assert _run("emptiedAndTyped") == [
+        "/watch?q=lantern",
+        "lantern",
+        "results",
+        2,
+        ["orchard", "lantern"],
+    ]
 
 
 def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
@@ -202,11 +227,19 @@ def test_a_search_in_the_address_opens_on_its_results_with_the_rows_never_shown(
     assert out["none"] == {"skeleton": 0, "line": "No matches for “zzqx”"}
 
 
-def test_a_download_badge_names_its_percentage_and_a_part_owned_title_is_in_the_library() -> None:
+def test_what_radarr_or_sonarr_has_is_never_under_available_to_download() -> None:
+    out = _run("heldByArr")
+    assert out["heads"] == ["In your library", "Available to download"]
+    assert out["titles"] == ["in_library", "partial", "null"]
+    assert out["counts"] == ["2 titles", "1 title"]
+    assert out["badge"] == "In library"
+
+
+def test_a_download_badge_names_its_percentage_and_a_library_one_its_class() -> None:
     out = _run("stateBadges")
-    assert out["texts"] == ["Downloading 95%", "Downloading", "In library"]
-    assert out["said"] == [["Downloading "], [], []]
-    assert out["classes"][2].endswith("watch-badge--in")
+    assert out["texts"] == ["Downloading 95%", "Downloading"]
+    assert out["said"] == [["Downloading "], []]
+    assert out["owned"].endswith("watch-badge--in")
 
 
 def test_a_poster_both_searches_found_stays_and_one_whose_state_changed_is_drawn_anew() -> None:
@@ -236,6 +269,41 @@ def test_categories_are_suggested_on_the_keystroke_and_people_once_they_are_know
     assert out["begun"] == "Action | Category · Popular"
 
 
+def test_what_is_typed_begins_a_word_whatever_its_accents_and_punctuation() -> None:
+    assert _run("foldedSuggestions") == [
+        "Amé",
+        "Ame",
+        "Handmaid’s",
+        "Spider-Man",
+        "Spiderman",
+        "WALL·E",
+        "Law &",
+        "Law and O",
+        "B",
+        "S.W.A.T",
+        "Se7en",
+        "…",
+        None,
+        None,
+        None,
+        "Smørr",
+        "Straße",
+        "Xʼs Own",
+    ]
+
+
+def test_a_held_title_that_only_tmdb_found_stands_in_the_library_group() -> None:
+    out = _run("heldByTmdb")
+    assert out["heads"] == ["In your library", "Available to download"]
+    assert out["titles"] == ["Orchard Keepers", "Le Verger", "Orchard Road"]
+    assert out["counts"] == ["2 titles", "1 title"]
+    assert out["keeps"] == ["7", "2"]
+    assert out["status"].startswith("2 in your library, 1 available to download")
+    assert out["alone"] == [["In your library"], None, "/watch/movie/2", ["Amélie | Movie"]]
+    assert out["again"] == ["Amélie"]
+    assert out["many"] == "2 of 81 titles"
+
+
 def test_the_column_beside_the_grid_goes_only_once_it_is_known_to_stay_empty() -> None:
     assert _run("column") == {
         "first": False,
@@ -261,10 +329,10 @@ def test_a_held_title_of_a_category_phrase_has_its_keep_as_a_match_by_name_has()
     assert out["keeps"] == [
         ["7", leaving, "7"],
         ["8", leaving, "8"],
-        [None, None, ""],
+        [None, None, None],
         [None, None, None],
     ]
-    assert out["explore"] is False
+    assert out["explore"] == [False, "3 days left", "8"]
 
 
 def test_arrows_move_one_highlight_esc_undoes_a_step_at_a_time_and_enter_opens_it() -> None:
@@ -293,7 +361,7 @@ def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:
 
 def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
     out = _run("categoryAndBack")
-    assert (out["url"], out["entries"]) == ("/watch?genre=action", 2)
+    assert (out["url"], out["entries"]) == ("/watch?genre=action", 3)
     assert (out["value"], out["token"], out["title"]) == ("", "Action", "Action")
     assert out["shown"] == "results"
     assert out["cards"] == []  # nothing of the search is left beside it
@@ -311,11 +379,42 @@ def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results
 def test_typing_on_a_category_is_an_entry_of_its_own_and_the_cross_goes_to_the_rows() -> None:
     out = _run("typeOnCategory")
     genre = "/watch?genre=action&sort=newest"
-    assert out["first"] == [genre, 1, ["/api/watch/explore?genre=action&sort=newest"], "results"]
+    assert out["first"] == [
+        genre,
+        1,
+        ["/api/watch/explore?genre=action&sort=newest&after="],
+        "results",
+    ]
     assert out["typed"] == ["/watch?q=o", 2, False, True]
     assert out["more"] == ["/watch?q=orchard", 2]
     assert out["back"] == [genre, "", True, False]
     assert out["cleared"] == ["/watch", "browse", True]
+
+
+def test_a_category_s_place_that_is_no_longer_read_starts_its_list_anew_as_chosen() -> None:
+    out = _run("stalePlace")
+    assert out["asked"] == "/api/watch/explore?genre=action&sort=newest&decade=2010s&after="
+    assert out["url"] == "/watch?genre=action&sort=newest&decade=2010s"
+    assert out["years"] == "2010s"
+    assert (out["set"], out["next"]) == ([[1, "2,2", True]], "2,2")
+
+
+def test_a_person_s_title_that_only_radarr_or_sonarr_has_is_in_the_library() -> None:
+    assert _run("personHeldByArr") == [
+        "In your library2 titles",
+        "T1Movie · 2020",
+        "T2Movie · 2020",
+        "Available to download1 title",
+        "T3Movie · 2020",
+    ]
+
+
+def test_films_and_tv_in_one_order_are_asked_to_go_on_from_where_each_stands() -> None:
+    assert _run("orderedPages") == [
+        ["&sort=newest&after=", "&sort=newest&after=1-5%2C1-9"],
+        ["&type=movie&sort=newest", "&type=movie&sort=newest&page=2"],
+        ["", "&page=2"],
+    ]
 
 
 def test_the_filters_change_the_address_in_place_and_the_last_one_pressed_wins() -> None:
@@ -491,8 +590,13 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
     assert _run("marks") == [["movie/1", True, 1, 1], [None, False, 0, 0]]
 
 
-def test_a_result_that_leaves_today_or_tomorrow_is_marked_urgent_and_a_later_one_is_not() -> None:
-    assert _run("leaving") == [True, True, False]
+def test_a_result_says_when_it_leaves_and_only_by_tomorrow_is_urgent() -> None:
+    assert _run("leaving") == [
+        [["Leaving any day", "Leaving any day", "Any day"], True],
+        [["Leaving today", "Leaving today", "Today"], True],
+        [["Leaving in 1 day", "1 day left"], True],
+        [["Leaving in 2 days", "2 days left"], False],
+    ]
 
 
 def test_a_search_before_the_categories_are_in_waits_for_them_and_lists_its_own() -> None:
@@ -632,7 +736,36 @@ def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
 
 
 def test_a_search_emptied_over_a_grid_takes_the_focus_on_no_later_back() -> None:
-    assert _run("emptiedStepLost") == {"url": "/watch?all=movies", "other": True}
+    out = _run("emptiedStepLost")
+    assert (out["url"], out["other"]) == ("/watch?all=movies", True)
+
+
+def test_a_search_emptied_by_a_step_back_that_is_never_made_leaves_the_search_usable() -> None:
+    out = _run("emptiedStepLost")
+    assert out["next"] == [["/watch?q=lantern", "results", "/api/watch/search?q=lantern"]] * 2
+
+
+def test_what_is_typed_before_a_slow_step_back_is_made_stays_and_is_searched_for() -> None:
+    searched = ["lantern", "/watch?q=lantern", "results", "/api/watch/search?q=lantern"]
+    assert _run("emptiedStepLate") == [searched, searched]
+
+
+def test_a_back_long_after_a_step_that_was_never_made_closes_the_search() -> None:
+    assert _run("emptiedLongAgo") == ["/watch?all=movies", "", "browse"]
+
+
+def test_a_search_emptied_twice_during_a_slow_step_back_goes_back_once() -> None:
+    # The second time before, then after, the step is given up on.
+    back = [1, "/watch?all=movies", "", "browse"]
+    assert _run("emptiedTwice") == [back, back]
+
+
+def test_a_search_typed_over_a_category_opened_during_a_lost_step_is_sent() -> None:
+    assert _run("emptiedThenCategory") == [
+        "/watch?q=lantern",
+        "results",
+        "/api/watch/search?q=lantern",
+    ]
 
 
 def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() -> None:

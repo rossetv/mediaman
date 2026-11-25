@@ -2,21 +2,38 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import socket
+import ssl
 import threading
 import time
+from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import urlsplit
 
+import anyio
+import anyio.to_thread
 import pytest
 import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
 
 from mediaman.services.media_meta import plex_stream
 from mediaman.services.media_meta.plex_stream import (
+    MAX_READS_PER_STREAM,
+    MAX_READS_PER_USER,
+    MAX_READS_TOTAL,
     MAX_STREAMS_PER_USER,
     MAX_STREAMS_TOTAL,
+    SegmentRead,
     StreamGone,
     StreamManager,
+    StreamReplaced,
+    TooManyReads,
     TooManyStreams,
     init_stream_manager,
 )
@@ -167,6 +184,15 @@ def _start(manager: StreamManager, user: str = "alice", **kwargs) -> str:
     return manager.start(user, **args)
 
 
+def _segment(manager: StreamManager, stream_id: str, user: str, name: str) -> tuple[bytes, str]:
+    read = SegmentRead(stream_id, user)
+    manager.claim_read(read)
+    try:
+        return manager.segment(read, name)
+    finally:
+        manager.release_read(read)
+
+
 def test_decision_comes_before_start_with_the_same_session(manager, plex):
     _start(manager)
 
@@ -182,7 +208,7 @@ def test_decision_comes_before_start_with_the_same_session(manager, plex):
 def test_child_playlist_is_read_before_any_segment(manager, plex):
     stream_id = _start(manager)
 
-    body, content_type = manager.segment(stream_id, "alice", "00001.ts")
+    body, content_type = _segment(manager, stream_id, "alice", "00001.ts")
 
     assert body == b"segment 00001.ts"
     assert content_type == "video/mp2t"
@@ -242,7 +268,7 @@ def test_segment_name_that_is_not_a_plain_segment_is_refused_before_plex(manager
     calls_before = len(plex.calls)
 
     with pytest.raises(ValueError):
-        manager.segment(stream_id, "alice", name)
+        _segment(manager, stream_id, "alice", name)
 
     assert len(plex.calls) == calls_before
 
@@ -254,7 +280,7 @@ def test_another_users_stream_is_indistinguishable_from_an_unknown_one(manager):
         manager.playlist("no-such-stream", "bob")
     for attempt in (
         lambda: manager.playlist(stream_id, "bob"),
-        lambda: manager.segment(stream_id, "bob", "00000.ts"),
+        lambda: _segment(manager, stream_id, "bob", "00000.ts"),
         lambda: manager.get(stream_id, "bob"),
         lambda: manager.stop(stream_id, "bob"),
     ):
@@ -305,7 +331,7 @@ def test_reap_stops_idle_streams_on_plex_and_keeps_active_ones(manager, plex, cl
 def test_access_keeps_a_stream_from_being_reaped(manager, clock):
     stream_id = _start(manager)
     clock.now += 170
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
     clock.now += 170
 
     assert manager.reap(clock.now) == 0
@@ -320,7 +346,7 @@ def test_a_failed_start_is_retried_once_with_a_fresh_session(manager, plex):
     assert len(sessions) == 2
     assert sessions[0] != sessions[1]
     assert [c["params"]["session"] for c in plex.calls_to("stop")] == [sessions[0]]
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
 
 
 def test_start_gives_up_after_the_retry(manager, plex):
@@ -418,7 +444,7 @@ def test_whole_lifecycle_writes_nothing_and_sends_the_token_only_in_a_header(man
     plex.sessions = [{"key": "mediaman-old"}]
     stream_id = _start(manager)
     manager.playlist(stream_id, "alice")
-    manager.segment(stream_id, "alice", "00001.ts")
+    _segment(manager, stream_id, "alice", "00001.ts")
     manager.get(stream_id, "alice")
     manager.reap(clock.now)
     manager.tidy_orphans()
@@ -544,7 +570,9 @@ def test_a_start_that_loses_a_race_for_the_last_slot_gives_its_session_back(mana
     assert last_stop == plex.calls_to("start.m3u8")[loser_index]["params"]["session"]
 
 
-def test_two_starts_of_the_same_item_racing_leave_one_stream_and_stop_the_other(manager, plex):
+def test_of_two_starts_of_the_same_item_racing_the_later_plays_and_the_other_is_stopped(
+    manager, plex
+):
     real_open = manager._open_session
     raced = []
     inner = []
@@ -561,12 +589,12 @@ def test_two_starts_of_the_same_item_racing_leave_one_stream_and_stop_the_other(
     outer = _start(manager)
 
     assert len(manager._streams) == 1
-    assert manager.get(outer, "alice")
-    with pytest.raises(StreamGone):
-        manager.get(inner[0], "alice")
+    assert manager.get(inner[0], "alice")
+    with pytest.raises(StreamReplaced):
+        manager.get(outer, "alice")
     sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
     stopped = [c["params"]["session"] for c in plex.calls_to("stop")]
-    assert stopped == [sessions[1]]
+    assert stopped == [sessions[0]]
 
 
 def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
@@ -575,7 +603,7 @@ def test_plex_served_under_a_path_prefix_keeps_the_prefix(plex):
 
     stream_id = _start(manager)
     manager.playlist(stream_id, "alice")
-    manager.segment(stream_id, "alice", "00000.ts")
+    _segment(manager, stream_id, "alice", "00000.ts")
     manager.stop(stream_id, "alice")
 
     assert plex.calls
@@ -966,3 +994,542 @@ def test_someone_elses_stream_cannot_be_peeked_at(manager):
 
     with pytest.raises(StreamGone):
         manager.peek(stream_id, "bob")
+
+
+def _fill(manager: StreamManager, stream_id: str, user: str) -> list:
+    reads = []
+    with contextlib.suppress(TooManyReads):
+        while len(reads) < 100:
+            read = SegmentRead(stream_id, user)
+            manager.claim_read(read)
+            reads.append(read)
+    return reads
+
+
+def test_a_stream_reads_two_segments_at_once_and_goes_on_once_one_is_given_back(manager):
+    stream_id = _start(manager)
+    reads = _fill(manager, stream_id, "alice")
+    assert len(reads) == MAX_READS_PER_STREAM == 2
+
+    manager.release_read(reads[0])
+    manager.release_read(reads[0])
+
+    assert len(_fill(manager, stream_id, "alice")) == 1
+
+
+def test_a_full_stream_leaves_the_same_persons_other_titles_and_other_people_alone(manager):
+    for key in range(MAX_STREAMS_PER_USER):
+        assert len(_fill(manager, _start(manager, rating_key=str(key)), "alice")) == 2
+    assert len(_fill(manager, _start(manager, user="bob"), "bob")) == 2
+
+
+def test_starting_anew_does_not_lift_the_limit_while_the_old_reads_are_held(manager):
+    held = 0
+    for _ in range(MAX_READS_PER_USER):
+        held += len(_fill(manager, _start(manager), "alice"))
+    assert held == MAX_READS_PER_USER
+
+    assert len(_fill(manager, _start(manager, user="bob"), "bob")) == 2
+
+
+def test_reads_in_all_stay_well_below_the_threads_the_pages_share(manager):
+    held = sum(
+        len(_fill(manager, _start(manager, user=f"user{n}"), f"user{n}"))
+        for n in range(MAX_STREAMS_TOTAL)
+    )
+    assert held == MAX_READS_TOTAL <= anyio.run(_default_threads) // 2
+
+
+async def _default_threads() -> float:
+    return anyio.to_thread.current_default_thread_limiter().total_tokens
+
+
+def _body_of(plex, chunks):
+    """Make the fake Plex answer every later call with *chunks*, read one by one."""
+    response = FakeResponse(200)
+    response.iter_content = lambda chunk_size: chunks
+    plex.request = lambda *args, **kwargs: response
+
+
+@pytest.mark.parametrize("why", ["stopped", "unwanted"])
+def test_a_read_ends_midway_once_its_stream_is_stopped_or_nobody_wants_it(manager, plex, why):
+    stream_id = _start(manager)
+    read = SegmentRead(stream_id, "alice")
+
+    def chunks():
+        yield b"one"
+        if why == "stopped":
+            manager.stop(stream_id, "alice")
+        else:
+            read.cancel()
+        yield b"two"
+        pytest.fail("read on")
+
+    _body_of(plex, chunks())
+
+    with pytest.raises(StreamGone):
+        manager.segment(read, "00001.ts")
+
+
+def test_an_unwanted_read_never_asks_plex(manager, plex):
+    stream_id = _start(manager)
+    read = SegmentRead(stream_id, "alice")
+    read.cancel()
+    asked = len(plex.calls)
+
+    with pytest.raises(StreamGone):
+        manager.segment(read, "00001.ts")
+    assert len(plex.calls) == asked
+
+
+def test_a_segment_that_trickles_in_is_given_up(manager, plex, clock):
+    stream_id = _start(manager)
+    read = SegmentRead(stream_id, "alice")
+
+    def chunks():
+        for _ in range(10):
+            clock.now += 20
+            yield b"drop"
+        pytest.fail("read on")
+
+    _body_of(plex, chunks())
+
+    with pytest.raises(PlexUnavailable):
+        manager.segment(read, "00001.ts")
+
+
+def test_a_start_that_fails_leaves_the_one_before_gone_and_not_replaced(manager, plex):
+    stream_id = _start(manager)
+    plex.unreachable = True
+    with pytest.raises(PlexUnavailable):
+        _start(manager)
+
+    with pytest.raises(StreamGone) as caught:
+        manager.get(stream_id, "alice")
+    assert not isinstance(caught.value, StreamReplaced)
+
+
+def test_a_failed_start_never_hides_that_another_start_replaced_the_stream(manager, plex):
+    stream_id = _start(manager)
+    real_open = manager._open_session
+    opening = []
+
+    def another_starts_then_this_fails(*args):
+        if opening:
+            return real_open(*args)
+        opening.append(True)
+        _start(manager)
+        raise RuntimeError("failed")
+
+    manager._open_session = another_starts_then_this_fails
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    with pytest.raises(StreamReplaced):
+        manager.get(stream_id, "alice")
+
+
+@pytest.mark.parametrize("succeeds", [True, False])
+def test_a_failed_start_leaves_it_to_a_later_one_still_opening_whether_the_stream_is_replaced(
+    manager, succeeds
+):
+    stream_id = _start(manager)
+    real_open = manager._open_session
+    begun, failed = [], threading.Event()
+    outcomes = []
+
+    def later_opens_meanwhile(*args):
+        begun.append(True)
+        if len(begun) == 1:
+            later.start()
+            _wait_until(lambda: len(begun) == 2)
+            raise RuntimeError("failed")
+        assert failed.wait(5)
+        with pytest.raises(StreamReplaced):
+            manager.get(stream_id, "alice")
+        if not succeeds:
+            raise RuntimeError("failed")
+        return real_open(*args)
+
+    def start_later():
+        with contextlib.suppress(RuntimeError):
+            _start(manager)
+        with pytest.raises(StreamGone) as caught:
+            manager.get(stream_id, "alice")
+        outcomes.append(isinstance(caught.value, StreamReplaced))
+
+    later = threading.Thread(target=start_later, daemon=True)
+    manager._open_session = later_opens_meanwhile
+    with pytest.raises(RuntimeError):
+        _start(manager)
+    failed.set()
+    later.join(5)
+
+    assert outcomes == [succeeds]
+
+
+def _wait_until(condition) -> None:
+    for _ in range(1000):
+        if condition():
+            return
+        time.sleep(0.005)
+    pytest.fail("never came true")
+
+
+def test_a_start_held_open_past_the_beginning_of_a_later_one_makes_way_for_it(manager, plex):
+    real_open = manager._open_session
+    outer, inner = [], []
+    second_opens, first_stored = threading.Event(), threading.Event()
+
+    def open_in_turn(*args):
+        if not outer:
+            outer.append(True)
+            later.start()
+            assert second_opens.wait(5)
+        else:
+            second_opens.set()
+            assert first_stored.wait(5)
+        return real_open(*args)
+
+    later = threading.Thread(target=lambda: inner.append(_start(manager)), daemon=True)
+    manager._open_session = open_in_turn
+
+    first = _start(manager)
+    assert manager.get(first, "alice")
+    first_stored.set()
+    later.join(5)
+
+    assert manager.get(inner[0], "alice")
+    with pytest.raises(StreamReplaced):
+        manager.get(first, "alice")
+    sessions = [c["params"]["session"] for c in plex.calls_to("start.m3u8")]
+    assert [c["params"]["session"] for c in plex.calls_to("stop")] == [sessions[0]]
+    assert len(manager._streams) == 1
+
+
+def test_a_stopped_stream_is_gone_and_not_replaced(manager):
+    stopped = _start(manager)
+    manager.stop(stopped, "alice")
+    _start(manager)
+
+    assert not _is_replaced(manager, stopped)
+
+
+def _is_replaced(manager, stream_id, user="alice") -> bool:
+    with pytest.raises(StreamGone) as caught:
+        manager.get(stream_id, user)
+    return isinstance(caught.value, StreamReplaced)
+
+
+def _reap_one_idle(manager, clock) -> None:
+    clock.now += plex_stream.IDLE_TIMEOUT_SECONDS + 1
+    assert manager.reap() == 1
+
+
+def test_a_reaped_stream_is_replaced_once_the_item_was_started_anew(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.REAPED_KEEP_SECONDS + 1
+    manager.reap()
+    later = _start(manager)
+
+    assert _is_replaced(manager, idle)
+    manager.stop(later, "alice")
+    assert _is_replaced(manager, idle)
+    assert not _is_replaced(manager, idle, "bob")
+
+
+def test_a_reaped_stream_is_only_gone_where_its_person_has_not_started_the_item_since(
+    manager, clock
+):
+    _start(manager)
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    _start(manager, rating_key="7")
+    _start(manager, user="bob")
+
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_only_gone_while_a_start_of_the_item_opens_and_after_it_failed(
+    manager, plex, clock
+):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    seen = []
+
+    def look_then_fail(*args):
+        seen.append(_is_replaced(manager, idle))
+        raise RuntimeError("failed")
+
+    manager._open_session = look_then_fail
+    with pytest.raises(RuntimeError):
+        _start(manager)
+
+    assert seen == [False]
+    assert not _is_replaced(manager, idle)
+
+
+def test_a_reaped_stream_is_forgotten_once_its_viewing_is_over(manager, clock):
+    idle = _start(manager)
+    _reap_one_idle(manager, clock)
+    clock.now += plex_stream.VIEWING_KEEP_SECONDS + 1
+    manager.reap()
+    _start(manager)
+
+    assert not _is_replaced(manager, idle)
+    assert not manager._reaped
+
+
+def _replaced_by(manager, stream_id, user="alice") -> str | None:
+    with pytest.raises(StreamReplaced) as caught:
+        manager.get(stream_id, user)
+    return caught.value.by
+
+
+def test_a_start_a_page_makes_by_itself_leaves_the_title_to_the_page_asked_later(
+    manager, plex, clock
+):
+    phone = _start(manager, page="phone-page")
+    clock.now += 10
+    tv = _start(manager, page="tv-page")
+    clock.now += 5
+    stops = len(plex.calls_to("stop"))
+
+    with pytest.raises(StreamReplaced) as refused:
+        _start(manager, page="phone-page", asked_ago=15.0)
+
+    assert (refused.value.by, _replaced_by(manager, phone)) == ("tv-page", "tv-page")
+    assert manager.get(tv, "alice")
+    assert len(plex.calls_to("stop")) == stops
+    assert len(plex.calls_to("start.m3u8")) == 2
+
+
+def test_a_press_always_takes_the_title_and_so_does_a_try_of_a_press_made_later(manager, clock):
+    tv = _start(manager, page="tv-page")
+    clock.now += 10
+    # Pressed five seconds ago on the phone, after the television: only now does it get through.
+    phone = _start(manager, page="phone-page", asked_ago=5.0)
+    assert (_replaced_by(manager, tv), bool(manager.get(phone, "alice"))) == ("phone-page", True)
+
+    again = _start(manager, page="tv-page")
+    assert (_replaced_by(manager, phone), bool(manager.get(again, "alice"))) == ("tv-page", True)
+
+
+def test_a_page_s_own_later_start_and_a_start_with_no_page_replace_as_before(manager, clock):
+    first = _start(manager, page="phone-page")
+    clock.now += 60
+    second = _start(manager, page="phone-page", asked_ago=60.0)
+    assert _replaced_by(manager, first) == "phone-page"
+
+    clock.now += 60
+    third = _start(manager)
+    assert _replaced_by(manager, second) is None
+    # What has no page was asked for as it came: later than the phone's own press.
+    with pytest.raises(StreamReplaced):
+        _start(manager, page="phone-page", asked_ago=120.0)
+    assert manager.get(third, "alice")
+
+
+def test_a_start_made_by_itself_makes_way_for_a_later_press_that_is_still_opening(manager, clock):
+    _start(manager, page="phone-page")
+    clock.now += 30
+    real_open = manager._open_session
+    refused = []
+
+    def phone_tries_meanwhile(*args):
+        manager._open_session = real_open
+        with pytest.raises(StreamReplaced) as caught:
+            _start(manager, page="phone-page", asked_ago=30.0)
+        refused.append(caught.value.by)
+        return real_open(*args)
+
+    manager._open_session = phone_tries_meanwhile
+    tv = _start(manager, page="tv-page")
+
+    assert refused == ["tv-page"]
+    assert manager.get(tv, "alice")
+
+
+def test_a_reaped_stream_names_the_page_that_started_the_item_since(manager, clock):
+    idle = _start(manager, page="phone-page")
+    _reap_one_idle(manager, clock)
+    _start(manager, page="tv-page")
+
+    assert _replaced_by(manager, idle) == "tv-page"
+
+
+class SlowPlex:
+    """A real server that gives each request the next of *answers*, and keeps its connections."""
+
+    def __init__(self, answers: list[bytes], cert: Path | None = None) -> None:
+        self._answers = iter(answers)
+        self._tls = None
+        if cert is not None:
+            self._tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self._tls.load_cert_chain(cert)
+        self._listener = socket.create_server(("127.0.0.1", 0))
+        scheme = "https" if cert else "http"
+        self.url = f"{scheme}://plex.test:{self._listener.getsockname()[1]}"
+        self.latest: socket.socket
+        self.asked = threading.Semaphore(0)
+        self.hung_up = threading.Semaphore(0)
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        with contextlib.suppress(OSError):
+            while True:
+                conn = self._listener.accept()[0]
+                threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+
+    def _serve(self, conn: socket.socket) -> None:
+        with contextlib.suppress(OSError):
+            conn.settimeout(10)
+            if self._tls:
+                conn = self._tls.wrap_socket(conn, server_side=True)
+            with conn:
+                # A hang-up with bytes still on their way to the client arrives as a reset.
+                with contextlib.suppress(ConnectionError):
+                    while self._read_request(conn):
+                        conn.sendall(next(self._answers))
+                        self.latest = conn
+                        self.asked.release()
+                self.hung_up.release()
+
+    def _read_request(self, conn: socket.socket) -> bool:
+        request = b""
+        while b"\r\n\r\n" not in request:
+            more = conn.recv(65536)
+            if not more:
+                return False
+            request += more
+        return True
+
+    def close(self) -> None:
+        self._listener.close()
+
+
+def _answer(body: bytes, length: int | None = None) -> bytes:
+    return b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s" % (
+        len(body) if length is None else length,
+        body,
+    )
+
+
+@pytest.fixture(scope="module")
+def cert(tmp_path_factory) -> Path:
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "plex.test")])
+    made = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(1)
+        .not_valid_before(datetime(2000, 1, 1, tzinfo=UTC))
+        .not_valid_after(datetime(2100, 1, 1, tzinfo=UTC))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("plex.test")]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    path = tmp_path_factory.mktemp("plex") / "plex.pem"
+    path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        + made.public_bytes(serialization.Encoding.PEM)
+    )
+    return path
+
+
+@pytest.fixture
+def slow_plex(plex, monkeypatch, request):
+    """Start a SlowPlex: ``(server, manager, stream id)``, the stream's segments read from it."""
+    monkeypatch.setattr(
+        plex_stream,
+        "resolve_safe_outbound_url",
+        lambda url, **kwargs: (True, "plex.test", ("127.0.0.1",)),
+    )
+
+    def start(answers: list[bytes], cert: Path | None = None):
+        server = SlowPlex(answers, cert)
+        request.addfinalizer(server.close)
+        manager = StreamManager(lambda: (server.url, TOKEN), session=plex)
+        stream_id = _start(manager)
+        manager._session = StreamManager(lambda: None)._session
+        manager._session.verify = str(cert) if cert else True
+        request.addfinalizer(manager._session.close)
+        return server, manager, stream_id
+
+    return start
+
+
+def _in_thread(call):
+    """Run *call* in a thread; the function returned waits for it and gives back its outcome."""
+    outcome = []
+
+    def run():
+        try:
+            outcome.append(call())
+        except Exception as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+    def wait():
+        thread.join(2)
+        assert outcome, "still waiting"
+        return outcome[0]
+
+    return wait
+
+
+@pytest.mark.parametrize("tls", [False, True], ids=["http", "https"])
+@pytest.mark.parametrize(
+    "sent", [b"", _answer(b"some", length=999999)], ids=["headers", "body of a kept connection"]
+)
+def test_cancelling_a_read_hangs_up_on_plex_whatever_it_waits_for(
+    slow_plex, cert, caplog, sent, tls
+):
+    server, manager, stream_id = slow_plex([sent], cert if tls else None)
+    read = SegmentRead(stream_id, "alice")
+    ended = _in_thread(lambda: manager.segment(read, "00001.ts"))
+    assert server.asked.acquire(timeout=5)
+    if sent:
+        # Past the headers, into the wait for the rest of the body.
+        time.sleep(0.05)
+
+    read.cancel()
+
+    outcome = ended()
+    assert isinstance(outcome, StreamGone)
+    assert outcome.__context__ is None
+    assert server.hung_up.acquire(timeout=2)
+    assert "could not reach Plex" not in caplog.text
+
+
+def test_a_late_cancel_leaves_the_next_request_of_the_same_thread_alone(slow_plex):
+    _, manager, stream_id = slow_plex([_answer(b"video"), _answer(CHILD_PLAYLIST.encode())])
+    read = SegmentRead(stream_id, "alice")
+    assert manager.segment(read, "00001.ts")[0] == b"video"
+
+    read.cancel()
+
+    assert "#EXTINF" in manager.playlist(stream_id, "alice")
+
+
+def test_a_late_cancel_leaves_another_readers_connection_alone(slow_plex):
+    server, manager, stream_id = slow_plex([_answer(b"video"), _answer(b"some", length=8)])
+    early = SegmentRead(stream_id, "alice")
+    assert manager.segment(early, "00001.ts")[0] == b"video"
+    assert server.asked.acquire(timeout=5)
+    later = _in_thread(lambda: manager.segment(SegmentRead(stream_id, "alice"), "00002.ts"))
+    assert server.asked.acquire(timeout=5)
+
+    early.cancel()
+
+    with contextlib.suppress(OSError):
+        server.latest.sendall(b"rest")
+    assert later()[0] == b"somerest"

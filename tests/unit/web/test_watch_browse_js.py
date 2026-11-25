@@ -47,6 +47,15 @@ def test_rows_added_after_load_get_the_row_arrows_once() -> None:
     assert _run("loaded")["arrows"] == [2, 2, 2, 2]
 
 
+def test_a_row_the_server_has_more_of_opens_as_a_grid_that_loads_the_rest() -> None:
+    out = _run("libraryGrids")
+    assert out == {kind: [9, "z"] for kind in ("movies", "tv", "anime", "recent")}
+
+
+def test_a_card_of_a_held_title_that_is_leaving_says_when() -> None:
+    assert _run("leavingCards") == [[["11", "2 days left", 1], [None, None, 0]]] * 2
+
+
 def test_a_title_change_updates_the_badge_on_its_cards() -> None:
     out = _run("titleChanged")
     assert out == {"queued": "Queued", "downloading": "Downloading 42%", "inLibrary": "In library"}
@@ -303,10 +312,14 @@ def test_the_own_refresh_stands_before_the_text_that_changes_from_700px() -> Non
     assert "margin-left: 0" in wide[1]
 
 
-def test_a_pick_with_more_has_no_icon_in_its_caption_on_a_phone() -> None:
+def test_a_pick_has_its_icon_beside_the_words_of_its_caption_at_every_width() -> None:
     css = (STATIC / "css" / "_watch_browse.css").read_text(encoding="utf-8")
-    phone = "".join(re.findall(r"@media \(max-width: 599\.98px\) \{((?:[^{}]*\{[^{}]*\})*)", css))
-    assert ".watch-card[data-mark] .watch-card__ai > .ico { display: none; }" in phone
+    hidden = [
+        head
+        for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+        if "display: none" in body and "watch-card__ai" in head
+    ]
+    assert hidden == []
 
 
 def test_the_narrowest_phones_keep_the_icon_of_the_ai_mark() -> None:

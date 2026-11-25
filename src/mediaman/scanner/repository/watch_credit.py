@@ -8,20 +8,22 @@ from datetime import datetime, timedelta
 
 from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.scanner.repository.rekeyed import (
+    LATEST_WATCH,
+    copies,
     fetch_title,
+    file_places,
+    files_json,
     ids_conflict,
+    ids_match,
+    is_film_or_numbered,
     other_keys,
+    pruned_files,
     title_files,
+    title_ids,
 )
 
 # A watch older than the longest inactivity setting (365 days) keeps nothing.
 _WATCH_KEPT_FOR = timedelta(days=366)
-
-# The last watch of a title ``o``, with the plays made in mediaman a scan may not have stored yet.
-_LATEST = (
-    "MAX(COALESCE(o.last_watched_at, ''), COALESCE("
-    " (SELECT MAX(wp.credited_at) FROM watch_progress wp WHERE wp.media_item_id = o.id), ''))"
-)
 
 
 def _times_by_media_item(
@@ -89,7 +91,9 @@ def keep_credited_plays(conn: sqlite3.Connection, username: str) -> None:
     )
 
 
-def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
+def carry_last_watched(
+    conn: sqlite3.Connection, media_id: str, *, every_library_read: bool = True
+) -> None:
     """Give *media_id* the last watch of the same title under another key, or its own set aside.
 
     Only if it is later.
@@ -104,18 +108,34 @@ def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
     watches = [
         # rationale: the interpolated expression is a fixed string; every value is bound
         conn.execute(  # nosec B608
-            f"SELECT {_LATEST} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
+            f"SELECT {LATEST_WATCH} AS at FROM media_items o WHERE o.id = ?", (other["id"],)
         ).fetchone()["at"]
-        for other in other_keys(conn, media_id, ())
+        for other in [
+            *other_keys(conn, media_id, ()),
+            *copies(conn, title, every_library_read=every_library_read),
+        ]
     ]
+    tvdb_id, tmdb_id = title_ids(title)
+    places = file_places(title_files(title))
+    # An empty list would have the whole table read.
+    by_file = f" OR file_path IN ({','.join('?' * len(places))})" if places else ""
     watches += [
         gone["last_watched_at"]
-        for gone in conn.execute(
+        # rationale: only "?" placeholders are interpolated; every value is bound
+        for gone in conn.execute(  # nosec B608
             "SELECT * FROM pruned_watches WHERE media_item_id = ? "
-            "OR (file_path = ? AND file_path != '' AND season_number IS ?)",
-            (media_id, title["file_path"], title["season_number"]),
+            "OR (file_path = ? AND file_path != '' AND season_number IS ?) "
+            "OR (COALESCE(tvdb_id, last_tvdb_id) = ? AND season_number IS ?) "
+            f"OR (COALESCE(tmdb_id, last_tmdb_id) = ? AND season_number IS ?){by_file}",
+            (
+                media_id,
+                *(title["file_path"], title["season_number"]),
+                *(tvdb_id, title["season_number"]),
+                *(tmdb_id, title["season_number"]),
+                *places,
+            ),
         ).fetchall()
-        if gone["media_item_id"] == media_id or not _was_another_title(conn, gone, title)
+        if gone["media_item_id"] == media_id or _was_the_title(conn, gone, title)
     ]
     latest = max(watches, default="")
     if latest:
@@ -126,16 +146,39 @@ def carry_last_watched(conn: sqlite3.Connection, media_id: str) -> None:
         )
 
 
-def _was_another_title(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
-    """Return True if *gone* of pruned_watches, at the place of *title*, was another season.
+def _was_the_title(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches, under another key, was *title*.
+
+    It was of its season, and at its place, a copy of it, or had a file of its own.
+    """
+    return gone["season_number"] == title["season_number"] and (
+        _was_there(conn, gone, title)
+        or _was_a_copy(conn, gone, title)
+        or not pruned_files(gone).isdisjoint(title_files(title))
+    )
+
+
+def _was_a_copy(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches, still not in the library, has the ids of *title*."""
+    return (
+        is_film_or_numbered(title)
+        and ids_match(title_ids(gone), title_ids(title))
+        and fetch_title(conn, gone["media_item_id"]) is None
+    )
+
+
+def _was_there(conn: sqlite3.Connection, gone: sqlite3.Row, title: sqlite3.Row) -> bool:
+    """Return True if *gone* of pruned_watches was at the place of *title*, and no other season.
 
     A film's path is its file. A season's files are gone with it, but for those
     of the episodes someone has progress in.
     """
-    if title["season_number"] is None or not ids_conflict(gone, title):
+    if not title["file_path"] or gone["file_path"] != title["file_path"]:
         return False
+    if title["season_number"] is None or not ids_conflict(gone, title):
+        return True
     files = title_files(title)
-    return not any(
+    return any(
         row["episode_path"] in files
         for row in conn.execute(
             "SELECT episode_path FROM pruned_progress WHERE media_item_id = ?",
@@ -156,9 +199,10 @@ def save_pruned_watches(conn: sqlite3.Connection, media_ids: Collection[str]) ->
     # rationale: the interpolated expression is a fixed string; every value is bound
     conn.executemany(  # nosec B608
         "INSERT OR REPLACE INTO pruned_watches"
-        " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_watched_at)"
+        " (media_item_id, file_path, season_number, show_title, tmdb_id, tvdb_id, last_tmdb_id,"
+        " last_tvdb_id, last_watched_at, tracked_files)"
         " SELECT o.id, o.file_path, o.season_number, o.show_title, o.tmdb_id, o.tvdb_id,"
-        f" {_LATEST} FROM media_items o"
-        f" WHERE o.id = ? AND o.file_path != '' AND {_LATEST} != ''",
-        [(media_id,) for media_id in media_ids],
+        f" o.last_tmdb_id, o.last_tvdb_id, {LATEST_WATCH}, ? FROM media_items o"
+        f" WHERE o.id = ? AND {LATEST_WATCH} != ''",
+        [(files_json(fetch_title(conn, media_id)), media_id) for media_id in media_ids],
     )

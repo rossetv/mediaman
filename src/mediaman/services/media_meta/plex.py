@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import warnings as _warnings
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 import defusedxml
 import defusedxml.ElementTree as ET
@@ -141,11 +141,14 @@ class PlexClient:
             allowed_hosts=allowed_hosts,
         )
 
+    def _sections(self) -> list[Any]:
+        """Return every library Plex has now."""
+        # plexapi reads the list once and keeps it as long as the client lives.
+        self.server.library.__dict__.pop("_loadSections", None)
+        return list(self.server.library.sections())
+
     def get_libraries(self) -> list[PlexLibrarySection]:
-        return [
-            {"id": str(s.key), "type": s.type, "title": s.title}
-            for s in self.server.library.sections()
-        ]
+        return [{"id": str(s.key), "type": s.type, "title": s.title} for s in self._sections()]
 
     def get_movie_items(self, library_id: str) -> list[PlexMovieItem]:
         section = self.server.library.sectionByID(int(library_id))
@@ -261,7 +264,7 @@ class PlexClient:
         rounded to the nearest half.
         """
         rated: list[PlexRatedItem] = []
-        for section in self.server.library.sections():
+        for section in self._sections():
             if section.type not in ("movie", "show"):
                 continue
             try:
@@ -296,7 +299,7 @@ class PlexClient:
         KeyboardInterrupt and programming errors are not swallowed.
         """
         try:
-            self.server.library.sections()
+            self._sections()
             return True
         except (PlexApiException, http_requests.RequestException):
             return False

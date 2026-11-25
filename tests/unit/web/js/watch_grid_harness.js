@@ -253,6 +253,14 @@ const scenarios = {
       far: copies[11].querySelector('img').getAttribute('src'), row: p.rows[0].querySelectorAll('.watch-card').length, sort: !!p.doc.querySelector('#watch-all-sort') };
   },
 
+  async keysOfItsOwn() {
+    const p = load();
+    const links = (root) => root.querySelectorAll('.watch-card__link').map((a) => a.getAttribute('tabindex'));
+    p.rows[0].querySelectorAll('.watch-card__link').forEach((a) => a.setAttribute('tabindex', '-1'));
+    p.grid.open(p.opts());
+    return { row: [...new Set(links(p.rows[0]))], grid: [...new Set(links(p.all()))] };
+  },
+
   async closesWhereItWas() {
     const p = load();
     p.scroll(90);

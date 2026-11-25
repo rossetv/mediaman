@@ -245,6 +245,14 @@ def test_recent_grid_is_rebuilt_only_when_it_changes() -> None:
     assert out["count"] == 3
 
 
+def test_a_show_is_called_ready_only_while_it_is_known_to_be() -> None:
+    out = _run("recent")
+    ready = ["Ready to watch", True]
+    assert out["part"] == [["Some episodes ready", False], ready]
+    assert out["unknown"] == [["Added", False], ready]
+    assert out["whole"] == [ready, ready]
+
+
 def test_confirm_says_it_is_working_and_recovers_on_failure() -> None:
     out = _run("abandon")
     assert out["idle"] == "Abandon"
@@ -267,6 +275,15 @@ def test_a_successful_abandon_closes_the_dialog_and_refreshes_the_page() -> None
     assert out["closes"] == 1
     assert out["refreshes"] == 1
     assert out["errors"] == 0
+
+
+def test_abandoning_a_title_already_gone_closes_the_dialog_and_refreshes_the_page() -> None:
+    out = _run("abandonGone")
+    assert (out["closes"], out["refreshes"], out["errors"]) == (1, 1, 0)
+    assert len(out["toasts"]) == 1
+    text, variant = out["toasts"][0]
+    assert "Already gone" in text and "Tm1" in text
+    assert variant == "info"
 
 
 def test_a_failed_abandon_of_one_item_leaves_the_next_dialog_alone() -> None:
@@ -373,6 +390,19 @@ def test_a_second_reauth_cancels_the_first() -> None:
 def test_the_season_picker_is_hidden_unless_a_show_has_several_stuck_seasons() -> None:
     out = _run("abandonList")
     assert out == {"movie": True, "picker": False, "movieAgain": True}
+
+
+def test_a_lone_season_still_to_air_is_abandoned_only_when_picked() -> None:
+    out = _run("abandonOneSeason")
+    assert out["unaired"] == {
+        "listed": True,
+        "on": [False],
+        "label": "Abandon",
+        "disabled": "true",
+    }
+    assert out["sentUnticked"] == 0
+    assert out["aired"] == {"listed": False, "label": "Abandon", "disabled": "false"}
+    assert out["seasons"] == [[2], [3]]
 
 
 def test_the_season_picker_ticks_only_seasons_with_missing_aired_episodes() -> None:

@@ -1023,6 +1023,13 @@ def test_a_films_keep_names_no_season() -> None:
     assert _keeps(out["film"]) == ["120", "Keep Glass Harbour", "Leaving in 3 days."]
 
 
+def test_a_title_past_its_date_leaves_any_day_in_its_line_and_in_the_admins_facts() -> None:
+    assert _run("leavingSeasons")["past"].startswith("Leaving any day. Keep it")
+    facts = _run("factsPastTheDate")
+    assert facts["film"] == "20 Nov 2026Leaving any day"
+    assert facts["season"] == "20 Nov 2026Season 1, leaving any day"
+
+
 def test_an_admins_keep_and_deletion_date_are_of_the_season_the_title_names() -> None:
     out = _run("leavingSeasonsAdmin")
     third, second, none = out["rows"]
@@ -1078,3 +1085,31 @@ def test_the_director_leads_to_their_titles_and_back() -> None:
         "focus": "director",
         "plain": ["DirectorAda Rimmington", False],
     }
+
+
+def test_ratings_that_come_late_take_the_places_held_for_them_and_reach_no_other_title() -> None:
+    out = _run("lateRatings")
+    waiting = ["★IMDb 10.0", "🍅RT 100%", "Metascore 100"]
+    assert out["before"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": waiting}
+    assert out["asked"] == 1
+    shown = ["★TMDB 7.4", "★IMDb 8.3", "🍅RT 91%"]
+    assert out["after"] == {"shown": shown, "line": True, "waiting": []}
+    assert out["failed"] == {"shown": ["★TMDB 7.4"], "line": True, "waiting": []}
+    assert out["renewed"] == ["★IMDb 8.2", "★TMDB 7.4", "Metascore 70"]
+    assert out["brief"] == ["Meta", "true"]
+    assert out["moved"] == "★IMDb 5.0"
+    assert out["others"] == ["/api/watch/title/movie-120/ratings"]
+
+
+def test_no_place_is_left_for_ratings_when_none_came() -> None:
+    out = _run("lateRatings")
+    assert (out["held"]["line"], len(out["held"]["waiting"])) == (True, 3)
+    assert out["empty"] == {"shown": [], "line": False, "waiting": []}
+
+
+def test_late_ratings_are_no_longer_asked_for_once_the_title_is_left_and_again_when_it_is_back() -> (
+    None
+):
+    out = _run("lateRatings")
+    assert out["dropped"] == [True, True]
+    assert out["again"] == [2, 3]

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.services.arr.base import SearchUnanswered
 from mediaman.services.arr.state import (
     ExistingMovieError,
     add_or_remonitor_movie,
@@ -706,7 +707,10 @@ def test_attach_does_not_swallow_programming_errors():
         attach_download_states([_batch(movie)], arr)
 
 
-def test_tv_unmonitored_aired_season_is_ignored():
+@pytest.mark.parametrize(
+    ("wanted", "state"), [(0, "in_library"), (1, "partial")], ids=["skipped", "one episode wanted"]
+)
+def test_tv_unmonitored_aired_season_counts_only_by_an_episode_wanted_by_itself(wanted, state):
     """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
     series = {
         "tmdbId": 800,
@@ -727,7 +731,8 @@ def test_tv_unmonitored_aired_season_is_ignored():
                 # report ``partial``.
                 "monitored": False,
                 "statistics": {
-                    "episodeCount": 8,
+                    "episodeCount": wanted,
+                    "totalEpisodeCount": 8,
                     "episodeFileCount": 0,
                     "previousAiring": "2021-01-01",
                 },
@@ -740,7 +745,7 @@ def test_tv_unmonitored_aired_season_is_ignored():
         "sonarr_series": {800: series},
         "sonarr_queue_tmdb_ids": set(),
     }
-    assert compute_download_state("tv", 800, caches) == "in_library"
+    assert compute_download_state("tv", 800, caches) == state
 
 
 def test_radarr_cache_queue_progress_from_size_and_sizeleft():
@@ -950,6 +955,14 @@ class TestAddOrRemonitorMovieWhenTheSearchFails:
             add_or_remonitor_movie(radarr, 603, "The Matrix")
 
         radarr.unmonitor_movie.assert_called_once_with(7, max_retries=1)
+
+    def test_a_movie_whose_search_may_be_running_stays_monitored_and_counts_as_re_monitored(self):
+        radarr = self._radarr()
+        radarr.remonitor_movie.side_effect = SearchUnanswered("no answer")
+
+        assert add_or_remonitor_movie(radarr, 603, "The Matrix") == "remonitored"
+
+        radarr.unmonitor_movie.assert_not_called()
 
     def test_a_failing_put_back_is_logged_and_does_not_hide_the_error(self, caplog):
         radarr = self._radarr()

@@ -3,12 +3,18 @@ with History naming the person."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.scanner.repository.scheduled_actions import (
+    claim_due_deletion,
+    record_removed_files,
+)
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.repository import watch_library as lib
 from mediaman.web.routes.watch import browse_api
 from tests.helpers.factories import (
     insert_admin_user,
@@ -58,7 +64,7 @@ def test_keep_snoozes_the_deletion_and_names_the_person(client, conn, days):
     resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": days})
 
     assert resp.status_code == 200
-    assert resp.json() == {"ok": True}
+    assert resp.json() == {"ok": True, "undo": True}
     row = _action(conn, action_id)
     assert row["action"] == "snoozed"
     assert row["snooze_duration"] == f"{days} days"
@@ -117,6 +123,78 @@ def test_kept_item_cannot_be_kept_again(client, conn):
     resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 90})
 
     assert resp.status_code == 404
+
+
+def _schedule_past(conn) -> int:
+    return insert_scheduled_action(
+        conn, media_item_id="100", execute_at=(NOW - timedelta(days=1)).isoformat(), token="past"
+    )
+
+
+def test_a_deletion_past_its_date_can_be_kept_and_is_then_no_longer_deleted(client, conn):
+    action_id = _schedule_past(conn)
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.status_code == 200
+    assert not claim_due_deletion(conn, action_id, NOW.isoformat())
+    assert _action(conn, action_id)["action"] == "snoozed"
+
+
+def test_a_keep_past_the_date_it_replaced_is_not_offered_to_be_undone(client, conn):
+    _schedule_past(conn)
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.json() == {"ok": True, "undo": False}
+    assert browse_api._UNDO == {}
+    assert client.post("/api/watch/unkeep", json={"media_item_id": "100"}).status_code == 409
+
+
+def test_a_deletion_the_pass_has_claimed_cannot_be_kept(client, conn):
+    action_id = _schedule_past(conn)
+    assert claim_due_deletion(conn, action_id, NOW.isoformat())
+    conn.commit()
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.status_code == 404
+    assert _action(conn, action_id)["action"] == "scheduled_deletion"
+
+
+def test_a_claim_made_while_a_keep_is_on_its_way_refuses_it(client, conn, monkeypatch):
+    action_id = _schedule_past(conn)
+    seen = lib.pending_deletion
+
+    def claimed_meanwhile(route_conn, *args):
+        found = seen(route_conn, *args)
+        assert claim_due_deletion(route_conn, action_id, NOW.isoformat())
+        route_conn.commit()
+        return found
+
+    monkeypatch.setattr(lib, "pending_deletion", claimed_meanwhile)
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.status_code == 409
+    assert resp.json()["error"] == "already_processed"
+    assert _action(conn, action_id)["action"] == "scheduled_deletion"
+
+
+@pytest.mark.parametrize(("left", "status"), [([], 404), (["/m/b.mkv"], 200)])
+def test_only_a_deletion_that_left_files_can_be_kept(client, conn, left, status):
+    action_id = _schedule_past(conn)
+    files = ["/m/a.mkv", *left]
+    conn.execute(
+        "UPDATE media_items SET tracked_files = ? WHERE id = '100'",
+        (json.dumps([{"path": f, "size": 1} for f in files]),),
+    )
+    record_removed_files(conn, action_id, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+    conn.commit()
+
+    resp = client.post("/api/watch/keep", json={"media_item_id": "100", "days": 30})
+
+    assert resp.status_code == status
 
 
 def test_item_outside_scanned_libraries_is_404(client, conn):

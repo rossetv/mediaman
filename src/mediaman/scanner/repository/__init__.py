@@ -61,6 +61,7 @@ from mediaman.scanner.repository.rekeyed import (
 from mediaman.scanner.repository.scheduled_actions import (
     DELETION_ACTION,
     DeletionRow,
+    audit_lost_removals,
     book_deletion,
     book_removed_files,
     book_removed_files_where,
@@ -102,6 +103,7 @@ from mediaman.scanner.repository.watch_credit import (
 __all__ = [
     "DELETION_ACTION",
     "DeletionRow",
+    "audit_lost_removals",
     "book_deletion",
     "book_removed_files",
     "book_removed_files_where",

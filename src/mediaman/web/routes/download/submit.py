@@ -24,7 +24,7 @@ from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.add_outcome import movie_add_landed, series_add_landed
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrClient, ArrError, SearchUnanswered
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ACTION_QUEUED,
@@ -33,12 +33,14 @@ from mediaman.services.arr.state import (
     is_series_already_tracked,
     radarr_fetches_movie,
     radarr_holds_movie,
+    season_on_disk,
     sonarr_fetches_series,
     sonarr_tracks_series,
 )
 from mediaman.services.downloads.notifications import (
     record_download_notification,
     record_notification_on_its_way,
+    remember_tvdb_id,
 )
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
@@ -50,7 +52,6 @@ from ._season import (
     already_there,
     deleted_season,
     season_name,
-    season_on_disk,
     sonarr_media_id,
 )
 from ._tokens import (
@@ -126,6 +127,8 @@ def _record_and_respond(
                 service=service,
                 season_number=season_number,
             )
+        if tmdb_id is not None and tvdb_id is not None:
+            remember_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
 
     poll_token = generate_poll_token(
         media_item_id=(
@@ -204,6 +207,8 @@ def _note_if_unanswered(
                 service=service,
                 season_number=season.season_number if season else None,
             )
+        if payload["tmdb_id"] is not None and tvdb_id is not None:
+            remember_tvdb_id(conn, tmdb_id=payload["tmdb_id"], tvdb_id=tvdb_id)
         # Commits both: a retry finding the note asks for no second email.
         note_unanswered_add(conn, payload["token"], payload["exp"])
 
@@ -252,6 +257,9 @@ def _already_there_error(
                 tvdb_id=tvdb_id,
                 season_number=season_number,
             )
+    if held is not None and tvdb_id is not None and not held.get("tmdbId"):
+        with conn:
+            remember_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
     return _AlreadyThere(exc, state, mail_to_come=mail_to_come)
 
 
@@ -354,6 +362,8 @@ def _remonitor_held_season(client: ArrClient, tvdb_id: int, season_number: int) 
         was_unmonitored = season is not None and not season.get("monitored")
         try:
             client.remonitor_season(series_id, season_number)
+        except SearchUnanswered:
+            raise
         except (SafeHTTPError, requests.RequestException, ValueError, ArrError):
             # The monitor may have landed before the search failed. A season already
             # monitored before this request stays as it was.

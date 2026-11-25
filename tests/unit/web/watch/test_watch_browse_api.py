@@ -92,6 +92,52 @@ class TestSearch:
 
         assert [i["title"] for i in _search(client, q)] == expected
 
+    @pytest.mark.parametrize(
+        ("title", "typed"),
+        [
+            ("Amélie", "amelie"),
+            ("Amelie", "amélie"),
+            ("Łódź Nights", "lodz"),
+            ("Ocean's Eight", "oceans eight"),
+            ("Ocean\u2019s Eight", "ocean's eight"),
+            ("Oceans Eight", "ocean's eight"),
+            ("Spider-Man: Homecoming", "spider man homecoming"),
+            ("Spider-Man: Homecoming", "spiderman homecoming"),
+            ("Spider Man", "spider-man"),
+            ("Spiderman", "spider-man"),
+            ("WALL\u00b7E", "wall-e"),
+            ("M*A*S*H", "mash"),
+            ("Fast & Furious", "fast and furious"),
+            ("Fast and Furious", "fast & furious"),
+            ("Law&Order", "law & order"),
+            ("Mission: Impossible", "mission impossible"),
+        ],
+    )
+    def test_a_title_is_found_however_it_is_accented_or_punctuated(
+        self, client, conn, title, typed
+    ):
+        _movie(conn, "100", title)
+        _season(conn, "501", "500", title)
+        _movie(conn, "101", "Other")
+
+        assert [i["ref"] for i in _search(client, typed)] == ["movie-100", "show-500"]
+
+    def test_words_of_a_title_do_not_run_together_into_another(self, client, conn):
+        _movie(conn, "100", "The Art of Glass")
+
+        assert _search(client, "heart") == []
+
+    def test_a_title_typed_without_its_punctuation_ranks_as_the_same(self, client, conn):
+        _movie(conn, "100", "Go Spider-Man")
+        _movie(conn, "101", "Spider-Man Again")
+        _movie(conn, "102", "Spider-Man")
+
+        assert [i["title"] for i in _search(client, "spiderman")] == [
+            "Spider-Man",
+            "Spider-Man Again",
+            "Go Spider-Man",
+        ]
+
     def test_results_are_capped(self, client, conn):
         for n in range(browse_api.SEARCH_LIMIT + 5):
             _movie(conn, str(1000 + n), f"Film {n:03d}")

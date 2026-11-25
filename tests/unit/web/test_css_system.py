@@ -210,9 +210,47 @@ def test_no_control_is_sized_to_44px_only_up_to_640() -> None:
             )
 
 
+def _smallest(prop: str, *selectors: str) -> float:
+    """The smallest number any shared rule for one of `selectors` sets `prop` to, in any media."""
+    return min(float(n) for n, _ in _values(prop, *selectors))
+
+
+def _values(prop: str, *selectors: str) -> list[tuple[str, str]]:
+    """Every number, with its unit (empty when it has none), a shared rule for one of
+    `selectors` sets `prop` to."""
+    return [
+        (n, unit)
+        for path in SHARED
+        for heads, body in _rules(_text(path))
+        if any(re.search(rf"(?<![\w-]){re.escape(s)}$", head) for s in selectors for head in heads)
+        for n, unit in re.findall(rf"(?<![\w-]){prop}:\s*([\d.]+)(px)?", body)
+    ]
+
+
+def _smallest_line(font: float, *selectors: str) -> float:
+    """The smallest line, in px, a shared rule for one of `selectors` sets: a line height with
+    no unit is a multiple of the font size, one in px is that many."""
+    return min(
+        float(n) if unit else float(n) * font for n, unit in _values("line-height", *selectors)
+    )
+
+
+def test_a_line_height_in_px_is_not_taken_for_a_multiple_of_the_font_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sheet = tmp_path / "_a.css"
+    sheet.write_text(".a { line-height: 20px; } .b { line-height: 1.5; }", encoding="utf-8")
+    monkeypatch.setattr(f"{__name__}.SHARED", [sheet])
+    assert _smallest_line(12, ".a") == 20
+    assert _smallest_line(12, ".b") == 18
+
+
 def test_download_links_and_settings_fields_are_44px_below_700px() -> None:
-    # A 15px line of text, reached 15px above and below.
+    # A line of text, reached 15px above and below.
+    link = (".dl-search-hint", ".dl-arr-link")
+    line = _smallest_line(_smallest("font-size", *link), *link, "body")
     assert _phone_sets(".dl-arr-link::after", "inset", "-15px -6px")
+    assert line + 2 * 15 >= 44
     assert _phone_sets(".setg-pg .inp", "min-height", "44px")
 
 

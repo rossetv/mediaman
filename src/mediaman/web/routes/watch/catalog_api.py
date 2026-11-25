@@ -41,7 +41,10 @@ from mediaman.services.media_meta.plex_watch import (
     is_in_libraries,
 )
 from mediaman.services.media_meta.tmdb import TmdbClient
-from mediaman.services.openai.recommendations.repository import fetch_suggestion_by_id
+from mediaman.services.openai.recommendations.repository import (
+    SuggestionDetail,
+    fetch_suggestion_by_id,
+)
 from mediaman.services.openai.recommendations.user_picks import fetch_pick
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import parse_execute_at
@@ -50,13 +53,14 @@ from mediaman.web.auth.middleware import get_current_admin, get_current_user
 from mediaman.web.auth.password_hash import get_user_email, get_user_role
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.kept import fetch_keep
-from mediaman.web.repository.library_query import protection_label
+from mediaman.web.repository.library_query import TitleSearch, protection_label
 from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 from mediaman.web.repository.watch_progress import get_progress, show_progress
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download.confirm import validate_youtube_id
 from mediaman.web.routes.search import _enrichment
 from mediaman.web.routes.search._enrichment import _QUERY_LIMITER
+from mediaman.web.routes.watch.browse_api import library_items
 from mediaman.web.routes.watch.pages import (
     _episode_row,
     _primary_episode,
@@ -81,6 +85,9 @@ _SHELF_IDS = frozenset(shelf[0] for shelf in catalog.SHELVES)
 # Pages of discover rows TMDB is asked for, apart from the query limit so a long scroll does
 # not use up the day's searches. The day's cap is each of the three lists to its end.
 _PAGE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1500)
+# Titles whose ratings OMDb is asked for, apart from the query limit (and as tight) so that
+# opening a title, which counts there, is not counted twice.
+_RATINGS_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 # A worker thread waits for the answer.
 _TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
@@ -125,14 +132,16 @@ def _arr(request: Request, conn: sqlite3.Connection) -> catalog.ArrView:
 def api_watch_search_tmdb(
     request: Request, q: str = "", username: str = Depends(get_current_user)
 ) -> JSONResponse:
-    """TMDB titles matching *q* that the library does not hold, and the people it names."""
+    """TMDB titles matching *q* that the library does not hold, and the people it names.
+    ``held`` is the library titles among TMDB's that the library's own search does not find,
+    as that search answers them."""
     term = q.strip()
     conn = get_db()
     client = _tmdb_client(request, conn)
     if client is None:
-        return respond_ok({"tmdb_configured": False, "items": [], "people": []})
-    if len(term) < catalog.MIN_QUERY_LEN:
-        return respond_ok({"tmdb_configured": True, "items": [], "people": []})
+        return respond_ok({"tmdb_configured": False, "items": [], "held": [], "people": []})
+    if not term:
+        return respond_ok({"tmdb_configured": True, "items": [], "held": [], "people": []})
     try:
         # Only a search TMDB is asked for counts against the limit; a cached one is free.
         found = catalog.search(client, term, allow_fetch=lambda: _QUERY_LIMITER.check(username))
@@ -140,16 +149,34 @@ def api_watch_search_tmdb(
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
-    index = catalog.library_index(
-        conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
-    )
+    libraries = lib.scanned_library_ids(conn)
+    index = catalog.library_index(conn, client, libraries, lib.library_movies, lib.library_shows)
     arr = _arr(request, conn)
-    items = [
-        card
-        for item in found
-        if (card := catalog.tmdb_card(item, index, arr)) is not None and not card["in_library"]
+    cards = [card for item in found if (card := catalog.tmdb_card(item, index, arr)) is not None]
+    refs = dict.fromkeys(cast(str, c["library_ref"]) for c in cards if c["in_library"])
+    search = TitleSearch(conn, term)
+    held = [
+        title
+        for ref in refs
+        if (title := _library_title(conn, libraries, ref)) is not None
+        and search.distance(title.title) is None
     ]
-    return respond_ok({"tmdb_configured": True, "items": items, "people": catalog.people(found)})
+    return respond_ok(
+        {
+            "tmdb_configured": True,
+            "items": [card for card in cards if not card["in_library"]],
+            "held": library_items(conn, username, libraries, held),
+            "people": catalog.people(found),
+        }
+    )
+
+
+def _library_title(
+    conn: sqlite3.Connection, libraries: list[str], ref: str
+) -> lib.LibraryMovie | lib.LibraryShow | None:
+    kind, _, key = ref.partition("-")
+    find = lib.find_movie if kind == "movie" else lib.find_show
+    return find(conn, libraries, key)
 
 
 @router.get("/api/watch/discover")
@@ -191,7 +218,7 @@ def held_fields(
     now = now_utc()
     leaving = {
         f"movie-{p.media_item_id}": leaving_info(p, now)
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
     }
 
     def fields(ref: str | None) -> dict[str, object]:
@@ -274,6 +301,29 @@ def _pause_title(pause_key: tuple[int, str]) -> None:
             _outage_until = now + _OUTAGE_PAUSE_SECONDS
 
 
+def _held_ratings(
+    conn: sqlite3.Connection, media_type: str, tmdb_id: int
+) -> tuple[dict[str, str], bool]:
+    """The ratings held of a title ("movie" or "tv"), and whether they need no asking."""
+    now = now_utc()
+    for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
+        cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
+        found = {k: v for k, v in cached.items() if v}
+        ttl = _RATINGS_TTL if found else _NO_RATINGS_TTL
+        return found, row.fetched_at >= (now - ttl).isoformat()
+    return {}, False
+
+
+def _omdb_key_to_ask(
+    conn: sqlite3.Connection, secret_key: str, pause_key: tuple[int, str]
+) -> str | None:
+    """OMDb's key; None when it has none, was refused, or OMDb or the title is paused."""
+    omdb_key = get_omdb_key(conn, secret_key)
+    if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
+        return None
+    return None if _title_is_paused(pause_key) else omdb_key
+
+
 def _ratings(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -291,26 +341,17 @@ def _ratings(
     or a spent quota caches nothing and leaves the ratings already held (old ones are shown
     in its place)."""
     media_type = "movie" if kind == "movie" else "tv"
-    now = now_utc()
-    stale: dict[str, str] = {}
-    for row in fetch_ratings_cache(conn, [(tmdb_id, media_type)]):
-        cached = {"imdb": row.imdb_rating, "rt": row.rt_rating, "metascore": row.metascore}
-        found = {k: v for k, v in cached.items() if v}
-        if row.fetched_at >= (now - (_RATINGS_TTL if found else _NO_RATINGS_TTL)).isoformat():
-            return found
-        stale = found
-    omdb_key = get_omdb_key(conn, secret_key)
-    if not omdb_key or is_key_refused(omdb_key) or time.monotonic() < _enrichment._paused_until:
-        return stale
+    held, fresh = _held_ratings(conn, media_type, tmdb_id)
+    if fresh:
+        return held
     pause_key = (tmdb_id, media_type)
-    if _title_is_paused(pause_key):
-        return stale
-    if not allow_fetch():
-        return stale
+    omdb_key = _omdb_key_to_ask(conn, secret_key, pause_key)
+    if omdb_key is None or not allow_fetch():
+        return held
     data = lookup_ratings(title, year, media_type, omdb_key=omdb_key)
     if data is None:
         _pause_title(pause_key)
-        return stale
+        return held
     _note_answer()
     try:
         upsert_ratings_cache(
@@ -328,7 +369,16 @@ def _ratings(
         )
     except sqlite3.Error:
         logger.warning("watch: ratings_cache write failed", exc_info=True)
-    return {**stale, **data}
+    return {**held, **data}
+
+
+def _rating_fields(ratings: Mapping[str, str], tmdb_rating: float | None) -> dict[str, Any]:
+    return {
+        "imdb": ratings.get("imdb"),
+        "rt": ratings.get("rt"),
+        "tmdb": tmdb_rating,
+        "metascore": ratings.get("metascore"),
+    }
 
 
 def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
@@ -353,6 +403,7 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "director": None,
         "director_id": None,
         "ratings": {"imdb": None, "rt": None, "tmdb": None, "metascore": None},
+        "ratings_pending": False,
         "cast": [],
         "trailer_key": None,
         "reason": None,
@@ -376,17 +427,25 @@ def _apply_tmdb(
     client: TmdbClient,
     kind: str,
     tmdb_id: int,
-    username: str,
-    allow_fetch: Callable[[], bool] | None = None,
-    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Fill *out* from TMDB and OMDb, keeping any title, overview and poster already set
-    from Plex; returns the TMDB fields, asked for unless the caller has them. Raises
-    TmdbUnavailable, and disk_cache.Refused when TMDB would be asked and *allow_fetch* says
-    no. OMDb is asked only within the query limit: *allow_fetch*, or *username*'s own when
-    it is not given."""
-    if fields is None:
-        fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    """Fill *out* from TMDB and the ratings held, as ``_fill_fields``; returns the TMDB
+    fields. Raises TmdbUnavailable."""
+    fields = catalog.details(client, kind, tmdb_id)
+    _fill_fields(out, request, conn, kind, tmdb_id, fields)
+    return fields
+
+
+def _fill_fields(
+    out: dict[str, Any],
+    request: Request,
+    conn: sqlite3.Connection,
+    kind: str,
+    tmdb_id: int,
+    fields: dict[str, Any],
+) -> None:
+    """Fill *out* from the TMDB *fields* and the ratings held, keeping any title, overview and
+    poster already set from Plex. OMDb is never waited for here: ``ratings_pending`` says that
+    it is to be asked, which the title's ratings do."""
     for name in (
         "year",
         "year_end",
@@ -406,22 +465,14 @@ def _apply_tmdb(
     for name in ("title", "overview", "poster_url"):
         out[name] = out[name] or fields[name]
     out["trailer_key"] = validate_youtube_id(fields["trailer_key"])
-    ratings = _ratings(
-        conn,
-        request.app.state.config.secret_key,
-        kind,
-        tmdb_id,
-        out["title"],
-        out["year"],
-        allow_fetch or (lambda: _QUERY_LIMITER.check(username)),
+    media_type = "movie" if kind == "movie" else "tv"
+    held, fresh = _held_ratings(conn, media_type, tmdb_id)
+    out["ratings"] = _rating_fields(held, fields["tmdb_rating"])
+    out["ratings_pending"] = (
+        not fresh
+        and _omdb_key_to_ask(conn, request.app.state.config.secret_key, (tmdb_id, media_type))
+        is not None
     )
-    out["ratings"] = {
-        "imdb": ratings.get("imdb"),
-        "rt": ratings.get("rt"),
-        "tmdb": fields["tmdb_rating"],
-        "metascore": ratings.get("metascore"),
-    }
-    return fields
 
 
 def _movie_title(
@@ -471,11 +522,11 @@ def _movie_title(
                 "minutes_left": None,
             }
     now = now_utc()
-    out["leaving"] = leaving_info(lib.pending_deletion(conn, libraries, movie.key, now), now)
+    out["leaving"] = leaving_info(lib.pending_deletion(conn, libraries, movie.key), now)
     out["keep_allowed"] = is_admin or out["leaving"] is not None
     if client is not None and movie.tmdb_id:
         with contextlib.suppress(catalog.TmdbUnavailable):
-            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id, username)
+            _apply_tmdb(out, request, conn, client, "movie", movie.tmdb_id)
     return out
 
 
@@ -569,7 +620,7 @@ def _show_title(
     tmdb_id = _show_tmdb_id(request, conn, client, listed) if client is not None else None
     if client is not None and tmdb_id is not None:
         try:
-            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id, username)
+            fields = _apply_tmdb(out, request, conn, client, "tv", tmdb_id)
         except catalog.TmdbUnavailable:
             pass
         else:
@@ -587,7 +638,7 @@ def fill_show_leaving(
     now = now_utc()
     seasons = [
         {**(leaving_info(p, now) or {}), "season": p.season_number}
-        for p in lib.pending_deletions(conn, libraries, now)
+        for p in lib.pending_deletions(conn, libraries)
         if p.show_key == key and p.season_number is not None
     ]
     out["leaving"] = seasons[0] if seasons else None
@@ -605,12 +656,28 @@ def _tmdb_title(
     tmdb_id: int,
     download_url: str | None,
     allow_fetch: Callable[[], bool] | None = None,
-    fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A TMDB title (*kind* "movie" or "tv"); *fields* is as in ``_apply_tmdb``. Raises
-    TmdbUnavailable and, as that, disk_cache.Refused."""
-    out = _payload(ref, "movie" if kind == "movie" else "show", True)
-    fields = _apply_tmdb(out, request, conn, client, kind, tmdb_id, username, allow_fetch, fields)
+    """A TMDB title (*kind* "movie" or "tv"). Raises TmdbUnavailable, and disk_cache.Refused
+    when TMDB would be asked and *allow_fetch* says no."""
+    fields = catalog.details(client, kind, tmdb_id, allow_fetch=allow_fetch)
+    return _title_of_fields(
+        request, conn, username, client, ref, kind, tmdb_id, download_url, fields
+    )
+
+
+def _title_of_fields(
+    request: Request,
+    conn: sqlite3.Connection,
+    username: str,
+    client: TmdbClient | None,
+    ref: str,
+    kind: str,
+    tmdb_id: int,
+    download_url: str | None,
+    fields: dict[str, Any],
+) -> dict[str, Any]:
+    out = _payload(ref, "movie" if kind == "movie" else "show", client is not None)
+    _fill_fields(out, request, conn, kind, tmdb_id, fields)
     arr = _arr(request, conn)
     index = catalog.library_index(
         conn, client, lib.scanned_library_ids(conn), lib.library_movies, lib.library_shows
@@ -692,70 +759,192 @@ def api_watch_title(
         return _not_found()
 
     client = _tmdb_client(request, conn)
-    if client is None:
-        return respond_err("tmdb_not_configured", status=503)
     try:
-        if kind == "tmdb":
-            media_type, _, tmdb_id = rest.partition("-")
-            # Any id can be asked for, so only a title TMDB or OMDb must answer counts
-            # against the limit, once per request; a cached one is free.
-            allowed: list[bool] = []
-
-            def allow_fetch() -> bool:
-                if not allowed:
-                    allowed.append(_QUERY_LIMITER.check(username))
-                return allowed[0]
-
-            return respond_ok(
-                _tmdb_title(
-                    request,
-                    conn,
-                    username,
-                    client,
-                    ref,
-                    media_type,
-                    int(tmdb_id),
-                    None,
-                    allow_fetch,
-                )
-            )
-        rec = (
-            fetch_pick(conn, username, int(rest))
-            if kind == "pick"
-            else fetch_suggestion_by_id(conn, int(rest))
-        )
-        if rec is None or rec.media_type not in ("movie", "tv"):
-            return _not_found()
-        if rec.tmdb_id:
-            out = _tmdb_title(
+        if kind != "tmdb":
+            rec = _recommended(conn, username, kind, rest)
+            if rec is None:
+                return _not_found()
+            return respond_ok(_recommended_title(request, conn, username, client, ref, kind, rec))
+        if client is None:
+            return respond_err("tmdb_not_configured", status=503)
+        media_type, _, tmdb_id = rest.partition("-")
+        # Any id can be asked for, so only a title TMDB must answer counts against the limit;
+        # a cached one is free.
+        return respond_ok(
+            _tmdb_title(
                 request,
                 conn,
                 username,
                 client,
                 ref,
-                rec.media_type,
-                rec.tmdb_id,
-                f"/api/watch/picks/{rec.id}/download"
-                if kind == "pick"
-                else f"/api/recommended/{rec.id}/download",
+                media_type,
+                int(tmdb_id),
+                None,
+                lambda: _QUERY_LIMITER.check(username),
             )
-        else:
-            out = _payload(ref, "movie" if rec.media_type == "movie" else "show", True)
-            out.update(
-                title=rec.title,
-                year=rec.year,
-                overview=tidy_summary(rec.description) or "",
-                poster_url=catalog.tmdb_image_url(rec.poster_url, "w500"),
-            )
-            out["ratings"].update(tmdb=rec.rating, rt=rec.rt_rating)
+        )
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TitleNotFound:
         return _not_found()
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
+
+
+def _recommended(
+    conn: sqlite3.Connection, username: str, kind: str, key: str
+) -> SuggestionDetail | None:
+    rec = (
+        fetch_pick(conn, username, int(key))
+        if kind == "pick"
+        else fetch_suggestion_by_id(conn, int(key))
+    )
+    return rec if rec is not None and rec.media_type in ("movie", "tv") else None
+
+
+def _recommended_title(
+    request: Request,
+    conn: sqlite3.Connection,
+    username: str,
+    client: TmdbClient | None,
+    ref: str,
+    kind: str,
+    rec: SuggestionDetail,
+) -> dict[str, Any]:
+    """A recommendation (*kind* "pick" or "rec"): TMDB's title, or what was stored of it when
+    TMDB has no id for it or gives no answer. Raises TitleNotFound."""
+    download_url = (
+        f"/api/watch/picks/{rec.id}/download"
+        if kind == "pick"
+        else f"/api/recommended/{rec.id}/download"
+    )
+    out: dict[str, Any] | None = None
+    if rec.tmdb_id and client is not None:
+        try:
+            out = _tmdb_title(
+                request, conn, username, client, ref, rec.media_type, rec.tmdb_id, download_url
+            )
+        except catalog.TitleNotFound:
+            raise
+        except catalog.TmdbUnavailable:
+            pass  # What was stored is better than none.
+    if out is None:
+        out = _stored_title(request, conn, username, client, ref, rec, download_url)
     out.update(reason=rec.reason or None, ai_pick=True, because_of=list(rec.because_of))
-    return respond_ok(out)
+    return out
+
+
+def _stored_title(
+    request: Request,
+    conn: sqlite3.Connection,
+    username: str,
+    client: TmdbClient | None,
+    ref: str,
+    rec: SuggestionDetail,
+    download_url: str,
+) -> dict[str, Any]:
+    fields = {
+        **catalog.tmdb_fields({}, rec.media_type),
+        "title": rec.title,
+        "year": rec.year,
+        "season_count": None,
+        "overview": tidy_summary(rec.description) or "",
+        "poster_url": catalog.tmdb_image_url(rec.poster_url, "w500"),
+        "tmdb_rating": rec.rating,
+    }
+    if rec.tmdb_id:
+        out = _title_of_fields(
+            request, conn, username, client, ref, rec.media_type, rec.tmdb_id, download_url, fields
+        )
+    else:
+        out = _payload(ref, "movie" if rec.media_type == "movie" else "show", client is not None)
+        for name in ("title", "year", "overview", "poster_url"):
+            out[name] = fields[name]
+        out["ratings"]["tmdb"] = rec.rating
+    out["ratings"]["rt"] = out["ratings"]["rt"] or rec.rt_rating
+    # The title's ratings are asked for by TMDB's words of it.
+    out["ratings_pending"] = False
+    return out
+
+
+@router.get("/api/watch/title/{ref}/ratings")
+def api_watch_title_ratings(
+    ref: str, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
+    """A title's ratings, with OMDb asked for those not held: what the title leaves to be asked
+    after it, as OMDb can be slow to answer."""
+    if not REF_RE.fullmatch(ref):
+        return _not_found()
+    conn = get_db()
+    client = _tmdb_client(request, conn)
+    if client is None:
+        return respond_err("tmdb_not_configured", status=503)
+    found = _rated(request, conn, username, client, ref)
+    if found is None:
+        return _not_found()
+    media_type, tmdb_id, listed = found
+    # Counted once, whatever TMDB and OMDb must be asked; what is held is free.
+    allowed: list[bool] = []
+
+    def allow_fetch() -> bool:
+        if not allowed:
+            allowed.append(_RATINGS_LIMITER.check(username))
+        return allowed[0]
+
+    try:
+        fields = catalog.details(client, media_type, tmdb_id, allow_fetch=allow_fetch)
+    except (disk_cache.Refused, catalog.TmdbBusy):
+        return respond_err("too_many_requests", status=429)
+    except catalog.TitleNotFound:
+        return _not_found()
+    except catalog.TmdbUnavailable:
+        return respond_err("tmdb_request_failed", status=502)
+    ratings = _ratings(
+        conn,
+        request.app.state.config.secret_key,
+        media_type,
+        tmdb_id,
+        listed.title if listed else fields["title"],
+        fields["year"] or (listed.year if listed else None),
+        allow_fetch,
+    )
+    return respond_ok({"ratings": _rating_fields(ratings, fields["tmdb_rating"])})
+
+
+def _is_outside(
+    request: Request, conn: sqlite3.Connection, listed: lib.LibraryMovie | lib.LibraryShow
+) -> bool:
+    """Whether Plex, when it answers, places a listed title outside the scanned libraries."""
+    libraries = lib.scanned_library_ids(conn)
+    try:
+        plex = open_plex(request, conn)
+        if isinstance(listed, lib.LibraryMovie):
+            item = plex.get_item(listed.key)
+            return item.type != "movie" or not is_in_libraries(item, libraries)
+        return not is_in_libraries(plex.get_show(listed.key), libraries)
+    except PlexError:
+        return False
+
+
+def _rated(
+    request: Request, conn: sqlite3.Connection, username: str, client: TmdbClient, ref: str
+) -> tuple[str, int, lib.LibraryMovie | lib.LibraryShow | None] | None:
+    """The kind ("movie" or "tv") and TMDB id of the title *ref* names, and the library title
+    it is when the ref is of one; None when there is no such title or TMDB id."""
+    kind, _, rest = ref.partition("-")
+    if kind in ("movie", "show"):
+        listed = _library_title(conn, lib.scanned_library_ids(conn), ref)
+        if listed is None or _is_outside(request, conn, listed):
+            return None
+        if isinstance(listed, lib.LibraryMovie):
+            return ("movie", listed.tmdb_id, listed) if listed.tmdb_id else None
+        show_id = _show_tmdb_id(request, conn, client, listed)
+        return ("tv", show_id, listed) if show_id else None
+    if kind == "tmdb":
+        media_type, _, tmdb_id = rest.partition("-")
+        return media_type, int(tmdb_id), None
+    rec = _recommended(conn, username, kind, rest)
+    return (rec.media_type, rec.tmdb_id, None) if rec and rec.tmdb_id else None
 
 
 @router.get("/api/watch/title/{ref}/season/{number}")
@@ -815,7 +1004,7 @@ def _deletions(
     """What of the title is scheduled for deletion, soonest first."""
     ids = set(facts.item_ids)
     out: list[dict[str, Any]] = []
-    for pending in lib.pending_deletions(conn, libraries, now):
+    for pending in lib.pending_deletions(conn, libraries):
         if pending.media_item_id not in ids:
             continue
         execute_at = parse_execute_at(pending.execute_at, default=now)

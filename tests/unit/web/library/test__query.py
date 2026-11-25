@@ -7,13 +7,18 @@ client — these are pure DB-query helpers.
 
 from __future__ import annotations
 
+import json
+import unicodedata
 from datetime import UTC, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from mediaman.core.format import format_bytes
 from mediaman.db import init_db, set_connection
 from mediaman.scanner.repository import fetch_kept_show_keys, fetch_protected_media_ids
+from mediaman.scanner.repository.scheduled_actions import record_removed_files
+from mediaman.web.repository.library_query import _match
 from mediaman.web.routes.library import (
     fetch_library,
     fetch_stats,
@@ -198,6 +203,63 @@ class TestFetchLibrary:
         _insert_movie(conn, "m1", "Dune")
         _items, total = fetch_library(conn, q="dune")
         assert total == 1
+
+    @pytest.mark.parametrize("typed", ["amelie", "oceans", "spiderman", "fast and"])
+    def test_search_reads_past_accents_and_punctuation(self, db_path, typed):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Amélie & Ocean's Spider-Man: Fast & Furious")
+        _insert_movie(conn, "m2", "Other")
+
+        items, total = fetch_library(conn, q=typed)
+
+        assert ([i["id"] for i in items], total) == (["m1"], 1)
+
+    @pytest.mark.parametrize("typed", [" ", "   ", "\t"])
+    def test_a_search_for_nothing_but_space_matches_nothing(self, db_path, typed):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "The Dark Knight")
+
+        assert fetch_library(conn, q=typed) == ([], 0)
+
+    def test_titles_are_folded_once_however_large_the_library(self, db_path, monkeypatch):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        conn.executemany(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key,"
+            " added_at, file_path, file_size_bytes) VALUES (?, ?, 'movie', 1, ?, '2026', '/f', 1)",
+            [(str(n), f"Film {n}", str(n)) for n in range(20_010)],
+        )
+        fetch_library(conn, q="none")
+        folded = []
+
+        def normalize(form, text):
+            folded.append(text)
+            return unicodedata.normalize(form, text)
+
+        monkeypatch.setattr(
+            _match,
+            "unicodedata",
+            SimpleNamespace(
+                normalize=normalize,
+                combining=unicodedata.combining,
+                category=unicodedata.category,
+            ),
+        )
+        fetch_library(conn, q="another")
+
+        assert folded == ["another"]
+
+    def test_what_is_held_of_titles_no_longer_there_is_let_go(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        for n in range(6):
+            conn.execute("UPDATE media_items SET title = ?", (f"Name {n}",))
+            fetch_library(conn, q="name")
+
+        assert len(_match._folds) <= 3
 
     def test_type_filter_movie(self, db_path):
         conn = init_db(str(db_path))
@@ -734,16 +796,44 @@ class TestPendingDeletion:
         assert by_id["m2"]["deletion_at"] is None
         assert by_id["m2"]["deletion_days"] is None
 
-    def test_used_lapsed_and_deleting_actions_do_not_count(self, db_path):
+    def test_a_deletion_past_its_date_is_still_to_come(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _schedule_deletion(conn, "m1", -2)
+
+        items, _ = fetch_library(conn)
+
+        assert items[0]["deletion_at"] is not None
+        assert items[0]["deletion_days"] == -2
+
+    def test_used_and_deleting_actions_do_not_count(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
         for i, (days, kw) in enumerate(
-            [(3, {"token_used": True}), (-2, {}), (3, {"delete_status": "deleting"})]
+            [(3, {"token_used": True}), (-2, {"delete_status": "deleting"})]
         ):
             _insert_movie(conn, f"m{i}")
             _schedule_deletion(conn, f"m{i}", days, **kw)
         items, _ = fetch_library(conn)
         assert all(i["deletion_at"] is None for i in items)
+
+    @pytest.mark.parametrize("left", [[], ["/m/b.mkv"]])
+    def test_a_deletion_is_still_to_come_only_while_it_has_files_left(self, db_path, left):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1")
+        _schedule_deletion(conn, "m1", -1)
+        conn.execute(
+            "UPDATE media_items SET tracked_files = ?",
+            (json.dumps([{"path": f, "size": 1} for f in ["/m/a.mkv", *left]]),),
+        )
+        record_removed_files(conn, 1, {"/m/a.mkv"}, 1, {"/m/a.mkv": 1}, left)
+
+        items, _ = fetch_library(conn)
+
+        assert (items[0]["deletion_at"] is not None) is bool(left)
+        assert fetch_stats(conn)["due_soon"] == len(left)
 
     def test_an_item_whose_library_is_not_selected_shows_no_deletion(self, db_path):
         conn = init_db(str(db_path))
@@ -799,12 +889,16 @@ class TestStatsSizesAndDue:
         _insert_movie(conn, "later")
         _insert_season(conn, "s1", "Show", "k1")
         _insert_season(conn, "s2", "Show", "k1")
+        _insert_movie(conn, "past")
+        _insert_movie(conn, "begun")
+        _schedule_deletion(conn, "past", -1)
+        _schedule_deletion(conn, "begun", -1, delete_status="deleting")
         _schedule_deletion(conn, "soon", 3)
         _schedule_deletion(conn, "later", 20)
         _schedule_deletion(conn, "s1", 2)
         _schedule_deletion(conn, "s2", 4)
         stats = fetch_stats(conn)
-        assert stats["due_soon"] == 2
+        assert stats["due_soon"] == 3
         assert stats["due_soon_days"] == 14
 
     def test_due_soon_leaves_out_items_whose_library_is_not_selected(self, db_path):

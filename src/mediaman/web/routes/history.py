@@ -82,6 +82,7 @@ ACTION_BADGE_CLASS = {
     "delete_awaiting_scan": "badge-action-scanned",
     "media_missing": "badge-action-scanned",
     "unmonitor_skipped": "badge-action-scanned",
+    "library_left_out": "badge-action-deleted",
 }
 
 ACTION_LABELS = {
@@ -100,6 +101,7 @@ ACTION_LABELS = {
     "delete_refused": "delete refused",
     "media_missing": "media missing",
     "unmonitor_skipped": "unmonitor skipped",
+    "library_left_out": "library not scanned",
     "delete_root_unavailable": "delete root unavailable",
     "delete_root_available": "delete root available",
     "delete_awaiting_scan": "waiting for scan",
@@ -145,6 +147,8 @@ SECURITY_EVENT_LABELS = {
 # Deletion problems whose stored text quotes paths and errors, so a quoted phrase is no title.
 _DELETE_PREFIX = "delete_"
 _DELETE_ROOT_PREFIX = "_delete_root:"
+# The library a scan left out, whose name may hold a quote or a slash.
+_LEFT_OUT_RE = re.compile(r"Plex library '(.*)' was not scanned", re.S)
 
 
 def _security_label(event: str) -> str:
@@ -183,6 +187,9 @@ def _build_item(r: AuditRow) -> dict[str, object]:
         if r.media_item_id.startswith(_DELETE_ROOT_PREFIX):
             title = r.media_item_id[len(_DELETE_ROOT_PREFIX) :]
             line_title = "Delete folder"
+        elif action == "library_left_out" and (library := _LEFT_OUT_RE.match(r.detail or "")):
+            title = redact_text(scrub_control(library.group(1)))
+            line_title = hide_emails(title)
         action_label = ACTION_LABELS.get(action, action)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 

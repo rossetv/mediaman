@@ -102,7 +102,7 @@
     return plural(Math.floor(days / by[0]), by[1]) + ' ago';
   }
 
-  function daysLeft(n) { return n <= 0 ? 'Leaving today' : n === 1 ? '1 day left' : n + ' days left'; }
+  function daysLeft(n) { return n < 0 ? 'Leaving any day' : n === 0 ? 'Leaving today' : n === 1 ? '1 day left' : n + ' days left'; }
 
   function withSeason(title, season) {
     if (season === null || season === undefined) return title;
@@ -1198,13 +1198,7 @@
 
   var KINDS = { movie: 'Movie', anime: 'Anime', anime_season: 'Anime' };
 
-  function whenOf(item) {
-    if (item.state === 'deleting') return 'Being deleted now';
-    if (item.state !== 'overdue') return item.countdown;
-    return stats.deletions_off ? 'Due, but deletions are off'
-      : stats.dry_run ? 'Due, but dry run is on'
-      : item.waiting_folder ? 'Due, but a folder was missing' : 'Due, the next scan will try';
-  }
+  function whenOf(item) { return item.state === 'deleting' ? 'Being deleted now' : item.countdown; }
 
   function scheduledRow(item) {
     var li = el('li', 'space-item');
@@ -1695,21 +1689,34 @@
     tellClosed(reason, opts.retry ? 'error' : undefined);
   }
 
-  function scanDone() {
-    var took = 'Finished in ' + elapsed();
+  /* *reason*: what the scan left out, if anything; that stays until the next one. */
+  function scanDone(reason) {
+    var left = reason ? String(reason).replace(/\.$/, '').split(/; (?=Plex library ')/) : [];
+    var more = left.length > 1 ? ', and ' + (left.length - 1) + ' more, see ' : '';
+    var start = 'Finished in ' + elapsed() + (reason ? '. ' + left[0] : '') + more;
+    var took = start + (more ? 'History' : '');
+    function says(after) {
+      scanSays(more ? start : took + after, reason ? '' : 'ok');
+      if (!more) return;
+      var a = el('a', '', 'History');
+      a.href = '/history';
+      scanStatus.append(a, after);
+    }
+    var look = reason ? '' : 'success';
     scanBusy(false);
     scan.classList.add('is-success');
     scanLabel('Scan complete', 'i-check');
-    scanSays(took, 'ok');
-    live.textContent = 'Scan ' + took.toLowerCase();
+    says('');
+    var said = 'Scan ' + took.replace('F', 'f');
+    live.textContent = said;
     tellList();
     refresh().then(function () {
-      tellClosed('Scan ' + took.toLowerCase(), 'success');
-      lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
+      tellClosed(said, look);
+      if (!reason) lingerTimer = setTimeout(function () { scanSays(IDLE); }, STATUS_LINGER_MS);
     }, function () {
       var late = '. Refresh the page to see the results.';
-      tellClosed('Scan ' + took.toLowerCase() + late, 'success');
-      scanSays(took + late, 'ok');
+      tellClosed(said + late, look);
+      says(late);
     }).then(function () {
       setTimeout(function () {
         scan.classList.remove('is-success');
@@ -1737,7 +1744,7 @@
         } else if (data.status === 'error') {
           scanStopped('Scan failed: ' + (data.reason || 'unknown error'), { retry: true });
         } else {
-          scanDone();
+          scanDone(data.reason);
         }
       }).catch(function () {
         fails += 1;

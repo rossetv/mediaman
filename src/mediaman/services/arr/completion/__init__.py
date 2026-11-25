@@ -15,8 +15,8 @@ Package layout:
 * ``_types`` — shared ``CompletedItem`` / ``RecentDownloadItem`` TypedDicts.
 * ``_verification`` — ``_ArrLibraryIndex``, ``_check_item_verified``,
   ``_batch_insert_completions``, ``record_verified_completions``.
-* ``_sync`` — ``detect_completed``, ``cleanup_recent_downloads``,
-  ``_PosterLookup``, ``_sync_recent_row``,
+* ``_sync`` — ``detect_completed``, ``carry_queued_since``,
+  ``cleanup_recent_downloads``, ``_PosterLookup``, ``_sync_recent_row``,
   ``fetch_and_sync_recent_downloads``.
 """
 
@@ -25,6 +25,7 @@ from __future__ import annotations
 from mediaman.services.arr.completion._sync import (
     _PosterLookup,
     _sync_recent_row,
+    carry_queued_since,
     cleanup_recent_downloads,
     detect_completed,
     fetch_and_sync_recent_downloads,
@@ -34,6 +35,7 @@ from mediaman.services.arr.completion._verification import (
     _ArrLibraryIndex,
     _batch_insert_completions,
     _check_item_verified,
+    _reset_unchecked,
     record_verified_completions,
 )
 
@@ -44,7 +46,9 @@ __all__ = [
     "_PosterLookup",
     "_batch_insert_completions",
     "_check_item_verified",
+    "_reset_unchecked",
     "_sync_recent_row",
+    "carry_queued_since",
     "cleanup_recent_downloads",
     "detect_completed",
     "fetch_and_sync_recent_downloads",

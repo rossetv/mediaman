@@ -158,13 +158,17 @@
     };
   }
 
+  /* *page*: its number, or where the one before it ended. */
   function url(id, f, page) {
     var q = new URLSearchParams({ genre: id });
     if (f.type && f.type !== 'all') q.set('type', f.type);
     if (f.sort && f.sort !== 'popular') q.set('sort', f.sort);
     if (f.where === 'library') q.set('where', f.where);
     if (f.decade) q.set('decade', f.decade);
-    if (page > 1) q.set('page', page);
+    // Films and TV in one order go on from where each stands, not by a page's number.
+    if (page === 1 && q.has('sort') && !q.has('type') && !q.has('where')) q.set('after', '');
+    else if (typeof page === 'string') q.set('after', page);
+    else if (page > 1) q.set('page', page);
     return EXPLORE_URL + '?' + q.toString();
   }
 
@@ -400,9 +404,14 @@
         if (arrived && of.decade && held.decades.indexOf(of.decade) === -1) dropDecade(of);
         return window.MM.api.get(url(want.id, of, page)).then(function (reply) {
           if (open === mine && page === 1 && url(want.id, of) === url(want.id, filter)) learn(reply);
-          return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && reply.next_page) || null };
+          return { cards: ((reply && reply.items) || []).map(function (i) { return watch.search.tmdbCard(i); }), next: (reply && (reply.next_after || reply.next_page)) || null };
         }, function (err) {
-          if (err && err.status === 400 && of.decade) {
+          // A page from before an update may name its place in a form that is no longer read.
+          if (err && err.status === 400 && typeof page === 'string' && open === mine && url(want.id, of) === url(want.id, filter)) {
+            load();
+            return new Promise(function () {}); // the list that asked is gone
+          }
+          if (err && err.status === 400 && typeof page === 'number' && of.decade) {
             dropDecade(of);
             return ask(page);
           }
@@ -614,6 +623,7 @@
 
   /* ── A person ── */
 
+  /* "Born 1960, died 2016, aged 55", or what of it is known. */
   function born(p) {
     var year = String(p.birthday || '').slice(0, 4);
     var end = String(p.deathday || '').slice(0, 4);
@@ -838,9 +848,10 @@
         (reply.items || []).forEach(function (item) {
           if (shown.has(item.ref)) return;
           shown.add(item.ref);
-          var held = item.in_library && !heads.tmdb;
+          var owned = watch.search.isHeld(item);
+          var held = owned && !heads.tmdb;
           if (held) cards = cards.concat(head('lib', 'In your library', reply.in_library));
-          else if (!item.in_library) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
+          else if (!owned) cards = cards.concat(head('tmdb', 'Available to download', reply.total - reply.in_library));
           cards.push(watch.search.tmdbCard(item, held));
         });
         var next = reply.next_page || null;
@@ -933,6 +944,7 @@
     drawing: drawing,
     sortName: sortName,
     person: person,
+    born: born,
     openGenre: openGenre,
     openPerson: openPerson
   };

@@ -169,7 +169,7 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
       await settle();
     },
     // What is still waiting for its time.
-    wait() { timers.filter((t) => t.on).forEach((t) => { t.on = false; t.fn(); }); },
+    wait(most = Infinity) { timers.filter((t) => t.on && t.ms <= most).forEach((t) => { t.on = false; t.fn(); }); },
     async back() { go(-1); await settle(); },
     key(key, more) {
       const e = { key, target: input, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...more };
@@ -246,7 +246,7 @@ const scenarios = {
     return out;
   },
 
-  // A reply for an older query, or for one shorter than TMDB takes, never reaches the page.
+  // A reply for an older query never reaches the page.
   async staleReply() {
     const p = load(ADMIN);
     await p.search('ab');
@@ -267,6 +267,7 @@ const scenarios = {
     await q.search('a');
     out.shortCalls = q.calls.filter((c) => !slow.includes(c)).map((c) => c.url);
     await q.answer('/api/watch/search?q=a', { items: [{ ...LIB, title: 'Short' }] });
+    q.calls.filter((c) => c.url === '/api/watch/search/tmdb?q=a').forEach((c) => c.resolve({ tmdb_configured: true, items: [] }));
     slow.forEach((c) => c.resolve({ items: [{ ...LIB, title: 'Stale' }], tmdb_configured: true }));
     await settle();
     out.afterShort = { titles: q.titles('.watch-card'), heads: q.heads() };
@@ -459,6 +460,7 @@ const scenarios = {
       p.timers.filter((t) => t.on && t.ms === 150).forEach((t) => { t.on = false; t.fn(); });
       out.after = state();
       p.type('');
+      await settle();
       out.back = state();
       // Cleared before the rows are gone: nothing hides them later.
       p.type('orchard');
@@ -527,27 +529,68 @@ const scenarios = {
   // A query under two letters asks the library only; two letters ask TMDB too.
   async short() {
     const p = load(ADMIN);
-    await p.search('a');
-    const one = p.calls.map((c) => c.url);
-    const q = load(ADMIN);
-    await q.search('ab');
-    return { one, two: q.calls.map((c) => c.url) };
+    await p.search('M');
+    await p.answer('/api/watch/search?', { items: [] });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [{ ...TM, title: 'M' }] });
+    return { urls: p.calls.map((c) => c.url), titles: p.titles('.watch-card') };
   },
 
   // Clearing goes back to the rows, keeps focus in the field and takes ?q= off the address.
   async clear() {
     const p = load(ADMIN, '', '/watch?foo=1#title=movie-2');
     await p.search('orchard');
-    const withQ = p.urls[p.urls.length - 1];
+    const withQ = p.url();
     await p.answer('/api/watch/search?', { items: [LIB] });
     await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
     click(p.doc, p.$('watch-search-clear'));
     await settle();
     return {
-      withQ, url: p.urls[p.urls.length - 1], value: p.input.value, focus: p.doc.activeElement === p.input,
+      withQ, url: p.url(), index: p.tab.index, value: p.input.value, focus: p.doc.activeElement === p.input,
       browse: p.browse.hidden === false, results: p.results.hidden, status: p.status.textContent,
       groups: p.heads().length, length: p.tab.entries.length,
     };
+  },
+
+  // A search is one entry whatever is typed in it: Back is the rows where they were left, Forward the search again.
+  async searchEntry() {
+    const p = await ready(ADMIN);
+    p.ctx.scrollY = 700;
+    p.fire('scroll');
+    p.type('o');
+    const out = { typed: [p.url(), p.tab.entries.length, p.ctx.scrollY] };
+    await p.search('orchard');
+    await p.search('orchard road');
+    out.more = [p.url(), p.tab.entries.length];
+    await p.back();
+    out.back = [p.url(), p.input.value, p.shown(), p.ctx.scrollY];
+    p.ctx.history.go(1);
+    await settle();
+    out.forward = [p.url(), p.input.value, p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url];
+    // A link to a search was typed over nothing.
+    const linked = load(ADMIN, 'orchard');
+    await linked.search('lantern');
+    linked.type('');
+    await settle();
+    out.linked = [linked.url(), linked.tab.entries.length];
+    // Nor was what the browser put back in the field.
+    const restored = load(ADMIN);
+    restored.input.value = 'orchard';
+    restored.ctx.MMWatch.search.init();
+    await settle();
+    out.restored = [restored.url(), restored.tab.entries.length];
+    return out;
+  },
+
+  // Emptied and typed in again before the step back was made: what was typed last is searched for, in its own entry.
+  async emptiedAndTyped() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    p.type('');
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    await settle();
+    return [p.url(), p.input.value, p.shown(), p.tab.entries.length, p.calls.filter((c) => c.url.includes('search?')).map((c) => c.url.split('=')[1])];
   },
 
   // Enter searches at once, and on a phone puts the keyboard away.
@@ -577,12 +620,12 @@ const scenarios = {
     return p.calls.length;
   },
 
-  // Only what leaves today or tomorrow is urgent.
+  // Only what leaves by tomorrow is urgent; past its date, any day.
   async leaving() {
     const p = load(ADMIN);
     await p.search('orchard');
-    await p.answer('/api/watch/search?', { items: [0, 1, 2].map((d) => ({ ...LIB, ref: 'movie-1' + d, leaving_days: d })) });
-    return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => b.classList.contains('watch-badge--leaving-now'));
+    await p.answer('/api/watch/search?', { items: [-3, 0, 1, 2].map((d, i) => ({ ...LIB, ref: 'movie-1' + i, leaving_days: d })) });
+    return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => [b.children.map((n) => n.textContent || n.getAttribute('data-words')), b.classList.contains('watch-badge--leaving-now')]);
   },
 
   // A library result carries its mark and its More; one outside the library neither.
@@ -627,15 +670,26 @@ const scenarios = {
       items: [
         { ...TM, ref: 'tmdb-movie-1', title: 'One', download_state: 'downloading', download_pct: 95 },
         { ...TM, ref: 'tmdb-movie-2', title: 'Two', download_state: 'downloading' },
-        { ...TM, ref: 'tmdb-movie-3', title: 'Three', download_state: 'partial' },
       ],
     });
     const badges = p.doc.querySelectorAll('.watch-badge--state');
     return {
-      classes: badges.map((b) => b.className),
       texts: badges.map((b) => b.textContent),
       said: badges.map((b) => b.querySelectorAll('.sr-only').map((n) => n.textContent)),
+      owned: p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, download_state: 'in_library' }).querySelector('.watch-badge--state').className,
     };
+  },
+
+  // What Radarr has, or Sonarr has some of, has nothing to download, also before Plex has it.
+  async heldByArr() {
+    const p = load(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [], total: 0 });
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: ['in_library', 'partial', null].map((state, i) => (
+      { ...TM, ref: 'tmdb-movie-' + i, title: String(state), in_library: false, library_ref: null, download_state: state })) });
+    const badge = (item) => p.ctx.MMWatch.search.tmdbCard({ ...TM, ...item }).querySelector('.watch-badge--in');
+    return { heads: p.heads(), titles: p.titles('.watch-card'), counts: p.doc.querySelectorAll('.results-group__count').map((n) => n.textContent),
+      badge: badge({ download_state: 'partial' }).textContent };
   },
 
   // A poster both searches found is the same node before and after, so it never blinks; one whose state changed is drawn anew.
@@ -681,6 +735,49 @@ const scenarios = {
     return out;
   },
 
+  // What is typed begins a word however either is spelled; what stands out is the title's own letters.
+  async foldedSuggestions() {
+    const p = await ready(ADMIN);
+    const typed = async (title, q) => {
+      await p.search(q);
+      await p.answer('/api/watch/search?', { items: [{ ...LIB, title }] });
+      await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [] });
+      const marks = p.doc.querySelectorAll('.watch-suggestion--title em').map((n) => n.textContent);
+      return marks.length ? marks[0] : null;
+    };
+    const out = [];
+    for (const [title, q] of [['Amélie', 'ame'], ['Amelie', 'Amé'], ['The Handmaid’s Tale', 'handmaids'], ['The Amazing Spider-Man', 'spiderman'],
+      ['Spiderman Returns', 'spider-man'], ['WALL·E', 'wall-e'], ['Law & Order', 'law and'], ['Law and Order', 'law & o'], ['A & B', 'b'],
+      ['S.W.A.T.', 'swat'], ['Se7en!', 'se7en!'], ['…And Then', '…'], ['Anthill', 'hill'], ['O’Hara', 'hara'], ['Salt', '!'], ['Smørrebrød', 'smorr'], ['Straße', 'strasse'], ['Xʼs Own™', 'xs own']]) out.push(await typed(title, q));
+    return out;
+  },
+
+  // TMDB found what the library holds, which its own search may not have: it stands once, among what is held, with its Keep.
+  async heldByTmdb() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    await p.answer('/api/watch/search?', { items: [LIB] });
+    const held = { ...LIB, ref: 'movie-2', title: 'Le Verger', href: '/watch/movie/2', keep_id: '2' };
+    await p.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [TM], held: [held] });
+    const out = { heads: p.heads(), titles: p.titles('.watch-card'), counts: p.doc.querySelectorAll('.results-group__count').map((n) => n.textContent),
+      keeps: p.doc.querySelectorAll('[data-watch-keep]').map((n) => n.getAttribute('data-watch-keep')), status: p.status.textContent };
+    const q = await ready(ADMIN);
+    await q.search('amelie');
+    await q.answer('/api/watch/search?', { items: [], total: 0 });
+    await q.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], held: [{ ...held, title: 'Amélie' }] });
+    out.alone = [q.heads(), q.line(), q.doc.querySelector('.watch-card__link').href, q.suggested()];
+    // Asked again, it stays until the answers are in.
+    await q.search('amelie');
+    out.again = q.titles('.watch-card');
+    // More were found than are shown, and this one with them.
+    const r = await ready(ADMIN);
+    await r.search('orchard');
+    await r.answer('/api/watch/search?', { items: [LIB], total: 80 });
+    await r.answer('/api/watch/search/tmdb', { tmdb_configured: true, items: [], held: [held] });
+    out.many = r.doc.querySelector('.results-group__count').textContent;
+    return out;
+  },
+
   // The column beside the grid goes only once nothing is known to come into it, so the grid is not moved and moved back.
   async column() {
     const p = await ready(ADMIN);
@@ -715,8 +812,9 @@ const scenarios = {
     ] });
     out.keeps = p.doc.querySelectorAll('.watch-card').map((c) => [c.querySelector('[data-watch-keep]'), c.querySelector('.watch-badge--leaving')]
       .map((n) => n && (n.getAttribute('data-watch-keep') || n.textContent)).concat(c.getAttribute('data-keep-id')));
-    // On the category's own page they have none: it has its own badge.
-    out.explore = !!p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, keep_id: '8', leaving_days: 3 }, true).querySelector('[data-watch-keep]');
+    // On the category's own page it has the badge, and the Keep of its preview.
+    const own = p.ctx.MMWatch.search.tmdbCard({ ...TM, in_library: true, keep_id: '8', leaving_days: 3 });
+    out.explore = [!!own.querySelector('[data-watch-keep]'), own.querySelector('.watch-badge__short').textContent, own.getAttribute('data-keep-id')];
     out.titles = p.titles('.watch-card');
     out.counts = p.doc.querySelectorAll('.results-group__count').map((c) => c.textContent);
     out.status = p.status.textContent;
@@ -753,6 +851,7 @@ const scenarios = {
     p.key('ArrowUp');
     out.none = marked();
     p.key('Escape');
+    await settle();
     out.cleared = [p.input.value, p.shown(), p.doc.activeElement === p.input];
     await p.search('act');
     p.key('ArrowDown');
@@ -865,6 +964,33 @@ const scenarios = {
     return out;
   },
 
+  // Films and TV in one order go on from where each stands; one kind alone, and Popular, by the page's number.
+  async orderedPages() {
+    const out = [];
+    for (const [q, over] of [['&sort=newest', { next_after: '1-5,1-9', next_page: null }], ['&type=movie&sort=newest', { next_after: null, next_page: 2 }], ['', { next_after: null, next_page: 2 }]]) {
+      const p = await ready(ADMIN, '', '/watch?genre=action' + q);
+      await p.answer('explore?genre=action', { tmdb_configured: true, genre: GENRES[0], items: [TM], total: 40, ...over });
+      const first = p.calls[0].url;
+      p.grids[0].opts.fetchPage(p.grids[0].next);
+      out.push([first, p.calls[p.calls.length - 1].url].map((u) => u.replace('/api/watch/explore?genre=action', '')));
+    }
+    return out;
+  },
+
+  // A place in the list that is no longer read: the list is asked for anew, as it was chosen.
+  async stalePlace() {
+    const p = await ready(ADMIN, '', '/watch?genre=action&sort=newest&decade=2010s');
+    const page = { tmdb_configured: true, genre: GENRES[0], items: [TM], total: 40, next_after: '1-5,1-9', next_page: null };
+    await p.answer('explore?genre=action', page);
+    p.grids[0].opts.fetchPage('1-5,1-9').catch(() => {});
+    p.calls.pop().reject(Object.assign(new Error('400'), { status: 400 }));
+    await settle();
+    const asked = p.calls[p.calls.length - 1].url;
+    await p.answer('explore?genre=action', { ...page, next_after: '2,2' });
+    const { grids } = p;
+    return { asked, url: p.url(), years: p.doc.querySelector('.explore-years__select').value, set: grids[0].set, next: grids[0].next };
+  },
+
   // Only films or only TV: there is no kind to choose, and one in the address that it has not is not asked for.
   async oneKind() {
     const p = await ready(ADMIN);
@@ -906,6 +1032,14 @@ const scenarios = {
     await settle();
     out.back = p.doc.querySelector('.explore-title').textContent;
     return out;
+  },
+
+  // What only Radarr or Sonarr has stands with the library's, under its heading and not under Available to download.
+  async personHeldByArr() {
+    const p = await ready(ADMIN, '', '/watch?person=9001');
+    const item = (n, state) => ({ ...TM, ref: 'tmdb-movie-' + n, title: 'T' + n, in_library: false, download_state: state });
+    await p.answer('/api/watch/person/9001', { tmdb_configured: true, person: MARA, items: [item(1, 'in_library'), item(2, 'partial'), item(3, null)], total: 3, in_library: 2, next_page: null });
+    return p.grids[0].titles;
   },
 
   // What is said of a person: its room held, then their own, and nothing where there is none.
@@ -1338,11 +1472,103 @@ const scenarios = {
     const { go } = p.ctx.history;
     p.ctx.history.go = () => {};
     p.type('');
-    p.wait();
+    p.wait(9000);
     p.ctx.history.go = go;
     other.focus();
     await p.back();
-    return { url: p.url(), other: p.doc.activeElement === other };
+    const out = { url: p.url(), other: p.doc.activeElement === other, next: [] };
+    // What is typed after one, or while one is still awaited, is searched for.
+    for (const soon of [true, false]) {
+      const q = await ready(ADMIN);
+      await q.search('orchard');
+      q.ctx.history.go = () => {};
+      q.type('');
+      if (!soon) q.wait(9000);
+      q.type('lantern');
+      q.key('Enter');
+      await settle();
+      out.next.push([q.url(), q.shown(), q.calls.filter((c) => c.url.includes('search?')).pop().url]);
+    }
+    return out;
+  },
+
+  // The step back from an emptied search takes long, and something is typed before it is made.
+  async emptiedStepLate() {
+    const out = [];
+    for (const asked of [false, true]) {
+      const p = await ready(ADMIN, '', '/watch?all=movies');
+      p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+      await p.search('orchard');
+      const { go } = p.ctx.history;
+      p.ctx.history.go = () => {};
+      p.type('');
+      p.wait(9000);
+      p.type('lantern');
+      if (asked) p.key('Enter');
+      p.ctx.history.go = go;
+      await p.back();
+      p.wait(9000);
+      await settle();
+      out.push([p.input.value, p.url(), p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url]);
+    }
+    return out;
+  },
+
+  // The step back from an emptied search is never made, and the person goes Back long after.
+  async emptiedLongAgo() {
+    const p = await ready(ADMIN, '', '/watch?all=movies');
+    p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+    await p.search('orchard');
+    const { go } = p.ctx.history;
+    p.ctx.history.go = () => {};
+    p.type('');
+    p.wait(9000);
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    p.wait(10000);
+    p.ctx.history.go = go;
+    await p.back();
+    p.wait(9000);
+    await settle();
+    return [p.url(), p.input.value, p.shown()];
+  },
+
+  // The search is emptied again while the step back of the first time is still to come.
+  async emptiedTwice() {
+    const out = [];
+    for (const late of [false, true]) {
+      const p = await ready(ADMIN, '', '/watch?all=movies');
+      p.ctx.MMWatch.address.layer({ name: 'grid', depth: 10, params: ['all', 'sort'], read: (h) => (h.params.get('q') ? null : h.params.get('all')), open: () => {}, close: () => {} });
+      await p.search('orchard');
+      const { go } = p.ctx.history;
+      let asked = 0;
+      p.ctx.history.go = () => { asked++; };
+      p.type('');
+      if (late) p.wait(9000);
+      p.type('lantern');
+      p.type('');
+      if (late) p.wait(9000);
+      p.ctx.history.go = (by) => { asked++; go(by); };
+      await p.back();
+      p.wait(9000);
+      await settle();
+      out.push([asked, p.url(), p.input.value, p.shown()]);
+    }
+    return out;
+  },
+
+  // The step back from an emptied search is lost, and a category is opened before it is given up.
+  async emptiedThenCategory() {
+    const p = await ready(ADMIN);
+    await p.search('orchard');
+    p.ctx.history.go = () => {};
+    p.type('');
+    p.ctx.MMWatch.explore.openGenre('action', {}, null);
+    p.type('lantern');
+    p.key('Enter');
+    await settle();
+    return [p.url(), p.shown(), p.calls.filter((c) => c.url.includes('search?')).pop().url];
   },
 
   // The categories come in while the arrows stand on one of the first sheet's options: their place is held, and so is the highlight's.
@@ -1651,6 +1877,7 @@ const scenarios = {
     p.type('a');
     out.push(state());
     click(p.doc, cross);
+    await settle();
     out.push(state());
     return out;
   },

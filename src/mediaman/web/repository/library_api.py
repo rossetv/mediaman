@@ -20,7 +20,12 @@ from dataclasses import dataclass
 from mediaman.core.audit import log_audit
 from mediaman.core.deleted_media import record_deleted_media
 from mediaman.core.time import now_utc
-from mediaman.scanner.repository import book_removed_files, is_protected, is_show_kept_pure
+from mediaman.scanner.repository import (
+    audit_lost_removals,
+    book_removed_files,
+    is_protected,
+    is_show_kept_pure,
+)
 from mediaman.services import watch_catalog
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.web.repository.kept import KeepRow, fetch_keep, same_keep
@@ -145,6 +150,10 @@ def apply_keep_in_tx(
                 "WHERE id=?",
                 (action, execute_at, now_iso, snooze_label, existing[0]["id"]),
             )
+            for row in existing[1:]:
+                audit_lost_removals(
+                    conn, "id = ? AND delete_status IS NOT 'deleting'", (row["id"],)
+                )
             conn.executemany(
                 "DELETE FROM scheduled_actions WHERE id = ? AND delete_status IS NOT 'deleting'",
                 [(row["id"],) for row in existing[1:]],
@@ -373,6 +382,7 @@ def finalise_delete_in_tx(
             season_number=snapshot.season_number,
             title=snapshot.title,
         )
+        audit_lost_removals(conn, "media_item_id = ?", (media_id,), booked=True)
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM watch_progress WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))

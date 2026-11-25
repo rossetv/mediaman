@@ -397,6 +397,7 @@
   font-size: 11px;
   color: var(--success);
 }
+.dl-recent-sub--plain { color: var(--t2); }
 
 .dl-card-enter { animation: dl-card-in var(--dur-slow) var(--ease-out); }
 @keyframes dl-card-in { from { opacity: 0; transform: translateY(6px); } }

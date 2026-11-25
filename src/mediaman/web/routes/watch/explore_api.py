@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
+from mediaman.services.arr.state import ACTION_IN_LIBRARY, ACTION_PARTIAL
 from mediaman.services.infra import disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.services.rate_limit import ActionRateLimiter
@@ -26,9 +27,12 @@ router = APIRouter()
 _PERSON_ID_RE = re.compile(r"[0-9]{1,10}", re.ASCII)
 _PERSON_PAGE = 60
 _WHERE = ("anywhere", "library")
+# As catalog.explore_page writes it, of films and TV and up to its last page.
+_PLACE = r"(?:[1-9][0-9]?|[1-4][0-9]{2}|500)(?:-[0-9]{1,10}){0,40}"
+_AFTER_RE = re.compile(f"{_PLACE},{_PLACE}", re.ASCII)
 
-# Apart from the query limit, so looking around does not use up the day's searches. A list
-# of films and TV together asks TMDB twice.
+# Apart from the query limit, so looking around does not use up the day's searches. A page
+# of films and TV together asks TMDB twice, or a few times more to keep them in one order.
 _EXPLORE_LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60, max_per_day=1000)
 # Any person's id can be asked for, and a person's record is the largest thing cached: a day's
 # must leave room for the rest of the cache.
@@ -46,11 +50,14 @@ def api_watch_explore(
     decade: str | None = None,
     where: str = "anywhere",
     page: int = _Page,
+    after: str | None = None,
     username: str = Depends(get_current_user),
 ) -> JSONResponse:
     """One page of a genre's titles, each card as on a discover row; without *genre*, the
     genres and decades there are, and the people the library has most of. *where* "library"
-    lists only the titles it holds."""
+    lists only the titles it holds. Films and TV in an order keep it across pages when asked
+    for by *after*: empty for the first page, then the ``next_after`` of the one before;
+    by *page*, each page is in order by itself."""
     chosen = catalog.GENRES.get(genre) if genre is not None else None
     if genre is not None and chosen is None:
         return respond_err("not_found", status=404)
@@ -59,6 +66,7 @@ def api_watch_explore(
         or sort not in catalog.SORTS
         or (decade is not None and decade not in catalog.decades())
         or where not in _WHERE
+        or (after and not _AFTER_RE.fullmatch(after))
     ):
         return respond_err("invalid_request", status=400)
     conn = get_db()
@@ -76,6 +84,7 @@ def api_watch_explore(
         "items": [],
         "total": 0,
         "next_page": None,
+        "next_after": None,
     }
     if client is None:
         return respond_ok(out)
@@ -89,19 +98,21 @@ def api_watch_explore(
         return respond_ok(out)
     try:
         # Only a page TMDB is asked for counts against the limit; a cached one is free.
-        found, out["total"], out["next_page"] = catalog.explore_page(
+        found, out["total"], following = catalog.explore_page(
             client,
             chosen,
             media_type=type,
             sort=sort,
             decade=decade,
             page=page,
+            after=after,
             allow_fetch=lambda: _EXPLORE_LIMITER.check(username),
         )
     except (disk_cache.Refused, catalog.TmdbBusy):
         return respond_err("too_many_requests", status=429)
     except catalog.TmdbUnavailable:
         return respond_err("tmdb_request_failed", status=502)
+    out["next_after" if isinstance(following, str) else "next_page"] = following
     [out["items"]] = _discover_cards(request, conn, client, username, [found])
     return respond_ok(out)
 
@@ -193,13 +204,18 @@ def api_watch_person(
     cards = _credit_cards(request, conn, client, username, found["credits"])
     known_for = [card for card, minor in cards if not minor] or [card for card, _ in cards]
     ordered = [card for card, _ in cards]
-    held = [card for card in ordered if card["in_library"]]
+    # What Radarr or Sonarr has and Plex does not yet has nothing to download either.
+    held = [
+        card
+        for card in ordered
+        if card["in_library"] or card["download_state"] in (ACTION_IN_LIBRARY, ACTION_PARTIAL)
+    ]
     # Cut from the order of the credits: one that followed the library would lose a title
     # that came or went between two pages.
     end = page * _PERSON_PAGE
     items = ordered[end - _PERSON_PAGE : end]
     if page == 1:
-        items = held + [card for card in items if not card["in_library"]]
+        items = held + [card for card in items if card not in held]
     return respond_ok(
         {
             "tmdb_configured": True,

@@ -300,6 +300,25 @@ class TestFetchSonarrQueueSearching:
         cards = fetch_sonarr_queue(_client(series=[_searching_series(seasons=[season])]))
         assert [c["title"] for c in cards] == ["Andor"]
 
+    def test_a_season_with_an_episode_monitored_by_itself_can_be_abandoned(self):
+        seasons = [
+            {
+                "seasonNumber": 1,
+                "monitored": False,
+                "statistics": {
+                    "episodeCount": 1,
+                    "episodeFileCount": 0,
+                    "previousAiring": "2020-01-01T00:00:00Z",
+                },
+            },
+            {"seasonNumber": 2, "monitored": True},
+        ]
+        (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
+        assert card["stuck_seasons"] == [
+            {"number": 1, "missing_episodes": 1, "aired": True, "monitored": False},
+            {"number": 2, "missing_episodes": 0, "aired": False, "monitored": True},
+        ]
+
     def test_searching_show_names_every_monitored_season(self):
         """Without them the show has nothing Abandon can act on."""
         seasons = [
@@ -313,8 +332,8 @@ class TestFetchSonarrQueueSearching:
         ]
         (card,) = fetch_sonarr_queue(_client(series=[_searching_series(seasons=seasons)]))
         assert card["stuck_seasons"] == [
-            {"number": 1, "missing_episodes": 8, "aired": False},
-            {"number": 2, "missing_episodes": 0, "aired": False},
+            {"number": 1, "missing_episodes": 8, "aired": False, "monitored": True},
+            {"number": 2, "missing_episodes": 0, "aired": False, "monitored": True},
         ]
 
     def test_a_season_says_whether_any_of_it_has_aired(self):

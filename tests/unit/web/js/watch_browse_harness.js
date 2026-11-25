@@ -78,7 +78,7 @@ function page(doc, opts) {
     ['div', { class: 'watch-keep-menu', id: 'watch-keep-menu', hidden: '' },
       ['button', { class: 'watch-keep-menu__item', 'data-days': '30' }, 'Keep 30 days']]]));
   doc.body.appendChild(build(doc, ['script', { id: 'watch-page-data' },
-    JSON.stringify({ is_admin: !!opts.admin, tmdb_configured: opts.tmdb !== false })]));
+    JSON.stringify({ is_admin: !!opts.admin, tmdb_configured: opts.tmdb !== false, grids: opts.grids })]));
 }
 
 /* *routes* maps a URL to a function returning a promise; calls are recorded. */
@@ -503,6 +503,15 @@ const scenarios = {
       picksOff: await run({ search: '?row=recommended', enabled: false }),
       alreadyScrolled: await run({ search: '?row=recommended', scrollY: 300 }),
     };
+  },
+
+  // A held title that is leaving says when, beside what else its badges say, and a Keep of it is known by its card.
+  async leavingCards() {
+    const items = [card('movie-11', { in_library: true, href: '/watch/movie/11', leaving_days: 2, keep_id: '11' }), card('tmdb-movie-2', { leaving_days: null, keep_id: null })];
+    const p = load({ items, routes: { 'GET /api/watch/discover': () => Promise.resolve({ ...DISCOVER, rows: [{ ...DISCOVER.rows[0], items }] }) } });
+    await settle();
+    return ['recommended', 'trending'].map((id) => scrollerOf(p, id).querySelectorAll('.watch-card').map((c) => [
+      c.getAttribute('data-keep-id'), text(c.querySelector('.watch-badge--leaving .watch-badge__short')), c.querySelectorAll('.watch-badge--leaving').length]));
   },
 
   // A detail reports a new download state: every card of that title changes its badge.
@@ -1103,6 +1112,23 @@ const scenarios = {
     const third = scroller.querySelectorAll('.watch-card')[2];
     return { refs: refsOf(scroller), calls: p.calls.filter((c) => /library/.test(c)), more: scroller.parentNode.hasAttribute('data-row-more'),
       third: [third.getAttribute('data-mark'), !!third.querySelector('.watch-badge--watched'), !!third.querySelector('[data-watch-more]'), !!third.querySelector('[data-watch-keep]')] };
+  },
+
+  // A row whose rest the server has goes on from there as a grid too, in the grid's pages and orders.
+  async libraryGrids() {
+    const out = {};
+    for (const id of ['movies', 'tv', 'anime', 'recent']) {
+      const p = load({ grids: { [id]: 'Row' }, routes: { [`GET /api/watch/library/${id}/row?after=k&limit=60`]: () => Promise.resolve({ items: [], next: null, total: 9 }),
+        [`GET /api/watch/library/${id}/row?after=&limit=60&sort=az`]: () => Promise.resolve({ items: [], next: 'z', total: 9 }) } });
+      await settle();
+      let made = null;
+      p.ctx.MMWatch.grid.open = (o) => { made = o; };
+      p.doc.body.appendChild(build(p.doc, ['div', {}, ['div', { class: 'watch-all__body' }], ['a', { href: '/watch?all=' + id, 'data-row-open': id }, 'Row']]));
+      p.doc.querySelector('.watch-all__body').toggleAttribute = () => {};
+      click(p.doc, p.doc.querySelector('[data-row-open="' + id + '"]'));
+      out[id] = made.fetchPage ? [(await made.fetchPage('k')).total, (await made.sort.choose('az')).next] : null;
+    }
+    return out;
   },
 
   // Discover cards carry a mark and More only for a title the library holds, whatever the server sends.

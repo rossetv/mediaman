@@ -37,7 +37,9 @@ def _season(conn, key, show, title, kind, library=1):
 
 
 @pytest.fixture
-def client(app_factory, conn, templates_stub):
+def client(app_factory, conn, templates_stub, monkeypatch):
+    for module in (pages, library_row_api):
+        monkeypatch.setattr(module, "now_utc", lambda: NOW)
     insert_settings(conn, plex_libraries='["1"]')
     for n in range(5):
         _movie(conn, f"10{n}", f"Film {n}", NOW - timedelta(days=n // 2))
@@ -74,7 +76,8 @@ def _all(client, kind, limit, **params):
 
 
 @pytest.mark.parametrize(
-    ("kind", "title"), [("movies", "Movies"), ("tv", "TV"), ("anime", "Anime")]
+    ("kind", "title"),
+    [("movies", "Movies"), ("tv", "TV"), ("anime", "Anime"), ("recent", "Recently added")],
 )
 def test_the_pages_of_a_row_are_the_watch_pages_row(client, kind, title):
     rows = {r["title"]: r["items"] for r in client.get("/watch").json()["rows"]}
@@ -86,6 +89,31 @@ def test_the_watch_pages_cursor_goes_on_where_its_first_page_ends(client, monkey
     monkeypatch.setattr(pages, "ROW_PAGE_SIZE", 2)
     row = next(r for r in client.get("/watch").json()["rows"] if r["title"] == "Movies")
     assert _page(client, "movies", after=row["next"])["items"] == row["items"][2:]
+
+
+def test_recently_added_pages_films_and_shows_together_without_the_older_ones(client, conn):
+    for key, days in (("501", 1), ("601", pages.RECENT_DAYS + 1)):
+        added = (NOW - timedelta(days=days)).isoformat()
+        conn.execute("UPDATE media_items SET added_at = ? WHERE id = ?", (added, key))
+    conn.commit()
+
+    paged = [i["title"] for i in _all(client, "recent", 1)]
+
+    assert paged == ["Film 0", "Film 1", "Coast", "Film 2", "Film 3", "Film 4"]
+    assert _page(client, "recent")["total"] == 6
+    az = [i["title"] for i in _all(client, "recent", 2, sort="az")]
+    assert az == ["Coast", "Film 0", "Film 1", "Film 2", "Film 3", "Film 4"]
+
+
+@pytest.mark.parametrize("sort", ["az", "added"])
+def test_the_shared_link_of_recently_added_is_its_first_page(client, monkeypatch, sort):
+    monkeypatch.setattr(pages, "plex_is_configured", lambda _conn: True)
+    monkeypatch.setattr(pages, "GRID_PAGE_SIZE", 2)
+    grid = client.get(f"/watch?all=recent&sort={sort}").json()["grid"]
+    rest = _page(client, "recent", sort=sort, after=grid["next"])
+    whole = _page(client, "recent", sort=sort)
+    assert (len(grid["items"]), grid["total"]) == (2, whole["total"])
+    assert grid["items"] + rest["items"] == whole["items"]
 
 
 def test_a_row_ends_at_its_last_title_with_no_empty_page_after(client):

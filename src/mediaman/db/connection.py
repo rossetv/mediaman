@@ -115,7 +115,37 @@ _ADDED_COLUMNS = (
     ("pruned_keeps", "tmdb_id", "INTEGER"),
     ("pruned_keeps", "plex_library_id", "INTEGER"),
     ("media_items", "last_tmdb_id", "INTEGER"),
+    ("pruned_keeps", "tvdb_id", "INTEGER"),
+    ("pruned_keeps", "given_libraries", "TEXT"),
+    ("pruned_show_seasons", "tmdb_id", "INTEGER"),
+    ("pruned_show_seasons", "tvdb_id", "INTEGER"),
+    ("pruned_show_seasons", "plex_library_id", "INTEGER"),
+    ("pruned_show_seasons", "given_libraries", "TEXT"),
+    ("pruned_progress", "tmdb_id", "INTEGER"),
+    ("pruned_progress", "tvdb_id", "INTEGER"),
+    ("pruned_watches", "last_tmdb_id", "INTEGER"),
+    ("media_items", "last_tvdb_id", "INTEGER"),
+    ("media_items", "first_listed_at", "TEXT"),
+    ("media_items", "unlisted", "INTEGER NOT NULL DEFAULT 0"),
+    ("pruned_watches", "last_tvdb_id", "INTEGER"),
+    ("pruned_keeps", "given_to", "TEXT"),
+    ("pruned_show_seasons", "given_to", "TEXT"),
+    ("pruned_keeps", "tracked_files", "TEXT"),
+    ("pruned_show_seasons", "tracked_files", "TEXT"),
+    ("pruned_watches", "tracked_files", "TEXT"),
 )
+
+# Not in SCHEMA, which runs before an older table has these columns.
+_ADDED_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_media_items_tvdb_id
+    ON media_items(COALESCE(tvdb_id, last_tvdb_id));
+CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id
+    ON media_items(COALESCE(tmdb_id, last_tmdb_id));
+CREATE INDEX IF NOT EXISTS idx_pruned_watches_tvdb_id
+    ON pruned_watches(COALESCE(tvdb_id, last_tvdb_id));
+CREATE INDEX IF NOT EXISTS idx_pruned_watches_tmdb_id
+    ON pruned_watches(COALESCE(tmdb_id, last_tmdb_id));
+"""
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -123,6 +153,16 @@ def _add_missing_columns(conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
+def _fill_first_listed(conn: sqlite3.Connection) -> None:
+    """Take an item stored without it as first listed when it was last seen.
+
+    At every start: an older version that runs again stores items without it.
+    """
+    conn.execute(
+        "UPDATE media_items SET first_listed_at = last_scanned_at WHERE first_listed_at IS NULL"
+    )
 
 
 def _take_over_plays(conn: sqlite3.Connection) -> None:
@@ -164,6 +204,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        conn.executescript(_ADDED_INDEXES)
+        _fill_first_listed(conn)
         _take_over_plays(conn)
         conn.commit()
     except Exception:

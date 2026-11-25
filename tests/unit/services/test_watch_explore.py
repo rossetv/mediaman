@@ -11,11 +11,12 @@ import requests
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.infra import SafeHTTPError, disk_cache
 from mediaman.services.media_meta.tmdb import TmdbClient
-from mediaman.services.watch_catalog import _explore
+from mediaman.services.watch_catalog import _discover, _explore
 
 
 class Tmdb:
-    """A TmdbClient that answers from ``pages``, by path; an exception is raised."""
+    """A TmdbClient that answers from ``pages``, by path; an exception is raised, and a list
+    is one answer a page."""
 
     def __init__(self, monkeypatch) -> None:
         self.pages: dict[str, object] = {}
@@ -26,6 +27,8 @@ class Tmdb:
     def _get(self, path, params=None):
         self.asked.append((path, params or {}))
         answer = self.pages[path]
+        if isinstance(answer, list):
+            answer = answer[params["page"] - 1]
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -46,6 +49,46 @@ def _failed(status: int) -> SafeHTTPError:
 
 def _list(*items, pages=1, total=None):
     return {"results": list(items), "total_pages": pages, "total_results": total or len(items)}
+
+
+def _ranked(count, step, start=0):
+    """Titles in both orders, *step* apart."""
+    rows = []
+    for number in range(start, start + count):
+        place = step * number
+        day = f"{2026 - place // 12:04d}-{12 - place % 12:02d}-01"
+        rows.append(
+            {
+                "id": number + 1,
+                "vote_average": 9 - place / 50,
+                "release_date": day,
+                "first_air_date": day,
+            }
+        )
+    return rows
+
+
+def _paged(films, shows):
+    return {
+        f"/discover/{kind}": [
+            _list(*rows[at : at + 20], pages=-(-len(rows) // 20), total=len(rows))
+            for at in range(0, len(rows), 20)
+        ]
+        for kind, rows in (("movie", films), ("tv", shows))
+    }
+
+
+def _walked(tmdb, sort, after=""):
+    """All there is from *after* on, and the totals said on the way."""
+    got, totals = [], []
+    while after is not None:
+        assert len(totals) < 20
+        items, total, after = catalog.explore_page(
+            tmdb.client, catalog.GENRES["action"], sort=sort, after=after
+        )
+        got += items
+        totals.append(total)
+    return got, totals
 
 
 def _explore_ids(tmdb, genre="action", **kwargs):
@@ -138,6 +181,195 @@ class TestExplorePage:
         }
 
         assert [i for _, i in _explore_ids(tmdb, sort=sort)] == expected
+
+    @pytest.mark.parametrize("sort", ["top_rated", "newest"])
+    def test_films_and_tv_stand_in_one_order_across_pages_each_title_once(self, tmdb, sort):
+        films, shows = _ranked(60, 2), _ranked(40, 5)
+        films[20:20] = [films[19]]  # moved to the next page between two reads
+        tmdb.pages = _paged(films, shows)
+
+        got, totals = _walked(tmdb, sort)
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert set(totals) == {101}
+        assert len(titles) == len(set(titles)) == 100
+        field = "vote_average" if sort == "top_rated" else "release_date"
+        # To one decimal, as a card has it.
+        order = [round(i[field], 1) if sort == "top_rated" else i[field] for i in got]
+        assert order == sorted(order, reverse=True)
+        # Each of TMDB's pages once.
+        assert len(tmdb.asked) == 4 + 2
+
+    @pytest.mark.parametrize("after", ["499-7,480-9", "500-1,1"])
+    def test_a_page_reads_few_of_tmdb_s_pages_however_deep_it_is(self, tmdb, after):
+        tmdb.pages = {
+            f"/discover/{kind}": [
+                _list(*({"id": 20 * page + n, "vote_average": 5} for n in range(1, 21)), pages=500)
+                for page in range(500)
+            ]
+            for kind in ("movie", "tv")
+        }
+
+        items, _, _ = catalog.explore_page(
+            tmdb.client, catalog.GENRES["action"], sort="top_rated", after=after
+        )
+
+        assert len(items) == 40
+        assert len(tmdb.asked) <= 5
+
+    @pytest.mark.parametrize("sort", ["top_rated", "newest"])
+    def test_a_page_in_order_is_as_long_as_one_of_films_and_one_of_tv(self, tmdb, sort):
+        tmdb.pages = _paged(_ranked(60, 1), _ranked(60, 1))
+
+        items, _, _ = catalog.explore_page(
+            tmdb.client, catalog.GENRES["action"], sort=sort, after=""
+        )
+
+        assert len(items) == 40
+
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    def test_pages_without_a_title_before_one_with_some_hide_none(self, tmdb, kind):
+        adult = _list({"id": 1, "adult": True}, pages=5)
+        last = _list({"id": 5, "vote_average": 8}, pages=5)
+        tmdb.pages = {"/discover/movie": _list(), "/discover/tv": _list()}
+        tmdb.pages[f"/discover/{kind}"] = [adult] * 4 + [last]
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        assert [i["id"] for i in got] == [5]
+
+    def test_a_list_of_pages_without_a_title_ends(self, tmdb):
+        nothing = _list({"id": 1, "adult": True}, pages=500)
+        tmdb.pages = {"/discover/movie": [nothing] * 500, "/discover/tv": [nothing] * 500}
+
+        items, _, after = catalog.explore_page(
+            tmdb.client, catalog.GENRES["action"], sort="top_rated", after=""
+        )
+
+        assert (items, after) == ([], None)
+        assert len(tmdb.asked) <= 6
+
+    @pytest.mark.parametrize("kind", ["movie", "tv"])
+    def test_a_kind_without_a_title_for_pages_on_end_hides_none_of_the_other(self, tmdb, kind):
+        rows = _ranked(60, 1)
+        tmdb.pages = _paged(rows, rows)
+        nothing = _list({"id": 1, "adult": True}, pages=500)
+        tmdb.pages[f"/discover/{kind}"] = [nothing] * 500
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        assert [i["id"] for i in got] == [r["id"] for r in rows]
+
+    def test_a_page_of_tmdb_s_that_is_refused_ends_one_early_and_the_next_begins_there(self, tmdb):
+        films = _ranked(40, 1)
+        tmdb.pages = {
+            "/discover/movie": [_list(*films[:10], pages=2), _list(*films[10:], pages=2)],
+            "/discover/tv": _list(*_ranked(1, 9)),
+        }
+        genre = catalog.GENRES["action"]
+        left = [True, True]
+
+        some, _, after = catalog.explore_page(
+            tmdb.client,
+            genre,
+            sort="top_rated",
+            after="",
+            allow_fetch=lambda: bool(left) and left.pop(),
+        )
+        assert isinstance(after, str)
+        with pytest.raises(disk_cache.Refused):
+            catalog.explore_page(
+                tmdb.client, genre, sort="top_rated", after=after, allow_fetch=lambda: False
+            )
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        titles = [(i["media_type"], i["id"]) for i in some + rest]
+        assert (len(some), len(titles), len(set(titles))) == (11, 41, 41)
+
+    def test_a_list_that_moved_between_two_pages_loses_no_title(self, tmdb):
+        films, shows = _ranked(60, 2), _ranked(1, 1)
+        tmdb.pages = _paged(films, shows)
+        genre = catalog.GENRES["action"]
+        first, _, after = catalog.explore_page(tmdb.client, genre, sort="top_rated", after="")
+        # One film comes in at the top, and the last one shown goes; both lists are read anew.
+        gone = first[-1]["id"]
+        films = [{"id": 900, "vote_average": 9.5}] + [f for f in films if f["id"] != gone]
+        tmdb.pages = _paged(films, shows)
+        shutil.rmtree(_discover._cache()._dir())
+
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        seen = {i["id"] for i in first + rest if i["media_type"] == "movie"}
+        assert seen >= {f["id"] for f in _ranked(60, 2)}
+
+    @pytest.mark.parametrize("fell", [(9,), (5, 9)])
+    def test_titles_that_fall_down_their_page_between_two_reads_hide_none(self, tmdb, fell):
+        films = _ranked(20, 2)
+        shows = [{"id": 500 + n, "vote_average": 9.5} for n in range(30)]
+        tmdb.pages = _paged(films, shows)
+        genre = catalog.GENRES["action"]
+        first, _, after = catalog.explore_page(tmdb.client, genre, sort="top_rated", after="")
+        shown = {i["id"] for i in first}
+        assert [i["id"] for i in first[30:]] == list(range(1, 11))
+        films = [f | ({"vote_average": 1.0} if n in fell else {}) for n, f in enumerate(films)]
+        tmdb.pages = _paged(sorted(films, key=lambda f: -f["vote_average"]), shows)
+        shutil.rmtree(_discover._cache()._dir())
+
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        again = [i["id"] for i in rest]
+        assert len(again) == len(set(again)) and not shown & set(again)
+        assert shown | set(again) >= {f["id"] for f in films}
+
+    def test_a_title_moved_to_the_next_page_is_in_a_reply_once(self, tmdb):
+        films = _ranked(40, 1)
+        films[20:20] = films[5:6]
+        tmdb.pages = _paged(films, _ranked(20, 60))
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert len(titles) == len(set(titles)) == 60
+
+    @pytest.mark.parametrize("moved", [2, 5, 19])
+    def test_a_title_moved_to_the_next_page_is_in_no_later_reply(self, tmdb, moved):
+        films = _ranked(40, 1)
+        films[20:20] = [films[moved]]
+        tmdb.pages = _paged(films, _ranked(40, 1))
+
+        got, _ = _walked(tmdb, "top_rated")
+
+        titles = [(i["media_type"], i["id"]) for i in got]
+        assert len(titles) == len(set(titles)) == 80
+
+    def test_a_title_moved_to_the_page_being_read_between_two_replies_is_not_shown_again(
+        self, tmdb
+    ):
+        films, shows = _ranked(60, 1), _ranked(1, 1)
+        tmdb.pages = _paged(films, shows)
+        genre = catalog.GENRES["action"]
+        got, _, after = catalog.explore_page(tmdb.client, genre, sort="top_rated", after="")
+        # All of the first page's films and most of the second's are shown.
+        assert len(got) == 40 and after
+        first = films.pop(0)
+        films.insert(25, first | {"vote_average": films[25]["vote_average"]})
+        tmdb.pages = _paged(films, shows)
+        shutil.rmtree(_discover._cache()._dir())
+
+        rest, _ = _walked(tmdb, "top_rated", after)
+
+        assert first["id"] not in [i["id"] for i in rest if i["media_type"] == "movie"]
+
+    def test_by_page_each_is_in_order_by_itself(self, tmdb):
+        tmdb.pages = _paged(_ranked(40, 1), _ranked(40, 1))
+        genre = catalog.GENRES["action"]
+
+        second, total, following = catalog.explore_page(
+            tmdb.client, genre, sort="top_rated", page=2
+        )
+
+        assert (len(second), total, following) == (40, 80, None)
+        assert {i["id"] for i in second} == set(range(21, 41))
 
     def test_the_list_goes_on_while_either_kind_has_a_page_and_counts_both(self, tmdb):
         tmdb.pages = {

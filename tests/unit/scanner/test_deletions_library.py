@@ -128,6 +128,25 @@ def test_a_library_selected_again_starts_with_a_new_schedule(conn, root):
     assert film.exists()
 
 
+def test_a_library_selected_again_before_a_folder_is_set_starts_with_a_new_schedule(
+    conn, root, monkeypatch
+):
+    film = _due(conn, "m1", root / "Film" / "film.mkv")
+    other = _due(conn, "m2", root / "Other" / "other.mkv", library=2)
+    _select(conn, '["2"]')
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "")
+    DeletionExecutor(conn=conn).execute()
+    assert (_status(conn, "m1"), _status(conn, "m2")) == (None, "pending")
+
+    _select(conn, '["1", "2"]')
+    monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+    DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    assert not other.exists()
+    assert _audits(conn, "m1") == ["delete_refused"]
+
+
 def test_a_part_removed_deletion_of_an_unselected_library_is_booked_and_cancelled(conn, root):
     film = _due(conn, "m1", root / "Film" / "film.mkv")
     removed = json.dumps({"paths": [str(root / "gone.mkv")], "bytes": 4})
@@ -156,6 +175,16 @@ def test_a_dry_run_does_not_list_a_held_deletion(conn, root):
     DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
 
     assert _audits(conn, "m1") == []
+
+
+def test_a_dry_run_does_not_list_the_deletions_of_a_library_plex_did_not_answer_for(conn, root):
+    _due(conn, "m1", root / "Film" / "film.mkv")
+    _due(conn, "m2", root / "Other" / "other.mkv", library=2)
+    _select(conn, '["1", "2"]')
+
+    DeletionExecutor(conn=conn, dry_run=True).execute(unread_libraries={"1"})
+
+    assert (_audits(conn, "m1"), _audits(conn, "m2")) == ([], ["dry_run_skip"])
 
 
 def test_an_unselected_librarys_film_inside_a_due_folder_holds_the_folder_back(conn, root):
