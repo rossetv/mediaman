@@ -34,7 +34,22 @@ def _of(selector: str, media: str | None = None) -> str:
 
 def test_a_phone_shows_which_episodes_are_watched_or_in_progress() -> None:
     assert "display: none" not in _of(".ttl .watch-ep__state", PHONE)
-    assert '". thumb state"' in _of(".ttl .watch-ep", PHONE)
+    assert "display: none" not in _of(".watch-ep__tick", PHONE)
+
+
+def test_a_phone_gives_an_episodes_description_the_width_under_its_picture() -> None:
+    assert '"about about about"' in _of(".ttl .watch-ep", PHONE)
+
+
+def test_a_cut_off_description_opens_by_focus_or_by_a_press_where_nothing_hovers() -> None:
+    assert "max-height" in _of(
+        ".watch-eprow:has(> .watch-ep:focus-visible) > .watch-ep > .ttl-clamp"
+    )
+    assert "max-height" in _of(".is-open > .watch-ep > .ttl-clamp")
+    assert "display: none" in _of(".ttl-more")
+    assert "display: block" in _of(
+        ".watch-eprow:has(> .watch-ep.is-long) > .ttl-more", "(hover: none)"
+    )
 
 
 def test_a_long_season_name_wraps_inside_its_chip() -> None:

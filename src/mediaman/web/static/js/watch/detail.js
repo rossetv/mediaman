@@ -268,6 +268,7 @@
       chosen: false,        // the person picked the season, or their link named it
       pressed: false,       // something has been pressed since it came
       picked: null,         // the episodes of the season on show, when not the title's own
+      pickedAbout: null,    // what is said of that season: { summary, year }
       seasonLoading: null,  // the season being loaded: { number }
       room: 0,              // what is left above the seasons, for them to stay where they were
       shareUrl: null,
@@ -878,6 +879,13 @@
     main.appendChild(lines);
     lead.appendChild(main);
     body.appendChild(lead);
+    if (/^show-/.test(cur.ref)) {
+      var eps = el('section', 'ttl__seasonsec');
+      eps.setAttribute('aria-hidden', 'true');
+      eps.appendChild(skel('skel--line ttl__sec-skel'));
+      eps.appendChild(episodeSkels(3));
+      body.appendChild(eps);
+    }
     var strip = el('section', 'ttl__castsec');
     strip.setAttribute('aria-hidden', 'true');
     strip.appendChild(skel('skel--line ttl__sec-skel'));
@@ -1128,7 +1136,10 @@
     if (window.MMWatch.collection) window.MMWatch.collection.into(body, cur.ref, d.kind);
     if (hasFacts(cur)) renderFacts(false);
     startSeasonLine(lineAt);
+    var season = body.querySelector('.ttl__season');
+    if (season) fitTexts(season);
     if (fresh) {
+      if (season) season.classList.add('is-arriving');
       toArray(main.children).concat(toArray(body.children).slice(1)).forEach(function (n) {
         n.classList.add('is-swapping-in');
       });
@@ -1424,7 +1435,7 @@
       .then(function (got) {
         if (c !== cur || !isOpen || asked !== c.marksAsked) return;
         c.data = got[0];
-        if (got[1] && c.season === season) c.picked = got[1].episodes || [];
+        if (got[1] && c.season === season) takeEpisodes(c, got[1]);
         var key = focusKey();
         if (byAct(key)) holdStill(function () { return byAct(key); }, function () { renderContent(false); });
         else renderContent(false);
@@ -2130,12 +2141,34 @@
 
   /* ── Seasons and episodes (library shows) ── */
 
+  /* The episode Play plays, unless it has been seen: the show then starts over. */
+  function isNext(e) {
+    var play = cur.data && cur.data.play;
+    return !!play && play.href === e.href && !e.watched;
+  }
+
+  function episodeFacts(e) {
+    var facts = [];
+    if (e.minutes) facts.push(dur(e.minutes));
+    // A date alone is read as UTC midnight, the day before west of it.
+    var at = e.aired ? new Date(e.aired + 'T12:00:00') : null;
+    var said = at ? day(at) : '';
+    if (said) facts.push(at > Date.now() ? 'Airs ' + said : said);
+    if (e.state === 'in_progress' && e.minutes_left) facts.push(dur(e.minutes_left) + ' left');
+    return facts.join(' · ');
+  }
+
   function episodeRow(e) {
+    var next = isNext(e);
+    var begun = e.state === 'in_progress';
+    var name = e.title || 'Episode ' + e.number;
     var li = el('li', 'watch-eprow');
-    var a = el('a', 'watch-ep' + (e.state === 'in_progress' ? ' watch-ep--in-progress' : ''));
+    var a = el('a', 'watch-ep' + (begun ? ' watch-ep--in-progress' : '') + (next ? ' watch-ep--next' : '') +
+      (e.watched ? ' watch-ep--watched' : ''));
     a.setAttribute('href', safePath(e.href) || '#');
     a.appendChild(el('span', 'watch-ep__num', String(e.number)));
     var thumb = el('span', 'watch-ep__thumb');
+    thumb.appendChild(icon('i-film', 'watch-ep__noart'));
     var src = safePath(e.thumb_url);
     if (src) {
       var img = el('img');
@@ -2145,7 +2178,15 @@
       img.setAttribute('data-broken-on-error', '');
       thumb.appendChild(img);
     }
-    if (e.state === 'in_progress' && e.progress_pct) {
+    if (e.watched) {
+      var tick = el('span', 'watch-ep__tick');
+      tick.appendChild(icon('i-check'));
+      thumb.appendChild(tick);
+    }
+    var play = el('span', 'watch-ep__play');
+    play.appendChild(icon('i-play'));
+    thumb.appendChild(play);
+    if (begun && e.progress_pct) {
       var bar = el('progress', 'watch-bar');
       bar.max = 100;
       bar.value = e.progress_pct;
@@ -2154,19 +2195,69 @@
     }
     a.appendChild(thumb);
     var text = el('span', 'watch-ep__text');
-    var title = el('span', 'watch-ep__title', e.title || 'Episode ' + e.number);
+    if (next || begun) {
+      text.appendChild(el('span', 'watch-ep__state watch-ep__state--active',
+        next ? (begun ? 'Continue' : 'Next up') : 'In progress'));
+      text.appendChild(el('span', 'sr-only', ', '));
+    }
+    var title = el('span', 'watch-ep__title', name);
     if (e.watched) title.appendChild(el('span', 'sr-only', ', watched'));
     text.appendChild(title);
-    var meta = [];
-    if (e.minutes) meta.push(dur(e.minutes));
-    if (e.state === 'in_progress' && e.minutes_left) meta.push(dur(e.minutes_left) + ' left');
-    text.appendChild(el('span', 'watch-ep__meta', meta.join(' · ')));
+    text.appendChild(el('span', 'watch-ep__meta', episodeFacts(e)));
     a.appendChild(text);
-    if (e.state === 'in_progress') a.appendChild(el('span', 'watch-ep__state watch-ep__state--active', 'In progress'));
+    var more = null;
+    if (e.summary) {
+      // The link's description, not a part of its name.
+      var about = el('span', 'watch-ep__about ttl-clamp', e.summary);
+      about.id = 'ttl-ep-' + (++seq);
+      about.setAttribute('aria-hidden', 'true');
+      a.setAttribute('aria-describedby', about.id);
+      a.appendChild(about);
+      more = moreButton('watch-ep__more', about, li, name);
+    }
     li.appendChild(a);
+    if (more) li.appendChild(more);
     var mark = episodeMark(e);
     if (mark) li.appendChild(mark);
     return li;
+  }
+
+  /* Opens the rest of *text* by a press: *holder* is open meanwhile. */
+  function moreButton(cls, text, holder, name) {
+    var b = button('ttl-more ' + cls, 'More');
+    b.setAttribute('aria-expanded', 'false');
+    b.setAttribute('aria-controls', text.id);
+    b.setAttribute('aria-label', 'More about ' + name);
+    b.addEventListener('click', function () {
+      var open = holder.classList.toggle('is-open');
+      b.textContent = open ? 'Less' : 'More';
+      b.setAttribute('aria-label', (open ? 'Less' : 'More') + ' about ' + name);
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    return b;
+  }
+
+  /* Which texts are cut off, and how high each is in full, for it to ease open. */
+  function fitTexts(panel) {
+    if (typeof ResizeObserver !== 'function') return;
+    function fit() {
+      toArray(panel.querySelectorAll('.ttl-clamp')).map(function (text) {
+        return [text, text.scrollHeight, parseFloat(getComputedStyle(text).lineHeight)];
+      }).forEach(function (one) {
+        one[0].style.setProperty('--full', one[1] + 'px');
+        one[0].parentNode.classList.toggle('is-long', one[1] > 2 * one[2] + 2);
+      });
+    }
+    var width = panel.offsetWidth;
+    fit();
+    // A text open from the start, as under the mark just pressed, is drawn open.
+    panel.classList.add('is-still');
+    new ResizeObserver(function () {
+      requestAnimationFrame(function () { panel.classList.remove('is-still'); });
+      if (panel.offsetWidth === width) return; // a text opening, not the screen
+      width = panel.offsetWidth;
+      requestAnimationFrame(fit);
+    }).observe(panel);
   }
 
   function episodeList(episodes, label) {
@@ -2174,6 +2265,70 @@
     ol.setAttribute('aria-label', label);
     episodes.forEach(function (e) { ol.appendChild(episodeRow(e)); });
     return ol;
+  }
+
+  /* The season on show: what is said of it, and its episodes. */
+  function seasonPanel(s, episodes) {
+    var about = (cur.picked && cur.pickedAbout) || s || {};
+    var name = s ? seasonName(s) : 'Season';
+    var panel = el('div', 'ttl__season');
+    var facts = [plural(episodes.length, 'episode', 'episodes')];
+    if (about.year) facts.unshift(String(about.year));
+    var box = el('div', 'ttl__season-about');
+    box.appendChild(el('p', 'ttl__season-facts', facts.join(' · ')));
+    if (about.summary && about.summary !== cur.data.overview) {
+      var text = el('p', 'ttl__season-text ttl-clamp', about.summary);
+      text.id = 'ttl-season-' + (++seq);
+      box.appendChild(text);
+      box.appendChild(moreButton('', text, box, name));
+    }
+    panel.appendChild(box);
+    panel.appendChild(episodeList(episodes, name + ' episodes'));
+    return panel;
+  }
+
+  function episodeSkels(n) {
+    var box = el('div', 'ttl-epskels');
+    box.setAttribute('aria-hidden', 'true');
+    for (var i = 0; i < n; i++) {
+      var row = el('div', 'ttl-epskel');
+      row.appendChild(skel('ttl-epskel__thumb'));
+      var lines = el('div', 'ttl-skel-lines');
+      ['38%', '22%', '94%', '70%'].forEach(function (w) { lines.appendChild(skel('skel--line', w)); });
+      row.appendChild(lines);
+      box.appendChild(row);
+    }
+    return box;
+  }
+
+  /* While another season loads, rows still to come stand over those of the one on show. */
+  function seasonWaits(panel, on) {
+    var list = panel.querySelector('.watch-episodes');
+    var skels = panel.querySelector('.ttl-epskels');
+    list.setAttribute('aria-busy', on ? 'true' : 'false');
+    panel.classList.toggle('is-waiting', on);
+    if (on && !skels) panel.appendChild(episodeSkels(6));
+    if (!on && skels) skels.remove();
+  }
+
+  /* The season that leaves fades over the one that comes. It is never taken off the page
+     before: what is easing in it would start over. */
+  function crossfade(old, fresh) {
+    var last = old.parentNode.querySelector('.ttl__season.is-gone');
+    if (last) last.remove();
+    old.before(fresh);
+    fitTexts(fresh);
+    fresh.classList.add('is-arriving');
+    if (!old.animate || core.reduceMotion()) {
+      old.remove();
+      return;
+    }
+    old.style.top = fresh.offsetTop + 'px';
+    old.classList.add('is-gone');
+    old.setAttribute('aria-hidden', 'true');
+    old.inert = true;
+    var fade = old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: core.tokenMs('--dur', 200), fill: 'forwards' });
+    fade.onfinish = fade.oncancel = function () { old.remove(); };
   }
 
   function numbered(d, n) { return (d.seasons || []).filter(function (s) { return s.number === n; })[0]; }
@@ -2194,6 +2349,7 @@
       shown = ownSeason(d);
       cur.season = shown ? shown.number : null;
       cur.picked = null;
+      cur.pickedAbout = null;
       cur.chosen = false;
     }
     if (cur.seasonLoading && !numbered(d, cur.seasonLoading.number)) cur.seasonLoading = null;
@@ -2223,9 +2379,9 @@
       viewport.appendChild(nav);
       sec.appendChild(viewport);
     }
-    var list = episodeList(cur.picked || d.episodes, (shown ? seasonName(shown) : 'Season') + ' episodes');
-    if (cur.seasonLoading) list.setAttribute('aria-busy', 'true');
-    sec.appendChild(list);
+    var panel = seasonPanel(shown, cur.picked || d.episodes);
+    if (cur.seasonLoading) seasonWaits(panel, true);
+    sec.appendChild(panel);
     return sec;
   }
 
@@ -2279,10 +2435,15 @@
     if (sec) sec.style.marginTop = cur.room ? cur.room + 'px' : '';
   }
 
+  function takeEpisodes(c, data) {
+    c.picked = data.episodes || [];
+    c.pickedAbout = { summary: data.summary, year: data.year };
+  }
+
   function takeSeason(c, s, data) {
     c.season = s.number;
     c.chosen = true;
-    c.picked = data.episodes || [];
+    takeEpisodes(c, data);
     s.key = data.key;
     s.watched = data.watched;
   }
@@ -2293,11 +2454,11 @@
     var leftOn = leavingNow();
     takeSeason(c, s, data);
     var leaves = leavingNow();
-    var fresh = episodeList(c.picked, seasonName(s) + ' episodes');
+    var fresh = seasonPanel(s, c.picked);
     var sec = body.querySelector('.ttl__seasonsec');
     still = still || sec.querySelector('.watch-pill[data-season="' + s.number + '"]') || sec;
     holdStill(function () { return still; }, function () {
-      sec.querySelector('.watch-episodes').replaceWith(fresh);
+      crossfade(sec.querySelector('.ttl__season'), fresh);
       if ((leftOn && leftOn.id) !== (leaves && leaves.id)) {
         redrawActions(c.ref);
         if (hasFacts(c)) renderFacts(false);
@@ -2306,7 +2467,6 @@
       var mark = seasonMark(s);
       if (oldMark && mark) oldMark.replaceWith(mark);
     });
-    core.fadeIn(fresh);
   }
 
   /* A season pill swaps the list in place; focus stays on the pill. When the
@@ -2320,10 +2480,9 @@
     var sec = body.querySelector('.ttl__seasonsec');
     markSeason(sec, s.number);
     showPill(sec.querySelector('.watch-seasons'), core.reduceMotion() ? 'auto' : 'smooth');
-    var list = sec.querySelector('.watch-episodes');
     var oldErr = sec.querySelector('.ttl__error');
     if (oldErr) oldErr.remove();
-    list.setAttribute('aria-busy', 'true');
+    seasonWaits(sec.querySelector('.ttl__season'), true);
     get(apiUrl(c.ref) + '/season/' + encodeURIComponent(s.number)).then(function (data) {
       if (c !== cur || c.seasonLoading !== token) return;
       c.seasonLoading = null;
@@ -2334,7 +2493,7 @@
       var sec = body.querySelector('.ttl__seasonsec');
       var list = sec.querySelector('.watch-episodes');
       markSeason(sec, c.season);
-      list.setAttribute('aria-busy', 'false');
+      seasonWaits(sec.querySelector('.ttl__season'), false);
       var err = el('p', 'ttl__error');
       err.setAttribute('role', 'alert');
       err.appendChild(el('span', '', 'Could not load ' + seasonName(s) + '.'));

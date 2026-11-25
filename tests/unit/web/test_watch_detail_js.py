@@ -619,6 +619,47 @@ def test_a_season_pill_swaps_the_episodes_in_place_and_keeps_focus() -> None:
     assert out["keep"] == "3010"
 
 
+def test_an_episode_says_what_it_is_about_when_it_aired_and_what_was_seen_of_it() -> None:
+    watched, begun, other, unaired = _run("seasonTexts")["rows"]
+    assert (watched["about"], watched["meta"]) == ("It <i>begins</i>.", "50 min · 4 May 2019")
+    assert (watched["tick"], watched["state"]) == (True, None)
+    assert (begun["state"], begun["meta"]) == ("Continue", "50 min · 30 min left")
+    # Only the episode Play plays is the one to continue.
+    assert (other["state"], other["about"], other["more"]) == ("In progress", None, 0)
+    assert (unaired["state"], unaired["meta"]) == (None, "50 min · Airs 2 Jan 2999")
+
+
+def test_a_row_is_one_link_whose_description_is_not_in_its_name() -> None:
+    for row in _run("seasonTexts")["rows"][:2]:
+        assert (row["describes"], row["inName"], row["more"]) == (True, False, 1)
+        assert row["controlsInLink"] == 0
+
+
+def test_a_season_says_its_year_its_episodes_and_its_own_words() -> None:
+    out = _run("seasonTexts")
+    assert out["opened"] == {"facts": "2019 · 4 episodes", "text": "Its <b>second</b> year."}
+    told = {"facts": "2017 · 1 episode", "text": "Told by another."}
+    assert out["picked"] == told
+    # Told by the season's own answer alone, not by the title loaded again.
+    assert out["marked"] == {"season": told, "about": "Nine."}
+    assert (out["older"], out["bare"]) == ({"facts": "1 episode", "text": None}, 0)
+
+
+def test_the_rest_of_a_seasons_words_opens_and_closes_by_a_press() -> None:
+    closed = [False, "More", "false", "More about Season 2"]
+    opened = [True, "Less", "true", "Less about Season 2"]
+    assert _run("seasonTexts")["press"] == [closed, opened, closed]
+
+
+def test_rows_to_come_stand_in_until_a_season_loads_or_fails() -> None:
+    out = _run("seasonTexts")
+    assert out["wait"] == [True, True, "true"]
+    assert out["failed"] == {
+        "waits": [False, False, "false"],
+        "season": {"facts": "2019 · 4 episodes", "text": "Its <b>second</b> year."},
+    }
+
+
 def test_loading_a_title_again_keeps_the_season_the_person_picked_until_it_is_gone() -> None:
     out = _run("seasonPickedThenRefreshed")
     first = {"on": ["Season 1"], "eps": ["One One"], "label": "Season 1 episodes"}

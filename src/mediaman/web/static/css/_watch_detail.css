@@ -490,10 +490,126 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* ── Episodes ── */
 
 .ttl .watch-episodes { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 0; margin-left: 0; max-width: none; }
-.ttl .watch-ep { grid-template-columns: 24px 160px minmax(0, 1fr) auto; padding: 10px 12px; }
-.ttl .watch-eprow { margin-inline: -12px; }
-.ttl .watch-eprow:has(> .watch-ep:hover),
-.ttl .watch-eprow:has(> .watch-ep--in-progress) { background: var(--s2); }
+.ttl .watch-ep {
+  --ep-thumb: 184px;
+  --ep-num: 24px;
+  --ep-gap: 18px;
+  --ep-pad: 12px;
+  grid-template-columns: var(--ep-num) var(--ep-thumb) minmax(0, 1fr);
+  grid-template-areas: "num thumb text" "num thumb about";
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 4px var(--ep-gap);
+  padding: 10px var(--ep-pad);
+}
+/* With nothing under it, the text stands at the picture's middle. */
+.ttl .watch-ep:not(:has(> .watch-ep__about)) { grid-template-areas: "num thumb text"; grid-template-rows: auto; }
+.ttl .watch-ep:not(:has(> .watch-ep__about)) > .watch-ep__text { align-self: center; }
+.ttl .watch-eprow { grid-template-columns: minmax(0, 1fr) 116px; align-items: start; margin-inline: -12px; }
+/* At the picture's middle, where they stay as the row grows. */
+.ttl .watch-ep__num { display: flex; align-items: center; justify-content: flex-end; height: calc(var(--ep-thumb) * 9 / 16); }
+.ttl .watch-eprow > .watch-mark { grid-area: 1 / 2 / span 2; margin-top: 40px; }
+.ttl .watch-eprow:has(> .watch-ep:focus-visible),
+.ttl .watch-eprow:has(> .watch-ep--in-progress),
+.ttl .watch-eprow:has(> .watch-ep--next) { background: var(--s2); }
+.ttl .watch-ep__text { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.ttl .watch-ep__meta { flex-basis: 100%; order: 2; }
+.ttl .watch-ep__state { order: 1; padding: 3px 10px; font-weight: 600; }
+.ttl .watch-ep__about { grid-area: about; margin-top: 4px; font-size: 14px; color: var(--t2); overflow-wrap: anywhere; }
+
+/* Two lines, the second fading out where there is more, easing open to the whole text. */
+.ttl-clamp {
+  display: block;
+  max-height: calc(2 * 1.45em);
+  overflow: hidden;
+  line-height: 1.45;
+  transition: max-height var(--dur-slow) var(--ease-out);
+}
+.is-still .ttl-clamp { transition: none; }
+.is-long > .ttl-clamp {
+  -webkit-mask: linear-gradient(#000 0 0) 0 0 / 100% 1.45em no-repeat, linear-gradient(90deg, #000 70%, transparent) 0 1.45em / 100% 1.45em no-repeat;
+  mask: linear-gradient(#000 0 0) 0 0 / 100% 1.45em no-repeat, linear-gradient(90deg, #000 70%, transparent) 0 1.45em / 100% 1.45em no-repeat;
+}
+.is-open > .ttl-clamp,
+.is-open > .watch-ep > .ttl-clamp,
+.watch-eprow:has(> .watch-ep:focus-visible) > .watch-ep > .ttl-clamp { max-height: var(--full, none); -webkit-mask: none; mask: none; }
+.ttl-more {
+  position: relative;
+  display: none;
+  justify-self: start;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  transition: color var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out);
+}
+.ttl-more::after { content: ""; position: absolute; inset: -8px -14px; }
+.is-long > .ttl-more { display: block; }
+/* Where no pointer hovers, a press opens the text of a row. */
+@media (hover: none) {
+  .watch-eprow:has(> .watch-ep.is-long) > .ttl-more { display: block; }
+}
+.ttl-more:active { opacity: .6; }
+.ttl-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
+.ttl .watch-ep__more { grid-area: 2 / 1; margin: -6px 0 6px calc(12px + 24px + 184px + 2 * 18px); }
+
+/* What a picture says of its episode. */
+.watch-ep__noart { position: absolute; inset: 0; margin: auto; font-size: 22px; color: var(--t3); opacity: .5; }
+.ttl .watch-ep__thumb > img { position: relative; transition: opacity var(--dur) var(--ease-out), filter var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
+.ttl .watch-ep--watched .watch-ep__thumb > img { filter: brightness(.6); }
+.watch-ep__tick,
+.watch-ep__play { position: absolute; z-index: 2; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--scrim) 72%, transparent); color: var(--t1); }
+.watch-ep__tick { right: 6px; bottom: 6px; width: 22px; height: 22px; font-size: 11px; transition: opacity var(--dur-fast) var(--ease-out); }
+.watch-ep__thumb:has(> .watch-bar) > .watch-ep__tick { bottom: 18px; }
+.watch-ep__play {
+  inset: 0;
+  width: 40px;
+  height: 40px;
+  margin: auto;
+  font-size: 15px;
+  opacity: 0;
+  transform: scale(.7);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.watch-ep:focus-visible .watch-ep__play { opacity: 1; transform: none; }
+.ttl .watch-eprow { transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
+@media (hover: hover) {
+  .ttl .watch-eprow:hover { background: var(--s2); box-shadow: 0 0 0 1px var(--hair), var(--shadow-card); transform: translateY(-2px); }
+  .watch-eprow:hover .watch-ep__play { opacity: 1; transform: none; }
+  .ttl .watch-eprow:hover .watch-ep__thumb > img { filter: none; transform: scale(1.04); }
+  /* A pointer on its way past opens nothing. */
+  .watch-eprow:hover > .watch-ep > .ttl-clamp { transition-delay: .25s; }
+  .watch-eprow:hover > .watch-ep > .ttl-clamp,
+  .watch-eprow:focus-within > .watch-ep > .ttl-clamp { max-height: var(--full, none); -webkit-mask: none; mask: none; }
+}
+/* After the hover, so that a pressed row settles back from its lift. */
+.ttl .watch-eprow:has(> .watch-ep:active) { transform: scale(.985); box-shadow: none; }
+.ttl .watch-ep:active { transform: none; }
+
+/* ── The season on show ── */
+
+.ttl__season { position: relative; }
+.ttl__season-about { margin-bottom: 14px; max-width: 68ch; }
+.ttl__season-facts { font-size: 13px; color: var(--t3); }
+.ttl__season-text { margin-top: 4px; font-size: 15px; color: var(--t2); overflow-wrap: anywhere; }
+.ttl__season.is-gone { position: absolute; inset-inline: -12px; bottom: 0; overflow: hidden; padding-inline: 12px; pointer-events: none; }
+.ttl__seasonsec { position: relative; }
+@keyframes ttl-ep-in { from { opacity: 0; transform: translateY(8px); } }
+.ttl__season.is-arriving > .ttl__season-about { animation: fade-in var(--dur) var(--ease-out) backwards; }
+.ttl__season.is-arriving .watch-eprow:nth-child(-n+7) { animation: ttl-ep-in var(--dur-slow) var(--ease-out) backwards; }
+.ttl__season.is-arriving .watch-eprow:nth-child(2) { animation-delay: 25ms; }
+.ttl__season.is-arriving .watch-eprow:nth-child(3) { animation-delay: 50ms; }
+.ttl__season.is-arriving .watch-eprow:nth-child(4) { animation-delay: 75ms; }
+.ttl__season.is-arriving .watch-eprow:nth-child(5) { animation-delay: 100ms; }
+.ttl__season.is-arriving .watch-eprow:nth-child(6) { animation-delay: 125ms; }
+.ttl__season.is-arriving .watch-eprow:nth-child(7) { animation-delay: 150ms; }
+/* Rows still to come, in place of the season's, but only when the wait is long enough to notice. */
+.ttl__season.is-waiting > :not(.ttl-epskels) { opacity: 0; transition: opacity var(--dur) var(--ease-out) .3s; }
+.ttl__season > .ttl-epskels { position: absolute; inset: 0 -12px; overflow: hidden; padding-inline: 12px; animation: fade-in var(--dur) var(--ease-out) .3s backwards; pointer-events: none; }
+.ttl__season.is-gone > .ttl-epskels { inset-inline: 0; }
+.ttl-epskels { display: flex; flex-direction: column; gap: 4px; }
+.ttl-epskel { display: grid; flex: none; grid-template-columns: 184px minmax(0, 1fr); align-items: center; gap: 18px; padding: 10px 0 10px 42px; }
+.ttl-epskel > .ttl-epskel__thumb { width: auto; height: auto; aspect-ratio: 16 / 9; border-radius: var(--r-sm); }
 /* The seasons stand on one line that scrolls to the sheet's edges, as the rows do to the screen's. */
 .ttl-seasons { --pad: 32px; margin: 0 calc(-1 * var(--pad)) 8px; }
 .ttl .watch-seasons { flex-wrap: nowrap; margin: 0; padding-block: 6px; }
@@ -549,15 +665,28 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions > .dl-state,
   .ttl__actions > .skel--pill { flex: 1 1 120px; min-width: max-content; padding-inline: 12px; }
   .ttl__actions > :first-child { flex-basis: 100%; }
-  .ttl .watch-ep { grid-template-columns: 20px 112px minmax(0, 1fr); grid-template-areas: "num thumb text" ". thumb state"; align-items: start; gap: 6px 12px; padding: 10px 8px; }
+  .ttl .watch-ep { --ep-thumb: 116px; --ep-num: 20px; --ep-gap: 12px; --ep-pad: 8px; grid-template-areas: "num thumb text" "about about about"; grid-template-rows: auto; row-gap: 6px; }
+  .ttl .watch-ep__text { align-self: center; gap: 3px 8px; }
+  /* Over the title, which has little width beside the picture. */
+  .ttl .watch-ep__state { order: -1; padding: 2px 8px; font-size: 11px; }
+  .ttl .watch-ep__num { padding: 0; font-size: 14px; }
   .ttl .watch-eprow { margin-inline: -8px; }
-  .ttl .watch-ep__num { padding-top: 2px; font-size: 14px; }
-  .ttl .watch-ep__state { justify-self: start; align-self: end; }
+  .ttl .watch-eprow > .watch-mark { margin-top: 20px; }
+  .ttl .watch-ep__more { margin-left: 8px; }
+  .ttl .watch-ep__play { width: 34px; height: 34px; }
+  .ttl-epskel { grid-template-columns: 116px minmax(0, 1fr); gap: 12px; padding-left: 32px; }
   .ttl-seasons { --pad: 20px; }
+  .ttl__season.is-gone,
+  .ttl__season > .ttl-epskels { inset-inline: -8px; padding-inline: 8px; }
   /* Two to a line: the episode count drops under the name. */
   .season-chip { flex: 1 1 calc(50% - 4px); min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; align-content: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; }
   .season-chip__box { grid-row: span 2; }
   .season-chip__sub { grid-column: 2; }
+}
+
+/* The eye alone beside an episode, without its word. */
+@media (max-width: 599.98px) {
+  .ttl .watch-eprow { grid-template-columns: minmax(0, 1fr) 44px; }
 }
 
 /* A phone held sideways: the sheet takes the whole height. */
@@ -605,5 +734,12 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
   .ttl__sheet,
   .ttl__scrim { transition: opacity var(--dur) linear !important; }
+  .ttl .watch-eprow,
+  .ttl .watch-eprow:hover,
+  .ttl .watch-eprow:has(> .watch-ep:active),
+  .ttl .watch-eprow:hover .watch-ep__thumb > img,
+  .ttl .watch-ep__play { transform: none; }
+  .ttl__season.is-arriving > *,
+  .ttl__season.is-arriving .watch-eprow { animation: none !important; }
   .ttl.is-aside .ttl__sheet { transform: none; }
 }

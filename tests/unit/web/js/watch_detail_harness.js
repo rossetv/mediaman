@@ -1470,6 +1470,60 @@ const scenarios = {
       resume: primary(p), progress: !!p.q('.ttl__progress progress'), keep: p.q('[data-watch-keep]') && p.q('[data-watch-keep]').getAttribute('data-watch-keep') };
   },
 
+  // What a season and its rows say, and how their texts open; another season, slow, then failing;
+  // and the one on show once a mark loads the title again.
+  async seasonTexts() {
+    process.env.TZ = 'America/New_York';
+    const ep = (n, over) => Object.assign({ number: n, key: '2' + n, title: 'Ep ' + n, minutes: 50, thumb_url: '/api/watch/thumb/2' + n,
+      state: 'none', watched: false, href: '/watch/play/2' + n }, over);
+    const show = () => Object.assign({}, LIB_SHOW, { mark_kind: 'show', mark_key: '300', overview: 'A show.',
+      play: { label: 'Resume S2 · E2', href: '/watch/play/22' },
+      seasons: [Object.assign({}, LIB_SHOW.seasons[0], { summary: 'A show.', year: 2018 }), Object.assign({}, LIB_SHOW.seasons[1], { summary: 'Its <b>second</b> year.', year: 2019 })],
+      episodes: [ep(1, { state: 'watched', watched: true, summary: 'It <i>begins</i>.', aired: '2019-05-04' }),
+        ep(2, { state: 'in_progress', progress_pct: 40, minutes_left: 30, summary: 'It goes on.', aired: 'soon' }),
+        ep(3, { state: 'in_progress', progress_pct: 10, minutes_left: 45 }), ep(4, { aired: '2999-01-02' })] });
+    let answer;
+    const slow = () => new Promise((resolve, reject) => { answer = { resolve, reject }; });
+    let first = slow;
+    const p = load({ routes: { '/api/watch/title/show-300': () => Promise.resolve(show()), '/api/watch/title/show-300/season/1': () => first() } });
+    p.run();
+    await openCard(p, 'show-300');
+    const row = (li) => {
+      const a = li.querySelector('.watch-ep');
+      const about = li.querySelector('.watch-ep__about');
+      return { state: a.querySelector('.watch-ep__state') && a.querySelector('.watch-ep__state').textContent, meta: a.querySelector('.watch-ep__meta').textContent,
+        about: about && about.textContent, describes: !!about && a.getAttribute('aria-describedby') === about.id, inName: !!about && about.getAttribute('aria-hidden') !== 'true',
+        tick: !!a.querySelector('.watch-ep__tick'), controlsInLink: a.querySelectorAll('button').length, more: li.querySelectorAll('.watch-ep__more').length };
+    };
+    const season = () => ({ facts: p.text('.ttl__season-facts'), text: p.q('.ttl__season-text') && p.text('.ttl__season-text') });
+    const rows = p.ttl().querySelectorAll('.watch-eprow').map(row);
+    const opened = season();
+    const held = p.q('.ttl__season-about');
+    const more = p.q('.ttl__season-about .ttl-more');
+    const look = () => [held.classList.contains('is-open'), more.textContent, more.getAttribute('aria-expanded'), more.getAttribute('aria-label')];
+    const press = [look()];
+    for (let i = 0; i < 2; i++) { click(p.doc, more); press.push(look()); }
+    const waits = () => [p.q('.ttl__season').classList.contains('is-waiting'), p.ttl().querySelectorAll('.ttl__season .ttl-epskel').length > 0, p.q('.watch-episodes').getAttribute('aria-busy')];
+    click(p.doc, p.q('[data-season="1"]'));
+    const wait = waits();
+    answer.reject(new Error('down'));
+    await settle();
+    const failed = { waits: waits(), season: season() };
+    click(p.doc, p.q('[data-season="1"]'));
+    const one = { ok: true, key: '301', watched: false, summary: 'Told by another.', year: 2017, episodes: [ep(9, { summary: 'Nine.' })] };
+    answer.resolve(one);
+    await settle();
+    const picked = season();
+    first = () => Promise.resolve(one);
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    const marked = { season: season(), about: p.text('.watch-ep__about') };
+    first = () => Promise.resolve({ ok: true, key: '301', watched: false, episodes: [ep(9, {})] });
+    p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-300' } });
+    await settle();
+    return { rows, opened, press, wait, failed, picked, marked, older: season(), bare: p.ttl().querySelectorAll('.watch-ep__about').length };
+  },
+
   // The title is loaded again after a Keep while another season than the server's own is on
   // show, or is still loading; then the season on show is deleted.
   async seasonPickedThenRefreshed() {
