@@ -75,6 +75,7 @@ function load(page, opts = {}) {
   const told = [];
   const win = {};
   let nears = null; // what the cards on their way to the screen are told to
+  const seers = []; // every IntersectionObserver made
   const fetched = [];
   doc.dispatchEvent = (e) => {
     if (e.type === 'mm:rating') doc.listeners['mm:rating'].forEach((fn) => fn(e));
@@ -106,7 +107,7 @@ function load(page, opts = {}) {
     matchMedia: (query) => ({ matches: opts.motion && /reduced-motion/.test(query) ? false : /coarse/.test(query) ? !!opts.touch : !(opts.touch && /hover/.test(query)) }),
     requestAnimationFrame: (fn) => fn(),
     performance: { now: () => 1e6 + (opts.clock ? opts.clock.now : 0) },
-    IntersectionObserver: class { constructor(fn) { this.seen = new Set(); nears = (cards) => fn(cards.filter((c) => this.seen.has(c)).map((target) => ({ target, isIntersecting: true })), this); } observe(c) { this.seen.add(c); } unobserve(c) { this.seen.delete(c); } disconnect() { this.seen.clear(); } },
+    IntersectionObserver: class { constructor(fn, o) { this.fn = fn; this.margin = o && o.rootMargin; this.seen = new Set(); seers.push(this); nears = (cards) => fn(cards.filter((c) => this.seen.has(c)).map((target) => ({ target, isIntersecting: true })), this); } observe(c) { this.seen.add(c); } unobserve(c) { this.seen.delete(c); } disconnect() { this.seen.clear(); } },
     Number,
     Date,
     innerHeight: 900,
@@ -139,7 +140,8 @@ function load(page, opts = {}) {
   const started = [];
   ctx.MMWatch.rows = { init: (viewport) => started.push(viewport.className) };
   const p = {
-    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); }, added(n) { [...watchers].forEach((w) => w.fn([{ addedNodes: [n] }])); },
+    gone, pass() { held.splice(0).forEach((fn) => fn && fn()); }, changed() { [...watchers].forEach((w) => w.fn([])); }, added(n) { [...watchers].forEach((w) => w.fn([{ addedNodes: [n], removedNodes: [] }])); },
+    removed(n) { [...watchers].forEach((w) => w.fn([{ addedNodes: [], removedNodes: [n] }])); }, seers,
     ctx, win, told, near: (cards) => nears(cards), started, doc, calls, toasts, events, continues, fetched, cards,
     look: (id) => cards(id).map((c) => [c.getAttribute('data-mark'), !!c.querySelector('.watch-badge--watched'),
       c.querySelector('.watch-card__sub').textContent, !!c.querySelector('.watch-bar')]),
@@ -398,6 +400,47 @@ const scenarios = {
       return p.calls;
     };
     return { hidden: await press(0), shown: await press(1) };
+  },
+
+  // A finger on a screen that has a mouse too, where a touch leaves no hover: its first press on a
+  // card's hidden buttons shows them, its next acts, and a press elsewhere or a scroll hides them.
+  async touchShows() {
+    const go = (opts) => {
+      const c = clock();
+      const p = load(watchPage([row('lib', [FILM({ tmdb: '10' }), card('movie/9', 'Other', 'Movie')])]), { clock: c, ...opts });
+      p.ctx.getComputedStyle = () => ({ opacity: '0', getPropertyValue: () => '', transform: 'none' });
+      const press = async (target, pointerType = 'touch') => {
+        send(p.doc.listeners.pointerdown, { target, pointerType, pointerId: 1, isPrimary: true, clientY: 0 });
+        const e = { target, detail: 1, stopped: false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+        p.doc.listeners.click.forEach((fn) => { if (!e.stopped) fn(e); });
+        await c.pass(0);
+      };
+      return { p, c, press, cards: p.cards(), shown: () => p.cards().map((n) => n.classList.contains('is-touched')) };
+    };
+    const { p, c, press, cards: [film, other], shown } = go();
+    const eye = film.querySelector('.card-tool--eye');
+    const out = [];
+    await press(eye);
+    out.push([p.calls.slice(), shown()]);
+    await press(eye);
+    out.push([p.calls.slice(), shown()]);
+    await press(p.doc.body, 'mouse');
+    out.push(shown());
+    // A finger held on a thumb not in sight does not open its levels.
+    const thumb = film.querySelector('[data-card-rate]');
+    send(p.doc.listeners.pointerdown, { target: thumb, pointerType: 'touch', pointerId: 2, isPrimary: true, clientY: 0 });
+    await c.pass(400);
+    out.push([film.classList.contains('is-lifted'), shown()]);
+    send(p.win.pointerup, { type: 'pointerup', target: thumb, pointerId: 2 });
+    await press(other.querySelector('.card-tool--eye'));
+    out.push(shown());
+    send(p.doc.listeners.scroll, { target: p.doc });
+    out.push(shown());
+    // A touch screen alone keeps its own way.
+    const phone = go({ touch: true });
+    await phone.press(phone.cards[1].querySelector('.card-tool--eye'));
+    out.push([phone.p.calls.slice(), phone.shown()]);
+    return out;
   },
 
   // What a screen reader is told of the levels.
@@ -669,6 +712,23 @@ const scenarios = {
     out.push(stops());
     await p.pick(p.cards()[0], 'mark');
     return out.concat([stops()]);
+  },
+
+  // Cards a screen or more out of sight, as they come near, leave and are taken off the page.
+  async farCards() {
+    const p = load(watchPage([['div', { class: 'watch-grid' }, FILM(), card('movie/9', 'Other', 'Movie')], row('lib', [card('movie/8', 'Before', 'Movie')])]));
+    const [film, other, inRow] = p.cards();
+    const seer = p.seers.filter((s) => s.margin)[0];
+    const far = () => [film, other].map((c) => c.classList.contains('is-far'));
+    const out = [seer.margin, [film, other, inRow].map((c) => seer.seen.has(c))];
+    seer.fn([{ target: film, isIntersecting: false }, { target: other, isIntersecting: true }], seer);
+    out.push(far());
+    seer.fn([{ target: film, isIntersecting: true }], seer);
+    out.push(far());
+    film.remove();
+    p.removed(film);
+    out.push([film, other].map((c) => seer.seen.has(c)));
+    return out;
   },
 
   // A page the browser kept, with a card far off it: its level is read once it nears, as a copy of it made since.
