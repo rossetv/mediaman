@@ -223,11 +223,16 @@ For these, mediaman must be in a container network of its own, as it is above. W
 
 ## The AI, and what it is sent
 
-With an OpenAI key, these go to OpenAI, never with a name:
+With an OpenAI key, these go to OpenAI, never with the name of an account:
 
-- for picks: the titles each person played, the picks they had before, and the Plex stars of the server's owner. AI recommendations, under General & Schedule, turns this off;
-- unless a person turns off Use my history on their Profile: their searches, ratings, requests and how their plays went, for their picks and for the suggestions and answers in search;
-- when somebody asks the AI in search: the question, whatever their switch says.
+- for each person's picks: the titles they played (in Plex's apps too, once they link their account), their picks of the last 30 days and, for the server's owner, their Plex stars once linked. Then the titles it proposed, with year, TMDB description, draft reason and the played titles that led to them, to choose from;
+- for the new and popular picks everyone sees: those of the last 30 days, and the titles it proposed in the same way. Nothing of what anyone watched;
+- when somebody asks the AI in search: their question, or the name and year of the title they want more like. When they narrow the answer, also its titles and the narrowing they chose;
+- unless they turn off Use my history on their Profile:
+  - for their picks: their searches, ratings, requests and how their plays went, such as finished, watched again or left part way;
+  - with each question, and once a day as they open search, for the phrases to try: their searches and the titles they played, liked and disliked.
+
+AI recommendations, under General & Schedule, turns both kinds of picks off. A mark as watched is not sent, but a title already played counts as finished once marked, and one only begun as played.
 
 Each person may ask 20 questions a day, and everyone together makes 100 calls. Both are under OpenAI in Settings, and 0 turns asking off.
 

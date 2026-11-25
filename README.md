@@ -88,7 +88,7 @@ Who watched, asked for and kept what, and what mediaman did by itself. Admins se
 
 ## Profile
 
-Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may learn from what you watch.
+Choose a picture, change your own email and password, link your Plex account (what you play in Plex apps then shapes your picks), see where you are signed in and sign out your other devices, rename or unpair your TVs, and say whether the AI may use your searches, ratings and requests and how your plays went.
 
 <img src="docs/images/profile.webp" width="400" alt="The picture dialog of a profile: Upload a photo, or pick one of ten drawn portraits.">
 
