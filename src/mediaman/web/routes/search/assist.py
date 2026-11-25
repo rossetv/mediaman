@@ -2,8 +2,9 @@
 for a question or like a title, and what fits an evening.
 
 Ordinary search is elsewhere and never waits for this. A question is answered in a
-background thread and polled for. Without a key of OpenAI or TMDB nothing of the AI is
-offered; recent searches, Clear and the history switch work all the same.
+background thread and polled for. Without a key of OpenAI or TMDB, or with a daily limit of
+0, nothing of the AI is offered; recent searches, Clear and the history switch work all the
+same.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MIN_WORDS = 3
+_ACCOUNT_HEADER = "X-Assist-Account"
 _OWNED_CHIP = "Only in your library"
 # Plays worth making phrases from, when nothing was searched for.
 _MIN_PLAYS = 3
@@ -103,11 +105,17 @@ def _secret(request: Request) -> str:
     return cast(str, request.app.state.config.secret_key)
 
 
-def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
-    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
+def _has_openai_key(request: Request, conn: sqlite3.Connection) -> bool:
     try:
         get_openai_key(conn, _secret(request))
     except ValueError:
+        return False
+    return True
+
+
+def _client(request: Request, conn: sqlite3.Connection) -> TmdbClient | None:
+    """TMDB's client where the AI can be used: it answers only with titles TMDB knows."""
+    if repo.switched_off(conn) or not _has_openai_key(request, conn):
         return None
     return TmdbClient.from_db(conn, _secret(request), timeout=_TMDB_TIMEOUT_S, retry=False)
 
@@ -157,6 +165,22 @@ def _person(username: str) -> tuple[sqlite3.Connection, int | None]:
     return conn, repo.user_id_of(conn, username)
 
 
+def _account(request: Request, user_id: int, username: str) -> str:
+    """Whose page this is, for what it remembers and sends: it says nothing of the account."""
+    return _digest(request, "account", str(user_id), username)[:32]
+
+
+def _of_another(request: Request, user_id: int, username: str) -> JSONResponse | None:
+    """The refusal of what a page still open of someone else sends. A page that does not say
+    whose it is is served."""
+    said = request.headers.get(_ACCOUNT_HEADER)
+    if not said or hmac.compare_digest(
+        said.encode(), _account(request, user_id, username).encode()
+    ):
+        return None
+    return respond_err("other_account", status=409)
+
+
 def _unavailable() -> JSONResponse:
     return respond_err("unavailable", status=409)
 
@@ -172,10 +196,17 @@ def _too_many() -> JSONResponse:
 def _refused(refused: repo.Refused) -> JSONResponse:
     if refused.reason in ("running", "stopping"):
         return respond_err(refused.reason, status=409, run_id=refused.run_id)
-    return respond_err(refused.reason, status=429, resets_at=refused.resets_at)
+    limit: dict[str, Any] = {} if refused.limit is None else {"limit": refused.limit}
+    return respond_err(refused.reason, status=429, resets_at=refused.resets_at, **limit)
 
 
 # --- Recent searches, phrases and the history switch -----------------------------
+
+
+def _records(request: Request, conn: sqlite3.Connection, user_id: int) -> bool:
+    """Whether the person's searches are kept: never where nothing could use them, since the
+    switch that stops it is not shown there."""
+    return _has_openai_key(request, conn) and repo.uses_history(conn, user_id)
 
 
 @router.get("/api/search/assist")
@@ -192,8 +223,10 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
         _make_phrases_later(request, conn, user_id, username)
     return respond_ok(
         {
+            "account": _account(request, user_id, username),
             "available": available,
             "history": repo.uses_history(conn, user_id),
+            "records": _records(request, conn, user_id),
             "recent": repo.recent_searches(conn, user_id, repo.RECENT_SHOWN),
             "personal": bool(phrases),
             "phrases": phrases or list(ai.FIXED_PHRASES),
@@ -203,20 +236,31 @@ def api_assist(request: Request, username: str = Depends(get_current_user)) -> J
 
 
 @router.post("/api/search/assist/searches")
-def api_record_search(body: _SearchBody, username: str = Depends(get_current_user)) -> JSONResponse:
+def api_record_search(
+    body: _SearchBody, request: Request, username: str = Depends(get_current_user)
+) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     if not _WRITE_LIMITER.check(username):
         return _too_many()
-    return respond_ok({"recorded": repo.record_search(conn, user_id, body.q, now_utc())})
+    recorded = _records(request, conn, user_id) and repo.record_search(
+        conn, user_id, body.q, now_utc()
+    )
+    return respond_ok({"recorded": recorded})
 
 
 @router.delete("/api/search/assist/searches")
-def api_clear_searches(username: str = Depends(get_current_user)) -> JSONResponse:
+def api_clear_searches(request: Request, username: str = Depends(get_current_user)) -> JSONResponse:
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     repo.clear_searches(conn, user_id)
     _forget(user_id)
     return respond_ok()
@@ -230,7 +274,8 @@ def api_history(request: Request, username: str = Depends(get_current_user)) -> 
     return respond_ok(
         {
             "enabled": repo.uses_history(conn, user_id),
-            "available": _client(request, conn) is not None,
+            # Recommendations use it too, with neither TMDB nor the AI in search.
+            "available": _has_openai_key(request, conn),
         }
     )
 
@@ -322,6 +367,9 @@ def api_ask(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     client = _client(request, conn)
     if client is None:
         return _unavailable()
@@ -341,6 +389,9 @@ def api_like(
     conn, user_id = _person(username)
     if user_id is None:
         return _not_found()
+    refused = _of_another(request, user_id, username)
+    if refused is not None:
+        return refused
     client = _client(request, conn)
     if client is None:
         return _unavailable()

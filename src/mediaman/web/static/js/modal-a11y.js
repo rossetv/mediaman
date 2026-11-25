@@ -1,7 +1,7 @@
 /* Modal a11y helpers:
  *
- *   - The page behind an open modal is inert, all but the toasts and the Keep menu, and Tab goes round
- *     the modal's own controls: those of the last opened, where one is over another
+ *   - The page behind an open modal is inert, all but the toasts, the Keep menu and, under a title's
+ *     page, the bar of what plays on a TV, and Tab goes round the modal's own controls: those of the last opened, where one is over another
  *   - Escape closes the active modal via a caller-supplied close function
  *     (attach by calling window.ModalA11y.register(id, closeFn))
  *   - On open, the element marked data-modal-focus (a control, or a heading with
@@ -74,12 +74,18 @@
     });
   }
 
+  /* What plays on a TV stays in reach over a title's page, after whose own controls Tab comes to it. */
+  function tvBar() {
+    return topModal() && topModal().id === 'ttl' ? document.getElementById('tv-mini') : null;
+  }
+
   function settle() {
     held.forEach(function (node) { node.inert = false; });
     held = [];
     if (!open.length) return;
     var keep = [topModal(), document.getElementById('ui-toast-host'), document.getElementById('watch-keep-menu')].filter(Boolean);
     Array.prototype.push.apply(keep, document.querySelectorAll('.ui-confirm-overlay.is-leaving'));
+    if (tvBar()) keep.push(tvBar());
     shutOut(document.body, keep);
   }
 
@@ -128,10 +134,14 @@
     if (e.key !== 'Tab' || e.defaultPrevented) return;
     e.preventDefault();
     var active = document.activeElement;
-    var focusables = oneRadioEach(getFocusable(modal), active);
-    var stops = Array.prototype.filter.call(modal.querySelectorAll('*'), function (el) {
-      return el === active || focusables.indexOf(el) !== -1;
-    });
+    var bar = tvBar();
+    var focusables = oneRadioEach(getFocusable(modal).concat(getFocusable(bar)), active);
+    function stopsIn(node) {
+      return Array.prototype.filter.call(node ? node.querySelectorAll('*') : [], function (el) {
+        return el === active || focusables.indexOf(el) !== -1;
+      });
+    }
+    var stops = stopsIn(modal).concat(stopsIn(bar));
     if (!stops.length) { focusFirst(modal); return; }
     var at = stops.indexOf(active);
     if (e.shiftKey) at = at <= 0 ? stops.length - 1 : at - 1;

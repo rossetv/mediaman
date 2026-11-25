@@ -106,6 +106,30 @@ class FakeTv:
         return self.pages.get(path, http("", "404 Not Found"))
 
 
+class MovedTv(FakeTv):
+    """Is at one address only, and answers only a search that asks for it by its own id."""
+
+    def __init__(self, at: str) -> None:
+        super().__init__()
+        self.at = at
+        self.usn = "uuid:1234-abcd"
+        self.datagrams = []
+
+    def wire(self) -> Wire:
+        return Wire(
+            open_tcp=self._at,
+            open_udp=lambda: _SearchedUdp(self),
+            clock=lambda: self.now,
+            networks=lambda: self.own,
+        )
+
+    def _at(self, address: str, port: int, timeout: float) -> _Tcp:
+        if address != self.at:
+            self.connects.append((address, port))
+            raise ConnectionRefusedError
+        return self._tcp(address, port, timeout)
+
+
 class _Base:
     def __init__(self, tv: FakeTv) -> None:
         self.tv = tv
@@ -166,3 +190,12 @@ class _Udp(_Base):
             self.pass_time(self.tv.seconds_per_read)
         data, sender = self.tv.datagrams.pop(0)
         return data[:size], sender
+
+
+class _SearchedUdp(_Udp):
+    def sendto(self, data: bytes, address: tuple[str, int]) -> int:
+        if address[0] == self.tv.at and b"ST: uuid:1234-abcd\r\n" in data:
+            where = f"http://{self.tv.at}:7676/smp_14_"
+            answer = f"HTTP/1.1 200 OK\r\nUSN: {self.tv.usn}::upnp:x\r\nLocation: {where}\r\n\r\n"
+            self.tv.datagrams.append((answer.encode(), (self.tv.at, 1900)))
+        return super().sendto(data, address)

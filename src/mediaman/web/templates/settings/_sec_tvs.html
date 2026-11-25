@@ -1,0 +1,41 @@
+{# TVs & Casting — every TV, older ones added by address, and the addresses TVs use. #}
+{% import "_components.html" as c %}
+
+{% call c.setg_block("setg-tvs", "TVs & Casting", "Where people can play, besides the device in their hand") %}
+
+  {% set tv_actions %}
+    <button type="button" class="btn btn--primary btn--sm" id="btn-add-tv" aria-expanded="false" aria-controls="tv-add">{{ c.icon("i-plus") }}Add an older TV</button>
+  {% endset %}
+  {% call c.setg_card(title="TVs", sub="Every paired TV, and the older ones you added.", header_actions=tv_actions) %}
+    <div id="tv-list-wrap"><div class="tv-empty">Loading…</div></div>
+    <div class="tv-add" id="tv-add" hidden></div>
+  {% endcall %}
+
+  {% call c.setg_card(title="Older TVs") %}
+    {% set older_on = settings.get('older_tvs_enabled', False) in (True, 'true') %}
+    {% call c.setg_row("Allow older TVs", "Lets people play on TVs from before AirPlay and Chromecast, added by their address. When off, mediaman contacts none of them.") %}
+      <span class="tog {% if older_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Allow older TVs"
+            data-toggle data-target="older_tvs_enabled" aria-checked="{{ 'true' if older_on else 'false' }}"></span>
+      <input type="hidden" id="older_tvs_enabled" value="{{ 'true' if older_on else 'false' }}">
+    {% endcall %}
+    {% set http_on = settings.get('older_tvs_http', False) in (True, 'true') %}
+    {% call c.setg_row("Plain http for older TVs", "Most of them can’t use https. With it on, others on your home network could see what those TVs fetch.") %}
+      <span class="tog {% if http_on %}on{% endif %}" role="switch" tabindex="0" aria-label="Plain http for older TVs"
+            data-toggle data-target="older_tvs_http" aria-checked="{{ 'true' if http_on else 'false' }}"></span>
+      <input type="hidden" id="older_tvs_http" value="{{ 'true' if http_on else 'false' }}">
+    {% endcall %}
+  {% endcall %}
+
+  {% call c.setg_card(title="Addresses") %}
+    {% call c.setg_row("To pair a TV", "What people type into the TV’s browser. It follows your Base URL.") %}
+      {% set base = (settings.get('base_url', '') or '')|string %}
+      <span class="tv-pair-at">{% if base %}{{ base.split('://')[-1].rstrip('/') }}/tv{% else %}Set a Base URL first{% endif %}</span>
+    {% endcall %}
+    {% call c.setg_row("Address TVs use", "<span id=\"tv-address-hint\">Older TVs fetch films from here. They need http and a home address.</span>") %}
+      <input class="inp inp--fluid" type="text" id="tv_address" size="30" aria-label="Address TVs use"
+             aria-describedby="tv-address-hint" inputmode="url" autocomplete="off" spellcheck="false"
+             value="{{ settings.get('tv_address', '') }}" placeholder="http://192.168.1.10:8282">
+    {% endcall %}
+  {% endcall %}
+
+{% endcall %}

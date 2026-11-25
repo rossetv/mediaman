@@ -43,6 +43,7 @@ GROUPS: dict[str, tuple[str, ...]] = {
         "sec:password.",
         "sec:reauth.",
         "sec:plex.",
+        "sec:tv.",
     ),
     "people": ("sec:user.",),
     "settings": ("sec:settings.", "sec:aes."),

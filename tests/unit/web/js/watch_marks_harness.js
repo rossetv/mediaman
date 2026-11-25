@@ -1145,4 +1145,22 @@ const scenarios = {
   },
 };
 
+// The menu of a film where an AI answers, then where none does.
+scenarios.like = async () => {
+  const p = load(watchPage([row('row', [FILM(), card('episode/22', 'Brightwater', 'S1 · E2', { dismiss: 'show-2' }),
+    card('', 'Salt', 'Movie', { ref: 'rec-5', pick: 'pick-9', tmdb: '77' }), card('', 'Reef', 'Movie', { ref: 'rec-6', pick: 'pick-8' })])]));
+  const asked = [];
+  p.ctx.MMWatch.search = { canLike: (ref) => /^(movie|show|tmdb-movie)-/.test(ref), like: (...args) => asked.push(args) };
+  p.cards()[0].querySelector('.watch-card__poster').appendChild(build(p.doc, ['img', { src: '/api/poster/1' }]));
+  for (const c of p.cards().slice(0, 3)) await p.pick(c, 'like');
+  p.open(p.cards()[3]);
+  const unknown = p.menu();
+  p.open(p.cards()[0]);
+  const out = { asked, unknown, menu: p.menu() };
+  p.ctx.MMWatch.search.canLike = () => false;
+  p.open(p.cards()[1]);
+  out.without = p.menu();
+  return out;
+};
+
 scenarios[process.argv[2]]().then((out) => process.stdout.write(JSON.stringify(out)), (e) => { console.error(e); process.exit(1); });

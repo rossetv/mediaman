@@ -626,6 +626,18 @@ const scenarios = {
     out.closed = h.title();
     return out;
   },
+  async like() {
+    const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', title: 'The Long Coast' } }, ratings: true });
+    const asked = [];
+    await h.rest('going', 900);
+    const menu = () => { h.pv().querySelector('[data-preview-more]').click(); return h.doc.querySelectorAll('.pv-menu .watch-keep-menu__item').map((n) => n.textContent)[0]; };
+    const out = { without: menu() };
+    h.pv().querySelector('[data-preview-more]').click();
+    h.ctx.MMWatch.search = { canLike: () => true, like: (...args) => asked.push(args.slice(0, 2)) };
+    out.first = menu();
+    h.doc.querySelector('.pv-menu [data-act="like"]').click();
+    return Object.assign(out, { asked, open: h.title() });
+  },
   async details() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2' } } });
     await h.rest('going', 900);

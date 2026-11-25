@@ -12,7 +12,7 @@ HARNESS = Path(__file__).parent / "js" / "account_harness.js"
 
 def _run(scenario: str) -> dict:
     result = subprocess.run(
-        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False, timeout=60
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -289,3 +289,83 @@ def test_the_meter_and_the_match_hint_follow_the_typing_and_clear_on_reset() -> 
 
 def test_the_plex_card_is_told_after_a_password_may_have_been_given() -> None:
     assert _run("toldOfPassword") == [[0, ["mm:reauth"]]] * 2
+
+
+def test_the_history_switch_saves_at_once_and_one_press_at_a_time() -> None:
+    out = _run("history")
+    assert out["first"] == {"hiddenAtFirst": True, "hidden": False, "state": ["true", True]}
+    assert out["off"]["during"] == out["off"]["after"] == ["false", False]
+    assert out["sent"][0] == ["/api/search/assist/history", False]
+    # two presses each time
+    assert [wanted for _url, wanted in out["sent"]] == [False, True, True, True]
+    assert len(out["off"]["toasts"]) == 1 and not out["off"]["toasts"][0].startswith("error")
+    assert (out["off"]["focused"], out["off"]["busy"]) == ("account-history", None)
+
+
+def test_a_history_switch_that_could_not_be_saved_goes_back_and_says_so() -> None:
+    out = _run("history")
+    for failed in (out["refused"], out["offline"]):
+        assert failed["during"] == ["true", True]
+        assert failed["after"] == ["false", False]
+        assert failed["toasts"] == ["error: No luck"]
+        assert failed["busy"] is None
+
+
+def test_a_history_switch_saved_with_its_answer_lost_stands_as_saved() -> None:
+    lost = _run("history")["lost"]
+    assert lost["after"] == ["true", True]
+    assert len(lost["toasts"]) == 1 and not lost["toasts"][0].startswith("error")
+
+
+def test_nothing_about_the_ai_is_shown_without_a_key() -> None:
+    assert _run("historyHidden") == [True, True]
+
+
+def test_recent_searches_are_cleared_only_once_confirmed() -> None:
+    out = _run("clearSearches")
+    assert (out["no"]["asked"], out["no"]["sent"], out["no"]["toasts"]) == (1, [], [])
+    assert out["yes"]["sent"] == ["/api/search/assist/searches"]
+    assert len(out["yes"]["toasts"]) == 1 and not out["yes"]["toasts"][0].startswith("error")
+    assert out["failed"]["toasts"] == ["error: No luck"]
+    assert [out[k]["says"] for k in ("yes", "failed")] == ["Clear", "Clear"]
+    assert out["yes"]["busy"] is None
+    # The question this tab remembers goes with them.
+    assert out["yes"]["left"] == ["other"]
+    assert len(out["no"]["left"]) == len(out["failed"]["left"]) == 2
+
+
+def test_a_persons_tvs_are_listed_as_text_and_with_none_there_is_no_section() -> None:
+    out = _run("tvs")
+    assert (out["hidden"], out["none"]) == (False, True)
+    living, den, long_ago = out["rows"]
+    assert living == ["Living room", "On now. Paired 12 March."]
+    assert den[0] == "<b>Den" and den[1].startswith("Last seen Sunday, ")
+    assert "Last seen 15 May. " in long_ago[1] or "Last seen 16 May. " in long_ago[1]
+
+
+def test_an_admin_sees_the_tvs_of_others_and_unpairs_one_only_after_a_yes() -> None:
+    out = _run("tvsOfAll")
+    # neither their own again nor an older TV, which is nobody's
+    assert len(out["rows"]) == 1
+    assert "Theirs" in out["rows"][0] and "Paired by bob 12 March." in out["rows"][0]
+    assert out["asked"][0]["title"] == "Unpair Theirs?"
+    assert out["left"] == 1
+
+
+def test_a_tv_is_renamed_in_its_row_and_a_failure_keeps_what_was_typed() -> None:
+    out = _run("tvRename")
+    assert out["empty"] == [0, "true"]
+    assert out["failed"] == [1, ["error: Could not rename it. Try again."], True]
+    assert out["sent"] == ["/api/tvs/1", {"name": "Den"}]
+    assert (out["name"], out["label"]) == ("Den", "Rename: Den")
+    assert out["toasts"] == ["Renamed to Den."]
+
+
+def test_an_unpaired_tv_leaves_the_list_and_the_last_takes_the_section_with_it() -> None:
+    out = _run("tvUnpair")
+    assert out["failed"] == [2, ["error: Could not unpair it. Try again."]]
+    assert out["one"] == [1, False, ["Unpaired. That TV now says it was signed out."]]
+    assert out["sent"] == ["/api/tvs/1", "/api/tvs/1", "/api/tvs/2"]
+    assert out["last"] == [0, True] and out["asked"] == 0
+    # the bar of what plays on a TV lets it go at once, and only once it is unpaired
+    assert out["kept"] == 0 and out["dropped"] == [1, 2]

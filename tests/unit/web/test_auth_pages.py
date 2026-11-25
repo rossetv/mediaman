@@ -61,6 +61,10 @@ def test_fresh_login_page_has_no_username_value(client):
     assert 'value="' not in text.split('id="username"')[1].split(">")[0]
 
 
+def test_login_page_forgets_what_the_tab_remembers_of_a_person(client):
+    assert "/static/js/signed-out.js" in client.get("/login").text
+
+
 def test_login_form_is_guarded_against_double_submit(client):
     text = client.get("/login").text
 

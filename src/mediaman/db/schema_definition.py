@@ -61,6 +61,31 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     public_id TEXT
 );
 
+-- The TVs to play on. A page is a TV's browser its owner paired with a code; it holds the token
+-- token_hash is of. An older one has no owner: an admin added it by address, for everyone.
+CREATE TABLE IF NOT EXISTS tvs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER REFERENCES admin_users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    token_hash TEXT UNIQUE,
+    address TEXT,
+    udn TEXT,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    CHECK ((kind = 'page' AND owner_id IS NOT NULL AND token_hash IS NOT NULL)
+        OR (kind = 'older' AND owner_id IS NULL AND token_hash IS NULL AND address IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_tvs_owner ON tvs(owner_id);
+
+-- Here and not where passwords change, so that none of the ways to change one leaves a TV paired.
+CREATE TRIGGER IF NOT EXISTS tvs_end_with_password
+AFTER UPDATE OF password_hash, must_change_password ON admin_users
+WHEN NEW.password_hash <> OLD.password_hash OR NEW.must_change_password = 1
+BEGIN
+    DELETE FROM tvs WHERE owner_id = NEW.id;
+END;
+
 -- Per-person playback position for the Watch player. rating_key is the movie
 -- or episode; media_item_id is the movie, or the season the episode belongs to.
 CREATE TABLE IF NOT EXISTS watch_progress (

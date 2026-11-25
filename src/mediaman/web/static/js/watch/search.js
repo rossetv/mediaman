@@ -4,7 +4,9 @@
  * innerHTML: titles come from Plex and TMDB. In the admin list view the same
  * field only announces what was typed (mm:watch-list-search) and the list
  * searches itself. A category's or person's page (watch/explore.js) stands in
- * the results' place, on MMWatch.search.stage.
+ * the results' place, on MMWatch.search.stage. Where there is an AI, the sheet opens
+ * on Tonight and the person's own phrases, and a sentence can be asked (watch/ask.js,
+ * watch/tonight.js); the search itself never waits for it.
  * Needs watch/core.js, watch/address.js and watch/keep.js; watch/explore.js when
  * it starts.
  */
@@ -34,12 +36,14 @@
   var LABEL = 'Search films and shows';
   var LIST_LABEL = 'Search your library';
   var SHORT_LABEL = 'Search';
+  var ASK_HINT = 'Search, or ask for something';
   var EXAMPLES = ['popular action movies', 'an actor’s name', 'comedies to watch tonight', 'something scary'];
   var TRIES = ['popular action movies', 'popular comedy movies', 'top rated sci-fi'];
   var NO_TITLE = 'no-title'; // the line under people who were found alone
   var TRIES_EMPTY = ['popular action movies', 'popular comedy movies', 'something scary'];
   var LENS = 'M10.5 4a6.5 6.5 0 100 13 6.5 6.5 0 000-13M15.5 15.5L20 20';
-  var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null };
+  var PAGE_PARAMS = { genre: null, type: null, sort: null, where: null, decade: null, person: null, all: null, like: null };
+  var LIKE_RE = /^(movie|show)-[0-9]{1,18}$|^tmdb-(movie|tv)-[0-9]{1,10}$/;
   var STATE_BADGES = {
     queued: ['i-clock', 'Queued'],
     in_library: ['i-check', 'In library'],
@@ -608,6 +612,12 @@
     var composed = ''; // what was typed last, where a word in it is still being composed
     var picked = null; // the option the arrow keys stand on
     var people = new Map(); // everybody a search has named, by id
+    var ai = window.MMWatch.ask || null;
+    var evening = null; // Tonight, once drawn
+    var asking = null; // the place of a question over the results
+    var ordinary = null; // what parts it from them
+    var recorded = ''; // the search kept last
+    var ownWords = ''; // what was typed or pressed last on this page: other words came with the address
 
     function canExplore() { return data.tmdb_configured === true && !listView; }
 
@@ -797,14 +807,21 @@
       return node;
     }
 
-    function tryButton(text) {
-      var b = el('button', 'watch-try');
+    function pill(className, iconName, text, act) {
+      var b = el('button', className);
       b.type = 'button';
-      b.appendChild(MM.dom.icon('i-magnifying-glass'));
-      b.appendChild(document.createTextNode(text));
-      b.addEventListener('click', function () { fill(text); });
+      b.appendChild(MM.dom.icon(iconName));
+      b.appendChild(el('span', '', text));
+      b.addEventListener('click', function () { act(text); });
       return b;
     }
+
+    function tryButton(text) { return pill('watch-try', 'i-magnifying-glass', text, fill); }
+
+    function recentButton(text) { return pill('watch-try', 'i-clock-rotate-left', text, fill); }
+
+    /* One made for the person, which is asked. */
+    function phraseButton(text) { return pill('watch-try watch-try--ai', 'i-sparkles', text, fillAsk); }
 
     function personTile(p, i) {
       var b = option(el('button', 'watch-person'), 'person-' + p.person_id);
@@ -840,15 +857,97 @@
       return outline('watch-person watch-person--skel', ['watch-face skel skel--circle', 'skel skel--line', 'skel skel--line']);
     }
 
-    /* A heading of the sheet over *nodes*, in the row or grid *className*. */
-    function drawPart(title, className, nodes) {
-      if (!nodes.length) return;
+    /* A heading of the sheet over *nodes*, in the row or grid *className*. *beside* stands
+       at the heading's end. */
+    function drawPart(title, className, nodes, beside) {
+      if (!nodes.length) return null;
       var part = el('div', className);
       part.setAttribute('role', 'group');
       part.setAttribute('aria-label', title);
       nodes.forEach(function (node) { part.appendChild(node); });
-      sheet.appendChild(el('p', 'watch-sheet__title', title));
+      var head = el('p', 'watch-sheet__title', title);
+      if (beside) {
+        var line = el('div', 'watch-sheet__head');
+        line.appendChild(head);
+        line.appendChild(beside);
+        sheet.appendChild(line);
+      } else {
+        sheet.appendChild(head);
+      }
       sheet.appendChild(part);
+      return part;
+    }
+
+    /* What the AI knows, as the sheet is drawn from it. */
+    function assist() { return (ai && ai.state()) || null; }
+
+    function drawTonight() {
+      if (!evening) {
+        evening = window.MMWatch.tonight.make({
+          option: option,
+          say: function (text) { status.textContent = text; },
+          gone: function () { if (picked && !shows(picked)) pick(null); },
+          open: function (item) {
+            var detail = window.MMWatch.detail;
+            if (!detail) return false;
+            leaveSheet();
+            // On a phone the focus would bring its keyboard back.
+            detail.open(item.ref, { origin: core.coarsePointer() ? null : input, title: item.title, kind: item.kind });
+            return true;
+          }
+        });
+      }
+      evening.refresh();
+      sheet.appendChild(evening.node);
+    }
+
+    function shows(node) { return node.isConnected && node.getClientRects().length > 0; }
+
+    /* The person's own searches, and how to have them forgotten. */
+    function drawRecent(list, again) {
+      var wipe = option(el('button', 'txt', 'Clear'), 'clear-recent');
+      wipe.type = 'button';
+      wipe.setAttribute('aria-label', 'Clear recent searches');
+      var part = drawPart('Recent', 'watch-tries', list.map(function (text, i) {
+        var b = option(recentButton(text), 'recent-' + i);
+        return again ? b : staged(b, 20 + i * 22);
+      }), wipe);
+      if (!part) return;
+      var wrap = el('div', 'watch-recent');
+      var inner = wrap.appendChild(el('div'));
+      sheet.insertBefore(wrap, part.previousElementSibling);
+      inner.appendChild(part.previousElementSibling);
+      inner.appendChild(part);
+      wipe.addEventListener('click', function () { clearRecent(wrap, wipe); });
+    }
+
+    function clearRecent(wrap, wipe) {
+      if (wipe.hasAttribute('aria-busy')) return;
+      wipe.setAttribute('aria-busy', 'true');
+      ai.forget().then(function () {
+        recorded = '';
+        status.textContent = 'Your recent searches are cleared';
+        wrap.classList.add('is-gone');
+        wrap.inert = true;
+        pick(null);
+        setTimeout(function () {
+          // The phrases were made from them.
+          if (wrap.isConnected) drawSheet(sheetOf.all, sheetOf.waiting);
+        }, core.reduceMotion() ? 0 : core.tokenMs('--dur-slow', 250));
+      }, function (err) {
+        wipe.removeAttribute('aria-busy');
+        core.toast(MM.api.messageOf(err, 'Couldn’t clear your searches. Try again.'), { variant: 'error' });
+      });
+    }
+
+    /* *first*: they lead, with the person's own where there are any; else they close. */
+    function drawTries(first, knows, again, delay) {
+      var own = first && knows.phrases.length > 0;
+      var texts = own ? knows.phrases : TRIES;
+      drawPart(first && !knows.recent.length ? 'Try' : 'Or try', 'watch-tries', texts.map(function (text, i) {
+        var b = option(own ? phraseButton(text) : tryButton(text), 'try-' + i);
+        return again ? b : staged(b, delay + i * 22);
+      }), own ? el('small', '', 'From what you’ve watched and searched') : null);
     }
 
     function peopleComing() {
@@ -866,23 +965,26 @@
     /* Draw the sheet from the categories and people of *all*; *waiting*: they are
        on their way, and their place is held. */
     function drawSheet(all, waiting) {
-      if (sheetOf && sheetOf.all === all && sheetOf.waiting === waiting) return;
+      // Under the person's eyes the AI's part neither comes nor changes, save by their own hand.
+      var knows = sheetOn && sheetOf && !sheet.querySelector('.watch-recent.is-gone') ? sheetOf.knows : assist();
+      if (sheetOf && sheetOf.all === all && sheetOf.waiting === waiting && sheetOf.knows === knows) return;
       // Drawn anew under the person's eyes, what stays does not come in again.
       var again = sheetOn && !!sheetOf;
       var at = picked && sheet.contains(picked) ? picked.id : null;
-      sheetOf = { all: all, waiting: waiting };
+      sheetOf = { all: all, waiting: waiting, knows: knows };
       var first = FIRST.map(function (id) { return all.genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
       var more = all.genres.filter(function (g) { return first.indexOf(g) === -1; });
       var folk = all.people.slice(0, PEOPLE);
       var held = waiting && peopleComing();
       if (!waiting) rememberPeople(all);
+      var offers = !!knows && knows.available;
       sheet.textContent = '';
+      if (offers) drawTonight();
+      if (knows) drawRecent(knows.recent, again);
+      if (offers) drawTries(true, knows, again, 60);
       drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
       drawPart('People in your library', 'watch-people', held ? times(PEOPLE, personOutline) : folk.map(personTile));
-      drawPart('Or try', 'watch-tries', TRIES.map(function (text, i) {
-        var b = option(tryButton(text), 'try-' + i);
-        return again ? b : staged(b, (held || folk.length ? 190 : 130) + i * 22);
-      }));
+      if (!offers) drawTries(false, knows, again, held || folk.length ? 190 : 130);
       drawPart('More categories', 'watch-tiles', more.map(genreTile));
       if (at) pick(byId(at));
     }
@@ -896,7 +998,8 @@
         if (preview && preview.close) preview.close();
         drawSheet(explore.all(), !explore.known());
         sheet.scrollTop = 0;
-        setHint(example(0));
+        setHint(ai && ai.available() ? ASK_HINT : example(0));
+        if (ai) ai.load();
       }
       sheetOn = on;
       if (on) tuck(false);
@@ -930,6 +1033,7 @@
       if (to === 'browse') {
         clearTimeout(hiding);
         leave();
+        hideAsk();
         results.hidden = true;
         if (listView) return;
         if (browse.hidden && moves(browse)) browse.classList.add('is-off');
@@ -978,6 +1082,127 @@
       results.setAttribute('aria-label', name);
       results.appendChild(live.node);
       return true;
+    }
+
+    /* ── Ask AI ── */
+
+    function heldPage() { return [ordinary, live && live.node]; }
+
+    /* As core.flip, of those of *nodes* that show. */
+    function flip(nodes) {
+      nodes = nodes.filter(function (n) { return n && n.getClientRects().length; });
+      return nodes.length && moves(nodes[0]) ? core.flip(nodes) : function () {};
+    }
+
+    /* *change* makes what is asked taller or shorter: what stands below glides after it. */
+    function around(change, nodes) {
+      var move = flip(heldPage().concat(nodes || []));
+      change();
+      ordinary.hidden = !asking.item;
+      move();
+    }
+
+    function askPlace() {
+      var host = el('section', 'ask');
+      host.setAttribute('aria-label', 'Ask AI');
+      ordinary = el('div', 'ordinary');
+      ordinary.appendChild(el('h2', 'ordinary__title', 'Search results'));
+      ordinary.hidden = true;
+      results.insertBefore(ordinary, results.firstChild);
+      results.insertBefore(host, ordinary);
+      asking = ai.view(host, { ask: fillAsk, stopped: function () { ai.keep({ q: null }); }, around: around });
+    }
+
+    function hideAsk() { if (asking && asking.item) asking.hide(); }
+
+    /* A sentence is offered to the AI, or shows what came of it, while the search answers below. */
+    function offerAsk(q) {
+      if (!ai || listView) return;
+      if (!ai.fits(q)) { hideAsk(); return; }
+      if (!asking) askPlace();
+      asking.row(q);
+      asking.pick(!picked);
+    }
+
+    function askNow(q) {
+      var item = ai.question('ask', q);
+      if (item.state !== 'new' && item.state !== 'refused') return;
+      ai.keep({ q: item.value });
+      ai.start(item);
+      offerAsk(q);
+    }
+
+    function fillAsk(text) {
+      if (!ai.fits(text)) { fill(text); return; }
+      input.value = text;
+      input.focus({ preventScroll: true });
+      typed(true);
+      record(text);
+      askNow(text);
+      if (core.coarsePointer()) input.blur();
+      toTop();
+    }
+
+    /* The question that was on the page when it was left. */
+    function askAgain() {
+      var q = input.value.trim();
+      if (!q || listView || tokened || !ai || view !== 'results') return;
+      offerAsk(q);
+      if (ai.fits(q) && ai.kept().q === ai.question('ask', q).value) askNow(q);
+    }
+
+    /* A search the person meant: one pressed, entered or followed to a title. */
+    function record(q) {
+      if (!ai || listView || !q || q === recorded) return;
+      recorded = q;
+      ai.record(q);
+    }
+
+    /* ── Titles like one ── */
+
+    function likeFace(poster) {
+      var node = el('span', 'watch-face watch-face--art');
+      node.setAttribute('aria-hidden', 'true');
+      node.appendChild(el('span'));
+      var src = safePath(poster);
+      if (src) {
+        var img = node.appendChild(el('img'));
+        img.src = src;
+        img.alt = '';
+        img.setAttribute('data-broken-on-error', '');
+      }
+      return node;
+    }
+
+    /* *asked*: it is asked at once, else offered. */
+    function showLike(ref, name, poster, asked) {
+      var node = el('div', 'results-page results-page--like');
+      var host = node.appendChild(el('section', 'ask'));
+      host.setAttribute('aria-label', 'More like ' + name);
+      var place = ai.view(host, {
+        ask: fillAsk,
+        stopped: function () { ai.keepLike({ ref: ref, name: name, poster: poster, asked: false }); },
+        around: function (change, nodes) {
+          var move = flip(nodes || []);
+          change();
+          move();
+        }
+      });
+      window.MMWatch.search.stage.open(node, 'More like ' + name, { icon: likeFace(poster), name: 'Like ' + name });
+      var item = ai.question('like', ref, name);
+      ai.keepLike({ ref: ref, name: name, poster: poster, asked: asked });
+      if (asked && (item.state === 'new' || item.state === 'refused')) ai.start(item);
+      place.show(item);
+      host.querySelector('.ask__row').focus({ preventScroll: true });
+    }
+
+    function canLike(ref) { return !!ai && ai.available() && LIKE_RE.test(ref || ''); }
+
+    /* Titles like *ref*, a page of their own; *name* and *poster* are the title's. */
+    function like(ref, name, poster) {
+      if (!canLike(ref)) return;
+      address.push('like', address.url(Object.assign({}, PAGE_PARAMS, { q: null, view: null, like: ref }), ''));
+      showLike(ref, name, poster || '', true);
     }
 
     /* ── Suggestions ── */
@@ -1199,6 +1424,7 @@
         bar.classList.toggle('is-on', !sheetOn && !!node);
       }
       picked = node;
+      if (asking) asking.pick(!node);
       if (!node) { input.removeAttribute('aria-activedescendant'); return; }
       node.classList.add('is-picked');
       node.setAttribute('aria-selected', 'true');
@@ -1233,6 +1459,7 @@
     function step(key) {
       var all = options();
       if (!all.length) return false;
+      if (picked && !shows(picked)) pick(null);
       var across = key === 'ArrowLeft' || key === 'ArrowRight';
       if (!picked) {
         if (across) return false;
@@ -1291,6 +1518,12 @@
     function showNothing(c, notSetUp) {
       leave();
       hold('none', 'Search results');
+      if (asking && asking.item) {
+        live.node.appendChild(el('p', 'results-none', 'No title has these words in its name.'));
+        rise(live.node);
+        status.textContent = ['No matches for “' + c.q + '”', askHint()].filter(Boolean).join('. ');
+        return;
+      }
       var block = nothing(c.q, true);
       live.node.appendChild(block);
       if (notSetUp) live.node.appendChild(hint(data));
@@ -1339,13 +1572,15 @@
       return n ? n + (n === 1 ? ' suggestion' : ' suggestions') : '';
     }
 
+    function askHint() { return asking && asking.item && asking.offered() ? 'Press Return to ask AI' : ''; }
+
     function readOut(c, all) {
       var parts = [];
       if (c.lib.state === 'ok' && all.lib.length) parts.push((all.total > all.lib.length ? all.lib.length + ' of ' : '') + all.total + ' in your library');
       if (all.out.length) parts.push(all.out.length + ' available to download');
       status.textContent = [parts.length
         ? parts.join(', ') + ' for “' + c.q + '”'
-        : 'No matches in your library for “' + c.q + '”', suggestionCount()].filter(Boolean).join('. ');
+        : 'No matches in your library for “' + c.q + '”', suggestionCount(), askHint()].filter(Boolean).join('. ');
     }
 
     function headRow(key, title, count, of) {
@@ -1569,6 +1804,7 @@
         return;
       }
       showResults(q, inPlace);
+      offerAsk(q);
       var known = last && last.q === q ? last : null;
       var c = {
         q: q, ctrl: new AbortController(), refocus: null,
@@ -1608,7 +1844,7 @@
        when the person pauses, for longer inside a word that an input method is
        still composing. */
     function typed(now, inWord) {
-      var q = input.value.trim();
+      var q = ownWords = input.value.trim();
       clearTimeout(timer);
       composed = inWord ? input.value : '';
       if (tokened) setToken(null);
@@ -1640,6 +1876,7 @@
       openSheet(false);
       if (address.value('search') === null) showResults(q);
       else show('results');
+      offerAsk(q);
       holdResults();
       draw(q, null, live.rows, false);
       if (canExplore() && !explore.known()) {
@@ -1655,6 +1892,7 @@
       input.value = text;
       input.focus({ preventScroll: true });
       typed(true);
+      record(text);
     }
 
     /* Empty the bar: the text, or the category or person in it. */
@@ -1713,6 +1951,9 @@
       if (tokened || (!input.value && !listView)) return;
       clearTimeout(timer);
       change();
+      var q = input.value.trim();
+      record(q);
+      if (ai && !listView && ai.fits(q)) askNow(q);
       // The keyboard on a phone covers the results.
       if (core.coarsePointer()) input.blur();
     });
@@ -1750,6 +1991,10 @@
     sheet.addEventListener('mousedown', function (e) { e.preventDefault(); });
     results.addEventListener('mousedown', function (e) {
       if (e.target.closest('.watch-suggestion')) e.preventDefault();
+    });
+    results.addEventListener('click', function (e) {
+      var q = input.value.trim();
+      if (view === 'results' && q === ownWords && e.target.closest('.watch-suggestion, [data-title-ref]')) record(q);
     });
     veil.addEventListener('click', leaveSheet);
     clear.addEventListener('click', function () {
@@ -1789,6 +2034,7 @@
       openSheet(false);
       browse.classList.remove('is-off');
       leave();
+      hideAsk();
       sayRole();
       view = 'browse';
       results.hidden = true;
@@ -1799,7 +2045,9 @@
       restHint();
       // Text goes along, unless Back led to something the address opens itself.
       if (input.value.trim() && (listView || !addressed())) change(true);
+      if (ai && canExplore()) ai.load().then(askAgain);
     });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) openSheet(false); });
 
     if (window.visualViewport) window.visualViewport.addEventListener('resize', fitSheet);
     fitSheet();
@@ -1841,6 +2089,7 @@
         openSheet(false);
         pick(null);
         show('page');
+        hideAsk();
         hold('page', name, node);
         status.textContent = '';
         setToken(what);
@@ -1875,6 +2124,7 @@
         if (tokened) setToken(null);
         sync();
         run();
+        askAgain();
       },
       close: function (how) {
         var again = emptied && input.value.trim();
@@ -1903,16 +2153,46 @@
       }
     });
 
+    address.layer({
+      name: 'like',
+      depth: 25,
+      params: ['like'],
+      read: function (here) {
+        var ref = here.params.get('like');
+        var other = ['q', 'genre', 'person', 'all', 'view'].some(function (key) { return here.params.get(key); });
+        return ai && !other && LIKE_RE.test(ref || '') ? ref : null;
+      },
+      open: function (ref) {
+        // Only what the person asked for here is asked for again.
+        (ai.state() ? Promise.resolve() : ai.load()).then(function () {
+          if (address.value('like') !== ref) return;
+          var was = ai.keptLike(ref);
+          if (was) showLike(ref, was.name, was.poster, was.asked);
+          else address.replace('like', address.url({ like: null }));
+        });
+      },
+      close: function () { if (view === 'page' && live && live.node.classList.contains('results-page--like')) window.MMWatch.search.stage.close(); }
+    });
+
+    window.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || e.defaultPrevented || composing(e) || address.top() !== 'like') return;
+      e.preventDefault();
+      address.back('like');
+    });
+
     sync();
     hintText.textContent = rest();
     sayRole();
     showExamples();
     if (canExplore()) explore.categories();
+    if (ai && data.tmdb_configured === true) ai.load().then(askAgain);
+    window.MMWatch.search.like = like;
+    window.MMWatch.search.canLike = canLike;
     // A value the browser put back (going back to the page) gets its results.
     if (input.value.trim() && !listView) run(true);
     // Nothing the address names after all: the rows.
     setTimeout(function () { if (view === 'results' && !live && !listView) show('browse'); });
   }
 
-  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
+  window.MMWatch.search = { init: initSearch, card: libraryCard, tmdbCard: buildTmdbCard, glide: glide, leavingBadge: leavingBadge, setLeaving: setLeaving, isHeld: isHeld, composing: composing };
 })();
