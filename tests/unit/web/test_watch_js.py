@@ -148,3 +148,14 @@ def test_a_block_that_folds_away_gives_up_all_its_room_bit_by_bit() -> None:
     start, end = _run("fold")
     assert start[1:] == [420, 24, 44, 16, 0]
     assert end == [0, 0, 0, 0, 0, 0]
+
+
+def test_only_the_last_keep_or_undo_of_a_title_has_a_toast() -> None:
+    assert _run("oneToast") == [
+        ["Kept Leaving Film for 7 days."],
+        ["Keep undone for Leaving Film"],
+        ["Kept Leaving Film for 7 days."],
+        ["Kept Leaving Film for 7 days.", "Kept Northbound for 7 days."],
+        # a change of it made elsewhere starts
+        ["Kept Northbound for 7 days."],
+    ]

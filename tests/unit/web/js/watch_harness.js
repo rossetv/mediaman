@@ -67,7 +67,7 @@ function load(opts = {}) {
     history: { pushState() {} },
     DOMParser: class { parseFromString(html) { return seasonDoc(Number(html)); } },
     fetch: (href) => Promise.resolve({ ok: true, redirected: false, text: () => Promise.resolve(href.slice(-1)) }),
-    UIFeedback: { toast: (message, opts) => toasts.push({ message, opts }) },
+    UIFeedback: { toast: (message, opts) => { const t = { message, opts }; toasts.push(t); return t; }, dismiss: (t) => { t.dismissed = true; } },
     MM: { api: { post: () => Promise.resolve({}), get: () => Promise.resolve({ items: [] }), messageOf: (_e, f) => f } },
     addEventListener() {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
@@ -292,6 +292,34 @@ const scenarios = {
     page.ctx.MMWatch.keep.foldAway(banner);
     const room = (f) => ['height', 'minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].map((k) => parseFloat(f[k]));
     return frames.map(room);
+  },
+
+  // The toasts still there: after an undo, after the next keep of that title and one of another, and once each is changed elsewhere.
+  async oneToast() {
+    const page = load();
+    page.doc.body.appendChild(leavingRowPage(page.doc));
+    page.run();
+    const left = () => page.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const out = [];
+    const keep = async (id) => {
+      click(page.doc, page.doc.querySelectorAll('[data-watch-keep]').find((b) => b.getAttribute('data-watch-keep') === id));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      out.push(left());
+    };
+    const said = (phase, id) => (page.doc.listeners['mm:watch-admin'] || []).forEach((fn) => fn({ detail: { phase, id } }));
+    await keep('1100');
+    const undo = page.toasts[0].opts.action.onClick;
+    page.toasts[0].dismissed = true; // as a press on its button does
+    undo();
+    await settle();
+    out.push(left());
+    await keep('1100');
+    await keep('1101');
+    said('failed', '1101');
+    said('busy', '1100');
+    out.push(left());
+    return out;
   },
 
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.
