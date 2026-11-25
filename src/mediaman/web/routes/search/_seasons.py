@@ -135,11 +135,12 @@ def _judge(
             return "held"
         if refusal == "leaving":
             return "leaving"
+        if refusal == "removed":
+            # Sonarr may still be to be told of the deletion, and so want it, and Plex's last
+            # scan may list it. Asked for by an admin, it is left monitored then.
+            return None if is_admin else "removed"
         if is_asked(series, season):
             return "already_asked"
-        if refusal == "removed":
-            # Plex's last scan may still list it.
-            return None if is_admin else "removed"
         in_sonarr = (season.get("statistics") or {}).get("episodeFileCount")
         return "held" if number in in_plex and not in_sonarr else None
 

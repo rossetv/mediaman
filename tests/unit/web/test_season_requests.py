@@ -380,6 +380,23 @@ def test_a_deletion_sonarr_is_still_to_be_told_of_stands_when_another_season_is_
     assert [was_requested_since(db, row) for row in fetch_pending_unmonitors(db)] == [False, True]
 
 
+@pytest.mark.parametrize("route", ["search"])
+@pytest.mark.parametrize(("who", "asked_again"), [("viewer", False), ("authed_client", True)])
+def test_only_an_admin_undoes_a_deletion_sonarr_is_still_to_be_told_of(
+    request, db, ask, route, who, asked_again
+):
+    client = request.getfixturevalue(who)
+    audit = _delete_season(db, 2)
+    db.execute("INSERT INTO pending_unmonitors (audit_id, sonarr_id) VALUES (?, 9)", (audit,))
+    db.commit()
+
+    resp = ask(client, Sonarr().track(_season(2, monitored=True)), [2])
+
+    assert _results(resp) == {2: "asked" if asked_again else "removed"}
+    [row] = fetch_pending_unmonitors(db)
+    assert was_requested_since(db, row) is asked_again
+
+
 def test_the_history_line_names_the_show():
     row = AuditRow(
         id=1,
