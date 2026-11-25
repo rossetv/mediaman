@@ -2499,6 +2499,35 @@ scenarios.tvBar = async () => {
   return out;
 };
 
+// What finds more like a title comes to be known after the title opened; then one that is no one's, and one by its TMDB id.
+scenarios.like = async () => {
+  const p = load({ routes: { '/api/watch/title/movie-120': LIB_MOVIE, '/api/watch/title/rec-3': Object.assign({}, MOVIE_DL, { ref: 'rec-3' }),
+    '/api/watch/title/tmdb-movie-77': MOVIE_DL } });
+  p.run();
+  const b = () => p.q('[data-ttl-act="like"]');
+  const acts = () => p.q('[data-ttl-part="actions"]').children.map((n) => n.getAttribute('data-ttl-act')).slice(0, 2);
+  const open = async (ref) => { p.ctx.MMWatch.detail.open(ref, { push: true }); await settle(); };
+  await open('movie-120');
+  const asked = [];
+  const out = { before: !!b() };
+  let on = true;
+  p.ctx.MMWatch.search = { canLike: (ref) => on && /^(movie|show|tmdb-movie|tmdb-tv)-/.test(ref), like: (...args) => asked.push(args) };
+  p.q('[data-ttl-act="primary"]').focus();
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.acts = acts();
+  out.focus = p.doc.activeElement.getAttribute('data-ttl-act');
+  click(p.doc, b());
+  await open('rec-3');
+  if (b()) click(p.doc, b());
+  await open('tmdb-movie-77');
+  click(p.doc, b());
+  out.asked = asked.map((a) => a[0]);
+  on = false;
+  p.doc.listeners['mm:search-assist'].forEach((fn) => fn({}));
+  out.off = !!b();
+  return out;
+};
+
 // *rateable* unknown: the answer comes after the wait is over.
 scenarios.thumbsNone = async () => {
   const none = { ok: true, ratings: { 'movie-120': { level: null, rateable: false } } };

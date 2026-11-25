@@ -271,8 +271,20 @@ def test_a_title_without_a_trailer_has_no_trailer_button() -> None:
     assert _run("noTrailerKey") == {"trailer": False, "primary": "Download"}
 
 
-def test_the_bar_of_a_tv_may_have_the_focus_over_a_title_and_escape_still_closes_the_title() -> None:
+def test_the_bar_of_a_tv_may_have_the_focus_over_a_title_and_escape_still_closes_the_title() -> (
+    None
+):
     assert _run("tvBar") == {"bar": "tv-pause", "behind": "ttl-title", "closed": True}
+
+
+def test_a_title_finds_more_like_itself_beside_play_once_there_is_an_ai_to_ask() -> None:
+    assert _run("like") == {
+        "before": False,
+        "acts": ["primary", "like"],
+        "focus": "primary",
+        "asked": ["movie-120", "tmdb-movie-77", "tmdb-movie-77"],
+        "off": False,
+    }
 
 
 def test_escape_handled_by_an_open_keep_menu_leaves_the_overlay_open() -> None:

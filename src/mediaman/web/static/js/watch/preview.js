@@ -960,6 +960,7 @@
     var mark = /^(movie|episode|season|show)\//.exec((card && card.getAttribute('data-mark')) || '');
     menuNode.setAttribute('aria-label', 'More for ' + live.card.title);
     if (fillRating) fillRating(live.card.ref, live.link);
+    if (watch.marks && watch.marks.likeRef(live.card.ref, live.link)) item('like', 'i-sparkles', 'Find more like this');
     if (mark) item('mark', 'i-eye', core.markAction(seen(live)).replace('Mark ', mark[1] === 'movie' ? 'Mark ' : 'Mark ' + mark[1] + ' '));
     if (card && card.hasAttribute('data-dismiss-ref')) item('dismiss', 'i-xmark', 'Dismiss');
     if (keepIdOf(live)) item('keep', 'i-clock', 'Keep' + (leavingOf(live).season === null ? '' : ' Season ' + leavingOf(live).season));
@@ -1000,6 +1001,9 @@
     } else if (act === 'dismiss') {
       close(p);
       press({ 'data-watch-dismiss': card.getAttribute('data-dismiss-ref'), 'data-mark-name': p.card.title });
+    } else if (act === 'like') {
+      close(p);
+      watch.search.like(watch.marks.likeRef(p.card.ref, p.link), p.card.title, p.card.poster);
     } else if (act === 'details') {
       openDetail(p);
     } else if (act === 'keep') {

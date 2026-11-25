@@ -629,6 +629,12 @@ def test_a_titles_page_does_not_hide_the_bar_of_a_tv_from_a_screen_reader():
     assert "aria-modal" not in tag.group(0)
 
 
+def test_the_watch_page_loads_what_asks_the_ai():
+    html = _watch()
+    for name in ("js/watch/ask.js", "js/watch/tonight.js", "css/_watch_ask.css"):
+        assert f"/static/{name}?v=" in html
+
+
 def test_a_phone_s_keyboard_offers_search_and_leaves_what_is_typed_alone() -> None:
     field = re.search(r'<input id="watch-search"[^>]*>', _watch())
     assert field is not None
