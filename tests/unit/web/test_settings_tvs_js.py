@@ -1,0 +1,108 @@
+"""The TVs & Casting section shows each state of a check, and asks before it forgets a TV.
+
+The real script runs under node against a small fake DOM.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+HARNESS = Path(__file__).parent / "js" / "settings_tvs_harness.js"
+
+
+def _run(scenario: str):
+    result = subprocess.run(
+        ["node", str(HARNESS), scenario], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def test_the_list_holds_paired_and_older_tvs_and_only_older_ones_are_checked() -> None:
+    assert _run("list")["rows"] == [
+        ["Paired by maren. On now.", False],
+        ["Older TV at 192.168.1.44. Not seen yet.", True],
+    ]
+
+
+def test_no_tvs_says_how_to_get_one() -> None:
+    assert "No TVs yet" in _run("empty")
+
+
+def test_a_list_that_did_not_load_can_be_tried_again() -> None:
+    got = _run("unloaded")
+    assert "Couldn’t load" in got["before"]
+    assert got["after"] == 1
+
+
+def test_a_tv_is_added_only_once_found_and_its_name_is_only_text() -> None:
+    got = _run("found")
+    assert got["checking"] == ["ok", "run", "todo"]
+    assert got["early"] is True
+    assert got["found"] == ["ok", "ok", "ok"]
+    assert got["text"] is True
+    body = {"address": "192.168.1.44", "name": "Attic"}
+    assert got["sent"] == ["POST", "/api/settings/older-tvs", body]
+    assert (got["rows"], got["shut"]) == (3, True)
+
+
+def test_another_address_must_be_checked_again() -> None:
+    assert _run("edited") == {"ready": True, "after": True}
+
+
+def test_a_late_answer_for_an_address_no_longer_typed_counts_for_nothing() -> None:
+    assert _run("late") is True
+
+
+def test_a_name_or_internet_address_is_refused_without_asking() -> None:
+    assert _run("typed") == {"states": ["no"], "asked": False}
+
+
+def test_each_failure_says_in_plain_words_what_to_try() -> None:
+    got = _run("failures")
+    assert {state for state, _ in got.values()} == {"no"}
+    assert "Is the TV on, on the same home network" in got["unreachable"][1]
+    assert "pairing with a code" in got["not_a_tv"][1]
+    assert "Host networking, macvlan" in got["own_network"][1]
+    assert "said off" in got["off"][1]
+
+
+def test_checking_a_kept_tv_shows_whether_it_answered() -> None:
+    got = _run("checked")
+    assert got["off"] == ["ok", "no"]
+    assert got["on"] == ["ok"]
+    assert "Last seen today" in got["says"]
+
+
+def test_a_tv_is_forgotten_only_after_a_question_and_each_kind_at_its_own_address() -> None:
+    got = _run("forget")
+    assert (got["asked"], got["kept"]) == (False, 2)
+    assert got["deleted"] == ["/api/settings/older-tvs/2", "/api/tvs/1"]
+    assert "No TVs yet" in got["left"]
+
+
+def test_a_rename_that_failed_keeps_what_was_typed() -> None:
+    assert _run("rename") == {"failed": True, "name": "Den"}
+
+
+def test_an_address_no_tv_can_use_is_marked_as_typed() -> None:
+    local, https, http = _run("address")
+    assert local[0] == "true"
+    assert "localhost" in local[1]
+    assert https[0] is None
+    assert "https" in https[1]
+    assert "Plain http" in http[1]
+
+
+def test_the_save_bar_saves_the_settings_and_minds_nothing_typed_to_add_a_tv() -> None:
+    got = _run("saved")
+    assert (got["afterAdd"], got["afterEdit"]) == (False, True)
+    assert got["sent"] == [
+        {
+            "older_tvs_enabled": "true",
+            "older_tvs_http": "true",
+            "tv_address": "http://192.168.1.10:8282",
+        }
+    ]

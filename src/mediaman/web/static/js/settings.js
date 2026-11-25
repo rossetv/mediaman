@@ -18,6 +18,7 @@
     if (MM.settings.general)      MM.settings.general.init();
     if (MM.settings.integrations) MM.settings.integrations.init();
     if (MM.settings.users)        MM.settings.users.init();
+    if (MM.settings.tvs)          MM.settings.tvs.init();
     if (MM.settings.newsletter)   MM.settings.newsletter.init();
   });
 })();

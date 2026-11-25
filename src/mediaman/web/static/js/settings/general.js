@@ -91,6 +91,9 @@
       grace_days:            n('grace_days'),
       suggestions_enabled:   v('suggestions_enabled'),
       auto_abandon_enabled:  v('auto_abandon_enabled'),
+      older_tvs_enabled:     v('older_tvs_enabled'),
+      older_tvs_http:        v('older_tvs_http'),
+      tv_address:            v('tv_address').trim(),
     };
     if (diskMap !== null) payload.disk_thresholds = diskMap;
     return payload;
