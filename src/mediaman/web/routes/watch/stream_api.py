@@ -249,6 +249,7 @@ def _progress_info(item: PlexItem) -> dict[str, Any]:
         "duration_s": item.duration_s,
         "media_item_id": item.rating_key if movie else item.parent_rating_key,
         "show_rating_key": None if movie else item.grandparent_rating_key,
+        "credits_s": _credits_start(item),
     }
 
 
@@ -263,7 +264,6 @@ def _start(
         ):
             return respond_err("not_found", status=404)
         info = _progress_info(item)
-        info["credits_s"] = _credits_start(item)
         if item.media is not None and item.preview_count:
             # Kept on the server for the preview route; none of it is in the answer.
             info["preview"] = {

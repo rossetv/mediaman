@@ -36,7 +36,8 @@ ITEM = """<MediaContainer librarySectionID="{section}"><Video type="movie" ratin
  <Stream id="22" streamType="2" displayTitle="Polski (AAC Stereo)"/>
  <Stream id="31" streamType="3" displayTitle="English"/>
  <Stream id="32" streamType="3" displayTitle="Polski"/>
-</Part></Media></Video></MediaContainer>"""
+</Part></Media><Marker type="credits" final="1" startTimeOffset="5000000" endTimeOffset="6000000"/>
+</Video></MediaContainer>"""
 
 
 class FakeResponse:
@@ -392,6 +393,24 @@ def test_a_place_saved_after_the_tv_was_refused_is_kept(alice, tv, conn, clock):
     assert late.status_code == 410
     rows = conn.execute("SELECT username, position_s FROM watch_progress").fetchall()
     assert [tuple(r) for r in rows] == [("alice", 1234)]
+
+
+@pytest.mark.parametrize("left", ["progress", "stop", "refused"])
+@pytest.mark.parametrize(("position", "watched"), [(4990, 0), (5000, 1)])
+def test_a_cast_left_in_the_final_credits_is_watched(
+    alice, tv, conn, clock, left, position, watched
+):
+    started = _cast(alice)
+    place = {"position_s": position, "played_s": 0}
+    if left == "refused":
+        clock.now += TICKET_SECONDS
+        assert tv.get(started["url"]).status_code == 404
+    if left == "stop":
+        alice.post(f"/api/watch/stream/{started['stream_id']}/stop", json=place)
+    else:
+        alice.post("/api/watch/progress", json={"stream_id": started["stream_id"], **place})
+    row = conn.execute("SELECT position_s, watched FROM watch_progress").fetchone()
+    assert tuple(row) == (position, watched)
 
 
 def test_the_session_ending_stops_the_stream_on_plex_without_a_read(alice, conn, plex):
