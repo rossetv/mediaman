@@ -3,6 +3,8 @@ there first, what is on its way, and gone once watched, cancelled or deleted."""
 
 from __future__ import annotations
 
+import json
+import sys
 from datetime import datetime, timedelta
 
 import pytest
@@ -52,6 +54,7 @@ def _fresh(monkeypatch):
     catalog.invalidate()
     monkeypatch.setattr(_library, "_tvdb", {})
     monkeypatch.setattr(_library, "_held", {})
+    monkeypatch.setattr(asked, "_shown", {})
     monkeypatch.setattr(asked_api, "_LIMITER", ActionRateLimiter(60, 60))
     monkeypatch.setattr(TmdbClient, "from_db", classmethod(lambda *_a, **_k: _NoTmdb()))
     yield
@@ -84,6 +87,8 @@ def client_of(app_factory, conn, radarr, sonarr):
             (email, _ago(days=100).isoformat(), username),
         )
         conn.commit()
+        if email:
+            _address(conn, username, email, None, at=_ago(days=100))
         client = TestClient(app)
         client.cookies.set("session_token", create_session(conn, username))
         return client
@@ -136,6 +141,23 @@ def _season(conn, key, show, number, title, tvdb_id, episodes=("e1", "e2")):
     conn.execute(
         "UPDATE media_items SET tvdb_id = ?, episode_count = ?, episode_keys = ? WHERE id = ?",
         (tvdb_id, len(episodes), f"[{keys}]", key),
+    )
+    conn.commit()
+
+
+def _address(conn, username, email, previous, *, at, detail=None):
+    """*username* took the address *email*, as the audit log has it."""
+    body = detail or {"cleared": email is None, "email": email, "previous": previous}
+    conn.execute("UPDATE admin_users SET email = ? WHERE username = ?", (email, username))
+    conn.execute(
+        "INSERT INTO audit_log (media_item_id, action, detail, created_at, actor, actor_id) VALUES"
+        " ('_security', 'sec:user.email_updated', :detail, :at, :name,"
+        " (SELECT id FROM admin_users WHERE username = :name))",
+        {
+            "detail": f"actor={username} ip=- {json.dumps(body, separators=(',', ':'))}",
+            "at": at.isoformat(),
+            "name": username,
+        },
     )
     conn.commit()
 
@@ -267,6 +289,98 @@ class TestWhose:
 
         assert (_titles(aoife), _titles(cian)) == ([], [])
 
+    def test_an_address_changed_hands_takes_no_request_along(self, aoife, client_of, conn):
+        cian = client_of("cian", email="cian@example.com")
+        _film(conn, "101", "Glass House", 11)
+        _film(conn, "102", "Far Shore", 12)
+        _ask(conn, "Glass House", 11, by=None, at=_ago(days=20))
+        _address(conn, "aoife", "new@example.com", ADDRESS, at=_ago(days=9))
+        _address(conn, "cian", ADDRESS, "cian@example.com", at=_ago(days=8))
+        _ask(conn, "Far Shore", 12, by=None, at=_ago(days=2))
+
+        assert (_titles(aoife), _titles(cian)) == ([], ["Far Shore"])
+
+    def test_an_address_saved_again_unchanged_keeps_its_requests(self, aoife, conn):
+        _film(conn, "101", "Glass House", 11)
+        _ask(conn, "Glass House", 11, by=None, at=_ago(days=20))
+        _address(conn, "aoife", ADDRESS.upper(), ADDRESS, at=_ago(days=5))
+
+        assert _titles(aoife) == ["Glass House"]
+
+    def test_an_address_given_up_for_a_while_counts_from_its_return(self, aoife, conn):
+        _film(conn, "101", "Glass House", 11)
+        _ask(conn, "Glass House", 11, by=None, at=_ago(days=20))
+        _address(conn, "aoife", None, ADDRESS, at=_ago(days=9))
+        _address(conn, "aoife", ADDRESS, None, at=_ago(days=8))
+
+        assert _titles(aoife) == []
+
+    def test_an_admin_s_change_for_the_person_counts(self, aoife, client_of, conn):
+        client_of("boss", role="admin")
+        _film(conn, "101", "Glass House", 11)
+        _film(conn, "102", "Far Shore", 12)
+        _ask(conn, "Glass House", 11, by=None, at=_ago(days=20))
+        _ask(conn, "Far Shore", 12, by=None, at=_ago(days=2))
+        body = {"cleared": False, "email": ADDRESS, "previous": "old@example.com"}
+        body["target_username"] = "aoife"
+        _address(conn, "boss", None, None, at=_ago(days=9), detail=body)
+
+        assert _titles(aoife) == ["Far Shore"]
+
+    def test_an_address_of_unknown_date_brings_no_emailed_link(self, client_of, conn):
+        aoife = client_of("aoife")
+        _film(conn, "101", "Glass House", 11)
+        _ask(conn, "Glass House", 11, by=None)
+        conn.execute("UPDATE admin_users SET email = ?", (ADDRESS,))
+        conn.commit()
+
+        assert _titles(aoife) == []
+
+    def test_an_older_entry_that_names_no_address_is_taken_for_the_change(self, aoife, conn):
+        _film(conn, "101", "Glass House", 11)
+        _film(conn, "102", "Far Shore", 12)
+        _ask(conn, "Glass House", 11, by=None, at=_ago(days=20))
+        _ask(conn, "Far Shore", 12, by=None, at=_ago(days=2))
+        _address(conn, "aoife", ADDRESS, None, at=_ago(days=9), detail={"cleared": False})
+
+        assert _titles(aoife) == ["Far Shore"]
+
+    def test_a_history_four_times_as_long_costs_four_times_as_much(self, aoife, conn):
+        def lines_run() -> int:
+            """The lines of the module run to read all of it."""
+            ran = 0
+
+            def trace(frame, event, _arg):
+                nonlocal ran
+                if frame.f_code.co_filename != asked.__file__:
+                    return None
+                ran += event == "line"
+                return trace
+
+            before = sys.gettrace()
+            sys.settrace(trace)
+            try:
+                found = asked.requests_of(conn, "aoife")
+                over = asked.is_over(conn, "aoife", found)
+            finally:
+                sys.settrace(before)
+            assert len(found) == len(over) == made
+            return ran
+
+        made = 0
+        costs = []
+        for upto in (20, 80):
+            while made < upto:
+                made += 1
+                at = _ago(days=50) + timedelta(hours=made)
+                # Some by emailed links, which the audit rows of everybody may be of.
+                _ask(conn, f"Film {made}", made, at=at, by=None if made % 4 == 0 else "aoife")
+                _audit(conn, f"Film {made}", at=at)
+                _delete(conn, f"Film {made}", made, at + timedelta(minutes=1))
+            costs.append(lines_run())
+
+        assert costs[1] < 6 * costs[0]
+
     def test_a_removed_account_of_the_same_name_leaves_nothing_behind(self, aoife, conn):
         _film(conn, "101", "Glass House", 11)
         _audit(conn, "Glass House", actor_id=9999)
@@ -377,8 +491,52 @@ class TestWatched:
 
         assert [i["started"] for i in _body(aoife)["items"]] == [False]
 
+    def test_the_season_asked_for_is_new_though_another_is_half_seen(self, aoife, conn):
+        _season(conn, "501", "500", 1, "Coast", 77)
+        _season(conn, "502", "500", 2, "Coast", 77)
+        _ask(conn, "Coast", tvdb_id=77, season_number=2)
+        mark_watched(conn, "aoife", [MarkTarget("501e1", "501", "500", 100.0)], now=NOW)
+        conn.commit()
+        assert [i["started"] for i in _body(aoife)["items"]] == [False]
+
+        mark_watched(conn, "aoife", [MarkTarget("502e1", "502", "500", 100.0)], now=NOW)
+        conn.commit()
+        assert [i["started"] for i in _body(aoife)["items"]] == [True]
+
 
 class TestOnItsWay:
+    @pytest.mark.parametrize(
+        ("waits_for", "day"),
+        [("released", 100), ("inCinemas", 10), ("announced", 10), (None, 100)],
+    )
+    def test_a_film_comes_on_the_date_radarr_waits_for(self, aoife, conn, radarr, waits_for, day):
+        dates = {
+            key: (NOW + timedelta(days=days)).isoformat()
+            for key, days in (("inCinemas", 10), ("digitalRelease", 100), ("physicalRelease", 130))
+        }
+        radarr.movies = [
+            _waited(11, "Glass House", isAvailable=False, minimumAvailability=waits_for, **dates)
+        ]
+        _ask(conn, "Glass House", 11)
+
+        (item,) = _body(aoife)["items"]
+        assert item["release_date"] == (NOW + timedelta(days=day)).date().isoformat()
+
+    def test_a_film_with_no_date_but_the_cinemas_has_none(self, aoife, conn, radarr):
+        radarr.movies = [
+            _waited(
+                11,
+                "Glass House",
+                isAvailable=False,
+                minimumAvailability="released",
+                inCinemas=(NOW + timedelta(days=10)).isoformat(),
+            )
+        ]
+        _ask(conn, "Glass House", 11)
+
+        (item,) = _body(aoife)["items"]
+        assert (item["state"], item["release_date"]) == ("coming", None)
+
     def test_what_is_there_comes_first_then_downloads_then_what_is_not_out(
         self, aoife, conn, radarr
     ):
@@ -435,18 +593,45 @@ class TestOnItsWay:
         assert item["release_date"] == airs[:10]
 
     @pytest.mark.parametrize(("hours", "shown"), [(1, ["Glass House"]), (72, [])])
+    @pytest.mark.parametrize("notified", [0, 1])
     def test_a_file_plex_does_not_list_yet_is_on_its_way_for_a_while(
-        self, aoife, conn, radarr, hours, shown
+        self, aoife, conn, radarr, hours, shown, notified
     ):
         added = _ago(hours=hours).isoformat()
         radarr.movies = [
             _waited(11, "Glass House", hasFile=True, movieFile={"dateAdded": added}),
         ]
-        _ask(conn, "Glass House", 11)
+        _ask(conn, "Glass House", 11, notified=notified)
 
         items = _body(aoife)["items"]
         assert [i["title"] for i in items] == shown
         assert all(i["state"] == "arriving" for i in items)
+
+    @pytest.mark.parametrize(
+        ("asked_for", "aired", "states"),
+        [(5, 400, ["arriving"]), (60, 3, ["arriving"]), (60, 40, [])],
+    )
+    def test_a_show_plex_does_not_list_yet_is_on_its_way_for_a_while(
+        self, aoife, conn, sonarr, asked_for, aired, states
+    ):
+        statistics = {
+            "episodeCount": 8,
+            "episodeFileCount": 8,
+            "totalEpisodeCount": 8,
+            "previousAiring": _ago(days=aired).isoformat(),
+        }
+        season = {"seasonNumber": 1, "monitored": True, "statistics": statistics}
+        series = {"tmdbId": 70, "tvdbId": 77, "title": "Coast", "monitored": True}
+        sonarr.series = [
+            {
+                **series,
+                "seasons": [season],
+                "statistics": {"episodeCount": 8, "episodeFileCount": 8},
+            }
+        ]
+        _ask(conn, "Coast", tvdb_id=77, season_number=1, notified=0, at=_ago(days=asked_for))
+
+        assert [i["state"] for i in _body(aoife)["items"]] == states
 
     def test_what_nothing_fetches_any_more_is_gone(self, aoife, conn, radarr):
         radarr.movies = [_waited(12, "Given Up", monitored=False)]
@@ -637,4 +822,49 @@ class TestHasAny:
         assert any_of() is False
 
         _ask(conn, "Glass House", 11, notified=0)
+        assert any_of() is True
+
+    def test_one_waited_for_too_long_holds_no_place(self, any_of, conn):
+        _ask(conn, "Glass House", 11, notified=0, at=_ago(days=31))
+        assert any_of() is False
+
+    def test_one_deleted_since_holds_no_place(self, any_of, conn):
+        _ask(conn, "Glass House", 11, notified=0)
+        _delete(conn, "Glass House", 11, _ago(days=2))
+        assert any_of() is False
+
+    def test_a_name_whose_title_was_deleted_holds_no_place(self, any_of, conn):
+        _film(conn, "101", "Glass House")
+        _audit(conn, "Glass House")
+        assert any_of() is True
+
+        _delete(conn, "Glass House", None, _ago(days=2))
+        assert any_of() is False
+
+    def test_one_that_was_not_in_the_row_when_it_was_loaded_holds_no_place(
+        self, any_of, aoife, conn, radarr
+    ):
+        _ask(conn, "Cancelled", 11, notified=0)
+        assert any_of() is True
+
+        assert _titles(aoife) == []
+        assert any_of() is False
+
+    def test_one_with_no_email_to_come_holds_its_place_once_it_was_shown(
+        self, any_of, aoife, conn, radarr
+    ):
+        _audit(conn, "Far Shore")
+        radarr.movies = [_waited(12, "Far Shore", isAvailable=True)]
+        assert any_of() is False
+
+        assert _titles(aoife) == ["Far Shore"]
+        assert any_of() is True
+
+    def test_a_service_that_does_not_answer_takes_no_place_away(
+        self, any_of, aoife, conn, monkeypatch
+    ):
+        monkeypatch.setattr(_arr.arr_build, "build_radarr_from_db", lambda *_a: None)
+        _ask(conn, "Far Shore", 12, notified=0)
+
+        assert _titles(aoife) == []
         assert any_of() is True

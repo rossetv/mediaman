@@ -6,14 +6,15 @@ person, or cannot be told to be theirs, is left out.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Literal
 
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services import watch_catalog as catalog
 from mediaman.web.repository import watch_library as lib
 from mediaman.web.repository.watch_progress import seen_movies
@@ -23,6 +24,8 @@ Kind = Literal["movie", "tv"]
 # A request's audit row and its notification are written in one transaction, which may wait
 # for the write lock in between.
 _TOGETHER = timedelta(seconds=30)
+# Until the row has been loaded once, one that is not there is waited for this long.
+_WAITS = timedelta(days=30)
 _ID_RE = re.compile(r"(tmdb|tvdb):(\d{1,10})(?::s(\d{1,4}))?")
 
 
@@ -37,6 +40,10 @@ class Request:
     season: int | None  # None for the film or the whole show
     asked_at: datetime
     waiting: bool  # the email that it is there is still to be sent
+
+    @property
+    def has_id(self) -> bool:
+        return bool(self.tmdb_id or self.tvdb_id)
 
     def names(self, kind: Kind, tmdb_id: int | None, tvdb_id: int | None, title: str) -> bool:
         """Whether it asks for this title."""
@@ -60,34 +67,48 @@ def requests_of(conn: sqlite3.Connection, username: str) -> list[Request]:
 
     The audit log names who was signed in, the notification what was asked for. A request made
     from an emailed link has no account in either: it is that of the one account with the
-    address it was sent to, unless the audit log says another account made it.
+    address it was sent to, if it had it by then, unless the audit log says another account
+    made it.
     """
     user = conn.execute(
         "SELECT id, username, email, created_at FROM admin_users WHERE username = ?", (username,)
     ).fetchone()
     if user is None:
         return []
+    notices = _notices(conn, user)
+    written = _WrittenWith(notices)
+    # Another's row only tells whose a notification naming nobody is.
+    others = any(not notice.named for notice in notices)
     # rationale: the fixed actions only; every value is bound
     audits = conn.execute(
         "SELECT media_item_id, detail, created_at,"
         " actor_id = :id OR (actor_id IS NULL AND actor = :name"
         " AND julianday(created_at) >= julianday(:since)) AS mine FROM audit_log"
-        " WHERE action IN ('downloaded', 're_downloaded') AND COALESCE(actor, '') != ''",
-        {"id": user["id"], "name": user["username"], "since": user["created_at"]},
+        " WHERE action IN ('downloaded', 're_downloaded') AND COALESCE(actor, '') != ''"
+        " AND (:others OR actor_id = :id OR actor = :name) ORDER BY id",
+        {
+            "id": user["id"],
+            "name": user["username"],
+            "since": user["created_at"],
+            "others": others,
+        },
     ).fetchall()
-    notices = _notices(conn, user)
     found: list[Request] = []
     taken: set[int] = set()
     for row in audits:
+        if not row["mine"] and not written.knows(row["media_item_id"]):
+            continue
         at = parse_iso_utc(row["created_at"])
         if at is None:
             continue
-        open_ones = {
-            place
-            for place, notice in enumerate(notices)
-            if place not in taken and (row["mine"] or not notice.named)
-        }
-        own = _recorded_with(row["media_item_id"], row["detail"] or "", at, notices, open_ones)
+        own = next(
+            (
+                place
+                for place in written.places(row["media_item_id"], row["detail"] or "", at)
+                if place not in taken and (row["mine"] or not notices[place].named)
+            ),
+            None,
+        )
         if own is not None:
             taken.add(own)
         if not row["mine"]:
@@ -114,7 +135,7 @@ def _notices(conn: sqlite3.Connection, user: sqlite3.Row) -> list[_Notice]:
         " AND (username IS NULL OR username = :name) ORDER BY id",
         {
             "email": user["email"] or None,
-            "since": user["created_at"],
+            "since": _address_since(conn, user),
             "id": user["id"],
             "name": user["username"],
         },
@@ -138,30 +159,96 @@ def _notices(conn: sqlite3.Connection, user: sqlite3.Row) -> list[_Notice]:
     return found
 
 
+def _address_since(conn: sqlite3.Connection, user: sqlite3.Row) -> str | None:
+    """Since when the account has had its address, without a break; None when not known.
+
+    An entry from before the log named the address may be of any change, so the time of the
+    latest one counts.
+    """
+    born = parse_iso_utc(user["created_at"])
+    if not user["email"] or born is None:
+        return None
+    email = user["email"].lower()
+    since = None
+    for row in conn.execute(
+        "SELECT actor, actor_id, detail, created_at FROM audit_log"
+        " WHERE action = 'sec:user.email_updated' ORDER BY id DESC"
+    ):
+        at = parse_iso_utc(row["created_at"])
+        if at is None or at < born:
+            continue
+        body = _body_of(row["detail"] or "")
+        target = body.get("target_username")
+        if target is None:
+            own = row["actor_id"] == user["id"] or (
+                row["actor_id"] is None and row["actor"] == user["username"]
+            )
+        else:
+            own = target == user["username"]
+        if not own:
+            continue
+        if body.get("cleared") or str(body.get("email") or email).lower() != email:
+            break
+        since = at
+        if str(body.get("previous") or "").lower() != email:
+            break
+    return since.isoformat() if since else None
+
+
+def _body_of(detail: str) -> Mapping[str, object]:
+    """The JSON that ends a security entry's *detail*, after its actor and address."""
+    try:
+        body = json.loads(detail[detail.index(" {") + 1 :])
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def _added_to(name: str, detail: str) -> Kind | None:
     if detail.startswith(f"Added '{name}' to Radarr"):
         return "movie"
     return "tv" if detail.startswith(f"Added '{name}' to Sonarr") else None
 
 
-def _recorded_with(
-    name: str, detail: str, at: datetime, notices: Sequence[_Notice], places: Collection[int]
-) -> int | None:
-    """The place of the notification written with the audit row of *name*, or None."""
-    id_of = _ID_RE.fullmatch(name)
-    kind = _added_to(name, detail)
-    for place, notice in enumerate(notices):
-        asked = notice.request
-        if place not in places or abs(asked.asked_at - at) > _TOGETHER:
-            continue
-        if id_of is None:
-            same = asked.title == name and kind in (None, asked.kind)
-        else:
-            id_kind, number, _season = id_of.groups()
-            same = int(number) == (asked.tmdb_id if id_kind == "tmdb" else asked.tvdb_id)
-        if same:
-            return place
-    return None
+class _WrittenWith:
+    """The notifications, to be found by the audit row one was written with."""
+
+    def __init__(self, notices: Sequence[_Notice]) -> None:
+        self._notices = notices
+        #: Their places by what an audit row calls the title, then by the time.
+        self._places: dict[tuple[str, str], dict[int, list[int]]] = {}
+        for place, notice in enumerate(notices):
+            asked = notice.request
+            for key in (
+                ("title", asked.title),
+                ("tmdb", str(asked.tmdb_id)),
+                ("tvdb", str(asked.tvdb_id)),
+            ):
+                slots = self._places.setdefault(key, {})
+                slots.setdefault(_slot(asked.asked_at), []).append(place)
+
+    @staticmethod
+    def _key(name: str) -> tuple[str, str]:
+        id_of = _ID_RE.fullmatch(name)
+        return (id_of[1], str(int(id_of[2]))) if id_of else ("title", name)
+
+    def knows(self, name: str) -> bool:
+        return self._key(name) in self._places
+
+    def places(self, name: str, detail: str, at: datetime) -> Iterator[int]:
+        """The places of those the audit row of *name* may have been written with, in order."""
+        key = self._key(name)
+        kind = _added_to(name, detail) if key[0] == "title" else None
+        slots = self._places.get(key, {})
+        slot = _slot(at)
+        for place in sorted(p for near in (-1, 0, 1) for p in slots.get(slot + near, ())):
+            asked = self._notices[place].request
+            if abs(asked.asked_at - at) <= _TOGETHER and kind in (None, asked.kind):
+                yield place
+
+
+def _slot(at: datetime) -> int:
+    return int(at.timestamp() // _TOGETHER.total_seconds())
 
 
 def _named(name: str, detail: str, at: datetime) -> Request | None:
@@ -297,24 +384,48 @@ def is_over(conn: sqlite3.Connection, username: str, requests: Iterable[Request]
         " played_at AS created_at FROM played_titles WHERE username = ? AND media_type = 'movie'",
         (username,),
     ).fetchall()
-    ends: list[tuple[sqlite3.Row, datetime]] = [
-        (row, at) for row in (*deleted, *played) if (at := parse_iso_utc(row["created_at"]))
-    ]
-    return {
-        request
-        for request in requests
-        if any(
+    ends: dict[tuple[Kind, str, object], list[tuple[sqlite3.Row, datetime]]] = {}
+    for row in (*deleted, *played):
+        at = parse_iso_utc(row["created_at"])
+        if at is None:
+            continue
+        kind: Kind = "movie" if row["media_type"] == "movie" else "tv"
+        for key in _end_keys(kind, row["tmdb_id"], row["tvdb_id"], row["title"]):
+            ends.setdefault(key, []).append((row, at))
+
+    def ended(request: Request) -> bool:
+        kinds: tuple[Kind, ...] = (request.kind,) if request.kind else ("movie", "tv")
+        return any(
             at >= request.asked_at
             and (request.season is None or row["season_number"] in (None, request.season))
-            and request.names(
-                "movie" if row["media_type"] == "movie" else "tv",
-                row["tmdb_id"],
-                row["tvdb_id"],
-                row["title"],
-            )
-            for row, at in ends
+            and request.names(kind, row["tmdb_id"], row["tvdb_id"], row["title"])
+            for kind in kinds
+            for key in _end_keys(kind, request.tmdb_id, request.tvdb_id, request.title)
+            for row, at in ends.get(key, ())
         )
-    }
+
+    return {request for request in requests if ended(request)}
+
+
+def _end_keys(
+    kind: Kind, tmdb_id: int | None, tvdb_id: int | None, title: str
+) -> list[tuple[Kind, str, object]]:
+    """All that a deletion or a play and a request of the same title can have in common."""
+    keys: list[tuple[Kind, str, object]] = [(kind, "title", catalog.normalise_title(title))]
+    if tmdb_id:
+        keys.append((kind, "tmdb", tmdb_id))
+    if tvdb_id:
+        keys.append((kind, "tvdb", tvdb_id))
+    return keys
+
+
+# Whether each request was in the row when it was last loaded, by the person: what is not in
+# the library is known to Radarr and Sonarr alone. Lost with a restart.
+_shown: dict[str, dict[Request, bool]] = {}
+
+
+def remember_shown(username: str, shown: Mapping[Request, bool]) -> None:
+    _shown[username] = {**_shown.get(username, {}), **shown}
 
 
 def has_any(
@@ -325,18 +436,24 @@ def has_any(
     continuing: Collection[str] = (),
 ) -> bool:
     """Whether something they asked for, but the titles *continuing*, is there unwatched, or is
-    still waited for, as far as the database knows: Radarr and Sonarr are not asked."""
+    still waited for, as far as is known here: Radarr and Sonarr are not asked."""
     asked = requests_of(conn, username)
     if not asked:
         return False
     held = held_library(conn, username, libraries, index)
+    shown = _shown.get(username, {})
+    young = now_utc() - _WAITS
+    unsure = []
     for request in asked:
         ref = held.ref_of(request)
         if ref in continuing:
             continue
         if ref is None or not held.is_there(ref, request.season):
-            if request.waiting:
-                return True
+            if shown.get(request, request.waiting and request.asked_at >= young):
+                unsure.append(request)
         elif not held.is_watched(ref, request.season):
-            return True
-    return False
+            if request.has_id:
+                return True
+            # By its name alone, it may be another title than the one deleted.
+            unsure.append(request)
+    return bool(set(unsure) - is_over(conn, username, unsure))

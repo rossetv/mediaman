@@ -1,7 +1,7 @@
 """The Watch page's row of what the person asked for and has not watched, as JSON: what is
 there, then what is on its way, then what is not out yet.
 
-Only the person's own requests, an admin's too. TMDB is never asked for it.
+Only the person's own requests, an admin's too. It never waits for TMDB.
 """
 
 from __future__ import annotations
@@ -46,6 +46,8 @@ _LIMITER = ActionRateLimiter(max_in_window=60, window_seconds=60)
 _LIMIT = 200
 # A file Plex does not list by then is not one the library will hold.
 _LISTED_WITHIN = timedelta(days=2)
+# Where nothing says when its file came.
+_READY_WITHIN = timedelta(days=14)
 
 State = Literal["ready", "arriving", "downloading", "queued", "coming"]
 # Where each state comes in the row.
@@ -82,6 +84,7 @@ def api_watch_asked(request: Request, username: str = Depends(get_current_user))
         held_fields(conn, username, libraries),
     )
     items = row.items(requests)
+    asked.remember_shown(username, row.shown)
     complete = all(row.arr.answers_for(kind) for kind in row.asked_of)
     return respond_ok({"items": items[:_LIMIT], "complete": complete})
 
@@ -96,6 +99,23 @@ class _Row:
     now: datetime = field(default_factory=now_utc)
     #: The kinds of title Radarr or Sonarr was asked about.
     asked_of: set[str] = field(default_factory=set)
+    #: Whether each request gave a card.
+    shown: dict[asked.Request, bool] = field(default_factory=dict)
+    _named: dict[str, list[tuple[asked.Kind, int]]] = field(default_factory=dict)
+    _by_tvdb: dict[object, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        movies, series = self.arr.caches["radarr_movies"], self.arr.caches["sonarr_series"]
+        for tmdb_id, movie in movies.items():
+            self._name("movie", tmdb_id, movie)
+        for tmdb_id, show in series.items():
+            self._name("tv", tmdb_id, show)
+            self._by_tvdb.setdefault(show.get("tvdbId"), tmdb_id)
+
+    def _name(self, kind: asked.Kind, tmdb_id: int, entry: Mapping[str, Any]) -> None:
+        name = catalog.normalise_title(str(entry.get("title") or ""))
+        if name:
+            self._named.setdefault(name, []).append((kind, tmdb_id))
 
     def items(self, requests: Sequence[asked.Request]) -> list[dict[str, Any]]:
         """A card per title, in the best state of any of its requests."""
@@ -109,14 +129,18 @@ class _Row:
         unsure = [
             request
             for request, ref in zip(known, refs, strict=True)
-            if ref is None or not _has_id(request)
+            if ref is None or not request.has_id
         ]
         over = asked.is_over(self.conn, self.username, unsure)
-        items = [
-            item
-            for request, title, ref in zip(known, titles, refs, strict=True)
-            if (item := self._item(request, title, ref, request in over)) is not None
-        ]
+        items = []
+        self.shown.clear()
+        for asked_for, request, title, ref in zip(requests, known, titles, refs, strict=True):
+            item = self._item(request, title, ref, request in over)
+            if item is not None:
+                items.append(item)
+            # Missing while its service does not answer, it may still be on its way.
+            if item or ref or (request.kind and self.arr.answers_for(request.kind)):
+                self.shown[asked_for] = item is not None
         # A title may be known by its own ref in one request and by TMDB's in another.
         shown: set[str] = set()
         unique = []
@@ -129,18 +153,12 @@ class _Row:
     def _with_ids(self, request: asked.Request) -> asked.Request:
         """*request* with the ids Radarr and Sonarr have for it. By its name only where one of
         all their titles has it."""
-        series = self.arr.caches["sonarr_series"]
         if request.tmdb_id:
             return request
         if request.tvdb_id:
-            return replace(request, tmdb_id=self.arr.tmdb_id_for_tvdb(request.tvdb_id))
+            return replace(request, tmdb_id=self._by_tvdb.get(request.tvdb_id))
         name = catalog.normalise_title(request.title)
-        movies = self.arr.caches["radarr_movies"]
-        found: list[tuple[asked.Kind, int]] = [
-            *(("movie", i) for i, m in movies.items() if _named(m, name)),
-            *(("tv", i) for i, s in series.items() if _named(s, name)),
-        ]
-        found = [f for f in found if request.kind in (None, f[0])]
+        found = [f for f in self._named.get(name, []) if request.kind in (None, f[0])]
         if len(found) != 1:
             return request
         kind, tmdb_id = found[0]
@@ -196,9 +214,7 @@ class _Row:
         if kind == "tv" and request.season is not None:
             state = self._season_state(entry, request.season, state)
         if state in (ACTION_IN_LIBRARY, ACTION_PARTIAL):
-            added = parse_iso_utc((entry.get("movieFile") or {}).get("dateAdded"))
-            fresh = added is not None and self.now - added <= _LISTED_WITHIN
-            return ("arriving" if fresh or request.waiting else None), None
+            return ("arriving" if self._just_came(request, entry) else None), None
         if state == ACTION_DOWNLOADING:
             return "downloading", None
         if state != ACTION_QUEUED:
@@ -206,9 +222,23 @@ class _Row:
         if kind == "movie":
             if entry.get("isAvailable"):
                 return "queued", None
-            return "coming", next_movie_release(entry)
+            return "coming", _out_on(entry)
         coming, airs = series_still_to_air(cast("SonarrSeries", entry), request.season)
         return ("coming", parse_iso_utc(airs)) if coming else ("queued", None)
+
+    def _just_came(self, request: asked.Request, entry: Mapping[str, Any]) -> bool:
+        """Whether Plex may still be about to list what Radarr or Sonarr has."""
+        added = parse_iso_utc((entry.get("movieFile") or {}).get("dateAdded"))
+        if added is not None:
+            return self.now - added <= _LISTED_WITHIN
+        # Of a show, its files came after the last of it had aired.
+        airings = [
+            parse_iso_utc((season.get("statistics") or {}).get("previousAiring"))
+            for season in entry.get("seasons") or []
+            if request.season in (None, season.get("seasonNumber"))
+        ]
+        since = max([request.asked_at, *(at for at in airings if at and at <= self.now)])
+        return request.waiting and self.now - since <= _READY_WITHIN
 
     @staticmethod
     def _season_state(entry: Mapping[str, Any], number: int, state: str | None) -> str | None:
@@ -235,8 +265,12 @@ class _Row:
             title = self.held.shows[key]
             seen = self.held.seen_shows.get(key, lib.ShowSeen())
             subtitle = show_subtitle(title, seen)
-            # Not by a season seen to its end: the next one, just come, is new.
-            started = any(s.seen and not s.watched for s in seen.seasons.values())
+            # Not by a season seen to its end, nor by one not asked for: the next one is new.
+            started = any(
+                s.seen and not s.watched
+                for number, s in seen.seasons.items()
+                if request.season in (None, number)
+            )
             tmdb_id = request.tmdb_id
         added_at = parse_iso_strict_utc(title.added_at)
         return {
@@ -299,12 +333,14 @@ class _Row:
         }
 
 
-def _has_id(request: asked.Request) -> bool:
-    return bool(request.tmdb_id or request.tvdb_id)
-
-
-def _named(entry: Mapping[str, Any], name: str) -> bool:
-    return bool(name) and catalog.normalise_title(str(entry.get("title") or "")) == name
+def _out_on(movie: Mapping[str, Any]) -> datetime | None:
+    """When a film not out yet is, by what Radarr waits for, or None when unknown."""
+    waits_for = movie.get("minimumAvailability")
+    if waits_for != "announced":
+        cinemas = waits_for == "inCinemas"
+        dates = ("inCinemas",) if cinemas else ("digitalRelease", "physicalRelease")
+        movie = {key: movie.get(key) for key in dates}
+    return next_movie_release(movie)
 
 
 def _key(kind: str, tmdb_id: int | None, ref: str) -> str:
