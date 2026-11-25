@@ -233,7 +233,7 @@ const scenarios = {
     const whileSending = p.focused();
     p.fire('account-password-form', 'input');
     const working = p.say('account-password-result').concat(p.$('account-submit-password').textContent);
-    revealed.splice(0, 1);
+    const revealedSending = revealed.splice(0);
     await settle();
     const out = { posts, whileSending, working, focused: p.focused(), rows: p.rows().length, toasts: p.toasts, shut: p.$('account-password-form').hidden, resets: p.resets() };
     out.revealed = revealed.splice(0);
@@ -244,7 +244,7 @@ const scenarios = {
     p.fire('account-password-form', 'submit');
     out.revealedRefusal = revealed.splice(0);
     p.fire('account-password-form', 'input');
-    return { ...out, revealedEmptied: revealed.splice(0) };
+    return { ...out, revealedSending, revealedEmptied: revealed.splice(0) };
   },
   // for each form, what an answer brings into view when the reader is still there (with the keyboard on what is around
   // the button too, as Safari leaves a clicked one), has scrolled its status out of view or under a bar, or has the keyboard in something else

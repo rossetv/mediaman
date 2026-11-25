@@ -180,6 +180,7 @@ def test_a_limit_on_new_passwords_is_said_at_the_button_pressed() -> None:
 def test_each_new_word_on_a_new_password_is_brought_into_view_by_the_shortest_way() -> None:
     # on a narrow phone the words wrap under the button, where the bottom bar may cover them
     out = _run("password")
+    assert out["revealedSending"][-1] == ["account-submit-password", "nearest"]
     field = "account-new-password"
     assert out["revealedRefusal"] == [[field, "nearest"], [field + "-why", "nearest"]]
     assert out["revealedEmptied"] == []
