@@ -2465,6 +2465,12 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+def test_the_keyboard_is_on_a_control_that_shows_as_what_follows_an_end_is_tried_again(markup):
+    out = elsewhere(markup, "away_next_tried")
+    assert (out["message"]["button"], out["ended"]) == ("Try again", True)
+    assert out["hidden"] is False
+
+
 def test_a_page_opened_while_a_tv_plays_its_title_leaves_it_there(markup):
     out = elsewhere(markup, "away_opened_on_tv", "same")
     assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")

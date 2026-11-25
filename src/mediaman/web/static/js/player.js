@@ -904,6 +904,7 @@
 
   /* The first of the controls that are there. */
   function focusControls() {
+    paintAway();
     (!isAway() || swapping ? els.play : onTv() && !els.openRemote.hidden ? els.openRemote : video.ended ? els.bring : els.play).focus();
   }
 

@@ -5479,6 +5479,23 @@ const scenarios = {
     return out;
   },
 
+  /* The next episode of what ended on a TV is not reached, and is tried again. */
+  async away_next_tried(p) {
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    way.media.paused = true; way.media.ended = true; way.media.currentTime = 2997;
+    fire(way.media, 'ended');
+    await settle();
+    p.pages['/watch/play/502'] = { status: 500 };
+    click(p.q('[data-upnext-play]'));
+    await settle();
+    const out = { message: messageState(p), ended: p.root.classList.contains('is-ended') };
+    let hidden = null;
+    p.q('[data-play]').focus = function () { hidden = p.root.classList.contains('is-ended'); doc.activeElement = this; };
+    press(p.q('[data-retry]'));
+    return Object.assign(out, { hidden: hidden });
+  },
+
   /* The page opens, or comes back from the page cache, while a TV plays a title. */
   async away_opened_on_tv(p) {
     const how = p.win.serverPlays;
