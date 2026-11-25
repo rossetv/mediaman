@@ -2,6 +2,7 @@
  * (_tv_remote.html; the server's side is routes/tv.py).
  *
  *   MM.tvRemote.open(tv)   opens the remote; tv is a TV as the API gives it, or its id.
+ *   MM.tvRemote.plays(key) whether a TV plays that title, as last heard.
  *   MM.tvRemote.drop(id)   lets go, without a word, of a TV the person has just unpaired.
  *
  * Every page asks once what plays. While something does, the bar asks every few seconds and the
@@ -79,7 +80,7 @@
     tv_off: 'The TV isn’t answering. Check it’s on.',
     unreachable: 'The TV or Plex didn’t answer. Try again in a moment.',
   };
-  var sender = MM.castSender || null;
+  var STILL_S = 600; // that a question waits
   // A later press won: what the person sees is already that.
   var SILENT = ['superseded', 'replaced'];
 
@@ -94,7 +95,7 @@
     elapsed: $('[data-elapsed]'), remaining: $('[data-remaining]'),
     play: $('[data-play]'), mute: $('[data-mute]'), volume: $('[data-volume]'), noVolume: $('[data-no-volume]'),
     chapter: $('[data-chapter]'), quality: $('[data-quality]'), next: $('[data-next]'), again: $('[data-again]'),
-    bring: $('[data-bring]'), stop: $('[data-stop]'), dim: $('[data-dim]'), card: $('[data-card]'),
+    bring: $('[data-bring]'), playOn: $('[data-play-on]'), stop: $('[data-stop]'), dim: $('[data-dim]'), card: $('[data-card]'),
     cardTitle: $('[data-card-title]'), cardLine: $('[data-card-line]'), cardActions: $('[data-card-actions]'),
     status: $('[data-status]'), po: $('[data-po]'), poVeil: $('[data-po-veil]'), poTitle: $('[data-po-title]'),
     poList: $('[data-po-list]'), poNote: $('[data-po-note]'),
@@ -139,6 +140,7 @@
   function code(p, between) { return 'S' + p.season + (between || ' ') + 'E' + p.episode; }
   function play() { return tv && tv.play; }
   function about() { return play() || (gone && gone.last) || seen; }
+  var sender = null; // of the Chromecast
   function kind() { var t = tv || (gone && gone.tv); return t ? t.kind : ''; }
   function isOlder() { return kind() === 'older'; }
   function isCast() { return kind() === CAST; }
@@ -235,7 +237,7 @@
     // The last word of a play has its place and title; its options are as they were last seen.
     var same = last && seen && seen.rating_key === last.rating_key;
     var was = { reason: reason, last: same ? Object.assign({}, seen, last) : last || seen, tv: tv };
-    if (mine) return;
+    if (mine || handing) return;
     if (reason === 'restarted' && !isOpen) {
       say('mediaman restarted. ' + keptIn(last));
       return;
@@ -253,6 +255,7 @@
 
   function keptIn(what) { return 'Your place in ' + what.title + ' is kept.'; }
   function place_kept(before, last) {
+    if (last && last.saved === false) return before + ' Your place couldn’t be saved.';
     return last && last.position_s ? before + ' Your place is saved at ' + fmt(last.position_s) + '.' : before;
   }
 
@@ -290,18 +293,20 @@
 
   /* As the server would tell of it, or null. */
   function castTv() {
+    listen();
     var c = sender && sender.now();
     if (!c) return null;
-    var p = {
-      play_id: CAST + '-' + c.rating_key, state: c.paused ? 'paused' : 'playing', rating_key: c.rating_key,
-      title: c.title, position_s: c.position_s, duration_s: c.duration_s,
-    };
-    // As the player names an episode; of a film the line is its year.
-    var ep = /^S(\d+) · E(\d+)(?: — (.*))?$/.exec(c.subtitle || '');
-    if (ep) Object.assign(p, { season: Number(ep[1]), episode: Number(ep[2]), episode_title: ep[3] || '' });
     return {
       id: CAST, kind: CAST, name: c.name || 'Chromecast', on: !c.lost, lost_s: c.lost ? 0 : null, acked: 0,
-      can_volume: false, play: p,
+      volume: c.volume, muted: c.muted, can_volume: c.can_volume,
+      play: {
+        play_id: CAST + '-' + c.id, state: c.state, rating_key: c.rating_key, title: c.title,
+        season: c.season, episode: c.episode, episode_title: c.episode_title,
+        position_s: c.position_s, duration_s: c.duration_s, markers: c.markers, chapters: c.chapters,
+        quality: c.quality, subtitle: c.subtitle_id, subtitle_tracks: c.subtitle_tracks, next: c.next,
+        upnext_in_s: c.upnext_in_s, still_in_s: c.still_in_s,
+        still_since_s: c.still_in_s == null ? null : STILL_S - c.still_in_s,
+      },
     };
   }
 
@@ -310,12 +315,14 @@
     return heard ? Promise.resolve(heard) : Promise.reject(castOver());
   }
 
-  /* As the server would refuse: how it ended is known only of one that was lost. */
+  /* As the server would refuse. */
   function castOver() {
-    return { status: 410, error: isCast() && isLost() ? 'lost' : '', data: { last: lastOf(play()) } };
+    var was = sender && sender.over();
+    var reason = was ? was.reason : '';
+    // Only what was lost, or taken, is kept on the bar: of the rest there is nothing to choose.
+    var last = { rating_key: was && was.rating_key, title: was && was.title, position_s: was && was.position_s, duration_s: was && was.duration_s };
+    return { status: 410, error: reason === 'ended' ? '' : reason, data: { last: was && reason !== 'stopped' ? Object.assign({}, seen, last) : null } };
   }
-
-  function lastOf(p) { return p && Object.assign({}, p, { position_s: position() }); }
 
   function withCast(all) { return all.concat(castTv() || []); }
 
@@ -323,8 +330,13 @@
     var heard = castTv();
     others = withCast(others.filter(function (t) { return t.id !== CAST; }));
     if (heard && heard.on && heard.play.play_id === dismissed) dismissed = '';
-    if (heard && (!tv || tv.id === CAST)) hear(heard, now());
-    else if (!heard && tv && tv.id === CAST && play()) {
+    if (heard && tv && tv.id === CAST) {
+      hear(heard, now());
+    } else if (heard && !play() && !gone && !handing) {
+      tv = null;
+      heardAt = 0;
+      hear(heard, now());
+    } else if (!heard && tv && tv.id === CAST && play() && !leaving) {
       // Followed from another tab of this browser now.
       if (sender.holds(play().rating_key)) { drop(CAST); return; }
       lostTv(castOver());
@@ -335,10 +347,35 @@
 
   function steerCast(body) {
     if (body.kind === 'seek') sender.seek(body.position_s);
-    else sender.toggle();
+    else if (body.kind === 'volume') sender.setVolume(body.level);
+    else if (body.kind === 'mute') sender.setMuted(body.muted);
+    else sender[body.kind]();
   }
 
-  if (sender) sender.on(hearCast);
+  function postCast(body) {
+    if (body.kind === 'cancel') return Promise.resolve(sender.cancel());
+    if (body.kind === 'stop') {
+      var p = play();
+      return sender.stop().then(function (at) {
+        if (tv && tv.id === CAST) tv.play = null;
+        return { tv: { last: Object.assign({}, p, at) } };
+      });
+    }
+    var what = body.kind === 'quality' ? { quality: body.quality } : body.kind === 'subtitles' ? { subtitle: body.subtitle } : { next: true };
+    return sender.start(what).then(function () {
+      hearCast();
+      return {};
+    }, function (err) {
+      throw Object.assign(err, { error: err.code });
+    });
+  }
+
+  function listen() {
+    if (sender || !MM.castSender) return;
+    sender = MM.castSender;
+    sender.on(hearCast);
+  }
+  listen();
 
   function askOne() {
     var id = tv.id;
@@ -347,7 +384,8 @@
       if (tv && tv.id === id) hear(heard, at);
     }, function (err) {
       if (!isGone(err)) throw err;
-      if (tv && tv.id === id) lostTv(err);
+      // A Chromecast is gone from the press of Stop on, while its place is being saved.
+      if (tv && tv.id === id && !(id === CAST && leaving)) lostTv(err);
     });
   }
 
@@ -363,7 +401,7 @@
       // Of an older TV, which everyone keeps, the list does not say why it ended.
       if (play() && !(mine && (mine.play || mine.last))) return askOne();
       if (play() || (mine && mine.play)) hear(mine, at);
-      if (gone || play() && !(putAway() && others.some(function (t) { return t.on && t.id !== tv.id; }))) return;
+      if (handing || gone || play() && !(putAway() && others.some(function (t) { return t.on && t.id !== tv.id; }))) return;
       tv = null;
       var next = others.filter(function (t) { return t.on; })[0] || others[0];
       heardAt = 0;
@@ -376,7 +414,7 @@
     timer = null;
     if (asking || ended || !(isOpen || hasBar)) return;
     asking = true;
-    (isOpen && tv && !gone ? askOne().then(function () { return gone && askAll(); }) : askAll()).then(function () {
+    (isOpen && tv && !gone ? askOne().then(function () { return (gone || hasBar && !play()) && askAll(); }) : askAll()).then(function () {
       fails = 0;
       offline = false;
       return 0;
@@ -411,10 +449,7 @@
   function post(body) {
     var id = tv.id;
     var at = now();
-    if (id === CAST) {
-      var last = lastOf(play());
-      return sender.stop().then(function () { return { tv: { last: last } }; });
-    }
+    if (id === CAST) return postCast(body);
     var stopper = new AbortController();
     var late = setTimeout(function () { stopper.abort(); }, body.kind === 'next' || body.kind === 'again' || body.kind === 'quality' || body.kind === 'subtitles' ? 110000 : ANSWER_MS);
     return MM.api.post(LIST + '/' + encodeURIComponent(id) + '/commands', body, { signal: stopper.signal }).then(function (data) {
@@ -553,6 +588,45 @@
     else if (gone && gone.last) go(gone.last);
   }
 
+  /* Where it plays, or goes on from where it was: another TV, or here. */
+  var handing = false; // a TV is asked for what plays on this one, which ends it here
+  function choose() {
+    var from = tv;
+    var pressed = 0;
+    function what() { return onward(about()) || { rating_key: about().rating_key, position_s: 0 }; }
+    MM.playOn.open(els.playOn, {
+      what: function () {
+        var p = about();
+        return Object.assign({ quality: p.quality || 'auto', autoplay: autoplays(), asked_s: pressed ? Math.max(0, now() - pressed) / 1000 : 0 },
+          p.subtitle || !isCast() ? { subtitle: p.subtitle || 'off' } : {},
+          { rating_key: what().rating_key, position_s: what().position_s });
+      },
+      on: function () { return !play() || ['ended', 'failed'].indexOf(play().state) !== -1 ? null : isCast() ? CAST : 'tv-' + tv.id; },
+      before: function () {
+        pressed = now();
+        var at = what().next ? 0 : position();
+        handing = true;
+        return at;
+      },
+      failed: function () {
+        handing = false;
+        if (isOpen && !play() && !gone) { say('Nothing is playing on ' + name() + ' now.'); close(); tick(); }
+      },
+      started: function (t) {
+        handing = false;
+        open(t.id === CAST ? CAST : t);
+        if (from && from.id === CAST && t.id !== CAST) sender.stop();
+      },
+      here: function () {
+        handing = false;
+        bring();
+      },
+    });
+  }
+  function autoplays() {
+    try { return global.localStorage.getItem('mediaman.watch.autoplay') !== 'false'; } catch (e) { return true; }
+  }
+
   function busy() { return !!tv && !!starting[tv.id]; }
   function canSteer() {
     var p = play();
@@ -632,6 +706,23 @@
     renderMini(p);
     if (isOpen) renderRemote(p);
     paintTime();
+    paintTitles();
+  }
+
+  /* A title's own Play on button says whether a TV plays it. */
+  var ON = ['starting', 'loading', 'playing', 'paused', 'buffering'];
+  function plays(key) {
+    return others.filter(function (t) { return !tv || t.id !== tv.id; }).concat(tv || []).some(function (t) {
+      return !!t.play && String(t.play.rating_key) === String(key) && ON.indexOf(t.play.state) !== -1;
+    });
+  }
+  function paintTitles() {
+    MM.dom.qa('[data-play-on-key]').forEach(function (b) {
+      var on = plays(b.getAttribute('data-play-on-key'));
+      if (b.classList.contains('is-on') === on) return;
+      b.classList.toggle('is-on', on);
+      ['aria-label', 'title'].forEach(function (a) { b.setAttribute(a, on ? 'Playing on a TV' : 'Play on a TV'); });
+    });
   }
 
   var miniLeaving = null;
@@ -691,7 +782,7 @@
     if (p.state === 'upnext' && p.upnext_in_s == null) return name() + ' waits for you to choose.';
     if (p.state === 'ended') return name() + ' is ready for something else.';
     if (isLoading(p)) return 'Starting. This can take a few seconds.';
-    if (isCast()) return 'You can leave this page. The TV carries on.';
+    if (isCast()) return 'You can leave this page. ' + (p.next ? 'Keep mediaman open for the next episode.' : 'The TV carries on.');
     return 'You can lock or close this device. The TV carries on.';
   }
 
@@ -735,13 +826,13 @@
     if (!isEnd) {
       setHidden($('[data-menu="chapters"]'), !chapters);
       setHidden($('[data-menu="subtitles"]'), !(what.subtitle_tracks || []).length);
-      setHidden($('[data-menu="quality"]'), isCast());
+      setHidden($('[data-menu="quality"]'), isCast() && !what.quality);
       setHidden(els.next, !what.next);
     }
     MM.dom.setText(els.quality, (QUALITIES.filter(function (q) { return q[0] === what.quality; })[0] || QUALITIES[0])[1]);
     if (p && p.next && p.next.season != null) {
       attr(els.next, 'aria-label', 'Next episode, ' + code(p.next) + (p.next.title ? ', ' + p.next.title : ''));
-    } else attr(els.next, 'aria-label', 'Next episode');
+    } else attr(els.next, 'aria-label', 'Next episode' + (p && p.next && p.next.label ? ', ' + p.next.label : ''));
 
     var level = shown('volume', tv ? tv.volume : null);
     var muted = shown('mute', !!(tv && tv.muted));
@@ -762,6 +853,8 @@
     setHidden(els.bring, isEnd);
     els.bring.disabled = !!leaving;
     els.stop.disabled = !!leaving;
+    setHidden(els.playOn, !MM.playOn);
+    els.playOn.classList.toggle('is-on', !!p && !bad);
     MM.dom.setText(els.stop, isEnd ? 'Disconnect' : 'Stop');
     drawMarks(what);
     renderCard(p);
@@ -874,6 +967,7 @@
         signed_out: 'The sign-in that started it has ended, so it stopped' + after + '.',
       }[gone.reason];
       if (isCast() && gone.reason === 'lost') card[1] = 'It was off or away from the network for 2 minutes, so it stopped' + after + '.';
+      if (isCast() && gone.reason === 'taken') card = [n + ' plays something else', 'Yours stopped' + after + '.'];
       if (older) card = [gone.reason === 'unpaired' ? n + ' can’t be used now' : card[0], older];
       var mine = ['lost', 'still', 'restarted'].indexOf(gone.reason) !== -1;
       var on = onward(last);
@@ -914,7 +1008,7 @@
     if (p.state === 'upnext') {
       var nx = p.next || {};
       return { key: 'upnext', title: upnextTitle(p), upnext: true,
-        line: nx.season != null ? code(nx, ' · ') + (nx.title ? ' · ' + nx.title : '') : p.title,
+        line: nx.season != null ? code(nx, ' · ') + (nx.title ? ' · ' + nx.title : '') : nx.label || p.title,
         acts: [['Play now', function () { start({ kind: 'next' }); }], ['Cancel', cancelNext]] };
     }
     return null;
@@ -1153,6 +1247,7 @@
     else if (pill) openMenu(pill.getAttribute('data-menu'), pill);
     else if (hit('[data-next]')) start({ kind: 'next' });
     else if (hit('[data-again]')) start({ kind: 'again' });
+    else if (hit('[data-play-on]')) choose();
     else if (hit('[data-bring]')) bring();
     else if (hit('[data-stop]')) stop();
   });
@@ -1340,6 +1435,7 @@
   function close() {
     if (!isOpen) return;
     isOpen = false;
+    if (MM.playOn && MM.playOn.isOpen()) MM.playOn.close();
     closeMenu();
     follow();
     endDrag(false);
@@ -1380,7 +1476,7 @@
     tick();
   }
 
-  MM.tvRemote = { open: open, drop: drop };
+  MM.tvRemote = { open: open, drop: drop, plays: plays };
   // What else a page loaded on the remote's entry stands on opens first: it goes back to that.
   follow();
   tick();

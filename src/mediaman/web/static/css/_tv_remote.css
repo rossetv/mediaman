@@ -27,7 +27,9 @@ html.has-tv-remote { overflow: hidden; }
 .tv-rem__bg { position: absolute; inset: 0; opacity: .22; pointer-events: none; overflow: hidden; }
 .tv-rem__bg img, .tv-rem__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tv-rem__bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, var(--bg) 22%, transparent 70%); }
-.tv-rem .player-top { position: relative; flex: none; padding-bottom: 12px; background: none; }
+.tv-rem .player-top { position: relative; flex: none; flex-wrap: nowrap; padding-bottom: 12px; background: none; }
+.tv-rem__play-on .ico--tv { width: 1.35em; height: 1.35em; }
+.tv-rem__play-on.is-on { color: var(--accent-hi); }
 .tv-rem .player-titles:not(:has(.player-subtitle:not([hidden]))) { min-height: 44px; justify-content: center; padding-top: 0; }
 .tv-rem__mid { position: relative; flex: 1 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 0 32px; }
 .tv-rem__art { position: relative; flex: none; width: min(640px, 100%, 62vh); aspect-ratio: 16/9; border-radius: 18px; overflow: hidden; background: var(--s1); box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card); transition: opacity var(--dur) var(--ease-out); animation: tv-art var(--dur-slow) var(--ease-out); }
@@ -219,6 +221,11 @@ html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-pad
   html:has(.tv-mini:not([hidden])):has(.setg-pg .savebar.on) { scroll-padding-bottom: calc(var(--savebar-h, 73px) + 148px + env(safe-area-inset-bottom, 0px)); }
   body:has(> .tv-mini:not([hidden])):has(.watch-search) .ui-toast-host { bottom: calc(148px + env(safe-area-inset-bottom, 0px)); max-height: calc(100dvh - var(--nav-h) - 160px); }
   html.has-ttl .tv-mini { bottom: max(8px, env(safe-area-inset-bottom)); }
+}
+/* A phone on its side: in the right half, beside the buttons of what the page opens on. */
+@media (max-height: 520px) and (min-width: 700px) {
+  .tv-mini { left: auto; right: max(16px, env(safe-area-inset-right)); width: min(380px, calc(50% - 32px)); gap: 6px; }
+  .tv-mini .player-btn--skip { display: none; }
 }
 /* Over the remote a toast is under its title, where no control of it is. */
 body:has(> .tv-rem:not([hidden])) .ui-toast-host {
