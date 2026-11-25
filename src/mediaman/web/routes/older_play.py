@@ -167,7 +167,7 @@ class Offer:
         self.session_hash = claim.session_hash
         self._found = found
         self._server = _server(request, self.held, claim, steering)
-        self._was_on = False
+        self._taken = self._was_on = False
 
     def own_title(self) -> str | None:
         """The title of the person's own film on the TV, which makes room for the next."""
@@ -187,6 +187,7 @@ class Offer:
             if not self._confirm and _others_play(self._claim.tv_id, self._claim.user_id):
                 return _in_use()
             before = claims.take(self._claim)
+            self._taken = True
         if before is not None:
             self._was_on = players.stream(before.key) is not None
             taken = before.user_id != self._claim.user_id
@@ -201,7 +202,9 @@ class Offer:
         return None
 
     def drive(self) -> None:
-        """Let the TV play what began, or stop what it played where nothing did."""
+        """Let the TV, once taken, play what began, or stop what it played where nothing did."""
+        if not self._taken:
+            return
         older.get_claims().started(self._claim)
         _drive(
             Driver(

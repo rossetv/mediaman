@@ -544,12 +544,12 @@ def _start_on(
                     if own is None or _error_of(started) != "too_many_streams":
                         return started
                     started = None
-            refused = offer.take()
+        try:
+            refused = offer.take() if offer is not None else None
             if refused is not None:
                 if started is not None:
                     _end_started(manager, started, user)
                 return refused
-        try:
             command.append(
                 players.begin(key, play, over=over, by_itself=by_itself, pressed=pressed)
             )

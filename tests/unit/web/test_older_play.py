@@ -687,6 +687,7 @@ def test_a_session_that_ended_while_the_tv_was_asked_plays_and_ends_nothing(
         refused = _play(amy, kitchen, "102", confirm=True)
     assert (refused.status_code, refused.json()) == (401, {"detail": "Not authenticated"})
     assert _streams() == [stream]
+    assert len(home.drivers) == 1
     assert home.step(driver=0)
     assert _tv_of(bob, kitchen)["play"]["state"] == "playing"
 
@@ -721,6 +722,29 @@ def test_a_tv_taken_for_a_play_that_is_about_to_begin_is_asked_for(
     monkeypatch.setattr(players.Players, "begin", begin)
     assert _play(amy, kitchen).status_code == 200
     assert (asked[0].status_code, asked[0].json()["error"]) == (409, "in_use")
+
+
+@pytest.mark.parametrize("broken", ["poll", "forget"])
+def test_a_tv_whose_taking_fails_is_stopped_and_free_and_its_stream_given_back(
+    amy, bob, home, kitchen, monkeypatch, broken
+):
+    _play(amy, kitchen)
+    home.playing()
+
+    def fails(self, *args, **kwargs):
+        raise RuntimeError("broken")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(players.Players, broken, fails)
+        with pytest.raises(RuntimeError, match="broken"):
+            _play(bob, kitchen, "102", confirm=True)
+    assert [s.user for s in plex_stream.get_stream_manager()._streams.values()] in ([], ["amy"])
+    stops = home.did("Stop")
+    home.step(driver=0)
+    home.step()
+    assert _streams() == []
+    assert home.did("Stop") == stops + 1
+    assert _play(amy, kitchen).status_code == 200
 
 
 def test_a_tv_whose_start_came_to_nothing_is_free(amy, bob, home, kitchen, monkeypatch):
