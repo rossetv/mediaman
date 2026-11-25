@@ -323,6 +323,22 @@ def test_the_ticket_is_in_neither_the_remotes_view_nor_a_log_of_the_play(players
     assert "/ticket" not in repr(play)
 
 
+def test_the_place_of_everything_that_plays_is_left_and_none_of_it_ended(players):
+    play = _start(players)
+    _poll(players, _report(play, position=207, played=7))
+    other = _play()
+    players.poll("another", ack=0, active=False, report=None)
+    players.begin("another", other, over=None)
+    players.loaded("another", other.id, stream_id="theirs", url="/ticket", tracks={})
+    players.drain()
+    players.leave_places()
+    assert players.drain() == [
+        Left("amy", "stream", 207, 7, False, AMY),
+        Left("amy", "theirs", None, 0, False, AMY),
+    ]
+    assert _poll(players)[0]["state"] == "playing"
+
+
 def test_signing_out_everywhere_ends_the_persons_plays_alone(players):
     _start(players)
     players.end_plays_of("bob")

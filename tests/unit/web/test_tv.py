@@ -916,6 +916,38 @@ def test_the_place_is_saved_as_the_persons_own(tv, home, amy, conn, clock):
     assert get_progress(conn, "amy", ["101"])["101"].position_s == 410
 
 
+def test_a_stop_of_mediaman_keeps_the_place_of_what_plays(tv, home, amy, conn):
+    _play(amy, home, position_s=200)
+    tv.poll("playing", 207, 7)
+    assert get_progress(conn, "amy", ["101"]) == {}
+    tv_routes.save_places()
+    assert get_progress(conn, "amy", ["101"])["101"].position_s == 207
+
+
+def test_a_place_that_cannot_be_saved_in_time_does_not_hold_a_stop(tv, home, amy, monkeypatch):
+    _play(amy, home)
+    tv.poll("playing", 70)
+    told, waited = threading.Event(), []
+
+    def hangs(*args):
+        waited.append(told.wait(10))
+
+    monkeypatch.setattr(tv_routes, "_save", hangs)
+    tv_routes.save_places(budget=0.01)
+    assert waited == []
+    told.set()
+
+
+def test_both_screens_can_tell_that_mediaman_restarted(tv, home, amy, monkeypatch, clock):
+    _play(amy, home)
+    before = tv.poll()["boot"]
+    assert tv.poll()["boot"] == _tv_of(amy, home)["boot"] == before
+    monkeypatch.setattr(players, "_players", Players(clock=clock))
+    after = tv.poll()
+    assert (after["play"], after["boot"] != before) == (None, True)
+    assert _tv_of(amy, home)["boot"] == after["boot"]
+
+
 def test_a_tv_cannot_claim_to_have_played_for_longer_than_it_has(tv, home, amy, conn, clock):
     _play(amy, home)
     clock.now += 11

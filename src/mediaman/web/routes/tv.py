@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import secrets
+import threading
 from collections.abc import Callable, Coroutine
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -24,7 +25,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationErr
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc
-from mediaman.db import get_db
+from mediaman.db import close_db, get_db
 from mediaman.services.cast.tickets import TICKET_SECONDS
 from mediaman.services.media_meta.plex_quality import TvQuality
 from mediaman.services.media_meta.plex_stream import (
@@ -83,6 +84,9 @@ _POLL_MS = {"pairing": 2000, "idle": 3000, "playing": 1000}
 # start's answer.
 _LOOKUPS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tv-next")
 _LOOKUP_WAIT_S = 4.0
+
+# A container is killed some seconds after it is told to stop, and more is to be done in them.
+_SAVE_BUDGET_S = 2.0
 
 # The TVs of a home share an address.
 _CODE_LIMITER = RateLimiter(max_attempts=30, window_seconds=600)
@@ -276,6 +280,23 @@ def _save_place(manager: StreamManager, left: Left) -> None:
         _save(stream, left.user, left.position_s, left.played_s)
 
 
+def save_places(budget: float = _SAVE_BUDGET_S) -> None:
+    """Save where everything that plays on a TV is, waiting at most *budget* seconds."""
+    players = get_players()
+
+    def save() -> None:
+        try:
+            players.leave_places()
+            _carry_out(players)
+        finally:
+            close_db()
+
+    # A database that is busy, or a Plex that hangs, must not hold up the stop this is for.
+    thread = threading.Thread(target=save, name="tv-places", daemon=True)
+    thread.start()
+    thread.join(budget)
+
+
 def end_plays_of(username: str) -> None:
     """End what plays on *username*'s TVs, which stay paired."""
     players = get_players()
@@ -335,6 +356,7 @@ def device_poll(request: Request, body: _PollBody, x_tv_token: _Token = "") -> R
     return respond_ok(
         {
             "state": "ready",
+            "boot": players.boot,
             "id": held.id,
             "name": held.name,
             "owner": held.owner,

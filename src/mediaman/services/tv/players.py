@@ -147,6 +147,8 @@ class _Tv:
 class Players:
     def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
+        #: Another after a restart, which ends all that plays.
+        self.boot = secrets.token_urlsafe(6)
         self._lock = threading.Lock()
         # By the hash of the TV's token, which changes when the TV changes hands, so that nothing
         # begun for one owner reaches the next.
@@ -440,6 +442,13 @@ class Players:
             self._close(tv, "stopped")
             return self._command(tv, "stop")
 
+    def leave_places(self) -> None:
+        """Have the place of everything that plays saved, and go on."""
+        with self._lock:
+            for tv in self._tvs.values():
+                if tv.play is not None:
+                    self._put_aside(tv.play, end=False)
+
     def end_plays_of(self, user: str) -> None:
         with self._lock:
             for tv in self._tvs.values():
@@ -493,6 +502,7 @@ class Players:
                     **play.tracks,
                 }
             return {
+                "boot": self.boot,
                 "on": on,
                 "lost_s": None if on or play is None or tv.seen is None else now - tv.seen,
                 "acked": tv.acked,
