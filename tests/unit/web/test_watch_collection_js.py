@@ -121,10 +121,14 @@ def test_a_failure_is_told_at_its_film_and_only_that_one_is_tried_again() -> Non
 
 def test_at_the_limit_the_rest_is_not_asked_for_until_tried_again() -> None:
     out = _run("limited")
-    # The limit may be the day's, so no time is promised.
-    later = "Not asked yet, the download limit is reached. Try again later"
     assert out["ids"] == [2, 3]
-    assert out["rows"][1:] == [f"Film 3: 2003 · {later}", f"Film 4: 2004 · {later}"]
+    assert out["rows"][1:] == ["Film 3: 2003 · Not asked yet", "Film 4: 2004 · Not asked yet"]
+    assert out["red"] == [False, False, False]
+    # The server does not say whether the limit is the minute's or the day's.
+    assert out["said"] == (
+        "1 of 3 films is queued. 2 are not asked for yet: "
+        "try again in a minute, or tomorrow if the day’s limit is reached."
+    )
     assert out["again"] == [2, 3, 3]
 
 
@@ -224,3 +228,33 @@ def test_a_film_taken_out_again_before_its_turn_is_asked_for() -> None:
 def test_a_skipped_film_counts_in_the_progress() -> None:
     adding = "Adding 3 of 3…"
     assert _run("skipped") == {"ids": [2, 4], "go": adding, "get": adding}
+
+
+def test_what_failed_is_still_told_when_the_dialog_is_opened_again() -> None:
+    out = _run("failedClosed")
+    assert out["spins"] is True
+    assert out["rows"] == [
+        "Film 2: 2002 · Queued",
+        "Film 3: 2003 · Failed to add to Radarr",
+        "Film 4: 2004 · Queued",
+    ]
+    assert (out["said"], out["go"]) == (
+        "2 of 3 films are queued. 1 was not.",
+        "Try again: download 1",
+    )
+    assert out["ids"] == [2, 3, 4, 3]
+    # Got another way it is no failure any more, and what was taken out is missing again.
+    assert out["later"] == [["Film 2: 2002"], "Download 1"]
+
+
+def test_a_session_that_ends_stops_the_run_without_a_question_about_leaving() -> None:
+    out = _run("signedOut")
+    assert (out["before"], out["unsaved"], out["after"]) == (True, False, False)
+    assert [r.split(" · ")[1] for r in out["rows"]] == ["Not asked yet"] * 3
+    assert (out["go"], out["disabled"]) == ("Try again: download 3", None)
+    assert out["ids"] == [2, 2]
+    assert out["still"] == [2, 2]
+
+
+def test_enter_held_down_does_not_press_what_comes_next() -> None:
+    assert _run("held") == {"prevented": [False, True], "soon": True, "later": False}

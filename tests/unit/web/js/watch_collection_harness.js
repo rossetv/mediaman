@@ -55,6 +55,7 @@ function load(reply) {
     innerHeight: 900,
     UIFeedback: { toast: (message, o) => toasts.push([message, (o && o.variant) || null]) },
     MM: { api: {
+      hasUnsavedChanges: () => false,
       get: (url) => { gets.push(url); const r = typeof reply === 'function' ? reply(url) : reply; return r instanceof Error ? Promise.reject(r) : Promise.resolve(r).then((got) => JSON.parse(JSON.stringify(got))); },
       post: (url, body) => new Promise((resolve, reject) => posts.push({ url, body, resolve, reject })),
       messageOf: (e, f) => (e && e.data && e.data.message) || f,
@@ -77,7 +78,7 @@ function load(reply) {
   const cards = () => doc.querySelectorAll('.coll .watch-card');
   const get = () => { const b = q('.coll__get'); return b && !b.hidden ? b.textContent : null; };
   const isOpen = () => !!q('.coll-dialog') && q('.coll-dialog').classList.contains('active');
-  const press = async (node, e) => { click(doc, node, e); await settle(); };
+  const press = async (node, e) => { clock.now += 1000; click(doc, node, e); await settle(); };
   const go = () => q('.coll-dialog .btn--primary');
   const rows = () => doc.querySelectorAll('.coll-item').map((r) => r.querySelector('.coll-item__name').textContent + ': ' + r.querySelector('.coll-item__sub').textContent);
   const answer = async (i, r) => { if (r instanceof Error) posts[i].reject(r); else posts[i].resolve(r || { ok: true }); await settle(); };
@@ -95,7 +96,7 @@ function load(reply) {
   };
   const told = (n, over) => doc.dispatchEvent({ type: 'mm:title-changed', detail: Object.assign({ ref: 'tmdb-movie-' + n,
     download_state: 'queued', download_pct: null, title: 'Film ' + n, kind: 'movie', year: 2000 + n }, over) });
-  return { win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
+  return { reply: (r) => { reply = r; }, win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
 }
 
 const ids = (p) => p.posts.map((x) => x.body.tmdb_id);
@@ -229,7 +230,8 @@ const scenarios = {
     await p.press(p.go());
     await p.answer(0);
     await p.answer(1, new APIError(429, 'Too many download requests — slow down'));
-    const out = { ids: ids(p), rows: p.rows() };
+    const red = p.doc.querySelectorAll('.coll-item').map((row) => row.classList.contains('is-failed'));
+    const out = { ids: ids(p), rows: p.rows(), red, said: p.q('.coll-dialog__said').textContent };
     await p.press(p.go());
     out.again = ids(p);
     return out;
@@ -414,6 +416,67 @@ const scenarios = {
     p.told(3);
     await p.answer(0);
     return { ids: ids(p), go: p.go().textContent, get: p.get() };
+  },
+
+  // Closed while it runs, and opened again: a failure is still there to be read.
+  async failedClosed() {
+    const p = await asked();
+    await p.press(p.go());
+    await p.press(p.q('.coll-dialog .btn--ghost'));
+    await p.press(p.q('.coll__get'));
+    const spins = !!p.doc.querySelectorAll('.coll-item')[0].querySelector('.btn-spinner');
+    await p.press(p.q('.coll-dialog .btn--ghost'));
+    await p.answer(0);
+    await p.answer(1, new APIError(502, 'Failed to add to Radarr'));
+    await p.answer(2);
+    await p.press(p.q('.coll__get'));
+    const out = { spins, rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent };
+    await p.press(p.go());
+    out.ids = ids(p);
+    await p.press(p.q('.coll-dialog .btn--ghost'));
+    await p.answer(3, new APIError(502, 'Failed to add to Radarr'));
+    // Meanwhile it is got another way, and one of those added is taken out.
+    p.told(3);
+    p.clock.now += 120000;
+    const back = SAGA();
+    Object.assign(back.films[2], { can_request: false, why_not: 'requested', download_state: 'queued' });
+    Object.assign(back.films[3], { can_request: false, why_not: 'requested', download_state: 'queued' });
+    p.reply(back);
+    await p.redraw('tmdb-movie-2');
+    await p.press(p.q('.coll__get'));
+    out.later = [p.rows(), p.go().textContent];
+    return out;
+  },
+
+  // The session ends while films are added: a request asks for unsaved changes before it goes to sign in.
+  async signedOut() {
+    const p = await asked();
+    await p.press(p.go());
+    const before = p.warns();
+    const unsaved = p.ctx.MM.api.hasUnsavedChanges();
+    const after = p.warns();
+    const out = { before, unsaved, after, rows: p.rows(), go: p.go().textContent, disabled: p.go().getAttribute('aria-disabled') };
+    await p.press(p.go());
+    out.ids = ids(p);
+    await p.answer(0); // the one on its way before, answered after all
+    out.still = ids(p);
+    return out;
+  },
+
+  async held() {
+    const p = await asked();
+    const enter = (repeat) => {
+      const e = { key: 'Enter', repeat, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+      (p.go().listeners.keydown || []).forEach((fn) => fn(e));
+      return e.defaultPrevented;
+    };
+    const prevented = [enter(false), enter(true)];
+    await p.press(p.go());
+    await p.answer(0); await p.answer(1); await p.answer(2);
+    click(p.doc, p.go());
+    const soon = p.isOpen();
+    await p.press(p.go());
+    return { prevented, soon, later: p.isOpen() };
   },
 
   // TMDB fails after the row was drawn.
