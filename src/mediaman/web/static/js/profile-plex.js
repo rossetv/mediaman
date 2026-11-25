@@ -8,6 +8,7 @@
   var READING_MS = 3000;
   /* A password good for less than this may no longer be when the press arrives. */
   var MARGIN_S = 5;
+  var LAST_START_MS = 3000;
   var APPROVAL_PAGE = 'https://app.plex.tv/auth#?';
   var MOVES = 'This Plex account is linked to another person here; linking moves it to you.';
   var APPROVE = 'Approve mediaman in the Plex tab. This page updates by itself.';
@@ -44,6 +45,15 @@
   function busy(button, on) {
     if (on) button.setAttribute('aria-disabled', 'true');
     else button.removeAttribute('aria-disabled');
+  }
+
+  /* Settles with *promise* or after *ms*, whichever is first. */
+  function atMost(ms, promise) {
+    return new Promise(function (resolve) {
+      var timer = setTimeout(resolve, ms);
+      function done() { clearTimeout(timer); resolve(); }
+      promise.then(done, done);
+    });
   }
 
   function isBusy(button) { return button.getAttribute('aria-disabled') === 'true'; }
@@ -107,6 +117,7 @@
     var underway = null;
     var passwordUntil = 0;
     var hintAsked = 0;
+    var hintPending = false;
     var limitedUntil = 0;
     /* The last password was refused unread, so the next gets no tab of its own. */
     var passwordLimited = false;
@@ -144,11 +155,17 @@
     /* Not by MM.api, which leaves the page when signed out: a glance at it must not lose what was typed. */
     function refreshHint() {
       var mine = hintAsked += 1;
+      hintPending = true;
       fetch('/api/account/plex', { credentials: 'same-origin' }).then(function (resp) {
         return resp.ok ? resp.json() : null;
       }).then(function (data) {
         if (data && mine === hintAsked) hear(data);
-      }).catch(function () {});
+      }).catch(function () {}).then(function () { hintPending = false; });
+    }
+
+    /* Coming back to the page fires more than one event. */
+    function glance() {
+      if (!hintPending) refreshHint();
     }
 
     /* Runs a change of what the card holds, and lets its height follow. */
@@ -423,9 +440,9 @@
       });
     }
 
-    /* Waits for the start before it, which the server ends when it was cancelled. */
+    /* Waits a while for the start before it, which the server ends when it was cancelled. */
     function post(start) {
-      var sent = lastStart.then(function () {
+      var sent = atMost(LAST_START_MS, lastStart).then(function () {
         if (start.cancelled) throw { error: 'cancelled' };
         return MM.api.post('/api/account/plex');
       });
@@ -468,7 +485,7 @@
         if (err.status === 429) limitedUntil = Date.now() + 60000;
         if (err.error !== 'reauth_cancelled') refreshHint();
         if (err.error === 'reauth_cancelled') { sayCancelled(); return; }
-        if (err.error === 'already_linked') { recover(err.message); return; }
+        if (err.error === 'already_linked' || err.error === 'expired') { recover(err.message); return; }
         if (err.error === 'plex_not_set_up') { show('unset'); return; }
         fail(MM.api.messageOf(err, 'Could not start. Try again.'));
       });
@@ -583,14 +600,14 @@
 
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) return;
-      refreshHint();
+      glance();
       if (current !== 'waiting') return;
       waitWords = STILL_WAIT;
       check();
     });
     /* A Plex window beside this one hides nothing. */
     window.addEventListener('focus', function () {
-      refreshHint();
+      glance();
       if (current === 'waiting' && !checking) check();
     });
     document.addEventListener('mm:reauth', refreshHint);
@@ -601,7 +618,7 @@
     /* Restored from the back/forward cache, the card may be long out of date. */
     window.addEventListener('pageshow', function (e) {
       if (!e.persisted) return;
-      refreshHint();
+      glance();
       /* A password being asked for is still for the person to give. */
       if (underway && underway.asking) return;
       if (underway) {

@@ -343,3 +343,23 @@ def test_a_password_after_one_over_the_limit_opens_no_tab() -> None:
     out = _run("limitedPassword")
     assert [tab["closed"] for tab in out["tabs"]] == [True]
     assert out["shown"] == "waiting"
+
+
+def test_a_start_that_is_not_answered_holds_the_next_for_three_seconds_only() -> None:
+    out = _run("startUnanswered")
+    assert out["held"] == {"starts": 1, "waits": [3000]}
+    assert out["capped"] == {"shown": "waiting", "starts": 2, "went": 1}
+    assert (out["shown"], out["href"]) == ("waiting", PLEX + "2")
+    assert out["cancel"] == ['POST /api/account/plex/cancel {"attempt":"a1"}']
+
+
+def test_a_start_waits_for_a_cancel_but_three_seconds_only() -> None:
+    assert _run("cancelUnanswered") == {"held": 1, "starts": 2, "shown": "waiting"}
+
+
+def test_coming_back_asks_for_one_hint_and_a_password_given_for_another() -> None:
+    assert _run("oneGlance") == {"once": 1, "later": 3}
+
+
+def test_a_start_that_another_one_replaced_shows_that_one() -> None:
+    assert _run("displaced") == {"shown": "waiting", "closed": True}

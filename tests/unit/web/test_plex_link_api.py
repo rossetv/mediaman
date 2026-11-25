@@ -913,3 +913,20 @@ def test_the_card_learns_when_it_may_start_again(client_for):
     assert amy.post("/api/account/plex").status_code == 429
     assert amy.get("/api/account/plex").json()["start_in"] > 3000
     assert client_for("bob").get("/api/account/plex").json()["start_in"] == 0
+
+
+def test_a_slow_start_never_takes_the_place_of_a_later_one(client_for, monkeypatch):
+    amy = client_for("amy")
+    real = routes.create_pin
+    later_one: list[dict] = []
+
+    def slow_pin(plex_tv):
+        monkeypatch.setattr(routes, "create_pin", real)
+        later_one.append(start(amy))
+        return real(plex_tv)
+
+    monkeypatch.setattr(routes, "create_pin", slow_pin)
+    assert amy.post("/api/account/plex").json()["error"] == "expired"
+
+    assert amy.get("/api/account/plex").json()["attempt"]["id"] == later_one[0]["id"]
+    assert routes._newest_start == {}

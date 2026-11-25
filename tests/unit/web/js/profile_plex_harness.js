@@ -503,6 +503,49 @@ const scenarios = {
     await flush();
     return { held, ending, tabs: tabsNow(), shown: shown(), starts: calls.filter((c) => c === START).length };
   },
+  async startUnanswered() {
+    await load(NONE);
+    let answer;
+    answers[START] = [new Promise((r) => { answer = r; }), { attempt: { ...WAITING, id: 'a2', url: WAITING.url + '2' } }];
+    await click('plex-start');
+    await click('plex-start-stop');
+    await click('plex-start');
+    const held = { starts: calls.filter((c) => c === START).length, waits: waits() };
+    await tick();
+    const capped = { shown: shown(), starts: calls.filter((c) => c === START).length, went: tabs[1].went.length };
+    answer({ attempt: WAITING });
+    await flush();
+    return { held, capped, shown: shown(), href: at('plex-open').href, cancel: calls.filter((c) => c.includes('/cancel')) };
+  },
+  async cancelUnanswered() {
+    await load(NONE);
+    answers[START] = [{ attempt: WAITING }];
+    answers['POST /api/account/plex/cancel'] = [new Promise(() => {})];
+    await click('plex-start');
+    await click('plex-cancel');
+    await click('plex-start');
+    const held = calls.filter((c) => c === START).length;
+    await tick();
+    return { held, starts: calls.filter((c) => c === START).length, shown: shown() };
+  },
+  async oneGlance() {
+    await load(NONE);
+    hint = { password_good_for: 300, start_in: 0 };
+    doc.listeners.visibilitychange.forEach((f) => f());
+    listeners.focus();
+    const once = hints;
+    await flush();
+    listeners.focus();
+    doc.listeners['mm:reauth'].forEach((f) => f());
+    return { once, later: hints };
+  },
+  async displaced() {
+    await load(NONE);
+    answers[START] = [{ error: 'expired', status: 409, message: 'Ran out.' }];
+    answers[GET] = [{ ...NONE, password_good_for: 300, attempt: WAITING }];
+    await click('plex-start');
+    return { shown: shown(), closed: tabs[0].closed };
+  },
   async raceCancelledTwice() {
     await load(NONE);
     let answer;

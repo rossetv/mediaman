@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -61,6 +62,10 @@ _SHARED_POLL_LIMITER = ActionRateLimiter(max_in_window=150, window_seconds=60)
 _EVERYONE = "everyone"
 
 _attempts = AttemptStore()
+# The newest start of each session that is still under way: an older one that ends later must not
+# take its place.
+_newest_start: dict[str, object] = {}
+_newest_start_lock = threading.Lock()
 
 _HOST_RE = re.compile(r"[a-z0-9.-]{1,100}")
 
@@ -234,6 +239,20 @@ def api_start_or_confirm(
 
 
 def _start(conn: sqlite3.Connection, request: Request, username: str, session: str) -> JSONResponse:
+    this = object()
+    with _newest_start_lock:
+        _newest_start[session] = this
+    try:
+        return _start_as(this, conn, request, username, session)
+    finally:
+        with _newest_start_lock:
+            if _newest_start.get(session) is this:
+                del _newest_start[session]
+
+
+def _start_as(
+    this: object, conn: sqlite3.Connection, request: Request, username: str, session: str
+) -> JSONResponse:
     previous = _attempts.get(session, username)
     signed_out = True
     if previous is not None and _attempts.drop(session, previous):
@@ -251,7 +270,10 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
             pin=pin,
             expires_at=time.monotonic() + pin.expires_in_s,
         )
-        _attempts.add(session, attempt)
+        with _newest_start_lock:
+            superseded = _newest_start.get(session) is not this
+            if not superseded:
+                _attempts.add(session, attempt)
     except PlexNotConfigured:
         _START_LIMITER.give_back(username)
         return _refuse("plex_not_set_up")
@@ -264,6 +286,9 @@ def _start(conn: sqlite3.Connection, request: Request, username: str, session: s
             _audit_failure(conn, request, username, "plex_unavailable")
         return _refuse("plex_unavailable")
     _FAILED_START_LIMITER.give_back(username)
+    if superseded:
+        # Nobody was given its address, so nobody can approve it.
+        return _refuse("expired")
     security_event(conn, event="plex.link_started", actor=username, ip=get_client_ip(request))
     return respond_ok({"attempt": _attempt_view(conn, attempt, signed_out=signed_out)})
 
