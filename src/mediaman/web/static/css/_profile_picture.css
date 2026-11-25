@@ -112,7 +112,8 @@
 }
 @media (forced-colors: active) {
   .pic-zoom input { -webkit-appearance: auto; appearance: auto; }
-  .pic-zoom input::-webkit-slider-thumb { margin-top: 0; }
+  .pic-zoom input::-webkit-slider-runnable-track { -webkit-appearance: auto; height: auto; }
+  .pic-zoom input::-webkit-slider-thumb { -webkit-appearance: auto; appearance: auto; width: auto; height: auto; margin-top: 0; }
   .pic-grid label:has(:checked) { outline-color: Highlight; }
   .pic-tick { border-color: Highlight; }
   .pic-crop { border: 1px solid CanvasText; }
