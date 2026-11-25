@@ -37,10 +37,16 @@ def test_a_row_is_one_tab_stop_that_leads_to_the_card_last_on_or_the_first_in_si
     assert out["skeleton"] == []
 
 
-def test_a_first_card_on_its_way_out_is_none_to_go_back_to() -> None:
+def test_the_arrows_hold_while_a_card_leaves_and_are_true_once_it_is_gone() -> None:
     out = _run("firstGoes")
-    assert out["before"] == out["gone"] == [False, True]
-    assert out["going"] == [False, True]
+    at_start, between, at_end = [False, True], [True, True], [True, False]
+    before = {"start": at_start, "one": between, "back": between, "end": at_end}
+    gone = {"start": at_start, "one": between, "back": at_start, "end": at_end}
+    for where, row in out.items():
+        assert row["before"] == before[where], where
+        assert row["going"] == [before[where]] * 5, where
+        assert row["gone"] == gone[where], where
+        assert row["after"] == [at_start, between], where
 
 
 def test_the_keys_of_a_row_are_said_once_on_the_way_in() -> None:

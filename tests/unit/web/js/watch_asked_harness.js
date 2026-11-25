@@ -290,6 +290,29 @@ const scenarios = {
     await t.pass(100);
     return { keys: out, others: [early, t.api.gets - gets] };
   },
+  async undone_in_flight() {
+    // Marked, and undone while the asking that the mark called for is out; its answer comes
+    // *late*, with the undo's own asking waiting for it, or before that is due; or the tab is *shown* meanwhile.
+    const run = async (late, shown) => {
+      const t = load({ items: [ready(1, 0), ready(2, 1)] });
+      await settle();
+      await t.pass(60000);
+      t.api.held = [];
+      t.fire('mm:watch-marked', 'movie-1');
+      await t.pass(900);
+      t.fire('mm:watch-marked', 'movie-1');
+      if (late) await t.pass(1000);
+      if (shown) { t.fire('visibilitychange'); await t.pass(5000); }
+      const reply = t.api.held[0];
+      t.api.held = null;
+      reply({ complete: true, items: [ready(2, 1)] });
+      await settle();
+      const keys = [t.keys()];
+      await t.pass(1000);
+      return keys.concat([t.keys()], t.left);
+    };
+    return { early: await run(false), late: await run(true), shown: await run(true, true) };
+  },
   async in_flight() {
     // Marked while a slow asking is on its way; its answer, from before the mark, comes after *wait*.
     const run = async (wait) => {

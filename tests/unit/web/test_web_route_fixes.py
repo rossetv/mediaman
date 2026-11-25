@@ -354,6 +354,7 @@ class TestSonarrTmdbIdFiltering:
         from mediaman.core.time import now_iso
         from mediaman.services.openai.recommendations.repository import SuggestionDetail
         from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+        from mediaman.web.routes.search._seasons import SeasonPicks
 
         row = SuggestionDetail(
             id=1,
@@ -386,6 +387,7 @@ class TestSonarrTmdbIdFiltering:
                 row=row,
                 mark=lambda: None,
                 secret_key=_SECRET,
+                picks=SeasonPicks(),
             )
 
         body = resp.body.decode() if hasattr(resp, "body") else str(resp)
@@ -398,6 +400,7 @@ class TestSonarrTmdbIdFiltering:
         from mediaman.core.time import now_iso
         from mediaman.services.openai.recommendations.repository import SuggestionDetail
         from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+        from mediaman.web.routes.search._seasons import SeasonPicks
 
         row = SuggestionDetail(
             id=1,
@@ -432,6 +435,7 @@ class TestSonarrTmdbIdFiltering:
                 row=row,
                 mark=lambda: None,
                 secret_key=_SECRET,
+                picks=SeasonPicks(),
             )
 
         data = json.loads(resp.body)
@@ -463,6 +467,7 @@ class TestSonarrTmdbIdFiltering:
         an int before reaching ``add_series`` so the int-only call and the
         %d log line cannot blow up."""
         from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+        from mediaman.web.routes.search._seasons import SeasonPicks
 
         mock_client = MagicMock()
         mock_client.lookup_by_tmdb_id.return_value = [{"tmdbId": 99999, "tvdbId": "77777"}]
@@ -478,6 +483,7 @@ class TestSonarrTmdbIdFiltering:
                 row=self._tv_suggestion(99999),
                 mark=lambda: None,
                 secret_key=_SECRET,
+                picks=SeasonPicks(),
             )
 
         assert json.loads(resp.body)["ok"] is True
@@ -487,6 +493,7 @@ class TestSonarrTmdbIdFiltering:
         """A non-integer ``tvdbId`` must yield a clean ``ok: False`` response,
         not a 500 from ``int()`` / ``%d`` formatting."""
         from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+        from mediaman.web.routes.search._seasons import SeasonPicks
 
         mock_client = MagicMock()
         mock_client.lookup_by_tmdb_id.return_value = [{"tmdbId": 99999, "tvdbId": "not-a-number"}]
@@ -502,6 +509,7 @@ class TestSonarrTmdbIdFiltering:
                 row=self._tv_suggestion(99999),
                 mark=lambda: None,
                 secret_key=_SECRET,
+                picks=SeasonPicks(),
             )
 
         assert json.loads(resp.body)["ok"] is False

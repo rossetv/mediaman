@@ -1580,6 +1580,22 @@ class TestSeasonStatus:
         assert body["download"] is None
         assert [e["number"] for e in body["episodes"]] == [1, 2]
 
+    def test_where_sonarr_is_not_set_up_there_is_no_way_to_ask(
+        self, viewer, library, tmdb, plex, arr, monkeypatch
+    ):
+        monkeypatch.setattr(title_seasons, "SONARR_WAIT_S", 30)
+        library.execute("UPDATE media_items SET tmdb_id = 77 WHERE id = '501'")
+        library.commit()
+        monkeypatch.setattr(arr, "get_series", MagicMock(side_effect=SafeHTTPError(503, "", "")))
+        down = viewer.get("/api/watch/title/show-500").json()
+        assert down["seasons_request"] is not None
+
+        catalog.invalidate()
+        monkeypatch.setattr(_arr.arr_build, "build_sonarr_from_db", lambda *_a: None)
+        off = viewer.get("/api/watch/title/show-500").json()
+
+        assert (off["seasons_request"], off["seasons_pending"]) == (None, False)
+
     def test_a_library_show_does_not_wait_for_a_slow_sonarr(
         self, viewer, library, tmdb, plex, arr, monkeypatch
     ):
