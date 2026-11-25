@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.recommended.pages import router as recommended_router
 from mediaman.web.routes.search.page import router as search_router
+from mediaman.web.routes.watch.list_page import router as list_router
 
 
 @pytest.fixture
@@ -58,29 +59,42 @@ def test_search_cuts_a_query_that_is_too_long(make):
     assert resp.headers["location"] == "/watch?q=" + "x" * 100
 
 
-def test_library_keeps_every_valid_filter(make):
-    resp = make(library_router).get(
-        "/library?q=dune&type=tv&sort=size_desc&page=3&per_page=50", follow_redirects=False
-    )
+@pytest.mark.parametrize(
+    ("router", "path"), [(library_router, "/library"), (list_router, "/watch/list")]
+)
+@pytest.mark.parametrize(
+    ("query", "target"),
+    [
+        ("?type=tv&sort=size_desc&page=3&per_page=50", "?all=library&type=tv&sort=size"),
+        ("?type=movie&sort=size_asc", "?all=library&type=movies&sort=small"),
+        ("?type=anime&sort=name_desc", "?all=library&type=anime&sort=az"),
+        ("?type=kept&sort=deletion_desc", "?all=library&type=kept&sort=leaving"),
+        ("?type=stale&sort=watched_asc", "?all=library&type=stale&sort=stalest"),
+        ("?sort=watched_desc", "?all=library&sort=seen"),
+        ("?sort=added_desc", "?all=library"),
+        ("?q=dune%20%26&type=tv", "?q=dune+%26"),
+    ],
+)
+def test_the_old_filters_and_sorts_lead_to_the_same_of_all_titles(
+    make, router, path, query, target
+):
+    resp = make(router).get(path + query, follow_redirects=False)
 
-    assert resp.status_code == 302
-    assert resp.headers["location"] == (
-        "/watch?view=list&q=dune&type=tv&sort=size_desc&page=3&per_page=50"
-    )
+    assert (resp.status_code, resp.headers["location"]) == (302, "/watch" + target)
 
 
-def test_library_drops_values_the_list_would_refuse(make):
+def test_library_drops_values_there_are_none_of(make):
     resp = make(library_router).get(
         "/library?type=bogus&sort=bogus&page=0&per_page=9999&q=", follow_redirects=False
     )
 
-    assert resp.headers["location"] == "/watch?view=list"
+    assert resp.headers["location"] == "/watch?all=library"
 
 
-def test_library_with_no_filters_opens_the_list(make):
+def test_library_with_no_filters_opens_all_titles(make):
     resp = make(library_router).get("/library", follow_redirects=False)
 
-    assert resp.headers["location"] == "/watch?view=list"
+    assert resp.headers["location"] == "/watch?all=library"
 
 
 def test_recommended_opens_watch_at_its_recommended_row(make):

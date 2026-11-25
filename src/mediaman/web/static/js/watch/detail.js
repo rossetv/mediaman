@@ -443,7 +443,6 @@
      of what can be had lead to it there. The focus goes on from what it was on. */
   function drop(ref) {
     var path = '/watch/' + ref.replace('-', '/');
-    var search = document.getElementById('watch-search');
     function was(c) { return c && (c.ref === ref || c.openedAs === ref); }
     Object.keys(kept).forEach(function (key) { if (was(kept[key])) delete kept[key]; });
     var mine = was(cur) ? cur : null;
@@ -452,7 +451,7 @@
     function leave(node, take) {
       var lost = node.contains(document.activeElement);
       var from = cur && cur.origin && node.contains(cur.origin);
-      var to = take() || search;
+      var to = take() || core.spareFocus();
       if (from) {
         cur.origin = null;
         cur.fallback = to;
@@ -502,7 +501,7 @@
     var from = mine.origin && mine.origin.closest('[data-title-ref]');
     if (!from || from.getAttribute('data-title-ref') === ref) {
       mine.origin = null;
-      mine.fallback = search;
+      mine.fallback = core.spareFocus();
     }
   }
 
@@ -523,19 +522,6 @@
     if (next) return next.querySelector('.watch-card__link');
     if (!grid.querySelector('.results-none')) grid.insertBefore(el('p', 'results-none', 'No title matches'), grid.children[0] || null);
     return null;
-  }
-
-  /* Where focus goes when the list row the overlay opened from is deleted:
-     the next row's first action, else the previous row's, else the list. */
-  function rowFallback(origin) {
-    var row = origin && origin.closest && origin.closest('tr[data-row-key]');
-    if (!row) return null;
-    var near = row.nextElementSibling || row.previousElementSibling;
-    var action = near && near.querySelector('.keep-trigger, .wl-actions .btn');
-    if (action) return action;
-    var list = row.closest('#watch-list');
-    if (list && !list.hasAttribute('tabindex')) list.setAttribute('tabindex', '-1');
-    return list;
   }
 
   /* ── Loading ── */
@@ -1397,6 +1383,7 @@
 
   function fillActions(actions, under) {
     var d = cur.data;
+    shownLooked = saysLooked();
     if (d.in_library && d.play && !cur.justAdded) {
       actions.appendChild(playLink(d.play));
       if (window.MM.playOn) {
@@ -1460,6 +1447,19 @@
 
   // It may come to be known after the title has opened.
   document.addEventListener('mm:search-assist', function () { if (cur) redrawActions(cur.ref); });
+
+  var shownLooked = ''; // what was last drawn of it
+
+  function saysLooked() {
+    var looked = cur && cur.data && stateOf(cur.ref).state === 'queued' ? lookedFor(cur) : null;
+    return looked ? cur.ref + looked.state + looked.line : '';
+  }
+
+  if (window.MM.downloading) {
+    window.MM.downloading.subscribe(function () {
+      if (cur && saysLooked() !== shownLooked) redrawActions(cur.ref);
+    });
+  }
 
   /* ── Watched marks: watch/marks.js works them, then says so. ── */
 
@@ -1623,6 +1623,24 @@
     return s;
   }
 
+  /* The download of the title *c* while it is looked for, as its card in the row says it; else null. */
+  function lookedFor(c) {
+    var state = window.MM.downloading && window.MM.downloading.last();
+    var refs = [c.ref, c.openedAs, c.data && c.data.library_ref];
+    return (state && state.items.filter(function (item) {
+      return (item.state === 'searching' || item.state === 'stuck') && item.ref && refs.indexOf(item.ref) >= 0;
+    })[0]) || null;
+  }
+
+  function followNote(text) {
+    var p = el('p', 'ttl__note');
+    var words = p.appendChild(el('span', '', text + 'Follow it in '));
+    var link = words.appendChild(el('a', '', 'Downloads'));
+    link.setAttribute('href', '/downloads');
+    words.appendChild(document.createTextNode('.'));
+    return p;
+  }
+
   function downloadPart(actions, under) {
     var d = cur.data;
     var k = stateOf(cur.ref);
@@ -1633,15 +1651,11 @@
       return;
     }
     if (k.state === 'queued') {
-      actions.appendChild(statePill('dl-state--queued', 'Queued', 'i-clock'));
-      var q = el('p', 'ttl__note');
-      var words = el('span', '', 'Waiting for a download slot. Follow it in ');
-      var link = el('a', '', 'Downloads');
-      link.setAttribute('href', '/downloads');
-      words.appendChild(link);
-      words.appendChild(document.createTextNode('.'));
-      q.appendChild(words);
-      under.appendChild(q);
+      var looked = lookedFor(cur);
+      actions.appendChild(looked ? statePill('dl-state--queued', 'Looking for the best version', 'i-magnifying-glass')
+        : statePill('dl-state--queued', 'Queued', 'i-clock'));
+      under.appendChild(followNote(!looked ? 'Waiting for a download slot. '
+        : looked.state === 'stuck' ? window.MMWatch.downloading.line(looked) + '. ' : ''));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
@@ -1659,6 +1673,7 @@
       line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
       box.appendChild(line);
       under.appendChild(box);
+      under.appendChild(followNote(''));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
@@ -3490,7 +3505,6 @@
     if (d.phase !== 'done') return;
     if (d.action === 'delete') {
       if (!d.showRk) {
-        if (isOpen && cur && cur.ref === 'movie-' + d.id) cur.fallback = rowFallback(cur.origin);
         leftLibrary('movie-' + d.id);
         return;
       }

@@ -329,6 +329,8 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert out["downloading"]["bar"] == 42
     assert "3.1 GB of 7.4 GB" in out["downloading"]["line"]
     assert "about 6 min left" in out["downloading"]["line"]
+    assert out["downloading"]["note"] == "Follow it in Downloads."
+    assert out["downloading"]["to"] == "/downloads"
     assert out["done"]["primary"]["text"] == "In library"
     assert "Added just now" in out["done"]["note"]
     named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
@@ -1080,17 +1082,13 @@ def test_a_title_that_arrives_moves_neither_its_name_nor_its_buttons() -> None:
         assert run["bars"] == [1, 0]
 
 
-def test_deleting_from_a_list_row_moves_focus_to_a_neighbouring_row_without_scrolling() -> None:
-    out = _run("deleteFromListRow")
-    assert out["next"] == {
-        "closed": True,
-        "focus": "del-121",
-        "tabindex": None,
-        "preventScroll": True,
-    }
-    assert out["previous"]["focus"] == "del-119"
-    assert (out["only"]["focus"], out["only"]["tabindex"]) == ("watch-list", "-1")
-    assert out["only"]["preventScroll"] is True
+def test_deleting_a_title_opened_from_its_card_moves_focus_to_a_neighbour_without_scrolling() -> (
+    None
+):
+    out = _run("deleteFromCard")
+    assert out["next"] == {"closed": True, "focus": "movie-121", "preventScroll": True}
+    assert out["previous"]["focus"] == "movie-119"
+    assert (out["only"]["focus"], out["only"]["preventScroll"]) == ("watch-search", True)
 
 
 def test_without_the_admin_actions_an_admin_keeps_through_the_shared_keep() -> None:
@@ -1539,4 +1537,18 @@ def test_a_film_queued_elsewhere_on_the_page_is_queued_in_its_panel() -> None:
         "after": "Queued",
         "polls": True,
         "events": 1,
+    }
+
+
+def test_a_title_still_looked_for_says_so_as_its_card_does() -> None:
+    queued = ["Queued", "Waiting for a download slot. Follow it in Downloads."]
+    assert _run("lookedFor") == {
+        "searching": ["Looking for the best version", "Follow it in Downloads."],
+        "redrawn": False,  # nothing new: an open menu stays
+        "stuck": [
+            "Looking for the best version",
+            "Nothing found yet · next attempt in ~4h. Follow it in Downloads.",
+        ],
+        "queued": queued,
+        "other": queued,
     }

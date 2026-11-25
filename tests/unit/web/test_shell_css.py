@@ -69,8 +69,6 @@ def test_blue_and_purple_text_keep_aa_on_their_tints_over_every_surface_a_pill_s
         ".pill--tv": "accent-text",
         ".pill--anime": "purple-text",
         ".btn--accent-soft": "accent-text",
-        ".keep-trigger": "accent-text",
-        ".btn-sm-caret": "accent-text",
     }
     for selector, text in wearers.items():
         body = _body("_buttons.css", selector)

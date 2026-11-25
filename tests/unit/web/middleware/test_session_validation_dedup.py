@@ -135,6 +135,7 @@ class TestResolveCachedSession:
                 self.state = _State()
                 self.headers = {}
                 self.cookies = {}
+                self.scope = {"path": "/watch"}
 
             @property
             def client(self):
@@ -171,6 +172,7 @@ class TestResolveCachedSession:
                 self.state = _State()
                 self.headers = {}
                 self.cookies = {}
+                self.scope = {"path": "/watch"}
 
             @property
             def client(self):

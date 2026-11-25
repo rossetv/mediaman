@@ -11,7 +11,17 @@
 </div>
 {%- endmacro %}
 
-{% macro section(grid) -%}
+{% macro filters(grid, types) -%}
+<div class="watch-all__filters" role="group" aria-label="Show">
+  {% for value, label, admin in types %}
+  {% if admin and not types[loop.index0 - 1][2] %}<span class="watch-all__lock" role="img" aria-label="Admins only">{{ icon("i-lock") }}</span>{% endif %}
+  <a class="fpill{% if grid.type == value %} on{% endif %}" href="/watch?all=library{% if value %}&amp;type={{ value }}{% endif %}{% if grid.sort != "added" %}&amp;sort={{ grid.sort }}{% endif %}" data-grid-filter="{{ value }}"{% if grid.type == value %} aria-current="true"{% endif %}>{{ label }}<small>{{ grid.counts[value] }}</small></a>
+  {% endfor %}
+</div>
+{%- if grid.fact %}<p class="watch-all__fact">{{ grid.fact }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro section(grid, types=()) -%}
 <section class="watch-all" id="watch-all" aria-labelledby="watch-all-title">
   <div class="watch-all__head">
     <div class="watch-all__glass"></div>
@@ -22,13 +32,16 @@
     </div>
     <div class="watch-all__tools"></div>
   </div>
+  <div class="watch-all__bar">{% if grid.counts %}{{ filters(grid, types) }}{% endif %}</div>
   <div class="watch-all__body watch-grid-host"{% if grid.id == "leaving" %} data-watch-leaving-row{% endif %}>
     <div class="watch-grid"{% if grid.loads_later %} aria-busy="true"{% endif %}>
       {% for item in grid["items"] %}{{ w.card(item, keep=(grid.id == "leaving")) }}{% endfor %}
       {% if grid.loads_later %}{% for _ in range(14) %}<div class="watch-card--skel" aria-hidden="true"><span class="skel skel--poster"></span><span class="skel skel--line"></span></div>{% endfor %}{% endif %}
     </div>
     <div class="grid-tail">
-      {% if not grid["items"] and not grid.loads_later %}
+      {% if not grid["items"] and grid.empty %}
+      <div class="grid-empty">{{ icon("i-film") }}<p class="grid-empty__title">{{ grid.empty.title }}</p>{% if grid.empty.text %}<p class="grid-empty__text">{{ grid.empty.text }}</p>{% endif %}<a class="grid-empty__link" href="{{ grid.empty.href }}">{{ grid.empty.link }}</a></div>
+      {% elif not grid["items"] and not grid.loads_later %}
       <div class="grid-empty">{{ icon("i-film") }}<p class="grid-empty__title">{% if grid.id == "leaving" %}Nothing is leaving soon{% else %}Nothing in {{ grid.title }}{% if grid.id != "continue" %} yet{% endif %}{% endif %}</p><a class="grid-empty__link" href="/watch">Back to all rows</a></div>
       {% endif %}
     </div>

@@ -1,4 +1,4 @@
-"""The storage panel's and the Watch list's empty states when Plex is not set up."""
+"""The storage panel's and All titles' empty states when Plex is not set up."""
 
 from __future__ import annotations
 
@@ -126,17 +126,24 @@ class TestStoragePanel:
         assert [i["title"] for i in items] == ["Still Scheduled"]
 
 
-class TestWatchList:
+class TestAllTitles:
     def test_unset_plex_empty_library_says_connect(self, page):
-        html = page("/watch?view=list")
+        html = page("/watch?all=library")
         assert _CONNECT in html
+        assert 'href="/settings">Open Settings</a>' in html
         assert "Run a scan" not in html
 
     def test_set_up_plex_empty_library_unchanged(self, page, conn):
         _plex(conn)
-        html = page("/watch?view=list")
+        html = page("/watch?all=library")
         assert "Run a scan from Storage to pull in media from Plex." in html
         assert _CONNECT not in html
 
+    def test_unset_plex_what_the_scans_found_is_there_still(self, page, conn):
+        insert_media_item(conn, id="42", title="Still Here")
+        assert "Still Here" in page("/watch?all=library")
+
     def test_filtered_empty_result_keeps_its_own_message(self, page):
-        assert "Try another search, or show everything again." in page("/watch?view=list&q=zzz")
+        html = page("/watch?all=library&type=kept")
+        assert "Nothing is kept" in html
+        assert "Show all titles" in html

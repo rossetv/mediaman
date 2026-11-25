@@ -150,16 +150,6 @@ def test_a_shows_leaving_badge_in_a_search_is_worded_for_its_season_and_has_no_k
     ]
 
 
-def test_in_the_list_view_the_field_announces_the_query_and_runs_no_search() -> None:
-    out = _run("listView")
-    assert out["delay"] == 350
-    assert out["events"] == [{"type": "mm:watch-list-search", "q": "lantern"}]
-    assert (out["calls"], out["resultsHidden"]) == (0, True)
-    assert out["cleared"] == {"type": "mm:watch-list-search", "q": ""}
-    assert out["afterSwitch"]["calls"] == 2
-    assert out["afterSwitch"]["placeholder"] == "Search films and shows"
-
-
 def test_search_cards_put_the_title_ref_on_the_link_so_focus_can_return_to_it() -> None:
     out = _run("cardLink")
     assert out["refs"] == ["movie-1", "tmdb-movie-9"]
@@ -370,8 +360,8 @@ def test_slash_goes_to_the_field_but_not_from_a_field_or_behind_a_dialog() -> No
     assert out["inert"] is False
 
 
-def test_without_tmdb_or_in_the_list_view_the_field_opens_no_sheet() -> None:
-    assert _run("noSheet") == {"sheet": False, "suggested": [], "list": False}
+def test_without_tmdb_the_field_opens_no_sheet() -> None:
+    assert _run("noSheet") == {"sheet": False, "suggested": []}
 
 
 def test_a_category_opened_from_a_search_goes_back_to_the_search_and_its_results() -> None:
@@ -546,10 +536,6 @@ def test_people_who_lead_stay_while_more_is_typed() -> None:
     assert out["half"]["none"] == ["No title matches “mara”"]
 
 
-def test_results_fade_out_over_the_list_that_is_switched_to() -> None:
-    assert _run("listOverResults") == [True, True, 0]
-
-
 def test_a_persons_titles_are_asked_for_again_and_who_they_are_is_not() -> None:
     out = _run("person")
     assert out["kept"] == [2, ["known_for", "person"]]
@@ -572,18 +558,11 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
     assert out["last"] == [0, None]
 
 
-def test_esc_back_and_the_browse_switch_leave_a_category() -> None:
+def test_esc_and_back_leave_a_category() -> None:
     out = _run("leaveCategory")
     assert out["menus"] == "/watch?genre=action&type=tv"
     assert out["linked"] == ["/watch", 1, "browse", True]
     assert out["opened"] == [["/watch?genre=action", 1], "/watch", 0, "browse"]
-    assert out["away"] == ["/watch", "browse", True]
-
-
-def test_the_list_opened_over_a_category_shuts_it_and_back_opens_it_again() -> None:
-    out = _run("listOverCategory")
-    assert out["list"] == [True, True, None]
-    assert out["back"] == ["/watch?genre=action", 2, False, "", 0]
 
 
 def test_what_is_typed_is_read_as_a_category_a_kind_an_order_and_a_decade() -> None:
@@ -642,6 +621,8 @@ def test_a_category_that_is_not_there_says_so_with_a_way_back_and_nothing_to_try
     assert (genre["stopped"], genre["filters"], genre["back"]) == (True, 0, 1)
     assert "not found" in genre["status"]
     assert out["away"] == ["/watch", "browse"]
+    # A touch screen's keyboard would come up over the rows.
+    assert out["focus"] == ["watch-search", "main-content"]
 
 
 def test_a_person_who_is_not_there_is_said_to_be_so() -> None:
@@ -733,11 +714,16 @@ def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so()
 
 def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
     out = _run("libraryPeople")
-    assert out["heads"] == ["Browse by category", "People in your library", "Or try"]
+    assert out["heads"] == [
+        "Browse by category",
+        "Your library",
+        "People in your library",
+        "Or try",
+    ]
     assert len(out["sheet"]) == 6
     assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
     assert out["opened"] == ["/watch?person=9001", "Person 1"]
-    assert out["bare"] == ["Browse by category", "Or try", "More categories"]
+    assert out["bare"] == ["Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
@@ -801,11 +787,11 @@ def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() 
 
 def test_the_place_of_late_categories_is_held_and_the_highlight_stays_where_it_was() -> None:
     out = _run("redrawnUnderTheHighlight")
-    heads = ["Browse by category", "People in your library", "Or try"]
-    assert out["before"] == ["watch-option-try-0", heads, [12, 6, 1]]
-    assert out["after"] == ["watch-option-try-0", True, [0, 0, 1]]
-    assert out["entered"] == "popular action movies"
-    assert out["failed"] == ["watch-sheet__title", "watch-tries"]
+    heads = ["Browse by category", "Your library", "People in your library", "Or try"]
+    assert out["before"] == ["watch-option-try-2", heads, [12, 6, 2]]
+    assert out["after"] == ["watch-option-try-2", True, [0, 0, 2]]
+    assert out["entered"] == "top rated sci-fi"
+    assert out["failed"] == ["watch-sheet__title", "watch-tries"] * 2
 
 
 def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
@@ -859,13 +845,6 @@ def test_how_many_suggestions_there_are_is_said_at_once_and_with_the_results() -
     assert done == "1 available to download for “popular action movies”. 3 suggestions"
 
 
-def test_the_field_is_a_plain_search_box_in_the_list_view() -> None:
-    assert _run("listView")["role"] == [
-        [None, None, None, None],
-        ["combobox", "list", "false", "watch-sheet"],
-    ]
-
-
 def test_a_word_being_composed_is_searched_for_when_it_is_done_or_rested_on() -> None:
     out = _run("composition")
     assert (out["during"], out["calls"]) == ([400], 0)
@@ -891,7 +870,7 @@ def test_the_page_holds_still_behind_the_sheet_and_the_cross_shuts_it() -> None:
 
 def test_only_words_that_fit_stand_in_the_empty_field() -> None:
     out = _run("hintFits")
-    assert out["list"] == ["Search", "Search your library"]
+    assert out["narrow"] == ["Search", "Search films and shows"]
     label = "Search films and shows"
     # One round of the two examples that are short enough, then it rests.
     assert out["rows"] == [
@@ -924,29 +903,20 @@ def test_a_filter_whose_titles_could_not_be_had_is_asked_for_once() -> None:
     assert out["broken"] == ["Couldn’t load the titles.", 3, []]
 
 
-def test_the_field_s_line_goes_on_the_way_down_and_comes_back_on_the_way_up() -> None:
-    out = _run("barTucks")
-    # 0, 60, 300, then up by too little to mean it until it adds up, up, and at the top.
-    assert out["out"] == [False, False, True, True, True, False, False, False, True]
-    assert (out["focused"], out["again"]) == (False, ["down", True])
-    assert out["wide"] == [False, False]
-
-
-def test_over_see_all_the_field_s_line_comes_back_at_the_top_alone() -> None:
-    assert _run("barTucksOverSeeAll") == [False, True, True, True, False]
-
-
-def test_the_open_sheet_keeps_the_field_s_line() -> None:
-    assert _run("barSheetHolds") == [True, False, False]
+def test_scrolling_never_takes_the_field_away() -> None:
+    out = _run("barStays")
+    assert len(out) == 36
+    assert all(out)
 
 
 def test_the_bar_s_elements_stand_in_the_order_they_are_read_at_every_width() -> None:
     out = _run("barOrder")
-    wide = ["nav-links", "search", "watch-sheet", "meter", "watch-viewtoggle", "profile"]
+    wide = ["brand", "search", "watch-sheet", "meter", "profile"]
     assert out["out"] == [
         wide,
-        ["nav-links", "meter", "watch-viewtoggle", "profile", "search", "watch-sheet"],
-        ["nav-links", "meter", "profile", "search", "watch-sheet", "watch-viewtoggle"],
+        wide,
+        # at the foot of a phone, beside the profile button
+        ["brand", "meter", "search", "watch-sheet", "profile"],
     ]
     assert (out["back"], out["focused"]) == (wide, True)
 
@@ -963,31 +933,47 @@ def test_the_meter_makes_room_only_where_the_open_field_would_cover_it() -> None
 def test_what_the_open_field_covers_comes_back_with_the_focus() -> None:
     out = _run("barGivesBack")
     assert out["wide"] == [[True, True], [False, False], [True, True]]
-    assert out["phone"] == [[True, False], [False, False], [True, False]]
-    # Nothing covers the switch there.
+    # Nothing covers the meter of a phone, nor the profile button of a wide bar.
+    assert out["phone"] == [[True, False], [True, False], [True, False]]
     assert out["clear"] == [[True, True], [True, True], [True, True]]
 
 
 def test_what_the_open_field_covers_can_have_the_focus() -> None:
     sheet = Path(__file__).resolve().parents[3] / "src/mediaman/web/static/css/_watch_search.css"
-    rules = re.findall(r"([^{}]*(?:space-meter|viewtoggle)) \{([^}]*)\}", sheet.read_text())
+    rules = re.findall(r"([^{}]*(?:space-meter\)?|profile-btn)) \{([^}]*)\}", sheet.read_text())
     hidden = [body for _, body in rules if "opacity: 0" in body]
-    assert hidden
+    assert len(hidden) == 3
     for body in hidden:
         assert "pointer-events: none" in body and "visibility" not in body
 
 
-def test_the_field_stays_between_the_links_and_the_meter_which_drops_its_words_for_it() -> None:
-    assert _run("barBetween") == [
+def test_the_field_stays_between_the_brand_and_the_meter_which_drops_its_words_for_it() -> None:
+    out = _run("barBetween")
+    assert out["wide"] == [
         ["312px", "878px", False],
         ["522px", "638px", True],
         ["522px", "798px", True],
         [False],
     ]
+    assert out["tablet"] == out["wide"]
 
 
-def test_a_phone_s_meter_drops_a_figure_that_would_be_cut() -> None:
-    assert _run("barCutFigure") == [False, True]
+def test_the_meter_is_fitted_anew_as_the_page_is_turned_and_as_its_words_change() -> None:
+    assert _run("barRefits") == {
+        "wide": [False, False],
+        "upright": [True, True],
+        "sideways": [False, False],
+        "grown": [True, True],
+        "shorter": [False, False],
+    }
+
+
+def test_a_phone_s_meter_drops_the_word_free_and_then_a_figure_that_would_be_cut() -> None:
+    assert _run("barCutFigure") == {
+        "fits": [False, False],
+        "figureFits": [True, False],
+        "neither": [True, True],
+    }
 
 
 def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
@@ -995,21 +981,14 @@ def test_slash_keeps_the_page_s_place_unless_the_bar_has_gone_with_it() -> None:
     assert out == {"sticky": [400, True], "gone": [0, True]}
 
 
-def test_what_the_bar_covers_is_one_line_once_the_field_s_is_away() -> None:
-    assert _run("barCovers") == [106, 52]
+def test_what_the_bar_covers_is_its_one_line_however_far_the_page_is_scrolled() -> None:
+    assert _run("barCovers") == [52, 52]
 
 
-def test_nothing_leaves_the_field_s_line_over_the_header_of_see_all() -> None:
-    out = _run("barLeavesSeeAllFree")
-    assert (out.pop("focused"), out.pop("rows")) == (False, False)
-    assert out == {"left": True, "turned": True, "forward": True, "opened": True}
-
-
-def test_the_field_s_line_goes_only_for_more_than_six_pixels_and_once_a_frame() -> None:
-    out = _run("barTucksOnPurpose")
-    # Far down, back up, then by 1, 6 and 7 in all.
-    assert out["out"] == [True, False, False, False, True]
-    assert (out["frames"], out["after"]) == (1, True)
+def test_the_field_and_its_sheet_keep_to_what_a_keyboard_leaves_to_be_seen() -> None:
+    out = _run("barSeen")
+    assert (out["first"]["--seen"], out["first"]["--seen-top"]) == ("844px", "0px")
+    assert (out["typing"]["--seen"], out["typing"]["--seen-top"]) == ("500px", "120px")
 
 
 # ── Ask AI ──
@@ -1030,7 +1009,7 @@ def test_without_a_key_nothing_of_the_ai_shows() -> None:
     # The sheet as ever, with the person's own searches before it.
     tonight, heads = _run("askPanel")["off"]
     assert tonight is None
-    assert heads == ["Recent", "Browse by category", "Or try", "More categories"]
+    assert heads == ["Recent", "Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
@@ -1290,8 +1269,8 @@ def test_a_page_back_brings_is_brought_up_to_date() -> None:
     assert out["first"].endswith("already here")
 
 
-def test_titles_like_one_can_be_found_from_the_list() -> None:
-    out = _run("askListView")
+def test_titles_like_one_can_be_found_from_all_titles() -> None:
+    out = _run("askLibrary")
     assert out["can"] is True
     assert out["page"][0] == "/watch?like=movie-1"
     assert out["page"][1].startswith("More like Nine Locks")
@@ -1331,3 +1310,32 @@ def test_words_that_came_with_the_address_are_not_kept_for_a_press_on_a_result()
     assert out["arrived"] == []
     assert out["typed"] == ["salt"]
     assert out["entered"] == ["orchard"]
+
+
+def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already() -> None:
+    out = _run("downloading")
+    gate = ["The Órchard Gate", "42% · 14 min left", "tmdb-movie-9", "/watch#title=tmdb-movie-9"]
+    salt = ["Salt", "Queued", None, "/downloads"]
+    # Shown as it is typed, before anything is asked, and nothing is asked for it.
+    assert out["typed"] == [gate]
+    assert out["calls"] == [0, 4]
+    assert out["asked"] == ["/api/watch/search?q=orchard", "/api/watch/search/tmdb?q=orchard"]
+    # The title is there once, not again among those to download.
+    assert out["heads"] == ["Downloading", "In your library"]
+    assert out["status"].startswith("1 downloading, 1 in your library")
+    assert out["later"] == "50% · 14 min left"
+    assert out["done"] == [[], ["In your library", "Available to download"]]
+    # Found alone, it is not said that nothing matches.
+    assert out["alone"] == [[salt], ["Downloading"], False]
+    assert out["gone"] == [[], True]
+
+
+def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_number() -> None:
+    out = _run("libraryBlock")
+    assert out["look"] == [["All 36 titles", None], ["Downloads · 5", "/downloads"]]
+    assert out["before"] == "Browse by category"
+    assert out["none"] == "Downloads"
+    # All titles opens in place, with the sheet shut, and nothing is asked for.
+    assert out["opened"] == [[["", "", {"fromSearch": True}]], False, 0]
+    assert out["changed"] == ["All 1 title", None, "All 2 titles"]
+    assert out["bare"] == "Downloads"

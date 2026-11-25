@@ -27,7 +27,7 @@ def test_the_avatar_opens_the_menu_on_its_first_item_and_closes_it_again() -> No
         "focused": "account",
         "inert": ["already-inert"],
     }
-    assert out["closed"] == {"open": False, "expanded": "false", "focused": "desktop"}
+    assert out["closed"] == {"open": False, "expanded": "false", "focused": "button"}
 
 
 def test_arrows_home_and_end_move_round_the_menu_and_escape_returns_focus() -> None:
@@ -42,7 +42,7 @@ def test_arrows_home_and_end_move_round_the_menu_and_escape_returns_focus() -> N
         "logout",
     ]
     assert out["open"] is False
-    assert out["focused"] == "desktop"
+    assert out["focused"] == "button"
     # the page's own Escape, such as closing a title, must not act as well
     assert out["escStopped"] is True
 
@@ -56,7 +56,7 @@ def test_the_space_bar_follows_a_menu_link_instead_of_scrolling_the_page() -> No
 
 
 def test_tab_closes_the_menu_and_goes_on_from_the_avatar() -> None:
-    assert _run("tab") == {"open": False, "focused": "desktop", "prevented": False}
+    assert _run("tab") == {"open": False, "focused": "button", "prevented": False}
 
 
 def test_the_skip_link_pressed_again_on_the_same_address_scrolls_to_the_content() -> None:
@@ -81,7 +81,7 @@ def test_a_press_outside_focus_leaving_back_and_a_followed_link_close_the_menu()
 def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes() -> None:
     out = _run("sheet")
     assert out["held"] == {
-        "inert": ["top", "phone-top", "main", "already-inert"],
+        "inert": ["top", "main", "already-inert"],
         "scrolls": False,
         "focused": "account",
     }
@@ -89,7 +89,7 @@ def test_the_phone_sheet_holds_the_page_still_and_out_of_reach_until_it_closes()
         "open": False,
         "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
-        "focused": "phone",
+        "focused": "button",
     }
 
 
@@ -97,7 +97,7 @@ def test_a_dialog_over_the_phone_sheet_keeps_the_page_out_of_reach_as_the_sheet_
     assert _run("dialogOverSheet") == {
         "over": {
             "open": False,
-            "inert": ["top", "phone-top", "profile-menu", "main", "already-inert"],
+            "inert": ["top", "profile-menu", "main", "already-inert"],
         },
         "freed": ["already-inert"],
     }
@@ -108,7 +108,7 @@ def test_the_phone_sheet_has_a_button_that_closes_it() -> None:
         "open": False,
         "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
-        "focused": "phone",
+        "focused": "button",
     }
 
 
@@ -118,12 +118,12 @@ def test_giving_the_focus_back_to_a_button_in_the_bar_never_scrolls_the_page() -
     }
 
 
-def test_outgrowing_the_phone_layout_closes_the_sheet_and_moves_to_the_other_avatar() -> None:
+def test_outgrowing_the_phone_layout_closes_the_sheet_and_gives_the_avatar_the_focus() -> None:
     assert _run("resize") == {
         "open": False,
         "inert": ["profile-menu", "already-inert"],
         "scrolls": True,
-        "focused": "desktop",
+        "focused": "button",
     }
 
 
@@ -131,17 +131,17 @@ def test_a_closed_menu_is_inert_while_it_fades_and_reopening_undoes_it_at_once()
     assert _run("fade") == {
         "fresh": False,
         "opened": False,
-        "closed": {"inert": True, "focused": "desktop"},
+        "closed": {"inert": True, "focused": "button"},
         "reopened": {"inert": False, "focused": "account"},
-        "sheet": {"inert": True, "focused": "phone"},
+        "sheet": {"inert": True, "focused": "button"},
     }
 
 
 def test_a_changed_avatar_takes_the_old_one_s_place_once_loaded_and_the_last_change_wins() -> None:
     assert _run("avatar") == {
-        "loading": [None, None, None],
-        "stale": [None, None, None],
-        "shown": ["/new", "/new", "/new"],
+        "loading": [None, None],
+        "stale": [None, None],
+        "shown": ["/new", "/new"],
         "initials": "",
     }
 
@@ -154,3 +154,77 @@ def test_with_reduced_motion_nothing_in_the_menu_is_still_hidden_when_it_takes_t
         if "transition: none" in body
     ]
     assert any(".profile-menu *" in head for head in still)
+
+
+def test_the_ring_the_count_and_the_menu_say_how_what_is_downloading_stands() -> None:
+    out = _run("downloads")
+    name = "Profile menu, robin"
+    assert out["none"] == {
+        "name": name,
+        "ring": [],
+        "count": None,
+        "note": None,
+        "tone": [],
+        "bar": 0,
+    }
+    told = {
+        key: (o["name"].removeprefix(name), o["ring"], o["filled"], o["count"], o["note"], o["bar"])
+        for key, o in out.items()
+        if o["note"]
+    }
+    assert told == {
+        "one": (", 1 downloading", ["is-on"], 42, None, ", 42%", 1),
+        "many": (", 4 downloading", ["is-on"], 40, None, ", 40% · 4", 1),
+        "mixed": (", 1 ready to watch", ["is-on"], 57, "1", ", 57% · 4", 1),
+        "ready": (", 1 ready to watch", ["is-on", "is-ready"], 100, "1", ", 1 ready", 0),
+        "waiting": (
+            ", 3 waiting to download",
+            ["is-on", "is-waiting"],
+            6,
+            None,
+            ", 3 waiting",
+            0,
+        ),
+        # What it last was is not told as what it is.
+        "lost": (", downloads not updating", ["is-on", "is-lost"], 57, None, ", Not updating", 0),
+        "found": (", 4 downloading", ["is-on"], 40, None, ", 40% · 4", 1),
+    }
+    assert out["lost"]["tone"] == ["is-lost"]
+    assert [out[key]["tone"] for key in ("mixed", "ready", "waiting")] == [
+        [],
+        ["is-ready"],
+        ["is-waiting"],
+    ]
+    # nothing is left once the last one has gone
+    over = out["over"]
+    assert (over["name"], over["count"], over["note"]) == (name, None, None)
+    assert "is-on" not in over["ring"]
+
+
+def test_where_nothing_tells_of_downloads_the_menu_works_without_them() -> None:
+    assert _run("noDownloads") == {"open": True, "name": "Profile menu, robin"}
+
+
+def test_a_keyboard_is_told_from_a_toolbar_and_from_a_zoomed_page() -> None:
+    assert _run("keyboard") == {
+        "whole": False,
+        "toolbar": False,
+        "keyboard": True,
+        "zoomed": False,
+        "zoomedTyping": True,
+        "away": False,
+    }
+
+
+def test_the_second_tap_of_a_double_tap_on_the_picture_presses_nothing_in_the_sheet() -> None:
+    assert _run("doubleTap") == {
+        "quick": True,
+        "slow": False,
+        "key": False,
+        "desktop": False,
+        "open": True,
+    }
+
+
+def test_a_ring_that_comes_back_does_not_sweep_round_from_where_it_last_stood() -> None:
+    assert _run("ringComesBack") == {"eased": [False, True, False, True], "left": False}

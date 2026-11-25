@@ -73,6 +73,8 @@
 </div>
 
 {% if can_abandon %}{% include "_dl_abandon_modal.html" %}{% endif %}
+{# The answer the header's ring begins with; downloads.js tells it the next ones. #}
+<script type="application/json" id="downloads-page-data">{{ {"downloading": strip or none} | tojson }}</script>
 {# Renderer + helper modules must register on MM.downloads before downloads.js
    wires them into the poll loop. #}
 <script src="/static/js/downloads/build_dom.js?v={{ static_v }}" defer></script>
