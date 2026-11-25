@@ -50,6 +50,9 @@ from mediaman.services.rate_limit.instances import (
     SETTINGS_AUTO_TEST_LIMITER as _SETTINGS_AUTO_TEST_LIMITER,
 )
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
+from mediaman.services.rate_limit.instances import (
+    SETTINGS_UNTICKETED_LIMITER as _SETTINGS_UNTICKETED_LIMITER,
+)
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.middleware import get_current_admin
@@ -137,15 +140,37 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
     return JSONResponse(settings)
 
 
+def _needs_reauth(
+    conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
+) -> bool:
+    """Return whether the save changes a sensitive key without a recent reauth ticket. One
+    sensitive key is enough, so mixing it with harmless fields cannot get a partial write.
+    """
+    return _touches_sensitive_keys(body_dict) and not has_recent_reauth(conn, session_token, admin)
+
+
 def _settings_write_throttled(
-    request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict[str, object]
+    request: Request,
+    conn: sqlite3.Connection,
+    admin: str,
+    body_dict: dict[str, object],
+    *,
+    needs_reauth: bool,
 ) -> JSONResponse | None:
     """Return a 429 response if the admin has exhausted the write budget, else None. A
     settings.write.throttled audit event is recorded first so a hit cap is visible in the
-    log.
+    log. A save that *needs_reauth* only looks at that budget, since the page asks for the
+    password and sends it again; such saves have a budget of their own.
     """
-    if _SETTINGS_WRITE_LIMITER.check(admin):
-        return None
+    limiter = _SETTINGS_WRITE_LIMITER
+    if needs_reauth and not _SETTINGS_UNTICKETED_LIMITER.check(admin):
+        limiter = _SETTINGS_UNTICKETED_LIMITER
+    else:
+        reserved = limiter.reserve(admin)
+        if reserved is not None:
+            if needs_reauth:
+                limiter.release(admin, reserved)
+            return None
     logger.warning("settings.write_throttled user=%s", _sanitise_log_field(admin))
     security_event(
         conn,
@@ -154,28 +179,19 @@ def _settings_write_throttled(
         ip=get_client_ip(request),
         detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
     )
-    return too_many(_SETTINGS_WRITE_LIMITER, admin, "Too many settings changes.")
+    return too_many(limiter, admin, "Too many settings changes.")
 
 
-def _settings_reauth_required(
-    conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
-) -> JSONResponse | None:
-    """Return a 403 when a sensitive key change lacks a recent reauth ticket, else None. One
-    sensitive key rejects the whole PUT, so mixing it with harmless fields cannot get a
-    partial write.
-    """
-    sensitive_write = _touches_sensitive_keys(body_dict)
-    if sensitive_write and not has_recent_reauth(conn, session_token, admin):
-        logger.warning(
-            "settings.write_rejected user=%s reason=reauth_required", _sanitise_log_field(admin)
-        )
-        return respond_err(
-            "reauth_required",
-            status=403,
-            message="Recent password re-authentication required for sensitive settings",
-            reauth_required=True,
-        )
-    return None
+def _settings_reauth_required(admin: str) -> JSONResponse:
+    logger.warning(
+        "settings.write_rejected user=%s reason=reauth_required", _sanitise_log_field(admin)
+    )
+    return respond_err(
+        "reauth_required",
+        status=403,
+        message="Recent password re-authentication required for sensitive settings",
+        reauth_required=True,
+    )
 
 
 def _persist_settings(
@@ -314,7 +330,10 @@ def api_update_settings(
         exclude_none=True, exclude={"plex_libraries_base"}
     )
     conn = get_db()
-    throttled = _settings_write_throttled(request, conn, admin, body_dict)
+    needs_reauth = _needs_reauth(conn, body_dict, session_token, admin)
+    throttled = _settings_write_throttled(
+        request, conn, admin, body_dict, needs_reauth=needs_reauth
+    )
     if throttled is not None:
         return throttled
 
@@ -322,9 +341,8 @@ def api_update_settings(
     if url_err is not None:
         return url_err
 
-    reauth_err = _settings_reauth_required(conn, body_dict, session_token, admin)
-    if reauth_err is not None:
-        return reauth_err
+    if needs_reauth:
+        return _settings_reauth_required(admin)
 
     config = request.app.state.config
     with _LIBRARY_MERGE_LOCK:

@@ -28,6 +28,12 @@ NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_
 # A single shared instance keeps the parameters in one place.
 SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
 
+# Saves that need a recent password check and lack it. They take nothing from the
+# budget above, so that the page's own ask-then-retry costs one save.
+SETTINGS_UNTICKETED_LIMITER = ActionRateLimiter(
+    max_in_window=30, window_seconds=60, max_per_day=200
+)
+
 # Service-test limiter for /api/settings/test/{service} — bounded so a
 # logged-in admin (or an attacker who lifted a session cookie) cannot
 # chain tests to flood Plex / Mailgun. 10 per minute, 60 per day per
@@ -65,6 +71,7 @@ __all__ = [
     "SCAN_TRIGGER_LIMITER",
     "SETTINGS_AUTO_TEST_LIMITER",
     "SETTINGS_TEST_LIMITER",
+    "SETTINGS_UNTICKETED_LIMITER",
     "SETTINGS_WRITE_LIMITER",
     "SUBSCRIBER_WRITE_LIMITER",
 ]

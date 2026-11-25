@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from jinja2 import Environment, FileSystemLoader
 
 from mediaman.app_factory import _TEMPLATE_DIR
+from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER
+from mediaman.web.auth.reauth import grant_recent_reauth, revoke_reauth
 from mediaman.web.routes.settings import _SERVICE_TESTERS, _TEST_CACHE, router
 from tests.helpers.factories import insert_settings
 
@@ -132,6 +134,33 @@ def test_a_test_or_save_over_its_limit_says_how_long_to_wait(client) -> None:
     for refused in (test, save):
         assert refused.status_code == 429
         assert re.search(r"Try again in \d+ (second|minute)s?\.$", refused.json()["message"])
+
+
+_SENSITIVE = {"openai_api_key": "a-key"}
+
+
+def _unticketed_save(client, conn) -> tuple[int, str]:
+    revoke_reauth(conn, client.cookies["session_token"])
+    resp = client.put("/api/settings", json=_SENSITIVE)
+    return resp.status_code, resp.json()["error"]
+
+
+def test_a_save_that_asks_for_the_password_first_takes_one_try(client, conn, monkeypatch) -> None:
+    monkeypatch.setattr(SETTINGS_WRITE_LIMITER, "_max_in_window", 3)
+    for _ in range(3):
+        assert _unticketed_save(client, conn) == (403, "reauth_required")
+        grant_recent_reauth(conn, client.cookies["session_token"], "admin")
+        assert client.put("/api/settings", json=_SENSITIVE).status_code == 200
+    # the saves themselves are still counted, and no ticket is asked for once they are used up
+    assert client.put("/api/settings", json=_SENSITIVE).status_code == 429
+    assert _unticketed_save(client, conn) == (429, "too_many_requests")
+
+
+def test_saves_without_a_password_check_have_a_limit_of_their_own(client, conn) -> None:
+    answers = [_unticketed_save(client, conn) for _ in range(31)]
+    assert answers[:30] == [(403, "reauth_required")] * 30
+    assert answers[30] == (429, "too_many_requests")
+    assert client.put("/api/settings", json={"scan_time": "10:00"}).status_code == 200
 
 
 def test_a_folder_the_page_may_not_read_is_not_called_missing(
