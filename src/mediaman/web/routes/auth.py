@@ -188,6 +188,13 @@ def login_submit(
     user_agent = request.headers.get("user-agent", "")
     weak_password = _flag_weak_password(conn, username, password, client_ip)
 
+    # The cookie is about to be replaced, whoever it was of.
+    replaced = request.cookies.get("session_token")
+    if replaced and validate_session(
+        conn, replaced, user_agent=user_agent, client_ip=client_ip, request_supplied=True
+    ):
+        destroy_session(conn, replaced, ip=client_ip)
+
     token = create_session(
         conn,
         username,
