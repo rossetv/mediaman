@@ -78,6 +78,11 @@ from mediaman.web.routes.watch.pages import (
     season_fields,
     seasons_leaving,
 )
+from mediaman.web.routes.watch.title_seasons import (
+    begin_arr_view,
+    fill_season_status,
+    missing_seasons,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +433,9 @@ def _payload(ref: str, kind: str, tmdb_configured: bool) -> dict[str, Any]:
         "keep_allowed": False,
         "seasons": [],
         "episodes": [],
+        "more_seasons": [],
+        "seasons_pending": False,
+        "seasons_request": None,
         "download": None,
         "tmdb_configured": tmdb_configured,
     }
@@ -675,6 +683,8 @@ def _show_title(
     )
     counted = lib.show_seen(conn, username, libraries, show_key=listed.key).get(listed.key)
     out.update(lib.mark_fields(ref, {ref} if counted and counted.watched else set()))
+    tmdb_seasons: list[dict[str, Any]] = []
+    arr_view = begin_arr_view(conn, request.app.state.config.secret_key)
     origin = f"/watch#title={ref}"
     try:
         plex = open_plex(request, conn)
@@ -754,6 +764,18 @@ def _show_title(
                     if season["selected"]:
                         season.update(_season_about(selected, episodes, found))
                 out["episodes"] = _described_rows(episodes, progress, origin, found)
+            tmdb_seasons = fields["tmdb_seasons"]
+            if show is not None:
+                out["more_seasons"] = missing_seasons(out["seasons"], tmdb_seasons)
+    fill_season_status(
+        out,
+        conn,
+        arr_view(),
+        username,
+        tmdb_id=tmdb_id,
+        tvdb_id=listed.tvdb_id,
+        tmdb_seasons=tmdb_seasons,
+    )
     return out
 
 
@@ -826,6 +848,16 @@ def _title_of_fields(
             }
             for s in fields["tmdb_seasons"]
         ]
+        fill_season_status(
+            out,
+            conn,
+            arr,
+            username,
+            tmdb_id=tmdb_id,
+            tvdb_id=fields["tvdb_id"],
+            tmdb_seasons=fields["tmdb_seasons"],
+            download_url=download_url,
+        )
         if library_ref is None:
             out["sonarr_tracked"] = arr.sonarr_tracked(tmdb_id)
     if library_ref is None:
