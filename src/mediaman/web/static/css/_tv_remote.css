@@ -224,8 +224,15 @@ html.has-ttl:has(.tv-mini:not([hidden])) .ttl { padding-bottom: 98px; scroll-pad
 }
 /* A phone on its side: in the right half, beside the buttons of what the page opens on. */
 @media (max-height: 520px) and (min-width: 700px) {
-  .tv-mini { left: auto; right: max(16px, env(safe-area-inset-right)); width: min(380px, calc(50% - 32px)); gap: 6px; }
+  .tv-mini { left: auto; right: max(16px, env(safe-area-inset-right)); width: min(380px, calc(100% - 490px)); gap: 6px; }
   .tv-mini .player-btn--skip { display: none; }
+}
+@media (max-height: 520px) and (min-width: 700px) and (max-width: 799.98px) {
+  .tv-mini__pic { display: none; }
+}
+/* With the tab bar too those buttons are at the right. */
+@media (max-height: 520px) and (max-width: 699.98px) {
+  .tv-mini { left: max(8px, env(safe-area-inset-left)); right: auto; width: calc(100% - 236px); }
 }
 /* Over the remote a toast is under its title, where no control of it is. */
 body:has(> .tv-rem:not([hidden])) .ui-toast-host {
