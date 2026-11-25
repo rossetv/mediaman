@@ -933,3 +933,9 @@ def test_a_save_no_longer_sends_the_plex_or_nzbget_public_url() -> None:
     keys = _run("payloadKeys")
     assert "sonarr_public_url" in keys and "radarr_public_url" in keys
     assert "plex_public_url" not in keys and "nzbget_public_url" not in keys
+
+
+def test_a_failed_test_names_the_service_once_for_a_screen_reader() -> None:
+    out = _run("announced")
+    assert out["named"] == ["", "Plex refused the token."]
+    assert out["unnamed"] == ["", "Plex: Couldn't reach the service."]

@@ -321,6 +321,12 @@
         return h ? h.textContent.trim() : btn.getAttribute('data-test-service');
       }
 
+      // An answer that already begins with the service's name is not given it twice.
+      function said(btn, label) {
+        var name = serviceName(btn);
+        return label.indexOf(name) === 0 ? label : name + ': ' + label;
+      }
+
       function testService(service, btn) {
         var run = begin(service);
         self.setConnStatus(service, 'untested', 'Testing…');
@@ -340,7 +346,7 @@
             // MM.api rejects on ok:false too, so a failed test lands here.
             var label = setFailedStatus(service, err);
             // A throttled test did not fail; the button says to try again later.
-            if (btn) { btn.textContent = (err && err.status === 429) ? 'Try later' : 'Failed'; self.announce(service, serviceName(btn) + ': ' + label); }
+            if (btn) { btn.textContent = (err && err.status === 429) ? 'Try later' : 'Failed'; self.announce(service, said(btn, label)); }
           })
           .then(function () {
             // .then used as finally (broad browser compat).

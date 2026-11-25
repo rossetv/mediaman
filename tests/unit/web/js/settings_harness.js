@@ -2349,6 +2349,36 @@ const scenarios = {
     return { unfolded, scrolling, still, closing };
   },
 
+  // What a pressed Test says to a screen reader: the service's name once.
+  async announced() {
+    const h = build();
+    const page = h.add('div', { className: 'setg-pg' });
+    const card = h.add('div', { className: 'intg-card' }, page);
+    h.add('h3', {}, card).textContent = 'Plex';
+    const btn = h.add('button', {}, card);
+    btn.setAttribute('data-test-service', 'plex');
+    let answer = { status: 502 };
+    h.ctx.MM.api = {
+      post: () => Promise.reject(answer),
+      put: () => Promise.resolve({}),
+      get: () => Promise.resolve({}),
+      messageOf: (e, words) => e.message || words,
+    };
+    h.ctx.MM.dom = { focusStillIn: () => false };
+    h.ctx.UIFeedback = { toast() {}, confirm: () => Promise.resolve(true) };
+    h.load('settings/integrations.js');
+    const m = h.ctx.MM.settings;
+    const said = [];
+    m.integrations.announce = (s, t) => said.push(t);
+    m.integrations.init();
+    h.drain(); await h.flush();
+    const press = async (a) => { answer = a; said.length = 0; btn.fire('click'); await h.flush(); h.drain(); await h.flush(); return said.slice(); };
+    return {
+      named: await press({ status: 502, message: 'Plex refused the token.' }),
+      unnamed: await press({ status: 502, message: 'Couldn\'t reach the service.' }),
+    };
+  },
+
   // Opening an integration card folds its body open instead of popping it.
   async integrationFold() {
     const h = build();
