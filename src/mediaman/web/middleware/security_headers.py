@@ -7,12 +7,15 @@ that route handlers / Jinja templates pull off ``request.state``.
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+
+logger = logging.getLogger(__name__)
 
 # Content Security Policy — per-request nonce strategy.
 #
@@ -68,9 +71,42 @@ _CSP_STATIC_DIRECTIVES = (
     "form-action 'self'"
 )
 
+# What Google's Cast sender script is made of: the loader a page asks for, the framework and the
+# part for the browser's version that the loader adds itself. Paths and not the whole host, which
+# serves much else. It needs nothing more: it talks to the TV through the browser's own
+# presentation API, so it fetches, frames and styles nothing.
+_CAST_SCRIPTS = (
+    "https://www.gstatic.com/cv/js/sender/v1/cast_sender.js "
+    "https://www.gstatic.com/cast/sdk/libs/sender/1.0/cast_framework.js "
+    "https://www.gstatic.com/eureka/clank/"
+)
 
-def _build_csp(nonce: str) -> str:
+GOOGLE_CAST_SETTING = "google_cast_enabled"
+
+# The pages a Cast can be started from or goes on beside. Never one where a password is typed.
+_CAST_PAGES = frozenset({"/watch", "/downloads"})
+
+
+def _google_cast_allowed(request: Request) -> bool:
+    """Whether this page may load Google's Cast script; any doubt is a no."""
+    path = request.url.path
+    if path not in _CAST_PAGES and not path.startswith("/watch/"):
+        return False
+    from mediaman.db import get_db
+    from mediaman.services.infra.settings_reader import get_setting
+
+    try:
+        return get_setting(get_db(), GOOGLE_CAST_SETTING, default=False) is True
+    # rationale: the headers go on every answer, so a setting that cannot be read is off.
+    except Exception:
+        logger.warning("The Google Cast setting could not be read; it counts as off")
+        return False
+
+
+def _build_csp(nonce: str, *, google_cast: bool = False) -> str:
     """Return the per-request CSP header text with *nonce* threaded in.
+
+    *google_cast* lets the page load Google's Cast sender script as well.
 
     ``script-src`` carries no ``'unsafe-inline'``: every
     page-level inline ``<script>`` lives in an external file, and the
@@ -94,8 +130,9 @@ def _build_csp(nonce: str) -> str:
     the dialog stuck open on every page load (reported by an operator
     on 2026-05-03 against commit be509c1).
     """
+    cast_scripts = f" {_CAST_SCRIPTS}" if google_cast else ""
     return (
-        f"script-src 'self' 'nonce-{nonce}'; "
+        f"script-src 'self' 'nonce-{nonce}'{cast_scripts}; "
         f"style-src 'self' 'nonce-{nonce}'; "
         f"style-src-attr 'unsafe-inline'; "
         f"{_CSP_STATIC_DIRECTIVES}"
@@ -193,11 +230,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # block by more than a couple of dozen characters.
         nonce = secrets.token_urlsafe(16)
         request.state.csp_nonce = nonce
+        google_cast = _google_cast_allowed(request)
+        # Templates put the script that asks for Google's on the page only where this is true.
+        request.state.google_cast = google_cast
 
         response = await call_next(request)
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
-        response.headers.setdefault("Content-Security-Policy", _build_csp(nonce))
+        response.headers.setdefault(
+            "Content-Security-Policy", _build_csp(nonce, google_cast=google_cast)
+        )
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
         # but there's no reason to advertise). ``setdefault`` for
         # consistency with every other header here — a handler that
