@@ -402,6 +402,26 @@ const scenarios = {
     return { hidden: await press(0), shown: await press(1) };
   },
 
+  // A finger's drag on a button not in sight, that the browser takes for a scroll, then Enter on it.
+  async unseenThenKey() {
+    const press = async (between) => {
+      const p = load(watchPage([row('lib', [FILM()])]));
+      p.ctx.getComputedStyle = () => ({ opacity: '0', getPropertyValue: () => '', transform: 'none' });
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+      between(p, eye);
+      eye.focus();
+      const e = { target: eye, detail: 0, stopped: false, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+      p.doc.listeners.click.forEach((fn) => { if (!e.stopped) fn(e); });
+      await settle();
+      return p.calls;
+    };
+    return {
+      cancelled: await press((p, eye) => { send(p.win.pointercancel, { type: 'pointercancel', target: eye, pointerId: 1 }); send(p.doc.listeners.pointercancel, { type: 'pointercancel', target: eye, pointerId: 1 }); }),
+      key: await press((p, eye) => send(p.doc.listeners.keydown, { key: 'Enter', target: eye })),
+    };
+  },
+
   // A finger on a screen that has a mouse too, where a touch leaves no hover: its first press on a
   // card's hidden buttons shows them, its next acts, and a press elsewhere or a scroll hides them.
   async touchShows() {

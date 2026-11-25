@@ -407,6 +407,11 @@ def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
     assert out == {"hidden": [], "shown": ["POST /api/watch/watched/movie/1"]}
 
 
+def test_a_finger_s_drag_on_a_button_out_of_sight_leaves_the_keys_free_to_press_it() -> None:
+    sent = ["POST /api/watch/watched/movie/1"]
+    assert _run("unseenThenKey") == {"cancelled": sent, "key": sent}
+
+
 def test_with_a_mouse_too_a_finger_s_first_press_on_hidden_buttons_shows_them() -> None:
     mark = "POST /api/watch/watched/movie/1"
     assert _run("touchShows") == [

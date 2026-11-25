@@ -229,6 +229,11 @@
     unseen = null;
   }, true);
 
+  // A drag the browser took for a scroll ends with no click, and a key then presses for itself.
+  ['pointercancel', 'keydown'].forEach(function (name) {
+    document.addEventListener(name, function () { unseen = null; }, true);
+  });
+
   document.addEventListener('scroll', function () { say('is-touched', null); }, true);
 
   /* ── The levels, over the poster ── */
