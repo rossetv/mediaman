@@ -265,6 +265,17 @@ const scenarios = {
     await settle();
     return { hidden, deep: d.q('.hx-newest').getAttribute('href') };
   },
+  since: async () => {
+    const h = open({ search: '?since=2026-11-01&until=2026-11-03&q=x', filters: { q: 'x', since: '2026-11-01', until: '2026-11-03' } });
+    const out = { asked: h.asked.map((a) => a.url), ids: h.ids(), chip: h.q('[data-menu="date"]').textContent };
+    h.pick('user', 'bob');
+    out.next = h.asked[h.asked.length - 1].url;
+    out.url = h.win.location.href;
+    h.press('[data-clear="date"]');
+    out.cleared = h.asked[h.asked.length - 1].url;
+    const bad = open({ search: '?since=soon', filters: { since: 'soon' } });
+    return { ...out, bad: bad.q('[data-menu="date"]').textContent };
+  },
   plays: () => {
     const tv = (more) => item(1, { action: 'play', media_type: 'tv', line_title: 'Show', episodes: [{ label: 'S1E2' }], summary: 'S1E2', year: 2020, ...more });
     const film = (more) => item(1, { action: 'play', media_type: 'movie', line_title: 'Film', episodes: [], summary: '', year: 2023, ...more });

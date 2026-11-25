@@ -216,3 +216,15 @@ def test_the_newest_are_a_link_away_whenever_the_list_begins_further_down() -> N
 
 def test_the_newest_under_a_date_are_a_link_away_only_when_the_list_begins_further_down() -> None:
     assert _run("newestOfDates") == {"hidden": None, "deep": "/history?date=week"}
+
+
+def test_the_moments_an_address_names_stay_a_filter_until_cleared() -> None:
+    assert _run("since") == {
+        "asked": ["/api/history?per_page=1"],
+        "ids": ["5", "6"],
+        "chip": "1 Nov – 3 Nov",
+        "next": "/api/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
+        "url": "http://mm.test/history?q=x&user=bob&since=2026-11-01&until=2026-11-03",
+        "cleared": "/api/history?q=x&user=bob",
+        "bad": "Date",
+    }

@@ -5,7 +5,8 @@
  *    nears the end, or by a button for the keyboard. An event is listed once, whatever arrives.
  *  - Search and filters are kept in the address: a new one is a step Back undoes, typing on is not.
  *    `date` is a name (today, yesterday, week, month) or two days, `2026-11-01..2026-11-25`, of the
- *    reader's own zone; the server is asked for the moments they begin and end at.
+ *    reader's own zone; the server is asked for the moments they begin and end at,
+ *    and for `since` and `until` as an address names them.
  *  - Only the last question's answer is shown: a slower one before it is dropped.
  *  - Each row is a <details>. Opening one keeps `?event=<id>` in the address (replaceState, so
  *    Back does not step through every row). What lies below a row slides along with it, and the
@@ -19,7 +20,8 @@
   var TYPING_MS = 180;
   var SLOW_MS = 600;
   var DAY_MS = 864e5;
-  var KEYS = ['q', 'user', 'action', 'title', 'date'];
+  var KEYS = ['q', 'user', 'action', 'title', 'date', 'since', 'until'];
+  var MOMENT = /^\d{4}-\d\d-\d\d(T\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?)?$/;
   var DATES = { today: 'Today', yesterday: 'Yesterday', week: 'Last 7 days', month: 'Last 30 days' };
   var NAMES = { user: 'User', action: 'Action', title: 'Title', date: 'Date' };
 
@@ -155,6 +157,16 @@
     return ends[0] ? 'From ' + ends[0] : 'Until ' + ends[1];
   }
 
+  /* The day a moment of the address falls on: the one written, or the reader's own. */
+  function momentDay(text, isEnd) {
+    var at = localDay(text) || new Date(/T.*(Z|[+-]\d\d:\d\d)$/.test(text) ? text : text + 'Z');
+    return dayText(isEnd && text.length > 10 ? new Date(at - 1) : at);
+  }
+
+  function momentsLabel(since, until) {
+    return dateLabel((since && momentDay(since)) + '..' + (until && momentDay(until, true)));
+  }
+
   function start(root, data) {
     var MM = window.MM;
     var icon = MM.dom.icon;
@@ -200,6 +212,10 @@
       KEYS.forEach(function (k) { F[k] = (p.get(k) || '').trim().slice(0, 200); });
       if (!data.admin) F.user = '';
       if (F.date && !moments(F.date, new Date())) F.date = '';
+      /* A date named in the address stands for both ends. */
+      ['since', 'until'].forEach(function (k) {
+        if (F.date || !MOMENT.test(F[k]) || isNaN(new Date(F[k]))) F[k] = '';
+      });
       opened = p.get('event');
       return p;
     }
@@ -214,7 +230,7 @@
 
     function query(extra) {
       var p = new URLSearchParams();
-      ['q', 'user', 'action', 'title'].forEach(function (k) { if (F[k]) p.set(k, F[k]); });
+      ['q', 'user', 'action', 'title', 'since', 'until'].forEach(function (k) { if (F[k]) p.set(k, F[k]); });
       var when = F.date ? moments(F.date, new Date()) : null;
       Object.keys(when || {}).forEach(function (k) { p.set(k, when[k]); });
       Object.keys(extra || {}).forEach(function (k) { p.set(k, extra[k]); });
@@ -490,6 +506,7 @@
       if (F.user) w.push(F.user);
       if (F.action) w.push(actionLabel(F.action).toLowerCase());
       if (F.title) w.push('“' + F.title + '”');
+      if (F.since || F.until) w.push(momentsLabel(F.since, F.until));
       if (F.date) w.push(DATES[F.date] ? DATES[F.date].toLowerCase() : dateLabel(F.date));
       return w.join(', ');
     }
@@ -652,6 +669,7 @@
     }
 
     function chipLabel(k) {
+      if (k === 'date' && (F.since || F.until)) return momentsLabel(F.since, F.until);
       if (!F[k]) return '';
       return k === 'action' ? actionLabel(F[k]) : k === 'date' ? dateLabel(F[k]) : F[k];
     }
@@ -704,6 +722,7 @@
     function choose(k, value) {
       typing = false;
       F[k] = value;
+      if (k === 'date') { F.since = ''; F.until = ''; }
       closeMenu(true);
       change(false);
     }
@@ -1064,12 +1083,12 @@
       load(false);
     });
 
-    var p = readAddress();
+    readAddress();
     /* The server's words for what it filtered by, where the address has them. */
     ['q', 'user', 'action', 'title'].forEach(function (k) { F[k] = data.filters[k] || ''; });
     input.value = F.q;
     chips();
-    if (F.date || p.get('since') || p.get('until')) load(true);
+    if (F.date) load(true);
     else {
       show({ items: data.items, cursor: data.cursor, total: data.total, page: data.page });
       tellEverything();
