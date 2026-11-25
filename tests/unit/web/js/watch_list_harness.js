@@ -204,10 +204,9 @@ function load(opts = {}) {
       toast: (message, o) => {
         const entry = { message, dialog: (o && o.dialog && o.dialog.id) || null, undo: !!(o && o.action), action: o && o.action, dismissed: false };
         toasts.push(entry);
-        // Like the real toast: pressing its button dismisses it, then runs the action.
-        const button = { click() { entry.dismissed = true; o.action.onClick(); } };
-        return { querySelector: (sel) => (sel === '.ui-toast__action' && entry.undo ? button : null) };
+        return entry;
       },
+      dismiss: (entry) => { entry.dismissed = true; },
       error: (message) => errors.push(message),
       confirm: (o) => { confirms.push(o); return Promise.resolve(confirmAnswer); },
     },
@@ -1268,6 +1267,74 @@ const scenarios = {
     reply.resolve({ ok: true });
     await settle();
     return { during, after: p.posts().length };
+  },
+
+  // An Undo pressed while the show still saves: what it announces before that save is in.
+  async undoAnnouncedAtOnce() {
+    const p = await keepDialog({ seasons: seasonsOf(null, null), seasonId: 's1' });
+    await p.confirm();
+    await p.reopen();
+    p.replies['postForm /api/media/s2/keep'] = () => deferred().promise;
+    p.tick('s1', false);
+    p.tick('s2', true);
+    await p.confirm();
+    p.phases.length = 0;
+    p.toasts[0].action.onClick();
+    return p.phases;
+  },
+
+  // The dialog's buttons as Safari clicks them, which gives them no focus: where it is while the request runs.
+  async clickedUnfocused() {
+    const p = await keepDialog({ seasons: seasonsOf({ keep: until(30) }, null), seasonId: 's2' });
+    p.replies['postForm /api/media/s2/keep'] = () => deferred().promise;
+    p.doc.body.focus();
+    click(p.doc, p.button('keep-dialog-confirm'));
+    const keep = p.doc.activeElement.id;
+    const r = await keepDialog({ seasons: seasonsOf({ keep: until(30) }, null), seasonId: 's2' });
+    r.doc.body.focus();
+    r.answerConfirm(false);
+    click(r.doc, r.button('keep-dialog-remove'));
+    const asked = r.doc.activeElement.id;
+    await settle();
+    return { keep, asked, cancelled: r.doc.activeElement.id };
+  },
+
+  // A film's keep changed, removed and kept again: the toasts still up after each.
+  async oneKeepToast() {
+    const p = load({ list: true, rows: ROWS });
+    const up = () => p.toasts.filter((t) => !t.dismissed).map((t) => t.message);
+    const film = { id: 'm9', title: 'Copperline', kept: true, keep: MADE };
+    const out = [];
+    await p.ctx.MMWatch.admin.keep(film, '30 days');
+    await p.ctx.MMWatch.admin.keep(film, '7 days');
+    out.push(up());
+    await p.ctx.MMWatch.admin.removeKeep(film);
+    out.push(up());
+    await p.ctx.MMWatch.admin.keep({ ...film, kept: false, keep: null }, '90 days');
+    out.push(up());
+    p.toasts[p.toasts.length - 1].dismissed = true;
+    p.toasts[p.toasts.length - 1].action.onClick();
+    await settle();
+    await p.ctx.MMWatch.admin.keep(film, 'forever');
+    out.push(up());
+    await p.ctx.MMWatch.admin.keep({ ...film, id: 'm8', title: 'Other' }, 'forever');
+    out.push(up());
+    return out;
+  },
+
+  // A delete refused, as kept by someone else meanwhile or for another reason.
+  async deleteRefusedAsKept() {
+    const out = {};
+    for (const error of ['kept', 'delete_refused']) {
+      const p = load({ list: true });
+      p.serve('/watch/list', {}, ROWS.map((r) => (r.id === 'm1' ? { ...r, kept: true } : r)));
+      p.replies['post /api/media/m1/delete'] = () => Promise.reject(Object.assign(new Error('no'), { error, status: 409 }));
+      click(p.doc, p.row('id:m1').querySelector('[data-action="confirm-delete"]'));
+      await settle();
+      out[error] = { reads: p.fetches.length, kept: p.row('id:m1').classList.contains('wl-row--kept'),
+        busy: p.row('id:m1').classList.contains('is-busy'), errors: p.errors.length };
+    }
+    return out;
   },
 
   // A save that fails removes no keep.

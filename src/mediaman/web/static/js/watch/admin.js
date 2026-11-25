@@ -174,33 +174,36 @@
   var STILL_SAVING = 'Still saving the last change to this title. Try again in a moment.';
   var KEEP_CHANGED = 'Its keep was changed meanwhile, so it was left as it is now.';
 
-  /* The Undo toast of each title's last keep, so a later change to that keep
-     can take it away: its Undo would then undo the wrong thing. */
-  var _undoToasts = {};
+  /* The toast of each title's last keep change, taken away as a later one starts: it
+     would say what is no longer so, and its Undo would undo the wrong thing. */
+  var _keepToasts = {};
 
-  /* *ids*: what the keep is of; *run* undoes it. */
+  /* *ids*: what the keep is of. */
+  function tellKeep(ids, message, opts) {
+    ids.forEach(retireToast);
+    var entry = { spent: false, node: window.UIFeedback.toast(message, opts) };
+    ids.forEach(function (id) { _keepToasts[id] = entry; });
+    return entry;
+  }
+
+  /* *run* undoes the keep. */
   function offerUndo(ids, message, run) {
-    ids.forEach(retireUndo);
-    var entry = { spent: false };
-    entry.node = window.UIFeedback.toast(message, {
+    var entry = tellKeep(ids, message, {
       variant: 'success',
       dialog: document.documentElement.classList.contains('has-ttl') ? byId('ttl') : null,
       action: { label: 'Undo', onClick: function () {
-        ids.forEach(function (id) { if (_undoToasts[id] === entry) delete _undoToasts[id]; });
+        ids.forEach(function (id) { if (_keepToasts[id] === entry) delete _keepToasts[id]; });
         if (!entry.spent) run();
       } }
     });
-    ids.forEach(function (id) { _undoToasts[id] = entry; });
   }
 
-  /* Dismiss the toast the way its own button would, without running its Undo. */
-  function retireUndo(id) {
-    var entry = _undoToasts[id];
+  function retireToast(id) {
+    var entry = _keepToasts[id];
     if (!entry) return;
-    delete _undoToasts[id];
+    delete _keepToasts[id];
     entry.spent = true;
-    var btn = entry.node && entry.node.querySelector && entry.node.querySelector('.ui-toast__action');
-    if (btn) btn.click();
+    window.UIFeedback.dismiss(entry.node);
   }
 
   /* ── Keep ── */
@@ -229,7 +232,7 @@
     _busy[w.id] = 'keep';
     backToTrigger(w);
     var id = w.id;
-    retireUndo(id);
+    retireToast(id);
     var detail = { action: 'keep', id: id, showRk: '' };
     emit('busy', detail);
     var days = KEEP_DAYS[duration];
@@ -242,7 +245,7 @@
       saved(detail, data && data.keep);
       if (data && data.deletion_running && data.message) {
         /* Saved, but its files may already be gone: say so, with no undo. */
-        window.UIFeedback.toast(data.message, { duration: 8000 });
+        tellKeep([id], data.message, { duration: 8000 });
         return true;
       }
       var undo = null;
@@ -252,7 +255,7 @@
         undo = function () { return unprotect(id, data.keep); };
       }
       if (undo) offerUndo([id], keptMessage(w.title, duration), function () { undoKeep(id, undo); });
-      else window.UIFeedback.toast(keptMessage(w.title, duration), { variant: 'success' });
+      else tellKeep([id], keptMessage(w.title, duration), { variant: 'success' });
       return true;
     }, function (err) {
       delete _busy[id];
@@ -272,7 +275,7 @@
     undo().then(function () {
       delete _busy[id];
       saved(detail, null);
-      window.UIFeedback.toast('Keep undone.');
+      tellKeep([id], 'Keep undone.');
     }, function (err) {
       delete _busy[id];
       notSaved(detail, notToUndo(err));
@@ -292,7 +295,7 @@
       return Promise.resolve(false);
     }
     _busy[id] = 'unkeep';
-    retireUndo(id);
+    retireToast(id);
     backToTrigger(w);
     var detail = { action: 'unkeep', id: id, showRk: w.isTv ? w.showRk : '' };
     emit('busy', detail);
@@ -300,7 +303,7 @@
       .then(function () {
         delete _busy[id];
         saved(detail, null);
-        window.UIFeedback.toast('Removed the keep on ' + (w.title || 'it') + '.');
+        tellKeep([id], 'Removed the keep on ' + (w.title || 'it') + '.');
         return true;
       }, function (err) {
         delete _busy[id];
@@ -503,6 +506,11 @@
     holdKeepWhileSaving(_keepDialogRequest, function () { return byId('keep-season-list').querySelector('input'); });
   }
 
+  function park(list) {
+    list.tabIndex = -1;
+    list.focus();
+  }
+
   function openKeepDialog(w, duration) {
     if (!_keepDialogModal) buildKeepDialog();
     _keepDialogState.showRk = w.showRk;
@@ -577,8 +585,7 @@
     var retry = button('btn btn--secondary btn--sm', 'Retry', { id: 'keep-seasons-retry' });
     retry.addEventListener('click', function () {
       /* The button goes with the message; park focus on the list meanwhile. */
-      list.tabIndex = -1;
-      list.focus();
+      park(list);
       loadKeepSeasons(function () { return list.querySelector('input'); });
     });
     seasonsFailed(list, retry);
@@ -741,11 +748,11 @@
     if (state.isOpen()) closeKeepDialog();
     emit('done', { action: 'show', id: state.seasonId, showRk: state.showRk });
     if (data && data.deletion_running && data.message) {
-      window.UIFeedback.toast(state.say(data.message), { duration: 8000 });
+      tellKeep(state.ids, state.say(data.message), { duration: 8000 });
     } else if (undo) {
-      offerUndo(undo.ids, message, undo.run);
+      offerUndo(state.ids, message, undo);
     } else {
-      window.UIFeedback.toast(message, { variant: 'success' });
+      tellKeep(state.ids, message, { variant: 'success' });
     }
   }
 
@@ -840,8 +847,8 @@
       var failed = [];
       var changed = false;
       var before = _keepChains[chainKey] || Promise.resolve();
+      emit('busy', detail); // at once: the focus has to leave the toast that goes
       trackKeepChain(chainKey, before.then(function () {
-        emit('busy', detail);
         return c.keeps.reduce(function (chain, s) {
           return chain.then(function () { return undoOne(s); }).catch(function (err) {
             changed = changed || notToUndo(err);
@@ -851,11 +858,11 @@
       }).then(function () {
         emit(changed || failed.length < c.keeps.length ? 'done' : 'failed', detail);
         if (failed.length) window.UIFeedback.error("Couldn't undo the keep. " + failed.join(' '));
-        else window.UIFeedback.toast('Keep undone.');
+        else tellKeep(state.ids, 'Keep undone.');
       }));
       holdOpenDialog();
     }
-    return { ids: c.keeps.map(function (s) { return s.id; }), run: run };
+    return run;
   }
 
   function idsOf(seasons) { return seasons.map(function (s) { return s.id; }); }
@@ -885,12 +892,10 @@
     var btn = byId('keep-dialog-confirm');
     var btnLabel = btn.textContent;
     /* Disabling the focused button would drop focus out of the dialog; park
-       it on the season list, as Retry does, until the button is back. */
+       it on the season list, as Retry does, until the button is back. Safari
+       does not focus a button that is clicked, so wherever it is. */
     var list = byId('keep-season-list');
-    if (document.activeElement === btn) {
-      list.tabIndex = -1;
-      list.focus();
-    }
+    park(list);
     btn.disabled = true;
     btn.textContent = 'Keeping…';
     var removeAllBtn = byId('keep-dialog-remove');
@@ -909,6 +914,7 @@
     var state = {
       showRk: rk,
       seasonId: _keepDialogState.seasonId,
+      ids: idsOf(c.all || c.endsShow ? _keepDialogState.seasons : c.keeps.concat(c.drops)),
       isOpen: function () { return request === _keepDialogRequest; },
       /* A toast from a dialog no longer shown must say whose keep it is. */
       say: function (msg) { return state.isOpen() || !showTitle ? msg : showTitle + ': ' + msg; }
@@ -916,7 +922,7 @@
     var say = state.say;
     var rowDetail = { action: 'show', id: state.seasonId, showRk: rk };
     /* The Undo of an earlier keep this changes would undo the wrong thing. */
-    (c.all || c.endsShow ? _keepDialogState.seasons : c.keeps.concat(c.drops)).forEach(function (s) { retireUndo(s.id); });
+    state.ids.forEach(retireToast);
     emit('busy', rowDetail);
     function done(data, undo) {
       showKeepSaved(state, data, savedMessage(showTitle, c, dur), undo);
@@ -925,10 +931,7 @@
     function readAgain(picked) {
       var refocus = document.activeElement === list || MM.dom.focusStillIn(btn);
       _keepDialogState.picked = picked;
-      if (refocus) {
-        list.tabIndex = -1;
-        list.focus();
-      }
+      if (refocus) park(list);
       loadKeepSeasons(refocus ? function () { return btn; } : undefined);
     }
 
@@ -1005,7 +1008,7 @@
       if (changed.length) said.push(changedMessage(changed));
       window.UIFeedback.error(say(said.join(' ')));
       if (running && running.message) {
-        window.UIFeedback.toast(say(running.message), { duration: 8000 });
+        tellKeep(state.ids, say(running.message), { duration: 8000 });
       }
       emit(saved || changed.length ? 'done' : 'failed', rowDetail);
     });
@@ -1018,6 +1021,8 @@
   function removeAllKeeps() {
     /* Disabled until the requests settle, so a second click cannot resend them. */
     var removeBtn = byId('keep-dialog-remove');
+    var list = byId('keep-season-list');
+    park(list); // a disabled button cannot take the focus back from the confirm
     removeBtn.disabled = true;
     window.UIFeedback.confirm({
       title: 'Remove all keeps for this show?',
@@ -1030,18 +1035,23 @@
       var request = _keepDialogRequest;
       var chainKey = keepChainKey();
       var before = _keepChains[chainKey];
-      if (!ok) { removeBtn.disabled = !!before; return; }
+      if (!ok) {
+        removeBtn.disabled = !!before;
+        if (!before && MM.dom.focusStillIn(list)) removeBtn.focus();
+        return;
+      }
       var showTitle = _keepDialogState.showTitle;
       var rk = _keepDialogState.showRk;
+      var seasons = _keepDialogState.seasons;
       var state = {
         showRk: rk,
         seasonId: _keepDialogState.seasonId,
+        ids: idsOf(seasons),
         isOpen: function () { return request === _keepDialogRequest; },
         say: function (msg) { return state.isOpen() || !showTitle ? msg : showTitle + ': ' + msg; }
       };
       var rowDetail = { action: 'unkeep', id: state.seasonId, showRk: rk };
-      var seasons = _keepDialogState.seasons;
-      seasons.forEach(function (s) { retireUndo(s.id); });
+      state.ids.forEach(retireToast);
       emit('busy', rowDetail);
       var allRequests = [];
       var whole = !!rk && !!_keepDialogState.showKept;
@@ -1077,8 +1087,8 @@
       });
       trackKeepChain(chainKey, chain);
       /* Holds Keep and Remove all, then reads the seasons again, so a retry
-         sends only what is still kept. Remove all was disabled through the
-         requests, so focus fell to the page: after a failure it goes back. */
+         sends only what is still kept. The focus, parked on the list, goes back
+         to Remove all after a failure. */
       holdKeepWhileSaving(request, function () {
         return failed.length || changed.length ? removeBtn : null;
       }, true);
@@ -1113,7 +1123,7 @@
       if (!ok || _busy[id]) return false;
       if (opts.started) opts.started();
       _busy[id] = 'delete';
-      retireUndo(id);
+      retireToast(id);
       emit('busy', detail);
       return MM.api.post('/api/media/' + encodeURIComponent(id) + '/delete')
         .then(function () {
@@ -1123,7 +1133,7 @@
           return true;
         }, function (err) {
           delete _busy[id];
-          emit('failed', detail);
+          notSaved(detail, !!err && err.error === 'kept');
           window.UIFeedback.error("Couldn't delete " + (title || 'the item') + '. ' + MM.api.messageOf(err, 'Try again.'));
           return false;
         });

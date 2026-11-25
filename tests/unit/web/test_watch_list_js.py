@@ -796,3 +796,31 @@ def test_setting_all_seasons_leaves_a_longer_keep_that_is_a_seasons_own() -> Non
 
 def test_ctrl_z_reaches_the_undo_of_an_admin_keep_made_in_details() -> None:
     assert _run("keepToastDialog") == ["ttl", None]
+
+
+def test_an_undo_is_announced_as_it_is_pressed_though_it_waits_for_a_save() -> None:
+    assert _run("undoAnnouncedAtOnce") == ["busy"]
+
+
+def test_a_dialog_button_clicked_without_the_focus_keeps_the_focus_in_the_dialog() -> None:
+    assert _run("clickedUnfocused") == {
+        "keep": "keep-season-list",
+        "asked": "keep-season-list",
+        "cancelled": "keep-dialog-remove",
+    }
+
+
+def test_only_the_last_keep_change_of_a_title_has_a_toast() -> None:
+    assert _run("oneKeepToast") == [
+        ["Kept Copperline for 7 days."],
+        ["Removed the keep on Copperline."],
+        ["Kept Copperline for 90 days."],
+        ["Kept Copperline forever."],
+        ["Kept Copperline forever.", "Kept Other forever."],
+    ]
+
+
+def test_a_delete_refused_as_kept_shows_the_keep_on_its_row() -> None:
+    out = _run("deleteRefusedAsKept")
+    assert out["kept"] == {"reads": 1, "kept": True, "busy": False, "errors": 1}
+    assert out["delete_refused"] == {"reads": 0, "kept": False, "busy": False, "errors": 1}
