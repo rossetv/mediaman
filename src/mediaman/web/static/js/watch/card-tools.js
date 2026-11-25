@@ -251,16 +251,28 @@
 
   /* With a mouse as well, a finger's or a pen's press on a button not in sight is nobody's: it shows
      that card's buttons, which a touch may leave no hover to show, for the next press. A press
-     elsewhere, or a scroll, hides them again. */
+     elsewhere, or a scroll, hides them again. The browser leaves the card a finger pressed under
+     :hover, so until the mouse moves again the page is by touch, and :hover shows no buttons. */
   var unseen = null;
+  var byTouch = false;
 
   document.addEventListener('pointerdown', function (e) {
     var tool = e.pointerType !== 'mouse' && mouse() && e.target.closest && e.target.closest('.card-tool');
     var card = tool && tool.closest('.watch-card');
     unseen = tool && card !== says['is-touched'] && Number(getComputedStyle(tool).opacity) < 0.5 ? tool : null;
-    if (unseen) say('is-touched', card);
+    if (tool) say('is-touched', card);
     else if (says['is-touched'] && !says['is-touched'].contains(e.target)) say('is-touched', null);
+    if (!byTouch && e.pointerType === 'touch' && mouse()) {
+      byTouch = true;
+      document.documentElement.classList.add('is-by-touch');
+    }
   }, true);
+
+  document.addEventListener('pointermove', function (e) {
+    if (!byTouch || e.pointerType !== 'mouse') return;
+    byTouch = false;
+    document.documentElement.classList.remove('is-by-touch');
+  }, { passive: true });
 
   document.addEventListener('click', function (e) {
     if (unseen && unseen.contains(e.target)) {

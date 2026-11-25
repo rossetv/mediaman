@@ -410,6 +410,26 @@ const scenarios = {
     return { hidden: await press(0), shown: await press(1) };
   },
 
+  // Where the screen has a mouse too: a finger, its moves, the mouse's move, a pen; then a touch screen alone.
+  async byTouch() {
+    const go = (opts) => {
+      const p = load(watchPage([row('lib', [FILM()])]), opts);
+      const eye = p.cards()[0].querySelector('.card-tool--eye');
+      const by = () => p.doc.documentElement.classList.contains('is-by-touch');
+      const out = [];
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'touch', pointerId: 1 });
+      // A press on buttons the mouse had shown keeps them shown, as the mouse's :hover no longer does.
+      out.push([by(), p.cards()[0].classList.contains('is-touched')]);
+      send(p.doc.listeners.pointermove, { target: eye, pointerType: 'touch', pointerId: 1 });
+      out.push(by());
+      send(p.doc.listeners.pointermove, { target: p.doc.body, pointerType: 'mouse', pointerId: 2 });
+      out.push(by());
+      send(p.doc.listeners.pointerdown, { target: eye, pointerType: 'pen', pointerId: 3 });
+      return out.concat([by()]);
+    };
+    return [go(), go({ touch: true })];
+  },
+
   // A finger's drag on a button not in sight, that the browser takes for a scroll, then Enter on it.
   async unseenThenKey() {
     const press = async (between) => {
