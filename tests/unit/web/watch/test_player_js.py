@@ -1558,6 +1558,10 @@ def test_a_wait_gone_silent_once_a_refusal_or_a_drop_is_over_is_a_drop(markup, w
     assert out == {"before": None, "notice": NOTICE_LOST, "starts": 1}
 
 
+def test_the_light_request_carries_no_session(markup):
+    assert run(markup, "light_request") == ["omit"]
+
+
 @pytest.mark.parametrize("what", ["start", "playlist"])
 def test_a_slow_start_is_said_and_waited_for(markup, what):
     out = run(markup, "hung", plays=f"{what} answered")

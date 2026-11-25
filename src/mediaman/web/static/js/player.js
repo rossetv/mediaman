@@ -80,8 +80,8 @@
   var LOST_FOR_MS = 60000;
   /* And where the server refuses, or refuses and is lost by turns, for this long. */
   var NONE_FOR_MS = 2 * LOST_FOR_MS;
-  /* How long a light request, which needs neither Plex nor the database, may go unanswered
-     before the connection counts as lost. */
+  /* How long a light request may go unanswered before the connection counts as lost. It needs
+     neither Plex nor, sent with no session, the database. */
   var LIGHT_URL = '/healthz';
   var LIGHT_WAIT_MS = 5000;
   /* How long the picture waits before it is said why: a drop, and a busy server or a slow start. */
@@ -810,7 +810,7 @@
     var abort = new AbortController();
     var timer = setTimeout(function () { abort.abort(); }, LIGHT_WAIT_MS);
     /* A login page in front of mediaman may answer with its address: an answer too. */
-    fetch(LIGHT_URL, { credentials: 'same-origin', cache: 'no-store', redirect: 'manual', signal: abort.signal })
+    fetch(LIGHT_URL, { credentials: 'omit', cache: 'no-store', redirect: 'manual', signal: abort.signal })
       .then(function (resp) { return !fromProxy(resp.status); }, function () { return false; })
       .then(function (answered) {
         clearTimeout(timer);
