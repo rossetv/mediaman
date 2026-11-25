@@ -55,6 +55,7 @@ from mediaman.web.repository import tv as repo
 from mediaman.web.repository.ratings import find_user_id
 from mediaman.web.repository.watch_progress import get_progress
 from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes import older_play
 from mediaman.web.routes.cast import _CastRequest
 from mediaman.web.routes.cast import _start as _start_cast
 from mediaman.web.routes.watch.browse_api import api_watch_thumb
@@ -160,6 +161,8 @@ class _PlayOn(_Body):
     position_s: _Seconds | None = None
     autoplay: bool = True
     asked_s: _Seconds = 0
+    #: Of an older TV, whether to end what someone else plays on it.
+    confirm: bool = False
 
 
 class _Command(_Body):
@@ -488,7 +491,8 @@ def _start_on(
         begun.append(play)
         # What played counts among the owner's streams until it has ended.
         _carry_out(players)
-        answer = _start_cast(request, body, user, key, manager, began)
+        session = older_play.session_of(key)
+        answer = _start_cast(request, body, user, session, manager, began)
         if answer.status_code == 200:
             return _take_stream(answer, manager, held, play)
         return answer
@@ -534,7 +538,8 @@ def _take_stream(answer: Response, manager: StreamManager, held: repo.Tv, play: 
 def _may_go_on(key: str, user: str, play_id: str, in_time: Callable[[], bool]) -> bool:
     """Whether the reaper is to leave a TV's stream: its TV answers and is still the person's."""
     players = get_players()
-    paired = repo.is_paired(get_db(), key, user)
+    conn = get_db()
+    paired = repo.is_paired(conn, key, user) or older_play.is_held(conn, key, user)
     if not paired:
         players.forget(key, "unpaired")
     goes_on = paired and players.holds(key, play_id) and in_time()
@@ -620,10 +625,14 @@ def _not_found() -> Response:
 
 
 def _own(username: str, tv_id: _TvId) -> repo.Tv | Response:
-    """The person's paired TV; the answer to give where it is not theirs."""
+    """The person's paired TV, or an older one; the answer to give where it is not theirs."""
     held = repo.find(get_db(), tv_id)
     if held is not None and held.owner == username and held.token_hash is not None:
         return held
+    if held is not None and held.kind == "older":
+        everyones = older_play.held_by(get_db(), username, held)
+        if everyones is not None:
+            return everyones
     user_id = find_user_id(get_db(), username)
     was = get_players().gone(user_id, tv_id) if user_id is not None else None
     if was is None:
@@ -639,10 +648,12 @@ def _limited(limiter: ActionRateLimiter, username: str) -> Response | None:
 def _shown(held: repo.Tv) -> dict[str, Any]:
     return {
         "id": held.id,
+        "kind": held.kind,
         "name": held.name,
         "paired_at": held.paired_at,
         "last_seen_at": held.last_seen_at,
         **get_players().view(held.token_hash or ""),
+        **(older_play.told_of(held) if held.kind == "older" else {}),
     }
 
 
@@ -722,7 +733,9 @@ def own_tvs(username: _Username) -> Response:
     if limited is not None:
         return limited
     players = get_players()
-    shown = [_shown(held) for held in repo.owned(get_db(), username)]
+    conn = get_db()
+    theirs = repo.owned(conn, username) + older_play.everyones(conn, username)
+    shown = [_shown(held) for held in theirs]
     _carry_out(players)
     return respond_ok({"tvs": shown})
 
@@ -734,6 +747,8 @@ def all_tvs(admin: Annotated[str, Depends(get_current_admin)]) -> Response:
     if limited is not None:
         return limited
     players = get_players()
+    every = repo.every(get_db())
+    keys = {held.id: held.token_hash or older_play.key_of(held.id) for held in every}
     return respond_ok(
         {
             "tvs": [
@@ -744,10 +759,10 @@ def all_tvs(admin: Annotated[str, Depends(get_current_admin)]) -> Response:
                     "owner": held.owner,
                     "paired_at": held.paired_at,
                     "last_seen_at": held.last_seen_at,
-                    "on": players.is_on(held.token_hash or ""),
-                    "playing": players.is_playing(held.token_hash or ""),
+                    "on": players.is_on(keys[held.id]),
+                    "playing": players.is_playing(keys[held.id]),
                 }
-                for held in repo.every(get_db())
+                for held in every
             ]
         }
     )
@@ -805,6 +820,7 @@ def _unpair(request: Request, held: repo.Tv, *, actor: str) -> None:
     players = get_players()
     players.forget(held.token_hash or "", "unpaired", held.id)
     _carry_out(players)
+    older_play.end(held.id, "unpaired", _carry_out)
 
 
 @router.post("/api/tvs/{tv_id}/play")
@@ -812,7 +828,13 @@ def play_on_tv(request: Request, tv_id: _TvId, body: _PlayBody, username: _Usern
     limited = _limited(_COMMAND_LIMITER, username)
     if limited is not None:
         return limited
-    held = _own(username, tv_id)
+    tv = repo.find(get_db(), tv_id)
+    held: repo.Tv | Response
+    if tv is not None and tv.kind == "older":
+        steering = older_play.Steering(_carry_on, _carry_out, _keep_alive)
+        held = older_play.claim_tv(request, tv, username, confirm=body.confirm, steering=steering)
+    else:
+        held = _own(username, tv_id)
     if isinstance(held, Response):
         return held
     choice = Choice(quality=body.quality, subtitle=body.subtitle, autoplay=body.autoplay)

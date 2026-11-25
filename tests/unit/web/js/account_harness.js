@@ -106,7 +106,7 @@ const push = (button) => button.listeners.click.forEach((fn) => fn({}));
 
 const scenarios = {
   async tvs() {
-    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) })], []), { tvs: 'viewer' });
+    const p = page(tvApi([tvOf(1, 'Living room', { on: true }), tvOf(2, '<b>Den'), tvOf(3, 'New', { last_seen_at: at(-400) }), tvOf(4, 'Kitchen TV', { kind: 'older' })], []), { tvs: 'viewer' });
     await settle();
     const none = page(tvApi([], []), { tvs: 'viewer' });
     await settle();

@@ -619,7 +619,7 @@
 
     function load() {
       asked += 1;
-      ask('/api/tvs', mine, function () { return true; });
+      ask('/api/tvs', mine, function (tv) { return tv.kind !== 'older'; });
       if (others) ask('/api/tvs/all', others, function (tv) { return tv.kind === 'page' && tv.owner && tv.owner !== me; });
     }
 
