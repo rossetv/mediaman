@@ -70,15 +70,16 @@
   }
 
   /* A filter that lets each card through once: the same key, the same TMDB
-     title, or the same title, kind and year where neither ids nor refs can tell. */
+     title, or the same title, kind and year where neither ids nor refs can tell.
+     A card with no ref goes by data-key alone; one with neither always passes. */
   function onlyNew() {
     var keys = new Set();
     var ids = new Set();
     var names = new Map();
     return function isNew(card) {
       var link = card.querySelector('[data-title-ref]');
-      if (!link) return true;
-      var key = keyOf(card);
+      var key = keyOf(card) || card.getAttribute('data-key');
+      if (!link) return !key || !keys.has(key) && !!keys.add(key);
       var id = tmdbOf(link);
       if (keys.has(key) || (id && ids.has(id))) return false;
       var source = sourceOf(link.getAttribute('data-title-ref'));
