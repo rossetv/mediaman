@@ -14,12 +14,16 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import cast
 
 import requests
 
 from mediaman.services.arr import ArrError
 from mediaman.services.arr import build as arr_build
+from mediaman.services.arr._types import ArrQueueItem, SonarrSeries
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.seasons import SeasonQueue, SeasonState, queued_seasons, season_states
 from mediaman.services.arr.state import (
     ACTION_DOWNLOADING,
     ACTION_QUEUED,
@@ -54,6 +58,7 @@ class ArrView:
     answering: frozenset[str] = frozenset()
     #: The generation of the build that made this view; None for one not built here.
     generation: int | None = None
+    season_queue: SeasonQueue = field(default_factory=dict)
 
     def is_current(self) -> bool:
         """Whether no invalidate has happened since this view was built."""
@@ -89,6 +94,16 @@ class ArrView:
             None,
         )
 
+    def season_states(
+        self, tmdb_id: int | None, tvdb_id: int | None
+    ) -> dict[int, SeasonState] | None:
+        """The state of each season Sonarr lists of a show; None for one it does not track."""
+        held = self.caches["sonarr_series"]
+        series = held.get(tmdb_id) if tmdb_id else None
+        if series is None and tvdb_id:
+            series = next((s for s in held.values() if s.get("tvdbId") == tvdb_id), None)
+        return season_states(series, self.season_queue) if series is not None else None
+
     def seasons_with_files(self, tmdb_id: int) -> set[int]:
         series = self.caches["sonarr_series"].get(tmdb_id, {})
         return {
@@ -99,59 +114,119 @@ class ArrView:
         }
 
 
-def _radarr(conn: sqlite3.Connection, secret_key: str) -> tuple[RadarrCaches, bool]:
+def _client(
+    build: Callable[[sqlite3.Connection, str], ArrClient | None],
+    conn: sqlite3.Connection,
+    secret_key: str,
+) -> ArrClient | None:
+    try:
+        return build(conn, secret_key)
+    except _ARR_ERRORS:
+        logger.warning("watch: an arr client cannot be set up", exc_info=True)
+        return None
+
+
+def _radarr(client: ArrClient | None) -> tuple[RadarrCaches, bool]:
     """Radarr's caches, and whether it is set up and answered."""
     try:
-        client = arr_build.build_radarr_from_db(conn, secret_key)
         return build_radarr_cache(client), client is not None
     except _ARR_ERRORS:
         logger.warning("watch: Radarr unavailable; titles show no Radarr state", exc_info=True)
         return build_radarr_cache(None), False
 
 
-def _sonarr(conn: sqlite3.Connection, secret_key: str) -> tuple[SonarrCaches, bool]:
-    """Sonarr's caches, and whether it is set up and answered."""
+class _QueueKept:
+    """A Sonarr client for the cache builder, which keeps no queue by season: keeps the one read."""
+
+    def __init__(self, client: ArrClient) -> None:
+        self._client = client
+        self.queue: list[ArrQueueItem] = []
+
+    def get_series(self) -> list[SonarrSeries]:
+        return self._client.get_series()
+
+    def get_queue(self) -> list[ArrQueueItem]:
+        self.queue = self._client.get_queue()
+        return self.queue
+
+
+def _sonarr(client: ArrClient | None) -> tuple[SonarrCaches, SeasonQueue, bool]:
+    """Sonarr's caches, its queue by season, and whether it is set up and answered."""
+    if client is None:
+        return build_sonarr_cache(None), {}, False
     try:
-        client = arr_build.build_sonarr_from_db(conn, secret_key)
-        return build_sonarr_cache(client), client is not None
+        kept = _QueueKept(client)
+        caches = build_sonarr_cache(cast(ArrClient, kept))
+        return caches, queued_seasons(kept.queue), True
     except _ARR_ERRORS:
         logger.warning("watch: Sonarr unavailable; titles show no Sonarr state", exc_info=True)
-        return build_sonarr_cache(None), False
+        return build_sonarr_cache(None), {}, False
 
 
 def arr_view(
-    conn: sqlite3.Connection, secret_key: str, *, clock: Callable[[], float] = time.monotonic
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    wait_s: float | None = None,
 ) -> ArrView:
-    now = clock()
+    """The held view, or one built now. With *wait_s* a view not there by then is built on in
+    the background, and an empty one that answers for neither service comes back."""
     with _lock:
         held = _memo.get("arr")
-        if held is not None and held[0] > now:
+        if held is not None and held[0] > clock():
             return held[1]
         generation = _generation[0]
         future = _building.get(generation)
         owner = future is None
         if future is None:
             future = _building[generation] = Future()
-    if not owner:
-        return future.result()
+    if owner:
+        try:
+            # Built here: the connection is this thread's own.
+            radarr = _client(arr_build.build_radarr_from_db, conn, secret_key)
+            sonarr = _client(arr_build.build_sonarr_from_db, conn, secret_key)
+            args = (future, generation, radarr, sonarr, clock)
+            if wait_s is None:
+                _build(*args)
+            else:
+                threading.Thread(target=_build, args=args, daemon=True).start()
+        except BaseException as exc:
+            _failed(future, generation, exc)
     try:
-        radarr, radarr_answered = _radarr(conn, secret_key)
-        sonarr, sonarr_answered = _sonarr(conn, secret_key)
+        return future.result(wait_s)
+    except TimeoutError:
+        return ArrView({**build_radarr_cache(None), **build_sonarr_cache(None)})
+
+
+def _build(
+    future: Future[ArrView],
+    generation: int,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
+    clock: Callable[[], float],
+) -> None:
+    try:
+        radarr, radarr_answered = _radarr(radarr_client)
+        sonarr, season_queue, sonarr_answered = _sonarr(sonarr_client)
     except BaseException as exc:
-        with _lock:
-            _building.pop(generation, None)
-        future.set_exception(exc)
-        raise
+        _failed(future, generation, exc)
+        return
     answering = frozenset(
         name for name, ok in (("radarr", radarr_answered), ("sonarr", sonarr_answered)) if ok
     )
-    view = ArrView({**radarr, **sonarr}, answering, generation)
+    view = ArrView({**radarr, **sonarr}, answering, generation, season_queue)
     with _lock:
         if _generation[0] == generation:
-            _memo["arr"] = (now + TTL_S, view)
+            _memo["arr"] = (clock() + TTL_S, view)
         _building.pop(generation, None)
     future.set_result(view)
-    return view
+
+
+def _failed(future: Future[ArrView], generation: int, exc: BaseException) -> None:
+    with _lock:
+        _building.pop(generation, None)
+    future.set_exception(exc)
 
 
 def invalidate() -> None:
