@@ -163,6 +163,42 @@ const scenarios = {
     return [kept, badges()];
   },
 
+  // The badge of a kept season, and the one that takes its place, as they change over.
+  async seasonFades() {
+    const go = async (still) => {
+      const page = load({ motion: !still });
+      page.doc.body.appendChild(leavingRowPage(page.doc));
+      const runs = [];
+      const badge = (text) => {
+        const node = build(page.doc, ['span', { class: 'watch-badge--leaving' }, text]);
+        node.animate = (frames, opts) => { const run = { frames, opts, cancel() { run.cancelled = true; } }; runs.push(run); return run; };
+        return node;
+      };
+      const card = build(page.doc, ['article', { class: 'watch-card', 'data-leaving-id': '1100',
+        'data-leaving-seasons': JSON.stringify([{ id: '1100', season: 1, days: 2 }, { id: '1101', season: 2, days: 5 }]) },
+        ['a', { class: 'watch-card__link' }, ['span', { class: 'watch-card__poster' }]]]);
+      card.querySelector('.watch-card__poster').appendChild(badge('S1'));
+      page.doc.body.appendChild(card);
+      page.run();
+      page.ctx.MMWatch.search = { leavingBadge: (item) => badge('S' + item.leaving_season) };
+      const badges = () => card.querySelectorAll('.watch-badge--leaving').map((n) => [n.textContent, n.hasAttribute('data-going'), n.classList.contains('fade-in')]);
+      click(page.doc, page.doc.querySelector('.watch-row [data-watch-keep]'));
+      click(page.doc, page.doc.querySelector('#watch-keep-menu [data-days]'));
+      await settle();
+      const during = badges();
+      if (!runs.length) return { during };
+      const out = runs[0];
+      page.toasts[0].opts.action.onClick();
+      await settle();
+      const undone = badges();
+      out.onfinish(); // the fade the Undo took back
+      const after = badges();
+      runs[1].onfinish();
+      return { during, frames: out.frames, undone, cancelled: !!out.cancelled, after, end: badges() };
+    };
+    return { moving: await go(false), still: await go(true) };
+  },
+
   // The dialog a Keep's toast says it came from, so that Ctrl+Z reaches its Undo.
   async toastDialog() {
     const keepOnce = async (where) => {

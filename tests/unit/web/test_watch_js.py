@@ -116,6 +116,20 @@ def test_a_kept_season_gives_its_badge_up_to_the_next_that_leaves_until_an_undo(
     assert _run("seasonKept") == [["S2 in 5"], ["S2", "S1"]]
 
 
+def test_a_seasons_badge_fades_as_the_next_takes_its_place_and_an_undo_takes_the_fade_back() -> (
+    None
+):
+    out = _run("seasonFades")
+    moving = out["moving"]
+    assert sorted(moving["during"]) == [["S1", True, False], ["S2", False, True]]
+    assert moving["frames"] == [{"opacity": 1}, {"opacity": 0}]
+    back = [["S1", False, True], ["S2", True, True]]
+    assert (sorted(moving["undone"]), moving["cancelled"]) == (back, True)
+    assert sorted(moving["after"]) == back
+    assert moving["end"] == [["S1", False, True]]
+    assert out["still"]["during"] == [["S2", False, True]]
+
+
 def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
     out = _run("undoneCardShown")
     # The row does not snap back to the card it stood on, and the focus does not scroll it too.
