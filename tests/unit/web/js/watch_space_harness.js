@@ -715,6 +715,7 @@ const scenarios = {
     p.$('recent-scroll').append(build(p.doc, ['article', { class: 'watch-card', 'data-leaving-id': '2' }, ['span', { class: 'watch-badge watch-badge--leaving' }, 'Season 2 leaves in 3 days']]));
     await p.refresh();
     const kept = p.all('.watch-badge--leaving').length;
+    p.told.length = 0;
     await p.open();
     await p.click(p.one('#space-scheduled .btn--danger'));
     return { kept, cards: p.cards(), row: p.one('[data-row-id="leaving"]') !== null, badges: p.all('.watch-badge--leaving').length, told: p.told, asked: p.server.pages, inPanel: !!p.doc.activeElement.closest('#space') };
