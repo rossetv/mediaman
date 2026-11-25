@@ -1191,7 +1191,7 @@ const scenarios = {
   // The Arr says the title is already there: no error, no Try again, busy until the title's own reply
   // answers, and that reply decides the panel and the cards.
   async downloadAlreadyThere() {
-    const run = async (again, later) => {
+    const run = async (again, later, message) => {
       let gets = 0;
       let answer;
       const p = load({
@@ -1200,7 +1200,7 @@ const scenarios = {
           if (gets === 1) return Promise.resolve(MOVIE_DL);
           return gets === 2 ? new Promise((resolve, reject) => { answer = () => (again instanceof Error ? reject(again) : resolve(again)); }) : Promise.resolve(later || again);
         }, '/api/watch/title/movie-120': LIB_MOVIE },
-        posted: { '/api/search/download': new APIError(409, 'conflict', "'Meridian' is already in Radarr") },
+        posted: { '/api/search/download': new APIError(409, 'conflict', message === undefined ? "'Meridian' has already been added" : message) },
       });
       p.run();
       await openCard(p, 'tmdb-movie-77');
@@ -1227,6 +1227,7 @@ const scenarios = {
       noneYet: await run(dl(null, null), Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { answered: false }) })),
       failed: await run(new Error('offline'), dl('queued', 0)),
       inLibrary: await run(Object.assign({}, MOVIE_DL, { in_library: true, library_ref: 'movie-120' })),
+      unsaid: (await run(dl('queued', 0), null, '')).toasts,
     };
   },
 
@@ -1687,8 +1688,35 @@ const scenarios = {
       } else out.waits = (await due(600)) === 1;
       return Object.assign(out, { go: go(), said: p.text('[data-ttl-part="status"]') });
     };
+    // The library has another season meanwhile, while Sonarr is still asked.
+    const more = Object.assign(show(null, true), { seasons: show(null, true).seasons.concat(Object.assign({}, LIB_SHOW.seasons[1], { number: 9, status: 'held' })) });
+    const grown = load({ clock: true, routes: { '/api/watch/title/show-300': show(null, false) } });
+    grown.run();
+    await openCard(grown, 'show-300');
+    let replies = 0;
+    grown.routes['/api/watch/title/show-300'] = () => { replies += 1; return Promise.resolve(replies > 1 ? Object.assign({}, more, there, { seasons: more.seasons }) : more); };
+    click(grown.doc, grown.q('.season-pick__go'));
+    await settle();
+    // Two readings of one check, and something asked for between them.
+    const twice = load({ clock: true, routes: { '/api/watch/title/show-300': show(null, false) }, posted: { '/api/search/download': () => new Promise(() => {}) } });
+    twice.run();
+    await openCard(twice, 'show-300');
+    const held = [];
+    twice.routes['/api/watch/title/show-300'] = () => new Promise((resolve) => { held.push(() => resolve(there)); });
+    click(twice.doc, twice.q('.season-pick__go'));
+    // The page is looked at again, and the slow poll comes due.
+    twice.doc.dispatchEvent({ type: 'visibilitychange' });
+    twice.timers.filter((t) => t.fn && t.ms === 30000).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+    twice.clock.now += 1000;
+    if (held[0]) held[0]();
+    await settle();
+    click(twice.doc, twice.q('.season-chip[data-season="3"]'));
+    click(twice.doc, twice.q('[data-ttl-act="ask-seasons"]'));
+    if (held[1]) held[1]();
+    await settle();
+    click(twice.doc, twice.q('[data-ttl-act="ask-seasons"]'));
     const pick = (o, ...names) => Object.fromEntries(names.map((n) => [n, o[n]]));
-    return { unknown: await run([show(null, false)]), back: await run([there]),
+    return { grown: grown.q('.season-pick__go').textContent.trim(), between: [held.length, twice.posts.length, twice.q('.season-pick__go').textContent.trim()], unknown: await run([show(null, false)]), back: await run([there]),
       failed: pick(await run([new APIError(0, 'network_error')]), 'go', 'said'), pending: await run([show(null, true), there]) };
   },
 
@@ -1820,6 +1848,31 @@ const scenarios = {
     };
     const past = await run(true);
     return Object.assign(await run(false), { scrolled: past.scrolled, slidThen: past.n });
+  },
+
+  // A season joins at the front of two rows: one is pushed to the next, the others stay in theirs.
+  async seasonsRows() {
+    const show = (there) => Object.assign({}, LIB_SHOW, { seasons_request: ASK, seasons_pending: !there,
+      seasons: LIB_SHOW.seasons.map((s, i) => Object.assign({}, s, { status: there && i ? 'partly_held' : 'held', asked: false, askable: there && !!i, refusal: null })),
+      more_seasons: [3, 4, 5].map((n) => one(n, there ? 'not_asked' : null, { askable: there })) });
+    const p = load({ routes: { '/api/watch/title/show-300': show(false) } });
+    p.run();
+    await openCard(p, 'show-300');
+    const at = (chip) => p.ttl().querySelectorAll('.season-chip').indexOf(chip);
+    const native = Node.prototype.getBoundingClientRect;
+    const slid = [];
+    Object.defineProperty(Node.prototype, 'offsetTop', { configurable: true, get() { return Math.floor(at(this) / 2) * 60; } });
+    Node.prototype.getBoundingClientRect = function () {
+      const i = at(this);
+      return i < 0 ? native.call(this) : { top: Math.floor(i / 2) * 60, left: (i % 2) * 180, bottom: 0, right: 0, width: 20, height: 20 };
+    };
+    Node.prototype.animate = function () { slid.push(this.getAttribute('data-season')); };
+    const chips = p.ttl().querySelectorAll('.season-chip');
+    chips.forEach((c) => c.classList.remove('fade-in'));
+    p.routes['/api/watch/title/show-300'] = show(true);
+    p.timers.filter((t) => t.fn && t.ms === 2000).forEach((t) => { const fn = t.fn; t.fn = null; fn(); });
+    await settle();
+    return { slid: slid.filter(Boolean), faded: p.ttl().querySelectorAll('.season-chip').filter((c) => c.classList.contains('fade-in')).map((c) => c.getAttribute('data-season')) };
   },
 
   // The states come late, and a season is then known to be partly here.

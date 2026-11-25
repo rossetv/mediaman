@@ -977,7 +977,7 @@ class TestDownloadEndpoint:
         )
         assert resp.status_code == 409
         assert resp.json()["ok"] is False
-        assert resp.json()["error"] == "'Dune' is already in Radarr"
+        assert resp.json()["error"] == "'Dune' has already been added"
         radarr.add_movie.assert_not_called()
         radarr.remonitor_movie.assert_not_called()
 
@@ -1026,7 +1026,7 @@ class TestDownloadEndpoint:
         )
 
         assert resp.status_code == 502
-        assert resp.json()["error"] == "Failed to add to Radarr"
+        assert resp.json()["error"] == "The download service didn't take it."
         radarr.unmonitor_movie.assert_called_once_with(77, max_retries=1)
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")

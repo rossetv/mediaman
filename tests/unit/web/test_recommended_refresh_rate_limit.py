@@ -532,7 +532,7 @@ class TestDownloadRecommendationSuccess:
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is False
-        assert "Radarr" in body["error"]
+        assert "set up for movies" in body["error"]
 
     def test_sonarr_not_configured_returns_error(self, authed_client, app):
         conn = app.state.db

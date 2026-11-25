@@ -293,7 +293,7 @@ class TestDownloadRecommendationAlreadyThere:
             resp = client.post(f"/api/recommended/{sid}/download")
 
         assert resp.status_code == 409
-        assert resp.json()["error"] == "'Inception' is already in Radarr"
+        assert resp.json()["error"] == "'Inception' has already been added"
 
     def test_tv_409_says_it_has_been_added(self, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)
@@ -337,7 +337,7 @@ class TestDownloadRecommendationAsksTheArrFirst:
         resp = self._post(conn, "movie", 27205, radarr)
 
         assert resp.status_code == 409
-        assert resp.json()["error"] == "'Inception' is already in Radarr"
+        assert resp.json()["error"] == "'Inception' has already been added"
         radarr.add_movie.assert_not_called()
 
     def test_a_series_sonarr_tracks_is_already_there_without_an_add(self, conn):
@@ -359,7 +359,7 @@ class TestDownloadRecommendationAsksTheArrFirst:
         resp = self._post(conn, "movie", 27205, radarr)
 
         assert resp.status_code == 409
-        assert resp.json()["error"] == "'Inception' is already in Radarr"
+        assert resp.json()["error"] == "'Inception' has already been added"
 
     def test_a_series_add_that_races_with_a_400_ends_as_already_there(self, conn):
         sonarr = MagicMock()
@@ -390,7 +390,7 @@ class TestDownloadRecommendationAsksTheArrFirst:
         resp = self._post(conn, "movie", 27205, radarr)
 
         assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "message": "Added 'Inception' to Radarr"}
+        assert resp.json() == {"ok": True, "message": "'Inception' is asked for"}
         radarr.remonitor_movie.assert_called_once_with(4)
         radarr.add_movie.assert_not_called()
         row = conn.execute("SELECT downloaded_at FROM suggestions").fetchone()

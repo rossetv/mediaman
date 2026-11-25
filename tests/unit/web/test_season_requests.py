@@ -580,6 +580,28 @@ def test_a_pick_that_cannot_be_marked_still_tells_what_came_of_its_seasons(
     assert (resp.status_code, _results(resp)) == (200, {3: "asked"})
 
 
+@pytest.mark.parametrize("route", ["pick"])
+def test_a_pick_is_not_marked_while_a_season_of_it_cannot_be_recorded(
+    viewer, db, ask, route, monkeypatch
+):
+    real, marks = _seasons.record_season, []
+
+    def record(*args, number, **kwargs):
+        if number == 4:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*args, number=number, **kwargs)
+
+    monkeypatch.setattr(_seasons, "record_season", record)
+    monkeypatch.setattr(
+        recommended_api.user_picks, "mark_downloaded", lambda *_args: marks.append(1)
+    )
+
+    resp = ask(viewer, Sonarr().track(_season(3), _season(4)), [3, 4])
+
+    assert (resp.status_code, _results(resp)) == (200, {3: "asked", 4: "unrecorded"})
+    assert marks == []
+
+
 @pytest.mark.parametrize("route", ["search"])
 def test_seasons_started_that_cannot_be_recorded_are_told_all_the_same(
     authed_client, db, ask, route, monkeypatch

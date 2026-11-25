@@ -432,6 +432,9 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .season-pick__go[aria-disabled="true"] { opacity: .5; cursor: default; }
 .season-pick.has-ask .season-pick__foot { min-height: 44px; }
 .season-pick__out:empty { display: none; }
+/* To its own opacity, which is less while nothing is picked. */
+.season-pick__go.fade-in { animation-name: season-go-in; }
+@keyframes season-go-in { from { opacity: 0; transform: translateY(4px); } }
 /* Once what is below has made room for them. */
 .season-pick__why.fade-in,
 .season-pick__out > .fade-in,

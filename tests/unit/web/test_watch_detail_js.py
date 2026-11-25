@@ -463,7 +463,8 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
         assert (run["at409"]["error"], run["at409"]["retry"]) == (False, False), name
         assert run["eventsAt409"] == 0, name
         assert (run["refetched"]["error"], run["refetched"]["retry"]) == (False, False), name
-        assert run["toasts"] == ["'Meridian' is already in Radarr"], name
+        assert run["toasts"] == ["'Meridian' has already been added"], name
+    assert out["unsaid"] == ["Meridian has already been added."]
     event = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}
     queued = out["queued"]
     assert queued["refetched"]["primary"]["text"] == "Queued"
@@ -473,10 +474,10 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     assert downloading["refetched"]["primary"]["text"] == "Downloading 40%"
     assert downloading["events"] == [{**event, "download_state": "downloading", "download_pct": 40}]
     # Radarr has it but lists nothing: Download would only 409 again.
-    assert out["none"]["refetched"]["primary"]["text"] == "Already in Radarr"
+    assert out["none"]["refetched"]["primary"]["text"] == "Already added"
     assert out["none"]["refetched"]["primary"]["disabled"] is False
     assert out["none"]["events"] == []
-    assert out["failed"]["refetched"]["primary"]["text"] == "Already in Radarr"
+    assert out["failed"]["refetched"]["primary"]["text"] == "Already added"
     assert out["failed"]["refetched"]["primary"]["disabled"] is False
     assert out["failed"]["events"] == []
     # It is asked again, slowly, for as long as it is already there.
@@ -485,7 +486,7 @@ def test_a_movie_the_arr_already_has_is_busy_until_its_reply_then_shows_what_tha
     # Still none once Radarr answers later: it was removed, and can be downloaded.
     assert (out["none"]["later"], out["none"]["pollsLater"]) == ("Download", [0, 0])
     # No answer is no news.
-    assert out["noneYet"]["later"] == "Already in Radarr"
+    assert out["noneYet"]["later"] == "Already added"
     assert (out["noneYet"]["laterEvents"], out["noneYet"]["pollsLater"]) == ([], [0, 1])
     # Queued later: the panel and the cards say it, and it is followed.
     assert out["failed"]["later"] == "Queued"
@@ -532,7 +533,7 @@ def test_a_show_sonarr_already_tracks_is_already_in_sonarr_unless_its_reply_says
 def test_already_there_is_dropped_on_reopening_once_the_arr_answers() -> None:
     out = _run("trackedReopened")
     for kind, tracked, download in (
-        ("movie", "Already in Radarr", "Download"),
+        ("movie", "Already added", "Download"),
         ("show", "Already added", "Download 2 seasons"),
     ):
         assert out[kind]["gone"] == [tracked, download], kind
@@ -742,6 +743,8 @@ def test_a_check_shows_a_while_goes_on_while_sonarr_is_asked_and_says_what_came_
     }
     assert out["back"]["said"] == "1 season can be asked for."
     assert out["failed"] == {"go": "Check again", "said": out["unknown"]["said"]}
+    assert out["grown"] == "Pick seasons"
+    assert out["between"] == [2, 1, "Adding…"]
     # Not there at once: it is still being asked, and that is read again.
     assert out["pending"]["during"] == ["Checking…", True, 2000]
     assert (out["pending"]["go"], out["pending"]["said"]) == ("Pick seasons", out["back"]["said"])
@@ -780,7 +783,7 @@ def test_the_seasons_are_headed_by_what_they_are() -> None:
 
 def test_what_is_to_be_asked_for_says_when_it_comes_and_what_starts_with_it() -> None:
     out = _run("seasonsSummed")
-    assert out["both"] == "2 seasons will be downloaded · 1 when it is out"
+    assert out["both"] == "2 seasons will be downloaded · 1 more when it is out"
     assert out["later"] == "1 season will be downloaded when it is out"
     assert out["starts"] == "1 season will be downloaded · Season 3 and Specials start too"
     assert out["named"] == "2 seasons will be downloaded · Specials start too"
@@ -805,6 +808,11 @@ def test_all_below_the_actions_slides_once_as_the_line_under_them_comes() -> Non
     assert out["chips"] == [[-35], [-35], [-35]]
     # Out of sight above, what is in view stays.
     assert (out["scrolled"], out["slidThen"]) == (35, 0)
+
+
+def test_a_season_pushed_to_another_row_eases_in_there_and_crosses_none() -> None:
+    # 2 joins 3, 4 and 5, two to a row: 3 and 5 stay in theirs.
+    assert _run("seasonsRows") == {"slid": ["3", "5"], "faded": ["2", "4"]}
 
 
 def test_a_season_that_joins_the_others_takes_the_place_of_none() -> None:

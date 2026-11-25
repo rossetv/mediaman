@@ -176,13 +176,15 @@ def _submit_movie(
 ) -> JSONResponse:
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
-        return respond_failure("Radarr not configured", status=503)
+        return respond_failure("Downloads aren't set up for movies", status=503)
     try:
         outcome = add_or_remonitor_movie(radarr, body.tmdb_id, body.title)
         if outcome == "already_tracked":
-            return respond_failure(f"'{body.title}' is already in Radarr", status=409)
+            return respond_failure(f"'{body.title}' has already been added", status=409)
         if outcome == "bad_entry":
-            return respond_failure("Radarr entry is in an unexpected state", status=502)
+            return respond_failure(
+                "The download service has this movie, but not in a way that can be used", status=502
+            )
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError) as exc:
         # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
         # responses, RequestException covers transport failures, ValueError
@@ -191,7 +193,7 @@ def _submit_movie(
         # ``except Exception`` would silently swallow programming bugs.
         if not (isinstance(exc, SafeHTTPError) and movie_add_landed(exc, radarr, body.tmdb_id)):
             logger.exception("Failed to add movie")
-            return respond_failure("Failed to add to Radarr", status=502)
+            return respond_failure("The download service didn't take it.", status=502)
     with conn:
         if notify_email is not None:
             _record_dn(
@@ -215,7 +217,7 @@ def _submit_movie(
             f"Added '{body.title}' to Radarr by {actor}",
             actor=actor,
         )
-    return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
+    return JSONResponse({"ok": True, "message": f"'{body.title}' is asked for"})
 
 
 def _resolve_tvdb_id(

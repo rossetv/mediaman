@@ -1664,7 +1664,7 @@
     if (!d.download) return;
     var tv = d.kind !== 'movie';
     if (k.tracked || (tv && d.sonarr_tracked)) {
-      actions.appendChild(statePill('dl-state--done', tv ? 'Already added' : 'Already in Radarr', 'i-circle-check'));
+      actions.appendChild(statePill('dl-state--done', 'Already added', 'i-circle-check'));
       return;
     }
     if (tv && allHeld(d)) {
@@ -1957,7 +1957,7 @@
     var later = picked.filter(ahead).length;
     var when = later === 1 ? ' when it is out' : ' when they are out';
     part(picked.length - later, ' will be downloaded');
-    if (later && later < picked.length) parts.push([String(later), when]);
+    if (later && later < picked.length) parts.push([later + ' more', when]);
     else part(later, ' will be downloaded' + when);
     var also = picked.length ? startsToo(d, picked) : '';
     wrap.classList.toggle('has-starts', (d.also_starts || []).length > 0); // its room is kept
@@ -2094,7 +2094,7 @@
       holdStill(function () { return next; }, change);
       return;
     }
-    var slide = core.flip(partsBelow(wrap.previousElementSibling));
+    var slide = slideOf(partsBelow(wrap.previousElementSibling));
     change();
     slide();
   }
@@ -2105,6 +2105,30 @@
       if (!n.classList.contains('ttl__askseasons')) return out.concat(n);
       return out.concat(toArray(n.querySelectorAll('.season-pick__head, .season-chip, .season-pick__summary, .season-pick__why, .season-pick__go, .season-pick__out')));
     }, []).filter(function (n) { return n.getClientRects().length; });
+  }
+
+  /* As core.flip, but a season that comes into another row, and would cross the rest, eases in there. */
+  function slideOf(nodes) {
+    var was = seasonRows();
+    var moves = nodes.map(function (n) { return core.flip([n]); });
+    return function () {
+      var now = seasonRows();
+      nodes.forEach(function (n, i) {
+        var number = n.getAttribute('data-season');
+        if (number !== null && was[number] !== now[number]) core.fadeIn(n); else moves[i]();
+      });
+    };
+  }
+
+  /* The row each season stands in, by its number. */
+  function seasonRows() {
+    var tops = [];
+    var rows = {};
+    toArray(body.querySelectorAll('.season-chip')).forEach(function (chip) {
+      if (tops.indexOf(chip.offsetTop) < 0) tops.push(chip.offsetTop);
+      rows[chip.getAttribute('data-season')] = tops.indexOf(chip.offsetTop);
+    });
+    return rows;
   }
 
   /* An answer may come below the edge of what is in view. */
@@ -2214,10 +2238,11 @@
     function ended(then) {
       var left = checks ? checks + CHECK_MS - Date.now() : 0;
       function end() {
-        if (checks) c.ask = null;
+        var still = checks && c.ask && c.ask.checks === checks; // else something was asked for since
+        if (still) c.ask = null;
         if (c !== cur || !isOpen || c.ref !== ref) return;
         then();
-        if (checks) sayChecked(c);
+        if (still) sayChecked(c);
       }
       if (left > 0) setTimeout(end, left); else end();
     }
@@ -2238,11 +2263,15 @@
 
   function takeSeasons(c, data) {
     var d = c.data;
-    if (data.library_ref && data.library_ref !== c.ref) { refresh(); return; }
+    function again() {
+      if (c.ask && c.ask.checks) c.ask = null;
+      refresh();
+    }
+    if (data.library_ref && data.library_ref !== c.ref) { again(); return; }
     function same(a, b) {
       return (a || []).map(function (s) { return s.number; }).join() === (b || []).map(function (s) { return s.number; }).join();
     }
-    if (d.in_library && !same(d.seasons, data.seasons)) { refresh(); return; }
+    if (d.in_library && !same(d.seasons, data.seasons)) { again(); return; }
     keepStates(allSeasons(d), data);
     if (d.in_library) {
       d.seasons.forEach(function (s) {
@@ -2367,7 +2396,7 @@
       // in Sonarr whatever of it is downloaded, and says so meanwhile.
       if (err && err.status === 409) {
         var movie = d.kind === 'movie';
-        core.toast(MM.api.messageOf(err, title + (movie ? ' is already in Radarr.' : ' has already been added.')));
+        core.toast(MM.api.messageOf(err, title + ' has already been added.'));
         if (!movie) {
           k.busy = false;
           k.tracked = true;
@@ -2466,7 +2495,7 @@
         return;
       }
     }
-    var slide = core.flip(below);
+    var slide = slideOf(below);
     change();
     slide();
   }

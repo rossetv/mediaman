@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -156,12 +157,7 @@ def _sanitise_title(title: str | None) -> str:
 
 
 def _already_there(row: SuggestionDetail) -> JSONResponse:
-    already = (
-        f"'{row.title}' is already in Radarr"
-        if row.media_type == "movie"
-        else f"'{row.title}' has already been added"
-    )
-    return respond_failure(already, status=409)
+    return respond_failure(f"'{row.title}' has already been added", status=409)
 
 
 def _add_rec_to_radarr(
@@ -180,10 +176,10 @@ def _add_rec_to_radarr(
     """
     client = build_radarr_from_db(conn, secret_key)
     if not client:
-        return respond_failure("Radarr not configured", status=200)
+        return respond_failure("Downloads aren't set up for movies", status=200)
     tmdb_id = row.tmdb_id
     if not tmdb_id:
-        return respond_failure("No TMDB ID -- cannot add to Radarr", status=200)
+        return respond_failure("No TMDB ID for this movie", status=200)
     safe_title = _sanitise_title(row.title)
     try:
         outcome = add_or_remonitor_movie(client, tmdb_id, safe_title)
@@ -201,7 +197,9 @@ def _add_rec_to_radarr(
     if outcome == "already_tracked":
         return _already_there(row)
     if outcome == "bad_entry":
-        return respond_failure("Radarr entry is in an unexpected state", status=502)
+        return respond_failure(
+            "The download service has this movie, but not in a way that can be used", status=502
+        )
     logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark()
@@ -222,7 +220,7 @@ def _add_rec_to_radarr(
                 service="radarr",
                 username=actor,
             )
-    return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Radarr"})
+    return JSONResponse({"ok": True, "message": f"'{safe_title}' is asked for"})
 
 
 def _add_rec_to_sonarr(
@@ -285,7 +283,11 @@ def _add_rec_to_sonarr(
             actor=actor,
             email=notify_email,
         )
-        if resp.status_code < 400:
+        # Where a season could not be recorded, this would wait as long for the same lock.
+        unrecorded = any(
+            s["result"] == "unrecorded" for s in json.loads(bytes(resp.body))["seasons"]
+        )
+        if resp.status_code < 400 and not unrecorded:
             try:
                 with conn:
                     mark()
