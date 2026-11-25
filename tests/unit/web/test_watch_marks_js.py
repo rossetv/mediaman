@@ -407,6 +407,17 @@ def test_a_finger_s_press_on_a_button_out_of_sight_marks_nothing() -> None:
     assert out == {"hidden": [], "shown": ["POST /api/watch/watched/movie/1"]}
 
 
+def test_a_grid_s_card_far_out_of_sight_says_so_and_is_let_go_when_it_leaves() -> None:
+    # Its buttons are then hidden, which spares WebKit drawing thousands of them under the mouse.
+    assert _run("farCards") == [
+        "100% 0px",
+        [True, True, False],
+        [True, False],
+        [False, False],
+        [False, True],
+    ]
+
+
 def test_a_reader_is_told_that_the_level_given_is_taken_back_by_a_press() -> None:
     hint = ["Press again to take it back", True]
     assert _run("levelsSaid") == [

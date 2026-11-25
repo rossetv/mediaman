@@ -107,6 +107,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-tool--thumb:is(.is-up, .is-down) { opacity: 1; transform: none; }
   .watch-card:is(:hover, .has-focus, .is-lifted) > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool { opacity: 1; transform: none; }
   html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
+  /* A screen or more out of sight (watch/card-tools.js). */
+  .watch-card.is-far > .card-tools { visibility: hidden; }
   .watch-card:is(:hover, .has-focus, .is-lifted) .card-tool::before { opacity: 1; transform: none; }
   .watch-card:is(:hover, .has-focus, .is-lifted) .card-tool > .rate-th { --th-bg: var(--s3); }
   .watch-card:hover .card-tool--eye { transition-delay: 30ms; }

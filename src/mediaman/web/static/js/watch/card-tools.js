@@ -95,7 +95,20 @@
       paint(card);
       if (nearing) nearing.observe(card);
     }
+    if (inSight && !card.closest('.watch-row__scroll')) inSight.observe(card);
     if (window.MMWatch.marks) window.MMWatch.marks.adopt(card);
+  }
+
+  /* A card a screen or more out of sight hides its buttons. Even faded to nothing, those of
+     thousands of cards are drawn, and make every frame under the mouse slow in WebKit. A row, whose
+     cards out of sight are beside it, has too few to matter. */
+  var inSight = window.IntersectionObserver ? new IntersectionObserver(function (entries) {
+    entries.forEach(function (n) { n.target.classList.toggle('is-far', !n.isIntersecting); });
+  }, { rootMargin: '100% 0px' }) : null;
+
+  function forget(root) {
+    if (root.matches && root.matches('.watch-card')) inSight.unobserve(root);
+    toArray(root.querySelectorAll('.watch-card')).forEach(function (card) { inSight.unobserve(card); });
   }
 
   /* Of a poster's badges Leaving is the first and Watched the last, which is how CSS tells what
@@ -152,6 +165,7 @@
 
   new MutationObserver(function (changes) {
     changes.forEach(function (c) {
+      if (inSight) toArray(c.removedNodes).forEach(function (n) { if (n.nodeType === 1 && !n.isConnected) forget(n); });
       toArray(c.addedNodes).forEach(function (n) { if (n.nodeType === 1 && n.isConnected) { order(n); adoptAll(n); } });
     });
     if (open && !open.card.isConnected) drop(open);

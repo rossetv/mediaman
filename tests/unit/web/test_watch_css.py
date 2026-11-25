@@ -263,6 +263,16 @@ def test_on_a_touch_screen_the_open_levels_stand_over_every_other_card_s_buttons
     assert "pointer-events: none" in _of(heading, FINGER, CARDS)
 
 
+MOUSE = "(hover: hover) and (pointer: fine)"
+
+
+def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
+    far = ".watch-card.is-far > .card-tools"
+    assert "visibility: hidden" in _of(far, MOUSE, CARDS)
+    # A touch screen's thumbs, drawn at rest, are as they were.
+    assert not _of(far, sheet=CARDS) and not _of(far, FINGER, CARDS)
+
+
 def test_the_levels_can_take_the_focus_as_they_open_where_motion_is_unwanted() -> None:
     assert "transition: none !important" in _of(".rate--lift .rate__set", STILL, CARDS)
 
