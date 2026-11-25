@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mediaman.services.rate_limit import ActionRateLimiter, limiters
-from mediaman.services.rate_limit.instances import SUBSCRIBER_WRITE_LIMITER
+from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER, SUBSCRIBER_WRITE_LIMITER
 from mediaman.web.auth.password_hash import LastAdminError
 from mediaman.web.auth.reauth import grant_recent_reauth, revoke_reauth
 from mediaman.web.routes.subscribers import router as subscribers_router
@@ -87,6 +87,7 @@ def _spend(limiter: ActionRateLimiter, actor: str = "admin") -> None:
         (422, "POST", "/api/subscribers", {"data": {"email": "nope"}}),
         (409, "POST", "/api/subscribers", {"data": {"email": "reader@example.com"}}),
         (409, "POST", "/api/subscribers", {"data": {"email": "left@example.com"}}),
+        (404, "DELETE", "/api/subscribers/999", {}),
         (400, "DELETE", "/api/users/999", {}),
         (400, "DELETE", _ME, {}),
         (404, "PATCH", "/api/users/999/role", {"json": {"role": "admin"}}),
@@ -95,6 +96,7 @@ def _spend(limiter: ActionRateLimiter, actor: str = "admin") -> None:
         (400, "PATCH", _ME + "/email", {"json": {"email": ""}}),
         (404, "POST", "/api/users/999/unlock", {}),
         (400, "POST", _ME + "/unlock", {}),
+        (400, "POST", "/api/newsletter/send", {"json": {"recipients": ["reader@example.com"]}}),
     ],
 )
 def test_refused_input_uses_up_no_tries(send, status, method, path, body):
@@ -194,6 +196,20 @@ def test_the_refusal_to_lose_the_last_admin_uses_up_no_tries(send, monkeypatch, 
     assert answers == {"last_admin"}
 
 
+def test_a_newsletter_that_cannot_be_sent_as_it_is_set_up_uses_up_no_tries(send, conn):
+    sent = send()
+    conn.execute(
+        "INSERT INTO settings (key, value, encrypted, updated_at)"
+        " VALUES ('mailgun_domain', 'mg.example.com', 0, 'x')"
+    )
+    conn.commit()
+    body = {"json": {"recipients": ["reader@example.com"]}}
+
+    answers = {sent("POST", "/api/newsletter/send", **body).status_code for _ in range(12)}
+
+    assert answers == {502}
+
+
 def test_asking_whether_an_address_belongs_to_someone_else_counts(send):
     sent = send()
 
@@ -246,6 +262,12 @@ def test_a_wrong_current_password_counts(send):
             {"data": {"email": "a@example.com"}},
         ),
         (SUBSCRIBER_WRITE_LIMITER, "DELETE", "/api/subscribers/1", {}),
+        (
+            NEWSLETTER_LIMITER,
+            "POST",
+            "/api/newsletter/send",
+            {"json": {"recipients": ["reader@example.com"]}},
+        ),
     ],
 )
 def test_a_limit_says_how_long_to_wait(send, now, limiter, method, path, body):
