@@ -215,6 +215,8 @@ function load(data, opened = '', at = null, categories = { tmdb_configured: true
 }
 
 /* A page whose categories are in. */
+// Not one of the two that lead to the library and to Downloads.
+const isTry = (n) => n.parentNode.getAttribute('aria-label') !== 'Your library';
 async function ready(...args) {
   const p = load(...args);
   await settle();
@@ -1231,6 +1233,36 @@ const scenarios = {
     return { first: p.grids[0].titles, cards: got.cards.map((c) => c.textContent), next: got.next, calls: p.calls.length, last: [(await last).cards.length, (await last).next] };
   },
 
+  // The empty search leads to all of the library and to Downloads, whose number follows the page's own.
+  async libraryBlock() {
+    let tell = null;
+    const strip = { items: [], summary: { total: 5 } };
+    const downloading = { last: () => strip, subscribe(fn) { tell = fn; } };
+    const held = { ...ADMIN, grids: { library: 'All titles' }, library_total: 36 };
+    const p = await ready(held, '', undefined, undefined, { downloading });
+    const opened = [];
+    p.ctx.MMWatch.expand = { library: (...a) => opened.push(a) };
+    p.press();
+    await settle();
+    const block = () => p.sheet.querySelectorAll('[role=group]').filter((n) => n.getAttribute('aria-label') === 'Your library')[0];
+    const look = () => block().querySelectorAll('.watch-option').map((n) => [n.textContent, n.getAttribute('href')]);
+    const titles = p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
+    const out = { look: look(), before: titles[titles.indexOf('Your library') - 1] };
+    const calls = p.calls.length;
+    strip.summary = { total: 0 };
+    tell();
+    out.none = look()[1][0];
+    click(p.doc, p.$('watch-option-library'));
+    await settle();
+    out.opened = [opened, p.sheet.classList.contains('is-on'), p.calls.length - calls];
+    // An empty library has nothing to lead to.
+    const bare = await ready({ ...ADMIN, grids: { library: 'All titles' }, library_total: 0 }, '', undefined, undefined, { downloading });
+    bare.press();
+    await settle();
+    out.bare = bare.$('watch-option-library') === null && bare.$('watch-option-downloads').textContent;
+    return out;
+  },
+
   // What is downloading leads what was found, from what the page knows already.
   async downloading() {
     const items = [
@@ -1598,7 +1630,7 @@ const scenarios = {
     const p = load(ADMIN, '', null, null);
     p.press();
     p.input.focus();
-    p.key('ArrowDown');
+    p.key('ArrowUp'); // the last there is
     const held = () => ['.watch-tile--skel', '.watch-person--skel', '.watch-tries'].map((s) => p.sheet.querySelectorAll(s).length);
     const before = [p.input.getAttribute('aria-activedescendant'), p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent), held()];
     await p.answer('/api/watch/explore', { tmdb_configured: true, genres: GENRES, decades: DECADES });
@@ -2418,7 +2450,7 @@ scenarios.askRestored = async () => {
   const out = { head: p.head() };
   p.key('Escape'); await settle();
   p.press(); await settle();
-  out.tries = p.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  out.tries = p.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => n.textContent);
   // Another person's now.
   const other = await asking({}, { session: {} });
   await other.ask(Q);
@@ -2599,7 +2631,7 @@ scenarios.askPanel = async () => {
   const p = await asking();
   p.press(); await settle();
   const titles = () => p.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent);
-  const tries = () => p.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.getAttribute('role'), n.classList.contains('watch-try--ai')]);
+  const tries = () => p.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => [n.textContent, n.getAttribute('role'), n.classList.contains('watch-try--ai')]);
   const out = { first: p.sheet.children[0].className, titles: titles(), tries: tries(), hint: p.$('watch-search-hint').textContent };
   click(p.doc, p.sheet.querySelector('.watch-try--ai')); await settle();
   out.asked = [p.input.value, p.sent('/ask').map((c) => c[2].q)];
@@ -2615,11 +2647,11 @@ scenarios.askPanel = async () => {
   click(c.doc, c.doc.getElementById('watch-option-clear-recent')); await settle();
   await c.reply('DELETE', '/searches', {});
   c.wait(); await settle();
-  out.cleared = c.sheet.querySelectorAll('.watch-try').map((n) => n.textContent);
+  out.cleared = c.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => n.textContent);
   out.clearedTitle = c.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)[0];
   const stranger = await asking({ personal: false, recent: [], phrases: ['popular action movies'] });
   stranger.press(); await settle();
-  out.stranger = stranger.sheet.querySelectorAll('.watch-try').map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
+  out.stranger = stranger.sheet.querySelectorAll('.watch-try').filter(isTry).map((n) => [n.textContent, n.classList.contains('watch-try--ai')]);
   const off = await asking({ available: false });
   off.press(); await settle();
   out.off = [off.sheet.querySelector('.tn'), off.sheet.querySelectorAll('.watch-sheet__title').map((n) => n.textContent)];

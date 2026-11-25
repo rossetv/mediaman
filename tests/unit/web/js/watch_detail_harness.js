@@ -935,7 +935,7 @@ const scenarios = {
     p.tick();
     await settle();
     const bar = p.q('.dl-progress progress');
-    const downloading = { primary: primary(p), bar: bar && bar.value, line: p.text('.dl-progress__line') };
+    const downloading = { primary: primary(p), bar: bar && bar.value, line: p.text('.dl-progress__line'), note: p.text('.ttl__note'), to: (p.q('.ttl__note a') || { getAttribute() {} }).getAttribute('href') };
     status = { state: 'ready' };
     p.tick();
     await settle();

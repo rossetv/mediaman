@@ -930,6 +930,7 @@ def watch_page(
                 conn, username, libraries, opened, entries.get(row_id), asked.get("sort")
             )
     downloading = strip.shared.last()
+    library_total = sum(count_titles(conn).values()) if is_admin else len(titles)
     return _render(
         request,
         "watch.html",
@@ -948,12 +949,13 @@ def watch_page(
             "asked_waiting": set_up and asked_waiting,
             "grid": grid,
             "library_types": [t for t in all_titles.TYPES if is_admin or not t[2]],
-            "library_total": sum(count_titles(conn).values()) if is_admin else len(titles),
+            "library_total": library_total,
             "page_data": {
                 "is_admin": is_admin,
                 "tmdb_configured": tmdb_configured,
                 "q": q,
                 "grids": grid_titles,
+                "library_total": library_total,
                 "grid": {k: grid.get(k) for k in ("id", "total", "next", "counts", "fact", "empty")}
                 if grid
                 else None,

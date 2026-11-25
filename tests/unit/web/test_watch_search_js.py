@@ -712,11 +712,16 @@ def test_the_library_is_not_offered_until_it_is_known_and_a_link_to_it_says_so()
 
 def test_the_people_the_library_has_most_of_stand_in_the_sheet() -> None:
     out = _run("libraryPeople")
-    assert out["heads"] == ["Browse by category", "People in your library", "Or try"]
+    assert out["heads"] == [
+        "Browse by category",
+        "Your library",
+        "People in your library",
+        "Or try",
+    ]
     assert len(out["sheet"]) == 6
     assert (out["first"], out["option"]) == ("P1Person 18 titles", "option")
     assert out["opened"] == ["/watch?person=9001", "Person 1"]
-    assert out["bare"] == ["Browse by category", "Or try", "More categories"]
+    assert out["bare"] == ["Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_a_category_suggested_alone_offers_who_is_often_in_it() -> None:
@@ -780,11 +785,11 @@ def test_a_place_is_held_for_people_unless_the_library_had_none_the_last_time() 
 
 def test_the_place_of_late_categories_is_held_and_the_highlight_stays_where_it_was() -> None:
     out = _run("redrawnUnderTheHighlight")
-    heads = ["Browse by category", "People in your library", "Or try"]
-    assert out["before"] == ["watch-option-try-0", heads, [12, 6, 1]]
-    assert out["after"] == ["watch-option-try-0", True, [0, 0, 1]]
-    assert out["entered"] == "popular action movies"
-    assert out["failed"] == ["watch-sheet__title", "watch-tries"]
+    heads = ["Browse by category", "Your library", "People in your library", "Or try"]
+    assert out["before"] == ["watch-option-try-2", heads, [12, 6, 2]]
+    assert out["after"] == ["watch-option-try-2", True, [0, 0, 2]]
+    assert out["entered"] == "top rated sci-fi"
+    assert out["failed"] == ["watch-sheet__title", "watch-tries"] * 2
 
 
 def test_a_category_s_name_is_not_said_to_match_nothing_while_the_categories_cannot_be_had() -> (
@@ -988,7 +993,7 @@ def test_without_a_key_nothing_of_the_ai_shows() -> None:
     # The sheet as ever, with the person's own searches before it.
     tonight, heads = _run("askPanel")["off"]
     assert tonight is None
-    assert heads == ["Recent", "Browse by category", "Or try", "More categories"]
+    assert heads == ["Recent", "Browse by category", "Your library", "Or try", "More categories"]
 
 
 def test_an_answer_shows_titles_owned_first_and_return_asks_once() -> None:
@@ -1307,3 +1312,13 @@ def test_what_is_downloading_leads_the_results_from_what_the_page_knows_already(
     # Found alone, it is not said that nothing matches.
     assert out["alone"] == [[salt], ["Downloading"], False]
     assert out["gone"] == [[], True]
+
+
+def test_the_empty_search_leads_to_all_titles_and_to_downloads_with_their_live_number() -> None:
+    out = _run("libraryBlock")
+    assert out["look"] == [["All 36 titles", None], ["Downloads · 5", "/downloads"]]
+    assert out["before"] == "Browse by category"
+    assert out["none"] == "Downloads"
+    # All titles opens in place, with the sheet shut, and nothing is asked for.
+    assert out["opened"] == [[["", "", {}]], False, 0]
+    assert out["bare"] == "Downloads"

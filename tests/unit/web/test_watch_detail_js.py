@@ -329,6 +329,8 @@ def test_download_turns_into_queued_then_downloading_then_in_library_in_place() 
     assert out["downloading"]["bar"] == 42
     assert "3.1 GB of 7.4 GB" in out["downloading"]["line"]
     assert "about 6 min left" in out["downloading"]["line"]
+    assert out["downloading"]["note"] == "Follow it in Downloads."
+    assert out["downloading"]["to"] == "/downloads"
     assert out["done"]["primary"]["text"] == "In library"
     assert "Added just now" in out["done"]["note"]
     named = {"ref": "tmdb-movie-77", "title": "Meridian", "kind": "movie", "year": 2026}

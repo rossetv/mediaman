@@ -1553,6 +1553,15 @@
     return s;
   }
 
+  function followNote(text) {
+    var p = el('p', 'ttl__note');
+    var words = p.appendChild(el('span', '', text + 'Follow it in '));
+    var link = words.appendChild(el('a', '', 'Downloads'));
+    link.setAttribute('href', '/downloads');
+    words.appendChild(document.createTextNode('.'));
+    return p;
+  }
+
   function downloadPart(actions, under) {
     var d = cur.data;
     var k = stateOf(cur.ref);
@@ -1564,14 +1573,7 @@
     }
     if (k.state === 'queued') {
       actions.appendChild(statePill('dl-state--queued', 'Queued', 'i-clock'));
-      var q = el('p', 'ttl__note');
-      var words = el('span', '', 'Waiting for a download slot. Follow it in ');
-      var link = el('a', '', 'Downloads');
-      link.setAttribute('href', '/downloads');
-      words.appendChild(link);
-      words.appendChild(document.createTextNode('.'));
-      q.appendChild(words);
-      under.appendChild(q);
+      under.appendChild(followNote('Waiting for a download slot. '));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }
@@ -1589,6 +1591,7 @@
       line.appendChild(el('span', '', k.eta ? k.eta.replace(/^~/, 'about ').replace(/ remaining$/, ' left') : ''));
       box.appendChild(line);
       under.appendChild(box);
+      under.appendChild(followNote(''));
       if (rec && d.download && d.download.notify === true) under.appendChild(emailHint(d));
       return;
     }

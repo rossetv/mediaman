@@ -806,6 +806,37 @@
       return staged(b, 40 + (i % 4 + Math.floor(i / 4)) * 24);
     }
 
+    /* Shuts the sheet and leads to all the library's titles, over what is open. */
+    function openLibrary() {
+      leaveSheet();
+      window.MMWatch.expand.library('', '', {});
+    }
+
+    function downloadsWords() {
+      var state = downloads && window.MM.downloading.last();
+      var n = state ? state.summary.total : 0;
+      return 'Downloads' + (n ? ' · ' + n : '');
+    }
+
+    function sayDownloads() {
+      var link = byId('watch-option-downloads');
+      if (link) link.querySelector('span').textContent = downloadsWords();
+    }
+
+    function drawLibrary(again) {
+      var nodes = [];
+      var n = data.library_total;
+      if (n && data.grids && data.grids.library) {
+        nodes.push(option(pill('watch-try', 'i-table-cells-large', 'All ' + titleCount(n), openLibrary), 'library'));
+      }
+      var link = option(el('a', 'watch-try'), 'downloads');
+      link.setAttribute('href', '/downloads');
+      link.appendChild(MM.dom.icon('i-download'));
+      link.appendChild(el('span', '', downloadsWords()));
+      nodes.push(link);
+      drawPart('Your library', 'watch-tries', again ? nodes : nodes.map(function (b, i) { return staged(b, 130 + i * 22); }));
+    }
+
     function outline(className, parts) {
       var node = el('div', className);
       node.setAttribute('aria-hidden', 'true');
@@ -945,6 +976,7 @@
       if (knows) drawRecent(knows.recent, again);
       if (offers) drawTries(true, knows, again, 60);
       drawPart('Browse by category', 'watch-tiles', waiting ? times(FIRST.length, tileOutline) : first.map(genreTile));
+      drawLibrary(again);
       drawPart('People in your library', 'watch-people', held ? times(PEOPLE, personOutline) : folk.map(personTile));
       if (!offers) drawTries(false, knows, again, held || folk.length ? 190 : 130);
       drawPart('More categories', 'watch-tiles', more.map(genreTile));
@@ -2052,6 +2084,7 @@
     // They come in, or are there, while the search is on show.
     if (downloads) {
       window.MM.downloading.subscribe(function () {
+        sayDownloads();
         var c = current;
         if (!c || view !== 'results' || shownDownloads === downloadsOf(c.q)) return;
         paint(c);
