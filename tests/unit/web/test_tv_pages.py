@@ -43,6 +43,41 @@ def test_a_base_url_that_is_no_page_is_not_given_to_the_tv(app, conn, base):
     assert 'data-base=""' in page.text
 
 
+@pytest.mark.parametrize(
+    "base",
+    [
+        "http://192.168.1.10:8282",
+        "http://10.0.0.7",
+        "http://127.0.0.1:8282",
+        "http://169.254.1.1",
+        "http://100.64.0.1",
+        "http://[fd00::1]:8282",
+        "http://[::ffff:192.168.1.10]",
+        "http://0.0.0.0:8282",
+        "http://localhost:8282",
+        "http://nas:8282",
+        "http://nas.local",
+        "http://media.home.arpa.",
+        "http://media.internal",
+        "https://media.lan",
+    ],
+)
+def test_an_address_inside_the_home_is_told_to_nobody_signed_out(app, conn, base):
+    _set_base(conn, base)
+    page = TestClient(app).get("/tv")
+    assert 'data-base=""' in page.text
+
+
+def test_only_the_address_is_told_and_no_name_password_or_query_in_it(app, conn):
+    _set_base(conn, "https://amy:secret@mediaman.example:8443/watch?key=1#x")
+    assert 'data-base="https://mediaman.example:8443/watch"' in TestClient(app).get("/tv").text
+
+
+def test_a_signed_in_person_is_told_the_home_address_to_open_on_the_tv(app, conn, viewer_client):
+    _set_base(conn, "http://192.168.1.10:8282")
+    assert "<b>192.168.1.10:8282/tv</b>" in viewer_client(app, conn).get("/pair").text
+
+
 def test_the_tvs_page_loads_nothing_but_its_own_files(app):
     page = TestClient(app).get("/tv").text
     assert "https://" not in page

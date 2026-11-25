@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import re
 from typing import cast
 from urllib.parse import urlsplit
 
@@ -17,21 +19,45 @@ from mediaman.web.auth.middleware import resolve_page_session
 router = APIRouter()
 
 
+# Names that mean something in one network alone.
+_INTERNAL_NAME_RE = re.compile(
+    r"[^.]+|.+\.(?:local|localdomain|localhost|lan|home|home\.arpa|internal|intranet|corp|private)"
+)
+
+
 def _base_url() -> str:
-    """The Base URL setting, or "" where it is not the address of a page."""
-    base = (get_string_setting(get_db(), "base_url") or "").strip().rstrip("/")
+    """The address in the Base URL setting, or "" where it is not that of a page.
+
+    Nothing else the setting may hold comes with it, such as a name and password.
+    """
     try:
-        parts = urlsplit(base)
+        parts = urlsplit((get_string_setting(get_db(), "base_url") or "").strip())
     except ValueError:
         return ""
-    return base if parts.scheme in ("http", "https") and parts.hostname else ""
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return ""
+    return f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}{parts.path}".rstrip("/")
+
+
+def _public_base_url() -> str:
+    """The same, or "" where only the network the server stands in knows it."""
+    base = _base_url()
+    host = (urlsplit(base).hostname or "").rstrip(".")
+    try:
+        internal = not ipaddress.ip_address(host).is_global
+    except ValueError:
+        internal = _INTERNAL_NAME_RE.fullmatch(host) is not None
+    return "" if internal else base
 
 
 @router.get("/tv", response_class=HTMLResponse)
 def tv_page(request: Request) -> Response:
-    """Signed out, whatever cookie comes with the request."""
+    """Signed out, whatever cookie comes with the request.
+
+    It shows the address to pair at. With none to show, the page takes the one it was opened at.
+    """
     templates = cast(Jinja2Templates, request.app.state.templates)
-    return templates.TemplateResponse(request, "tv.html", {"base_url": _base_url()})
+    return templates.TemplateResponse(request, "tv.html", {"base_url": _public_base_url()})
 
 
 @router.get("/pair", response_class=HTMLResponse)
