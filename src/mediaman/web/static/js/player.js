@@ -2138,10 +2138,12 @@
     }
     if (els.ask && els.ask.open) return;
     showControls();
+    /* Option and Tab is how Safari reaches the buttons. */
+    if (e.key === 'Tab') focusByPointer = false;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var tag = e.target && e.target.tagName;
     var onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT';
-    if (e.key === 'Tab' || menuOpen()) focusByPointer = false;
+    if (menuOpen()) focusByPointer = false;
     if (e.key === 'Escape') {
       if (menuOpen()) closeMenus(true);
       else hideUpnext();

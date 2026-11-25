@@ -247,17 +247,17 @@ function doubleClick(el) {
 
 /* A key, sent to what has the focus; Space and Enter press a button, unless the page says no.
    A key held down `repeat`s; Space presses a button once, as it is let go. */
-function key(k, repeat) {
+function key(k, repeat, modifiers) {
   doc.lastInput = 'key';
   const target = doc.activeElement;
   let prevented = false;
-  fire(target, 'keydown', { bubbles: true, key: k, repeat: !!repeat, preventDefault() { prevented = true; } });
+  fire(target, 'keydown', { bubbles: true, key: k, repeat: !!repeat, preventDefault() { prevented = true; }, ...modifiers });
   const presses = k === 'Enter' || (k === ' ' && !repeat);
   if (presses && !prevented && target.tagName === 'BUTTON' && doc.activeElement === target) click(target);
 }
 
 /* Focus moved by Tab. */
-function tabTo(el) { key('Tab'); el.focus(); }
+function tabTo(el, modifiers) { key('Tab', false, modifiers); el.focus(); }
 
 /* ---- the page ------------------------------------------------------------ */
 
@@ -2516,7 +2516,11 @@ const scenarios = {
     const afterMouse = idle();
     tabTo(p.q('[data-mute]'));
     p.tick(4000);
-    return { afterMouse: afterMouse, afterTab: idle() };
+    const afterTab = idle();
+    press(p.q('[data-mute]'));
+    tabTo(p.q('[data-back10]'), { altKey: true });
+    p.tick(4000);
+    return { afterMouse: afterMouse, afterTab: afterTab, afterOptionTab: idle() };
   },
 
   /* A seek before the playlist has come, and one after it but before any video. */
