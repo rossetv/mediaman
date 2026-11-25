@@ -41,7 +41,11 @@
   var IDLE_LIMIT = 2; // "idle" twice running: the worker died without a result
   var SWAP_FALLBACK_MS = 400; // past the slowest motion token, for an animation that never runs
 
-  function toLogin() { window.location.href = '/login'; }
+  function toLogin() {
+    var here = window.location;
+    var place = here.pathname + here.search;
+    here.href = '/login' + (place === '/watch' ? '' : '?next=' + encodeURIComponent(place)) + here.hash;
+  }
 
   /* A 401: the session ran out, so the login page, not a "Couldn't load". */
   function loggedOut(err) {

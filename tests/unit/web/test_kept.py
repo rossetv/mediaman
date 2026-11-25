@@ -354,7 +354,7 @@ class TestKeptPageRedirects:
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/kept", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/login")
+        assert resp.headers["location"] == "/login?next=%2Fkept"
 
     def test_kept_authenticated_redirects_to_the_watch_kept_list(
         self, app_factory, authed_client, conn
@@ -371,7 +371,7 @@ class TestKeptPageRedirects:
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/kept/page", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/login")
+        assert resp.headers["location"] == "/login?next=%2Fkept%2Fpage"
 
     def test_kept_page_authenticated_redirects_to_the_watch_kept_list(
         self, app_factory, authed_client, conn
@@ -382,12 +382,12 @@ class TestKeptPageRedirects:
         assert resp.headers["location"] == "/watch?view=list&type=kept"
 
     def test_protected_redirect_unauthenticated(self, app_factory, conn):
-        """GET /protected without a session redirects to /login."""
+        """GET /protected without a session redirects to /login and back."""
         app = app_factory(kept_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/protected", follow_redirects=False)
         assert resp.status_code == 302
-        assert resp.headers["location"].endswith("/login")
+        assert resp.headers["location"] == "/login?next=%2Fprotected"
 
     def test_protected_redirect_authenticated(self, app_factory, authed_client, conn):
         """GET /protected with a valid session 301-redirects to /watch?view=list&type=kept."""
