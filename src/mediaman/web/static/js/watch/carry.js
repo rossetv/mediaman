@@ -301,6 +301,27 @@
       move(a, { fade: 'gone' });
     }
 
+    /* The card's rating into the page's row of thumbs, as the thumb it shows: that one alone, in the
+       card's colours, until the eye beside it has left its row; then the rest of the row around it. */
+    function thumbInto(a, b) {
+      if (!a || !b) return null;
+      var ra = rect(a);
+      var rs = rect(b);
+      var way = a.classList.contains('is-down') ? 'is-down' : 'is-up';
+      var double = a.classList.contains('is-double');
+      var one = toArray(b.children).filter(function (n) { return n.classList.contains(way) && n.classList.contains('is-double') === double; })[0] || b;
+      var ia = rect(a.querySelector('svg') || a);
+      var ib = rect(one.querySelector('svg') || one);
+      var s = ra.h / rect(one).h;
+      var x = ia.x + ia.w / 2 - rs.x - (ib.x + ib.w / 2 - rs.x) * s;
+      var y = ia.y + ia.h / 2 - rs.y - (ib.y + ib.h / 2 - rs.y) * s;
+      move(b, { x: x, y: y, sx: s, sy: s, cut: cutTo(ra, rs, x, y, s), shut: 0.55, open: 0.75, tint: tintOf(a, b, [0.2, 0.6]) });
+      // The others once there is room for them whole: none is seen cut.
+      toArray(b.children).forEach(function (n) { if (n !== one) move(n, { fade: [0.75, 0.9] }); });
+      move(a, { fade: 'gone' });
+      return { x: x, y: y };
+    }
+
     /* The colours of a button *b* that looks as *a* does until the place *from*, and as itself by *to*. */
     function tintOf(a, b, when) {
       function look(n) { var c = getComputedStyle(n); return [c.backgroundColor, c.color, c.borderTopColor]; }
@@ -507,8 +528,7 @@
       });
     });
     var set = page('.rate > .rate__set') || page('.ttl__rate-skel > .skel');
-    // One after the other, the page's whole when it is seen: its thumbs are never cut.
-    var rated = pairPill(own('.pv__rate'), set, [0.06, 0], [0.3, 0.5], 0.3);
+    var rated = thumbInto(own('.pv__rate'), set);
     if (!rated) {
       out(own('.pv__rate'), 0.22, 0);
       move(set, { y: 20, fade: [0.5, 0.85] });
