@@ -169,6 +169,7 @@
     tv: 'It may be off, asleep or away from its browser. If it comes back within 2 minutes, it carries on by itself.',
     older: 'It may be off or away from the network. If it answers within 2 minutes, you can go on from here.',
     way: 'It may be off or away from the network. If it comes back within 2 minutes, it carries on by itself.',
+    quiet: 'It’s back, but hasn’t said what it plays. If it does within 10 minutes, it carries on by itself.',
   };
   var BAD_FILE = 'Its picture is in a form older TVs refuse, and converting it failed. Try another TV, or watch here.';
   var NOTE_QUALITY = 'TVs get up to 1080p, in a form every TV can play. 4K and HDR stay on this device. Changing quality restarts the picture where you are.';
@@ -375,6 +376,7 @@
   var attempt = null;        // a start elsewhere by a way: {way, wanted, opened}
   var goneFrom = null;       // {name} of what it played on, while the page says that this is over
   var lostShown = false;     // the page says that what it plays on does not answer
+  var lostLine = '';         // and why it may still carry on
   var holding = null;        // {way, told, heard} while it is not known whether it plays elsewhere
   var here = null;           // what this device goes on with: {rows, quality, override}
   var subtitle = null;       // what the TV is asked for: 'off', a track, or null for Plex's own choice
@@ -3908,18 +3910,22 @@
 
   /* While it may come back. */
   function showLost(on) {
-    if (on === lostShown) return;
+    var tv = onTv() ? away.tv : null;
+    var line = on ? LOST_LINES[!tv ? (away.play.quiet ? 'quiet' : 'way') : tv.kind === 'older' ? 'older' : 'tv'] : '';
+    if (on === lostShown) {
+      /* Back but silent, or gone again: the same card, with the words that are true now. */
+      if (on && els.messageLine.textContent === lostLine) els.messageLine.textContent = lostLine = line;
+      return;
+    }
     lostShown = on;
+    lostLine = line;
     if (!on) {
       hideMessage();
       return;
     }
-    var tv = onTv() ? away.tv : null;
     var acts = [['Bring it here', bringHere], ['Stop', stopAway]];
     if (tv) acts.unshift(['Try again', lookAtTv]);
-    showMessage(awayName() + ' stopped answering', null, {
-      line: LOST_LINES[!tv ? 'way' : tv.kind === 'older' ? 'older' : 'tv'], acts: acts,
-    });
+    showMessage(awayName() + ' stopped answering', null, { line: line, acts: acts });
   }
 
   /* What it played on has let go of it. */
@@ -3935,6 +3941,7 @@
         : [name + ' was unpaired', 'It was forgotten in Settings, or in your Profile, or on the TV. To use it again, pair it.'],
       moved: ['You’re watching on another device', 'It goes on there, so ' + name + ' stopped' + after + '.'],
       still: [name + ' stopped by itself', 'Nobody answered, so it stopped' + after + '.'],
+      silent: [name + ' stopped answering', 'It came back, but said nothing of what it plays for 10 minutes. It may still be playing there.'],
       signed_out: [name + ' stopped', 'You signed out everywhere, which ends what plays on a TV.'],
     }[why] || [name + ' stopped', 'Yours stopped' + after + '.'];
     var acts = [['Bring it here', function () { tryAgain(); }], ['Close', closeGone]];

@@ -281,6 +281,7 @@
       asked: null,       // what was pressed until the TV has done it: 'play' or 'pause'
       level: null,       // a volume on its way to the TV
       lost: null,        // when the TV was lost
+      quiet: false,      // lost, then back without naming what it has
       was: '',           // what the TV said last
       played: 0,
       seen: null,        // the place and time the played seconds were last counted at
@@ -517,6 +518,7 @@
     };
     Object.defineProperty(p.face, 'name', { get: function () { return nameOf(p); }, enumerable: true });
     Object.defineProperty(p.face, 'lost', { get: function () { return p.lost !== null && !p.done; }, enumerable: true });
+    Object.defineProperty(p.face, 'quiet', { get: function () { return p.quiet && p.lost !== null && !p.done; }, enumerable: true });
     return p;
   }
 
@@ -713,12 +715,16 @@
 
   function lose(p) {
     clearTimeout(p.timers.lost);
+    var quiet = p.quiet;
+    p.quiet = false;
     if (p.lost === null) {
       p.at();
       p.lost = now();
       p.aim = p.asked = null;
       p.was = '';
       p.ready = 1;
+      p.emit('waiting');
+    } else if (quiet) {
       p.emit('waiting');
     }
     p.timers.lost = setTimeout(function () { goneBy(p, 'lost'); }, LOST_MS);
@@ -729,13 +735,20 @@
     clearTimeout(p.timers.lost);
     if (session !== p.session) p.join(session);
     if (!mediaOn(session).length) {
+      if (!p.quiet) {
+        p.quiet = true;
+        p.emit('waiting');
+      }
       p.timers.lost = setTimeout(function () {
+        var followed = p.followed;
         drop(p);
+        if (followed) p.gone.forEach(function (fn) { fn('silent'); });
         changed();
       }, SILENT_MS);
       return;
     }
     p.lost = null;
+    p.quiet = false;
     p.detach();
     var ms = mediaOf(session, p.stream);
     if (!ms) {

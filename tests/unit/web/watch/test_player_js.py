@@ -2826,6 +2826,32 @@ def test_a_way_whose_tv_does_not_answer_says_so_until_it_does(markup, how):
         assert (out["after"]["away"], out["stops"], out["startsAfter"]) == (False, 1, 1)
 
 
+def test_a_way_whose_tv_is_back_and_silent_says_how_long_it_is_waited_for(markup):
+    out = elsewhere(markup, "away_lost_way", "quiet")
+    message, focused = out["quiet"]
+    assert message["text"] == "Den stopped answering"
+    assert message["line"] == (
+        "It’s back, but hasn’t said what it plays. If it does within 10 minutes, it carries on"
+        " by itself."
+    )
+    # The same card, with only its words changed.
+    assert (message["acts"], focused) == (["Bring it here", "Stop"], True)
+    assert out["lostAgain"]["line"] == CARD
+
+
+def test_a_way_that_lets_go_of_a_silent_tv_says_it_may_still_play(markup):
+    out = elsewhere(markup, "away_gone", "silent")
+    assert out["message"]["text"] == "Den stopped answering"
+    assert out["message"]["line"] == (
+        "It came back, but said nothing of what it plays for 10 minutes. It may still be playing"
+        " there."
+    )
+    assert (out["says"], out["message"]["acts"]) == (
+        "Was playing on Den",
+        ["Bring it here", "Close"],
+    )
+
+
 @pytest.mark.parametrize("how", ["again", "back"])
 def test_a_tv_that_does_not_answer_has_the_remotes_card(markup, how):
     out = elsewhere(markup, "away_lost_tv", how)

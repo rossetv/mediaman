@@ -402,7 +402,24 @@ def test_a_lost_tv_that_is_back_and_silent_is_no_tv_that_stopped(
 
 def test_a_tv_silent_for_long_is_let_go_of_and_what_it_plays_left_to_it() -> None:
     out = _run("saysLate")["silentLong"]
-    assert (out["kept"], out["stops"], out["ended"], out["gone"]) == (False, [], [], [])
+    assert (out["kept"], out["stops"], out["ended"]) == (False, [], [])
+    # The player that follows it is told why it is let go of.
+    assert out["gone"] == ["silent"]
+
+
+@pytest.mark.parametrize(
+    ("how", "quiet"),
+    [
+        ("back", [True, False, False]),
+        ("another", [True, False, False]),
+        ("never", [True, True, True]),
+        # Gone again, it is lost and no longer back.
+        ("lostAgain", [True, False, False]),
+        ("silentLong", [True, True, False]),
+    ],
+)
+def test_a_lost_tv_that_is_back_and_silent_says_so(how: str, quiet: list[bool]) -> None:
+    assert _run("saysLate")[how]["quiet"] == quiet
 
 
 def test_a_title_the_person_plays_here_after_all_is_not_looked_for_again() -> None:

@@ -5113,6 +5113,17 @@ const scenarios = {
       await settle();
       out.keys = { stops: way.stops, moved: way.media.currentTime - at, pages: p.calls.filter((c) => c.page && /502/.test(c.url)).length };
     }
+    if (how === 'quiet') {
+      // Back, with nothing said of what it plays; then gone again.
+      way.play.quiet = true;
+      fire(way.media, 'waiting');
+      await settle();
+      out.quiet = [messageState(p), doc.activeElement === p.q('[data-message]')];
+      way.play.quiet = false;
+      fire(way.media, 'waiting');
+      await settle();
+      out.lostAgain = messageState(p);
+    }
     if (how === 'found') {
       let reached = null;
       p.q('[data-play]').focus = function () { reached = this.inert; doc.activeElement = this; };
