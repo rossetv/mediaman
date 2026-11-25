@@ -795,3 +795,99 @@ class TestGoneLibraryAsShipped(_GoneLibrary):
 
         assert copy.exists()
         assert len(self._said("20")) == 1
+
+
+class TestTitlePrunedFromAListedLibraryAsShipped(_GoneLibrary):
+    """Plex lists every library; a title of 2 is listed no more, but a file of it is as another."""
+
+    def _relisted(self, held_by, as_season=False):
+        film, other = self._file("a.mkv"), self._file("d.mkv")
+        watched = datetime.now(UTC) - timedelta(days=1) if held_by == "watch" else None
+        self._gone(film, [film], library=2, last_watched_at=watched)
+        if held_by == "keep":
+            self._keep()
+        if as_season:
+            season = {"season_number": 2, "show_rating_key": "s2", **_SEASON}
+            self._list("20", 4, self.folder, [film], **season)
+        else:
+            self._list("20", 2, other, [other, film])
+        self.freezer.tick(60)
+        self._scan_until_pruned()
+        return film
+
+    @pytest.mark.parametrize(
+        ("held_by", "as_season"), [("keep", False), ("keep", True), ("watch", True)]
+    )
+    def test_its_file_stays_past_the_notice_of_the_other(self, held_by, as_season):
+        film = self._relisted(held_by, as_season)
+
+        self._scan_until_due("20")
+
+        assert film.exists()
+        assert len(self._said("20")) == 1
+
+    @pytest.mark.parametrize("show_kept", [False, True])
+    def test_a_season_listed_as_another_number_stays(self, show_kept):
+        episode = self._file("E1.mkv")
+        season = {"show_rating_key": "s1", **_SEASON}
+        self._gone(self.folder, [episode], library=4, season_number=1, **season)
+        self._keep_show() if show_kept else self._keep()
+        self._list(
+            "20", 4, self.folder, [episode], season_number=2, **season | {"show_rating_key": "s2"}
+        )
+        self.freezer.tick(60)
+        self._scan_until_pruned()
+
+        self._scan(2)
+        self._scan_past_grace()
+
+        assert episode.exists()
+
+    def test_once_its_keep_is_removed_the_other_gets_a_new_notice(self):
+        film = self._relisted("keep")
+        self._scan_until_due("20")
+        with self.conn:
+            self.conn.execute("DELETE FROM pruned_keeps WHERE action = 'protected_forever'")
+
+        self._scan(1)
+        assert film.exists()
+        self._scan(1)
+        self._scan_past_grace()
+        assert not film.exists()
+
+    @pytest.mark.parametrize("stored", [None, "{bad", "[1]"])
+    def test_a_keep_whose_files_cannot_be_read_holds_its_folder(self, stored):
+        film = self._relisted("keep")
+        self._scan(1)
+        with self.conn:
+            self.conn.execute(
+                "UPDATE pruned_keeps SET tracked_files = ? WHERE action = 'held'", (stored,)
+            )
+
+        self._scan_past_grace()
+
+        assert film.exists()
+
+    @pytest.mark.parametrize("stored", ["{bad", "[]"])
+    def test_a_keep_whose_owner_cannot_be_read_still_holds(self, stored):
+        film = self._relisted("keep")
+        self._scan(1)
+        with self.conn:
+            self.conn.execute(
+                "UPDATE pruned_keeps SET given_to = ? WHERE action = 'held'", (stored,)
+            )
+
+        self._scan_past_grace()
+
+        assert film.exists()
+
+    def test_a_late_watch_whose_files_cannot_be_read_holds_its_folder(self):
+        film = self._relisted("watch", as_season=True)
+        self._scan(1)
+        assert self._scheduled() == {"20"}
+        with self.conn:
+            self.conn.execute("UPDATE pruned_watches SET tracked_files = '{bad'")
+
+        self._scan_past_grace()
+
+        assert film.exists()

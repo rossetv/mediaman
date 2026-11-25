@@ -174,7 +174,26 @@ def test_a_dry_run_does_not_list_a_held_deletion(conn, root):
 
     DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
 
-    assert _audits(conn, "m1") == []
+    assert _audits(conn, "m1") == ["delete_awaiting_scan"]
+
+
+def test_a_library_selected_again_after_dry_runs_alone_starts_with_a_new_schedule(conn, root):
+    film = _due(conn, "m1", root / "Film" / "film.mkv")
+    _select(conn, "[]")
+    for _ in range(2):
+        DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+    assert _status(conn, "m1") == "pending"
+    _select(conn, '["1"]')
+    DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+
+    DeletionExecutor(conn=conn).execute()
+
+    assert film.exists()
+    assert _audits(conn, "m1") == ["delete_awaiting_scan", "delete_refused"]
+    schedule_deletion(conn, media_id="m1", is_reentry=False, grace_days=0, secret_key="k" * 64)
+    conn.commit()
+    DeletionExecutor(conn=conn).execute()
+    assert not film.exists()
 
 
 def test_a_dry_run_does_not_list_the_deletions_of_a_library_plex_did_not_answer_for(conn, root):

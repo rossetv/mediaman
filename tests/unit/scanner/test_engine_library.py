@@ -1085,15 +1085,54 @@ class TestTwinInAGoneLibrary:
 
         assert not self.due.exists()
 
-    def test_it_is_deleted_once_the_library_is_listed_again(self, conn, mock_plex, freezer):
+    @pytest.mark.parametrize("dry_run", [False, True])
+    @pytest.mark.parametrize("by", ["ids", "folder", "own library"])
+    def test_it_gets_a_new_notice_once_the_library_is_listed_again(
+        self, conn, mock_plex, freezer, monkeypatch, by, dry_run
+    ):
+        """Whether the wait was seen by a live pass or only by a dry run."""
+        monkeypatch.setattr("mediaman.scanner.engine._PRUNE_GONE_LIBRARIES", False)
+        due, listed, gone = self.due, ["1", "2"], ["2"]
+        if by == "own library":
+            # A library with no twin of it elsewhere.
+            conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = '10'")
+            conn.execute("DELETE FROM media_items WHERE id = '10'")
+            gone = ["1"]
+        else:
+            self._twins(conn, "ids")
+        if by == "folder":
+            due = self.due.parent / "other.mkv"
+            TestScanWithOneBadLibrary._due(conn, "21", due, 2)
+            conn.execute(
+                "UPDATE media_items SET file_path = ?, last_scanned_at = '2099' WHERE id = '21'",
+                (str(due.parent),),
+            )
+        conn.commit()
+        self._scan(conn, mock_plex, listed=gone, library_ids=listed, dry_run=dry_run)
+        assert due.exists()
+
+        freezer.tick(60)
+        self._scan(conn, mock_plex, listed=listed, library_ids=listed)
+
+        assert due.exists()
+        assert not conn.execute(
+            "SELECT 1 FROM scheduled_actions WHERE action = 'scheduled_deletion' "
+            "AND media_item_id IN ('20', '21') AND execute_at < '2021'"
+        ).fetchone()
+
+    def test_one_not_kept_goes_with_a_new_notice_once_its_library_is_listed_again(
+        self, conn, mock_plex, freezer
+    ):
         self._twins(conn, "ids")
         both = ["1", "2"]
         self._scan(conn, mock_plex, listed=both, library_ids=both, dry_run=True)
         self._scan(conn, mock_plex)
         assert self.due.exists()
 
-        freezer.tick(60)
-        self._scan(conn, mock_plex, listed=both, library_ids=both)
+        for days in (1, 1, 15):
+            freezer.tick(timedelta(days=days))
+            assert self.due.exists()
+            self._scan(conn, mock_plex, listed=both, library_ids=both)
 
         assert not self.due.exists()
 
@@ -1303,6 +1342,9 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         conn.commit()
 
         self._scan_four_times(conn, mock_plex, freezer)
+        assert shared.exists()
+        freezer.tick(timedelta(days=15))
+        self._scan_four_times(conn, mock_plex, freezer)
 
         assert shared.exists() is kept
 
@@ -1348,8 +1390,10 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         self._scan_four_times(conn, mock_plex, freezer)
         assert shared.exists()
 
-        freezer.tick(timedelta(days=40))
-        self._scan_four_times(conn, mock_plex, freezer)
+        for days in (40, 15):
+            freezer.tick(timedelta(days=days))
+            assert shared.exists()
+            self._scan_four_times(conn, mock_plex, freezer)
         assert not shared.exists()
 
     @pytest.mark.parametrize("kept", ["season", "show"])
