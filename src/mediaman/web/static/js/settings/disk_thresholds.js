@@ -119,7 +119,12 @@
     var next = container.firstChild;
     selected.forEach(function (lib) {
       var id = String(lib.id);
-      if (kept[id]) { kept[id].refreshState(); next = kept[id].nextSibling; return; }
+      if (kept[id]) {
+        // What was typed over an unreadable entry and then put back is no longer asked for.
+        if (limitOf(DISK_THRESHOLDS[id]) === 'unreadable') kept[id].retyped = false;
+        kept[id].refreshState(); next = kept[id].nextSibling;
+        return;
+      }
       container.insertBefore(buildLibPathCard(lib, DISK_THRESHOLDS[id] || {}), next);
     });
   }
@@ -231,7 +236,7 @@
     var asked = null;
     function refresh(again) {
       var typed = typedIn(card);
-      var scan = scanOf(card.dataset.libId, typed);
+      var scan = scanOf(card.dataset.libId, typed, card.retyped);
       var what = scan.limit ? typed.threshold + ' ' + scan.limit.path : scan.text;
       var known = !!asked && asked.what === what;
       if (known && !again) return;
@@ -244,6 +249,9 @@
         .then(function (found) { if (mine === asked) paintState(card, found, typed.threshold); });
     }
     function check() { refresh(true); }
+    function retype() { card.retyped = true; }
+    pathInput.addEventListener('input', retype);
+    thrInput.addEventListener('input', retype);
     pathInput.addEventListener('blur', check);
     thrInput.addEventListener('change', check);
     card.refreshState = refresh;
@@ -276,11 +284,18 @@
     return { path: cfg.path, percent: percent };
   }
 
+  // Whether an entry the scanner cannot read becomes a limit, though it may show the same.
+  // One that sets no limit mends nothing: the library would then always be scanned.
+  function mends(cfg, next) {
+    return limitOf(cfg) === 'unreadable' && isObject(limitOf(next));
+  }
+
   // Whether the scanner takes a library, from what is stored or, once changed, what is typed over it:
   // its limit, which the disk then decides, or else what to say.
-  function scanOf(id, typed) {
+  function scanOf(id, typed, retyped) {
     var stored = isObject(STORED) ? STORED[id] : undefined;
-    var limit = limitOf(same(typed, shown(stored)) ? stored : typed);
+    var mended = mends(stored, typed) && (retyped || mends(stored, DISK_THRESHOLDS[id]));
+    var limit = limitOf(same(typed, shown(stored)) && !mended ? stored : typed);
     if (limit === 'unreadable') {
       return { tone: 'crit', text: 'Saved limit can’t be read — scheduled scans skip this library. Enter a path and a limit, then save.' };
     }
@@ -352,7 +367,8 @@
   function keepTyped() {
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
       var typed = typedIn(card);
-      if (!same(typed, shown(DISK_THRESHOLDS[card.dataset.libId]))) {
+      var entry = DISK_THRESHOLDS[card.dataset.libId];
+      if (!same(typed, shown(entry)) || (card.retyped && mends(entry, typed))) {
         DISK_THRESHOLDS[card.dataset.libId] = typed;
       }
     });
@@ -364,7 +380,7 @@
     var out = null;
     Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
       var now = shown(to[libId]);
-      if (same(shown(from[libId]), now)) return;
+      if (same(shown(from[libId]), now) && !mends(from[libId], to[libId])) return;
       out = out || {};
       out[libId] = now;
     });
@@ -449,13 +465,16 @@
     };
   }
 
-  // `lib:<id>` for each library selected and `limit:<id>` for each entry that is not blank.
+  // `lib:<id>` for each library selected and `limit:<id>` for each entry that is not blank;
+  // one that cannot be read is not the same as a limit that shows alike.
   function things(state) {
     var out = {};
     state.libs.forEach(function (id) { out['lib:' + id] = true; });
     Object.keys(state.disk).forEach(function (id) {
       var cfg = shown(state.disk[id]);
-      if (cfg.path || cfg.threshold) out['limit:' + id] = cfg.threshold + ' ' + cfg.path;
+      if (cfg.path || cfg.threshold) {
+        out['limit:' + id] = (limitOf(state.disk[id]) === 'unreadable' ? 'unreadable ' : '') + cfg.threshold + ' ' + cfg.path;
+      }
     });
     return out;
   }

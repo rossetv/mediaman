@@ -134,6 +134,26 @@ def test_the_sections_say_that_scan_now_ignores_the_limits() -> None:
     assert "Scheduled scans" in libraries and "Scan now ignores" in libraries
 
 
+def test_typing_the_shown_values_again_mends_an_unreadable_limit() -> None:
+    out = _run("retyped", json.dumps({"path": "/a", "threshold": "80.5"}), "/a", "80")
+    never = {"says": out["untouched"]["says"], "changes": None, "sameThing": True}
+    assert _card_says(never["says"]) == "never"
+    assert out["untouched"] == never
+    assert _card_says(out["typedSays"]) == "limited"
+    assert _card_says(out["typed"]["says"]) == "limited"
+    assert out["typed"]["changes"] == {"1": {"path": "/a", "threshold": 80}}
+    assert out["typed"]["sameThing"] is False
+    # put back by the page itself, it is no change any more
+    assert out["shownAgain"]["changes"] is None
+    assert out["discarded"] == never
+
+
+def test_typing_no_limit_over_an_unreadable_one_does_not_set_the_library_free() -> None:
+    out = _run("retyped", json.dumps({"path": "/a", "threshold": "many"}), "/a", "0")
+    assert out["typed"] == out["untouched"]
+    assert _card_says(out["typed"]["says"]) == "never"
+
+
 def test_the_libraries_say_to_set_up_plex_only_when_it_is_not_set_up() -> None:
     out = _run("plexAnswers")
     hints = {name: pills for name, (pills, _) in out.items()}
