@@ -1446,6 +1446,25 @@ const scenarios = {
     await h.pass(400);
     return { left, kept: kept.every(Boolean), snaps: [...new Set(snaps)], after: row.style.scrollSnapType, drawn, open };
   },
+  /* Notches sideways over a preview: each goes to the row's own snapping, as it would over the card. */
+  async notchedSideways() {
+    const out = {};
+    for (const [name, over] of [['px', { deltaX: 100 }], ['lines', { deltaX: 3, deltaMode: 1 }]]) {
+      const h = load();
+      const row = h.doc.querySelector('.watch-row__scroll');
+      const asked = [];
+      Object.assign(row, { scrollLeft: 0, scrollWidth: 5000, clientWidth: 1000, scrollBy: (o) => asked.push([o.left, o.behavior]) });
+      await h.rest('film', 1100);
+      const snaps = [];
+      for (let i = 0; i < 4; i++) {
+        h.wheel(0, over);
+        snaps.push(row.style.scrollSnapType || '');
+        await h.pass(120);
+      }
+      out[name] = { asked, left: row.scrollLeft, snaps: [...new Set(snaps)] };
+    }
+    return out;
+  },
   /* Once it is open, what is left of the push, a push that speeds up again, and a fresh one. */
   async momentum() {
     const run = async (after) => {

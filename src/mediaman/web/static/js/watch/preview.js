@@ -1418,11 +1418,16 @@
     window.requestAnimationFrame(step);
   }
 
-  /* Its snapping would pull every small step back. The row moves, so the preview over it fades. */
+  /* Its snapping would pull every small step back. The row moves, so the preview over it fades.
+     A notch, which its snapping takes a card on, is its snapping's, as over the card. */
   function slideRow(s, dx, e) {
     var row = s.p && s.p.link.closest('.watch-row__scroll');
     if (!row) return;
     e.preventDefault();
+    if (e.deltaMode === 1 || Math.abs(dx) >= 60) {
+      row.scrollBy({ left: dx, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+      return;
+    }
     if (s.row !== row) {
       s.row = row;
       s.left = row.scrollLeft;
