@@ -140,6 +140,7 @@
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), --ring var(--dur-slow) var(--ease-out);
 }
+.profile-ring.is-set { transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); }
 .profile-ring.is-on { opacity: 1; transform: none; }
 .profile-ring.is-ready { --ring-tone: var(--success); }
 .profile-ring.is-waiting { --ring-tone: var(--warning); }

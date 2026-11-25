@@ -26,7 +26,8 @@ function page(isPhone, downloading) {
   win.visualViewport = { height: 800, scale: 1, addEventListener(t, fn) { win.listeners['seen ' + t] = fn; } };
   const images = [];
   function Image() { images.push(this); }
-  const ctx = vm.createContext({ window: win, document: doc, Image });
+  const clock = { now: 1000000 };
+  const ctx = vm.createContext({ window: win, document: doc, Image, Date: { now: () => clock.now } });
   ['modal-a11y.js', 'nav.js'].forEach((file) => vm.runInContext(fs.readFileSync(path.join(JS, file), 'utf8'), ctx));
 
   const fire = (type, target, extra) => {
@@ -38,7 +39,7 @@ function page(isPhone, downloading) {
     return e;
   };
   return {
-    $, win, media, fire, images, doc,
+    $, win, media, fire, images, doc, clock,
     click: (id, extra) => click(doc, $(id), extra),
     key: (key) => fire('keydown', doc.activeElement, { key }),
     focused: () => doc.activeElement.id,
@@ -194,6 +195,34 @@ const scenarios = {
     p.media.matches = false;
     p.media.on.forEach((fn) => fn());
     return { open: p.open(), inert: p.inert(), scrolls: p.scrolls(), focused: p.focused() };
+  },
+  // The second tap of a double tap falls on what came up under the finger.
+  doubleTap() {
+    const at = (isPhone, ms, extra) => {
+      const p = page(isPhone);
+      p.click('button');
+      p.clock.now += ms;
+      let prevented = null;
+      p.doc.addEventListener('click', (e) => { prevented = e.defaultPrevented; });
+      p.click('logout', extra);
+      return prevented;
+    };
+    const p = page(true);
+    p.click('button');
+    p.clock.now += 200;
+    p.click('profile-menu', { detail: 1 });
+    return { quick: at(true, 300, { detail: 1 }), slow: at(true, 500, { detail: 1 }), key: at(true, 100, { detail: 0 }), desktop: at(false, 100, { detail: 1 }), open: p.open() };
+  },
+  // Off, the ring is set where it begins; on, it eases from where it stands.
+  ringComesBack() {
+    let tell;
+    const p = page(false, { subscribe(fn) { tell = fn; } });
+    const eased = [];
+    p.$('ring').style.setProperty = () => eased.push(!p.$('ring').classList.contains('is-set'));
+    p.$('profile-note').style.setProperty = () => {};
+    const at = (total, percent) => tell({ summary: { total, active: total, waiting: 0, ready: 0, percent } });
+    at(1, 40); at(1, 60); at(0, 0); at(1, 5); at(1, 9);
+    return { eased, left: p.$('ring').classList.contains('is-set') };
   },
   // What is downloading, as the button and the menu tell it.
   downloads() {

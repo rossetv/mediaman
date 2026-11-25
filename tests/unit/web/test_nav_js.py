@@ -214,3 +214,17 @@ def test_a_keyboard_is_told_from_a_toolbar_and_from_a_zoomed_page() -> None:
         "zoomedTyping": True,
         "away": False,
     }
+
+
+def test_the_second_tap_of_a_double_tap_on_the_picture_presses_nothing_in_the_sheet() -> None:
+    assert _run("doubleTap") == {
+        "quick": True,
+        "slow": False,
+        "key": False,
+        "desktop": False,
+        "open": True,
+    }
+
+
+def test_a_ring_that_comes_back_does_not_sweep_round_from_where_it_last_stood() -> None:
+    assert _run("ringComesBack") == {"eased": [False, True, False, True], "left": False}
