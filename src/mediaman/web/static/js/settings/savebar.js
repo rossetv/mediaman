@@ -478,6 +478,7 @@
       if (!savebar || saving) return;
       if (savebar.classList.contains('is-error')) clearSaveError();
       var clean = !isUnsure() && !changedKeys(saved, snapshot()).length;
+      if (clean) recheck([]);
       // After a save the bar goes by itself.
       if (clean && successTimers.length) return;
       if (successTimers.length || clean) {
@@ -663,6 +664,7 @@
       clearSaveError();
       refreshOverviewHero();
       settleAfterHide(fromKeyboard);
+      recheck([]);
     }
 
     function discardUnsure(fromKeyboard) {
@@ -675,7 +677,6 @@
         askToCheck(unexpected(saved, Object.keys(unsure)));
         unsure = {};
         putBackSaved(fromKeyboard);
-        recheck([]);
       });
     }
 
