@@ -586,12 +586,13 @@
     });
   }
 
-  /* *film* came to be queued or held by another way while it was still to be asked for. */
-  function gotElsewhere(film) {
+  /* *film* came to be queued or held by another way while it was still to be asked for; *gone*:
+     it was taken out again. */
+  function gotElsewhere(film, gone) {
     if (!job) return;
     job.items.forEach(function (i) {
       if (i.film.ref !== film.ref || i.state === 'asking' || i.state === 'done') return;
-      i.had = OUT.filter(function (why) { return why[0] === film.why_not; })[0][1];
+      i.had = gone ? null : OUT.filter(function (why) { return why[0] === film.why_not; })[0][1];
     });
   }
 
@@ -619,8 +620,10 @@
         if (d.download_state) {
           changed(f, d.download_state, d.download_pct);
           gotElsewhere(f);
+        } else {
+          if (view) view.stale = true;
+          gotElsewhere(f, true);
         }
-        else if (view) view.stale = true;
       });
     });
     // What the page changes on its cards it does not change on those off it.

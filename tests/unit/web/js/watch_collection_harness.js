@@ -95,7 +95,7 @@ function load(reply) {
   };
   const told = (n, over) => doc.dispatchEvent({ type: 'mm:title-changed', detail: Object.assign({ ref: 'tmdb-movie-' + n,
     download_state: 'queued', download_pct: null, title: 'Film ' + n, kind: 'movie', year: 2000 + n }, over) });
-  return { warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
+  return { win, warns, told, ctx, doc, clock, gets, posts, events, toasts, opened, body, into, redraw, q, cards, get, isOpen, press, go, rows, answer, tick };
 }
 
 const ids = (p) => p.posts.map((x) => x.body.tmdb_id);
@@ -312,7 +312,7 @@ const scenarios = {
     out.push(p.warns()); // the last one has been asked for
     await p.answer(1);
     out.push(p.warns());
-    return { out, said };
+    return { out, said, listening: (p.win.beforeunload || []).length };
   },
 
   async another() {
@@ -396,6 +396,24 @@ const scenarios = {
     p.told(4, { download_state: 'in_library' });
     await p.answer(0);
     return { ids: ids(p), rows: p.rows(), said: p.q('.coll-dialog__said').textContent, go: p.go().textContent };
+  },
+
+  // Asked for elsewhere, and taken out again, before its turn.
+  async takenOut() {
+    const p = await asked();
+    await p.press(p.go());
+    p.told(3);
+    p.told(3, { download_state: null });
+    await p.answer(0);
+    return { ids: ids(p), row: p.rows()[1] };
+  },
+
+  async skipped() {
+    const p = await asked();
+    await p.press(p.go());
+    p.told(3);
+    await p.answer(0);
+    return { ids: ids(p), go: p.go().textContent, get: p.get() };
   },
 
   // TMDB fails after the row was drawn.

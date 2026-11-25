@@ -175,6 +175,7 @@ def test_leaving_the_page_is_asked_about_while_films_are_left_to_ask_for() -> No
     out = _run("unload")
     assert out["out"] == [False, True, False, False]
     assert "Keep this page open" in out["said"]
+    assert out["listening"] == 0
 
 
 def test_a_second_collection_waits_for_the_first() -> None:
@@ -214,3 +215,12 @@ def test_a_film_got_elsewhere_meanwhile_is_done_without_being_asked_for() -> Non
 
 def test_a_failed_refresh_keeps_the_row_and_is_tried_again() -> None:
     assert _run("outage") == {"kept": True, "gets": 3, "name": "Back again"}
+
+
+def test_a_film_taken_out_again_before_its_turn_is_asked_for() -> None:
+    assert _run("takenOut") == {"ids": [2, 3], "row": "Film 3: 2003 · Adding…"}
+
+
+def test_a_skipped_film_counts_in_the_progress() -> None:
+    adding = "Adding 3 of 3…"
+    assert _run("skipped") == {"ids": [2, 4], "go": adding, "get": adding}
