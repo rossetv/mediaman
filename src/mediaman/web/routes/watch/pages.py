@@ -56,6 +56,7 @@ from mediaman.web.repository.watch_progress import (
     get_progress,
     show_progress,
 )
+from mediaman.web.routes.downloads_strip import payload_for
 from mediaman.web.routes.poster.title_art import title_art
 from mediaman.web.routes.watch import all_titles, list_page
 from mediaman.web.routes.watch.card_marks import title_key, tmdb_ref
@@ -1021,7 +1022,11 @@ def watch_page(
                 if grid
                 else None,
                 "settings_tmdb_href": "/settings#setg-integrations" if is_admin else None,
-                "downloading": strip.payload(downloading) if downloading else None,
+                "downloading": payload_for(
+                    conn, request.app.state.config.secret_key, username, downloading
+                )
+                if downloading
+                else None,
             },
         },
     )

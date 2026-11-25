@@ -70,7 +70,7 @@ function load(answers, opts = {}) {
     p.time = until;
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Math, Promise, WeakMap, Set, Map, Error, parseFloat, AbortController,
+    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Set, Map, Error, parseFloat, AbortController,
     Date: { now: () => p.time },
     setTimeout: clock.set, clearTimeout: clock.clear,
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingBottom: '0', columnGap: '14' }),
@@ -161,6 +161,18 @@ const scenarios = {
     await p.step(1500);
     const link = p.doc.querySelector('[data-row-id="recent"]').querySelector('a');
     return { at, still, cards: p.cards(), recent: p.recent(), ref: link.getAttribute('data-title-ref'), heading: p.heading() };
+  },
+  async readyTools() {
+    const marks = { tmdb_ref: 'tmdb-movie-9', level: 2, watched: true, mark_kind: 'movie', mark_key: '12' };
+    const p = load([answer([ready('B', 2, marks), ready('Cove', 3, { tmdb_ref: 'tmdb-movie-4', level: null, watched: false, mark_kind: null, mark_key: null }), item('A')])]);
+    await p.step(4000);
+    const of = (title) => {
+      const card = p.doc.querySelector('[data-row-id="recent"]').querySelectorAll('.watch-card').find((n) => n.querySelector('.watch-card__title').textContent === title);
+      const eye = card.querySelector('.card-tool--eye');
+      return [card.getAttribute('data-tmdb-ref'), card.getAttribute('data-level'), !!card.querySelector('[data-card-rate]'),
+        eye && eye.getAttribute('data-mark-toggle'), eye && eye.getAttribute('aria-pressed'), !!card.querySelector('.watch-badge--watched')];
+    };
+    return { B: of('B'), Cove: of('Cove') };
   },
   async readyOnceOnly() {
     const p = load([answer([ready('B', 2), item('A')])]);

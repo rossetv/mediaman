@@ -291,6 +291,17 @@ def test_the_badges_under_a_leaving_one_stand_in_line_with_it() -> None:
     assert "right: auto" in _of(under, sheet=browse)
 
 
+def test_a_watched_badge_stands_under_any_other_in_its_corner() -> None:
+    under = re.search(
+        r"\.watch-card__poster:has\(([^)]*)\) > \.watch-badge--watched \{ top: 36px; \}",
+        SHEET.read_text(encoding="utf-8"),
+    )
+    assert under
+    assert {"> .watch-badge--leaving", "> .watch-badge--state", "> .watch-badge--new"} == set(
+        under[1].split(", ")
+    )
+
+
 def test_a_category_tile_s_drawing_takes_the_system_colour_in_forced_colours() -> None:
     search = SHEET.with_name("_watch_search.css")
     # The tile's own rule for the drawing's grey is more specific than a bare `.watch-line` one.

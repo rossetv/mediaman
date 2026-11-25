@@ -85,6 +85,13 @@ def test_then_it_goes_to_the_front_of_recently_added(out) -> None:
     assert landed["heading"] == "Downloading, 1, see all in Downloads"
 
 
+def test_it_has_its_thumb_and_its_eye_there_as_every_card_has(out) -> None:
+    assert out["readyTools"] == {
+        "B": ["tmdb-movie-9", "2", True, "movie/12", "true", True],
+        "Cove": ["tmdb-movie-4", None, True, "tmdb-movie-4", "false", False],
+    }
+
+
 def test_it_goes_there_once_while_the_server_still_calls_it_ready(out) -> None:
     assert out["readyOnceOnly"] == {"cards": ["A"], "recent": ["B", "Salt", "Fieldwork"]}
 

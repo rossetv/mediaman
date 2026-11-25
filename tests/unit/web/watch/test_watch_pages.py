@@ -1494,8 +1494,12 @@ def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_w
     item = strip.StripItem(
         key="radarr::1", title="Dune", kind="movie", state="downloading", percent=42
     )
+    ready = strip.StripItem(
+        key="radarr::2", title="Sicario", kind="movie", state="ready", ready_seconds=50,
+        tmdb_id=2, ref="tmdb-movie-2",
+    )  # fmt: skip
     held = strip.Shared()
-    held.get(lambda _before: strip.Strip((item,)))
+    held.get(lambda _before: strip.Strip((item, ready)))
     monkeypatch.setattr(strip, "shared", held)
 
     html = _page(app_factory, conn, monkeypatch, "/watch", user).text
@@ -1503,8 +1507,9 @@ def test_what_is_downloading_comes_with_the_page_between_continue_watching_and_w
     places = [html.index(f'id="{name}"') for name in ("watch-downloading", "watch-asked")]
     assert html.index('data-row-id="continue"') < places[0] < places[1]
     data = json.loads(re.search(r'id="watch-page-data">(.*?)</script>', html, re.S)[1])
-    assert [i["title"] for i in data["downloading"]["items"]] == ["Dune"]
+    assert [i["title"] for i in data["downloading"]["items"]] == ["Dune", "Sicario"]
     assert data["downloading"]["summary"]["percent"] == 42
+    assert data["downloading"]["items"][1]["watched"] is False
     assert "/static/js/watch/downloading.js" in html
     assert "/static/js/downloading.js" in html
     assert "/static/css/_watch_downloading.css" in html

@@ -15,12 +15,14 @@ from mediaman.db import get_db
 from mediaman.services import watch_catalog as catalog
 from mediaman.services.downloads import strip
 from mediaman.services.downloads.download_queue import build_downloads_response
-from mediaman.services.downloads.strip import Strip, StripItem
+from mediaman.services.downloads.strip import Answer, Strip, StripItem
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_user
 from mediaman.web.repository import watch_library as lib
+from mediaman.web.repository.seen_titles import person_marks
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.poster.title_art import title_art
+from mediaman.web.routes.watch.card_marks import card_marks, marked
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ _MAX_TMDB_ID = 9_999_999_999
 
 @router.get("/api/downloads/strip")
 def api_downloads_strip(
-    request: Request, _username: str = Depends(get_current_user)
+    request: Request, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
@@ -40,7 +42,25 @@ def api_downloads_strip(
         answer = strip.shared.get(lambda before: _make(conn, secret_key, before))
     except strip.Unavailable:
         return respond_err("busy", status=503)
-    return respond_ok(strip.payload(answer))
+    return respond_ok(payload_for(conn, secret_key, username, answer))
+
+
+def payload_for(
+    conn: sqlite3.Connection, secret_key: str, username: str, answer: Answer
+) -> dict[str, Any]:
+    """What a page is told, with *username*'s own marks of what is ready, for its card in
+    Recently added."""
+    shown = strip.payload(answer)
+    ready = [i for i in shown["items"] if i["state"] == "ready" and i["tmdb_ref"]]
+    if ready:
+        marks = card_marks(person_marks(conn, username), TmdbClient.from_db(conn, secret_key))
+        seen = lib.seen_refs(conn, username, lib.scanned_library_ids(conn))
+        for item in ready:
+            held = None if item["ref"].startswith("tmdb-") else item["ref"]
+            item.update(lib.mark_fields(held, seen))
+            card = marked({**item, "ref": item["tmdb_ref"], "library_ref": held}, marks)
+            item.update(level=card["level"], watched=card["watched"])
+    return shown
 
 
 def _make(conn: sqlite3.Connection, secret_key: str, before: Strip) -> Strip:

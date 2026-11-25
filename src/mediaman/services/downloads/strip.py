@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime
 from hashlib import blake2b
-from typing import Literal
+from typing import Any, Literal
 
 from mediaman.core.time import parse_iso_utc
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
@@ -254,7 +254,12 @@ def summary(items: Sequence[StripItem]) -> dict[str, int]:
     }
 
 
-def _shown(item: StripItem) -> dict[str, object]:
+def _tmdb_ref(item: StripItem) -> str | None:
+    kind = "movie" if item.kind == "movie" else "tv"
+    return f"tmdb-{kind}-{item.tmdb_id}" if item.ref and item.tmdb_id else None
+
+
+def _shown(item: StripItem) -> dict[str, Any]:
     return {
         "key": item.key,
         "title": item.title,
@@ -266,13 +271,14 @@ def _shown(item: StripItem) -> dict[str, object]:
         "held": item.held,
         "ready_seconds": item.ready_seconds,
         "ref": item.ref,
+        "tmdb_ref": _tmdb_ref(item),
         "href": item.href,
         "poster_url": item.poster_url,
         "art_url": item.art_url,
     }
 
 
-def payload(answer: Answer) -> dict[str, object]:
+def payload(answer: Answer) -> dict[str, Any]:
     """What a page is told: the same for an admin and a viewer."""
     stale = answer.age_s > STALE_S
     items: list[StripItem] = []
