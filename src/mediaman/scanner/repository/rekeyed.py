@@ -458,7 +458,7 @@ def held_beside_another_title(
         if title is None or not (
             is_protected(conn, media_id)
             or is_show_kept_pure(conn, title["show_rating_key"], now_iso_str=now)
-            or _is_watched_lately(conn, media_id, inactivity_days)
+            or is_watched_lately(conn, media_id, inactivity_days)
         ):
             continue
         if tracking is None:
@@ -479,7 +479,7 @@ def _ids_by_tracked_file(conn: sqlite3.Connection) -> dict[str, set[str]]:
     return tracking
 
 
-def _is_watched_lately(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> bool:
+def is_watched_lately(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> bool:
     """Return True if the last watch of the title would keep it from being scheduled today."""
     # rationale: the interpolated expression is a fixed string; every value is bound
     watched = conn.execute(  # nosec B608

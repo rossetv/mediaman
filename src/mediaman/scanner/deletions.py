@@ -42,6 +42,7 @@ from mediaman.scanner.repository.rekeyed import (
     files_held_for_gone_titles,
     ids_match,
     is_kept_deletion,
+    is_watched_lately,
     title_files,
     title_ids,
 )
@@ -1182,6 +1183,7 @@ class _Title(NamedTuple):
     ids: Ids
     files: set[str]
     is_kept: bool
+    is_watched_lately: bool
 
     def may_be(self, other: _Title) -> bool:
         return self.is_film == other.is_film and (
@@ -1189,7 +1191,7 @@ class _Title(NamedTuple):
         )
 
 
-def _title(conn: sqlite3.Connection, media_id: str) -> _Title | None:
+def _title(conn: sqlite3.Connection, media_id: str, inactivity_days: int) -> _Title | None:
     title = fetch_title(conn, media_id)
     if title is None:
         return None
@@ -1199,6 +1201,7 @@ def _title(conn: sqlite3.Connection, media_id: str) -> _Title | None:
         title_files(title),
         repository.is_protected(conn, media_id)
         or repository.is_show_kept_pure(conn, title["show_rating_key"]),
+        is_watched_lately(conn, media_id, inactivity_days),
     )
 
 
@@ -1284,7 +1287,7 @@ class DeletionExecutor:
         self._gone_titles = [
             title
             for media_id in repository.fetch_ids_in_libraries(self._conn, list(gone_libraries))
-            if (title := _title(self._conn, media_id)) is not None
+            if (title := _title(self._conn, media_id, self._inactivity_days)) is not None
         ]
         self._held_files = files_held_for_gone_titles(self._conn, self._inactivity_days)
         self._turn = ArrTurn()
@@ -1421,7 +1424,7 @@ class DeletionExecutor:
         """Return the titles of libraries Plex does not list that *row*'s item may be."""
         if not self._gone_titles:
             return []
-        own = _title(self._conn, row.media_item_id)
+        own = _title(self._conn, row.media_item_id, self._inactivity_days)
         return [gone for gone in self._gone_titles if own is not None and own.may_be(gone)]
 
     def _why_it_waits(self, row: DeletionRow) -> str:
@@ -1431,6 +1434,13 @@ class DeletionExecutor:
             return (
                 "it may be a kept title of a library Plex does not list now; the deletion "
                 "waits while that one is kept"
+            )
+        files = set(tracked_paths(row) or [])
+        # Only a file of its own makes a watch hold: the watch of a copy with other files does not.
+        if any(gone.is_watched_lately and not gone.files.isdisjoint(files) for gone in twins):
+            return (
+                "it has a file of a title watched lately in a library Plex does not list now; "
+                "the deletion waits until that watch is too long ago"
             )
         if twins:
             return (

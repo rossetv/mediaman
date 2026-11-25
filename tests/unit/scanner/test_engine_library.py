@@ -1022,6 +1022,25 @@ class TestTwinInAGoneLibrary:
         ).fetchall()
         assert [row[0] for row in waits] == ["delete_awaiting_scan"]
 
+    def test_the_late_watch_of_a_copy_with_other_files_is_not_said_to_hold_it(
+        self, conn, mock_plex
+    ):
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = '10'")
+        conn.execute(
+            "UPDATE media_items SET last_watched_at = ? WHERE id = '10'",
+            ((datetime.now(UTC) - timedelta(days=1)).isoformat(),),
+        )
+        self._twins(conn, "ids")
+
+        self._scan(conn, mock_plex)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "until that is certain" in said[0][0]
+
     def test_the_wait_is_told_once(self, conn, mock_plex):
         self._twins(conn, "ids")
 
@@ -1229,6 +1248,26 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
         ).fetchall()
         assert len(said) == 1
         assert "is kept" in said[0][0]
+        assert "certain" not in said[0][0]
+
+    def test_a_deletion_that_waits_for_a_title_watched_lately_in_a_gone_library_says_so(
+        self, conn, mock_plex, freezer
+    ):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        self._store(
+            conn, "10", 1, own, [own, shared], last_watched_at=datetime.now(UTC) - timedelta(days=1)
+        )
+        self._store(conn, "20", 2, other, [other, shared])
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        said = conn.execute(
+            "SELECT detail FROM audit_log WHERE media_item_id = '20' "
+            "AND action = 'delete_awaiting_scan'"
+        ).fetchall()
+        assert len(said) == 1
+        assert "until that watch is too long ago" in said[0][0]
         assert "certain" not in said[0][0]
 
     @pytest.mark.parametrize("kept", [True, False])
