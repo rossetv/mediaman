@@ -603,6 +603,7 @@
     var tokened = false;
     var sheetOn = false;
     var sheetOf = null; // what the sheet was drawn from: { all, waiting }
+    var outdated = false; // the library went empty, or has something now, since
     var emptied = false; // the step back to what an emptied search was typed over is on its way; a slow one lands at any time
     var emptiedTimer = null;
     var composed = ''; // what was typed last, where a word in it is still being composed
@@ -809,7 +810,7 @@
     /* Shuts the sheet and leads to all the library's titles, over what is open. */
     function openLibrary() {
       leaveSheet();
-      window.MMWatch.expand.library('', '', {});
+      window.MMWatch.expand.library('', '', { fromSearch: true });
     }
 
     function downloadsWords() {
@@ -823,11 +824,21 @@
       if (link) link.querySelector('span').textContent = downloadsWords();
     }
 
+    function allWords(n) { return 'All ' + titleCount(n); }
+
+    document.addEventListener('mm:watch-total', function (e) {
+      data.library_total = e.detail.total;
+      var link = byId('watch-option-library');
+      if (link && data.library_total) link.querySelector('span').textContent = allWords(data.library_total);
+      else if (link) link.remove();
+      if (!link || !data.library_total) outdated = true;
+    });
+
     function drawLibrary(again) {
       var nodes = [];
       var n = data.library_total;
       if (n && data.grids && data.grids.library) {
-        nodes.push(option(pill('watch-try', 'i-table-cells-large', 'All ' + titleCount(n), openLibrary), 'library'));
+        nodes.push(option(pill('watch-try', 'i-table-cells-large', allWords(n), openLibrary), 'library'));
       }
       var link = option(el('a', 'watch-try'), 'downloads');
       link.setAttribute('href', '/downloads');
@@ -960,11 +971,12 @@
     function drawSheet(all, waiting) {
       // Under the person's eyes the AI's part neither comes nor changes, save by their own hand.
       var knows = sheetOn && sheetOf && !sheet.querySelector('.watch-recent.is-gone') ? sheetOf.knows : assist();
-      if (sheetOf && sheetOf.all === all && sheetOf.waiting === waiting && sheetOf.knows === knows) return;
+      if (!outdated && sheetOf && sheetOf.all === all && sheetOf.waiting === waiting && sheetOf.knows === knows) return;
       // Drawn anew under the person's eyes, what stays does not come in again.
       var again = sheetOn && !!sheetOf;
       var at = picked && sheet.contains(picked) ? picked.id : null;
       sheetOf = { all: all, waiting: waiting, knows: knows };
+      outdated = false;
       var first = FIRST.map(function (id) { return all.genres.filter(function (g) { return g.id === id; })[0]; }).filter(Boolean);
       var more = all.genres.filter(function (g) { return first.indexOf(g) === -1; });
       var folk = all.people.slice(0, PEOPLE);

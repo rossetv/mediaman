@@ -1096,7 +1096,7 @@
       trigger: '[data-preview-more]',
       fill: fillMenu,
       choose: choose,
-      spare: function () { return document.getElementById('watch-search'); }
+      spare: core.spareFocus
     });
   }
 

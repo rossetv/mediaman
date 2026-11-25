@@ -16,6 +16,9 @@
   var HREF = '/downloads';
   var STATES = { queued: ['is-queued'], searching: ['is-looking'], stuck: ['is-looking', 'is-stuck'], ready: ['is-ready'] };
   var FLY_MS = 520;
+  var AT_START_PX = 2;
+  var REST_MS = 600; // a swipe goes on after the finger has gone
+  var SCROLLED_MS = 200;
   var SAID_MS = 5000; // then it is taken back, so that the same words are read again
   var SWEEP_MS = 1700; // past the ring the new card arrives with
   var FLY_EASE = 'cubic-bezier(.3,.7,.2,1)';
@@ -33,6 +36,8 @@
   var saying = null;
   var closing = null;
   var opening = null;
+  var noting = null;
+  var staying = new WeakSet(); // the rows that do not snap while at their start
 
   // Outside the row, which is not there to be read out when it has nothing.
   var said = el('p', 'sr-only');
@@ -159,7 +164,8 @@
     var end = tail.appendChild(el('span', 'row-open__end'));
     end.appendChild(el('span', 'row-open__total'));
     end.appendChild(icon('i-chevron-right'));
-    var note = section.appendChild(el('p', 'dlx__note'));
+    var notes = section.appendChild(el('div', 'dlx__notes'));
+    var note = notes.appendChild(el('div')).appendChild(el('p', 'dlx__note'));
     note.hidden = true;
     note.appendChild(icon('i-triangle-exclamation'));
     var noteText = note.appendChild(el('span'));
@@ -169,7 +175,8 @@
     scroller.setAttribute('role', 'region');
     inner.appendChild(section);
     slot.appendChild(inner);
-    words = { name: name, count: count, link: link, note: note, noteText: noteText };
+    stayAtStart(scroller);
+    words = { name: name, count: count, link: link, notes: notes, note: note, noteText: noteText };
     // Until it loads; then watch-rows.js starts every row it finds.
     if (window.MMWatch.rows) window.MMWatch.rows.init(viewport);
   }
@@ -213,8 +220,45 @@
     scroller.setAttribute('aria-label', name);
     var outage = state.lost ? 'Can’t reach mediaman' : state.outage.replace("'", '’');
     var held = state.lost || list.some(function (item) { return item.held; });
-    words.note.hidden = !outage;
-    setText(words.noteText, outage ? outage + ' right now.' + (held ? ' This is how it last was.' : '') : '');
+    showNote(!outage ? '' : (state.signedOut ? 'You’re signed out.' : outage + ' right now.') + (held ? ' This is how it last was.' : ''));
+  }
+
+  /* It opens and closes with what is below it; on its way out it is not read any more. */
+  function showNote(text) {
+    var row = words;
+    var on = row.notes.classList.contains('is-on');
+    if (text) setText(row.noteText, text);
+    if (!!text === on) return;
+    clearTimeout(noting);
+    row.note.inert = !text;
+    if (text) {
+      row.note.hidden = false;
+      void row.notes.offsetWidth;
+    } else noting = setTimeout(function () { row.note.hidden = true; }, core.reduceMotion() ? 0 : core.tokenMs('--dur-slow', 250));
+    row.notes.classList.toggle('is-on', !!text);
+  }
+
+  /* A row that snaps goes with the card it stood at when others come before it. One at its
+     start stays there: nothing snaps until it is moved. */
+  function stayAtStart(row) {
+    if (staying.has(row)) return;
+    staying.add(row);
+    var resting = null;
+    function rest() { row.classList.toggle('is-still', row.scrollLeft <= AT_START_PX); }
+    function moving() {
+      clearTimeout(resting);
+      row.classList.remove('is-still');
+    }
+    function restIn(ms) {
+      clearTimeout(resting);
+      resting = setTimeout(rest, ms);
+    }
+    function released() { restIn(REST_MS); }
+    ['touchstart', 'pointerdown'].forEach(function (name) { row.addEventListener(name, moving, { passive: true }); });
+    ['touchend', 'touchcancel', 'pointerup'].forEach(function (name) { row.addEventListener(name, released, { passive: true }); });
+    row.addEventListener('wheel', function () { moving(); released(); }, { passive: true });
+    row.addEventListener('scroll', function () { restIn(SCROLLED_MS); }, { passive: true });
+    rest();
   }
 
   /* The cards in the order of *list*, moving only those out of place. */
@@ -409,6 +453,7 @@
     var card = there || recentCard(item);
     // A title it no longer shows, such as one dismissed, stays as it is.
     if (!there && !window.MMWatch.rowsLoad.add(row.parentNode, card)) return null;
+    stayAtStart(row);
     var play = core.flip(toArray(row.children).slice(0, 12));
     var at = row.scrollLeft;
     var using = at > 2 || row.contains(document.activeElement);
@@ -441,17 +486,27 @@
   }
 
   function fly(poster, from, to, card) {
-    var end = to.getBoundingClientRect();
-    var seen = end.top < window.innerHeight - 60 && end.bottom > 0 && end.right > 0 && end.left < window.innerWidth;
-    var top = seen ? end.top : window.innerHeight + 20;
+    /* Where it lands: no further down than just off the screen. */
+    function place() {
+      var r = to.getBoundingClientRect();
+      return { left: r.left, top: Math.min(r.top, window.innerHeight + 20), width: r.width, height: r.height };
+    }
+    var end = place();
     var ghost = el('img', 'dw-fly');
     ghost.setAttribute('src', poster.getAttribute('src'));
     ghost.setAttribute('alt', '');
-    [['left', end.left], ['top', top], ['width', end.width], ['height', end.height]].forEach(function (p) {
-      ghost.style.setProperty(p[0], p[1] + 'px');
-    });
+    ['left', 'top', 'width', 'height'].forEach(function (name) { ghost.style.setProperty(name, end[name] + 'px'); });
     document.body.appendChild(ghost);
     to.style.setProperty('opacity', '0');
+    poster.style.setProperty('opacity', '0');
+    /* The page moves under it: the row it left closes, a second poster lands, somebody scrolls. */
+    function follow() {
+      if (!ghost.parentNode) return;
+      var at = place();
+      ghost.style.setProperty('translate', at.left - end.left + 'px ' + (at.top - end.top) + 'px');
+      window.requestAnimationFrame(follow);
+    }
+    window.requestAnimationFrame(follow);
     function arrive() {
       if (!ghost.parentNode) return;
       ghost.remove();
@@ -460,7 +515,7 @@
       setTimeout(function () { card.classList.remove('is-new'); }, SWEEP_MS);
     }
     ghost.animate([
-      { transform: 'translate(' + (from.left - end.left) + 'px,' + (from.top - top) + 'px) scale(' + from.width / end.width + ',' + from.height / end.height + ')' },
+      { transform: 'translate(' + (from.left - end.left) + 'px,' + (from.top - end.top) + 'px) scale(' + from.width / end.width + ',' + from.height / end.height + ')' },
       { transform: 'none' }
     ], { duration: FLY_MS, easing: FLY_EASE });
     setTimeout(arrive, FLY_MS);

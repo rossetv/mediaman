@@ -119,7 +119,7 @@ function load(opts = {}) {
     const now = served;
     if (!now) return Promise.reject(Object.assign(new Error('no'), { status: 500 }));
     const only = query.get('only');
-    const answer = () => ({ items: now.rows.map(item).filter((i) => !only || i.key === only), next: null, total: now.rows.length, type: query.get('type') || '', counts: {}, fact: now.fact || null, empty: now.empty });
+    const answer = () => ({ items: now.rows.map(item).filter((i) => !only || i.key === only), next: null, total: now.rows.length, type: query.get('type') || '', counts: { '': now.rows.length }, fact: now.fact || null, empty: now.empty });
     return now.wait ? now.wait.promise.then(answer) : Promise.resolve().then(answer);
   };
   const api = (method) => (url, body) => {
@@ -135,7 +135,7 @@ function load(opts = {}) {
     setTimeout: opts.timers ? (fn) => opts.timers.push(fn) : (fn) => { fn(); return 1; },
     clearTimeout: opts.timers ? (id) => { opts.timers[id - 1] = () => {}; } : () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
-    matchMedia: () => ({ matches: true }),
+    matchMedia: (q) => ({ matches: !/coarse/.test(q) }),
     innerHeight: 900, innerWidth: 1280, scrollBy() {}, scrollTo() {},
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
     UIFeedback: {
@@ -1142,6 +1142,44 @@ const scenarios = {
     return p.toasts.map((t) => t.dialog);
   },
 
+  // How many there are, as the page says it: with the grid open, with it closed, and by answers out of order.
+  async totals() {
+    const start = (opts) => {
+      const p = load(opts);
+      p.all = p.doc.querySelector('.watch-page').appendChild(build(p.doc, ['a', { class: 'watch-all-link' }, ['span', 'All 4 titles']]));
+      p.heard = [];
+      p.doc.addEventListener('mm:watch-total', (e) => p.heard.push(e.detail.total));
+      return p;
+    };
+    const link = (p) => [p.all.textContent, p.all.hidden];
+    const p = start();
+    p.serve(ROWS.slice(1));
+    press(p, 'id:m1', 'delete');
+    await settle();
+    const open = link(p);
+    // It opens saying so, before its titles have come; a filter's are not known yet.
+    const opens = ['', 'kept'].map((type) => p.make({ sort: 'added', type, ready: null, row: null, drawn: null }).total);
+    const closed = start({ closed: true });
+    const gone = async (rows) => { closed.serve(rows); await closed.ctx.MMWatch.admin.confirmDelete('42', 'Dune'); await settle(); return link(closed); };
+    const one = await gone(ROWS.slice(3));
+    const none = await gone([]);
+    closed.serve(ROWS);
+    closed.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    const scanned = link(closed);
+    // One asked for before a change answers after it.
+    const late = start({ closed: true });
+    const wait = deferred();
+    late.serve(ROWS, {}, wait);
+    late.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    late.serve(ROWS.slice(2));
+    late.doc.dispatchEvent({ type: 'mm:watch-scheduled' });
+    await settle();
+    wait.resolve();
+    await settle();
+    return { open, opens, one, none, scanned, late: link(late), heard: closed.heard };
+  },
+
   async detailCalls() {
     const p = load({ closed: true });
     const admin = p.ctx.MMWatch.admin;
@@ -1341,7 +1379,7 @@ const scenarios = {
     p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'keep', id: 'm1', showRk: '' } }));
     const before = p.reads.length;
     wait.resolve();
-    await page;
+    (await page).placed();
     await settle();
     return p.reads.slice(before);
   },
@@ -1434,7 +1472,7 @@ const scenarios = {
       sorted: await go(choose, set),
       // One the filter no longer has is read by itself.
       gone: await go(choose, set, {}, keptRows.filter((r) => r.id !== 'm2')),
-      page: await go((p) => p.source.fetchPage('c'), (_p, got, draw) => { draw(got.cards); fire(); }, { timers }),
+      page: await go((p) => p.source.fetchPage('c'), (_p, got, draw) => { draw(got.cards); got.placed(); fire(); }, { timers }),
       opened: await go((p) => {
         let ready = null;
         p.ctx.MMWatch.expand.library = (_sort, _type, how) => { ready = how.ready; };

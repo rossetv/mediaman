@@ -99,7 +99,7 @@ function load(opts = {}) {
     clearTimeout: () => {},
     getComputedStyle: (n) => ({ getPropertyValue: () => '', display: 'block', visibility: 'visible', paddingLeft: '0', fontSize: '20px', transform: n.mid || 'none', opacity: '0.4',
       gridTemplateColumns: '200px 200px 200px 200px 200px' }),
-    matchMedia: () => ({ matches: !opts.motion }),
+    matchMedia: (q) => ({ matches: /coarse/.test(q) ? !!opts.touch : !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
     removeEventListener: (t, fn) => { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
@@ -918,6 +918,64 @@ const scenarios = {
     p.doc.activeElement.blur();
     p.grid.close();
     return p.focus();
+  },
+
+  // All titles, opened by its address or from the search, has no row to go back to.
+  async closesToTheLink() {
+    const end = (opts, how) => {
+      const p = load(opts);
+      p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }, ['input', { id: 'watch-search' }]]));
+      if (opts.link) p.browse.appendChild(build(p.doc, ['p', {}, ['a', { class: 'watch-all-link', href: '/watch?all=library' }, 'All 60 titles']]));
+      p.grid.open(p.opts({ id: 'library', row: () => null, ...how }));
+      p.doc.activeElement.blur();
+      p.grid.close();
+      return p.focus();
+    };
+    const from = { fromSearch: true };
+    return { mouse: end({ link: true }, {}), touch: end({ link: true, touch: true }, {}), search: end({ link: true }, from),
+      searchTouch: end({ link: true, touch: true }, from), bare: end({}, {}), bareTouch: end({ touch: true }, {}) };
+  },
+
+  // With no heading on the screen to come from or go to, the title fades alone.
+  async titleAlone() {
+    const p = load({ motion: true });
+    p.grid.open(p.opts({ id: 'library', title: 'All titles', row: () => null }));
+    const title = p.doc.querySelector('.watch-all__title');
+    const last = () => { const f = p.anims.filter((a) => a.node === title).pop().frames; return f.map((x) => Number(x.opacity)); };
+    const opens = last();
+    p.finish();
+    p.grid.close();
+    return { opens, closes: last() };
+  },
+
+  // Nothing to show yet: its place is held and the page asked for at once, and put in once nothing moves.
+  async firstPage() {
+    const p = load({ motion: true });
+    const asked = [];
+    let give;
+    p.grid.open(p.opts({ id: 'library', row: () => null, cards: [], next: '', total: null, filter: { label: 'Show', value: '', href: () => '/watch', options: [], counts: null },
+      sort: { label: 'Sort', value: 'a', options: [{ id: 'a', label: 'A' }] }, fetchPage: (next) => { asked.push(next); return new Promise((go) => { give = go; }); } }));
+    const grid = p.doc.querySelector('.watch-all .watch-grid');
+    const look = () => [grid.querySelectorAll('.watch-card--skel').length, grid.querySelectorAll('.watch-card').length];
+    const count = p.doc.querySelector('.watch-all__count');
+    const skel = grid.querySelector('.watch-card--skel');
+    const out = { asked: asked.slice(), first: look(), count: count.textContent, lead: p.anims.filter((a) => a.node === skel).map((a) => a.opts.delay) };
+    const cards = [1, 2, 3].map((n) => p.card(n));
+    cards[0].appendChild(build(p.doc, ['div', { class: 'card-tools' }]));
+    out.placed = 0;
+    give({ cards, next: null, total: 3, placed: () => { out.placed++; } });
+    await settle();
+    out.moving = look().concat(out.placed);
+    const before = p.anims.length;
+    p.finish();
+    await settle();
+    out.rested = look();
+    const card = grid.querySelector('.watch-card');
+    const since = p.anims.slice(before).map((a) => a.node);
+    out.boxFades = since.indexOf(card) >= 0;
+    out.toolsFade = since.indexOf(card.querySelector('.card-tools')) >= 0;
+    out.wordsFade = since.indexOf(card.querySelector('.watch-card__sub')) >= 0;
+    return out;
   },
 
   async rowThatIsGone() {

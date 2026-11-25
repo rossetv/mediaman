@@ -103,7 +103,7 @@ function load(page, opts = {}) {
     clearTimeout(id) { if (opts.clock) opts.clock.drop(id); else if (id) held[id - 1] = null; },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init.detail; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingTop: '0' }),
-    matchMedia: (query) => ({ matches: !(opts.touch && /hover/.test(query)) }),
+    matchMedia: (query) => ({ matches: /coarse/.test(query) ? !!opts.touch : !(opts.touch && /hover/.test(query)) }),
     requestAnimationFrame: (fn) => fn(),
     performance: { now: () => 1e6 + (opts.clock ? opts.clock.now : 0) },
     IntersectionObserver: class { constructor(fn) { this.seen = new Set(); nears = (cards) => fn(cards.filter((c) => this.seen.has(c)).map((target) => ({ target, isIntersecting: true })), this); } observe(c) { this.seen.add(c); } unobserve(c) { this.seen.delete(c); } disconnect() { this.seen.clear(); } },
@@ -913,13 +913,17 @@ const scenarios = {
   // The last card of Continue watching goes; after its row stand an anchor, a placeholder and the next row.
   async dismissLast() {
     const strip = (id, spec) => ['section', { id }, ['div', { class: 'watch-row__scroll', ...spec }]];
-    const run = async (after) => {
+    const run = async (after, touch) => {
       const p = load(watchPage([row('continue', [CONTINUE[0]]), ['div', { id: 'watch-asked', hidden: '' }], strip('skel', {}), ...after]));
+      if (touch) {
+        p.doc.body.appendChild(build(p.doc, ['main', { id: 'main-content', tabindex: '-1' }]));
+        p.ctx.matchMedia = () => ({ matches: true });
+      }
       await p.pick(p.cards()[0], 'dismiss');
       const at = p.doc.activeElement;
       return at.id || at.closest('section').id;
     };
-    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]) };
+    return { next: await run([strip('leaving', { tabindex: '0' })]), none: await run([]), touch: await run([], true) };
   },
   async dismissInGrid() {
     const p = load(watchPage([row('cont', CONTINUE), ['div', { class: 'watch-grid', id: 'grid' }, ...CONTINUE]]));

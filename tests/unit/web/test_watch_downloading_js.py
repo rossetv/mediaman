@@ -181,8 +181,25 @@ def test_a_title_taken_out_of_the_row_is_not_put_back(out) -> None:
     assert out["loaderHoldsIt"] == {"recent": ["Salt"], "cards": ["A"]}
 
 
-def test_signed_out_it_stops_and_leaves_the_page_where_it_is(out) -> None:
-    assert out["signedOut"] == {"asks": 2, "at": "start", "cards": ["A"], "note": None}
+def test_signed_out_it_stops_says_so_and_leaves_the_page_where_it_is(out) -> None:
+    note = "You’re signed out. This is how it last was."
+    assert out["signedOut"] == {
+        "asks": 2,
+        "at": "start",
+        "cards": ["A"],
+        "note": note,
+        "held": True,
+        # Asked once more as the tab is shown again, and goes on when signed in again.
+        "shownAgain": [3, note],
+        "signedIn": [None, False],
+    }
+
+
+def test_on_the_downloads_page_the_ring_is_told_and_asks_nothing(out) -> None:
+    assert out["fed"] == {
+        "asks": 0,
+        "got": [[1, False], [2, False], [2, True], [0, False]],
+    }
 
 
 def test_a_new_card_takes_its_place_and_leaves_the_focus(out) -> None:
@@ -256,3 +273,31 @@ def test_an_old_answer_of_nothing_is_soon_asked_for_again_and_a_new_one_is_not(o
 
 def test_all_readers_share_one_asking_and_one_that_breaks_stops_no_other(out) -> None:
     assert out["readers"] == {"got": [1, 2], "after": [1, 2, 2], "asks": 3, "last": 2}
+
+
+def test_the_poster_lands_where_its_place_has_moved_to(out) -> None:
+    assert out["follows"] == {
+        "first": ["0px", "500px", "0"],
+        "moved": "164px -140px",
+        "below": "164px 420px",  # no further than just off the screen, 900px high
+    }
+
+
+def test_a_row_at_its_start_shows_what_comes_first_and_snaps_only_while_it_is_moved(out) -> None:
+    assert out["staysAtStart"] == {
+        "first": True,
+        "held": False,
+        "along": False,
+        "back": True,
+        "wheel": False,
+        "wheelOver": True,
+    }
+
+
+def test_the_note_goes_out_of_reach_at_once_and_out_of_sight_as_it_has_closed(out) -> None:
+    text = "Can’t reach Radarr right now."
+    assert out["noteCloses"] == {
+        "open": [False, False, True, text],
+        "closing": [False, True, False, text],
+        "shut": True,
+    }

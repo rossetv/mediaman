@@ -723,3 +723,16 @@ def test_a_mark_whose_title_cannot_be_read_again_is_no_error() -> None:
 
 def test_a_card_s_panel_offers_no_menu_while_it_is_changed() -> None:
     assert _run("workingPanel") == "true"
+
+
+def test_how_many_titles_there_are_follows_what_is_deleted_and_scanned_wherever_it_is_said() -> (
+    None
+):
+    out = _run("totals")
+    assert out["open"] == ["All 3 titles", False]
+    assert out["opens"] == [3, None]
+    assert out["one"] == ["All 1 title", False]
+    assert out["none"][1] is True
+    assert out["scanned"] == ["All 4 titles", False]
+    assert out["late"] == ["All 2 titles", False]
+    assert out["heard"] == [1, 0, 4]

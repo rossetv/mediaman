@@ -30,6 +30,8 @@
   var phone = window.matchMedia('(max-width: 699.98px)');
   var opener = null;
   var held = false;
+  var openedAt = 0;
+  var SETTLE_MS = 450; // a second tap of the one that opened the sheet comes within this
 
   function items() {
     return Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
@@ -55,6 +57,7 @@
   function open(button, last) {
     opener = button;
     menu.inert = false;
+    openedAt = Date.now();
     menu.setAttribute('open', '');
     button.setAttribute('aria-expanded', 'true');
     if (phone.matches) holdPage();
@@ -79,6 +82,11 @@
       return;
     }
     if (!isOpen()) return;
+    // The sheet comes up under the finger, Log out where the button was.
+    if (phone.matches && e.detail && Date.now() - openedAt < SETTLE_MS && menu.contains(e.target)) {
+      e.preventDefault();
+      return;
+    }
     // The sheet's backdrop is the menu's own box around the panel.
     if (e.target === menu || (e.target.closest && e.target.closest('.profile-close'))) close(true);
     else if (e.target.closest && e.target.closest('a[role="menuitem"]')) close(false);
@@ -138,9 +146,11 @@
   var count = button.querySelector('.profile-count');
   var note = document.getElementById('profile-note');
 
-  function tone(node, sum) {
-    node.classList.toggle('is-ready', !sum.active && sum.ready > 0);
-    node.classList.toggle('is-waiting', !sum.active && !sum.ready);
+  function tone(node, state) {
+    var sum = state.summary;
+    node.classList.toggle('is-lost', !!state.lost);
+    node.classList.toggle('is-ready', !state.lost && !sum.active && sum.ready > 0);
+    node.classList.toggle('is-waiting', !state.lost && !sum.active && !sum.ready);
   }
 
   function drawDownloads(state) {
@@ -148,27 +158,33 @@
     var words = sum.ready ? sum.ready + ' ready to watch'
       : sum.active ? sum.total + ' downloading'
       : sum.waiting + ' waiting to download';
-    button.setAttribute('aria-label', name + (sum.total ? ', ' + words : ''));
+    button.setAttribute('aria-label', name + (!sum.total ? '' : state.lost ? ', downloads not updating' : ', ' + words));
 
+    var was = ring.classList.contains('is-on');
     ring.classList.toggle('is-on', sum.total > 0);
-    count.classList.toggle('is-on', sum.ready > 0);
+    count.classList.toggle('is-on', sum.ready > 0 && !state.lost);
     note.hidden = !sum.total;
     if (sum.ready) count.textContent = sum.ready;
     if (!sum.total) return; // as it was, while it fades
 
-    tone(ring, sum);
-    tone(note, sum);
+    tone(ring, state);
+    tone(note, state);
     // A little at least, or the ring would be a plain circle.
+    if (!was) ring.classList.add('is-set'); // not round from where it last stood
     ring.style.setProperty('--ring', Math.max(sum.percent, 6));
+    if (!was) {
+      void ring.offsetWidth;
+      ring.classList.remove('is-set');
+    }
     note.style.setProperty('--ring', sum.percent);
     note.textContent = '';
     var pause = document.createElement('span');
     pause.className = 'sr-only';
     pause.textContent = ', ';
     note.appendChild(pause);
-    if (sum.active) note.appendChild(document.createElement('i'));
+    if (sum.active && !state.lost) note.appendChild(document.createElement('i'));
     note.appendChild(document.createTextNode(
-      sum.active ? sum.percent + '%' + (sum.total > 1 ? ' · ' + sum.total : '')
+      state.lost ? 'Not updating' : sum.active ? sum.percent + '%' + (sum.total > 1 ? ' · ' + sum.total : '')
         : sum.ready ? sum.ready + ' ready' : sum.waiting + ' waiting'));
   }
   if (window.MM && window.MM.downloading) window.MM.downloading.subscribe(drawDownloads);

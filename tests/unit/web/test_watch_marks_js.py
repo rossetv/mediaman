@@ -233,7 +233,11 @@ def test_a_dismissed_card_leaves_focus_goes_on_and_undo_brings_it_back_in_its_pl
 
 
 def test_after_the_last_card_of_a_row_the_focus_goes_to_the_next_row_that_has_cards() -> None:
-    assert _run("dismissLast") == {"next": "leaving", "none": "watch-search"}
+    assert _run("dismissLast") == {
+        "next": "leaving",
+        "none": "watch-search",
+        "touch": "main-content",
+    }
 
 
 def test_a_dismissal_in_a_row_opened_as_a_grid_leaves_both_and_comes_back_to_both() -> None:

@@ -424,3 +424,8 @@ def test_an_error_page_on_a_phone_is_as_high_as_the_screen_less_the_nav() -> Non
     nav = _last("--nav-h", _of(".nav-glass", PHONE, SHEET.with_name("_nav.css")))
     page = _of("body:has(> .nav-glass) .login-page", PHONE, SHEET.with_name("_error.css"))
     assert _last("min-height", page) == f"calc(100vh - {nav})"
+
+
+def test_a_row_kept_at_its_start_does_not_snap_whatever_its_script_sets_inline() -> None:
+    rule = _of(".watch-row__scroll.is-still", sheet=SHEET.parent / "_watch_downloading.css")
+    assert "scroll-snap-type: none !important" in rule

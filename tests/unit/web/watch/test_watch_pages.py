@@ -1598,6 +1598,27 @@ def test_plex_not_set_up_keeps_the_search_and_discover_but_not_the_rows(
     assert "Your library" not in html
 
 
+@pytest.mark.parametrize("set_up", [True, False])
+def test_an_admin_can_go_to_the_titles_the_scans_found_where_watch_can_show_none(
+    app_factory, conn, plex, monkeypatch, admin, set_up
+):
+    insert_media_item(conn, id="900", plex_rating_key="900", title="Hidden Film", plex_library_id=9)
+    insert_settings(conn, plex_libraries='["1"]')
+    if set_up:
+        insert_settings(conn, plex_url="http://plex.invalid:32400", plex_token="tok")
+
+    html = _page(app_factory, conn, monkeypatch, "/watch", admin).text
+
+    link = re.search(r'<a class="watch-all-link" href="/watch\?all=library"[^>]*>(.*?)<svg', html)
+    assert link
+    assert link[1] == "<span>All 1 title</span>"
+    assert "Your library is empty" not in html
+    insert_media_item(conn, id="901", plex_rating_key="901", title="Other", plex_library_id=9)
+    assert "All 2 titles" in _page(app_factory, conn, monkeypatch, "/watch", admin).text
+    insert_admin_user(conn, username="aoife", role="viewer")
+    assert "watch-all-link" not in _page(app_factory, conn, monkeypatch, "/watch", "aoife").text
+
+
 def test_an_admin_s_all_titles_is_drawn_in_place_of_the_rows(
     app_factory, conn, library, plex, monkeypatch, admin
 ):

@@ -101,6 +101,10 @@
     }, reduce ? 0 : Math.max(cardExit().total, tokenMs('--dur-slow', 250)));
   }
 
+  /* Where the focus goes when nothing nearer is left: the search, whose keyboard would come up
+     on a touch screen, so there the page. */
+  function spareFocus() { return byId(coarsePointer() ? 'main-content' : 'watch-search'); }
+
   /* A node put in another place starts its CSS animations again, so a view
      that has eased in must not carry .fade-in when a swap moves it: it would
      blink back to nothing. */
@@ -401,6 +405,7 @@
     cardExit: cardExit,
     clearArea: clearArea,
     focusSoftly: focusSoftly,
+    spareFocus: spareFocus,
     swap: swap,
     endSwap: endSwap,
     flip: flip

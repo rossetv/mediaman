@@ -14,6 +14,7 @@ Object.defineProperty(Node.prototype, 'hidden', {
   get() { return this.hasAttribute('hidden'); },
   set(on) { this.toggleAttribute('hidden', !!on); },
 });
+Node.prototype.scrollLeft = 0;
 const ownRemove = Node.prototype.remove;
 Node.prototype.remove = function () {
   if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = this.ownerDocument.body;
@@ -44,6 +45,7 @@ function load(answers, opts = {}) {
       ['div', { class: 'dlx', id: 'watch-downloading', hidden: '' }],
       ['section', { class: 'watch-row', 'data-row-id': 'recent' }, ['div', { class: 'watch-row__viewport' },
         ['div', { class: 'watch-row__scroll' }, recentCard('movie-1', 'Salt'), recentCard('movie-2', 'Fieldwork')]]]],
+    ...(opts.fed ? [['script', { id: 'downloads-page-data' }, JSON.stringify({ downloading: opts.fed })]] : []),
     ...(opts.drawn ? [['script', { id: 'watch-page-data' }, JSON.stringify({ downloading: opts.drawn })]] : [])]));
   const bare = doc.createElement;
   const styled = (el) => { if (opts.still === false) el.animate = () => ({}); el.style = { set: {}, setProperty(k, v) { this.set[k] = v; }, removeProperty(k) { delete this.set[k]; } }; return el; };
@@ -70,13 +72,13 @@ function load(answers, opts = {}) {
     p.time = until;
   };
   const ctx = {
-    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Set, Map, Error, parseFloat, AbortController,
+    document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, WeakSet, Set, Map, Error, parseFloat, AbortController,
     Date: { now: () => p.time },
     setTimeout: clock.set, clearTimeout: clock.clear,
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block', paddingBottom: '0', columnGap: '14' }),
     matchMedia: () => ({ matches: opts.still !== false }),
     innerHeight: 900, innerWidth: 1280, scrollBy() {},
-    addEventListener() {}, requestAnimationFrame: (fn) => fn(),
+    addEventListener() {}, requestAnimationFrame: (fn) => clock.set(fn, 16),
     location: { pathname: '/settings', href: 'start' },
     fetch: (url, o) => {
       p.asks += 1;
@@ -290,6 +292,66 @@ const scenarios = {
     }
     return out;
   },
+  // Where the poster lands moves while it flies.
+  async follows() {
+    const p = load([answer([item('A'), ready('B', 1)])], { still: false });
+    await p.step(10);
+    const source = p.card('B').querySelector('.dw__pic');
+    const at = { left: 0, top: 500, width: 100, height: 150 };
+    const own = Node.prototype.getBoundingClientRect;
+    Node.prototype.getBoundingClientRect = function () { return this.classList.contains('watch-card__poster') ? { ...at, bottom: 650, right: 100 } : own.call(this); };
+    try {
+      await p.step(1000);
+      const ghost = p.doc.querySelector('.dw-fly');
+      const set = (n) => n.style.set;
+      const first = [set(ghost).left, set(ghost).top, set(source).opacity];
+      await p.step(50);
+      Object.assign(at, { left: 164, top: 360 });
+      await p.step(40);
+      const moved = set(ghost).translate;
+      at.top = 5000;
+      await p.step(40);
+      return { first, moved, below: set(ghost).translate };
+    } finally { Node.prototype.getBoundingClientRect = own; }
+  },
+  // A row at its start does not go with the card it stood at, unless it is being moved.
+  async staysAtStart() {
+    const p = load([answer([item('A'), item('B')])]);
+    await p.step(10);
+    const row = p.slot.querySelector('.watch-row__scroll');
+    const on = () => row.classList.contains('is-still');
+    const fire = (type) => (row.listeners[type] || []).forEach((fn) => fn({}));
+    const out = { first: on() };
+    fire('touchstart');
+    await p.step(5000);
+    out.held = on();
+    row.scrollLeft = 324;
+    fire('scroll');
+    fire('touchend');
+    await p.step(5000);
+    out.along = on();
+    row.scrollLeft = 0;
+    fire('scroll');
+    await p.step(300);
+    out.back = on();
+    fire('wheel');
+    out.wheel = on();
+    await p.step(1000);
+    out.wheelOver = on();
+    return out;
+  },
+  // Its note closes with the rows below it, and is out of reach at once.
+  async noteCloses() {
+    const p = load([answer([item('A')], "Can't reach Radarr"), answer([item('A')])], { still: false });
+    await p.step(10);
+    const note = p.slot.querySelector('.dlx__note');
+    const look = () => [note.hidden, !!note.inert, p.slot.querySelector('.dlx__notes').classList.contains('is-on'), note.textContent];
+    const open = look();
+    await p.step(5010);
+    const closing = look();
+    await p.step(400);
+    return { open, closing, shut: look()[0] };
+  },
   async focusOnSeeAll() {
     const p = load([answer([item('A')]), answer([])]);
     await p.step(10);
@@ -352,7 +414,33 @@ const scenarios = {
   async signedOut() {
     const p = load([answer([item('A')]), 401]);
     await p.step(600000);
-    return { asks: p.asks, at: p.at(), cards: p.cards(), note: p.note() };
+    const heldBack = p.card('A').classList.contains('is-held');
+    const first = { asks: p.asks, at: p.at(), cards: p.cards(), note: p.note(), held: heldBack };
+    const shown = async () => { p.hide(true); p.hide(false); await p.step(600000); return [p.asks, p.note()]; };
+    first.shownAgain = await shown();
+    p.answers = [answer([item('A')])];
+    p.hide(true);
+    p.hide(false);
+    await p.step(10);
+    first.signedIn = [p.note(), p.card('A').classList.contains('is-held')];
+    return first;
+  },
+  // On the Downloads page the page's own asking brings it, and nothing is asked here.
+  async fed() {
+    const p = load([answer([item('A')])], { fed: answer([item('A')]) });
+    const got = [];
+    p.MM.downloading.subscribe((state) => got.push([state.summary.total, state.lost]));
+    await p.step(600000);
+    p.hide(true);
+    p.hide(false);
+    p.MM.downloading.now();
+    await p.step(600000);
+    p.MM.downloading.hear(answer([item('A'), item('B')]));
+    p.MM.downloading.lose();
+    p.MM.downloading.lose();
+    p.MM.downloading.hear(null);
+    p.MM.downloading.hear(answer([]));
+    return { asks: p.asks, got };
   },
   async outage() {
     const p = load([answer([item('A', { held: true }), item('B')], "Can't reach Radarr"), answer([item('B')], "Can't reach Radarr"), answer([item('B')])]);

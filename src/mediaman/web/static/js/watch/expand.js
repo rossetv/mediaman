@@ -314,7 +314,7 @@
       id: id, title: titles[id], total: null,
       row: function () { return rowOf(from); },
       back: function () { address.back('grid'); },
-      instant: how.instant, again: how.again, still: how.still
+      instant: how.instant, again: how.again, still: how.still, fromSearch: how.fromSearch
     }, made, { sort: withSort(id, made.sort, sort) }));
     // A card kept or dismissed in there leaves it as it leaves the row.
     document.querySelector('.watch-all__body').toggleAttribute('data-watch-leaving-row', id === 'leaving');
@@ -392,7 +392,8 @@
     }
   });
 
-  /* Open All titles. how.ready: its first page, shown at once; how.still: nothing travels. */
+  /* Open All titles. how.ready: its first page, shown at once; how.still: nothing travels;
+     how.fromSearch: that is where the way back leads. */
   function library(sort, type, how) {
     away = false;
     sort = sortOf('library', sort);

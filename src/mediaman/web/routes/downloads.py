@@ -14,7 +14,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
+from mediaman.services.downloads import strip
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
 from mediaman.services.downloads.download_queue.items import DownloadsResponse
@@ -30,23 +32,40 @@ class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
 
 
-def _page_payload(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
+def _ring(data: DownloadsResponse, asked_at: float) -> dict[str, object] | None:
+    """What /api/downloads/strip says of what is downloading, its items left out, of what was
+    just read: nobody is asked for it."""
+
+    def make(before: strip.Strip) -> strip.Strip:
+        items = strip.collect(data, before.items, now_utc())
+        return strip.Strip(tuple(items), data["outage"])
+
+    answer = strip.on_page.offer(make, asked_at)
+    return {**strip.payload(answer), "items": []} if answer else None
+
+
+def _page_payload(
+    conn: sqlite3.Connection, secret_key: str
+) -> tuple[DownloadsResponse, dict[str, object] | None]:
     """The downloads with TMDB posters at mediaman's own address, so a browser here never
-    calls TMDB. Copies: completion detection keeps the items, with the addresses they came with.
+    calls TMDB; and what the header's ring is told of them. Copies: completion detection keeps
+    the items, with the addresses they came with.
     """
 
     def shown(item: dict[str, object]) -> dict[str, object]:
         poster = item.get("poster_url") or ""
         return {**item, "poster_url": tmdb_image_url(poster, "w342") or poster}
 
+    asked_at = strip.on_page.now()
     data = build_downloads_response(conn, secret_key)
-    return {
+    page: DownloadsResponse = {
         **data,
         "hero": shown(data["hero"]) if data["hero"] else None,
         "queue": [shown(item) for item in data["queue"]],
         "upcoming": [shown(item) for item in data["upcoming"]],
         "recent": [shown(item) for item in data["recent"]],
     }
+    return page, _ring(data, asked_at)
 
 
 def _lookup_dl_item(
@@ -89,7 +108,7 @@ def downloads_page(request: Request) -> Response:
     username, conn = resolved
 
     config = request.app.state.config
-    data = _page_payload(conn, config.secret_key)
+    data, ring = _page_payload(conn, config.secret_key)
     can_abandon = get_user_role(conn, username) == "admin"
     if not can_abandon:
         _for_viewer(data)
@@ -105,6 +124,7 @@ def downloads_page(request: Request) -> Response:
             "recent": data["recent"],
             "subtitle": data["subtitle"],
             "outage": data["outage"],
+            "strip": ring,
             "can_abandon": can_abandon,
         },
     )
@@ -114,10 +134,10 @@ def downloads_page(request: Request) -> Response:
 def downloads_api(request: Request, admin: str = Depends(get_current_user)) -> JSONResponse:
     conn = get_db()
     config = request.app.state.config
-    data = _page_payload(conn, config.secret_key)
+    data, ring = _page_payload(conn, config.secret_key)
     if get_user_role(conn, admin) != "admin":
         _for_viewer(data)
-    return JSONResponse(data)
+    return JSONResponse({**data, "strip": ring})
 
 
 @router.post("/api/downloads/{dl_id:path}/abandon")

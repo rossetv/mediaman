@@ -998,6 +998,26 @@ const scenarios = {
     return { before, after: primary(p).text, events: p.events, pollsLeft: p.timers.filter((t) => t.fn).map((t) => t.ms) };
   },
 
+  // A title still looked for: what the row of downloads says of it, and as that changes.
+  async lookedFor() {
+    const queued = { '/api/watch/title/tmdb-movie-77': Object.assign({}, MOVIE_DL, { download: Object.assign({}, MOVIE_DL.download, { state: 'queued', answered: true }) }) };
+    const p = load({ routes: queued });
+    let tell;
+    let state = { items: [{ ref: 'tmdb-movie-77', state: 'searching', line: '' }, { ref: 'tmdb-movie-78', state: 'stuck', line: 'x' }] };
+    p.ctx.MM.downloading = { last: () => state, subscribe(fn) { tell = fn; } };
+    p.ctx.MMWatch.downloading = { line: (item) => 'Nothing found yet · ' + item.line };
+    p.run();
+    tell();
+    await openCard(p, 'tmdb-movie-77');
+    const look = () => [primary(p).text, p.text('.ttl__note')];
+    const out = { searching: look() };
+    const to = (item) => { state = { items: [Object.assign({ ref: 'tmdb-movie-77' }, item)] }; tell(); return look(); };
+    out.stuck = to({ state: 'stuck', line: 'next attempt in ~4h' });
+    out.queued = to({ state: 'queued', line: '' });
+    out.other = to({ ref: 'tmdb-movie-78', state: 'searching', line: '' });
+    return out;
+  },
+
   // The status poll answers searching (gone from the Arr's queue) for a title held as queued:
   // the title is asked again, at most once a minute, and its reply decides.
   async searchingRechecks() {

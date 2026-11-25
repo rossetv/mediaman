@@ -413,7 +413,7 @@
       });
     }
     if (!lost) return;
-    var to = fresh ? fresh.querySelector('.watch-btn--play') : byId('watch-search');
+    var to = fresh ? fresh.querySelector('.watch-btn--play') : core.spareFocus();
     if (to) to.focus({ preventScroll: true });
   }
 
@@ -1012,7 +1012,7 @@
       canOpen: function (trigger) { return trigger.getAttribute('aria-disabled') !== 'true'; },
       fill: fillMenu,
       choose: choose,
-      spare: function () { return byId('watch-search'); }
+      spare: core.spareFocus
     });
   }
 
