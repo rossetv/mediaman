@@ -153,6 +153,7 @@
   var cameFrom;              // the page the history's last entry holds, when it opened the player
   var showHref;
   var startS;
+  var placeS;                // the place last known to be saved by other than this tab
 
   function readPage(el) {
     item = readJSON(el, 'data-item') || {};
@@ -161,6 +162,7 @@
     backHref = el.getAttribute('data-back-href') || '/watch';
     showHref = el.getAttribute('data-show-href') || '';
     startS = parseFloat(el.getAttribute('data-start-s')) || 0;
+    placeS = parseFloat(el.getAttribute('data-place-s'));
     readNext(el);
   }
 
@@ -275,6 +277,7 @@
   var hasPlayed;
   var playedS;
   var savedAs;               // the last save the server took, to make none twice
+  var sent;                  // the places this tab has sent to be saved
   var lastTime;
   var override;              // the quality to ask for in place of the choice, or null
   var good;                  // the choice and override that last played, or the video started with
@@ -312,6 +315,7 @@
     hasPlayed = false;
     playedS = 0;
     savedAs = null;
+    sent = {};
     lastTime = null;
     override = null;
     good = choice();
@@ -1199,7 +1203,7 @@
     showMessage(MSG_REPLACED, playHere);
   }
 
-  /* Go on from where the other one got to, where the server can say. */
+  /* Go on from where the other one got to, where it has saved that. */
   var hereGeneration = null; // the generation that is asking it
   function playHere() {
     var gen = hereGeneration = ++generation;
@@ -1210,7 +1214,9 @@
       .then(function (page) {
         var el = page.getElementById('player');
         var place = el ? parseFloat(el.getAttribute('data-place-s')) : NaN;
-        if (gen === generation && place >= 0) pendingStart = place;
+        if (gen !== generation || !(place >= 0) || place === placeS || sent[place]) return;
+        placeS = place;
+        pendingStart = within(place);
       })
       .catch(function () { /* from where this one stands */ })
       .then(function () { if (gen === generation) retry(); });
@@ -1337,7 +1343,9 @@
   function unsaved(at) {
     if (!streamId || !hasPlayed) return null;
     var body = { position_s: Math.round((at === undefined ? position() : at) * 10) / 10, played_s: Math.round(playedS) };
-    return JSON.stringify(body) === savedAs ? null : body;
+    if (JSON.stringify(body) === savedAs) return null;
+    sent[body.position_s] = true;
+    return body;
   }
 
   function withStream(body) {

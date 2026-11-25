@@ -1394,6 +1394,27 @@ def test_play_here_goes_on_from_this_tab_s_place_where_none_is_saved(markup, tmp
     assert out["here"] == {"starts": 1, "at": 105, "message": None}
 
 
+@pytest.mark.parametrize(
+    ("way", "place", "at"),
+    [
+        # What the page loaded with is of an older viewing, and what this tab saved is its own.
+        ("save", 2900.5, [110]),
+        ("save", 105.0, [110]),
+        ("beacon", 105.0, [115]),
+        ("beacon", 110.0, [115]),
+        ("save", 900.5, [900.5]),
+        # Finished there, past what this one can start at.
+        ("save", 3000.0, [2999]),
+        ("twice", 900.5, [900.5, 905.5]),
+    ],
+)
+def test_play_here_takes_only_a_place_the_other_one_saved(tmp_path_factory, way, place, at):
+    here = _markup(tmp_path_factory, {**EPISODE, "place_s": 2900.5})
+    elsewhere = _markup(tmp_path_factory, {**EPISODE, "place_s": place})
+    out = run(here, "replaced_after_save", plays=way, pages={"/elsewhere": elsewhere})
+    assert out == at
+
+
 def test_a_press_as_play_here_asks_for_the_place_starts_nothing_from_this_one(
     markup, tmp_path_factory
 ):
