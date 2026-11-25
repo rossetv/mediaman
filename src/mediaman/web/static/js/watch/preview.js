@@ -566,7 +566,7 @@
   /* Year, length, certificate, ratings. */
   function facts(p, d) {
     var line = el('div', 'pv__meta');
-    addPart(line, '', d.year ? String(d.year) : '');
+    addPart(line, '', d.year ? d.year + (d.year_end && d.year_end !== d.year ? '–' + d.year_end : '') : '');
     if (d.kind === 'movie') addPart(line, '', d.runtime_min ? dur(d.runtime_min) : '');
     else addPart(line, '', d.season_count ? d.season_count + (d.season_count === 1 ? ' season' : ' seasons') : '');
     addPart(line, 'pv__cert', d.certificate);

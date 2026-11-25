@@ -422,6 +422,18 @@ class TestOutside:
         assert (body["library_ref"], body["download"]) == ("movie-100", None)
         assert body["play"]["label"] == "Play"
 
+    def test_its_years_and_genres_are_said_as_its_page_says_them(
+        self, viewer, library, tmdb, plex, monkeypatch
+    ):
+        monkeypatch.setitem(SHOW, "last_air_date", "2023-05-01")
+        library.execute("DELETE FROM media_items WHERE id = '501'")
+        library.commit()
+
+        body = _preview(viewer, "tmdb-tv-77").json()
+
+        assert (body["year"], body["year_end"]) == (2021, 2023)
+        assert body["genre_refs"] == [{"name": "Comedy", "genre": "comedy"}]
+
     def test_nothing_the_preview_does_not_show_is_sent(self, viewer, tmdb, plex):
         body = _preview(viewer, "tmdb-movie-12").json()
 
