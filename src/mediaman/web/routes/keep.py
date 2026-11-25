@@ -43,7 +43,7 @@ from mediaman.services.scheduled_actions import (
     token_hash,
 )
 from mediaman.services.scheduled_actions.days_left import days_left
-from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import get_current_admin, get_optional_admin_from_token
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
@@ -75,6 +75,7 @@ def _consume_keep_token_and_apply(
     now: datetime,
     apply: Callable[[], int],
     audit_detail: str,
+    actor: str | None,
     audit_action: str = "snoozed",
 ) -> JSONResponse | None:
     """Run the shared consume-then-apply keep sequence.
@@ -82,7 +83,7 @@ def _consume_keep_token_and_apply(
     The public snooze and the admin "forever" routes both consume the keep token, run their
     guarded UPDATE and write one audit row in a single transaction, so all three land or
     none do. Only the UPDATE and audit detail differ, so they are injected via apply and
-    audit_detail. A keep that is not applied leaves its token unused.
+    audit_detail. *actor* is the signed-in person, None when nobody is. A keep that is not applied leaves its token unused.
 
     Returns a 409 Response when the token was already consumed (concurrent replay) or the
     guarded UPDATE matched no row (the action advanced since the pre-flight check); None on
@@ -94,7 +95,7 @@ def _consume_keep_token_and_apply(
             # updated: it was already token_used=1, or the deletion began since our check.
             if not mark_token_consumed(conn, token, now) or apply() == 0:
                 raise _NotApplied
-            log_audit(conn, verified.media_item_id, audit_action, audit_detail)
+            log_audit(conn, verified.media_item_id, audit_action, audit_detail, actor=actor)
     except _NotApplied:
         return respond_err("already_processed", status=409)
     return None
@@ -340,6 +341,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
             now=now,
         ),
         audit_detail=f"Kept for {duration}",
+        actor=get_optional_admin_from_token(request.cookies.get("session_token"), request=request),
     )
     if failure is not None:
         return _submit_failure(request, "already_processed", 409, token)
@@ -392,6 +394,7 @@ def keep_forever(
         now=now,
         apply=lambda: apply_keep_forever(conn, action_id=verified.id, now=now),
         audit_detail="Kept forever (admin)",
+        actor=admin,
         audit_action="kept",
     )
     if failure is not None:

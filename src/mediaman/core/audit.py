@@ -46,6 +46,19 @@ logger = logging.getLogger(__name__)
 #: injection guard in mediaman.core.email_validation.
 _AUDIT_INJECT_CHARS = ("\r", "\n", "\0")
 
+#: Actions whose ``actor`` is not a signed-in account: a typed name, or a subscriber's address.
+UNSIGNED_ACTIONS = ("sec:login.failed", "sec:subscriber.opted_out")
+#: The action and actor of an unlock run from the command line, where no account is signed in
+#: even if one has that name.
+CLI_UNLOCK = ("sec:user.unlocked", "cli")
+
+
+def _account_name(action: str, actor: str | None) -> str | None:
+    """The account that did *action*, or None when nobody signed in did."""
+    if not actor or action in UNSIGNED_ACTIONS or (action, actor) == CLI_UNLOCK:
+        return None
+    return actor
+
 
 def _strip_audit_field(value: str) -> str:
     """Remove CR/LF/NUL from a free-form audit field to prevent log injection.
@@ -83,7 +96,8 @@ def log_audit(
         actor: Username of the admin who triggered the action, or ``None``
             for scanner-driven (autonomous) events. Stored in the
             dedicated ``actor`` column so operators can run
-            ``WHERE actor = 'alice'`` instead of grepping ``detail``.
+            ``WHERE actor = 'alice'`` instead of grepping ``detail``. The id of
+            the account of that name, if any, is stored as ``actor_id``.
 
     Does **not** call ``conn.commit()`` — callers are responsible for
     committing in their own transaction so the audit row and the business
@@ -91,9 +105,18 @@ def log_audit(
     """
     cursor = conn.execute(
         "INSERT INTO audit_log "
-        "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (media_item_id, action, detail, space_bytes, now_iso(), actor),
+        "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor, "
+        "actor_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, (SELECT id FROM admin_users WHERE username = ?))",
+        (
+            media_item_id,
+            action,
+            detail,
+            space_bytes,
+            now_iso(),
+            actor,
+            _account_name(action, actor),
+        ),
     )
     if cursor.lastrowid is None:
         raise RuntimeError("audit_log insert returned no row id")
@@ -136,11 +159,12 @@ def _insert_security_event(
     concerns belong to the caller.
     """
     body = _format_security_body(actor, ip, detail)
+    action = f"sec:{event}"
     conn.execute(
         "INSERT INTO audit_log "
-        "(media_item_id, action, detail, created_at, actor) "
-        "VALUES (?, ?, ?, ?, ?)",
-        ("_security", f"sec:{event}", body, now_iso(), actor),
+        "(media_item_id, action, detail, created_at, actor, actor_id) "
+        "VALUES (?, ?, ?, ?, ?, (SELECT id FROM admin_users WHERE username = ?))",
+        ("_security", action, body, now_iso(), actor, _account_name(action, actor)),
     )
 
 

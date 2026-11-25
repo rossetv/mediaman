@@ -44,6 +44,7 @@ from mediaman.services.downloads.notifications import (
 )
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
+from mediaman.web.auth.middleware import get_optional_admin_from_token
 from mediaman.web.responses import respond_failure
 from mediaman.web.routes.library_api._redownload_match import _redownload_audit_id
 from mediaman.web.routes.library_api._redownload_sonarr import _put_back_unmonitored
@@ -83,6 +84,7 @@ class DownloadPayload(TypedDict):
     email: str | None
     audit_action: str
     audit_detail: str
+    actor: str | None
     secret_key: str
     season: DeletedMedia | None
 
@@ -98,6 +100,7 @@ def _record_and_respond(
     audit_action: str,
     audit_detail: str,
     secret_key: str,
+    actor: str | None = None,
     tvdb_id: int | None = None,
     season_number: int | None = None,
 ) -> JSONResponse:
@@ -113,7 +116,7 @@ def _record_and_respond(
             media_type=media_type, tmdb_id=None, tvdb_id=tvdb_id, season_number=season_number
         )
     with conn:
-        log_audit(conn, audit_id, audit_action, audit_detail)
+        log_audit(conn, audit_id, audit_action, audit_detail, actor=actor)
         if season_number is not None and tmdb_id is not None and tvdb_id is not None:
             fill_show_tvdb_id(conn, tmdb_id=tmdb_id, tvdb_id=tvdb_id)
         if email:
@@ -336,6 +339,7 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         service="radarr",
         audit_action=payload["audit_action"],
         audit_detail=payload["audit_detail"],
+        actor=payload["actor"],
         secret_key=secret_key,
     )
 
@@ -478,6 +482,7 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
         service="sonarr",
         audit_action=payload["audit_action"],
         audit_detail=payload["audit_detail"],
+        actor=payload["actor"],
         secret_key=secret_key,
         season_number=season_number,
     )
@@ -524,7 +529,11 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
 
 
 def _build_dl_payload(
-    conn: sqlite3.Connection, token: str, payload: DownloadTokenPayload, secret_key: str
+    conn: sqlite3.Connection,
+    token: str,
+    payload: DownloadTokenPayload,
+    secret_key: str,
+    actor: str | None,
 ) -> tuple[DownloadPayload, str, bool]:
     """Build a DownloadPayload from the token payload. Returns (dl_payload, media_type,
     is_redownload); the connection is not in it, so the payload stays purely data.
@@ -556,6 +565,7 @@ def _build_dl_payload(
         "email": email,
         "audit_action": audit_action,
         "audit_detail": audit_detail,
+        "actor": actor,
         "secret_key": secret_key,
         "season": season,
     }
@@ -647,6 +657,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
     if payload is None:  # _validate_token_request guarantees one or the other
         raise RuntimeError("payload is None after validate_token_request — invariant violated")
     exp_value = payload.get("exp", 0)
+    # Before the claim: a failed read must not leave the link used.
+    actor = get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
     # Phase 1 of the 2-phase reservation: claim the token in the DB
     # *before* doing any Arr work.
     claim_err = _claim_token(token, exp_value)
@@ -654,7 +666,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         return claim_err
 
     dl_payload, media_type, is_redownload = _build_dl_payload(
-        conn, token, payload, config.secret_key
+        conn, token, payload, config.secret_key, actor
     )
     title = dl_payload["title"]
     tmdb_id = dl_payload["tmdb_id"]
