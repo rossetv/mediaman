@@ -2465,6 +2465,90 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+def test_a_tvs_cards_the_skip_button_and_the_words_keep_off_each_other(markup):
+    out = elsewhere(markup, "away_cards")
+    # The skip button stands on the bar wherever its row goes as the buttons under it wrap.
+    assert out["row"] == [800 - 700 + 14, 800 - 650 + 14]
+    # 222 px between the bar and the words: a taller card goes down to the controls, over them.
+    assert out["rateFits"] == [False, 800 - 300 + 14]
+    assert out["rateDoesNot"] == [True, 800 - 400]
+    assert out["rateGone"] is False
+    assert (out["messageMeets"], out["messageClear"]) == (True, False)
+
+
+def test_the_next_episodes_card_stands_under_the_words_where_there_is_room(markup):
+    out = elsewhere(markup, "away_cards")
+    assert out["under"] == [True, 370, False]
+    assert out["noRoom"] == [False, False]
+
+
+def test_the_sheet_sinks_away_out_of_reach_and_can_be_opened_meanwhile(markup):
+    out = elsewhere(markup, "away_sheet_sinks")
+    assert out["sinks"] == {"open": False, "inert": True, "kind": "manual"}
+    assert (out["focus"], out["again"], out["left"]) == (True, True, 1)
+    # Where it was scrolled to.
+    assert out["top"] == 120
+
+
+@pytest.mark.parametrize("how", ["counts", "cancelled", "space", "twice", "film"])
+def test_play_again_starts_it_anew_on_the_same_chromecast(markup, last_episode, how):
+    out = elsewhere(last_episode if how == "film" else markup, "away_play_again", how)
+    assert (out["counts"], out["rate"], out["button"]) == (
+        how != "film",
+        how == "film",
+        "Play again",
+    )
+    assert (out["card"], out["starting"]) == (False, "Starting on Den")
+    assert out["bar"] == ["0:00", "0%"]
+    assert out["loads"] == [["c2", 0, False]]
+    # The stream that ended is let go, and nothing comes here.
+    assert out["stopped"] == ["/api/watch/stream/c1/stop"]
+    assert (out["casts"], out["local"]) == (2, 1)
+    assert out["saved"] == [2997]
+    assert (out["says"], out["next"]) == ("Playing on Den", False)
+
+
+def test_stop_as_it_begins_again_stays_and_leaves_no_stream(markup):
+    out = elsewhere(markup, "away_play_again", "stop")
+    assert (out["after"], out["href"]) == (False, "/watch/play/1")
+    assert [url for url, _ in out["stops"]][1:] == ["/api/watch/stream/c2/stop"]
+    assert (out["loads"], out["saved"]) == ([], [2997])
+
+
+@pytest.mark.parametrize(
+    "how",
+    [
+        *("refused", "unanswered", "stop", "here", "left", "paused", "gone"),
+        *("goneAtEnd", "deviceAtEnd", "tvAtEnd"),
+    ],
+)
+def test_what_plays_again_stays_watched_until_it_plays(markup, how):
+    out = elsewhere(markup, "away_anew", how)
+    # Nothing but the end it came to, however often that is told again.
+    assert out["saved"] and set(out["saved"]) == {2997}
+    assert not any("saved at" in text for text in out["toasts"])
+
+
+def test_a_page_opened_before_it_plays_again_leaves_it_watched_too(markup):
+    out = elsewhere(markup, "away_anew_opened")
+    assert out == {"says": "Starting on Den", "saved": []}
+
+
+def test_what_plays_again_has_its_place_saved_once_it_plays(markup):
+    out = elsewhere(markup, "away_anew", "plays")
+    assert out["saved_s"] == [2997]
+    assert out["saved"] == [2997, 12]
+
+
+@pytest.mark.parametrize(
+    ("how", "says"), [("refused", "Couldn’t play on Den"), ("unanswered", "Finished on Den")]
+)
+def test_a_start_that_failed_is_not_said_to_be_under_way(markup, how, says):
+    out = elsewhere(markup, "away_anew", how)
+    assert (out["says"], "Starting" in out["hint"]) == (says, False)
+    assert (out["message"], out["begun"]) == (True, True)
+
+
 def test_a_page_opened_while_a_tv_plays_its_title_leaves_it_there(markup):
     out = elsewhere(markup, "away_opened_on_tv", "same")
     assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")

@@ -384,6 +384,8 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 @media (min-width: 700px) {
   .ttl__actions:has(> .ttl__play-on) { max-width: 472px; }
   .ttl__actions:has(> .ttl__play-on):has(> :is(.watch-btn--keep, .ttl__keep-skel)) { max-width: 500px; }
+  .ttl__actions:has(> .ttl__play-on):has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"]),
+  .ttl__actions:has(> .ttl__play-on):has(> .ttl__keep-skel--show) { max-width: 530px; }
   .ttl__actions:has(> .ttl__play-on) > :not(.ttl__play-on) { flex: 1 1 auto; }
   .ttl__actions:has(> .ttl__play-on) > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
 }
