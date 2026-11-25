@@ -380,6 +380,10 @@ def test_a_card_a_view_puts_under_a_mouse_at_rest_opens_nothing_until_it_moves()
     }
 
 
+def test_a_title_past_its_date_leaves_any_day() -> None:
+    assert _run("pastDate") == ["Leaving any day", "Season 3 leaves any day"]
+
+
 def test_keep_acts_on_the_season_its_card_shows_and_names_it() -> None:
     out = _run("seasonsLeaving")
     season_2 = [

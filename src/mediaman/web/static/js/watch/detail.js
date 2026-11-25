@@ -985,9 +985,12 @@
     return { id: String(found.keep_id), days: found.days, season: d.kind === 'movie' ? null : found.season };
   }
 
+  function leavesWhen(days) {
+    return days < 0 ? 'any day' : days === 0 ? 'today' : 'in ' + plural(days, 'day', 'days');
+  }
+
   function leavingText(leaves) {
-    return (leaves.season === null ? 'Leaving ' : 'Season ' + leaves.season + ' leaves ') +
-      (leaves.days <= 0 ? 'today' : 'in ' + plural(leaves.days, 'day', 'days')) + '.';
+    return (leaves.season === null ? 'Leaving ' : 'Season ' + leaves.season + ' leaves ') + leavesWhen(leaves.days) + '.';
   }
 
   var RATINGS = ['imdb', 'rt', 'tmdb', 'metascore'];
@@ -2166,7 +2169,7 @@
       if (gone) {
         row('Deletion', day(gone.execute_at), gone.days <= 7 ? 'is-danger' : '',
           (gone.season == null ? '' : 'Season ' + gone.season + ', ') +
-          (gone.days <= 0 ? 'today' : 'in ' + plural(gone.days, 'day', 'days')));
+          (gone.days < 0 ? (gone.season == null ? 'Leaving' : 'leaving') + ' any day' : leavesWhen(gone.days)));
       } else {
         row('Deletion', 'Not scheduled');
       }

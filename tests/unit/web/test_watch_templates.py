@@ -224,7 +224,12 @@ def test_watch_page_loads_the_row_script_from_a_file() -> None:
 
 @pytest.mark.parametrize(
     ("days", "text"),
-    [(0, "Leaving today"), (1, "Leaving in 1 day"), (5, "Leaving in 5 days")],
+    [
+        (-3, "Leaving any day"),
+        (0, "Leaving today"),
+        (1, "Leaving in 1 day"),
+        (5, "Leaving in 5 days"),
+    ],
 )
 def test_leaving_badge_wording(days: int, text: str) -> None:
     html = _watch(
@@ -233,8 +238,8 @@ def test_leaving_badge_wording(days: int, text: str) -> None:
     assert f">{text}<" in html
 
 
-@pytest.mark.parametrize(("days", "now"), [(0, True), (1, True), (2, False)])
-def test_only_what_leaves_today_or_tomorrow_stands_out(days: int, now: bool) -> None:
+@pytest.mark.parametrize(("days", "now"), [(-3, True), (0, True), (1, True), (2, False)])
+def test_only_what_leaves_by_tomorrow_stands_out(days: int, now: bool) -> None:
     html = _watch(rows=[{"title": "Leaving soon", "items": [_card(leaving_days=days)]}])
     assert "watch-badge--leaving" in html
     assert ("watch-badge--leaving-now" in html) is now
@@ -598,9 +603,15 @@ def test_title_pages_load_the_poster_fade_script(page):
     assert 'src="/static/js/watch-rows.js?v="' in _render(name, **ctx)
 
 
+def test_a_title_page_past_its_date_says_any_day() -> None:
+    html = _render("watch_movie.html", **_movie_ctx(leaving={"days": -3, "keep_id": "m9"}))
+    assert '<span class="watch-leaving__text">Leaving any day</span>' in html
+
+
 @pytest.mark.parametrize(
     ("days", "text"),
     [
+        (-3, "Season 1 leaves any day"),
         (0, "Season 1 leaves today"),
         (1, "Season 1 leaves in 1 day"),
         (5, "Season 1 leaves in 5 days"),

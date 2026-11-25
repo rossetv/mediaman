@@ -9,17 +9,17 @@
 {%- endmacro %}
 
 {% macro leaving_text(days) -%}
-  {%- if days <= 0 -%}Leaving today{%- elif days == 1 -%}Leaving in 1 day{%- else -%}Leaving in {{ days }} days{%- endif -%}
+  {%- if days < 0 -%}Leaving any day{%- elif days == 0 -%}Leaving today{%- elif days == 1 -%}Leaving in 1 day{%- else -%}Leaving in {{ days }} days{%- endif -%}
 {%- endmacro %}
 
 {# "Season 1 leaves in 3 days": another season of the show is leaving, not the one shown. #}
 {% macro other_leaving_text(other) -%}
-  Season {{ other.season }} {% if other.days <= 0 %}leaves today{% elif other.days == 1 %}leaves in 1 day{% else %}leaves in {{ other.days }} days{% endif %}
+  Season {{ other.season }} {% if other.days < 0 %}leaves any day{% elif other.days == 0 %}leaves today{% elif other.days == 1 %}leaves in 1 day{% else %}leaves in {{ other.days }} days{% endif %}
 {%- endmacro %}
 
 {# "N days left"; the preview reads the words that are not drawn. Today and tomorrow stand out. #}
 {% macro leaving_badge(days) -%}
-<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}Leaving today{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
+<span class="watch-badge watch-badge--leaving{% if days <= 1 %} watch-badge--leaving-now{% endif %}"><span class="watch-badge__long">{{ leaving_text(days) }}</span><span class="watch-badge__short">{% if days <= 0 %}{{ leaving_text(days) }}{% elif days == 1 %}1 day left{% else %}{{ days }} days left{% endif %}</span></span>
 {%- endmacro %}
 
 {# The Keep trigger. One shared menu (keep_menu) opens under whichever trigger is pressed. #}

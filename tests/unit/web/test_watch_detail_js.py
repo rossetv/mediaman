@@ -1023,6 +1023,13 @@ def test_a_films_keep_names_no_season() -> None:
     assert _keeps(out["film"]) == ["120", "Keep Glass Harbour", "Leaving in 3 days."]
 
 
+def test_a_title_past_its_date_leaves_any_day_in_its_line_and_in_the_admins_facts() -> None:
+    assert _run("leavingSeasons")["past"].startswith("Leaving any day. Keep it")
+    facts = _run("factsPastTheDate")
+    assert facts["film"] == "20 Nov 2026Leaving any day"
+    assert facts["season"] == "20 Nov 2026Season 1, leaving any day"
+
+
 def test_an_admins_keep_and_deletion_date_are_of_the_season_the_title_names() -> None:
     out = _run("leavingSeasonsAdmin")
     third, second, none = out["rows"]

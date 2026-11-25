@@ -620,12 +620,12 @@ const scenarios = {
     return p.calls.length;
   },
 
-  // Only what leaves today or tomorrow is urgent.
+  // Only what leaves by tomorrow is urgent; past its date, any day.
   async leaving() {
     const p = load(ADMIN);
     await p.search('orchard');
-    await p.answer('/api/watch/search?', { items: [0, 1, 2].map((d) => ({ ...LIB, ref: 'movie-1' + d, leaving_days: d })) });
-    return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => b.classList.contains('watch-badge--leaving-now'));
+    await p.answer('/api/watch/search?', { items: [-3, 0, 1, 2].map((d, i) => ({ ...LIB, ref: 'movie-1' + i, leaving_days: d })) });
+    return p.doc.querySelectorAll('.watch-badge--leaving').map((b) => [b.children.map((n) => n.textContent), b.classList.contains('watch-badge--leaving-now')]);
   },
 
   // A library result carries its mark and its More; one outside the library neither.

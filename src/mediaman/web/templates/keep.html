@@ -60,15 +60,16 @@
         <div class="label">Scheduled for deletion</div>
         <div class="value danger">
           {{ execute_at.strftime("%-d %B %Y") }}
-          {% if days_left == 0 %} — today
+          {% if days_left < 0 %} — leaving any day
+          {% elif days_left == 0 %} — today
           {% elif days_left == 1 %} — tomorrow
-          {% elif days_left > 0 %} — in {{ days_left }} days
+          {% else %} — in {{ days_left }} days
           {% endif %}
         </div>
       </div>
 
       <div class="snooze-section">
-        <div class="snooze-label">Keep this item and delay deletion</div>
+        <div class="snooze-label">{% if days_left < 0 %}The date has passed, but you can keep this item until it is deleted{% else %}Keep this item and delay deletion{% endif %}</div>
         <form method="post" action="/keep/{{ token }}" data-submit-guard>
           <div class="snooze-buttons">
             <button class="snooze-btn" type="submit" name="duration" value="7 days">

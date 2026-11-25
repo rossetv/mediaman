@@ -894,7 +894,8 @@
   }
 
   function leavingText(days) {
-    if (days <= 0) return 'Leaving today';
+    if (days < 0) return 'Leaving any day';
+    if (!days) return 'Leaving today';
     return days === 1 ? 'Leaving in 1 day' : 'Leaving in ' + days + ' days';
   }
 

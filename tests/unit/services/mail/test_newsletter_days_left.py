@@ -119,12 +119,13 @@ def test_the_last_day_reads_singular(conn):
     assert "1 day left" in _cards(conn, manual=False)["Last Day"]
 
 
-def test_a_deadline_already_passed_shows_due_today_not_negative_days(conn):
+def test_a_deadline_already_passed_reads_any_day_not_today_and_no_count(conn):
     _queue(conn, "Overdue", days_into_grace=10)
 
     card = _cards(conn, manual=False)["Overdue"]
 
-    assert "Due today" in card
+    assert "Leaving any day" in card
+    assert "today" not in card
     assert "days left" not in card
     assert "-3" not in card
 

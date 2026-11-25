@@ -843,6 +843,18 @@ const scenarios = {
     }
     return { ...out, gets: h.gets };
   },
+  /* A film, and a season of a show, past the date they were to leave on. */
+  async pastDate() {
+    const gone = { days: -3, keep_id: '203', season: 3 };
+    const h = load({ api: { 'movie-1': { ...FILM, keep_allowed: true, leaving: { days: -3, keep_id: '5' } },
+      'show-2': { ...FILM, ref: 'show-2', kind: 'show', library_ref: 'show-2', keep_allowed: true, leaving: gone, leaving_seasons: [gone] } } });
+    await h.rest('film', 900);
+    const film = h.text('.pv__leaving');
+    h.away();
+    await h.pass(1000);
+    await h.rest('wholeShow', 900);
+    return [film, h.text('.pv__leaving')];
+  },
   /* A reply from when nothing was leaving: the card is newer. */
   async leavingSince() {
     const h = load({ api: { 'show-2': { ...FILM, kind: 'show', library_ref: 'show-2', keep_allowed: false, leaving_seasons: [] } } });

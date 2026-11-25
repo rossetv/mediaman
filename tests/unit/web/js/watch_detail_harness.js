@@ -2241,7 +2241,27 @@ const scenarios = {
     film.ctx.MMWatch.detail.open('movie-120', {});
     await settle();
     out.film = look(film);
+    const past = load({ routes: { '/api/watch/title/movie-120': { ...LIB_MOVIE, leaving: { ...LIB_MOVIE.leaving, days: -3 } } } });
+    past.run();
+    past.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    out.past = look(past)[2];
     return out;
+  },
+
+  // The admin facts of a film, and of a show's season, past the date.
+  async factsPastTheDate() {
+    const of = async (ref, title, over) => {
+      const deletion = { keep_id: title.leaving.keep_id, execute_at: '2026-11-20T10:00:00+00:00', days: -3, season: null, ...over };
+      const p = load({ admin: true, routes: { ['/api/watch/title/' + ref]: { ...title, leaving: { ...title.leaving, days: -3 } },
+        ['/api/watch/admin/title/' + ref]: { ...FACTS, deletion, deletions: [deletion] } } });
+      p.run();
+      p.ctx.MMWatch.detail.open(ref, {});
+      await settle();
+      const rows = p.ttl().querySelectorAll('.ttl-facts__list dt, .ttl-facts__list dd').map((n) => n.textContent);
+      return rows[rows.indexOf('Deletion') + 1];
+    };
+    return { film: await of('movie-120', LIB_MOVIE, {}), season: await of('show-300', LIB_SHOW, { season: 1 }) };
   },
 
   // What an admin sees and keeps of a show whose Seasons 3 and 2 leave, opened from a card.

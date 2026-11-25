@@ -325,7 +325,7 @@ class TestKeepPageRoute:
 
         assert f"{date_text} — {word}" in text
 
-    def test_a_date_that_has_passed_is_shown_without_a_word(self, conn, freezer):
+    def test_a_date_that_has_passed_says_so_and_that_it_can_still_be_kept(self, conn, freezer):
         freezer.move_to("2026-05-03T12:00:00+00:00")
         _insert_media_item(conn)
         action_id = insert_scheduled_action(
@@ -337,7 +337,8 @@ class TestKeepPageRoute:
 
         text = " ".join(TestClient(app).get(f"/keep/{token}").text.split())
 
-        assert "1 May 2026 </div>" in text
+        assert "1 May 2026 — leaving any day </div>" in text
+        assert "The date has passed, but you can keep this item until it is deleted" in text
         assert "Keep for" in text
 
     @pytest.mark.parametrize(

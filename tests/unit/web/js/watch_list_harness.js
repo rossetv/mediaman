@@ -667,7 +667,8 @@ const scenarios = {
     const ticked = p.ticked();
     const several = await keepDialog({ seasons: seasonsOf(null, null) });
     const movedOn = await keepDialog({ seasons: seasonsOf(null, { leaving: leaves(9) }, { leaving: leaves(4) }) });
-    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked() };
+    const past = await keepDialog({ seasons: seasonsOf({ leaving: leaves(-3) }) });
+    return { ticked, leavingOnes, nothingLeaves: several.ticked(), soonest: movedOn.ticked(), past: past.doc.querySelector('.keep-season-details').textContent };
   },
 
   // A keep is changed only by its own button, which says to what.

@@ -589,8 +589,13 @@ def test_a_library_result_carries_its_mark_and_more_beside_its_keep() -> None:
     assert _run("marks") == [["movie/1", True, 1, 1], [None, False, 0, 0]]
 
 
-def test_a_result_that_leaves_today_or_tomorrow_is_marked_urgent_and_a_later_one_is_not() -> None:
-    assert _run("leaving") == [True, True, False]
+def test_a_result_says_when_it_leaves_and_only_by_tomorrow_is_urgent() -> None:
+    assert _run("leaving") == [
+        [["Leaving any day", "Leaving any day"], True],
+        [["Leaving today", "Leaving today"], True],
+        [["Leaving in 1 day", "1 day left"], True],
+        [["Leaving in 2 days", "2 days left"], False],
+    ]
 
 
 def test_a_search_before_the_categories_are_in_waits_for_them_and_lists_its_own() -> None:
