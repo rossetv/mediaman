@@ -824,3 +824,53 @@ def test_a_delete_refused_as_kept_shows_the_keep_on_its_row() -> None:
     out = _run("deleteRefusedAsKept")
     assert out["kept"] == {"reads": 1, "kept": True, "busy": False, "errors": 1}
     assert out["delete_refused"] == {"reads": 0, "kept": False, "busy": False, "errors": 1}
+
+
+BY_SIZE = ["push", "/watch?view=list&type=movie&sort=size_desc"]
+
+
+def test_going_to_the_list_changes_nothing_until_it_is_in_then_shows_it_at_its_top() -> None:
+    out = _run("goWhenIn")
+    before, after = out["before"], out["after"]
+    assert (before["list"], before["browse"], before["history"]) == (False, True, [])
+    assert (after["list"], after["history"], after["rows"]) == (True, [BY_SIZE], ["id:m9", "id:m1"])
+    assert (after["focus"], after["said"]) == ("Big", "35 movies")
+    assert after["scrolls"][0] == 0
+    assert (after["told"], after["skeleton"]) == (["leave", "arrive"], 0)
+
+
+def test_going_to_the_list_brings_none_of_the_rows_it_had_before() -> None:
+    out = _run("goOverOld")
+    assert (out["rows"], out["parts"]) == (["id:m9", "id:m1"], 1)
+
+
+def test_a_list_slow_to_come_is_gone_to_with_its_skeleton_and_told_once_in() -> None:
+    out = _run("goSlow")
+    slow, after = out["slow"], out["after"]
+    assert (slow["list"], slow["skeleton"], slow["history"]) == (True, 1, [BY_SIZE])
+    assert (after["rows"], after["focus"]) == (["id:m9", "id:m1"], "Big")
+    assert (after["said"], after["told"], after["history"]) == ("35 movies", ["leave"], [BY_SIZE])
+
+
+def test_a_list_that_cannot_be_had_is_left_to_the_link() -> None:
+    out = _run("goFails")
+    assert (out["told"], out["list"], out["history"]) == (["fail"], False, [])
+
+
+def test_going_to_the_list_can_be_called_off_until_it_is_in() -> None:
+    out = _run("goCalledOff")
+    rows, shown = out["rows"], out["list"]
+    assert (rows["told"], rows["list"], rows["history"]) == ([], False, [])
+    assert (shown["told"], shown["history"]) == ([], [])
+    assert shown["rows"] == ["id:m1", "id:m2", "show:77", "id:m3"]
+
+
+def test_going_from_the_list_to_another_list_moves_the_address_once_that_is_in() -> None:
+    out = _run("goFromList")
+    assert out["before"]["history"] == []
+    assert (out["after"]["history"], out["after"]["rows"]) == ([BY_SIZE], ["id:m9", "id:m1"])
+    assert out["scrolls"] == [0]
+
+
+def test_back_from_the_list_puts_the_page_at_its_scroll_as_the_views_change() -> None:
+    assert _run("backScrolls") == {"during": [500, True], "first": True}

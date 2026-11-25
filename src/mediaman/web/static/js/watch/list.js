@@ -148,8 +148,8 @@
     var r = root();
     if (!r) {
       var skeleton = list.firstElementChild;
-      if (skeleton) core.swap(skeleton, fresh);
-      else list.appendChild(fresh);
+      if (skeleton && !list.hidden) core.swap(skeleton, fresh);
+      else list.replaceChildren(fresh);
       list.removeAttribute('aria-busy');
       if (target) target.focus({ preventScroll: true });
       return;
@@ -162,7 +162,11 @@
     });
     var oldResults = part(r, 'results');
     var newResults = part(fresh, 'results');
-    if (oldResults && newResults) core.swap(oldResults, newResults);
+    if (oldResults && newResults) {
+      // Out of sight there is no fade to see, and its old rows would still be on their way out when it is shown.
+      if (list.hidden) oldResults.replaceWith(newResults);
+      else core.swap(oldResults, newResults);
+    }
     r.removeAttribute('aria-busy');
     if (target) target.focus({ preventScroll: true });
   }
@@ -215,6 +219,7 @@
 
   /* Show the list for *state*. opts.quiet: nobody asked for it, so it is not told.
      opts.told: nor is its failure, the one before it was.
+     opts.failed: answers a failure in its place; true when it has.
      opts.history: 'push' or 'replace' to move
      the address along once the list is in, so a failed load leaves it as
      it was; opts.focus: what to focus once it is in. */
@@ -242,6 +247,7 @@
     }, function () {
       if (request !== _request) return;
       _asked = null;
+      if (opts.failed && opts.failed()) return;
       if (!opts.told) showFailure(state);
       else if (root()) root().removeAttribute('aria-busy');
       if (!_again) return;
@@ -356,7 +362,8 @@
     var current = state || norm({ q: search ? search.value : '' });
     var rowsOff = browse.hidden;
     if (opts.history === 'push') address.push(view === 'list' ? 'list' : null, view === 'list' ? pageUrl(current) : '/watch');
-    if (view === 'list' && (!root() || _stale || !same(current, wanted()))) load(current, {});
+    var here = _asked || (root() && !_stale ? wanted() : null); // what is shown, or on its way
+    if (view === 'list' && !(here && same(current, here))) load(current, {});
     // Leaving a category's page brings the rows back: they were not on view, so they do not fade.
     if (view === 'list' && rowsOff) browse.hidden = true;
     giveWay([view === 'list' ? browse : list], function () {
@@ -365,6 +372,10 @@
       if (said) said();
       if (view === 'list') reveal(list);
       else showRows();
+      // Here, where what fades is held in its place on the screen: Back and Forward scroll too late for that.
+      var arriving = opts.history === null ? address.arriving() : null;
+      var y = opts.top ? 0 : arriving && arriving.y;
+      if (typeof y === 'number') window.scrollTo({ left: 0, top: y, behavior: 'instant' });
     });
   }
 
@@ -375,6 +386,71 @@
     Promise.resolve().then(function () {
       if (_view === 'rows' && (!results || results.hidden) && address.value('grid') === null) reveal(browse);
     });
+  }
+
+  var SLOW_MS = 400; // how long what leads to the list waits for it before its skeleton shows
+
+  function firstTitle(within) { return within.querySelector('a.wl-title') || within.querySelector('.fpill.on'); }
+
+  /* Go to the list at *href* from what stands over the page, once the list is in or is slow to
+     come. hooks.leave(): as the page is about to change; hooks.arrive(): its rows are on view;
+     hooks.fail(): it could not be had, and nothing has changed. Returns what calls it off. */
+  function open(href, hooks) {
+    var state = stateFromSearch(href.slice(href.indexOf('?') + 1));
+    var settled = false;
+    var timer = null;
+
+    function go() {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      hooks.leave();
+      if (_view === 'rows') setView('list', { history: 'push', state: state, top: true });
+      else {
+        address.push('list', pageUrl(state));
+        sayText(state.q)();
+        window.scrollTo({ left: 0, top: 0, behavior: 'instant' });
+      }
+      if (_asked || !root()) return;
+      status.textContent = root().dataset.said || '';
+      var first = firstTitle(part(root(), 'results')) || firstTitle(root());
+      if (first) first.focus({ preventScroll: true });
+      hooks.arrive();
+    }
+
+    if (root() && !_stale && same(state, wanted())) {
+      go();
+      return function () {};
+    }
+    timer = setTimeout(go, SLOW_MS);
+    load(state, {
+      quiet: true,
+      focus: function (fresh) { return settled && focusIsFree() ? firstTitle(fresh) : null; },
+      failed: function () {
+        if (settled) return false;
+        settled = true;
+        clearTimeout(timer);
+        hooks.fail();
+        return true;
+      }
+    }).then(function () {
+      // Slow to come, it is told when it does.
+      if (settled && _view === 'list' && root()) status.textContent = root().dataset.said || '';
+      go();
+    });
+    return function () {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (_asked !== state) return;
+      _request++;
+      _asked = null;
+      if (root()) root().removeAttribute('aria-busy');
+      if (!_again) return;
+      if (_view === 'list' && root()) { reload(); return; }
+      _again = false;
+      _stale = true;
+    };
   }
 
   function plainClick(e) {
@@ -859,6 +935,8 @@
     state.page = '1';
     load(norm(state), { history: 'replace' });
   });
+
+  window.MMWatch.list = { open: open, plainClick: plainClick };
 
   address.layer({
     name: 'list',

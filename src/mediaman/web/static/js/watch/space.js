@@ -1,7 +1,7 @@
 /* Watch: the storage meter and its panel, for admins: what fills the disks, what
  * is scheduled for deletion, what went, and Scan now. Asked for once the page has
  * loaded, so a slow disk never holds it up. Needs watch/core.js, watch/address.js
- * and watch/keep.js.
+ * and watch/keep.js; the way to the list, watch/list.js.
  */
 (function () {
   'use strict';
@@ -414,6 +414,7 @@
      *byKey*: a key opened it, so the focus goes on to the tabs. */
   function show(name, fresh, byKey) {
     clearTimeout(hideTimer);
+    land();
     watch.keep.closeMenu(false);
     isOpen = true;
     root.hidden = false;
@@ -448,6 +449,7 @@
   function hide(under) {
     if (!isOpen) return;
     isOpen = false;
+    if (callOff) callOff();
     // What it asks is of the panel: it must not outlive it, over a page that has the focus.
     window.UIFeedback.dismissConfirm();
     clearTimeout(enterTimer);
@@ -476,22 +478,169 @@
     },
     open: function (name, how) {
       if (isOpen) { setTab(name, true); return; }
+      var from = how === 'pop' && listNode && !listNode.hidden && listNode.hasAttribute('inert') ? takeOff(listSpots()) : null;
       // Back to the panel: address.js puts the focus where it was, if that is still there.
       if (how !== 'pop') opener = null;
       show(name, how !== 'pop');
+      if (from) fly(from, panelSpots, panel);
       if (how === 'pop') {
         setTimeout(function () {
           if (isOpen && !root.contains(document.activeElement)) panel.focus({ preventScroll: true });
         }, 0);
       }
     },
-    close: function (how) { hide(how === 'push'); }
+    close: function (how) {
+      // Forward to the list: it has the focus, and its place once the page is back at its scroll.
+      var ahead = how === 'pop' && listNode && listNode.hidden && new URLSearchParams(window.location.search).get('view') === 'list';
+      var from = ahead ? takeOff(panelSpots()) : null;
+      hide(ahead || how === 'push');
+      if (ahead) Promise.resolve().then(function () { if (!listNode.hidden) arrive(from); });
+    }
   });
+
+  /* ── To the list and back ── */
+
+  var listNode = byId('watch-list');
+  var callOff = null; // ends the way to the list while the list is still on its way
+  var landing = null; // ends the flight in the air
+
+  function seeAll(all, e) {
+    if (!watch.list || !watch.list.plainClick(e)) return;
+    e.preventDefault();
+    if (callOff) return;
+    var from = null;
+    var off = watch.list.open(all.href, {
+      leave: function () { callOff = null; from = takeOff(panelSpots()); },
+      arrive: function () { arrive(from); },
+      fail: function () { callOff = null; window.location.assign(all.href); }
+    });
+    if (isOpen) callOff = function () { callOff = null; off(); };
+  }
+
+  /* Where each title stands: in the panel's list, and in the list view. */
+  function panelSpots() {
+    return toArray(panes.storage.querySelectorAll('.space-layer:not([inert]) a.space-heavy__row')).filter(function (a) {
+      return !a.inert;
+    }).map(function (a) {
+      return { ref: a.getAttribute('data-title-ref'), pic: a.querySelector('.space-mini'), name: a.querySelector('b') };
+    });
+  }
+
+  function listRows() { return toArray(listNode.querySelectorAll('[data-list-part="results"]:not([inert]) tr')); }
+
+  function listSpots() {
+    return listRows().map(function (tr) {
+      var name = tr.querySelector('a.wl-title');
+      return name && { ref: name.getAttribute('data-title-ref'), pic: tr.querySelector('.thumb'), name: name, row: tr };
+    }).filter(Boolean);
+  }
+
+  /* The titles in sight, measured before they give way. */
+  function takeOff(spots) {
+    land();
+    var box = panes.storage.getBoundingClientRect();
+    var inPanel = spots.length && root.contains(spots[0].pic);
+    var top = inPanel ? box.top : core.clearArea().top;
+    var bottom = inPanel ? box.bottom : core.clearArea().bottom;
+    return spots.map(function (s) {
+      var name = getComputedStyle(s.name);
+      return Object.assign(s, { picAt: s.pic.getBoundingClientRect(), nameAt: s.name.getBoundingClientRect(), size: parseFloat(name.fontSize) });
+    }).filter(function (s) { return s.picAt.bottom > top && s.picAt.top < bottom; });
+  }
+
+  function land() { if (landing) landing(); }
+
+  function arrive(from) {
+    var flown = fly(from, listSpots, listNode);
+    if (core.reduceMotion()) return;
+    listRows().forEach(function (tr) {
+      if (flown.indexOf(tr) >= 0 || !tr.animate) return;
+      tr.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+        { duration: dur(), delay: fast(), easing: core.token('--ease-out', 'ease-out'), fill: 'backwards' });
+    });
+  }
+
+  /* Carry the poster and the name of each title from where it was to where *spots()* has it now,
+     in *box*, which is itself still moving in. Returns the rows that were carried. */
+  function fly(from, spots, box) {
+    if (!box.animate) return [];
+    if (core.reduceMotion()) {
+      box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: fast() });
+      return [];
+    }
+    var m = new DOMMatrix(getComputedStyle(box).transform);
+    var air = el('div', 'space-flight');
+    air.setAttribute('aria-hidden', 'true');
+    var pairs = [];
+    spots().forEach(function (to) {
+      var was = from.filter(function (f) { return f.ref === to.ref; })[0];
+      if (was) pairs.push([was, to]);
+    });
+    if (!pairs.length) return [];
+    var shades = [];
+
+    function carry(node, was, now, scale, delay) {
+      node.classList.add('space-flight__it');
+      Object.assign(node.style, { left: now.left - m.m41 + 'px', top: now.top - m.m42 + 'px', width: Math.ceil(now.width) + 'px' });
+      air.append(node);
+      node.animate([
+        { transform: 'translate(' + (was.left - now.left + m.m41) + 'px, ' + (was.top - now.top + m.m42) + 'px) scale(' + scale + ')' },
+        { transform: 'none' }
+      ], { duration: slow(), delay: delay, easing: core.token('--ease-out', 'ease-out'), fill: 'backwards' });
+    }
+
+    pairs.forEach(function (pair, i) {
+      var was = pair[0];
+      var to = pair[1];
+      var look = getComputedStyle(to.pic);
+      var picNow = to.pic.getBoundingClientRect();
+      var nameNow = to.name.getBoundingClientRect();
+      var img = was.pic.querySelector('img');
+      var pic = el('span', 'space-flight__pic');
+      if (img && img.naturalWidth) {
+        var copy = el('img');
+        copy.alt = '';
+        copy.src = img.src;
+        pic.append(copy);
+      }
+      // A lazy picture would come only after its place was shown.
+      var there = to.pic.querySelector('img');
+      if (there) there.loading = 'eager';
+      pic.style.height = picNow.height + 'px';
+      pic.style.borderRadius = look.borderRadius;
+      carry(pic, was.picAt, picNow, was.picAt.width / picNow.width, i * 12);
+
+      look = getComputedStyle(to.name);
+      var name = el('span', 'space-flight__name', to.name.textContent);
+      ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'color'].forEach(function (k) { name.style[k] = look[k]; });
+      // A name of one line in a box that cuts it, as the panel's is.
+      if (look.whiteSpace === 'nowrap') name.classList.add('space-flight__name--cut');
+      carry(name, was.nameAt, nameNow, was.size / parseFloat(look.fontSize), i * 12);
+      shades.push(was.pic, was.name, to.pic, to.name);
+    });
+
+    shades.forEach(function (n) { n.style.opacity = '0'; });
+    document.body.append(air);
+    var ENDS = ['wheel', 'touchmove', 'keydown', 'resize'];
+    var timer = setTimeout(end, slow() + pairs.length * 12);
+    function end() {
+      landing = null;
+      clearTimeout(timer);
+      ENDS.forEach(function (type) { window.removeEventListener(type, end); });
+      air.remove();
+      shades.forEach(function (n) { n.style.opacity = ''; });
+    }
+    ENDS.forEach(function (type) { window.addEventListener(type, end, { passive: true }); });
+    landing = end;
+    return pairs.map(function (pair) { return pair[1].row; });
+  }
 
   document.addEventListener('click', function (e) {
     if (!e.target.closest) return;
     var from = e.target.closest('[data-space-open]');
-    if (from) openPanel(from.getAttribute('data-space-open'), from, !e.detail);
+    var all = e.target.closest('.space-all');
+    if (all) seeAll(all, e);
+    else if (from) openPanel(from.getAttribute('data-space-open'), from, !e.detail);
     else if (isOpen && e.target.closest('[data-space-close]')) closePanel();
   });
 
@@ -678,6 +827,7 @@
   function focusKey(node) {
     var k = node.getAttribute('data-k');
     if (k) return '.' + node.classList[0] + '[data-k="' + k + '"]';
+    if (node.classList.contains('space-all')) return '.space-layer:not([inert]) .space-all';
     return node.classList.contains('space-back') ? '.space-layer:not([inert]) .space-back' : '';
   }
 

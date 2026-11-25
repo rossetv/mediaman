@@ -548,6 +548,14 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-tab { padding: 0 7px; font-size: 13px; }
 }
 
+/* The titles on their way between the panel and the list view. */
+.space-flight { position: fixed; inset: 0; z-index: calc(var(--z-modal) + 1); overflow: hidden; pointer-events: none; }
+.space-flight__it { position: absolute; transform-origin: 0 0; will-change: transform; }
+.space-flight__pic { background: var(--s3); overflow: hidden; }
+.space-flight__pic > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.space-flight__name { overflow-wrap: anywhere; }
+.space-flight__name--cut { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 @media (prefers-reduced-motion: reduce) {
   .space__panel,
   .space-pane { transform: none; }

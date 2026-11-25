@@ -155,6 +155,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   const server = new Server(rows);
   server.before = rows.slice();
   setup(server);
+  const assigned = [];
   const toasts = [];
   const pushed = [];
   let layer = null;
@@ -180,11 +181,14 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
     CustomEvent: class { constructor(type, init) { Object.assign(this, { type, ...init }); } },
     DOMParser: class { parseFromString() { const d = makeDocument(); d.body.appendChild(build(d, server.page)); return d; } },
     getComputedStyle: () => ({ getPropertyValue: () => '', transitionDuration: '0s', transitionDelay: '0s', display: 'block', transform: 'none', opacity: '1' }),
+    URLSearchParams,
+    DOMMatrix: class { constructor() { this.m41 = 48; this.m42 = 0; } },
+    removeEventListener() {},
     matchMedia: () => ({ matches: !opts.motion }),
     requestAnimationFrame: (fn) => fn(),
     innerHeight: 900, innerWidth: 1280,
     scrollBy() {},
-    location: { pathname: '/watch', reload() { throw new Error('the page was reloaded'); } },
+    location: { pathname: '/watch', search: '', assign(to) { assigned.push(to); }, reload() { throw new Error('the page was reloaded'); } },
     fetch: (url, init) => {
       // Signed out since the page was loaded: what is asked for next is refused.
       if (opts.signedIn && opts.signedIn.yes) return server.request('GET', url).then((data) => ({ ok: true, status: 200, json: () => Promise.resolve(data) }));
@@ -210,6 +214,16 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   if (opts.realConfirm) run('ui-feedback.js');
   ['core/dom.js', 'watch/core.js'].forEach(run);
   ctx.MMWatch.address = address;
+  const opened = [];
+  if (opts.list) {
+    doc.body.appendChild(build(doc, ['section', { id: 'watch-list' }, ['div', { 'data-list-part': 'results' }, ...opts.list.map(([ref, name]) =>
+      ['tr', {}, ['td', {}, ['div', { class: 'thumb' }]], ['td', {}, ['a', { class: 'wl-title', 'data-title-ref': ref }, name]]])]]));
+    $('watch-list').hidden = true;
+    ctx.MMWatch.list = {
+      plainClick: (e) => !(e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey),
+      open(href, hooks) { const o = { href, ...hooks, off: 0 }; opened.push(o); return () => { o.off += 1; }; },
+    };
+  }
   const started = [];
   ctx.MMWatch.rows = { init: (n) => started.push(n.className) };
   ctx.MMWatch.expand = { row: (n) => started.push(n.getAttribute('data-row-id')) };
@@ -221,7 +235,7 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   const one = (sel) => doc.querySelector(sel);
   const all = (sel) => doc.querySelectorAll(sel);
   const p = {
-    doc, server, told, started, toasts, pushed, $, one, all, before, ctx,
+    doc, server, told, opened, assigned, started, toasts, pushed, $, one, all, before, ctx,
     confirm(on) { confirmed = on; },
     layer: () => layer,
     async click(node) { click(doc, node); await settle(); },
@@ -260,7 +274,81 @@ async function page(rows = ['1', '2', '3'].map((id) => row(id)), setup = () => {
   return p;
 }
 
+const seeAll = (p, extra) => { const all = p.one('.space-layer:not([inert]) .space-all'); let stopped = false; click(p.doc, all, { preventDefault() { stopped = true; }, ...extra }); return stopped; };
+const inAir = (p) => p.all('.space-flight .space-flight__name').map((n) => n.textContent);
+async function onMovies(opts) {
+  const p = await page(undefined, (s) => { s.library.movie[1].ref = 'movie-2'; }, { list: [['movie-1', 'Big in full'], ['movie-7', 'Other']], ...opts });
+  await p.click(p.$('meter'));
+  await p.click(p.seg('movies'));
+  await settle();
+  return p;
+}
+
 const scenarios = {
+  async seeAll() {
+    const p = await onMovies();
+    const kept = [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { button: 1 }].map((k) => seeAll(p, k));
+    const before = p.opened.length;
+    const plain = [seeAll(p), seeAll(p)];
+    const href = p.opened.map((o) => o.href);
+    p.opened[0].fail();
+    return { kept, before, plain, href, assigned: p.assigned };
+  },
+  async seeAllCalledOff() {
+    const p = await onMovies();
+    seeAll(p);
+    await p.click(p.$('close'));
+    const off = p.opened[0].off;
+    const q = await onMovies();
+    seeAll(q);
+    q.opened[0].leave();
+    q.layer().close('push');
+    return { off, gone: q.opened[0].off };
+  },
+  async flights() {
+    Node.prototype.animate = function () { return {}; };
+    const p = await onMovies({ motion: true });
+    const list = p.$('watch-list');
+    const spot = p.one('#watch-list .wl-title');
+    const shown = () => [inAir(p), spot.style.opacity];
+    seeAll(p);
+    p.opened[0].leave();
+    p.layer().close('push');
+    list.hidden = false;
+    p.opened[0].arrive();
+    const there = shown();
+    list.setAttribute('inert', ''); // on its way out
+    p.layer().open('storage', 'pop');
+    const back = [inAir(p), p.one('.space-heavy__row b').style.opacity];
+    list.hidden = true;
+    list.removeAttribute('inert');
+    p.ctx.location.search = '?view=list';
+    p.$('meter').focus();
+    p.layer().close('pop');
+    const focus = p.focused();
+    list.hidden = false;
+    await settle();
+    const ahead = shown();
+    await p.run(262); // the length of the flight
+    return { there, back, ahead, focus, landed: shown() };
+  },
+  async flightsReduced() {
+    const faded = [];
+    Node.prototype.animate = function (frames) { faded.push([this.id || this.className, Object.keys(frames[0])]); return {}; };
+    const p = await onMovies();
+    seeAll(p);
+    p.opened[0].leave();
+    p.$('watch-list').hidden = false;
+    p.opened[0].arrive();
+    return { air: inAir(p), faded };
+  },
+  async focusKept() {
+    const p = await onMovies();
+    p.one('.space-layer:not([inert]) .space-all').focus();
+    p.server.storage = storage({ free: '1.3 TB' });
+    await p.refresh();
+    return p.focused();
+  },
   async meter() {
     const p = await page();
     return { askedBeforeLoad: p.before, text: p.meter(), label: p.$('meter').getAttribute('aria-label'), busy: p.$('meter').hasAttribute('aria-busy'),

@@ -74,7 +74,7 @@ function row(r) {
     ? [['button', { class: 'btn btn--danger btn--sm', 'data-action': 'pick-season-delete', 'data-show-rk': r.showRk, 'data-title': JSON.stringify(r.title) }, 'Delete']]
     : [['button', { class: 'btn btn--danger btn--sm', 'data-action': 'confirm-delete', 'data-id': r.id, 'data-title': JSON.stringify(r.title), 'data-size': '22.1 GB', 'data-kind': 'movie' }, 'Delete']];
   return ['tr', { class: 'wl-row' + (r.kept ? ' wl-row--kept' : ''), 'data-row-key': key, 'data-id': r.id },
-    ['td', { class: 'title-cell' }, r.title],
+    ['td', { class: 'title-cell' }, r.ref ? ['a', { class: 'wl-title', 'data-title-ref': r.ref }, r.title] : r.title],
     ['td', {}, r.kept ? ['span', { class: 'wl-del wl-del--kept' }, 'Kept']
       : r.deletion ? ['span', { class: 'wl-del' }, 'In 3 days'] : ['span', { class: 'wl-del wl-del--none' }, '—']],
     ['td', { class: 'wl-act' }, ['div', { class: 'wl-actions' }, wrapper, ...del]]];
@@ -155,6 +155,7 @@ function load(opts = {}) {
   const confirms = [];
   const fetches = [];
   const history = [];
+  const scrolls = [];
   const events = [];
   const inputs = []; // what the search field held each time its input event was sent
   search.dispatchEvent = (ev) => { if (ev.type === 'input') inputs.push(search.value); };
@@ -179,8 +180,8 @@ function load(opts = {}) {
   const ctx = {
     document: doc, console, JSON, Array, Object, String, Number, Math, Promise, WeakMap, Error, Proxy,
     URLSearchParams, parseInt, parseFloat, encodeURIComponent,
-    setTimeout: (fn) => { fn(); return 1; },
-    clearTimeout: () => {},
+    setTimeout: opts.timers ? (fn) => opts.timers.push(fn) : (fn) => { fn(); return 1; },
+    clearTimeout: opts.timers ? (id) => { opts.timers[id - 1] = () => {}; } : () => {},
     getComputedStyle: () => ({ getPropertyValue: () => '', display: 'block' }),
     matchMedia: () => ({ matches: !opts.motion }),
     innerHeight: 900,
@@ -193,7 +194,8 @@ function load(opts = {}) {
       replaceState(state, _t, url) { this.state = state; if (ready) history.push(['replace', url]); moveTo(url); },
     },
     sessionStorage: { getItem: () => null, setItem() {} },
-    scrollTo() {},
+    scrollTo(o) { scrolls.push(o.top); },
+    scrollY: opts.scrollY,
     Infinity,
     Event: class { constructor(type) { this.type = type; } },
     CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; this.bubbles = !!(init && init.bubbles); } },
@@ -237,7 +239,7 @@ function load(opts = {}) {
   doc.addEventListener('mm:watch-view', (e) => events.push(['view', e.detail.view, e.bubbles]));
 
   return {
-    doc, ctx, calls, toasts, errors, confirms, fetches, history, events, inputs, replies,
+    doc, ctx, calls, toasts, errors, confirms, fetches, history, scrolls, events, inputs, replies,
     /* What GET /watch/list answers for *url*: a list for *state* with *rows*. */
     serve(url, state, rows, wait) { pages[url] = { node: (d) => fragment(d, state, rows), wait }; },
     /* GET /watch/list answers *url* with a server error. */
@@ -258,7 +260,7 @@ function load(opts = {}) {
       on(winListeners.keydown, (fn) => !winCaptures.has(fn));
       return e;
     },
-    popstate(search) { ctx.location.search = search; ctx.history.state = null; (winListeners.popstate || []).forEach((fn) => fn({})); },
+    popstate(search, state = null) { ctx.location.search = search; ctx.history.state = state; (winListeners.popstate || []).forEach((fn) => fn({})); },
     rowKeys() { return doc.querySelectorAll('#watch-list tr[data-row-key]').map((r) => r.getAttribute('data-row-key')); },
     row(key) { return doc.querySelectorAll('#watch-list tr[data-row-key]').find((r) => r.getAttribute('data-row-key') === key) || null; },
     part(name) { return doc.querySelector('#watch-list [data-list-part="' + name + '"]').textContent; },
@@ -318,7 +320,114 @@ async function keepDialog({ seasons, showKept, seasonId, duration }) {
   });
 }
 
+/* Going to the list of the heaviest films from what stands over the page. */
+const BY_SIZE = '/watch?view=list&type=movie&sort=size_desc';
+function going(opts) {
+  const timers = [];
+  const p = load({ timers, ...opts });
+  const wait = deferred();
+  p.serve('/watch/list?type=movie&sort=size_desc', { type: 'movie', sort: 'size_desc', said: '35 movies' },
+    [{ id: 'm9', title: 'Big', ref: 'movie-9' }, { id: 'm1', title: 'Copperline' }], wait);
+  const told = [];
+  const hook = (name) => () => told.push(name);
+  return {
+    p, wait, told, timers,
+    go: () => p.ctx.MMWatch.list.open(BY_SIZE, { leave: hook('leave'), arrive: hook('arrive'), fail: hook('fail') }),
+    slow: () => timers.splice(0).forEach((fn) => fn()),
+    now: () => ({
+      told: told.slice(), list: !p.doc.getElementById('watch-list').hidden, browse: !p.doc.getElementById('watch-browse').hidden,
+      history: p.history.slice(), rows: p.rowKeys(), focus: p.doc.activeElement.textContent,
+      skeleton: p.doc.querySelectorAll('.wl-skel').length, parts: p.doc.querySelectorAll('[data-list-part="results"]').length,
+      said: p.doc.querySelectorAll('p.sr-only').map((n) => n.textContent).join(''),
+    }),
+  };
+}
+
+/* What fades out is never done with it. */
+function fadesForever() { Node.prototype.animate = () => ({ finished: new Promise(() => {}), cancel() {} }); }
+
 const scenarios = {
+  async goWhenIn() {
+    const g = going({ scrollY: 500, motion: true });
+    fadesForever();
+    g.go();
+    await settle();
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    const after = { ...g.now(), scrolls: g.p.scrolls.slice() };
+    return { before, after };
+  },
+  /* The list showing other titles before: none of it may be on its way out when it comes. */
+  async goOverOld() {
+    const g = going({ list: true, motion: true });
+    const at = (i) => click(g.p.doc, g.p.doc.querySelectorAll('#watch-viewtoggle a')[i]);
+    at(0);
+    await settle();
+    fadesForever();
+    g.go();
+    await settle();
+    g.wait.resolve();
+    await settle();
+    return g.now();
+  },
+  async goSlow() {
+    const g = going();
+    g.go();
+    await settle();
+    g.slow();
+    await settle();
+    const slow = g.now();
+    g.wait.resolve();
+    await settle();
+    return { slow, after: g.now() };
+  },
+  async goFails() {
+    const g = going();
+    g.p.fail('/watch/list?type=movie&sort=size_desc');
+    g.go();
+    await settle();
+    return g.now();
+  },
+  async goCalledOff() {
+    const of = async (opts) => {
+      const g = going(opts);
+      const off = g.go();
+      await settle();
+      off();
+      g.slow();
+      g.wait.resolve();
+      await settle();
+      return g.now();
+    };
+    return { rows: await of(), list: await of({ list: true }) };
+  },
+  async goFromList() {
+    const g = going({ list: true, scrollY: 500 });
+    g.go();
+    await settle();
+    const before = g.now();
+    g.wait.resolve();
+    await settle();
+    return { before, after: g.now(), scrolls: g.p.scrolls };
+  },
+  /* Back puts the page at its scroll while what fades can still be held in its place. */
+  async backScrolls() {
+    const g = going({ scrollY: 500 });
+    await settle();
+    const entry = g.p.ctx.history.state;
+    g.go();
+    g.wait.resolve();
+    await settle();
+    g.p.scrolls.length = 0;
+    let first = null;
+    g.p.doc.addEventListener('mm:watch-view', () => { first = g.p.doc.getElementById('watch-list'); });
+    const real = g.p.ctx.MMWatch.address.arriving;
+    const during = [];
+    g.p.ctx.scrollTo = (o) => during.push([o.top, !!real()]);
+    g.p.popstate('', entry);
+    return { during: during[0], first: !!first };
+  },
   // Keep a movie that was due for deletion: the Watch keep, so Undo restores the date.
   async keepScheduled() {
     const p = load({ list: true });

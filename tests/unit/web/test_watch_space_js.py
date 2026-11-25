@@ -734,3 +734,35 @@ def test_a_session_that_ends_meanwhile_sends_a_scan_its_polls_and_a_clear_to_sig
 
 def test_the_panel_never_reloads_the_page():
     assert "reload" not in (JS / "watch/space.js").read_text()
+
+
+class TestSeeAll:
+    def test_stays_a_link_for_a_modified_click_and_for_a_list_that_cannot_be_had(self):
+        out = _run("seeAll")
+        href = "/watch?view=list&type=movie&sort=size_desc"
+        assert (out["kept"], out["before"]) == ([False] * 4, 0)
+        assert (out["plain"], out["href"]) == ([True, True], [href])
+        assert out["assigned"] == [href]
+
+    def test_is_called_off_by_closing_the_panel_but_not_by_its_own_leaving(self):
+        assert _run("seeAllCalledOff") == {"off": 1, "gone": 0}
+
+    def test_the_titles_in_both_travel_there_back_and_forward_again(self):
+        out = _run("flights")
+        assert out["there"] == [["Big in full"], "0"]
+        assert out["back"] == [["Big"], "0"]
+        assert out["ahead"] == [["Big in full"], "0"]
+        assert out["landed"] == [[], ""]
+
+    def test_going_forward_leaves_the_focus_to_the_list(self):
+        assert (
+            _run("flights")["focus"]
+            != "Storage: 1.4 TB free of 8 TB. 3 titles scheduled for deletion"
+        )
+
+    def test_with_reduced_motion_the_list_only_fades_in(self):
+        out = _run("flightsReduced")
+        assert (out["air"], out["faded"]) == ([], [["watch-list", ["opacity"]]])
+
+    def test_keeps_the_focus_when_the_panel_is_brought_up_to_date(self):
+        assert "space-all" in _run("focusKept")
