@@ -148,9 +148,11 @@
   .share-page .ttl__tagline { font-size: 14px; -webkit-line-clamp: 2; line-clamp: 2; }
   .share-page .ttl__meta { font-size: 14px; }
   .share-stack > .watch-actions { width: 100%; }
-  .share-act .watch-actions .btn--primary, .share-act .watch-actions .watch-btn--play { flex-basis: 100% !important; }
   .share-note .login-card { padding: 32px 22px; }
   .share-note .share-note__acts .btn { flex: 1 1 100%; }
+}
+@media (max-width: 599.98px) {
+  .share-act .watch-actions .btn--primary, .share-act .watch-actions .watch-btn--play { flex-basis: 100% !important; }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   .share-page .share-hero { min-height: 100vh; min-height: 100svh; padding-top: 64px; padding-bottom: 18px; }

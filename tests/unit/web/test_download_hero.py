@@ -138,3 +138,16 @@ def test_a_title_pill_never_wraps_its_count() -> None:
     rule = re.search(r"\.dl-hero-episodes-toggle,\s*\.dl-compact-episodes-toggle \{([^}]*)\}", css)
 
     assert rule and "white-space: nowrap" in rule[1]
+
+
+def test_the_main_button_takes_a_line_of_its_own_only_where_the_others_fill_theirs() -> None:
+    def width_up_to(css: str, rule: str) -> str:
+        query = re.search(
+            r"@media \(max-width: ([\d.]+)px\) \{(?:(?!\n\}).)*?" + re.escape(rule), css, re.S
+        )
+        assert query
+        return query[1]
+
+    main = width_up_to(_css("_share.css"), ".watch-btn--play { flex-basis: 100% !important")
+    others = width_up_to(_css("_watch.css"), ".watch-banner .watch-actions .btn { flex: 1 1 0")
+    assert main == others
