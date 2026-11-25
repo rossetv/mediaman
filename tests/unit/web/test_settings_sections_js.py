@@ -156,6 +156,95 @@ def test_typing_no_limit_over_an_unreadable_one_does_not_set_the_library_free() 
     assert _card_says(out["typed"]["says"]) == "never"
 
 
+_UNREADABLE = [
+    {"path": "/a", "threshold": "9x"},
+    {"path": "/a\0", "threshold": 9},
+    {"path": ["/a"], "threshold": 9},
+]
+
+
+def _insert(value: str, data: str) -> list[object]:
+    return ["threshold", value, "insertText", data]
+
+
+def _delete(value: str) -> list[object]:
+    return ["threshold", value, "deleteContentBackward", None]
+
+
+def _edits(entry: object, *runs: list[object]):
+    return _run("edits", json.dumps(entry), json.dumps(runs))
+
+
+def test_an_undone_keystroke_over_an_unreadable_limit_leaves_no_change() -> None:
+    path = ["path", "/ab", "insertText", "b"], ["path", "/a", "deleteContentBackward", None]
+    undo = ["threshold", "9", "historyUndo", None]
+    outcomes = _edits(
+        {"path": "/a", "threshold": "9x"},
+        list(path),
+        [_insert("95", "5"), _delete("9")],
+        [_delete(""), undo],
+        [_insert("5", "5"), undo],
+        # a number field gives what is no number as empty
+        [[*_insert("", "e"), True], _delete("9")],
+        # the arrows of the field
+        [["threshold", "10", None, None], ["threshold", "9", None, None]],
+        # what was kept meanwhile is taken back too
+        [_insert("95", "5"), "redraw", _delete("9")],
+        [path[0], "redraw", path[1]],
+    )
+    for out in outcomes:
+        assert (out["changes"], out["sameThing"]) == (None, True)
+        assert _card_says(out["says"]) == "never"
+
+
+def test_only_a_limit_typed_anew_replaces_an_unreadable_one() -> None:
+    folder = ["path", "/new", "insertText", "w"]
+    for entry in _UNREADABLE:
+        for out in _edits(
+            entry,
+            [folder],
+            [folder, "redraw"],
+            [folder, "elsewhere"],
+            [folder, _insert("95", "5"), _delete("9")],
+            [folder, _delete("")],
+            [folder, ["threshold", "0", "insertText", "0"]],
+            [["path", "", "deleteContentBackward", None], _delete("")],
+        ):
+            assert out["changes"] is None
+            assert _card_says(out["says"]) == "never" and "a limit, then save" in out["says"]
+        kept = _edits(entry, [folder, "redraw"], [folder, "elsewhere"])
+        assert [out["shows"] for out in kept] == [["/new", "9"]] * 2
+
+
+def test_the_shown_number_typed_in_whole_counts_as_a_limit() -> None:
+    folder = ["path", "/new", "insertText", "w"]
+    for entry in _UNREADABLE:
+        for out in _edits(
+            entry,
+            [folder, _insert("9", "9")],
+            [folder, _delete(""), _insert("9", "9")],
+            [folder, _delete(""), _insert("9", "9"), "redraw"],
+            [folder, _delete(""), _insert("9", "9"), "elsewhere"],
+        ):
+            assert out["changes"] == {"1": {"path": "/new", "threshold": 9}}
+            assert _card_says(out["says"]) == "limited"
+    (other,) = _edits(_UNREADABLE[0], [_insert("95", "5")])
+    assert other["changes"] == {"1": {"path": "/a", "threshold": 95}}
+
+
+def test_a_folder_typed_over_a_limit_another_page_has_mended_changes_nothing() -> None:
+    folder = ["path", "/new", "insertText", "w"]
+    (only, limit, undone) = _edits(
+        _UNREADABLE[0],
+        [folder, "mendedElsewhere"],
+        [_insert("95", "5"), "mendedElsewhere"],
+        [_insert("95", "5"), _delete("9"), "mendedElsewhere"],
+    )
+    assert only["changes"] is None and only["shows"] == ["/else", "70"]
+    assert limit["changes"] == {"1": {"path": "/a", "threshold": 95}}
+    assert undone["changes"] is None
+
+
 def test_the_libraries_say_to_set_up_plex_only_when_it_is_not_set_up() -> None:
     out = _run("plexAnswers")
     hints = {name: pills for name, (pills, _) in out.items()}

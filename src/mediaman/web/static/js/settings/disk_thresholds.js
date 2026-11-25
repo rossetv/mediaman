@@ -120,8 +120,7 @@
     selected.forEach(function (lib) {
       var id = String(lib.id);
       if (kept[id]) {
-        // What was typed over an unreadable entry and then put back is no longer asked for.
-        if (limitOf(DISK_THRESHOLDS[id]) === 'unreadable') kept[id].retyped = false;
+        kept[id].anew = typedAnew(DISK_THRESHOLDS[id]);
         kept[id].refreshState(); next = kept[id].nextSibling;
         return;
       }
@@ -212,7 +211,7 @@
     thrInput.type = 'number';
     thrInput.min = '0';
     thrInput.max = '100';
-    thrInput.value = cfg.threshold || 0;
+    thrInput.value = String(shown(cfg).threshold);
     thrInput.setAttribute('aria-label', 'Scan above percent used, ' + lib.title);
     thrInput.dataset.field = 'threshold';
     thrWrap.appendChild(thrInput);
@@ -233,10 +232,11 @@
     foot.appendChild(state);
     card.appendChild(foot);
 
+    card.anew = typedAnew(cfg);
     var asked = null;
     function refresh(again) {
       var typed = typedIn(card);
-      var scan = scanOf(card.dataset.libId, typed, card.retyped);
+      var scan = scanOf(card);
       var what = scan.limit ? typed.threshold + ' ' + scan.limit.path : scan.text;
       var known = !!asked && asked.what === what;
       if (known && !again) return;
@@ -249,9 +249,11 @@
         .then(function (found) { if (mine === asked) paintState(card, found, typed.threshold); });
     }
     function check() { refresh(true); }
-    function retype() { card.retyped = true; }
-    pathInput.addEventListener('input', retype);
-    thrInput.addEventListener('input', retype);
+    var limitWas = thrInput.value;
+    thrInput.addEventListener('input', function (e) {
+      card.anew = isAnew(e, thrInput, limitWas, card.anew);
+      limitWas = thrInput.value;
+    });
     pathInput.addEventListener('blur', check);
     thrInput.addEventListener('change', check);
     card.refreshState = refresh;
@@ -276,6 +278,11 @@
   function limitOf(cfg) {
     if (isEmpty(cfg)) return null;
     if (!isObject(cfg)) return 'unreadable';
+    if (cfg.unread !== undefined) {
+      var entered = cfg.anew || cfg.threshold !== shown(cfg.unread).threshold;
+      var limit = limitOf(shown(cfg));
+      return entered && isObject(limit) ? limit : 'unreadable';
+    }
     if (isEmpty(cfg.path) || isEmpty(cfg.threshold)) return null;
     var percent = percentOf(cfg.threshold);
     if (percent === null) return 'unreadable';
@@ -284,18 +291,32 @@
     return { path: cfg.path, percent: percent };
   }
 
-  // Whether an entry the scanner cannot read becomes a limit, though it may show the same.
-  // One that sets no limit mends nothing: the library would then always be scanned.
-  function mends(cfg, next) {
-    return limitOf(cfg) === 'unreadable' && isObject(limitOf(next));
+  // What is typed over an entry the scanner cannot read is kept with that entry, as `unread`, and is a
+  // limit only where its number was typed by the person: the one the card shows was never a limit.
+  function unreadOf(cfg) {
+    if (isObject(cfg) && cfg.unread !== undefined) return cfg.unread;
+    return limitOf(cfg) === 'unreadable' ? cfg : undefined;
+  }
+
+  function typedAnew(cfg) { return isObject(cfg) && cfg.anew === true; }
+
+  // Whether a limit field now holds a number typed in whole, rather than what was there with a keystroke undone.
+  function isAnew(e, input, was, anew) {
+    var how = e.inputType || '';
+    if (how.indexOf('history') === 0) return false;
+    // A number field holding something else, such as 9e, gives its value as empty.
+    if (input.validity && input.validity.badInput) return anew;
+    if (input.value === '') return true;
+    if (how.indexOf('delete') === 0) return anew;
+    return anew || (typeof e.data === 'string' ? e.data === input.value : input.value === was);
   }
 
   // Whether the scanner takes a library, from what is stored or, once changed, what is typed over it:
   // its limit, which the disk then decides, or else what to say.
-  function scanOf(id, typed, retyped) {
-    var stored = isObject(STORED) ? STORED[id] : undefined;
-    var mended = mends(stored, typed) && (retyped || mends(stored, DISK_THRESHOLDS[id]));
-    var limit = limitOf(same(typed, shown(stored)) && !mended ? stored : typed);
+  function scanOf(card) {
+    var typed = typedIn(card);
+    var stored = isObject(STORED) ? STORED[card.dataset.libId] : undefined;
+    var limit = limitOf(limitOf(stored) !== 'unreadable' && same(typed, shown(stored)) ? stored : entryOf(card));
     if (limit === 'unreadable') {
       return { tone: 'crit', text: 'Saved limit can’t be read — scheduled scans skip this library. Enter a path and a limit, then save.' };
     }
@@ -363,24 +384,33 @@
     });
   }
 
-  // An entry whose fields were not touched stays exactly as it was saved.
+  // An entry whose fields were not touched, or were put back over one that cannot be read, stays exactly as it was saved.
+  function entryOf(card) {
+    var typed = typedIn(card);
+    var entry = DISK_THRESHOLDS[card.dataset.libId];
+    var unread = unreadOf(entry);
+    if (unread === undefined) return same(typed, shown(entry)) ? entry : typed;
+    if (same(typed, shown(unread)) && !card.anew) return unread;
+    return { path: typed.path, threshold: typed.threshold, unread: unread, anew: card.anew };
+  }
+
   function keepTyped() {
     document.querySelectorAll('#disk-threshold-rows .lp-card').forEach(function (card) {
-      var typed = typedIn(card);
-      var entry = DISK_THRESHOLDS[card.dataset.libId];
-      if (!same(typed, shown(entry)) || (card.retyped && mends(entry, typed))) {
-        DISK_THRESHOLDS[card.dataset.libId] = typed;
-      }
+      var entry = entryOf(card);
+      if (entry !== undefined) DISK_THRESHOLDS[card.dataset.libId] = entry;
     });
   }
 
   // The entries that differ, or null. A cleared one is blank, not left out: the
-  // server keeps the threshold of a library it is not sent.
+  // server keeps the threshold of a library it is not sent. One that cannot be read is
+  // replaced only by a limit: with none, the library would always be scanned.
   function changes(from, to) {
     var out = null;
     Object.keys(Object.assign({}, from, to)).forEach(function (libId) {
       var now = shown(to[libId]);
-      if (same(shown(from[libId]), now) && !mends(from[libId], to[libId])) return;
+      var limit = limitOf(to[libId]);
+      if (limit === 'unreadable') return;
+      if (limitOf(from[libId]) === 'unreadable' ? !isObject(limit) : same(shown(from[libId]), now)) return;
       out = out || {};
       out[libId] = now;
     });
@@ -484,6 +514,10 @@
     var disk = {};
     Object.keys(Object.assign({}, mine.disk, stored.disk)).forEach(function (id) {
       var entry = (keep('limit:' + id) ? mine : stored).disk[id];
+      // Typed over an entry that could not be read and since can be: a limit is an ordinary edit, and no more is kept.
+      if (unreadOf(entry) !== undefined && limitOf(stored.disk[id]) !== 'unreadable') {
+        entry = limitOf(entry) === 'unreadable' ? stored.disk[id] : shown(entry);
+      }
       if (entry !== undefined) disk[id] = entry;
     });
     return {

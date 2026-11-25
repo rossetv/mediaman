@@ -37,7 +37,7 @@ function page(markup, files) {
   vm.createContext(ctx);
   files.forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, 'settings', f + '.js'), 'utf8'), ctx));
   const id = (x) => doc.getElementById(x);
-  const fire = (el, type) => (el.listeners[type] || []).forEach((f) => f({ target: el, preventDefault() {} }));
+  const fire = (el, type, more) => (el.listeners[type] || []).forEach((f) => f(Object.assign({ target: el, preventDefault() {} }, more)));
   return { doc, ctx, id, fire, click: (el) => click(doc, el) };
 }
 
@@ -64,7 +64,7 @@ async function libraries(opts, usage, answer) {
   const card = (n) => p.doc.querySelector('.lp-card[data-lib-id="' + n + '"]');
   const input = (n, f) => card(n).querySelector('[data-field="' + f + '"]');
   return Object.assign(p, {
-    disk, dirty, card,
+    disk, dirty, card, input,
     pill: (n) => p.doc.querySelector('.lib-pill[data-lib-id="' + n + '"]'),
     pills: () => p.id('plex-library-pills').textContent,
     rows: () => p.id('disk-threshold-rows').textContent,
@@ -182,6 +182,42 @@ const scenarios = {
     p.disk.restore(saved);
     await settle();
     out.discarded = look();
+    return out;
+  },
+
+  // What each run of edits leaves: [field, value, how, text put in], as the browser tells them; 'redraw'
+  // for the rows being drawn again, 'elsewhere' for a save of something else, 'mendedElsewhere' for one
+  // that finds a limit another page has stored.
+  async edits(entry, runs) {
+    const out = [];
+    for (const run of JSON.parse(runs)) {
+      const p = await libraries({ diskThresholds: { 1: JSON.parse(entry) } });
+      let base = p.disk.state();
+      for (const step of run) {
+        if (step === 'redraw') { p.click(p.pill(1)); p.click(p.pill(1)); continue; }
+        if (step === 'elsewhere' || step === 'mendedElsewhere') {
+          const was = p.disk.things(base);
+          const mine = p.disk.state();
+          const now = p.disk.things(mine);
+          base = p.disk.fromServer({ plex_libraries: ['1'], disk_thresholds: { 1: step === 'elsewhere' ? JSON.parse(entry) : { path: '/else', threshold: 70 } } });
+          p.disk.show(p.disk.rebase(mine, base, (key) => now[key] !== was[key]));
+          continue;
+        }
+        const [field, value, inputType, data, badInput] = step;
+        const el = p.input(1, field);
+        el.value = value;
+        el.validity = { badInput: !!badInput };
+        p.fire(el, 'input', { inputType, data });
+        p.fire(el, field === 'path' ? 'blur' : 'change');
+      }
+      await settle();
+      const now = p.disk.state();
+      out.push({
+        changes: p.disk.changes(base.disk, now.disk), says: p.says(1),
+        sameThing: JSON.stringify(p.disk.things(base)) === JSON.stringify(p.disk.things(now)),
+        shows: ['path', 'threshold'].map((f) => String(p.input(1, f).value)),
+      });
+    }
     return out;
   },
 
