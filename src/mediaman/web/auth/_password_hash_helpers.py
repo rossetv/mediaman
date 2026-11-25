@@ -91,7 +91,8 @@ def _prepare_bcrypt_input(password: str) -> bytes:
     the encoding stays symmetric. A mismatch would lock every user out.
     """
     normalised = _normalise_password(password)
-    encoded = normalised.encode("utf-8")
+    # Bytes for any string, so that every password can be checked against a hash.
+    encoded = normalised.encode("utf-8", "surrogatepass")
     if len(encoded) <= _BCRYPT_MAX_INPUT_BYTES:
         return encoded
     digest = hashlib.sha256(encoded).digest()

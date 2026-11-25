@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
+from fastapi import Body, HTTPException
 from fastapi.testclient import TestClient
 
 from mediaman.app_factory import create_app
@@ -26,6 +26,23 @@ def client():
     @app.get("/json-500")
     def json_500():
         raise HTTPException(status_code=500, detail="broken")
+
+    @app.post("/api/secret")
+    def api_secret(word: str = Body(embed=True)):
+        return {}
+
+    @app.post("/api/stored")
+    def api_stored(word: str = Body(embed=True)):
+        word.encode("utf-8")
+        return {}
+
+    @app.get("/api/latin")
+    def api_latin():
+        "€".encode("latin-1")
+
+    @app.get("/api/own-text")
+    def api_own_text():
+        "a name read from disk \udcff".encode("utf-8")
 
     return TestClient(app, raise_server_exceptions=False)
 
@@ -53,6 +70,34 @@ def test_a_missing_page_for_a_non_html_caller_stays_json(client):
 
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Not Found"}
+
+
+def test_a_refused_body_names_the_field_and_not_what_was_sent(client):
+    resp = client.post("/api/secret", json={"word": ["hunter2"]})
+
+    assert resp.status_code == 422
+    (error,) = resp.json()["detail"]
+    assert error["loc"] == ["body", "word"]
+    assert error["msg"]
+    assert "hunter2" not in resp.text
+
+
+def test_text_sent_with_no_utf8_form_is_a_bad_request(client):
+    resp = client.post(
+        "/api/stored",
+        content=b'{"word": "half \\ud800 a pair"}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_any_other_encoding_fault_is_still_a_crash(client):
+    assert client.get("/api/latin").status_code == 500
+
+
+def test_the_servers_own_text_with_no_utf8_form_is_still_a_crash(client):
+    assert client.get("/api/own-text").status_code == 500
 
 
 def test_a_missing_api_route_stays_json_even_for_a_browser(client):

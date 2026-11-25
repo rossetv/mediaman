@@ -20,6 +20,7 @@ from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
     has_recent_reauth,
 )
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
@@ -98,6 +99,14 @@ class TestReauthEndpoint:
         assert "expires_in_seconds" in resp.json()
         # The ticket is now persisted for this session.
         assert has_recent_reauth(conn, token, "admin") is True
+
+    def test_a_password_in_any_script_is_accepted(self, app_factory, conn):
+        password = "пароль-\U0001f3ac-café-longer"
+        create_user(conn, "zoë", password, enforce_policy=True)
+        client = TestClient(app_factory(users_router, conn=conn))
+        client.cookies.set("session_token", create_session(conn, "zoë"))
+
+        assert client.post("/api/auth/reauth", json={"password": password}).status_code == 200
 
     def test_reauth_wrong_password_returns_403(self, app_factory, authed_client, conn):
         client, token = _build(app_factory, authed_client, conn)

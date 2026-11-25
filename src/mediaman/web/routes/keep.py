@@ -261,6 +261,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
                 "signed_in": _signed_in(request),
             },
             status_code=429,
+            headers={"Retry-After": "60"},
         )
     if len(token) > 4096:
         return templates.TemplateResponse(
@@ -317,7 +318,9 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     config = request.app.state.config
 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
-        return _submit_failure(request, "rate_limited", 429)
+        limited = _submit_failure(request, "rate_limited", 429)
+        limited.headers["Retry-After"] = "60"
+        return limited
     if len(token) > 4096:
         return _submit_failure(request, "invalid_or_expired", 400)
 
@@ -390,7 +393,9 @@ def keep_forever(
     config = request.app.state.config
 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
-        return respond_err("too_many_requests", status=429)
+        limited = respond_err("too_many_requests", status=429)
+        limited.headers["Retry-After"] = "60"
+        return limited
     if len(token) > 4096:
         return respond_err("invalid_or_expired", status=400)
 

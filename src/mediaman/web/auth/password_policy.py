@@ -149,7 +149,10 @@ def password_issues(password: str, username: str = "") -> list[str]:
     # server into pathological CPU on a multi-megabyte input. Returning
     # only this issue keeps the response payload small for the same
     # reason.
-    encoded_len = len(password.encode("utf-8"))
+    try:
+        encoded_len = len(password.encode("utf-8"))
+    except UnicodeEncodeError:
+        return ["Password contains a character that cannot be used."]
     if encoded_len > MAX_BYTES:
         return [f"Password is too long (max {MAX_BYTES} bytes; yours is {encoded_len})."]
 

@@ -171,6 +171,10 @@ def _unmark_token_used(token: str) -> None:
         _release_used_token(conn, digest)
 
 
+def is_token_used(conn: sqlite3.Connection, token: str) -> bool:
+    return download_token_claimed(conn, _digest(token))
+
+
 def _unanswered_digest(token: str) -> str:
     return _digest(f"unanswered add:{token}")
 
