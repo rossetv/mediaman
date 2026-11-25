@@ -184,7 +184,6 @@
     }
   }
 
-  function remove(o) {
   /* Its row's heading takes no press meant for it. */
   function lifted(card, on) {
     var row = card.closest('.watch-row');
@@ -192,6 +191,7 @@
     if (row) row.classList.toggle('has-lifted', on);
   }
 
+  function remove(o) {
     o.set.destroy();
     o.over.remove();
   }

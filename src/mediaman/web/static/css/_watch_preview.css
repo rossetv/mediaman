@@ -135,7 +135,7 @@
 .pv__lift { position: absolute; z-index: 6; width: 44px; height: 180px; pointer-events: none; }
 .pv__lift > .rate--lift { right: 0; bottom: 0; height: 180px; }
 .pv__lift > .rate--lift.is-open { pointer-events: auto; }
-.pv__eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; }
+.pv__eye[aria-pressed="true"] { --eye-open: none; --eye-seen: inline; background: var(--t1); color: var(--bg); }
 .pv__eye[aria-busy="true"] { opacity: .55; cursor: progress; }
 .pv__said { padding: 0; color: var(--t2); }
 .pv__said[hidden] { display: block !important; visibility: hidden; }

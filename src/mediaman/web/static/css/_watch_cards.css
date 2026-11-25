@@ -72,13 +72,14 @@
 .card-tools:not(:has(> .card-tool--thumb:not([hidden]))) > .card-tool::after { inset-inline: -7px; }
 .card-tool > .rate-th { --th-bg: var(--card-rest, var(--bg)); width: 18px; height: 17px; }
 .card-tool > .rate-th--2 { width: 21px; height: 16px; }
+.card-tool > .ico { width: 16.25px; height: 13px; }
 .card-tool > .ico,
 .card-tool > .rate-th { transition: transform var(--dur-spring) var(--ease-pop); }
 .is-up:is(.card-tool, .card-flier) { --rate-c: var(--accent-hi); }
 .is-down:is(.card-tool, .card-flier) { --rate-c: var(--orange); }
-.card-tool--thumb:is(.is-up, .is-down) { color: var(--rate-c); }
 .is-up.is-double:is(.card-tool, .card-flier) { --rate-c: var(--rate-love); }
 .is-down.is-double:is(.card-tool, .card-flier) { --rate-c: var(--rate-no); }
+.card-tool--thumb:is(.is-up, .is-down) { color: var(--rate-c); }
 .card-tool:is(:focus-visible, [aria-expanded="true"])::before { opacity: 1; transform: none; }
 .card-tool:is(:focus-visible, [aria-expanded="true"]) > .rate-th { --th-bg: var(--s3); }
 .card-tool:focus-visible { outline: none; }
@@ -150,6 +151,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   -webkit-tap-highlight-color: transparent;
   transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-spring) var(--ease-pop);
 }
+.card-over__b > .ico { width: 18.75px; height: 15px; }
 .card-over__b::before { content: ""; position: absolute; z-index: -1; inset: 3px; border-radius: 50%; background: var(--s4); border: 1px solid var(--hair-strong); }
 .is-lifted > .card-over:not([inert]) .card-over__b { opacity: 1; transform: none; transition-delay: 60ms; }
 .card-over__b:active { transform: scale(.9) !important; }
@@ -170,7 +172,7 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   padding: 4px;
   border-color: var(--hair-strong);
   border-radius: 22px;
-  background: color-mix(in srgb, var(--s2) 78%, transparent);
+  background: color-mix(in srgb, var(--s2) 92%, transparent);
   -webkit-backdrop-filter: blur(14px) saturate(1.5);
   backdrop-filter: blur(14px) saturate(1.5);
   box-shadow: var(--shadow-card);
@@ -219,19 +221,31 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   right: 0;
   top: calc(4px + (100% - 8px) / 4 * (var(--at, 1) + .5));
   translate: 0 -50%;
-  padding: 4px 9px;
+  width: max-content;
+  max-width: calc(100cqi - 62px);
+  padding: 4px 8px;
   border-radius: var(--r-sm);
   background: var(--s5);
   color: var(--t1);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.35;
-  white-space: nowrap;
+  text-align: center;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
   opacity: 0;
   transform: translateX(6px);
   transition: top var(--dur-slow) var(--ease-spring, var(--ease-out)), opacity var(--dur-fast) var(--ease-out), transform var(--dur) var(--ease-out);
 }
 .rate--lift.is-open .rate__name.is-on > span { opacity: 1; transform: none; }
+/* Beside the levels of a small poster, for the longest word of a name; of the smallest, for none. */
+@container (max-width: 132px) {
+  .card-over .rate__name { right: calc(100% + 3px); }
+  .card-over .rate__name > span { max-width: max(52px, 100cqi - 57px); padding-inline: clamp(2px, (100cqi - 100px) / 4, 8px); font-size: 11px; }
+}
+@container (max-width: 104px) {
+  .card-over .rate__name { display: none; }
+}
 
 @media (hover: hover) and (pointer: fine) {
   /* Off the levels a press is the card's. */
@@ -241,25 +255,28 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-over__scrim { background: linear-gradient(to left, color-mix(in srgb, var(--scrim) 72%, transparent), color-mix(in srgb, var(--scrim) 45%, transparent) 45%, color-mix(in srgb, var(--scrim) 10%, transparent)); }
 }
 @media (hover: none), (pointer: coarse) {
+  /* Over the buttons of the cards above it, and the closing levels of another. */
+  .watch-card.is-lifted { z-index: 5; }
+  .watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after { pointer-events: none; }
   /* Four of 44px. A short poster's stand past its top: in a row, which cuts them there, past its foot too. */
-  .card-over > .rate--lift { --h: max(184px, min(200px, 100% - 8px)); right: 4px; top: calc(100% - var(--h) - 4px); bottom: auto; width: 46px; height: var(--h); }
-  .watch-row__scroll > .watch-card > .card-over > .rate--lift { top: max(-5px, 100% - var(--h) - 4px); }
+  .card-over > .rate--lift { --h: max(184px, min(200px, 150cqi - 8px)); --top: calc(150cqi - var(--h) - 4px); right: 4px; top: var(--top); bottom: auto; width: 46px; height: var(--h); }
+  .watch-row__scroll > .watch-card > .card-over > .rate--lift { --top: max(-5px, 150cqi - var(--h) - 4px); }
   .card-over .rate__b::after { content: ""; position: absolute; inset: 0 -5px; }
   .card-over .rate__b.pop.is-up.is-double::after { inset: auto; }
-  .card-over .rate__name { right: calc(100% + 4px); top: 7px; width: calc(100cqi - 62px); }
-  .card-over .rate__name > span { position: static; display: block; translate: none; padding: 0; background: none; font-size: 13px; font-weight: 700; line-height: 1.2; white-space: normal; }
+  .card-over .rate__name { right: calc(100% + 4px); top: calc(7px - min(0px, var(--top))); width: max(min(50px, 100cqi - 57px), 100cqi - 62px); }
+  .card-over .rate__name > span { position: static; display: block; translate: none; width: auto; max-width: none; padding: 0; background: none; text-align: left; font-size: clamp(11px, 10.2cqi, 13px); font-weight: 700; line-height: 1.2; }
+  .watch-card__poster > .watch-badge { transition: opacity var(--dur-fast) var(--ease-out); }
+  .is-lifted > .watch-card__link .watch-badge { opacity: 0; }
 }
 
 /* The thumb just given, on its way to the caption. */
 .card-flier { position: absolute; z-index: 8; display: grid; pointer-events: none; color: var(--rate-c); }
 .card-flier > .rate-th { width: 100%; height: 100%; }
+.card-flier .halo { display: none; }
 
 /* ── Marked as watched ── */
 .watch-card__poster > .card-lights { position: absolute; z-index: 2; inset: 0; background: var(--scrim); opacity: 0; pointer-events: none; }
 .card-barend { position: absolute; z-index: 2; left: var(--card-pad); bottom: 8px; width: calc(100% - 2 * var(--card-pad)); height: 4px; border-radius: var(--r-xxs); overflow: hidden; background: color-mix(in srgb, var(--t1) 30%, transparent); }
-  /* Over the buttons of the cards above it, and the closing levels of another. */
-  .watch-card.is-lifted { z-index: 5; }
-  .watch-row.has-lifted > .watch-row__head :is(.row-open, .space-row-link)::after { pointer-events: none; }
 .card-barend > i { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; }
 .watch-card__poster:has(> .card-barend) { padding-bottom: 20px; }
 
@@ -267,6 +284,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .rate--lift .rate__b { --aside: 0 !important; }
   .rate--lift .rate__b > .rate-th { opacity: 0; }
   .rate--lift.is-open .rate__b > .rate-th { opacity: 1; animation: lift-grow var(--dur-spring) var(--ease-pop) calc(var(--i) * 28ms) backwards; }
+  /* One that waited for its answer shut goes on from there. */
+  .is-blink { --from-shut: calc(var(--dur) * -.85 * var(--shut, 0)); }
   .card-tool--eye.is-blink > .ico,
   .card-over__b.is-blink > .ico,
   .pv__eye.is-blink > .ico { animation: eye-blink calc(var(--dur) * 2.1) var(--ease-out) var(--from-shut); }
@@ -275,16 +294,17 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .card-lights { animation: card-lights calc(var(--dur) * 3.1) ease-in-out; }
   .watch-badge--watched.is-new { animation: badge-drop calc(var(--dur) * 2.1) var(--ease-pop) calc(var(--dur) * .9) backwards; }
   .watch-badge--unwatched { animation: badge-lift calc(var(--dur) * .8) ease-in forwards; }
+  .card-barend { animation: bar-away var(--dur-fast) var(--ease-out) calc(var(--dur) * 2.2) forwards; }
   .card-barend > i { animation: bar-end calc(var(--dur) * 2.2) var(--ease-out) backwards; }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* At once, so that the focus can go to a level. */
+  .rate--lift .rate__set { transition: none !important; }
   .card-lights,
   .watch-badge--unwatched,
   .card-barend { display: none; }
   .watch-card.is-lifted > .card-over,
   .watch-card.is-lifted .watch-card__link[href] > .watch-card__poster,
-  /* One that waited for its answer shut goes on from there. */
-  .is-blink { --from-shut: calc(var(--dur) * -.85 * var(--shut, 0)); }
   .watch-card:has(> .card-tools:hover) .watch-card__link[href] > .watch-card__poster,
   .card-tool > :is(.ico, .rate-th) { transform: none !important; }
 }
@@ -294,21 +314,20 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   78% { transform: scale(1.22, 1.16); }
 }
 /* Its other face comes while it is shut. */
-  .card-barend { animation: bar-away var(--dur-fast) var(--ease-out) calc(var(--dur) * 2.2) forwards; }
 @keyframes eye-shuts { 0%, 42% { --eye-open: inline; --eye-seen: none; } 43%, 100% { --eye-open: none; --eye-seen: inline; } }
 @keyframes eye-opens { 0%, 42% { --eye-open: none; --eye-seen: inline; } 43%, 100% { --eye-open: inline; --eye-seen: none; } }
 @keyframes card-lights { 38% { opacity: .62; } }
 @keyframes badge-drop { from { opacity: 0; transform: translateY(-8px) scale(.7); } }
 @keyframes badge-lift { to { opacity: 0; transform: translateY(-5px) scale(.85); } }
+@keyframes bar-away { to { opacity: 0; } }
 @keyframes bar-end { from { transform: scaleX(var(--from)); } }
 
 @media (forced-colors: active) {
-  /* At once, so that the focus can go to a level. */
-  .rate--lift .rate__set { transition: none !important; }
   .card-tool { color: ButtonText; }
   .card-tool::before { border: 1px solid ButtonBorder; background: ButtonFace; }
   .card-tool > .rate-th { --th-bg: ButtonFace !important; forced-color-adjust: none; }
   .card-tool--thumb:is(.is-up, .is-down),
+  .watch-card .card-tool--thumb:is(.is-up, .is-down):hover,
   .card-tool[aria-pressed="true"] { color: Highlight; }
   .card-over__scrim { background: Canvas; opacity: 0; }
   .card-over__b { color: ButtonText; }
@@ -318,10 +337,11 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .rate--lift { --rate-bg: ButtonFace; }
   .rate--lift .rate__set { background: ButtonFace; }
   .rate--lift .rate__b.is-at:not(.is-on) { --b-bg: ButtonFace; color: Highlight; }
+  .rate--lift .rate__b.is-on { color: HighlightText; }
   .rate__puck { forced-color-adjust: none; background: Highlight; }
-@keyframes bar-away { to { opacity: 0; } }
   .rate__puck:not(.is-up, .is-down) { visibility: hidden; }
   .rate__name > span { border: 1px solid CanvasText; background: Canvas; color: CanvasText; }
+  .card-over .rate__name > span { padding-inline: 5px; }
   .watch-badge--unwatched { display: none; }
 }
 @media (forced-colors: active) and (hover: hover) and (pointer: fine) {

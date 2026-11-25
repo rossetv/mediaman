@@ -23,7 +23,7 @@ def _of(selector: str, media: str | None = None, sheet: Path = SHEET) -> str:
     return "".join(
         body
         for head, body in re.findall(r"([^{}]+)\{([^{}]*)\}", text)
-        if selector in [s.strip() for s in head.split(",")]
+        if selector in [s.strip() for s in re.split(r",(?![^()]*\))", head)]
     )
 
 
@@ -78,6 +78,7 @@ def test_a_leaving_badge_shows_fewer_words_wherever_the_short_ones_do_not_fit() 
     "seen",
     [
         ".watch-badge--watched",
+        ".watch-badge--unwatched",
         ".watch-pill__mark",
         '.watch-mark[aria-pressed="true"]',
         ".watch-mark-btn__on",
@@ -196,7 +197,6 @@ def test_no_button_under_a_card_moves_where_motion_is_unwanted() -> None:
     assert "animation:" not in still[1].split("@media (prefers-reduced-motion: reduce)")[1]
 
 
-def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
 FINGER = "(hover: none), (pointer: coarse)"
 STILL = "(prefers-reduced-motion: reduce)"
 RATINGS = SHEET.with_name("_ratings.css")
@@ -286,6 +286,7 @@ def test_an_eye_that_had_shut_while_it_waited_opens_and_is_not_shut_twice() -> N
     assert "var(--shut, 0)" in _of(".is-blink", motion, CARDS)
 
 
+def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode() -> None:
     caption = ".watch-card__sub:has(> .watch-card__left)"
     assert "flex-wrap: wrap;" in _of(caption)
     # A dot after the episode would stay behind when the time goes.
