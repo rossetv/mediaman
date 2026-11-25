@@ -152,16 +152,22 @@ def test_what_has_played_lies_over_the_bands_and_the_gaps_over_both() -> None:
     assert level(".player-gap") <= level(".player-seek-thumb")
 
 
-def test_the_intro_and_credits_bands_are_a_grey_between_the_track_and_the_buffered_part() -> None:
+def test_the_intro_and_credits_bands_are_greys_that_stand_out_from_the_bar_on_any_frame() -> None:
     css = _text("_player.css")
 
-    def share(selector: str) -> int:
-        m = re.search(r"var\(--t1\) (\d+)%", _rule(css, selector))
+    def share(selector: str, prop: str) -> float:
+        m = re.search(prop + r":[^;]*var\(--t1\) (\d+)%", _rule(css, selector))
         assert m, selector
-        return int(m.group(1))
+        return int(m.group(1)) / 100
 
-    track = int(re.search(r"var\(--t1\) (\d+)%", _rule(css, ".player-seek-track::before")).group(1))
-    assert track < share(".player-band") < share(".player-seek-buffered")
+    parts = [
+        share(s, "background") for s in (".player-seek-track::before", ".player-seek-buffered")
+    ]
+    ring, fill = (255 * share(".player-band", prop) for prop in ("border", "background"))
+    for frame in (0, 45, 90):  # the bar's shade leaves no brighter frame under it
+        track = frame + (255 - frame) * parts[0]
+        for bar in (track, track + (255 - track) * parts[1]):
+            assert max(_contrast(ring, bar), _contrast(fill, bar)) >= 3, (frame, bar)
     assert "--purple" not in _rule(css, ".player-band")
 
 
