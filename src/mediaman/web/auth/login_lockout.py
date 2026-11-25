@@ -60,6 +60,8 @@ import logging
 import sqlite3
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import NamedTuple, cast
 
@@ -510,21 +512,31 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     return minutes
 
 
-def count_attempt(conn: sqlite3.Connection, username: str) -> bool:
-    """Count an attempt as a failure before its password is checked; False where *username* was
-    locked already, so that it is not to be checked.
+_turns_guard = threading.Lock()
+_turns: dict[str, tuple[threading.Lock, int]] = {}
 
-    Read and counted in one write transaction, so attempts under way at the same time each hold
-    their place. `record_success` takes the count back.
+
+@contextmanager
+def one_attempt_at_a_time(username: str) -> Iterator[None]:
+    """Hold *username*'s turn while its password is checked and the result counted.
+
+    Each attempt then reads the lock as the attempts before it left it, and none is refused
+    for a lock that an attempt still being checked may yet take back. The process runs one
+    worker, so a lock in memory holds every attempt.
     """
-    _ensure_table(conn)
-    now = _now()
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
-        locked = is_locked_out(conn, username)
-        _record_failure_in_tx(conn, username, now, _iso(now))
-    _maybe_prune_stale_failures(conn)
-    return not locked
+    with _turns_guard:
+        turn, waiting = _turns.get(username, (threading.Lock(), 0))
+        _turns[username] = (turn, waiting + 1)
+    try:
+        with turn:
+            yield
+    finally:
+        with _turns_guard:
+            turn, waiting = _turns[username]
+            if waiting == 1:
+                del _turns[username]
+            else:
+                _turns[username] = (turn, waiting - 1)
 
 
 def record_success(conn: sqlite3.Connection, username: str) -> None:

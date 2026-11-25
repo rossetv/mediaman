@@ -38,17 +38,16 @@ def _short_circuit_authenticate(
     (empty username, or the username is locked from *client_ip*). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
-    The attempt is counted as a failure here, before the password is checked. The locked
-    branch counts it too, so the escalation thresholds
+    The locked branch bumps `record_failure` so the escalation thresholds
     (5 → 10 → 15 failures → 15 min / 1 h / 24 h) stay reachable: counting
     the continued hammering is what keeps the anti-DoS band-promotion
     design working. See ``test_login_lockout.py``.
     """
     from mediaman.web.auth.login_lockout import (
-        count_attempt,
         is_locked_out,
         login_ip_key,
         login_key,
+        record_failure,
     )
 
     # Reject empty usernames before touching bcrypt. Otherwise an
@@ -59,13 +58,16 @@ def _short_circuit_authenticate(
         return False
 
     # Check lockout first. A locked account already has a "no" answer
-    # without re-running bcrypt — skip the dummy round and save the CPU.
+    # without re-running bcrypt — skip the dummy round and save the
+    # CPU. record_failure keeps acquiring the writer lock, which is
+    # the price of the escalation property.
     key = login_ip_key(username, client_ip)
     # A lock stored under the bare username predates per-IP keys and still
     # holds. It is only read: nothing writes that key any more, so it cannot
     # be extended and ages out or is cleared by admin unlock. The refusal
     # matches a per-IP lock, failure count included, so it reveals nothing.
-    if not count_attempt(conn, key) or is_locked_out(conn, login_key(username)):
+    if is_locked_out(conn, key) or is_locked_out(conn, login_key(username)):
+        record_failure(conn, key)
         logger.warning(
             "auth.account_locked user=%s ip=%s reason=lockout_active",
             _sanitise_log_field(username),
@@ -100,12 +102,15 @@ def _verify_credentials_against_db(
     password: str,
     client_ip: str,
 ) -> bool:
-    """Run `verify_password`; a success clears the login failure counter for *client_ip*."""
-    from mediaman.web.auth.login_lockout import login_ip_key, record_success
+    """Run `verify_password` and update the login failure counter for *client_ip*."""
+    from mediaman.web.auth.login_lockout import login_ip_key, record_failure, record_success
 
+    key = login_ip_key(username, client_ip)
     ok = verify_password(conn, username, password)
     if ok:
-        record_success(conn, login_ip_key(username, client_ip))
+        record_success(conn, key)
+    else:
+        record_failure(conn, key)
     return ok
 
 
@@ -134,8 +139,8 @@ def authenticate(
       already knows the answer is "no" without re-checking the hash.
       Skipping bcrypt here cuts the cost of a sustained brute-force
       hammering a locked account from one bcrypt round per attempt
-      to zero. The attempt is counted, under the writer lock,
-      even on the locked path because the escalation
+      to zero. The ``record_failure`` writer-lock acquisition is
+      retained even on the locked path because the escalation
       thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
       reachable only while the counter keeps climbing during the
       lock window — see ``test_login_lockout.py``.
@@ -152,7 +157,10 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    short_circuit = _short_circuit_authenticate(conn, username, client_ip)
-    if short_circuit is not None:
-        return short_circuit
-    return _verify_credentials_against_db(conn, username, password, client_ip)
+    from mediaman.web.auth.login_lockout import login_ip_key, one_attempt_at_a_time
+
+    with one_attempt_at_a_time(login_ip_key(username, client_ip)):
+        short_circuit = _short_circuit_authenticate(conn, username, client_ip)
+        if short_circuit is not None:
+            return short_circuit
+        return _verify_credentials_against_db(conn, username, password, client_ip)

@@ -138,9 +138,9 @@ def verify_reauth_password(
     On success: returns True and clears the reauth-namespace failure
     counter for *admin*.
 
-    On failure: returns False and leaves the attempt, counted before the
-    password is checked, in `mediaman.web.auth.login_lockout` under
-    *admin*'s re-auth key. This means:
+    On failure: returns False and records the failure into
+    `mediaman.web.auth.login_lockout` under *admin*'s re-auth key. This
+    means:
 
     * Repeated wrong-password attempts at the reauth endpoint trip the
       same escalating 5/10/15 thresholds as the login endpoint.
@@ -159,41 +159,47 @@ def verify_reauth_password(
     """
     from mediaman.web.auth.login_lockout import (
         clear_unlocked_login_failures,
-        count_attempt,
+        is_locked_out,
+        one_attempt_at_a_time,
+        record_failure,
         record_success,
     )
     from mediaman.web.auth.password_hash import verify_password
 
     namespace = reauth_key(admin)
 
-    # Short-circuit if the reauth namespace is locked. We still burn a
-    # bcrypt cycle so the timing of "locked" matches the wrong-password
-    # path — otherwise an attacker with a stolen session cookie can
-    # detect the lock state by latency alone (the locked-and-returns-
-    # immediately path is ~0 ms, the unlocked-but-wrong-password path
-    # is ~150 ms+ on cost-12 bcrypt).
-    if not count_attempt(conn, namespace):
-        # Burn a bcrypt cycle with ``bcrypt.checkpw`` against the dummy hash,
-        # as ``change_password`` does: ``authenticate`` short-circuits on an
-        # empty username before reaching bcrypt, so it would not burn one.
-        from mediaman.web.auth._password_hash_helpers import (
-            _get_dummy_hash,
-            _prepare_bcrypt_input,
-        )
+    with one_attempt_at_a_time(namespace):
+        # Short-circuit if the reauth namespace is locked. We still burn a
+        # bcrypt cycle so the timing of "locked" matches the wrong-password
+        # path — otherwise an attacker with a stolen session cookie can
+        # detect the lock state by latency alone (the locked-and-returns-
+        # immediately path is ~0 ms, the unlocked-but-wrong-password path
+        # is ~150 ms+ on cost-12 bcrypt).
+        if is_locked_out(conn, namespace):
+            # Burn a bcrypt cycle with ``bcrypt.checkpw`` against the dummy hash,
+            # as ``change_password`` does: ``authenticate`` short-circuits on an
+            # empty username before reaching bcrypt, so it would not burn one.
+            from mediaman.web.auth._password_hash_helpers import (
+                _get_dummy_hash,
+                _prepare_bcrypt_input,
+            )
 
-        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
-        logger.warning(
-            "auth.reauth_locked user=%s reason=lockout_active",
-            _sanitise_log_field(admin),
-        )
+            bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+            # Bump the counter so a sustained attack escalates the lock window.
+            record_failure(conn, namespace)
+            logger.warning(
+                "auth.reauth_locked user=%s reason=lockout_active",
+                _sanitise_log_field(admin),
+            )
+            return False
+
+        if verify_password(conn, admin, password):
+            record_success(conn, namespace)
+            clear_unlocked_login_failures(conn, admin)
+            return True
+
+        record_failure(conn, namespace)
         return False
-
-    if verify_password(conn, admin, password):
-        record_success(conn, namespace)
-        clear_unlocked_login_failures(conn, admin)
-        return True
-
-    return False
 
 
 def grant_recent_reauth(

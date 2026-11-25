@@ -30,7 +30,7 @@ from mediaman.web.auth._password_hash_helpers import (
     _sanitise_log_field,
     _UserVanished,
 )
-from mediaman.web.auth.login_lockout import reauth_key
+from mediaman.web.auth.login_lockout import one_attempt_at_a_time, reauth_key
 from mediaman.web.auth.password_hash._authenticate import verify_password
 
 logger = logging.getLogger(__name__)
@@ -52,8 +52,9 @@ def _authorise_password_change(
     wrong). Nothing is written to ``admin_users`` on either outcome —
     only *username*'s re-auth failure counter is bumped on a rejection,
     mirroring the escalation behaviour of plain login. A login lockout
-    never blocks the check and a failure never adds to it; a success
-    clears an unlocked login counter.
+    never blocks the check and a failure never adds to it; a right old
+    password clears an unlocked login counter, and the re-auth counter
+    too where the new password is refused.
 
     Raises:
         ValueError: *new_password* fails the strength policy — only
@@ -93,6 +94,8 @@ def _authorise_password_change(
 
         issues = password_issues(new_password, username=username)
         if issues:
+            if namespace:
+                _clear_reauth_failure_counter(conn, namespace, username)
             raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
 
     return True
@@ -182,14 +185,16 @@ def change_password(
     """
     namespace = reauth_key(username) if username else ""
 
-    if not _authorise_password_change(
-        conn,
-        username,
-        old_password,
-        new_password,
-        namespace,
-        enforce_policy=enforce_policy,
-    ):
+    with one_attempt_at_a_time(namespace):
+        allowed = _authorise_password_change(
+            conn,
+            username,
+            old_password,
+            new_password,
+            namespace,
+            enforce_policy=enforce_policy,
+        )
+    if not allowed:
         return False
 
     new_hash = bcrypt.hashpw(
