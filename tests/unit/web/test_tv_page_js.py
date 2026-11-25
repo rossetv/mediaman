@@ -120,11 +120,11 @@ def test_each_command_is_carried_out_once_and_acked() -> None:
     assert (out["time"], out["ack"], out["state"]) == (950, 11, "paused")
 
 
-def test_a_paused_film_stays_paused_at_another_quality_and_another_title_plays() -> None:
+def test_a_film_changed_while_paused_stays_paused_and_one_asked_for_anew_plays() -> None:
     out = _run("pausedStaysPaused")
     assert out["kept"]["src"] == "/api/cast/u/index.m3u8"
     assert "play" not in out["kept"]["calls"] and out["kept"]["state"] == "paused"
-    assert out["other"][-1] == "play"
+    assert out["anew"][-1] == "play"
 
 
 def test_a_browser_that_wants_a_key_first_says_so_and_plays_at_it() -> None:

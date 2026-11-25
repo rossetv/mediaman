@@ -455,10 +455,6 @@
   var tries = 0;             // of a play whose stream ended under it, by itself
   var triedPlay = null;
 
-  function sameTitle(a, b) {
-    return a && b && a.title === b.title && a.season === b.season && a.episode === b.episode && a.year === b.year;
-  }
-
   function playing(next) {
     var was = play;
     play = next;
@@ -472,9 +468,7 @@
       unload();
       asked = null;
       askNote = '';
-      // Another quality or subtitle of a paused film comes as a new play, which stays paused.
-      wanted = !(was && sameTitle(was, next) && !wanted && was.state === 'paused') || choseToPlay;
-      choseToPlay = false;
+      wanted = !next.paused;
       counted = next.played_s || 0;
       breaks = 0;
     }
@@ -500,7 +494,6 @@
     var id = play.play_id;
     asked = what === 'cancel' ? null : id;
     askNote = '';
-    if (what === 'next' || what === 'again') choseToPlay = true;
     send('ask', token, { play_id: id, what: what }, 110000, function (status, got) {
       var same = play && play.play_id === id;
       if (asked === id) {
@@ -538,7 +531,6 @@
   var hls = null;
   var byHls = null;          // whether hls.js plays, once it is known
   var wanted = true;         // whether it is to play, rather than be paused
-  var choseToPlay = false;
   var ready = false;
   var there = false;         // at its place
   var place = 0;

@@ -273,15 +273,17 @@ const scenarios = {
     t.now = film({ state: 'paused' });
     await t.step(2500);
     t.video.calls.length = 0;
-    t.now = film({ play_id: 'p2', start_s: 120, url: '/api/cast/u/index.m3u8', state: 'loading' });
+    t.now = film({ play_id: 'p2', start_s: 120, url: '/api/cast/u/index.m3u8', state: 'loading', paused: true });
     await t.step(2500);
     t.video.fire('loadedmetadata');
     t.video.fire('canplay');
     await t.step(1500);
     const kept = { src: t.video.src, calls: t.video.calls.slice(), state: t.last('poll').body.report.state };
-    t.now = film({ play_id: 'p3', title: 'Another', state: 'loading' });
+    t.now = film({ play_id: 'p2', start_s: 120, url: '/api/cast/u/index.m3u8', state: 'paused', paused: true });
+    await t.step(1500);
+    t.now = film({ play_id: 'p3', state: 'loading', paused: false });
     await t.step(2500);
-    return { kept, other: t.video.calls };
+    return { kept, anew: t.video.calls };
   },
   async needsKey() {
     const t = tv({ kept: 'old' });

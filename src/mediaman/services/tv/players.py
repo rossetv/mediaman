@@ -106,6 +106,8 @@ class Play:
     #: When its person asked for it.
     asked: float
     id: str = field(default_factory=lambda: secrets.token_urlsafe(16))
+    #: Whether the TV is to load it paused.
+    paused: bool = False
     state: str = "starting"
     position_s: float = 0.0
     reported_at: float = 0.0
@@ -239,7 +241,12 @@ class Players:
                 return None, list(tv.commands)
             play = tv.play
             art = f"/api/tv/device/art/{play.id}"
-            shown = self._shown(play) | {"url": play.url, "art_url": art, "start_s": play.start_s}
+            shown = self._shown(play) | {
+                "url": play.url,
+                "art_url": art,
+                "start_s": play.start_s,
+                "paused": play.paused,
+            }
             return shown, list(tv.commands)
 
     def _report(self, tv: _Tv, report: Report) -> None:
@@ -259,6 +266,8 @@ class Players:
             self._at_end(tv, play)
             return
         play.state = report.state
+        if play.state == "playing":
+            play.paused = False
         paused = report.state == "paused" and was != "paused"
         if paused or (report.state == "playing" and now - play.saved_at >= SAVE_SECONDS):
             self._put_aside(play, end=False)

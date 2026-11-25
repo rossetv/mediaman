@@ -427,6 +427,7 @@ def _start_on(
     asked_s: float = 0,
     over: str | None = None,
     by_itself: bool = False,
+    paused: bool = False,
 ) -> int | Response:
     """Play a title on the TV, as its owner's stream; the command's id, or the refusal.
 
@@ -472,6 +473,7 @@ def _start_on(
             choice=choice,
             start_s=place,
             played_s=0,
+            paused=paused,
             asked=players.now() - asked_s,
             next_state="end" if item.type == "movie" else "unknown",
         )
@@ -563,6 +565,7 @@ def _carry_on(
     over = play.state in ("ended", "upnext", "still")
     if over and what == "restart":
         return _refusal(NotPlaying())
+    was_paused = play.state == "paused" or (play.paused and play.state in ("starting", "loading"))
     return _start_on(
         request,
         held,
@@ -572,6 +575,7 @@ def _carry_on(
         # What nobody pressed must not take the title from where it was asked for since.
         asked_s=0 if pressed else players.now() - play.asked,
         over=play.id,
+        paused=what == "restart" and was_paused,
     )
 
 
