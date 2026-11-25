@@ -82,7 +82,7 @@ function page(api, { ai = false, yes = true, tvs = '', changed = '', scripts = [
   const told = [];
   const session = { 'mm.watch.ask': 'a question', other: 'x' };
   doc.dispatchEvent = (e) => { told.push(e.type); };
-  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, clearTimeout() {}, TextEncoder, window: { MM, addEventListener() {}, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
+  const ctx = vm.createContext({ document: doc, MM, UIFeedback, setTimeout, clearTimeout() {}, TextEncoder, window: page.window = { MM, innerWidth: 390, resized: [], addEventListener(type, fn) { if (type === 'resize') this.resized.push(fn); }, matchMedia: () => ({ matches: true }), sessionStorage: { removeItem: (k) => { delete session[k]; } } }, Date: FixedDate, Event, getComputedStyle });
   ['core/dom.js', 'settings/rows.js', ...scripts, 'account.js'].forEach((f) => vm.runInContext(fs.readFileSync(path.join(JS, f), 'utf8'), ctx));
   return {
     $, dropped, told, rows_: () => MM.settings.rows, asked, toasts, session,
@@ -441,12 +441,25 @@ const scenarios = {
     line.style = { get marginBottom() { return shown; }, set marginBottom(v) { shown = v; set.push(v); } };
     const sub = p.$('account-password-sub');
     line.querySelector('.me-end').offsetTop = 33;
-    sub.getBoundingClientRect = () => ({ width: 164.5 });
     p.press('account-open-password');
-    const width = [sub.style.maxWidth];
     const open = [set.splice(0), sub.classList.contains('is-new'), line.querySelector('.me-end').style.top];
     p.press('account-cancel-password');
-    return { open, shut: [set.splice(0), sub.classList.contains('is-new')], width: [...width, sub.style.maxWidth] };
+    return { open, shut: [set.splice(0), sub.classList.contains('is-new')] };
+  },
+  // the window is resized, by a phone's keyboard at first, while the form is open
+  async passwordTurned() {
+    const p = page({ get: () => Promise.resolve({ sessions: [] }) }, { changed: '2026-03-14T09:26:53+00:00' });
+    await settle();
+    const sub = p.$('account-password-sub');
+    sub.getBoundingClientRect = () => ({ width: 164.5 });
+    const resize = (to) => { page.window.innerWidth = to; page.window.resized.forEach((fn) => fn()); return sub.style.maxWidth; };
+    p.press('account-open-password');
+    const out = { opened: sub.style.maxWidth, keyboard: resize(390), turned: resize(844), back: resize(390) };
+    p.press('account-cancel-password');
+    p.press('account-open-password');
+    out.again = sub.style.maxWidth;
+    p.press('account-cancel-password');
+    return { ...out, shut: sub.style.maxWidth };
   },
   // the form's script did not load: the rest of the page stands
   async passwordWithout() {

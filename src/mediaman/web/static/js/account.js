@@ -101,6 +101,7 @@
     var changed = document.getElementById('account-password-changed');
     var effect = sub.lastElementChild;
     var fresh = false;
+    var openAt = 0;
     if (changed) changed.textContent = dayOf(changed.getAttribute('datetime'));
 
     var pw = MM.password.form(form, { send: send });
@@ -148,6 +149,7 @@
       if (pw.isBusy()) return;
       opener.setAttribute('aria-expanded', 'true');
       var width = sub.getBoundingClientRect().width;
+      openAt = window.innerWidth;
       ease(function () {
         // Where the button leaves its room to the words, it fades where it was.
         end.style.top = end.offsetTop + 'px';
@@ -178,6 +180,10 @@
     }
 
     opener.addEventListener('click', show);
+    // A phone's keyboard resizes the window too, but leaves its width.
+    window.addEventListener('resize', function () {
+      if (window.innerWidth !== openAt) sub.style.maxWidth = '';
+    });
     pw.cancel.addEventListener('click', function () {
       if (!pw.isBusy()) shut();
     });

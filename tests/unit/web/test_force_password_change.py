@@ -149,9 +149,11 @@ def test_the_system_s_colours_keep_the_eye_and_the_button_drawn() -> None:
     assert "border: 1px solid transparent" in _rule(login, ".login-btn")
 
 
-def test_the_brand_breaks_between_its_parts_where_it_is_too_wide() -> None:
-    login = (WEB / "static" / "css" / "_login.css").read_text()
-    assert "display: inline-block" in _rule(login, ".login-brand b")
+@pytest.mark.parametrize("page", ["login", "error", "force_password_change"])
+def test_the_brand_breaks_between_its_parts_where_it_is_too_wide(page) -> None:
+    html = (WEB / "templates" / f"{page}.html").read_text()
+    brand = re.search(r'class="login-brand[^>]*>(.*?)</div>', html)
+    assert brand and "media<wbr><b>man</b>" in brand[1]
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:

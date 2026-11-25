@@ -134,7 +134,15 @@ def test_the_words_that_stay_are_apart_from_what_fades_beside_them() -> None:
 
 
 def test_when_it_was_changed_keeps_its_lines_while_the_form_is_open() -> None:
-    assert _run("passwordEased")["width"] == ["164.5px", ""]
+    out = _run("passwordTurned")
+    assert (out["opened"], out["keyboard"], out["again"], out["shut"]) == (
+        "164.5px",
+        "164.5px",
+        "164.5px",
+        "",
+    )
+    # the window's own once that has another width
+    assert (out["turned"], out["back"]) == ("", "")
 
 
 def test_what_a_new_password_signed_out_is_drawn_said_and_kept_in_the_row() -> None:
