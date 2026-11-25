@@ -164,3 +164,24 @@ def test_unsubscribe_button_text_is_readable_in_every_state():
         ratio = 1.05 / (_luminance(fill) + 0.05)
         assert ratio >= 4.5, (state, fill, ratio)
     assert ".unsub-btn-danger:focus-visible" in css
+
+
+def _eye(html: str, field: str) -> str:
+    """The eye of *field*, without what names its field."""
+    eye = re.search(rf'<button type="button" class="pwd-eye"[^>]*aria-controls="{field}".*?</button>', html, re.S)
+    assert eye, field
+    return re.sub(r' aria-(label|controls)="[^"]*"', "", eye[0])
+
+
+def test_sign_in_shows_the_password_with_the_eye_of_the_password_form(client):
+    from tests.unit.web.test_force_password_change import _page
+
+    html = client.get("/login").text
+    field = re.search(r'<div class="pwd-box">\s*<input ([^>]*)>', html)
+
+    assert _eye(html, "password") == _eye(_page(), "old_password")
+    assert 'aria-label="Show password"' in html
+    # still the plain field a password manager fills
+    assert field and 'type="password"' in field[1] and 'autocomplete="current-password"' in field[1]
+    assert "/static/css/_password.css" in html and "/static/js/show-password.js" in html
+    assert "<script>" not in html and " style=" not in html

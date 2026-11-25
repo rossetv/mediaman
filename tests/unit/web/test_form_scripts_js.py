@@ -17,31 +17,29 @@ def _run(scenario: str) -> dict:
     return json.loads(result.stdout)
 
 
-def test_wrapping_a_field_keeps_the_focus_it_had() -> None:
+def test_pressing_the_eye_keeps_the_cursor_where_it_was_in_the_field() -> None:
     out = _run("focus")
-    assert out["wrapped"] == "pw-wrap"
+    assert out["prevented"] is True
     assert out["active"] is True
+    assert out["selection"] == [2, 5]
+    # what shows the eye, which stays out of sight without the script
+    assert out["drawn"] == "pwd-on"
 
 
-def test_an_autofocus_field_is_focused_after_it_is_wrapped() -> None:
-    assert _run("autofocus")["active"] is True
+def test_an_autofocus_field_keeps_its_focus_and_its_place_when_the_eye_is_wired() -> None:
+    assert _run("autofocus") == {"active": True, "inPlace": True}
 
 
-def test_toggle_name_follows_the_visible_word_and_reset_hides_the_password_again() -> None:
+def test_the_eye_shows_and_hides_the_password_says_it_as_pressed_and_reset_hides_it() -> None:
     out = _run("toggle")
-    assert out["name"] == "Show password"
-    # the name starts with the visible word and the state is not also announced as pressed
+    hidden = {"type": "password", "pressed": "false", "name": "Show password", "title": "Show"}
+    # the name stays and the state is announced as pressed, as on the password form
+    assert out["before"] == out["hidden"] == out["reset"] == hidden
     assert out["shown"] == {
         "type": "text",
-        "text": "Hide",
-        "pressed": None,
-        "name": "Hide password",
-    }
-    assert out["reset"] == {
-        "type": "password",
-        "text": "Show",
-        "pressed": None,
+        "pressed": "true",
         "name": "Show password",
+        "title": "Hide",
     }
 
 

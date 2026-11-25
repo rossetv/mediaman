@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% import "_password.html" as pw %}
 
 {% block title %}Sign In · Mediaman{% endblock %}
+
+{% block head %}<link rel="stylesheet" href="/static/css/_password.css?v={{ static_v }}">{% endblock %}
 
 {% block content %}
 <div class="login-page">
@@ -24,8 +27,11 @@
 
       <div class="login-field">
         <label for="password">Password</label>
-        <input id="password" type="password" name="password" autocomplete="current-password"
-               data-show-password {% if username %}autofocus{% endif %} required>
+        <div class="pwd-box">
+          <input class="inp pwd-inp" id="password" type="password" name="password" autocomplete="current-password"
+                 data-show-password {% if username %}autofocus{% endif %} required>
+          {{ pw.eye("password", "password") }}
+        </div>
       </div>
 
       <button class="login-btn" type="submit">Sign in</button>

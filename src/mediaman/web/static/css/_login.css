@@ -118,25 +118,6 @@
 /* Pending state set by submit-guard.js */
 form[data-busy] button[type="submit"] { opacity: .6; cursor: progress; }
 
-/* Show/hide password toggle (show-password.js) */
-.pw-wrap { position: relative; }
-.pw-wrap input { padding-right: 64px; }
-.pw-toggle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  min-width: 56px;
-  padding: 0 14px;
-  background: none;
-  border: 0;
-  color: var(--t3);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.pw-toggle:hover { color: var(--t1); }
-
 @media (max-width: 640px) {
   /* 16px stops iOS zooming the page when a field is focused */
   .login-field input { font-size: 16px; }
