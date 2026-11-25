@@ -1512,11 +1512,13 @@
     if (swapping) {
       /* No video to pause yet: the new stream starts the way this leaves it. */
       wantPlaying = !wantPlaying;
+      if (wantPlaying) pressedPlay();
       showPlayState();
       return;
     }
     if (video.paused || video.ended) {
-      if (!streamId && !starting) { wantPlaying = true; pressedPlay(); restartStream(false); return; }
+      pressedPlay();
+      if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
       play();
     } else {
       wantPlaying = false;
@@ -1538,6 +1540,11 @@
   }
 
   function seekTo(t) {
+    pressedPlay();
+    moveTo(t);
+  }
+
+  function moveTo(t) {
     t = within(t);
     dropAim();
     lastTime = null;
@@ -1576,6 +1583,7 @@
   var landTimer = null;
 
   function aimAt(t) {
+    pressedPlay();
     aimS = within(t);
     hideUpnext();
     clearTimeout(landTimer);
@@ -1584,7 +1592,7 @@
     render();
   }
 
-  function land() { seekTo(aimS); }
+  function land() { moveTo(aimS); }
 
   function dropAim() {
     clearTimeout(landTimer);
@@ -2527,9 +2535,9 @@
   /* Play the next episode here, or open its page when that cannot be done.
      `savedAt` is the place to save this one at, where that is not where it stands. */
   function goNext(byItself, savedAt) {
+    if (!byItself) pressedPlay();
     if (!next || switching) return;
     if (byItself) sitting.count++;
-    else pressedPlay();
     openNext(byItself, savedAt);
   }
 

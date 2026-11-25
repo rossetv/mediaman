@@ -1500,7 +1500,13 @@ def test_what_the_page_starts_by_itself_says_when_it_was_asked_and_stops_where_r
         ("play here, its place 15 s away", 15),
         ("try again after a refusal", 0),
         ("play with no stream", 0),
+        ("play on a paused video", 0),
+        ("play as a start is on its way", 0),
+        ("seek by a key", 0),
+        ("seek by a key, long landed", 20),
+        ("seek on the bar", 0),
         ("next", 0),
+        ("next as it is on its way by itself", 0),
         ("next after it was out of reach", 0),
     ],
 )
