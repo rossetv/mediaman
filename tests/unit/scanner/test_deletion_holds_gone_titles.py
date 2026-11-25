@@ -12,7 +12,12 @@ from mediaman.core.audit import log_audit
 from mediaman.db import init_db
 from mediaman.scanner.engine import ScanEngine
 from mediaman.web.repository.kept import delete_protections
-from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
+from tests.helpers.factories import (
+    insert_admin_user,
+    insert_kept_show,
+    insert_media_item,
+    insert_scheduled_action,
+)
 
 _SEASON = {"media_type": "tv_season", "show_title": "Title"}
 
@@ -37,6 +42,7 @@ class _GoneLibrary:
         self.folder = tmp_path / "Title"
         self.folder.mkdir()
         self.ticked = ("2", "4")
+        self.libraries = {"2": "movie", "4": "show"}
         self.listed = {"2": [], "4": []}
         self.plex = MagicMock()
         self.plex.get_movie_items.side_effect = lambda library: self.listed.get(library, [])
@@ -106,7 +112,7 @@ class _GoneLibrary:
             }
         )
 
-    def _scan(self, times):
+    def _scan(self, times, run="run_scan", every=timedelta(hours=2)):
         self.conn.execute(
             "INSERT OR REPLACE INTO settings (key, value, updated_at) "
             "VALUES ('plex_libraries', ?, '2026')",
@@ -114,14 +120,15 @@ class _GoneLibrary:
         )
         self.conn.commit()
         for _ in range(times):
-            ScanEngine(
+            engine = ScanEngine(
                 conn=self.conn,
                 plex_client=self.plex,
                 library_ids=list(self.ticked),
-                library_types={"2": "movie", "4": "show"},
+                library_types=self.libraries,
                 secret_key="test-key",
-            ).run_scan()
-            self.freezer.tick(timedelta(hours=2))
+            )
+            getattr(engine, run)()
+            self.freezer.tick(every)
 
     def _scan_until_pruned(self):
         self._scan(2)
@@ -152,6 +159,7 @@ class _GoneLibrary:
         return [row[0] for row in rows]
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
     """Once the title of library 1 is pruned, Plex lists a file of it as another title."""
 
@@ -380,6 +388,7 @@ class TestFileOfATitleOfAGoneLibraryListedLaterAsAnother(_GoneLibrary):
         assert not episode.exists()
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestFilesOfAKeepATitleTook(_GoneLibrary):
     """Film "10" is kept with the files a and b; Plex lists a as the film "30", which takes the keep."""
 
@@ -622,6 +631,7 @@ class TestFilesOfAKeepATitleTook(_GoneLibrary):
         assert "cancelled" in said[0][0]
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestKeepAnotherTitleWithTheFileRefused(_GoneLibrary):
     """ "10" and "30" have the file a and were both kept; a person removed the keep of "30"."""
 
@@ -681,3 +691,104 @@ class TestKeepAnotherTitleWithTheFileRefused(_GoneLibrary):
         self._scan_until_due("30")
 
         assert a.exists()
+
+
+class TestGoneLibraryAsShipped(_GoneLibrary):
+    """The titles of library 1 stay stored, however long Plex does not list it."""
+
+    _WEEK = timedelta(days=7)
+
+    def _rows(self, query):
+        return [tuple(row) for row in self.conn.execute(query)]
+
+    def _stored(self):
+        """Return what is stored of the titles of library 1, their keeps and their watches."""
+        return [
+            self._rows(query)
+            for query in (
+                "SELECT id, unlisted, last_watched_at FROM media_items WHERE plex_library_id = 1",
+                "SELECT media_item_id, action, execute_at FROM scheduled_actions",
+                "SELECT show_rating_key, action FROM kept_shows",
+                "SELECT rating_key, media_item_id, position_s, credited_at FROM watch_progress",
+                "SELECT media_item_id FROM pruned_keeps",
+                "SELECT media_item_id FROM pruned_watches",
+                "SELECT rating_key FROM pruned_progress",
+            )
+        ]
+
+    def _marked(self):
+        stored = self.conn.execute("SELECT value FROM settings WHERE key = 'gone_libraries'")
+        return json.loads(stored.fetchone()[0])
+
+    @pytest.mark.parametrize("ticked", [("2", "4"), ("1", "2", "4")], ids=["unticked", "ticked"])
+    @pytest.mark.parametrize("run", ["run_scan", "sync_library"])
+    def test_its_titles_stay_with_their_keeps_and_watches_and_nothing_is_scheduled(
+        self, run, ticked
+    ):
+        self.ticked = ticked
+        kept, watched, episode = self._file("a.mkv"), self._file("b.mkv"), self._file("S1/E1.mkv")
+        now = datetime.now(UTC)
+        self._gone(kept, [kept])
+        self._keep()
+        self._gone(watched, [watched], key="11", last_watched_at=now)
+        self._gone(
+            episode.parent, [episode], key="12", season_number=1, show_rating_key="s1", **_SEASON
+        )
+        self._keep_show()
+        insert_admin_user(self.conn, username="anna")
+        self.conn.execute(
+            "INSERT INTO watch_progress (username, rating_key, media_item_id, position_s, "
+            "credited_at, updated_at) VALUES ('anna', '11', '11', 60, ?, '2026')",
+            (now.isoformat(),),
+        )
+        # Library 2 has a copy of the kept film, which its keep covers.
+        copy = self._file("c.mkv")
+        self._list("20", 2, copy, [copy], tmdb_id=7)
+        stored = self._stored()
+
+        self._scan(8, run, every=self._WEEK)
+
+        assert self._stored() == stored
+        assert self._scheduled() == set()
+        assert all(file.exists() for file in (kept, watched, episode, copy))
+
+    @pytest.mark.parametrize("held_by", ["keep", "watch"])
+    def test_a_file_of_its_title_stays_though_what_held_it_is_long_over(self, held_by):
+        own, shared, other = self._file("a.mkv"), self._file("b.mkv"), self._file("d.mkv")
+        now = datetime.now(UTC)
+        self._gone(own, [own, shared], last_watched_at=now if held_by == "watch" else None)
+        if held_by == "keep":
+            self._keep(action="snoozed", execute_at=(now + timedelta(days=30)).isoformat())
+        self._list("20", 2, other, [other, shared])
+
+        self._scan(12, every=self._WEEK)
+
+        assert (own.exists(), shared.exists(), other.exists()) == (True, True, True)
+
+    @pytest.mark.parametrize("run", ["run_scan", "sync_library"])
+    def test_it_is_still_noted_since_when_it_is_gone_until_plex_lists_it_again(self, run):
+        film = self._file("a.mkv")
+        self._gone(film, [film])
+        since = datetime.now(UTC).isoformat()
+
+        self._scan(3, run, every=self._WEEK)
+        assert self._marked() == {"1": since}
+
+        self.libraries["1"] = "movie"
+        self._scan(1, run)
+        assert self._marked() == {}
+
+        del self.libraries["1"]
+        again = datetime.now(UTC).isoformat()
+        self._scan(3, run, every=self._WEEK)
+        assert self._marked() == {"1": again}
+
+    def test_a_due_title_that_may_be_one_of_its_goes_on_waiting(self):
+        film, copy = self._file("a.mkv"), self._file("b.mkv")
+        self._gone(film, [film])
+        self._list("20", 2, copy, [copy], tmdb_id=7)
+
+        self._scan(8, every=self._WEEK)
+
+        assert copy.exists()
+        assert len(self._said("20")) == 1

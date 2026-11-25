@@ -721,6 +721,7 @@ class TestScanWithAnUnreadableLibrary:
 _HOUR = timedelta(hours=1)
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestGoneLibrary:
     """Plex library 1 was removed and made again as 2, the only one ticked."""
 
@@ -940,6 +941,7 @@ class TestGoneLibrary:
         assert not self.film.exists()
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestTwinInAGoneLibrary:
     """A due title of library 2 and a kept one of library 1 may be one; Plex lists 1 no more."""
 
@@ -1106,6 +1108,7 @@ class TestTwinInAGoneLibrary:
         assert [row[0] for row in told] == ["delete_awaiting_scan"]
 
 
+@pytest.mark.usefixtures("prune_gone_libraries")
 class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
     """Plex lists library 1 no more; a due title of 2 or 4 has a file of a kept one of 1."""
 
