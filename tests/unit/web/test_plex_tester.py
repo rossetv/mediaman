@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 import requests
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.settings.testers import test_plex as _test_plex
@@ -88,3 +90,27 @@ class TestTestPlexStructuredResponse:
 
         body = json.loads(resp.body)
         assert body["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("exc", "code", "message"),
+    [
+        (Unauthorized("401 secret-token"), "auth_failed", "Plex refused the token."),
+        (NotFound("404"), "not_plex", "No Plex server answered at this address."),
+        (BadRequest("400"), "not_plex", "No Plex server answered at this address."),
+    ],
+)
+def test_plex_refusals_say_which_it_was_and_log_one_line(exc, code, message, caplog):
+    import json
+    import logging
+
+    with (
+        caplog.at_level(logging.INFO),
+        patch("mediaman.services.media_meta.plex.PlexClient", side_effect=exc),
+    ):
+        resp = _test_plex({"plex_url": "http://u:p@plex:32400", "plex_token": "secret-token"})
+    body = json.loads(resp.body)
+    assert (body["ok"], body["error"], body["message"]) == (False, code, message)
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
+    assert "secret-token" not in caplog.text and "u:p@" not in caplog.text

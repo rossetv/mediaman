@@ -6,12 +6,14 @@ endpoint in the package __init__ invokes the registered functions.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
 from typing import Protocol
 
 import requests as _requests
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 from fastapi.responses import JSONResponse
 
 from mediaman.services.downloads.nzbget import NzbgetError
@@ -19,6 +21,8 @@ from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.media_meta.omdb import clear_refusal
 from mediaman.web.models import _API_KEY_RE
 from mediaman.web.responses import respond_failure
+
+logger = logging.getLogger(__name__)
 
 
 class _ConnectionTestable(Protocol):
@@ -197,6 +201,12 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
         if isinstance(exc, _requests.Timeout):
             return _failure("timeout", _TIMED_OUT)
         return _failure("connection_refused", _UNREACHABLE)
+    except Unauthorized:
+        logger.warning("settings.test_plex token refused by Plex")
+        return _failure("auth_failed", "Plex refused the token.")
+    except (NotFound, BadRequest) as exc:
+        logger.warning("settings.test_plex not a Plex server: %s", type(exc).__name__)
+        return _failure("not_plex", "No Plex server answered at this address.")
 
 
 @_register("sonarr")
