@@ -13,7 +13,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   --ttl-gap: 16px;  /* between a playing trailer and the buttons under it, on a phone */
   position: fixed;
   inset: 0;
-  z-index: var(--z-modal-backdrop);
+  z-index: calc(var(--z-modal-backdrop) + 2); /* over the dim layer, and a preview's picture on it */
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -21,9 +21,12 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.ttl__scrim {
+.ttl__scrim { position: fixed; inset: 0; }
+.ttl__dim {
   position: fixed;
+  z-index: var(--z-modal-backdrop);
   inset: 0;
+  pointer-events: none;
   background: color-mix(in srgb, var(--scrim) 74%, transparent);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -42,16 +45,17 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   transform-origin: 50% 0;
   transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease-out);
 }
-.ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
+.ttl[hidden] + .ttl__dim { display: none; }
+.ttl.is-entering + .ttl__dim { animation: ttl-fade-in var(--dur) var(--ease-out) both; }
 .ttl.is-entering .ttl__sheet { animation: ttl-sheet-in var(--dur-slow) var(--ease-out) both; }
 /* Leaving, it takes presses without answering: a second one on Close must not reach the page. */
 .ttl.is-leaving > * { pointer-events: none; }
-.ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) var(--ease-out) both; }
+.ttl.is-leaving + .ttl__dim { animation: ttl-fade-out var(--dur) var(--ease-out) both; }
 .ttl.is-leaving .ttl__sheet { animation: ttl-sheet-out var(--dur) var(--ease-out) both; }
 /* Another page takes the place of what is under it: it steps back, and returns the way it went. */
 .ttl.is-aside { pointer-events: none; }
 .ttl.is-aside .ttl__sheet { transform: translateY(14px) scale(.97); opacity: 0; }
-.ttl.is-aside .ttl__scrim { opacity: 0; }
+.ttl.is-aside + .ttl__dim { opacity: 0; }
 @keyframes ttl-fade-in  { from { opacity: 0; } }
 @keyframes ttl-fade-out { to { opacity: 0; } }
 @keyframes ttl-sheet-in  { from { opacity: 0; transform: translateY(16px) scale(.96); } }
@@ -286,6 +290,49 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl.is-trailer .ttl__close:focus-visible { outline-width: 2.5px; outline-offset: -4px; }
 }
 
+/* ── A preview scrolled open (watch/carry.js) ──
+   The sheet is a window on the page drawn in it, cut to where the plate behind it has grown to;
+   the preview's own picture lies between the two. */
+
+.ttl.is-carried { overflow: hidden; }
+.ttl.is-carried + .ttl__dim { transition: none; }
+.ttl.is-carried *,
+.cry-ghost,
+.cry-ghost * { transition: none !important; animation: none !important; }
+.ttl.is-carried .ttl__sheet { overflow: visible; border-color: transparent; background: none; box-shadow: none; clip-path: var(--cry-clip); pointer-events: none; }
+.ttl.is-carried .ttl__sheet::before,
+.ttl.is-carried .ttl__hero > :is(.ttl__hero-skel, .ttl__art, .ttl__fill, .ttl__poster:not(.cry-move)) { visibility: hidden; }
+.ttl.is-carried .ttl__hero { overflow: visible; clip-path: none; background: none; }
+.ttl.is-carried .ttl__hero::after,
+.ttl.is-carried .ttl__head::before { visibility: hidden; } /* at once, which their opacity is not */
+.ttl.is-carried .ttl__body { position: relative; z-index: 2; }
+.cry-plate { position: fixed; z-index: var(--z-modal-backdrop); top: 0; left: 0; border-radius: var(--r-lg); background: var(--s1); contain: layout style; pointer-events: none; }
+.cry-plate::before,
+.cry-plate::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.cry-plate::before { box-shadow: 0 0 0 1px var(--hair-strong), var(--shadow-card), 0 0 70px 10px color-mix(in srgb, var(--scrim) 65%, transparent); opacity: calc(1 - var(--cry-at)); }
+.cry-plate::after { border: 1px solid var(--hair); box-shadow: var(--shadow-card); opacity: var(--cry-at); }
+.cry-shade { position: absolute; z-index: 0; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+.cry-shade > i { position: absolute; }
+/* Past the hero too, as far as the picture goes past it on its way. */
+.cry-shade > i::before { content: ""; position: absolute; inset: -100vh 0; background: linear-gradient(90deg, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, transparent 62%); }
+.cry-shade > i::after { content: ""; position: absolute; inset: 100% 0 -100vh; background: var(--s1); }
+.cry-shade > i > i { position: absolute; inset: auto 0 0; background: linear-gradient(0deg, var(--s1), color-mix(in srgb, var(--s1) 86%, transparent) 40px, color-mix(in srgb, var(--s1) 70%, transparent) calc(100% - 72px), color-mix(in srgb, var(--s1) 42%, transparent) calc(100% - 46px), color-mix(in srgb, var(--s1) 14%, transparent) calc(100% - 18px), transparent); }
+.cry-under { position: absolute; z-index: 1; top: -1px; left: -1px; background: var(--s2); contain: strict; }
+.cry-ghost { position: absolute !important; z-index: 4; margin: 0; opacity: 1 !important; transform: none !important; pointer-events: none; }
+.cry-move { transform-origin: 0 0 !important; will-change: transform, opacity; }
+.cry-mark { display: inline-block; }
+/* Its pieces go each their own way: none is cut by the line, and their dots come after them. */
+.ttl.is-carried .ttl__meta { clip-path: none; }
+.ttl.is-carried .ttl__meta > span::before { opacity: var(--cry-dot, 1); }
+.ttl.is-carried .ttl__meta > span:first-child::before { visibility: hidden; }
+.cry-word { display: inline-block; transform-origin: 0 0; white-space: pre; }
+/* Open: the preview's picture shows through the hero until the page's own comes over it. */
+.ttl.is-film .ttl__sheet { background: linear-gradient(var(--s1), var(--s1)) 0 var(--ttl-hero) / 100% 100% no-repeat; }
+.ttl.is-film .ttl__sheet::before { visibility: hidden; }
+.ttl.is-film .ttl__hero { background: none; }
+.ttl.is-film .ttl__hero > .ttl__hero-skel { visibility: hidden; }
+.ttl.is-film:not(.is-melting) .ttl__hero > :is(.ttl__art, .ttl__fill) { opacity: 0; transition: none; }
+
 /* ── Body ── */
 
 .ttl__body { display: flex; flex-direction: column; gap: 32px; padding: 16px 32px 40px; }
@@ -309,6 +356,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions > :is(.watch-btn--play, .skel--pill):has(+ .ttl__play-on:not([hidden])) { flex-basis: calc(100% - 54px); }
 }
 .ttl__download[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.ttl__download[aria-busy="true"] { cursor: progress; }
 .ttl__download .btn-spinner { margin-right: 0; }
 .ttl__share { --share-icon: 16px; --share-gap: 7px; display: inline-grid; place-items: center; }
 .ttl__share-group { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: var(--share-gap); }
@@ -386,7 +434,7 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__actions.has-play-on:has(> :is(.watch-btn--keep, .ttl__keep-skel)) { max-width: 500px; }
   .ttl__actions.has-play-on:has(> .watch-btn--keep):has(> [data-mark-toggle^="show/"]),
   .ttl__actions.has-play-on:has(> .ttl__keep-skel--show) { max-width: 530px; }
-  .ttl__actions.has-play-on > :not(.ttl__play-on) { flex: 1 1 auto; }
+  .ttl__actions.has-play-on > :is(.btn, .skel):not(.ttl__play-on) { flex: 1 1 auto; }
   .ttl__actions.has-play-on > :is(.watch-btn--keep, .ttl__keep-skel) { flex: 0 0 auto; }
 }
 
@@ -801,11 +849,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 /* Reduced motion: the overlay still fades in and out, without moving. */
 @media (prefers-reduced-motion: reduce) {
   .ttl.is-entering .ttl__sheet,
-  .ttl.is-entering .ttl__scrim { animation: ttl-fade-in var(--dur) linear both !important; }
+  .ttl.is-entering + .ttl__dim { animation: ttl-fade-in var(--dur) linear both !important; }
   .ttl.is-leaving .ttl__sheet,
-  .ttl.is-leaving .ttl__scrim { animation: ttl-fade-out var(--dur) linear both !important; }
+  .ttl.is-leaving + .ttl__dim { animation: ttl-fade-out var(--dur) linear both !important; }
   .ttl__sheet,
-  .ttl__scrim { transition: opacity var(--dur) linear !important; }
+  .ttl__dim { transition: opacity var(--dur) linear !important; }
   .season-pick__why.fade-in,
   .season-pick__out > .fade-in,
   .ttl__under > .fade-in { animation-delay: 0s; }

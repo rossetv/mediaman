@@ -109,6 +109,8 @@ _RATINGS_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_pe
 # Films whose collection TMDB is asked for, apart from the query limit (and as tight) for the
 # same reason.
 _COLLECTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+# Titles a preview asks for before they are opened: most never are, and each can cost Plex a call.
+_AHEAD_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=600)
 # A worker thread waits for the answer.
 _TMDB_TIMEOUT_S = 3.0
 _RATINGS_TTL = timedelta(days=30)
@@ -931,10 +933,12 @@ def _title_of_fields(
 
 @router.get("/api/watch/title/{ref}")
 def api_watch_title(
-    ref: str, request: Request, username: str = Depends(get_current_user)
+    ref: str, request: Request, ahead: bool = False, username: str = Depends(get_current_user)
 ) -> JSONResponse:
     if not REF_RE.fullmatch(ref):
         return _not_found()
+    if ahead and not _AHEAD_LIMITER.check(username):
+        return respond_err("too_many_requests", status=429)
     conn = get_db()
     libraries = lib.scanned_library_ids(conn)
     is_admin = get_user_role(conn, username) == "admin"

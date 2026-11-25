@@ -140,13 +140,27 @@
 .pv__said { padding: 0; color: var(--t2); }
 .pv__said[hidden] { display: block !important; visibility: hidden; }
 
+/* More lies below: it nods twice. */
+.pv__hint { position: absolute; left: 50%; bottom: 1px; width: 24px; margin-left: -12px; display: grid; place-items: center; color: var(--t3); font-size: 11px; line-height: 14px; pointer-events: none; opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.pv.is-settled .pv__hint { opacity: 1; }
+.pv.is-settled .pv__hint > .ico { animation: pv-nod 1.1s .5s var(--ease-out) 2; }
+.cry-ghost > .pv__hint { opacity: 1; }
+@keyframes pv-nod { 0%, 100% { transform: none; } 45% { transform: translateY(3px); } }
+
+/* Scrolled open: its picture alone is left of it, under the page's words (watch/carry.js). */
+.pv:is(.is-carried, .is-held) { z-index: calc(var(--z-modal-backdrop) + 1); transform: var(--pv-to); pointer-events: none; }
+.pv:is(.is-carried, .is-held) > .pv__shell { overflow: visible; background: none; clip-path: none; transition: none; }
+.pv:is(.is-carried, .is-held) :is(.pv__body, .pv__poster, .pv__hint),
+.pv:is(.is-carried, .is-held) > :is(.pv__shadow, .pv__lift) { visibility: hidden; }
+.pv:is(.is-carried, .is-held) .pv__media { transform-origin: 0 0; will-change: transform; }
+
 /* Placed, not yet shown: nothing may move to here. */
 .pv.is-placing,
 .pv.is-placing * { transition: none; }
 /* The page or its row moved under it: it goes where it stands, not back to a box that is not there. */
 .pv.is-fading { opacity: 0; transform: var(--pv-to); transition: opacity .12s linear; pointer-events: none; }
 /* Into the detail, over the sheet that starts at its place: only its words are still to go. */
-.pv.is-handed { z-index: calc(var(--z-modal-backdrop) + 1); opacity: 0; transform: var(--pv-to); transition: opacity calc(var(--dur-fast) * .5) linear; pointer-events: none; }
+.pv.is-handed { z-index: calc(var(--z-modal-backdrop) + 3); opacity: 0; transform: var(--pv-to); transition: opacity calc(var(--dur-fast) * .5) linear; pointer-events: none; }
 .pv.is-handed .pv__media,
 .pv.is-handed .pv__progress,
 .pv.is-handed > .pv__shadow { visibility: hidden; }

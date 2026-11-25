@@ -74,6 +74,16 @@ def test_the_play_on_sheet_and_its_symbols_are_there_before_what_opens_it() -> N
     assert html.index("/watch/play-on.js") < html.index("/watch/preview.js")
 
 
+def test_what_dims_the_page_is_beside_the_title_so_that_a_trailer_can_lie_between_them() -> None:
+    html = _watch(
+        request=SimpleNamespace(
+            state=SimpleNamespace(username="maren", google_cast=False), query_params={}
+        )
+    )
+    assert re.search(r'</div>\s*<div class="ttl__dim"></div>\s*</div>', html)
+    assert html.index("/watch/carry.js") < html.index("/watch/preview.js")
+
+
 def _show_ctx(**over: object) -> dict:
     ctx: dict = {
         "show": {

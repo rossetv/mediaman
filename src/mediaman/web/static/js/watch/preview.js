@@ -5,7 +5,8 @@
  * It is for the mouse alone: a keyboard, a touch screen or a screen reader has what is in it
  * from the card and the title detail. Find more like this is in the detail alone, which a
  * Continue watching card, as it plays, does not open.
- * Needs watch/core.js, watch/keep.js, watch/card-tools.js, watch/marks.js, watch/detail.js and ratings.js.
+ * A scroll down over it opens it into the title's page, which follows the hand.
+ * Needs watch/core.js, watch/keep.js, watch/card-tools.js, watch/marks.js, watch/detail.js, watch/carry.js and ratings.js.
  */
 (function () {
   'use strict';
@@ -24,6 +25,7 @@
   var YOUTUBE_KEY_RE = /^[A-Za-z0-9_-]{11}$/;
   var TRAILER_ORIGIN = 'https://www.youtube-nocookie.com';
   var TRAILERS_OFF = 'mm.watch.hover-trailers';
+  var SCROLLED = 'mm.watch.preview-scrolled'; // one was scrolled open, so the hint is not needed
 
   var INTENT_MS = 350;      // how long the mouse rests on a card
   var WARM_MS = 160;        // the same, just after another preview
@@ -44,6 +46,10 @@
   var LOWER_MS = 420;       // a mouse off the levels
   var HELD = 100;           // titles remembered
   var SLACK_MS = 60;        // past a motion's own length, for one a busy page starts late
+  var GAP_MS = 180;         // wheel events less apart are one scroll
+  var READY_MS = 100;       // how long it has stood open, to have been seen, before a scroll opens it
+  var REST_MS = 170;        // a scroll that has stopped short of opening it
+  var NOTCH_REST_MS = 520;  // the same of a wheel, whose next notch may be half a second away
 
   var live = null;     // the preview open
   var closing = null;  // the one folding back into its card
@@ -61,6 +67,10 @@
   var failedAt = new Map();
   var refusedAt = 0;   // the server asked for a pause
   var badTrailers = new Map();
+  var carried = null;  // the preview on its way to its title's page, or back: { p, motion, stage }
+  var held = null;     // the one whose picture stays over the page it became
+  var swallow = false; // the click of a press that hurried it
+  var stream = null;   // the scroll under way: see ownerOf
 
   function now() { return performance.now(); }
 
@@ -318,15 +328,22 @@
     if (p.card.poster) picture.appendChild(image('pv__still', p.card.poster));
     p.body = shell.appendChild(el('div', 'pv__body'));
     if (p.card.pick) n.classList.add('pv--reason');
+    if (!known(SCROLLED)) p.hint = shell.appendChild(hint());
     shell.appendChild(posterCopy(p));
     if (watch.marks && watch.marks.canRate(p.card.ref, link)) rating(p);
     n.addEventListener('mousedown', function (e) { e.preventDefault(); }); // the focus stays where it was
     n.addEventListener('focusin', function (e) {
       if (!e.target.hasAttribute('data-watch-keep')) focusCard(p);
     });
-    n.addEventListener('wheel', function (e) { handWheel(p, e); }, { passive: false });
     shell.addEventListener('click', function (e) { pressed(p, e); });
     return p;
+  }
+
+  /* That more lies below. */
+  function hint() {
+    var n = el('span', 'pv__hint');
+    n.appendChild(icon('i-chevron-down'));
+    return n;
   }
 
   function image(cls, src) {
@@ -359,12 +376,13 @@
   /* With the mouse at rest, the card of the preview that is open may go, or the keyboard open something over it. */
   var watcher = new MutationObserver(function () {
     if (!live) return;
-    if (!there(live)) close(live, 'fade');
+    if (carried ? !live.link.isConnected : !there(live)) close(live, 'fade');
+    else if (carried) return;
     else if (covered()) setTimeout(closeUnder); // a press on its card hands it over first
   });
 
   function closeUnder() {
-    if (live && covered() && !pinned(live)) fadeLive();
+    if (live && !carried && covered() && !pinned(live)) fadeLive();
   }
 
   function setLive(p) {
@@ -404,7 +422,11 @@
   function unfold(p) {
     p.closing = false;
     p.n.classList.add('is-open');
-    later(p, growMs(), function () { p.n.classList.add('is-settled'); });
+    later(p, growMs(), function () {
+      p.n.classList.add('is-settled');
+      p.settledAt = now();
+      askFilm(p);
+    });
   }
 
   function growMs() { return core.reduceMotion() ? core.tokenMs('--dur-fast', 150) : core.tokenMs('--dur-fast', 150) * 2; }
@@ -435,7 +457,9 @@
      to the detail, 'cut' at once, else back into its card. */
   function close(p, how) {
     if (p.closing) return;
+    if (carried && carried.p === p) putDown();
     p.closing = true;
+    p.settledAt = 0;
     if (live === p) setLive(null);
     if (!p.data) forget();
     clearTimeout(closeTimer);
@@ -499,6 +523,7 @@
   function viewChanged() {
     pos = null;
     fadeLive();
+    letGo();
   }
 
   /* ── What it holds ── */
@@ -543,7 +568,7 @@
   /* Year, length, certificate, ratings. */
   function facts(p, d) {
     var line = el('div', 'pv__meta');
-    addPart(line, '', d.year ? String(d.year) : '');
+    addPart(line, '', d.year ? d.year + (d.year_end && d.year_end !== d.year ? '–' + d.year_end : '') : '');
     if (d.kind === 'movie') addPart(line, '', d.runtime_min ? dur(d.runtime_min) : '');
     else addPart(line, '', d.season_count ? d.season_count + (d.season_count === 1 ? ' season' : ' seasons') : '');
     addPart(line, 'pv__cert', d.certificate);
@@ -622,6 +647,7 @@
     core.toArray(p.body.querySelectorAll('.pv__meta, .pv__text, .pv__reason, .pv__first, .pv__trailerbtn'))
       .forEach(core.fadeIn);
     planTrailer(p);
+    if (p.settledAt) askFilm(p);
   }
 
   /* ── Its picture ──
@@ -713,6 +739,7 @@
     p.lift = p.n.appendChild(el('div', 'pv__lift'));
     p.lift.appendChild(p.rating.node);
     p.rate = round('Rate');
+    p.rate.classList.add('pv__rate');
     var opened = 0;
     p.rate.addEventListener('click', function () {
       if (now() - opened < OWN_CLICK_MS) return;
@@ -967,18 +994,22 @@
 
   /* ── More ── */
 
-  function trailersOn() {
-    try { return window.localStorage.getItem(TRAILERS_OFF) !== 'off'; } catch (e) { return true; }
+  function known(key) {
+    try { return window.localStorage.getItem(key); } catch (e) { return null; }
   }
 
-  function setTrailers(on) {
+  function remember(key, value) {
     try {
-      if (on) window.localStorage.removeItem(TRAILERS_OFF);
-      else window.localStorage.setItem(TRAILERS_OFF, 'off');
+      if (value) window.localStorage.setItem(key, value);
+      else window.localStorage.removeItem(key);
     } catch (e) {
       // Not kept past this page.
     }
   }
+
+  function trailersOn() { return known(TRAILERS_OFF) !== 'off'; }
+
+  function setTrailers(on) { remember(TRAILERS_OFF, on ? null : 'off'); }
 
   /* What a Keep here keeps and when it leaves. A card that is leaving says it itself, and the
      reply, its show's, is for every season: one shown on the card is kept, or none. */
@@ -1110,10 +1141,11 @@
 
   function planTrailer(p) {
     clearTimeout(p.trailerTimer);
-    var saving = window.navigator.connection && window.navigator.connection.saveData;
-    if (!p.data || !trailerKey(p.data) || !trailersOn() || badTrailers.has(p.card.ref) || core.reduceMotion() || saving) return;
-    p.trailerTimer = setTimeout(function () { if (live === p) startTrailer(p); }, TRAILER_AFTER_MS);
+    if (!p.data || !trailerKey(p.data) || !trailersOn() || badTrailers.has(p.card.ref) || core.reduceMotion() || saving()) return;
+    p.trailerTimer = setTimeout(function () { if (live === p && !carried) startTrailer(p); }, TRAILER_AFTER_MS);
   }
+
+  function saving() { return !!(window.navigator.connection && window.navigator.connection.saveData); }
 
   function say(frame, message) {
     if (frame.contentWindow) frame.contentWindow.postMessage(JSON.stringify(message), TRAILER_ORIGIN);
@@ -1186,13 +1218,14 @@
   }
 
   window.addEventListener('message', function (e) {
-    var p = live;
+    var p = live || held;
     if (!p || !p.frame || e.source !== p.frame.contentWindow || e.origin !== TRAILER_ORIGIN) return;
     var m;
     try { m = JSON.parse(e.data); } catch (err) { return; }
     if (!m) return;
     if (m.event === 'onError' || m.event === 'onAutoplayBlocked') {
       badTrailer(p);
+      melt();
       return;
     }
     clearInterval(p.listen);
@@ -1206,6 +1239,7 @@
       }
     } else if (state === 0) {
       stopTrailer(p);
+      melt();
     } else if (typeof state === 'number' && state !== p.state && !p.n.classList.contains('is-playing')) {
       p.state = state;
       waitForTrailer(p);
@@ -1248,21 +1282,367 @@
   }
 
   function leave() {
+    if (carried) {
+      pos = null;
+      return;
+    }
     disarm();
     if (live && !pinned(live)) close(live);
   }
 
-  /* A sideways wheel over the preview moves its row, as it would over the card. */
-  function handWheel(p, e) {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-    var row = p.link.closest('.watch-row__scroll');
+  /* ── The wheel ──
+     Wheel events less than GAP_MS apart are one scroll. Its first says whose it is, and it stays
+     theirs to its last, momentum and all: a browser hands over only a whole one.
+     'card': it opens the preview. 'row': it moves the preview's row, as it would over the card.
+     'page': the browser's own. 'over': nobody's any more. */
+
+  /* The first frames of a page can hold a momentum up. */
+  function gapOf(s) { return s.opened ? GAP_MS * 2 : GAP_MS; }
+
+  function px(e, delta) { return delta * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? window.innerHeight : 1); }
+
+  function ownerOf(e, dx, dy) {
+    if (carried) return 'card';
+    var p = live;
+    if (!p || detailOpen() || !p.n.contains(e.target)) return 'page';
+    if (Math.abs(dx) > Math.abs(dy)) return 'row';
+    if (dy <= 0 || e.shiftKey || e.ctrlKey || e.metaKey || pinned(p) || (p.rating && lifted(p))) return 'page';
+    return p.settledAt && now() - p.settledAt >= READY_MS ? 'card' : 'page';
+  }
+
+  /* Every wheel event of the page, before anything answers it. */
+  function heard(e) {
+    var dx = px(e, e.deltaX);
+    var dy = px(e, e.deltaY);
+    var t = e.timeStamp; // a busy page hears it late
+    if (!stream || t - stream.at > gapOf(stream)) {
+      glideTo = null;
+      stream = {
+        owner: ownerOf(e, dx, dy), p: live, at: t, sum: 0, way: 0, side: 0, row: null,
+        notches: e.deltaMode === 1 || Math.abs(dy) >= 60, opened: 0, reading: false, hist: [], last: 0
+      };
+    } else if (t - stream.at > 70 && Math.abs(dy) >= 50 && stream.last >= 50) stream.notches = true; // not a flick heard late as one
+    stream.at = t;
+    stream.last = Math.abs(dy);
+    stream.sum += dy;
+    stream.way += Math.abs(dy);
+    stream.side += Math.abs(dx);
+    if (stream.row) freeRow(stream.row, dx);
+  }
+
+  /* Over a preview, and over the page one becomes. */
+  function wheeled(e) {
+    var s = stream;
+    if (s.owner === 'page') return;
+    if (s.owner === 'row') {
+      slideRow(s, px(e, e.deltaX), e);
+      return;
+    }
+    if (e.cancelable) e.preventDefault();
+    if (s.owner === 'over') return;
+    if (s.opened) readOn(s, e.timeStamp, px(e, e.deltaY));
+    else scrollOpen(s, px(e, e.deltaY));
+  }
+
+  function scrollOpen(s, dy) {
+    if (!carried) {
+      if (!live || dy <= 0) return; // all the way back: the rest of this scroll moves nothing
+      if (s.way < 14 && s.side > s.way) {
+        s.owner = 'row';
+        return;
+      }
+      if (plain()) {
+        if (s.sum < watch.carry.OPENS) return;
+        s.owner = 'over';
+        remember(SCROLLED, 'yes');
+        openDetail(live);
+        page().addEventListener('wheel', wheeled, { passive: false });
+        untilStill();
+        return;
+      }
+      if (!pickUp(live)) return;
+    }
+    carried.motion.push(dy, s.notches ? NOTCH_REST_MS : REST_MS);
+  }
+
+  /* It opens without following the hand: what it would follow with is asked not to move, or is not drawn. */
+  function plain() {
+    return core.reduceMotion() || window.matchMedia('(forced-colors: active)').matches || window.innerWidth < 700 || window.innerHeight <= 500;
+  }
+
+  /* What is left of the push that opened the page stops at its top. A fresh one, or a finger that
+     does not slow down, reads on: a momentum loses a third of its speed every 130 ms. Neither is
+     told by one measure alone, as a busy page hears some events late and some as one. */
+  function readOn(s, t, dy) {
+    var before = s.hist.slice(-6);
+    s.hist.push([t, dy]);
+    if (!s.reading && dy > 0) s.reading = s.notches ? t - s.opened > 120 : before.length > 2 && reads(s.hist, before, t, dy);
+    if (!s.reading) return;
+    if (s.notches) glide(dy);
+    else page().scrollTop += dy;
+  }
+
+  function reads(hist, before, t, dy) {
+    function sum(from, to) {
+      return hist.reduce(function (n, h) { return t - h[0] >= from && t - h[0] < to ? n + h[1] : n; }, 0);
+    }
+    var all = before.reduce(function (n, h) { return n + h[1]; }, 0);
+    var last = before[before.length - 1];
+    var long = t - hist[0][0];
+    var most = Math.max.apply(null, before.slice(-3).map(function (h) { return h[1]; }));
+    var faster = dy * (last[0] - before[0][0]) > 1.2 * (all - before[0][1]) * (t - last[0]);
+    if (long > 160 && dy >= most && faster && sum(0, 80) > sum(80, 160) * 1.4 + 20) return true;
+    return long > 320 && dy * before.length > 0.85 * all && sum(160, 320) > 24 && sum(0, 160) > sum(160, 320) * 0.9;
+  }
+
+  var glideTo = null;
+
+  /* A notch at a time would jump. */
+  function glide(dy) {
+    var root = page();
+    var going = glideTo !== null;
+    glideTo = Math.max(0, Math.min(root.scrollHeight - root.clientHeight, (going ? glideTo : root.scrollTop) + dy));
+    if (going) return;
+    var last = now();
+    function step(t) {
+      if (glideTo === null) return;
+      var left = glideTo - root.scrollTop;
+      var by = left * (1 - Math.exp(-20 * Math.max(0.001, t - last) / 1000));
+      last = t;
+      if (Math.abs(left) < 1) {
+        root.scrollTop = glideTo;
+        glideTo = null;
+        return;
+      }
+      root.scrollTop += Math.abs(by) < 1 ? (by < 0 ? -1 : 1) : by;
+      window.requestAnimationFrame(step);
+    }
+    window.requestAnimationFrame(step);
+  }
+
+  /* Its snapping would pull every small step back. The row moves, so the preview over it fades.
+     A notch takes it a card on, as over the card. */
+  function slideRow(s, dx, e) {
+    var row = s.p && s.p.link.closest('.watch-row__scroll');
     if (!row) return;
     e.preventDefault();
-    row.scrollLeft += e.deltaX;
+    if (notched(e, dx)) {
+      notchRow(row, dx);
+      return;
+    }
+    if (s.row !== row) {
+      s.row = row;
+      s.left = row.scrollLeft;
+    }
+    freeRow(row, dx);
+    s.left = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, s.left + dx));
+    row.scrollLeft = s.left;
+  }
+
+  function notched(e, dx) { return e.deltaMode === 1 || Math.abs(dx) >= 60; }
+
+  /* The row notches are taking on: { row, to }. Those that come over its cards once the preview has
+     gone are counted too, each from where the one before is going, so that none is lost on the way. */
+  var rowGoing = null;
+
+  function notchRow(row, dx) {
+    if (rowGoing && rowGoing.row !== row) letRowGo();
+    if (!rowGoing) {
+      rowGoing = { row: row, to: row.scrollLeft, timer: null };
+      row.addEventListener('wheel', rowWheel, { passive: false });
+    }
+    rowGoing.to = cardFrom(row, rowGoing.to + dx, dx);
+    row.scrollTo({ left: rowGoing.to, behavior: core.reduceMotion() ? 'auto' : 'smooth' });
+    clearTimeout(rowGoing.timer);
+    rowGoing.timer = setTimeout(letRowGo, NOTCH_REST_MS);
+  }
+
+  function rowWheel(e) {
+    var dx = px(e, e.deltaX);
+    if (Math.abs(dx) <= Math.abs(px(e, e.deltaY)) || !notched(e, dx)) return;
+    e.preventDefault();
+    notchRow(rowGoing.row, dx);
+  }
+
+  function letRowGo() {
+    if (!rowGoing) return;
+    clearTimeout(rowGoing.timer);
+    rowGoing.row.removeEventListener('wheel', rowWheel);
+    rowGoing = null;
+  }
+
+  var snapTimer = null;
+
+  var rowWay = 0; // which way the small steps went
+
+  function freeRow(row, dx) {
+    clearTimeout(snapTimer);
+    if (dx) rowWay = dx;
+    row.style.scrollSnapType = 'none';
+    snapTimer = setTimeout(function () {
+      if (stream && stream.row === row) stream.row = null;
+      // On to the card it was going to, at its own pace, and never back.
+      var left = row.scrollLeft;
+      var to = cardFrom(row, left, rowWay);
+      if (Math.abs(to - left) < 1 || core.reduceMotion()) {
+        if (core.reduceMotion()) row.scrollLeft = to;
+        row.style.scrollSnapType = '';
+        return;
+      }
+      row.scrollTo({ left: to, behavior: 'smooth' });
+      snapTimer = setTimeout(function () { row.style.scrollSnapType = ''; }, core.tokenMs('--dur-slow', 250) * 2);
+    }, GAP_MS);
+  }
+
+  /* Where the first card of *row* at or past *at* the way *dx* goes starts. */
+  function cardFrom(row, at, dx) {
+    var first = row.firstElementChild;
+    var starts = core.toArray(row.children).map(function (n) { return n.offsetLeft - first.offsetLeft; });
+    var card = dx > 0 ? starts.filter(function (x) { return x >= at - 1; })[0] : starts.filter(function (x) { return x <= at + 1; }).pop();
+    return Math.max(0, Math.min(row.scrollWidth - row.clientWidth, card >= 0 ? card : at));
+  }
+
+  /* ── Scrolled open ── */
+
+  function page() { return document.getElementById('ttl'); }
+
+  function askFilm(p) {
+    if (p.data && p.data.kind === 'movie' && !saving()) watch.detail.ahead(p.card.ref);
+  }
+
+  /* The page is drawn under it, not yet open, and it goes with the hand. */
+  function pickUp(p) {
+    var tmdb = cardOf(p.link).getAttribute('data-tmdb-ref');
+    var drawn = watch.detail.draw(p.card.ref, {
+      origin: p.link, title: p.card.title, kind: p.link.getAttribute('data-kind'), pick: p.card.pick,
+      preview: p.data, poster: p.card.poster, noWide: !!p.media.querySelector('.pv__standin'), watched: seen(p), tmdbRef: tmdb || p.card.ref
+    });
+    if (!drawn) return false;
+    clearTimeout(closeTimer);
+    closeTimer = null;
+    clearTimeout(p.trailerTimer);
+    disarm();
+    var stage = watch.carry.stage(p);
+    carried = { p: p, stage: stage, motion: watch.carry.motion(stage.draw, function (at) { if (at) arrive(); else giveBack(); }) };
+    page().addEventListener('wheel', wheeled, { passive: false });
+    return true;
+  }
+
+  /* It stands at the page, which opens as by a press. */
+  function arrive() {
+    var p = carried.p;
+    remember(SCROLLED, 'yes');
+    carried.stage.end(1);
+    setLive(null);
+    p.link.classList.remove('is-previewed');
+    p.n.classList.remove('is-carried');
+    keepOver(p, carried.stage.heroFoot);
+    carried = null;
+    if (stream) {
+      stream.opened = now();
+      stream.hist = [];
+    }
+    watch.detail.openDrawn();
+    untilStill();
+  }
+
+  /* The page takes its wheel over from the scroll that opened it. */
+  function untilStill() {
+    setTimeout(function () {
+      if (stream && now() - stream.at <= gapOf(stream)) untilStill();
+      else if (!carried) page().removeEventListener('wheel', wheeled);
+    }, GAP_MS);
+  }
+
+  /* Back at the card. */
+  function giveBack() {
+    var p = carried.p;
+    var r = p.shell.getBoundingClientRect(); // before the page goes, which a read after would wait for
+    putDown();
+    if (live !== p) return;
+    if (pos && pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom) planTrailer(p);
+    else close(p);
+  }
+
+  /* The preview as it was, and no page. */
+  function putDown() {
+    var p = carried.p;
+    carried.motion.stop();
+    carried.stage.end(0);
+    carried = null;
+    page().removeEventListener('wheel', wheeled);
+    if (stream && now() - stream.at > GAP_MS) stream = null;
+    p.n.classList.remove('is-carried');
+    p.media.style.transform = p.media.style.clipPath = '';
+    watch.detail.undraw();
+  }
+
+  /* What it shows lies on under the page's words: a trailer that plays until the person goes on,
+     a picture until the page's own has come. */
+  function keepOver(p, foot) {
+    held = p;
+    p.n.classList.add('is-held');
+    page().style.setProperty('--ttl-hero', foot - 1 + 'px');
+    page().classList.add('is-film');
+    p.heldTimer = setTimeout(function () { if (!playing(p)) melt(); }, HOLD_MS);
+    p.whenShown = function () { if (held === p && !playing(p)) melt(); };
+    // One already there comes over it as it does once it loads, from where it is not yet drawn.
+    if (page().querySelector('.ttl__art.is-loaded, .ttl__fill.is-loaded')) window.requestAnimationFrame(function () { window.requestAnimationFrame(p.whenShown); });
+    else page().querySelector('.ttl__hero').addEventListener('load', p.whenShown, true);
+  }
+
+  function playing(p) { return p.n.classList.contains('is-playing'); }
+
+  /* The page's own picture comes over it. */
+  function melt() {
+    var p = held;
+    if (!p || p.melting) return;
+    p.melting = true;
+    tell(p, 'mute');
+    page().classList.add('is-melting');
+    later(p, core.tokenMs('--dur-slow', 250), function () { if (held === p) letGo(); });
+  }
+
+  function letGo() {
+    if (carried) putDown();
+    var p = held;
+    if (!p) return;
+    held = null;
+    glideTo = null;
+    clearTimeout(p.heldTimer);
+    page().querySelector('.ttl__hero').removeEventListener('load', p.whenShown, true);
+    page().classList.remove('is-film', 'is-melting');
+    page().style.removeProperty('--ttl-hero');
+    remove(p);
   }
 
   var layerNode = document.body.appendChild(el('div', 'pv-layer'));
   makeMenu();
+
+  window.addEventListener('wheel', heard, { passive: true, capture: true });
+  // Not passive only over a preview, and over the page while one becomes it.
+  layerNode.addEventListener('wheel', wheeled, { passive: false });
+  if (page()) {
+    page().addEventListener('scroll', function () {
+      if (!held) return;
+      held.n.style.transform = 'translateY(' + -page().scrollTop + 'px) var(--pv-to)';
+      if (page().scrollTop > 8) melt();
+    }, { passive: true });
+    page().addEventListener('pointerdown', melt);
+    page().addEventListener('click', melt, true); // a key that presses something too
+  }
+
+  /* A press anywhere takes it the rest of the way. */
+  document.addEventListener('pointerdown', function (e) {
+    swallow = !!carried && e.button === 0;
+    if (swallow) carried.motion.go(1);
+  }, true);
+  document.addEventListener('click', function (e) {
+    if (!swallow || !e.detail) return;
+    swallow = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   document.addEventListener('pointermove', onMove);
   document.documentElement.addEventListener('pointerleave', leave);
@@ -1274,11 +1654,14 @@
     if (live) close(live);
   });
   document.addEventListener('scroll', function (e) {
-    if (e.target.closest && e.target.closest('.watch-keep-menu, .play-on')) return;
+    if (carried || (e.target.closest && e.target.closest('.watch-keep-menu, .play-on'))) return;
     scrolledAt = now();
     fadeLive();
   }, { capture: true, passive: true });
-  window.addEventListener('resize', fadeLive);
+  window.addEventListener('resize', function () {
+    fadeLive();
+    letGo();
+  });
   window.addEventListener('popstate', function () {
     viewChanged();
     core.toArray(document.querySelectorAll('.pv__held')).forEach(function (n) { n.remove(); });
@@ -1288,18 +1671,28 @@
   });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) return;
+    cut();
+  });
+  window.addEventListener('pagehide', cut);
+
+  function cut() {
     disarm();
     if (live) close(live, 'cut');
-  });
-  window.addEventListener('pagehide', function () {
-    disarm();
-    if (live) close(live, 'cut');
-  });
+    letGo();
+  }
 
   /* Esc is the preview's before the search box's, the grid's or the panel's under it, but not
      before that of a menu or a dialog over it. */
   document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape' || e.isComposing || !live || covered()) return;
+    if (e.key !== 'Escape' || e.isComposing || !live) return;
+    if (carried) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (stream) stream.owner = 'over';
+      carried.motion.go(0);
+      return;
+    }
+    if (covered()) return;
     e.preventDefault();
     e.stopPropagation();
     disarm();
@@ -1372,5 +1765,5 @@
 
   document.addEventListener('mm:watch-marked', function (e) { marked(e.detail.refs); });
 
-  watch.preview = { close: viewChanged };
+  watch.preview = { close: viewChanged, letGo: letGo };
 })();
