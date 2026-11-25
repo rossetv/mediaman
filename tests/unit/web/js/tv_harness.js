@@ -14,6 +14,7 @@ function tv({ kept = null, plays = true } = {}) {
   let ids = 0;
   const later = (fn, ms, every) => { timers.push({ id: ids += 1, at: time + (ms || 0), fn, every }); return ids; };
   const store = kept ? { 'mm-tv': kept } : {};
+  const errors = [];
   const sent = [];
   const answers = {};
   const nodes = {};
@@ -25,12 +26,19 @@ function tv({ kept = null, plays = true } = {}) {
     appendChild(n) { this.children.push(n); return n; },
   });
   const video = Object.assign(element(), {
-    currentTime: 0, paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, calls: [], refuse: false,
+    paused: true, ended: false, volume: 1, muted: false, seeking: false, duration: 2880, calls: [], refuse: false,
     canPlayType: () => (plays ? 'maybe' : ''),
-    load() { this.paused = true; this.currentTime = 0; },
+    load() { this.paused = true; this.time = 0; },
     play() { this.calls.push('play'); if (this.refuse) return Promise.reject(Object.assign(new Error('no'), { name: 'NotAllowedError' })); this.paused = false; return undefined; },
     pause() { this.calls.push('pause'); this.paused = true; },
     fire(type) { (this.on[type] || []).forEach((fn) => fn({})); },
+  });
+  // A seek lands `land` seconds off, and the event that tells of it comes a moment later.
+  video.sets = [];
+  video.time = 0;
+  Object.defineProperty(video, 'currentTime', {
+    get() { return this.time; },
+    set(v) { this.sets.push(v); this.time = v + (this.land || 0); if (this.land) later(() => this.fire('seeked'), 3); },
   });
   Object.defineProperty(video, 'src', { get() { return this.attrs.src; }, set(v) { this.attrs.src = v; } });
   nodes.v = video;
@@ -63,7 +71,8 @@ function tv({ kept = null, plays = true } = {}) {
       }, 1);
     }
   }
-  class FixedDate extends Date { static now() { return time; } }
+  let skew = 0;
+  class FixedDate extends Date { static now() { return time + skew; } }
   const localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem(k, v) { store[k] = v; }, removeItem(k) { delete store[k]; } };
   const ctx = {
     document, XMLHttpRequest, localStorage, Date: FixedDate, location: { protocol: 'https:', host: 'x' },
@@ -84,14 +93,17 @@ function tv({ kept = null, plays = true } = {}) {
         if (!due) break;
         const from = time;
         time = Math.max(time, due.at);
-        if (!video.paused && video.attrs.src && !video.stuck) video.currentTime += (time - from) / 1000;
+        if (!video.paused && video.attrs.src && !video.stuck) video.time += (time - from) / 1000;
         if (due.every) due.at = time + due.every; else timers = timers.filter((t) => t !== due);
-        due.fn();
+        // As in a browser, what throws ends itself alone.
+        try { due.fn(); } catch (e) { errors.push(e.message); }
       }
-      if (!video.paused && video.attrs.src && !video.stuck) video.currentTime += (until - time) / 1000;
+      if (!video.paused && video.attrs.src && !video.stuck) video.time += (until - time) / 1000;
       time = until;
       return this;
     },
+    jump(ms) { skew += ms; },
+    style: (id) => (document.getElementById(id) || {}).style,
     key: (code) => document.onkeydown({ keyCode: code, preventDefault() {} }),
     html: () => nodes.s.innerHTML,
     says: () => nodes.s.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
@@ -255,6 +267,144 @@ const scenarios = {
     await t.step(3000);
     return { behind, other: other.video.currentTime, store: t.store };
   },
+  async stopsWhileAway() {
+    const t = await playing();
+    t.answers.ask = undefined;
+    t.answers.poll = undefined;
+    t.key(413);
+    const at = t.video.currentTime;
+    const first = { paused: t.video.paused, said: t.says() };
+    await t.step(12000);
+    const then = t.says();
+    t.key(413);
+    const asks = t.paths('ask').map((c) => c.body.what);
+    t.key(415);
+    await t.step(600);
+    return { first, still: t.video.currentTime - at < 1, then, asks, plays: !t.video.paused, last: t.says() };
+  },
+  async noInlineStyle() {
+    const play = film({ art_url: '/api/tv/device/art/a"b', chapters: [{ start_s: 720 }], markers: [{ start_s: 60, end_s: 144 }] });
+    const t = await playing({ ...play });
+    const over = [t.html(), ['m0', 'm1', 'm2'].map((id) => t.style(id).left)];
+    const out = [];
+    for (const state of ['starting', 'upnext', 'still', 'ended']) {
+      t.now = { ...play, play_id: state, state, url: null };
+      await t.step(1200);
+      out.push([t.html(), t.style('pic').backgroundImage]);
+    }
+    t.now = { ...t.now, art_url: '/api/tv/device/art/other' };
+    await t.step(1200);
+    return { over, out, other: t.style('pic').backgroundImage };
+  },
+  async landsOff() {
+    const t = tv({ kept: 'old' });
+    t.video.land = 5;
+    t.answers.poll = () => ready({ play: film() });
+    t.run();
+    await t.step(50);
+    t.video.fire('loadedmetadata');
+    t.video.fire('playing');
+    await t.step(5000);
+    const sets = t.video.sets.length;
+    return { sets, state: t.last('poll').body.report.state, at: t.last('poll').body.report.position_s > 105 };
+  },
+  async shortSeek() {
+    const t = await playing();
+    const at = t.video.currentTime;
+    t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'seek', position_s: at - 1.5 }] });
+    t.video.sets.length = 0;
+    await t.step(1800);
+    return [t.video.sets[0] - at, t.last('poll').body.ack];
+  },
+  async clockBack() {
+    const t = await playing();
+    t.answers.ask = { ok: true };
+    t.jump(-3600e3);
+    const polls = t.paths('poll').length;
+    t.key(OK);
+    await t.step(3000);
+    const told = t.paths('poll').length - polls;
+    t.key(OK);
+    await t.step(600);
+    t.video.stuck = true;
+    await t.step(4000);
+    const state = t.last('poll').body.report.state;
+    t.answers.poll = () => ready({ play: film({ state: 'upnext', url: null, upnext_in_s: 2 }) });
+    await t.step(1100);
+    t.answers.poll = undefined;
+    t.jump(-3600e3);
+    await t.step(4000);
+    return { told, state, asks: t.paths('ask').map((c) => c.body.what) };
+  },
+  async badCommand() {
+    const t = await playing();
+    let n = 0;
+    Object.defineProperty(t.video, 'volume', { get: () => 1, set() { n += 1; throw new TypeError('no'); } });
+    t.answers.poll = () => ready({ play: t.now, commands: [{ id: 8, kind: 'volume' }, { id: 9, kind: 'pause' }] });
+    await t.step(1100);
+    const polls = t.paths('poll').length;
+    await t.step(5000);
+    return { more: t.paths('poll').length > polls, times: n, paused: t.video.paused, ack: t.last('poll').body.ack };
+  },
+  async brokenPlay() {
+    const t = await playing();
+    t.video.load = () => { throw new Error('no'); };
+    t.now = film({ play_id: 'p2' });
+    await t.step(1100);
+    const polls = t.paths('poll').length;
+    await t.step(5000);
+    return t.paths('poll').length > polls;
+  },
+  async usedCodeAndNewCode() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = ready();
+    t.run();
+    await t.step(1500);
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.key(OK);
+    await t.step(200);
+    // Someone enters the code: the old token is refused before the new one is asked.
+    t.answers.poll = (c) => (c.token === 'fresh' ? ready({ owner: 'tobias' }) : GONE);
+    t.answers.code = { ok: true, code: '111111', token: 'newer', expires_in_s: 300 };
+    t.key(OK);
+    await t.step(1500);
+    return { said: t.says(), store: t.store, asked: t.paths('code').length };
+  },
+  async bootHasNoButtons() {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = ready();
+    t.run();
+    await t.step(1500);
+    t.answers.code = { ok: true, code: '482916', token: 'fresh', expires_in_s: 300 };
+    t.key(OK);
+    await t.step(500);
+    t.key(RIGHT); t.key(OK);
+    t.answers.poll = (c) => (c.token === 'fresh' ? undefined : GONE);
+    await t.step(1500);
+    const said = t.says();
+    t.key(OK);
+    await t.step(200);
+    return { said, asked: t.paths('code').length };
+  },
+  // a browser that loads nothing, or no more than what it must, before it plays
+  async pausedWithNothingLoaded(events) {
+    const t = tv({ kept: 'old' });
+    t.answers.poll = () => ready({ play: film({ paused: true }) });
+    t.run();
+    await t.step(50);
+    if (events === 'metadata') t.video.fire('loadedmetadata');
+    await t.step(events === 'metadata' ? 1500 : 8000);
+    const report = t.last('poll').body.report;
+    const src = t.video.sets.length;
+    let loads = 0;
+    const load = t.video.load;
+    t.video.load = function () { loads += 1; load.call(this); };
+    await t.step(100000);
+    const late = t.last('poll').body.report.state;
+    t.key(OK);
+    await t.step(100);
+    return { state: report.state, at: report.position_s, loads, late, plays: !t.video.paused, src };
+  },
   async commands() {
     const t = await playing();
     const cs = [{ id: 8, kind: 'pause' }, { id: 9, kind: 'seek', position_s: 900 }, { id: 10, kind: 'volume', level: 0.3 }, { id: 11, kind: 'mute', muted: true }];
@@ -262,7 +412,7 @@ const scenarios = {
     await t.step(1200);
     const once = t.video.calls.slice();
     const was = { time: t.video.currentTime, volume: t.video.volume, muted: t.video.muted };
-    t.video.currentTime = 950;
+    t.video.time = 950;
     await t.step(3000);
     return { once, again: t.video.calls, was, time: t.video.currentTime, ack: t.last('poll').body.ack, state: t.last('poll').body.report.state };
   },
@@ -406,7 +556,7 @@ const scenarios = {
   },
   async stopsShort() {
     const t = await playing();
-    t.video.currentTime = 2879;
+    t.video.time = 2879;
     t.video.stuck = true;
     await t.step(8000);
     return t.last('poll').body.report.state;

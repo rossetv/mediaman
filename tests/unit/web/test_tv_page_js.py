@@ -20,6 +20,7 @@ def _run(scenario: str, *args: str):
         capture_output=True,
         text=True,
         check=False,
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -111,6 +112,66 @@ def test_a_page_opened_again_goes_on_from_where_it_was() -> None:
     assert 0 <= out["behind"] <= 6
     assert out["other"] == 100
     assert out["store"] == {}
+
+
+def test_stop_stops_at_once_and_locks_nothing_while_the_server_does_not_answer() -> None:
+    out = _run("stopsWhileAway")
+    assert out["first"]["paused"] is True and "Starting" not in out["first"]["said"]
+    assert out["still"] is True
+    assert "Press Stop again" in out["then"] and "Starting" not in out["then"]
+    assert out["asks"] == ["stop", "stop"]
+    assert out["plays"] is True and "Press Stop again" not in out["last"]
+
+
+def test_no_page_has_a_style_in_its_markup_which_old_browsers_refuse() -> None:
+    out = _run("noInlineStyle")
+    over, left = out["over"]
+    assert "style=" not in over
+    # the marks of the intro's two ends and the chapter
+    assert left == ["2.08%", "5.00%", "25.00%"]
+    for html, picture in out["out"]:
+        assert "style=" not in html
+        assert picture == 'url("/api/tv/device/art/a%22b")'
+    assert out["other"] == 'url("/api/tv/device/art/other")'
+
+
+def test_a_browser_that_lands_off_its_place_is_put_right_twice_and_then_left() -> None:
+    assert _run("landsOff") == {"sets": 2, "state": "playing", "at": True}
+
+
+def test_a_seek_of_a_second_is_carried_out() -> None:
+    moved, acked = _run("shortSeek")
+    assert -3 < moved < -0.5 and acked == 8
+
+
+def test_a_clock_put_back_stops_nothing() -> None:
+    out = _run("clockBack")
+    assert out["told"] >= 2
+    assert out["state"] == "buffering"
+    assert out["asks"] == ["auto"]
+
+
+def test_a_command_the_browser_refuses_is_not_repeated_and_stops_nothing() -> None:
+    assert _run("badCommand") == {"more": True, "times": 1, "paused": True, "ack": 9}
+    assert _run("brokenPlay") is True
+
+
+def test_a_code_that_was_entered_counts_though_a_new_one_was_asked_for() -> None:
+    out = _run("usedCodeAndNewCode")
+    assert out["asked"] == 2
+    assert "Connected to tobias" in out["said"] and out["store"] == {"mm-tv": "fresh"}
+
+
+def test_a_page_that_waits_takes_no_press_for_the_page_before() -> None:
+    out = _run("bootHasNoButtons")
+    assert out["said"] == "media man" and out["asked"] == 1
+
+
+@pytest.mark.parametrize("events", ["metadata", "nothing"])
+def test_a_film_loaded_paused_waits_for_a_key_however_little_was_loaded(events: str) -> None:
+    out = _run("pausedWithNothingLoaded", events)
+    assert (out["state"], out["late"], out["loads"]) == ("paused", "paused", 0)
+    assert out["at"] == 100 and out["plays"] is True
 
 
 def test_each_command_is_carried_out_once_and_acked() -> None:

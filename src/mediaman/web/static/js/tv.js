@@ -22,7 +22,15 @@
   var video = document.getElementById('v');
   var base = body.getAttribute('data-base') || (location.protocol + '//' + location.host);
 
-  function now() { return Date.now(); }
+  // A TV sets its clock while the page runs. Date alone, where there is no other, never goes back.
+  var latest = Date.now(), behind = 0;
+  function now() {
+    if (window.performance && performance.now) return performance.now();
+    var at = Date.now();
+    if (at < latest) behind += latest - at;
+    latest = at;
+    return at + behind;
+  }
 
   /* ── words ── */
 
@@ -307,10 +315,12 @@
       asking = false;
       if (status === 200) {
         heard();
-        pending = { token: got.token, code: got.code, until: now() + got.expires_in_s * 1000, ranOut: Boolean(ranOut) };
+        var old = pending;
+        var fresh = pending = { token: got.token, code: got.code, until: now() + got.expires_in_s * 1000, ranOut: Boolean(ranOut) };
         waitUntil = 0;
         if (mode !== 'conn' && mode !== 'taken') mode = 'code';
-        pollPending(pending);
+        pollPending(fresh);
+        if (old) lastLook(old, fresh);
       } else {
         codes -= 1;
         // A code that still works stays up.
@@ -323,6 +333,13 @@
         }, (retry || 5) * 1000);
       }
       show();
+    });
+  }
+
+  /* The code before may have been entered since it was last asked about. */
+  function lastLook(old, fresh) {
+    send('poll', old.token, {}, 10000, function (status, got) {
+      if (status === 200 && got.state === 'ready' && pending === fresh) paired(old, got);
     });
   }
 
@@ -366,8 +383,8 @@
     mode = other ? 'taken' : 'conn';
     if (other) setTimeout(function () { if (mode === 'taken') { mode = 'conn'; show(); } }, 4000);
     loop += 1;
-    take(got);
     pollSoon(got.poll_ms);
+    take(got);
   }
 
   /* ── the poll ── */
@@ -398,7 +415,7 @@
     if (!token || polling) return;
     var mine = loop;
     var data = { ack: lastDone, active: active };
-    if (play && play.url && loaded === play.play_id) data.report = report();
+    if (play && play.url && loaded === play.play_id) try { data.report = report(); } catch (e) { /* Nothing to report. */ }
     active = false;
     polling = true;
     polledAt = now();
@@ -408,15 +425,15 @@
       if (status === 404 && got.error === 'not_found') { heard(); refused(); return; }
       if (status !== 200) {
         if (data.active) active = true;
-        if (status === 429) heard(); else missed(false);
         pollSoon(retry ? retry * 1000 : 2000);
+        if (status === 429) heard(); else missed(false);
         return;
       }
       heard();
-      take(got);
-      var gap = got.poll_ms || 3000;
-      pollSoon(again ? 500 : gap);
+      // First, so that nothing a TV's browser throws below ends the polling.
+      pollSoon(again ? 500 : got.poll_ms || 3000);
       again = false;
+      take(got);
     });
   }
 
@@ -451,6 +468,7 @@
 
   var asked = null;          // the play a key or the countdown has asked to go on from
   var askNote = '';
+  var stopping = '';         // words over a film that was stopped, until the server ends it
   var endsAt = 0;            // of the countdown
   var tries = 0;             // of a play whose stream ended under it, by itself
   var triedPlay = null;
@@ -467,7 +485,7 @@
     if (!was || was.play_id !== next.play_id) {
       unload();
       asked = null;
-      askNote = '';
+      askNote = stopping = '';
       wanted = !next.paused;
       counted = next.played_s || 0;
       breaks = 0;
@@ -492,17 +510,25 @@
   function ask(what, byItself) {
     if (!play) return;
     var id = play.play_id;
-    asked = what === 'cancel' ? null : id;
+    var stop = what === 'stop';
+    // What starts something has the page wait for it.
+    asked = stop || what === 'cancel' ? null : id;
     askNote = '';
+    if (stop) {
+      stopping = 'Stopping';
+      if (loaded) hold();
+    }
     var wish = { play_id: id, what: what };
     if (what === 'again') wish.paused = Boolean(byItself) && !wanted;
-    send('ask', token, wish, 110000, function (status, got) {
+    send('ask', token, wish, stop ? 10000 : 110000, function (status, got) {
       var same = play && play.play_id === id;
-      if (asked === id) {
-        asked = null;
-        if (what === 'auto' && status !== 200) autoAt = now() + 5000;
+      if (asked === id) asked = null;
+      // Until a poll says what came of it.
+      if (what === 'auto') autoAt = now() + 5000;
+      if (same && status !== 200 && got.error !== 'stale' && what !== 'auto') {
+        askNote = WHY[got.error] || (status ? WHY.unreachable : WHY.silent);
+        if (stopping) stopping = 'mediaman isn’t answering. Press Stop again.';
       }
-      if (same && status !== 200 && got.error !== 'stale' && what !== 'auto') askNote = WHY[got.error] || WHY.unreachable;
       tell();
       show();
     });
@@ -518,13 +544,16 @@
       lastDone = c.id;
       did = true;
       if (!play || loaded !== play.play_id) continue;
-      if (c.kind === 'play') go();
-      else if (c.kind === 'pause') hold();
-      else if (c.kind === 'seek') seek(c.position_s);
-      else if (c.kind === 'volume') setVolume(c.level);
-      else if (c.kind === 'mute') video.muted = c.muted;
+      try { carryOut(c); } catch (e) { /* This browser cannot. */ }
     }
     if (did) tell();
+  }
+  function carryOut(c) {
+    if (c.kind === 'play') go();
+    else if (c.kind === 'pause') hold();
+    else if (c.kind === 'seek') seek(c.position_s);
+    else if (c.kind === 'volume') setVolume(c.level);
+    else if (c.kind === 'mute') video.muted = c.muted;
   }
 
   /* ── the video ── */
@@ -536,6 +565,7 @@
   var ready = false;
   var there = false;         // at its place
   var place = 0;
+  var puts = 0;              // times it was put there
   var blocked = false;       // the browser wants a key first
   var counted = 0;           // seconds played
   var stalled = false;
@@ -568,6 +598,7 @@
     unload();
     loaded = play.play_id;
     place = from || 0;
+    puts = 0;
     movedAt = now();
     if (byHls === null) byHls = !native() && sources();
     if (byHls) loadHls(play.play_id, play.url);
@@ -595,8 +626,13 @@
   }
 
   function atPlace() {
-    if (there || !loaded) return;
-    if (Math.abs(video.currentTime - place) < 3) { there = true; return; }
+    if (there || !loaded || video.seeking) return;
+    // A browser that lands elsewhere each time is left where it lands.
+    if (Math.abs(video.currentTime - place) < 3 || puts > 1) there = true;
+    else putThere();
+  }
+  function putThere() {
+    puts += 1;
     try { video.currentTime = place; } catch (e) { /* Too early; canplay comes. */ }
   }
 
@@ -607,6 +643,8 @@
   function go() {
     wanted = true;
     blocked = false;
+    stopping = '';
+    movedAt = now();
     var mine = loaded;
     if (overAt !== null) return;
     var promise = video.play();
@@ -633,7 +671,9 @@
     if (end) to = Math.min(to, end - 1);
     place = Math.max(0, to);
     there = false;
+    puts = 0;
     movedAt = now();
+    putThere();
     atPlace();
     tick();
   }
@@ -697,11 +737,21 @@
     tell();
   }
 
-  video.addEventListener('loadedmetadata', atPlace);
-  video.addEventListener('canplay', function () {
+  /* A film loaded paused is ready, however little its browser loads before it plays. */
+  function readyPaused() {
+    if (!loaded || ready || wanted) return;
+    ready = true;
+    show();
+    tell();
+  }
+
+  video.addEventListener('loadedmetadata', function () {
+    // What was put before the length was known may be lost.
+    puts = 0;
     atPlace();
-    if (loaded && !ready && !wanted) { ready = true; show(); tell(); }
+    readyPaused();
   });
+  video.addEventListener('canplay', atPlace);
   video.addEventListener('seeked', atPlace);
   video.addEventListener('playing', function () {
     // It plays from the start for a moment before it is at its place.
@@ -732,6 +782,8 @@
     lastTick = at;
     if (loaded && overAt === null && !broken && !reloadDue) {
       var time = video.currentTime;
+      if (!there && ready) atPlace();
+      if (!wanted && at - movedAt > 5000) readyPaused();
       if (time !== lastTime || (ready && !wanted)) {
         movedAt = at;
         if (ready && wanted && !video.paused) counted += since / 1000;
@@ -744,7 +796,7 @@
       }
       // Some browsers stop short of the end and never say so.
       if (stalled && at - movedAt > 5000 && video.duration && time > video.duration - 3) finish();
-      else if (at - movedAt > BROKEN_MS) broke();
+      else if (wanted && at - movedAt > BROKEN_MS) broke();
       // A minute of play is worth more tries.
       if (counted - (play.played_s || 0) > 60) { breaks = 0; }
       if (ready && wanted && there && time - play.start_s > 60) tries = 0;
@@ -781,6 +833,7 @@
   var WHY = {
     tv: 'The TV couldn’t open the picture. Your place is kept.<br>Try again, or watch it on your phone or computer.',
     gone: 'It stopped on the server. Your place is kept.<br>Try again, or watch it on your phone or computer.',
+    silent: 'mediaman isn’t answering.<br>Try again in a moment.',
     unreachable: 'mediaman couldn’t reach Plex. Your place is kept.<br>Try again in a moment.',
     not_found: 'Plex doesn’t have this one any more.<br>Choose something else.',
     too_many_streams: 'You’re watching on three screens, the most at once.<br>Stop one, then try again.',
@@ -812,7 +865,7 @@
   function leave() { return token ? [['Back', 'i']] : []; }
   function page(inner) { return '<div class="page">' + inner + '</div>'; }
   function art() {
-    return '<div class="pic" style="background-image:url(&quot;' + esc(encodeURI(play.art_url)) + '&quot;)"></div>';
+    return '<div class="pic" id="pic"></div>';
   }
   function titles() {
     return '<div class="t1">' + esc(play.title) + '</div><div class="t2">' + under(play) + '</div>';
@@ -825,24 +878,43 @@
     return endsAt ? 'Next episode in ' + Math.max(0, Math.ceil((endsAt - now()) / 1000)) + ' s' : 'Next episode';
   }
   function marks() {
-    var total = play.duration_s, at = [], out = '', i;
+    var total = play.duration_s, at = [], left = [], i;
     for (i = 0; i < (play.markers || []).length; i++) at.push(play.markers[i].start_s, play.markers[i].end_s);
     for (i = 0; i < (play.chapters || []).length; i++) at.push(play.chapters[i].start_s);
     for (i = 0; total && i < at.length; i++) {
-      if (at[i] > 0 && at[i] < total) out += '<i style="left:' + (at[i] / total * 100).toFixed(2) + '%"></i>';
+      if (at[i] > 0 && at[i] < total) left.push((at[i] / total * 100).toFixed(2) + '%');
     }
+    return left;
+  }
+  function markNodes() {
+    var out = '';
+    for (var i = 0, n = marks().length; i < n; i++) out += '<i id="m' + i + '"></i>';
     return out;
+  }
+  /* What would be a style in the markup, which browsers from before style-src-attr refuse. */
+  function dress() {
+    var picture = document.getElementById('pic');
+    if (picture) {
+      var url = 'url("' + encodeURI(play.art_url) + '")';
+      if (dressed !== url) picture.style.backgroundImage = dressed = url;
+    }
+    if (shown !== 'play' && shown !== 'pause') return;
+    var left = marks();
+    for (var i = 0; i < left.length; i++) {
+      var node = document.getElementById('m' + i);
+      if (node) node.style.left = left[i];
+    }
   }
   function overlay(paused) {
     return '<div class="ov" id="ov"><div class="top">' + titles() + '</div><div class="bot">' +
-      (paused ? '<div class="pz">' + (blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused') + '</div>' : '') +
-      '<div class="bar"><div class="p" id="pr"></div>' + marks() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
+      (paused ? '<div class="pz">' + (stopping ? glyph('stop') + stopping : blocked ? glyph('play') + 'Press OK to play' : glyph('pause') + 'Paused') + '</div>' : '') +
+      '<div class="bar"><div class="p" id="pr"></div>' + markNodes() + '</div><div class="tms"><span id="el"></span><span id="re"></span></div>' +
       offer([[glyph('back') + '10 s', 'b'], [glyph(paused ? 'play' : 'pause') + (paused ? 'Play' : 'Pause'), 'p'], [glyph('fwd') + '10 s', 'f'], [glyph('stop') + 'Stop', 's']]) +
       '</div></div>';
   }
 
   var PAGES = {
-    boot: function () { return page('<div class="mid">' + BRAND + SPIN + '</div>'); },
+    boot: function () { return page('<div class="mid">' + BRAND + SPIN + '</div>') + offer([]); },
     code: function () {
       if (!pending) return PAGES.boot();
       var address = base.replace(/^https?:\/\//, '') + '/pair';
@@ -922,7 +994,7 @@
     return mode;
   }
 
-  var shown = '', drawn = '', focus = 0, hideTimer = null, hidden = false;
+  var shown = '', drawn = '', dressed = '', focus = 0, hideTimer = null, hidden = false;
 
   function show() {
     var name = which();
@@ -933,6 +1005,7 @@
       if (FOCUS[name] && FOCUS[shown]) kept = focus;
       stage.innerHTML = html;
       drawn = html;
+      dressed = '';
       focus = Math.min(kept, Math.max(0, buttons.length - 1));
       paint();
     }
@@ -941,7 +1014,7 @@
       if (name === 'play' || name === 'pause') wake();
     }
     if (pending) put('cd', codeLine());
-    if (play) { put('in', nextLine()); bar(); }
+    if (play) { put('in', nextLine()); bar(); dress(); }
     hush();
   }
 
@@ -967,7 +1040,7 @@
   /* ── keys ── */
 
   function act(what) {
-    if (what === 'n') { codes = 0; if (mode !== 'code') { mode = 'code'; pending = null; } newCode(false); }
+    if (what === 'n') { codes = 0; mode = 'code'; newCode(false); }
     else if (what === 'a') { begin(); }
     else if (what === 'i') { mode = token ? 'idle' : mode; }
     else if (what === 'u') mode = 'unpair';
