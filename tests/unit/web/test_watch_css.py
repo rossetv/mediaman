@@ -59,9 +59,10 @@ def test_a_leaving_badge_says_the_days_left_but_on_the_narrowest_phones() -> Non
 
 def test_a_leaving_badge_is_shorter_on_the_narrowest_phones_and_still_read_in_full() -> None:
     narrow = "max-width: 359.98px"
-    assert "display: none" in _of(".watch-badge__short", narrow)
+    has_tiny = ".watch-badge:has(> .watch-badge__tiny)"
+    assert "display: none" in _of(f"{has_tiny} > .watch-badge__short", narrow)
     assert "attr(data-words)" in _of(".watch-badge__tiny::after", narrow)
-    long = _of(".watch-badge__long", narrow)
+    long = _of(f"{has_tiny} > .watch-badge__long", narrow)
     assert "display: block" in long and "clip-path: inset(50%)" in long
     assert "content" not in _of(".watch-badge__tiny::after")
 

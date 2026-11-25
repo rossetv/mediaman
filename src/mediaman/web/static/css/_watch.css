@@ -542,10 +542,10 @@
   .watch-badge--watched { right: 6px; gap: 4px; }
   .watch-badge--watched > .ico { font-size: 12px; }
 }
-/* Three columns here have no room for the words: the whole of them is read out. */
+/* Three columns here have no room for "Leaving today": it shrinks to "Today", the whole of it still read out. */
 @media (max-width: 359.98px) {
-  .watch-badge__short { display: none; }
-  .watch-badge__long { display: block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .watch-badge:has(> .watch-badge__tiny) > .watch-badge__short { display: none; }
+  .watch-badge:has(> .watch-badge__tiny) > .watch-badge__long { display: block; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .watch-badge__tiny::after { content: attr(data-words); }
   .watch-badge--watched { gap: 0; }
   .watch-badge__word { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
