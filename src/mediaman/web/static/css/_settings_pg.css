@@ -293,6 +293,12 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
 .setg-pg .conn.err  .conn-dot, .setg-pg .conn-dot.err  { background: var(--danger);  box-shadow: var(--glow-danger);  }
 .setg-pg .conn.off      .conn-dot { background: var(--t4); }
 .setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
+/* On a phone a long answer takes the line to itself (Test and the chevron drop under it)
+   instead of being squeezed into what Test leaves beside it. */
+@media (max-width: 520px) {
+  .setg-pg .intg-card-hd .hd-actions { flex-wrap: wrap; row-gap: 8px; }
+  .setg-pg .intg-card-hd .hd-actions .conn { min-width: 0; }
+}
 
 .setg-pg .savebar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
