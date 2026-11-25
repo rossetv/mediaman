@@ -2465,6 +2465,26 @@ def test_what_comes_back_during_the_countdown_does_not_go_on_by_itself(markup, h
     assert out == {"counts": True, "next": False, "card": False}
 
 
+@pytest.mark.parametrize("how", ["counts", "cancelled", "space", "twice", "film"])
+def test_play_again_starts_it_anew_on_the_same_chromecast(markup, last_episode, how):
+    out = elsewhere(last_episode if how == "film" else markup, "away_play_again", how)
+    assert (out["counts"], out["rate"], out["button"]) == (how != "film", how == "film", "Play again")
+    assert (out["card"], out["starting"]) == (False, "Starting on Den")
+    assert out["loads"] == [["c2", 0, False]]
+    # The stream that ended is let go, and nothing comes here.
+    assert out["stopped"] == ["/api/watch/stream/c1/stop"]
+    assert (out["casts"], out["local"]) == (2, 1)
+    assert out["saved"] == [2997]
+    assert (out["says"], out["next"]) == ("Playing on Den", False)
+
+
+def test_stop_as_it_begins_again_stays_and_leaves_no_stream(markup):
+    out = elsewhere(markup, "away_play_again", "stop")
+    assert (out["after"], out["href"]) == (False, "/watch/play/1")
+    assert [url for url, _ in out["stops"]][1:] == ["/api/watch/stream/c2/stop"]
+    assert (out["loads"], out["saved"]) == ([], [2997])
+
+
 def test_a_page_opened_while_a_tv_plays_its_title_leaves_it_there(markup):
     out = elsewhere(markup, "away_opened_on_tv", "same")
     assert (out["atOnce"], out["starts"], out["says"]) == (0, 0, "Paused on Living room")

@@ -5458,6 +5458,46 @@ const scenarios = {
     return { stops: way.stops, at: play.body.position_s, says: awayState(p).says, starts: p.starts().length };
   },
 
+  /* Played to its end on a Chromecast, which then holds nothing, and asked for once more. */
+  async away_play_again(p) {
+    const how = p.win.serverPlays;
+    if (how === 'film') p.held.rate = { ask: true, ref: 'movie-501', title: 'Low Water', season: null };
+    await streamPlays(p, 30);
+    const way = await castPlays(p, true);
+    const media = way.media;
+    /* As the sender's: what the TV holds no more cannot be played, and a new stream is no end. */
+    media.play = () => (media.ended ? Promise.reject(new Error('failed')) : make('video').play.call(media));
+    const load = way.play.load;
+    way.play.load = (stream) => { media.ended = false; media.paused = stream.paused; return load(stream); };
+    media.paused = true; media.ended = true; media.currentTime = 2997;
+    fire(media, 'ended');
+    await settle();
+    const card = () => !!p.q('[data-upnext]') && !gone(p.q('[data-upnext]'));
+    const out = { counts: card(), rate: !gone(p.q('[data-rate]')), button: p.q('[data-bring]').textContent };
+    if (how === 'cancelled' || how === 'space') { click(p.q('[data-upnext-cancel]')); await settle(); }
+    const before = p.beacons.length;
+    if (how === 'space') { doc.activeElement.blur(); key(' '); } else fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 1 });
+    if (how === 'twice') fire(p.q('[data-bring]'), 'click', { bubbles: true, detail: 2 });
+    out.card = card() || !gone(p.q('[data-rate]'));
+    out.starting = awayState(p).says;
+    if (how === 'stop') click(p.q('[data-stop-away]'));
+    await settle();
+    out.stopped = p.beacons.slice(before).map((b) => b.url);
+    out.loads = way.loads.map((s) => [s.stream_id, s.position_s, s.paused]);
+    out.casts = p.elsewhere.casts;
+    out.local = p.starts().length;
+    out.saved = p.calls.filter((c) => /\/progress$/.test(c.url)).map((c) => c.body.position_s);
+    out.href = p.win.location.href;
+    out.stops = p.calls.filter((c) => /\/stop$/.test(c.url)).map((c) => [c.url, c.body && c.body.position_s]);
+    if (how === 'stop') { out.after = awayState(p).away; return out; }
+    mediaPlays(media, 0);
+    p.tick(30000);
+    await settle();
+    out.says = awayState(p).says;
+    out.next = p.calls.some((c) => c.page && /502/.test(c.url));
+    return out;
+  },
+
   /* What becomes of the next-episode countdown where the title comes back meanwhile. */
   async away_countdown(p) {
     await streamPlays(p, 30);

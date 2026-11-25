@@ -1380,12 +1380,12 @@
     h.recoverMediaError();
   }
 
-  /* Drop the current stream and start a new one where playback stands.
+  /* Drop the current stream and start a new one where playback stands, or `at`.
      `force` is for a quality change, which may replace a stream that is
      still starting. */
-  function restartStream(force) {
+  function restartStream(force, at) {
     if (switching || (starting && !force)) return;
-    var pos = position();
+    var pos = at === undefined ? position() : at;
     /* A beacon, since the page may be on its way out. */
     if (streamId) beacon(stopUrl(streamId), unsaved());
     streamId = null;
@@ -1699,6 +1699,7 @@
     }
     if (video.paused || video.ended) {
       pressedPlay();
+      if (overThere()) { playAgain(); return; }
       if (!streamId && !starting) { wantPlaying = true; restartStream(false); return; }
       play();
     } else {
@@ -1707,6 +1708,17 @@
       pausedHere = true;
       video.pause();
     }
+  }
+
+  /* Played to its end on a TV that then holds it no more. */
+  function overThere() {
+    return !!away && !!away.play && away.play.carriesOn && video.ended && !swapping;
+  }
+
+  function playAgain() {
+    leftEnd(0);
+    wantPlaying = true;
+    restartStream(false, 0);
   }
 
   function within(t) {
@@ -3739,7 +3751,7 @@
       restHere();
     } else if (onTv()) {
       leaveTv(stoppedAt);
-    } else if (away && video.ended) {
+    } else if (away && video.ended && !starting) {
       release();
       endAway(true);
       leaveAtEnd();
@@ -4053,9 +4065,17 @@
     restartStream(true);
   });
 
-  els.bring.addEventListener('click', function () {
-    if (away && away.play && video.ended) togglePlay(true);
-    else bringHere();
+  els.bring.addEventListener('click', function (e) {
+    /* The second press of a double one would take back what the first began. */
+    if (e.detail > 1) return;
+    if (overThere()) {
+      pressedPlay();
+      playAgain();
+    } else if (away && away.play && !away.play.carriesOn && video.ended) {
+      togglePlay(true);
+    } else {
+      bringHere();
+    }
   });
   els.stopAway.addEventListener('click', stopAway);
   els.openRemote.addEventListener('click', function () { MM.tvRemote.open(away.tv); });
