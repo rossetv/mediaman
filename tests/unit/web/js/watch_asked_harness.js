@@ -80,7 +80,7 @@ function load(answer, opts = {}) {
   const cards = () => doc.querySelectorAll('.asked-row .watch-card').filter((c) => !c.closest('[data-going]'));
   return {
     doc, api, left, standing, win, source: () => source(),
-    fire: (type) => doc.dispatchEvent({ type, detail: {} }),
+    fire: (type, ref) => doc.dispatchEvent({ type, detail: { ref } }),
     async pass(ms) {
       clock.now += ms;
       clock.timers.filter((t) => t.at <= clock.now).forEach((t) => { const fn = t.fn; t.fn = () => {}; t.at = Infinity; fn(); });
@@ -205,7 +205,7 @@ const scenarios = {
     const t = load({ items: [ready(1, 3)] });
     await settle();
     await t.pass(60000);
-    t.fire('mm:watch-marked');
+    t.fire('mm:watch-marked', 'movie-1');
     await t.pass(300);
     const early = t.api.gets;
     await t.pass(700);
@@ -266,6 +266,29 @@ const scenarios = {
     t.fire('visibilitychange');
     await t.pass(6000);
     return { keys: t.keys(), same: t.row() === row, left: t.left };
+  },
+  async own_marks() {
+    // Two marked within five seconds, then an undo; something else of the page calls for a look meanwhile.
+    const t = load({ items: [ready(1, 0), ready(2, 1), ready(3, 2)] });
+    await settle();
+    await t.pass(60000);
+    const out = [];
+    const step = async (ref, items, ms) => {
+      await t.answer({ items });
+      t.fire('mm:watch-marked', ref);
+      t.fire('mm:title-changed');
+      await t.pass(ms);
+      out.push(t.keys());
+    };
+    await step('movie-1', [ready(2, 1), ready(3, 2)], 900);
+    await step('movie-2', [ready(3, 2)], 900);
+    await step('movie-2', [ready(2, 1), ready(3, 2)], 0);
+    const gets = t.api.gets;
+    t.fire('mm:title-changed');
+    await t.pass(4900);
+    const early = t.api.gets - gets;
+    await t.pass(100);
+    return { keys: out, others: [early, t.api.gets - gets] };
   },
   async in_flight() {
     // Marked while a slow asking is on its way; its answer, from before the mark, comes after *wait*.

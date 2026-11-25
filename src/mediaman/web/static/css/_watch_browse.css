@@ -124,7 +124,9 @@
 }
 /* The backplates of the words would cover one another. */
 @media (forced-colors: active) {
-  .row-open[href] .row-open__cue { forced-color-adjust: none; color: LinkText; }
+  .row-open[href] .row-open__cue,
+  .row-open[href]:hover .row-open__cue,
+  .row-open[href]:active .row-open__cue { forced-color-adjust: none; color: LinkText; }
   .row-open:is(:hover, :focus-visible, .is-offered) .row-open__cue::before { border: 1px solid LinkText; }
 }
 

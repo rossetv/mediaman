@@ -842,7 +842,11 @@
   function renderLoading() {
     root.setAttribute('aria-busy', 'true');
     root.classList.remove('is-short', 'is-late');
-    root.classList.toggle('ttl--admin', hasFacts(cur));
+    var origin = cur.origin && cur.origin.closest ? cur.origin : null;
+    var card = origin && origin.closest('.watch-card');
+    var held = /^(movie|show)-/.test(cur.ref) ||
+      !!(origin && (origin.closest('[data-in-library]') || (card && card.querySelector('[data-in-library]'))));
+    root.classList.toggle('ttl--admin', isAdmin && held);
     if (heroEase) heroEase.cancel();
     hide(heroSkel, false);
     clearPictures();
@@ -863,20 +867,31 @@
     var main = el('div', 'ttl__main');
     var actions = el('div', 'ttl__actions');
     actions.appendChild(skel('skel--pill', '150px'));
-    var held = /^(movie|show)-/.test(cur.ref);
     if (held && window.MM.playOn) actions.appendChild(skel('skel--pill ttl__play-on'));
     var search = window.MMWatch.search;
-    if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px'));
+    if (search && search.canLike && search.canLike(cur.ref)) actions.appendChild(skel('skel--pill', '205px')).style.minWidth = '181px'; // as its words are on a phone
     actions.appendChild(skel('skel--pill', '158px')); // Trailer
-    if (held) actions.appendChild(skel('skel--pill', '200px')); // Watched
+    if (held) actions.appendChild(skel('skel--pill', '200px')).style.minWidth = '175px'; // Watched
+    var leaves = held && card && card.querySelector('.watch-badge--leaving');
+    if (leaves && !isAdmin) actions.appendChild(skel('skel--pill ttl__keep-skel', '94px'));
     main.appendChild(actions);
-    // Its card says how far it was watched, as the page is about to.
-    var card = cur.origin && cur.origin.closest && cur.origin.closest('.watch-card');
+    var under = el('div', 'ttl__under');
+    // Its card says how far it was watched and that it leaves, as the page is about to.
     if (held && card && card.querySelector('.watch-bar')) {
       var progress = el('div', 'ttl__progress');
       progress.appendChild(skel('skel--line', '240px'));
-      main.appendChild(progress);
+      under.appendChild(progress);
     }
+    if (leaves) {
+      var leaving = skel('ttl__leaving-skel');
+      leaving.textContent = 'Leaving in 10 days. Keep it to stop the deletion.';
+      var line = el('p', 'ttl__leaving');
+      line.setAttribute('aria-hidden', 'true');
+      line.appendChild(icon('i-clock'));
+      line.appendChild(leaving);
+      under.appendChild(line);
+    }
+    if (under.children.length) main.appendChild(under);
     if (window.MM.ratings && window.MM.ratings.canRate(cur.ref) !== false) {
       var thumbsSkel = el('div', 'ttl__rate-skel');
       thumbsSkel.appendChild(skel('skel--pill'));
@@ -892,13 +907,13 @@
     main.appendChild(lines);
     if (held && cur.kind === 'movie') main.appendChild(el('p', 'ttl__credit')).appendChild(skel('skel--line', '200px'));
     lead.appendChild(main);
-    if (hasFacts(cur)) {
+    if (isAdmin && held) {
       var facts = factsCard();
       factsToCome(facts, false);
       lead.appendChild(facts.aside);
     }
     body.appendChild(lead);
-    if (/^show-/.test(cur.ref)) {
+    if (held && cur.kind !== 'movie') {
       var eps = el('section', 'ttl__seasonsec');
       eps.setAttribute('aria-hidden', 'true');
       eps.appendChild(skel('skel--line ttl__sec-skel'));
@@ -2394,7 +2409,10 @@
         fresh.push(describe(li, episodes[i]));
       });
       if (typeof ResizeObserver === 'function') fitNow(panel);
-      fresh.filter(Boolean).forEach(core.fadeIn);
+      fresh.filter(Boolean).forEach(function (text) {
+        core.fadeIn(text);
+        core.fadeIn(panel.querySelector('[aria-controls="' + text.id + '"]'));
+      });
     }
     if (still) holdStill(function () { return still; }, say);
     else say();

@@ -34,7 +34,8 @@
   var items = []; // as they are shown
   var timer = null; // of the next look at what is on its way
   var due = null; // the timer of an asking that something called for
-  var again = false; // it came due while one was on its way
+  var dueOwn = false; // what called for it is the person's own doing
+  var again = null; // the same, come due while one was on its way: { own }
   var askedAt = 0;
   var asking = null;
 
@@ -297,8 +298,9 @@
   function settled() {
     asking = null;
     later();
-    if (again) soon(0);
-    again = false;
+    var next = again;
+    again = null;
+    if (next) soon(0, next.own);
   }
 
   function ask() {
@@ -314,14 +316,18 @@
 
   function refresh() { ask().catch(function () { /* it stays as it is until something asks again */ }); }
 
-  /* Ask again *ms* from now, or once the last asking is long enough ago. One on
-     its way may have been answered before what called for this. */
-  function soon(ms) {
+  /* Ask again *ms* from now, or once the last asking is long enough ago, which the person's
+     *own* mark does not wait for. One on its way may have been answered before what called
+     for this. */
+  function soon(ms, own) {
+    if (dueOwn && !own) return;
     clearTimeout(due);
+    dueOwn = !!own;
     due = setTimeout(function () {
-      if (asking) again = true;
+      dueOwn = false;
+      if (asking) again = { own: own };
       else refresh();
-    }, Math.max(ms, askedAt + AGAIN_MS - Date.now(), 0));
+    }, own ? ms : Math.max(ms, askedAt + AGAIN_MS - Date.now(), 0));
   }
 
   /* ── Its grid ── */
@@ -336,7 +342,10 @@
   if (!anchor || !watch.expand) return;
   watch.expand.source(ID, gridOf);
 
-  document.addEventListener('mm:watch-marked', function () { soon(SETTLE_MS); });
+  document.addEventListener('mm:watch-marked', function (e) {
+    var shown = items.some(function (item) { return item.held_ref === e.detail.ref; });
+    soon(shown ? SETTLE_MS : 0, true);
+  });
   document.addEventListener('mm:watch-continue', function () {
     var left = items.filter(notContinued);
     if (left.length < items.length) put(left);
