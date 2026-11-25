@@ -927,3 +927,9 @@ def test_every_focus_handed_back_after_a_request_keeps_the_page_still() -> None:
             assert found, (name, call)
             for at in found:
                 assert text[at:].split(";", 1)[0].endswith("{ preventScroll: true })"), (name, call)
+
+
+def test_a_save_no_longer_sends_the_plex_or_nzbget_public_url() -> None:
+    keys = _run("payloadKeys")
+    assert "sonarr_public_url" in keys and "radarr_public_url" in keys
+    assert "plex_public_url" not in keys and "nzbget_public_url" not in keys

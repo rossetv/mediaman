@@ -2099,7 +2099,6 @@ const scenarios = {
     edit('nzbget_username', 'other');
     out.written = [await saveNow(), look('plex'), look('sonarr'), look('nzbget')];
     check = () => Promise.resolve({});
-    edit('base_url', 'b');
     edit('base_url', 'q');
     out.elsewhere = await saveNow();
     edit('sonarr_url', '');
