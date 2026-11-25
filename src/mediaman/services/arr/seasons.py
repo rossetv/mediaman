@@ -9,6 +9,7 @@ from datetime import date
 from typing import Any, Literal, cast
 
 from mediaman.core.time import now_utc
+from mediaman.services.arr._sonarr_methods import SeriesChange
 from mediaman.services.arr._transport import ArrError, SearchUnanswered
 from mediaman.services.arr._types import ArrQueueItem, ArrSeason, SonarrSeries
 from mediaman.services.arr.base import ArrClient
@@ -36,14 +37,15 @@ class ShowSeasons:
     states: dict[int, SeasonState]
     #: Whether every season Sonarr gave could be read, so that one not in ``states`` is not listed.
     whole: bool
-    #: The numbers of the seasons flagged monitored, and whether the show is.
-    monitored_seasons: frozenset[int]
+    #: The numbers of the seasons Sonarr fetches something of once the show is monitored, and
+    #: whether it is.
+    wanted: frozenset[int]
     monitored: bool
 
     def started_with(self, number: int) -> set[int]:
         """The other seasons Sonarr starts fetching when season *number* is added: it fetches
         nothing of an unmonitored show, and adding one monitors the show."""
-        return set() if self.monitored else set(self.monitored_seasons - {number})
+        return set() if self.monitored else set(self.wanted - {number})
 
 
 def _is_count(value: object) -> bool:
@@ -131,8 +133,18 @@ def show_seasons(
         states[number] = SeasonState(
             _status(series, season, in_queue, counted, airs), is_asked(series, season)
         )
-    monitored = frozenset(s["seasonNumber"] for s in seasons if s.get("monitored"))
-    return ShowSeasons(states, whole, monitored, series.get("monitored") is not False)
+    wanted = frozenset(s["seasonNumber"] for s in seasons if _is_wanted(s))
+    return ShowSeasons(states, whole, wanted, series.get("monitored") is not False)
+
+
+def _is_wanted(season: ArrSeason) -> bool:
+    """Whether the season is monitored, or an episode of it alone is."""
+    stats = _season_stats(season)
+    return bool(
+        season.get("monitored")
+        or stats.get("episodeCount", 0) > stats.get("episodeFileCount", 0)
+        or stats.get("nextAiring")
+    )
 
 
 def is_asked(series: SonarrSeries, season: ArrSeason) -> bool:
@@ -189,9 +201,13 @@ class SeasonRefused(ArrError):
 
 
 def add_season(
-    client: ArrClient, series_id: int, number: int, judge: Callable[[SonarrSeries], str | None]
+    client: ArrClient,
+    series_id: int,
+    number: int,
+    judge: Callable[[SonarrSeries], str | None],
+    change: SeriesChange,
 ) -> None:
-    """Monitor and search one season of a series Sonarr holds.
+    """Monitor and search one season of a series Sonarr holds, and tell *change* what that changed.
 
     *judge* is asked of the series as it is read to be changed; what it answers is raised as
     ``SeasonRefused`` and nothing is changed. A search that got no answer may be running.
@@ -202,7 +218,8 @@ def add_season(
             raise SeasonRefused(result)
 
     try:
-        client.remonitor_season(series_id, number, guard=guard)
+        # One try: the person who waits can send it again.
+        client.remonitor_season(series_id, number, max_retries=1, guard=guard, change=change)
     except SearchUnanswered:
         logger.warning("sonarr search of series_id=%s season=%s got no answer", series_id, number)
 

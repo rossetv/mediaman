@@ -63,7 +63,7 @@ def fill_season_status(
     sonarr = arr.show_seasons(tmdb_id, tvdb_id, air_dates)
     show = ShowIds(tmdb_id, tvdb_id, out["title"])
     numbers = {s["number"] for s in seasons}
-    refused = season_refusals(conn, show, numbers | (sonarr.monitored_seasons if sonarr else set()))
+    refused = season_refusals(conn, show, numbers | (sonarr.wanted if sonarr else set()))
     # A season deleted lately may still be in the last scan.
     removed = {number for number, refusal in refused.items() if refusal == "removed"}
     in_plex = library_seasons(conn, show) - removed | {s["number"] for s in seasons if s["key"]}

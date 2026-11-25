@@ -75,8 +75,9 @@ class Sonarr(MagicMock):
         self.remonitor_season.side_effect = self._monitor
         return self
 
-    def _monitor(self, _series_id, number, *, guard):
+    def _monitor(self, _series_id, number, *, guard, change, max_retries):
         guard(copy.deepcopy(self.show))
+        change.series = not self.show["monitored"]
         next(s for s in self.show["seasons"] if s["seasonNumber"] == number)["monitored"] = True
         self.show["monitored"] = True
 
@@ -206,10 +207,10 @@ def test_half_a_success_is_told_by_season_and_only_what_was_added_is_recorded(
 ):
     sonarr = Sonarr().track(_season(3), _season(4))
 
-    def monitor(_series_id, number, *, guard):
+    def monitor(_series_id, number, **how):
         if number == 3:
             raise SafeHTTPError(400, "no", "sonarr/series")
-        sonarr._monitor(_series_id, number, guard=guard)
+        sonarr._monitor(_series_id, number, **how)
 
     sonarr.remonitor_season.side_effect = monitor
 
@@ -463,30 +464,64 @@ def test_no_one_starts_a_deleted_or_leaving_season_by_asking_for_another(
 
 
 @pytest.mark.parametrize("route", ["search"])
-@pytest.mark.parametrize("when", ["before the add", "before the record"])
-def test_a_deletion_scheduled_while_a_season_is_asked_for_is_not_undone_by_it(
-    authed_client, db, ask, route, when
+@pytest.mark.parametrize(
+    ("when", "status", "result"),
+    [
+        ("before the add", "pending", "leaving"),
+        ("before the record", "deleting", "leaving"),
+        # As one scheduled a moment after the season was asked for.
+        ("before the record", "pending", "asked"),
+    ],
+)
+def test_a_deletion_that_comes_while_a_season_is_asked_for_is_not_undone_by_it(
+    authed_client, db, ask, route, when, status, result
 ):
     _in_library(db, 2)
     sonarr = Sonarr().track(_season(2, files=3))
 
     def schedule():
         # The route runs in a thread of its own.
-        insert_scheduled_action(get_db(), media_item_id="502", action="scheduled_deletion")
+        insert_scheduled_action(
+            get_db(), media_item_id="502", action="scheduled_deletion", delete_status=status
+        )
 
-    def monitor(series_id, number, *, guard):
+    def monitor(series_id, number, **how):
         if when == "before the add":
             schedule()
-        sonarr._monitor(series_id, number, guard=guard)
+        sonarr._monitor(series_id, number, **how)
         schedule()
 
     sonarr.remonitor_season.side_effect = monitor
 
     resp = ask(authed_client, sonarr, [2])
 
-    assert _results(resp) == {2: "leaving"}
-    assert (_audit(db), _mails(db)) == ([], [])
-    assert sonarr.unmonitor_season.called is (when == "before the record")
+    assert _results(resp) == {2: result}
+    assert bool(_audit(db)) is (result == "asked")
+    assert sonarr.take_back_season.called is (status == "deleting")
+
+
+@pytest.mark.parametrize("route", ["search"])
+@pytest.mark.parametrize("left_on", [True, False])
+def test_seasons_left_started_for_one_that_was_not_added_are_told_and_audited(
+    authed_client, db, ask, route, left_on
+):
+    sonarr = _off(_season(1, monitored=True), _season(2), _season(3, monitored=False))
+
+    def monitor(series_id, number, **how):
+        sonarr._monitor(series_id, number, **how)
+        _delete_season(get_db(), number)
+
+    def take_back(_series_id, _number, change):
+        change.left_on = left_on
+
+    sonarr.remonitor_season.side_effect = monitor
+    sonarr.take_back_season.side_effect = take_back
+
+    resp = ask(authed_client, sonarr, [2])
+
+    assert _results(resp) == {2: "removed"}
+    assert resp.json()["also_started"] == ([1] if left_on else [])
+    assert [("season 1" in row[2], row[3]) for row in _audit(db)] == [(True, "admin")] * left_on
 
 
 @pytest.mark.parametrize("route", ["search"])
@@ -495,8 +530,8 @@ def test_a_season_deleted_while_an_admin_asks_for_it_is_not_recorded_as_asked_fo
 ):
     sonarr = Sonarr().track(_season(2))
 
-    def monitor(series_id, number, *, guard):
-        sonarr._monitor(series_id, number, guard=guard)
+    def monitor(series_id, number, **how):
+        sonarr._monitor(series_id, number, **how)
         _delete_season(get_db(), 2)
 
     sonarr.remonitor_season.side_effect = monitor
@@ -530,7 +565,9 @@ def test_a_season_sonarr_gives_in_a_shape_that_cannot_be_read_fails_and_the_othe
 ):
     odd = {"seasonNumber": 3, "monitored": False, "statistics": "x"}
     sonarr = Sonarr().track(_season(2), odd, None)
-    sonarr.remonitor_season.side_effect = lambda *_a, guard: guard(copy.deepcopy(sonarr.show))
+    sonarr.remonitor_season.side_effect = lambda *_a, guard, **_how: guard(
+        copy.deepcopy(sonarr.show)
+    )
 
     assert _results(ask(viewer, sonarr, [2, 3, 4])) == {2: "asked", 3: "failed", 4: "failed"}
 
@@ -561,6 +598,46 @@ def test_a_slow_sonarr_ends_the_request_in_time(conn, fake_http, fake_response, 
     results = [s["result"] for s in json.loads(resp.body)["seasons"]]
     assert results[0] == "asked" and results[-1] == "failed"
     assert next(clock) < REQUEST_SECONDS * 2
+
+
+@pytest.mark.parametrize("route", ["search"])
+def test_a_viewer_cannot_start_the_lone_monitored_episodes_of_a_season_of_a_show_that_is_off(
+    viewer, db, ask, route
+):
+    lone = _season(1, files=3)
+    lone["statistics"]["episodeCount"] = 4
+
+    assert _results(ask(viewer, _off(lone, _season(3)), [3])) == {3: "show_unmonitored"}
+
+
+def test_a_change_that_failed_though_it_landed_is_a_failure_with_no_line_and_no_mail(
+    conn, fake_http, fake_response
+):
+    create_user(conn, "amy", "password123", enforce_policy=False, role="viewer")
+    held = {"id": 9, "tvdbId": TVDB, "monitored": True, "seasons": [_season(3)]}
+
+    def arr(method, url, **kwargs):
+        if method == "PUT":
+            held.update(copy.deepcopy(kwargs["json"]))
+            if held["seasons"][0]["monitored"]:
+                return fake_response(status=502, text="no")
+        return fake_response(json_data=[held] if "tvdbId" in url else copy.deepcopy(held))
+
+    fake_http.handler(arr)
+    resp = add_to_tracked_show(
+        conn,
+        ArrClient(SONARR_SPEC, "http://sonarr:8989", "key"),
+        tmdb_id=77,
+        tvdb_id=TVDB,
+        title="Glass Coast",
+        numbers=[3],
+        actor="amy",
+        email="amy@example.com",
+    )
+
+    assert json.loads(resp.body)["seasons"] == [{"number": 3, "result": "failed"}]
+    assert held["seasons"][0]["monitored"] is False
+    assert (_audit(conn), _mails(conn)) == ([], [])
 
 
 def test_the_history_line_names_the_show():

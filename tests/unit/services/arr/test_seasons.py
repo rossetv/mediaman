@@ -55,6 +55,21 @@ def test_nothing_of_an_unmonitored_series_is_asked_and_adding_to_it_starts_its_o
     assert show_seasons({**off, "monitored": True}, {}, {}).started_with(2) == set()
 
 
+@pytest.mark.parametrize(
+    ("other", "starts"),
+    [
+        (_season(1, 3, 3, 8), False),
+        (_season(1, 3, 4, 8), True),
+        (_season(1, 0, 0, 8, nextAiring=NEXT), True),
+        (_season(1, 8, 8, 8, True), True),
+    ],
+)
+def test_a_season_starts_with_the_show_when_it_or_an_episode_of_it_is_monitored(other, starts):
+    off = {"id": 9, "monitored": False, "seasons": [other, _season(2, total=8)]}
+
+    assert show_seasons(off, {}, {}).started_with(2) == ({1} if starts else set())
+
+
 def test_a_show_just_added_whose_episodes_are_not_counted_is_not_called_unaired():
     series = {"id": 9, "monitored": True, "seasons": [{"seasonNumber": 1, "monitored": True}]}
 

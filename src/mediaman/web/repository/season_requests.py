@@ -61,13 +61,15 @@ def season_refusals(
     return refused
 
 
-def _leaving(conn: sqlite3.Connection, show: ShowIds) -> set[int]:
-    # rationale: the interpolated condition is a fixed string; every value is bound
+def _leaving(conn: sqlite3.Connection, show: ShowIds, *, begun: bool = False) -> set[int]:
+    """The seasons scheduled for deletion or being deleted; with *begun* only the latter."""
+    # rationale: the interpolated conditions are fixed strings; every value is bound
+    scheduled = "" if begun else "sa.delete_status IS NULL OR sa.delete_status = 'pending' OR "
     rows = conn.execute(  # nosec B608
         f"SELECT season_number FROM media_items mi WHERE {_OF_SHOW} AND ("
         "EXISTS (SELECT 1 FROM scheduled_actions sa WHERE sa.media_item_id = mi.id"
         " AND sa.action = 'scheduled_deletion' AND sa.token_used = 0"
-        " AND (sa.delete_status IS NULL OR sa.delete_status IN ('pending', 'deleting')))"
+        f" AND ({scheduled}sa.delete_status = 'deleting'))"
         " OR EXISTS (SELECT 1 FROM delete_intents di WHERE di.media_item_id = mi.id"
         " AND di.completed_at IS NULL AND di.last_error IS NULL))",
         show.params(),
@@ -125,7 +127,9 @@ def record_season(
     was_removed: bool,
     started: Collection[int] = (),
 ) -> Refusal | None:
-    """Record the season *actor* asked for, or answer what has come to stand in its way since.
+    """Record the season *actor* asked for, or answer which deletion of it has begun since: one
+    recorded as asked for after its deletion would be left monitored by that. One scheduled for
+    deletion meanwhile is as if it had been after.
 
     The download is audited when they *added* it, with the seasons *started* by it, and else when
     it has no line yet since it was last deleted: one added whose answer, or line, was lost. It is
@@ -135,9 +139,10 @@ def record_season(
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        refusal = season_refusals(conn, show, {number}).get(number)
-        if refusal == "leaving" or (refusal == "removed" and not was_removed):
-            return refusal
+        if number in _leaving(conn, show, begun=True):
+            return "leaving"
+        if not was_removed and _removed(conn, show, {number}):
+            return "removed"
         latest = _last_deletions(conn, show)
         deleted = max(latest.get(number, 0), latest.get(None, 0))
         detail = f"Added season {number} of '{title}' to Sonarr by {actor}"
@@ -162,3 +167,26 @@ def record_season(
                 username=actor,
             )
     return None
+
+
+def record_started(
+    conn: sqlite3.Connection,
+    show: ShowIds,
+    *,
+    title: str,
+    number: int,
+    actor: str,
+    started: Collection[int],
+) -> None:
+    """Record the seasons that started though the one *actor* asked for was not added: the show
+    was monitored for it, and could not be put back."""
+    names = ", ".join(str(n) for n in sorted(started))
+    with conn:
+        log_audit(
+            conn,
+            f"show:{show.tvdb_id}",
+            "downloaded",
+            f"Started season {names} of '{title}' in Sonarr by {actor}; "
+            f"season {number} was not added, but the show was monitored for it",
+            actor=actor,
+        )
