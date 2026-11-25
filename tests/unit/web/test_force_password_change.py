@@ -172,6 +172,8 @@ def test_the_brand_is_the_drawn_name_that_keeps_to_its_width(page) -> None:
     mark = _rule((WEB / "static" / "css" / "_base.css").read_text(), ".wordmark")
     assert "max-width: 100%" in mark and "height: auto" in mark
     assert "aspect-ratio: 4.4316 / 1.0211" in mark
+    link = _rule((WEB / "static" / "css" / "_login.css").read_text(), ".login-brand a")
+    assert "min-width: 0" in link
 
 
 def test_an_open_form_s_fold_follows_its_height_in_safari() -> None:
