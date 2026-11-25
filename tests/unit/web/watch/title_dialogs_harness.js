@@ -100,6 +100,26 @@ const scenarios = {
     }
     return out;
   },
+  // The banner of a deleted title, with the page scrolled past it.
+  async bannerAbove() {
+    const p = await asked();
+    p.ctx.history.back();
+    await settle();
+    p.ctx.scrollY = 977;
+    p.ctx.MMWatch.detail.open('movie-120', {});
+    await settle();
+    const banner = p.doc.body.appendChild(build(p.doc, ['section', { class: 'watch-banner' }, ['a', { 'data-title-ref': 'movie-120' }, 'Details']]));
+    const rows = p.doc.body.appendChild(build(p.doc, ['div', {}]));
+    rows.getBoundingClientRect = () => ({ top: banner.isConnected ? -100 : -536 });
+    const out = { folded: 0, by: [] };
+    p.ctx.MMWatch.keep.foldAway = () => { out.folded++; };
+    p.ctx.MMWatch.keep.fromRow = () => ({ focus: null });
+    p.ctx.scrollBy = (o) => { out.by.push(o.top); p.ctx.scrollY += o.top; };
+    p.ctx.scrollTo = (o) => { p.ctx.scrollY = o.top; };
+    p.doc.dispatchEvent(new p.ctx.CustomEvent('mm:watch-admin', { detail: { phase: 'done', action: 'delete', id: '120' } }));
+    await settle();
+    return { ...out, at: p.ctx.scrollY, closed: p.loc.hash === '', there: banner.isConnected };
+  },
   // Deleted from its card among the search results: two of them, then the last.
   async deletedResult() {
     const p = await asked();

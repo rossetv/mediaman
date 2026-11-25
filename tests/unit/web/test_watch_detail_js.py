@@ -229,6 +229,7 @@ def test_back_close_and_a_press_outside_take_the_trailer_before_the_title() -> N
     for way in ("close", "closeLink", "outside"):
         assert out[way] == [details, gone], way
     assert out["doubleClick"] == [details, details]
+    assert (out["trailerTwice"], out["stopTwice"]) == ({**details, "trailer": True}, details)
     # Loaded again mid-trailer: the title alone, and one Back still leaves it.
     assert (out["reload"], out["reloadBack"]) == (details, gone)
 

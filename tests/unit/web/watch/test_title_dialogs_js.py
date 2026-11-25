@@ -59,3 +59,13 @@ def test_a_search_counts_what_is_left_of_it_and_the_last_one_leaves_the_focus_to
     None
 ):
     assert _run("deletedResult") == [["1 title", "movie-9"], ["No title matches", "watch-search"]]
+
+
+def test_a_deleted_title_s_banner_above_the_screen_goes_without_moving_what_is_on_it() -> None:
+    assert _run("bannerAbove") == {
+        "folded": 0,
+        "by": [-436],
+        "at": 541,
+        "closed": True,
+        "there": False,
+    }

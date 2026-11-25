@@ -437,8 +437,16 @@
       if (banner.hasAttribute('inert') || (banner.getAttribute('data-dismiss-ref') !== ref &&
           !(link && link.getAttribute('data-title-ref') === ref))) return;
       leave(banner, function () {
-        window.MMWatch.keep.foldAway(banner);
-        banner.setAttribute('inert', '');
+        if (!(window.scrollY > 0)) {
+          window.MMWatch.keep.foldAway(banner);
+          banner.setAttribute('inert', '');
+          return;
+        }
+        // Above what is on the screen, which stays where it is.
+        var below = banner.nextElementSibling;
+        var top = below && below.getBoundingClientRect().top;
+        banner.remove();
+        if (below) window.scrollBy({ top: below.getBoundingClientRect().top - top, behavior: 'instant' });
       });
     });
     toArray(document.querySelectorAll('.watch-card')).forEach(function (card) {
@@ -1851,7 +1859,8 @@
       face.appendChild(document.createTextNode(f[1]));
       b.appendChild(face);
     });
-    b.addEventListener('click', function () {
+    b.addEventListener('click', function (e) {
+      if (e.detail > 1) return; // the rest of a double click
       if (trailerOn()) {
         leaveTrailer();
         return;
@@ -2630,7 +2639,17 @@
       if (isOpen && ref === cur.openedAs && ref !== cur.ref) readdress(cur.ref);
       else if (!isOpen || cur.ref !== ref) openAt(ref, how);
     },
-    close: function (how) { close(how === 'push'); }
+    close: function (how) {
+      close(how === 'push');
+      if (!cur || !cur.gone || how !== 'pop') return false;
+      // The page has been put right for what left it. Safari moves it as it steps back.
+      var y = window.scrollY;
+      Promise.resolve().then(function () {
+        window.scrollTo({ top: y, behavior: 'instant' });
+        address.hold(root);
+      });
+      return true;
+    }
   });
 
   /* In no address: a title opened by a link, or again, starts without it. */

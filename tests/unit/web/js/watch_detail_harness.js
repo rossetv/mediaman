@@ -683,6 +683,12 @@ const scenarios = {
     out.outside = [1, 2].map(() => { click(p.doc, p.q('.ttl__scrim')); return look(p); });
     p = await playing();
     out.doubleClick = [1, 2].map((detail) => { click(p.doc, p.q('.ttl__close'), { detail }); return look(p); });
+    p = await playing();
+    for (const detail of [2, 3]) click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail });
+    out.trailerTwice = look(p);
+    click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail: 1 });
+    click(p.doc, p.q('[data-ttl-act="trailer"]'), { detail: 2 });
+    out.stopTwice = look(p);
     const last = (await playing()).entries;
     p = load({ routes, hash: '#title=tmdb-movie-77', state: last[2].state, before: last.slice(0, 2) });
     p.run();
