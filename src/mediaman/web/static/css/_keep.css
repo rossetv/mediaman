@@ -7,7 +7,7 @@
 .share-leave strong { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
 .share-leave strong + span { font-size: 14px; color: var(--danger-text); }
 /* Kept: the date turns over, green. */
-.share-leave.is-kept .share-date { animation: share-turn calc(var(--dur-slow) * 2.2) var(--ease-out) backwards; }
+.share-leave.is-kept .share-date { animation: share-turn calc(var(--dur-slow) * 2.2) var(--share-after) var(--ease-out) backwards; }
 .share-leave.is-kept .share-date small { background: #1f7a38; }
 .share-leave.is-kept strong + span { color: var(--t2); }
 @keyframes share-turn {
@@ -22,12 +22,18 @@
 .share-keep .btn { flex-direction: column; gap: 2px; min-height: 60px; padding: 8px 10px; border-radius: var(--r-lg); background: color-mix(in srgb, var(--success) 18%, color-mix(in srgb, var(--s1) 80%, transparent)); color: var(--success); font-size: 16px; font-weight: 600; white-space: normal; line-height: 1.25; }
 .share-keep .btn small { font-size: 12px; font-weight: 500; color: var(--t2); }
 .share-keep .btn:hover { background: color-mix(in srgb, var(--success) 30%, color-mix(in srgb, var(--s1) 80%, transparent)); }
-.share-keep[data-busy] .btn { opacity: .45; }
-.share-keep[data-busy] .btn:is(:focus, :active) { opacity: 1; }
+.share-keep[data-busy] .btn:not(.is-pressed) { opacity: .45; }
+.share-keep[data-busy] .btn.is-pressed { flex-direction: row; gap: 6px; padding-inline: 4px; white-space: nowrap; opacity: 1; }
+.share-keep .btn-spinner { margin: 0; }
 
 @media (max-width: 699.98px) {
   .share-keep__row { gap: 8px; }
   .share-keep .btn { font-size: 15px; }
+}
+@media (max-width: 359.98px) {
+  .share-keep .btn { padding-inline: 4px; }
+  .share-keep .btn small { white-space: nowrap; }
+  .share-keep .btn.is-pressed { font-size: 13px; }
 }
 @media (forced-colors: active) {
   .share-date { border: 1px solid CanvasText; }

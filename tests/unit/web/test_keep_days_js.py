@@ -51,3 +51,29 @@ def test_a_day_that_cannot_be_read_stays_as_sent() -> None:
         check=True,
     )
     assert json.loads(result.stdout) == ["as sent"] * 5
+
+
+@pytest.mark.parametrize(
+    ("zone", "ends", "hidden"),
+    [
+        # 06:00 UTC is still the evening before in Los Angeles.
+        ("America/Los_Angeles", ["2026-11-26T06:00:00Z"], [True, True, False]),
+        ("UTC", ["2026-11-26T06:00:00Z"], [False, False, True]),
+        (
+            "America/Los_Angeles",
+            ["2026-11-26T06:00:00Z", "2026-12-25T06:00:00Z"],
+            [True, False, False, True],
+        ),
+    ],
+)
+def test_a_length_that_ends_the_reader_s_day_of_leaving_is_not_offered(
+    zone: str, ends: list[str], hidden: list[bool]
+) -> None:
+    result = subprocess.run(
+        ["node", str(HARNESS), "2026-11-25T20:00:00Z", "2026-11-22T23:30:00Z", *ends],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "TZ": zone},
+    )
+    assert json.loads(result.stdout) == hidden

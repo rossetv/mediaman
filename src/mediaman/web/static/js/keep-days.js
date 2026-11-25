@@ -21,8 +21,19 @@
   document.querySelectorAll('[data-keep-in]').forEach(function (el) {
     var at = new Date(el.getAttribute('data-keep-in'));
     if (isNaN(at)) return;
-    var days = Math.round((new Date(at.getFullYear(), at.getMonth(), at.getDate()) -
-      new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
+    var leaves = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+    var days = Math.round((leaves - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
     el.textContent = days < 1 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days';
+
+    // So are the lengths: one that ends the day the title leaves keeps nothing.
+    var lengths = Array.from(document.querySelectorAll('.share-keep button'));
+    lengths.forEach(function (button) {
+      var until = new Date(button.querySelector('time').getAttribute('datetime'));
+      button.hidden = new Date(until.getFullYear(), until.getMonth(), until.getDate()) <= leaves;
+    });
+    if (lengths.length && lengths.every(function (button) { return button.hidden; })) {
+      document.querySelector('.share-keep').hidden = true;
+      document.querySelector('[data-keep-none]').hidden = false;
+    }
   });
 })();

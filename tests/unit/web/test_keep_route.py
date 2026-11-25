@@ -430,6 +430,12 @@ class TestKeepPageRoute:
         assert "Already kept until 23 December" in text
         assert "Kept on 23 November, for 30 days." in text
 
+    def test_only_the_page_right_after_a_keep_holds_still_but_for_its_date(self, conn, freezer):
+        assert "share-page is-only is-just" in self._kept_page(conn, freezer, "redirect")
+        conn.execute("DELETE FROM scheduled_actions")
+        conn.execute("DELETE FROM media_items")
+        assert "is-just" not in self._kept_page(conn, freezer, "reopen")
+
     @pytest.mark.parametrize("follow_up", ["redirect", "reopen"])
     def test_dates_on_the_kept_page_share_one_format(self, conn, freezer, follow_up):
         text = self._kept_page(conn, freezer, follow_up)
@@ -441,12 +447,20 @@ class TestKeepPageRoute:
         ("leaves_in", "offered"),
         [
             (timedelta(days=5), ["7 days", "30 days", "90 days"]),
-            (timedelta(days=7, minutes=-1), ["7 days", "30 days", "90 days"]),
+            (timedelta(days=6, hours=11), ["7 days", "30 days", "90 days"]),
+            (timedelta(days=7, minutes=-1), ["30 days", "90 days"]),
             (timedelta(days=7), ["30 days", "90 days"]),
             (timedelta(days=40), ["90 days"]),
             (timedelta(days=120), []),
         ],
-        ids=["all", "just after", "the same moment", "only the longest", "none"],
+        ids=[
+            "all",
+            "the day before",
+            "earlier that day",
+            "the same moment",
+            "only the longest",
+            "none",
+        ],
     )
     def test_a_length_that_ends_before_the_leaving_date_is_not_offered(
         self, conn, freezer, leaves_in, offered
@@ -468,6 +482,7 @@ class TestKeepPageRoute:
 
         assert re.findall(r'name="duration" value="([^"]*)"', html) == offered
         assert ("<form" in html) is bool(offered)
+        assert html.count('data-busy-label="Keeping…"') == len(offered)
         until = {"7 days": "2 Dec", "30 days": "25 Dec", "90 days": "23 Feb"}
         assert re.findall(r"until <time [^>]*>([^<]*)<", html) == [until[d] for d in offered]
         # A caller that is no page may still send it.
@@ -923,6 +938,55 @@ class TestKeepFormFailurePage:
 
         assert 'href="/login">Sign in</a>' in resp.text
         assert "Back to Watch" not in resp.text
+
+    @pytest.mark.parametrize("role", ["admin", "viewer"])
+    def test_someone_signed_in_is_never_told_to_sign_in(self, conn, authed_client, role, freezer):
+        token = self._used_token(conn)
+        client = authed_client(self._client(conn).app, conn)
+        conn.execute("UPDATE admin_users SET role=? WHERE username='admin'", (role,))
+        conn.commit()
+
+        pages = [
+            client.get(f"/keep/{token}"),
+            client.get("/keep/badtoken"),
+            client.get("/keep/" + "x" * 5000),
+            client.post("/keep/badtoken", data={"duration": "30 days"}, headers=self._HTML),
+        ]
+        for _ in range(30):
+            limited = client.get("/keep/badtoken")
+        _KEEP_GET_LIMITER.reset()
+
+        assert limited.status_code == 429
+        for page in [*pages, limited]:
+            assert "Sign in" not in page.text and "Open mediaman" in page.text
+
+    @pytest.mark.parametrize(
+        ("fields", "ref"),
+        [
+            ({"media_type": "movie", "plex_rating_key": "501"}, "movie-501"),
+            (
+                {"media_type": "tv_season", "plex_rating_key": "777", "show_rating_key": "88"},
+                "show-88",
+            ),
+            ({"media_type": "movie", "plex_rating_key": "rk1"}, None),
+        ],
+        ids=["film", "season", "no usable key"],
+    )
+    @pytest.mark.parametrize("ended", [True, False], ids=["run out", "kept"])
+    def test_signing_in_from_a_keep_page_leads_to_its_title(self, conn, fields, ref, ended):
+        insert_media_item(conn, id="mi1", title="Test", file_path="/f", **fields)
+        execute_at = datetime.now(UTC) + timedelta(days=-1 if ended else 5)
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id="mi1",
+            token="placeholder",
+            action="snoozed",
+            execute_at=execute_at.isoformat(),
+        )
+        html = self._client(conn).get(f"/keep/{_make_keep_token(conn, 'mi1', action_id)}").text
+
+        href = f"/watch#title={ref}" if ref else "/login"
+        assert re.findall(r'href="([^"]*)">Sign in', html) == [href, href]
 
     def test_an_unknown_error_code_still_renders_a_page(self, conn):
         from starlette.requests import Request

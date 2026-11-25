@@ -42,8 +42,8 @@ from mediaman.services.scheduled_actions import (
 )
 from mediaman.services.scheduled_actions.days_left import days_left
 from mediaman.web.auth.middleware import get_current_admin, get_optional_admin_from_token
-from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
+from mediaman.web.repository.library_query import title_ref
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.download._season import season_name
 
@@ -107,6 +107,11 @@ _FAILED_STATES = {
 }
 
 
+def _signed_in(request: Request) -> bool:
+    token = request.cookies.get("session_token")
+    return get_optional_admin_from_token(token, request=request) is not None
+
+
 def _wants_html_form(request: Request) -> bool:
     """True for a browser submitting the keep page's plain HTML form."""
     content_type = request.headers.get("content-type", "")
@@ -146,7 +151,7 @@ def _submit_failure(
         {
             "state": _FAILED_STATES.get(error, "error"),
             "item": None,
-            "is_admin": _is_admin(request),
+            "signed_in": _signed_in(request),
         },
         status_code=status,
     )
@@ -170,12 +175,31 @@ def _keep_state(row: VerifiedKeepAction, now: datetime) -> str:
 
 
 def _lengths(execute_at: datetime, now: datetime) -> list[dict[str, object]]:
-    """The lengths the page offers: one that ends before the title leaves would keep nothing.
+    """The lengths the page offers: one that ends no later than the day the title leaves would
+    keep nothing.
 
     A post of one of those is not refused: a caller that is no page may send it.
     """
     ends = {d: now + timedelta(days=n) for d, n in VALID_KEEP_DURATIONS.items() if n is not None}
-    return [{"duration": d, "until": until} for d, until in ends.items() if until > execute_at]
+    return [
+        {"duration": d, "until": until}
+        for d, until in ends.items()
+        if until.date() > execute_at.date()
+    ]
+
+
+def _watch_href(row: VerifiedKeepAction, kind: str) -> str:
+    """The title's own address on the Watch page, which signing in leads back to."""
+    if kind == "movie":
+        ref = title_ref("movie", row.plex_rating_key)
+    else:
+        media = (
+            get_db()
+            .execute("SELECT show_rating_key FROM media_items WHERE id = ?", (row.media_item_id,))
+            .fetchone()
+        )
+        ref = title_ref("show", media["show_rating_key"] if media else None)
+    return f"/watch#title={ref}" if ref else ""
 
 
 def _keep_context(
@@ -210,8 +234,9 @@ def _keep_context(
         # Set on the redirect after a keep, so the page can say what just happened.
         "just_kept": request.query_params.get("kept") == "1",
         "poster_url": poster_url,
+        "watch_href": _watch_href(row, kind) if state != "deleting" else "",
         "token": token,
-        "is_admin": _is_admin(request),
+        "signed_in": _signed_in(request),
         "now": now,
         "execute_at": execute_at,
         "days_left": days_left(execute_at, now),
@@ -233,7 +258,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "limited",
                 "item": None,
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
             status_code=429,
         )
@@ -244,7 +269,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "invalid",
                 "item": None,
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
         )
 
@@ -257,7 +282,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
             {
                 "state": "invalid",
                 "item": None,
-                "is_admin": False,
+                "signed_in": _signed_in(request),
             },
         )
 

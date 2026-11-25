@@ -19,7 +19,8 @@
 <link rel="stylesheet" href="/static/css/_share.css?v={{ static_v }}">
 {% endblock %}
 
-{% block nav %}{% if is_admin %}{{ share.bar() }}{% else %}{{ share.bar("Sign in", "/login") }}{% endif %}{% endblock %}
+{# Signed out, the title's own address asks for a sign-in and comes back to it. #}
+{% block nav %}{% if signed_in %}{{ share.bar() }}{% else %}{{ share.bar("Sign in", watch_href or "/login") }}{% endif %}{% endblock %}
 
 {# keep-days.js says the day again as it falls where the reader is. #}
 {% macro day(at) %}<time data-keep-day datetime="{{ at.isoformat() }}">{{ at.strftime("%-d %B" if at.year == now.year else "%-d %B %Y") }}</time>{% endmacro %}
@@ -29,13 +30,13 @@
 {% endmacro %}
 
 {% macro sign_in(words="Sign in", style="watch-btn--grey") %}
-{% if is_admin %}<a class="btn btn--lg {{ style }}" href="/watch">Back to Watch</a>
-{% else %}<a class="btn btn--lg {{ style }}" href="/login">{{ words }}</a>{% endif %}
+{% if signed_in %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/watch' }}">Back to Watch</a>
+{% else %}<a class="btn btn--lg {{ style }}" href="{{ watch_href or '/login' }}">{{ words }}</a>{% endif %}
 {% endmacro %}
 
 {% block content %}
 {% if state in ("active", "already_kept", "deleting", "expired") %}
-<div class="watch-page watch-detail share-page is-only{% if state in ('deleting', 'expired') %} is-over{% endif %}">
+<div class="watch-page watch-detail share-page is-only{% if just_kept and state == "already_kept" %} is-just{% endif %}{% if state in ('deleting', 'expired') %} is-over{% endif %}">
   <section class="watch-banner share-hero">
     {# The signature in the poster's address is for the title, so it covers its wide picture too. #}
     {{ share.pictures(poster_url ~ '&kind=art' if poster_url, poster_url) }}
@@ -60,14 +61,13 @@
             <legend>Keep it for</legend>
             <div class="share-keep__row">
               {% for length in lengths %}
-              <button class="btn" type="submit" name="duration" value="{{ length.duration }}"><span>{{ length.duration }}</span><small>until <time data-keep-day="short" datetime="{{ length.until.isoformat() }}">{{ length.until.strftime("%-d %b") }}</time></small></button>
+              <button class="btn" type="submit" name="duration" value="{{ length.duration }}" data-busy-label="Keeping…"><span>{{ length.duration }}</span><small>until <time data-keep-day="short" datetime="{{ length.until.isoformat() }}">{{ length.until.strftime("%-d %b") }}</time></small></button>
               {% endfor %}
             </div>
           </fieldset>
         </form>
-        {% else %}
-        <p class="share-say">It stays longer than a keep from here would hold it.</p>
         {% endif %}
+        <p class="share-say" data-keep-none{% if lengths %} hidden{% endif %}>It stays longer than a keep from here would hold it.</p>
 
         {% elif state == "already_kept" and item.forever %}
         <div class="share-done">{{ share.tick() }}<div><strong>Kept for good</strong><span>It stays until somebody here changes that.</span></div></div>
@@ -88,7 +88,7 @@
         <p class="share-say share-say--big">This is being deleted now, so it cannot be kept.</p>
 
         {% else %}
-        <p class="share-say share-say--big">This link has run out. <span>The time this was kept for is over. {% if is_admin %}Watch shows{% else %}Sign in to see{% endif %} where it stands.</span></p>
+        <p class="share-say share-say--big">This link has run out. <span>The time this was kept for is over. {% if signed_in %}Watch shows{% else %}Sign in to see{% endif %} where it stands.</span></p>
         <div class="watch-actions">{{ sign_in() }}</div>
         {% endif %}
 
@@ -110,6 +110,6 @@
 {% call share.notice("broken", "This could not be kept", "Something went wrong, so nothing was changed.") %}{{ sign_in(style="btn--primary") }}{% endcall %}
 
 {% else %}
-{% call share.notice("broken", "This link does not work", "It may have run out, or part of it may be missing." ~ ("" if is_admin else " Sign in to keep a title yourself.")) %}{{ sign_in(style="btn--primary") }}{% endcall %}
+{% call share.notice("broken", "This link does not work", "It may have run out, or part of it may be missing." ~ ("" if signed_in else " Sign in to keep a title yourself.")) %}{{ sign_in(style="btn--primary") }}{% endcall %}
 {% endif %}
 {% endblock %}
