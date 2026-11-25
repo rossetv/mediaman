@@ -109,8 +109,8 @@ html.is-grid-moving .card-tool { pointer-events: none; }
   .watch-card:is(.has-focus, .is-lifted, .is-touched) > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool,
   :where(html:not(.is-by-touch)) .watch-card:hover > :where(.watch-card__link:not(.is-previewed)) ~ :where(.card-tools) > .card-tool { opacity: 1; transform: none; }
   html.is-grid-moving .watch-card .card-tool:not(.is-up, .is-down) { opacity: 0; }
-  /* A screen or more out of sight (watch/card-tools.js). */
-  .watch-card.is-far > .card-tools { visibility: hidden; }
+  /* A screen or more out of sight (watch/card-tools.js): those drawn only under the mouse or the focus. */
+  .watch-card.is-far > .card-tools > .card-tool:not(.is-up, .is-down) { visibility: hidden; }
   .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool::before,
   :where(html:not(.is-by-touch)) .watch-card:hover .card-tool::before { opacity: 1; transform: none; }
   .watch-card:is(.has-focus, .is-lifted, .is-touched) .card-tool > .rate-th,

@@ -274,8 +274,11 @@ MOUSE = "(hover: hover) and (pointer: fine)"
 
 
 def test_with_a_mouse_the_buttons_of_a_card_far_out_of_sight_are_not_drawn() -> None:
-    far = ".watch-card.is-far > .card-tools"
+    # Those not seen at rest: a rating given stays drawn, as a card nears faster than it is told.
+    far = ".watch-card.is-far > .card-tools > .card-tool:not(.is-up, .is-down)"
     assert "visibility: hidden" in _of(far, MOUSE, CARDS)
+    assert "opacity: 1" in _of(".card-tool--thumb:is(.is-up, .is-down)", MOUSE, CARDS)
+    assert not _of(".watch-card.is-far > .card-tools", MOUSE, CARDS)
     # A touch screen's thumbs, drawn at rest, are as they were.
     assert not _of(far, sheet=CARDS) and not _of(far, FINGER, CARDS)
 
