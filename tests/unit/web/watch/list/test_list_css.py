@@ -110,8 +110,10 @@ def test_the_dialogs_leave_the_narrowest_phones_room_for_the_details():
 
 
 def test_a_kept_season_s_button_has_room_round_it_by_touch_on_a_tablet():
-    block = _block("(pointer: coarse) and (min-width: 700px)", MODAL_CSS)
-    assert ".keep-season-item--kept { padding-block: 4px; }" in block
+    (rule,) = re.findall(r"\n#keep-season-list > \.keep-season-item \{([^}]*)\}", MODAL_CSS)
+    height, room = (int(n) for n in re.findall(r"(?:min-height|padding-block): (\d+)px", rule))
+    assert room >= 4
+    assert height >= 44 + 2 * room
 
 
 def test_the_durations_stay_on_one_line_on_the_narrowest_phones():
@@ -125,11 +127,13 @@ def test_the_filter_pills_reach_44px_by_touch_on_a_tablet():
     assert re.search(r"\.fpill::after \{[^}]*inset: calc\(\(100% - 44px\) / 2\)", block)
 
 
-def test_a_kept_show_s_dialog_fits_a_narrow_phone_with_remove_all_on_its_own_line():
+def test_a_kept_show_s_dialog_fits_a_narrow_phone_with_remove_all_beside_the_others():
     block = _block("(max-width: 389.98px)", MODAL_CSS)
-    assert ".keep-dialog-actions { flex-wrap: wrap; }" in block
-    assert "#keep-dialog-remove.is-visible { flex: 1 0 100%; }" in block
-    assert re.search(r"\.keep-season-keep \{ flex-wrap: wrap;", block)
+    assert ".keep-dialog-actions .btn { padding-inline: 8px; white-space: nowrap; }" in block
+    # It gives way first, so "Keeping…" has room.
+    assert "#keep-dialog-remove.btn { flex: 0 1 auto; min-width: 0; white-space: normal;" in block
+    assert ".keep-season-keep .pill { grid-area: 2 / 2 / auto / 4;" in MODAL_CSS
+    assert ".keep-season-keep .btn { grid-area: 1 / 3; }" in MODAL_CSS
 
 
 def test_the_season_list_does_not_reach_past_the_dialog_s_own_padding():

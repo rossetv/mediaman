@@ -711,6 +711,7 @@
     var allSet = showKept ? setButton('all', 'All seasons') : null;
     if (_keepDialogState.hasRk) {
       var allRow = row('keep-season-item keep-all-row', allCb, 'All seasons', allSet);
+      allRow.appendChild(el('span', 'keep-all-note', 'New ones too'));
       if (showKept) keptPart(allRow, showKept, allSet);
       allCb.addEventListener('change', function () {
         list.querySelectorAll('input[data-season-id]').forEach(function (cb) {
