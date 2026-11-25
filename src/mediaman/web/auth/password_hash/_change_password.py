@@ -12,6 +12,9 @@ one transaction" rationale is literally true of what remains:
 * `_clear_reauth_failure_counter` — the best-effort post-
   transaction failure-counter cleanup.
 
+Beside them, what the screens tell of it: `is_same_password`,
+`change_lock` and `password_changed_at`.
+
 User CRUD lives in `._user_crud`; the credential-verification
 path in `._authenticate`.
 """
@@ -19,10 +22,14 @@ path in `._authenticate`.
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
+from datetime import datetime
+from typing import NamedTuple
 
 import bcrypt
 
+from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 from mediaman.web.auth._password_hash_helpers import (
     BCRYPT_ROUNDS,
     _get_dummy_hash,
@@ -30,10 +37,54 @@ from mediaman.web.auth._password_hash_helpers import (
     _sanitise_log_field,
     _UserVanished,
 )
-from mediaman.web.auth.login_lockout import reauth_key
+from mediaman.web.auth.login_lockout import is_locked_out, reauth_key
 from mediaman.web.auth.password_hash._authenticate import verify_password
 
 logger = logging.getLogger(__name__)
+
+
+def is_same_password(one: str, other: str) -> bool:
+    """Whether a hash of *one* verifies *other*."""
+    return _prepare_bcrypt_input(one) == _prepare_bcrypt_input(other)
+
+
+class ChangeLock(NamedTuple):
+    """Too many wrong passwords: no change is made, whatever the password."""
+
+    #: None when the stored end cannot be read.
+    seconds_left: int | None
+
+
+def change_lock(conn: sqlite3.Connection, username: str) -> ChangeLock | None:
+    """The lock `change_password` refuses *username* by; None when there is none.
+
+    Only for the signed-in person themselves: it tells that the account exists.
+    """
+    key = reauth_key(username)
+    if not is_locked_out(conn, key):
+        return None
+    row = conn.execute(
+        "SELECT locked_until FROM login_failures WHERE username = ?", (key,)
+    ).fetchone()
+    until = parse_iso_strict_utc(row["locked_until"]) if row else None
+    if until is None:
+        return ChangeLock(None)
+    return ChangeLock(max(1, math.ceil((until - now_utc()).total_seconds())))
+
+
+def password_changed_at(conn: sqlite3.Connection, username: str) -> datetime | None:
+    """When *username* last changed their password; None when the history has no change."""
+    row = conn.execute(
+        # A row without an account's id is theirs by name, but not from before the account was.
+        "SELECT al.created_at FROM audit_log al JOIN admin_users u ON u.username = al.actor"
+        " WHERE u.username = ?"
+        " AND al.action IN ('sec:password.changed', 'sec:password.forced_changed')"
+        " AND CASE WHEN al.actor_id IS NULL"
+        " THEN julianday(al.created_at) >= julianday(u.created_at) ELSE al.actor_id = u.id END"
+        " ORDER BY al.id DESC LIMIT 1",
+        (username,),
+    ).fetchone()
+    return parse_iso_utc(row["created_at"]) if row else None
 
 
 def _authorise_password_change(
@@ -62,7 +113,6 @@ def _authorise_password_change(
     """
     from mediaman.web.auth.login_lockout import (
         clear_unlocked_login_failures,
-        is_locked_out,
         record_failure,
     )
 
