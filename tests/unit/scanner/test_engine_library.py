@@ -1285,6 +1285,22 @@ class TestKeptTitleOfAGoneLibraryListedAgainAsAnother:
 
         assert shared.exists() is kept
 
+    def test_a_kept_film_listed_again_as_the_same_film_goes_and_gives_it_its_keep(
+        self, conn, mock_plex, freezer
+    ):
+        film = self._file("film.mkv")
+        self._store(conn, "10", 1, film, [film])
+        self._store(conn, "20", 2, film, [film])
+        self._keep(conn, "10")
+        conn.commit()
+
+        self._scan_four_times(conn, mock_plex, freezer)
+
+        assert not conn.execute("SELECT 1 FROM media_items WHERE id = '10'").fetchone()
+        keeps = conn.execute("SELECT action FROM scheduled_actions WHERE media_item_id = '20'")
+        assert [row[0] for row in keeps] == ["protected_forever"]
+        assert film.exists()
+
     def test_a_file_of_a_film_watched_lately_stays_until_the_watch_is_too_long_ago(
         self, conn, mock_plex, freezer
     ):
