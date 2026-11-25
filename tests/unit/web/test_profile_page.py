@@ -218,7 +218,7 @@ _SENT = [
     ("always", "played"),
     ("always", "recent picks"),
     ("always", "suggested before", "year", "description", "reason", "choose from"),
-    ("always", "stars in Plex", "own"),
+    ("always", "stars in Plex", "own", "link"),
     ("always", "in search", "question", "title and year", "more like"),
     ("always", "narrow", "choice", "titles it already gave"),
     ("history", "picks", "searches", "ratings", "requests", "plays went"),
@@ -262,13 +262,34 @@ def test_each_thing_openai_is_sent_is_said_in_the_right_part_beside_its_switch(
     assert said.count("Plex’s own apps") == 1
 
 
-def test_the_settings_switch_says_what_turning_it_off_stops_and_what_it_does_not(
-    app_factory, authed_client, conn, settings_html
-):
-    short, _ = _ai_text(app_factory, authed_client, conn, settings_html, "settings")
+# Each of the three sentences always in view beside a switch, by the words it must hold.
+_SHORT = {
+    "profile": [
+        ("titles you played", "Plex’s own apps", "linked"),
+        ("With this on", "searches", "ratings", "requests"),
+        ("never", "account name"),
+    ],
+    "settings": [
+        ("picks for each person", "new and popular", "your key"),
+        ("never", "account name"),
+        ("stops both kinds of picks", "still ask in search"),
+    ],
+}
 
-    assert "stops both kinds of picks" in short
-    assert "still ask in search" in short
+
+@pytest.mark.parametrize("page", ["profile", "settings"])
+def test_the_three_sentences_beside_each_switch_say_the_most_of_it(
+    app_factory, authed_client, conn, settings_html, page
+):
+    short, _ = _ai_text(app_factory, authed_client, conn, settings_html, page)
+
+    sentences = short.split(". ")
+    assert len(sentences) == 3, sentences
+    for sentence, words in zip(sentences, _SHORT[page], strict=True):
+        assert all(w in sentence for w in words), (sentence, words)
+
+
+def test_the_settings_switch_is_described_by_its_sentences(settings_html):
     switch = re.search(r'<span[^>]*aria-label="AI recommendations"[^>]*>', settings_html).group(0)
     assert 'aria-describedby="setg-ai-sub"' in switch
 

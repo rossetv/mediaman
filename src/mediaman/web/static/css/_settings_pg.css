@@ -198,8 +198,11 @@ html:has(.setg-pg) { scroll-padding-top: calc(var(--nav-h) + 16px); }
   border-bottom: 1px solid var(--hair);
 }
 .setg-pg .setg-row:last-child { border-bottom: 0; }
-/* Kept beside its label while a fold below the words opens. */
-.setg-pg .setg-row:has(.fold-more) { align-items: start; }
+/* A fold under the words, below the switch's row. */
+.setg-pg .setg-row > .fold-more { grid-column: 1; }
+@media (min-width: 640px) {
+  .setg-pg .setg-row:has(> .fold-more) { row-gap: 0; }
+}
 .setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
 .setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
 .setg-pg .setg-row-sub a { color: var(--accent); }
