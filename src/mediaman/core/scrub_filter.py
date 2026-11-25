@@ -222,18 +222,43 @@ _TOKEN_PATH_RE = re.compile(
 # The same ticket anywhere in a line, such as an address an error quotes.
 _CAST_TICKET_RE = re.compile(r"(/api/+cast/+)[A-Za-z0-9_-]{16,}", re.IGNORECASE)
 _TOKEN_NAME_RE = re.compile(r"[\w.-]*token|sig|api_?key", re.IGNORECASE)
+# What a person searched for, and the addresses of a page to go back to that may hold it.
+_SEARCH_NAME = "q"
+_ADDRESS_NAMES = frozenset({"from", "next"})
+_SEARCH_PARAM_RE = re.compile(r"(?:^|[?&])q=")
+# How deep an address may stand encoded in others.
+_DECODES_MAX = 4
+
+
+def _holds_search(address: str) -> bool:
+    for _ in range(_DECODES_MAX):
+        if _SEARCH_PARAM_RE.search(address):
+            return True
+        decoded = unquote_plus(address)
+        if decoded == address:
+            return False
+        address = decoded
+    return True
+
+
+def _is_private(name: str, value: str) -> bool:
+    name = unquote_plus(name)
+    if name in _ADDRESS_NAMES:
+        return _holds_search(value)
+    return name == _SEARCH_NAME or _TOKEN_NAME_RE.fullmatch(name) is not None
 
 
 def _redact_query(query: str) -> str:
-    """Return *query* with the value of every token-like parameter masked.
+    """Return *query* with the value of every token-like parameter masked, and what was
+    searched for.
 
     It is split the way Starlette reads it: on ``&``, then each part on its
     first ``=``.  The name is matched decoded, because the app decodes it.
     """
     parts = query.split("&")
     for i, part in enumerate(parts):
-        name, sep, _ = part.partition("=")
-        if sep and _TOKEN_NAME_RE.fullmatch(unquote_plus(name)):
+        name, sep, value = part.partition("=")
+        if sep and _is_private(name, value):
             parts[i] = name + sep + _REDACTED_TOKEN
     return "&".join(parts)
 
@@ -247,7 +272,7 @@ def _redact_request_target(target: str) -> str:
 
 
 class AccessLogFilter(logging.Filter):
-    """Mask credentials in the request target of uvicorn access-log records.
+    """Mask credentials and searches in the request target of uvicorn access-log records.
 
     uvicorn logs ``client, method, target, http version, status`` as the
     record's args and its formatter unpacks them by position, so only the
@@ -294,7 +319,7 @@ def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
     """Give the ``"mediaman"`` logger a scrubbing stderr handler at INFO.
 
     It also scrubs uvicorn's error log and APScheduler's error output, and
-    masks emailed tokens in request targets in uvicorn's access log.
+    masks emailed tokens and searches in request targets in uvicorn's access log.
 
     The logger gets one stderr handler (added on the first call only) and,
     unless a level was already set on it, the INFO level; nothing else in
