@@ -114,9 +114,9 @@
    from the Leaving soon row and the badge from any other card with the same
    keep id. #}
 {% macro card(item, keep=false) -%}
-<article class="watch-card" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}" data-leaving-seasons="{{ (item.leaving_seasons or [])|tojson|forceescape }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}>
+<article class="watch-card" {% if item.leaving_id %}data-leaving-id="{{ item.leaving_id }}" data-leaving-seasons="{{ (item.leaving_seasons or [])|tojson|forceescape }}"{% else %}data-keep-id="{{ item.keep_id or '' }}"{% endif %}{% if item.mark_key %} data-mark="{{ item.mark_kind }}/{{ item.mark_key }}"{% endif %}{% if item.dismiss_ref %} data-dismiss-ref="{{ item.dismiss_ref }}"{% endif %}{% if item.key %} data-key="{{ item.key }}"{% endif %}{% if item.tone %} data-tone="{{ item.tone }}"{% endif %}{% if item.admin %} data-admin="{{ item.admin|tojson|forceescape }}"{% endif %}>
   {% set ref = title_ref(item) %}
-  <a class="watch-card__link" href="{{ item.href }}"{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
+  <a class="watch-card__link"{% if item.href %} href="{{ item.href }}"{% else %} tabindex="0"{% endif %}{% if ref %} data-title-ref="{{ ref }}"{% endif %}>
     <span class="watch-card__poster">
       {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" data-broken-on-error>{% endif %}
       <span class="watch-card__title">{{ item.title }}</span>
@@ -128,7 +128,7 @@
     {% set said = item.subtitle or "" %}
     <span class="watch-card__sub">{{ caption(said ~ ((" · " ~ dur(item.minutes_left) ~ " left") if item.minutes_left and not said.endswith(" left") else "")) }}</span>
   </a>
-  {% if item.mark_key %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
+  {% if item.mark_key or item.admin %}<button type="button" class="watch-more" data-watch-more aria-haspopup="menu" aria-expanded="false" aria-label="More for {{ item.title }}">{{ icon("i-ellipsis") }}</button>{% endif %}
   {% if keep and item.keep_id %}{{ keep_button(item.keep_id, item.title ~ (', ' ~ item.subtitle if item.kind == 'season' else '')) }}{% endif %}
 </article>
 {%- endmacro %}

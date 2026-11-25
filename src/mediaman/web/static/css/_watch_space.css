@@ -558,7 +558,7 @@ a.space-item__title:hover { text-decoration: underline; text-decoration-color: v
   .space-tab { padding: 0 7px; font-size: 13px; }
 }
 
-/* The titles on their way between the panel and the list view. */
+/* The titles on their way between the panel and All titles. */
 .space-flight { position: fixed; inset: 0; z-index: calc(var(--z-modal) + 1); overflow: hidden; pointer-events: none; }
 .space-flight__it { position: absolute; transform-origin: 0 0; will-change: transform; }
 .space-flight__pic { background: var(--s3); overflow: hidden; }

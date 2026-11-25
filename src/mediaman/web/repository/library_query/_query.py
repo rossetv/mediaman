@@ -277,12 +277,36 @@ def _fetch_protection_maps(
     return sa_map, ks_map
 
 
+def fetch_display_rows(conn: sqlite3.Connection, media_type: str = "") -> list[sqlite3.Row]:
+    """Every movie, and every show once, as fetch_library groups them, unshaped."""
+    where_sql, params, kept_filter = _build_where_clause(conn, "", media_type)
+    cte_sql, order = _build_cte_sql(where_sql, "added_desc")
+    # rationale: kept_where is a closed literal and the rest as in _execute_paged_query
+    kept_where = " WHERE is_kept = 1" if kept_filter else ""
+    return conn.execute(
+        cte_sql + f"SELECT * FROM display_items{kept_where} ORDER BY {order}", [now_iso(), *params]
+    ).fetchall()
+
+
+def display_key(row: sqlite3.Row) -> str:
+    """What names a row of display_items: its show, or the movie."""
+    if row["display_type"] == "movie":
+        return f"id:{row['id']}"
+    return f"show:{row['show_rating_key'] or ''}"
+
+
+def shape_display_rows(
+    conn: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> list[dict[str, object]]:
+    sa_map, ks_map = _fetch_protection_maps(conn, rows, now_iso())
+    return _shape_rows(rows, sa_map, ks_map)
+
+
 # rationale: a repository may return ``list[dict]`` at a documented
-# template-feeding boundary. ``mediaman.web.routes.watch.list_page`` passes
-# these display-ready dicts onto the Watch list view's ``_watch_list.html``
-# template as ``items``, and ``/api/library`` answers them as JSON; the keys are
-# display-shaped (``type_label``, ``protection_label``, ...) and a dataclass would
-# add ceremony without removing the template's column coupling.
+# template-feeding boundary. ``/api/library`` answers these display-ready dicts as
+# JSON and All titles puts them on its cards; the keys are display-shaped
+# (``type_label``, ``protection_label``, ...) and a dataclass would add ceremony
+# without removing that coupling.
 def fetch_library(
     conn: sqlite3.Connection,
     q: str = "",

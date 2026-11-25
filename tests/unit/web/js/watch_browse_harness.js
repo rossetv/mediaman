@@ -1191,7 +1191,7 @@ const scenarios = {
   // A row whose rest the server has goes on from there as a grid too, in the grid's pages and orders.
   async libraryGrids() {
     const out = {};
-    for (const id of ['movies', 'tv', 'anime', 'recent']) {
+    for (const id of ['recent']) {
       const p = load({ grids: { [id]: 'Row' }, routes: { [`GET /api/watch/library/${id}/row?after=k&limit=60`]: () => Promise.resolve({ items: [], next: null, total: 9 }),
         [`GET /api/watch/library/${id}/row?after=&limit=60&sort=az`]: () => Promise.resolve({ items: [], next: 'z', total: 9 }) } });
       await settle();

@@ -1,4 +1,4 @@
-"""Pages update in place: the list never reloads, and what comes and goes moves nothing else."""
+"""Pages update in place: All titles never reloads, and what comes and goes moves nothing else."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ _WEB = Path(__file__).resolve().parents[3] / "src/mediaman/web"
 _JS = _WEB / "static/js"
 
 
-def test_watch_list_scripts_never_reload():
-    for name in ("list.js", "admin.js"):
+def test_the_scripts_of_all_titles_never_reload():
+    for name in ("library.js", "admin.js"):
         src = (_JS / "watch" / name).read_text(encoding="utf-8")
         assert "location.reload" not in src, name
 

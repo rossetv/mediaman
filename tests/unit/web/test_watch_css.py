@@ -101,7 +101,6 @@ def test_a_watched_toggle_is_filled_and_outshines_no_title() -> None:
 
 
 FORCED_CHOICES = [
-    (SHEET, '.watch-viewtoggle__btn[aria-current="page"]::before'),
     (SHEET, ".watch-pill.on"),
     (SHEET.with_name("_buttons.css"), ".fpill.on"),
     (SHEET.with_name("_dl.css"), ".dl-bar-fill"),

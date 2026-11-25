@@ -359,12 +359,12 @@ class TestKeptPageRedirects:
     def test_kept_authenticated_redirects_to_the_watch_kept_list(
         self, app_factory, authed_client, conn
     ):
-        """GET /kept with a valid session 301-redirects to /watch?view=list&type=kept."""
+        """GET /kept with a valid session 301-redirects to /watch?all=library&type=kept."""
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)
         resp = client.get("/kept", follow_redirects=False)
         assert resp.status_code == 301
-        assert resp.headers["location"] == "/watch?view=list&type=kept"
+        assert resp.headers["location"] == "/watch?all=library&type=kept"
 
     def test_kept_page_unauthenticated_redirects_to_login(self, app_factory, conn):
         app = app_factory(kept_router, conn=conn)
@@ -379,7 +379,7 @@ class TestKeptPageRedirects:
         client = authed_client(app_factory(kept_router, conn=conn), conn)
         resp = client.get("/kept/page", follow_redirects=False)
         assert resp.status_code == 301
-        assert resp.headers["location"] == "/watch?view=list&type=kept"
+        assert resp.headers["location"] == "/watch?all=library&type=kept"
 
     def test_protected_redirect_unauthenticated(self, app_factory, conn):
         """GET /protected without a session redirects to /login and back."""
@@ -390,12 +390,12 @@ class TestKeptPageRedirects:
         assert resp.headers["location"] == "/login?next=%2Fprotected"
 
     def test_protected_redirect_authenticated(self, app_factory, authed_client, conn):
-        """GET /protected with a valid session 301-redirects to /watch?view=list&type=kept."""
+        """GET /protected with a valid session 301-redirects to /watch?all=library&type=kept."""
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)
         resp = client.get("/protected", follow_redirects=False)
         assert resp.status_code == 301
-        assert resp.headers["location"] == "/watch?view=list&type=kept"
+        assert resp.headers["location"] == "/watch?all=library&type=kept"
 
 
 class TestApiRemoveShowKeep:

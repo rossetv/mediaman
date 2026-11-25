@@ -40,7 +40,6 @@ def test_page_data_has_no_markup_characters_and_parses_to_the_same_search(app_fa
     assert json.loads(embedded) == {
         "is_admin": False,
         "tmdb_configured": False,
-        "view": "rows",
         "q": _QUERY,
         "grids": {"asked": "You asked for these", "recommended": "Recommended for you"},
         "grid": None,

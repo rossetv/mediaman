@@ -572,12 +572,11 @@ def test_a_persons_title_is_listed_once_and_a_page_of_repeats_leads_on_to_the_ne
     assert out["last"] == [0, None]
 
 
-def test_esc_back_and_the_browse_switch_leave_a_category() -> None:
+def test_esc_and_back_leave_a_category() -> None:
     out = _run("leaveCategory")
     assert out["menus"] == "/watch?genre=action&type=tv"
     assert out["linked"] == ["/watch", 1, "browse", True]
     assert out["opened"] == [["/watch?genre=action", 1], "/watch", 0, "browse"]
-    assert out["away"] == ["/watch", "browse", True]
 
 
 def test_the_list_opened_over_a_category_shuts_it_and_back_opens_it_again() -> None:

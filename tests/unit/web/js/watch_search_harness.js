@@ -1271,11 +1271,6 @@ const scenarios = {
     click(opened.doc, opened.doc.querySelector('.explore-back'));
     await settle();
     out.opened = [at, opened.url(), opened.tab.index, opened.shown()];
-    const away = await ready(ADMIN, '', '/watch?person=9001');
-    const rows = away.doc.body.appendChild(build(away.doc, ['nav', { id: 'watch-viewtoggle' }, ['a', { href: '/watch', 'data-view': 'rows' }, 'Browse']]));
-    click(away.doc, rows.querySelector('a'));
-    await settle();
-    out.away = [away.url(), away.shown(), away.$('watch-search-token').hidden];
     return out;
   },
 
