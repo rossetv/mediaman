@@ -163,11 +163,41 @@ def test_an_episode_s_caption_drops_left_and_then_the_time_and_keeps_the_episode
     assert "\\a0·\\a0" in _of(f"{caption} > .watch-card__tail::before")
 
 
-def test_a_rows_heading_takes_44px_to_tap_on_a_phone_over_the_posters_of_its_row() -> None:
-    reach = _of(".watch-row__title > .row-open[href]::after", "(max-width: 599.98px)")
-    top, _, bottom = re.findall(r"-(\d+)px", reach)
-    line = 17 * 1.15  # the smallest a heading's line is
-    assert int(top) + line + int(bottom) >= 44
+TOUCH = "(max-width: 599.98px), (pointer: coarse)"
+NARROW = "(max-width: 359.98px)"
+HEADING_LINE = 18  # the smallest a heading's line is, in WebKit
+LINK_LINE = 18  # of 13px text
+
+
+def _reach(selector: str, media: str) -> tuple[int, int]:
+    """How far above and below its line it takes a tap."""
+    inset = re.findall(r"inset: ([^;]+);", _of(selector, media))[0].split()
+    return -int(inset[0].removesuffix("px")), -int(inset[-1].removesuffix("px"))
+
+
+@pytest.mark.parametrize(
+    ("link", "line"),
+    [
+        (".watch-row__title > .row-open[href]", HEADING_LINE),
+        (".watch-row__head > .space-row-link", LINK_LINE),
+    ],
+)
+def test_a_rows_heading_and_its_link_take_44px_to_tap_over_the_posters_of_their_row(
+    link: str, line: int
+) -> None:
+    assert sum(_reach(f"{link}::after", TOUCH)) + line >= 44
     # Positioned later, the posters' own box would take the lower part.
-    above = _of(".watch-row__title > .row-open[href]", "(max-width: 599.98px)")
-    assert "z-index: 1" in above
+    assert "z-index: 1" in _of(link, TOUCH)
+
+
+def test_a_heading_and_the_link_under_it_take_44px_each_on_the_narrowest_phones() -> None:
+    head = ".watch-row__head:has(> .space-row-link)"
+    heading = _reach(f"{head} > .watch-row__title > .row-open[href]::after", NARROW)
+    link = _reach(".watch-row__head > .space-row-link::after", NARROW)
+    assert sum(heading) + HEADING_LINE >= 44
+    assert sum(link) + LINK_LINE >= 44
+    # Neither over the other: 2px are between the two lines.
+    assert heading[1] + link[0] <= 2
+    # And little of the posters.
+    room = int(re.findall(r"margin-bottom: (\d+)px", _of(head, NARROW))[0])
+    assert link[1] - room <= 8
