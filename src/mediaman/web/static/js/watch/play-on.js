@@ -5,6 +5,8 @@
  *   MM.playOn.again()            a play that one of the ways finds already on, or null
  *   MM.playOn.ready(fn)          fn(whether there is anything to play on), now and as it changes
  *   MM.playOn.open(button, host) the sheet, by the button
+ *   MM.playOn.button(href, className) the button of a title on a page without a player, by the
+ *                                address it plays at; it lists TVs alone
  *
  * A way: {id, label, sub, icon, available(), chooser, start(what), look?, again?}. Its start is
  * called in the press itself, since the browser shows its list of TVs for a press alone.
@@ -27,6 +29,7 @@
 
   var MM = global.MM;
   var TVS = '/api/tvs';
+  var TV_ICON = 'play-on-tv'; // of _play_on.html
   var LOOK_MS = 5000;
   var START_WAIT_MS = 125000;
   var LEAVE_MS = 300;
@@ -71,10 +74,12 @@
     return ways.filter(function (w) { return w.available(); });
   }
 
-  function any() { return (!absent && (tvs !== null || lost)) || usable().length > 0; }
+  function hasTvs() { return !absent && (tvs !== null || lost); }
+  function any() { return hasTvs() || usable().length > 0; }
 
   function changed() {
     listeners.forEach(function (fn) { fn(any()); });
+    MM.dom.qa('[data-play-on-title]').forEach(function (b) { b.hidden = !hasTvs(); });
     /* What is being typed there is left alone. */
     if (sheet && !sheet.pairing) draw();
   }
@@ -349,7 +354,7 @@
     var id = idOf(tv);
     var here = on === id;
     row(list, {
-      id: id, icon: 'play-on-tv', name: tv.name, on: here, starting: wait === id, off: !tv.on && !tv.busy,
+      id: id, icon: TV_ICON, name: tv.name, on: here, starting: wait === id, off: !tv.on && !tv.busy,
       sub: here ? 'Playing here now' : wait === id ? 'Starting…' : about(tv),
     }, function () {
       if (here) { close(); return; }
@@ -615,7 +620,8 @@
 
   /* By its button; below 700 px the stylesheet makes it a sheet at the bottom. */
   function place() {
-    if (!sheet) return;
+    /* Its button may be gone meanwhile, with the card it was on. */
+    if (!sheet || !sheet.btn.isConnected) return;
     var s = sheet.node.style;
     s.left = s.top = s.bottom = s.maxHeight = '';
     if (global.innerWidth < 700) return;
@@ -657,6 +663,11 @@
       /* The player's own keys are not for what is typed or pressed here. */
       e.stopPropagation();
       if (e.key === 'Tab') keepIn(e);
+      /* What else on the page ends with Escape may have taken the dialog's own. */
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
     });
     node.addEventListener('close', closed);
     global.addEventListener('resize', place);
@@ -695,7 +706,54 @@
     setTimeout(function () { was.node.remove(); }, LEAVE_MS);
   }
 
+  /* ---- a title on a page without a player -------------------------------- */
+
+  function saved(key) {
+    try { return global.localStorage.getItem('mediaman.watch.' + key); } catch (e) { return null; }
+  }
+
+  /* The quality kept for the player, as one of those a TV can be given. */
+  function savedQuality() {
+    var height = parseInt((/^([0-9]+)p-/.exec(saved('quality') || '') || [])[1], 10);
+    if (!height) return /^(best|medium|low)$/.test(saved('quality') || '') ? saved('quality') : 'auto';
+    return height >= 1080 ? 'best' : height >= 720 ? 'medium' : 'low';
+  }
+
+  function titleButton(href, className) {
+    var key = (/^\/watch\/play\/([0-9]+)/.exec(href) || [])[1];
+    var b = button(className);
+    var pressed = 0;
+    b.setAttribute('data-play-on', '');
+    b.setAttribute('data-play-on-left', '');
+    b.setAttribute('data-play-on-title', '');
+    b.setAttribute('aria-haspopup', 'dialog');
+    b.setAttribute('aria-expanded', 'false');
+    b.setAttribute('aria-label', 'Play on a TV');
+    b.setAttribute('title', 'Play on a TV');
+    b.hidden = !hasTvs();
+    b.appendChild(MM.dom.icon(TV_ICON, 'ico--tv'));
+    b.addEventListener('click', function () {
+      open(b, {
+        what: function () {
+          return {
+            rating_key: key, quality: savedQuality(), autoplay: saved('autoplay') !== 'false',
+            asked_s: Math.max(0, now() - pressed) / 1000,
+          };
+        },
+        before: function () { pressed = now(); },
+        on: function () {
+          var tv = (tvs || []).filter(function (t) { return t.play && String(t.play.rating_key) === key && t.play.state !== 'ended'; })[0];
+          return tv ? idOf(tv) : null;
+        },
+        here: function () { global.location.href = href; },
+      });
+    });
+    if (tvs === null && !absent) look();
+    return b;
+  }
+
   MM.playOn = {
+    button: titleButton,
     register: function (way) { ways.push(way); changed(); },
     changed: changed,
     again: function () {

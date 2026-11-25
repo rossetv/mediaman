@@ -1206,6 +1206,7 @@
           takeQualities(data);
           if (away) {
             takeSubtitles(data);
+            if (data.markers) takeMarks(data);
             loadAway(data);
             return;
           }

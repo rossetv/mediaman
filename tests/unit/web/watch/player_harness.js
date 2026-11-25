@@ -4761,6 +4761,30 @@ const scenarios = {
     return out;
   },
 
+  /* The button of a title on a page without a player. */
+  async away_title(p) {
+    await settle();
+    const b = p.win.MM.playOn.button('/watch/play/501?resume=1', 'btn');
+    doc.body.appendChild(b);
+    const out = { hidden: b.hidden };
+    if (out.hidden) return out;
+    p.elsewhere.nearby();
+    click(b);
+    await settle();
+    out.rows = sheet().querySelectorAll('[data-key]').map((r) => r.getAttribute('data-key'));
+    await pickRow(p, 'tv-5');
+    out.play = p.elsewhere.sent.filter((c) => /\/play$/.test(c.post || '')).map((c) => c.body);
+    out.opened = p.opened;
+    p.tick(1000);
+    p.elsewhere.tvs = [Object.assign({}, LIVING, { play: { rating_key: '501', state: 'playing', title: 'The Long Coast' } })];
+    click(b);
+    await settle();
+    out.on = rowOf('tv-5').getAttribute('aria-current');
+    await pickRow(p, 'here');
+    out.went = p.win.location.href;
+    return out;
+  },
+
   /* A TV is paired from the sheet: a wrong code, somebody else's, then a name. */
   async away_pair(p) {
     await streamPlays(p, 30);
@@ -5104,7 +5128,10 @@ const scenarios = {
   const elsewhere = /^away_/.test(name) ? elsewhereOf(serverPlays) : null;
   const p = boot(fs.readFileSync(file, 'utf8'), reduced === 'reduced', saved, serverPlays, null, elsewhere);
   p.elsewhere = elsewhere;
-  if (elsewhere) p.held.answer = () => answer('best');
+  if (elsewhere) {
+    p.held.answer = () => answer('best');
+    p.win.MM.tvRemote = { open(tv) { p.opened = tv.id; } };
+  }
   p.reopen = (ready) => boot(fs.readFileSync(file, 'utf8'), false, null, serverPlays, null, Object.assign(elsewhereOf(serverPlays), { ready: ready }));
   Object.entries(JSON.parse(process.env.PLAYER_PAGES || '{}')).forEach(([href, f]) => {
     p.pages[href] = { html: fs.readFileSync(f, 'utf8') };

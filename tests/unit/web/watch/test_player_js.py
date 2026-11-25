@@ -2265,6 +2265,22 @@ def test_a_tv_that_is_not_open_says_how_to_open_it_and_touches_nothing(markup):
     assert out["untouched"] is True
 
 
+def test_a_titles_own_button_plays_it_on_a_tv_at_its_saved_place(markup):
+    saved = {"mediaman.watch.quality": "720p-4000", "mediaman.watch.autoplay": "false"}
+    out = run(markup, "away_title", saved=saved, plays="tvs")
+    # The browser's own ways need the player.
+    assert out["rows"] == ["close", "here", "tv-5", "tv-7", "tv-6", "pair"]
+    assert out["play"] == [
+        {"rating_key": "501", "quality": "medium", "autoplay": False, "asked_s": 0}
+    ]
+    assert out["opened"] == 5
+    assert (out["on"], out["went"]) == ("true", "/watch/play/501?resume=1")
+
+
+def test_a_titles_own_button_is_not_there_without_tvs(markup):
+    assert elsewhere(markup, "away_title", "airOnly") == {"hidden": True}
+
+
 def test_a_tv_is_paired_in_the_sheet_named_and_played_on(markup):
     out = elsewhere(markup, "away_pair")
     assert out["focus"] is True
