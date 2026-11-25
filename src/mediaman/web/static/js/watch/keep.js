@@ -48,7 +48,12 @@
     var side = node.previousElementSibling ? 'marginTop' : 'marginBottom';
     var from = { offset: 0, height: h, opacity: 1, easing: ease };
     var to = { offset: 1, height: '0px', opacity: 0, easing: ease };
-    from[side] = '0px';
+    // What would hold it open, or go all at once as it does.
+    var own = getComputedStyle(node);
+    ['minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].forEach(function (name) {
+      from[name] = parseFloat(own[name]) ? own[name] : '0px';
+      to[name] = '0px';
+    });
     to[side] = -rowGap + 'px';
     return { duration: tokenMs('--dur-slow', 250), frames: [from, to] };
   }

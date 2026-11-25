@@ -245,6 +245,19 @@ const scenarios = {
     };
   },
 
+  // What a block taller than nothing by its own rules is at the start and the end of its fold.
+  async fold() {
+    const page = load({ motion: true });
+    page.ctx.getComputedStyle = () => ({ getPropertyValue: () => '', minHeight: '420px', paddingTop: '24px', paddingBottom: '44px', marginTop: '16px', marginBottom: '0px', rowGap: 'normal' });
+    let frames = null;
+    Node.prototype.animate = function (f) { frames = f; return { cancel() {} }; };
+    const banner = page.doc.body.appendChild(build(page.doc, ['section', {}]));
+    page.run();
+    page.ctx.MMWatch.keep.foldAway(banner);
+    const room = (f) => ['height', 'minHeight', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom'].map((k) => parseFloat(f[k]));
+    return frames.map(room);
+  },
+
   // The grid-stack fade: both nodes share one cell while it runs, then only the new one is left.
   async swap() {
     const page = load({ motion: true });

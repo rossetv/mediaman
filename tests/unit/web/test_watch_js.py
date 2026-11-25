@@ -128,3 +128,9 @@ def test_the_row_scrolls_to_the_card_an_undo_puts_back_out_of_sight() -> None:
 
 def test_ctrl_z_reaches_the_undo_of_a_keep_made_in_details() -> None:
     assert _run("toastDialog") == {"details": "ttl", "page": None}
+
+
+def test_a_block_that_folds_away_gives_up_all_its_room_bit_by_bit() -> None:
+    start, end = _run("fold")
+    assert start[1:] == [420, 24, 44, 16, 0]
+    assert end == [0, 0, 0, 0, 0, 0]
