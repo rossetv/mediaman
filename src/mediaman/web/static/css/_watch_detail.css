@@ -413,39 +413,59 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
 .dl-progress .watch-bar--banner::-moz-progress-bar { background: var(--accent); }
 .dl-progress__line { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--t3); font-variant-numeric: tabular-nums; }
 
-/* Season pick for a show not in the library. */
+/* ── A show's seasons ── */
+
 .season-pick { display: flex; flex-direction: column; gap: 10px; }
-.season-pick__head { display: flex; align-items: baseline; gap: 14px; font-size: 14px; color: var(--t2); }
+.season-pick__head { display: flex; align-items: baseline; gap: 14px; min-height: 32px; }
+.season-pick__head > .ttl__sec-title { margin: 0 auto 0 0; }
 .season-pick__all { position: relative; color: var(--accent); font-size: 13px; font-weight: 500; }
 .season-pick__all::after { content: ""; position: absolute; inset: -14px -8px; }
 .season-pick__clear { color: var(--t3); }
 .season-pick__all:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-xs); }
-.season-pick__list { display: flex; flex-wrap: wrap; gap: 8px; }
-.season-pick__summary { font-size: 13px; color: var(--t3); }
+.season-pick__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(188px, 1fr)); gap: 8px; }
+.season-pick__foot { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; font-size: 13px; }
+.season-pick__words { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.season-pick__summary { min-height: 1lh; font-size: 13px; color: var(--t3); }
+.season-pick__why { max-width: 68ch; font-size: 13px; color: var(--t2); }
+.season-pick__go { min-height: 44px; height: 44px; min-width: 176px; }
+.season-pick__go[aria-disabled="true"] { opacity: .5; cursor: default; }
+.season-pick.has-ask .season-pick__foot { min-height: 44px; }
+.season-pick__out:empty { display: none; }
 .season-pick__summary strong { color: var(--t1); font-weight: 500; }
 .season-chip {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 1px;
   align-items: center;
-  gap: 10px;
-  max-width: 100%;
-  min-height: 44px;
-  padding: 6px 16px 6px 12px;
+  align-content: center;
+  min-width: 0;
+  min-height: 56px;
+  padding: 8px 14px;
   border: 1px solid transparent;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-md);
+  text-align: left;
   background: var(--s3);
   color: var(--t1);
   font-size: 14px;
-  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.season-chip:hover { background: var(--s4); }
+.season-chip__skel { width: auto; height: 56px; border-radius: var(--r-md); }
+@media (hover: hover) { .season-chip:hover { background: var(--s4); } }
+.season-chip:active { transform: scale(.98); }
 .season-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.season-chip__box { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.season-chip__box { grid-row: span 2; display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--t3); border-radius: var(--r-xxs); font-size: 10px; color: transparent; transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .season-chip__name { min-width: 0; overflow-wrap: anywhere; text-align: left; }
-.season-chip__sub { flex: none; font-size: 12px; color: var(--t3); }
+.season-chip__sub { min-height: 1lh; overflow-wrap: anywhere; font-size: 12px; color: var(--t3); }
 .season-chip[aria-checked="true"] { background: var(--rgba-accent-bg); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .season-chip[aria-checked="true"] .season-chip__box { background: var(--accent); border-color: var(--accent); color: var(--color-on-accent); }
-.season-chip[aria-disabled="true"] { background: transparent; border-color: var(--hair-strong); color: var(--t2); cursor: default; }
-.season-chip[aria-disabled="true"] .season-chip__box { background: var(--success); border-color: var(--success); color: #00210b; }
+.season-chip[aria-disabled="true"] { background: transparent; border-color: var(--hair-strong); color: var(--t2); cursor: default; transform: none; }
+.season-chip[aria-disabled="true"] .season-chip__box { background: transparent; border-color: transparent; color: transparent; font-size: 14px; }
+.season-chip[data-state="held"] .season-chip__box { background: var(--success); border-color: var(--success); color: #00210b; font-size: 10px; }
+.season-chip[data-state="some"] .season-chip__box { border-color: var(--success); color: var(--success); font-size: 10px; }
+.season-chip[data-state="coming"] .season-chip__box { color: var(--accent); }
+.season-chip[data-state="queued"] .season-chip__box { color: var(--warning); }
+.season-chip[data-icon="i-lock"] .season-chip__box { color: var(--t3); }
 
 /* Share link shown to copy by hand when the clipboard is refused. */
 .ttl-share { display: flex; flex-direction: column; gap: 6px; max-width: 520px; }
@@ -694,10 +714,11 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl-seasons { --pad: 20px; }
   .ttl__season.is-gone,
   .ttl__season > .ttl-epskels { inset-inline: -8px; padding-inline: 8px; }
-  /* Two to a line: the episode count drops under the name. */
-  .season-chip { flex: 1 1 calc(50% - 4px); min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; row-gap: 1px; align-items: center; align-content: center; padding: 8px 12px; border-radius: var(--r-md); text-align: left; }
-  .season-chip__box { grid-row: span 2; }
-  .season-chip__sub { grid-column: 2; }
+  .season-pick__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .season-chip { column-gap: 10px; padding: 8px 12px; }
+  .has-wait .season-chip__sub { min-height: 2lh; }
+  .season-pick__go { width: 100%; }
+  .season-pick.has-ask .season-pick__foot { min-height: calc(54px + 1lh); align-content: start; }
 }
 
 /* The eye alone beside an episode, without its word: its filled ring says it. */
@@ -740,6 +761,14 @@ html.has-ttl .modal-backdrop { z-index: var(--z-modal); }
   .ttl__head::before { display: none; }
   .ttl:not(.is-trailer) .ttl__hero { min-height: 190px; }
   .ttl__player { background: Canvas; }
+  .season-chip[aria-checked="true"] { border-color: Highlight; }
+  .season-chip[aria-checked="true"] .season-chip__box { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
+  .season-chip[aria-disabled="true"] { border-color: GrayText; color: GrayText; }
+  .season-chip[aria-disabled="true"] .season-chip__sub { color: GrayText; }
+  .season-chip[aria-disabled="true"] .season-chip__box { forced-color-adjust: none; background: Canvas; border-color: transparent; color: CanvasText; }
+  .season-pick__go[aria-disabled="true"] { opacity: 1; color: GrayText; border-color: GrayText; }
+  .season-chip[data-state="none"]:not([data-icon="i-lock"]):not([aria-checked="true"]) .ico,
+  .season-chip[data-state="pick"]:not([aria-checked="true"]) .ico { visibility: hidden; }
   .ttl__ratings-wait > .ttl-rating { outline: 1px solid GrayText; outline-offset: -1px; }
   .dl-progress .watch-bar--banner::-webkit-progress-value { background: Highlight; }
   .dl-progress .watch-bar--banner::-moz-progress-bar { background: Highlight; }
