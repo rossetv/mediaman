@@ -349,10 +349,9 @@ def _films_played_in_plex(conn: sqlite3.Connection, username: str) -> set[str]:
 def _with_plex_plays(
     conn: sqlite3.Connection, username: str, seen: dict[str, lib.ShowSeen]
 ) -> dict[str, lib.ShowSeen]:
-    """*seen* with the episodes played in Plex's own apps that it does not count, but for a
-    season that a mark of the show covers, which counts them already."""
+    """*seen* with the episodes played in Plex's own apps that it does not count."""
     rows = conn.execute(
-        "SELECT mi.show_rating_key, mi.season_number, COUNT(*) AS played"
+        "SELECT mi.show_rating_key, mi.season_number, json_extract(e.value, '$.key') AS episode"
         " FROM media_items mi, json_each(mi.episode_keys) e"
         " WHERE mi.show_rating_key IN (SELECT show_rating_key FROM plex_plays"
         " WHERE username = :name) AND mi.season_number > 0"
@@ -360,15 +359,14 @@ def _with_plex_plays(
         " AND p.rating_key = json_extract(e.value, '$.key'))"
         " AND NOT EXISTS (SELECT 1 FROM watch_progress wp WHERE wp.username = :name"
         " AND wp.rating_key = json_extract(e.value, '$.key')"
-        " AND (wp.watched = 1 OR wp.seen_at IS NOT NULL))"
-        " GROUP BY mi.show_rating_key, mi.season_number",
+        " AND (wp.watched = 1 OR wp.seen_at IS NOT NULL))",
         {"name": username},
     ).fetchall()
     for r in rows:
         season = seen.get(r["show_rating_key"], lib.ShowSeen()).seasons.get(r["season_number"])
-        if season is not None and not (season.marked or season.by_mark):
+        if season is not None and r["episode"] not in season.by_mark:
             seen[r["show_rating_key"]].seasons[r["season_number"]] = replace(
-                season, seen=season.seen + r["played"]
+                season, seen=season.seen + 1
             )
     return seen
 

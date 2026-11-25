@@ -28,6 +28,7 @@ from .connection import (
     set_connection,
     start_refresh_run,
     start_scan_run,
+    write_transaction,
 )
 
 __all__ = [
@@ -45,4 +46,5 @@ __all__ = [
     "set_connection",
     "start_refresh_run",
     "start_scan_run",
+    "write_transaction",
 ]

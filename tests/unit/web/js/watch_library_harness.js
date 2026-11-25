@@ -1618,6 +1618,30 @@ const scenarios = {
     return { same: badge(p) === drawn, kept: keptNow(p, 'id:m2'), look: look(p, 'id:m2'), focus, errors: q.errors };
   },
 
+  // A show marked, then taken back, and each time the row read after it says otherwise.
+  async markedOtherwise() {
+    const p = load({ rows: ROWS.map((r) => (r.id === 's1' ? { ...r, ref: 'show-77' } : r)) });
+    const eye = (watched) => build(p.doc, ['button', { class: 'card-tool', 'data-mark-toggle': 'show/77', 'aria-pressed': String(watched), title: watched ? 'Mark as not watched' : 'Mark as watched' }]);
+    const own = p.row('show:77').appendChild(eye(true));
+    const plain = p.ctx.MMWatch.search.card;
+    let answer;
+    p.ctx.MMWatch.search.card = (it) => { const c = plain(it); c.appendChild(eye(answer)); return c; };
+    const poster = p.row('show:77').querySelector('.watch-card__poster');
+    const drawn = poster.appendChild(build(p.doc, ['span', { class: 'watch-badge watch-badge--watched' }]));
+    const mark = async (says) => {
+      answer = says;
+      p.serve(ROWS.map((r) => (r.id === 's1' ? { ...r, ref: 'show-77', sub: 'read', watched: says } : r)));
+      p.doc.dispatchEvent({ type: 'mm:watch-marked', detail: { ref: 'show-77', refs: ['show-77'] } });
+      await settle();
+      return [own.getAttribute('aria-pressed'), own.getAttribute('title'), !!poster.querySelector('.watch-badge--watched'), p.row('show:77').querySelector('.watch-card__sub').textContent];
+    };
+    const marked = await mark(false);
+    drawn.remove();
+    own.setAttribute('aria-pressed', 'false');
+    own.setAttribute('title', 'Mark as watched');
+    return [marked, await mark(true)];
+  },
+
   // A mark of a title the library holds two copies of.
   async markedCopies() {
     const p = load({ rows: ROWS.map((r) => (/^m[12]$/.test(r.id) ? { ...r, ref: 'movie-' + r.id[1] } : r)) });
